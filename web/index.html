@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Quire</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%235b5bd6'/%3E%3Cpath d='M9 10h14M9 16h14M9 22h9' stroke='white' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <script>
+      try {
+        const t = localStorage.getItem("quire.theme");
+        if (t) document.documentElement.dataset.theme = t;
+      } catch {}
+    </script>
+  </head>
+  <body>
+    <div id="app">
+      <aside id="sidebar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div class="brand-text"><strong>Quire</strong><span id="vault-name">vault</span></div>
+        </div>
+        <button id="search-btn" class="search-pill" type="button">
+          <span class="ico" data-icon="search"></span><span>Search notes</span><kbd>⌘K</kbd>
+        </button>
+        <button id="feed-btn" class="nav-item" type="button"><span class="ico" data-icon="feed"></span><span>Feed</span></button>
+        <nav id="tree" aria-label="Notes"></nav>
+        <div class="sidebar-foot">
+          <button id="archive-nav" class="nav-item" type="button"><span class="ico" data-icon="archive"></span><span>Archive</span><span id="archive-count" class="n"></span></button>
+          <button id="new-note" class="ghost-btn" type="button"><span class="ico" data-icon="plus"></span>New note</button>
+        </div>
+      </aside>
+
+      <main id="main">
+        <header id="topbar">
+          <div id="crumbs"></div>
+          <div class="spacer"></div>
+          <div id="agents" title="Agents active in the last 15 minutes"></div>
+          <div id="save-status" aria-live="polite"></div>
+          <div id="html-toggle" class="seg" hidden>
+            <button data-mode="preview" type="button">Preview</button><button data-mode="source" type="button">Source</button>
+          </div>
+          <button id="archive-btn" class="icon-btn" type="button" title="Archive note (⌘⇧E)"><span class="ico" data-icon="archive"></span></button>
+          <button id="panel-btn" class="icon-btn" type="button" title="Toggle side panel (⌘\)"><span class="ico" data-icon="panel"></span></button>
+        </header>
+        <div id="banner" hidden></div>
+        <div id="stage">
+          <div id="editor-host"></div>
+          <div id="html-preview" hidden></div>
+          <div id="asset-view" hidden></div>
+          <div id="feed-view" hidden tabindex="-1"></div>
+        </div>
+        <footer id="statusbar">
+          <span id="vim-mode" class="mode"></span>
+          <span id="cursor-pos"></span>
+          <span id="word-count"></span>
+          <span class="spacer"></span>
+          <span id="conn" class="conn"></span>
+          <button id="vim-toggle" class="chip-btn" type="button" title="Toggle vim keybindings">vim</button>
+          <button id="theme-toggle" class="icon-btn small" type="button" title="Toggle theme"><span class="ico" data-icon="moon"></span></button>
+        </footer>
+      </main>
+
+      <aside id="panel">
+        <section>
+          <h3>Outline</h3>
+          <div id="outline" class="panel-list"></div>
+        </section>
+        <section>
+          <h3>Backlinks <span id="backlink-count" class="count"></span></h3>
+          <div id="backlinks" class="panel-list"></div>
+        </section>
+        <section class="grow">
+          <h3>Activity</h3>
+          <div id="activity" class="panel-list"></div>
+        </section>
+      </aside>
+    </div>
+
+    <div id="palette" hidden>
+      <div class="palette-box" role="dialog" aria-label="Search notes">
+        <div class="palette-input"><span class="ico" data-icon="search"></span><input id="palette-input" placeholder="Search or jump to a note…" autocomplete="off" spellcheck="false" /></div>
+        <div id="palette-results" role="listbox"></div>
+        <div class="palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd>⌘↵</kbd> create</span><span><kbd>esc</kbd> close</span></div>
+      </div>
+    </div>
+    <div id="toasts"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,128 @@
+// `quire` CLI — the same core as the MCP server, for agents that prefer a shell (and for you).
+import fs from "node:fs";
+import { Quire } from "./core/quire.ts";
+import { QuireError } from "./core/paths.ts";
+import { fmtBacklinks, fmtChanges, fmtList, fmtRead, fmtSearch, fmtWrite } from "./core/format.ts";
+
+const HELP = `quire — markdown notes for you and your agents
+
+Usage: quire <command> [args] [--as <agent>] [--json]
+
+  search <query…> [--archived|--all] full-text search (prefix matching)
+  read <note> [--offset N] [--limit N]
+  ls [folder] [--recent N] [--archived|--all]
+  archive <note…>                  move notes to Archive/ (links keep working)
+  unarchive <note…>                move archived notes back
+  create <path> [content | -]      '-' or no content reads stdin
+  edit <note> --old <s> --new <s> [--all] [--base <version>]
+  append <note> [text | -]
+  mv <note> <new-path>             rewrites links to the note
+  backlinks <note>
+  changes [--since <iso|id>] [--path <p>] [--limit N]
+  restore <change-id>              put a note back the way it was before that change
+  mcp                              run the stdio MCP server
+
+<note> can be a path, a path without .md, or a [[wikilink]] name.
+Writes are attributed to --as, $QUIRE_AGENT, or "cli".
+Vault: $QUIRE_VAULT (default: ./vault next to this tool).`;
+
+const argv = process.argv.slice(2);
+const flags: Record<string, string | true> = {};
+const pos: string[] = [];
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i];
+  if (a.startsWith("--")) {
+    const key = a.slice(2);
+    const next = argv[i + 1];
+    if (["all", "json", "help", "archived"].includes(key) || next === undefined) flags[key] = true;
+    else flags[key] = argv[++i];
+  } else pos.push(a);
+}
+const [cmd, ...args] = pos;
+const str = (k: string) => (typeof flags[k] === "string" ? (flags[k] as string) : undefined);
+const num = (k: string) => (str(k) ? Number(str(k)) : undefined);
+const source = str("as") ?? process.env.QUIRE_AGENT ?? "cli";
+const stdin = () => fs.readFileSync(0, "utf8");
+const scope = flags.archived ? ("archived" as const) : flags.all ? ("all" as const) : ("active" as const);
+const out = (text: string, data: unknown) => console.log(flags.json ? JSON.stringify(data, null, 2) : text);
+
+if (cmd === "mcp") {
+  await import("./mcp.ts");
+} else if (!cmd || flags.help || cmd === "help") {
+  console.log(HELP);
+} else {
+  try {
+    const q = Quire.open();
+    switch (cmd) {
+      case "search": {
+        const query = args.join(" ");
+        const hits = q.search(query, num("limit") ?? 10, scope);
+        out(fmtSearch(query, hits), hits);
+        break;
+      }
+      case "read": {
+        const n = q.read(args[0]);
+        out(fmtRead(n, num("offset"), num("limit")), n);
+        break;
+      }
+      case "ls": {
+        const notes = num("recent") ? q.recent(num("recent")) : q.list(args[0], scope);
+        out(fmtList(notes), notes);
+        break;
+      }
+      case "create": {
+        const content = args[1] === undefined || args[1] === "-" ? stdin() : args.slice(1).join(" ");
+        const r = q.create(args[0], content, source);
+        out(fmtWrite(r, "Created"), r);
+        break;
+      }
+      case "edit": {
+        if (str("old") === undefined || str("new") === undefined) throw new QuireError("edit needs --old and --new");
+        const r = q.edit(args[0], { oldString: str("old")!, newString: str("new")!, replaceAll: !!flags.all, baseVersion: str("base") }, source);
+        out(fmtWrite(r, "Edited"), r);
+        break;
+      }
+      case "append": {
+        const text = args[1] === undefined || args[1] === "-" ? stdin() : args.slice(1).join(" ");
+        const r = q.append(args[0], text, source);
+        out(fmtWrite(r, "Appended to"), r);
+        break;
+      }
+      case "mv": {
+        const r = q.move(args[0], args[1], source);
+        out(`Moved to ${r.path}.${r.updated.length ? ` Updated links in: ${r.updated.join(", ")}` : ""}`, r);
+        break;
+      }
+      case "backlinks": {
+        const links = q.backlinks(args[0]);
+        out(fmtBacklinks(args[0], links), links);
+        break;
+      }
+      case "changes": {
+        const cs = q.changes({ since: str("since"), path: str("path"), limit: num("limit") ?? 30 });
+        out(fmtChanges(cs), cs);
+        break;
+      }
+      case "archive":
+      case "unarchive": {
+        const lines = args.map((a) => {
+          const r = cmd === "archive" ? q.archive(a, source) : q.unarchive(a, source);
+          return `${cmd === "archive" ? "Archived" : "Unarchived"} → ${r.path}`;
+        });
+        out(lines.join("\n"), lines);
+        break;
+      }
+      case "restore": {
+        const r = q.restore(Number(args[0]), source);
+        out(fmtWrite(r, "Restored"), r);
+        break;
+      }
+      default:
+        console.error(`Unknown command: ${cmd}\n\n${HELP}`);
+        process.exit(2);
+    }
+  } catch (e) {
+    console.error(e instanceof QuireError ? e.message : e);
+    process.exit(1);
+  }
+}

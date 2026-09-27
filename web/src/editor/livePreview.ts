@@ -1,0 +1,302 @@
+// Inline live preview: markup hides itself unless the selection touches it (Obsidian-style).
+import { syntaxTree } from "@codemirror/language";
+import type { EditorState, Range } from "@codemirror/state";
+import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
+
+const hide = Decoration.replace({});
+
+export function touches(state: EditorState, from: number, to: number): boolean {
+  for (const r of state.selection.ranges) if (r.from <= to && r.to >= from) return true;
+  return false;
+}
+/** Last line of a node, not counting a trailing newline the node may include. */
+const endLine = (state: EditorState, from: number, to: number) =>
+  state.doc.lineAt(to > from && state.doc.sliceString(to - 1, to) === "\n" ? to - 1 : to);
+const lineTouched = (state: EditorState, pos: number) => {
+  const line = state.doc.lineAt(pos);
+  return touches(state, line.from, line.to);
+};
+
+class BulletWidget extends WidgetType {
+  constructor(readonly depth: number) {
+    super();
+  }
+  eq(o: BulletWidget) {
+    return o.depth === this.depth;
+  }
+  toDOM() {
+    const s = document.createElement("span");
+    s.className = "cm-bullet";
+    s.textContent = ["•", "◦", "▪"][this.depth % 3];
+    return s;
+  }
+}
+
+class CheckboxWidget extends WidgetType {
+  constructor(
+    readonly checked: boolean,
+    readonly pos: number,
+  ) {
+    super();
+  }
+  eq(o: CheckboxWidget) {
+    return o.checked === this.checked && o.pos === this.pos;
+  }
+  toDOM(view: EditorView) {
+    const box = document.createElement("span");
+    box.className = `cm-checkbox${this.checked ? " is-checked" : ""}`;
+    box.setAttribute("role", "checkbox");
+    box.setAttribute("aria-checked", String(this.checked));
+    box.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      view.dispatch({ changes: { from: this.pos + 1, to: this.pos + 2, insert: this.checked ? " " : "x" } });
+    });
+    return box;
+  }
+  ignoreEvent() {
+    return true;
+  }
+}
+
+class PlaceholderWidget extends WidgetType {
+  constructor(readonly text: string) {
+    super();
+  }
+  eq(o: PlaceholderWidget) {
+    return o.text === this.text;
+  }
+  toDOM() {
+    const s = document.createElement("span");
+    s.className = "cm-title-placeholder";
+    s.textContent = this.text;
+    return s;
+  }
+}
+
+class RuleWidget extends WidgetType {
+  eq() {
+    return true;
+  }
+  toDOM() {
+    const s = document.createElement("span");
+    s.className = "cm-rule";
+    return s;
+  }
+}
+
+class FenceLabelWidget extends WidgetType {
+  constructor(readonly lang: string) {
+    super();
+  }
+  eq(o: FenceLabelWidget) {
+    return o.lang === this.lang;
+  }
+  toDOM() {
+    const s = document.createElement("span");
+    s.className = "cm-fence-label";
+    s.textContent = this.lang || "code";
+    return s;
+  }
+}
+
+function build(view: EditorView): DecorationSet {
+  const { state } = view;
+  const out: Range<Decoration>[] = [];
+  const doc = state.doc;
+
+  for (const { from, to } of view.visibleRanges) {
+    syntaxTree(state).iterate({
+      from,
+      to,
+      enter: (ref) => {
+        const node = ref.node;
+        const name = ref.name;
+
+        if (name === "Frontmatter") {
+          const first = doc.lineAt(ref.from).number;
+          const last = endLine(state, ref.from, ref.to).number;
+          for (let l = first; l <= last; l++) {
+            const cls = `cm-frontmatter${l === first ? " is-first" : ""}${l === last ? " is-last" : ""}`;
+            out.push(Decoration.line({ class: cls }).range(doc.line(l).from));
+          }
+          return false;
+        }
+
+        if (/^(ATX|Setext)Heading\d$/.test(name)) {
+          const level = Number(name.slice(-1));
+          const line = doc.lineAt(ref.from);
+          out.push(Decoration.line({ class: `cm-h cm-h${level}` }).range(line.from));
+          if (level === 1 && line.number === 1 && /^#\s*$/.test(line.text)) {
+            out.push(Decoration.widget({ widget: new PlaceholderWidget("Untitled"), side: 1 }).range(line.to));
+          }
+          return;
+        }
+
+        switch (name) {
+          case "HeaderMark": {
+            if (node.parent?.name.startsWith("ATX") && !lineTouched(state, ref.from)) {
+              const line = doc.lineAt(ref.from);
+              if (ref.from === line.from || /^\s*$/.test(doc.sliceString(line.from, ref.from))) {
+                out.push(hide.range(ref.from, Math.min(ref.to + 1, line.to)));
+              } else out.push(hide.range(ref.from, ref.to)); // closing ###
+            }
+            return;
+          }
+          case "EmphasisMark":
+          case "StrikethroughMark": {
+            const p = node.parent!;
+            if (!touches(state, p.from, p.to)) out.push(hide.range(ref.from, ref.to));
+            return;
+          }
+          case "InlineCode": {
+            out.push(Decoration.mark({ class: "cm-inline-code" }).range(ref.from, ref.to));
+            if (!touches(state, ref.from, ref.to)) {
+              for (const m of node.getChildren("CodeMark")) out.push(hide.range(m.from, m.to));
+            }
+            return false;
+          }
+          case "Link": {
+            const marks = node.getChildren("LinkMark");
+            const url = node.getChild("URL");
+            if (marks.length >= 2 && marks[1].from > marks[0].to) {
+              const href = url ? doc.sliceString(url.from, url.to) : "";
+              const active = touches(state, ref.from, ref.to);
+              out.push(
+                Decoration.mark({ class: `cm-md-link${active ? " is-raw" : ""}`, attributes: { "data-href": href } }).range(marks[0].to, marks[1].from),
+              );
+              if (!active) {
+                out.push(hide.range(marks[0].from, marks[0].to));
+                out.push(hide.range(marks[1].from, ref.to));
+              }
+            }
+            return false;
+          }
+          case "URL": {
+            // Bare URLs in prose (GFM autolinks) and <url>: ⌘-click opens them.
+            if (node.parent?.name !== "Link" && node.parent?.name !== "Image") {
+              out.push(Decoration.mark({ class: "cm-md-link is-raw cm-autolink", attributes: { "data-href": doc.sliceString(ref.from, ref.to) } }).range(ref.from, ref.to));
+            }
+            return;
+          }
+          case "Autolink": {
+            if (!touches(state, ref.from, ref.to)) for (const m of node.getChildren("LinkMark")) out.push(hide.range(m.from, m.to));
+            return;
+          }
+          case "WikiLink":
+          case "Embed": {
+            // A whole-line ![[embed]] is shown raw: it's the caption above the rendered embed.
+            if (name === "Embed" && doc.lineAt(ref.from).text.trim() === doc.sliceString(ref.from, ref.to)) return false;
+            const bang = name === "Embed" ? 1 : 0;
+            const inner = doc.sliceString(ref.from + 2 + bang, ref.to - 2);
+            const bar = inner.indexOf("|");
+            const target = bar >= 0 ? inner.slice(0, bar) : inner;
+            const active = touches(state, ref.from, ref.to);
+            const cls = name === "Embed" ? "cm-wikilink cm-embed-inline" : "cm-wikilink";
+            const mark = (a: number, b: number, extra = "") =>
+              b > a && out.push(Decoration.mark({ class: cls + extra, attributes: { "data-target": target } }).range(a, b));
+            if (active) {
+              mark(ref.from, ref.to, " is-raw");
+            } else {
+              const textFrom = bar >= 0 ? ref.from + 2 + bang + bar + 1 : ref.from + 2 + bang;
+              out.push(hide.range(ref.from, textFrom));
+              mark(textFrom, ref.to - 2);
+              out.push(hide.range(ref.to - 2, ref.to));
+            }
+            return false;
+          }
+          case "Blockquote": {
+            const first = doc.lineAt(ref.from).number;
+            const last = endLine(state, ref.from, ref.to).number;
+            for (let l = first; l <= last; l++) out.push(Decoration.line({ class: "cm-quote" }).range(doc.line(l).from));
+            return;
+          }
+          case "QuoteMark": {
+            if (!lineTouched(state, ref.from)) {
+              const next = doc.sliceString(ref.to, ref.to + 1) === " " ? ref.to + 1 : ref.to;
+              out.push(hide.range(ref.from, next));
+            }
+            return;
+          }
+          case "ListMark": {
+            const item = node.parent;
+            const list = item?.parent;
+            const task = item?.getChild("Task");
+            if (list?.name === "BulletList") {
+              if (task) {
+                const marker = task.getChild("TaskMarker");
+                if (marker && !touches(state, ref.from, marker.to)) out.push(hide.range(ref.from, marker.from));
+              } else if (!touches(state, ref.from, ref.to)) {
+                let depth = 0;
+                for (let p = list.parent; p; p = p.parent) if (p.name === "BulletList" || p.name === "OrderedList") depth++;
+                out.push(Decoration.replace({ widget: new BulletWidget(depth) }).range(ref.from, ref.to));
+              }
+            } else {
+              out.push(Decoration.mark({ class: "cm-list-num" }).range(ref.from, ref.to));
+            }
+            return;
+          }
+          case "TaskMarker": {
+            const checked = /x/i.test(doc.sliceString(ref.from, ref.to));
+            const listMark = node.parent?.parent?.getChild("ListMark");
+            if (!touches(state, listMark?.from ?? ref.from, ref.to)) {
+              out.push(Decoration.replace({ widget: new CheckboxWidget(checked, ref.from) }).range(ref.from, ref.to));
+            }
+            const line = doc.lineAt(ref.from);
+            if (checked && line.to > ref.to) out.push(Decoration.mark({ class: "cm-task-done" }).range(ref.to, line.to));
+            return;
+          }
+          case "HorizontalRule": {
+            out.push(Decoration.line({ class: "cm-hr-line" }).range(doc.lineAt(ref.from).from));
+            if (!lineTouched(state, ref.from)) out.push(Decoration.replace({ widget: new RuleWidget() }).range(ref.from, ref.to));
+            return;
+          }
+          case "FencedCode": {
+            const first = doc.lineAt(ref.from);
+            const last = endLine(state, ref.from, ref.to);
+            const active = touches(state, ref.from, ref.to);
+            for (let l = first.number; l <= last.number; l++) {
+              let cls = "cm-codeblock";
+              if (l === first.number) cls += " is-first";
+              if (l === last.number) cls += " is-last";
+              if ((l === first.number || (l === last.number && last.number > first.number)) && !active) cls += " is-fence";
+              out.push(Decoration.line({ class: cls }).range(doc.line(l).from));
+            }
+            if (!active) {
+              const info = node.getChild("CodeInfo");
+              out.push(
+                Decoration.replace({ widget: new FenceLabelWidget(info ? doc.sliceString(info.from, info.to) : "") }).range(first.from, first.to),
+              );
+              const marks = node.getChildren("CodeMark");
+              const closing = marks.length > 1 ? marks[marks.length - 1] : null;
+              if (closing && last.number > first.number) out.push(hide.range(last.from, last.to));
+            }
+            return false;
+          }
+          case "HTMLBlock":
+          case "CommentBlock": {
+            const first = doc.lineAt(ref.from).number;
+            const last = endLine(state, ref.from, ref.to).number;
+            for (let l = first; l <= last; l++) out.push(Decoration.line({ class: "cm-htmlblock" }).range(doc.line(l).from));
+            return false;
+          }
+        }
+      },
+    });
+  }
+  return Decoration.set(out, true);
+}
+
+export const livePreview = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+    constructor(view: EditorView) {
+      this.decorations = build(view);
+    }
+    update(u: ViewUpdate) {
+      if (u.docChanged || u.viewportChanged || u.selectionSet || syntaxTree(u.startState) !== syntaxTree(u.state)) {
+        this.decorations = build(u.view);
+      }
+    }
+  },
+  { decorations: (v) => v.decorations },
+);

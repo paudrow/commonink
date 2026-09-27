@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "quire": {
+      "command": "/Users/audrow/code/quire/bin/quire",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}

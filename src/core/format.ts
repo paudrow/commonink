@@ -1,0 +1,69 @@
+// Plain-text renderings of core results, shared by the MCP server and the CLI.
+// Agents read markdown far more cheaply than JSON, so this is the default output.
+import type { Backlink, Change, Note, NoteMeta, SearchHit } from "./quire.ts";
+
+export function fmtSearch(q: string, hits: SearchHit[]): string {
+  if (!hits.length) return `No notes match "${q}".`;
+  return hits
+    .map((h) => {
+      const lines = h.lines.map((l) => `    L${l.line}: ${l.text}`).join("\n");
+      return `- ${h.path} — ${h.title}${lines ? `\n${lines}` : ""}`;
+    })
+    .join("\n");
+}
+
+export function fmtRead(n: Note, offset = 1, limit?: number): string {
+  const all = n.content.split("\n");
+  const start = Math.max(1, offset);
+  const end = limit ? Math.min(all.length, start + limit - 1) : all.length;
+  const width = String(end).length;
+  const body = all
+    .slice(start - 1, end)
+    .map((l, i) => `${String(start + i).padStart(width)}│${l}`)
+    .join("\n");
+  const range = start > 1 || end < all.length ? ` (lines ${start}-${end} of ${all.length})` : "";
+  return `path: ${n.path}\nversion: ${n.version}${range}\n\n${body}`;
+}
+
+export function fmtList(notes: NoteMeta[]): string {
+  if (!notes.length) return "No notes.";
+  return notes.map((n) => `- ${n.path}${n.kind === "asset" ? "" : ` — ${n.title}`}`).join("\n");
+}
+
+export function fmtBacklinks(target: string, links: Backlink[]): string {
+  if (!links.length) return `Nothing links to ${target}.`;
+  return links.map((b) => `- ${b.path}:${b.line} (${b.kind}) ${b.text}`).join("\n");
+}
+
+/** Collapse runs of edits by the same source to the same note (autosaves) into one entry. */
+export function groupChanges(changes: Change[], windowMs = 10 * 60_000): Array<Change & { count: number }> {
+  const out: Array<Change & { count: number }> = [];
+  for (const c of changes) {
+    const prev = out[out.length - 1];
+    const stat = (s: string | null) => s?.match(/^\+(\d+) −(\d+)$/)?.slice(1).map(Number);
+    const a = stat(prev?.summary ?? null);
+    const b = stat(c.summary);
+    if (prev && c.op === "edit" && prev.op === "edit" && prev.path === c.path && prev.source === c.source && a && b && prev.ts - c.ts < windowMs) {
+      prev.summary = `+${a[0] + b[0]} −${a[1] + b[1]}`;
+      prev.count++;
+    } else out.push({ ...c, count: 1 });
+  }
+  return out;
+}
+
+export function fmtChanges(changes: Change[]): string {
+  if (!changes.length) return "No changes.";
+  return groupChanges(changes)
+    .map((c) => {
+      const when = new Date(c.ts).toISOString().replace(/\.\d+Z$/, "Z");
+      const moved = c.op === "move" || c.op === "archive" || c.op === "unarchive";
+      const what = moved ? `${c.op === "move" ? "moved" : `${c.op}d`} ${c.from_path} → ${c.path}` : `${c.op} ${c.path}`;
+      const saves = c.count > 1 ? `, ${c.count} saves` : "";
+      return `#${c.id} ${when} ${c.source}: ${what}${c.summary && !moved ? ` (${c.summary}${saves})` : ""}`;
+    })
+    .join("\n");
+}
+
+export function fmtWrite(r: { path: string; version: string; change?: Change | null }, verb: string): string {
+  return `${verb} ${r.path} → version ${r.version}${r.change?.summary ? ` (${r.change.summary})` : ""}`;
+}
