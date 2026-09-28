@@ -1,0 +1,9 @@
+// Only for applying D1 migrations to the Previews' database (see "previews" in wrangler.jsonc):
+//   wrangler d1 migrations apply commonink-preview --remote -c cloud/wrangler.preview-migrations.jsonc
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "commonink-preview-migrations",
+  "d1_databases": [
+    { "binding": "DB", "database_name": "commonink-preview", "database_id": "PREVIEW_DATABASE_ID", "migrations_dir": "migrations" }
+  ]
+}

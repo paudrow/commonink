@@ -101,6 +101,14 @@ The tests run the real surfaces against throwaway vaults: the core and the share
 | `openVault(dir, { now })` | A fake clock for change timestamps and the attribution window. |
 | `tempVault(files)` in `test/helpers.ts` | A fresh vault folder holding the given files, removed when the tests exit. |
 
+## Pull request previews
+
+Every pull request gets its own copy of the online app at `https://pr-<number>-commonink.<subdomain>.workers.dev`, linked in a comment on the PR. CI deploys it with [Worker Previews](https://developers.cloudflare.com/workers/previews/) and deletes it when the PR closes. A Preview opens already signed in as a developer, so there's no Google step. Each Preview has its own Durable Objects, so its own notes. The directory and uploads use preview-only D1 (`commonink-preview`) and R2 (`commonink-preview-files`), never production's. Previews are public, so put nothing real in them.
+
+```bash
+npm run cloud:preview -- --name my-branch   # deploy one by hand
+```
+
 ## Not built yet
 
 Suggestion mode (accept or reject agent edits), git auto-commits authored by each agent, semantic search (`sqlite-vec`), remote MCP over Streamable HTTP with OAuth, Yjs multiplayer, and an MCP App version of the editor.

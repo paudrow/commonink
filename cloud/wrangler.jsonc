@@ -29,5 +29,18 @@
   ],
   // Uploaded files.
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "commonink-files" }],
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  // Pull request Previews (`npm run cloud:preview -- --name pr-12`): pr-12-commonink.<subdomain>.workers.dev.
+  // Each Preview gets its own Durable Objects (so its own notes); the directory and uploads live in
+  // preview-only D1 and R2, shared by all Previews and never production. Previews sign you in as a
+  // developer, so there's no Google step and nothing real to reach.
+  "previews": {
+    "vars": { "DEV_LOGIN": "1" },
+    "durable_objects": { "bindings": [{ "name": "WORKSPACE", "class_name": "Workspace" }] },
+    "d1_databases": [
+      // Keep in step with wrangler.preview-migrations.jsonc, which applies the migrations to it.
+      { "binding": "DB", "database_name": "commonink-preview", "database_id": "PREVIEW_DATABASE_ID", "migrations_dir": "migrations" }
+    ],
+    "r2_buckets": [{ "binding": "FILES", "bucket_name": "commonink-preview-files" }]
+  }
 }
