@@ -157,6 +157,11 @@ export const api = {
   tasks: (p: { folder?: string; note?: string }) =>
     j<Task[]>(`${BASE}/tasks?${new URLSearchParams(Object.entries(p).filter(([, v]) => v).map(([k, v]) => [k, String(v)]))}`),
   setTask: (t: Task, done: boolean) => j<{ path: string; version: string }>(`${BASE}/tasks/set`, send("POST", { path: t.path, line: t.line, text: t.text, done })),
+  /** Your starred notes, in your order. Each change returns the new list. */
+  favorites: () => j<NoteMeta[]>(`${BASE}/favorites`),
+  star: (path: string) => j<NoteMeta[]>(`${BASE}/favorites/star`, send("POST", { path })),
+  unstar: (path: string) => j<NoteMeta[]>(`${BASE}/favorites/unstar`, send("POST", { path })),
+  orderFavorites: (paths: string[]) => j<NoteMeta[]>(`${BASE}/favorites`, send("PUT", { paths })),
   archive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/archive`, send("POST", { paths })),
   unarchive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/unarchive`, send("POST", { paths })),
   backlinks: (path: string) => j<Backlink[]>(`${BASE}/backlinks?path=${enc(path)}`),

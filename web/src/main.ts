@@ -62,12 +62,16 @@ const prefs = {
 };
 
 let notes: NoteMeta[] = [];
+/** Your starred notes, in your order (archived ones too; the sidebar leaves those out). */
+let favorites: NoteMeta[] = [];
 let changes: Change[] = [];
 let session: Session | null = null;
 
 const view = new EditorView({ parent: $("#editor-host") });
 const notesPage = new NotesPage({
   open: (path, line) => void openNote(path, { line }),
+  starred: (id) => isStarred(id),
+  toggleStar: (path) => void toggleStar(path),
   toast: (t) => toast(t),
   changed: () => {
     api.clearResolveCache();
@@ -623,7 +627,7 @@ function embedsPath(path: string): boolean {
 }
 
 async function refreshNotes() {
-  notes = await api.notes();
+  [notes, favorites] = await Promise.all([api.notes(), api.favorites()]);
   // The open note's title may have changed: keep the slug in its URL current.
   const open = session && notes.find((n) => n.id === session!.id);
   if (open && parseNotePath(location.pathname)?.id === open.id) setUrl(notePath(open.title, open.id), "replace");
@@ -631,6 +635,94 @@ async function refreshNotes() {
   assetsPage.refresh();
 }
 const refreshNotesSoon = debounce(refreshNotes, 120);
+
+// ------------------------------------------------------------------ favorites
+
+const isStarred = (id: string) => favorites.some((f) => f.id === id);
+
+/** Star a note, or unstar it if it's starred. */
+async function toggleStar(path: string) {
+  const on = favorites.some((f) => f.path === path);
+  try {
+    favorites = await (on ? api.unstar(path) : api.star(path));
+  } catch {
+    return toast({ text: `Couldn't ${on ? "unstar" : "star"} ${displayName(path)}` });
+  }
+  renderTree();
+  renderChrome();
+  notesPage.refreshSoon();
+}
+
+const FAVORITE = "application/x-common-ink-favorite";
+
+/** Starred notes, in your order: drag one to reorder, or drag a note in from the folders to star it. */
+function renderFavorites() {
+  const list = favorites.filter((f) => !isArchived(f.path));
+  const rows = list.map((f) => {
+    const row = el(
+      "div",
+      {
+        class: `tree-row is-file${f.path === session?.path ? " is-active" : ""}`,
+        style: { "--depth": "0" },
+        title: f.path,
+        draggable: "true",
+        onclick: () => openNote(f.path),
+        ondragstart: (e: DragEvent) => {
+          e.dataTransfer!.setData(FAVORITE, f.path);
+          e.dataTransfer!.effectAllowed = "move";
+        },
+      },
+      icon(f.kind === "html" ? "html" : "file", 14),
+      el("span", { class: "tree-name" }, displayName(f.path)),
+      el(
+        "span",
+        { class: "row-actions" },
+        el("button", { type: "button", class: "row-act fav-star", title: "Unstar", onclick: (e: Event) => (e.stopPropagation(), void toggleStar(f.path)) }, icon("starred", 14)),
+      ),
+    );
+    favoriteDrop(row, "is-drop-before", f.path);
+    return row;
+  });
+  $("#favorites").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Star a note to keep it here.")]));
+}
+
+/** Let `node` take a favorite (to reorder) or a note from the folders (to star), marking it with `cls` while over it. */
+function favoriteDrop(node: HTMLElement, cls: string, before?: string) {
+  node.addEventListener("dragover", (e) => {
+    if (!e.dataTransfer?.types.some((t) => t === FAVORITE || t === DRAG)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    node.classList.add(cls);
+  });
+  node.addEventListener("dragleave", (e) => {
+    if (!node.contains(e.relatedTarget as Node)) node.classList.remove(cls);
+  });
+  node.addEventListener("drop", (e) => {
+    const path = e.dataTransfer?.getData(FAVORITE) || e.dataTransfer?.getData(DRAG);
+    if (!path) return;
+    e.preventDefault();
+    e.stopPropagation();
+    node.classList.remove(cls);
+    endDrag();
+    void dropFavorite(path, before);
+  });
+}
+
+/** A note dropped on Favorites: starred if it wasn't, and put before `before` (or at the end). */
+async function dropFavorite(path: string, before?: string) {
+  if (!path || path === before) return;
+  try {
+    if (!favorites.some((f) => f.path === path)) favorites = await api.star(path);
+    const order = favorites.map((f) => f.path).filter((p) => p !== path);
+    const at = before ? order.indexOf(before) : -1;
+    order.splice(at < 0 ? order.length : at, 0, path);
+    favorites = await api.orderFavorites(order);
+  } catch {
+    return toast({ text: `Couldn't add ${displayName(path)} to Favorites` });
+  }
+  renderTree();
+  renderChrome();
+}
 
 // ------------------------------------------------------------------ sidebar tree
 
@@ -669,6 +761,7 @@ const parentOf = (p: string) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")
 const DRAG = "application/x-common-ink-path";
 
 function renderTree() {
+  renderFavorites();
   const root: Dir = { dirs: new Map(), files: [] };
   const archivedCount = notes.filter((n) => isArchived(n.path) && n.kind !== "asset").length;
   $("#archive-count").textContent = archivedCount ? String(archivedCount) : "";
@@ -895,6 +988,7 @@ function renderChrome() {
   $("#back-btn").hidden = page === "notes";
   $("#archive-btn").hidden = !s;
   $("#move-btn").hidden = !s;
+  $("#star-btn").hidden = !s || s.kind === "asset";
   $("#note-history-btn").hidden = !s || s.kind === "asset";
   $("#focus-btn").hidden = !s || s.kind === "asset";
   $("#save-status").hidden = !s;
@@ -909,6 +1003,10 @@ function renderChrome() {
       ...(note ? [el("span", { class: "crumb-sep" }, "·"), el("span", { class: "crumb" }, displayName(note))] : []),
     );
   }
+  const starred = isStarred(s.id);
+  $("#star-btn").classList.toggle("is-on", starred);
+  $("#star-btn").title = starred ? "Unstar (take out of Favorites)" : "Star (add to Favorites)";
+  $("#star-btn").replaceChildren(icon(starred ? "starred" : "star", 16));
   const archived = isArchived(s.path);
   $("#archive-btn").title = archived ? "Unarchive note (⌘⇧E)" : "Archive note (⌘⇧E)";
   $("#archive-btn").replaceChildren(icon(archived ? "unarchive" : "archive", 16));
@@ -1199,6 +1297,7 @@ Vim.defineEx("edit", "e", (_cm: unknown, params: { args?: string[] }) => {
 });
 Vim.defineEx("archive", "arch", () => void archiveCurrent());
 Vim.defineEx("notes", "note", () => void showNotes());
+Vim.defineEx("star", "star", () => session && void toggleStar(session.path));
 Vim.defineEx("focus", "foc", () => void setFocusMode(!focusMode));
 Vim.defineAction("quireFollowLink", () => followLinkAtCursor());
 Vim.mapCommand("gd", "action", "quireFollowLink", {}, { context: "normal" });
@@ -1367,11 +1466,13 @@ async function boot() {
   $("#back-btn").addEventListener("click", () => void showNotes());
   $("#archive-nav").addEventListener("click", () => void showNotes({ scope: "archived" }));
   $("#archive-btn").addEventListener("click", () => void archiveCurrent());
+  $("#star-btn").addEventListener("click", () => session && void toggleStar(session.path));
   $("#move-btn").addEventListener("click", () => openMovePicker($("#move-btn")));
   $("#focus-btn").addEventListener("click", () => void setFocusMode(!focusMode));
   $("#new-folder").addEventListener("click", () => startNewFolder());
   dropTarget($("#tree"), () => "");
   dropTarget($("#archive-nav"), () => "", (path) => void archivePath(path));
+  favoriteDrop($("#favorites"), "is-drop");
   vaultEvents.addEventListener("change", () => refreshTaskCountSoon());
   window.addEventListener("beforeunload", () => void flushSave());
   watchTimers((t) =>
@@ -1388,9 +1489,10 @@ async function boot() {
     renderPresence();
   }, 30_000);
 
-  const [info, list, recent] = await Promise.all([api.info(), api.notes(), api.changes()]);
+  const [info, list, starred, recent] = await Promise.all([api.info(), api.notes(), api.favorites(), api.changes()]);
   $("#vault-name").textContent = info.name;
   notes = list;
+  favorites = starred;
   changes = recent;
   renderActivity();
   renderPresence();

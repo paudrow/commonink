@@ -32,7 +32,7 @@ Needs Node 22.13+ (uses the built-in `node:sqlite`). The vault defaults to `./va
 | Claude Desktop, Cursor, … | stdio server: command `/path/to/quire/bin/quire`, args `["mcp"]` |
 | Shell agents / scripts | `bin/quire --help`, and pass `--as <name>` so writes are attributed |
 
-Tools: `search_notes`, `read_note`, `list_notes`, `create_note`, `edit_note`, `append_to_note`, `move_note`, `backlinks`, `recent_changes`. The server sends `vault/AGENTS.md` as its instructions, so edit that file to change agent conventions.
+Tools: `search_notes`, `read_note`, `list_notes`, `create_note`, `edit_note`, `append_to_note`, `move_note`, `archive_note`, `unarchive_note`, `star_note`, `unstar_note`, `backlinks`, `recent_changes`. The server sends `vault/AGENTS.md` as its instructions, so edit that file to change agent conventions.
 
 ## How edits from agents and you stay safe together
 
@@ -66,6 +66,7 @@ Online, IDs are unique across all workspaces. Each workspace claims its notes' I
 ## Notes and archive
 
 - **Notes** (sidebar, `⌘⇧F`, or `:notes`) is home: it shows every note as a card, newest first, with a rendered preview. Type to filter (full-text), switch between Active, Archived and All, or narrow to a folder. It's keyboard-first: `j`/`k` to move, `↵` to open, `e` to archive, `x` to select several, `/` to filter.
+- **Favorites** are the notes you reach for, at the top of the sidebar. Star a note from its top bar, from its card in Notes (`s`), with `:star` in vim, `quire star <note…>`, or the MCP `star_note` tool. Drag favorites to reorder them, or drag a note from the folders onto Favorites to star it. Stars point at the note's stable ID, so they follow it through renames, moves and archiving. They're each person's own: stored beside the index locally, and per person in each workspace online, never in a note.
 - **Archive** moves a note to `Archive/<original path>`, which takes it out of the sidebar, search, `@` suggestions and agents' default listings. Links keep working. Archive from Notes (`e`, or in bulk), the top bar or `⌘⇧E` in a note, `:archive` in vim, `quire archive <note…>`, or the MCP `archive_note` tool. Every archive comes with Undo, and unarchiving puts the note back where it was.
 
 ## Undo and recovery

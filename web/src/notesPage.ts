@@ -10,6 +10,8 @@ import { WIDGETS } from "./widgets/index.ts";
 
 interface Hooks {
   open(path: string, line?: number): void;
+  starred(id: string): boolean;
+  toggleStar(path: string): void;
   toast(t: { text: string; icon?: string; actionLabel?: string; action?: () => void }): void;
   changed(): void;
 }
@@ -61,7 +63,7 @@ export class NotesPage {
         el(
           "footer",
           { class: "feed-keys" },
-          ...[["j k", "move"], ["↵", "expand"], ["o", "open"], ["e", "archive"], ["x", "select"], ["/", "filter"]].map(([k, t]) => el("span", {}, el("kbd", {}, k), t)),
+          ...[["j k", "move"], ["↵", "expand"], ["o", "open"], ["s", "star"], ["e", "archive"], ["x", "select"], ["/", "filter"]].map(([k, t]) => el("span", {}, el("kbd", {}, k), t)),
         ),
       ),
     );
@@ -172,6 +174,12 @@ export class NotesPage {
       e.stopPropagation();
       void this.archive([item.path]);
     });
+    const starred = this.hooks.starred(item.id);
+    const starBtn = el("button", { type: "button", class: `fc-action${starred ? " is-starred" : ""}`, title: starred ? "Unstar (s)" : "Star (s)" }, icon(starred ? "starred" : "star", 15));
+    starBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.hooks.toggleStar(item.path);
+    });
     const editBtn = el("button", { type: "button", class: "fc-action", title: "Edit (o)" }, icon("edit", 15));
     editBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -203,7 +211,7 @@ export class NotesPage {
       el(
         "div",
         { class: "fc-main" },
-        el("div", { class: "fc-head" }, el("span", { class: "fc-title" }, item.title), item.archived ? el("span", { class: "fc-badge" }, "Archived") : null, el("span", { class: "spacer" }), editBtn, archiveBtn),
+        el("div", { class: "fc-head" }, el("span", { class: "fc-title" }, item.title), item.archived ? el("span", { class: "fc-badge" }, "Archived") : null, el("span", { class: "spacer" }), starBtn, editBtn, archiveBtn),
         el(
           "div",
           { class: "fc-meta" },
@@ -373,6 +381,7 @@ export class NotesPage {
       G: () => this.setFocus(this.items.length - 1),
       Enter: () => this.toggleExpand(this.focus),
       o: () => item && this.hooks.open(item.path),
+      s: () => item && this.hooks.toggleStar(item.path),
       e: () => void this.archive(this.selected.size ? [...this.selected] : item ? [item.path] : []),
       x: () => item && this.toggle(item.path),
       "/": () => this.input.focus(),

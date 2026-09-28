@@ -7,6 +7,8 @@ export interface ApiHost {
   quire: Quire;
   /** Who changes made through this request are attributed to ("you" locally, a person's name online). */
   actor: string;
+  /** Whose favorites this request reads and changes (the vault's one person locally, a user ID online). */
+  user: string;
   info(): Record<string, unknown>;
   /** A note's text changed through the API: tell connected clients. */
   written(rel: string, content: string | null, version: string, change: Change | null, origin?: string): void;
@@ -108,6 +110,9 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     return json({ moved });
   };
 
+  /** Favorites changed: the person's other tabs pick them up when they refresh. */
+  const favorited = <T>(list: T) => (host.tree(), list);
+
   switch (`${req.method} ${route}`) {
     case "GET /info":
       return json(host.info());
@@ -137,6 +142,8 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json(quire.changes({ limit: qCount("limit", 50, 500), before: qCount("before", 0, Infinity) || undefined, path: q("path") || undefined }));
     case "GET /diffs":
       return json(quire.diffSet(parseIdRanges(q("ids"))));
+    case "GET /favorites":
+      return json(quire.favorites(host.user));
     case "GET /tasks":
       return json(quire.tasks({ folder: q("folder") || undefined, note: q("note") || undefined }));
     case "GET /diff":
@@ -179,6 +186,12 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
       return json({ path: r.path, version: r.version, change: r.change?.id ?? null }); // restoring `change` undoes this
     }
+    case "POST /favorites/star":
+      return json(favorited(quire.star(host.user, str("path"))));
+    case "POST /favorites/unstar":
+      return json(favorited(quire.unstar(host.user, str("path"))));
+    case "PUT /favorites":
+      return json(favorited(quire.orderFavorites(host.user, paths("paths"))));
     case "POST /archive":
       return moveAll(paths("paths"), (p) => quire.archive(p, actor));
     case "POST /unarchive":

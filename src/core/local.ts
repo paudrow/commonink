@@ -94,6 +94,9 @@ export class FsContent implements Content {
   }
 }
 
+/** A local vault belongs to one person: this is who its favorites are for, from the app, CLI or MCP. */
+export const LOCAL_USER = "you";
+
 export type LocalVault = Quire & { files: FsContent };
 
 /** Open (and index) a vault folder. */

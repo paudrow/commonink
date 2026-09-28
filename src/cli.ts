@@ -1,8 +1,8 @@
 // `quire` CLI — the same core as the MCP server, for agents that prefer a shell (and for you).
 import fs from "node:fs";
-import { openVault } from "./core/local.ts";
+import { LOCAL_USER, openVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
-import { fmtBacklinks, fmtChanges, fmtList, fmtRead, fmtSearch, fmtWrite } from "./core/format.ts";
+import { fmtBacklinks, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtWrite } from "./core/format.ts";
 
 const HELP = `quire — markdown notes for you and your agents
 
@@ -18,6 +18,8 @@ Usage: quire <command> [args] [--as <agent>] [--json]
   append <note> [text | -]
   mv <note> <new-path>             rewrites links to the note
   backlinks <note>
+  star <note…> / unstar <note…>    add to or take out of your favorites
+  starred                          list your favorites, in order
   changes [--since <iso|id>] [--path <path|id|url>] [--limit N]
                                    --path brings the note's history under earlier names too
   restore <change-id>              put a note back the way it was before that change
@@ -122,6 +124,19 @@ if (cmd === "mcp") {
           return `${cmd === "archive" ? "Archived" : "Unarchived"} → ${r.path}`;
         });
         out(lines.join("\n"), lines);
+        break;
+      }
+      case "star":
+      case "unstar": {
+        if (!args.length) throw new QuireError(`${cmd} needs <note>`);
+        for (const a of args) cmd === "star" ? q.star(LOCAL_USER, a) : q.unstar(LOCAL_USER, a);
+        const list = q.favorites(LOCAL_USER);
+        out(fmtFavorites(list), list);
+        break;
+      }
+      case "starred": {
+        const list = q.favorites(LOCAL_USER);
+        out(fmtFavorites(list), list);
         break;
       }
       case "restore": {

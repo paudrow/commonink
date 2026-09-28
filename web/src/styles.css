@@ -1237,6 +1237,14 @@ body.panel-closed #panel { opacity: 0; pointer-events: none; }
 body.is-dragging #archive-nav { outline: 1.5px dashed var(--line-strong); outline-offset: -2px; }
 #archive-nav.is-drop { background: var(--accent-soft); color: var(--accent-ink); }
 
+/* ------------------------------------------------------------------ sidebar: favorites */
+#favorites { flex: none; max-height: 40%; overflow: auto; padding: 4px 8px 4px; }
+#favorites.is-drop { background: color-mix(in srgb, var(--accent) 5%, transparent); box-shadow: inset 0 0 0 1.5px var(--accent-line); border-radius: 8px; }
+#favorites .tree-row.is-drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.fav-hint { padding: 4px 8px 6px; font-size: 12px; color: var(--faint); }
+#star-btn.is-on, .fc-action.is-starred, #favorites .fav-star { color: var(--warn); }
+.fc-action.is-starred { opacity: 1; }
+
 /* ------------------------------------------------------------------ top bar: back, folder crumbs, move */
 .back-btn {
   display: inline-flex;

@@ -117,7 +117,7 @@ export interface QuireOptions {
 /**
  * The one core every surface (web UI, MCP server, CLI, Cloudflare workspace) talks to.
  * `files` is the source of truth (a folder locally, a table in the cloud); the rest of the
- * SQLite database is a rebuildable index plus the change log.
+ * SQLite database is a rebuildable index plus the change log and each person's favorites.
  */
 
 export class Quire {
@@ -243,6 +243,7 @@ export class Quire {
     const next = newNoteId();
     this.db.tx(() => {
       this.db.run("UPDATE notes SET id = ? WHERE id = ?", next, id);
+      this.db.run("UPDATE favorites SET note_id = ? WHERE note_id = ?", next, id);
       this.db.run("UPDATE changes SET note_id = ? WHERE note_id = ?", next, id);
     });
     return next;
@@ -588,6 +589,68 @@ export class Quire {
       since = moved.id;
     }
     return { ...this.save(at, row.before, { source }), path: at };
+  }
+
+  // ---------------------------------------------------------------- favorites
+
+  /**
+   * A person's starred notes, in their order, wherever they live now (archived ones included). A
+   * star whose note isn't in the index is skipped until the note comes back.
+   */
+  favorites(user: string): NoteMeta[] {
+    const out: NoteMeta[] = [];
+    for (const f of this.db.all<{ note_id: string; path: string }>("SELECT note_id, path FROM favorites WHERE user = ? ORDER BY pos", user)) {
+      const here = this.pathOf(f.note_id);
+      const meta = here ? this.meta(here) : this.meta(f.path);
+      if (!meta) continue;
+      if (meta.id !== f.note_id) {
+        // The note is back at its old path under a new ID: move the star over (unless it has one already).
+        const dup = out.some((m) => m.id === meta.id) || this.db.get("SELECT 1 FROM favorites WHERE user = ? AND note_id = ?", user, meta.id);
+        if (dup) {
+          this.db.run("DELETE FROM favorites WHERE user = ? AND note_id = ?", user, f.note_id);
+          continue;
+        }
+        this.db.run("UPDATE favorites SET note_id = ? WHERE user = ? AND note_id = ?", meta.id, user, f.note_id);
+      } else if (meta.path !== f.path) {
+        this.db.run("UPDATE favorites SET path = ? WHERE user = ? AND note_id = ?", meta.path, user, f.note_id);
+      }
+      out.push(meta);
+    }
+    return out;
+  }
+
+  /** Star a note (a path, ID, note URL or [[name]]) at the end of `user`'s favorites. Starring it again changes nothing. */
+  star(user: string, target: string): NoteMeta[] {
+    const meta = this.metaOf(target);
+    if (meta.kind === "asset") throw new QuireError(`${meta.path} is a binary asset, not a note`);
+    this.db.run(
+      `INSERT INTO favorites(user, note_id, path, pos)
+       VALUES (?, ?, ?, (SELECT coalesce(max(pos), 0) + 1 FROM favorites WHERE user = ?)) ON CONFLICT DO NOTHING`,
+      user, meta.id, meta.path, user,
+    );
+    return this.favorites(user);
+  }
+
+  unstar(user: string, target: string): NoteMeta[] {
+    this.db.run("DELETE FROM favorites WHERE user = ? AND note_id = ?", user, this.metaOf(target).id);
+    return this.favorites(user);
+  }
+
+  /** Put these starred notes first, in this order; the rest follow in the order they had, stars whose note is gone included. */
+  orderFavorites(user: string, targets: string[]): NoteMeta[] {
+    this.favorites(user); // rebinds stars to their notes' current IDs
+    const starred = this.db.all<{ note_id: string }>("SELECT note_id FROM favorites WHERE user = ? ORDER BY pos", user).map((f) => f.note_id);
+    const first = targets.map((t) => this.metaOf(t).id).filter((id) => starred.includes(id));
+    const order = [...new Set([...first, ...starred])];
+    this.db.tx(() => order.forEach((id, i) => this.db.run("UPDATE favorites SET pos = ? WHERE user = ? AND note_id = ?", i + 1, user, id)));
+    return this.favorites(user);
+  }
+
+  private metaOf(target: string): NoteMeta {
+    const rel = this.mustResolve(target);
+    const meta = this.meta(rel) ?? this.indexFile(rel);
+    if (!meta) throw new QuireError(`No note matches "${target}"`, "not_found");
+    return meta;
   }
 
   // ---------------------------------------------------------------- writing

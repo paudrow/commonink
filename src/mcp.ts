@@ -2,9 +2,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { openVault } from "./core/local.ts";
+import { LOCAL_USER, openVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
-import { fmtBacklinks, fmtChanges, fmtList, fmtRead, fmtSearch, fmtWrite } from "./core/format.ts";
+import { fmtBacklinks, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtWrite } from "./core/format.ts";
 
 const quire = openVault();
 
@@ -36,6 +36,8 @@ function run(fn: () => string): Result {
     return { content: [{ type: "text", text: msg }], isError: true };
   }
 }
+
+const favorites = () => fmtFavorites(quire.favorites(LOCAL_USER));
 
 const readOnly = { readOnlyHint: true, openWorldHint: false } as const;
 const writes = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
@@ -81,17 +83,21 @@ server.registerTool(
   "list_notes",
   {
     title: "List notes",
-    description: "List notes in the vault or a folder, or the most recently modified notes. Archived notes (under Archive/) are excluded unless requested.",
+    description:
+      "List notes in the vault or a folder, the most recently modified notes, or the user's starred notes (favorites, in their order). " +
+      "Archived notes (under Archive/) are excluded unless requested.",
     inputSchema: {
       folder: z.string().optional(),
       recent: z.number().int().min(1).max(100).optional().describe("If set, list this many most recently modified notes"),
+      starred: z.boolean().optional().describe("If set, list the user's favorites instead"),
       include_archived: z.boolean().optional(),
     },
     annotations: readOnly,
   },
-  ({ folder, recent, include_archived }) =>
+  ({ folder, recent, starred, include_archived }) =>
     run(() => {
       quire.sync();
+      if (starred) return favorites();
       return fmtList(recent ? quire.recent(recent) : quire.list(folder, include_archived ? "all" : "active"));
     }),
 );
@@ -173,6 +179,30 @@ server.registerTool(
     annotations: writes,
   },
   ({ paths }) => run(() => paths.map((p) => `Archived → ${quire.archive(p, source()).path}`).join("\n")),
+);
+
+server.registerTool(
+  "star_note",
+  {
+    title: "Star note",
+    description:
+      "Add notes to the user's favorites, which the app shows at the top of the sidebar. Stars follow a note through renames, " +
+      "moves and archiving. Only star notes the user asked for.",
+    inputSchema: { paths: z.array(z.string()).min(1) },
+    annotations: writes,
+  },
+  ({ paths }) => run(() => (paths.forEach((p) => quire.star(LOCAL_USER, p)), favorites())),
+);
+
+server.registerTool(
+  "unstar_note",
+  {
+    title: "Unstar note",
+    description: "Take notes out of the user's favorites. The notes themselves don't change.",
+    inputSchema: { paths: z.array(z.string()).min(1) },
+    annotations: writes,
+  },
+  ({ paths }) => run(() => (paths.forEach((p) => quire.unstar(LOCAL_USER, p)), favorites())),
 );
 
 server.registerTool(
