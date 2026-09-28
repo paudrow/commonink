@@ -32,12 +32,12 @@ const ASSET_TYPES: Record<string, string> = {
 /**
  * Headers for serving a stored file. Files are writable by agents and teammates, so none may run
  * script in our origin (an SVG opened directly, say): everything is sandboxed, except PDFs, which
- * browsers render in their own isolated viewer and refuse to show inside a sandbox.
+ * browsers render in their own isolated viewer and refuse to show inside a sandbox. Only the app
+ * itself may frame them.
  */
 export function fileSecurityHeaders(mime: string): Record<string, string> {
-  const headers: Record<string, string> = { "X-Content-Type-Options": "nosniff" };
-  if (mime !== "application/pdf") headers["Content-Security-Policy"] = "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; media-src 'self'";
-  return headers;
+  const policy = mime === "application/pdf" ? "" : "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; media-src 'self'; ";
+  return { "X-Content-Type-Options": "nosniff", "Content-Security-Policy": `${policy}frame-ancestors 'self'` };
 }
 
 /** Largest file accepted through the upload API. */

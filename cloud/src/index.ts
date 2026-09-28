@@ -3,25 +3,32 @@
 import { json } from "../../src/core/api.ts";
 import { unfurl } from "../../src/core/unfurl.ts";
 import { MAX_UPLOAD } from "../../src/core/paths.ts";
+import { SANDBOX_PATH, sandboxPage } from "../../src/core/sandbox.ts";
 import { ensurePersonalWorkspace, handleAuth, readSession, seedWorkspace } from "./auth.ts";
 import { acceptInvite, createInvite, createWorkspace, getUser, locateNote, membership, workspacesOf } from "./directory.ts";
 import type { Env } from "./env.ts";
+import { fetchAsset, secure } from "./headers.ts";
 
 export { Workspace } from "./workspace.ts";
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
-    if (url.hostname.startsWith("www.")) {
-      url.hostname = url.hostname.slice(4);
-      return Response.redirect(url.toString(), 301);
-    }
-    if (url.pathname.startsWith("/auth/")) return handleAuth(req, env, (user) => ensurePersonalWorkspace(env, user));
-    if (url.pathname.startsWith("/invite/")) return invite(req, env, url);
-    if (url.pathname.startsWith("/api/")) return api(req, env, url);
-    return env.ASSETS.fetch(req);
+    return secure(await route(req, env, url), url);
   },
 } satisfies ExportedHandler<Env>;
+
+async function route(req: Request, env: Env, url: URL): Promise<Response> {
+  if (url.hostname.startsWith("www.")) {
+    url.hostname = url.hostname.slice(4);
+    return Response.redirect(url.toString(), 301);
+  }
+  if (url.pathname === SANDBOX_PATH) return sandboxPage();
+  if (url.pathname.startsWith("/auth/")) return handleAuth(req, env, (user) => ensurePersonalWorkspace(env, user));
+  if (url.pathname.startsWith("/invite/")) return invite(req, env, url);
+  if (url.pathname.startsWith("/api/")) return api(req, env, url);
+  return fetchAsset(env.ASSETS, req);
+}
 
 /** Writes a viewer may make: favorites are each person's own, so viewers can star notes too. */
 const VIEWER_WRITES = new Set(["POST /favorites/star", "POST /favorites/unstar", "PUT /favorites"]);
