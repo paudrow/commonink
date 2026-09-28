@@ -1,10 +1,12 @@
 // Sign-in: Google OAuth (authorization code + PKCE), and signed session cookies so checking who's
-// asking needs no database round trip.
-import { createWorkspace, upsertUser, type User } from "./directory.ts";
+// asking needs no database round trip. New accounts are gated: someone Google hasn't seen here before
+// needs the sign-up code (SIGNUP_CODE) or a valid invite link.
+import { createWorkspace, hasUser, inviteIsValid, upsertUser, type User } from "./directory.ts";
 import type { Env } from "./env.ts";
 
 const SESSION = "ci_session";
 const OAUTH = "ci_oauth";
+const SIGNUP = "ci_signup";
 const SESSION_DAYS = 30;
 
 // ------------------------------------------------------------------ signed cookies
@@ -57,6 +59,31 @@ export function readSession(req: Request, env: Env) {
 }
 
 // ------------------------------------------------------------------ routes
+
+/** Case and spacing don't matter, so a code read out loud still works. */
+const normalizeCode = (code: string) => code.trim().toLowerCase().replace(/\s+/g, " ");
+
+/** Compares hashes, so the check takes the same time however much of the code is right. */
+async function codeMatches(given: string, expected: string) {
+  const hash = async (s: string) => new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(normalizeCode(s))));
+  const [a, b] = await Promise.all([hash(given), hash(expected)]);
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  return diff === 0;
+}
+
+/** Someone new may make an account on their way to accept an invite, since a member already vouched for them. */
+async function arrivingByInvite(env: Env, next: string) {
+  const token = next.match(/^\/invite\/([a-f0-9]+)$/)?.[1];
+  return !!token && (await inviteIsValid(env.DB, token));
+}
+
+interface PendingSignup {
+  sub: string;
+  profile: { email: string; name: string; picture?: string };
+  next: string;
+  exp: number;
+}
 
 /** Only same-site relative paths, so `next` can't bounce people to another site. */
 const safeNext = (next: string | null) => (next && next.startsWith("/") && !next.startsWith("//") ? next : "/");
@@ -121,8 +148,28 @@ export async function handleAuth(req: Request, env: Env, onSignedIn: (user: User
       if (claims.aud !== env.GOOGLE_CLIENT_ID || !/^(https:\/\/)?accounts\.google\.com$/.test(claims.iss) || claims.exp * 1000 < Date.now() || !claims.email_verified) {
         return text(403, "That Google account couldn't be verified.");
       }
-      const { user, isNew } = await upsertUser(env.DB, `google:${claims.sub}`, { email: claims.email, name: claims.name ?? claims.email.split("@")[0], picture: claims.picture });
+      const sub = `google:${claims.sub}`;
+      const profile = { email: claims.email, name: claims.name ?? claims.email.split("@")[0], picture: claims.picture };
+      if (!(await hasUser(env.DB, sub)) && !(await arrivingByInvite(env, pending.next))) {
+        // Hold on to who they are (signed, for 15 minutes) and ask for the sign-up code before making the account.
+        const ticket = await seal(env.SESSION_SECRET, { sub, profile, next: pending.next, exp: Date.now() + 15 * 60_000 } satisfies PendingSignup);
+        return redirect("/auth/signup", [setCookie(OAUTH, "", 0), setCookie(SIGNUP, ticket, 15 * 60)]);
+      }
+      const { user, isNew } = await upsertUser(env.DB, sub, profile);
       return startSession(user, isNew, pending.next, [setCookie(OAUTH, "", 0)]);
+    }
+
+    case "/auth/signup": {
+      const ticket = await unseal<PendingSignup>(env.SESSION_SECRET, cookie(req, SIGNUP));
+      if (!ticket) return redirect("/");
+      const cancel = setCookie(SIGNUP, "", 0);
+      if (!env.SIGNUP_CODE) return signupPage(ticket, "closed", [cancel]);
+      if (req.method !== "POST") return signupPage(ticket, "ask");
+      if (req.headers.get("Origin") !== url.origin) return text(403, "Cross-origin request refused");
+      const form = await req.formData().catch(() => null);
+      if (!(await codeMatches(String(form?.get("code") ?? ""), env.SIGNUP_CODE))) return signupPage(ticket, "wrong");
+      const { user, isNew } = await upsertUser(env.DB, ticket.sub, ticket.profile);
+      return startSession(user, isNew, ticket.next, [cancel]);
     }
 
     case "/auth/dev": {
@@ -140,7 +187,7 @@ export async function handleAuth(req: Request, env: Env, onSignedIn: (user: User
     }
 
     case "/auth/logout":
-      return redirect("/", [setCookie(SESSION, "", 0)]);
+      return redirect("/", [setCookie(SESSION, "", 0), setCookie(SIGNUP, "", 0)]);
   }
   return text(404, "Not found");
 }
@@ -161,14 +208,57 @@ export async function seedWorkspace(env: Env, id: string) {
 
 const text = (status: number, body: string) => new Response(body, { status, headers: { "Content-Type": "text/plain; charset=utf-8" } });
 
-function notConfigured() {
+const escape = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+function page(status: number, body: string, cookies: string[] = []) {
+  const headers = new Headers({ "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+  for (const c of cookies) headers.append("Set-Cookie", c);
   return new Response(
-    `<!doctype html><meta charset="utf-8"><title>Common Ink</title>
-     <body style="font:15px/1.6 -apple-system,system-ui,sans-serif;max-width:520px;margin:12vh auto;padding:0 20px;color:#26241f">
-     <h1 style="font-size:22px">Google sign-in isn't set up yet</h1>
+    `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+     <title>Common Ink</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">
+     <style>
+       :root { color-scheme: light dark; --bg: #fbfaf8; --ink: #26241f; --muted: #6f6a61; --line: #e7e3db; --field: #fff; --accent: #4545b8; --bad: #b3261e; }
+       @media (prefers-color-scheme: dark) { :root { --bg: #17171a; --ink: #d9d7d2; --muted: #9a968d; --line: #2c2c31; --field: #1f1f23; --accent: #a9a9ff; --bad: #f2b8b5; } }
+       body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 -apple-system, system-ui, sans-serif; }
+       main { max-width: 420px; margin: 12vh auto; padding: 0 20px; }
+       h1 { font-size: 22px; margin: 16px 0 6px; }
+       p { margin: 0 0 14px; }
+       .muted { color: var(--muted); }
+       .bad { color: var(--bad); }
+       a { color: var(--accent); }
+       input { box-sizing: border-box; width: 100%; height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--field); color: inherit; font: inherit; }
+       button { margin-top: 12px; width: 100%; height: 44px; border: 0; border-radius: 10px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+       @media (prefers-color-scheme: dark) { button { color: #17171a; } }
+     </style>
+     <main><img src="/favicon.svg" width="40" height="40" alt="">${body}</main>`,
+    { status, headers },
+  );
+}
+
+function signupPage(ticket: PendingSignup, state: "ask" | "wrong" | "closed", cookies: string[] = []) {
+  const who = `<p class="muted">Signed in with Google as ${escape(ticket.profile.email)}. <a href="/auth/logout">Not you?</a></p>`;
+  if (state === "closed") {
+    return page(403, `<h1>Common Ink isn't open to new accounts yet</h1>${who}<p>If someone invited you, open their invite link again.</p>`, cookies);
+  }
+  return page(
+    state === "wrong" ? 403 : 200,
+    `<h1>Enter your sign-up code</h1>${who}
+     <p>Common Ink is invite-only for now. Enter the code you were given to make your account.</p>
+     <form method="post" action="/auth/signup">
+       <input name="code" type="password" autocomplete="off" autofocus required aria-label="Sign-up code" placeholder="Sign-up code">
+       ${state === "wrong" ? `<p class="bad" role="alert" style="margin:8px 0 0">That code isn't right. Check it and try again.</p>` : ""}
+       <button type="submit">Create my account</button>
+     </form>`,
+    cookies,
+  );
+}
+
+function notConfigured() {
+  return page(
+    503,
+    `<h1>Google sign-in isn't set up yet</h1>
      <p>This deployment needs a Google OAuth client. Set <code>GOOGLE_CLIENT_ID</code> and
      <code>GOOGLE_CLIENT_SECRET</code> with <code>wrangler secret put</code>, then try again.</p>
-     <p><a href="/">Back</a></p></body>`,
-    { status: 503, headers: { "Content-Type": "text/html; charset=utf-8" } },
+     <p><a href="/">Back</a></p>`,
   );
 }
