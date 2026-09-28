@@ -3,7 +3,7 @@ import { DatabaseSync, type StatementSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Quire } from "./quire.ts";
+import { Quire, type QuireOptions } from "./quire.ts";
 import { kindOf } from "./paths.ts";
 import { migrate, type Content, type FileStat, type SqlDb } from "./store.ts";
 
@@ -97,13 +97,13 @@ export class FsContent implements Content {
 export type LocalVault = Quire & { files: FsContent };
 
 /** Open (and index) a vault folder. */
-export function openVault(root = DEFAULT_VAULT): LocalVault {
+export function openVault(root = DEFAULT_VAULT, opts: QuireOptions = {}): LocalVault {
   fs.mkdirSync(path.join(root, ".quire"), { recursive: true });
   const sqlite = new DatabaseSync(path.join(root, ".quire", "index.db"));
   sqlite.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA synchronous=NORMAL;");
   const db = new NodeDb(sqlite);
   migrate(db);
-  const q = new Quire(db, new FsContent(root)) as LocalVault;
+  const q = new Quire(db, new FsContent(root), opts) as LocalVault;
   q.sync();
   return q;
 }

@@ -12,5 +12,5 @@
     "verbatimModuleSyntax": false,
     "isolatedModules": true
   },
-  "include": ["src", "web/src", "scripts"]
+  "include": ["src", "web/src", "scripts", "test"]
 }

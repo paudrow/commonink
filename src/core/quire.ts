@@ -113,11 +113,21 @@ const RENAME_WINDOW_MS = 60_000;
  * `files` is the source of truth (a folder locally, a table in the cloud); the rest of the
  * SQLite database is a rebuildable index plus the change log.
  */
+export interface QuireOptions {
+  /** Milliseconds since the epoch; stamps changes and bounds attribution. Tests pass a fake clock. */
+  now?: () => number;
+}
+
 export class Quire {
+  private now: () => number;
+
   constructor(
     readonly db: SqlDb,
     readonly files: Content,
-  ) {}
+    opts: QuireOptions = {},
+  ) {
+    this.now = opts.now ?? Date.now;
+  }
 
   /** IDs of files that just left the index, by kind and content, so a rename seen as delete + add keeps its ID. */
   private gone = new Map<string, { id: string; at: number }>();
@@ -426,14 +436,14 @@ export class Quire {
   /** Who produced this exact version of a file? Used to attribute file-watcher events. */
   attribution(rel: string, version: string, withinMs = 120_000): Change | null {
     return (
-      this.db.get(`SELECT ${CHANGE_COLS} FROM changes WHERE path = ? AND version = ? AND ts > ? ORDER BY id DESC LIMIT 1`, rel, version, Date.now() - withinMs) ??
+      this.db.get(`SELECT ${CHANGE_COLS} FROM changes WHERE path = ? AND version = ? AND ts > ? ORDER BY id DESC LIMIT 1`, rel, version, this.now() - withinMs) ??
       null
     );
   }
 
   /** `before` is the note's previous text, kept so any change can be undone with restore(). */
   recordChange(c: Omit<Change, "id" | "ts">, before: string | null = null): Change {
-    const ts = Date.now();
+    const ts = this.now();
     const r = this.db.run(
       "INSERT INTO changes(ts, path, op, source, version, summary, from_path, before) VALUES (?,?,?,?,?,?,?,?)",
       ts, c.path, c.op, c.source, c.version, c.summary, c.from_path, before,
@@ -595,6 +605,8 @@ export class Quire {
   /** Whole-file save with optimistic concurrency (what the editor uses). */
   save(target: string, content: string, opts: { baseVersion?: string; source: string }) {
     const rel = cleanPath(target);
+    const kind = kindOf(rel);
+    if (kind !== "md" && kind !== "html") throw new QuireError(`${rel} isn't a note: only .md and .html files can be saved as text`);
     const current = this.files.read(rel);
     const exists = current !== null;
     if (current !== null && opts.baseVersion && versionOf(current) !== opts.baseVersion) {
@@ -733,6 +745,10 @@ export class Quire {
     const from = this.mustResolve(target);
     let dest = cleanPath(to);
     if (!kindOf(dest)) dest += path.posix.extname(from);
+    const [extFrom, extTo] = [from, dest].map((p) => path.posix.extname(p).toLowerCase());
+    if (kindOf(dest) !== kindOf(from) || (kindOf(from) === "asset" && extFrom !== extTo)) {
+      throw new QuireError(`Moving ${from} can't change its file type from ${extFrom} to ${extTo}`);
+    }
     if (dest === from) return { path: dest, from, version: this.meta(from)?.version ?? "", change: null, updated: [] as string[], edits: [] };
     if (this.files.stat(dest)) throw new QuireError(`${dest} already exists`, "exists");
     const referrers = [...new Set(this.backlinks(from).map((b) => b.path))];
