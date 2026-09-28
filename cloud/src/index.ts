@@ -47,6 +47,8 @@ interface Call {
 const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
   "GET /api/me": async ({ env, user }) => json({ user, workspaces: await workspacesOf(env.DB, user.id) }),
   "POST /api/workspaces": async ({ req, env, user }) => {
+    const tooMany = await limit(env.DB, "workspace", user.id);
+    if (tooMany) return tooMany;
     const { name } = (await req.json()) as { name?: string };
     const clean = String(name ?? "").trim().slice(0, 80);
     if (!clean) return json({ error: "Give the workspace a name" }, 400);
@@ -63,7 +65,7 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
     return json(
       await unfurl(target, (u) => {
         assertPublicUrl(u);
-        if (u.hostname === url.hostname) throw new Error("self");
+        if (u.hostname.replace(/\.$/, "") === url.hostname) throw new Error("self"); // "commonink.app." too
       }),
     );
   },
