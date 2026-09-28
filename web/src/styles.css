@@ -911,7 +911,7 @@ body.panel-closed #panel { opacity: 0; pointer-events: none; }
 
 .cm-title-placeholder { color: var(--faint); pointer-events: none; }
 
-/* ------------------------------------------------------------------ sidebar nav: feed + archive */
+/* ------------------------------------------------------------------ sidebar nav: notes + archive */
 .nav-item {
   display: flex;
   align-items: center;
@@ -933,8 +933,8 @@ body.panel-closed #panel { opacity: 0; pointer-events: none; }
 #banner.is-info { background: color-mix(in srgb, var(--accent) 9%, var(--bg-elev)); border-color: var(--accent-line); }
 #banner.is-info svg { color: var(--accent); }
 
-/* ------------------------------------------------------------------ feed */
-#feed-view { position: absolute; inset: 0; overflow: auto; outline: none; }
+/* ------------------------------------------------------------------ notes page */
+#notes-view { position: absolute; inset: 0; overflow: auto; outline: none; }
 .feed { max-width: 780px; margin: 0 auto; padding: 28px 32px 80px; }
 .feed-head { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 12px 0 14px; margin-bottom: 4px; }
 .feed-head h1 { font-size: 26px; letter-spacing: -0.02em; margin: 0 0 14px; color: var(--heading); }
@@ -1276,7 +1276,7 @@ button.crumb:hover { background: var(--hover); color: var(--ink-strong); }
 .fp-item.is-current { color: var(--muted); }
 .fp-here { font-size: 11px; color: var(--faint); }
 
-/* ------------------------------------------------------------------ feed: expanded cards */
+/* ------------------------------------------------------------------ notes page: expanded cards */
 .feed-card.is-expanded { cursor: default; border-color: var(--line-strong); box-shadow: var(--shadow-sm); }
 .feed-card.is-expanded .fc-head { cursor: pointer; }
 .feed-card.is-expanded .fc-action { opacity: 1; }
