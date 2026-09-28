@@ -8,6 +8,9 @@
   // commonink.app is the only address: www redirects to it, since Google sign-in only returns to addresses
   // registered with it.
   "workers_dev": false,
+  // Pull request Previews (below) are served at pr-<n>-commonink.<subdomain>.workers.dev. Like every
+  // Worker-level setting, this takes effect when production deploys.
+  "preview_urls": true,
   "routes": [
     { "pattern": "commonink.app", "custom_domain": true },
     { "pattern": "www.commonink.app", "custom_domain": true }
@@ -29,5 +32,18 @@
   ],
   // Uploaded files.
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "commonink-files" }],
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  // Pull request Previews (`npm run cloud:preview -- --name pr-12`): pr-12-commonink.<subdomain>.workers.dev.
+  // Each Preview gets its own Durable Objects (so its own notes); the directory and uploads live in
+  // preview-only D1 and R2, shared by all Previews and never production. Previews sign you in as a
+  // developer, so there's no Google step and nothing real to reach.
+  "previews": {
+    "vars": { "DEV_LOGIN": "1" },
+    "durable_objects": { "bindings": [{ "name": "WORKSPACE", "class_name": "Workspace" }] },
+    "d1_databases": [
+      // Keep in step with wrangler.preview-migrations.jsonc, which applies the migrations to it.
+      { "binding": "DB", "database_name": "commonink-preview", "database_id": "743a059a-b302-4743-b39d-fc323d0e4e3a", "migrations_dir": "migrations" }
+    ],
+    "r2_buckets": [{ "binding": "FILES", "bucket_name": "commonink-preview-files" }]
+  }
 }

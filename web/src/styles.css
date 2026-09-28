@@ -1182,7 +1182,6 @@ body.panel-closed #panel { opacity: 0; pointer-events: none; }
   transition: box-shadow 0.15s, background 0.15s;
 }
 .google-btn:hover { background: #f8f9fb; box-shadow: 0 1px 3px rgba(60, 64, 67, 0.25); }
-.dev-btn { display: block; margin-top: 12px; font-size: 13px; color: var(--muted); }
 .signin-fine { margin: 22px 0 0; font-size: 12px; color: var(--faint); }
 #signin { align-content: center; gap: 18px; }
 .signin-legal { display: flex; gap: 18px; margin: 0; font-size: 12.5px; }
