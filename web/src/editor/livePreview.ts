@@ -3,8 +3,11 @@ import { syntaxTree } from "@codemirror/language";
 import type { EditorState, Range, Text } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { scanTags, type TagSpan } from "../../../src/core/tags.ts";
-import { editTask, lineTokens, TASK_LINE } from "../../../src/core/tasks.ts";
+import { editTask, lineTokens, parseTask, TASK_LINE } from "../../../src/core/tasks.ts";
 import { today, tokenChip } from "../taskChips.ts";
+import { openChipEditor, taskPeople } from "../taskChipEditors.ts";
+import { editorContext } from "./blocks.ts";
+import { taskLineEdit } from "./taskEdit.ts";
 
 const hide = Decoration.replace({});
 const CODE = new Set(["InlineCode", "FencedCode", "CodeBlock", "CodeText"]);
@@ -73,7 +76,12 @@ class CheckboxWidget extends WidgetType {
   }
 }
 
-/** A task token (due date, repeat, person, priority) drawn as a chip. */
+/**
+ * A task token (due date, repeat, person, priority) drawn as a chip. Clicking it opens the same
+ * editor as in task lists; the edit is a transaction on this line, so undo takes it back. The
+ * chip keeps the mousedown, so the cursor doesn't move onto the line (which would turn the chip
+ * back into text) and the editor keeps its selection. Clicking the task's text shows the raw tokens.
+ */
 class TokenWidget extends WidgetType {
   constructor(
     readonly field: Parameters<typeof tokenChip>[0],
@@ -85,9 +93,36 @@ class TokenWidget extends WidgetType {
   eq(o: TokenWidget) {
     return o.field === this.field && o.value === this.value && o.done === this.done;
   }
-  toDOM() {
-    return tokenChip(this.field, this.value, { done: this.done });
+  toDOM(view: EditorView) {
+    const chip = tokenChip(this.field, this.value, { done: this.done });
+    chip.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (!view.state.readOnly) openLineChip(view, chip);
+    });
+    return chip;
   }
+  ignoreEvent() {
+    return true;
+  }
+}
+
+function openLineChip(view: EditorView, chip: HTMLElement) {
+  const line = view.state.doc.lineAt(view.posAtDOM(chip));
+  const task = parseTask(line.text);
+  if (!task) return;
+  const ctx = view.state.facet(editorContext);
+  openChipEditor(chip, {
+    task: { path: ctx.path, title: "", line: line.number, text: task.text, summary: task.summary, done: task.done, heading: null, meta: task.meta },
+    save: async (patch) => {
+      const spec = taskLineEdit(view.state, line.number, line.text, patch);
+      if (spec) view.dispatch(spec);
+    },
+    people: taskPeople,
+    showPerson: (name) => ctx.openPerson(name),
+    onClose: () => setTimeout(() => view.focus()), // after the key or click that closed it is done
+  });
 }
 
 class PlaceholderWidget extends WidgetType {

@@ -1,7 +1,7 @@
 // Click a task's chip to change just that token: priority from a menu, a date with quick picks, a
 // repeat as "every N weeks", a person from the people already on tasks. Each sends one patch, and
 // the core's one writer (editTask) changes that token in place and leaves the rest of the line.
-import type { Task, TaskPatch } from "./api.ts";
+import { api, type Task, type TaskPatch } from "./api.ts";
 import { avatar, el, icon } from "./dom.ts";
 import { addDays, parseRec, formatRec, type RecUnit } from "../../src/core/tasks.ts";
 import { dayLabel, today, type ChipField } from "./taskChips.ts";
@@ -13,19 +13,30 @@ export interface ChipContext {
   people(): Promise<string[]>;
   /** Show every task of this person's. */
   showPerson(name: string): void;
+  /** The editor closed (saved, Escape, or a click away): the note editor takes its focus back. */
+  onClose?(): void;
+}
+
+/** Everyone @-mentioned on a task anywhere, most tasks first. */
+export async function taskPeople(): Promise<string[]> {
+  const count = new Map<string, number>();
+  for (const t of await api.tasks({}).catch(() => [])) for (const a of t.meta.assignees) count.set(a, (count.get(a) ?? 0) + 1);
+  return [...count].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([p]) => p);
 }
 
 type Editor = (anchor: HTMLElement, value: string, ctx: ChipContext) => void;
 
 /** A small popover under `anchor` that closes on Escape or a click outside. */
-function popover(anchor: HTMLElement, label: string, ...children: HTMLElement[]) {
+function popover(anchor: HTMLElement, ctx: ChipContext, label: string, ...children: HTMLElement[]) {
   document.querySelector(".chip-pop")?.remove();
   const box = el("div", { class: "folder-picker chip-pop", role: "dialog", "aria-label": label }, ...children);
   const r = anchor.getBoundingClientRect();
   Object.assign(box.style, { top: `${Math.min(r.bottom + 6, innerHeight - 320)}px`, left: `${Math.max(12, Math.min(r.left, innerWidth - 272))}px` });
   const close = () => {
+    if (!box.isConnected) return;
     box.remove();
     document.removeEventListener("mousedown", outside, true);
+    ctx.onClose?.();
   };
   const outside = (e: MouseEvent) => {
     if (!box.contains(e.target as Node) && !anchor.contains(e.target as Node)) close();
@@ -61,7 +72,7 @@ const saving = (close: () => void, ctx: ChipContext, patch: TaskPatch) => async 
 
 const priority: Editor = (anchor, value, ctx) => {
   const list = el("div", { class: "fp-list" });
-  const { close } = popover(anchor, "Priority", list);
+  const { close } = popover(anchor, ctx, "Priority", list);
   list.append(
     ...([["high", "High"], [null, "Normal"], ["low", "Low"]] as const).map(([p, label]) =>
       item(label, "flag", saving(close, ctx, { priority: p }), (value || null) === p),
@@ -76,7 +87,7 @@ const date =
     const time = value.length > 10 ? value.slice(10) : "";
     const input = el("input", { type: "date", class: "chip-date", value: value.slice(0, 10) });
     const list = el("div", { class: "fp-list" });
-    const { close } = popover(anchor, field === "due" ? "Due date" : "Start date", el("div", { class: "fp-head" }, icon("calendar", 15), input), list);
+    const { close } = popover(anchor, ctx, field === "due" ? "Due date" : "Start date", el("div", { class: "fp-head" }, icon("calendar", 15), input), list);
     const pick = (day: string | null) => saving(close, ctx, { [field]: day && day + time });
     input.addEventListener("change", () => input.value && void pick(input.value)());
     const now = today();
@@ -102,7 +113,7 @@ const repeat: Editor = (anchor, value, ctx) => {
     el("div", { class: "chip-rec-row" }, el("span", {}, "Every"), n, unit),
     el("div", { class: "qw-config-foot" }, el("button", { type: "button", class: "qw-btn", onclick: () => void saving(close, ctx, { rec: null })() }, "Clear"), el("span", { class: "spacer" }), save),
   );
-  const { close } = popover(anchor, "Repeat", form);
+  const { close } = popover(anchor, ctx, "Repeat", form);
   form.addEventListener("submit", (e) => {
     e.preventDefault();
     const count = Math.round(Number(n.value));
@@ -116,7 +127,7 @@ const repeat: Editor = (anchor, value, ctx) => {
 const person: Editor = (anchor, value, ctx) => {
   const input = el("input", { class: "fp-input", placeholder: "Someone else…", spellcheck: "false", autocomplete: "off" });
   const list = el("div", { class: "fp-list" });
-  const { close } = popover(anchor, "Person", el("div", { class: "fp-head" }, icon("at", 15), input), list);
+  const { close } = popover(anchor, ctx, "Person", el("div", { class: "fp-head" }, icon("at", 15), input), list);
   const others = ctx.task.meta.assignees.filter((a) => a !== value);
   const swap = (to: string) => saving(close, ctx, { assignees: ctx.task.meta.assignees.map((a) => (a === value ? to : a)) });
   let people: string[] = [];
@@ -133,7 +144,9 @@ const person: Editor = (anchor, value, ctx) => {
   };
   input.addEventListener("input", render);
   input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") (list.querySelectorAll<HTMLButtonElement>(".fp-item")[1] ?? list.querySelector<HTMLButtonElement>(".fp-item"))?.click();
+    if (e.key !== "Enter") return;
+    e.preventDefault(); // the Enter is the pick's, not whatever takes focus next
+    (list.querySelectorAll<HTMLButtonElement>(".fp-item")[1] ?? list.querySelector<HTMLButtonElement>(".fp-item"))?.click();
   });
   render();
   void ctx.people().then((p) => ((people = p), render()));
