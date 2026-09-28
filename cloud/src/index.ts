@@ -1,7 +1,7 @@
 // The Worker: signs people in, checks what they can open, and forwards workspace requests to that
 // workspace's Durable Object. Everything else is the web app, served from the edge as static assets.
 import { json } from "../../src/core/api.ts";
-import { unfurl } from "../../src/core/unfurl.ts";
+import { assertPublicUrl, unfurl } from "../../src/core/unfurl.ts";
 import { MAX_UPLOAD } from "../../src/core/paths.ts";
 import { SANDBOX_PATH, sandboxPage } from "../../src/core/sandbox.ts";
 import { access, isAccountRoute, routeKey, type AccountRoute } from "./access.ts";
@@ -52,7 +52,13 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
   "GET /api/unfurl": async ({ url }) => {
     const target = url.searchParams.get("url") ?? "";
     if (!/^https?:\/\//i.test(target)) return json({ error: "http(s) URLs only" }, 400);
-    return json(await unfurl(target));
+    // Public hosts on default ports, and never this app (it would fetch itself).
+    return json(
+      await unfurl(target, (u) => {
+        assertPublicUrl(u);
+        if (u.hostname === url.hostname) throw new Error("self");
+      }),
+    );
   },
   "GET /api/note-ids/*": async ({ env, url, user }) => {
     const noteId = url.pathname.match(/^\/api\/note-ids\/([a-z2-9]{8})$/)?.[1];
