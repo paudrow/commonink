@@ -392,7 +392,7 @@ test("updateTask rewrites a task's tokens in its note, and refuses values that c
   const { dir, quire } = openTempVault({ "Plan.md": "# Plan\n\n- [ ] Send invoice due:2026-09-30 @jane\n" });
   const r = quire.updateTask("Plan", 3, "Send invoice due:2026-09-30 @jane", { due: "2026-10-07", assignees: [], priority: "low", tags: ["Work/Billing"] }, "t");
   assert.equal(r.change?.summary, "+1 −1");
-  assert.equal(fs.readFileSync(path.join(dir, "Plan.md"), "utf8"), "# Plan\n\n- [ ] Send invoice due:2026-10-07 #Work/Billing !low\n");
+  assert.equal(fs.readFileSync(path.join(dir, "Plan.md"), "utf8"), "# Plan\n\n- [ ] Send invoice !low due:2026-10-07 #Work/Billing\n");
   assert.deepEqual(quire.tagged("work").map((t) => `${t.kind}:${t.line}`), ["task:3"]);
   const text = quire.tasks()[0].text;
   assert.throws(() => quire.updateTask("Plan", 3, text, { due: "next week" }, "t"), /"due" must be a date/);

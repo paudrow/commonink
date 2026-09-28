@@ -1652,3 +1652,19 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .task-pop input:focus { outline: none; border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
 .task-pop input[type="time"] { flex: 0 0 96px; }
 .task-pop-error { font-size: 12.5px; color: var(--bad); }
+
+/* every task chip is one height and sits on the same line, whatever it holds (icon, avatar, text) */
+.tk { box-sizing: border-box; height: 20px; line-height: 1; vertical-align: middle; }
+.tk .avatar { width: 14px !important; height: 14px !important; }
+.tk-tag { background: var(--accent-soft); color: var(--accent-ink); }
+.qt-text .tk[data-field]:not([data-field="done"]) { cursor: pointer; }
+.qt-text .tk[data-field]:not([data-field="done"]):hover { box-shadow: inset 0 0 0 1px var(--line-strong); }
+/* a chip's own editor */
+.chip-pop { width: 260px; }
+.chip-pop .fp-head input.chip-date { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font: 14px var(--ui); color: var(--ink-strong); }
+.chip-rec { display: grid; gap: 10px; padding: 12px; }
+.chip-rec-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
+.chip-rec .chip-n { width: 64px; height: 32px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-elev); color: var(--ink-strong); padding: 0 8px; font: 14px var(--ui); }
+.chip-rec .chip-unit { flex: 1; }
+.chip-rec .qw-config-foot { padding-top: 0; }
+.qw-select { height: 32px; width: 100%; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-elev); color: var(--ink-strong); padding: 0 8px; font: 14px var(--ui); outline: none; }
