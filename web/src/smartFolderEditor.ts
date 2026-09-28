@@ -46,7 +46,7 @@ export function smartFolderEditor(
   const form = el(
     "form",
     { class: "qw-config task-pop sf-editor", role: "dialog", "aria-label": draft.id ? "Edit smart folder" : "New smart folder" },
-    el("div", { class: "task-pop-title" }, icon("spark", 14), draft.id ? "Smart folder" : "Save as smart folder"),
+    el("div", { class: "task-pop-title" }, icon("spark", 14), draft.id ? "Smart folder" : draft.query ? "Save as smart folder" : "New smart folder"),
     ...fieldRows([NAME, ...QUERY_FIELDS], values, recount, opts.sources),
     count,
     el(
@@ -90,7 +90,10 @@ export function smartFolderEditor(
   };
   form.addEventListener("keydown", (e) => {
     e.stopPropagation();
-    if (e.key === "Escape") close();
+    if (e.key === "Escape") {
+      close();
+      anchor.focus(); // back where the keyboard was
+    }
   });
   form.addEventListener("submit", (e) => {
     e.preventDefault();

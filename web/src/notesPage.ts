@@ -19,6 +19,8 @@ interface Hooks {
   tags(): TagCount[];
   /** Save these filters (a query like `tag=work sort=title`) as a smart folder. */
   saveQuery(anchor: HTMLElement, query: string): void;
+  /** The pin-as-smart-folder button for the tag Notes is narrowed to. */
+  pinButton(tag: string): HTMLElement;
   toast(t: { text: string; icon?: string; actionLabel?: string; action?: () => void }): void;
   changed(): void;
 }
@@ -190,7 +192,7 @@ export class NotesPage {
         el("button", { type: "button", class: `chip${f === this.folder ? " is-on" : ""}`, onclick: () => ((this.folder = f), (this.focus = 0), this.reload()) }, f || "All folders"),
       ),
     );
-    this.tagBar.replaceChildren(tagFilter({ current: this.tag, tags: this.hooks.tags, count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }));
+    this.tagBar.replaceChildren(tagFilter({ current: this.tag, tags: this.hooks.tags, count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }), this.tag ? this.hooks.pinButton(this.tag) : "");
     this.sortSel.value = this.sort;
     this.saveBtn.hidden = !formatQuery(this.query);
     this.hooks.filtersChanged();

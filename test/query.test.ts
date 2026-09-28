@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { formatQuery, parseQuery, queryProblem, toQuery } from "../src/core/query.ts";
+import { formatQuery, parseQuery, pinQuery, pins, queryProblem, toQuery } from "../src/core/query.ts";
 
 test("a note query is the ::query widget's args: q, folder, tag, sort and limit", () => {
   const src = 'q="launch plan" folder=Projects tag=work/acme sort=title limit=5';
@@ -25,6 +25,14 @@ test("a saved query is checked key by key", () => {
   assert.equal(queryProblem("limit=99999999999999999999"), '"limit" is a whole number above 0, not "99999999999999999999"');
   assert.equal(queryProblem("tag folder=Ideas"), 'Give "tag" a value, like tag=work');
   assert.equal(queryProblem('q="unterminated'), "A quote isn't closed");
+});
+
+test("a tag's pin is the smart folder whose query is that tag alone, in any case", () => {
+  assert.equal(pinQuery("#Work/Clients"), "tag=Work/Clients");
+  assert.deepEqual(
+    ["tag=work/clients", "tag=Work/Clients sort=title", "tag=work", "folder=A tag=work/clients", ""].map((q) => pins(q, "Work/Clients")),
+    [true, false, false, false, false],
+  );
 });
 
 test("a query is tidied the way the Notes filters write it, so the two compare equal", () => {

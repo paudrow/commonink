@@ -19,7 +19,7 @@ import { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
 import { groupChanges } from "../../src/core/format.ts";
-import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
+import { formatQuery, parseQuery, pinQuery, pins, type NoteQuery } from "../../src/core/query.ts";
 import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
@@ -89,6 +89,7 @@ const notesPage = new NotesPage({
   filtersChanged: () => renderTree(),
   tags: () => tags,
   saveQuery: (anchor, query) => saveSmartFolder(query, "", anchor),
+  pinButton: (tag) => pinButton(tag, "chip"),
   toast: (t) => toast(t),
   changed: () => {
     api.clearResolveCache();
@@ -728,6 +729,64 @@ function saveSmartFolder(query: string, name: string, anchor: HTMLElement) {
   });
 }
 
+/** A new smart folder from scratch (the Smart folders header, or its empty row). Saving opens it. */
+function newSmartFolder(anchor: HTMLElement) {
+  smartFolderEditor(anchor, { name: "", query: "", shared: canShare }, {
+    canShare,
+    sources: fieldSources,
+    save: async (f) => {
+      const saved = await api.saveSmartFolder(f);
+      smartFolders = await api.smartFolders();
+      await showNotes({ scope: "active", query: parseQuery(saved.query) });
+    },
+  });
+}
+
+/** The smart folder that pins this tag (its query is the tag alone), if you have one. */
+const pinOf = (tag: string) => smartFolders.find((f) => pins(f.query, tag));
+
+/**
+ * Pin a tag as a smart folder in one click (`tag=<tag>`, named after it), or unpin it. A viewer
+ * can't unpin a shared one, so for them the pin opens it instead.
+ */
+async function togglePin(tag: string) {
+  const pin = pinOf(tag);
+  try {
+    if (!pin) {
+      const f = await api.saveSmartFolder({ name: tag, query: pinQuery(tag), shared: canShare });
+      toast({ icon: "pin", text: `Pinned #${tag}`, detail: f.shared ? "It's in Smart folders for everyone in the workspace." : "It's in your Smart folders." });
+    } else if (pin.shared && !canShare) {
+      return void showNotes({ scope: "active", query: parseQuery(pin.query) });
+    } else {
+      await api.deleteSmartFolder(pin.id);
+      toast({ icon: "pin", text: `Unpinned #${tag}`, actionLabel: "Undo", action: () => void api.saveSmartFolder({ name: pin.name, query: pin.query, shared: pin.shared }).then(refreshNotes) });
+    }
+  } catch (e) {
+    return toast({ text: e instanceof Error ? e.message : `Couldn't pin #${tag}` });
+  }
+  smartFolders = await api.smartFolders();
+  renderTree();
+  notesPage.refreshSoon();
+}
+
+/** The pin button for a tag, on its sidebar row (`row`) or on the Notes tag chip (`chip`). */
+function pinButton(tag: string, where: "row" | "chip"): HTMLElement {
+  const pinned = !!pinOf(tag);
+  const title = pinned ? (pinOf(tag)!.shared && !canShare ? "Pinned: open it" : `Unpin #${tag}`) : `Pin #${tag} as a smart folder`;
+  return el(
+    "button",
+    {
+      type: "button",
+      class: `${where === "row" ? "row-act" : "chip tag-filter pin-chip"} pin-btn${pinned ? " is-pinned" : ""}`,
+      title,
+      "aria-pressed": String(pinned),
+      onclick: (e: Event) => (e.stopPropagation(), void togglePin(tag)),
+    },
+    icon("pin", 13),
+    where === "chip" ? (pinned ? "Pinned" : "Pin") : "",
+  );
+}
+
 /** Saved note queries, each with a live count. Click one to see its notes; the sliders edit it. */
 function renderSmartFolders(active: string | null) {
   const rows = smartFolders.map((f) => {
@@ -767,7 +826,13 @@ function renderSmartFolders(active: string | null) {
       f.shared && !canShare ? null : el("span", { class: "row-actions" }, edit),
     );
   });
-  $("#smart-folders").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Filter Notes, then save the filters here.")]));
+  const first = el(
+    "div",
+    { class: "tree-row sf-new", style: { "--depth": "0" }, tabindex: "0", title: "Or pin a tag from Tags below", onclick: () => newSmartFolder(first), onkeydown: (e: KeyboardEvent) => e.key === "Enter" && newSmartFolder(first) },
+    icon("plus", 14),
+    el("span", { class: "tree-name" }, "New smart folder…"),
+  );
+  $("#smart-folders").replaceChildren(...(rows.length ? rows : [first, el("div", { class: "fav-hint" }, "Or pin a tag from Tags below.")]));
 }
 
 const FAVORITE = "application/x-common-ink-favorite";
@@ -1016,7 +1081,9 @@ function renderTagTree(active: string) {
             : el("span", { class: "chev is-leaf" }),
           icon("hash", 14),
           el("span", { class: "tree-name" }, t.display.split("/").pop()!),
+          pinOf(t.display) ? el("span", { class: "sf-pinned", title: "Pinned as a smart folder" }, icon("pin", 11)) : null,
           el("span", { class: "n" }, String(t.notes)),
+          el("span", { class: "row-actions" }, pinButton(t.display, "row")),
         );
         return [row, ...(open ? walk(t.tag, depth + 1) : [])];
       });
@@ -1648,6 +1715,7 @@ async function boot() {
   $("#history-btn").addEventListener("click", () => void showHistory());
   $("#assets-btn").addEventListener("click", () => void showAssets());
   $("#tags-page-btn").addEventListener("click", () => void showTags());
+  $("#new-smart-folder").addEventListener("click", () => newSmartFolder($("#new-smart-folder")));
   setupSections();
   $("#note-history-btn").addEventListener("click", () => session && void showHistory({ note: session.path }));
   $("#back-btn").addEventListener("click", () => void showNotes());

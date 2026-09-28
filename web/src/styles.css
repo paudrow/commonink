@@ -1705,3 +1705,12 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 #tag-tree .tree-row > svg { color: var(--muted); }
 #tag-tree .tree-row.is-active > svg { color: var(--accent); }
 #tags-page-btn.is-on { color: var(--accent); }
+
+/* pinning a tag as a smart folder, and starting one from the sidebar */
+.pin-btn.is-pinned { color: var(--accent); }
+.pin-chip { border-style: solid; }
+.pin-chip.is-pinned { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); }
+.sf-pinned { display: inline-grid; place-items: center; color: var(--accent); }
+.tree-row:hover .sf-pinned, .tree-row:focus-within .sf-pinned { display: none; }
+.tree-row.sf-new { color: var(--muted); }
+.tree-row.sf-new:hover { color: var(--ink-strong); }

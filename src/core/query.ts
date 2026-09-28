@@ -80,3 +80,12 @@ export function queryProblem(src: string): string | null {
   }
   return null;
 }
+
+/** A tag pinned as a smart folder is the query of that tag alone: `tag=work/clients`. */
+export const pinQuery = (tag: string) => formatQuery(toQuery({ tag }));
+
+/** Is `query` a pin of `tag`: that tag and nothing else, in any case? */
+export function pins(query: string, tag: string): boolean {
+  const q = parseQuery(query);
+  return Object.keys(q).length === 1 && !!q.tag && q.tag.toLowerCase() === (cleanTag(tag) ?? "").toLowerCase();
+}
