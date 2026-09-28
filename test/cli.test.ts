@@ -77,6 +77,12 @@ test("tasks lists open tasks, and task changes one's tokens or ticks it", () => 
   assert.equal(quire(vault, ["task", "Roadmap", "3"]).stderr, "There's no task on line 3 of Roadmap\n");
 });
 
+test("star and unstar take #tags as well as notes", () => {
+  const vault = tempVault();
+  assert.equal(quire(vault, ["star", "Welcome", "#plan"]).stdout, "Favorites:\n- Welcome.md — Welcome\n- #plan (1 note)\n");
+  assert.equal(quire(vault, ["unstar", "#plan"]).stdout, "Favorites:\n- Welcome.md — Welcome\n");
+});
+
 test("star, unstar and starred keep your favorites in order", () => {
   const vault = tempVault();
   assert.equal(quire(vault, ["star", "Welcome", "Roadmap"]).stdout, "Favorites:\n- Welcome.md — Welcome\n- Projects/Roadmap.md — Roadmap\n");

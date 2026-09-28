@@ -157,6 +157,14 @@ test("tasks filter by due date against the reader's today, and a task's tokens c
   assert.deepEqual([late.status, late.body.error], [400, `"today" must be a date like 2026-10-01, not "someday"`]);
 });
 
+test("a tag is starred and unstarred through the favorites routes a viewer can use", async () => {
+  const { call } = setup();
+  const starred = await call("POST", "/favorites/star", { tag: "plan" });
+  assert.deepEqual(starred.body, [{ tag: "plan", display: "plan", notes: 1 }]);
+  assert.equal((await call("POST", "/favorites/star", { tag: "27" })).status, 400);
+  assert.deepEqual((await call("POST", "/favorites/unstar", { tag: "#plan" })).body, []);
+});
+
 test("favorites are starred, ordered and unstarred per person, and tell the other tabs", async () => {
   const { call, events } = setup();
   await call("POST", "/favorites/star", { path: "Welcome" });

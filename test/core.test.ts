@@ -5,6 +5,9 @@ import path from "node:path";
 import { cleanPath } from "../src/core/paths.ts";
 import { openVault } from "../src/core/local.ts";
 import { openTempVault } from "./helpers.ts";
+import type { Favorite, NoteMeta } from "../src/core/quire.ts";
+
+const notesOf = (list: Favorite[]) => list.map((n) => (n as NoteMeta).path);
 
 test("cleanPath keeps paths inside the vault", () => {
   assert.equal(cleanPath("./Projects//Roadmap.md"), "Projects/Roadmap.md");
@@ -177,11 +180,11 @@ test("a star follows its note through moves, archiving and renames, and is each 
   quire.archive("Welcome", "t");
   fs.renameSync(path.join(dir, "Plans/Roadmap.md"), path.join(dir, "Plans/Q3.md"));
   quire.sync();
-  assert.deepEqual(quire.favorites("ana").map((n) => n.path), ["Plans/Q3.md", "Archive/Welcome.md"]);
+  assert.deepEqual(notesOf(quire.favorites("ana")), ["Plans/Q3.md", "Archive/Welcome.md"]);
   quire.unarchive("Archive/Welcome.md", "t");
-  assert.deepEqual(quire.orderFavorites("ana", ["Welcome"]).map((n) => n.path), ["Welcome.md", "Plans/Q3.md"]);
-  assert.deepEqual(quire.unstar("ana", "Welcome").map((n) => n.path), ["Plans/Q3.md"]);
-  assert.deepEqual(quire.favorites("bo").map((n) => n.path), ["Welcome.md"]);
+  assert.deepEqual(notesOf(quire.orderFavorites("ana", ["Welcome"])), ["Welcome.md", "Plans/Q3.md"]);
+  assert.deepEqual(notesOf(quire.unstar("ana", "Welcome")), ["Plans/Q3.md"]);
+  assert.deepEqual(notesOf(quire.favorites("bo")), ["Welcome.md"]);
 });
 
 test("a starred note deleted and restored under a new ID keeps its star", () => {
@@ -196,7 +199,7 @@ test("a starred note deleted and restored under a new ID keeps its star", () => 
   fs.writeFileSync(path.join(dir, "Welcome.md"), text);
   quire.sync();
   const back = quire.meta("Welcome.md")!;
-  assert.deepEqual(quire.favorites("ana").map((n) => n.id), [back.id]);
+  assert.deepEqual(quire.favorites("ana").map((n) => (n as NoteMeta).id), [back.id]);
   assert.deepEqual(quire.unstar("ana", back.id), []);
 });
 
@@ -209,11 +212,45 @@ test("reordering favorites while a starred note is gone leaves it last when it c
   const text = fs.readFileSync(path.join(dir, "Welcome.md"), "utf8");
   fs.rmSync(path.join(dir, "Welcome.md"));
   quire.sync();
-  assert.deepEqual(quire.orderFavorites("ana", ["Dashboards/Stats.html", "Roadmap"]).map((n) => n.path), ["Dashboards/Stats.html", "Projects/Roadmap.md"]);
+  assert.deepEqual(notesOf(quire.orderFavorites("ana", ["Dashboards/Stats.html", "Roadmap"])), ["Dashboards/Stats.html", "Projects/Roadmap.md"]);
   now += 3600_000;
   fs.writeFileSync(path.join(dir, "Welcome.md"), text);
   quire.sync();
-  assert.deepEqual(quire.favorites("ana").map((n) => n.path), ["Dashboards/Stats.html", "Projects/Roadmap.md", "Welcome.md"]);
+  assert.deepEqual(notesOf(quire.favorites("ana")), ["Dashboards/Stats.html", "Projects/Roadmap.md", "Welcome.md"]);
+});
+
+test("a tag can be a favorite: in the same order as notes, following renames, dropping out when unused", () => {
+  const { quire } = openTempVault({ "A.md": "# A\n\n#work/clients #home\n", "B.md": "# B\n\n#work/clients/acme\n" });
+  const shown = (user = "ana") => quire.favorites(user).map((f) => ("tag" in f ? `#${f.display} ${f.notes}` : f.path));
+  quire.star("ana", "A");
+  quire.starTag("ana", "#Work/Clients");
+  quire.starTag("ana", "work/clients"); // again: no change
+  quire.starTag("ana", "home");
+  assert.deepEqual(shown(), ["A.md", "#work/clients 2", "#home 1"]);
+  assert.deepEqual(quire.orderFavorites("ana", ["#home", "A.md"]).map((f) => ("tag" in f ? f.tag : f.path)), ["home", "A.md", "work/clients"]);
+  assert.throws(() => quire.starTag("ana", "nowhere"), /No note has #nowhere/);
+  assert.deepEqual(shown("bo"), []);
+
+  quire.renameTag("work", "Job", "t"); // the favorite follows, children and all
+  assert.deepEqual(shown(), ["#home 1", "A.md", "#Job/clients 2"]);
+  quire.renameTag("home", "Job/clients", "t"); // a merge onto one they have keeps one
+  assert.deepEqual(shown(), ["A.md", "#Job/clients 2"]);
+
+  quire.edit("A", { oldString: "#Job/clients #Job/clients", newString: "" }, "t");
+  quire.edit("B", { oldString: "#Job/clients/acme", newString: "" }, "t");
+  assert.deepEqual(shown(), ["A.md"]); // unused: out of sight, but kept
+  quire.append("B", "#job/clients again", "t");
+  assert.deepEqual(shown(), ["A.md", "#Job/clients 1"]);
+  assert.deepEqual(quire.unstarTag("ana", "job/clients").map((f) => ("tag" in f ? f.tag : f.path)), ["A.md"]);
+});
+
+test("favorites from before tag favorites keep their notes, and a tag can be starred after the upgrade", () => {
+  const { dir, quire } = openTempVault({ "A.md": "# A\n\n#work\n" });
+  quire.star("ana", "A");
+  const reopened = openVault(dir);
+  assert.deepEqual(reopened.favorites("ana").map((f) => ("tag" in f ? f.tag : f.path)), ["A.md"]);
+  reopened.starTag("ana", "work");
+  assert.deepEqual(reopened.favorites("ana").map((f) => ("tag" in f ? f.tag : f.path)), ["A.md", "work"]);
 });
 
 test("only notes can be starred, not assets", () => {
