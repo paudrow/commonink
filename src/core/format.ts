@@ -1,6 +1,6 @@
 // Plain-text renderings of core results, shared by the MCP server and the CLI.
 // Agents read markdown far more cheaply than JSON, so this is the default output.
-import type { Backlink, Change, Note, NoteMeta, SearchHit, TagCount, Task } from "./quire.ts";
+import { isTagFavorite, type Backlink, type Change, type Favorite, type Note, type NoteMeta, type SearchHit, type TagCount, type Task } from "./quire.ts";
 import type { Board } from "./kanban.ts";
 
 export function fmtSearch(q: string, hits: SearchHit[]): string {
@@ -31,8 +31,10 @@ export function fmtList(notes: NoteMeta[]): string {
   return notes.map((n) => `- ${n.path}${n.kind === "asset" ? "" : ` — ${n.title}`}`).join("\n");
 }
 
-export function fmtFavorites(notes: NoteMeta[]): string {
-  return notes.length ? `Favorites:\n${fmtList(notes)}` : "No favorites.";
+export function fmtFavorites(favorites: Favorite[]): string {
+  if (!favorites.length) return "No favorites.";
+  const line = (f: Favorite) => (isTagFavorite(f) ? `- #${f.display} (${f.notes} note${f.notes === 1 ? "" : "s"})` : fmtList([f]));
+  return `Favorites:\n${favorites.map(line).join("\n")}`;
 }
 
 /** Tasks as their markdown lines (tokens and all), each with where it lives. */

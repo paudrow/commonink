@@ -87,6 +87,12 @@ test("board shows a note's boards, and card adds, moves and edits cards", () => 
   assert.equal(quire(vault, ["card", "shuffle", "Launch"]).stderr, 'card needs add, move or edit, not "shuffle"\n');
 });
 
+test("star and unstar take #tags as well as notes", () => {
+  const vault = tempVault();
+  assert.equal(quire(vault, ["star", "Welcome", "#plan"]).stdout, "Favorites:\n- Welcome.md — Welcome\n- #plan (1 note)\n");
+  assert.equal(quire(vault, ["unstar", "#plan"]).stdout, "Favorites:\n- Welcome.md — Welcome\n");
+});
+
 test("star, unstar and starred keep your favorites in order", () => {
   const vault = tempVault();
   assert.equal(quire(vault, ["star", "Welcome", "Roadmap"]).stdout, "Favorites:\n- Welcome.md — Welcome\n- Projects/Roadmap.md — Roadmap\n");

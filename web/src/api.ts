@@ -81,6 +81,17 @@ export interface FeedPage {
   folders: string[];
 }
 export const isArchived = (p: string) => p.startsWith("Archive/");
+/** A tag in someone's favorites, and how many active notes carry it (or a tag under it). */
+export interface TagFavorite {
+  tag: string;
+  display: string;
+  notes: number;
+}
+/** A favorite is a note or a tag, in one order. */
+export type Favorite = NoteMeta | TagFavorite;
+export const isTagFavorite = (f: Favorite): f is TagFavorite => "tag" in f;
+/** How a favorite is named in an order: a note's path, or "#" and the tag. */
+export const favoriteKey = (f: Favorite) => (isTagFavorite(f) ? `#${f.tag}` : f.path);
 /** A tag in use (parents included), and how many notes, tasks and assets carry it or a tag under it. */
 export interface TagCount {
   tag: string;
@@ -185,10 +196,13 @@ export const api = {
   /** Change a task's tokens in its note; the rest of its line stays as written. */
   updateTask: (t: Task, patch: TaskPatch) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/update`, send("POST", { path: t.path, line: t.line, text: t.text, patch, today: today() })),
   /** Your starred notes, in your order. Each change returns the new list. */
-  favorites: () => j<NoteMeta[]>(`${BASE}/favorites`),
-  star: (path: string) => j<NoteMeta[]>(`${BASE}/favorites/star`, send("POST", { path })),
-  unstar: (path: string) => j<NoteMeta[]>(`${BASE}/favorites/unstar`, send("POST", { path })),
-  orderFavorites: (paths: string[]) => j<NoteMeta[]>(`${BASE}/favorites`, send("PUT", { paths })),
+  favorites: () => j<Favorite[]>(`${BASE}/favorites`),
+  star: (path: string) => j<Favorite[]>(`${BASE}/favorites/star`, send("POST", { path })),
+  unstar: (path: string) => j<Favorite[]>(`${BASE}/favorites/unstar`, send("POST", { path })),
+  starTag: (tag: string) => j<Favorite[]>(`${BASE}/favorites/star`, send("POST", { tag })),
+  unstarTag: (tag: string) => j<Favorite[]>(`${BASE}/favorites/unstar`, send("POST", { tag })),
+  /** `keys` are note paths and "#tag"s (see favoriteKey). */
+  orderFavorites: (keys: string[]) => j<Favorite[]>(`${BASE}/favorites`, send("PUT", { paths: keys })),
   archive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/archive`, send("POST", { paths })),
   unarchive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/unarchive`, send("POST", { paths })),
   backlinks: (path: string) => j<Backlink[]>(`${BASE}/backlinks?path=${enc(path)}`),
