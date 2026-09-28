@@ -77,9 +77,14 @@ export function hydrateIcons(root: ParentNode = document) {
   });
 }
 
+/** The signed-in person's name online ("you" locally): their own edits aren't announced back to them. */
+let selfName = "you";
+export const setSelfName = (name: string) => (selfName = name);
+export const isSelf = (source: string) => source === "you" || source === selfName;
+
 /** Stable hue per agent name, so "claude-code" always looks the same everywhere. */
 export function hueFor(name: string): number {
-  if (name === "you") return 150;
+  if (isSelf(name)) return 150;
   if (name === "external") return 30;
   let h = 0;
   for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
@@ -87,11 +92,11 @@ export function hueFor(name: string): number {
 }
 
 export function avatar(source: string, size = 20): HTMLElement {
-  const initials = source === "you" ? "You" : source.replace(/[^a-z0-9]/gi, " ").trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+  const initials = isSelf(source) ? "You" : source.replace(/[^a-z0-9]/gi, " ").trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
   return el(
     "span",
-    { class: `avatar${source === "you" ? " is-you" : ""}`, title: source, style: { "--hue": String(hueFor(source)), width: `${size}px`, height: `${size}px` } },
-    source === "you" ? "" : initials || "?",
+    { class: `avatar${isSelf(source) ? " is-you" : ""}`, title: source, style: { "--hue": String(hueFor(source)), width: `${size}px`, height: `${size}px` } },
+    isSelf(source) ? "" : initials || "?",
   );
 }
 

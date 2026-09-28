@@ -6,12 +6,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import { createServer as createVite } from "vite";
-import { diffstat, PROJECT_ROOT, Quire, versionOf, type ArchiveScope, type Change } from "../core/quire.ts";
-import { cleanPath, isHidden, kindOf, mimeOf, QuireError } from "../core/paths.ts";
+import { diffstat, versionOf, type Change } from "../core/quire.ts";
+import { openVault, PROJECT_ROOT } from "../core/local.ts";
+import { cleanPath, isHidden, kindOf, mimeOf } from "../core/paths.ts";
+import { errorResponse, handleApi, json, type ApiHost } from "../core/api.ts";
 import { unfurl } from "./unfurl.ts";
 
 const PORT = Number(process.env.PORT ?? 4777);
-const quire = Quire.open();
+const quire = openVault();
+const files = quire.files;
 
 // What every UI client currently believes each file looks like. Used to tell our own writes
 // (already broadcast) from writes made by agents or other editors.
@@ -19,11 +22,11 @@ const seen = new Map<string, string>();
 const lastText = new Map<string, string>();
 for (const n of quire.list(undefined, "all")) {
   seen.set(n.path, n.version);
-  if (n.kind !== "asset") lastText.set(n.path, fs.readFileSync(quire.abs(n.path), "utf8"));
+  if (n.kind !== "asset") lastText.set(n.path, files.read(n.path) ?? "");
 }
 
 const httpServer = http.createServer((req, res) => {
-  handle(req, res).catch((e) => fail(res, e));
+  handle(req, res).catch((e) => send(res, errorResponse(e)));
 });
 
 const vite = await createVite({
@@ -78,7 +81,7 @@ function announce(rel: string, content: string | null, version: string, change: 
 // ------------------------------------------------------------------ file watcher
 
 const timers = new Map<string, NodeJS.Timeout>();
-fs.watch(quire.root, { recursive: true }, (_event, filename) => {
+fs.watch(files.root, { recursive: true }, (_event, filename) => {
   if (!filename) return;
   const rel = filename.split(path.sep).join("/");
   if (isHidden(rel)) return;
@@ -88,7 +91,7 @@ fs.watch(quire.root, { recursive: true }, (_event, filename) => {
 });
 
 function onDiskChange(rel: string) {
-  if (!fs.existsSync(quire.abs(rel))) {
+  if (!files.stat(rel)) {
     if (!seen.delete(rel)) return;
     lastText.delete(rel);
     quire.unindex(rel);
@@ -104,7 +107,7 @@ function onDiskChange(rel: string) {
     if (isNew) broadcast({ type: "tree" });
     return;
   }
-  const content = fs.readFileSync(quire.abs(rel), "utf8");
+  const content = files.read(rel) ?? "";
   const version = versionOf(content);
   if (seen.get(rel) === version) return; // our own write, already announced
   const before = lastText.get(rel);
@@ -138,124 +141,49 @@ function resync() {
 
 // ------------------------------------------------------------------ http
 
+/** The note API, shared with the Cloudflare workspace. Writes here are announced directly; the watcher skips them. */
+const host: ApiHost = {
+  quire,
+  actor: "you",
+  info: () => ({ mode: "local", name: path.basename(files.root), vault: files.root, projectRoot: PROJECT_ROOT }),
+  written(rel, content, version, change, origin) {
+    seen.set(rel, version);
+    if (content !== null) lastText.set(rel, content);
+    if (change) announce(rel, content, version, change, origin);
+  },
+  moved: () => resync(),
+  tree: () => broadcast({ type: "tree" }),
+};
+
 async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
-  if (!hostOk(req)) return send(res, 403, { error: "Forbidden host" });
+  if (!hostOk(req)) return send(res, json({ error: "Forbidden host" }, 403));
   const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
-  if (url.pathname.startsWith("/api/")) return api(req, res, url);
-  if (url.pathname.startsWith("/vault/")) return asset(res, decodeURIComponent(url.pathname.slice(7)));
-  if (url.pathname === "/vault-resolve") {
+  if (!url.pathname.startsWith("/api/")) return vite.middlewares(req, res);
+  if (!originOk(req)) return send(res, json({ error: "Cross-origin request refused" }, 403));
+  if (req.method !== "GET" && !String(req.headers["content-type"]).startsWith("application/json")) {
+    return send(res, json({ error: "JSON only" }, 415));
+  }
+  const route = url.pathname.slice("/api".length);
+  if (route.startsWith("/files/")) return asset(res, decodeURIComponent(route.slice("/files/".length)));
+  if (route === "/file-resolve") {
     const rel = quire.resolve(url.searchParams.get("target") ?? "", url.searchParams.get("from") ?? undefined);
-    if (!rel || kindOf(rel) !== "asset") return send(res, 404, { error: "Not found" });
-    res.writeHead(302, { Location: `/vault/${rel.split("/").map(encodeURIComponent).join("/")}` });
+    if (!rel || kindOf(rel) !== "asset") return send(res, json({ error: "Not found" }, 404));
+    res.writeHead(302, { Location: `/api/files/${rel.split("/").map(encodeURIComponent).join("/")}` });
     return res.end();
   }
-  vite.middlewares(req, res);
-}
-
-async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL) {
-  if (!originOk(req)) return send(res, 403, { error: "Cross-origin request refused" });
-  const route = `${req.method} ${url.pathname}`;
-  const q = (k: string) => url.searchParams.get(k) ?? "";
-  if (req.method !== "GET" && !String(req.headers["content-type"]).startsWith("application/json")) {
-    return send(res, 415, { error: "JSON only" });
+  if (route === "/unfurl") {
+    const target = url.searchParams.get("url") ?? "";
+    if (!/^https?:\/\//i.test(target)) return send(res, json({ error: "http(s) URLs only" }, 400));
+    return send(res, json(await unfurl(target)));
   }
-  const body = req.method === "GET" ? {} : await readJson(req);
-
-  switch (route) {
-    case "GET /api/info":
-      return send(res, 200, { vault: quire.root, name: path.basename(quire.root), projectRoot: PROJECT_ROOT });
-    case "GET /api/notes":
-      return send(res, 200, quire.list(undefined, "all")); // the UI hides archived notes itself
-    case "GET /api/note": {
-      const n = quire.read(q("path"));
-      return send(res, 200, n);
-    }
-    case "GET /api/resolve":
-      return send(res, 200, { path: quire.resolve(q("target"), q("from") || undefined) });
-    case "GET /api/search":
-      return send(res, 200, quire.search(q("q"), Number(q("limit")) || 30, (q("scope") || "active") as ArchiveScope));
-    case "GET /api/feed":
-      return send(
-        res,
-        200,
-        quire.feed({
-          q: q("q"),
-          scope: (q("scope") || "active") as ArchiveScope,
-          folder: q("folder") || undefined,
-          tag: q("tag") || undefined,
-          sort: q("sort") === "title" ? "title" : "modified",
-          offset: Number(q("offset")) || 0,
-          limit: Number(q("limit")) || 30,
-        }),
-      );
-    case "GET /api/tasks":
-      return send(res, 200, quire.tasks({ folder: q("folder") || undefined, note: q("note") || undefined }));
-    case "POST /api/tasks/set": {
-      const r = quire.setTask(String(body.path), Number(body.line), String(body.text), !!body.done, "you");
-      if (r.change) {
-        const content = fs.readFileSync(quire.abs(r.path), "utf8");
-        seen.set(r.path, r.version);
-        lastText.set(r.path, content);
-        announce(r.path, content, r.version, r.change);
-      }
-      return send(res, 200, { path: r.path, version: r.version });
-    }
-    case "POST /api/archive":
-    case "POST /api/unarchive": {
-      const paths: string[] = Array.isArray(body.paths) ? body.paths : [];
-      const moved = paths.map((p) => {
-        const r = route.endsWith("unarchive") ? quire.unarchive(p, "you") : quire.archive(p, "you");
-        return { from: p, to: r.path };
-      });
-      resync();
-      broadcast({ type: "tree" });
-      return send(res, 200, { moved });
-    }
-    case "GET /api/backlinks":
-      return send(res, 200, quire.backlinks(q("path")));
-    case "GET /api/unfurl": {
-      const target = q("url");
-      if (!/^https?:\/\//i.test(target)) return send(res, 400, { error: "http(s) URLs only" });
-      return send(res, 200, await unfurl(target));
-    }
-    case "GET /api/changes":
-      return send(res, 200, quire.changes({ limit: Number(q("limit")) || 50 }));
-    case "PUT /api/note": {
-      const rel = cleanPath(body.path);
-      // Never let a client blank out a note by accident (e.g. a stale tab whose editor failed to load).
-      if (!String(body.content ?? "").trim() && !body.allowEmpty && fs.existsSync(quire.abs(rel)) && fs.readFileSync(quire.abs(rel), "utf8").trim()) {
-        return send(res, 422, { error: `Refusing to replace ${rel} with an empty note`, code: "empty" });
-      }
-      const isNew = !seen.has(rel);
-      const r = quire.save(rel, String(body.content), { baseVersion: body.baseVersion, source: "you" });
-      seen.set(rel, r.version);
-      lastText.set(rel, String(body.content));
-      if (r.change) announce(rel, String(body.content), r.version, r.change, body.clientId);
-      if (isNew) broadcast({ type: "tree" });
-      return send(res, 200, { path: rel, version: r.version });
-    }
-    case "POST /api/note": {
-      const r = quire.create(body.path, String(body.content ?? ""), "you");
-      seen.set(r.path, r.version);
-      lastText.set(r.path, String(body.content ?? ""));
-      broadcast({ type: "change", change: r.change });
-      broadcast({ type: "tree" });
-      return send(res, 200, { path: r.path, version: r.version });
-    }
-    case "POST /api/move": {
-      const r = quire.move(body.from, body.to, "you");
-      resync();
-      broadcast({ type: "tree" });
-      return send(res, 200, r);
-    }
-  }
-  send(res, 404, { error: `No route ${route}` });
+  const response = await handleApi(host, await toRequest(req, url), route);
+  send(res, response ?? json({ error: `No route ${req.method} ${url.pathname}` }, 404));
 }
 
 function asset(res: http.ServerResponse, raw: string) {
   const rel = cleanPath(raw);
   const mime = mimeOf(rel);
-  if (!mime || !fs.existsSync(quire.abs(rel))) return send(res, 404, { error: "Not found" });
+  if (!mime || !files.stat(rel)) return send(res, json({ error: "Not found" }, 404));
   res.writeHead(200, {
     "Content-Type": mime,
     // Assets are agent-writable too: never let one run script in our origin (e.g. an SVG opened directly).
@@ -263,43 +191,31 @@ function asset(res: http.ServerResponse, raw: string) {
     "X-Content-Type-Options": "nosniff",
     "Cache-Control": "no-cache",
   });
-  fs.createReadStream(quire.abs(rel)).pipe(res);
+  fs.createReadStream(files.abs(rel)).pipe(res);
 }
 
-function readJson(req: http.IncomingMessage): Promise<any> {
-  return new Promise((resolve, reject) => {
-    let size = 0;
+async function toRequest(req: http.IncomingMessage, url: URL): Promise<Request> {
+  const headers = new Headers();
+  for (const [k, v] of Object.entries(req.headers)) if (v !== undefined) headers.set(k, Array.isArray(v) ? v.join(", ") : v);
+  let body: Buffer | undefined;
+  if (req.method !== "GET" && req.method !== "HEAD") {
     const chunks: Buffer[] = [];
-    req.on("data", (c: Buffer) => {
-      size += c.length;
-      if (size > 20 * 1024 * 1024) reject(new QuireError("Body too large"));
-      chunks.push(c);
-    });
-    req.on("end", () => {
-      try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"));
-      } catch {
-        reject(new QuireError("Invalid JSON"));
-      }
-    });
-    req.on("error", reject);
-  });
-}
-
-function send(res: http.ServerResponse, status: number, data: unknown) {
-  res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-  res.end(JSON.stringify(data));
-}
-
-function fail(res: http.ServerResponse, e: unknown) {
-  if (e instanceof QuireError) {
-    const status = { not_found: 404, conflict: 409, exists: 409, invalid: 400 }[e.code];
-    return send(res, status, { error: e.message, code: e.code, ...e.data });
+    let size = 0;
+    for await (const c of req) {
+      size += (c as Buffer).length;
+      if (size > 20 * 1024 * 1024) throw new Error("Body too large");
+      chunks.push(c as Buffer);
+    }
+    body = Buffer.concat(chunks);
   }
-  console.error(e);
-  send(res, 500, { error: "Internal error" });
+  return new Request(url, { method: req.method, headers, body: body ? new Uint8Array(body) : undefined });
+}
+
+async function send(res: http.ServerResponse, r: Response) {
+  res.writeHead(r.status, Object.fromEntries(r.headers));
+  res.end(Buffer.from(await r.arrayBuffer()));
 }
 
 httpServer.listen(PORT, "127.0.0.1", () => {
-  console.log(`\n  Quire  http://localhost:${PORT}\n  vault  ${quire.root}\n`);
+  console.log(`\n  Quire  http://localhost:${PORT}\n  vault  ${files.root}\n`);
 });

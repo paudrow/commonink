@@ -4,8 +4,20 @@
     {
       "name": "quire",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 4777
+    },
+    {
+      "name": "commonink-cloud",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "cloud:dev"
+      ],
+      "port": 8787
     }
   ]
 }

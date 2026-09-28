@@ -2,8 +2,8 @@ import "./styles.css";
 import { EditorView } from "@codemirror/view";
 import type { EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
-import { api, clientId, connect, isArchived, ApiError, type Change, type NoteMeta, type Scope, type ServerMsg } from "./api.ts";
-import { $, avatar, displayName, el, hueFor, hydrateIcons, icon, timeAgo } from "./dom.ts";
+import { api, clientId, connect, fileUrl, isArchived, useWorkspace, whoAmI, ApiError, type Change, type NoteMeta, type Scope, type ServerMsg } from "./api.ts";
+import { $, avatar, displayName, el, hueFor, hydrateIcons, icon, isSelf, setSelfName, timeAgo } from "./dom.ts";
 import { createState, linkTargetAt, remote, vimSlot } from "./editor/setup.ts";
 import { bumpEmbeds, editorContext } from "./editor/blocks.ts";
 import { clearFlash, flashChanges } from "./editor/agentFlash.ts";
@@ -11,6 +11,7 @@ import { editsBetween, merge3 } from "./merge.ts";
 import { sandboxFrame } from "./render.ts";
 import { Palette } from "./palette.ts";
 import { Feed } from "./feed.ts";
+import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
 import { groupChanges } from "../../src/core/format.ts";
 import { watchTimers } from "./widgets/timer.ts";
@@ -142,8 +143,8 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   if (opts.push !== false && decodeURIComponent(location.hash.slice(2)) !== note.path) {
     history.pushState(null, "", `#/${encodeURIComponent(note.path)}`);
   }
-  store.set("last", note.path);
-  document.title = `${note.title} · Quire`;
+  store.set(lastKey(), note.path);
+  document.title = `${note.title} · Common Ink`;
   renderChrome();
   renderTree();
   renderOutline();
@@ -153,7 +154,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
 
 function showAsset(meta: NoteMeta, push?: boolean) {
   session = { path: meta.path, kind: "asset", title: displayName(meta.path), base: "", baseVersion: meta.version, saving: false, again: false, timer: 0, edited: false };
-  const src = `/vault/${meta.path.split("/").map(encodeURIComponent).join("/")}`;
+  const src = fileUrl(meta.path);
   const media = /\.(mp4|webm)$/i.test(meta.path)
     ? el("video", { src, controls: true })
     : /\.pdf$/i.test(meta.path)
@@ -162,7 +163,7 @@ function showAsset(meta: NoteMeta, push?: boolean) {
   $("#asset-view").replaceChildren(el("figure", { class: "asset" }, media, el("figcaption", {}, meta.path)));
   showStage("asset");
   if (push !== false) history.pushState(null, "", `#/${encodeURIComponent(meta.path)}`);
-  document.title = `${displayName(meta.path)} · Quire`;
+  document.title = `${displayName(meta.path)} · Common Ink`;
   renderChrome();
   renderTree();
   renderOutline();
@@ -186,7 +187,7 @@ async function showFeed(opts: { scope?: Scope; filter?: boolean; push?: boolean 
   showStage("feed");
   feed.show(opts);
   if (opts.push !== false && location.hash !== "#feed") history.pushState(null, "", "#feed");
-  document.title = "Feed · Quire";
+  document.title = "Feed · Common Ink";
   renderChrome();
   renderTree();
   renderOutline();
@@ -295,8 +296,8 @@ async function nameUntitled(s: Session) {
     s.title = title!;
     if (s === session) {
       history.replaceState(null, "", `#/${encodeURIComponent(r.path)}`);
-      store.set("last", r.path);
-      document.title = `${s.title} · Quire`;
+      store.set(lastKey(), r.path);
+      document.title = `${s.title} · Common Ink`;
       renderChrome();
     }
     await refreshNotes();
@@ -450,7 +451,7 @@ function onMessage(m: ServerMsg) {
       if (m.origin === clientId) return;
       if (m.path === session?.path) applyRemote(m);
       else if (session?.kind === "md" && embedsPath(m.path)) bumpEmbeds(view);
-      if (m.source !== "you" && m.change) {
+      if (!isSelf(m.source) && m.change) {
         toast({
           source: m.source,
           text: `${verb(m.change)} ${displayName(m.path)}`,
@@ -513,7 +514,7 @@ interface Dir {
 function recentAgentEdits(): Map<string, string> {
   const since = Date.now() - 15 * 60_000;
   const out = new Map<string, string>();
-  for (const c of changes) if (c.ts > since && c.source !== "you" && !out.has(c.path)) out.set(c.path, c.source);
+  for (const c of changes) if (c.ts > since && !isSelf(c.source) && !out.has(c.path)) out.set(c.path, c.source);
   return out;
 }
 
@@ -786,7 +787,7 @@ function renderActivity() {
 
 function renderPresence() {
   const since = Date.now() - 15 * 60_000;
-  const active = [...new Set(changes.filter((c) => c.ts > since && c.source !== "you").map((c) => c.source))].slice(0, 4);
+  const active = [...new Set(changes.filter((c) => c.ts > since && !isSelf(c.source)).map((c) => c.source))].slice(0, 4);
   $("#agents").replaceChildren(...active.map((a) => avatar(a, 22)));
   $("#agents").title = active.length ? `Active in the last 15 min: ${active.join(", ")}` : "";
 }
@@ -938,7 +939,21 @@ function debounce<A extends unknown[]>(fn: (...a: A) => unknown, ms: number) {
   };
 }
 
+let workspaceId = "";
+const lastKey = () => (workspaceId ? `last:${workspaceId}` : "last");
+
 async function boot() {
+  // Online, the note API is per workspace and needs a signed-in person; locally it's just /api.
+  const who = await whoAmI();
+  if (who && !who.me) return showSignIn(who.devLogin);
+  if (who?.me) {
+    const ws = pickWorkspace(who.me);
+    workspaceId = ws.id;
+    useWorkspace(`/api/w/${ws.id}`, `/api/w/${ws.id}/live`);
+    setSelfName(who.me.user.name);
+    renderAccount(who.me, ws, (t) => toast(t));
+  }
+
   hydrateIcons();
   togglePanel(prefs.panel);
   $("#search-btn").addEventListener("click", () => palette.open());
@@ -996,7 +1011,7 @@ async function boot() {
 
   if (location.hash === "#feed") return void showFeed({ push: false });
   const fromHash = decodeURIComponent(location.hash.slice(2));
-  const start = [fromHash, store.get("last", ""), "Welcome.md"].find((p) => p && notes.some((n) => n.path === p)) ?? notes[0]?.path;
+  const start = [fromHash, store.get(lastKey(), ""), "Welcome.md"].find((p) => p && notes.some((n) => n.path === p)) ?? notes[0]?.path;
   if (start) await openNote(start, { push: false });
   if (start && !fromHash) history.replaceState(null, "", `#/${encodeURIComponent(start)}`);
 }

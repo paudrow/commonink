@@ -157,13 +157,9 @@ body.panel-closed #panel { opacity: 0; pointer-events: none; }
 .brand-mark {
   width: 26px;
   height: 26px;
-  border-radius: 8px;
-  background:
-    linear-gradient(#fff, #fff) 7px 8px / 12px 2.4px no-repeat,
-    linear-gradient(#fff, #fff) 7px 12px / 12px 2.4px no-repeat,
-    linear-gradient(#fff, #fff) 7px 16px / 8px 2.4px no-repeat,
-    linear-gradient(145deg, #7373e8, #4b4bc4);
-  box-shadow: 0 2px 6px -1px rgba(75, 75, 196, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+  border-radius: 24%;
+  background: url("/favicon.svg") center / contain no-repeat;
+  box-shadow: 0 2px 6px -1px rgba(75, 75, 196, 0.45);
   flex: none;
 }
 .brand-text { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
@@ -1141,3 +1137,79 @@ body.panel-closed #panel { opacity: 0; pointer-events: none; }
 .cm-diagram.is-loading { background: linear-gradient(90deg, var(--hover), var(--active), var(--hover)); background-size: 200% 100%; animation: shimmer 1.2s linear infinite; min-height: 140px; }
 .cm-diagram svg { max-width: 100% !important; height: auto; } /* mermaid sets an inline max-width */
 .cm-diagram-error { font: 12.5px var(--mono); color: var(--bad); align-self: center; }
+
+/* ------------------------------------------------------------------ sign-in + account (online) */
+#signin {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(900px 500px at 15% -10%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 60%),
+    radial-gradient(700px 400px at 110% 110%, color-mix(in srgb, #e0835b 18%, transparent), transparent 60%),
+    var(--bg);
+}
+.signin-card {
+  width: min(420px, 100%);
+  padding: 40px 36px 30px;
+  border-radius: 20px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+}
+.brand-mark.big {
+  display: inline-block;
+  width: 52px;
+  height: 52px;
+  box-shadow: 0 6px 18px -4px rgba(75, 75, 196, 0.55);
+}
+.signin-card h1 { margin: 18px 0 6px; font-size: 28px; letter-spacing: -0.025em; color: var(--heading); }
+.signin-tag { margin: 0 0 26px; color: var(--ink-2); font-size: 15px; line-height: 1.5; }
+.google-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 46px;
+  border-radius: 11px;
+  border: 1px solid #dadce0;
+  background: #fff;
+  color: #1f1f1f;
+  font: 600 15px/1 var(--ui);
+  text-decoration: none;
+  transition: box-shadow 0.15s, background 0.15s;
+}
+.google-btn:hover { background: #f8f9fb; box-shadow: 0 1px 3px rgba(60, 64, 67, 0.25); }
+.dev-btn { display: block; margin-top: 12px; font-size: 13px; color: var(--muted); }
+.signin-fine { margin: 22px 0 0; font-size: 12px; color: var(--faint); }
+
+.acct { position: relative; margin-bottom: 8px; }
+.acct-btn { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; border-radius: 9px; text-align: left; }
+.acct-btn:hover { background: var(--hover); }
+.acct-btn > svg { color: var(--muted); transform: rotate(-90deg); flex: none; }
+.acct-face { width: 28px; height: 28px; border-radius: 50%; flex: none; object-fit: cover; }
+.acct-face.is-initial { display: grid; place-items: center; background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; font-size: 13px; }
+.acct-text { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.25; }
+.acct-name { font-weight: 600; font-size: 13px; color: var(--ink-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-ws { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-lg);
+}
+.acct-section { font: 650 10.5px/1 var(--ui); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 8px 8px 6px; }
+.acct-item { display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 8px; border-radius: 7px; font-size: 13px; color: var(--ink-2); text-align: left; }
+.acct-item:hover { background: var(--hover); color: var(--ink-strong); }
+.acct-item svg { color: var(--muted); flex: none; }
+.acct-item.is-current { color: var(--accent-ink); font-weight: 600; }
+.acct-item.is-current svg { color: var(--accent); }
+.acct-sep { height: 1px; background: var(--line); margin: 6px 2px; }

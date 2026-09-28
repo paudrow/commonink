@@ -1,16 +1,9 @@
-import { DatabaseSync, type StatementSync } from "node:sqlite";
-import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { fileURLToPath } from "node:url";
 import { diffLines } from "diff";
+import type { Content, SqlDb } from "./store.ts";
 import { cleanPath, isHidden, kindOf, linkKey, QuireError, stemOf, type NoteKind } from "./paths.ts";
 import { extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
-
-export const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-export const DEFAULT_VAULT = process.env.QUIRE_VAULT
-  ? path.resolve(process.env.QUIRE_VAULT)
-  : path.join(PROJECT_ROOT, "vault");
 
 export interface NoteMeta {
   path: string;
@@ -78,95 +71,36 @@ export interface Task {
 
 const TASK = /^(\s*[-*+]\s+\[)([ xX])(\]\s+)(.*)$/;
 
-export const versionOf = (content: string | Buffer) =>
+export const versionOf = (content: string) =>
   crypto.createHash("sha256").update(content).digest("hex").slice(0, 12);
 
 const CHANGE_COLS = "id, ts, path, op, source, version, summary, from_path";
 
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS notes(
-  path TEXT PRIMARY KEY, kind TEXT NOT NULL, title TEXT NOT NULL, stem TEXT NOT NULL,
-  version TEXT NOT NULL, mtime REAL NOT NULL, size INTEGER NOT NULL);
-CREATE INDEX IF NOT EXISTS notes_stem ON notes(stem);
-CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
-  path, title, body, tokenize='porter unicode61 remove_diacritics 2', prefix='2 3');
-CREATE TABLE IF NOT EXISTS links(src TEXT NOT NULL, key TEXT NOT NULL, kind TEXT NOT NULL, line INTEGER NOT NULL);
-CREATE INDEX IF NOT EXISTS links_key ON links(key);
-CREATE INDEX IF NOT EXISTS links_src ON links(src);
-CREATE TABLE IF NOT EXISTS changes(
-  id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, path TEXT NOT NULL, op TEXT NOT NULL,
-  source TEXT NOT NULL, version TEXT, summary TEXT, from_path TEXT, before TEXT);
-CREATE INDEX IF NOT EXISTS changes_path ON changes(path, version);
-`;
 
 /**
- * The one core every surface (web UI, MCP server, CLI) talks to.
- * Files on disk are the source of truth; SQLite is a rebuildable index + change log.
+ * The one core every surface (web UI, MCP server, CLI, Cloudflare workspace) talks to.
+ * `files` is the source of truth (a folder locally, a table in the cloud); the rest of the
+ * SQLite database is a rebuildable index plus the change log.
  */
 export class Quire {
-  private stmts = new Map<string, StatementSync>();
-
-  private constructor(
-    readonly root: string,
-    readonly db: DatabaseSync,
+  constructor(
+    readonly db: SqlDb,
+    readonly files: Content,
   ) {}
-
-  static open(root = DEFAULT_VAULT): Quire {
-    fs.mkdirSync(path.join(root, ".quire"), { recursive: true });
-    const db = new DatabaseSync(path.join(root, ".quire", "index.db"));
-    db.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA synchronous=NORMAL;");
-    db.exec(SCHEMA);
-    const cols = (db.prepare("PRAGMA table_info(changes)").all() as any[]).map((c) => c.name);
-    if (!cols.includes("before")) db.exec("ALTER TABLE changes ADD COLUMN before TEXT");
-    const q = new Quire(root, db);
-    q.sync();
-    return q;
-  }
-
-  private sql(query: string): StatementSync {
-    let s = this.stmts.get(query);
-    if (!s) this.stmts.set(query, (s = this.db.prepare(query)));
-    return s;
-  }
-
-  private tx<T>(fn: () => T): T {
-    this.db.exec("BEGIN IMMEDIATE");
-    try {
-      const out = fn();
-      this.db.exec("COMMIT");
-      return out;
-    } catch (e) {
-      this.db.exec("ROLLBACK");
-      throw e;
-    }
-  }
-
-  abs(rel: string): string {
-    return path.join(this.root, rel);
-  }
 
   // ---------------------------------------------------------------- indexing
 
-  private *walk(dir = ""): Generator<string> {
-    for (const ent of fs.readdirSync(this.abs(dir), { withFileTypes: true })) {
-      if (ent.name.startsWith(".") || ent.name === "node_modules") continue;
-      const rel = dir ? `${dir}/${ent.name}` : ent.name;
-      if (ent.isDirectory()) yield* this.walk(rel);
-      else if (ent.isFile() && kindOf(rel)) yield rel;
-    }
-  }
-
-  /** Incrementally bring the index in line with the files on disk. Cheap: stats only, reads changed files. */
+  /** Incrementally bring the index in line with the files. Cheap: stats only, reads changed files. */
   sync(): { indexed: number; removed: number } {
     const known = new Map<string, { mtime: number; size: number }>();
-    for (const r of this.sql("SELECT path, mtime, size FROM notes").all() as any[]) known.set(r.path, r);
+    for (const r of this.db.all("SELECT path, mtime, size FROM notes")) known.set(r.path, r);
     let indexed = 0;
     let removed = 0;
-    for (const rel of this.walk()) {
-      const st = fs.statSync(this.abs(rel));
+    for (const { path: rel, ...st } of this.files.list()) {
+      if (!kindOf(rel)) continue;
       const k = known.get(rel);
       known.delete(rel);
-      if (!k || k.mtime !== st.mtimeMs || k.size !== st.size) {
+      if (!k || k.mtime !== st.mtime || k.size !== st.size) {
         this.indexFile(rel);
         indexed++;
       }
@@ -182,72 +116,68 @@ export class Quire {
   indexFile(rel: string, content?: string): NoteMeta | null {
     const kind = kindOf(rel);
     if (!kind || isHidden(rel)) return null;
-    let st: fs.Stats;
-    try {
-      st = fs.statSync(this.abs(rel));
-    } catch {
+    const st = this.files.stat(rel);
+    if (!st) {
       this.unindex(rel);
       return null;
     }
-    if (!st.isFile()) return null;
     let version: string;
     let title: string;
     let body = "";
     if (kind === "asset") {
-      version = versionOf(`${st.size}:${st.mtimeMs}`);
+      version = versionOf(`${st.size}:${st.mtime}`);
       title = path.posix.basename(rel);
     } else {
-      content ??= fs.readFileSync(this.abs(rel), "utf8");
+      content ??= this.files.read(rel) ?? "";
       version = versionOf(content);
       title = titleOf(content, kind, rel);
       body = searchableText(content, kind);
     }
-    const meta: NoteMeta = { path: rel, kind, title, version, mtime: st.mtimeMs, size: st.size };
-    this.tx(() => {
-      this.sql(
+    const meta: NoteMeta = { path: rel, kind, title, version, mtime: st.mtime, size: st.size };
+    this.db.tx(() => {
+      this.db.run(
         `INSERT INTO notes(path, kind, title, stem, version, mtime, size) VALUES (?,?,?,?,?,?,?)
          ON CONFLICT(path) DO UPDATE SET kind=excluded.kind, title=excluded.title, stem=excluded.stem,
            version=excluded.version, mtime=excluded.mtime, size=excluded.size`,
-      ).run(rel, kind, title, stemOf(rel), version, st.mtimeMs, st.size);
-      this.sql("DELETE FROM notes_fts WHERE path = ?").run(rel);
-      this.sql("DELETE FROM links WHERE src = ?").run(rel);
-      if (kind !== "asset") {
-        this.sql("INSERT INTO notes_fts(path, title, body) VALUES (?,?,?)").run(rel, title, body);
-      }
+        rel, kind, title, stemOf(rel), version, st.mtime, st.size,
+      );
+      this.db.run("DELETE FROM notes_fts WHERE path = ?", rel);
+      this.db.run("DELETE FROM links WHERE src = ?", rel);
+      if (kind !== "asset") this.db.run("INSERT INTO notes_fts(path, title, body) VALUES (?,?,?)", rel, title, body);
       if (kind === "md" && content) {
-        const ins = this.sql("INSERT INTO links(src, key, kind, line) VALUES (?,?,?,?)");
-        for (const l of extractLinks(content)) ins.run(rel, l.key, l.kind, l.line);
+        for (const l of extractLinks(content)) this.db.run("INSERT INTO links(src, key, kind, line) VALUES (?,?,?,?)", rel, l.key, l.kind, l.line);
       }
     });
     return meta;
   }
 
   unindex(rel: string): void {
-    this.tx(() => {
-      this.sql("DELETE FROM notes WHERE path = ?").run(rel);
-      this.sql("DELETE FROM notes_fts WHERE path = ?").run(rel);
-      this.sql("DELETE FROM links WHERE src = ?").run(rel);
+    this.db.tx(() => {
+      this.db.run("DELETE FROM notes WHERE path = ?", rel);
+      this.db.run("DELETE FROM notes_fts WHERE path = ?", rel);
+      this.db.run("DELETE FROM links WHERE src = ?", rel);
     });
   }
 
   meta(rel: string): NoteMeta | null {
-    return (this.sql("SELECT path, kind, title, version, mtime, size FROM notes WHERE path = ?").get(rel) as any) ?? null;
+    return this.db.get("SELECT path, kind, title, version, mtime, size FROM notes WHERE path = ?", rel) ?? null;
   }
 
   // ---------------------------------------------------------------- reading
 
   /** All notes, or one folder's. Archived notes are left out unless asked for (or you list Archive/). */
   list(folder?: string, scope: ArchiveScope = "active"): NoteMeta[] {
-    const rows = this.sql("SELECT path, kind, title, version, mtime, size FROM notes ORDER BY path COLLATE NOCASE").all() as any[];
+    const rows = this.db.all("SELECT path, kind, title, version, mtime, size FROM notes ORDER BY path COLLATE NOCASE");
     if (!folder) return rows.filter((r) => inScope(r.path, scope));
     const prefix = cleanPath(folder).replace(/\/?$/, "/");
     return rows.filter((r) => r.path.startsWith(prefix) && (isArchived(prefix) || inScope(r.path, scope)));
   }
 
   recent(limit = 20): NoteMeta[] {
-    return this.sql(
+    return this.db.all(
       "SELECT path, kind, title, version, mtime, size FROM notes WHERE kind != 'asset' AND path NOT LIKE 'Archive/%' ORDER BY mtime DESC LIMIT ?",
-    ).all(limit) as any[];
+      limit,
+    );
   }
 
   /**
@@ -264,13 +194,13 @@ export class Quire {
       for (const p of kindOf(c) ? [c] : [`${c}.md`, c]) {
         try {
           const rel = cleanPath(p);
-          if (kindOf(rel) && fs.statSync(this.abs(rel)).isFile()) return rel;
+          if (kindOf(rel) && this.files.stat(rel)) return rel;
         } catch {}
       }
     }
     const key = linkKey(t);
     const base = key.split("/").pop()!;
-    const rows = (this.sql("SELECT path FROM notes WHERE stem = ?").all(base) as any[])
+    const rows = this.db.all("SELECT path FROM notes WHERE stem = ?", base)
       .map((r) => r.path as string)
       .filter((p) => linkKey(p).endsWith(key));
     if (!rows.length) return null;
@@ -289,7 +219,8 @@ export class Quire {
     const rel = this.mustResolve(target);
     const kind = kindOf(rel)!;
     if (kind === "asset") throw new QuireError(`${rel} is a binary asset, not a note`);
-    const content = fs.readFileSync(this.abs(rel), "utf8");
+    const content = this.files.read(rel);
+    if (content === null) throw new QuireError(`No note matches "${target}"`, "not_found");
     const meta = this.meta(rel) ?? this.indexFile(rel, content)!;
     return { ...meta, version: versionOf(content), content };
   }
@@ -301,27 +232,26 @@ export class Quire {
   search(query: string, limit = 20, scope: ArchiveScope = "active"): SearchHit[] {
     const terms = searchTerms(query);
     if (!terms.length) return [];
-    const rows = this.sql(
+    const rows = this.db.all(
       `SELECT n.path, n.title, n.kind,
               snippet(notes_fts, 2, char(1), char(2), '…', 16) AS snippet,
               bm25(notes_fts, 4.0, 8.0, 1.0) AS score
        FROM notes_fts JOIN notes n ON n.path = notes_fts.path
        WHERE notes_fts MATCH ? AND (? = 'all' OR (n.path LIKE 'Archive/%') = (? = 'archived'))
        ORDER BY score LIMIT ?`,
-    ).all(ftsQuery(terms), scope, scope, limit) as any[];
+      ftsQuery(terms), scope, scope, limit,
+    );
     return rows.map((r) => ({ ...r, lines: this.matchingLines(r.path, terms) }));
   }
 
   private matchingLines(rel: string, terms: string[], max = 3): SearchHit["lines"] {
     const needles = terms.map((t) => t.toLowerCase());
     const lines: SearchHit["lines"] = [];
-    try {
-      const text = fs.readFileSync(this.abs(rel), "utf8").split("\n");
-      for (let i = 0; i < text.length && lines.length < max; i++) {
-        const l = text[i].toLowerCase();
-        if (needles.some((n) => l.includes(n))) lines.push({ line: i + 1, text: text[i].trim().slice(0, 200) });
-      }
-    } catch {}
+    const text = (this.files.read(rel) ?? "").split("\n");
+    for (let i = 0; i < text.length && lines.length < max; i++) {
+      const l = text[i].toLowerCase();
+      if (needles.some((n) => l.includes(n))) lines.push({ line: i + 1, text: text[i].trim().slice(0, 200) });
+    }
     return lines;
   }
 
@@ -332,29 +262,26 @@ export class Quire {
   feed(opts: { q?: string; scope?: ArchiveScope; folder?: string; tag?: string; sort?: "modified" | "title"; offset?: number; limit?: number } = {}) {
     const scope = opts.scope ?? "active";
     const terms = searchTerms(opts.q ?? "");
-    let rows = this.sql("SELECT path, kind, title, mtime FROM notes WHERE kind != 'asset' ORDER BY mtime DESC").all() as any[];
+    let rows = this.db.all("SELECT path, kind, title, mtime FROM notes WHERE kind != 'asset' ORDER BY mtime DESC");
     if (terms.length) {
-      const hits = new Set((this.sql("SELECT path FROM notes_fts WHERE notes_fts MATCH ?").all(ftsQuery(terms)) as any[]).map((r) => r.path));
+      const hits = new Set(this.db.all("SELECT path FROM notes_fts WHERE notes_fts MATCH ?", ftsQuery(terms)).map((r) => r.path));
       rows = rows.filter((r) => hits.has(r.path));
     }
     const home = (p: string) => (isArchived(p) ? p.slice(ARCHIVE.length) : p);
     if (opts.folder) rows = rows.filter((r) => home(r.path).startsWith(opts.folder!.replace(/\/?$/, "/")));
     if (opts.tag) {
       const want = opts.tag.replace(/^#/, "").toLowerCase();
-      rows = rows.filter((r) => r.kind === "md" && tagsOf(this.abs(r.path)).includes(want));
+      rows = rows.filter((r) => r.kind === "md" && tagsOf(this.files.read(r.path) ?? "").includes(want));
     }
     if (opts.sort === "title") rows.sort((a, b) => a.title.localeCompare(b.title));
     const counts = { active: rows.filter((r) => !isArchived(r.path)).length, archived: rows.filter((r) => isArchived(r.path)).length };
     rows = rows.filter((r) => inScope(r.path, scope));
     const lastSource = new Map(
-      (this.sql("SELECT path, source FROM changes WHERE id IN (SELECT max(id) FROM changes GROUP BY path)").all() as any[]).map((r) => [r.path, r.source]),
+      this.db.all("SELECT path, source FROM changes WHERE id IN (SELECT max(id) FROM changes GROUP BY path)").map((r) => [r.path, r.source]),
     );
     const offset = opts.offset ?? 0;
     const items: FeedItem[] = rows.slice(offset, offset + (opts.limit ?? 30)).map((r) => {
-      let content = "";
-      try {
-        content = fs.readFileSync(this.abs(r.path), "utf8");
-      } catch {}
+      const content = this.files.read(r.path) ?? "";
       const { data, body } = r.kind === "md" ? splitFrontmatter(content) : { data: {} as Record<string, string>, body: "" };
       return {
         path: r.path,
@@ -374,10 +301,11 @@ export class Quire {
   backlinks(target: string): Backlink[] {
     const rel = this.mustResolve(target);
     const keys = [stemOf(rel), linkKey(rel), rel.toLowerCase()];
-    const rows = this.sql(
+    const rows = this.db.all(
       `SELECT DISTINCT l.src AS path, n.title, l.kind, l.line FROM links l JOIN notes n ON n.path = l.src
        WHERE l.key IN (?,?,?) AND l.src != ? ORDER BY n.mtime DESC, l.line`,
-    ).all(...keys, rel) as any[];
+      ...keys, rel,
+    );
     const cache = new Map<string, string[]>();
     return rows
       .filter((r) => {
@@ -389,7 +317,7 @@ export class Quire {
 
   /** Find the raw link target on a line whose key matches (so ambiguous names resolve correctly). */
   private linkTargetAt(src: string, line: number, keys: string[], cache: Map<string, string[]>): string | null {
-    if (!cache.has(src)) cache.set(src, fs.readFileSync(this.abs(src), "utf8").split("\n"));
+    if (!cache.has(src)) cache.set(src, (this.files.read(src) ?? "").split("\n"));
     const text = cache.get(src)![line - 1] ?? "";
     for (const l of extractLinks(text)) if (keys.includes(l.key)) return l.target;
     return null;
@@ -404,34 +332,33 @@ export class Quire {
       sinceTs = Date.parse(opts.since);
       if (Number.isNaN(sinceTs)) throw new QuireError(`Bad "since": ${opts.since} (use an ISO time or a change id)`);
     }
-    return this.sql(
+    return this.db.all(
       `SELECT ${CHANGE_COLS} FROM changes WHERE id > ? AND ts > ? AND (? IS NULL OR path = ?) ORDER BY id DESC LIMIT ?`,
-    ).all(sinceId, sinceTs, opts.path ?? null, opts.path ?? null, limit) as any[];
+      sinceId, sinceTs, opts.path ?? null, opts.path ?? null, limit,
+    );
   }
 
   /** Who produced this exact version of a file? Used to attribute file-watcher events. */
   attribution(rel: string, version: string, withinMs = 120_000): Change | null {
     return (
-      (this.sql(`SELECT ${CHANGE_COLS} FROM changes WHERE path = ? AND version = ? AND ts > ? ORDER BY id DESC LIMIT 1`).get(
-        rel,
-        version,
-        Date.now() - withinMs,
-      ) as any) ?? null
+      this.db.get(`SELECT ${CHANGE_COLS} FROM changes WHERE path = ? AND version = ? AND ts > ? ORDER BY id DESC LIMIT 1`, rel, version, Date.now() - withinMs) ??
+      null
     );
   }
 
   /** `before` is the note's previous text, kept so any change can be undone with restore(). */
   recordChange(c: Omit<Change, "id" | "ts">, before: string | null = null): Change {
     const ts = Date.now();
-    const r = this.sql(
+    const r = this.db.run(
       "INSERT INTO changes(ts, path, op, source, version, summary, from_path, before) VALUES (?,?,?,?,?,?,?,?)",
-    ).run(ts, c.path, c.op, c.source, c.version, c.summary, c.from_path, before);
-    return { ...c, id: Number(r.lastInsertRowid), ts };
+      ts, c.path, c.op, c.source, c.version, c.summary, c.from_path, before,
+    );
+    return { ...c, id: r.lastId, ts };
   }
 
   /** Put a note back the way it was before change #id. */
   restore(id: number, source: string) {
-    const row = this.sql("SELECT path, op, before FROM changes WHERE id = ?").get(id) as any;
+    const row = this.db.get("SELECT path, op, before FROM changes WHERE id = ?", id);
     if (!row) throw new QuireError(`No change #${id}`, "not_found");
     if (row.before === null) throw new QuireError(`Change #${id} (${row.op} ${row.path}) has no earlier text to restore`);
     return this.save(row.path, row.before, { source });
@@ -439,16 +366,8 @@ export class Quire {
 
   // ---------------------------------------------------------------- writing
 
-  private writeAtomic(rel: string, content: string): void {
-    const abs = this.abs(rel);
-    fs.mkdirSync(path.dirname(abs), { recursive: true });
-    const tmp = path.join(path.dirname(abs), `.${path.basename(abs)}.${process.pid}.tmp`);
-    fs.writeFileSync(tmp, content);
-    fs.renameSync(tmp, abs);
-  }
-
   private commit(rel: string, before: string | null, after: string, source: string, op: Change["op"]) {
-    this.writeAtomic(rel, after);
+    this.files.write(rel, after);
     const meta = this.indexFile(rel, after)!;
     const change = this.recordChange(
       {
@@ -469,15 +388,15 @@ export class Quire {
     if (!kindOf(rel)) rel += ".md";
     const kind = kindOf(rel);
     if (kind === "asset") throw new QuireError("Only .md and .html notes can be created");
-    if (fs.existsSync(this.abs(rel))) throw new QuireError(`${rel} already exists; use edit_note instead`, "exists", { path: rel });
+    if (this.files.stat(rel)) throw new QuireError(`${rel} already exists; use edit_note instead`, "exists", { path: rel });
     return this.commit(rel, null, content, source, "create");
   }
 
   /** Whole-file save with optimistic concurrency (what the editor uses). */
   save(target: string, content: string, opts: { baseVersion?: string; source: string }) {
     const rel = cleanPath(target);
-    const exists = fs.existsSync(this.abs(rel));
-    const current = exists ? fs.readFileSync(this.abs(rel), "utf8") : null;
+    const current = this.files.read(rel);
+    const exists = current !== null;
     if (current !== null && opts.baseVersion && versionOf(current) !== opts.baseVersion) {
       const last = this.attribution(rel, versionOf(current), 24 * 3600_000);
       throw new QuireError(`${rel} changed on disk since version ${opts.baseVersion}`, "conflict", {
@@ -532,12 +451,8 @@ export class Quire {
     const out: Task[] = [];
     for (const n of this.list(undefined, "active")) {
       if (n.kind !== "md" || (only && n.path !== only) || (prefix && !n.path.startsWith(prefix))) continue;
-      let text: string;
-      try {
-        text = fs.readFileSync(this.abs(n.path), "utf8");
-      } catch {
-        continue;
-      }
+      const text = this.files.read(n.path);
+      if (text === null) continue;
       let heading: string | null = null;
       let fence = false;
       text.split("\n").forEach((line, i) => {
@@ -590,7 +505,7 @@ export class Quire {
     const ext = path.posix.extname(rel);
     const stem = rel.slice(0, rel.length - ext.length);
     let out = rel;
-    for (let i = 2; fs.existsSync(this.abs(out)); i++) out = `${stem} ${i}${ext}`;
+    for (let i = 2; this.files.stat(out); i++) out = `${stem} ${i}${ext}`;
     return out;
   }
 
@@ -599,22 +514,22 @@ export class Quire {
     const from = this.mustResolve(target);
     let dest = cleanPath(to);
     if (!kindOf(dest)) dest += path.posix.extname(from);
-    if (dest === from) return { path: dest, updated: [] as string[] };
-    if (fs.existsSync(this.abs(dest))) throw new QuireError(`${dest} already exists`, "exists");
+    if (dest === from) return { path: dest, from, version: this.meta(from)?.version ?? "", change: null, updated: [] as string[], edits: [] };
+    if (this.files.stat(dest)) throw new QuireError(`${dest} already exists`, "exists");
     const referrers = [...new Set(this.backlinks(from).map((b) => b.path))];
     const oldKeys = new Set([stemOf(from), linkKey(from), from.toLowerCase()]);
 
-    fs.mkdirSync(path.dirname(this.abs(dest)), { recursive: true });
-    fs.renameSync(this.abs(from), this.abs(dest));
+    this.files.rename(from, dest);
     this.unindex(from);
     const meta = this.indexFile(dest)!;
-    this.recordChange({ path: dest, op, source, version: meta.version, summary: `from ${from}`, from_path: from });
+    const change = this.recordChange({ path: dest, op, source, version: meta.version, summary: `from ${from}`, from_path: from });
 
-    const newStemUnique = (this.sql("SELECT count(*) AS n FROM notes WHERE stem = ?").get(stemOf(dest)) as any).n === 1;
+    const newStemUnique = this.db.get("SELECT count(*) AS n FROM notes WHERE stem = ?", stemOf(dest)).n === 1;
     const wikiTarget = newStemUnique ? path.posix.basename(dest).replace(/\.(md|markdown)$/i, "") : dest.replace(/\.(md|markdown)$/i, "");
     const updated: string[] = [];
+    const edits: Array<{ path: string; content: string; version: string; change: Change }> = [];
     for (const src of referrers) {
-      const before = fs.readFileSync(this.abs(src), "utf8");
+      const before = this.files.read(src) ?? "";
       const after = before
         .replace(/(!?)\[\[([^\]|#\n]+)(#[^\]|\n]*)?(\|[^\]\n]*)?\]\]/g, (m, bang, t, hash = "", alias = "") =>
           oldKeys.has(linkKey(t)) && this.resolve(t, src) === null ? `${bang}[[${wikiTarget}${hash}${alias}]]` : m,
@@ -623,21 +538,18 @@ export class Quire {
           oldKeys.has(linkKey(decodeURIComponent(t))) ? `${pre}${encodeURI(dest)}${post}` : m,
         );
       if (after !== before) {
-        this.commit(src, before, after, source, "edit");
+        const r = this.commit(src, before, after, source, "edit");
         updated.push(src);
+        edits.push({ path: src, content: after, version: r.version, change: r.change });
       }
     }
-    return { path: dest, updated };
+    return { path: dest, from, version: meta.version, change, updated, edits };
   }
 }
 
-function tagsOf(abs: string): string[] {
-  try {
-    const { data } = splitFrontmatter(fs.readFileSync(abs, "utf8"));
-    return (data.tags ?? "").replace(/^\[|\]$/g, "").split(",").map((t) => t.trim().replace(/^#/, "").toLowerCase()).filter(Boolean);
-  } catch {
-    return [];
-  }
+function tagsOf(text: string): string[] {
+  const { data } = splitFrontmatter(text);
+  return (data.tags ?? "").replace(/^\[|\]$/g, "").split(",").map((t) => t.trim().replace(/^#/, "").toLowerCase()).filter(Boolean);
 }
 
 function searchTerms(q: string): string[] {
