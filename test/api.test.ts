@@ -142,6 +142,10 @@ test("tasks filter by due date against the reader's today, and a task's tokens c
     assert.match(r.body.error, message);
   }
   assert.equal((await call("GET", "/tasks?due=soon")).status, 400);
+  await call("POST", "/tasks/set", { path: "Roadmap", line: 8, text: "Ship the importer due:2026-10-01 @jane", done: true, today: "2026-10-02" });
+  assert.equal((await call("GET", "/note?path=Roadmap")).body.content.split("\n")[7], "- [x] Ship the importer due:2026-10-01 @jane done:2026-10-02");
+  const late = await call("POST", "/tasks/set", { path: "Roadmap", line: 8, text: "Ship the importer due:2026-10-01 @jane done:2026-10-02", done: false, today: "someday" });
+  assert.deepEqual([late.status, late.body.error], [400, `"today" must be a date like 2026-10-01, not "someday"`]);
 });
 
 test("favorites are starred, ordered and unstarred per person, and tell the other tabs", async () => {

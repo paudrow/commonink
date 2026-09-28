@@ -1,4 +1,7 @@
-import type { TaskMeta, TaskPatch } from "../../src/core/tasks.ts";
+import { localDate, type TaskMeta, type TaskPatch } from "../../src/core/tasks.ts";
+
+/** The reader's day, which task writes and due filters go by (the server may be in another time zone). */
+const today = () => localDate(Date.now());
 
 export type { TaskMeta, TaskPatch };
 export type Kind = "md" | "html" | "asset";
@@ -178,9 +181,9 @@ export const api = {
   setAssetTags: (path: string, tags: string[]) => j<{ tags: string[] }>(`${BASE}/asset-tags`, send("PUT", { path, tags })),
   /** Rename (or merge) a tag everywhere. Restoring `changes` and setting `assets` back undoes it. */
   renameTag: (from: string, to: string) => j<{ changes: number[]; assets: Record<string, string[]> }>(`${BASE}/tags/rename`, send("POST", { from, to })),
-  setTask: (t: Task, done: boolean) => j<{ path: string; version: string }>(`${BASE}/tasks/set`, send("POST", { path: t.path, line: t.line, text: t.text, done })),
+  setTask: (t: Task, done: boolean) => j<{ path: string; version: string }>(`${BASE}/tasks/set`, send("POST", { path: t.path, line: t.line, text: t.text, done, today: today() })),
   /** Change a task's tokens in its note; the rest of its line stays as written. */
-  updateTask: (t: Task, patch: TaskPatch) => j<{ path: string; version: string }>(`${BASE}/tasks/update`, send("POST", { path: t.path, line: t.line, text: t.text, patch })),
+  updateTask: (t: Task, patch: TaskPatch) => j<{ path: string; version: string }>(`${BASE}/tasks/update`, send("POST", { path: t.path, line: t.line, text: t.text, patch, today: today() })),
   /** Your starred notes, in your order. Each change returns the new list. */
   favorites: () => j<NoteMeta[]>(`${BASE}/favorites`),
   star: (path: string) => j<NoteMeta[]>(`${BASE}/favorites/star`, send("POST", { path })),

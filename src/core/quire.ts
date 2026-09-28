@@ -6,7 +6,7 @@ import { cleanPath, isHidden, kindOf, linkKey, QuireError, stemOf, type NoteKind
 import { extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
-import { dueFilter, editTask, localDate, parseTask, patchProblem, TASK_LINE, type TaskMeta, type TaskPatch } from "./tasks.ts";
+import { dueFilter, editTask, isDate, localDate, parseTask, patchProblem, TASK_LINE, type TaskMeta, type TaskPatch } from "./tasks.ts";
 
 export interface NoteMeta {
   /** Stable across renames, moves and archiving; see ids.ts. */
@@ -958,18 +958,18 @@ export class Quire {
   }
 
   /** Tick or untick one task at its source. */
-  setTask(target: string, line: number, text: string, done: boolean, source: string) {
-    return this.updateTask(target, line, text, { checked: done }, source);
+  setTask(target: string, line: number, text: string, done: boolean, source: string, today?: string) {
+    return this.updateTask(target, line, text, { checked: done }, source, today);
   }
 
   /**
    * Change a task's tokens (see TaskPatch) at its source; the rest of the line stays as written.
-   * Ticking stamps `done:` with today's date and unticking takes it off, unless the patch sets it.
-   * `text` guards against the note having changed: if the line moved, the nearest line with the
-   * same task text is used.
+   * Ticking stamps `done:` with `today` (the person's day; the core's clock by default) and
+   * unticking takes it off, unless the patch sets it. `text` guards against the note having
+   * changed: if the line moved, the nearest line with the same task text is used.
    */
-  updateTask(target: string, line: number, text: string, patch: TaskPatch, source: string) {
-    const problem = patchProblem(patch);
+  updateTask(target: string, line: number, text: string, patch: TaskPatch, source: string, today = localDate(this.now())) {
+    const problem = patchProblem(patch) ?? (isDate(today) ? null : `"today" must be a date like 2026-10-01, not "${today}"`);
     if (problem) throw new QuireError(problem);
     const note = this.read(target);
     const lines = note.content.split("\n");
@@ -981,7 +981,7 @@ export class Quire {
       i = near[0];
     }
     const flips = patch.checked !== undefined && patch.checked !== parseTask(lines[i])!.done && !("done" in patch);
-    lines[i] = editTask(lines[i], flips ? { ...patch, done: patch.checked ? localDate(this.now()) : null } : patch);
+    lines[i] = editTask(lines[i], flips ? { ...patch, done: patch.checked ? today : null } : patch);
     const next = lines.join("\n");
     if (next === note.content) return { ...note, change: null };
     return this.commit(note.path, note.content, next, source, "edit");

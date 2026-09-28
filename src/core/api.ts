@@ -201,12 +201,12 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json({ path: r.path, version: r.version });
     }
     case "POST /tasks/set": {
-      const r = quire.setTask(str("path"), int("line"), str("text"), flag("done"), actor);
+      const r = quire.setTask(str("path"), int("line"), str("text"), flag("done"), actor, optStr("today")); // done: gets the person's day
       if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
       return json({ path: r.path, version: r.version });
     }
     case "POST /tasks/update": {
-      const r = quire.updateTask(str("path"), int("line"), str("text"), patch(), actor);
+      const r = quire.updateTask(str("path"), int("line"), str("text"), patch(), actor, optStr("today"));
       if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
       return json({ path: r.path, version: r.version });
     }
