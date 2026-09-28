@@ -41,6 +41,9 @@ This covers Common Ink online (commonink.app and pull request Previews): the Wor
 | Uploaded files served with `sandbox`, `nosniff`, and `frame-ancestors 'self'` | An uploaded SVG or HTML-looking file running script on our origin | `fileSecurityHeaders` in `src/core/paths.ts` | `test/cloud-headers.test.ts` |
 | `frame-ancestors 'none'` on the app, `nosniff`, `Referrer-Policy`, `Permissions-Policy`, COOP, HSTS | Clickjacking, MIME sniffing, note URLs (they contain titles) leaking in `Referer`, powerful browser features, cross-window attacks | `cloud/src/headers.ts` | `test/cloud-headers.test.ts` |
 | DOMPurify on rendered markdown | Script in markdown | `web/src/render.ts` | Existing behaviour |
+| Link cards fetch only public hosts on default ports, never the app itself. Every redirect is checked again, with at most 3 redirects, one 6-second deadline, HTML only, 512 KB at most, and no credentials in URLs | Note content making the Worker (or the local server) reach private networks, cloud metadata, or the app. It also stops slow or huge pages from tying the Worker up | `src/core/unfurl.ts`, the guard in `cloud/src/index.ts`, `src/server/unfurl.ts` (which also resolves DNS) | `test/unfurl.test.ts`, `test/cloud-limits.test.ts` |
+| Rate limits: 60 sign-in requests per network address per 10 minutes, 20 invites and 120 uploads per person per hour, and 120 link cards per person per minute | Sign-in abuse, invite spam, storage abuse, and using the link-card fetcher to flood other sites | `cloud/src/limits.ts` | `test/cloud-limits.test.ts` |
+| `npm audit --audit-level=high`, gitleaks over the whole history, and weekly Dependabot updates | Known-vulnerable dependencies (dev tools run next to the deploy credentials), and committed secrets | `.github/workflows/ci.yml`, `.github/dependabot.yml`, `.gitleaks.toml` | CI |
 
 ### Why each CSP allowance is there
 
@@ -63,6 +66,8 @@ HTML pages are sent with `Cache-Control: no-store` and without validators, and t
 - **A backup and restore drill** for D1, Durable Object storage and R2.
 - **Google's CASA assessment**, before restricted scopes ship (#25).
 - **The local app has no CSP.** It serves one person on 127.0.0.1.
+- **DNS rebinding against the local link-card fetcher.** It resolves a name, checks the addresses, then fetches, and the name could resolve differently the second time. Online, Workers can't reach private networks either way.
+- **Rate limits count per Cloudflare-reported address or per person.** Someone with many addresses or many accounts gets more tries. The sign-up code keeps its own limit of 5 wrong tries per Google account per day.
 
 ### What a user-content domain needs
 
