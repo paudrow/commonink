@@ -608,6 +608,7 @@ export class Quire {
   /** Star a note (a path, ID, note URL or [[name]]) at the end of `user`'s favorites. Starring it again changes nothing. */
   star(user: string, target: string): NoteMeta[] {
     const meta = this.metaOf(target);
+    if (meta.kind === "asset") throw new QuireError(`${meta.path} is a binary asset, not a note`);
     this.db.run(
       `INSERT INTO favorites(user, note_id, path, pos)
        VALUES (?, ?, ?, (SELECT coalesce(max(pos), 0) + 1 FROM favorites WHERE user = ?)) ON CONFLICT DO NOTHING`,
@@ -621,9 +622,10 @@ export class Quire {
     return this.favorites(user);
   }
 
-  /** Put these starred notes first, in this order; the rest follow in the order they had. */
+  /** Put these starred notes first, in this order; the rest follow in the order they had, stars whose note is gone included. */
   orderFavorites(user: string, targets: string[]): NoteMeta[] {
-    const starred = this.favorites(user).map((m) => m.id);
+    this.favorites(user); // rebinds stars to their notes' current IDs
+    const starred = this.db.all<{ note_id: string }>("SELECT note_id FROM favorites WHERE user = ? ORDER BY pos", user).map((f) => f.note_id);
     const first = targets.map((t) => this.metaOf(t).id).filter((id) => starred.includes(id));
     const order = [...new Set([...first, ...starred])];
     this.db.tx(() => order.forEach((id, i) => this.db.run("UPDATE favorites SET pos = ? WHERE user = ? AND note_id = ?", i + 1, user, id)));

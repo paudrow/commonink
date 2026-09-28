@@ -190,3 +190,25 @@ test("a starred note deleted and restored under a new ID keeps its star", () => 
   assert.deepEqual(quire.favorites("ana").map((n) => n.id), [back.id]);
   assert.deepEqual(quire.unstar("ana", back.id), []);
 });
+
+test("reordering favorites while a starred note is gone leaves it last when it comes back", () => {
+  let now = Date.UTC(2026, 0, 1);
+  const { dir, quire } = openTempVault(undefined, { now: () => now });
+  quire.star("ana", "Welcome");
+  quire.star("ana", "Roadmap");
+  quire.star("ana", "Dashboards/Stats.html");
+  const text = fs.readFileSync(path.join(dir, "Welcome.md"), "utf8");
+  fs.rmSync(path.join(dir, "Welcome.md"));
+  quire.sync();
+  assert.deepEqual(quire.orderFavorites("ana", ["Dashboards/Stats.html", "Roadmap"]).map((n) => n.path), ["Dashboards/Stats.html", "Projects/Roadmap.md"]);
+  now += 3600_000;
+  fs.writeFileSync(path.join(dir, "Welcome.md"), text);
+  quire.sync();
+  assert.deepEqual(quire.favorites("ana").map((n) => n.path), ["Dashboards/Stats.html", "Projects/Roadmap.md", "Welcome.md"]);
+});
+
+test("only notes can be starred, not assets", () => {
+  const { quire } = openTempVault();
+  assert.throws(() => quire.star("ana", "assets/chart.svg"), /assets\/chart\.svg is a binary asset, not a note/);
+  assert.deepEqual(quire.favorites("ana"), []);
+});
