@@ -94,7 +94,7 @@ npx wrangler secret put SIGNUP_CODE -c cloud/wrangler.jsonc    # set it or chang
 npx wrangler secret delete SIGNUP_CODE -c cloud/wrangler.jsonc # no new accounts except by invite
 ```
 
-With no code set, sign-ups are closed. Developer sign-in (local and Previews) skips the gate.
+With no code set, sign-ups are closed. Each Google account gets 5 wrong tries a day, so the code can't be guessed. Developer sign-in (local and Previews) skips the gate.
 
 ## Testing
 

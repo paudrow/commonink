@@ -1,13 +1,15 @@
 // Sign-in: Google OAuth (authorization code + PKCE), and signed session cookies so checking who's
 // asking needs no database round trip. New accounts are gated: someone Google hasn't seen here before
 // needs the sign-up code (SIGNUP_CODE) or a valid invite link.
-import { createWorkspace, hasUser, inviteIsValid, upsertUser, type User } from "./directory.ts";
+import { createWorkspace, failedSignups, hasUser, inviteIsValid, recordFailedSignup, upsertUser, type User } from "./directory.ts";
 import type { Env } from "./env.ts";
 
 const SESSION = "ci_session";
 const OAUTH = "ci_oauth";
 const SIGNUP = "ci_signup";
 const SESSION_DAYS = 30;
+/** Wrong sign-up codes a Google account may try in a day. */
+const SIGNUP_TRIES = 5;
 
 // ------------------------------------------------------------------ signed cookies
 
@@ -25,16 +27,19 @@ async function seal(secret: string, payload: object) {
   return `${body}.${await hmac(secret, body)}`;
 }
 
+function timingSafeEqual(a: ArrayLike<number>, b: ArrayLike<number>) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  return diff === 0;
+}
+
 async function unseal<T extends { exp: number }>(secret: string, value: string | undefined): Promise<T | null> {
   if (!value) return null;
   const [body, sig] = value.split(".");
   if (!body || !sig) return null;
-  const expected = await hmac(secret, body);
-  // constant-time compare
-  if (expected.length !== sig.length) return null;
-  let diff = 0;
-  for (let i = 0; i < sig.length; i++) diff |= expected.charCodeAt(i) ^ sig.charCodeAt(i);
-  if (diff) return null;
+  const bytes = (s: string) => new TextEncoder().encode(s);
+  if (!timingSafeEqual(bytes(await hmac(secret, body)), bytes(sig))) return null;
   const payload = JSON.parse(new TextDecoder().decode(fromB64url(body))) as T;
   return payload.exp > Date.now() ? payload : null;
 }
@@ -60,21 +65,21 @@ export function readSession(req: Request, env: Env) {
 
 // ------------------------------------------------------------------ routes
 
-/** Case and spacing don't matter, so a code read out loud still works. */
-const normalizeCode = (code: string) => code.trim().toLowerCase().replace(/\s+/g, " ");
+/** Case, spacing and how a keyboard encodes accents don't matter, so a code read out loud still works. */
+const normalizeCode = (code: string) => code.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ");
+
+/** The sign-up code, if one is set. All whitespace counts as unset, or an empty entry would match it. */
+const signupCode = (env: Env) => (env.SIGNUP_CODE && normalizeCode(env.SIGNUP_CODE)) || null;
 
 /** Compares hashes, so the check takes the same time however much of the code is right. */
 async function codeMatches(given: string, expected: string) {
   const hash = async (s: string) => new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(normalizeCode(s))));
-  const [a, b] = await Promise.all([hash(given), hash(expected)]);
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
-  return diff === 0;
+  return timingSafeEqual(...(await Promise.all([hash(given), hash(expected)])));
 }
 
 /** Someone new may make an account on their way to accept an invite, since a member already vouched for them. */
 async function arrivingByInvite(env: Env, next: string) {
-  const token = next.match(/^\/invite\/([a-f0-9]+)$/)?.[1];
+  const token = next.match(/^\/invite\/([a-f0-9]+)\/?$/)?.[1];
   return !!token && (await inviteIsValid(env.DB, token));
 }
 
@@ -161,13 +166,19 @@ export async function handleAuth(req: Request, env: Env, onSignedIn: (user: User
 
     case "/auth/signup": {
       const ticket = await unseal<PendingSignup>(env.SESSION_SECRET, cookie(req, SIGNUP));
-      if (!ticket) return redirect("/");
+      // The other signed cookies share the format, so check it's really a ticket.
+      if (!ticket?.sub || !ticket.profile?.email) return redirect("/");
       const cancel = setCookie(SIGNUP, "", 0);
-      if (!env.SIGNUP_CODE) return signupPage(ticket, "closed", [cancel]);
+      const code = signupCode(env);
+      if (!code) return signupPage(ticket, "closed", [cancel]);
       if (req.method !== "POST") return signupPage(ticket, "ask");
       if (req.headers.get("Origin") !== url.origin) return text(403, "Cross-origin request refused");
+      if ((await failedSignups(env.DB, ticket.sub, Date.now() - 86400_000)) >= SIGNUP_TRIES) return signupPage(ticket, "locked", [cancel]);
       const form = await req.formData().catch(() => null);
-      if (!(await codeMatches(String(form?.get("code") ?? ""), env.SIGNUP_CODE))) return signupPage(ticket, "wrong");
+      if (!(await codeMatches(String(form?.get("code") ?? ""), code))) {
+        await recordFailedSignup(env.DB, ticket.sub);
+        return signupPage(ticket, "wrong");
+      }
       const { user, isNew } = await upsertUser(env.DB, ticket.sub, ticket.profile);
       return startSession(user, isNew, ticket.next, [cancel]);
     }
@@ -208,7 +219,7 @@ export async function seedWorkspace(env: Env, id: string) {
 
 const text = (status: number, body: string) => new Response(body, { status, headers: { "Content-Type": "text/plain; charset=utf-8" } });
 
-const escape = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 function page(status: number, body: string, cookies: string[] = []) {
   const headers = new Headers({ "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
@@ -235,10 +246,13 @@ function page(status: number, body: string, cookies: string[] = []) {
   );
 }
 
-function signupPage(ticket: PendingSignup, state: "ask" | "wrong" | "closed", cookies: string[] = []) {
-  const who = `<p class="muted">Signed in with Google as ${escape(ticket.profile.email)}. <a href="/auth/logout">Not you?</a></p>`;
+function signupPage(ticket: PendingSignup, state: "ask" | "wrong" | "locked" | "closed", cookies: string[] = []) {
+  const who = `<p class="muted">Signed in with Google as ${escapeHtml(ticket.profile.email)}. <a href="/auth/logout">Not you?</a></p>`;
   if (state === "closed") {
     return page(403, `<h1>Common Ink isn't open to new accounts yet</h1>${who}<p>If someone invited you, open their invite link again.</p>`, cookies);
+  }
+  if (state === "locked") {
+    return page(429, `<h1>Too many tries</h1>${who}<p>That's too many wrong codes for today. Check the code with whoever gave it to you, and try again tomorrow.</p>`, cookies);
   }
   return page(
     state === "wrong" ? 403 : 200,

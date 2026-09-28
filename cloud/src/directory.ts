@@ -97,6 +97,16 @@ export async function createInvite(db: D1Database, workspaceId: string, by: stri
   return token;
 }
 
+/** Wrong sign-up codes entered for this identity since `since`. */
+export async function failedSignups(db: D1Database, sub: string, since: number) {
+  const row = await db.prepare("SELECT COUNT(*) AS n FROM signup_attempts WHERE sub = ? AND at > ?").bind(sub, since).first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+export async function recordFailedSignup(db: D1Database, sub: string) {
+  await db.prepare("INSERT INTO signup_attempts(sub, at) VALUES (?, ?)").bind(sub, Date.now()).run();
+}
+
 /** Whether an invite link is still good, without using it. */
 export async function inviteIsValid(db: D1Database, token: string) {
   const inv = await db.prepare("SELECT expires_at FROM invites WHERE token = ?").bind(token).first<{ expires_at: number }>();
