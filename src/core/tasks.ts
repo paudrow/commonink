@@ -29,8 +29,11 @@ export interface ParsedTask {
   summary: string;
   meta: TaskMeta;
 }
-/** Fields to change: a value sets it, null or [] clears it. `checked` ticks or unticks the box. */
-export type TaskPatch = Partial<TaskMeta> & { checked?: boolean };
+/**
+ * Fields to change: a value sets it, null or [] clears it. `checked` ticks or unticks the box, and
+ * `summary` replaces the task's words (everything before its trailing tokens).
+ */
+export type TaskPatch = Partial<TaskMeta> & { checked?: boolean; summary?: string };
 
 type Field = "due" | "start" | "done" | "rec" | "priority" | "assignees" | "tags";
 /** One token in a task's text; `from`/`to` are its columns there. `key` is how it's written (`scheduled` for a start). */
@@ -143,6 +146,7 @@ export function recLabel(v: string): string {
 
 /** What's wrong with a patch that couldn't be written back as tokens, or null if nothing is. */
 export function patchProblem(patch: TaskPatch): string | null {
+  if (patch.summary !== undefined && /[\r\n]/.test(patch.summary)) return "A task's text is one line";
   for (const f of ["due", "start", "done"] as const) {
     const v = patch[f];
     if (v !== undefined && v !== null && !isDate(v)) return `"${f}" must be a date like 2026-10-01 or 2026-10-01T09:30, not "${v}"`;
@@ -176,6 +180,14 @@ export function editTask(line: string, patch: TaskPatch): string {
   const m = line.match(TASK_LINE);
   if (!m) return line;
   let text = m[4];
+  if (patch.summary !== undefined) {
+    // The words end where the trailing run of tokens starts; that run, and the spacing before it, stay.
+    const end = trailing(text, tokensOf(text))[0]?.from ?? text.trimEnd().length;
+    const words = patch.summary.trim();
+    let rest = text.slice(text.slice(0, end).trimEnd().length);
+    if (!words) rest = rest.trimStart();
+    text = words + (words && rest && !/^\s/.test(rest) ? " " : "") + rest;
+  }
   for (const field of Object.keys(RANK) as Field[]) {
     if (!(field in patch)) continue;
     const v = patch[field];

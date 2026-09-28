@@ -11,6 +11,7 @@ import { livePreview } from "./livePreview.ts";
 import { blockWidgets, editorContext, stepIntoBlocks, type EditorContext } from "./blocks.ts";
 import { agentFlash } from "./agentFlash.ts";
 import { typingHelpers } from "./complete.ts";
+import { taskLineTools } from "./taskTools.ts";
 
 /** Marks transactions that came from disk (agents), so they don't trigger a save of their own. */
 export const remote = Annotation.define<boolean>();
@@ -78,7 +79,7 @@ export function createState(opts: {
 }): EditorState {
   const lang: Extension =
     opts.kind === "md"
-      ? [markdownWithFrontmatter(), keymap.of(markdownKeymap), livePreview, blockWidgets, stepIntoBlocks, linkClicks, typingHelpers()]
+      ? [markdownWithFrontmatter(), keymap.of(markdownKeymap), livePreview, taskLineTools, blockWidgets, stepIntoBlocks, linkClicks, typingHelpers()]
       : [html(), indentUnit.of("  ")];
   return EditorState.create({
     doc: opts.doc,

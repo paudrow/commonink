@@ -10,9 +10,8 @@ import { onVaultChange } from "../events.ts";
 import type { WidgetSpec } from "./core.ts";
 import { tagsInLine } from "../../../src/core/tags.ts";
 import { addDays } from "../../../src/core/tasks.ts";
-import { metaChips, today } from "../taskChips.ts";
-import { taskPopover } from "../taskPopover.ts";
-import { openChipEditor, taskPeople } from "../taskChipEditors.ts";
+import { endTags, metaChips, today } from "../taskChips.ts";
+import { openChipEditor, openTaskMenu, taskPeople } from "../taskChipEditors.ts";
 
 type Show = "open" | "done" | "all";
 type Group = "note" | "due" | "priority" | "tag" | "person";
@@ -156,31 +155,65 @@ export const tasks: WidgetSpec = {
         e.preventDefault();
         void toggle(t);
       });
-      // Tags in the middle of the sentence stay there; the ones at the end join the other chips.
-      const inText = new Set(tagsInLine(t.summary).map((h) => h.tag));
-      const endTags = t.meta.tags.filter((tag) => !inText.has(tag.toLowerCase()));
-      const text = el(
-        "span",
-        { class: "qt-text", title: `${t.title}, line ${t.line}` },
-        el("span", { html: inline(t.summary) }),
-        ...metaChips(t.meta, t.done, endTags),
-      );
+      const words = el("span", { class: "qt-words", html: inline(t.summary) });
+      const text = el("span", { class: "qt-text", title: `${t.title}, line ${t.line}` }, words, ...metaChips(t.meta, t.done, endTags(t.summary, t.meta.tags))); // tags mid-sentence stay there
       const save = async (patch: TaskPatch) => {
         Object.assign(t, await api.updateTask(t, patch)); // its new text, for the next change
         void load();
       };
-      text.addEventListener("mousedown", prevent);
+      const ctx = { task: t, save, people: taskPeople, showPerson: env.openPerson };
+      text.addEventListener("mousedown", (e) => {
+        // A click on the words edits them, so let that one place the caret; chips and tags keep focus where it is.
+        const target = e.target as HTMLElement;
+        if (target.closest(".qt-input")) return; // placing the caret or selecting in the open edit
+        if (!target.closest(".qt-words") || e.metaKey || e.ctrlKey) prevent(e);
+      });
       text.addEventListener("click", (e) => {
         const target = e.target as HTMLElement;
+        if (e.metaKey || e.ctrlKey) return env.open(t.path, t.line, true); // ⌘-click: the note, at this line, to the side
         const chip = target.closest<HTMLElement>(".tk[data-field]");
         const tag = chip?.dataset.field === "tags" ? chip.dataset.value!.toLowerCase() : target.closest<HTMLElement>(".tag")?.dataset.tag;
         if (tag) env.openTag(tag);
-        else if (!chip || !openChipEditor(chip, { task: t, save, people: taskPeople, showPerson: env.openPerson })) env.open(t.path, t.line, e.metaKey || e.ctrlKey);
+        else if (chip) openChipEditor(chip, ctx);
+        else if (target.closest(".qt-words")) editWords(t, words, save);
       });
-      const edit = el("button", { type: "button", class: "qt-edit", title: "Due date, priority, people…", onmousedown: prevent }, icon("sliders", 13));
-      edit.addEventListener("click", () => taskPopover(edit, t, save));
+      const menu = el("button", { type: "button", class: "qt-act", title: "Priority, due, repeat, person, tags…", "aria-label": "Task fields", onmousedown: prevent }, icon("sliders", 13));
+      menu.addEventListener("click", () => openTaskMenu(menu, ctx));
+      const go = el("button", { type: "button", class: "qt-act", title: "Go to note", "aria-label": `Go to ${t.title}, line ${t.line}`, onmousedown: prevent, onclick: (e: MouseEvent) => env.open(t.path, t.line, e.metaKey || e.ctrlKey) }, icon("open", 13));
       const where = group === "note" ? (t.heading && t.heading !== t.title ? t.heading : null) : t.title;
-      return el("div", { class: `qt-row${t.done ? " is-done" : ""}` }, box, text, where ? el("span", { class: "qt-where" }, where) : null, edit);
+      return el("div", { class: `qt-row${t.done ? " is-done" : ""}` }, box, text, where ? el("span", { class: "qt-where" }, where) : null, menu, go);
+    }
+
+    /**
+     * Edit a task's words in place: an input over them, its chips left as they are. Enter or leaving
+     * the input saves (only the words change; the core leaves the tokens be), Escape puts them back.
+     */
+    function editWords(t: Task, words: HTMLElement, save: (patch: TaskPatch) => Promise<void>) {
+      const input = el("input", { class: "qt-input", value: t.summary, "aria-label": "Task text", spellcheck: "true" });
+      let done = false;
+      const finish = (keep: boolean) => {
+        if (done) return;
+        done = true;
+        const next = input.value.trim();
+        input.replaceWith(words);
+        if (keep && next && next !== t.summary) {
+          words.innerHTML = inline(next); // show it now; the reload confirms it
+          void save({ summary: next }).catch((e) => {
+            words.innerHTML = inline(t.summary);
+            alert(e instanceof Error ? e.message : "Couldn't change the task");
+          });
+        }
+      };
+      input.addEventListener("keydown", (e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") (e.preventDefault(), finish(true));
+        else if (e.key === "Escape") (e.preventDefault(), finish(false));
+      });
+      input.addEventListener("blur", () => finish(true));
+      input.addEventListener("click", (e) => e.stopPropagation());
+      words.replaceWith(input);
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
     }
 
     async function toggle(t: Task) {

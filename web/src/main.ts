@@ -118,6 +118,8 @@ const notesPage = new NotesPage({
   folderChanged: () => renderTree(),
   tags: () => tags,
   pinButton: (tag) => pinButton(tag, "chip"),
+  openPerson: (assignee) => void showTasks({ assignee }),
+  readOnly: () => viewer,
   toast: (t) => toast(t),
   changed: () => {
     api.clearResolveCache();
@@ -897,7 +899,7 @@ function pinButton(tag: string, where: "row" | "chip"): HTMLElement {
       "aria-pressed": String(pinned),
       onclick: (e: Event) => (e.stopPropagation(), void togglePin(tag)),
     },
-    icon("pin", 13),
+    icon(pinned ? "pinned" : "pin", 13), // filled while it's in Favorites; a click takes it out
     where === "chip" ? (pinned ? "Pinned" : "Pin") : "",
   );
 }
@@ -1177,7 +1179,7 @@ function renderTagTree(active: string) {
             : el("span", { class: "chev is-leaf" }),
           icon("hash", 14),
           el("span", { class: "tree-name" }, t.display.split("/").pop()!),
-          isPinned(t.display) ? el("span", { class: "fav-pinned", title: "Pinned to Favorites" }, icon("pin", 11)) : null,
+          isPinned(t.display) ? el("span", { class: "fav-pinned", title: "Pinned to Favorites" }, icon("pinned", 11)) : null,
           el("span", { class: "n" }, String(t.notes)),
           el("span", { class: "row-actions" }, pinButton(t.display, "row")),
         );
