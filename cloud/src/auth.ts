@@ -110,8 +110,11 @@ interface PendingSignup {
   exp: number;
 }
 
-/** Only same-site relative paths, so `next` can't bounce people to another site. */
-const safeNext = (next: string | null) => (next && next.startsWith("/") && !next.startsWith("//") ? next : "/");
+/**
+ * Only paths on this site, so `next` can't bounce people to another one. Browsers read `/\evil.com`
+ * as `//evil.com`, so backslashes are out too.
+ */
+const safeNext = (next: string | null) => (next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/");
 
 export async function handleAuth(req: Request, env: Env, onSignedIn: (user: User, isNew: boolean) => Promise<void>): Promise<Response> {
   const url = new URL(req.url);

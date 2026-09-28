@@ -40,6 +40,8 @@ test("invites, uploads and link previews are limited per person", async () => {
   assert.equal((await upload(owner, 999)).status, 200, "someone else can still upload");
   const preview = (i: number) => cloud.request(editor, "GET", `/api/unfurl?url=${encodeURIComponent(`http://localhost/${i}`)}`);
   assert.equal(await statuses(121, preview), "200×120, 429×1");
+  const builder = await cloud.signIn("builder");
+  assert.equal(await statuses(11, (i) => cloud.request(builder, "POST", "/api/workspaces", { name: `Team ${i}` })), "200×10, 429×1");
 });
 
 test("OAuth client registrations are limited per network address", async () => {

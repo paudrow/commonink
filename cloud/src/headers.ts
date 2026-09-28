@@ -26,6 +26,9 @@ export function appPolicy(nonce: string, url: URL) {
 /** Anything else we send that has no policy of its own (JSON, redirects, icons). */
 const NOTHING = "default-src 'none'; frame-ancestors 'none'";
 
+/** Pages the Worker writes itself (sign-up, errors): styles and our icon, never a script. */
+const WORKER_PAGE = "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
+
 const COMMON: Record<string, string> = {
   "X-Content-Type-Options": "nosniff",
   // Other sites see our origin, never a note's URL (it has the title in it).
@@ -34,40 +37,41 @@ const COMMON: Record<string, string> = {
   "Cross-Origin-Opener-Policy": "same-origin",
 };
 
-/** Add the security headers to a response. HTML pages get a fresh nonce on each of their scripts. */
+/** Add the security headers to a response. */
 export function secure(res: Response, url: URL): Response {
   if (res.status === 101) return res; // a WebSocket: nothing to add, and its headers can't change
   const out = new Response(res.body, res);
   const h = out.headers;
   for (const [k, v] of Object.entries(COMMON)) if (!h.has(k)) h.set(k, v);
   if (url.protocol === "https:") h.set("Strict-Transport-Security", "max-age=31536000");
-  if (h.has("Content-Security-Policy")) return out;
-  if (!String(h.get("Content-Type")).startsWith("text/html")) {
-    h.set("Content-Security-Policy", NOTHING);
-    return out;
-  }
+  if (!h.has("Content-Security-Policy")) h.set("Content-Security-Policy", String(h.get("Content-Type")).startsWith("text/html") ? WORKER_PAGE : NOTHING);
+  return out;
+}
+
+/**
+ * Ask the static assets for a file. The web app's pages (built by us, never note content) get the
+ * app's policy and a fresh nonce on each of their scripts. Conditional headers are dropped: a
+ * "304 Not Modified" would pair a cached page (and its old nonce) with a new policy, and nothing
+ * would run.
+ */
+export async function fetchAsset(assets: Fetcher, req: Request, url: URL) {
+  const headers = new Headers(req.headers);
+  headers.delete("If-None-Match");
+  headers.delete("If-Modified-Since");
+  const res = await assets.fetch(new Request(req, { headers }));
+  if (!String(res.headers.get("Content-Type")).startsWith("text/html")) return res;
   const nonce = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
-  h.set("Content-Security-Policy", appPolicy(nonce, url));
+  const page = new Response(res.body, res);
+  page.headers.set("Content-Security-Policy", appPolicy(nonce, url));
   // The nonce is new every time, so the page can't be reused from a cache.
-  h.set("Cache-Control", "no-store");
-  h.delete("ETag");
-  h.delete("Last-Modified");
+  page.headers.set("Cache-Control", "no-store");
+  page.headers.delete("ETag");
+  page.headers.delete("Last-Modified");
   return new HTMLRewriter()
     .on("script", {
       element(el) {
         el.setAttribute("nonce", nonce);
       },
     })
-    .transform(out);
-}
-
-/**
- * Ask the static assets for a file. Conditional headers are dropped: a "304 Not Modified" would
- * pair a cached page (and its old nonce) with this response's new policy, and nothing would run.
- */
-export function fetchAsset(assets: Fetcher, req: Request) {
-  const headers = new Headers(req.headers);
-  headers.delete("If-None-Match");
-  headers.delete("If-Modified-Since");
-  return assets.fetch(new Request(req, { headers }));
+    .transform(page);
 }

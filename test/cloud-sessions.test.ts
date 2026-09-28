@@ -18,6 +18,14 @@ test("the session cookie is a __Host- cookie: Secure, HttpOnly, SameSite=Lax, th
   assert.ok(cookies.includes("ci_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0"), "the old cookie is cleared");
 });
 
+test("after sign-in, `next` only ever leads somewhere on this site", async () => {
+  const next = async (n: string) => (await cloud.server.fetch(new URL(`/auth/dev?as=nexter&next=${encodeURIComponent(n)}`, cloud.origin), { redirect: "manual" })).headers.get("location");
+  assert.deepEqual(
+    [await next("/notes/a-b"), await next("//evil.com"), await next("/\\evil.com"), await next("https://evil.com")],
+    ["/notes/a-b", "/", "/", "/"],
+  );
+});
+
 test("signing in again replaces the session, and the old one stops working", async () => {
   const first = await cloud.signIn("rotate");
   const res = await cloud.server.fetch(new URL("/auth/dev?as=rotate", cloud.origin), { redirect: "manual", headers: { cookie: first } });
