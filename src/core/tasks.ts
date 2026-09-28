@@ -95,19 +95,50 @@ export function parseTask(line: string): ParsedTask | null {
   if (!m) return null;
   const text = m[4];
   const tokens = tokensOf(text);
-  let end = text.trimEnd().length;
-  for (const t of [...tokens].reverse()) {
-    if (t.to !== end) break;
-    end = text.slice(0, t.from).trimEnd().length;
-  }
+  const end = trailing(text, tokens)[0]?.from ?? text.trimEnd().length;
   const first = (f: Field) => tokens.find((t) => t.field === f)?.value ?? null;
   const all = (f: Field) => tidy(f, tokens.filter((t) => t.field === f).map((t) => t.value));
   return {
     done: m[2] !== " ",
     text,
-    summary: text.slice(0, end),
+    summary: text.slice(0, end).trimEnd(),
     meta: { due: first("due"), start: first("start"), done: first("done"), rec: first("rec"), priority: first("priority") as Priority | null, assignees: all("assignees"), tags: all("tags") },
   };
+}
+
+/** The run of tokens at the end of a task's text (only whitespace between them), in order. */
+function trailing(text: string, tokens: Token[]): Token[] {
+  const run: Token[] = [];
+  let end = text.trimEnd().length;
+  for (const t of [...tokens].reverse()) {
+    if (t.to !== end) break;
+    run.unshift(t);
+    end = text.slice(0, t.from).trimEnd().length;
+  }
+  return run;
+}
+
+/** The order tokens are shown in, and the place a new one goes: priority, due, start, repeat, people, tags, done. */
+const RANK: Record<Field, number> = { priority: 0, due: 1, start: 2, rec: 3, assignees: 4, tags: 5, done: 6 };
+
+export type RecUnit = "day" | "week" | "month" | "year";
+const EVERY: Record<RecUnit, string> = { day: "daily", week: "weekly", month: "monthly", year: "yearly" };
+
+/** A repeat as every N days, weeks, months or years: `weekly`, or todo.txt's `2w` (`+2w` too). Null for anything else. */
+export function parseRec(v: string): { n: number; unit: RecUnit } | null {
+  const word = (Object.keys(EVERY) as RecUnit[]).find((u) => EVERY[u] === v.toLowerCase());
+  if (word) return { n: 1, unit: word };
+  const m = v.match(/^\+?([1-9]\d{0,2})([dwmy])$/i);
+  return m ? { n: +m[1], unit: ({ d: "day", w: "week", m: "month", y: "year" } as const)[m[2].toLowerCase() as "d"] } : null;
+}
+
+/** How a repeat is written: `weekly` for every one, `2w` for every two. */
+export const formatRec = (n: number, unit: RecUnit) => (n === 1 ? EVERY[unit] : `${n}${unit[0]}`);
+
+/** A repeat for people: "weekly", "every 2 weeks", or the value as written if it isn't one we read. */
+export function recLabel(v: string): string {
+  const r = parseRec(v);
+  return !r ? v : r.n === 1 ? EVERY[r.unit] : `every ${r.n} ${r.unit}s`;
 }
 
 /** What's wrong with a patch that couldn't be written back as tokens, or null if nothing is. */
@@ -136,16 +167,16 @@ function tidy(field: Field, values: string[]): string[] {
 }
 
 /**
- * Apply a patch to a task line. A token whose value stays is left as written; a changed value is
- * replaced where it stands; a cleared one is cut out with the whitespace before it; a new one goes
- * on the end (before any trailing whitespace). Not a task line: returned as is.
+ * Apply a patch to a task line. A token whose value stays is left as written; a changed value (or
+ * a person swapped for another) is replaced where it stands; a cleared one is cut out with the
+ * whitespace before it; a new one goes into the tokens at the end of the line at its place in RANK
+ * order. Not a task line: returned as is.
  */
 export function editTask(line: string, patch: TaskPatch): string {
   const m = line.match(TASK_LINE);
   if (!m) return line;
   let text = m[4];
-  // New tokens go on in the order the issue writes them: due, start, repeat, tags, people, priority, done.
-  for (const field of ["due", "start", "rec", "tags", "assignees", "priority", "done"] as Field[]) {
+  for (const field of Object.keys(RANK) as Field[]) {
     if (!(field in patch)) continue;
     const v = patch[field];
     const want = tidy(field, Array.isArray(v) ? v : v ? [v] : []);
@@ -161,19 +192,31 @@ export function editTask(line: string, patch: TaskPatch): string {
       const hit = have.find((t) => !kept.has(t) && same(field, t.value, w));
       if (hit) kept.add(hit);
     }
-    for (const t of [...have].reverse()) {
-      if (kept.has(t)) continue;
+    const gone = have.filter((t) => !kept.has(t));
+    const fresh = want.filter((w) => ![...kept].some((t) => same(field, t.value, w)));
+    // A value swapped for another (a different person) takes the old one's place in the sentence.
+    const swaps = Math.min(gone.length, fresh.length);
+    for (let i = gone.length - 1; i >= 0; i--) {
+      const t = gone[i];
+      if (i < swaps) {
+        text = text.slice(0, t.from) + write(field, fresh[i], t.key) + text.slice(t.to);
+        continue;
+      }
       const before = text.slice(0, t.from).match(/[ \t]*$/)![0].length;
       const after = before ? 0 : text.slice(t.to).match(/^[ \t]*/)![0].length;
       text = text.slice(0, t.from - before) + text.slice(t.to + after);
     }
-    for (const w of want) {
-      if ([...kept].some((t) => same(field, t.value, w))) continue;
-      text = text.replace(/\s*$/, (ws) => `${text.trim() ? " " : ""}${write(field, w)}${ws}`);
-    }
+    for (const w of fresh.slice(swaps)) text = insertToken(text, field, write(field, w));
   }
   const box = patch.checked === undefined || patch.checked === (m[2] !== " ") ? m[2] : patch.checked ? "x" : " ";
   return `${m[1]}${box}${m[3]}${text}`;
+}
+
+/** Put a new token among the tokens at the end of the text, before the first that ranks after it (else last). */
+function insertToken(text: string, field: Field, token: string): string {
+  const next = trailing(text, tokensOf(text)).find((t) => RANK[t.field] > RANK[field]);
+  if (next) return `${text.slice(0, next.from)}${token} ${text.slice(next.from)}`;
+  return text.replace(/\s*$/, (ws) => `${text.trim() ? " " : ""}${token}${ws}`);
 }
 
 /**

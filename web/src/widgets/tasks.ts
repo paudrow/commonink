@@ -4,7 +4,7 @@
 // lives in, so agents and people can add tasks anywhere and clear them in one place.
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import { api, type Task } from "../api.ts";
+import { api, type Task, type TaskPatch } from "../api.ts";
 import { el, icon } from "../dom.ts";
 import { onVaultChange } from "../events.ts";
 import type { WidgetSpec } from "./core.ts";
@@ -12,6 +12,14 @@ import { tagsInLine } from "../../../src/core/tags.ts";
 import { addDays } from "../../../src/core/tasks.ts";
 import { metaChips, today } from "../taskChips.ts";
 import { taskPopover } from "../taskPopover.ts";
+import { openChipEditor } from "../taskChipEditors.ts";
+
+/** Everyone @-mentioned on a task anywhere, most tasks first. */
+async function people(): Promise<string[]> {
+  const count = new Map<string, number>();
+  for (const t of await api.tasks({}).catch(() => [])) for (const a of t.meta.assignees) count.set(a, (count.get(a) ?? 0) + 1);
+  return [...count].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([p]) => p);
+}
 
 type Show = "open" | "done" | "all";
 type Group = "note" | "due" | "priority" | "tag" | "person";
@@ -162,22 +170,22 @@ export const tasks: WidgetSpec = {
         "span",
         { class: "qt-text", title: `${t.title}, line ${t.line}` },
         el("span", { html: inline(t.summary) }),
-        ...metaChips(t.meta, t.done),
-        ...endTags.map((tag) => el("span", { class: "tag", "data-tag": tag.toLowerCase(), title: `Tasks tagged #${tag}` }, `#${tag}`)),
+        ...metaChips(t.meta, t.done, endTags),
       );
+      const save = async (patch: TaskPatch) => {
+        Object.assign(t, await api.updateTask(t, patch)); // its new text, for the next change
+        void load();
+      };
       text.addEventListener("mousedown", prevent);
       text.addEventListener("click", (e) => {
-        const tag = (e.target as HTMLElement).closest<HTMLElement>(".tag")?.dataset.tag;
+        const target = e.target as HTMLElement;
+        const chip = target.closest<HTMLElement>(".tk[data-field]");
+        const tag = chip?.dataset.field === "tags" ? chip.dataset.value!.toLowerCase() : target.closest<HTMLElement>(".tag")?.dataset.tag;
         if (tag) env.openTag(tag);
-        else env.open(t.path, t.line);
+        else if (!chip || !openChipEditor(chip, { task: t, save, people, showPerson: env.openPerson })) env.open(t.path, t.line);
       });
       const edit = el("button", { type: "button", class: "qt-edit", title: "Due date, priority, people…", onmousedown: prevent }, icon("sliders", 13));
-      edit.addEventListener("click", () =>
-        taskPopover(edit, t, async (patch) => {
-          Object.assign(t, await api.updateTask(t, patch)); // its new text, for the next change
-          void load();
-        }),
-      );
+      edit.addEventListener("click", () => taskPopover(edit, t, save));
       const where = group === "note" ? (t.heading && t.heading !== t.title ? t.heading : null) : t.title;
       return el("div", { class: `qt-row${t.done ? " is-done" : ""}` }, box, text, where ? el("span", { class: "qt-where" }, where) : null, edit);
     }

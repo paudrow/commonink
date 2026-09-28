@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { dueFilter, editTask, parseTask } from "../src/core/tasks.ts";
+import { addDays, dueFilter, editTask, formatRec, parseRec, parseTask, recLabel } from "../src/core/tasks.ts";
 
 const LINE = "- [ ] Send invoice to Acme due:2026-10-01 rec:monthly #work/clients @jane !high";
 
@@ -31,7 +31,7 @@ test("a token mid-sentence counts but stays in the summary; only the trailing ru
 test("editing one field rewrites only that token, and leaves every other byte alone", () => {
   assert.equal(editTask(LINE, { due: "2026-10-02" }), LINE.replace("due:2026-10-01", "due:2026-10-02"));
   assert.equal(editTask(LINE, { priority: null }), LINE.replace(" !high", ""));
-  assert.equal(editTask(LINE, { priority: "low", assignees: ["jane", "sam"] }), LINE.replace("!high", "!low") + " @sam");
+  assert.equal(editTask(LINE, { priority: "low", assignees: ["jane", "sam"] }), LINE.replace("!high", "!low").replace("rec:monthly ", "rec:monthly @sam "));
   assert.equal(editTask(LINE, { tags: [] }), LINE.replace(" #work/clients", ""));
   assert.equal(editTask("- [ ] Call mom  ", { due: "2026-01-02" }), "- [ ] Call mom due:2026-01-02  ");
   assert.equal(editTask("- [ ] Plan `due:x` day", { start: "2026-01-02" }), "- [ ] Plan `due:x` day start:2026-01-02");
@@ -54,7 +54,7 @@ test("a person ends at a word boundary and never inside a [[link]], and an impos
 
 test("values come in as people write them (#tag, @person, repeats) and go out as tokens that read back", () => {
   const line = editTask("- [ ] a", { tags: ["#work", " home ", "Work"], assignees: ["@jane"] });
-  assert.equal(line, "- [ ] a #work #home @jane");
+  assert.equal(line, "- [ ] a @jane #work #home");
   assert.deepEqual(parseTask(line)!.meta.tags, ["work", "home"]);
 });
 
@@ -71,6 +71,41 @@ test("setting a field to the value it has leaves a second token for it alone", (
   assert.equal(editTask(line, { due: "2026-01-01" }), line);
   assert.equal(editTask(line, { due: "2026-03-03" }), "- [ ] a due:2026-03-03 b due:2026-02-02");
   assert.equal(editTask(line, { due: null }), "- [ ] a b");
+});
+
+test("a new token goes in at its place in the order priority, due, start, repeat, person, tags, done", () => {
+  assert.equal(editTask("- [ ] Call due:2026-10-01 @jane #work", { priority: "high" }), "- [ ] Call !high due:2026-10-01 @jane #work");
+  assert.equal(editTask("- [ ] Call !high @jane", { due: "2026-10-01", rec: "weekly" }), "- [ ] Call !high due:2026-10-01 rec:weekly @jane");
+  assert.equal(editTask("- [ ] Call #work", { assignees: ["jane"] }), "- [ ] Call @jane #work");
+  // Only the trailing tokens place a new one: a mid-sentence @sam isn't an anchor.
+  assert.equal(editTask("- [ ] Ask @sam about it #launch", { due: "2026-10-01" }), "- [ ] Ask @sam about it due:2026-10-01 #launch");
+});
+
+test("each chip editor's change round-trips through the one writer, leaving the rest of the line alone", () => {
+  const line = "- [ ] Send invoice #work/clients rec:monthly @jane due:2026-10-01 !high ok";
+  const read = (l: string) => parseTask(l)!.meta;
+  // Priority menu: High, Normal (no token), Low.
+  assert.equal(editTask(line, { priority: "low" }), line.replace("!high", "!low"));
+  assert.equal(editTask(line, { priority: null }), line.replace(" !high", ""));
+  // Due: a quick pick rewrites the date in place; Clear takes it out.
+  const nextWeek = editTask(line, { due: addDays("2026-09-28", 7) });
+  assert.deepEqual([nextWeek, read(nextWeek).due], [line.replace("due:2026-10-01", "due:2026-10-05"), "2026-10-05"]);
+  assert.equal(editTask(line, { due: null }), line.replace(" due:2026-10-01", ""));
+  // Repeat: every N day/week/month/year.
+  const everyTwo = editTask(line, { rec: formatRec(2, "week") });
+  assert.deepEqual([everyTwo, read(everyTwo).rec], [line.replace("rec:monthly", "rec:2w"), "2w"]);
+  assert.equal(editTask(line, { rec: formatRec(1, "year") }), line.replace("rec:monthly", "rec:yearly"));
+  assert.equal(editTask(line, { rec: null }), line.replace(" rec:monthly", ""));
+  // Person: picking someone else swaps them in place; Remove takes them out.
+  assert.equal(editTask(line, { assignees: ["sam"] }), line.replace("@jane", "@sam"));
+  assert.equal(editTask("- [ ] a @jane @ana b", { assignees: ["sam", "ana"] }), "- [ ] a @sam @ana b");
+  assert.equal(editTask(line, { assignees: [] }), line.replace(" @jane", ""));
+});
+
+test("a repeat reads as every N days, weeks, months or years", () => {
+  assert.deepEqual(["monthly", "2w", "+3d", "1y", "weekdays"].map(parseRec), [{ n: 1, unit: "month" }, { n: 2, unit: "week" }, { n: 3, unit: "day" }, { n: 1, unit: "year" }, null]);
+  assert.deepEqual([formatRec(1, "day"), formatRec(4, "month")], ["daily", "4m"]);
+  assert.deepEqual(["weekly", "2w", "weekdays"].map(recLabel), ["weekly", "every 2 weeks", "weekdays"]);
 });
 
 test("a due filter compares dates, with today, tomorrow and yesterday relative to the day given", () => {

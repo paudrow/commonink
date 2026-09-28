@@ -45,6 +45,8 @@ export interface WidgetEnv {
   saveSmartFolder(query: string, name: string, anchor: HTMLElement): void;
   /** Tags and folders for the settings form's pickers. */
   sources: FieldSources;
+  /** Show a person's tasks. */
+  openPerson(name: string): void;
 }
 
 export interface WidgetSpec {
