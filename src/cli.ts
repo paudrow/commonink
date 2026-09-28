@@ -18,11 +18,12 @@ Usage: quire <command> [args] [--as <agent>] [--json]
   append <note> [text | -]
   mv <note> <new-path>             rewrites links to the note
   backlinks <note>
-  changes [--since <iso|id>] [--path <p>] [--limit N]
+  changes [--since <iso|id>] [--path <note>] [--limit N]
+                                   --path brings the note's history under earlier names too
   restore <change-id>              put a note back the way it was before that change
   mcp                              run the stdio MCP server
 
-<note> can be a path, a path without .md, or a [[wikilink]] name.
+<note> can be a path, a path without .md, a [[wikilink]] name, a note ID or a note URL.
 Writes are attributed to --as, $QUIRE_AGENT, or "cli".
 Vault: $QUIRE_VAULT (default: ./vault next to this tool).`;
 
