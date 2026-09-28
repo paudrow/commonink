@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import { LOCAL_USER, openVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
-import { fmtBacklinks, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtTags, fmtTasks, fmtWrite } from "./core/format.ts";
+import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtTags, fmtTasks, fmtWrite } from "./core/format.ts";
 
 const HELP = `quire — markdown notes for you and your agents
 
@@ -18,6 +18,11 @@ Usage: quire <command> [args] [--as <agent>] [--json]
                                    open tasks (tokens: due: start: rec: #tag @person !high)
   task <note> <line> [--done|--undone] [--due D] [--priority high|low] …
                                    tick a task or change its tokens; "none" clears one
+  board <note>                     the note's Kanban boards (:::kanban blocks), cards with line numbers
+  card add <note> <column> <text…> [--board N] [--position N]
+  card move <note> <card> <column> [--position N]
+  card edit <note> <card> [--text T] [--done|--undone]
+                                   <card> is a line number from \`board\`, or words only its text has
   archive <note…>                  move notes to Archive/ (links keep working)
   unarchive <note…>                move archived notes back
   create <path> [content | -]      '-' or no content reads stdin
@@ -99,6 +104,22 @@ if (cmd === "mcp") {
         );
         const r = q.updateTask(note, line, task.text, patch, source);
         out(fmtWrite(r, r.change ? "Updated" : "No change to"), r);
+        break;
+      }
+      case "board": {
+        const { note, boards } = q.boards(need(0, "note"));
+        out(fmtBoards(note.path, boards), boards);
+        break;
+      }
+      case "card": {
+        const [verb, note] = [need(0, "add|move|edit"), need(1, "note")];
+        const r =
+          verb === "add" ? q.addCard(note, need(2, "column"), args.slice(3).join(" "), source, { board: num("board"), position: num("position") })
+          : verb === "move" ? q.moveCard(note, need(2, "card"), need(3, "column"), source, { position: num("position") })
+          : verb === "edit" ? q.editCard(note, need(2, "card"), { text: str("text"), done: flags.done ? true : flags.undone ? false : undefined }, source)
+          : null;
+        if (!r) throw new QuireError(`card needs add, move or edit, not "${verb}"`);
+        out(fmtWrite(r, r.change ? "Changed a card in" : "No change to"), r);
         break;
       }
       case "tags": {

@@ -7,6 +7,7 @@ import { extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, typ
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
 import { dueFilter, editTask, isDate, localDate, parseTask, patchProblem, TASK_LINE, type TaskMeta, type TaskPatch } from "./tasks.ts";
+import { addCard, boardsIn, checkCard, editCard, moveCard, type Board, type Place } from "./kanban.ts";
 
 export interface NoteMeta {
   /** Stable across renames, moves and archiving; see ids.ts. */
@@ -943,12 +944,16 @@ export class Quire {
       const text = this.files.read(n.path);
       if (text === null) continue;
       let heading: string | null = null;
+      // A board's cards sit under its columns' headings; after its `:::`, the heading before it again.
+      let outside: string | null | undefined;
       let fence = false;
       text.split("\n").forEach((line, i) => {
         if (/^\s*(```|~~~)/.test(line)) fence = !fence;
         if (fence) return;
         const h = line.match(/^#{1,6}\s+(.+?)\s*#*$/);
         if (h) heading = h[1];
+        if (/^\s*:::kanban\b/i.test(line)) outside = heading;
+        else if (outside !== undefined && /^\s*:::\s*$/.test(line)) [heading, outside] = [outside, undefined];
         const t = parseTask(line);
         if (!t || !t.text.trim() || (tagged && !tagged.has(`${n.path}:${i + 1}`))) return;
         if ((due && !due(t.meta.due)) || (person && !t.meta.assignees.some((a) => a.toLowerCase() === person))) return;
@@ -988,6 +993,48 @@ export class Quire {
     const next = lines.join("\n");
     if (next === note.content) return { ...note, ...task, change: null };
     return { ...this.commit(note.path, note.content, next, source, "edit"), ...task };
+  }
+
+  // ---------------------------------------------------------------- boards
+
+  /** A note and the `:::kanban` boards in it (see kanban.ts). */
+  boards(target: string): { note: Note; boards: Board[] } {
+    const note = this.read(target);
+    return { note, boards: boardsIn(note.content) };
+  }
+
+  /**
+   * Add a card to a column, by its name (any case) or number from 1, on whichever of the note's
+   * boards has it; `board` (from 1) picks one when several do. `position` (from 1) is where it
+   * goes in the column; the default is last.
+   */
+  addCard(target: string, column: string, text: string, source: string, opts: { board?: number; position?: number } = {}, today = localDate(this.now())) {
+    if (!text.trim()) throw new QuireError("A card needs some text");
+    const { note, boards } = this.boards(target);
+    const at = findColumn(boards, column, note.path, opts.board);
+    return this.commitBoard(note, addCard(note.content, at, text, today, (opts.position ?? Infinity) - 1), source);
+  }
+
+  /** Move a card (see findCard) to a column on its board, last or at `position` (from 1). Into the done column ticks it. */
+  moveCard(target: string, card: string, column: string, source: string, opts: { position?: number } = {}, today = localDate(this.now())) {
+    const { note, boards } = this.boards(target);
+    const hit = findCard(boards, card, note.path);
+    const to = findColumn(boards, column, note.path, hit.board + 1);
+    return this.commitBoard(note, moveCard(note.content, hit.card.from, to, (opts.position ?? Infinity) - 1, today), source);
+  }
+
+  /** Change a card's text (its first line, then any lines to nest under it) or tick it. */
+  editCard(target: string, card: string, patch: { text?: string; done?: boolean }, source: string, today = localDate(this.now())) {
+    if (patch.text !== undefined && !patch.text.trim()) throw new QuireError("A card needs some text");
+    const { note, boards } = this.boards(target);
+    const { card: c } = findCard(boards, card, note.path);
+    let next = patch.text === undefined ? note.content : editCard(note.content, c.from, patch.text);
+    if (patch.done !== undefined) next = checkCard(next, c.from, patch.done, today);
+    return this.commitBoard(note, next, source);
+  }
+
+  private commitBoard(note: Note, next: string, source: string) {
+    return next === note.content ? { ...note, change: null } : this.commit(note.path, note.content, next, source, "edit");
   }
 
   /**
@@ -1093,6 +1140,35 @@ function uniqueTags(tags: string[], strict: boolean): string[] {
     if (t && !out.some((o) => o.toLowerCase() === t.toLowerCase())) out.push(t);
   }
   return out;
+}
+
+/**
+ * The card `ref` names on a note's boards: its line number (as read_board shows it), else its
+ * whole text, else words from its text that only one card has (any case).
+ */
+function findCard(boards: Board[], ref: string, path: string) {
+  const all = boards.flatMap((b, board) => b.columns.flatMap((c, column) => c.cards.map((card) => ({ card, board, column }))));
+  const want = ref.trim().toLowerCase();
+  const line = want.match(/^l?(\d+)$/)?.[1];
+  const exact = all.filter((x) => (line ? x.card.from + 1 === Number(line) : x.card.text.toLowerCase() === want));
+  const hits = exact.length ? exact : line ? [] : all.filter((x) => x.card.text.toLowerCase().includes(want));
+  if (hits.length === 1) return hits[0];
+  if (hits.length) throw new QuireError(`"${ref}" matches ${hits.length} cards in ${path}; name the card by its line number from read_board`);
+  throw new QuireError(`No card in ${path} matches "${ref}"`, "not_found");
+}
+
+/** The column `ref` names (its title, any case, or its number from 1) on `board` (from 1), or on whichever board has it. */
+function findColumn(boards: Board[], ref: string, path: string, board?: number): Place {
+  if (!boards.length) throw new QuireError(`${path} has no board. Add one as a :::kanban block.`, "not_found");
+  if (board !== undefined && !boards[board - 1]) throw new QuireError(`${path} has ${boards.length} board${boards.length === 1 ? "" : "s"}, not ${board}`, "not_found");
+  const want = ref.trim().toLowerCase();
+  const hits = boards.flatMap((b, i) =>
+    board !== undefined && i !== board - 1 ? [] : b.columns.flatMap((c, column) => (c.title.toLowerCase() === want || String(column + 1) === want ? [{ board: i, column }] : [])),
+  );
+  if (hits.length === 1) return hits[0];
+  if (hits.length) throw new QuireError(`${hits.length} boards in ${path} have a column "${ref}"; say which board (from 1)`);
+  const names = boards.flatMap((b) => b.columns.map((c) => c.title)).join(", ");
+  throw new QuireError(`No column "${ref}" on the board${boards.length === 1 ? "" : "s"} in ${path}. Columns: ${names}`, "not_found");
 }
 
 function searchTerms(q: string): string[] {

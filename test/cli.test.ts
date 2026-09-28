@@ -77,6 +77,16 @@ test("tasks lists open tasks, and task changes one's tokens or ticks it", () => 
   assert.equal(quire(vault, ["task", "Roadmap", "3"]).stderr, "There's no task on line 3 of Roadmap\n");
 });
 
+test("board shows a note's boards, and card adds, moves and edits cards", () => {
+  const vault = tempVault({ "Launch.md": "# Launch\n\n:::kanban\n## To do\n- [ ] Tiers\n\n## Done\n:::\n" });
+  assert.match(quire(vault, ["card", "add", "Launch", "to do", "Pick", "a", "logo"]).stdout, /^Changed a card in Launch\.md/);
+  quire(vault, ["card", "move", "Launch", "tiers", "Done"]);
+  quire(vault, ["card", "edit", "Launch", "logo", "--text", "Pick a logo @ana"]);
+  assert.match(quire(vault, ["board", "Launch"]).stdout, /^Board 1 of 1 in Launch\.md\n\n## To do\n- \[ \] Pick a logo @ana — L5\n\n## Done \(done column\)\n- \[x\] Tiers done:\d{4}-\d{2}-\d{2} — L8\n$/);
+  assert.equal(quire(vault, ["card", "edit", "Launch", "5", "--undone"]).stdout.startsWith("No change to Launch.md"), true);
+  assert.equal(quire(vault, ["card", "shuffle", "Launch"]).stderr, 'card needs add, move or edit, not "shuffle"\n');
+});
+
 test("star, unstar and starred keep your favorites in order", () => {
   const vault = tempVault();
   assert.equal(quire(vault, ["star", "Welcome", "Roadmap"]).stdout, "Favorites:\n- Welcome.md — Welcome\n- Projects/Roadmap.md — Roadmap\n");

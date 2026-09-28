@@ -1,6 +1,7 @@
 // Plain-text renderings of core results, shared by the MCP server and the CLI.
 // Agents read markdown far more cheaply than JSON, so this is the default output.
 import type { Backlink, Change, Note, NoteMeta, SearchHit, TagCount, Task } from "./quire.ts";
+import type { Board } from "./kanban.ts";
 
 export function fmtSearch(q: string, hits: SearchHit[]): string {
   if (!hits.length) return `No notes match "${q}".`;
@@ -92,4 +93,20 @@ export function fmtChanges(changes: Change[]): string {
 
 export function fmtWrite(r: { path: string; version: string; change?: Change | null }, verb: string): string {
   return `${verb} ${r.path} → version ${r.version}${r.change?.summary ? ` (${r.change.summary})` : ""}`;
+}
+
+/** A note's boards, column by column: each card as its markdown line with its line number, and the lines nested under it. */
+export function fmtBoards(path: string, boards: Board[]): string {
+  if (!boards.length) return `${path} has no board.`;
+  return boards
+    .map((b, i) => {
+      const columns = b.columns.map((c) =>
+        [
+          `${"#".repeat(b.level)} ${c.title}${c.done ? " (done column)" : ""}`,
+          ...c.cards.flatMap((k) => [`- ${k.checked === null ? "" : `[${k.checked ? "x" : " "}] `}${k.text} — L${k.from + 1}`, ...k.details.map((d) => (d ? `    ${d}` : ""))]),
+        ].join("\n"),
+      );
+      return [`Board ${i + 1} of ${boards.length} in ${path}`, ...columns].join("\n\n");
+    })
+    .join("\n\n");
 }
