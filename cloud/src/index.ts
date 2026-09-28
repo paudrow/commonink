@@ -9,6 +9,7 @@ import { clearSessionCookies, ensurePersonalWorkspace, handleAuth, readSession, 
 import { acceptInvite, createInvite, createWorkspace, endSessionsOf, locateNote, membership, workspacesOf, type User } from "./directory.ts";
 import type { Env } from "./env.ts";
 import { fetchAsset, secure } from "./headers.ts";
+import { limit } from "./limits.ts";
 
 export { Workspace } from "./workspace.ts";
 
@@ -25,7 +26,11 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
     return Response.redirect(url.toString(), 301);
   }
   if (url.pathname === SANDBOX_PATH) return sandboxPage();
-  if (url.pathname.startsWith("/auth/")) return handleAuth(req, env, (user) => ensurePersonalWorkspace(env, user));
+  if (url.pathname.startsWith("/auth/")) {
+    const ip = req.headers.get("CF-Connecting-IP") ?? "unknown";
+    const tooMany = url.pathname !== "/auth/logout" && (await limit(env.DB, "signIn", ip, "text"));
+    return tooMany || handleAuth(req, env, (user) => ensurePersonalWorkspace(env, user));
+  }
   if (url.pathname.startsWith("/invite/")) return invite(req, env, url);
   if (url.pathname.startsWith("/api/")) return api(req, env, url);
   return fetchAsset(env.ASSETS, req);
@@ -49,9 +54,11 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
     await seedWorkspace(env, id);
     return json({ id });
   },
-  "GET /api/unfurl": async ({ url }) => {
+  "GET /api/unfurl": async ({ env, url, user }) => {
     const target = url.searchParams.get("url") ?? "";
     if (!/^https?:\/\//i.test(target)) return json({ error: "http(s) URLs only" }, 400);
+    const tooMany = await limit(env.DB, "unfurl", user.id);
+    if (tooMany) return tooMany;
     // Public hosts on default ports, and never this app (it would fetch itself).
     return json(
       await unfurl(target, (u) => {
@@ -105,8 +112,15 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
   if (route === "/invites" && req.method === "POST") {
     if (ws.kind !== "team") return json({ error: "Only a team's owner can invite people" }, 403);
     const { role } = (await req.json()) as { role?: string };
+    const tooMany = await limit(env.DB, "invite", user.id);
+    if (tooMany) return tooMany;
     const token = await createInvite(env.DB, ws.id, user.id, role === "viewer" ? "viewer" : "editor");
     return json({ url: `${url.origin}/invite/${token}` });
+  }
+
+  if (isUpload) {
+    const tooMany = await limit(env.DB, "upload", user.id);
+    if (tooMany) return tooMany;
   }
 
   // Forward to the workspace. Only this Worker can reach it, so these headers can be trusted there.
