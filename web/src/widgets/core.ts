@@ -2,6 +2,7 @@
 // writes the widget's args back into the markdown line.
 import { el, icon } from "../dom.ts";
 import { formatDuration, parseDuration, serializeDirective } from "./args.ts";
+import type { EditorContext } from "../editor/blocks.ts";
 
 export interface Field {
   key: string;
@@ -30,6 +31,10 @@ export interface WidgetEnv {
   openTag(tag: string): void;
   /** Show a person's tasks. */
   openPerson(name: string): void;
+  /** The note editor the widget is in (none on the Tasks page): its note names and tags, for suggestions. */
+  editor?: EditorContext;
+  /** The person can read this workspace but not change it. */
+  readOnly?: boolean;
 }
 
 export interface WidgetSpec {
@@ -40,6 +45,8 @@ export interface WidgetSpec {
   keywords: string;
   fields: Field[];
   defaults: Record<string, string>;
+  /** Settings for a block (`:::name{…}` … `:::`) rather than a one-line widget. */
+  block?: boolean;
   /** Build the widget body; return a cleanup function. */
   mount(body: HTMLElement, env: WidgetEnv, card: HTMLElement): () => void;
 }
@@ -52,7 +59,7 @@ export function renderWidget(spec: WidgetSpec, env: WidgetEnv): { dom: HTMLEleme
     el("span", { class: "qw-kind" }, icon(spec.icon, 13), spec.title),
     env.args.label ? el("span", { class: "qw-label" }, env.args.label) : null,
     el("span", { class: "spacer" }),
-    gear,
+    env.readOnly ? null : gear,
   );
   const body = el("div", { class: "qw-body" });
   const root = el("div", { class: `qw qw-${spec.name}` }, head, body);
@@ -130,7 +137,7 @@ function configForm(
   const refresh = () => {
     const valid = spec.fields.every((f) => f.type !== "duration" || parseDuration(values[f.key]) !== null);
     save.disabled = !valid;
-    preview.textContent = valid ? serializeDirective({ name: spec.name, args: normalized() }) : "Duration like 25m, 1h30m or 4:30";
+    preview.textContent = valid ? (spec.block ? ":" : "") + serializeDirective({ name: spec.name, args: normalized() }) : "Duration like 25m, 1h30m or 4:30";
     preview.classList.toggle("is-error", !valid);
   };
 

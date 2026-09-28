@@ -6,6 +6,7 @@ import DOMPurify from "dompurify";
 import { assetUrl } from "./api.ts";
 import { currentScheme } from "./dom.ts";
 import { isEmbeddable } from "./embeds/providers.ts";
+import { boardsIn } from "../../src/core/kanban.ts";
 
 export { currentScheme };
 
@@ -40,8 +41,9 @@ export function sectionOf(md: string, heading: string): string {
   const start = lines.findIndex((l) => l.match(/^(#{1,6})\s+(.*?)\s*#*$/)?.[2].toLowerCase() === want);
   if (start < 0) return md;
   const level = lines[start].match(/^#+/)![0].length;
-  let end = lines.length;
-  for (let i = start + 1; i < lines.length; i++) {
+  // A board's column ends with the board.
+  let end = boardsIn(md).find((b) => b.from < start && start < b.close)?.close ?? lines.length;
+  for (let i = start + 1; i < end; i++) {
     const m = lines[i].match(/^(#{1,6})\s/);
     if (m && m[1].length <= level) {
       end = i;
@@ -53,8 +55,9 @@ export function sectionOf(md: string, heading: string): string {
 
 const SAFE_URI = /^(?:(?:https?|mailto|quire):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i;
 
-export function renderMarkdown(md: string, from: string): string {
-  const body = md.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
+/** Markdown to safe HTML. `boards` leaves a slot for each Kanban board to draw a live board in (see hydrateBoards); otherwise a board shows as its headings and lists. */
+export function renderMarkdown(md: string, from: string, opts: { boards?: boolean } = {}): string {
+  const body = boardSlots(md.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, ""), !!opts.boards);
   const pre = body
     .replace(/!\[\[([^\]|]+?)(?:\|[^\]]*)?\]\]/g, (_m, target: string) => {
       const kind = embedKindOf(target);
@@ -65,6 +68,17 @@ export function renderMarkdown(md: string, from: string): string {
     .replace(/!\[([^\]]*)\]\((?!https?:|\/)([^)\s]+)\)/g, (_m, alt, src) => `![${alt}](${assetUrl(decodeURIComponent(src), from)})`);
   const html = marked.parse(pre, { async: false, gfm: true }) as string;
   return DOMPurify.sanitize(html, { ALLOWED_URI_REGEXP: SAFE_URI, FORBID_TAGS: ["style", "form"], FORBID_ATTR: ["style"] });
+}
+
+function boardSlots(md: string, slots: boolean): string {
+  const boards = boardsIn(md);
+  if (!boards.length) return md;
+  const lines = md.split("\n");
+  boards.forEach((b, i) => {
+    if (slots) lines.fill("", b.from, b.close + 1).splice(b.from, 1, `<div class="kb-slot" data-board="${i}"></div>`);
+    else [lines[b.from], lines[b.close]] = ["", ""];
+  });
+  return lines.join("\n");
 }
 
 /** Render an HTML note in a sandbox. With autoHeight the frame reports its height via postMessage. */

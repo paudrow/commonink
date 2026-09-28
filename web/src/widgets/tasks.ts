@@ -205,7 +205,7 @@ export const tasks: WidgetSpec = {
 };
 
 /** Task text as inline markdown; [[links]] shown by name, #tags as chips. */
-function inline(md: string): string {
+export function inline(md: string): string {
   const hits = tagsInLine(md);
   let text = md;
   for (let i = hits.length - 1; i >= 0; i--) text = `${text.slice(0, hits[i].from - 1)}\u0003${i}\u0004${text.slice(hits[i].to)}`;
