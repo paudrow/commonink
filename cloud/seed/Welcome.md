@@ -25,6 +25,6 @@ Link with [[Overview]], or embed a note (or just one section of it) with `![[…
 
 ## Keys
 
-- `⌘K` search and jump between notes, `⌘⇧F` the feed
+- `⌘K` search and jump between notes, `⌘⇧F` all your notes
 - `⌘⇧E` archive a note (it keeps its links, and you can undo)
 - Vim keys are on; toggle them in the status bar

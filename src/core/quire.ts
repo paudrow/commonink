@@ -344,7 +344,7 @@ export class Quire {
   }
 
   /**
-   * A stream of notes, newest first, for the feed view. `q` filters with full-text search;
+   * A stream of notes, newest first, for the Notes view. `q` filters with full-text search;
    * `folder` matches the note's original folder whether or not it's archived.
    */
   feed(opts: { q?: string; scope?: ArchiveScope; folder?: string; tag?: string; sort?: "modified" | "title"; offset?: number; limit?: number } = {}) {

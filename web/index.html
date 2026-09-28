@@ -30,15 +30,15 @@
         <button id="search-btn" class="search-pill" type="button">
           <span class="ico" data-icon="search"></span><span>Search notes</span><kbd>⌘K</kbd>
         </button>
-        <button id="feed-btn" class="nav-item" type="button"><span class="ico" data-icon="feed"></span><span>Feed</span></button>
+        <button id="notes-btn" class="nav-item" type="button"><span class="ico" data-icon="feed"></span><span>Notes</span></button>
         <button id="tasks-btn" class="nav-item" type="button"><span class="ico" data-icon="task"></span><span>Tasks</span><span id="tasks-count" class="n"></span></button>
         <button id="assets-btn" class="nav-item" type="button"><span class="ico" data-icon="grid"></span><span>Assets</span><span id="assets-count" class="n"></span></button>
         <button id="history-btn" class="nav-item" type="button"><span class="ico" data-icon="history"></span><span>History</span></button>
         <div class="tree-head">
-          <span>Notes</span>
+          <span>Folders</span>
           <button id="new-folder" class="icon-btn small" type="button" title="New folder"><span class="ico" data-icon="folderPlus" data-size="15"></span></button>
         </div>
-        <nav id="tree" aria-label="Notes"></nav>
+        <nav id="tree" aria-label="Folders"></nav>
         <div class="sidebar-foot">
           <button id="archive-nav" class="nav-item" type="button"><span class="ico" data-icon="archive"></span><span>Archive</span><span id="archive-count" class="n"></span></button>
           <button id="new-note" class="ghost-btn" type="button"><span class="ico" data-icon="plus"></span>New note</button>
@@ -47,7 +47,7 @@
 
       <main id="main">
         <header id="topbar">
-          <button id="back-btn" class="back-btn" type="button" title="Back to the feed" hidden><span class="ico" data-icon="back"></span><span>Feed</span></button>
+          <button id="back-btn" class="back-btn" type="button" title="Back to notes" hidden><span class="ico" data-icon="back"></span><span>Notes</span></button>
           <div id="crumbs"></div>
           <div class="spacer"></div>
           <div id="agents" title="Agents active in the last 15 minutes"></div>
@@ -65,7 +65,7 @@
         <div id="stage">
           <div id="editor-host"></div>
           <div id="html-preview" hidden></div>
-          <div id="feed-view" hidden tabindex="-1"></div>
+          <div id="notes-view" hidden tabindex="-1"></div>
           <div id="tasks-view" hidden tabindex="-1"></div>
           <div id="history-view" hidden tabindex="-1"></div>
           <div id="assets-view" hidden tabindex="-1"></div>

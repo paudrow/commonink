@@ -1,4 +1,4 @@
-// The feed: every note as a stream of cards, newest first — the app's home. Click a card to read
+// Notes: every note as a stream of cards, newest first — the app's home. Click a card to read
 // the whole note in place; Edit opens it in the editor. Filter as you type, triage from the
 // keyboard (j/k, Enter to expand, o to open, e to archive, x to select), and archive in bulk.
 import { api, type FeedItem, type FeedPage, type Scope } from "./api.ts";
@@ -16,8 +16,8 @@ interface Hooks {
 
 const PAGE = 40;
 
-export class Feed {
-  readonly root = $("#feed-view");
+export class NotesPage {
+  readonly root = $("#notes-view");
   private input: HTMLInputElement;
   private list: HTMLElement;
   private scopeBar: HTMLElement;
@@ -51,7 +51,7 @@ export class Feed {
         el(
           "header",
           { class: "feed-head" },
-          el("h1", {}, "Feed"),
+          el("h1", {}, "Notes"),
           el("label", { class: "feed-search" }, icon("search", 16), this.input, el("kbd", {}, "/")),
           el("div", { class: "feed-filters" }, this.scopeBar, this.folderBar),
         ),
@@ -80,7 +80,7 @@ export class Feed {
     return !this.root.hidden;
   }
 
-  /** Show the feed where the reader left it: same scroll position, same cards open. */
+  /** Show the list where the reader left it: same scroll position, same cards open. */
   show(opts: { scope?: Scope; filter?: boolean } = {}) {
     if (opts.scope && opts.scope !== this.scope) {
       this.scope = opts.scope;

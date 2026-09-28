@@ -1,4 +1,4 @@
-// Open tasks outside any one note: the Tasks page and the dashboard at the top of the feed. Both
+// Open tasks outside any one note: the Tasks page and the dashboard at the top of Notes. Both
 // are the ::tasks widget, so ticking a box here edits the note the task lives in.
 import { el } from "./dom.ts";
 import { WIDGETS } from "./widgets/index.ts";
