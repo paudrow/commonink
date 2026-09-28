@@ -12,7 +12,7 @@ import { sandboxFrame } from "./render.ts";
 import { Palette } from "./palette.ts";
 import { Feed } from "./feed.ts";
 import { folderPicker } from "./folderPicker.ts";
-import { showChange } from "./changeView.ts";
+import { History } from "./history.ts";
 import { renderTasksPage } from "./tasksView.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
@@ -70,6 +70,11 @@ const feed = new Feed({
     api.clearResolveCache();
     void refreshNotes();
   },
+});
+const historyPage = new History({
+  open: (path) => void openNote(path),
+  verb: (c) => verb(c),
+  toast: (t) => toast(t),
 });
 const palette = new Palette(
   () => notes,
@@ -176,12 +181,13 @@ function showAsset(meta: NoteMeta, push?: boolean) {
 
 let unmountTasks: (() => void) | null = null;
 
-function showStage(which: "editor" | "html" | "asset" | "feed" | "tasks") {
+function showStage(which: "editor" | "html" | "asset" | "feed" | "tasks" | "history") {
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
   $("#asset-view").hidden = which !== "asset";
   $("#feed-view").hidden = which !== "feed";
   $("#tasks-view").hidden = which !== "tasks";
+  $("#history-view").hidden = which !== "history";
   if (which !== "tasks") {
     unmountTasks?.();
     unmountTasks = null;
@@ -224,7 +230,20 @@ async function showTasks(opts: { push?: boolean } = {}) {
   renderOutline();
 }
 
-const onPage = () => (feed.visible ? "feed" : !$("#tasks-view").hidden ? "tasks" : null);
+/** History, optionally for one note, with a change selected (e.g. from the activity list). */
+async function showHistory(opts: { note?: string | null; select?: number; push?: boolean } = {}) {
+  await leaveNote();
+  showStage("history");
+  await historyPage.show({ note: opts.note ?? null, select: opts.select });
+  const hash = opts.note ? `#history?note=${encodeURIComponent(opts.note)}` : "#history";
+  if (opts.push !== false && location.hash !== hash) history.pushState(null, "", hash);
+  document.title = `${opts.note ? `${displayName(opts.note)} · ` : ""}History · Common Ink`;
+  renderChrome();
+  renderTree();
+  renderOutline();
+}
+
+const onPage = () => (feed.visible ? "feed" : !$("#tasks-view").hidden ? "tasks" : historyPage.visible ? "history" : null);
 
 // ------------------------------------------------------------------ focus mode
 
@@ -532,6 +551,7 @@ function onMessage(m: ServerMsg) {
         openNote(m.change.path, { push: false });
       }
       feed.refreshSoon();
+      historyPage.refreshSoon();
       renderActivity();
       renderPresence();
       renderTree();
@@ -609,6 +629,7 @@ function renderTree() {
   $("#archive-count").textContent = archivedCount ? String(archivedCount) : "";
   $("#feed-btn").classList.toggle("is-active", onPage() === "feed");
   $("#tasks-btn").classList.toggle("is-active", onPage() === "tasks");
+  $("#history-btn").classList.toggle("is-active", onPage() === "history" && !historyPage.noteFilter);
   const dirOf = (parts: string[]) => {
     let d = root;
     for (const p of parts) {
@@ -827,13 +848,19 @@ function renderChrome() {
   $("#back-btn").hidden = page === "feed";
   $("#archive-btn").hidden = !s;
   $("#move-btn").hidden = !s;
+  $("#note-history-btn").hidden = !s || s.kind === "asset";
   $("#focus-btn").hidden = !s || s.kind === "asset";
   $("#save-status").hidden = !s;
   if (!s) {
     $("#html-toggle").hidden = true;
     for (const id of ["#vim-mode", "#cursor-pos", "#word-count"]) $(id).textContent = "";
     $("#vim-mode").dataset.mode = "";
-    return crumbs.replaceChildren(...(page ? [el("span", { class: "crumb-file" }, page === "feed" ? "Feed" : "Tasks")] : []));
+    const label = { feed: "Feed", tasks: "Tasks", history: "History" };
+    const note = page === "history" ? historyPage.noteFilter : null;
+    return crumbs.replaceChildren(
+      ...(page ? [el("span", { class: "crumb-file" }, label[page])] : []),
+      ...(note ? [el("span", { class: "crumb-sep" }, "·"), el("span", { class: "crumb" }, displayName(note))] : []),
+    );
   }
   const archived = isArchived(s.path);
   $("#archive-btn").title = archived ? "Unarchive note (⌘⇧E)" : "Archive note (⌘⇧E)";
@@ -1018,8 +1045,8 @@ function renderActivity() {
               role: "button",
               tabindex: "0",
               title: "See what changed",
-              onclick: () => void showChange(c, { verb, open: (p) => void openNote(p), toast }),
-              onkeydown: (e: KeyboardEvent) => e.key === "Enter" && void showChange(c, { verb, open: (p) => void openNote(p), toast }),
+              onclick: () => void showHistory({ select: c.id }),
+              onkeydown: (e: KeyboardEvent) => e.key === "Enter" && void showHistory({ select: c.id }),
             },
             avatar(c.source, 22),
             el(
@@ -1207,6 +1234,8 @@ function debounce<A extends unknown[]>(fn: (...a: A) => unknown, ms: number) {
 
 let workspaceId = "";
 
+const historyNoteFromHash = () => new URLSearchParams(location.hash.split("?")[1] ?? "").get("note");
+
 /** The Tasks badge: how many checkboxes are still open across the workspace. */
 async function refreshTaskCount() {
   const tasks = await api.tasks({}).catch(() => null);
@@ -1250,12 +1279,15 @@ async function boot() {
   $("#theme-toggle").replaceChildren(icon(isDark ? "sun" : "moon", 15));
   window.addEventListener("popstate", () => {
     if (location.hash === "#tasks") return void showTasks({ push: false });
+    if (location.hash.startsWith("#history")) return void showHistory({ note: historyNoteFromHash(), push: false });
     const p = decodeURIComponent(location.hash.slice(2));
     if (!location.hash.startsWith("#/") || !p) return void showFeed({ push: false });
     if (p !== session?.path) openNote(p, { push: false });
   });
   $("#feed-btn").addEventListener("click", () => void showFeed({ scope: "active" }));
   $("#tasks-btn").addEventListener("click", () => void showTasks());
+  $("#history-btn").addEventListener("click", () => void showHistory());
+  $("#note-history-btn").addEventListener("click", () => session && void showHistory({ note: session.path }));
   $("#back-btn").addEventListener("click", () => void showFeed());
   $("#archive-nav").addEventListener("click", () => void showFeed({ scope: "archived" }));
   $("#archive-btn").addEventListener("click", () => void archiveCurrent());
@@ -1295,6 +1327,7 @@ async function boot() {
   void refreshTaskCount();
   // Home is the feed; a link to a note (#/path) or to the tasks page opens that instead.
   if (location.hash === "#tasks") return void showTasks({ push: false });
+  if (location.hash.startsWith("#history")) return void showHistory({ note: historyNoteFromHash(), push: false });
   const fromHash = location.hash.startsWith("#/") ? decodeURIComponent(location.hash.slice(2)) : "";
   if (fromHash && notes.some((n) => n.path === fromHash)) return void openNote(fromHash, { push: false });
   history.replaceState(null, "", "#feed");

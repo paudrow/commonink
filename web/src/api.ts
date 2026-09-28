@@ -20,6 +20,24 @@ export interface Change {
   summary: string | null;
   from_path: string | null;
 }
+export interface DiffRun {
+  from: number;
+  to: number;
+  count: number;
+  sources: string[];
+  tsFrom: number;
+  tsTo: number;
+  op: Change["op"];
+  skipped: number;
+  before: string | null;
+  after: string | null;
+}
+export interface DiffFile {
+  path: string;
+  runs: DiffRun[];
+  moves: Array<{ id: number; op: Change["op"]; from: string | null; to: string; ts: number; source: string }>;
+  last: number;
+}
 export interface SearchHit {
   path: string;
   title: string;
@@ -136,7 +154,11 @@ export const api = {
   archive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/archive`, send("POST", { paths })),
   unarchive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/unarchive`, send("POST", { paths })),
   backlinks: (path: string) => j<Backlink[]>(`${BASE}/backlinks?path=${enc(path)}`),
-  diff: (from: number, to: number) => j<{ path: string; op: Change["op"]; before: string | null; after: string | null }>(`${BASE}/diff?from=${from}&to=${to}`),
+  /** A page of the change log, newest first; `before` pages further back. */
+  history: (p: { limit?: number; before?: number; path?: string }) =>
+    j<Change[]>(`${BASE}/changes?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
+  /** What a set of changes did, note by note. `ids` is ranges like "12-18,20". */
+  diffs: (ids: string) => j<DiffFile[]>(`${BASE}/diffs?ids=${ids}`),
   restore: (id: number) => j<{ path: string; version: string; change: number | null }>(`${BASE}/restore`, send("POST", { id })),
   changes: () => j<Change[]>(`${BASE}/changes?limit=40`),
   save: (path: string, content: string, baseVersion?: string, allowEmpty = false) =>
