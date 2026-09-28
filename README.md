@@ -83,7 +83,9 @@ The server also refuses to replace a non-empty note with an empty one unless the
 
 ## Security notes
 
-The server binds to 127.0.0.1 and checks the `Host` header to block DNS rebinding. Writes must come from its own origin and be JSON, which blocks cross-site requests and requests from sandboxed notes. The WebSocket checks `Origin`. Rendered markdown goes through DOMPurify. Vault assets are served with a `sandbox` CSP, and HTML files are never served from the app's origin.
+The server binds to 127.0.0.1 and checks the `Host` header to block DNS rebinding. Writes must come from its own origin and be JSON, which blocks cross-site requests and requests from sandboxed notes. The WebSocket checks `Origin`. Rendered markdown goes through DOMPurify. Vault assets are served with a `sandbox` CSP. HTML notes run in `/sandbox`, a page with its own `sandbox` policy, so their scripts get an opaque origin: no cookies, no API, no access to the app.
+
+Online, every route has a least role that the Worker checks and the workspace checks again, sessions are `__Host-` cookies that expire and can be signed out everywhere, and every page gets a strict CSP with a fresh nonce. [docs/security/threat-model.md](docs/security/threat-model.md) lists what's protected, from whom, and what's still to do.
 
 ## Who can sign up
 
@@ -103,7 +105,7 @@ npm test        # node:test over test/*.test.ts
 npm run check   # both typechecks, then the tests
 ```
 
-The tests run the real surfaces against throwaway vaults: the core and the shared API in-process, and the server, CLI and MCP server as child processes. These switches make that possible, and work just as well by hand:
+The tests run the real surfaces against throwaway vaults: the core and the shared API in-process, and the server, CLI and MCP server as child processes. The online Worker runs locally in workerd (`test/cloud.ts`, through Wrangler's test harness), with its own empty D1, R2 and Durable Objects. These switches make that possible, and work just as well by hand:
 
 | Lever | What it does |
 | --- | --- |
