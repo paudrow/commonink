@@ -185,6 +185,11 @@ test("an older change log gets note IDs from the moves it recorded", () => {
   const { dir, quire } = openTempVault();
   const a = [quire.create("A", "# A\n", "t").change.id, quire.append("A", "more", "t").change.id, quire.move("A", "B", "t").change!.id];
   const a2 = quire.create("A", "# Another A\n", "t").change.id;
+  quire.create("C", "# C\n", "t");
+  const toD = quire.move("C", "D", "t").change!.id;
+  fs.rmSync(path.join(dir, "D.md"));
+  fs.writeFileSync(path.join(dir, "C.md"), "# A new C, made outside the app\n");
+  quire.sync();
   quire.db.exec("DROP INDEX changes_note");
   quire.db.exec("ALTER TABLE changes DROP COLUMN note_id");
 
@@ -192,4 +197,18 @@ test("an older change log gets note IDs from the moves it recorded", () => {
   assert.deepEqual(reopened.changes({ path: "B.md" }).map((c) => c.id), [...a].reverse());
   assert.deepEqual(reopened.changes({ path: "A.md" }).map((c) => c.id), [a2]);
   assert.equal(reopened.changes({ path: "B.md" })[0].note_id, reopened.meta("B.md")!.id);
+  assert.deepEqual(reopened.changes({ path: "C.md" }).map((c) => c.id), []);
+  assert.deepEqual(reopened.changes({ path: "D.md" }).map((c) => c.id), [toD]);
+});
+
+test("a change-log upgrade that fails partway runs again on the next start", () => {
+  const { dir, quire } = openTempVault();
+  const a = [quire.create("A", "# A\n", "t").change.id, quire.move("A", "B", "t").change!.id];
+  quire.db.exec("DROP INDEX changes_note");
+  quire.db.exec("ALTER TABLE changes DROP COLUMN note_id");
+  quire.db.exec("CREATE TRIGGER interrupt BEFORE UPDATE ON changes BEGIN SELECT RAISE(ABORT, 'interrupted'); END");
+  assert.throws(() => openVault(dir), /interrupted/);
+  quire.db.exec("DROP TRIGGER interrupt");
+
+  assert.deepEqual(openVault(dir).changes({ path: "B.md" }).map((c) => c.id), [...a].reverse());
 });
