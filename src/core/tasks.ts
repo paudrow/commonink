@@ -70,6 +70,14 @@ function tokensOf(text: string): Token[] {
   return out.sort((a, b) => a.from - b.from);
 }
 
+/** A task line's tokens other than tags (those have chips of their own), with their columns in the line. */
+export function lineTokens(line: string): Array<{ field: Exclude<Field, "tags">; value: string; from: number; to: number }> {
+  const m = line.match(TASK_LINE);
+  if (!m) return [];
+  const at = line.length - m[4].length;
+  return tokensOf(m[4]).flatMap((t) => (t.field === "tags" ? [] : [{ field: t.field, value: t.value, from: t.from + at, to: t.to + at }]));
+}
+
 export function parseTask(line: string): ParsedTask | null {
   const m = line.match(TASK_LINE);
   if (!m) return null;
@@ -168,7 +176,8 @@ export function dueFilter(expr: string, today: string): ((due: string | null) =>
   };
 }
 
-function addDays(day: string, n: number): string {
+/** The day `n` days after `day` (both YYYY-MM-DD). */
+export function addDays(day: string, n: number): string {
   const d = new Date(`${day}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);

@@ -45,6 +45,7 @@ Tools: `search_notes`, `read_note`, `list_notes`, `list_tags`, `list_tasks`, `up
 CodeMirror 6 with vim mode (`@replit/codemirror-vim`), plus:
 
 - **Live preview.** Markup hides when your cursor leaves it. Checkboxes can be clicked, `#tags` show as chips (click one to see its notes), and tables and frontmatter render as cards.
+- **Task details** are tokens at the end of a task's line, in the spirit of todo.txt: `- [ ] Send invoice due:2026-10-01 rec:monthly #work/clients @jane !high`. Also `start:` (hidden until then; `scheduled:` works too) and `done:`, which ticking adds and unticking takes off. Off the cursor's line they show as chips (a date pill that turns red when overdue, a repeat mark, a person, a priority flag). In the Tasks view and `::tasks`, the sliders button on a task edits them in a popover that rewrites only those tokens, and tasks group by note, due date, priority, tag or person. One parser (`src/core/tasks.ts`) serves the editor, the server, MCP (`list_tasks`, `update_task`) and the CLI (`quire tasks`, `quire task`).
 - **Embeds.** `![[Note]]`, `![[Note#Heading]]`, `![[image.svg]]`, `![[page.html]]`, and YouTube links.
 - **HTML notes** render in a sandboxed iframe with an opaque origin, both full-page and embedded (`⌘E` toggles source).
 - **Search.** `⌘K` does fuzzy name matching plus FTS5 full-text search. `gd` follows the link under the cursor, `:w` saves, `:e name` opens a note.

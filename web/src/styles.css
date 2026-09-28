@@ -1620,3 +1620,35 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .tags-row .row-act { visibility: hidden; }
 .tags-row:hover .row-act, .tags-row:focus-within .row-act { visibility: visible; }
 .tag-rename { flex: 1; min-width: 0; font: 14px var(--ui); color: var(--ink-strong); background: var(--bg-elev); border: 1px solid var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); border-radius: 6px; padding: 3px 8px; outline: none; }
+
+/* task tokens: chips in the editor and task lists, the details popover */
+.tk { display: inline-flex; align-items: center; gap: 4px; margin: 0 2px; padding: 0 7px; border-radius: 999px; background: var(--hover); color: var(--ink-2); font: 500 12px/1.6 var(--ui); white-space: nowrap; vertical-align: 0.05em; text-decoration: none; }
+.tk svg { flex: none; opacity: 0.75; }
+.tk-due.is-today { background: color-mix(in srgb, var(--warn) 16%, transparent); color: color-mix(in srgb, var(--warn) 80%, var(--ink)); }
+.tk-due.is-overdue { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
+.tk-priority.is-high { color: var(--bad); }
+.tk-priority.is-low { color: var(--muted); }
+.tk-person { padding-left: 2px; }
+.tk-person .avatar { font-size: 7px; box-shadow: none; }
+.tk-muted { color: var(--muted); }
+.qt-text > span:first-child { margin-right: 4px; }
+.qt-text .tk { font-size: 11.5px; }
+.qt-text .tag { margin: 0 2px; }
+.qt-row.is-done .qt-text .tk { text-decoration: none; opacity: 0.75; }
+.qt-select { font: 12px var(--ui); color: var(--muted); background: none; border: 0; border-radius: 6px; padding: 3px 2px; cursor: pointer; }
+.qt-select:hover { color: var(--ink-strong); background: var(--hover); }
+.qt-note.is-label { cursor: default; gap: 8px; }
+.qt-note.is-label:hover { background: none; color: var(--muted); }
+.qt-note .n { font-weight: 500; color: var(--faint); }
+.qt-edit { flex: none; align-self: center; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 5px; color: var(--muted); visibility: hidden; }
+.qt-row:hover .qt-edit, .qt-edit:focus-visible { visibility: visible; }
+.qt-edit:hover { background: var(--active); color: var(--ink-strong); }
+.task-pop { position: fixed; z-index: 60; width: 340px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--bg-elev); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18); }
+.task-pop .qw-field { grid-template-columns: 76px 1fr; align-items: center; }
+.task-pop-title { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-pop-title svg { flex: none; color: var(--muted); }
+.task-pop-control { display: flex; gap: 6px; }
+.task-pop input { min-width: 0; flex: 1; font: 13px var(--ui); color: var(--ink-strong); background: var(--bg); border: 1px solid var(--line-strong); border-radius: 7px; padding: 5px 8px; }
+.task-pop input:focus { outline: none; border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.task-pop input[type="time"] { flex: 0 0 96px; }
+.task-pop-error { font-size: 12.5px; color: var(--bad); }
