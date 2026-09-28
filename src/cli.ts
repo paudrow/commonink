@@ -2,7 +2,8 @@
 import fs from "node:fs";
 import { LOCAL_USER, openVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
-import { fmtBacklinks, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtTags, fmtTasks, fmtWrite } from "./core/format.ts";
+import { fmtBacklinks, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtWrite } from "./core/format.ts";
+import { parseQuery } from "./core/query.ts";
 
 const HELP = `quire — markdown notes for you and your agents
 
@@ -27,6 +28,10 @@ Usage: quire <command> [args] [--as <agent>] [--json]
   backlinks <note>
   star <note…> / unstar <note…>    add to or take out of your favorites
   starred                          list your favorites, in order
+  smart [name]                     your smart folders, or the notes in one
+  smart-save <name> [query…] [--just-me] [--id ID]
+                                   save a note query (q="…" folder=… tag=… sort=title)
+  smart-rm <name>                  delete a smart folder
   changes [--since <iso|id>] [--path <path|id|url>] [--limit N]
                                    --path brings the note's history under earlier names too
   restore <change-id>              put a note back the way it was before that change
@@ -44,7 +49,7 @@ for (let i = 0; i < argv.length; i++) {
   if (a.startsWith("--")) {
     const key = a.slice(2);
     const next = argv[i + 1];
-    if (["all", "json", "help", "archived", "done", "undone"].includes(key) || next === undefined) flags[key] = true;
+    if (["all", "json", "help", "archived", "done", "undone", "just-me"].includes(key) || next === undefined) flags[key] = true;
     else flags[key] = argv[++i];
   } else pos.push(a);
 }
@@ -164,6 +169,27 @@ if (cmd === "mcp") {
         for (const a of args) cmd === "star" ? q.star(LOCAL_USER, a) : q.unstar(LOCAL_USER, a);
         const list = q.favorites(LOCAL_USER);
         out(fmtFavorites(list), list);
+        break;
+      }
+      case "smart": {
+        if (!args.length) {
+          const list = q.smartFolders(LOCAL_USER);
+          out(fmtSmartFolders(list), list);
+          break;
+        }
+        const query = parseQuery(q.findSmartFolder(LOCAL_USER, args.join(" ")).query);
+        const notes = q.feed({ ...query, limit: query.limit ?? 500 }).items;
+        out(fmtList(notes), notes);
+        break;
+      }
+      case "smart-save": {
+        const f = q.saveSmartFolder(LOCAL_USER, { id: str("id"), name: need(0, "name"), query: args.slice(1).join(" "), shared: !flags["just-me"] }, true);
+        out(fmtSmartFolders([f]), f);
+        break;
+      }
+      case "smart-rm": {
+        const list = q.deleteSmartFolder(LOCAL_USER, need(0, "name"), true);
+        out(fmtSmartFolders(list), list);
         break;
       }
       case "starred": {

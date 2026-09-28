@@ -5,13 +5,15 @@ import path from "node:path";
 import { handleApi, type ApiHost } from "../src/core/api.ts";
 import { openTempVault } from "./helpers.ts";
 
-function setup() {
-  const { dir, quire } = openTempVault();
+/** The API over a fresh vault. `canEditShared: false` is how a viewer's requests reach a workspace online. */
+function setup({ canEditShared = true, user = "tester" } = {}, vault?: ReturnType<typeof openTempVault>) {
+  const { dir, quire } = vault ?? openTempVault();
   const events: string[] = [];
   const host: ApiHost = {
     quire,
-    actor: "tester",
-    user: "tester",
+    actor: user,
+    user,
+    canEditShared,
     info: () => ({ mode: "test" }),
     written: (rel, _content, _version, change) => events.push(`written ${rel} by ${change?.source ?? "-"}`),
     moved: (from, to) => events.push(`moved ${from} -> ${to}`),
@@ -147,6 +149,32 @@ test("tasks filter by due date against the reader's today, and a task's tokens c
   assert.equal((await call("GET", "/note?path=Roadmap")).body.content.split("\n")[7], "- [x] Ship the importer due:2026-10-01 @jane done:2026-10-02");
   const late = await call("POST", "/tasks/set", { path: "Roadmap", line: 8, text: "Ship the importer due:2026-10-01 @jane done:2026-10-02", done: false, today: "someday" });
   assert.deepEqual([late.status, late.body.error], [400, `"today" must be a date like 2026-10-01, not "someday"`]);
+});
+
+test("smart folders: an editor shares one, a viewer keeps their own but can't create, change or delete shared ones", async () => {
+  const vault = openTempVault();
+  const editor = setup({ user: "ed" }, vault);
+  const viewer = setup({ user: "vi", canEditShared: false }, vault);
+  const shared = await editor.call("POST", "/smart-folders", { name: "Planning", query: "tag=plan", shared: true });
+  assert.deepEqual(shared.body, { id: shared.body.id, name: "Planning", query: "tag=plan", shared: true, count: 1 });
+  assert.deepEqual(editor.events, ["tree"]);
+
+  const refused: Array<[string, unknown]> = [
+    ["/smart-folders", { name: "Team view", query: "", shared: true }],
+    ["/smart-folders", { id: shared.body.id, name: "Renamed", query: "tag=plan", shared: true }],
+    ["/smart-folders", { id: shared.body.id, name: "Planning", query: "tag=plan", shared: false }],
+    ["/smart-folders/delete", { id: shared.body.id }],
+  ];
+  for (const [route, body] of refused) {
+    const r = await viewer.call("POST", route, body);
+    assert.deepEqual([r.status, r.body.code], [403, "forbidden"], JSON.stringify(body));
+  }
+  const mine = await viewer.call("POST", "/smart-folders", { name: "Roadmap words", query: 'q="importer"' });
+  assert.deepEqual([mine.status, mine.body.shared, mine.body.count], [200, false, 1]);
+  assert.deepEqual((await viewer.call("GET", "/smart-folders")).body.map((f: { name: string }) => f.name), ["Planning", "Roadmap words"]);
+  assert.deepEqual((await editor.call("GET", "/smart-folders")).body.map((f: { name: string }) => f.name), ["Planning"]);
+  assert.equal((await viewer.call("POST", "/smart-folders/delete", { id: mine.body.id })).status, 200);
+  assert.equal((await editor.call("POST", "/smart-folders", { name: "Bad", query: "sort=size" })).status, 400);
 });
 
 test("favorites are starred, ordered and unstarred per person, and tell the other tabs", async () => {

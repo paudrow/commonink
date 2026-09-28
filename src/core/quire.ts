@@ -7,6 +7,7 @@ import { extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, typ
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
 import { dueFilter, editTask, isDate, localDate, parseTask, patchProblem, TASK_LINE, type TaskMeta, type TaskPatch } from "./tasks.ts";
+import { formatQuery, parseQuery, queryProblem } from "./query.ts";
 
 export interface NoteMeta {
   /** Stable across renames, moves and archiving; see ids.ts. */
@@ -113,6 +114,16 @@ export interface TagCount {
   notes: number;
   tasks: number;
   assets: number;
+}
+/** A saved note query in the sidebar, with how many active notes match it now. */
+export interface SmartFolder {
+  id: string;
+  name: string;
+  /** As ::query args: `tag=work sort=title`. */
+  query: string;
+  /** Shared with the whole workspace, rather than just the person who sees it. */
+  shared: boolean;
+  count: number;
 }
 /** Somewhere a tag is used: a note's line, a task's line, or an asset (line 0). */
 export interface TagUse {
@@ -737,6 +748,56 @@ export class Quire {
     const meta = this.meta(rel) ?? this.indexFile(rel);
     if (!meta) throw new QuireError(`No note matches "${target}"`, "not_found");
     return meta;
+  }
+
+  // ---------------------------------------------------------------- smart folders
+
+  /** The smart folders `user` sees (the workspace's shared ones and their own), in order, each with how many active notes match. */
+  smartFolders(user: string): SmartFolder[] {
+    return this.db
+      .all<{ id: string; name: string; query: string; owner: string | null }>(
+        "SELECT id, name, query, owner FROM smart_folders WHERE owner IS NULL OR owner = ? ORDER BY pos",
+        user,
+      )
+      .map((r) => ({ id: r.id, name: r.name, query: r.query, shared: r.owner === null, count: this.feed({ ...parseQuery(r.query), limit: 0 }).total }));
+  }
+
+  /** One of `user`'s smart folders by ID or name (any case). */
+  findSmartFolder(user: string, target: string): SmartFolder {
+    const t = target.trim().toLowerCase();
+    const found = this.smartFolders(user).find((f) => f.id === t) ?? this.smartFolders(user).find((f) => f.name.toLowerCase() === t);
+    if (!found) throw new QuireError(`No smart folder "${target}". Try list_smart_folders.`, "not_found");
+    return found;
+  }
+
+  /**
+   * Create a smart folder, or change one by `id`. A shared one belongs to the whole workspace, and
+   * only someone who `canEditShared` (not a viewer, online) may create, change or unshare one. A
+   * personal one is its owner's alone. The query is stored tidied.
+   */
+  saveSmartFolder(user: string, f: { id?: string; name: string; query: string; shared: boolean }, canEditShared: boolean): SmartFolder {
+    const name = f.name.trim();
+    if (!name) throw new QuireError("Give the smart folder a name");
+    const problem = queryProblem(f.query);
+    if (problem) throw new QuireError(problem);
+    const query = formatQuery(parseQuery(f.query));
+    const existing = f.id ? this.findSmartFolder(user, f.id) : null;
+    if ((f.shared || existing?.shared) && !canEditShared) {
+      throw new QuireError("Only editors can create or change shared smart folders. Make it just yours instead.", "forbidden");
+    }
+    const owner = f.shared ? null : user;
+    const id = existing?.id ?? newNoteId();
+    if (existing) this.db.run("UPDATE smart_folders SET name = ?, query = ?, owner = ? WHERE id = ?", name, query, owner, id);
+    else this.db.run("INSERT INTO smart_folders(id, name, query, owner, pos) VALUES (?,?,?,?,(SELECT coalesce(max(pos), 0) + 1 FROM smart_folders))", id, name, query, owner);
+    return this.findSmartFolder(user, id);
+  }
+
+  /** Delete one of `user`'s smart folders (a shared one only if they `canEditShared`). Returns what they see now. */
+  deleteSmartFolder(user: string, target: string, canEditShared: boolean): SmartFolder[] {
+    const f = this.findSmartFolder(user, target);
+    if (f.shared && !canEditShared) throw new QuireError("Only editors can delete shared smart folders.", "forbidden");
+    this.db.run("DELETE FROM smart_folders WHERE id = ?", f.id);
+    return this.smartFolders(user);
   }
 
   // ---------------------------------------------------------------- tags
