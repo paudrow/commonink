@@ -1620,3 +1620,17 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .tags-row .row-act { visibility: hidden; }
 .tags-row:hover .row-act, .tags-row:focus-within .row-act { visibility: visible; }
 .tag-rename { flex: 1; min-width: 0; font: 14px var(--ui); color: var(--ink-strong); background: var(--bg-elev); border: 1px solid var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); border-radius: 6px; padding: 3px 8px; outline: none; }
+
+/* sidebar sections: one scrolling column, each folding away from its header */
+.sidebar-sections { flex: 1; min-height: 0; overflow: auto; padding-bottom: 12px; }
+.sidebar-sections > #tree, .sidebar-sections > #favorites { flex: none; max-height: none; overflow: visible; }
+#tag-tree { padding: 4px 8px 4px; }
+.section-toggle { display: inline-flex; align-items: center; gap: 4px; margin-left: -4px; padding: 3px 4px; border-radius: 5px; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; }
+.section-toggle:hover { color: var(--ink-2); background: var(--hover); }
+.section-toggle:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 0; }
+.section-toggle .ico { transition: transform 0.15s; transform: rotate(90deg); }
+.tree-head.is-folded .section-toggle .ico { transform: rotate(0); }
+.tree-head.is-folded + nav { display: none; }
+#tag-tree .tree-row > svg { color: var(--muted); }
+#tag-tree .tree-row.is-active > svg { color: var(--accent); }
+#tags-page-btn.is-on { color: var(--accent); }
