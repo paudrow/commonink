@@ -195,6 +195,10 @@ export const api = {
   setTask: (t: Task, done: boolean) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/set`, send("POST", { path: t.path, line: t.line, text: t.text, done, today: today() })),
   /** Change a task's tokens in its note; the rest of its line stays as written. */
   updateTask: (t: Task, patch: TaskPatch) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/update`, send("POST", { path: t.path, line: t.line, text: t.text, patch, today: today() })),
+  /** Add a task written in words (see src/core/quickAdd.ts); `ignore` holds phrases kept as words. */
+  addTask: (text: string, ignore: string[] = []) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/add`, send("POST", { text, ignore, today: today() })),
+  /** Move a task (and what's nested under it) to another note. */
+  moveTask: (t: Task, to: string) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/move`, send("POST", { path: t.path, line: t.line, text: t.text, to })),
   /** Your starred notes, in your order. Each change returns the new list. */
   favorites: () => j<Favorite[]>(`${BASE}/favorites`),
   star: (path: string) => j<Favorite[]>(`${BASE}/favorites/star`, send("POST", { path })),

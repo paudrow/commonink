@@ -77,6 +77,15 @@ test("tasks lists open tasks, and task changes one's tokens or ticks it", () => 
   assert.equal(quire(vault, ["task", "Roadmap", "3"]).stderr, "There's no task on line 3 of Roadmap\n");
 });
 
+test("task add writes a task from words, and task move moves one", () => {
+  const vault = tempVault();
+  const today = new Date().toLocaleDateString("en-CA");
+  assert.equal(quire(vault, ["task", "add", "Call the printer → [[Roadmap]] !high"]).stdout, 'Added "- [ ] Call the printer !high" to Projects/Roadmap.md:10\n');
+  assert.equal(quire(vault, ["task", "add", "Stretch every day"]).stdout, `Added "- [ ] Stretch due:${today} rec:daily" to Journal/${today}.md:5\n`);
+  assert.equal(quire(vault, ["task", "move", "Roadmap", "10", "--to", "Welcome"]).stdout, 'Moved "Call the printer !high" to Welcome.md:7\n');
+  assert.equal(quire(vault, ["task", "add"]).stderr, "Say what the task is: quire task add \"Call mom tomorrow\"\n");
+});
+
 test("star and unstar take #tags as well as notes", () => {
   const vault = tempVault();
   assert.equal(quire(vault, ["star", "Welcome", "#plan"]).stdout, "Favorites:\n- Welcome.md — Welcome\n- #plan (1 note)\n");

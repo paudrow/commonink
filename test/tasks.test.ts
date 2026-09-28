@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addDays, dueFilter, editTask, editTaskLines, parseTask, patchProblem, skipPatch } from "../src/core/tasks.ts";
+import { addDays, dueFilter, editTask, editTaskLines, parseTask, patchProblem, skipPatch, withTasksAdded } from "../src/core/tasks.ts";
 import { recLabel } from "../src/core/recurrence.ts";
 
 const LINE = "- [ ] Send invoice to Acme due:2026-10-01 rec:monthly #work/clients @jane !high";
@@ -147,6 +147,19 @@ test("editing a task's text rewrites only the words before its tokens, never the
   // Text and a token in one patch: both land, the token in its place.
   assert.equal(editTask("- [ ] a @jane", { summary: "b", priority: "high" }), "- [ ] b !high @jane");
   assert.equal(patchProblem({ summary: "two\nlines" }), "A task's text is one line");
+});
+
+test("a task added to a note goes at the end of its Tasks section, or at the end of the note", () => {
+  const add = (content: string, heading = false) => withTasksAdded(content, ["- [ ] New"], heading).content;
+  assert.equal(add("# Day\n\n## Tasks\n\n- [ ] Old\n\n## Log\n\n- 09:00 hi\n"), "# Day\n\n## Tasks\n\n- [ ] Old\n- [ ] New\n\n## Log\n\n- 09:00 hi\n");
+  assert.equal(add("# Day\n\n## tasks\n\n## Log\n"), "# Day\n\n## tasks\n\n- [ ] New\n\n## Log\n");
+  assert.equal(add("# Day\n\n## Tasks\n- [ ] Old\n  - [ ] Sub"), "# Day\n\n## Tasks\n- [ ] Old\n  - [ ] Sub\n- [ ] New\n");
+  // No Tasks section: a daily note gets one; any other note gets the task at its end.
+  assert.equal(add("# Day\n\n## Log\n\n- 09:00 hi\n", true), "# Day\n\n## Log\n\n- 09:00 hi\n\n## Tasks\n\n- [ ] New\n");
+  assert.equal(add("# Launch\n\nNotes.\n"), "# Launch\n\nNotes.\n\n- [ ] New\n");
+  assert.equal(add("# Launch\n\n- [ ] Old\n"), "# Launch\n\n- [ ] Old\n- [ ] New\n");
+  // A heading inside fenced code isn't the section.
+  assert.equal(add("# N\n\n```\n## Tasks\n```\n"), "# N\n\n```\n## Tasks\n```\n\n- [ ] New\n");
 });
 
 test("a due filter compares dates, with today, tomorrow and yesterday relative to the day given", () => {

@@ -4,6 +4,7 @@ import type { TagCount } from "./api.ts";
 import { el, icon } from "./dom.ts";
 import { tagFilter } from "./tagPicker.ts";
 import { WIDGETS } from "./widgets/index.ts";
+import { quickAddBar } from "./quickAdd.ts";
 
 type Open = (path: string, line?: number) => void;
 
@@ -59,6 +60,7 @@ export function renderTasksPage(root: HTMLElement, hooks: { open: Open; tags(): 
       "div",
       { class: "page" },
       el("header", { class: "page-head" }, el("h1", {}, "Tasks"), el("p", { class: "page-sub" }, "Every checkbox across your notes. Tick one here and it's ticked in its note.")),
+      quickAddBar({ added: () => {}, open: hooks.open }).root, // the list below reloads when the note changes
       filters,
       host,
     ),

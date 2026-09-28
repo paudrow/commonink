@@ -211,6 +211,18 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
       return json({ path: r.path, version: r.version, line: r.line, text: r.text });
     }
+    case "POST /tasks/add": {
+      const r = quire.addTask(str("text"), actor, { today: optStr("today"), ignore: (raw as { ignore?: unknown }).ignore === undefined ? [] : paths("ignore") });
+      host.written(r.path, quire.files.read(r.path), r.version, r.change);
+      if (r.change?.op === "create") host.tree();
+      return json({ path: r.path, version: r.version, line: r.line, text: r.text });
+    }
+    case "POST /tasks/move": {
+      const r = quire.moveTask(str("path"), int("line"), str("text"), str("to"), actor);
+      host.written(r.cut.path, quire.files.read(r.cut.path), r.cut.version, r.cut.change);
+      host.written(r.path, quire.files.read(r.path), r.version, r.change);
+      return json({ path: r.path, version: r.version, line: r.line, text: r.text });
+    }
     case "POST /move": {
       const r = quire.move(str("from"), str("to"), actor);
       for (const e of r.edits) host.written(e.path, e.content, e.version, e.change);

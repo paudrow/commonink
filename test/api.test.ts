@@ -161,6 +161,17 @@ test("tasks filter by due date against the reader's today, and a task's tokens c
   assert.deepEqual([late.status, late.body.error], [400, `"today" must be a date like 2026-10-01, not "someday"`]);
 });
 
+test("quick-add writes a task from words, and a task moves to another note", async () => {
+  const { call, events } = setup();
+  const added = await call("POST", "/tasks/add", { text: "Ship the importer docs → [[Roadmap]] tomorrow", today: "2026-10-01", ignore: [] });
+  assert.deepEqual(added.body, { path: "Projects/Roadmap.md", version: added.body.version, line: 10, text: "Ship the importer docs due:2026-10-02" });
+  assert.deepEqual(events, ["written Projects/Roadmap.md by tester"]);
+  assert.equal((await call("POST", "/tasks/add", { text: "Stretch daily", today: "2026-10-01" })).body.path, "Journal/2026-10-01.md");
+  assert.equal((await call("POST", "/tasks/add", { text: "x", ignore: "next week" })).status, 400);
+  const moved = await call("POST", "/tasks/move", { path: "Roadmap", line: 10, text: "Ship the importer docs due:2026-10-02", to: "Journal/2026-10-01" });
+  assert.deepEqual([moved.status, moved.body.path, moved.body.line], [200, "Journal/2026-10-01.md", 6]);
+});
+
 test("a tag is starred and unstarred through the favorites routes a viewer can use", async () => {
   const { call } = setup();
   const starred = await call("POST", "/favorites/star", { tag: "plan" });

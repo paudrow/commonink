@@ -16,6 +16,11 @@ Usage: quire <command> [args] [--as <agent>] [--json]
                                    (--tag work also matches #work/acme)
   tasks [--tag T] [--assignee P] [--due '<=today'] [--done|--all]
                                    open tasks (tokens: due: start: rec: #tag @person !high)
+  task add "<task>"                add a task in words: "Pay rent every month on the 1st #home",
+                                   "Call mom tomorrow → [[Family]]"; it goes in today's daily
+                                   note (Journal/YYYY-MM-DD.md) or the → [[note]]
+  task move <note> <line> --to <note>
+                                   move a task (and what's nested under it) to another note
   task <note> <line> [--done|--undone] [--due D] [--rec R] [--skip] …
                                    tick a task or change its tokens; "none" clears one.
                                    --rec weekly, 6th, 1st-tue, after-1m (from done)…;
@@ -89,6 +94,22 @@ if (cmd === "mcp") {
         break;
       }
       case "task": {
+        if (args[0] === "add") {
+          if (!args[1]) throw new QuireError('Say what the task is: quire task add "Call mom tomorrow"');
+          const r = q.addTask(args.slice(1).join(" "), source);
+          out(`Added "- [ ] ${r.text}" to ${r.path}:${r.line}`, r);
+          break;
+        }
+        if (args[0] === "move") {
+          const [note, line] = [need(1, "note"), Number(need(2, "line"))];
+          const task = q.tasks({ note }).find((t) => t.line === line);
+          if (!task) throw new QuireError(`There's no task on line ${args[2]} of ${note}`);
+          const to = str("to");
+          if (!to) throw new QuireError("task move needs --to <note>");
+          const r = q.moveTask(note, line, task.text, to, source);
+          out(`Moved "${r.text}" to ${r.path}:${r.line}`, r);
+          break;
+        }
         const note = need(0, "note");
         const line = Number(need(1, "line"));
         const task = q.tasks({ note }).find((t) => t.line === line);

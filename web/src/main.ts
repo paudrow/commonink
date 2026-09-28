@@ -16,6 +16,7 @@ import { folderPicker } from "./folderPicker.ts";
 import { History } from "./history.ts";
 import { Assets } from "./assets.ts";
 import { renderTasksPage } from "./tasksView.ts";
+import { openQuickAdd } from "./quickAdd.ts";
 import { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
@@ -1505,6 +1506,13 @@ window.addEventListener(
     } else if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
       e.preventDefault();
       void showNotes({ filter: true });
+    } else if (e.key === "q" && !mod && !e.altKey && !typingIn(e.target)) {
+      // q, anywhere you aren't typing: the quick-add bar (Todoist's key, and free here).
+      e.preventDefault();
+      openQuickAdd({
+        added: (r) => toast({ icon: "check", text: `Added to ${r.path.replace(/\.md$/, "")}`, actionLabel: "Open", action: () => void openNote(r.path, { line: r.line }) }),
+        open: (path, line) => void openNote(path, { line }),
+      });
     } else if (mod && e.key === "e" && session?.kind === "html") {
       e.preventDefault();
       setHtmlMode(prefs.htmlMode === "preview" ? "source" : "preview");
@@ -1512,6 +1520,12 @@ window.addEventListener(
   },
   true,
 );
+
+/** Whether a key pressed here is someone typing: a field, a text area, or the editor. */
+function typingIn(target: EventTarget | null): boolean {
+  const t = target as HTMLElement | null;
+  return !!t?.closest?.("input, textarea, select, [contenteditable]:not([contenteditable=false]), .cm-editor");
+}
 
 const narrow = matchMedia("(max-width: 1100px)");
 function togglePanel(force?: boolean) {

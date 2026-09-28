@@ -148,6 +148,45 @@ server.registerTool(
 );
 
 server.registerTool(
+  "add_task",
+  {
+    title: "Add task",
+    description:
+      "Add a task written the way you'd say it: dates and repeats in words become tokens (\"Pay rent every month on the 1st #home\" → " +
+      "due:… rec:1st #home; \"call mom tomorrow\", \"next fri\", \"oct 3\", \"in 2 weeks\", \"every other week\", \"last friday of the month\", " +
+      "\"every 3 days after done\"). Tokens (due:, !high, @person, #tag) pass through. It goes under ## Tasks in today's daily note " +
+      "(Journal/YYYY-MM-DD.md, created if needed), or into the note named with → [[Note]].",
+    inputSchema: { text: z.string().describe("The task, e.g. \"Review the PR next fri → [[Launch]] @sam\"") },
+    annotations: writes,
+  },
+  ({ text }) =>
+    run(() => {
+      const r = quire.addTask(text, source());
+      return `Added "- [ ] ${r.text}" to ${r.path}:${r.line}`;
+    }),
+);
+
+server.registerTool(
+  "move_task",
+  {
+    title: "Move task",
+    description: "Move a task (and the lines nested under it) to another note, by the path:line and text list_tasks gave. It goes at the end of that note's Tasks section, or of the note.",
+    inputSchema: {
+      path: z.string(),
+      line: z.number().int().min(1),
+      text: z.string().describe("The task's text after the checkbox, as list_tasks showed it"),
+      to: z.string().describe("The note to move it to"),
+    },
+    annotations: writes,
+  },
+  ({ path, line, text, to }) =>
+    run(() => {
+      const r = quire.moveTask(path, line, text, to, source());
+      return `Moved "${r.text}" to ${r.path}:${r.line}`;
+    }),
+);
+
+server.registerTool(
   "update_task",
   {
     title: "Update task",
