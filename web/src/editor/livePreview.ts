@@ -5,6 +5,7 @@ import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, typ
 import { scanTags, type TagSpan } from "../../../src/core/tags.ts";
 
 const hide = Decoration.replace({});
+const CODE = new Set(["InlineCode", "FencedCode", "CodeBlock", "CodeText"]);
 
 /** A document's tags, found by the same parser the index uses, so a chip here is a tag there. */
 const tagCache = new WeakMap<Text, TagSpan[]>();
@@ -116,10 +117,15 @@ function build(view: EditorView): DecorationSet {
   // #tags render as chips; the # comes back while the cursor is on one.
   const first = doc.lineAt(view.viewport.from).number;
   const last = doc.lineAt(view.viewport.to).number;
+  const inCode = (pos: number) => {
+    for (let n: any = syntaxTree(state).resolveInner(pos, 1); n; n = n.parent) if (CODE.has(n.name)) return true;
+    return false;
+  };
   for (const t of tagsIn(doc)) {
     if (t.frontmatter || t.line < first || t.line > last) continue;
     const line = doc.line(t.line);
     const from = line.from + t.from - 1;
+    if (inCode(from)) continue; // where the editor sees code, it shows no chip
     const to = line.from + t.to;
     const raw = touches(state, from, to);
     out.push(Decoration.mark({ class: `cm-tag${raw ? " is-raw" : ""}`, attributes: { "data-tag": t.display } }).range(raw ? from : from + 1, to));

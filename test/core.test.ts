@@ -298,6 +298,13 @@ test("one index answers everything under a tag across notes, tasks and assets", 
   });
 });
 
+test("tag counts leave out only Archive/, and tags outside the Basic Multilingual Plane match their children", () => {
+  const { quire } = openTempVault({ "archive/n.md": "# N\n\n#t\n", "Work/m.md": "# M\n\n#t #𝐀lpha/beta\n" });
+  assert.deepEqual(quire.tags().map((t) => `${t.tag} ${t.notes}`), ["t 2", "𝐀lpha 1", "𝐀lpha/beta 1"]);
+  assert.deepEqual(quire.tagged("𝐀lpha").map((r) => r.path), ["Work/m.md"]);
+  assert.deepEqual(quire.search("m", 10, "active", "𝐀lpha").map((h) => h.path), ["Work/m.md"]);
+});
+
 test("a tag is shown the way it was first written, whatever case later notes use", () => {
   const { quire } = openTempVault({});
   quire.create("A", "# A\n\n#Work/Acme\n", "t");

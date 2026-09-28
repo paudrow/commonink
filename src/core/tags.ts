@@ -101,7 +101,7 @@ function frontmatterTags(lines: string[], fm: number): FrontmatterTags | null {
       return { at: i, block: false, bracketed, items };
     }
     for (let j = i + 1; j < fm - 1; j++) {
-      const m = lines[j].match(/^(\s*-\s+)(.*)$/);
+      const m = lines[j].replace(/\r$/, "").match(/^(\s*-\s+)(.*)$/);
       if (!m) break;
       add(j + 1, m[1].length, m[2]);
     }
@@ -113,7 +113,7 @@ function frontmatterTags(lines: string[], fm: number): FrontmatterTags | null {
 /**
  * Rename tag `from` (normalized) to `to` (as it should be written) in a note: the tag and every tag
  * under it, wherever it counts as a tag. Nothing else changes, except that a frontmatter list which
- * ends up naming a tag twice (a merge) keeps only the first.
+ * ends up naming a renamed tag twice (a merge) keeps only the first.
  */
 export function renameTagIn(md: string, from: string, to: string): string {
   const spans = scanTags(md).filter((s) => tagMatches(s.tag, from));
@@ -129,7 +129,7 @@ export function renameTagIn(md: string, from: string, to: string): string {
     const seen = new Set<string>();
     const dupes = fm.items.filter((item) => {
       const tag = normalizeTag(item.text);
-      if (!tag) return false;
+      if (!tag || !tagMatches(tag, to.toLowerCase())) return false;
       if (seen.has(tag)) return true;
       seen.add(tag);
       return false;
@@ -138,7 +138,8 @@ export function renameTagIn(md: string, from: string, to: string): string {
       for (const d of dupes.reverse()) lines.splice(d.line - 1, 1);
     } else if (dupes.length) {
       const kept = fm.items.filter((item) => !dupes.includes(item)).map((item) => item.raw).join(", ");
-      lines[fm.at] = lines[fm.at].match(/^tags:[ \t]*/)![0] + (fm.bracketed ? `[${kept}]` : kept);
+      const eol = lines[fm.at].endsWith("\r") ? "\r" : "";
+      lines[fm.at] = lines[fm.at].match(/^tags:[ \t]*/)![0] + (fm.bracketed ? `[${kept}]` : kept) + eol;
     }
   }
   return lines.join("\n");

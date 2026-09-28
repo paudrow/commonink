@@ -1,18 +1,42 @@
 // Line-level markdown structure shared by the indexers and the editor (no Node imports, so the web
 // app can use it too).
 
-/** Lines outside fenced code blocks, with their 1-based line numbers. */
+const LIST_ITEM = /^\s*([-*+]|\d+[.)])\s/;
+
+/**
+ * Lines outside code, with their 1-based line numbers. Code is a fenced block (closed only by a
+ * bare fence of the same kind, at least as long) or an indented one: indented four spaces after a
+ * blank line, unless it continues a list item.
+ */
 export function proseLines(md: string): Array<[number, string]> {
   const out: Array<[number, string]> = [];
-  let fence: string | null = null;
+  let fence: { char: string; len: number } | null = null;
+  let indentedCode = false;
+  let blankBefore = true;
+  let lastProse = "";
   md.split("\n").forEach((line, i) => {
-    const f = line.match(/^\s*(```+|~~~+)/);
-    if (f) {
-      if (!fence) fence = f[1][0];
-      else if (f[1][0] === fence) fence = null;
+    if (fence) {
+      const close = line.match(/^\s*(`{3,}|~{3,})\s*$/);
+      if (close && close[1][0] === fence.char && close[1].length >= fence.len) fence = null;
       return;
     }
-    if (!fence) out.push([i + 1, line]);
+    const open = line.match(/^\s*(`{3,}|~{3,})/);
+    if (open) {
+      fence = { char: open[1][0], len: open[1].length };
+      indentedCode = blankBefore = false;
+      return;
+    }
+    if (!line.trim()) {
+      blankBefore = true;
+      if (!indentedCode) out.push([i + 1, line]);
+      return;
+    }
+    const indented = /^( {4}|\t)/.test(line);
+    indentedCode = indented && (indentedCode || (blankBefore && !LIST_ITEM.test(lastProse) && !/^\s/.test(lastProse)));
+    blankBefore = false;
+    if (indentedCode) return;
+    lastProse = line;
+    out.push([i + 1, line]);
   });
   return out;
 }

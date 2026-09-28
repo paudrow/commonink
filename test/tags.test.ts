@@ -53,6 +53,17 @@ test("#words stop counting in headings, URL fragments, code and frontmatter keys
   }
 });
 
+test("indented code and fences that only close on a bare fence hide #words too, but a list's indented paragraph doesn't", () => {
+  assert.deepEqual(found("para\n\n    #include <stdio.h>\n    #define X 1\n\n- item\n\n    #continued in the item\n"), ["8:continued"]);
+  assert.deepEqual(found("```\n```js\n#incode\n```\n#after\n"), ["5:after"]);
+  assert.deepEqual(found("- [ ] task\n    ```\n    #code\n    ```\n  #nested\n"), ["5:nested"]);
+});
+
+test("notes with Windows line endings read and rewrite the same way", () => {
+  assert.deepEqual(found("---\r\ntags:\r\n  - work\r\n---\r\n#x\r\n"), ["3:work", "5:x"]);
+  assert.equal(renameTagIn("---\r\ntags: [a, b]\r\n---\r\n", "a", "b"), "---\r\ntags: [b]\r\n---\r\n");
+});
+
 test("tagsInLine reports each tag's columns so it can be replaced in place", () => {
   assert.deepEqual(tagsInLine("- [ ] Call #Acme about `#not` #work/clients"), [
     { tag: "acme", display: "Acme", from: 12, to: 16 },
@@ -73,4 +84,5 @@ test("merging a tag into one the note already has keeps one of it in the frontma
   assert.equal(renameTagIn("---\ntags: [a, b, c]\n---\n", "a", "b"), "---\ntags: [b, c]\n---\n");
   assert.equal(renameTagIn("---\ntags:\n  - a\n  - b\n---\n", "b", "a"), "---\ntags:\n  - a\n---\n");
   assert.equal(renameTagIn("---\ntags: a, b\n---\n", "b", "A"), "---\ntags: a\n---\n");
+  assert.equal(renameTagIn("---\ntags: [x, X, y]\n---\n", "y", "z"), "---\ntags: [x, X, z]\n---\n");
 });

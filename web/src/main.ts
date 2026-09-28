@@ -265,6 +265,7 @@ async function showTags(opts: { push?: boolean } = {}) {
   await leaveNote();
   showStage("tags");
   tagsPage.show();
+  refreshTagsSoon();
   if (opts.push !== false) setUrl("/tags");
   document.title = "Tags · Common Ink";
   renderChrome();
@@ -606,6 +607,7 @@ function onMessage(m: ServerMsg) {
     case "note": {
       const meta = notes.find((n) => n.path === m.path);
       if (meta) meta.version = m.version;
+      refreshTagsSoon(); // your own typing can add a tag too
       if (m.origin === clientId) return;
       if (m.path === session?.path) applyRemote(m);
       else if (session?.kind === "md" && embedsPath(m.path)) bumpEmbeds(view);
@@ -667,6 +669,10 @@ async function refreshNotes() {
   tagsPage.refresh();
 }
 const refreshNotesSoon = debounce(refreshNotes, 120);
+const refreshTagsSoon = debounce(async () => {
+  tags = await api.tags().catch(() => tags);
+  tagsPage.refresh();
+}, 400);
 
 // ------------------------------------------------------------------ favorites
 

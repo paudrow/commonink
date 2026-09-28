@@ -250,6 +250,10 @@ export class Quire {
   private indexAssetTags(map: Record<string, string[]>) {
     const st = this.files.stat(ASSET_TAGS);
     this.assetTagsSeen = st ? `${st.mtime}:${st.size}` : "";
+    // Every process (a CLI call, a Durable Object waking up) reads the file once; only write if it changed.
+    const want = Object.entries(map).flatMap(([rel, tags]) => tags.map((t) => `${rel}\u0000${t.toLowerCase()}`)).sort();
+    const have = this.db.all<{ path: string; tag: string }>("SELECT path, tag FROM tags WHERE kind = 'asset'").map((r) => `${r.path}\u0000${r.tag}`).sort();
+    if (want.join("\n") === have.join("\n")) return;
     this.db.tx(() => {
       this.db.run("DELETE FROM tags WHERE kind = 'asset'");
       for (const [rel, tags] of Object.entries(map)) {
@@ -402,9 +406,9 @@ export class Quire {
               bm25(notes_fts, 4.0, 8.0, 1.0) AS score
        FROM notes_fts JOIN notes n ON n.path = notes_fts.path
        WHERE notes_fts MATCH ? AND (? = 'all' OR (n.path LIKE 'Archive/%') = (? = 'archived'))
-         AND (? IS NULL OR n.path IN (SELECT path FROM tags WHERE tag = ? OR substr(tag, 1, ?) = ?))
+         AND (? IS NULL OR n.path IN (SELECT path FROM tags WHERE ${UNDER}))
        ORDER BY score LIMIT ?`,
-      ftsQuery(terms), scope, scope, key, key, (key?.length ?? 0) + 1, `${key}/`, limit,
+      ftsQuery(terms), scope, scope, key, ...under(key ?? ""), limit,
     );
     return rows.map((r) => ({ ...r, lines: this.matchingLines(r.path, terms) }));
   }
@@ -737,7 +741,7 @@ export class Quire {
     const shown = new Map(this.db.all<{ tag: string; display: string }>("SELECT tag, display FROM tag_names").map((r) => [r.tag, r.display]));
     const uses = new Map<string, { notes: Set<string>; tasks: Set<string>; assets: Set<string> }>();
     const rows = this.db.all<TagUse & { tag: string }>(
-      "SELECT t.tag, t.kind, t.path, t.line FROM tags t JOIN notes n ON n.path = t.path WHERE t.path NOT LIKE 'Archive/%'",
+      "SELECT t.tag, t.kind, t.path, t.line FROM tags t JOIN notes n ON n.path = t.path WHERE substr(t.path, 1, 8) != 'Archive/'",
     );
     for (const r of rows) {
       const parts = r.tag.split("/");
@@ -759,9 +763,8 @@ export class Quire {
     const key = normalizeTag(tag);
     if (!key) return [];
     return this.db.all(
-      `SELECT DISTINCT t.kind, t.path, t.line FROM tags t JOIN notes n ON n.path = t.path
-       WHERE t.tag = ? OR substr(t.tag, 1, ?) = ? ORDER BY t.path, t.line`,
-      key, key.length + 1, `${key}/`,
+      `SELECT DISTINCT t.kind, t.path, t.line FROM tags t JOIN notes n ON n.path = t.path WHERE ${UNDER} ORDER BY t.path, t.line`,
+      ...under(key),
     );
   }
 
@@ -827,11 +830,9 @@ export class Quire {
     }
     if (Object.keys(assets).length) this.writeAssetTags(map);
     // A rename is how a tag's written form changes: show it, and the tags under it, as typed.
-    const key = next.toLowerCase();
-    this.db.run(
-      "UPDATE tag_names SET display = ? || substr(display, ?) WHERE tag = ? OR substr(tag, 1, ?) = ?",
-      next, next.length + 1, key, key.length + 1, `${key}/`,
-    );
+    for (const r of this.db.all<{ tag: string; display: string }>(`SELECT tag, display FROM tag_names WHERE ${UNDER}`, ...under(next.toLowerCase()))) {
+      this.db.run("UPDATE tag_names SET display = ? WHERE tag = ?", next + r.display.slice(r.display.split("/").slice(0, next.split("/").length).join("/").length), r.tag);
+    }
     return { edits, assets };
   }
 
@@ -1053,6 +1054,10 @@ export class Quire {
     return { path: dest, from, version: meta.version, change, updated, edits };
   }
 }
+
+/** `tags.tag` is the tag or under it: a range, so it uses the index and needs no character counting. */
+const UNDER = "(tag = ? OR (tag >= ? AND tag < ?))";
+const under = (key: string) => [key, `${key}/`, `${key}0`]; // "0" sorts right after "/"
 
 /** Tags tidied and each kept once (the first way it's written). `strict` throws on one that isn't a tag; otherwise it's dropped. */
 function uniqueTags(tags: string[], strict: boolean): string[] {
