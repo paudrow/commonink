@@ -84,6 +84,8 @@ const notesPage = new NotesPage({
   folderChanged: () => renderTree(),
   tags: () => tags,
   pinButton: (tag) => pinButton(tag, "chip"),
+  openPerson: (assignee) => void showTasks({ assignee }),
+  readOnly: () => viewer,
   toast: (t) => toast(t),
   changed: () => {
     api.clearResolveCache();
@@ -1548,6 +1550,8 @@ function debounce<A extends unknown[]>(fn: (...a: A) => unknown, ms: number) {
 }
 
 let workspaceId = "";
+/** You can view this workspace but not edit it. */
+let viewer = false;
 
 /**
  * Show whatever the address bar points at: /notes/<title>-<id>, /tasks, /history, /assets, or the
@@ -1603,6 +1607,7 @@ async function boot() {
   if (who?.me) {
     const ws = pickWorkspace(who.me);
     workspaceId = ws.id;
+    viewer = ws.role === "viewer";
     useWorkspace(`/api/w/${ws.id}`, `/api/w/${ws.id}/live`);
     setSelfName(who.me.user.name);
     renderAccount(who.me, ws, (t) => toast(t));

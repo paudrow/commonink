@@ -10,6 +10,9 @@ import { fuzzyScore } from "../fuzzy.ts";
 import { newId, serializeDirective } from "../widgets/args.ts";
 import { pendingConfig, WIDGETS } from "../widgets/index.ts";
 import { editorContext } from "./blocks.ts";
+import { taskPeople } from "../taskChipEditors.ts";
+import { taskTokenSource } from "./taskComplete.ts";
+import { inTaskText } from "./taskEdit.ts";
 
 interface Option extends Completion {
   icon?: string;
@@ -70,13 +73,32 @@ const noteMentions: MentionProvider = {
 
 const MENTIONS: MentionProvider[] = [noteMentions];
 
-function mentionSource(ctx: CompletionContext): CompletionResult | null {
+/** People already on tasks, for `@` on a task line; fetched at most every half minute. */
+let people: { at: number; list: Promise<string[]> } | null = null;
+const peopleOnTasks = () => {
+  if (!people || Date.now() - people.at > 30_000) people = { at: Date.now(), list: taskPeople() };
+  return people.list;
+};
+
+async function mentionSource(ctx: CompletionContext): Promise<CompletionResult | null> {
   const m = ctx.matchBefore(/(?:^|[\s([{"'])@[^@\n]{0,40}$/);
   if (!m) return null;
   const at = m.from + m.text.indexOf("@");
   if (!inProse(ctx.state, at)) return null;
   const query = ctx.state.sliceDoc(at + 1, ctx.pos);
-  const options: Option[] = MENTIONS.flatMap((p) =>
+  // On a task line, @ is first a person to put on it: someone already on a task, or a new name.
+  const onTask = inTaskText(ctx.state, at);
+  const found = onTask ? (await peopleOnTasks().catch(() => [])).filter((p) => p.toLowerCase().includes(query.toLowerCase())) : [];
+  const person = (name: string): Option => ({
+    label: `@${name}`,
+    icon: "at",
+    section: { name: "People", rank: -1 },
+    apply: (view: EditorView, _c: Completion, _from: number, to: number) =>
+      view.dispatch({ changes: { from: at, to, insert: `@${name}` }, selection: { anchor: at + name.length + 1 }, userEvent: "input.complete" }),
+  });
+  const typedName = /^[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*$/u.test(query) && !found.some((p) => p.toLowerCase() === query.toLowerCase());
+  const options: Option[] = [...found.slice(0, 8).map(person), ...(onTask && typedName ? [person(query)] : [])];
+  options.push(...MENTIONS.flatMap((p) =>
     p.search(query, ctx.state).map((r) => ({
       label: r.label,
       detail: r.detail,
@@ -85,7 +107,7 @@ function mentionSource(ctx: CompletionContext): CompletionResult | null {
       apply: (view: EditorView, _c: Completion, _from: number, to: number) =>
         view.dispatch({ changes: { from: at, to, insert: r.insert }, selection: { anchor: at + r.insert.length }, userEvent: "input.complete" }),
     })),
-  );
+  ));
   if (!options.length && /\s/.test(query)) return null; // "@ " in ordinary prose: get out of the way
   return { from: at + 1, options, filter: false };
 }
@@ -374,7 +396,7 @@ const pasteFiles = EditorView.domEventHandlers({
 export function typingHelpers(): Extension {
   return [
     autocompletion({
-      override: [toolSource, mentionSource, linkSource, tagSource, frontmatterTagSource],
+      override: [toolSource, taskTokenSource, mentionSource, linkSource, tagSource, frontmatterTagSource],
       icons: false,
       closeOnBlur: true,
       maxRenderedOptions: 40,
