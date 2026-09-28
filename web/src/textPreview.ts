@@ -1,11 +1,12 @@
 // Text assets (CSV, JSON, plain text) in the Assets page: the first lines as a grid thumbnail,
 // and a preview that reads the file the way it's meant to be read (a table, formatted JSON) or
 // as the raw text, whichever you pick.
-import { fileUrl } from "./api.ts";
+import { assetUrl, fileUrl } from "./api.ts";
 import { el, icon } from "./dom.ts";
-import { fmtBytes, textFormat, type TextFormat } from "./assetKinds.ts";
+import { assetIcon, fmtBytes, textFormat, type TextFormat } from "./assetKinds.ts";
 
 const MAX_PREVIEW = 5 * 1024 * 1024; // bigger than this: offer the download instead
+const MAX_EMBED = 2 * 1024 * 1024; // …and in a note, send people to the Assets page
 const MAX_THUMB = 256 * 1024;
 const MAX_ROWS = 1000;
 const MAX_LINES = 5000;
@@ -40,14 +41,8 @@ export function textStage(path: string, size: number): HTMLElement {
       const copy = el("button", { type: "button", class: "ap-text-copy", title: "Copy the whole file" }, icon("copy", 13), "Copy text");
       copy.addEventListener("click", () => void navigator.clipboard.writeText(text).then(() => (copy.lastChild!.textContent = "Copied")));
       const render = () => {
-        const seg = el(
-          "div",
-          { class: "seg" },
-          ...MODES[format].map((m) =>
-            el("button", { type: "button", class: m === mode ? "is-on" : "", onclick: () => ((mode = m), remember(format, m), render()) }, LABEL[m]),
-          ),
-        );
-        const view = mode === "table" ? tableView(text) : mode === "formatted" ? jsonView(text) : rawView(text);
+        const seg = el("div", { class: "seg" }, ...modeButtons(format, mode, (m) => ((mode = m), remember(format, m), render())));
+        const view = renderText(text, mode);
         bar.replaceChildren(...(MODES[format].length > 1 ? [seg] : []), el("span", { class: "ap-text-meta" }, view.meta), el("span", { class: "spacer" }), copy);
         body.replaceChildren(view.node);
         body.scrollTop = 0;
@@ -56,6 +51,75 @@ export function textStage(path: string, size: number): HTMLElement {
     })
     .catch(() => body.replaceChildren(el("div", { class: "ap-text-note" }, "Couldn't load this file.")));
   return box;
+}
+
+function renderText(text: string, mode: Mode): { node: HTMLElement; meta: string } {
+  return mode === "table" ? tableView(text) : mode === "formatted" ? jsonView(text) : rawView(text);
+}
+
+function modeButtons(format: TextFormat, mode: Mode, pick: (m: Mode) => void): HTMLElement[] {
+  if (MODES[format].length < 2) return [];
+  return MODES[format].map((m) =>
+    el("button", { type: "button", class: m === mode ? "is-on" : "", onmousedown: (e: Event) => (e.preventDefault(), pick(m)) }, LABEL[m]),
+  );
+}
+
+/**
+ * `![[data.csv]]` in a note: a card with the file's name and size, the Table | Raw (or
+ * Formatted | Raw) toggle, and the contents, scrolling inside the card if they're long.
+ */
+export function dataEmbed(target: string, from: string | undefined, opts: { actions?: HTMLElement[]; settle?: () => void } = {}): HTMLElement {
+  const name = target.split("#")[0];
+  const format = textFormat(name);
+  const settle = opts.settle ?? (() => {});
+  const meta = el("span", { class: "embed-meta" });
+  const seg = el("div", { class: "seg embed-seg" });
+  const body = el("div", { class: "embed-body embed-data is-loading" }, el("div", { class: "skeleton" }), el("div", { class: "skeleton short" }));
+  const wrap = el(
+    "div",
+    { class: "cm-embed is-data" },
+    el("div", { class: "embed-head" }, icon(assetIcon(name), 14), el("span", { class: "embed-title" }, name.split("/").pop()!), meta, el("span", { class: "spacer" }), seg, ...(opts.actions ?? [])),
+    body,
+  );
+  const note = (text: string) => {
+    body.classList.remove("is-loading");
+    body.replaceChildren(el("div", { class: "embed-missing" }, icon(assetIcon(name), 15), text));
+    settle();
+  };
+  void fetch(assetUrl(name, from))
+    .then(async (r) => {
+      if (!r.ok) return note(`Can't find ${name}`);
+      if (Number(r.headers.get("Content-Length") ?? 0) > MAX_EMBED) return note(`${name} is too big to show in a note. Open it from Assets.`);
+      const text = await r.text();
+      let mode = savedMode(format);
+      const render = () => {
+        const v = renderText(text, mode);
+        body.classList.remove("is-loading");
+        body.replaceChildren(v.node);
+        meta.textContent = v.meta;
+        seg.replaceChildren(...modeButtons(format, mode, (m) => ((mode = m), remember(format, m), render())));
+        settle();
+      };
+      render();
+    })
+    .catch(() => note(`Couldn't load ${name}`));
+  return wrap;
+}
+
+/**
+ * Rendered markdown shows `![[data.csv]]` as a "↳ data.csv" link; swap those for data cards
+ * (in expanded feed cards and in notes embedded in notes).
+ */
+export function hydrateDataEmbeds(root: HTMLElement, from: string, settle?: () => void) {
+  for (const a of root.querySelectorAll<HTMLAnchorElement>('a[href^="quire:"]')) {
+    if (!a.textContent?.startsWith("↳ ")) continue; // an embed, not an ordinary link
+    const target = decodeURIComponent(a.getAttribute("href")!.slice(6));
+    if (!/\.(csv|json|txt)$/i.test(target.split("#")[0])) continue;
+    const card = dataEmbed(target, from, { settle });
+    const p = a.parentElement;
+    if (p?.tagName === "P" && p.childNodes.length === 1) p.replaceWith(card);
+    else a.replaceWith(card);
+  }
 }
 
 function remember(f: TextFormat, m: Mode) {

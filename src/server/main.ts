@@ -186,7 +186,7 @@ function asset(res: http.ServerResponse, raw: string) {
   const rel = cleanPath(raw);
   const mime = mimeOf(rel);
   if (!mime || !files.stat(rel)) return send(res, json({ error: "Not found" }, 404));
-  res.writeHead(200, { "Content-Type": mime, ...fileSecurityHeaders(mime), "Cache-Control": "no-cache" });
+  res.writeHead(200, { "Content-Type": mime, "Content-Length": String(files.stat(rel)!.size), ...fileSecurityHeaders(mime), "Cache-Control": "no-cache" });
   fs.createReadStream(files.abs(rel)).pipe(res);
 }
 

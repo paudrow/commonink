@@ -108,6 +108,7 @@ export class Workspace extends DurableObject<Env> {
     return new Response(obj.body, {
       headers: {
         "Content-Type": meta.mime ?? "application/octet-stream",
+        "Content-Length": String(obj.size),
         ...fileSecurityHeaders(meta.mime ?? ""),
         "Cache-Control": "private, max-age=300",
       },

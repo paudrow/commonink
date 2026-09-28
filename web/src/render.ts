@@ -12,7 +12,7 @@ export { currentScheme };
 const IMAGE = /\.(png|jpe?g|gif|webp|avif|svg)$/i;
 const VIDEO = /\.(mp4|webm)$/i;
 
-export type EmbedKind = "note" | "image" | "video" | "html" | "social" | "bookmark";
+export type EmbedKind = "note" | "image" | "video" | "html" | "social" | "bookmark" | "data";
 
 /**
  * What an embed target renders as. `bare` is a URL alone on its own line (a pasted link):
@@ -29,6 +29,7 @@ export function embedKindOf(target: string, bare = false): EmbedKind {
   if (IMAGE.test(clean)) return "image";
   if (VIDEO.test(clean)) return "video";
   if (/\.html?$/i.test(clean)) return "html";
+  if (/\.(csv|json|txt)$/i.test(clean)) return "data";
   return "note";
 }
 

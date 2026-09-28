@@ -4,6 +4,7 @@ These notes belong to people. You are a guest editor.
 
 - One idea per note. The title is the first `# heading`; the filename matches the title.
 - Link related notes with `[[Note name]]`; embed with `![[Note name]]` or `![[Note name#Heading]]`.
+- Embed a CSV, JSON or text file the same way (`![[signups.csv]]`): it shows as a table (CSV) or formatted text in the note.
 - Make small, targeted edits and keep people's words intact; change their text only when they ask.
 - Widgets are single lines. Leave any `id=` value as it is.
   - `::tasks{folder=Projects}` collects checkbox tasks from those notes.

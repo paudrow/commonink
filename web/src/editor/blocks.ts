@@ -13,6 +13,7 @@ import { renderWidget, type WidgetEnv } from "../widgets/core.ts";
 import { pendingConfig, WIDGETS } from "../widgets/index.ts";
 import type { NoteMeta } from "../api.ts";
 import { touches } from "./livePreview.ts";
+import { dataEmbed, hydrateDataEmbeds } from "../textPreview.ts";
 
 export interface EditorContext {
   path: string;
@@ -66,7 +67,7 @@ class EmbedWidget extends WidgetType {
     return o.target === this.target && o.kind === this.kind && o.from === this.from && o.rev === this.rev;
   }
   get estimatedHeight() {
-    return heights.get(this.key) ?? { image: 260, video: 320, social: 420, bookmark: 112, html: 340, note: 180 }[this.kind];
+    return heights.get(this.key) ?? { image: 260, video: 320, social: 420, bookmark: 112, html: 340, note: 180, data: 240 }[this.kind];
   }
   ignoreEvent() {
     return true;
@@ -139,6 +140,16 @@ class EmbedWidget extends WidgetType {
       return wrap;
     }
 
+    if (this.kind === "data") {
+      return dataEmbed(this.target, this.from, {
+        settle,
+        actions: [
+          el("button", { class: "embed-btn", title: "Edit the embed line", type: "button", onmousedown: (e: Event) => (e.preventDefault(), reveal(view, outer)) }, icon("code", 14)),
+          el("button", { class: "embed-btn", title: "Open in Assets", type: "button", onmousedown: (e: Event) => (e.preventDefault(), ctx.openTarget(this.target, this.from)) }, icon("open", 14)),
+        ],
+      });
+    }
+
     // note / html: a card with a header
     const title = el("span", { class: "embed-title" }, name.replace(/\.(md|html?)$/i, ""));
     const body = el("div", { class: "embed-body is-loading" }, el("div", { class: "skeleton" }), el("div", { class: "skeleton short" }));
@@ -178,6 +189,7 @@ class EmbedWidget extends WidgetType {
       } else {
         const md = heading ? sectionOf(note.content, heading) : note.content;
         body.innerHTML = renderMarkdown(md, path);
+        hydrateDataEmbeds(body, path, settle);
         body.querySelectorAll("input").forEach((i) => (i.disabled = true));
         body.querySelectorAll("img").forEach((img) => img.addEventListener("load", settle));
         body.addEventListener("mousedown", (e) => {

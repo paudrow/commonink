@@ -4,6 +4,7 @@
 import { api, type FeedItem, type FeedPage, type Scope } from "./api.ts";
 import { $, avatar, displayName, el, escapeHtml, icon, timeAgo } from "./dom.ts";
 import { renderMarkdown, sandboxFrame } from "./render.ts";
+import { hydrateDataEmbeds } from "./textPreview.ts";
 import { parseDirective } from "./widgets/args.ts";
 import { WIDGETS } from "./widgets/index.ts";
 
@@ -259,6 +260,7 @@ export class Feed {
     }
     const body = cached.content.replace(/^(---\r?\n[\s\S]*?\r?\n---\r?\n?)?\s*#\s+(.+)\n/, (m, fm = "", h: string) => (h.trim() === item.title ? fm : m));
     const node = el("div", { class: "fc-body fc-full", html: renderMarkdown(forPreview(body), item.path) });
+    hydrateDataEmbeds(node, item.path);
     node.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((box, n) => {
       box.disabled = item.archived;
       box.addEventListener("change", () => void this.setTask(item.path, n, box));
