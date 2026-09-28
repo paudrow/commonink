@@ -8,6 +8,9 @@
   // commonink.app is the only address: www redirects to it, since Google sign-in only returns to addresses
   // registered with it.
   "workers_dev": false,
+  // Pull request Previews (below) are served at pr-<n>-commonink.<subdomain>.workers.dev. Like every
+  // Worker-level setting, this takes effect when production deploys.
+  "preview_urls": true,
   "routes": [
     { "pattern": "commonink.app", "custom_domain": true },
     { "pattern": "www.commonink.app", "custom_domain": true }
