@@ -4,7 +4,8 @@
 import { api, fileUrl, isArchived, type NoteMeta } from "./api.ts";
 import { $, el, icon } from "./dom.ts";
 import { fuzzyScore } from "./fuzzy.ts";
-import { ASSET_ICON, ASSET_LABEL, assetType, extOf, fmtBytes, type AssetType } from "./assetKinds.ts";
+import { textStage, textThumb } from "./textPreview.ts";
+import { ASSET_LABEL, assetIcon, assetType, extOf, fmtBytes, typeIcon, type AssetType } from "./assetKinds.ts";
 
 type Filter = AssetType | "all";
 type Sort = "newest" | "oldest" | "name" | "size" | "type";
@@ -18,7 +19,7 @@ interface Hooks {
   toast(t: { text: string; icon?: string }): void;
 }
 
-const TYPES: AssetType[] = ["image", "pdf", "video", "audio", "other"];
+const TYPES: AssetType[] = ["image", "pdf", "video", "audio", "text", "other"];
 
 export class Assets {
   readonly root = $("#assets-view");
@@ -136,7 +137,7 @@ export class Assets {
           el(
             "button",
             { type: "button", class: `chip${f === this.filter ? " is-on" : ""}`, onclick: () => ((this.filter = f), this.render()) },
-            f === "all" ? null : icon(ASSET_ICON[f], 13),
+            f === "all" ? null : icon(typeIcon(f), 13),
             f === "all" ? "All" : ASSET_LABEL[f],
             el("span", { class: "n" }, String(f === "all" ? all.length : counts[f])),
           ),
@@ -185,7 +186,7 @@ export class Assets {
     return el(
       "button",
       { type: "button", class: `as-card is-${type}`, title: n.path, onclick: () => this.preview(n.path) },
-      el("div", { class: "as-thumb" }, thumb(n.path, type)),
+      el("div", { class: "as-thumb" }, thumb(n, type)),
       el("div", { class: "as-name" }, nameOf(n)),
       el("div", { class: "as-meta" }, el("span", { class: "as-ext" }, extOf(n.path)), fmtBytes(n.size), folder && folder !== "assets" ? el("span", { class: "as-folder" }, folder) : null),
     );
@@ -203,7 +204,7 @@ export class Assets {
         el(
           "div",
           { class: `as-sug${i === this.active ? " is-active" : ""}`, role: "option", onmousedown: (e: Event) => (e.preventDefault(), this.preview(n.path)) },
-          el("span", { class: "as-sug-thumb" }, assetType(n.path) === "image" ? el("img", { src: fileUrl(n.path), alt: "", loading: "lazy" }) : icon(ASSET_ICON[assetType(n.path)], 14)),
+          el("span", { class: "as-sug-thumb" }, assetType(n.path) === "image" ? el("img", { src: fileUrl(n.path), alt: "", loading: "lazy" }) : icon(assetIcon(n.path), 14)),
           el("span", { class: "as-sug-name" }, nameOf(n)),
           el("span", { class: "as-sug-meta" }, n.path.split("/").slice(0, -1).join("/") || extOf(n.path)),
         ),
@@ -266,7 +267,9 @@ export class Assets {
             ? el("div", { class: "ap-audio" }, icon("audio", 48), el("audio", { src, controls: true, autoplay: true }))
             : type === "pdf"
               ? el("iframe", { src, title: nameOf(meta) })
-              : el("div", { class: "ap-file" }, el("span", { class: "ap-ext" }, extOf(path)), el("span", {}, "No preview for this kind of file"));
+              : type === "text"
+                ? textStage(path, meta.size)
+                : el("div", { class: "ap-file" }, el("span", { class: "ap-ext" }, extOf(path)), el("span", {}, "No preview for this kind of file"));
     const usedIn = el("div", { class: "ap-used" }, el("div", { class: "ap-label" }, "Used in"), el("div", { class: "ap-muted" }, "…"));
     const embed = `![[${this.hooks.embedName(path)}]]`;
     const close = () => {
@@ -280,7 +283,7 @@ export class Assets {
       if (next && next.path !== path) this.preview(next.path);
     };
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).closest?.("input, textarea")) return;
+      if ((e.target as HTMLElement).closest?.("input, textarea, .ap-text-body")) return;
       if (e.key === "Escape") close();
       else if (e.key === "ArrowRight") step(1);
       else if (e.key === "ArrowLeft") step(-1);
@@ -357,11 +360,13 @@ export class Assets {
 
 const nameOf = (n: NoteMeta) => n.path.split("/").pop()!;
 
-function thumb(path: string, type: AssetType): HTMLElement {
+function thumb(n: NoteMeta, type: AssetType): HTMLElement {
+  const path = n.path;
   if (type === "image") return el("img", { src: fileUrl(path), alt: "", loading: "lazy", decoding: "async" });
   if (type === "video") {
     return el("div", { class: "as-video" }, el("video", { src: `${fileUrl(path)}#t=0.5`, preload: "metadata", muted: true, playsinline: true }), el("span", { class: "as-play" }, icon("play", 16)));
   }
-  return el("div", { class: "as-tile" }, icon(ASSET_ICON[type], 30), el("span", {}, extOf(path)));
+  const tile = el("div", { class: "as-tile" }, icon(assetIcon(path), 30), el("span", {}, extOf(path)));
+  return type === "text" ? textThumb(path, n.size, tile) : tile;
 }
 

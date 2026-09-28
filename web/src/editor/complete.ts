@@ -4,7 +4,7 @@ import { syntaxTree } from "@codemirror/language";
 import type { EditorState, Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { fileUrl, type NoteMeta } from "../api.ts";
-import { ASSET_ICON, assetType } from "../assetKinds.ts";
+import { assetIcon, assetType } from "../assetKinds.ts";
 import { displayName, icon } from "../dom.ts";
 import { fuzzyScore } from "../fuzzy.ts";
 import { newId, serializeDirective } from "../widgets/args.ts";
@@ -23,7 +23,7 @@ function inProse(state: EditorState, pos: number): boolean {
   return true;
 }
 
-const iconOf = (n: NoteMeta) => (n.kind === "html" ? "html" : n.kind === "asset" ? ASSET_ICON[assetType(n.path)] : "file");
+const iconOf = (n: NoteMeta) => (n.kind === "html" ? "html" : n.kind === "asset" ? assetIcon(n.path) : "file");
 const folderOf = (p: string) => p.split("/").slice(0, -1).join("/");
 
 /** The shortest name a [[link]] needs to resolve to this note. */

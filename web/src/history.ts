@@ -4,7 +4,7 @@
 import { api, fileUrl, type Change, type DiffFile, type DiffRun } from "./api.ts";
 import { $, avatar, displayName, el, icon, isSelf } from "./dom.ts";
 import { diffCounts, renderDiff } from "./diff.ts";
-import { ASSET_ICON, assetType, extOf } from "./assetKinds.ts";
+import { assetIcon, assetType, extOf } from "./assetKinds.ts";
 import { groupChanges } from "../../src/core/format.ts";
 
 type Item = Change & { count: number; first: number };
@@ -372,7 +372,7 @@ function assetRun(path: string, r: DiffRun): HTMLElement {
   return el(
     "div",
     { class: "hist-asset" },
-    el("span", { class: "hist-asset-thumb" }, type === "image" ? el("img", { src: fileUrl(path), alt: "", loading: "lazy" }) : icon(ASSET_ICON[type], 20)),
+    el("span", { class: "hist-asset-thumb" }, type === "image" ? el("img", { src: fileUrl(path), alt: "", loading: "lazy" }) : icon(assetIcon(path), 20)),
     el("div", {}, el("b", {}, `${r.op === "create" ? "Uploaded" : "Replaced"} ${extOf(path)}`), r.summary ? el("span", {}, r.summary) : null),
   );
 }
