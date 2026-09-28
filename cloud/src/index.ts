@@ -23,6 +23,9 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
+/** Writes a viewer may make: favorites are each person's own, so viewers can star notes too. */
+const VIEWER_WRITES = new Set(["POST /favorites/star", "POST /favorites/unstar", "PUT /favorites"]);
+
 async function api(req: Request, env: Env, url: URL): Promise<Response> {
   const session = await readSession(req, env);
   if (!session) return json({ error: "Sign in first", devLogin: env.DEV_LOGIN === "1" }, 401);
@@ -64,8 +67,7 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
   const [, wsId, route] = m;
   const ws = await membership(env.DB, user.id, wsId);
   if (!ws) return json({ error: "Not found" }, 404);
-  // Favorites are each person's own, so viewers can star notes too.
-  if (isWrite && ws.role === "viewer" && !route.startsWith("/favorites")) return json({ error: "You can view this workspace but not edit it" }, 403);
+  if (isWrite && ws.role === "viewer" && !VIEWER_WRITES.has(`${req.method} ${route}`)) return json({ error: "You can view this workspace but not edit it" }, 403);
 
   if (route === "/invites" && req.method === "POST") {
     if (ws.role !== "owner" || ws.kind !== "team") return json({ error: "Only a team's owner can invite people" }, 403);
