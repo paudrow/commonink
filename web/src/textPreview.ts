@@ -81,6 +81,13 @@ export function dataEmbed(target: string, from: string | undefined, opts: { acti
     el("div", { class: "embed-head" }, icon(assetIcon(name), 14), el("span", { class: "embed-title" }, name.split("/").pop()!), meta, el("span", { class: "spacer" }), seg, ...(opts.actions ?? [])),
     body,
   );
+  // Filtering, sorting and the view toggle change the card's height; the editor has to know.
+  let shown = false;
+  const ro = new ResizeObserver(() => {
+    if (wrap.isConnected) (shown = true), settle();
+    else if (shown) ro.disconnect();
+  });
+  ro.observe(wrap);
   const note = (text: string) => {
     body.classList.remove("is-loading");
     body.replaceChildren(el("div", { class: "embed-missing" }, icon(assetIcon(name), 15), text));
@@ -153,25 +160,144 @@ function jsonView(text: string): { node: HTMLElement; meta: string } {
   }
 }
 
-/** A CSV as a table: first row as the header, row numbers, the first MAX_ROWS rows. */
+/**
+ * A CSV as a table you can sort and filter: first row as the header, the original row numbers down
+ * the side, the first MAX_ROWS matching rows. Click a header to sort (up, down, back to file order).
+ */
 function tableView(text: string): { node: HTMLElement; meta: string } {
   const rows = parseCsv(text);
   if (!rows.length) return { node: el("div", { class: "ap-text-note" }, "This file is empty."), meta: "" };
   const [head, ...data] = rows;
   const cols = Math.max(...rows.map((r) => r.length));
-  const cell = (tag: "th" | "td", v: string | undefined) => el(tag, { title: v && v.length > 40 ? v : undefined }, v ?? "");
-  const table = el(
-    "table",
-    { class: "ap-table" },
-    el("thead", {}, el("tr", {}, el("th", { class: "ap-rownum" }, ""), ...Array.from({ length: cols }, (_, i) => cell("th", head[i])))),
-    el(
-      "tbody",
-      {},
-      ...data.slice(0, MAX_ROWS).map((r, n) => el("tr", {}, el("td", { class: "ap-rownum" }, String(n + 1)), ...Array.from({ length: cols }, (_, i) => cell("td", r[i])))),
-    ),
-  );
-  const cut = data.length > MAX_ROWS ? el("div", { class: "ap-text-note" }, `Showing the first ${MAX_ROWS.toLocaleString()} of ${data.length.toLocaleString()} rows.`) : null;
-  return { node: el("div", { class: "ap-table-wrap" }, table, cut), meta: `${data.length.toLocaleString()} row${data.length === 1 ? "" : "s"} × ${cols} column${cols === 1 ? "" : "s"}` };
+  const headers = Array.from({ length: cols }, (_, i) => head[i]?.trim() || `Column ${i + 1}`);
+  const numeric = headers.map((_, c) => isNumericColumn(data, c));
+  let sort: { col: number; dir: 1 | -1 } | null = null;
+
+  const input = el("input", { class: "dt-filter", placeholder: "Filter rows…   city:London   signups:>100", spellcheck: "false", autocomplete: "off", "aria-label": "Filter rows" });
+  const count = el("span", { class: "dt-count" });
+  const thead = el("thead");
+  const tbody = el("tbody");
+  const cut = el("div", { class: "ap-text-note", hidden: true });
+  const cell = (v: string | undefined, c: number) => el("td", { class: numeric[c] ? "is-num" : undefined, title: v && v.length > 40 ? v : undefined }, v ?? "");
+
+  const draw = () => {
+    const keep = rowFilter(input.value, headers, numeric);
+    const shown = data.map((r, i) => ({ r, i })).filter(({ r }) => keep(r));
+    if (sort) {
+      const { col, dir } = sort;
+      shown.sort((a, b) => compareCells(a.r[col], b.r[col], numeric[col], dir) || a.i - b.i);
+    }
+    thead.replaceChildren(
+      el(
+        "tr",
+        {},
+        el("th", { class: "ap-rownum" }, ""),
+        ...headers.map((h, c) => {
+          const on = sort?.col === c;
+          return el(
+            "th",
+            {
+              class: `dt-sort${on ? " is-sorted" : ""}${numeric[c] ? " is-num" : ""}`,
+              title: on ? (sort!.dir === 1 ? "Sorted ascending: click for descending" : "Sorted descending: click for file order") : `Sort by ${h}`,
+              "aria-sort": on ? (sort!.dir === 1 ? "ascending" : "descending") : "none",
+              onmousedown: (e: Event) => e.preventDefault(),
+              onclick: () => {
+                sort = !on ? { col: c, dir: 1 } : sort!.dir === 1 ? { col: c, dir: -1 } : null;
+                draw();
+              },
+            },
+            h,
+            el("span", { class: "dt-arrow" }, on ? (sort!.dir === 1 ? "↑" : "↓") : "↕"),
+          );
+        }),
+      ),
+    );
+    tbody.replaceChildren(
+      ...(shown.length
+        ? shown.slice(0, MAX_ROWS).map(({ r, i }) => el("tr", {}, el("td", { class: "ap-rownum" }, String(i + 1)), ...headers.map((_, c) => cell(r[c], c))))
+        : [el("tr", {}, el("td", { class: "dt-none", colspan: String(cols + 1) }, "No rows match."))]),
+    );
+    count.textContent = input.value.trim() ? `${shown.length.toLocaleString()} of ${data.length.toLocaleString()} rows` : "";
+    cut.hidden = shown.length <= MAX_ROWS;
+    cut.textContent = `Showing the first ${MAX_ROWS.toLocaleString()} of ${shown.length.toLocaleString()} rows.`;
+  };
+  input.addEventListener("input", draw);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && input.value) {
+      e.preventDefault();
+      e.stopPropagation();
+      input.value = "";
+      draw();
+    }
+  });
+  draw();
+  return {
+    node: el("div", { class: "ap-table-wrap" }, el("label", { class: "dt-bar" }, icon("search", 13), input, count), el("table", { class: "ap-table" }, thead, tbody), cut),
+    meta: `${data.length.toLocaleString()} row${data.length === 1 ? "" : "s"} × ${cols} column${cols === 1 ? "" : "s"}`,
+  };
+}
+
+/** "$1,200", "15%", "-3.5" → numbers; anything else → NaN. */
+const toNumber = (v: string) => (/^[-+]?[$€£]?\s*[\d,]*\.?\d+\s*%?$/.test(v.trim()) ? Number(v.replace(/[,$€£%\s]/g, "")) : NaN);
+
+function isNumericColumn(rows: string[][], c: number): boolean {
+  let seen = 0;
+  for (const r of rows) {
+    const v = r[c]?.trim();
+    if (!v) continue;
+    if (Number.isNaN(toNumber(v))) return false;
+    seen++;
+  }
+  return seen > 0;
+}
+
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+/** Blank cells sort last whichever way you sort. */
+function compareCells(a = "", b = "", numeric: boolean, dir: 1 | -1): number {
+  const ea = !a.trim();
+  const eb = !b.trim();
+  if (ea || eb) return ea === eb ? 0 : ea ? 1 : -1;
+  return dir * (numeric ? toNumber(a) - toNumber(b) : collator.compare(a, b));
+}
+
+/**
+ * The filter box: words match any cell; `col:value` matches one column (the column can be the
+ * start of its name); numeric columns take `>`, `<`, `>=`, `<=`, `=`; quotes keep spaces
+ * (`city:"New York"`); a leading `-` excludes. Every term has to hold.
+ */
+/** A column by its name, or failing that by the start of its name; -1 if none. */
+function columnNamed(headers: string[], name: string): number {
+  const exact = headers.findIndex((h) => h.toLowerCase() === name);
+  return exact >= 0 ? exact : headers.findIndex((h) => h.toLowerCase().startsWith(name));
+}
+
+function rowFilter(query: string, headers: string[], numeric: boolean[]): (row: string[]) => boolean {
+  const unquote = (s: string) => s.replace(/^"(.*)"$/, "$1").toLowerCase();
+  const terms = (query.match(/-?(?:[^\s:"]+:)?(?:"[^"]*"|\S+)/g) ?? []).map((raw) => {
+    const negate = raw.startsWith("-") && raw.length > 1;
+    const t = negate ? raw.slice(1) : raw;
+    const m = t.match(/^([^:"]+):(.+)$/);
+    const c = m ? columnNamed(headers, m[1].toLowerCase()) : -1;
+    let test: (row: string[]) => boolean;
+    if (m && c >= 0) {
+      const value = unquote(m[2]);
+      const cmp = numeric[c] ? value.match(/^(>=|<=|>|<|=)\s*(.+)$/) : null;
+      if (cmp && !Number.isNaN(toNumber(cmp[2]))) {
+        const want = toNumber(cmp[2]);
+        test = (row) => {
+          const n = toNumber(row[c] ?? "");
+          if (Number.isNaN(n)) return false;
+          return { ">": n > want, "<": n < want, ">=": n >= want, "<=": n <= want, "=": n === want }[cmp[1]]!;
+        };
+      } else test = (row) => (row[c] ?? "").toLowerCase().includes(value);
+    } else {
+      const value = unquote(t);
+      test = (row) => row.some((v) => v.toLowerCase().includes(value));
+    }
+    return negate ? (row: string[]) => !test(row) : test;
+  });
+  return (row) => terms.every((t) => t(row));
 }
 
 /** RFC 4180-ish: commas, quoted fields, doubled quotes, and newlines inside quotes. */
