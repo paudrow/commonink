@@ -1695,7 +1695,8 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 /* sidebar sections: one scrolling column, each folding away from its header */
 .sidebar-sections { flex: 1; min-height: 0; overflow: auto; padding-bottom: 12px; }
 .sidebar-sections > #tree, .sidebar-sections > #favorites { flex: none; max-height: none; overflow: visible; }
-#tag-tree { padding: 4px 8px 4px; }
+#tag-tree, #smart-folders { padding: 4px 8px 4px; }
+.hint-icon { display: inline-grid; place-items: center; width: 16px; height: 16px; border: 1px solid var(--line-strong); border-radius: 4px; vertical-align: -3px; color: var(--muted); }
 .section-toggle { display: inline-flex; align-items: center; gap: 4px; margin-left: -4px; padding: 3px 4px; border-radius: 5px; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; }
 .section-toggle:hover { color: var(--ink-2); background: var(--hover); }
 .section-toggle:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 0; }
@@ -1712,5 +1713,3 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .pin-chip.is-pinned { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); }
 .sf-pinned { display: inline-grid; place-items: center; color: var(--accent); }
 .tree-row:hover .sf-pinned, .tree-row:focus-within .sf-pinned { display: none; }
-.tree-row.sf-new { color: var(--muted); }
-.tree-row.sf-new:hover { color: var(--ink-strong); }

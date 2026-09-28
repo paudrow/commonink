@@ -826,13 +826,9 @@ function renderSmartFolders(active: string | null) {
       f.shared && !canShare ? null : el("span", { class: "row-actions" }, edit),
     );
   });
-  const first = el(
-    "div",
-    { class: "tree-row sf-new", style: { "--depth": "0" }, tabindex: "0", title: "Or pin a tag from Tags below", onclick: () => newSmartFolder(first), onkeydown: (e: KeyboardEvent) => e.key === "Enter" && newSmartFolder(first) },
-    icon("plus", 14),
-    el("span", { class: "tree-name" }, "New smart folder…"),
-  );
-  $("#smart-folders").replaceChildren(...(rows.length ? rows : [first, el("div", { class: "fav-hint" }, "Or pin a tag from Tags below.")]));
+  // Empty: one quiet line pointing at the header's +, the one way to add one from here.
+  const hint = el("div", { class: "fav-hint" }, "Click ", el("span", { class: "hint-icon", "aria-label": "+" }, icon("plus", 11)), " to save a search here, or pin a tag from Tags below.");
+  $("#smart-folders").replaceChildren(...(rows.length ? rows : [hint]));
 }
 
 const FAVORITE = "application/x-common-ink-favorite";
