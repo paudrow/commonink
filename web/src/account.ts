@@ -25,6 +25,7 @@ export function showSignIn(devLogin: boolean) {
         devLogin ? el("a", { class: "dev-btn", href: `/auth/dev?next=${next}` }, "Developer sign-in (local only)") : null,
         el("p", { class: "signin-fine" }, "Plain markdown underneath. Any agent can work in it through MCP."),
       ),
+      el("p", { class: "signin-legal" }, el("a", { href: "/privacy" }, "Privacy"), el("a", { href: "/terms" }, "Terms")),
     ),
   );
 }
