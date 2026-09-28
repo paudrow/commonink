@@ -237,7 +237,8 @@ server.registerTool(
     title: "Recent changes",
     description:
       "What changed in the vault and who changed it (you, the user, or other agents). " +
-      "`since` is an ISO timestamp or a change id from a previous call — use it to catch up.",
+      "`since` is an ISO timestamp or a change id from a previous call — use it to catch up. " +
+      "`path` (a path, ID or note URL) narrows it to one note, including its history under earlier names.",
     inputSchema: {
       since: z.string().optional(),
       path: z.string().optional(),

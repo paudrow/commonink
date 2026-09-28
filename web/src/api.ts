@@ -20,6 +20,7 @@ export interface Change {
   version: string | null;
   summary: string | null;
   from_path: string | null;
+  note_id: string | null;
 }
 export interface DiffRun {
   from: number;

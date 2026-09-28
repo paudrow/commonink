@@ -25,12 +25,18 @@ const favorites = await starSome();
 await tryThisPr(favorites);
 console.log(`Filled ${origin} (workspace ${ws.id})`);
 
-/** Sign in the way a browser does on a Preview: /auth/dev sets the session cookie. */
+/**
+ * Sign in the way a browser does on a Preview: /auth/dev sets the session cookie. A brand-new
+ * Preview's first requests can fail while its Durable Objects come up, so server errors are retried.
+ */
 async function signIn(): Promise<string> {
-  const res = await fetch(`${origin}/auth/dev?next=/`, { redirect: "manual" });
-  const session = res.headers.getSetCookie().map((c) => c.split(";")[0]).find((c) => !c.endsWith("="));
-  if (!session) throw new Error(`Developer sign-in failed at ${origin} (${res.status}). Is DEV_LOGIN on for Previews?`);
-  return session;
+  for (let attempt = 1; ; attempt++) {
+    const res = await fetch(`${origin}/auth/dev?next=/`, { redirect: "manual" });
+    const session = res.headers.getSetCookie().map((c) => c.split(";")[0]).find((c) => !c.endsWith("="));
+    if (session) return session;
+    if (res.status < 500 || attempt === 6) throw new Error(`Developer sign-in failed at ${origin} (${res.status}). Is DEV_LOGIN on for Previews?`);
+    await new Promise((r) => setTimeout(r, attempt * 3000));
+  }
 }
 
 async function call(method: string, route: string, body?: unknown, raw?: { data: Blob; type: string }) {

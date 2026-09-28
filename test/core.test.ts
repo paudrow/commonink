@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { cleanPath } from "../src/core/paths.ts";
+import { openVault } from "../src/core/local.ts";
 import { openTempVault } from "./helpers.ts";
 
 test("cleanPath keeps paths inside the vault", () => {
@@ -211,4 +212,60 @@ test("only notes can be starred, not assets", () => {
   const { quire } = openTempVault();
   assert.throws(() => quire.star("ana", "assets/chart.svg"), /assets\/chart\.svg is a binary asset, not a note/);
   assert.deepEqual(quire.favorites("ana"), []);
+});
+
+test("a note's history follows it through moves, archiving and renames outside the app", () => {
+  const { dir, quire } = openTempVault();
+  const mine = [quire.create("Draft", "# Draft\n", "t").change.id];
+  mine.push(quire.append("Draft", "first", "t").change.id);
+  mine.push(quire.move("Draft", "Projects/Plan", "t").change!.id);
+  mine.push(quire.archive("Projects/Plan", "t").change!.id);
+  mine.push(quire.unarchive("Archive/Projects/Plan.md", "t").change!.id);
+  quire.append("Welcome", "not this one", "t");
+  fs.renameSync(path.join(dir, "Projects/Plan.md"), path.join(dir, "Projects/Final.md"));
+  quire.sync();
+  mine.push(quire.append("Projects/Final", "second", "t").change.id);
+  const reborn = quire.create("Draft", "# Draft, again\n", "t").change.id;
+
+  const id = quire.meta("Projects/Final.md")!.id;
+  const newestFirst = [...mine].reverse();
+  for (const target of ["Projects/Final.md", id, `/notes/draft-${id}`]) {
+    assert.deepEqual(quire.changes({ path: target }).map((c) => c.id), newestFirst, target);
+  }
+  assert.deepEqual(quire.changes({ path: "Draft.md" }).map((c) => c.id), [reborn]);
+  assert.deepEqual(quire.changes({ path: id, before: mine[3] }).map((c) => c.id), [mine[2], mine[1], mine[0]]);
+  const next = quire.reassignId(id);
+  assert.deepEqual(quire.changes({ path: next }).map((c) => c.id), newestFirst);
+});
+
+test("an older change log gets note IDs from the moves it recorded", () => {
+  const { dir, quire } = openTempVault();
+  const a = [quire.create("A", "# A\n", "t").change.id, quire.append("A", "more", "t").change.id, quire.move("A", "B", "t").change!.id];
+  const a2 = quire.create("A", "# Another A\n", "t").change.id;
+  quire.create("C", "# C\n", "t");
+  const toD = quire.move("C", "D", "t").change!.id;
+  fs.rmSync(path.join(dir, "D.md"));
+  fs.writeFileSync(path.join(dir, "C.md"), "# A new C, made outside the app\n");
+  quire.sync();
+  quire.db.exec("DROP INDEX changes_note");
+  quire.db.exec("ALTER TABLE changes DROP COLUMN note_id");
+
+  const reopened = openVault(dir);
+  assert.deepEqual(reopened.changes({ path: "B.md" }).map((c) => c.id), [...a].reverse());
+  assert.deepEqual(reopened.changes({ path: "A.md" }).map((c) => c.id), [a2]);
+  assert.equal(reopened.changes({ path: "B.md" })[0].note_id, reopened.meta("B.md")!.id);
+  assert.deepEqual(reopened.changes({ path: "C.md" }).map((c) => c.id), []);
+  assert.deepEqual(reopened.changes({ path: "D.md" }).map((c) => c.id), [toD]);
+});
+
+test("a change-log upgrade that fails partway runs again on the next start", () => {
+  const { dir, quire } = openTempVault();
+  const a = [quire.create("A", "# A\n", "t").change.id, quire.move("A", "B", "t").change!.id];
+  quire.db.exec("DROP INDEX changes_note");
+  quire.db.exec("ALTER TABLE changes DROP COLUMN note_id");
+  quire.db.exec("CREATE TRIGGER interrupt BEFORE UPDATE ON changes BEGIN SELECT RAISE(ABORT, 'interrupted'); END");
+  assert.throws(() => openVault(dir), /interrupted/);
+  quire.db.exec("DROP TRIGGER interrupt");
+
+  assert.deepEqual(openVault(dir).changes({ path: "B.md" }).map((c) => c.id), [...a].reverse());
 });
