@@ -179,6 +179,8 @@ test("a note's history follows it through moves, archiving and renames outside t
   }
   assert.deepEqual(quire.changes({ path: "Draft.md" }).map((c) => c.id), [reborn]);
   assert.deepEqual(quire.changes({ path: id, before: mine[3] }).map((c) => c.id), [mine[2], mine[1], mine[0]]);
+  const next = quire.reassignId(id);
+  assert.deepEqual(quire.changes({ path: next }).map((c) => c.id), newestFirst);
 });
 
 test("an older change log gets note IDs from the moves it recorded", () => {

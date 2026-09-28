@@ -55,14 +55,16 @@ export function migrate(db: SqlDb) {
   for (const { path } of db.all<{ path: string }>("SELECT path FROM notes WHERE id IS NULL")) {
     db.run("UPDATE notes SET id = ? WHERE path = ?", newNoteId(), path);
   }
-  // Change logs from before changes carried the note's ID: fill it in where the log can tell.
-  let added = true;
-  try {
-    db.exec("ALTER TABLE changes ADD COLUMN note_id TEXT");
-  } catch {
-    added = false;
-  }
-  if (added) db.tx(() => backfillChangeNoteIds(db));
+  // Change logs from before changes carried the note's ID: fill it in where the log can tell. One
+  // transaction, so an upgrade that dies partway leaves the column out and runs again next start.
+  db.tx(() => {
+    try {
+      db.exec("ALTER TABLE changes ADD COLUMN note_id TEXT");
+    } catch {
+      return;
+    }
+    backfillChangeNoteIds(db);
+  });
   db.exec("CREATE INDEX IF NOT EXISTS changes_note ON changes(note_id, id)");
   // Older local indexes predate the `before` column. (Durable Objects may refuse pragmas; their
   // databases are always created with the current schema, so there's nothing to upgrade.)
@@ -76,16 +78,16 @@ export function migrate(db: SqlDb) {
 }
 
 /**
- * Walk the log newest first from where each note is now: a move hands the ID back to the path it
- * came from, and a create ends that path's history (anything earlier there was a different note).
+ * Walk the log newest first from where each note is now: a move hands the ID (or nothing, if that
+ * note is gone) back to the path it came from, and a create ends that path's history (anything
+ * earlier there was a different note).
  */
 function backfillChangeNoteIds(db: SqlDb) {
   const idAt = new Map(db.all<{ path: string; id: string }>("SELECT path, id FROM notes").map((r) => [r.path, r.id]));
   for (const c of db.all<{ id: number; path: string; op: string; from_path: string | null }>("SELECT id, path, op, from_path FROM changes ORDER BY id DESC")) {
     const id = idAt.get(c.path);
-    if (!id) continue;
-    db.run("UPDATE changes SET note_id = ? WHERE id = ?", id, c.id);
+    if (id) db.run("UPDATE changes SET note_id = ? WHERE id = ?", id, c.id);
     if (c.from_path || c.op === "create") idAt.delete(c.path);
-    if (c.from_path) idAt.set(c.from_path, id);
+    if (c.from_path) id ? idAt.set(c.from_path, id) : idAt.delete(c.from_path);
   }
 }

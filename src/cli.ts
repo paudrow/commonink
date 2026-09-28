@@ -18,7 +18,7 @@ Usage: quire <command> [args] [--as <agent>] [--json]
   append <note> [text | -]
   mv <note> <new-path>             rewrites links to the note
   backlinks <note>
-  changes [--since <iso|id>] [--path <note>] [--limit N]
+  changes [--since <iso|id>] [--path <path|id|url>] [--limit N]
                                    --path brings the note's history under earlier names too
   restore <change-id>              put a note back the way it was before that change
   mcp                              run the stdio MCP server
