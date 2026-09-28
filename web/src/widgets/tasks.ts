@@ -137,7 +137,7 @@ export const tasks: WidgetSpec = {
                   "div",
                   { class: "qt-group" },
                   group === "note"
-                    ? el("button", { type: "button", class: "qt-note", onmousedown: prevent, onclick: () => env.open(key) }, icon("file", 13), g.label)
+                    ? el("button", { type: "button", class: "qt-note", onmousedown: prevent, onclick: (e: MouseEvent) => env.open(key, undefined, e.metaKey || e.ctrlKey) }, icon("file", 13), g.label)
                     : el("div", { class: "qt-note is-label" }, g.label, el("span", { class: "n" }, String(g.tasks.length))),
                   ...g.tasks.map(row),
                 ),
@@ -175,7 +175,7 @@ export const tasks: WidgetSpec = {
         const chip = target.closest<HTMLElement>(".tk[data-field]");
         const tag = chip?.dataset.field === "tags" ? chip.dataset.value!.toLowerCase() : target.closest<HTMLElement>(".tag")?.dataset.tag;
         if (tag) env.openTag(tag);
-        else if (!chip || !openChipEditor(chip, { task: t, save, people: taskPeople, showPerson: env.openPerson })) env.open(t.path, t.line);
+        else if (!chip || !openChipEditor(chip, { task: t, save, people: taskPeople, showPerson: env.openPerson })) env.open(t.path, t.line, e.metaKey || e.ctrlKey);
       });
       const edit = el("button", { type: "button", class: "qt-edit", title: "Due date, priority, people…", onmousedown: prevent }, icon("sliders", 13));
       edit.addEventListener("click", () => taskPopover(edit, t, save));

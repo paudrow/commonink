@@ -47,7 +47,7 @@ export const query: WidgetSpec = {
       const preview = hit ? highlight(hit.text, env.args.q ?? "") : escapeHtml(firstLine(item.excerpt));
       const node = el(
         "button",
-        { type: "button", class: "qq-row", onmousedown: prevent, onclick: () => env.open(item.path, hit?.line) },
+        { type: "button", class: "qq-row", onmousedown: prevent, onclick: (e: MouseEvent) => env.open(item.path, hit?.line, e.metaKey || e.ctrlKey) },
         icon(item.kind === "html" ? "html" : "file", 14),
         el(
           "span",

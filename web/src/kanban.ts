@@ -255,7 +255,7 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
       const tag = chip?.dataset.field === "tags" ? chip.dataset.value!.toLowerCase() : target.closest<HTMLElement>(".tag")?.dataset.tag;
       if (tag) return host.ctx.openTag(tag, "tasks");
       if (chip && !host.readOnly && openChipEditor(chip, chipContext(c, i, card, task))) return;
-      if (link && !target.closest("a")) host.ctx.openTarget(link.target, host.path);
+      if (link && !target.closest("a")) host.ctx.openTarget(link.target, host.path, { side: e.metaKey || e.ctrlKey });
     });
     node.addEventListener("dblclick", (e) => !link && !(e.target as HTMLElement).closest(".tk, .cm-checkbox, .kb-actions") && !host.readOnly && openEdit(c, i, card));
     node.addEventListener("keydown", (e) => keys(e, node, c, i, card, link));

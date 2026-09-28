@@ -56,7 +56,8 @@ const linkClicks = EditorView.domEventHandlers({
     if (t.classList.contains("is-raw") && !(e.metaKey || e.ctrlKey)) return false;
     e.preventDefault();
     const ctx = view.state.facet(editorContext);
-    if (t.dataset.target !== undefined) ctx.openTarget(t.dataset.target, ctx.path);
+    // Cmd/Ctrl-click on a rendered link opens it to the side; on a raw one (cursor on it) it's how you follow it.
+    if (t.dataset.target !== undefined) ctx.openTarget(t.dataset.target, ctx.path, { side: !t.classList.contains("is-raw") && (e.metaKey || e.ctrlKey) });
     else if (t.dataset.href) {
       const href = t.dataset.href;
       if (/^https?:/i.test(href)) window.open(href, "_blank", "noopener");

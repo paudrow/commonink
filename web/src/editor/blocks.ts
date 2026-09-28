@@ -23,7 +23,8 @@ import { redo, undo } from "@codemirror/commands";
 
 export interface EditorContext {
   path: string;
-  openTarget(target: string, from: string): void;
+  /** Open a note. `side`: to the side of this one (Cmd/Ctrl-click). */
+  openTarget(target: string, from: string, opts?: { side?: boolean }): void;
   createNote(name: string): void;
   notes(): NoteMeta[];
   /** Upload files (or pick some, if none given); resolves to the names to embed them by. */
@@ -318,7 +319,7 @@ class DirectiveWidget extends WidgetType {
         env.update({ ...args, id });
       },
       focusEditor: () => view.focus(),
-      open: (target, line) => view.state.facet(editorContext).openTarget(line ? `${target}#L${line}` : target, this.note),
+      open: (target, line, side) => view.state.facet(editorContext).openTarget(line ? `${target}#L${line}` : target, this.note, { side }),
       openTag: (tag) => view.state.facet(editorContext).openTag(tag, "tasks"),
       openPerson: (name) => view.state.facet(editorContext).openPerson(name),
       editor: view.state.facet(editorContext),
