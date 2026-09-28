@@ -24,12 +24,15 @@ export function parseAttrs(src: string): Record<string, string> {
   return out;
 }
 
+/** Args that compare (`due<=today`), and so are written with their operator. Any other value is just a value. */
+const COMPARES = new Set(["due"]);
+
 export function serializeDirective({ name, args }: Directive): string {
   const keys = [...Object.keys(args).filter((k) => k !== "id"), ...("id" in args ? ["id"] : [])];
   const parts = keys
     .filter((k) => args[k] !== undefined && args[k] !== "")
     .map((k) => {
-      const op = args[k].match(/^(<=|>=|<|>)\s*/);
+      const op = COMPARES.has(k) ? args[k].match(/^(<=|>=|<|>)\s*/) : null;
       const value = op ? args[k].slice(op[0].length) : args[k];
       return `${k}${op ? op[1] : "="}${/^[\w.:/+-]+$/.test(value) ? value : `"${value.replace(/"/g, "'")}"`}`;
     });

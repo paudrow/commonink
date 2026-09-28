@@ -933,6 +933,7 @@ export class Quire {
     if (opts.note && !only) return [];
     const prefix = opts.folder ? opts.folder.replace(/^\/+|\/+$/g, "") + "/" : "";
     const tagged = opts.tag === undefined ? null : new Set(this.tagged(opts.tag).filter((r) => r.kind === "task").map((r) => `${r.path}:${r.line}`));
+    if (opts.today && !isDate(opts.today)) throw new QuireError(`"today" must be a date like 2026-10-01, not "${opts.today}"`);
     const due = opts.due ? dueFilter(opts.due, opts.today ?? localDate(this.now())) : null;
     if (opts.due && !due) throw new QuireError(`Bad due filter "${opts.due}": use a date or today/tomorrow/yesterday, optionally after <, <=, > or >=`);
     const person = opts.assignee?.replace(/^@/, "").toLowerCase();
@@ -982,9 +983,11 @@ export class Quire {
     }
     const flips = patch.checked !== undefined && patch.checked !== parseTask(lines[i])!.done && !("done" in patch);
     lines[i] = editTask(lines[i], flips ? { ...patch, done: patch.checked ? today : null } : patch);
+    // Where the task is now and its new text, so a caller can make its next change without re-reading.
+    const task = { line: i + 1, text: lines[i].match(TASK_LINE)![4] };
     const next = lines.join("\n");
-    if (next === note.content) return { ...note, change: null };
-    return this.commit(note.path, note.content, next, source, "edit");
+    if (next === note.content) return { ...note, ...task, change: null };
+    return { ...this.commit(note.path, note.content, next, source, "edit"), ...task };
   }
 
   /**

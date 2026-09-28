@@ -46,6 +46,33 @@ test("setting every field to what it already is changes nothing", () => {
   }
 });
 
+test("a person ends at a word boundary and never inside a [[link]], and an impossible date isn't a date", () => {
+  const t = parseTask("- [ ] prep [[Call with @jane]] and ask @sam's team, then @ana. due:2026-04-31 start:2026-02-28")!;
+  assert.deepEqual([t.meta.assignees, t.meta.due, t.meta.start], [["ana"], null, "2026-02-28"]);
+  assert.equal(editTask("- [ ] prep [[Call with @jane]] now", { assignees: [] }), "- [ ] prep [[Call with @jane]] now");
+});
+
+test("values come in as people write them (#tag, @person, repeats) and go out as tokens that read back", () => {
+  const line = editTask("- [ ] a", { tags: ["#work", " home ", "Work"], assignees: ["@jane"] });
+  assert.equal(line, "- [ ] a #work #home @jane");
+  assert.deepEqual(parseTask(line)!.meta.tags, ["work", "home"]);
+});
+
+test("cutting a token takes the whitespace before it, and a tag's trailing slash goes with it", () => {
+  assert.equal(editTask("- [ ] a\tdue:2026-01-01", { due: null }), "- [ ] a");
+  assert.equal(editTask("- [ ] a  due:2026-01-01  b", { due: null }), "- [ ] a  b");
+  assert.equal(editTask("- [ ] due:2026-01-01 a", { due: null }), "- [ ] a");
+  assert.equal(editTask("- [ ] a #work/", { tags: [] }), "- [ ] a");
+  assert.equal(parseTask("- [ ] a #work/")!.summary, "a");
+});
+
+test("setting a field to the value it has leaves a second token for it alone", () => {
+  const line = "- [ ] a due:2026-01-01 b due:2026-02-02";
+  assert.equal(editTask(line, { due: "2026-01-01" }), line);
+  assert.equal(editTask(line, { due: "2026-03-03" }), "- [ ] a due:2026-03-03 b due:2026-02-02");
+  assert.equal(editTask(line, { due: null }), "- [ ] a b");
+});
+
 test("a due filter compares dates, with today, tomorrow and yesterday relative to the day given", () => {
   const due = (expr: string, d: string | null) => dueFilter(expr, "2026-10-01")!(d);
   assert.deepEqual(["2026-09-30", "2026-10-01", "2026-10-01T18:00", "2026-10-02", null].map((d) => due("<=today", d)), [true, true, true, false, false]);

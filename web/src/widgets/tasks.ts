@@ -68,8 +68,8 @@ export const tasks: WidgetSpec = {
 
   mount(body, env) {
     let show: Show = (["open", "done", "all"] as const).find((s) => s === env.args.status) ?? "open";
-    let group: Group = env.args.group && env.args.group in GROUPS ? (env.args.group as Group) : "note";
-    let sort: Sort = env.args.sort && env.args.sort in SORTS ? (env.args.sort as Sort) : "note";
+    let group: Group = Object.hasOwn(GROUPS, env.args.group ?? "") ? (env.args.group as Group) : "note";
+    let sort: Sort = Object.hasOwn(SORTS, env.args.sort ?? "") ? (env.args.sort as Sort) : "note";
     let all: Task[] = [];
     let problem = "";
     let expanded = false;
@@ -161,7 +161,7 @@ export const tasks: WidgetSpec = {
       const text = el(
         "span",
         { class: "qt-text", title: `${t.title}, line ${t.line}` },
-        el("span", { html: inline(t.summary || t.text) }),
+        el("span", { html: inline(t.summary) }),
         ...metaChips(t.meta, t.done),
         ...endTags.map((tag) => el("span", { class: "tag", "data-tag": tag.toLowerCase(), title: `Tasks tagged #${tag}` }, `#${tag}`)),
       );
@@ -172,7 +172,12 @@ export const tasks: WidgetSpec = {
         else env.open(t.path, t.line);
       });
       const edit = el("button", { type: "button", class: "qt-edit", title: "Due date, priority, people…", onmousedown: prevent }, icon("sliders", 13));
-      edit.addEventListener("click", () => taskPopover(edit, t, (patch) => api.updateTask(t, patch).then(() => undefined)));
+      edit.addEventListener("click", () =>
+        taskPopover(edit, t, async (patch) => {
+          Object.assign(t, await api.updateTask(t, patch)); // its new text, for the next change
+          void load();
+        }),
+      );
       const where = group === "note" ? (t.heading && t.heading !== t.title ? t.heading : null) : t.title;
       return el("div", { class: `qt-row${t.done ? " is-done" : ""}` }, box, text, where ? el("span", { class: "qt-where" }, where) : null, edit);
     }
@@ -180,9 +185,10 @@ export const tasks: WidgetSpec = {
     async function toggle(t: Task) {
       const next = !t.done;
       try {
-        await api.setTask(t, next); // the source note changes; the vault event reloads the list
-        t.done = next;
+        const r = await api.setTask(t, next);
+        Object.assign(t, { done: next, line: r.line, text: r.text }); // ticking adds done:, so the text changed too
         render();
+        void load();
       } catch {
         void load(); // the note changed underneath us: show what's there now
       }

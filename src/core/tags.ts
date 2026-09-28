@@ -1,7 +1,7 @@
 // Tags: one concept across notes, tasks and assets. `#work/clients/acme` nests with `/`, and a
 // filter on `work` matches it and every tag under it. Matching ignores case (the index keeps tags
 // lowercased); notes keep whatever form the person typed. No Node imports: the editor uses this too.
-import { frontmatterLines, proseLines, withoutCode } from "./prose.ts";
+import { frontmatterLines, proseLines, withoutCodeOrLinks } from "./prose.ts";
 
 /** One tag found in a line: `from`/`to` are the columns of its text, without the `#`. */
 export interface TagHit {
@@ -38,9 +38,8 @@ export const tagMatches = (tag: string, filter: string) => tag === filter || tag
 
 /** The inline `#tags` on one line of prose. Code spans and [[links]] don't count. */
 export function tagsInLine(line: string): TagHit[] {
-  const masked = withoutCode(line).replace(/\[\[[^\]\n]*\]\]/g, (s) => " ".repeat(s.length));
   const out: TagHit[] = [];
-  for (const m of masked.matchAll(INLINE)) {
+  for (const m of withoutCodeOrLinks(line).matchAll(INLINE)) {
     const text = m[1].replace(/\/+$/, "");
     const display = cleanTag(text);
     if (!display) continue;

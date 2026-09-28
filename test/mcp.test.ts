@@ -36,8 +36,8 @@ test("agents list tasks with their tokens and change one without touching the re
   await call("create_note", { path: "Chores", content: "# Chores\n\n- [ ] Water the plants\n" });
   const r = await call("update_task", { path: "Chores", line: 3, text: "Water the plants", due: "2026-10-01", priority: "high", assignees: ["sam"] });
   assert.match(r.text, /^Updated Chores\.md → version [0-9a-f]{12} \(\+1 −1\)$/);
-  assert.equal((await call("list_tasks", { assignee: "sam" })).text, "- [ ] Water the plants due:2026-10-01 !high @sam — Chores.md:3");
-  await call("update_task", { path: "Chores", line: 3, text: "Water the plants due:2026-10-01 !high @sam", priority: null, done: true });
+  assert.equal((await call("list_tasks", { assignee: "sam" })).text, "- [ ] Water the plants due:2026-10-01 @sam !high — Chores.md:3");
+  await call("update_task", { path: "Chores", line: 3, text: "Water the plants due:2026-10-01 @sam !high", priority: null, done: true });
   assert.match((await call("list_tasks", { status: "done", due: "2026-10-01" })).text, /^- \[x\] Water the plants due:2026-10-01 @sam done:\d{4}-\d{2}-\d{2} — Chores\.md:3$/);
   assert.equal((await call("update_task", { path: "Chores", line: 3, text: "stale", done: false })).isError, true);
 });

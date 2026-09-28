@@ -2,8 +2,8 @@
 //   - [ ] Send invoice to Acme due:2026-10-01 rec:monthly #work/clients @jane !high
 // The line stays the source of truth. This reads the tokens and rewrites one at a time in place, so
 // an edit never touches the rest of the line. No Node imports: the editor uses this too.
-import { withoutCode } from "./prose.ts";
-import { normalizeTag, tagsInLine } from "./tags.ts";
+import { withoutCodeOrLinks } from "./prose.ts";
+import { cleanTag, normalizeTag, tagsInLine } from "./tags.ts";
 
 export const TASK_LINE = /^(\s*[-*+]\s+\[)([ xX])(\]\s+)(.*)$/;
 
@@ -42,21 +42,29 @@ interface Token {
   to: number;
 }
 
-const WORD = /(?<!\S)(due|start|scheduled|done|rec):(\S+)|(?<!\S)!(high|low)(?!\S)|(?<!\S)@([\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*)/giu;
+const PERSON = "[\\p{L}\\p{N}_-]+(?:\\.[\\p{L}\\p{N}_-]+)*";
+/** A person ends where the word does, so `@jane,` and `@jane.` count and `@jane's` doesn't. */
+const WORD = new RegExp(`(?<!\\S)(due|start|scheduled|done|rec):(\\S+)|(?<!\\S)!(high|low)(?!\\S)|(?<!\\S)@(${PERSON})(?=$|[\\s,.;:!?)\\]])`, "giu");
 const DATE = /^(\d{4})-(\d{2})-(\d{2})(?:T([01]\d|2[0-3]):[0-5]\d)?$/;
 const REC = /^[\p{L}\p{N}_+-]+$/u;
 
+/** A real calendar day (2026-04-31 isn't), optionally with a time. */
 export const isDate = (s: string) => {
   const m = s.match(DATE);
-  return !!m && +m[2] >= 1 && +m[2] <= 12 && +m[3] >= 1 && +m[3] <= 31;
+  if (!m) return false;
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3];
 };
 
 /** The day `ms` falls on here, as YYYY-MM-DD. */
-export const localDate = (ms: number) => new Date(ms).toLocaleDateString("en-CA");
+export function localDate(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 function tokensOf(text: string): Token[] {
   const out: Token[] = [];
-  for (const m of withoutCode(text).matchAll(WORD)) {
+  for (const m of withoutCodeOrLinks(text).matchAll(WORD)) {
     const at = { from: m.index, to: m.index + m[0].length };
     if (m[1]) {
       const key = m[1].toLowerCase();
@@ -66,7 +74,11 @@ function tokensOf(text: string): Token[] {
     } else if (m[3]) out.push({ field: "priority", key: "!", value: m[3].toLowerCase(), ...at });
     else out.push({ field: "assignees", key: "@", value: m[4], ...at });
   }
-  for (const t of tagsInLine(text)) out.push({ field: "tags", key: "#", value: t.display, from: t.from - 1, to: t.to });
+  for (const t of tagsInLine(text)) {
+    let to = t.to;
+    while (text[to] === "/") to++; // `#work/` is the tag work: its slash goes with it
+    out.push({ field: "tags", key: "#", value: t.display, from: t.from - 1, to });
+  }
   return out.sort((a, b) => a.from - b.from);
 }
 
@@ -89,7 +101,7 @@ export function parseTask(line: string): ParsedTask | null {
     end = text.slice(0, t.from).trimEnd().length;
   }
   const first = (f: Field) => tokens.find((t) => t.field === f)?.value ?? null;
-  const all = (f: Field) => [...new Map(tokens.filter((t) => t.field === f).map((t) => [t.value.toLowerCase(), t.value])).values()];
+  const all = (f: Field) => tidy(f, tokens.filter((t) => t.field === f).map((t) => t.value));
   return {
     done: m[2] !== " ",
     text,
@@ -106,7 +118,7 @@ export function patchProblem(patch: TaskPatch): string | null {
   }
   if (patch.rec && !REC.test(patch.rec)) return `"rec" must be one word like weekly or monthly, not "${patch.rec}"`;
   if (patch.priority !== undefined && patch.priority !== null && patch.priority !== "high" && patch.priority !== "low") return `"priority" must be high or low`;
-  const person = (patch.assignees ?? []).find((a) => !/^[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*$/u.test(a));
+  const person = (patch.assignees ?? []).find((a) => !new RegExp(`^@?${PERSON}$`, "u").test(a.trim()));
   if (person !== undefined) return `"${person}" isn't a person: use a name like jane or jane.doe, without the @`;
   const tag = (patch.tags ?? []).find((t) => !normalizeTag(t));
   if (tag !== undefined) return `"${tag}" isn't a tag: use letters, numbers, - and _, nested with /`;
@@ -117,25 +129,31 @@ const write = (field: Field, value: string, key?: string) =>
   field === "priority" ? `!${value}` : field === "assignees" ? `@${value}` : field === "tags" ? `#${value}` : `${key ?? field}:${value}`;
 const same = (field: Field, a: string, b: string) => (field === "tags" ? normalizeTag(a) === normalizeTag(b) : a.toLowerCase() === b.toLowerCase());
 
+/** List values the way tokens hold them (tags tidied, people without the @), each once, first spelling kept. */
+function tidy(field: Field, values: string[]): string[] {
+  const clean = values.map((v) => (field === "tags" ? (cleanTag(v) ?? v.trim()) : field === "assignees" ? v.trim().replace(/^@/, "") : v.trim())).filter(Boolean);
+  return clean.filter((v, i) => clean.findIndex((o) => same(field, o, v)) === i);
+}
+
 /**
  * Apply a patch to a task line. A token whose value stays is left as written; a changed value is
- * replaced where it stands; a cleared one is cut out with the space before it; a new one goes on
- * the end (before any trailing whitespace). Not a task line: returned as is.
+ * replaced where it stands; a cleared one is cut out with the whitespace before it; a new one goes
+ * on the end (before any trailing whitespace). Not a task line: returned as is.
  */
 export function editTask(line: string, patch: TaskPatch): string {
   const m = line.match(TASK_LINE);
   if (!m) return line;
   let text = m[4];
-  for (const field of ["due", "start", "done", "rec", "priority", "assignees", "tags"] as Field[]) {
+  // New tokens go on in the order the issue writes them: due, start, repeat, tags, people, priority, done.
+  for (const field of ["due", "start", "rec", "tags", "assignees", "priority", "done"] as Field[]) {
     if (!(field in patch)) continue;
     const v = patch[field];
-    const want = (Array.isArray(v) ? v : v ? [v] : []).filter(Boolean);
+    const want = tidy(field, Array.isArray(v) ? v : v ? [v] : []);
     const have = tokensOf(text).filter((t) => t.field === field);
-    const single = !Array.isArray(v);
     // A single value changed in place keeps its spot in the sentence (and `scheduled:` stays `scheduled:`).
-    if (single && want.length && have.length && !same(field, have[0].value, want[0])) {
+    if (!Array.isArray(v) && want.length && have.length) {
       const t = have[0];
-      text = text.slice(0, t.from) + write(field, want[0], t.key) + text.slice(t.to);
+      if (!same(field, t.value, want[0])) text = text.slice(0, t.from) + write(field, want[0], t.key) + text.slice(t.to);
       continue;
     }
     const kept = new Set<Token>();
@@ -145,9 +163,9 @@ export function editTask(line: string, patch: TaskPatch): string {
     }
     for (const t of [...have].reverse()) {
       if (kept.has(t)) continue;
-      const cutFrom = t.from > 0 && text[t.from - 1] === " " ? t.from - 1 : t.from;
-      const cutTo = cutFrom === t.from && text[t.to] === " " ? t.to + 1 : t.to;
-      text = text.slice(0, cutFrom) + text.slice(cutTo);
+      const before = text.slice(0, t.from).match(/[ \t]*$/)![0].length;
+      const after = before ? 0 : text.slice(t.to).match(/^[ \t]*/)![0].length;
+      text = text.slice(0, t.from - before) + text.slice(t.to + after);
     }
     for (const w of want) {
       if ([...kept].some((t) => same(field, t.value, w))) continue;
