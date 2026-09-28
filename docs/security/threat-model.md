@@ -7,7 +7,8 @@ This covers Common Ink online (commonink.app and pull request Previews): the Wor
 - **Notes and files.** Each workspace's notes, search index and change log live in its Durable Object's SQLite. Uploaded bytes live in R2 under `ws/<workspace>/`.
 - **The directory in D1.** People, workspaces, memberships and roles, invite tokens, sessions, and sign-up attempts.
 - **Sessions.** A random token in the `__Host-ci_session` cookie. D1 stores only its SHA-256.
-- **Secrets.** `SESSION_SECRET` (signs the short-lived sign-in cookies), `GOOGLE_CLIENT_SECRET` and `SIGNUP_CODE`, all Worker secrets. Integration tokens (#19) and agent tokens (#16) will join this list.
+- **Agent connections.** OAuth clients, grants, codes and tokens for remote MCP, in D1's `oauth_kv`. Tokens, codes and client secrets are stored only as hashes, and each grant's props are encrypted with a key that only its token unwraps.
+- **Secrets.** `SESSION_SECRET` (signs the short-lived sign-in cookies), `GOOGLE_CLIENT_SECRET` and `SIGNUP_CODE`, all Worker secrets. Integration tokens (#19) will join this list.
 
 ## Who might attack
 
@@ -43,6 +44,11 @@ This covers Common Ink online (commonink.app and pull request Previews): the Wor
 | DOMPurify on rendered markdown | Script in markdown | `web/src/render.ts` | Existing behaviour |
 | Link cards fetch only public hosts on default ports, never the app itself. Every redirect is checked again, with at most 3 redirects, one 6-second deadline, HTML only, 512 KB at most, and no credentials in URLs | Note content making the Worker (or the local server) reach private networks, cloud metadata, or the app. It also stops slow or huge pages from tying the Worker up | `src/core/unfurl.ts`, the guard in `cloud/src/index.ts`, `src/server/unfurl.ts` (which also resolves DNS) | `test/unfurl.test.ts`, `test/cloud-limits.test.ts` |
 | Rate limits: 60 sign-in requests per network address per 10 minutes, 20 invites and 120 uploads per person per hour, and 120 link cards per person per minute | Sign-in abuse, invite spam, storage abuse, and using the link-card fetcher to flood other sites | `cloud/src/limits.ts` | `test/cloud-limits.test.ts` |
+| Remote MCP uses OAuth 2.1 through `@cloudflare/workers-oauth-provider`: dynamic registration, PKCE (S256 only), tokens bound to `/mcp`, 1-hour access tokens and rotating refresh tokens | Stolen or replayed codes and tokens, and tokens meant for another resource | `cloud/src/agents.ts`, `cloud/src/oauth-store.ts` | `test/cloud-mcp.test.ts` |
+| An agent works in one workspace its person picked on the consent page, which shows the client's name, where access goes (with a warning for apps on your computer) and your role. The page has no scripts, can't be framed, and only accepts answers from our own origin | Phishing a person into connecting a look-alike client, and consent forged from another site | `authorize` in `cloud/src/agents.ts` | `test/cloud-mcp.test.ts` |
+| Each MCP request checks the person is still a member and uses their role at that moment. Tools are offered by the same role table as the app (`TOOL_ROUTES` in `src/core/tools.ts`) | A compromised agent doing more than its person can do, or keeping access after they're removed or demoted | `serveMcp` in `cloud/src/agents.ts`, `mcp` in `cloud/src/workspace.ts` | `test/cloud-mcp.test.ts`, `test/cloud-access.test.ts` |
+| Agents' writes are attributed as "Client (via Person)". **Connected agents** lists each one with its last use and recent changes, and **Revoke** takes effect at the next request, because the records are in D1, not KV | A compromised agent's changes going unnoticed, or outliving the decision to cut it off | `cloud/src/agents.ts`, `web/src/agentsPage.ts` | `test/cloud-mcp.test.ts` |
+| Client registration is limited to 20 per network address per hour | Filling D1 with junk registrations | `cloud/src/limits.ts` | `test/cloud-limits.test.ts` |
 | `npm audit --audit-level=high`, gitleaks over the whole history, and weekly Dependabot updates | Known-vulnerable dependencies (dev tools run next to the deploy credentials), and committed secrets | `.github/workflows/ci.yml`, `.github/dependabot.yml`, `.gitleaks.toml` | CI |
 
 ### Why each CSP allowance is there

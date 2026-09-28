@@ -34,6 +34,19 @@ Needs Node 22.13+ (uses the built-in `node:sqlite`). The vault defaults to `./va
 
 Tools: `search_notes`, `read_note`, `list_notes`, `create_note`, `edit_note`, `append_to_note`, `move_note`, `archive_note`, `unarchive_note`, `star_note`, `unstar_note`, `backlinks`, `recent_changes`. The server sends `vault/AGENTS.md` as its instructions, so edit that file to change agent conventions.
 
+### Connect an agent to a hosted workspace
+
+Online, agents connect over MCP's Streamable HTTP at `https://commonink.app/mcp` (a Preview's is `https://pr-<number>-commonink.<subdomain>.workers.dev/mcp`). They sign in with OAuth 2.1, so there's no key to copy:
+
+| Client | How |
+| --- | --- |
+| Claude (claude.ai, Desktop) | **Settings → Connectors → Add custom connector**, and paste the URL. |
+| Claude Code | `claude mcp add --transport http commonink https://commonink.app/mcp`, then `/mcp` to sign in. |
+| Cursor | Add `{"mcpServers": {"commonink": {"url": "https://commonink.app/mcp"}}}` to `.cursor/mcp.json`, then **Connect**. |
+| Anything else | Point an MCP client that supports OAuth at the URL. It registers itself (dynamic client registration) and signs in with PKCE. |
+
+The client opens Common Ink in your browser: sign in, pick the workspace it may use, and **Allow**. From then on it acts as you, with your role in that workspace at the time of each request: a viewer's agent only gets the read tools and starring. Its changes show in History as "Claude (via Audrow)". The same tools serve both kinds of connection (`src/core/tools.ts`). **Connected agents** in the account menu lists your agents, when each was last used and what it changed lately, and **Revoke** cuts one off at its next request.
+
 ## How edits from agents and you stay safe together
 
 - **Edits are exact-string replacements** with an optional `base_version`. A stale edit fails with a clear message instead of clobbering anything.
@@ -127,4 +140,4 @@ node --import tsx scripts/preview-demo.ts <preview-url>    # then fill it
 
 ## Not built yet
 
-Suggestion mode (accept or reject agent edits), git auto-commits authored by each agent, semantic search (`sqlite-vec`), remote MCP over Streamable HTTP with OAuth, Yjs multiplayer, and an MCP App version of the editor.
+Suggestion mode (accept or reject agent edits), git auto-commits authored by each agent, semantic search (`sqlite-vec`), Yjs multiplayer, and an MCP App version of the editor.
