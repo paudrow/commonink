@@ -86,6 +86,9 @@ const ICONS: Record<string, string> = {
   unfocus: '<path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3"/>',
 };
 
+/** What a dragged note carries (its path), from a card in Notes or a favorite to a folder, Favorites or Archive. */
+export const NOTE_DRAG = "application/x-common-ink-path";
+
 export function icon(name: string, size = 16): SVGSVGElement {
   const wrap = document.createElement("span");
   wrap.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] ?? ""}</svg>`;
