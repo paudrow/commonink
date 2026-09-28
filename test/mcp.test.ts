@@ -28,7 +28,7 @@ test("the server lists every tool", async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
     "append_to_note", "archive_note", "backlinks", "create_note", "edit_note", "list_notes", "list_tags",
-    "move_note", "read_note", "recent_changes", "search_notes", "star_note", "unarchive_note", "unstar_note",
+    "move_note", "read_note", "recent_changes", "search_notes", "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag",
   ]);
 });
 
@@ -68,6 +68,12 @@ test("tool errors come back as isError with the core's message", async () => {
 test("search_notes sees files written straight to disk", async () => {
   fs.writeFileSync(path.join(vault, "Side door.md"), "# Side door\n\nzeppelin\n");
   assert.equal((await call("search_notes", { query: "zeppelin" })).text, "- Side door.md — Side door\n    L3: zeppelin");
+});
+
+test("agents star and unstar tags as favorites too", async () => {
+  assert.equal((await call("star_tag", { tags: ["#q3"] })).text, "Favorites:\n- #q3 (1 note)");
+  assert.equal((await call("unstar_tag", { tags: ["q3"] })).text, "No favorites.");
+  assert.equal((await call("star_tag", { tags: ["nowhere"] })).isError, true);
 });
 
 test("agents star and unstar notes for the vault's person", async () => {

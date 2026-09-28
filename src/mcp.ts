@@ -215,6 +215,30 @@ server.registerTool(
 );
 
 server.registerTool(
+  "star_tag",
+  {
+    title: "Star tag",
+    description:
+      "Add tags to the user's favorites, beside their starred notes; clicking one in the app shows every note with that tag " +
+      "(or a tag under it). A starred tag follows renames and merges. Only star tags the user asked for.",
+    inputSchema: { tags: z.array(z.string()).min(1).describe("Tags, with or without #") },
+    annotations: writes,
+  },
+  ({ tags }) => run(() => (tags.forEach((t) => quire.starTag(LOCAL_USER, t)), favorites())),
+);
+
+server.registerTool(
+  "unstar_tag",
+  {
+    title: "Unstar tag",
+    description: "Take tags out of the user's favorites. The tags and their notes don't change.",
+    inputSchema: { tags: z.array(z.string()).min(1) },
+    annotations: writes,
+  },
+  ({ tags }) => run(() => (tags.forEach((t) => quire.unstarTag(LOCAL_USER, t)), favorites())),
+);
+
+server.registerTool(
   "unstar_note",
   {
     title: "Unstar note",

@@ -21,7 +21,7 @@ Usage: quire <command> [args] [--as <agent>] [--json]
   append <note> [text | -]
   mv <note> <new-path>             rewrites links to the note
   backlinks <note>
-  star <note…> / unstar <note…>    add to or take out of your favorites
+  star <note…> / unstar <note…>    add to or take out of your favorites ('#tag' for a tag)
   starred                          list your favorites, in order
   changes [--since <iso|id>] [--path <path|id|url>] [--limit N]
                                    --path brings the note's history under earlier names too
@@ -137,7 +137,10 @@ if (cmd === "mcp") {
       case "star":
       case "unstar": {
         if (!args.length) throw new QuireError(`${cmd} needs <note>`);
-        for (const a of args) cmd === "star" ? q.star(LOCAL_USER, a) : q.unstar(LOCAL_USER, a);
+        for (const a of args) {
+          if (a.startsWith("#")) cmd === "star" ? q.starTag(LOCAL_USER, a) : q.unstarTag(LOCAL_USER, a);
+          else cmd === "star" ? q.star(LOCAL_USER, a) : q.unstar(LOCAL_USER, a);
+        }
         const list = q.favorites(LOCAL_USER);
         out(fmtFavorites(list), list);
         break;
