@@ -76,11 +76,12 @@ export class Workspace extends DurableObject<Env> {
     const url = new URL(req.url);
     const route = url.pathname;
     const base = `/api/w/${wsId}`;
+    const user = req.headers.get("x-ci-user") ?? "";
 
     if (route === "/live") {
       if (req.headers.get("Upgrade") !== "websocket") return json({ error: "Expected a WebSocket" }, 426);
       const [client, server] = Object.values(new WebSocketPair());
-      this.ctx.acceptWebSocket(server);
+      this.ctx.acceptWebSocket(server, [user]); // tagged, so signing out everywhere can close it
       return new Response(null, { status: 101, webSocket: client });
     }
     if (route === "/seed" && req.method === "POST") {
@@ -100,7 +101,7 @@ export class Workspace extends DurableObject<Env> {
     const host: ApiHost = {
       quire: this.quire,
       actor: decodeURIComponent(req.headers.get("x-ci-actor") ?? "someone"),
-      user: req.headers.get("x-ci-user") ?? "",
+      user,
       info: () => ({ mode: "cloud", name: decodeURIComponent(req.headers.get("x-ci-workspace-name") ?? "Workspace") }),
       written: (rel, content, version, change, origin) => this.announce(rel, content, version, change, origin),
       moved: (from, to, version, change) => {
@@ -174,6 +175,11 @@ export class Workspace extends DurableObject<Env> {
         ws.send(data);
       } catch {}
     }
+  }
+
+  /** Close someone's live connections (they signed out everywhere). Their tabs then ask them to sign in. */
+  disconnect(userId: string) {
+    for (const ws of this.ctx.getWebSockets(userId)) ws.close(4001, "Signed out");
   }
 
   webSocketMessage() {}

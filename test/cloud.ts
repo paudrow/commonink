@@ -52,7 +52,7 @@ export async function startCloud(vars: Record<string, string> = {}) {
   /** Developer sign-in as `as`; returns the session cookie. */
   async function signIn(as: string) {
     const res = await server.fetch(new URL(`/auth/dev?as=${as}`, origin), { redirect: "manual" });
-    const set = res.headers.getSetCookie().map((c) => c.split(";")[0]).find((c) => c.startsWith("ci_session=") && !c.endsWith("="));
+    const set = res.headers.getSetCookie().map((c) => c.split(";")[0]).find((c) => c.startsWith("__Host-ci_session=") && !c.endsWith("="));
     if (!set) throw new Error(`Couldn't sign in as ${as} (${res.status})`);
     return set;
   }

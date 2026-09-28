@@ -4,8 +4,8 @@ import { json } from "../../src/core/api.ts";
 import { unfurl } from "../../src/core/unfurl.ts";
 import { MAX_UPLOAD } from "../../src/core/paths.ts";
 import { SANDBOX_PATH, sandboxPage } from "../../src/core/sandbox.ts";
-import { ensurePersonalWorkspace, handleAuth, readSession, seedWorkspace } from "./auth.ts";
-import { acceptInvite, createInvite, createWorkspace, getUser, locateNote, membership, workspacesOf } from "./directory.ts";
+import { clearSessionCookies, ensurePersonalWorkspace, handleAuth, readSession, seedWorkspace } from "./auth.ts";
+import { acceptInvite, createInvite, createWorkspace, endSessionsOf, locateNote, membership, workspacesOf } from "./directory.ts";
 import type { Env } from "./env.ts";
 import { fetchAsset, secure } from "./headers.ts";
 
@@ -36,8 +36,7 @@ const VIEWER_WRITES = new Set(["POST /favorites/star", "POST /favorites/unstar",
 async function api(req: Request, env: Env, url: URL): Promise<Response> {
   const session = await readSession(req, env);
   if (!session) return json({ error: "Sign in first", devLogin: env.DEV_LOGIN === "1" }, 401);
-  const user = await getUser(env.DB, session.uid);
-  if (!user) return json({ error: "Sign in first", devLogin: env.DEV_LOGIN === "1" }, 401);
+  const { user } = session;
 
   // Cookies ride along on any request to us, so writes must come from our own pages.
   const isWrite = req.method !== "GET" && req.method !== "HEAD";
@@ -56,6 +55,14 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
     const id = await createWorkspace(env.DB, user, clean, "team");
     await seedWorkspace(env, id);
     return json({ id });
+  }
+  // Every session ends, and every open tab's live connection closes, which sends it to sign-in.
+  if (url.pathname === "/api/sign-out-everywhere" && req.method === "POST") {
+    await endSessionsOf(env.DB, user.id);
+    await Promise.all((await workspacesOf(env.DB, user.id)).map((w) => env.WORKSPACE.get(env.WORKSPACE.idFromName(w.id)).disconnect(user.id)));
+    const res = json({ ok: true });
+    for (const c of clearSessionCookies()) res.headers.append("Set-Cookie", c);
+    return res;
   }
   if (url.pathname === "/api/unfurl") {
     const target = url.searchParams.get("url") ?? "";
@@ -96,7 +103,7 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
 async function invite(req: Request, env: Env, url: URL): Promise<Response> {
   const session = await readSession(req, env);
   if (!session) return Response.redirect(`${url.origin}/auth/${env.DEV_LOGIN === "1" ? "dev" : "google"}?next=${encodeURIComponent(url.pathname)}`, 302);
-  const wsId = await acceptInvite(env.DB, url.pathname.split("/")[2] ?? "", session.uid);
+  const wsId = await acceptInvite(env.DB, url.pathname.split("/")[2] ?? "", session.user.id);
   if (!wsId) return new Response("This invite link has expired or isn't valid. Ask for a new one.", { status: 410 });
   return Response.redirect(`${url.origin}/?w=${wsId}`, 302);
 }

@@ -148,6 +148,7 @@ export const api = {
   /** Online: which of your workspaces a note ID is in (404 if none you can open). */
   locate: (id: string) => j<{ workspace: { id: string; name: string } }>(`/api/note-ids/${id}`),
   createWorkspace: (name: string) => j<{ id: string }>("/api/workspaces", send("POST", { name })),
+  signOutEverywhere: () => j<{ ok: true }>("/api/sign-out-everywhere", send("POST", {})),
   invite: (role: "editor" | "viewer") => j<{ url: string }>(`${BASE}/invites`, send("POST", { role })),
   notes: () => j<NoteMeta[]>(`${BASE}/notes`),
   note: (path: string) => j<Note>(`${BASE}/note?path=${enc(path)}`),
@@ -214,7 +215,8 @@ export function connect(onMessage: (m: ServerMsg) => void, onStatus: (up: boolea
       onStatus(true);
     };
     ws.onmessage = (e) => onMessage(JSON.parse(e.data));
-    ws.onclose = () => {
+    ws.onclose = (e) => {
+      if (e.code === 4001) return location.reload(); // signed out everywhere: back to the sign-in screen
       onStatus(false);
       setTimeout(open, (delay = Math.min(delay * 2, 8000)));
     };
