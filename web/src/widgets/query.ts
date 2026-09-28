@@ -3,10 +3,21 @@
 import { api, type FeedItem } from "../api.ts";
 import { el, escapeHtml, icon, timeAgo } from "../dom.ts";
 import { onVaultChange } from "../events.ts";
-import type { WidgetSpec } from "./core.ts";
+import type { Field, WidgetSpec } from "./core.ts";
 import { formatQuery, toQuery } from "../../../src/core/query.ts";
 
 const prevent = (e: Event) => e.preventDefault();
+
+/**
+ * The note query's fields, as the settings form shows them. The ::query widget and the smart
+ * folder editor both use this list, so a query term added here shows up in both.
+ */
+export const QUERY_FIELDS: Field[] = [
+  { key: "q", label: "Matching", type: "text", placeholder: "Search words (optional)" },
+  { key: "folder", label: "Folder", type: "text", placeholder: "e.g. Projects", picker: "folder" },
+  { key: "tag", label: "Tag", type: "text", placeholder: "e.g. meeting (includes meeting/…)", picker: "tag" },
+  { key: "sort", label: "Sort", type: "select", options: [["modified", "Newest first"], ["title", "By title"]] },
+];
 
 export const query: WidgetSpec = {
   name: "query",
@@ -18,13 +29,11 @@ export const query: WidgetSpec = {
   configAction: {
     label: "Save as smart folder",
     icon: "spark",
-    run: (args, env, anchor) => env.saveSmartFolder(formatQuery({ ...toQuery({ ...env.args, ...args }), limit: undefined }), args.label ?? "", anchor), // sort isn't in the form
+    run: (args, env, anchor) => env.saveSmartFolder(formatQuery(toQuery(args)), args.label ?? "", anchor),
   },
   fields: [
     { key: "label", label: "Label", type: "text", placeholder: "Active projects, Meetings…" },
-    { key: "q", label: "Matching", type: "text", placeholder: "Search words (optional)" },
-    { key: "folder", label: "Folder", type: "text", placeholder: "e.g. Projects" },
-    { key: "tag", label: "Tag", type: "text", placeholder: "e.g. meeting" },
+    ...QUERY_FIELDS,
     { key: "limit", label: "Show", type: "text", placeholder: "6" },
   ],
 

@@ -25,6 +25,7 @@ export function mountTasks(host: HTMLElement, opts: { limit: number; tag?: strin
       open: (target, line) => opts.open(target, line),
       openTag: opts.openTag,
       saveSmartFolder() {},
+      sources: { tags: () => [], folders: () => [] }, // the Tasks page has no settings form
     },
     card,
   );

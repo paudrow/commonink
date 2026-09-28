@@ -156,7 +156,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
         doc: note.content,
         kind: note.kind === "html" ? "html" : "md",
         vim: prefs.vim,
-        context: { path: note.path, openTarget, createNote, notes: () => notes, upload: (files) => uploadFiles(files), tags: () => tags, openTag, saveSmartFolder },
+        context: { path: note.path, openTarget, createNote, notes: () => notes, upload: (files) => uploadFiles(files), tags: () => tags, folders: () => allFolders(), openTag, saveSmartFolder },
         onUpdate: (docChanged, fromRemote, state) => onUpdate(next, docChanged, fromRemote, state),
       }),
     );
@@ -706,10 +706,14 @@ function nameFor(query: string): string {
   return [q.tag && `#${q.tag}`, q.folder, q.q && `“${q.q}”`].filter(Boolean).join(" · ") || "All notes";
 }
 
+/** What the settings forms' tag and folder fields suggest. */
+const fieldSources = { tags: () => tags, folders: () => allFolders() };
+
 /** Offer to keep a note query as a smart folder (from the Notes filters or a ::query widget). */
 function saveSmartFolder(query: string, name: string, anchor: HTMLElement) {
   smartFolderEditor(anchor, { name: name || nameFor(query), query, shared: canShare }, {
     canShare,
+    sources: fieldSources,
     save: async (f) => {
       const saved = await api.saveSmartFolder(f);
       smartFolders = await api.smartFolders();
@@ -727,6 +731,7 @@ function renderSmartFolders(active: string | null) {
       e.stopPropagation();
       smartFolderEditor(edit, f, {
         canShare,
+        sources: fieldSources,
         save: async (next) => {
           await api.saveSmartFolder(next);
           smartFolders = await api.smartFolders();
