@@ -136,6 +136,8 @@ export const api = {
   archive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/archive`, send("POST", { paths })),
   unarchive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/unarchive`, send("POST", { paths })),
   backlinks: (path: string) => j<Backlink[]>(`${BASE}/backlinks?path=${enc(path)}`),
+  diff: (from: number, to: number) => j<{ path: string; op: Change["op"]; before: string | null; after: string | null }>(`${BASE}/diff?from=${from}&to=${to}`),
+  restore: (id: number) => j<{ path: string; version: string; change: number | null }>(`${BASE}/restore`, send("POST", { id })),
   changes: () => j<Change[]>(`${BASE}/changes?limit=40`),
   save: (path: string, content: string, baseVersion?: string, allowEmpty = false) =>
     j<{ path: string; version: string }>(`${BASE}/note`, send("PUT", { path, content, baseVersion, clientId, allowEmpty })),

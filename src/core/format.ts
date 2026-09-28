@@ -35,9 +35,12 @@ export function fmtBacklinks(target: string, links: Backlink[]): string {
   return links.map((b) => `- ${b.path}:${b.line} (${b.kind}) ${b.text}`).join("\n");
 }
 
-/** Collapse runs of edits by the same source to the same note (autosaves) into one entry. */
-export function groupChanges(changes: Change[], windowMs = 10 * 60_000): Array<Change & { count: number }> {
-  const out: Array<Change & { count: number }> = [];
+/**
+ * Collapse runs of edits by the same source to the same note (autosaves) into one entry.
+ * `first` is the id of the run's earliest change (`id` is its latest).
+ */
+export function groupChanges(changes: Change[], windowMs = 10 * 60_000): Array<Change & { count: number; first: number }> {
+  const out: Array<Change & { count: number; first: number }> = [];
   for (const c of changes) {
     const prev = out[out.length - 1];
     const stat = (s: string | null) => s?.match(/^\+(\d+) −(\d+)$/)?.slice(1).map(Number);
@@ -46,7 +49,8 @@ export function groupChanges(changes: Change[], windowMs = 10 * 60_000): Array<C
     if (prev && c.op === "edit" && prev.op === "edit" && prev.path === c.path && prev.source === c.source && a && b && prev.ts - c.ts < windowMs) {
       prev.summary = `+${a[0] + b[0]} −${a[1] + b[1]}`;
       prev.count++;
-    } else out.push({ ...c, count: 1 });
+      prev.first = c.id;
+    } else out.push({ ...c, count: 1, first: c.id });
   }
   return out;
 }

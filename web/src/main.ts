@@ -11,6 +11,9 @@ import { editsBetween, merge3 } from "./merge.ts";
 import { sandboxFrame } from "./render.ts";
 import { Palette } from "./palette.ts";
 import { Feed } from "./feed.ts";
+import { folderPicker } from "./folderPicker.ts";
+import { showChange } from "./changeView.ts";
+import { renderTasksPage } from "./tasksView.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
 import { groupChanges } from "../../src/core/format.ts";
@@ -61,6 +64,7 @@ let session: Session | null = null;
 const view = new EditorView({ parent: $("#editor-host") });
 const feed = new Feed({
   open: (path, line) => void openNote(path, { line }),
+  openTasks: () => void showTasks(),
   toast: (t) => toast(t),
   changed: () => {
     api.clearResolveCache();
@@ -143,7 +147,6 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   if (opts.push !== false && decodeURIComponent(location.hash.slice(2)) !== note.path) {
     history.pushState(null, "", `#/${encodeURIComponent(note.path)}`);
   }
-  store.set(lastKey(), note.path);
   document.title = `${note.title} · Common Ink`;
   renderChrome();
   renderTree();
@@ -153,7 +156,8 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
 }
 
 function showAsset(meta: NoteMeta, push?: boolean) {
-  session = { path: meta.path, kind: "asset", title: displayName(meta.path), base: "", baseVersion: meta.version, saving: false, again: false, timer: 0, edited: false };
+  void setFocusMode(false);
+  session ={ path: meta.path, kind: "asset", title: displayName(meta.path), base: "", baseVersion: meta.version, saving: false, again: false, timer: 0, edited: false };
   const src = fileUrl(meta.path);
   const media = /\.(mp4|webm)$/i.test(meta.path)
     ? el("video", { src, controls: true })
@@ -170,20 +174,35 @@ function showAsset(meta: NoteMeta, push?: boolean) {
   refreshBacklinks();
 }
 
-function showStage(which: "editor" | "html" | "asset" | "feed") {
+let unmountTasks: (() => void) | null = null;
+
+function showStage(which: "editor" | "html" | "asset" | "feed" | "tasks") {
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
   $("#asset-view").hidden = which !== "asset";
   $("#feed-view").hidden = which !== "feed";
+  $("#tasks-view").hidden = which !== "tasks";
+  if (which !== "tasks") {
+    unmountTasks?.();
+    unmountTasks = null;
+  }
 }
 
-/** The feed replaces the editor; no note is open while it's showing. */
-async function showFeed(opts: { scope?: Scope; filter?: boolean; push?: boolean } = {}) {
+/** Put the open note away (saved, named, cursor remembered) before showing a page that isn't a note. */
+async function leaveNote() {
   await flushSave();
   if (session) await nameUntitled(session);
   if (session && session.kind !== "asset") cursors.set(session.path, view.state.selection.main.head);
   session = null;
   hideBanner();
+  await setFocusMode(false);
+  $("#backlink-count").textContent = "";
+  $("#backlinks").replaceChildren(el("div", { class: "panel-empty" }, "—"));
+}
+
+/** The feed is home: every note, newest first. No note is open while it's showing. */
+async function showFeed(opts: { scope?: Scope; filter?: boolean; push?: boolean } = {}) {
+  await leaveNote();
   showStage("feed");
   feed.show(opts);
   if (opts.push !== false && location.hash !== "#feed") history.pushState(null, "", "#feed");
@@ -191,8 +210,51 @@ async function showFeed(opts: { scope?: Scope; filter?: boolean; push?: boolean 
   renderChrome();
   renderTree();
   renderOutline();
-  $("#backlink-count").textContent = "";
-  $("#backlinks").replaceChildren(el("div", { class: "panel-empty" }, "—"));
+}
+
+async function showTasks(opts: { push?: boolean } = {}) {
+  await leaveNote();
+  showStage("tasks");
+  unmountTasks = renderTasksPage($("#tasks-view"), (path, line) => void openNote(path, { line }));
+  $("#tasks-view").focus({ preventScroll: true });
+  if (opts.push !== false && location.hash !== "#tasks") history.pushState(null, "", "#tasks");
+  document.title = "Tasks · Common Ink";
+  renderChrome();
+  renderTree();
+  renderOutline();
+}
+
+const onPage = () => (feed.visible ? "feed" : !$("#tasks-view").hidden ? "tasks" : null);
+
+// ------------------------------------------------------------------ focus mode
+
+let focusMode = false;
+
+/**
+ * Just the words: sidebars and chrome step aside and the window goes full screen. Esc stays with
+ * the editor (vim) where the browser allows it; otherwise leaving full screen keeps focus mode.
+ */
+async function setFocusMode(on: boolean) {
+  if (on && (!session || session.kind === "asset")) return;
+  if (on === focusMode) return;
+  focusMode = on;
+  document.body.classList.toggle("is-focus", on);
+  $("#focus-btn").replaceChildren(icon(on ? "unfocus" : "focus", 16));
+  $("#focus-btn").title = on ? "Leave focus mode (⌘⇧↵)" : "Focus mode (⌘⇧↵)";
+  const keyboard = (navigator as any).keyboard;
+  try {
+    if (on && !document.fullscreenElement) {
+      await document.documentElement.requestFullscreen({ navigationUI: "hide" });
+      await keyboard?.lock?.(["Escape"]);
+    } else if (!on && document.fullscreenElement) {
+      keyboard?.unlock?.();
+      await document.exitFullscreen();
+    }
+  } catch {
+    // Full screen can be refused (e.g. inside a frame); focus mode still works in the window.
+  }
+  view.requestMeasure();
+  if (session && session.kind !== "asset") view.focus();
 }
 
 /** Archive the open note (or unarchive it, if it's archived). Stays on the note, with Undo. */
@@ -257,13 +319,15 @@ async function createNote(name: string) {
   }
 }
 
-/** New note button: create "Untitled" right away and put the cursor in its title. */
-async function newNote() {
+/** New note button: create "Untitled" right away (in `folder`, if given) and put the cursor in its title. */
+async function newNote(folder = "") {
+  const dir = folder ? `${folder}/` : "";
   const taken = new Set(notes.map((n) => n.path.toLowerCase()));
   let name = "Untitled";
-  for (let i = 2; taken.has(`${name.toLowerCase()}.md`); i++) name = `Untitled ${i}`;
+  for (let i = 2; taken.has(`${dir}${name}.md`.toLowerCase()); i++) name = `Untitled ${i}`;
   try {
-    const r = await api.create(`${name}.md`, "# \n");
+    const r = await api.create(`${dir}${name}.md`, "# \n");
+    if (folder) prefs.collapsed.delete(folder);
     await refreshNotes();
     await openNote(r.path);
     view.dispatch({ selection: { anchor: view.state.doc.line(1).to } });
@@ -296,7 +360,6 @@ async function nameUntitled(s: Session) {
     s.title = title!;
     if (s === session) {
       history.replaceState(null, "", `#/${encodeURIComponent(r.path)}`);
-      store.set(lastKey(), r.path);
       document.title = `${s.title} · Common Ink`;
       renderChrome();
     }
@@ -518,66 +581,241 @@ function recentAgentEdits(): Map<string, string> {
   return out;
 }
 
+// Folders are the paths notes live under. One you've just made has no notes yet, so it's kept
+// here (per workspace, in this browser) until a note lands in it.
+const emptyFoldersKey = () => `folders:${workspaceId || "local"}`;
+const emptyFolders = () => new Set(store.get<string[]>(emptyFoldersKey(), []));
+function setEmptyFolders(s: Set<string>) {
+  store.set(emptyFoldersKey(), [...s]);
+}
+
+/** Every folder: ones with notes in them (outside the archive), and new empty ones. */
+function allFolders(): string[] {
+  const out = new Set<string>(emptyFolders());
+  for (const n of notes) {
+    if (isArchived(n.path)) continue;
+    const parts = n.path.split("/").slice(0, -1);
+    parts.forEach((_, i) => out.add(parts.slice(0, i + 1).join("/")));
+  }
+  return [...out].sort((a, b) => a.localeCompare(b));
+}
+
+const parentOf = (p: string) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
+const DRAG = "application/x-common-ink-path";
+
 function renderTree() {
   const root: Dir = { dirs: new Map(), files: [] };
   const archivedCount = notes.filter((n) => isArchived(n.path) && n.kind !== "asset").length;
   $("#archive-count").textContent = archivedCount ? String(archivedCount) : "";
-  $("#feed-btn").classList.toggle("is-active", feed.visible);
-  for (const n of notes) {
-    if (isArchived(n.path)) continue;
-    const parts = n.path.split("/");
+  $("#feed-btn").classList.toggle("is-active", onPage() === "feed");
+  $("#tasks-btn").classList.toggle("is-active", onPage() === "tasks");
+  const dirOf = (parts: string[]) => {
     let d = root;
-    for (const p of parts.slice(0, -1)) {
+    for (const p of parts) {
       if (!d.dirs.has(p)) d.dirs.set(p, { dirs: new Map(), files: [] });
       d = d.dirs.get(p)!;
     }
-    d.files.push(n);
+    return d;
+  };
+  for (const n of notes) {
+    if (isArchived(n.path)) continue;
+    const parts = n.path.split("/");
+    dirOf(parts.slice(0, -1)).files.push(n);
   }
+  const empty = emptyFolders();
+  for (const f of [...empty]) {
+    if (notes.some((n) => n.path.startsWith(`${f}/`))) empty.delete(f); // it has notes now: it's a real folder
+    else dirOf(f.split("/"));
+  }
+  setEmptyFolders(empty);
+
   const agents = recentAgentEdits();
+  const action = (title: string, ico: string, fn: () => void) =>
+    el("button", { type: "button", class: "row-act", title, onclick: (e: Event) => (e.stopPropagation(), fn()) }, icon(ico, 14));
   const walk = (d: Dir, prefix: string, depth: number): HTMLElement[] => {
     const out: HTMLElement[] = [];
     for (const [name, sub] of [...d.dirs].sort((a, b) => a[0].localeCompare(b[0]))) {
       const path = prefix + name;
       const collapsed = prefs.collapsed.has(path);
-      out.push(
-        el(
-          "div",
-          {
-            class: `tree-row is-dir${collapsed ? " is-collapsed" : ""}`,
-            style: { "--depth": String(depth) },
-            onclick: () => {
-              if (collapsed) prefs.collapsed.delete(path);
-              else prefs.collapsed.add(path);
-              store.set("collapsed", [...prefs.collapsed]);
-              renderTree();
-            },
+      const isEmpty = !sub.files.length && !sub.dirs.size;
+      const row = el(
+        "div",
+        {
+          class: `tree-row is-dir${collapsed ? " is-collapsed" : ""}`,
+          style: { "--depth": String(depth) },
+          "data-folder": path,
+          title: path,
+          onclick: () => {
+            if (collapsed) prefs.collapsed.delete(path);
+            else prefs.collapsed.add(path);
+            store.set("collapsed", [...prefs.collapsed]);
+            renderTree();
           },
-          el("span", { class: "chev" }, icon("chevron", 13)),
-          el("span", { class: "tree-name" }, name),
+        },
+        el("span", { class: "chev" }, icon("chevron", 13)),
+        el("span", { class: "tree-name" }, name),
+        el(
+          "span",
+          { class: "row-actions" },
+          action(`New note in ${path}`, "plus", () => void newNote(path)),
+          isEmpty && empty.has(path) ? action("Remove this empty folder", "close", () => (empty.delete(path), setEmptyFolders(empty), renderTree())) : null,
         ),
       );
-      if (!collapsed) out.push(...walk(sub, `${path}/`, depth + 1));
+      dropTarget(row, () => path);
+      out.push(row);
+      if (collapsed) continue;
+      out.push(...walk(sub, `${path}/`, depth + 1));
+      if (isEmpty) out.push(el("div", { class: "tree-hint", style: { "--depth": String(depth + 1) } }, "Empty. Drag notes here."));
     }
     for (const f of d.files.sort((a, b) => a.path.localeCompare(b.path))) {
       const agent = agents.get(f.path);
-      out.push(
-        el(
-          "div",
-          {
-            class: `tree-row is-file${f.path === session?.path ? " is-active" : ""}`,
-            style: { "--depth": String(depth) },
-            title: f.path,
-            onclick: () => openNote(f.path),
+      const row = el(
+        "div",
+        {
+          class: `tree-row is-file${f.path === session?.path ? " is-active" : ""}`,
+          style: { "--depth": String(depth) },
+          title: f.path,
+          draggable: "true",
+          onclick: () => openNote(f.path),
+          ondragstart: (e: DragEvent) => {
+            e.dataTransfer!.setData(DRAG, f.path);
+            e.dataTransfer!.effectAllowed = "move";
+            document.body.classList.add("is-dragging");
           },
-          icon(f.kind === "html" ? "html" : f.kind === "asset" ? "image" : "file", 14),
-          el("span", { class: "tree-name" }, displayName(f.path)),
-          agent ? el("span", { class: "agent-dot", title: `Edited by ${agent}`, style: { "--hue": String(hueFor(agent)) } }) : null,
-        ),
+          ondragend: endDrag,
+        },
+        icon(f.kind === "html" ? "html" : f.kind === "asset" ? "image" : "file", 14),
+        el("span", { class: "tree-name" }, displayName(f.path)),
+        agent ? el("span", { class: "agent-dot", title: `Edited by ${agent}`, style: { "--hue": String(hueFor(agent)) } }) : null,
+        el("span", { class: "row-actions" }, action("Archive", "archive", () => void archivePath(f.path))),
       );
+      dropTarget(row, () => parentOf(f.path)); // dropping onto a note files it next to that note
+      out.push(row);
     }
     return out;
   };
   $("#tree").replaceChildren(...walk(root, "", 0));
+}
+
+/** Highlight where a dragged note would land: a folder row, or the whole tree for the top level. */
+function markDrop(folder: string | null) {
+  document.querySelectorAll(".is-drop").forEach((n) => n.classList.remove("is-drop"));
+  if (folder === null) return;
+  (folder ? document.querySelector(`.tree-row[data-folder="${CSS.escape(folder)}"]`) : $("#tree"))?.classList.add("is-drop");
+}
+function endDrag() {
+  document.body.classList.remove("is-dragging");
+  markDrop(null);
+}
+function dropTarget(node: HTMLElement, folder: () => string, onDrop?: (path: string) => void) {
+  node.addEventListener("dragover", (e) => {
+    if (!e.dataTransfer?.types.includes(DRAG)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "move";
+    if (onDrop) node.classList.add("is-drop");
+    else markDrop(folder());
+  });
+  node.addEventListener("dragleave", (e) => {
+    if (!node.contains(e.relatedTarget as Node)) node.classList.remove("is-drop");
+  });
+  node.addEventListener("drop", (e) => {
+    const path = e.dataTransfer?.getData(DRAG);
+    if (!path) return;
+    e.preventDefault();
+    e.stopPropagation();
+    endDrag();
+    if (onDrop) onDrop(path);
+    else void moveToFolder(path, folder());
+  });
+}
+
+/** Move a note into `folder` ("" = top level). Links to it keep working; Undo puts it back. */
+async function moveToFolder(path: string, folder: string, opts: { undo?: boolean } = {}) {
+  const from = parentOf(path);
+  if (folder === from) return;
+  const dest = `${folder ? `${folder}/` : ""}${path.split("/").pop()}`;
+  const wasOpen = session?.path === path;
+  if (wasOpen) await flushSave();
+  renaming = path;
+  let r;
+  try {
+    r = await api.move(path, dest);
+  } catch (e) {
+    return toast({ text: e instanceof ApiError && e.status === 409 ? `${folder || "The top level"} already has a note called ${displayName(path)}` : `Couldn't move ${displayName(path)}` });
+  } finally {
+    renaming = null;
+  }
+  if (folder) {
+    prefs.collapsed.delete(folder);
+    store.set("collapsed", [...prefs.collapsed]);
+  }
+  notes = await api.notes();
+  if (from && !notes.some((n) => n.path.startsWith(`${from}/`))) {
+    const empty = emptyFolders(); // moving the last note out shouldn't make the folder vanish
+    empty.add(from);
+    setEmptyFolders(empty);
+  }
+  renderTree();
+  if (wasOpen) {
+    await openNote(r.path, { push: false });
+    history.replaceState(null, "", `#/${encodeURIComponent(r.path)}`);
+  }
+  if (!opts.undo) {
+    toast({
+      icon: "move",
+      text: `Moved ${displayName(path)} to ${folder || "the top level"}`,
+      actionLabel: "Undo",
+      action: () => void moveToFolder(r.path, from, { undo: true }),
+    });
+  }
+}
+
+/** Archive any note from the sidebar. The open note stays open (marked archived), like ⌘⇧E. */
+async function archivePath(path: string) {
+  if (session?.path === path) return archiveCurrent();
+  const r = await api.archive([path]).catch(() => null);
+  if (!r) return toast({ text: `Couldn't archive ${displayName(path)}` });
+  await refreshNotes();
+  feed.refreshSoon();
+  toast({
+    icon: "archive",
+    text: `Archived ${displayName(path)}`,
+    actionLabel: "Undo",
+    action: async () => {
+      await api.unarchive(r.moved.map((m) => m.to));
+      await refreshNotes();
+      feed.refreshSoon();
+    },
+  });
+}
+
+/** An inline name field at the top of the tree; the folder appears (empty) when you press Enter. */
+function startNewFolder() {
+  $("#tree").querySelector(".tree-row.is-input")?.remove();
+  const input = el("input", { class: "tree-input", placeholder: "Folder name", spellcheck: "false" });
+  const row = el("div", { class: "tree-row is-input", style: { "--depth": "0" } }, icon("folder", 14), input);
+  $("#tree").prepend(row);
+  input.focus();
+  let done = false;
+  const finish = (commit: boolean) => {
+    if (done) return;
+    done = true;
+    const name = input.value.trim().replace(/[\\:*?"<>|#^[\]]/g, "").replace(/\s*\/\s*/g, "/").replace(/^\/+|\/+$/g, "");
+    if (commit && name && !allFolders().some((f) => f.toLowerCase() === name.toLowerCase())) {
+      const empty = emptyFolders();
+      empty.add(name);
+      setEmptyFolders(empty);
+      prefs.collapsed.delete(name);
+      toast({ icon: "folder", text: `Made ${name}`, detail: "Drag notes onto it, or use Move on a note." });
+    }
+    renderTree();
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") finish(true);
+    if (e.key === "Escape") finish(false);
+  });
+  input.addEventListener("blur", () => finish(true));
 }
 
 // ------------------------------------------------------------------ chrome: crumbs, status, panel
@@ -585,11 +823,17 @@ function renderTree() {
 function renderChrome() {
   const s = session;
   const crumbs = $("#crumbs");
+  const page = onPage();
+  $("#back-btn").hidden = page === "feed";
   $("#archive-btn").hidden = !s;
+  $("#move-btn").hidden = !s;
+  $("#focus-btn").hidden = !s || s.kind === "asset";
   $("#save-status").hidden = !s;
   if (!s) {
     $("#html-toggle").hidden = true;
-    return crumbs.replaceChildren(...(feed.visible ? [el("span", { class: "crumb-file" }, "Feed")] : []));
+    for (const id of ["#vim-mode", "#cursor-pos", "#word-count"]) $(id).textContent = "";
+    $("#vim-mode").dataset.mode = "";
+    return crumbs.replaceChildren(...(page ? [el("span", { class: "crumb-file" }, page === "feed" ? "Feed" : "Tasks")] : []));
   }
   const archived = isArchived(s.path);
   $("#archive-btn").title = archived ? "Unarchive note (⌘⇧E)" : "Archive note (⌘⇧E)";
@@ -598,10 +842,21 @@ function renderChrome() {
   const file = parts.pop()!;
   const name = el("span", { class: "crumb-file", title: "Click to rename" }, file.replace(/\.(md|markdown)$/i, ""));
   name.addEventListener("click", () => startRename(name));
-  crumbs.replaceChildren(...parts.flatMap((p) => [el("span", { class: "crumb" }, p), el("span", { class: "crumb-sep" }, "/")]), name);
+  const folderCrumbs = parts.flatMap((p, i) => {
+    const crumb = el("button", { type: "button", class: "crumb", title: "Move to another folder" }, p);
+    crumb.addEventListener("click", () => openMovePicker(crumb));
+    return i === 0 && p === "Archive" ? [el("span", { class: "crumb" }, p), el("span", { class: "crumb-sep" }, "/")] : [crumb, el("span", { class: "crumb-sep" }, "/")];
+  });
+  crumbs.replaceChildren(...folderCrumbs, name);
   $("#html-toggle").hidden = s.kind !== "html";
   $("#html-toggle").querySelectorAll("button").forEach((b) => b.classList.toggle("is-on", b.dataset.mode === prefs.htmlMode));
   setSaveStatus("saved");
+}
+
+function openMovePicker(anchor: HTMLElement) {
+  const s = session;
+  if (!s) return;
+  folderPicker(anchor, { folders: allFolders(), current: parentOf(s.path), onPick: (folder) => void moveToFolder(s.path, folder) });
 }
 
 function startRename(label: HTMLElement) {
@@ -758,7 +1013,14 @@ function renderActivity() {
           const [add, del] = (c.summary ?? "").match(/^\+(\d+) −(\d+)$/)?.slice(1) ?? [];
           return el(
             "div",
-            { class: "act" },
+            {
+              class: "act",
+              role: "button",
+              tabindex: "0",
+              title: "See what changed",
+              onclick: () => void showChange(c, { verb, open: (p) => void openNote(p), toast }),
+              onkeydown: (e: KeyboardEvent) => e.key === "Enter" && void showChange(c, { verb, open: (p) => void openNote(p), toast }),
+            },
             avatar(c.source, 22),
             el(
               "div",
@@ -768,7 +1030,7 @@ function renderActivity() {
                 { class: "act-line" },
                 el("b", {}, c.source),
                 ` ${verb(c)} `,
-                el("a", { onclick: () => openNote(c.path) }, displayName(c.path)),
+                el("a", { onclick: (e: Event) => (e.stopPropagation(), openNote(c.path)) }, displayName(c.path)),
               ),
               el(
                 "div",
@@ -864,6 +1126,7 @@ Vim.defineEx("edit", "e", (_cm: unknown, params: { args?: string[] }) => {
 });
 Vim.defineEx("archive", "arch", () => void archiveCurrent());
 Vim.defineEx("feed", "fe", () => void showFeed());
+Vim.defineEx("focus", "foc", () => void setFocusMode(!focusMode));
 Vim.defineAction("quireFollowLink", () => followLinkAtCursor());
 Vim.mapCommand("gd", "action", "quireFollowLink", {}, { context: "normal" });
 Vim.mapCommand("gf", "action", "quireFollowLink", {}, { context: "normal" });
@@ -892,6 +1155,9 @@ window.addEventListener(
     } else if (mod && e.shiftKey && e.key.toLowerCase() === "e") {
       e.preventDefault();
       void archiveCurrent();
+    } else if (mod && e.shiftKey && e.key === "Enter") {
+      e.preventDefault();
+      void setFocusMode(!focusMode);
     } else if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
       e.preventDefault();
       void showFeed({ filter: true });
@@ -940,7 +1206,15 @@ function debounce<A extends unknown[]>(fn: (...a: A) => unknown, ms: number) {
 }
 
 let workspaceId = "";
-const lastKey = () => (workspaceId ? `last:${workspaceId}` : "last");
+
+/** The Tasks badge: how many checkboxes are still open across the workspace. */
+async function refreshTaskCount() {
+  const tasks = await api.tasks({}).catch(() => null);
+  if (!tasks) return;
+  const open = tasks.filter((t) => !t.done).length;
+  $("#tasks-count").textContent = open ? String(open) : "";
+}
+const refreshTaskCountSoon = debounce(refreshTaskCount, 400);
 
 async function boot() {
   // Online, the note API is per workspace and needs a signed-in person; locally it's just /api.
@@ -975,13 +1249,22 @@ async function boot() {
   const isDark = document.documentElement.dataset.theme === "dark" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
   $("#theme-toggle").replaceChildren(icon(isDark ? "sun" : "moon", 15));
   window.addEventListener("popstate", () => {
-    if (location.hash === "#feed") return void showFeed({ push: false });
+    if (location.hash === "#tasks") return void showTasks({ push: false });
     const p = decodeURIComponent(location.hash.slice(2));
-    if (p && p !== session?.path) openNote(p, { push: false });
+    if (!location.hash.startsWith("#/") || !p) return void showFeed({ push: false });
+    if (p !== session?.path) openNote(p, { push: false });
   });
-  $("#feed-btn").addEventListener("click", () => void showFeed());
+  $("#feed-btn").addEventListener("click", () => void showFeed({ scope: "active" }));
+  $("#tasks-btn").addEventListener("click", () => void showTasks());
+  $("#back-btn").addEventListener("click", () => void showFeed());
   $("#archive-nav").addEventListener("click", () => void showFeed({ scope: "archived" }));
   $("#archive-btn").addEventListener("click", () => void archiveCurrent());
+  $("#move-btn").addEventListener("click", () => openMovePicker($("#move-btn")));
+  $("#focus-btn").addEventListener("click", () => void setFocusMode(!focusMode));
+  $("#new-folder").addEventListener("click", () => startNewFolder());
+  dropTarget($("#tree"), () => "");
+  dropTarget($("#archive-nav"), () => "", (path) => void archivePath(path));
+  vaultEvents.addEventListener("change", () => refreshTaskCountSoon());
   window.addEventListener("beforeunload", () => void flushSave());
   watchTimers((t) =>
     toast({
@@ -1009,11 +1292,13 @@ async function boot() {
     if (up) refreshNotesSoon();
   });
 
-  if (location.hash === "#feed") return void showFeed({ push: false });
-  const fromHash = decodeURIComponent(location.hash.slice(2));
-  const start = [fromHash, store.get(lastKey(), ""), "Welcome.md"].find((p) => p && notes.some((n) => n.path === p)) ?? notes[0]?.path;
-  if (start) await openNote(start, { push: false });
-  if (start && !fromHash) history.replaceState(null, "", `#/${encodeURIComponent(start)}`);
+  void refreshTaskCount();
+  // Home is the feed; a link to a note (#/path) or to the tasks page opens that instead.
+  if (location.hash === "#tasks") return void showTasks({ push: false });
+  const fromHash = location.hash.startsWith("#/") ? decodeURIComponent(location.hash.slice(2)) : "";
+  if (fromHash && notes.some((n) => n.path === fromHash)) return void openNote(fromHash, { push: false });
+  history.replaceState(null, "", "#feed");
+  await showFeed({ push: false });
 }
 
 boot();

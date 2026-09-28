@@ -356,12 +356,53 @@ export class Quire {
     return { ...c, id: r.lastId, ts };
   }
 
+  /**
+   * The text of a note before change #from and after change #to (the same id for one change; a
+   * range for a run of autosaves). Either side is null if it can't be recovered.
+   */
+  diff(fromId: number, toId: number): { path: string; op: Change["op"]; before: string | null; after: string | null } {
+    const first = this.db.get("SELECT op, before FROM changes WHERE id = ?", fromId);
+    const last = this.db.get(`SELECT ${CHANGE_COLS} FROM changes WHERE id = ?`, toId) as Change | undefined;
+    if (!first || !last) throw new QuireError(`No change #${first ? toId : fromId}`, "not_found");
+    const before = first.op === "create" ? "" : (first.before as string | null);
+    return { path: last.path, op: last.op, before, after: this.textAfter(last) };
+  }
+
+  /**
+   * A note's text right after a change: the next change's `before`, or the file as it is now,
+   * following later moves. Candidates are checked against the change's version hash.
+   */
+  private textAfter(c: Change): string | null {
+    if (!c.version) return null;
+    let at = c.path;
+    let since = c.id;
+    for (let hop = 0; hop < 8; hop++) {
+      for (const r of this.db.all("SELECT before FROM changes WHERE path = ? AND id > ? AND before IS NOT NULL ORDER BY id LIMIT 20", at, since)) {
+        if (versionOf(r.before) === c.version) return r.before;
+      }
+      const now = this.files.read(at);
+      if (now !== null && versionOf(now) === c.version) return now;
+      const moved = this.db.get("SELECT id, path FROM changes WHERE from_path = ? AND id > ? ORDER BY id LIMIT 1", at, since);
+      if (!moved) return null;
+      at = moved.path;
+      since = moved.id;
+    }
+    return null;
+  }
+
   /** Put a note back the way it was before change #id. */
   restore(id: number, source: string) {
     const row = this.db.get("SELECT path, op, before FROM changes WHERE id = ?", id);
     if (!row) throw new QuireError(`No change #${id}`, "not_found");
     if (row.before === null) throw new QuireError(`Change #${id} (${row.op} ${row.path}) has no earlier text to restore`);
-    return this.save(row.path, row.before, { source });
+    // The note may have been renamed or archived since: restore it where it lives now.
+    let at = row.path as string;
+    let since = id;
+    for (let moved; (moved = this.db.get("SELECT id, path FROM changes WHERE from_path = ? AND id > ? ORDER BY id LIMIT 1", at, since)); ) {
+      at = moved.path;
+      since = moved.id;
+    }
+    return { ...this.save(at, row.before, { source }), path: at };
   }
 
   // ---------------------------------------------------------------- writing
