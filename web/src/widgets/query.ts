@@ -4,6 +4,7 @@ import { api, type FeedItem } from "../api.ts";
 import { el, escapeHtml, icon, timeAgo } from "../dom.ts";
 import { onVaultChange } from "../events.ts";
 import type { WidgetSpec } from "./core.ts";
+import { formatQuery, toQuery } from "../../../src/core/query.ts";
 
 const prevent = (e: Event) => e.preventDefault();
 
@@ -14,6 +15,11 @@ export const query: WidgetSpec = {
   hint: "Live list of notes by search, folder or tag",
   keywords: "query list notes dashboard recent folder tag search",
   defaults: { limit: "6" },
+  configAction: {
+    label: "Save as smart folder",
+    icon: "spark",
+    run: (args, env, anchor) => env.saveSmartFolder(formatQuery(toQuery(args)), args.label ?? "", anchor),
+  },
   fields: [
     { key: "label", label: "Label", type: "text", placeholder: "Active projects, Meetings…" },
     { key: "q", label: "Matching", type: "text", placeholder: "Search words (optional)" },
@@ -27,12 +33,11 @@ export const query: WidgetSpec = {
     const list = el("div", { class: "qq-list" });
     const foot = el("div", { class: "qq-foot" });
     body.append(list, foot);
-    const limit = Math.min(Number(env.args.limit) || 6, 50);
+    const query = toQuery(env.args);
+    const limit = Math.min(query.limit ?? 6, 50);
 
     async function load() {
-      const page = await api
-        .feed({ q: env.args.q, folder: env.args.folder, tag: env.args.tag, sort: env.args.sort === "title" ? "title" : "modified", scope: "active", limit: limit + 1 })
-        .catch(() => null);
+      const page = await api.feed({ ...query, scope: "active", limit: limit + 1 }).catch(() => null);
       if (!alive || !page) return;
       const items = page.items.filter((i) => i.path !== env.note).slice(0, limit); // a dashboard shouldn't list itself
       const total = page.total - (page.items.some((i) => i.path === env.note) ? 1 : 0);

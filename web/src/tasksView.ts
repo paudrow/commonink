@@ -24,6 +24,7 @@ export function mountTasks(host: HTMLElement, opts: { limit: number; tag?: strin
       remeasure() {},
       open: (target, line) => opts.open(target, line),
       openTag: opts.openTag,
+      saveSmartFolder() {},
     },
     card,
   );

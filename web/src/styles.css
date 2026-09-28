@@ -1648,7 +1648,16 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .task-pop-title { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-pop-title svg { flex: none; color: var(--muted); }
 .task-pop-control { display: flex; gap: 6px; }
-.task-pop input { min-width: 0; flex: 1; font: 13px var(--ui); color: var(--ink-strong); background: var(--bg); border: 1px solid var(--line-strong); border-radius: 7px; padding: 5px 8px; }
+.task-pop input:not([type="checkbox"]) { min-width: 0; flex: 1; font: 13px var(--ui); color: var(--ink-strong); background: var(--bg); border: 1px solid var(--line-strong); border-radius: 7px; padding: 5px 8px; }
 .task-pop input:focus { outline: none; border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
 .task-pop input[type="time"] { flex: 0 0 96px; }
 .task-pop-error { font-size: 12.5px; color: var(--bad); }
+
+/* smart folders: sidebar rows, the save/edit popover, and the Notes filter bar's sort */
+#smart-folders .tree-row > svg:first-child { color: var(--accent); }
+.sf-mine { display: inline-grid; place-items: center; color: var(--faint); }
+.sf-just-me { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+.sf-just-me input { margin: 0; }
+.sf-just-me .sf-hint { color: var(--faint); font-size: 12px; }
+.sf-editor .qw-config-foot .qw-btn:first-child svg { color: var(--bad); }
+.feed-sort { margin-left: auto; }

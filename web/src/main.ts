@@ -2,7 +2,7 @@ import "./styles.css";
 import { EditorView } from "@codemirror/view";
 import type { EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
-import { api, clientId, connect, isArchived, useWorkspace, whoAmI, ApiError, type Change, type NoteMeta, type Scope, type ServerMsg, type TagCount } from "./api.ts";
+import { api, clientId, connect, isArchived, useWorkspace, whoAmI, ApiError, type Change, type NoteMeta, type Scope, type ServerMsg, type SmartFolder, type TagCount } from "./api.ts";
 import { $, avatar, displayName, el, hueFor, hydrateIcons, icon, isSelf, NOTE_DRAG, setSelfName, timeAgo } from "./dom.ts";
 import { createState, linkTargetAt, remote, vimSlot } from "./editor/setup.ts";
 import { bumpEmbeds, editorContext } from "./editor/blocks.ts";
@@ -19,6 +19,8 @@ import { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
 import { groupChanges } from "../../src/core/format.ts";
+import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
+import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
 
@@ -69,6 +71,10 @@ let favorites: NoteMeta[] = [];
 let changes: Change[] = [];
 /** Every tag in use, for suggestions and filters. */
 let tags: TagCount[] = [];
+/** Your smart folders (the workspace's shared ones and your own), with live counts. */
+let smartFolders: SmartFolder[] = [];
+/** Online, a viewer keeps smart folders of their own but can't change shared ones. */
+let canShare = true;
 let session: Session | null = null;
 
 const view = new EditorView({ parent: $("#editor-host") });
@@ -76,8 +82,9 @@ const notesPage = new NotesPage({
   open: (path, line) => void openNote(path, { line }),
   starred: (id) => isStarred(id),
   toggleStar: (path) => void toggleStar(path),
-  folderChanged: () => renderTree(),
+  filtersChanged: () => renderTree(),
   tags: () => tags,
+  saveQuery: (anchor, query) => saveSmartFolder(query, "", anchor),
   toast: (t) => toast(t),
   changed: () => {
     api.clearResolveCache();
@@ -149,7 +156,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
         doc: note.content,
         kind: note.kind === "html" ? "html" : "md",
         vim: prefs.vim,
-        context: { path: note.path, openTarget, createNote, notes: () => notes, upload: (files) => uploadFiles(files), tags: () => tags, openTag },
+        context: { path: note.path, openTarget, createNote, notes: () => notes, upload: (files) => uploadFiles(files), tags: () => tags, openTag, saveSmartFolder },
         onUpdate: (docChanged, fromRemote, state) => onUpdate(next, docChanged, fromRemote, state),
       }),
     );
@@ -225,7 +232,7 @@ async function leaveNote() {
 }
 
 /** Notes is home: every note, newest first. No note is open while it's showing. */
-async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: string; tag?: string; push?: boolean } = {}) {
+async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: string; tag?: string; query?: NoteQuery; push?: boolean } = {}) {
   await leaveNote();
   showStage("notes");
   notesPage.show(opts);
@@ -660,7 +667,7 @@ function embedsPath(path: string): boolean {
 }
 
 async function refreshNotes() {
-  [notes, favorites, tags] = await Promise.all([api.notes(), api.favorites(), api.tags()]);
+  [notes, favorites, tags, smartFolders] = await Promise.all([api.notes(), api.favorites(), api.tags(), api.smartFolders()]);
   // The open note's title may have changed: keep the slug in its URL current.
   const open = session && notes.find((n) => n.id === session!.id);
   if (open && parseNotePath(location.pathname)?.id === open.id) setUrl(notePath(open.title, open.id), "replace");
@@ -689,6 +696,67 @@ async function toggleStar(path: string) {
   renderTree();
   renderChrome();
   notesPage.refreshSoon();
+}
+
+// ------------------------------------------------------------------ smart folders
+
+/** A starting name for a query: its tag, folder and words ("#work · Projects"). */
+function nameFor(query: string): string {
+  const q = parseQuery(query);
+  return [q.tag && `#${q.tag}`, q.folder, q.q && `“${q.q}”`].filter(Boolean).join(" · ") || "All notes";
+}
+
+/** Offer to keep a note query as a smart folder (from the Notes filters or a ::query widget). */
+function saveSmartFolder(query: string, name: string, anchor: HTMLElement) {
+  smartFolderEditor(anchor, { name: name || nameFor(query), query, shared: canShare }, {
+    canShare,
+    save: async (f) => {
+      const saved = await api.saveSmartFolder(f);
+      smartFolders = await api.smartFolders();
+      renderTree();
+      toast({ icon: "spark", text: `Saved ${saved.name}`, detail: saved.shared ? "Everyone in the workspace sees it in their sidebar." : "Only you see it." });
+    },
+  });
+}
+
+/** Saved note queries, each with a live count. Click one to see its notes; the sliders edit it. */
+function renderSmartFolders(active: string | null) {
+  const rows = smartFolders.map((f) => {
+    const edit = el("button", { type: "button", class: "row-act", title: "Edit or delete" }, icon("sliders", 14));
+    edit.addEventListener("click", (e) => {
+      e.stopPropagation();
+      smartFolderEditor(edit, f, {
+        canShare,
+        save: async (next) => {
+          await api.saveSmartFolder(next);
+          smartFolders = await api.smartFolders();
+          renderTree();
+        },
+        remove: async () => {
+          smartFolders = await api.deleteSmartFolder(f.id);
+          renderTree();
+          toast({ icon: "spark", text: `Deleted ${f.name}` });
+        },
+      });
+    });
+    return el(
+      "div",
+      {
+        class: `tree-row is-file${f.query === active ? " is-active" : ""}`,
+        style: { "--depth": "0" },
+        title: `${f.query || "Every note"}${f.shared ? "" : " (just you)"}`,
+        tabindex: "0",
+        onclick: () => void showNotes({ scope: "active", query: parseQuery(f.query) }),
+        onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && void showNotes({ scope: "active", query: parseQuery(f.query) }),
+      },
+      icon("spark", 14),
+      el("span", { class: "tree-name" }, f.name),
+      f.shared ? null : el("span", { class: "sf-mine", title: "Just you" }, icon("user", 11)),
+      el("span", { class: "n" }, String(f.count)),
+      f.shared && !canShare ? null : el("span", { class: "row-actions" }, edit),
+    );
+  });
+  $("#smart-folders").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Filter Notes, then save the filters here.")]));
 }
 
 const FAVORITE = "application/x-common-ink-favorite";
@@ -811,12 +879,14 @@ function setExpanded(folder: string, open: boolean) {
 function renderTree() {
   renderFavorites();
   const page = onPage();
+  // What Notes is showing, as a query: the Notes view, a folder and a smart folder each match one.
+  const showing = page === "notes" ? formatQuery(notesPage.query) : null;
+  renderSmartFolders(showing);
   const archivedCount = notes.filter((n) => isArchived(n.path) && n.kind !== "asset").length;
   $("#archive-count").textContent = archivedCount ? String(archivedCount) : "";
   const assetCount = notes.filter((n) => n.kind === "asset" && !isArchived(n.path)).length;
   $("#assets-count").textContent = assetCount ? String(assetCount) : "";
-  const current = page === "notes" ? notesPage.folderFilter : "";
-  $("#notes-btn").classList.toggle("is-active", page === "notes" && !current);
+  $("#notes-btn").classList.toggle("is-active", showing === "");
   $("#tasks-btn").classList.toggle("is-active", page === "tasks");
   $("#history-btn").classList.toggle("is-active", page === "history" && !historyPage.noteFilter);
   $("#assets-btn").classList.toggle("is-active", page === "assets");
@@ -845,7 +915,7 @@ function renderTree() {
         const row = el(
           "div",
           {
-            class: `tree-row is-folder${open ? "" : " is-collapsed"}${path === current ? " is-active" : ""}`,
+            class: `tree-row is-folder${open ? "" : " is-collapsed"}${showing === formatQuery({ folder: path }) ? " is-active" : ""}`,
             style: { "--depth": String(depth) },
             "data-folder": path,
             title: n ? `Show the notes in ${path}` : `${path} is empty. Drag notes here.`,
@@ -1457,6 +1527,7 @@ async function boot() {
   if (who?.me) {
     const ws = pickWorkspace(who.me);
     workspaceId = ws.id;
+    canShare = ws.role !== "viewer";
     useWorkspace(`/api/w/${ws.id}`, `/api/w/${ws.id}/live`);
     setSelfName(who.me.user.name);
     renderAccount(who.me, ws, (t) => toast(t));
@@ -1516,11 +1587,12 @@ async function boot() {
     renderPresence();
   }, 30_000);
 
-  const [info, list, starred, recent, tagList] = await Promise.all([api.info(), api.notes(), api.favorites(), api.changes(), api.tags()]);
+  const [info, list, starred, recent, tagList, smart] = await Promise.all([api.info(), api.notes(), api.favorites(), api.changes(), api.tags(), api.smartFolders()]);
   $("#vault-name").textContent = info.name;
   notes = list;
   favorites = starred;
   tags = tagList;
+  smartFolders = smart;
   changes = recent;
   renderActivity();
   renderPresence();

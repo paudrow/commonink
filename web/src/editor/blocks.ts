@@ -27,6 +27,8 @@ export interface EditorContext {
   tags(): TagCount[];
   /** Show what carries a tag: notes, or (from a task) tasks. */
   openTag(tag: string, where?: "notes" | "tasks"): void;
+  /** Offer to keep a note query as a smart folder (from a ::query widget's settings). */
+  saveSmartFolder(query: string, name: string, anchor: HTMLElement): void;
 }
 export const editorContext = Facet.define<EditorContext, EditorContext>({ combine: (v) => v[0] });
 
@@ -308,6 +310,7 @@ class DirectiveWidget extends WidgetType {
       focusEditor: () => view.focus(),
       open: (target, line) => view.state.facet(editorContext).openTarget(line ? `${target}#L${line}` : target, this.note),
       openTag: (tag) => view.state.facet(editorContext).openTag(tag, "tasks"),
+      saveSmartFolder: (query, name, anchor) => view.state.facet(editorContext).saveSmartFolder(query, name, anchor),
       remeasure: () =>
         requestAnimationFrame(() => {
           if (root.isConnected) heights.set(`w|${this.source}`, root.offsetHeight);

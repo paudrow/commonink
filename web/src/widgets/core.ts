@@ -28,6 +28,8 @@ export interface WidgetEnv {
   open(target: string, line?: number): void;
   /** Show what carries a tag (a tag clicked in the widget). */
   openTag(tag: string): void;
+  /** Offer to keep a note query (`tag=work sort=title`) as a smart folder, named `name` to start with. */
+  saveSmartFolder(query: string, name: string, anchor: HTMLElement): void;
 }
 
 export interface WidgetSpec {
@@ -38,6 +40,8 @@ export interface WidgetSpec {
   keywords: string;
   fields: Field[];
   defaults: Record<string, string>;
+  /** A button in the settings form that does something with the args being edited (not yet saved). */
+  configAction?: { label: string; icon: string; run(args: Record<string, string>, env: WidgetEnv, anchor: HTMLElement): void };
   /** Build the widget body; return a cleanup function. */
   mount(body: HTMLElement, env: WidgetEnv, card: HTMLElement): () => void;
 }
@@ -64,7 +68,7 @@ export function renderWidget(spec: WidgetSpec, env: WidgetEnv): { dom: HTMLEleme
   };
   const open = () => {
     if (form) return close();
-    form = configForm(spec, env.args, {
+    form = configForm(spec, env, {
       save: (args) => {
         env.update(args);
         env.focusEditor();
@@ -106,9 +110,10 @@ export const setButton = (b: HTMLButtonElement, label: string, ico: string | nul
 
 function configForm(
   spec: WidgetSpec,
-  args: Record<string, string>,
+  env: WidgetEnv,
   on: { save(args: Record<string, string>): void; cancel(): void },
 ): HTMLElement {
+  const args = env.args;
   const values: Record<string, string> = { ...spec.defaults, ...args };
   const preview = el("code", { class: "qw-md" });
   const save = el("button", { class: "qw-btn primary", type: "submit" }, "Save");
@@ -181,6 +186,9 @@ function configForm(
       { class: "qw-config-foot" },
       preview,
       el("span", { class: "spacer" }),
+      spec.configAction
+        ? el("button", { class: "qw-btn", type: "button", onclick: (e: Event) => spec.configAction!.run(normalized(), env, e.currentTarget as HTMLElement) }, icon(spec.configAction.icon, 13), spec.configAction.label)
+        : null,
       el("button", { class: "qw-btn", type: "button", onclick: on.cancel }, "Cancel"),
       save,
     ),
