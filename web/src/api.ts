@@ -1,5 +1,6 @@
 export type Kind = "md" | "html" | "asset";
 export interface NoteMeta {
+  id: string;
   path: string;
   kind: Kind;
   title: string;
@@ -55,6 +56,7 @@ export interface Backlink {
 }
 export type Scope = "active" | "archived" | "all";
 export interface FeedItem {
+  id: string;
   path: string;
   kind: Kind;
   title: string;

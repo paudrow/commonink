@@ -18,11 +18,14 @@ import { renderTasksPage } from "./tasksView.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
 import { groupChanges } from "../../src/core/format.ts";
+import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
 
 // ------------------------------------------------------------------ state
 
 interface Session {
+  /** Stable ID: the note keeps it (and its URL keeps working) through renames and moves. */
+  id: string;
   path: string;
   kind: "md" | "html" | "asset";
   title: string;
@@ -109,6 +112,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   }
   hideBanner();
   const next: Session = {
+    id: note.id,
     path: note.path,
     kind: note.kind,
     title: note.title,
@@ -157,15 +161,21 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   }
   if (note.kind === "md" || prefs.htmlMode === "source") view.focus();
 
-  if (opts.push !== false && decodeURIComponent(location.hash.slice(2)) !== note.path) {
-    history.pushState(null, "", `#/${encodeURIComponent(note.path)}`);
-  }
+  // Following a link or a click adds to history; back/forward, renames and old links just fix the URL up.
+  setUrl(notePath(note.title, note.id), opts.push === false ? "replace" : "push");
   document.title = `${note.title} · Common Ink`;
   renderChrome();
   renderTree();
   renderOutline();
   renderStatus(view.state);
   refreshBacklinks();
+}
+
+/** Point the address bar at `url` (path + query) unless it's already there. */
+function setUrl(url: string, how: "push" | "replace" = "push") {
+  if (location.pathname + location.search === url) return;
+  if (how === "push") history.pushState(null, "", url);
+  else history.replaceState(null, "", url);
 }
 
 let unmountTasks: (() => void) | null = null;
@@ -200,7 +210,7 @@ async function showFeed(opts: { scope?: Scope; filter?: boolean; push?: boolean 
   await leaveNote();
   showStage("feed");
   feed.show(opts);
-  if (opts.push !== false && location.hash !== "#feed") history.pushState(null, "", "#feed");
+  if (opts.push !== false) setUrl("/notes");
   document.title = "Feed · Common Ink";
   renderChrome();
   renderTree();
@@ -212,7 +222,7 @@ async function showTasks(opts: { push?: boolean } = {}) {
   showStage("tasks");
   unmountTasks = renderTasksPage($("#tasks-view"), (path, line) => void openNote(path, { line }));
   $("#tasks-view").focus({ preventScroll: true });
-  if (opts.push !== false && location.hash !== "#tasks") history.pushState(null, "", "#tasks");
+  if (opts.push !== false) setUrl("/tasks");
   document.title = "Tasks · Common Ink";
   renderChrome();
   renderTree();
@@ -224,8 +234,8 @@ async function showHistory(opts: { note?: string | null; select?: number; push?:
   await leaveNote();
   showStage("history");
   await historyPage.show({ note: opts.note ?? null, select: opts.select });
-  const hash = opts.note ? `#history?note=${encodeURIComponent(opts.note)}` : "#history";
-  if (opts.push !== false && location.hash !== hash) history.pushState(null, "", hash);
+  const id = opts.note ? notes.find((n) => n.path === opts.note)?.id : undefined;
+  if (opts.push !== false) setUrl(id ? `/history?note=${id}` : "/history");
   document.title = `${opts.note ? `${displayName(opts.note)} · ` : ""}History · Common Ink`;
   renderChrome();
   renderTree();
@@ -236,7 +246,7 @@ async function showAssets(opts: { open?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("assets");
   assetsPage.show({ open: opts.open });
-  if (opts.push !== false && location.hash !== "#assets") history.pushState(null, "", "#assets");
+  if (opts.push !== false) setUrl("/assets");
   document.title = "Assets · Common Ink";
   renderChrome();
   renderTree();
@@ -326,7 +336,6 @@ async function archiveCurrent() {
   }
   await refreshNotes();
   await openNote(to, { push: false });
-  history.replaceState(null, "", `#/${encodeURIComponent(to)}`);
   toast({
     icon: restore ? "unarchive" : "archive",
     text: `${restore ? "Unarchived" : "Archived"} ${displayName(to)}`,
@@ -336,7 +345,6 @@ async function archiveCurrent() {
       await refreshNotes();
       if (session?.path === to) {
         await openNote(back, { push: false });
-        history.replaceState(null, "", `#/${encodeURIComponent(back)}`);
       }
     },
   });
@@ -411,7 +419,7 @@ async function nameUntitled(s: Session) {
     s.path = r.path;
     s.title = title!;
     if (s === session) {
-      history.replaceState(null, "", `#/${encodeURIComponent(r.path)}`);
+      setUrl(notePath(s.title, s.id), "replace");
       document.title = `${s.title} · Common Ink`;
       renderChrome();
     }
@@ -616,6 +624,9 @@ function embedsPath(path: string): boolean {
 
 async function refreshNotes() {
   notes = await api.notes();
+  // The open note's title may have changed: keep the slug in its URL current.
+  const open = session && notes.find((n) => n.id === session!.id);
+  if (open && parseNotePath(location.pathname)?.id === open.id) setUrl(notePath(open.title, open.id), "replace");
   renderTree();
   assetsPage.refresh();
 }
@@ -817,7 +828,6 @@ async function moveToFolder(path: string, folder: string, opts: { undo?: boolean
   renderTree();
   if (wasOpen) {
     await openNote(r.path, { push: false });
-    history.replaceState(null, "", `#/${encodeURIComponent(r.path)}`);
   }
   if (!opts.undo) {
     toast({
@@ -942,7 +952,6 @@ function startRename(label: HTMLElement) {
         const r = await api.move(s.path, /\.[a-z]+$/i.test(to) ? to : to + (ext === ".md" ? "" : ext));
         await refreshNotes();
         await openNote(r.path, { push: false });
-        history.replaceState(null, "", `#/${encodeURIComponent(r.path)}`);
         if (r.updated.length) toast({ source: "you", text: `Renamed · updated links in ${r.updated.length} note${r.updated.length > 1 ? "s" : ""}` });
         return;
       } catch (e) {
@@ -1271,7 +1280,35 @@ function debounce<A extends unknown[]>(fn: (...a: A) => unknown, ms: number) {
 
 let workspaceId = "";
 
-const historyNoteFromHash = () => new URLSearchParams(location.hash.split("?")[1] ?? "").get("note");
+/**
+ * Show whatever the address bar points at: /notes/<title>-<id>, /tasks, /history, /assets, or the
+ * feed (/notes, /). Links from before paths (#/Projects/Plan.md, #tasks) still work and get rewritten.
+ */
+async function route() {
+  const hash = location.hash;
+  if (hash.startsWith("#/") || /^#(feed|tasks|assets|history)\b/.test(hash)) {
+    const legacy = hash.startsWith("#/") ? decodeURIComponent(hash.slice(2)) : "";
+    const meta = legacy ? notes.find((n) => n.path === legacy) : undefined;
+    const [page, query = ""] = hash.slice(1).split("?");
+    const note = new URLSearchParams(query).get("note");
+    const noteId = note ? notes.find((n) => n.path === note)?.id : undefined;
+    const to = meta ? notePath(meta.title, meta.id) : page === "feed" || legacy ? "/notes" : `/${page}${noteId ? `?note=${noteId}` : ""}`;
+    history.replaceState(null, "", to);
+  }
+  const at = location.pathname.replace(/\/+$/, "") || "/";
+  if (at === "/tasks") return showTasks({ push: false });
+  if (at === "/assets") return showAssets({ push: false });
+  if (at === "/history") {
+    const id = new URLSearchParams(location.search).get("note");
+    return showHistory({ note: id && NOTE_ID.test(id) ? (notes.find((n) => n.id === id)?.path ?? null) : null, push: false });
+  }
+  const link = parseNotePath(at);
+  const path = link ? (notes.find((n) => n.id === link.id)?.path ?? (await api.resolve(link.id).catch(() => null))) : undefined;
+  if (path) return path === session?.path ? undefined : openNote(path, { push: false });
+  if (link) toast({ text: "That note doesn't exist any more, or isn't in this workspace" });
+  setUrl("/notes", "replace");
+  return showFeed({ push: false });
+}
 
 /** The Tasks badge: how many checkboxes are still open across the workspace. */
 async function refreshTaskCount() {
@@ -1314,14 +1351,7 @@ async function boot() {
   });
   const isDark = document.documentElement.dataset.theme === "dark" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
   $("#theme-toggle").replaceChildren(icon(isDark ? "sun" : "moon", 15));
-  window.addEventListener("popstate", () => {
-    if (location.hash === "#tasks") return void showTasks({ push: false });
-    if (location.hash.startsWith("#history")) return void showHistory({ note: historyNoteFromHash(), push: false });
-    if (location.hash === "#assets") return void showAssets({ push: false });
-    const p = decodeURIComponent(location.hash.slice(2));
-    if (!location.hash.startsWith("#/") || !p) return void showFeed({ push: false });
-    if (p !== session?.path) openNote(p, { push: false });
-  });
+  window.addEventListener("popstate", () => void route());
   $("#feed-btn").addEventListener("click", () => void showFeed({ scope: "active" }));
   $("#tasks-btn").addEventListener("click", () => void showTasks());
   $("#history-btn").addEventListener("click", () => void showHistory());
@@ -1364,14 +1394,8 @@ async function boot() {
   });
 
   void refreshTaskCount();
-  // Home is the feed; a link to a note (#/path) or to the tasks page opens that instead.
-  if (location.hash === "#tasks") return void showTasks({ push: false });
-  if (location.hash.startsWith("#history")) return void showHistory({ note: historyNoteFromHash(), push: false });
-  if (location.hash === "#assets") return void showAssets({ push: false });
-  const fromHash = location.hash.startsWith("#/") ? decodeURIComponent(location.hash.slice(2)) : "";
-  if (fromHash && notes.some((n) => n.path === fromHash)) return void openNote(fromHash, { push: false });
-  history.replaceState(null, "", "#feed");
-  await showFeed({ push: false });
+  // Home is the feed; a note's URL (or the tasks, history or assets page) opens that instead.
+  await route();
 }
 
 boot();

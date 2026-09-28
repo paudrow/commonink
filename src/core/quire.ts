@@ -4,8 +4,11 @@ import { diffLines } from "diff";
 import type { Content, SqlDb } from "./store.ts";
 import { cleanPath, isHidden, kindOf, linkKey, QuireError, stemOf, type NoteKind } from "./paths.ts";
 import { extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
+import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 
 export interface NoteMeta {
+  /** Stable across renames, moves and archiving; see ids.ts. */
+  id: string;
   path: string;
   kind: NoteKind;
   title: string;
@@ -73,6 +76,7 @@ export interface DiffFile {
 const inScope = (p: string, scope: ArchiveScope) => scope === "all" || (scope === "archived") === isArchived(p);
 
 export interface FeedItem {
+  id: string;
   path: string;
   kind: NoteKind;
   title: string;
@@ -99,6 +103,9 @@ export const versionOf = (content: string) =>
   crypto.createHash("sha256").update(content).digest("hex").slice(0, 12);
 
 const CHANGE_COLS = "id, ts, path, op, source, version, summary, from_path";
+const META_COLS = "id, path, kind, title, version, mtime, size";
+/** How long a deleted file's ID waits for the same file to reappear under a new name. */
+const RENAME_WINDOW_MS = 60_000;
 
 
 /**
@@ -111,6 +118,9 @@ export class Quire {
     readonly db: SqlDb,
     readonly files: Content,
   ) {}
+
+  /** IDs of files that just left the index, by kind and content, so a rename seen as delete + add keeps its ID. */
+  private gone = new Map<string, { id: string; at: number }>();
 
   // ---------------------------------------------------------------- indexing
 
@@ -136,8 +146,12 @@ export class Quire {
     return { indexed, removed };
   }
 
-  /** (Re)index one file. Returns null if it no longer exists or isn't a note/asset. */
-  indexFile(rel: string, content?: string): NoteMeta | null {
+  /**
+   * (Re)index one file. Returns null if it no longer exists or isn't a note/asset. A file new to the
+   * index takes `id` if given (a move), else the ID of the same file seen under another name (a
+   * rename outside the app), else a new one.
+   */
+  indexFile(rel: string, content?: string, id?: string): NoteMeta | null {
     const kind = kindOf(rel);
     if (!kind || isHidden(rel)) return null;
     const st = this.files.stat(rel);
@@ -157,13 +171,13 @@ export class Quire {
       title = titleOf(content, kind, rel);
       body = searchableText(content, kind);
     }
-    const meta: NoteMeta = { path: rel, kind, title, version, mtime: st.mtime, size: st.size };
-    this.db.tx(() => {
+    const noteId: string = this.db.get("SELECT id FROM notes WHERE path = ?", rel)?.id ?? id ?? this.renamedId(rel, kind, version, st.size) ?? newNoteId();
+    return this.db.tx(() => {
       this.db.run(
-        `INSERT INTO notes(path, kind, title, stem, version, mtime, size) VALUES (?,?,?,?,?,?,?)
+        `INSERT INTO notes(path, kind, title, stem, version, mtime, size, id) VALUES (?,?,?,?,?,?,?,?)
          ON CONFLICT(path) DO UPDATE SET kind=excluded.kind, title=excluded.title, stem=excluded.stem,
            version=excluded.version, mtime=excluded.mtime, size=excluded.size`,
-        rel, kind, title, stemOf(rel), version, st.mtime, st.size,
+        rel, kind, title, stemOf(rel), version, st.mtime, st.size, noteId,
       );
       this.db.run("DELETE FROM notes_fts WHERE path = ?", rel);
       this.db.run("DELETE FROM links WHERE src = ?", rel);
@@ -171,11 +185,36 @@ export class Quire {
       if (kind === "md" && content) {
         for (const l of extractLinks(content)) this.db.run("INSERT INTO links(src, key, kind, line) VALUES (?,?,?,?)", rel, l.key, l.kind, l.line);
       }
+      return { id: noteId, path: rel, kind, title, version, mtime: st.mtime, size: st.size };
     });
-    return meta;
+  }
+
+  /**
+   * The ID a file new to the index should inherit when it's an existing file under a new name: one
+   * that just left the index (deleted first), or one still indexed whose file is gone (added first).
+   * Empty files all look alike, so they never inherit.
+   */
+  private renamedId(rel: string, kind: NoteKind, version: string, size: number): string | undefined {
+    if (!size) return;
+    const key = `${kind}:${version}`;
+    const recent = this.gone.get(key);
+    this.gone.delete(key);
+    if (recent && Date.now() - recent.at < RENAME_WINDOW_MS && !this.db.get("SELECT 1 FROM notes WHERE id = ?", recent.id)) return recent.id;
+    const stale = this.db
+      .all("SELECT path, id FROM notes WHERE kind = ? AND version = ? AND path != ?", kind, version, rel)
+      .find((r) => !this.files.stat(r.path));
+    if (!stale) return;
+    this.unindex(stale.path);
+    this.gone.delete(key);
+    return stale.id;
   }
 
   unindex(rel: string): void {
+    const row = this.db.get("SELECT id, kind, version FROM notes WHERE path = ?", rel);
+    if (row?.id) {
+      this.gone.set(`${row.kind}:${row.version}`, { id: row.id, at: Date.now() });
+      for (const [k, v] of this.gone) if (Date.now() - v.at > RENAME_WINDOW_MS) this.gone.delete(k);
+    }
     this.db.tx(() => {
       this.db.run("DELETE FROM notes WHERE path = ?", rel);
       this.db.run("DELETE FROM notes_fts WHERE path = ?", rel);
@@ -184,14 +223,19 @@ export class Quire {
   }
 
   meta(rel: string): NoteMeta | null {
-    return this.db.get("SELECT path, kind, title, version, mtime, size FROM notes WHERE path = ?", rel) ?? null;
+    return this.db.get(`SELECT ${META_COLS} FROM notes WHERE path = ?`, rel) ?? null;
+  }
+
+  /** The path of the note with this stable ID, wherever it lives now. */
+  pathOf(id: string): string | null {
+    return this.db.get("SELECT path FROM notes WHERE id = ?", id)?.path ?? null;
   }
 
   // ---------------------------------------------------------------- reading
 
   /** All notes, or one folder's. Archived notes are left out unless asked for (or you list Archive/). */
   list(folder?: string, scope: ArchiveScope = "active"): NoteMeta[] {
-    const rows = this.db.all("SELECT path, kind, title, version, mtime, size FROM notes ORDER BY path COLLATE NOCASE");
+    const rows = this.db.all(`SELECT ${META_COLS} FROM notes ORDER BY path COLLATE NOCASE`);
     if (!folder) return rows.filter((r) => inScope(r.path, scope));
     const prefix = cleanPath(folder).replace(/\/?$/, "/");
     return rows.filter((r) => r.path.startsWith(prefix) && (isArchived(prefix) || inScope(r.path, scope)));
@@ -199,14 +243,14 @@ export class Quire {
 
   recent(limit = 20): NoteMeta[] {
     return this.db.all(
-      "SELECT path, kind, title, version, mtime, size FROM notes WHERE kind != 'asset' AND path NOT LIKE 'Archive/%' ORDER BY mtime DESC LIMIT ?",
+      `SELECT ${META_COLS} FROM notes WHERE kind != 'asset' AND path NOT LIKE 'Archive/%' ORDER BY mtime DESC LIMIT ?`,
       limit,
     );
   }
 
   /**
-   * Resolve a path, a path without extension, or an Obsidian-style [[name]] to a vault path.
-   * `from` lets links prefer notes in the same folder.
+   * Resolve a path, a path without extension, a stable ID, a note URL (/notes/title-id), or an
+   * Obsidian-style [[name]] to a vault path. `from` lets links prefer notes in the same folder.
    */
   resolve(target: string, from?: string): string | null {
     const t = target.trim().replace(/\\/g, "/").replace(/^\.?\/+/, "").replace(/#.*$/, "").replace(/\|.*$/, "");
@@ -222,6 +266,9 @@ export class Quire {
         } catch {}
       }
     }
+    const id = NOTE_ID.test(t) ? t : parseNotePath(t)?.id;
+    const byId = id && this.pathOf(id);
+    if (byId) return byId;
     const key = linkKey(t);
     const base = key.split("/").pop()!;
     const rows = this.db.all("SELECT path FROM notes WHERE stem = ?", base)
@@ -286,7 +333,7 @@ export class Quire {
   feed(opts: { q?: string; scope?: ArchiveScope; folder?: string; tag?: string; sort?: "modified" | "title"; offset?: number; limit?: number } = {}) {
     const scope = opts.scope ?? "active";
     const terms = searchTerms(opts.q ?? "");
-    let rows = this.db.all("SELECT path, kind, title, mtime FROM notes WHERE kind != 'asset' ORDER BY mtime DESC");
+    let rows = this.db.all("SELECT id, path, kind, title, mtime FROM notes WHERE kind != 'asset' ORDER BY mtime DESC");
     if (terms.length) {
       const hits = new Set(this.db.all("SELECT path FROM notes_fts WHERE notes_fts MATCH ?", ftsQuery(terms)).map((r) => r.path));
       rows = rows.filter((r) => hits.has(r.path));
@@ -308,6 +355,7 @@ export class Quire {
       const content = this.files.read(r.path) ?? "";
       const { data, body } = r.kind === "md" ? splitFrontmatter(content) : { data: {} as Record<string, string>, body: "" };
       return {
+        id: r.id,
         path: r.path,
         kind: r.kind,
         title: r.title,
@@ -683,9 +731,10 @@ export class Quire {
     const referrers = [...new Set(this.backlinks(from).map((b) => b.path))];
     const oldKeys = new Set([stemOf(from), linkKey(from), from.toLowerCase()]);
 
+    const id = this.meta(from)?.id;
     this.files.rename(from, dest);
     this.unindex(from);
-    const meta = this.indexFile(dest)!;
+    const meta = this.indexFile(dest, undefined, id)!;
     const change = this.recordChange({ path: dest, op, source, version: meta.version, summary: `from ${from}`, from_path: from });
 
     const newStemUnique = this.db.get("SELECT count(*) AS n FROM notes WHERE stem = ?", stemOf(dest)).n === 1;
