@@ -4,7 +4,8 @@ import { json } from "../../src/core/api.ts";
 import { unfurl } from "../../src/core/unfurl.ts";
 import { MAX_UPLOAD } from "../../src/core/paths.ts";
 import { SANDBOX_PATH, sandboxPage } from "../../src/core/sandbox.ts";
-import { clearSessionCookies, ensurePersonalWorkspace, handleAuth, readSession, seedWorkspace } from "./auth.ts";
+import { access, isAccountRoute, routeKey, type AccountRoute } from "./access.ts";
+import { clearSessionCookies, ensurePersonalWorkspace, handleAuth, readSession, seedWorkspace, type Session } from "./auth.ts";
 import { acceptInvite, createInvite, createWorkspace, endSessionsOf, locateNote, membership, workspacesOf } from "./directory.ts";
 import type { Env } from "./env.ts";
 import { fetchAsset, secure } from "./headers.ts";
@@ -30,8 +31,43 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
   return fetchAsset(env.ASSETS, req);
 }
 
-/** Writes a viewer may make: favorites are each person's own, so viewers can star notes too. */
-const VIEWER_WRITES = new Set(["POST /favorites/star", "POST /favorites/unstar", "PUT /favorites"]);
+interface Call {
+  req: Request;
+  env: Env;
+  url: URL;
+  session: Session;
+}
+
+/** What someone signed in can do outside any one workspace. */
+const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
+  "GET /api/me": async ({ env, session: { user } }) => json({ user, workspaces: await workspacesOf(env.DB, user.id) }),
+  "POST /api/workspaces": async ({ req, env, session: { user } }) => {
+    const { name } = (await req.json()) as { name?: string };
+    const clean = String(name ?? "").trim().slice(0, 80);
+    if (!clean) return json({ error: "Give the workspace a name" }, 400);
+    const id = await createWorkspace(env.DB, user, clean, "team");
+    await seedWorkspace(env, id);
+    return json({ id });
+  },
+  "GET /api/unfurl": async ({ url }) => {
+    const target = url.searchParams.get("url") ?? "";
+    if (!/^https?:\/\//i.test(target)) return json({ error: "http(s) URLs only" }, 400);
+    return json(await unfurl(target));
+  },
+  "GET /api/note-ids/*": async ({ env, url, session: { user } }) => {
+    const noteId = url.pathname.match(/^\/api\/note-ids\/([a-z2-9]{8})$/)?.[1];
+    const ws = noteId && (await locateNote(env.DB, user.id, noteId));
+    return ws ? json({ workspace: ws }) : json({ error: "That note doesn't exist, or you don't have access to it" }, 404);
+  },
+  // Every session ends, and every open tab's live connection closes, which sends it to sign-in.
+  "POST /api/sign-out-everywhere": async ({ env, session: { user } }) => {
+    await endSessionsOf(env.DB, user.id);
+    await Promise.all((await workspacesOf(env.DB, user.id)).map((w) => env.WORKSPACE.get(env.WORKSPACE.idFromName(w.id)).disconnect(user.id)));
+    const res = json({ ok: true });
+    for (const c of clearSessionCookies()) res.headers.append("Set-Cookie", c);
+    return res;
+  },
+};
 
 async function api(req: Request, env: Env, url: URL): Promise<Response> {
   const session = await readSession(req, env);
@@ -47,44 +83,22 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
   if (isUpload && Number(req.headers.get("Content-Length") ?? 0) > MAX_UPLOAD) return json({ error: "That file is over 50 MB" }, 413);
   if (isWrite && !isUpload && !String(req.headers.get("Content-Type")).startsWith("application/json")) return json({ error: "JSON only" }, 415);
 
-  if (url.pathname === "/api/me") return json({ user, workspaces: await workspacesOf(env.DB, user.id) });
-  if (url.pathname === "/api/workspaces" && req.method === "POST") {
-    const { name } = (await req.json()) as { name?: string };
-    const clean = String(name ?? "").trim().slice(0, 80);
-    if (!clean) return json({ error: "Give the workspace a name" }, 400);
-    const id = await createWorkspace(env.DB, user, clean, "team");
-    await seedWorkspace(env, id);
-    return json({ id });
-  }
-  // Every session ends, and every open tab's live connection closes, which sends it to sign-in.
-  if (url.pathname === "/api/sign-out-everywhere" && req.method === "POST") {
-    await endSessionsOf(env.DB, user.id);
-    await Promise.all((await workspacesOf(env.DB, user.id)).map((w) => env.WORKSPACE.get(env.WORKSPACE.idFromName(w.id)).disconnect(user.id)));
-    const res = json({ ok: true });
-    for (const c of clearSessionCookies()) res.headers.append("Set-Cookie", c);
-    return res;
-  }
-  if (url.pathname === "/api/unfurl") {
-    const target = url.searchParams.get("url") ?? "";
-    if (!/^https?:\/\//i.test(target)) return json({ error: "http(s) URLs only" }, 400);
-    return json(await unfurl(target));
-  }
-
-  const noteId = url.pathname.match(/^\/api\/note-ids\/([a-z2-9]{8})$/)?.[1];
-  if (noteId) {
-    const ws = await locateNote(env.DB, user.id, noteId);
-    return ws ? json({ workspace: ws }) : json({ error: "That note doesn't exist, or you don't have access to it" }, 404);
-  }
+  const key = routeKey(req.method, url.pathname);
+  if (isAccountRoute(key)) return ACCOUNT[key]({ req, env, url, session });
 
   const m = url.pathname.match(/^\/api\/w\/([a-z0-9]+)(\/.*)$/);
   if (!m) return json({ error: "Not found" }, 404);
   const [, wsId, route] = m;
   const ws = await membership(env.DB, user.id, wsId);
   if (!ws) return json({ error: "Not found" }, 404);
-  if (isWrite && ws.role === "viewer" && !VIEWER_WRITES.has(`${req.method} ${route}`)) return json({ error: "You can view this workspace but not edit it" }, 403);
+  const allowed = access(ws.role, req.method, route);
+  if (allowed === "unknown") return json({ error: "Not found" }, 404);
+  if (allowed === "forbidden") {
+    return json({ error: ws.role === "viewer" ? "You can view this workspace but not edit it" : "Only the workspace's owner can do that" }, 403);
+  }
 
   if (route === "/invites" && req.method === "POST") {
-    if (ws.role !== "owner" || ws.kind !== "team") return json({ error: "Only a team's owner can invite people" }, 403);
+    if (ws.kind !== "team") return json({ error: "Only a team's owner can invite people" }, 403);
     const { role } = (await req.json()) as { role?: string };
     const token = await createInvite(env.DB, ws.id, user.id, role === "viewer" ? "viewer" : "editor");
     return json({ url: `${url.origin}/invite/${token}` });
@@ -96,6 +110,7 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
   headers.set("x-ci-workspace-name", encodeURIComponent(ws.name));
   headers.set("x-ci-actor", encodeURIComponent(user.name));
   headers.set("x-ci-user", user.id);
+  headers.set("x-ci-role", ws.role);
   const inner = new Request(`https://workspace${route}${url.search}`, { method: req.method, headers, body: isWrite ? req.body : undefined, redirect: "manual" });
   return env.WORKSPACE.get(env.WORKSPACE.idFromName(ws.id)).fetch(inner);
 }

@@ -1,5 +1,5 @@
 // The directory in D1: people, workspaces, memberships, invites.
-export type Role = "owner" | "editor" | "viewer";
+import type { Role } from "./access.ts";
 export interface User {
   id: string;
   email: string;

@@ -245,9 +245,7 @@ export async function ensurePersonalWorkspace(env: Env, user: User) {
 }
 
 export async function seedWorkspace(env: Env, id: string) {
-  await env.WORKSPACE.get(env.WORKSPACE.idFromName(id)).fetch(
-    new Request("https://workspace/seed", { method: "POST", headers: { "x-ci-workspace": id } }),
-  );
+  await env.WORKSPACE.get(env.WORKSPACE.idFromName(id)).seed(id);
 }
 
 const text = (status: number, body: string) => new Response(body, { status, headers: { "Content-Type": "text/plain; charset=utf-8" } });

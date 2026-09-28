@@ -1,12 +1,14 @@
 // One Durable Object per workspace: its notes, full-text index, links and change log in embedded
 // SQLite (so every query is in-process), its files in R2, and a WebSocket hub for live updates.
-// Only the Worker can reach it, and the Worker has already checked who's asking and their role.
+// Only the Worker can reach it, and the Worker has already checked who's asking and their role; it
+// checks the role again against the same table, so a slip in the Worker can't open a route.
 import { DurableObject } from "cloudflare:workers";
 import { Quire } from "../../src/core/quire.ts";
 import { migrate } from "../../src/core/store.ts";
 import { errorResponse, handleApi, json, type ApiHost } from "../../src/core/api.ts";
 import { cleanPath, fileSecurityHeaders, kindOf, MAX_UPLOAD, mimeOf } from "../../src/core/paths.ts";
 import type { Change } from "../../src/core/quire.ts";
+import { access, asRole } from "./access.ts";
 import { DoDb, SqlContent } from "./do-store.ts";
 import { SEED_FILES, SEED_NOTES } from "./seed.ts";
 import type { Env } from "./env.ts";
@@ -78,15 +80,15 @@ export class Workspace extends DurableObject<Env> {
     const base = `/api/w/${wsId}`;
     const user = req.headers.get("x-ci-user") ?? "";
 
+    const allowed = access(asRole(req.headers.get("x-ci-role")), req.method, route);
+    if (allowed === "unknown") return json({ error: `No route ${req.method} ${route}` }, 404);
+    if (allowed === "forbidden") return json({ error: "You can view this workspace but not edit it" }, 403);
+
     if (route === "/live") {
       if (req.headers.get("Upgrade") !== "websocket") return json({ error: "Expected a WebSocket" }, 426);
       const [client, server] = Object.values(new WebSocketPair());
       this.ctx.acceptWebSocket(server, [user]); // tagged, so signing out everywhere can close it
       return new Response(null, { status: 101, webSocket: client });
-    }
-    if (route === "/seed" && req.method === "POST") {
-      await this.seed(wsId);
-      return json({ ok: true });
     }
     if (route.startsWith("/files/")) return this.serveFile(decodeURIComponent(route.slice("/files/".length)));
     if (route === "/upload" && req.method === "POST") {
@@ -114,7 +116,7 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /** Fill a brand-new workspace with the starter notes (no-op if it has anything in it). */
-  private async seed(wsId: string) {
+  async seed(wsId: string) {
     if (!this.files.isEmpty) return;
     for (const [rel, { text, mime }] of Object.entries(SEED_FILES)) {
       const key = `ws/${wsId}/${crypto.randomUUID()}`;
