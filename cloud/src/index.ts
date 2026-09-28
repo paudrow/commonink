@@ -5,8 +5,8 @@ import { unfurl } from "../../src/core/unfurl.ts";
 import { MAX_UPLOAD } from "../../src/core/paths.ts";
 import { SANDBOX_PATH, sandboxPage } from "../../src/core/sandbox.ts";
 import { access, isAccountRoute, routeKey, type AccountRoute } from "./access.ts";
-import { clearSessionCookies, ensurePersonalWorkspace, handleAuth, readSession, seedWorkspace, type Session } from "./auth.ts";
-import { acceptInvite, createInvite, createWorkspace, endSessionsOf, locateNote, membership, workspacesOf } from "./directory.ts";
+import { clearSessionCookies, ensurePersonalWorkspace, handleAuth, readSession, seedWorkspace } from "./auth.ts";
+import { acceptInvite, createInvite, createWorkspace, endSessionsOf, locateNote, membership, workspacesOf, type User } from "./directory.ts";
 import type { Env } from "./env.ts";
 import { fetchAsset, secure } from "./headers.ts";
 
@@ -35,13 +35,13 @@ interface Call {
   req: Request;
   env: Env;
   url: URL;
-  session: Session;
+  user: User;
 }
 
 /** What someone signed in can do outside any one workspace. */
 const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
-  "GET /api/me": async ({ env, session: { user } }) => json({ user, workspaces: await workspacesOf(env.DB, user.id) }),
-  "POST /api/workspaces": async ({ req, env, session: { user } }) => {
+  "GET /api/me": async ({ env, user }) => json({ user, workspaces: await workspacesOf(env.DB, user.id) }),
+  "POST /api/workspaces": async ({ req, env, user }) => {
     const { name } = (await req.json()) as { name?: string };
     const clean = String(name ?? "").trim().slice(0, 80);
     if (!clean) return json({ error: "Give the workspace a name" }, 400);
@@ -54,13 +54,13 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
     if (!/^https?:\/\//i.test(target)) return json({ error: "http(s) URLs only" }, 400);
     return json(await unfurl(target));
   },
-  "GET /api/note-ids/*": async ({ env, url, session: { user } }) => {
+  "GET /api/note-ids/*": async ({ env, url, user }) => {
     const noteId = url.pathname.match(/^\/api\/note-ids\/([a-z2-9]{8})$/)?.[1];
     const ws = noteId && (await locateNote(env.DB, user.id, noteId));
     return ws ? json({ workspace: ws }) : json({ error: "That note doesn't exist, or you don't have access to it" }, 404);
   },
   // Every session ends, and every open tab's live connection closes, which sends it to sign-in.
-  "POST /api/sign-out-everywhere": async ({ env, session: { user } }) => {
+  "POST /api/sign-out-everywhere": async ({ env, user }) => {
     await endSessionsOf(env.DB, user.id);
     await Promise.all((await workspacesOf(env.DB, user.id)).map((w) => env.WORKSPACE.get(env.WORKSPACE.idFromName(w.id)).disconnect(user.id)));
     const res = json({ ok: true });
@@ -70,9 +70,8 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
 };
 
 async function api(req: Request, env: Env, url: URL): Promise<Response> {
-  const session = await readSession(req, env);
-  if (!session) return json({ error: "Sign in first", devLogin: env.DEV_LOGIN === "1" }, 401);
-  const { user } = session;
+  const user = await readSession(req, env);
+  if (!user) return json({ error: "Sign in first", devLogin: env.DEV_LOGIN === "1" }, 401);
 
   // Cookies ride along on any request to us, so writes must come from our own pages.
   const isWrite = req.method !== "GET" && req.method !== "HEAD";
@@ -84,7 +83,7 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
   if (isWrite && !isUpload && !String(req.headers.get("Content-Type")).startsWith("application/json")) return json({ error: "JSON only" }, 415);
 
   const key = routeKey(req.method, url.pathname);
-  if (isAccountRoute(key)) return ACCOUNT[key]({ req, env, url, session });
+  if (isAccountRoute(key)) return ACCOUNT[key]({ req, env, url, user });
 
   const m = url.pathname.match(/^\/api\/w\/([a-z0-9]+)(\/.*)$/);
   if (!m) return json({ error: "Not found" }, 404);
@@ -116,9 +115,9 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
 }
 
 async function invite(req: Request, env: Env, url: URL): Promise<Response> {
-  const session = await readSession(req, env);
-  if (!session) return Response.redirect(`${url.origin}/auth/${env.DEV_LOGIN === "1" ? "dev" : "google"}?next=${encodeURIComponent(url.pathname)}`, 302);
-  const wsId = await acceptInvite(env.DB, url.pathname.split("/")[2] ?? "", session.user.id);
+  const user = await readSession(req, env);
+  if (!user) return Response.redirect(`${url.origin}/auth/${env.DEV_LOGIN === "1" ? "dev" : "google"}?next=${encodeURIComponent(url.pathname)}`, 302);
+  const wsId = await acceptInvite(env.DB, url.pathname.split("/")[2] ?? "", user.id);
   if (!wsId) return new Response("This invite link has expired or isn't valid. Ask for a new one.", { status: 410 });
   return Response.redirect(`${url.origin}/?w=${wsId}`, 302);
 }

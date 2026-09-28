@@ -16,7 +16,7 @@ const SIGNUP = "__Host-ci_signup";
 const LEGACY_SESSION = "ci_session";
 /** A session ends this long after sign-in, however much it's used. */
 const SESSION_DAYS = 30;
-/** …or after this long unused. */
+/** A session also ends after this long unused. */
 const IDLE_DAYS = 14;
 /** How stale a session's last-seen time may get before a request refreshes it (saves a write per request). */
 const TOUCH_EVERY = 3600_000;
@@ -69,14 +69,8 @@ const setCookie = (name: string, value: string, maxAge: number) =>
 const sha256 = async (s: string) => b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
 const idleSince = () => Date.now() - IDLE_DAYS * 86400_000;
 
-export interface Session {
-  /** The stored ID: the hash of the cookie's token. */
-  id: string;
-  user: User;
-}
-
 /** Who's signed in on this request, if anyone. */
-export async function readSession(req: Request, env: Env): Promise<Session | null> {
+export async function readSession(req: Request, env: Env): Promise<User | null> {
   const token = cookie(req, SESSION);
   if (!token) return null;
   const id = await sha256(token);
@@ -84,7 +78,7 @@ export async function readSession(req: Request, env: Env): Promise<Session | nul
   if (!row) return null;
   const { seenAt, ...user } = row;
   if (Date.now() - seenAt > TOUCH_EVERY) await touchSession(env.DB, id);
-  return { id, user };
+  return user;
 }
 
 export const clearSessionCookies = () => [setCookie(SESSION, "", 0), setCookie(LEGACY_SESSION, "", 0)];
