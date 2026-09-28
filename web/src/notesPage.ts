@@ -13,7 +13,7 @@ interface Hooks {
   open(path: string, line?: number): void;
   starred(id: string): boolean;
   toggleStar(path: string): void;
-  /** The folder filter changed (the sidebar marks the folder being shown). */
+  /** The folder or tag filter changed (the sidebar marks the one being shown). */
   folderChanged(): void;
   tags(): TagCount[];
   toast(t: { text: string; icon?: string; actionLabel?: string; action?: () => void }): void;
@@ -92,6 +92,10 @@ export class NotesPage {
   /** The folder Notes is narrowed to ("" for every folder). */
   get folderFilter() {
     return this.folder;
+  }
+  /** The tag Notes is narrowed to ("" for any), as written. */
+  get tagFilter() {
+    return this.tag;
   }
 
   /** Show the list where the reader left it: same scroll position, same cards open. */
@@ -329,6 +333,7 @@ export class NotesPage {
   /** Narrow Notes to a tag (and the tags under it), or "" for every note. */
   setTag(tag: string) {
     this.tag = tag;
+    this.hooks.folderChanged(); // the sidebar marks the tag being shown
     this.focus = 0;
     this.root.scrollTop = this.scrollTop = 0;
     void this.reload();

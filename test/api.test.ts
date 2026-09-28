@@ -37,6 +37,14 @@ test("a PUT then GET round-trips a note and announces the write", async () => {
   assert.deepEqual(events, ["written Ideas/New.md by tester", "tree"]);
 });
 
+test("a POST for a note that exists is a 409 naming it, so the app opens it instead of writing over it", async () => {
+  const { call } = setup();
+  assert.equal((await call("POST", "/note", { path: "Idea.md", content: "# Idea\n\nfirst\n" })).status, 200);
+  const again = await call("POST", "/note", { path: "Idea.md", content: "# Idea\n\nsecond\n" });
+  assert.deepEqual([again.status, again.body.code, again.body.path], [409, "exists", "Idea.md"]);
+  assert.equal((await call("GET", "/note?path=Idea.md")).body.content, "# Idea\n\nfirst\n");
+});
+
 test("a stale baseVersion is a 409 carrying the current text", async () => {
   const { call } = setup();
   const r = await call("PUT", "/note", { path: "Welcome.md", content: "# Mine\n", baseVersion: "000000000000" });
