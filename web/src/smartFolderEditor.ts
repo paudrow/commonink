@@ -42,11 +42,11 @@ export function smartFolderEditor(
   const justMe = el("input", { type: "checkbox" });
   justMe.checked = !draft.shared || !opts.canShare;
   justMe.disabled = !opts.canShare;
-  const error = el("div", { class: "task-pop-error", hidden: true });
+  const error = el("div", { class: "sf-pop-error", hidden: true });
   const form = el(
     "form",
-    { class: "qw-config task-pop sf-editor", role: "dialog", "aria-label": draft.id ? "Edit smart folder" : "New smart folder" },
-    el("div", { class: "task-pop-title" }, icon("folderSearch", 14), draft.id ? "Smart folder" : draft.query ? "Save as smart folder" : "New smart folder"),
+    { class: "qw-config sf-pop sf-editor", role: "dialog", "aria-label": draft.id ? "Edit smart folder" : "New smart folder" },
+    el("div", { class: "sf-pop-title" }, icon("folderSearch", 14), draft.id ? "Smart folder" : draft.query ? "Save as smart folder" : "New smart folder"),
     ...fieldRows([NAME, ...QUERY_FIELDS], values, recount, opts.sources),
     count,
     el(

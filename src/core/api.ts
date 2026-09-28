@@ -53,6 +53,7 @@ function taskPatch(v: unknown): TaskPatch {
   for (const [k, x] of Object.entries(v)) {
     const ok =
       k === "checked" ? typeof x === "boolean"
+      : k === "summary" ? typeof x === "string"
       : k === "assignees" || k === "tags" ? Array.isArray(x) && x.every((s) => typeof s === "string")
       : ["due", "start", "done", "rec", "priority"].includes(k) ? x === null || typeof x === "string"
       : false;

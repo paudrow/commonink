@@ -78,8 +78,6 @@ let changes: Change[] = [];
 let tags: TagCount[] = [];
 /** Your smart folders (the workspace's shared ones and your own), with live counts. */
 let smartFolders: SmartFolder[] = [];
-/** Online, a viewer keeps smart folders of their own but can't change shared ones. */
-let canShare = true;
 let session: Session | null = null;
 
 const view = new EditorView({ parent: $("#editor-host") });
@@ -91,6 +89,8 @@ const notesPage = new NotesPage({
   tags: () => tags,
   saveQuery: (anchor, query) => saveSmartFolder(query, "", anchor),
   pinButton: (tag) => pinButton(tag, "chip"),
+  openPerson: (assignee) => void showTasks({ assignee }),
+  readOnly: () => viewer,
   toast: (t) => toast(t),
   changed: () => {
     api.clearResolveCache();
@@ -719,8 +719,8 @@ const fieldSources = { tags: () => tags, folders: () => allFolders() };
 
 /** Offer to keep a note query as a smart folder (from the Notes filters or a ::query widget). */
 function saveSmartFolder(query: string, name: string, anchor: HTMLElement) {
-  smartFolderEditor(anchor, { name: name || nameFor(query), query, shared: canShare }, {
-    canShare,
+  smartFolderEditor(anchor, { name: name || nameFor(query), query, shared: !viewer }, {
+    canShare: !viewer,
     sources: fieldSources,
     save: async (f) => {
       const saved = await api.saveSmartFolder(f);
@@ -733,8 +733,8 @@ function saveSmartFolder(query: string, name: string, anchor: HTMLElement) {
 
 /** A new smart folder from scratch (the Smart folders header, or its empty row). Saving opens it. */
 function newSmartFolder(anchor: HTMLElement) {
-  smartFolderEditor(anchor, { name: "", query: "", shared: canShare }, {
-    canShare,
+  smartFolderEditor(anchor, { name: "", query: "", shared: !viewer }, {
+    canShare: !viewer,
     sources: fieldSources,
     save: async (f) => {
       const saved = await api.saveSmartFolder(f);
@@ -768,7 +768,7 @@ function pinButton(tag: string, where: "row" | "chip"): HTMLElement {
       "aria-pressed": String(pinned),
       onclick: (e: Event) => (e.stopPropagation(), void togglePin(tag)),
     },
-    icon("pin", 13),
+    icon(pinned ? "pinned" : "pin", 13), // filled while it's in Favorites; a click takes it out
     where === "chip" ? (pinned ? "Pinned" : "Pin") : "",
   );
 }
@@ -780,7 +780,7 @@ function renderSmartFolders(active: string | null) {
     edit.addEventListener("click", (e) => {
       e.stopPropagation();
       smartFolderEditor(edit, f, {
-        canShare,
+        canShare: !viewer,
         sources: fieldSources,
         save: async (next) => {
           await api.saveSmartFolder(next);
@@ -809,7 +809,7 @@ function renderSmartFolders(active: string | null) {
       el("span", { class: "tree-name" }, f.name),
       f.shared ? null : el("span", { class: "sf-mine", title: "Just you" }, icon("user", 11)),
       el("span", { class: "n" }, String(f.count)),
-      f.shared && !canShare ? null : el("span", { class: "row-actions" }, edit),
+      f.shared && viewer ? null : el("span", { class: "row-actions" }, edit),
     );
   });
   // Empty: one quiet line pointing at the header's +, the one way to add one from here.
@@ -1096,7 +1096,7 @@ function renderTagTree(active: string) {
             : el("span", { class: "chev is-leaf" }),
           icon("hash", 14),
           el("span", { class: "tree-name" }, t.display.split("/").pop()!),
-          isPinned(t.display) ? el("span", { class: "fav-pinned", title: "Pinned to Favorites" }, icon("pin", 11)) : null,
+          isPinned(t.display) ? el("span", { class: "fav-pinned", title: "Pinned to Favorites" }, icon("pinned", 11)) : null,
           el("span", { class: "n" }, String(t.notes)),
           el("span", { class: "row-actions" }, pinButton(t.display, "row")),
         );
@@ -1642,6 +1642,8 @@ function debounce<A extends unknown[]>(fn: (...a: A) => unknown, ms: number) {
 }
 
 let workspaceId = "";
+/** You can view this workspace but not edit it: you keep smart folders of your own but can't change shared ones. */
+let viewer = false;
 
 /**
  * Show whatever the address bar points at: /notes/<title>-<id>, /tasks, /history, /assets, or the
@@ -1697,7 +1699,7 @@ async function boot() {
   if (who?.me) {
     const ws = pickWorkspace(who.me);
     workspaceId = ws.id;
-    canShare = ws.role !== "viewer";
+    viewer = ws.role === "viewer";
     useWorkspace(`/api/w/${ws.id}`, `/api/w/${ws.id}/live`);
     setSelfName(who.me.user.name);
     renderAccount(who.me, ws, (t) => toast(t));
