@@ -20,11 +20,12 @@ Usage: quire <command> [args] [--as <agent>] [--json]
   backlinks <note>
   star <note…> / unstar <note…>    add to or take out of your favorites
   starred                          list your favorites, in order
-  changes [--since <iso|id>] [--path <p>] [--limit N]
+  changes [--since <iso|id>] [--path <path|id|url>] [--limit N]
+                                   --path brings the note's history under earlier names too
   restore <change-id>              put a note back the way it was before that change
   mcp                              run the stdio MCP server
 
-<note> can be a path, a path without .md, or a [[wikilink]] name.
+<note> can be a path, a path without .md, a [[wikilink]] name, a note ID or a note URL.
 Writes are attributed to --as, $QUIRE_AGENT, or "cli".
 Vault: $QUIRE_VAULT (default: ./vault next to this tool).`;
 

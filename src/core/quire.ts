@@ -36,6 +36,8 @@ export interface Change {
   version: string | null;
   summary: string | null;
   from_path: string | null;
+  /** The note's stable ID, so its history holds together across renames. Null if the log can't tell. */
+  note_id: string | null;
 }
 export interface Backlink {
   path: string;
@@ -102,7 +104,7 @@ const TASK = /^(\s*[-*+]\s+\[)([ xX])(\]\s+)(.*)$/;
 export const versionOf = (content: string) =>
   crypto.createHash("sha256").update(content).digest("hex").slice(0, 12);
 
-const CHANGE_COLS = "id, ts, path, op, source, version, summary, from_path";
+const CHANGE_COLS = "id, ts, path, op, source, version, summary, from_path, note_id";
 const META_COLS = "id, path, kind, title, version, mtime, size";
 /** How long a deleted file's ID waits for the same file to reappear under a new name. */
 const RENAME_WINDOW_MS = 60_000;
@@ -242,6 +244,7 @@ export class Quire {
     this.db.tx(() => {
       this.db.run("UPDATE notes SET id = ? WHERE id = ?", next, id);
       this.db.run("UPDATE favorites SET note_id = ? WHERE note_id = ?", next, id);
+      this.db.run("UPDATE changes SET note_id = ? WHERE note_id = ?", next, id);
     });
     return next;
   }
@@ -415,13 +418,18 @@ export class Quire {
     return null;
   }
 
+  /**
+   * The change log, newest first. `path` narrows it to one note: a path, stable ID or note URL. A note
+   * that still exists brings its whole history, under earlier names too; a gone one, what happened at
+   * that exact path.
+   */
   changes(opts: { since?: string | number; before?: number; limit?: number; path?: string } = {}): Change[] {
     const limit = opts.limit ?? 50;
+    const noteId = opts.path ? this.idOf(opts.path) : null;
+    const p = opts.path ?? null;
+    const [where, args] = noteId ? ["note_id = ?", [noteId]] : ["(? IS NULL OR path = ?)", [p, p]];
     if (opts.before) {
-      return this.db.all(
-        `SELECT ${CHANGE_COLS} FROM changes WHERE id < ? AND (? IS NULL OR path = ?) ORDER BY id DESC LIMIT ?`,
-        opts.before, opts.path ?? null, opts.path ?? null, limit,
-      );
+      return this.db.all(`SELECT ${CHANGE_COLS} FROM changes WHERE id < ? AND ${where} ORDER BY id DESC LIMIT ?`, opts.before, ...args, limit);
     }
     let sinceTs = 0;
     let sinceId = 0;
@@ -430,10 +438,15 @@ export class Quire {
       sinceTs = Date.parse(opts.since);
       if (Number.isNaN(sinceTs)) throw new QuireError(`Bad "since": ${opts.since} (use an ISO time or a change id)`);
     }
-    return this.db.all(
-      `SELECT ${CHANGE_COLS} FROM changes WHERE id > ? AND ts > ? AND (? IS NULL OR path = ?) ORDER BY id DESC LIMIT ?`,
-      sinceId, sinceTs, opts.path ?? null, opts.path ?? null, limit,
-    );
+    return this.db.all(`SELECT ${CHANGE_COLS} FROM changes WHERE id > ? AND ts > ? AND ${where} ORDER BY id DESC LIMIT ?`, sinceId, sinceTs, ...args, limit);
+  }
+
+  /** The stable ID of the note at this path, ID or note URL, if it's in the index. No fuzzy name matching. */
+  private idOf(target: string): string | null {
+    const t = target.trim();
+    const id = NOTE_ID.test(t) ? t : parseNotePath(t)?.id;
+    if (id && this.pathOf(id)) return id;
+    return this.meta(t)?.id ?? null;
   }
 
   /** Who produced this exact version of a file? Used to attribute file-watcher events. */
@@ -445,13 +458,14 @@ export class Quire {
   }
 
   /** `before` is the note's previous text, kept so any change can be undone with restore(). */
-  recordChange(c: Omit<Change, "id" | "ts">, before: string | null = null): Change {
+  recordChange(c: Omit<Change, "id" | "ts" | "note_id">, before: string | null = null): Change {
     const ts = this.now();
+    const noteId = this.meta(c.path)?.id ?? null;
     const r = this.db.run(
-      "INSERT INTO changes(ts, path, op, source, version, summary, from_path, before) VALUES (?,?,?,?,?,?,?,?)",
-      ts, c.path, c.op, c.source, c.version, c.summary, c.from_path, before,
+      "INSERT INTO changes(ts, path, op, source, version, summary, from_path, before, note_id) VALUES (?,?,?,?,?,?,?,?,?)",
+      ts, c.path, c.op, c.source, c.version, c.summary, c.from_path, before, noteId,
     );
-    return { ...c, id: r.lastId, ts };
+    return { ...c, id: r.lastId, ts, note_id: noteId };
   }
 
   /**
