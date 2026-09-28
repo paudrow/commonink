@@ -58,6 +58,14 @@ test("moving a note rewrites the links that point at it", () => {
   assert.deepEqual(quire.backlinks("Plan").map((b) => b.path), ["Welcome.md"]);
 });
 
+test("creating a second top-level note with the same title leaves the first as it was", () => {
+  const { dir, quire } = openTempVault({});
+  quire.create("Idea", "# Idea\n\nThe first one.\n", "t");
+  assert.throws(() => quire.create("Idea", "# Idea\n\nThe second one.\n", "t"), /Idea\.md already exists; use edit_note instead/);
+  assert.equal(fs.readFileSync(path.join(dir, "Idea.md"), "utf8"), "# Idea\n\nThe first one.\n");
+  assert.deepEqual(quire.list().map((n) => n.path), ["Idea.md"]);
+});
+
 test("a note can't be moved to a different file type", () => {
   const { dir, quire } = openTempVault();
   assert.throws(() => quire.move("Welcome", "Welcome.png", "t"), /can't change .* from \.md to \.png/);

@@ -63,6 +63,10 @@ const prefs = {
   htmlMode: store.get<"preview" | "source">("htmlMode", "preview"),
   /** Folders whose subfolders are showing in the sidebar (they start closed). */
   expanded: new Set<string>(store.get<string[]>("expanded", [])),
+  /** Tags whose nested tags are showing in the sidebar (they start closed). */
+  tagsOpen: new Set<string>(store.get<string[]>("tagsOpen", [])),
+  /** Sidebar sections folded away from their header. Folders start folded: the sidebar leads with tags. */
+  folded: { favorites: false, smart: false, folders: true, tags: false, ...store.get<Record<string, boolean>>("folded", {}) } as Record<string, boolean>,
 };
 
 let notes: NoteMeta[] = [];
@@ -679,6 +683,7 @@ const refreshNotesSoon = debounce(refreshNotes, 120);
 const refreshTagsSoon = debounce(async () => {
   tags = await api.tags().catch(() => tags);
   tagsPage.refresh();
+  renderTree();
 }, 400);
 
 // ------------------------------------------------------------------ favorites
@@ -893,10 +898,12 @@ function renderTree() {
   const assetCount = notes.filter((n) => n.kind === "asset" && !isArchived(n.path)).length;
   $("#assets-count").textContent = assetCount ? String(assetCount) : "";
   $("#notes-btn").classList.toggle("is-active", showing === "");
+  const shownTag = showing === null ? "" : (parseQuery(showing).tag ?? "");
+  renderTagTree(shownTag && showing === formatQuery({ tag: shownTag }) ? shownTag.toLowerCase() : ""); // a tag alone, like a folder alone
   $("#tasks-btn").classList.toggle("is-active", page === "tasks");
   $("#history-btn").classList.toggle("is-active", page === "history" && !historyPage.noteFilter);
   $("#assets-btn").classList.toggle("is-active", page === "assets");
-  $("#tags-btn").classList.toggle("is-active", page === "tags");
+  $("#tags-page-btn").classList.toggle("is-on", page === "tags");
 
   const empty = emptyFolders();
   for (const f of [...empty]) if (notes.some((n) => n.path.startsWith(`${f}/`))) empty.delete(f); // it has notes now: it's a real folder
@@ -961,6 +968,81 @@ function renderTree() {
         return [row, ...(open ? walk(path, depth + 1) : [])];
       });
   $("#tree").replaceChildren(...walk("", 0));
+}
+
+/**
+ * Tags in the sidebar, as a tree with how many notes carry each (tags under it included). Nested
+ * tags start closed; clicking a tag shows Notes narrowed to it, the way a folder does.
+ */
+function renderTagTree(active: string) {
+  const shown = tags.filter((t) => t.notes > 0);
+  const parent = (t: string) => (t.includes("/") ? t.slice(0, t.lastIndexOf("/")) : "");
+  const walk = (under: string, depth: number): HTMLElement[] =>
+    shown
+      .filter((t) => parent(t.tag) === under)
+      .flatMap((t) => {
+        const subs = shown.some((s) => parent(s.tag) === t.tag);
+        // The tag being shown stays visible: its parents open for it.
+        const open = subs && (prefs.tagsOpen.has(t.tag) || active.startsWith(`${t.tag}/`));
+        const row = el(
+          "div",
+          {
+            class: `tree-row is-tag${open ? "" : " is-collapsed"}${t.tag === active ? " is-active" : ""}`,
+            style: { "--depth": String(depth) },
+            "data-tag": t.tag,
+            title: `Notes tagged #${t.display}`,
+            tabindex: "0",
+            onclick: () => openTag(t.display),
+            onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && openTag(t.display),
+          },
+          subs
+            ? el(
+                "button",
+                {
+                  type: "button",
+                  class: "chev",
+                  title: open ? "Hide nested tags" : "Show nested tags",
+                  onclick: (e: Event) => {
+                    e.stopPropagation();
+                    if (open) prefs.tagsOpen.delete(t.tag);
+                    else prefs.tagsOpen.add(t.tag);
+                    store.set("tagsOpen", [...prefs.tagsOpen]);
+                    renderTree();
+                    $(`#tag-tree .tree-row[data-tag="${CSS.escape(t.tag)}"] .chev`).focus(); // the row was rebuilt; keep the keyboard here
+                  },
+                },
+                icon("chevron", 13),
+              )
+            : el("span", { class: "chev is-leaf" }),
+          icon("hash", 14),
+          el("span", { class: "tree-name" }, t.display.split("/").pop()!),
+          el("span", { class: "n" }, String(t.notes)),
+        );
+        return [row, ...(open ? walk(t.tag, depth + 1) : [])];
+      });
+  const rows = walk("", 0);
+  $("#tag-tree").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Write #tag in a note to see it here.")]));
+}
+
+/** Fold a sidebar section away from its header, or open it again. Remembered in this browser. */
+function setupSections() {
+  document.querySelectorAll<HTMLElement>(".tree-head[data-section]").forEach((head) => {
+    const section = head.dataset.section!;
+    const toggle = head.querySelector<HTMLButtonElement>(".section-toggle")!;
+    const body = $(`#${toggle.getAttribute("aria-controls")}`);
+    const apply = () => {
+      const folded = !!prefs.folded[section];
+      toggle.setAttribute("aria-expanded", String(!folded));
+      head.classList.toggle("is-folded", folded);
+      body.hidden = folded;
+    };
+    toggle.addEventListener("click", () => {
+      prefs.folded[section] = !prefs.folded[section];
+      store.set("folded", prefs.folded);
+      apply();
+    });
+    apply();
+  });
 }
 
 /** Highlight where a dragged note would land: a folder row, or the whole tree for the top level. */
@@ -1542,7 +1624,8 @@ async function boot() {
   hydrateIcons();
   togglePanel(prefs.panel);
   $("#search-btn").addEventListener("click", () => palette.open());
-  $("#new-note").addEventListener("click", () => void newNote());
+  // A new note goes at the top level, unless Notes is showing a folder: then it goes there.
+  $("#new-note").addEventListener("click", () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""));
   $("#panel-btn").addEventListener("click", () => togglePanel());
   $("#stage").addEventListener("mousedown", () => document.body.classList.remove("panel-overlay"));
   $("#theme-toggle").addEventListener("click", toggleTheme);
@@ -1564,7 +1647,8 @@ async function boot() {
   $("#tasks-btn").addEventListener("click", () => void showTasks());
   $("#history-btn").addEventListener("click", () => void showHistory());
   $("#assets-btn").addEventListener("click", () => void showAssets());
-  $("#tags-btn").addEventListener("click", () => void showTags());
+  $("#tags-page-btn").addEventListener("click", () => void showTags());
+  setupSections();
   $("#note-history-btn").addEventListener("click", () => session && void showHistory({ note: session.path }));
   $("#back-btn").addEventListener("click", () => void showNotes());
   $("#archive-nav").addEventListener("click", () => void showNotes({ scope: "archived", query: {} }));
