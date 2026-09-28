@@ -1,5 +1,6 @@
 // The two things the core needs from its environment. Locally: node:sqlite + a folder of files.
 // On Cloudflare: a Durable Object's embedded SQLite for both.
+import { newNoteId } from "./ids.ts";
 
 /** A synchronous SQLite connection (node:sqlite locally, ctx.storage.sql in a Durable Object). */
 export interface SqlDb {
@@ -30,7 +31,7 @@ export interface Content {
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS notes(
      path TEXT PRIMARY KEY, kind TEXT NOT NULL, title TEXT NOT NULL, stem TEXT NOT NULL,
-     version TEXT NOT NULL, mtime REAL NOT NULL, size INTEGER NOT NULL)`,
+     version TEXT NOT NULL, mtime REAL NOT NULL, size INTEGER NOT NULL, id TEXT)`,
   `CREATE INDEX IF NOT EXISTS notes_stem ON notes(stem)`,
   `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
      path, title, body, tokenize='porter unicode61 remove_diacritics 2', prefix='2 3')`,
@@ -46,6 +47,14 @@ const SCHEMA = [
 /** Create or upgrade the index + change log tables. Safe to run on every start. */
 export function migrate(db: SqlDb) {
   for (const stmt of SCHEMA) db.exec(stmt);
+  // Indexes from before stable IDs lack the column. (ALTER, not a pragma: Durable Objects allow it.)
+  try {
+    db.exec("ALTER TABLE notes ADD COLUMN id TEXT");
+  } catch {}
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS notes_id ON notes(id)");
+  for (const { path } of db.all<{ path: string }>("SELECT path FROM notes WHERE id IS NULL")) {
+    db.run("UPDATE notes SET id = ? WHERE path = ?", newNoteId(), path);
+  }
   // Older local indexes predate the `before` column. (Durable Objects may refuse pragmas; their
   // databases are always created with the current schema, so there's nothing to upgrade.)
   let cols: string[];

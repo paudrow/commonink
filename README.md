@@ -57,6 +57,12 @@ CodeMirror 6 with vim mode (`@replit/codemirror-vim`), plus:
 - **Diagrams.** A ```mermaid block renders inline in the app's colors (Mermaid is loaded only when a note has one). Move into it to edit the code, with the diagram re-rendering live underneath.
 - **Pasting a link** on its own line embeds it. YouTube, Vimeo, Loom, X, Bluesky, Mastodon, Instagram, TikTok and Spotify play inline, and other pages become link cards (the server fetches their OpenGraph tags, public hosts only). Pasting over selected text makes `[text](url)`, and `<url>` keeps a plain link.
 
+## Links to notes
+
+Every note has a stable ID, so its address is `/notes/<title>-<id>` (e.g. `/notes/quire-roadmap-8nvfq4ju`). The title part is only for people: the ID finds the note after renames, moves and archiving, and a link with an old title still opens it (and the address bar corrects it). The ID lives in the index, not the file. The index keeps it through moves in the app and through renames made outside it (`mv`, another editor). The MCP tools and the CLI accept an ID or a note URL anywhere they take a note. Old `#/path` links still open.
+
+Online, IDs are unique across all workspaces. Each workspace claims its notes' IDs in the directory (`note_ids` in D1), so a note's link opens it from any workspace you belong to: the app switches to the note's workspace. People who can't open it get the same "doesn't exist" answer as for a made-up ID.
+
 ## Feed and archive
 
 - **Feed** (sidebar, `⌘⇧F`, or `:feed`) shows every note as a card, newest first, with a rendered preview. Type to filter (full-text), switch between Active, Archived and All, or narrow to a folder. It's keyboard-first: `j`/`k` to move, `↵` to open, `e` to archive, `x` to select several, `/` to filter.
@@ -76,6 +82,24 @@ The server also refuses to replace a non-empty note with an empty one unless the
 ## Security notes
 
 The server binds to 127.0.0.1 and checks the `Host` header to block DNS rebinding. Writes must come from its own origin and be JSON, which blocks cross-site requests and requests from sandboxed notes. The WebSocket checks `Origin`. Rendered markdown goes through DOMPurify. Vault assets are served with a `sandbox` CSP, and HTML files are never served from the app's origin.
+
+## Testing
+
+```bash
+npm test        # node:test over test/*.test.ts
+npm run check   # both typechecks, then the tests
+```
+
+The tests run the real surfaces against throwaway vaults: the core and the shared API in-process, and the server, CLI and MCP server as child processes. These switches make that possible, and work just as well by hand:
+
+| Lever | What it does |
+| --- | --- |
+| `QUIRE_VAULT=<dir>` | The vault the server, CLI and MCP server open. |
+| `PORT=0` | The server picks a free port and prints it. |
+| `QUIRE_NO_UI=1` | The server serves only `/api` and skips Vite, so it starts in well under a second. |
+| `QUIRE_AGENT=<name>` | Who CLI and MCP writes are attributed to. |
+| `openVault(dir, { now })` | A fake clock for change timestamps and the attribution window. |
+| `tempVault(files)` in `test/helpers.ts` | A fresh vault folder holding the given files, removed when the tests exit. |
 
 ## Not built yet
 

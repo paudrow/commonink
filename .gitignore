@@ -1,7 +1,7 @@
 node_modules/
 .DS_Store
 # Your notes are data, not source. examples/vault has the sample notes.
-vault/
+/vault/
 .wrangler/
 dist/
 

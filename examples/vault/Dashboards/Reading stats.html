@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Reading stats</title>
+<style>
+  :root { --bg:#fbfaf7; --ink:#23211d; --muted:#8a847a; --bar:#5b5bd6; --bar2:#d9d6f5; --line:#ebe7df; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#17181c; --ink:#e9e6df; --muted:#8d8a84; --bar:#8b8cf2; --bar2:#34355a; --line:#2a2b31; } }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:22px 24px 18px; background:var(--bg); color:var(--ink); font:14px/1.5 -apple-system, system-ui, sans-serif; }
+  header { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:14px; }
+  h1 { font-size:15px; margin:0; font-weight:650; letter-spacing:-0.01em; }
+  .muted { color:var(--muted); font-size:12.5px; }
+  .kpis { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px; }
+  .kpi { border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+  .kpi b { display:block; font-size:22px; font-weight:650; letter-spacing:-0.02em; font-variant-numeric:tabular-nums; }
+  svg { width:100%; height:auto; display:block; }
+  .bar { fill:var(--bar); transition:opacity .15s; } .bar:hover { opacity:.8; }
+  .goal { fill:var(--bar2); }
+  text { fill:var(--muted); font-size:11px; }
+</style>
+</head>
+<body>
+<header><h1>Reading, 2026</h1><span class="muted">pages per month · goal 400</span></header>
+<div class="kpis">
+  <div class="kpi"><b id="total">0</b><span class="muted">pages this year</span></div>
+  <div class="kpi"><b id="books">14</b><span class="muted">books finished</span></div>
+  <div class="kpi"><b id="best">—</b><span class="muted">best month</span></div>
+</div>
+<svg id="chart" viewBox="0 0 600 190" role="img" aria-label="Pages read per month"></svg>
+<script>
+  const data = [["Jan",312],["Feb",280],["Mar",455],["Apr",390],["May",520],["Jun",610],["Jul",480],["Aug",702],["Sep",350]];
+  const svg = document.getElementById("chart"), ns = "http://www.w3.org/2000/svg", max = 750, h = 160, w = 600 / data.length;
+  const el = (t, a) => { const e = document.createElementNS(ns, t); for (const k in a) e.setAttribute(k, a[k]); return e; };
+  data.forEach(([m, v], i) => {
+    const x = i * w + w * 0.2, bw = w * 0.6;
+    svg.append(el("rect", { class: "goal", x, y: h - (400 / max) * h, width: bw, height: (400 / max) * h, rx: 4 }));
+    const bar = el("rect", { class: "bar", x, y: h - (v / max) * h, width: bw, height: (v / max) * h, rx: 4 });
+    bar.append(el("title", {})); bar.firstChild.textContent = `${m}: ${v} pages`;
+    svg.append(bar);
+    const t = el("text", { x: x + bw / 2, y: 180, "text-anchor": "middle" }); t.textContent = m; svg.append(t);
+  });
+  document.getElementById("total").textContent = data.reduce((s, d) => s + d[1], 0).toLocaleString();
+  document.getElementById("best").textContent = data.reduce((a, b) => (b[1] > a[1] ? b : a))[0];
+</script>
+</body>
+</html>

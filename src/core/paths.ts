@@ -59,7 +59,7 @@ export function mimeOf(p: string): string | null {
 export function cleanPath(input: string): string {
   const raw = input.trim().replace(/\\/g, "/").replace(/^\.?\/+/, "");
   const norm = path.posix.normalize(raw);
-  if (!norm || norm === "." || norm.startsWith("..") || path.posix.isAbsolute(norm)) {
+  if (!norm || norm === "." || norm.startsWith("..") || path.posix.isAbsolute(norm) || /[\x00-\x1f\x7f]/.test(norm)) {
     throw new QuireError(`Invalid path: ${input}`);
   }
   if (norm.split("/").some((seg) => seg.startsWith("."))) {

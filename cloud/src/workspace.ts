@@ -12,13 +12,17 @@ import { SEED_FILES, SEED_NOTES } from "./seed.ts";
 import type { Env } from "./env.ts";
 
 export class Workspace extends DurableObject<Env> {
+  private db: DoDb;
   private files: SqlContent;
   private quire: Quire;
+  private registering: Promise<void> | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    const db = new DoDb(ctx.storage);
+    const db = (this.db = new DoDb(ctx.storage));
     migrate(db);
+    // Note IDs this workspace has claimed in the directory (see registerIds).
+    db.exec("CREATE TABLE IF NOT EXISTS registered_ids(id TEXT PRIMARY KEY)");
     this.files = new SqlContent(db);
     this.quire = new Quire(db, this.files);
     // Keep-alives are answered without waking the object.
@@ -26,9 +30,51 @@ export class Workspace extends DurableObject<Env> {
   }
 
   async fetch(req: Request): Promise<Response> {
+    const wsId = req.headers.get("x-ci-workspace")!;
+    const res = await this.handle(req, wsId);
+    // Claim any new note IDs once the request has done its work (the first request also backfills).
+    this.registering ??= this.registerIds(wsId)
+      .catch((e) => console.error("Couldn't register note IDs", e))
+      .finally(() => (this.registering = null));
+    this.ctx.waitUntil(this.registering);
+    return res;
+  }
+
+  /**
+   * Claim this workspace's unclaimed note IDs in the directory, so their URLs work from any
+   * workspace. An ID already claimed elsewhere (a collision, or a vault brought in from outside)
+   * gets a new one, which the next round claims.
+   */
+  private async registerIds(wsId: string) {
+    for (let round = 0; round < 5; round++) {
+      const ids = this.db.all<{ id: string }>("SELECT id FROM notes WHERE id IS NOT NULL AND id NOT IN (SELECT id FROM registered_ids)").map((r) => r.id);
+      if (!ids.length) return;
+      let reassigned = false;
+      for (let i = 0; i < ids.length; i += 50) {
+        const chunk = ids.slice(i, i + 50);
+        const now = Date.now();
+        await this.env.DB.batch(
+          chunk.map((id) => this.env.DB.prepare("INSERT INTO note_ids(id, workspace_id, created_at) VALUES (?,?,?) ON CONFLICT(id) DO NOTHING").bind(id, wsId, now)),
+        );
+        const { results } = await this.env.DB.prepare(`SELECT id, workspace_id FROM note_ids WHERE id IN (${chunk.map(() => "?").join(",")})`)
+          .bind(...chunk)
+          .all<{ id: string; workspace_id: string }>();
+        const owner = new Map(results.map((r) => [r.id, r.workspace_id]));
+        for (const id of chunk) {
+          if (owner.get(id) === wsId) this.db.run("INSERT OR IGNORE INTO registered_ids(id) VALUES (?)", id);
+          else if (owner.has(id) && this.quire.pathOf(id)) {
+            this.quire.reassignId(id);
+            reassigned = true;
+          }
+        }
+      }
+      if (reassigned) this.broadcast({ type: "tree" });
+    }
+  }
+
+  private async handle(req: Request, wsId: string): Promise<Response> {
     const url = new URL(req.url);
     const route = url.pathname;
-    const wsId = req.headers.get("x-ci-workspace")!;
     const base = `/api/w/${wsId}`;
 
     if (route === "/live") {

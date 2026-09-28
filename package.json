@@ -12,6 +12,8 @@
     "mcp": "bin/quire mcp",
     "agent-demo": "node --disable-warning=ExperimentalWarning --import tsx scripts/agent-demo.ts",
     "typecheck": "tsc --noEmit",
+    "test": "node --disable-warning=ExperimentalWarning --import tsx --test \"test/**/*.test.ts\"",
+    "check": "npm run typecheck && npm run cloud:typecheck && npm test",
     "build:web": "vite build web --outDir ../dist --emptyOutDir",
     "cloud:dev": "npm run build:web && wrangler d1 migrations apply commonink --local -c cloud/wrangler.jsonc && wrangler dev -c cloud/wrangler.jsonc --port 8787",
     "cloud:deploy": "npm run build:web && wrangler d1 migrations apply commonink --remote -c cloud/wrangler.jsonc && wrangler deploy -c cloud/wrangler.jsonc",

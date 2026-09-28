@@ -58,6 +58,20 @@ export function membership(db: D1Database, userId: string, workspaceId: string) 
     .first<WorkspaceRef>();
 }
 
+/**
+ * Which workspace a note ID belongs to, if this person can open it. Not-found and no-access look the
+ * same, so a guessed ID reveals nothing. (Per-note sharing will add its grants here.)
+ */
+export function locateNote(db: D1Database, userId: string, noteId: string) {
+  return db
+    .prepare(
+      `SELECT w.id, w.name FROM note_ids n JOIN members m ON m.workspace_id = n.workspace_id AND m.user_id = ?
+       JOIN workspaces w ON w.id = n.workspace_id WHERE n.id = ?`,
+    )
+    .bind(userId, noteId)
+    .first<{ id: string; name: string }>();
+}
+
 export async function createWorkspace(db: D1Database, owner: User, name: string, kind: "personal" | "team") {
   const id = newId();
   const now = Date.now();
