@@ -126,6 +126,14 @@ test("an agent acts as its person, with their role, and its writes say who", asy
   assert.deepEqual(await viewer.tools(), [...READ_TOOLS, "star_note", "unstar_note"].sort());
 
   assert.deepEqual(await owner.call("create_note", { path: "From an agent", content: "# From an agent\n" }), { text: "Created From an agent.md → version ef45559ebd67 (2 lines)", isError: false });
+  // Its note's URL works like any other: the ID reaches the directory once the call is done,
+  // without waiting for some other request to the workspace.
+  const storage = await cloud.server.getWorker().getDurableObjectStorage("WORKSPACE", { name: people.id });
+  const [{ id }] = (await storage.exec("SELECT id FROM notes WHERE path = ?", "From an agent.md")) as Array<{ id: string }>;
+  const locate = async () => (await cloud.request(people.editor, "GET", `/api/note-ids/${id}`)).status;
+  let status = await locate();
+  for (let i = 0; i < 40 && status !== 200; i++) status = await new Promise((r) => setTimeout(r, 50)).then(locate);
+  assert.equal(status, 200);
   const [latest] = await cloud.call(people.owner, "GET", `${people.base}/changes?limit=1`);
   assert.deepEqual([latest.path, latest.source], ["From an agent.md", "Test Agent (via Owner)"]);
 

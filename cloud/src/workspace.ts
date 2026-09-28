@@ -36,12 +36,16 @@ export class Workspace extends DurableObject<Env> {
   async fetch(req: Request): Promise<Response> {
     const wsId = req.headers.get("x-ci-workspace")!;
     const res = await this.handle(req, wsId);
-    // Claim any new note IDs once the request has done its work (the first request also backfills).
+    this.claimIds(wsId);
+    return res;
+  }
+
+  /** Claim any new note IDs once a request has done its work (the first request also backfills). */
+  private claimIds(wsId: string) {
     this.registering ??= this.registerIds(wsId)
       .catch((e) => console.error("Couldn't register note IDs", e))
       .finally(() => (this.registering = null));
     this.ctx.waitUntil(this.registering);
-    return res;
   }
 
   /**
@@ -186,7 +190,7 @@ export class Workspace extends DurableObject<Env> {
    * are offered by `role`, and writes are attributed to `actor`, e.g. "Claude (via Audrow)". Open
    * tabs hear about the agent's changes like any other.
    */
-  async mcp(req: Request, who: { user: string; actor: string; role: string }): Promise<Response> {
+  async mcp(req: Request, who: { workspace: string; user: string; actor: string; role: string }): Promise<Response> {
     const role = asRole(who.role);
     const server = createMcpServer({
       quire: this.quire,
@@ -208,6 +212,7 @@ export class Workspace extends DurableObject<Env> {
         this.announce(c.path, content, c.version ?? "", c);
       }
       if (made.length) this.broadcast({ type: "tree" });
+      this.claimIds(who.workspace);
     }
   }
 

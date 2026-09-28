@@ -64,7 +64,7 @@ async function serveMcp(req: Request, env: OAuthEnv, ctx: ExecutionContext<Agent
       .run(),
   );
   const stub = env.WORKSPACE.get(env.WORKSPACE.idFromName(ws.id));
-  return stub.mcp(req, { user: user.id, actor: agentActor(client, user), role: ws.role });
+  return stub.mcp(req, { workspace: ws.id, user: user.id, actor: agentActor(client, user), role: ws.role });
 }
 
 // ------------------------------------------------------------------ consent
