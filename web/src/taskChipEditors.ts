@@ -26,7 +26,8 @@ export async function taskPeople(): Promise<string[]> {
   return [...count].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([p]) => p);
 }
 
-type Editor = (anchor: HTMLElement, value: string, ctx: ChipContext) => void;
+/** A field's editor under `anchor`. `more` opens the repeat editor straight on its full form. */
+type Editor = (anchor: HTMLElement, value: string, ctx: ChipContext, opts?: { more?: boolean }) => void;
 
 /** A small popover under `anchor` that closes on Escape or a click outside. */
 function popover(anchor: HTMLElement, ctx: ChipContext, label: string, ...children: HTMLElement[]) {
@@ -116,7 +117,7 @@ export const REPEAT_PICKS: Array<[string, string]> = [
 ];
 
 /** Repeat: quick picks, "Skip this one", "Stop repeating", and "More options…" for any rule there's a token for. */
-const repeat: Editor = (anchor, value, ctx) => {
+const repeat: Editor = (anchor, value, ctx, opts) => {
   const now = parseRule(value);
   const list = el("div", { class: "fp-list chip-rec-list" });
   const head = el("div", { class: "fp-head chip-rec-head" }, icon("reset", 15), el("span", {}, now ? ruleLabel(now, true) : value || "Doesn't repeat yet"));
@@ -141,6 +142,7 @@ const repeat: Editor = (anchor, value, ctx) => {
   // Focus the popover itself, so Escape closes it and Tab reaches the first pick, without marking one as chosen.
   box.tabIndex = -1;
   box.focus();
+  if (opts?.more) more();
 };
 
 const UNITS: Freq[] = ["day", "week", "month", "year"];
@@ -438,8 +440,8 @@ export function openChipEditor(chip: HTMLElement, ctx: ChipContext): boolean {
 export type MenuField = "priority" | "due" | "start" | "rec" | "assignees" | "tags";
 
 /** Open one field's editor under `anchor`, for a value it has or a new one (""). */
-export function openFieldEditor(field: MenuField, anchor: HTMLElement, value: string, ctx: ChipContext) {
-  (field === "tags" ? tags : EDITORS[field]!)(anchor, value, ctx);
+export function openFieldEditor(field: MenuField, anchor: HTMLElement, value: string, ctx: ChipContext, opts?: { more?: boolean }) {
+  (field === "tags" ? tags : EDITORS[field]!)(anchor, value, ctx, opts);
 }
 
 /** Every field a task can carry, in chip order, with what it's set to now ("" for nothing). */

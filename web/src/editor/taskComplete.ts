@@ -21,13 +21,13 @@ export function dayPicks(today: string): Array<{ label: string; date: string }> 
 }
 
 /** "Pick a date…" and "More options…": take the half-typed token out and open that field's editor there. */
-const openEditor = (field: MenuField, tokenFrom: number) => (view: EditorView, _c: Completion, _from: number, to: number) => {
+const openEditor = (field: MenuField, tokenFrom: number, opts?: { more?: boolean }) => (view: EditorView, _c: Completion, _from: number, to: number) => {
   // At the end of the line, the space typed before the token goes too: the editor writes the token back in its place.
   const line = view.state.doc.lineAt(tokenFrom);
   const space = view.state.sliceDoc(to, line.to).trim() ? 0 : view.state.sliceDoc(line.from, tokenFrom).match(/[ \t]*$/)![0].length;
   const cut = tokenFrom - space;
   view.dispatch({ changes: { from: cut, to }, selection: { anchor: cut }, userEvent: "input.complete" });
-  void import("./taskTools.ts").then((m) => m.openFieldAt(view, field, cut));
+  void import("./taskTools.ts").then((m) => m.openFieldAt(view, field, cut, opts));
 };
 
 /** An option with the icon the completion list draws beside it. */
@@ -47,7 +47,7 @@ export function taskTokenSource(ctx: CompletionContext): CompletionResult | null
       validFor: /^\S*$/,
       options: [
         ...REPEAT_PICKS.map(([label, rec], i) => pick({ label, detail: rec, apply: rec, boost: -i }, "reset")),
-        pick({ label: "More options…", apply: openEditor("rec", typed.from), boost: -99 }, "sliders"),
+        pick({ label: "More options…", apply: openEditor("rec", typed.from, { more: true }), boost: -99 }, "sliders"),
       ],
     };
   }
