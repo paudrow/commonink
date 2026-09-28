@@ -11,9 +11,10 @@ import { providerFrame, resolveEmbed } from "../embeds/providers.ts";
 import { newId, parseDirective, serializeDirective, type Directive } from "../widgets/args.ts";
 import { renderWidget, type WidgetEnv } from "../widgets/core.ts";
 import { pendingConfig, WIDGETS } from "../widgets/index.ts";
-import type { NoteMeta } from "../api.ts";
+import type { NoteMeta, TagCount } from "../api.ts";
 import { touches } from "./livePreview.ts";
 import { dataEmbed, hydrateDataEmbeds } from "../textPreview.ts";
+import { scanTags } from "../../../src/core/tags.ts";
 
 export interface EditorContext {
   path: string;
@@ -22,6 +23,10 @@ export interface EditorContext {
   notes(): NoteMeta[];
   /** Upload files (or pick some, if none given); resolves to the names to embed them by. */
   upload(files?: File[]): Promise<string[]>;
+  /** Tags in use, for `#` suggestions. */
+  tags(): TagCount[];
+  /** Show what carries a tag: notes, or (from a task) tasks. */
+  openTag(tag: string, where?: "notes" | "tasks"): void;
 }
 export const editorContext = Facet.define<EditorContext, EditorContext>({ combine: (v) => v[0] });
 
@@ -302,6 +307,7 @@ class DirectiveWidget extends WidgetType {
       },
       focusEditor: () => view.focus(),
       open: (target, line) => view.state.facet(editorContext).openTarget(line ? `${target}#L${line}` : target, this.note),
+      openTag: (tag) => view.state.facet(editorContext).openTag(tag, "tasks"),
       remeasure: () =>
         requestAnimationFrame(() => {
           if (root.isConnected) heights.set(`w|${this.source}`, root.offsetHeight);
@@ -439,6 +445,17 @@ class PropertiesWidget extends WidgetType {
     return true;
   }
   toDOM(view: EditorView) {
+    // Tags come from the index's own parser (so a block list works too) and filter Notes when clicked.
+    const tags = scanTags(`---\n${this.yaml}\n---\n`).filter((t) => t.frontmatter);
+    const tagChip = (display: string) => {
+      const chip = el("span", { class: "tag is-link", title: `Notes tagged #${display}` }, `#${display}`);
+      chip.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        view.state.facet(editorContext).openTag(display);
+      });
+      return chip;
+    };
     const rows = this.yaml
       .split("\n")
       .map((l) => l.match(/^([\w-]+):\s*(.*)$/))
@@ -450,7 +467,9 @@ class PropertiesWidget extends WidgetType {
           "div",
           { class: "prop" },
           el("span", { class: "prop-key" }, k),
-          el("span", { class: "prop-val" }, ...values.map((x) => el("span", { class: list ? "tag" : "" }, list ? `#${x}` : x))),
+          k === "tags"
+            ? el("span", { class: "prop-val" }, ...tags.map((t) => tagChip(t.display)))
+            : el("span", { class: "prop-val" }, ...values.map((x) => el("span", { class: list ? "prop-item" : "" }, x))),
         );
       });
     const wrap = el("div", { class: "cm-properties-block" }, el("div", { class: "cm-properties" }, ...rows));

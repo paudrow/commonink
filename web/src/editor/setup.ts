@@ -45,6 +45,12 @@ export function linkTargetAt(state: EditorState, pos: number): { target?: string
 
 const linkClicks = EditorView.domEventHandlers({
   mousedown(e, view) {
+    const tag = (e.target as HTMLElement).closest<HTMLElement>(".cm-tag");
+    if (tag && e.button === 0 && (!tag.classList.contains("is-raw") || e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      view.state.facet(editorContext).openTag(tag.dataset.tag!);
+      return true;
+    }
     const t = (e.target as HTMLElement).closest<HTMLElement>(".cm-wikilink, .cm-md-link");
     if (!t || e.button !== 0) return false;
     if (t.classList.contains("is-raw") && !(e.metaKey || e.ctrlKey)) return false;

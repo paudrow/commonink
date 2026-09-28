@@ -1,12 +1,13 @@
 // Notes: every note as a stream of cards, newest first — the app's home. Click a card to read
 // the whole note in place; Edit opens it in the editor. Filter as you type, triage from the
 // keyboard (j/k, Enter to expand, o to open, e to archive, x to select), and archive in bulk.
-import { api, type FeedItem, type FeedPage, type Scope } from "./api.ts";
+import { api, type FeedItem, type FeedPage, type Scope, type TagCount } from "./api.ts";
 import { $, avatar, displayName, el, escapeHtml, icon, NOTE_DRAG, timeAgo } from "./dom.ts";
 import { renderMarkdown, sandboxFrame } from "./render.ts";
 import { hydrateDataEmbeds } from "./textPreview.ts";
 import { parseDirective } from "./widgets/args.ts";
 import { WIDGETS } from "./widgets/index.ts";
+import { tagChip, tagFilter } from "./tagPicker.ts";
 
 interface Hooks {
   open(path: string, line?: number): void;
@@ -14,6 +15,7 @@ interface Hooks {
   toggleStar(path: string): void;
   /** The folder filter changed (the sidebar marks the folder being shown). */
   folderChanged(): void;
+  tags(): TagCount[];
   toast(t: { text: string; icon?: string; actionLabel?: string; action?: () => void }): void;
   changed(): void;
 }
@@ -26,10 +28,13 @@ export class NotesPage {
   private list: HTMLElement;
   private scopeBar: HTMLElement;
   private folderBar: HTMLElement;
+  private tagBar: HTMLElement;
   private bulk: HTMLElement;
   private more: HTMLElement;
   private scope: Scope = "active";
   private folder = "";
+  /** The tag Notes is narrowed to ("" for any); its children count too. */
+  private tag = "";
   private items: FeedItem[] = [];
   private page: FeedPage | null = null;
   private focus = 0;
@@ -45,6 +50,7 @@ export class NotesPage {
     this.input = el("input", { placeholder: "Filter notes…", spellcheck: "false", autocomplete: "off" });
     this.scopeBar = el("div", { class: "seg feed-scope" });
     this.folderBar = el("div", { class: "feed-folders" });
+    this.tagBar = el("div", { class: "feed-folders" });
     this.bulk = el("div", { class: "feed-bulk", hidden: true });
     this.list = el("div", { class: "feed-list", role: "list" });
     this.more = el("div", { class: "feed-more" });
@@ -57,7 +63,7 @@ export class NotesPage {
           { class: "feed-head" },
           el("h1", {}, "Notes"),
           el("label", { class: "feed-search" }, icon("search", 16), this.input, el("kbd", {}, "/")),
-          el("div", { class: "feed-filters" }, this.scopeBar, this.folderBar),
+          el("div", { class: "feed-filters" }, this.scopeBar, this.tagBar, this.folderBar),
         ),
         this.bulk,
         this.list,
@@ -89,13 +95,18 @@ export class NotesPage {
   }
 
   /** Show the list where the reader left it: same scroll position, same cards open. */
-  show(opts: { scope?: Scope; filter?: boolean; folder?: string } = {}) {
+  show(opts: { scope?: Scope; filter?: boolean; folder?: string; tag?: string } = {}) {
     if (opts.scope && opts.scope !== this.scope) {
       this.scope = opts.scope;
       this.scrollTop = 0;
     }
     if (opts.folder !== undefined && opts.folder !== this.folder) {
       this.folder = opts.folder;
+      this.focus = 0;
+      this.scrollTop = 0;
+    }
+    if (opts.tag !== undefined && opts.tag !== this.tag) {
+      this.tag = opts.tag;
       this.focus = 0;
       this.scrollTop = 0;
     }
@@ -109,7 +120,7 @@ export class NotesPage {
   async reload() {
     const seq = ++this.seq;
     const keep = this.items[this.focus]?.path;
-    const page = await api.feed({ q: this.input.value.trim(), scope: this.scope, folder: this.folder, limit: Math.max(PAGE, this.items.length) }).catch(() => null);
+    const page = await api.feed({ q: this.input.value.trim(), scope: this.scope, folder: this.folder, tag: this.tag, limit: Math.max(PAGE, this.items.length) }).catch(() => null);
     if (!page || seq !== this.seq) return;
     this.page = page;
     this.items = page.items;
@@ -124,7 +135,7 @@ export class NotesPage {
   private async loadMore() {
     if (!this.page || this.items.length >= this.page.total || this.more.dataset.loading) return;
     this.more.dataset.loading = "1";
-    const page = await api.feed({ q: this.input.value.trim(), scope: this.scope, folder: this.folder, offset: this.items.length, limit: PAGE }).catch(() => null);
+    const page = await api.feed({ q: this.input.value.trim(), scope: this.scope, folder: this.folder, tag: this.tag, offset: this.items.length, limit: PAGE }).catch(() => null);
     delete this.more.dataset.loading;
     if (!page) return;
     this.items.push(...page.items);
@@ -156,13 +167,15 @@ export class NotesPage {
         el("button", { type: "button", class: `chip${f === this.folder ? " is-on" : ""}`, onclick: () => ((this.folder = f), (this.focus = 0), this.hooks.folderChanged(), this.reload()) }, f || "All folders"),
       ),
     );
+    this.tagBar.replaceChildren(tagFilter({ current: this.tag, tags: this.hooks.tags, count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }));
     const q = this.input.value.trim();
     const top = this.root.scrollTop;
     const which = this.scope === "all" ? "" : `${this.scope} `;
+    const where = `${this.tag ? ` tagged #${this.tag}` : ""}${this.folder ? ` in ${this.folder}` : ""}`;
     const empty = q
-      ? `No ${which}notes match “${q}”${this.folder ? ` in ${this.folder}` : ""}.`
-      : this.folder
-        ? `No ${which}notes in ${this.folder}.`
+      ? `No ${which}notes${where} match “${q}”.`
+      : this.folder || this.tag
+        ? `No ${which}notes${where}.`
         : this.scope === "archived"
           ? "Nothing archived yet. Press e on a note to archive it."
           : "No notes yet.";
@@ -244,7 +257,7 @@ export class NotesPage {
           el("span", { "data-ts": String(item.mtime) }, timeAgo(item.mtime)),
         ),
         body,
-        item.tags.length ? el("div", { class: "fc-tags" }, ...item.tags.map((t) => el("span", { class: "tag" }, `#${t}`))) : null,
+        item.tags.length ? el("div", { class: "fc-tags" }, ...item.tags.map((t) => tagChip(t, () => this.setTag(t)))) : null,
         open
           ? el(
               "div",
@@ -311,6 +324,14 @@ export class NotesPage {
       box.checked = !box.checked;
       this.hooks.toast({ text: "Couldn't update that task. Open the note to change it." });
     }
+  }
+
+  /** Narrow Notes to a tag (and the tags under it), or "" for every note. */
+  setTag(tag: string) {
+    this.tag = tag;
+    this.focus = 0;
+    this.root.scrollTop = this.scrollTop = 0;
+    void this.reload();
   }
 
   private toggleExpand(i: number) {

@@ -75,6 +75,14 @@ export interface FeedPage {
   folders: string[];
 }
 export const isArchived = (p: string) => p.startsWith("Archive/");
+/** A tag in use (parents included), and how many notes, tasks and assets carry it or a tag under it. */
+export interface TagCount {
+  tag: string;
+  display: string;
+  notes: number;
+  tasks: number;
+  assets: number;
+}
 export interface Task {
   path: string;
   title: string;
@@ -154,8 +162,14 @@ export const api = {
   search: (q: string, scope: Scope = "active") => j<SearchHit[]>(`${BASE}/search?q=${enc(q)}&limit=20&scope=${scope}`),
   feed: (p: { q?: string; scope?: Scope; folder?: string; tag?: string; sort?: "modified" | "title"; offset?: number; limit?: number }) =>
     j<FeedPage>(`${BASE}/feed?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
-  tasks: (p: { folder?: string; note?: string }) =>
+  tasks: (p: { folder?: string; note?: string; tag?: string }) =>
     j<Task[]>(`${BASE}/tasks?${new URLSearchParams(Object.entries(p).filter(([, v]) => v).map(([k, v]) => [k, String(v)]))}`),
+  tags: () => j<TagCount[]>(`${BASE}/tags`),
+  /** Each tagged asset's tags. */
+  assetTags: () => j<Record<string, string[]>>(`${BASE}/asset-tags`),
+  setAssetTags: (path: string, tags: string[]) => j<{ tags: string[] }>(`${BASE}/asset-tags`, send("PUT", { path, tags })),
+  /** Rename (or merge) a tag everywhere. Restoring `changes` and setting `assets` back undoes it. */
+  renameTag: (from: string, to: string) => j<{ changes: number[]; assets: Record<string, string[]> }>(`${BASE}/tags/rename`, send("POST", { from, to })),
   setTask: (t: Task, done: boolean) => j<{ path: string; version: string }>(`${BASE}/tasks/set`, send("POST", { path: t.path, line: t.line, text: t.text, done })),
   /** Your starred notes, in your order. Each change returns the new list. */
   favorites: () => j<NoteMeta[]>(`${BASE}/favorites`),

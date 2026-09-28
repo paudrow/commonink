@@ -7,6 +7,7 @@ import { api, type Task } from "../api.ts";
 import { el, icon } from "../dom.ts";
 import { onVaultChange } from "../events.ts";
 import type { WidgetSpec } from "./core.ts";
+import { tagsInLine } from "../../../src/core/tags.ts";
 
 type Show = "open" | "done" | "all";
 const prevent = (e: Event) => e.preventDefault();
@@ -22,6 +23,7 @@ export const tasks: WidgetSpec = {
     { key: "label", label: "Label", type: "text", placeholder: "This week, Launch…" },
     { key: "folder", label: "Folder", type: "text", placeholder: "Every note, or e.g. Projects" },
     { key: "note", label: "Note", type: "text", placeholder: "Just one note (optional)" },
+    { key: "tag", label: "Tag", type: "text", placeholder: "e.g. work (includes work/…)" },
   ],
 
   mount(body, env) {
@@ -38,7 +40,7 @@ export const tasks: WidgetSpec = {
     body.append(el("div", { class: "qt-top" }, summary, el("span", { class: "spacer" }), seg), el("div", { class: "qt-progress" }, bar), list);
 
     async function load() {
-      const t = await api.tasks({ folder: env.args.folder, note: env.args.note }).catch(() => null);
+      const t = await api.tasks({ folder: env.args.folder, note: env.args.note, tag: env.args.tag }).catch(() => null);
       if (!alive || !t) return;
       all = t;
       render();
@@ -83,7 +85,11 @@ export const tasks: WidgetSpec = {
       });
       const text = el("span", { class: "qt-text", html: inline(t.text), title: `${t.title}, line ${t.line}` });
       text.addEventListener("mousedown", prevent);
-      text.addEventListener("click", () => env.open(t.path, t.line));
+      text.addEventListener("click", (e) => {
+        const tag = (e.target as HTMLElement).closest<HTMLElement>(".tag")?.dataset.tag;
+        if (tag) env.openTag(tag);
+        else env.open(t.path, t.line);
+      });
       return el("div", { class: `qt-row${t.done ? " is-done" : ""}` }, box, text, t.heading && t.heading !== t.title ? el("span", { class: "qt-where" }, t.heading) : null);
     }
 
@@ -107,9 +113,14 @@ export const tasks: WidgetSpec = {
   },
 };
 
-/** Task text as inline markdown; [[links]] shown by name. */
+/** Task text as inline markdown; [[links]] shown by name, #tags as chips. */
 function inline(md: string): string {
-  const withLinks = md.replace(/\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g, (_m, t: string, alias?: string) => `\u0001${alias ?? t}\u0002`);
+  const hits = tagsInLine(md);
+  let text = md;
+  for (let i = hits.length - 1; i >= 0; i--) text = `${text.slice(0, hits[i].from - 1)}\u0003${i}\u0004${text.slice(hits[i].to)}`;
+  const withLinks = text.replace(/\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g, (_m, t: string, alias?: string) => `\u0001${alias ?? t}\u0002`);
   const html = DOMPurify.sanitize(marked.parseInline(withLinks, { async: false }) as string, { FORBID_TAGS: ["img", "style"] });
-  return html.replace(/\u0001([^\u0002]*)\u0002/g, '<span class="qt-link">$1</span>'); // already escaped by marked
+  return html
+    .replace(/\u0001([^\u0002]*)\u0002/g, '<span class="qt-link">$1</span>') // already escaped by marked
+    .replace(/\u0003(\d+)\u0004/g, (_m, i) => `<span class="tag" data-tag="${hits[+i].tag}" title="Tasks tagged #${hits[+i].display}">#${hits[+i].display}</span>`); // tags are letters, digits, _ - /
 }

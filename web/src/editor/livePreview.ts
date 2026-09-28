@@ -1,9 +1,18 @@
 // Inline live preview: markup hides itself unless the selection touches it (Obsidian-style).
 import { syntaxTree } from "@codemirror/language";
-import type { EditorState, Range } from "@codemirror/state";
+import type { EditorState, Range, Text } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
+import { scanTags, type TagSpan } from "../../../src/core/tags.ts";
 
 const hide = Decoration.replace({});
+
+/** A document's tags, found by the same parser the index uses, so a chip here is a tag there. */
+const tagCache = new WeakMap<Text, TagSpan[]>();
+function tagsIn(doc: Text): TagSpan[] {
+  let spans = tagCache.get(doc);
+  if (!spans) tagCache.set(doc, (spans = scanTags(doc.toString())));
+  return spans;
+}
 
 export function touches(state: EditorState, from: number, to: number): boolean {
   for (const r of state.selection.ranges) if (r.from <= to && r.to >= from) return true;
@@ -103,6 +112,19 @@ function build(view: EditorView): DecorationSet {
   const { state } = view;
   const out: Range<Decoration>[] = [];
   const doc = state.doc;
+
+  // #tags render as chips; the # comes back while the cursor is on one.
+  const first = doc.lineAt(view.viewport.from).number;
+  const last = doc.lineAt(view.viewport.to).number;
+  for (const t of tagsIn(doc)) {
+    if (t.frontmatter || t.line < first || t.line > last) continue;
+    const line = doc.line(t.line);
+    const from = line.from + t.from - 1;
+    const to = line.from + t.to;
+    const raw = touches(state, from, to);
+    out.push(Decoration.mark({ class: `cm-tag${raw ? " is-raw" : ""}`, attributes: { "data-tag": t.display } }).range(raw ? from : from + 1, to));
+    if (!raw) out.push(hide.range(from, from + 1));
+  }
 
   for (const { from, to } of view.visibleRanges) {
     syntaxTree(state).iterate({

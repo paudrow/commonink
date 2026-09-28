@@ -2,7 +2,7 @@ import "./styles.css";
 import { EditorView } from "@codemirror/view";
 import type { EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
-import { api, clientId, connect, isArchived, useWorkspace, whoAmI, ApiError, type Change, type NoteMeta, type Scope, type ServerMsg } from "./api.ts";
+import { api, clientId, connect, isArchived, useWorkspace, whoAmI, ApiError, type Change, type NoteMeta, type Scope, type ServerMsg, type TagCount } from "./api.ts";
 import { $, avatar, displayName, el, hueFor, hydrateIcons, icon, isSelf, NOTE_DRAG, setSelfName, timeAgo } from "./dom.ts";
 import { createState, linkTargetAt, remote, vimSlot } from "./editor/setup.ts";
 import { bumpEmbeds, editorContext } from "./editor/blocks.ts";
@@ -15,6 +15,7 @@ import { folderPicker } from "./folderPicker.ts";
 import { History } from "./history.ts";
 import { Assets } from "./assets.ts";
 import { renderTasksPage } from "./tasksView.ts";
+import { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
 import { groupChanges } from "../../src/core/format.ts";
@@ -66,6 +67,8 @@ let notes: NoteMeta[] = [];
 /** Your starred notes, in your order (archived ones too; the sidebar leaves those out). */
 let favorites: NoteMeta[] = [];
 let changes: Change[] = [];
+/** Every tag in use, for suggestions and filters. */
+let tags: TagCount[] = [];
 let session: Session | null = null;
 
 const view = new EditorView({ parent: $("#editor-host") });
@@ -74,6 +77,7 @@ const notesPage = new NotesPage({
   starred: (id) => isStarred(id),
   toggleStar: (path) => void toggleStar(path),
   folderChanged: () => renderTree(),
+  tags: () => tags,
   toast: (t) => toast(t),
   changed: () => {
     api.clearResolveCache();
@@ -91,6 +95,14 @@ const assetsPage = new Assets({
   open: (path) => void openNote(path),
   archive: (path) => archivePath(path),
   embedName: (path) => embedName(path),
+  tags: () => tags,
+  refreshTags: () => refreshNotes(),
+  toast: (t) => toast(t),
+});
+const tagsPage = new TagsPage($("#tags-view"), {
+  tags: () => tags,
+  refresh: () => refreshNotes(),
+  openTag: (tag, where) => openTag(tag, where),
   toast: (t) => toast(t),
 });
 const palette = new Palette(
@@ -137,7 +149,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
         doc: note.content,
         kind: note.kind === "html" ? "html" : "md",
         vim: prefs.vim,
-        context: { path: note.path, openTarget, createNote, notes: () => notes, upload: (files) => uploadFiles(files) },
+        context: { path: note.path, openTarget, createNote, notes: () => notes, upload: (files) => uploadFiles(files), tags: () => tags, openTag },
         onUpdate: (docChanged, fromRemote, state) => onUpdate(next, docChanged, fromRemote, state),
       }),
     );
@@ -186,13 +198,14 @@ function setUrl(url: string, how: "push" | "replace" = "push") {
 
 let unmountTasks: (() => void) | null = null;
 
-function showStage(which: "editor" | "html" | "notes" | "tasks" | "history" | "assets") {
+function showStage(which: "editor" | "html" | "notes" | "tasks" | "history" | "assets" | "tags") {
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
   $("#assets-view").hidden = which !== "assets";
   $("#notes-view").hidden = which !== "notes";
   $("#tasks-view").hidden = which !== "tasks";
   $("#history-view").hidden = which !== "history";
+  $("#tags-view").hidden = which !== "tags";
   if (which !== "tasks") {
     unmountTasks?.();
     unmountTasks = null;
@@ -212,7 +225,7 @@ async function leaveNote() {
 }
 
 /** Notes is home: every note, newest first. No note is open while it's showing. */
-async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: string; push?: boolean } = {}) {
+async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: string; tag?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("notes");
   notesPage.show(opts);
@@ -223,10 +236,10 @@ async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: strin
   renderOutline();
 }
 
-async function showTasks(opts: { push?: boolean } = {}) {
+async function showTasks(opts: { tag?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("tasks");
-  unmountTasks = renderTasksPage($("#tasks-view"), (path, line) => void openNote(path, { line }));
+  unmountTasks = renderTasksPage($("#tasks-view"), { open: (path, line) => void openNote(path, { line }), tags: () => tags }, opts.tag);
   $("#tasks-view").focus({ preventScroll: true });
   if (opts.push !== false) setUrl("/tasks");
   document.title = "Tasks · Common Ink";
@@ -246,6 +259,23 @@ async function showHistory(opts: { note?: string | null; select?: number; push?:
   renderChrome();
   renderTree();
   renderOutline();
+}
+
+async function showTags(opts: { push?: boolean } = {}) {
+  await leaveNote();
+  showStage("tags");
+  tagsPage.show();
+  if (opts.push !== false) setUrl("/tags");
+  document.title = "Tags · Common Ink";
+  renderChrome();
+  renderTree();
+  renderOutline();
+}
+
+/** Show what carries a tag (and the tags under it): its notes, or its tasks. */
+function openTag(tag: string, where: "notes" | "tasks" = "notes") {
+  if (where === "tasks") void showTasks({ tag });
+  else void showNotes({ scope: "active", folder: "", tag });
 }
 
 async function showAssets(opts: { open?: string; push?: boolean } = {}) {
@@ -292,7 +322,7 @@ function pickFiles(): Promise<File[]> {
 }
 
 const onPage = () =>
-  notesPage.visible ? "notes" : !$("#tasks-view").hidden ? "tasks" : historyPage.visible ? "history" : assetsPage.visible ? "assets" : null;
+  notesPage.visible ? "notes" : !$("#tasks-view").hidden ? "tasks" : historyPage.visible ? "history" : assetsPage.visible ? "assets" : tagsPage.visible ? "tags" : null;
 
 // ------------------------------------------------------------------ focus mode
 
@@ -628,12 +658,13 @@ function embedsPath(path: string): boolean {
 }
 
 async function refreshNotes() {
-  [notes, favorites] = await Promise.all([api.notes(), api.favorites()]);
+  [notes, favorites, tags] = await Promise.all([api.notes(), api.favorites(), api.tags()]);
   // The open note's title may have changed: keep the slug in its URL current.
   const open = session && notes.find((n) => n.id === session!.id);
   if (open && parseNotePath(location.pathname)?.id === open.id) setUrl(notePath(open.title, open.id), "replace");
   renderTree();
   assetsPage.refresh();
+  tagsPage.refresh();
 }
 const refreshNotesSoon = debounce(refreshNotes, 120);
 
@@ -783,6 +814,7 @@ function renderTree() {
   $("#tasks-btn").classList.toggle("is-active", page === "tasks");
   $("#history-btn").classList.toggle("is-active", page === "history" && !historyPage.noteFilter);
   $("#assets-btn").classList.toggle("is-active", page === "assets");
+  $("#tags-btn").classList.toggle("is-active", page === "tags");
 
   const empty = emptyFolders();
   for (const f of [...empty]) if (notes.some((n) => n.path.startsWith(`${f}/`))) empty.delete(f); // it has notes now: it's a real folder
@@ -812,8 +844,8 @@ function renderTree() {
             "data-folder": path,
             title: n ? `Show the notes in ${path}` : `${path} is empty. Drag notes here.`,
             tabindex: "0",
-            onclick: () => void showNotes({ scope: "active", folder: path }),
-            onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && void showNotes({ scope: "active", folder: path }),
+            onclick: () => void showNotes({ scope: "active", folder: path, tag: "" }),
+            onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && void showNotes({ scope: "active", folder: path, tag: "" }),
           },
           subs
             ? el(
@@ -982,7 +1014,7 @@ function renderChrome() {
     $("#html-toggle").hidden = true;
     for (const id of ["#vim-mode", "#cursor-pos", "#word-count"]) $(id).textContent = "";
     $("#vim-mode").dataset.mode = "";
-    const label = { notes: "Notes", tasks: "Tasks", history: "History", assets: "Assets" };
+    const label = { notes: "Notes", tasks: "Tasks", history: "History", assets: "Assets", tags: "Tags" };
     const note = page === "history" ? historyPage.noteFilter : null;
     return crumbs.replaceChildren(
       ...(page ? [el("span", { class: "crumb-file" }, label[page])] : []),
@@ -1383,6 +1415,7 @@ async function route() {
   const at = location.pathname.replace(/\/+$/, "") || "/";
   if (at === "/tasks") return showTasks({ push: false });
   if (at === "/assets") return showAssets({ push: false });
+  if (at === "/tags") return showTags({ push: false });
   if (at === "/history") {
     const id = new URLSearchParams(location.search).get("note");
     return showHistory({ note: id && NOTE_ID.test(id) ? (notes.find((n) => n.id === id)?.path ?? null) : null, push: false });
@@ -1444,13 +1477,14 @@ async function boot() {
   const isDark = document.documentElement.dataset.theme === "dark" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
   $("#theme-toggle").replaceChildren(icon(isDark ? "sun" : "moon", 15));
   window.addEventListener("popstate", () => void route());
-  $("#notes-btn").addEventListener("click", () => void showNotes({ scope: "active", folder: "" }));
+  $("#notes-btn").addEventListener("click", () => void showNotes({ scope: "active", folder: "", tag: "" }));
   $("#tasks-btn").addEventListener("click", () => void showTasks());
   $("#history-btn").addEventListener("click", () => void showHistory());
   $("#assets-btn").addEventListener("click", () => void showAssets());
+  $("#tags-btn").addEventListener("click", () => void showTags());
   $("#note-history-btn").addEventListener("click", () => session && void showHistory({ note: session.path }));
   $("#back-btn").addEventListener("click", () => void showNotes());
-  $("#archive-nav").addEventListener("click", () => void showNotes({ scope: "archived", folder: "" }));
+  $("#archive-nav").addEventListener("click", () => void showNotes({ scope: "archived", folder: "", tag: "" }));
   $("#archive-btn").addEventListener("click", () => void archiveCurrent());
   $("#star-btn").addEventListener("click", () => session && void toggleStar(session.path));
   $("#move-btn").addEventListener("click", () => openMovePicker($("#move-btn")));
@@ -1476,10 +1510,11 @@ async function boot() {
     renderPresence();
   }, 30_000);
 
-  const [info, list, starred, recent] = await Promise.all([api.info(), api.notes(), api.favorites(), api.changes()]);
+  const [info, list, starred, recent, tagList] = await Promise.all([api.info(), api.notes(), api.favorites(), api.changes(), api.tags()]);
   $("#vault-name").textContent = info.name;
   notes = list;
   favorites = starred;
+  tags = tagList;
   changes = recent;
   renderActivity();
   renderPresence();
