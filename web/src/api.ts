@@ -28,6 +28,7 @@ export interface DiffRun {
   tsFrom: number;
   tsTo: number;
   op: Change["op"];
+  summary: string | null;
   skipped: number;
   before: string | null;
   after: string | null;
@@ -165,6 +166,17 @@ export const api = {
     j<{ path: string; version: string }>(`${BASE}/note`, send("PUT", { path, content, baseVersion, clientId, allowEmpty })),
   create: (path: string, content: string) => j<{ path: string; version: string }>(`${BASE}/note`, send("POST", { path, content })),
   move: (from: string, to: string) => j<{ path: string; updated: string[] }>(`${BASE}/move`, send("POST", { from, to })),
+  /** Upload a file's bytes; the server picks a free name under `folder` (assets/ by default). */
+  async upload(file: File, folder = "assets"): Promise<{ path: string; version: string; size: number }> {
+    const r = await fetch(`${BASE}/upload?name=${enc(file.name)}&folder=${enc(folder)}`, {
+      method: "POST",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new ApiError(data.error ?? r.statusText, r.status, data);
+    return data;
+  },
   resolve(target: string, from?: string): Promise<string | null> {
     const key = `${from ?? ""}\u0000${target}`;
     if (!resolveCache.has(key)) {

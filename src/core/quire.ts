@@ -56,6 +56,8 @@ export interface DiffRun {
   tsFrom: number;
   tsTo: number;
   op: Change["op"];
+  /** The last change's summary ("+3 −1", or a file size for uploads). */
+  summary: string | null;
   /** Changes to this note left out of the selection just before this run. */
   skipped: number;
   before: string | null;
@@ -451,9 +453,10 @@ export class Quire {
         f.open.to = c.id;
         f.open.count++;
         f.open.tsTo = c.ts;
+        f.open.summary = c.summary;
         if (!f.open.sources.includes(c.source)) f.open.sources.push(c.source);
       } else {
-        f.open = { from: c.id, to: c.id, count: 1, sources: [c.source], tsFrom: c.ts, tsTo: c.ts, op: c.op, skipped: f.runs.length ? f.broken : 0, before: null, after: null };
+        f.open = { from: c.id, to: c.id, count: 1, sources: [c.source], tsFrom: c.ts, tsTo: c.ts, op: c.op, summary: c.summary, skipped: f.runs.length ? f.broken : 0, before: null, after: null };
         f.broken = 0;
         f.runs.push(f.open);
       }
@@ -629,6 +632,25 @@ export class Quire {
     return this.commit(note.path, note.content, next, source, "edit");
   }
 
+  /**
+   * Where an uploaded file named `name` goes: `folder/name`, or "name 2.png" if that's taken.
+   * Throws for names that aren't a file type we store.
+   */
+  uploadPath(name: string, folder = "assets"): string {
+    const base = path.posix.basename(name.replace(/\\/g, "/")).replace(/[:*?"<>|#^[\]]/g, "").trim();
+    const rel = cleanPath(folder ? `${folder}/${base}` : base);
+    if (kindOf(rel) !== "asset") throw new QuireError(`Can't upload ${base || "that file"}: images, PDFs, audio, video and common documents only`);
+    return this.freePath(rel);
+  }
+
+  /** The host just wrote a file's bytes to `rel`: index it and log who added it. */
+  recordUpload(rel: string, existed: boolean, source: string) {
+    const meta = this.indexFile(rel);
+    if (!meta) throw new QuireError(`${rel} isn't there`, "not_found");
+    const change = this.recordChange({ path: rel, op: existed ? "edit" : "create", source, version: meta.version, summary: fmtBytes(meta.size), from_path: null });
+    return { ...meta, change };
+  }
+
   /** Archive a note: move it under Archive/ (links keep working: they resolve by name). */
   archive(target: string, source: string) {
     const rel = this.mustResolve(target);
@@ -704,6 +726,12 @@ function excerptOf(body: string, title: string, max = 700): string {
   let text = body.replace(/^\s*#\s+(.+)\n/, (m, h) => (h.trim() === title ? "" : m)).trim();
   if (text.length > max) text = text.slice(0, text.lastIndexOf("\n", max) > max / 2 ? text.lastIndexOf("\n", max) : max) + "…";
   return text;
+}
+
+export function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10 * 1024 ? 1 : 0)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
 export function diffstat(before: string, after: string): string {

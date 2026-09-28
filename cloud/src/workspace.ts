@@ -4,8 +4,8 @@
 import { DurableObject } from "cloudflare:workers";
 import { Quire } from "../../src/core/quire.ts";
 import { migrate } from "../../src/core/store.ts";
-import { handleApi, json, type ApiHost } from "../../src/core/api.ts";
-import { cleanPath, kindOf } from "../../src/core/paths.ts";
+import { errorResponse, handleApi, json, type ApiHost } from "../../src/core/api.ts";
+import { cleanPath, fileSecurityHeaders, kindOf, MAX_UPLOAD, mimeOf } from "../../src/core/paths.ts";
 import type { Change } from "../../src/core/quire.ts";
 import { DoDb, SqlContent } from "./do-store.ts";
 import { SEED_FILES, SEED_NOTES } from "./seed.ts";
@@ -42,6 +42,9 @@ export class Workspace extends DurableObject<Env> {
       return json({ ok: true });
     }
     if (route.startsWith("/files/")) return this.serveFile(decodeURIComponent(route.slice("/files/".length)));
+    if (route === "/upload" && req.method === "POST") {
+      return this.upload(req, url, wsId, decodeURIComponent(req.headers.get("x-ci-actor") ?? "someone"));
+    }
     if (route === "/file-resolve") {
       const rel = this.quire.resolve(url.searchParams.get("target") ?? "", url.searchParams.get("from") ?? undefined);
       if (!rel || kindOf(rel) !== "asset") return json({ error: "Not found" }, 404);
@@ -74,6 +77,28 @@ export class Workspace extends DurableObject<Env> {
     this.quire.sync();
   }
 
+  /** Store an uploaded file in R2 and list it in this workspace (assets/ by default, under a free name). */
+  private async upload(req: Request, url: URL, wsId: string, actor: string): Promise<Response> {
+    try {
+      const name = url.searchParams.get("name") ?? "";
+      const folder = url.searchParams.get("folder") ?? "assets";
+      let rel = this.quire.uploadPath(name, folder);
+      const body = await req.arrayBuffer();
+      if (body.byteLength > MAX_UPLOAD) return json({ error: "That file is over 50 MB" }, 413);
+      const mime = mimeOf(rel)!;
+      const key = `ws/${wsId}/${crypto.randomUUID()}`;
+      await this.env.FILES.put(key, body, { httpMetadata: { contentType: mime } });
+      if (this.files.stat(rel)) rel = this.quire.uploadPath(name, folder); // taken while we were storing it
+      this.files.putBlob(rel, key, body.byteLength, mime);
+      const r = this.quire.recordUpload(rel, false, actor);
+      this.announce(rel, null, r.version, r.change);
+      this.broadcast({ type: "tree" });
+      return json({ path: rel, version: r.version, size: r.size });
+    } catch (e) {
+      return errorResponse(e);
+    }
+  }
+
   private async serveFile(raw: string): Promise<Response> {
     const rel = cleanPath(raw);
     const meta = this.files.blob(rel);
@@ -83,9 +108,7 @@ export class Workspace extends DurableObject<Env> {
     return new Response(obj.body, {
       headers: {
         "Content-Type": meta.mime ?? "application/octet-stream",
-        // Files are writable by agents and teammates: never let one run script in our origin.
-        "Content-Security-Policy": "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; media-src 'self'",
-        "X-Content-Type-Options": "nosniff",
+        ...fileSecurityHeaders(meta.mime ?? ""),
         "Cache-Control": "private, max-age=300",
       },
     });

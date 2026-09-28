@@ -19,6 +19,8 @@ export interface EditorContext {
   openTarget(target: string, from: string): void;
   createNote(name: string): void;
   notes(): NoteMeta[];
+  /** Upload files (or pick some, if none given); resolves to the names to embed them by. */
+  upload(files?: File[]): Promise<string[]>;
 }
 export const editorContext = Facet.define<EditorContext, EditorContext>({ combine: (v) => v[0] });
 

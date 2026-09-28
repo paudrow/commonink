@@ -56,7 +56,7 @@ export class FsContent implements Content {
       return null;
     }
   }
-  write(rel: string, text: string): FileStat {
+  write(rel: string, text: string | Uint8Array): FileStat {
     const abs = this.abs(rel);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     const tmp = path.join(path.dirname(abs), `.${path.basename(abs)}.${process.pid}.tmp`);

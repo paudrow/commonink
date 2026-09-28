@@ -4,19 +4,16 @@
 import { api, type FeedItem, type FeedPage, type Scope } from "./api.ts";
 import { $, avatar, displayName, el, escapeHtml, icon, timeAgo } from "./dom.ts";
 import { renderMarkdown, sandboxFrame } from "./render.ts";
-import { mountTasks } from "./tasksView.ts";
 import { parseDirective } from "./widgets/args.ts";
 import { WIDGETS } from "./widgets/index.ts";
 
 interface Hooks {
   open(path: string, line?: number): void;
-  openTasks(): void;
   toast(t: { text: string; icon?: string; actionLabel?: string; action?: () => void }): void;
   changed(): void;
 }
 
 const PAGE = 40;
-const DASH_KEY = "quire.feedTasks";
 
 export class Feed {
   readonly root = $("#feed-view");
@@ -26,9 +23,6 @@ export class Feed {
   private folderBar: HTMLElement;
   private bulk: HTMLElement;
   private more: HTMLElement;
-  private dash: HTMLElement;
-  private dashBody: HTMLElement;
-  private dashOff: (() => void) | null = null;
   private scope: Scope = "active";
   private folder = "";
   private items: FeedItem[] = [];
@@ -49,19 +43,6 @@ export class Feed {
     this.bulk = el("div", { class: "feed-bulk", hidden: true });
     this.list = el("div", { class: "feed-list", role: "list" });
     this.more = el("div", { class: "feed-more" });
-    this.dashBody = el("div", { class: "feed-dash-body" });
-    this.dash = el(
-      "section",
-      { class: "feed-dash" },
-      el(
-        "div",
-        { class: "feed-dash-head" },
-        el("button", { type: "button", class: "feed-dash-toggle", onclick: () => this.setDash(!this.dashOff) }, icon("chevron", 13), el("span", {}, "Open tasks")),
-        el("span", { class: "spacer" }),
-        el("button", { type: "button", class: "link-btn", onclick: () => hooks.openTasks() }, "All tasks"),
-      ),
-      this.dashBody,
-    );
     this.root.append(
       el(
         "div",
@@ -73,7 +54,6 @@ export class Feed {
           el("label", { class: "feed-search" }, icon("search", 16), this.input, el("kbd", {}, "/")),
           el("div", { class: "feed-filters" }, this.scopeBar, this.folderBar),
         ),
-        this.dash,
         this.bulk,
         this.list,
         this.more,
@@ -93,11 +73,6 @@ export class Feed {
       if (!this.root.hidden) this.scrollTop = this.root.scrollTop;
       if (this.root.scrollTop + this.root.clientHeight > this.root.scrollHeight - 600) void this.loadMore();
     });
-    let dashOpen = true;
-    try {
-      dashOpen = localStorage.getItem(DASH_KEY) !== "closed";
-    } catch {}
-    this.setDash(dashOpen);
   }
 
   get visible() {
@@ -142,17 +117,6 @@ export class Feed {
     this.render();
   }
 
-  /** The open-tasks dashboard: shown on the plain feed, remembered open or closed. */
-  private setDash(open: boolean) {
-    this.dashOff?.();
-    this.dashOff = open ? mountTasks(this.dashBody, { limit: 5, open: (p, l) => this.hooks.open(p, l) }) : null;
-    if (!open) this.dashBody.replaceChildren();
-    this.dash.classList.toggle("is-closed", !open);
-    try {
-      localStorage.setItem(DASH_KEY, open ? "open" : "closed");
-    } catch {}
-  }
-
   // ---------------------------------------------------------------- rendering
 
   private render() {
@@ -178,7 +142,6 @@ export class Feed {
       ),
     );
     const q = this.input.value.trim();
-    this.dash.hidden = !!q || !!this.folder || this.scope !== "active";
     const top = this.root.scrollTop;
     this.list.replaceChildren(
       ...(this.items.length
@@ -397,7 +360,7 @@ export class Feed {
       }
       return;
     }
-    if ((e.target as HTMLElement).closest("input, textarea, .qw")) return; // the tasks dashboard handles its own keys
+    if ((e.target as HTMLElement).closest("input, textarea")) return;
     const item = this.items[this.focus];
     const act: Record<string, () => void> = {
       j: () => this.setFocus(this.focus + 1),

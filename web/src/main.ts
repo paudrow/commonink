@@ -13,6 +13,7 @@ import { Palette } from "./palette.ts";
 import { Feed } from "./feed.ts";
 import { folderPicker } from "./folderPicker.ts";
 import { History } from "./history.ts";
+import { Assets } from "./assets.ts";
 import { renderTasksPage } from "./tasksView.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
@@ -64,7 +65,6 @@ let session: Session | null = null;
 const view = new EditorView({ parent: $("#editor-host") });
 const feed = new Feed({
   open: (path, line) => void openNote(path, { line }),
-  openTasks: () => void showTasks(),
   toast: (t) => toast(t),
   changed: () => {
     api.clearResolveCache();
@@ -74,6 +74,14 @@ const feed = new Feed({
 const historyPage = new History({
   open: (path) => void openNote(path),
   verb: (c) => verb(c),
+  toast: (t) => toast(t),
+});
+const assetsPage = new Assets({
+  notes: () => notes,
+  upload: (files) => uploadFiles(files),
+  open: (path) => void openNote(path),
+  archive: (path) => archivePath(path),
+  embedName: (path) => embedName(path),
   toast: (t) => toast(t),
 });
 const palette = new Palette(
@@ -91,7 +99,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   if (session) await nameUntitled(session);
   if (session && session.kind !== "asset") cursors.set(session.path, view.state.selection.main.head);
   const meta = notes.find((n) => n.path === path);
-  if (meta?.kind === "asset") return showAsset(meta, opts.push);
+  if (meta?.kind === "asset") return showAssets({ open: meta.path, push: opts.push });
 
   let note;
   try {
@@ -119,7 +127,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
         doc: note.content,
         kind: note.kind === "html" ? "html" : "md",
         vim: prefs.vim,
-        context: { path: note.path, openTarget, createNote, notes: () => notes },
+        context: { path: note.path, openTarget, createNote, notes: () => notes, upload: (files) => uploadFiles(files) },
         onUpdate: (docChanged, fromRemote, state) => onUpdate(next, docChanged, fromRemote, state),
       }),
     );
@@ -160,31 +168,12 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   refreshBacklinks();
 }
 
-function showAsset(meta: NoteMeta, push?: boolean) {
-  void setFocusMode(false);
-  session ={ path: meta.path, kind: "asset", title: displayName(meta.path), base: "", baseVersion: meta.version, saving: false, again: false, timer: 0, edited: false };
-  const src = fileUrl(meta.path);
-  const media = /\.(mp4|webm)$/i.test(meta.path)
-    ? el("video", { src, controls: true })
-    : /\.pdf$/i.test(meta.path)
-      ? el("a", { href: src, target: "_blank", class: "link-btn" }, "Open PDF")
-      : el("img", { src, alt: meta.path });
-  $("#asset-view").replaceChildren(el("figure", { class: "asset" }, media, el("figcaption", {}, meta.path)));
-  showStage("asset");
-  if (push !== false) history.pushState(null, "", `#/${encodeURIComponent(meta.path)}`);
-  document.title = `${displayName(meta.path)} · Common Ink`;
-  renderChrome();
-  renderTree();
-  renderOutline();
-  refreshBacklinks();
-}
-
 let unmountTasks: (() => void) | null = null;
 
-function showStage(which: "editor" | "html" | "asset" | "feed" | "tasks" | "history") {
+function showStage(which: "editor" | "html" | "feed" | "tasks" | "history" | "assets") {
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
-  $("#asset-view").hidden = which !== "asset";
+  $("#assets-view").hidden = which !== "assets";
   $("#feed-view").hidden = which !== "feed";
   $("#tasks-view").hidden = which !== "tasks";
   $("#history-view").hidden = which !== "history";
@@ -243,7 +232,51 @@ async function showHistory(opts: { note?: string | null; select?: number; push?:
   renderOutline();
 }
 
-const onPage = () => (feed.visible ? "feed" : !$("#tasks-view").hidden ? "tasks" : historyPage.visible ? "history" : null);
+async function showAssets(opts: { open?: string; push?: boolean } = {}) {
+  await leaveNote();
+  showStage("assets");
+  assetsPage.show({ open: opts.open });
+  if (opts.push !== false && location.hash !== "#assets") history.pushState(null, "", "#assets");
+  document.title = "Assets · Common Ink";
+  renderChrome();
+  renderTree();
+  renderOutline();
+}
+
+// ------------------------------------------------------------------ uploads
+
+/** How to embed an asset: its file name, or its path if another file has the same name. */
+function embedName(path: string): string {
+  const name = path.split("/").pop()!;
+  return notes.some((n) => n.path !== path && n.path.split("/").pop() === name) ? path : name;
+}
+
+/** Upload files into assets/; resolves to the names to embed the ones that made it. */
+async function uploadFiles(files?: File[]): Promise<string[]> {
+  const picked = files ?? (await pickFiles());
+  const done: string[] = [];
+  for (const f of picked) {
+    try {
+      done.push((await api.upload(f)).path);
+    } catch (e) {
+      toast({ text: e instanceof Error ? e.message : `Couldn't upload ${f.name}` });
+    }
+  }
+  if (done.length) await refreshNotes();
+  return done.map(embedName);
+}
+
+function pickFiles(): Promise<File[]> {
+  return new Promise((resolve) => {
+    const input = el("input", { type: "file", multiple: true });
+    input.addEventListener("change", () => resolve([...(input.files ?? [])]));
+    input.addEventListener("cancel", () => resolve([]));
+    input.click();
+  });
+}
+
+const onPage = () =>
+  feed.visible ? "feed" : !$("#tasks-view").hidden ? "tasks" : historyPage.visible ? "history" : assetsPage.visible ? "assets" : null;
 
 // ------------------------------------------------------------------ focus mode
 
@@ -584,6 +617,7 @@ function embedsPath(path: string): boolean {
 async function refreshNotes() {
   notes = await api.notes();
   renderTree();
+  assetsPage.refresh();
 }
 const refreshNotesSoon = debounce(refreshNotes, 120);
 
@@ -613,7 +647,7 @@ function setEmptyFolders(s: Set<string>) {
 function allFolders(): string[] {
   const out = new Set<string>(emptyFolders());
   for (const n of notes) {
-    if (isArchived(n.path)) continue;
+    if (isArchived(n.path) || n.kind === "asset") continue;
     const parts = n.path.split("/").slice(0, -1);
     parts.forEach((_, i) => out.add(parts.slice(0, i + 1).join("/")));
   }
@@ -639,10 +673,13 @@ function renderTree() {
     return d;
   };
   for (const n of notes) {
-    if (isArchived(n.path)) continue;
+    if (isArchived(n.path) || n.kind === "asset") continue;
     const parts = n.path.split("/");
     dirOf(parts.slice(0, -1)).files.push(n);
   }
+  const assetCount = notes.filter((n) => n.kind === "asset" && !isArchived(n.path)).length;
+  $("#assets-count").textContent = assetCount ? String(assetCount) : "";
+  $("#assets-btn").classList.toggle("is-active", onPage() === "assets");
   const empty = emptyFolders();
   for (const f of [...empty]) {
     if (notes.some((n) => n.path.startsWith(`${f}/`))) empty.delete(f); // it has notes now: it's a real folder
@@ -855,7 +892,7 @@ function renderChrome() {
     $("#html-toggle").hidden = true;
     for (const id of ["#vim-mode", "#cursor-pos", "#word-count"]) $(id).textContent = "";
     $("#vim-mode").dataset.mode = "";
-    const label = { feed: "Feed", tasks: "Tasks", history: "History" };
+    const label = { feed: "Feed", tasks: "Tasks", history: "History", assets: "Assets" };
     const note = page === "history" ? historyPage.noteFilter : null;
     return crumbs.replaceChildren(
       ...(page ? [el("span", { class: "crumb-file" }, label[page])] : []),
@@ -1280,6 +1317,7 @@ async function boot() {
   window.addEventListener("popstate", () => {
     if (location.hash === "#tasks") return void showTasks({ push: false });
     if (location.hash.startsWith("#history")) return void showHistory({ note: historyNoteFromHash(), push: false });
+    if (location.hash === "#assets") return void showAssets({ push: false });
     const p = decodeURIComponent(location.hash.slice(2));
     if (!location.hash.startsWith("#/") || !p) return void showFeed({ push: false });
     if (p !== session?.path) openNote(p, { push: false });
@@ -1287,6 +1325,7 @@ async function boot() {
   $("#feed-btn").addEventListener("click", () => void showFeed({ scope: "active" }));
   $("#tasks-btn").addEventListener("click", () => void showTasks());
   $("#history-btn").addEventListener("click", () => void showHistory());
+  $("#assets-btn").addEventListener("click", () => void showAssets());
   $("#note-history-btn").addEventListener("click", () => session && void showHistory({ note: session.path }));
   $("#back-btn").addEventListener("click", () => void showFeed());
   $("#archive-nav").addEventListener("click", () => void showFeed({ scope: "archived" }));
@@ -1328,6 +1367,7 @@ async function boot() {
   // Home is the feed; a link to a note (#/path) or to the tasks page opens that instead.
   if (location.hash === "#tasks") return void showTasks({ push: false });
   if (location.hash.startsWith("#history")) return void showHistory({ note: historyNoteFromHash(), push: false });
+  if (location.hash === "#assets") return void showAssets({ push: false });
   const fromHash = location.hash.startsWith("#/") ? decodeURIComponent(location.hash.slice(2)) : "";
   if (fromHash && notes.some((n) => n.path === fromHash)) return void openNote(fromHash, { push: false });
   history.replaceState(null, "", "#feed");

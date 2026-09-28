@@ -2,6 +2,7 @@
 // workspace's Durable Object. Everything else is the web app, served from the edge as static assets.
 import { json } from "../../src/core/api.ts";
 import { unfurl } from "../../src/core/unfurl.ts";
+import { MAX_UPLOAD } from "../../src/core/paths.ts";
 import { ensurePersonalWorkspace, handleAuth, readSession, seedWorkspace } from "./auth.ts";
 import { acceptInvite, createInvite, createWorkspace, getUser, membership, workspacesOf } from "./directory.ts";
 import type { Env } from "./env.ts";
@@ -32,7 +33,10 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
   const isWrite = req.method !== "GET" && req.method !== "HEAD";
   const upgrade = req.headers.get("Upgrade") === "websocket";
   if ((isWrite || upgrade) && req.headers.get("Origin") !== url.origin) return json({ error: "Cross-origin request refused" }, 403);
-  if (isWrite && !String(req.headers.get("Content-Type")).startsWith("application/json")) return json({ error: "JSON only" }, 415);
+  // Uploads are raw bytes; everything else that writes must be JSON.
+  const isUpload = req.method === "POST" && /^\/api\/w\/[a-z0-9]+\/upload$/.test(url.pathname);
+  if (isUpload && Number(req.headers.get("Content-Length") ?? 0) > MAX_UPLOAD) return json({ error: "That file is over 50 MB" }, 413);
+  if (isWrite && !isUpload && !String(req.headers.get("Content-Type")).startsWith("application/json")) return json({ error: "JSON only" }, 415);
 
   if (url.pathname === "/api/me") return json({ user, workspaces: await workspacesOf(env.DB, user.id) });
   if (url.pathname === "/api/workspaces" && req.method === "POST") {

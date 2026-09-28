@@ -1,9 +1,10 @@
 // History: every change, newest first, and what any selection of them did. Click one to see it,
 // ⌘-click to add or skip changes, shift-click to take a whole range. The diff on the right is
 // note by note; a change left out on the same note splits that note into separate diffs.
-import { api, type Change, type DiffFile, type DiffRun } from "./api.ts";
+import { api, fileUrl, type Change, type DiffFile, type DiffRun } from "./api.ts";
 import { $, avatar, displayName, el, icon, isSelf } from "./dom.ts";
 import { diffCounts, renderDiff } from "./diff.ts";
+import { ASSET_ICON, assetType, extOf } from "./assetKinds.ts";
 import { groupChanges } from "../../src/core/format.ts";
 
 type Item = Change & { count: number; first: number };
@@ -76,6 +77,8 @@ export class History {
       this.source = null;
       this.selected.clear();
       await this.load();
+    } else {
+      await this.refresh(); // pick up anything that happened while the page was closed
     }
     const at = opts.select ? this.visibleItems().findIndex((it) => it.first <= opts.select! && opts.select! <= it.id) : -1;
     if (at >= 0) this.selectOnly(at);
@@ -86,15 +89,15 @@ export class History {
   }
 
   /** New changes arrived: reload the newest page, keeping the selection. */
-  refreshSoon = debounce(async () => {
-    if (!this.visible) return;
+  refreshSoon = debounce(() => this.visible && void this.refresh().then(() => this.renderList()), 400);
+
+  private async refresh() {
     const fresh = await api.history({ limit: PAGE, path: this.note ?? undefined }).catch(() => null);
     if (!fresh) return;
     const older = this.raw.filter((c) => c.id < (fresh.at(-1)?.id ?? 0));
     this.raw = [...fresh, ...older];
     this.items = groupChanges(this.raw);
-    this.renderList();
-  }, 400);
+  }
 
   private async load(older = false) {
     const seq = ++this.seq;
@@ -227,7 +230,7 @@ export class History {
           : el("b", {}, "Nothing selected"),
         picked.length && saves > picked.length ? el("span", {}, `${saves} saves`) : null,
         files ? el("span", {}, `${files.length} note${files.length === 1 ? "" : "s"}`) : null,
-        files ? totals(files) : null,
+        files?.some((f) => !isAsset(f.path)) ? totals(files) : null,
       ),
       el("span", { class: "spacer" }),
       el("span", { class: "hist-who" }, ...who.slice(0, 5).map((s) => avatar(s, 20))),
@@ -255,7 +258,7 @@ export class History {
   }
 
   private file(f: DiffFile): HTMLElement {
-    const c = totalsOf(f.runs);
+    const c = isAsset(f.path) ? null : totalsOf(f.runs);
     const moves = f.moves.map((m) =>
       el(
         "div",
@@ -276,7 +279,7 @@ export class History {
         { class: "hist-file-head" },
         icon("file", 14),
         el("button", { type: "button", class: "hist-file-name", title: "Open this note", onclick: () => this.hooks.open(f.path) }, f.path),
-        el("span", { class: "diffstat" }, el("span", { class: "add" }, `+${c.add}`), el("span", { class: "del" }, `−${c.del}`)),
+        c ? el("span", { class: "diffstat" }, el("span", { class: "add" }, `+${c.add}`), el("span", { class: "del" }, `−${c.del}`)) : null,
         el("span", { class: "spacer" }),
         el("button", { type: "button", class: "icon-btn small", title: "Open this note", onclick: () => this.hooks.open(f.path) }, icon("open", 14)),
       ),
@@ -313,7 +316,9 @@ export class History {
             restore,
           )
         : null,
-      r.before === null || r.after === null
+      isAsset(f.path)
+        ? assetRun(f.path, r)
+        : r.before === null || r.after === null
         ? el("div", { class: "cv-note" }, "The text of these changes isn't available any more.")
         : r.before === r.after
           ? el("div", { class: "cv-note" }, "No text changed overall.")
@@ -357,6 +362,19 @@ export class History {
       fn();
     }
   }
+}
+
+const isAsset = (p: string) => !/\.(md|markdown|html?)$/i.test(p);
+
+/** Files have no text diff: show the file itself and what happened to it. */
+function assetRun(path: string, r: DiffRun): HTMLElement {
+  const type = assetType(path);
+  return el(
+    "div",
+    { class: "hist-asset" },
+    el("span", { class: "hist-asset-thumb" }, type === "image" ? el("img", { src: fileUrl(path), alt: "", loading: "lazy" }) : icon(ASSET_ICON[type], 20)),
+    el("div", {}, el("b", {}, `${r.op === "create" ? "Uploaded" : "Replaced"} ${extOf(path)}`), r.summary ? el("span", {}, r.summary) : null),
+  );
 }
 
 /** Change ids as compact ranges for the URL: [12, 13, 14, 20] → "12-14,20". */
