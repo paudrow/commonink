@@ -238,10 +238,11 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
       return json({ path: r.path, version: r.version, change: r.change?.id ?? null }); // restoring `change` undoes this
     }
+    // A `tag` stars or unstars a tag; a `path` a note.
     case "POST /favorites/star":
-      return json(favorited(quire.star(host.user, str("path"))));
+      return json(favorited(optStr("tag") !== undefined ? quire.starTag(host.user, str("tag")) : quire.star(host.user, str("path"))));
     case "POST /favorites/unstar":
-      return json(favorited(quire.unstar(host.user, str("path"))));
+      return json(favorited(optStr("tag") !== undefined ? quire.unstarTag(host.user, str("tag")) : quire.unstar(host.user, str("path"))));
     case "PUT /favorites":
       return json(favorited(quire.orderFavorites(host.user, paths("paths"))));
     case "POST /smart-folders": {

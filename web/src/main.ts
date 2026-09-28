@@ -2,7 +2,8 @@ import "./styles.css";
 import { EditorView } from "@codemirror/view";
 import type { EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
-import { api, clientId, connect, isArchived, useWorkspace, whoAmI, ApiError, type Change, type NoteMeta, type Scope, type ServerMsg, type SmartFolder, type TagCount } from "./api.ts";
+import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type Scope, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
+import { normalizeTag } from "../../src/core/tags.ts";
 import { $, avatar, displayName, el, hueFor, hydrateIcons, icon, isSelf, NOTE_DRAG, setSelfName, timeAgo } from "./dom.ts";
 import { createState, linkTargetAt, remote, vimSlot } from "./editor/setup.ts";
 import { bumpEmbeds, editorContext } from "./editor/blocks.ts";
@@ -19,7 +20,7 @@ import { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
 import { groupChanges } from "../../src/core/format.ts";
-import { formatQuery, parseQuery, pinQuery, pins, type NoteQuery } from "../../src/core/query.ts";
+import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
 import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
@@ -71,7 +72,7 @@ const prefs = {
 
 let notes: NoteMeta[] = [];
 /** Your starred notes, in your order (archived ones too; the sidebar leaves those out). */
-let favorites: NoteMeta[] = [];
+let favorites: Favorite[] = [];
 let changes: Change[] = [];
 /** Every tag in use, for suggestions and filters. */
 let tags: TagCount[] = [];
@@ -689,11 +690,12 @@ const refreshTagsSoon = debounce(async () => {
 
 // ------------------------------------------------------------------ favorites
 
-const isStarred = (id: string) => favorites.some((f) => f.id === id);
+const isStarred = (id: string) => favorites.some((f) => !isTagFavorite(f) && f.id === id);
+const isPinned = (tag: string) => favorites.some((f) => isTagFavorite(f) && f.tag === normalizeTag(tag));
 
 /** Star a note, or unstar it if it's starred. */
 async function toggleStar(path: string) {
-  const on = favorites.some((f) => f.path === path);
+  const on = favorites.some((f) => !isTagFavorite(f) && f.path === path);
   try {
     favorites = await (on ? api.unstar(path) : api.star(path));
   } catch {
@@ -742,43 +744,27 @@ function newSmartFolder(anchor: HTMLElement) {
   });
 }
 
-/** The smart folder that pins this tag (its query is the tag alone), if you have one. */
-const pinOf = (tag: string) => smartFolders.find((f) => pins(f.query, tag));
-
-/**
- * Pin a tag as a smart folder in one click (`tag=<tag>`, named after it), or unpin it. A viewer
- * can't unpin a shared one, so for them the pin opens it instead.
- */
+/** Pin a tag to Favorites (or take it off): one click, and it's in Favorites beside your notes. */
 async function togglePin(tag: string) {
-  const pin = pinOf(tag);
+  const on = isPinned(tag);
   try {
-    if (!pin) {
-      const f = await api.saveSmartFolder({ name: tag, query: pinQuery(tag), shared: canShare });
-      toast({ icon: "pin", text: `Pinned #${tag}`, detail: f.shared ? "It's in Smart folders for everyone in the workspace." : "It's in your Smart folders." });
-    } else if (pin.shared && !canShare) {
-      return void showNotes({ scope: "active", query: parseQuery(pin.query) });
-    } else {
-      await api.deleteSmartFolder(pin.id);
-      toast({ icon: "pin", text: `Unpinned #${tag}`, actionLabel: "Undo", action: () => void api.saveSmartFolder({ name: pin.name, query: pin.query, shared: pin.shared }).then(refreshNotes) });
-    }
+    favorites = await (on ? api.unstarTag(tag) : api.starTag(tag));
   } catch (e) {
     return toast({ text: e instanceof Error ? e.message : `Couldn't pin #${tag}` });
   }
-  smartFolders = await api.smartFolders();
   renderTree();
   notesPage.refreshSoon();
 }
 
-/** The pin button for a tag, on its sidebar row (`row`) or on the Notes tag chip (`chip`). */
+/** The pin for a tag, on its sidebar row (`row`) or on the Notes tag chip (`chip`). */
 function pinButton(tag: string, where: "row" | "chip"): HTMLElement {
-  const pinned = !!pinOf(tag);
-  const title = pinned ? (pinOf(tag)!.shared && !canShare ? "Pinned: open it" : `Unpin #${tag}`) : `Pin #${tag} as a smart folder`;
+  const pinned = isPinned(tag);
   return el(
     "button",
     {
       type: "button",
       class: `${where === "row" ? "row-act" : "chip tag-filter pin-chip"} pin-btn${pinned ? " is-pinned" : ""}`,
-      title,
+      title: pinned ? `Take #${tag} out of Favorites` : `Pin #${tag} to Favorites`,
       "aria-pressed": String(pinned),
       onclick: (e: Event) => (e.stopPropagation(), void togglePin(tag)),
     },
@@ -833,10 +819,43 @@ function renderSmartFolders(active: string | null) {
 
 const FAVORITE = "application/x-common-ink-favorite";
 
-/** Starred notes, in your order: drag one to reorder, or drag a card in from Notes to star it. */
+/** A pinned tag in Favorites: it opens Notes narrowed to the tag, like the tag's row under Tags. */
+function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
+  return el(
+    "div",
+    {
+      class: `tree-row is-tag${active ? " is-active" : ""}`,
+      style: { "--depth": "0" },
+      title: `Notes tagged #${f.display}`,
+      draggable: "true",
+      tabindex: "0",
+      onclick: () => openTag(f.display),
+      onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && openTag(f.display),
+      ondragstart: (e: DragEvent) => {
+        e.dataTransfer!.setData(FAVORITE, favoriteKey(f));
+        document.body.classList.add("is-dragging");
+        e.dataTransfer!.effectAllowed = "move";
+      },
+    },
+    icon("hash", 14),
+    el("span", { class: "tree-name" }, f.display),
+    el("span", { class: "n" }, String(f.notes)),
+    el("span", { class: "row-actions" }, pinButton(f.display, "row")),
+  );
+}
+
+/** Starred notes and pinned tags, in your order: drag one to reorder, or drag a card in from Notes to star it. */
 function renderFavorites() {
-  const list = favorites.filter((f) => !isArchived(f.path));
+  // The tag Notes shows on its own (like a folder alone), which its favorite marks as open.
+  const q = onPage() === "notes" && notesPage.scope === "active" ? notesPage.query : null;
+  const shownTag = q?.tag && formatQuery(q) === formatQuery({ tag: q.tag }) ? (normalizeTag(q.tag) ?? "") : "";
+  const list = favorites.filter((f) => isTagFavorite(f) || !isArchived(f.path));
   const rows = list.map((f) => {
+    if (isTagFavorite(f)) {
+      const row = tagFavoriteRow(f, f.tag === shownTag);
+      favoriteDrop(row, "is-drop-before", favoriteKey(f));
+      return row;
+    }
     const row = el(
       "div",
       {
@@ -863,7 +882,7 @@ function renderFavorites() {
     favoriteDrop(row, "is-drop-before", f.path);
     return row;
   });
-  $("#favorites").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Star a note to keep it here.")]));
+  $("#favorites").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Star a note, or pin a tag, to keep it here.")]));
 }
 
 /** Let `node` take a favorite (to reorder) or a card from Notes (to star), marking it with `cls` while over it. */
@@ -888,17 +907,17 @@ function favoriteDrop(node: HTMLElement, cls: string, before?: string) {
   });
 }
 
-/** A note dropped on Favorites: starred if it wasn't, and put before `before` (or at the end). */
-async function dropFavorite(path: string, before?: string) {
-  if (!path || path === before) return;
+/** A favorite (a note path or "#tag") or a note dropped on Favorites: starred if it wasn't, and put before `before` (or at the end). */
+async function dropFavorite(key: string, before?: string) {
+  if (!key || key === before) return;
   try {
-    if (!favorites.some((f) => f.path === path)) favorites = await api.star(path);
-    const order = favorites.map((f) => f.path).filter((p) => p !== path);
+    if (!favorites.some((f) => favoriteKey(f) === key)) favorites = await (key.startsWith("#") ? api.starTag(key) : api.star(key));
+    const order = favorites.map(favoriteKey).filter((k) => k !== key);
     const at = before ? order.indexOf(before) : -1;
-    order.splice(at < 0 ? order.length : at, 0, path);
+    order.splice(at < 0 ? order.length : at, 0, key);
     favorites = await api.orderFavorites(order);
   } catch {
-    return toast({ text: `Couldn't add ${displayName(path)} to Favorites` });
+    return toast({ text: `Couldn't add ${key.startsWith("#") ? key : displayName(key)} to Favorites` });
   }
   renderTree();
   renderChrome();
@@ -1077,7 +1096,7 @@ function renderTagTree(active: string) {
             : el("span", { class: "chev is-leaf" }),
           icon("hash", 14),
           el("span", { class: "tree-name" }, t.display.split("/").pop()!),
-          pinOf(t.display) ? el("span", { class: "sf-pinned", title: "Pinned as a smart folder" }, icon("pin", 11)) : null,
+          isPinned(t.display) ? el("span", { class: "fav-pinned", title: "Pinned to Favorites" }, icon("pin", 11)) : null,
           el("span", { class: "n" }, String(t.notes)),
           el("span", { class: "row-actions" }, pinButton(t.display, "row")),
         );

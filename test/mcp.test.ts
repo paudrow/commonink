@@ -27,8 +27,8 @@ async function call(name: string, args: Record<string, unknown>) {
 test("the server lists every tool", async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
-    "append_to_note", "archive_note", "backlinks", "create_note", "delete_smart_folder", "edit_note", "list_notes", "list_smart_folders", "list_tags",
-    "list_tasks", "move_note", "read_note", "recent_changes", "save_smart_folder", "search_notes", "star_note", "unarchive_note", "unstar_note", "update_task",
+    "append_to_note", "archive_note", "backlinks", "create_note", "delete_smart_folder", "edit_note", "list_notes", "list_smart_folders", "list_tags", "list_tasks", "move_note",
+    "read_note", "recent_changes", "save_smart_folder", "search_notes", "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag", "update_task",
   ]);
 });
 
@@ -86,6 +86,12 @@ test("agents save smart folders, list them with counts and list the notes in one
   assert.equal((await call("list_notes", { smart_folder: "q3" })).text, "- Projects/Roadmap.md — Roadmap");
   assert.equal((await call("save_smart_folder", { name: "Bad", query: "sort=size" })).text, '"sort" is modified or title, not "size"');
   assert.equal((await call("delete_smart_folder", { smart_folder: "Q3" })).text, "No smart folders.");
+});
+
+test("agents star and unstar tags as favorites too", async () => {
+  assert.equal((await call("star_tag", { tags: ["#q3"] })).text, "Favorites:\n- #q3 (1 note)");
+  assert.equal((await call("unstar_tag", { tags: ["q3"] })).text, "No favorites.");
+  assert.equal((await call("star_tag", { tags: ["nowhere"] })).isError, true);
 });
 
 test("agents star and unstar notes for the vault's person", async () => {

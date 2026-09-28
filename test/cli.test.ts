@@ -85,6 +85,12 @@ test("smart-save, smart and smart-rm keep saved note queries", () => {
   assert.equal(quire(vault, ["smart-rm", "Planning"]).stdout, "No smart folders.\n");
 });
 
+test("star and unstar take #tags as well as notes", () => {
+  const vault = tempVault();
+  assert.equal(quire(vault, ["star", "Welcome", "#plan"]).stdout, "Favorites:\n- Welcome.md — Welcome\n- #plan (1 note)\n");
+  assert.equal(quire(vault, ["unstar", "#plan"]).stdout, "Favorites:\n- Welcome.md — Welcome\n");
+});
+
 test("star, unstar and starred keep your favorites in order", () => {
   const vault = tempVault();
   assert.equal(quire(vault, ["star", "Welcome", "Roadmap"]).stdout, "Favorites:\n- Welcome.md — Welcome\n- Projects/Roadmap.md — Roadmap\n");

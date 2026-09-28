@@ -42,6 +42,21 @@ export interface Change {
   /** The note's stable ID, so its history holds together across renames. Null if the log can't tell. */
   note_id: string | null;
 }
+/** A tag in someone's favorites: what it's called now, and how many active notes carry it (or a tag under it). */
+export interface TagFavorite {
+  tag: string;
+  display: string;
+  notes: number;
+}
+/** A favorite is a note or a tag, in one order. */
+export type Favorite = NoteMeta | TagFavorite;
+export const isTagFavorite = (f: Favorite): f is TagFavorite => "tag" in f;
+/**
+ * A tag favorite's key in the favorites table: "#" + the tag. Note IDs never hold a "#", so the two
+ * can't collide, and rows from before tag favorites need nothing done to them.
+ */
+const tagKey = (tag: string) => `#${tag}`;
+
 export interface Backlink {
   path: string;
   title: string;
@@ -699,18 +714,26 @@ export class Quire {
   // ---------------------------------------------------------------- favorites
 
   /**
-   * A person's starred notes, in their order, wherever they live now (archived ones included). A
-   * star whose note isn't in the index is skipped until the note comes back.
+   * A person's favorites, in their order: starred notes wherever they live now (archived ones
+   * included) and starred tags. A star whose note isn't in the index, or whose tag no note uses any
+   * more, is skipped until it comes back.
    */
-  favorites(user: string): NoteMeta[] {
-    const out: NoteMeta[] = [];
+  favorites(user: string): Favorite[] {
+    const out: Favorite[] = [];
+    let inUse: Map<string, TagCount> | null = null;
     for (const f of this.db.all<{ note_id: string; path: string }>("SELECT note_id, path FROM favorites WHERE user = ? ORDER BY pos", user)) {
+      if (f.note_id.startsWith("#")) {
+        inUse ??= new Map(this.tags().filter((t) => t.notes).map((t) => [t.tag, t]));
+        const t = inUse.get(f.note_id.slice(1));
+        if (t) out.push({ tag: t.tag, display: t.display, notes: t.notes });
+        continue;
+      }
       const here = this.pathOf(f.note_id);
       const meta = here ? this.meta(here) : this.meta(f.path);
       if (!meta) continue;
       if (meta.id !== f.note_id) {
         // The note is back at its old path under a new ID: move the star over (unless it has one already).
-        const dup = out.some((m) => m.id === meta.id) || this.db.get("SELECT 1 FROM favorites WHERE user = ? AND note_id = ?", user, meta.id);
+        const dup = out.some((m) => !isTagFavorite(m) && m.id === meta.id) || this.db.get("SELECT 1 FROM favorites WHERE user = ? AND note_id = ?", user, meta.id);
         if (dup) {
           this.db.run("DELETE FROM favorites WHERE user = ? AND note_id = ?", user, f.note_id);
           continue;
@@ -725,27 +748,49 @@ export class Quire {
   }
 
   /** Star a note (a path, ID, note URL or [[name]]) at the end of `user`'s favorites. Starring it again changes nothing. */
-  star(user: string, target: string): NoteMeta[] {
+  star(user: string, target: string): Favorite[] {
     const meta = this.metaOf(target);
     if (meta.kind === "asset") throw new QuireError(`${meta.path} is a binary asset, not a note`);
-    this.db.run(
-      `INSERT INTO favorites(user, note_id, path, pos)
-       VALUES (?, ?, ?, (SELECT coalesce(max(pos), 0) + 1 FROM favorites WHERE user = ?)) ON CONFLICT DO NOTHING`,
-      user, meta.id, meta.path, user,
-    );
+    this.addFavorite(user, meta.id, meta.path);
     return this.favorites(user);
   }
 
-  unstar(user: string, target: string): NoteMeta[] {
+  unstar(user: string, target: string): Favorite[] {
     this.db.run("DELETE FROM favorites WHERE user = ? AND note_id = ?", user, this.metaOf(target).id);
     return this.favorites(user);
   }
 
-  /** Put these starred notes first, in this order; the rest follow in the order they had, stars whose note is gone included. */
-  orderFavorites(user: string, targets: string[]): NoteMeta[] {
+  /** Star a tag (and so everything under it) at the end of `user`'s favorites. It must be on a note. */
+  starTag(user: string, raw: string): Favorite[] {
+    const tag = normalizeTag(raw);
+    if (!tag) throw new QuireError(`"${raw}" isn't a tag: use letters, numbers, - and _, nested with /`);
+    const t = this.tags().find((x) => x.tag === tag && x.notes);
+    if (!t) throw new QuireError(`No note has #${tag} yet`, "not_found");
+    this.addFavorite(user, tagKey(tag), t.display);
+    return this.favorites(user);
+  }
+
+  unstarTag(user: string, raw: string): Favorite[] {
+    this.db.run("DELETE FROM favorites WHERE user = ? AND note_id = ?", user, tagKey(normalizeTag(raw) ?? ""));
+    return this.favorites(user);
+  }
+
+  private addFavorite(user: string, key: string, path: string) {
+    this.db.run(
+      `INSERT INTO favorites(user, note_id, path, pos)
+       VALUES (?, ?, ?, (SELECT coalesce(max(pos), 0) + 1 FROM favorites WHERE user = ?)) ON CONFLICT DO NOTHING`,
+      user, key, path, user,
+    );
+  }
+
+  /**
+   * Put these favorites first, in this order; the rest follow in the order they had, stars whose
+   * note is gone included. A `#tag` target is a starred tag.
+   */
+  orderFavorites(user: string, targets: string[]): Favorite[] {
     this.favorites(user); // rebinds stars to their notes' current IDs
     const starred = this.db.all<{ note_id: string }>("SELECT note_id FROM favorites WHERE user = ? ORDER BY pos", user).map((f) => f.note_id);
-    const first = targets.map((t) => this.metaOf(t).id).filter((id) => starred.includes(id));
+    const first = targets.map((t) => (t.startsWith("#") ? tagKey(normalizeTag(t) ?? "") : this.metaOf(t).id)).filter((id) => starred.includes(id));
     const order = [...new Set([...first, ...starred])];
     this.db.tx(() => order.forEach((id, i) => this.db.run("UPDATE favorites SET pos = ? WHERE user = ? AND note_id = ?", i + 1, user, id)));
     return this.favorites(user);
@@ -919,6 +964,16 @@ export class Quire {
       map[rel] = uniqueTags(tags.map((t) => (tagMatches(t.toLowerCase(), old) ? next + t.slice(old.length) : t)), false);
     }
     if (Object.keys(assets).length) this.writeAssetTags(map);
+    // A starred tag (or one under it) follows the rename; a merge onto one someone had starred keeps theirs.
+    const key = next.toLowerCase();
+    if (key !== old) {
+      for (const r of this.db.all<{ user: string; note_id: string }>(
+        "SELECT user, note_id FROM favorites WHERE note_id = ? OR (note_id >= ? AND note_id < ?)", tagKey(old), tagKey(`${old}/`), tagKey(`${old}0`),
+      )) {
+        this.db.run("UPDATE OR IGNORE favorites SET note_id = ? WHERE user = ? AND note_id = ?", tagKey(key + r.note_id.slice(old.length + 1)), r.user, r.note_id);
+        this.db.run("DELETE FROM favorites WHERE user = ? AND note_id = ?", r.user, r.note_id);
+      }
+    }
     // A rename is how a tag's written form changes: show it, and the tags under it, as typed.
     for (const r of this.db.all<{ tag: string; display: string }>(`SELECT tag, display FROM tag_names WHERE ${UNDER}`, ...under(next.toLowerCase()))) {
       this.db.run("UPDATE tag_names SET display = ? WHERE tag = ?", next + r.display.slice(r.display.split("/").slice(0, next.split("/").length).join("/").length), r.tag);

@@ -19,7 +19,7 @@ interface Hooks {
   tags(): TagCount[];
   /** Save these filters (a query like `tag=work sort=title`) as a smart folder. */
   saveQuery(anchor: HTMLElement, query: string): void;
-  /** The pin-as-smart-folder button for the tag Notes is narrowed to. */
+  /** The pin-to-Favorites button for the tag Notes is narrowed to. */
   pinButton(tag: string): HTMLElement;
   toast(t: { text: string; icon?: string; actionLabel?: string; action?: () => void }): void;
   changed(): void;

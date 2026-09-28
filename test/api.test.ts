@@ -185,6 +185,14 @@ test("smart folders: an editor shares one, a viewer keeps their own but can't cr
   assert.equal((await editor.call("POST", "/smart-folders", { name: "Bad", query: "sort=size" })).status, 400);
 });
 
+test("a tag is starred and unstarred through the favorites routes a viewer can use", async () => {
+  const { call } = setup();
+  const starred = await call("POST", "/favorites/star", { tag: "plan" });
+  assert.deepEqual(starred.body, [{ tag: "plan", display: "plan", notes: 1 }]);
+  assert.equal((await call("POST", "/favorites/star", { tag: "27" })).status, 400);
+  assert.deepEqual((await call("POST", "/favorites/unstar", { tag: "#plan" })).body, []);
+});
+
 test("favorites are starred, ordered and unstarred per person, and tell the other tabs", async () => {
   const { call, events } = setup();
   await call("POST", "/favorites/star", { path: "Welcome" });

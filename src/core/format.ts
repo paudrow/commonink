@@ -1,6 +1,6 @@
 // Plain-text renderings of core results, shared by the MCP server and the CLI.
 // Agents read markdown far more cheaply than JSON, so this is the default output.
-import type { Backlink, Change, Note, NoteMeta, SearchHit, SmartFolder, TagCount, Task } from "./quire.ts";
+import { isTagFavorite, type Backlink, type Change, type Favorite, type Note, type NoteMeta, type SearchHit, type SmartFolder, type TagCount, type Task } from "./quire.ts";
 
 export function fmtSearch(q: string, hits: SearchHit[]): string {
   if (!hits.length) return `No notes match "${q}".`;
@@ -30,8 +30,10 @@ export function fmtList(notes: Array<Pick<NoteMeta, "path" | "kind" | "title">>)
   return notes.map((n) => `- ${n.path}${n.kind === "asset" ? "" : ` — ${n.title}`}`).join("\n");
 }
 
-export function fmtFavorites(notes: NoteMeta[]): string {
-  return notes.length ? `Favorites:\n${fmtList(notes)}` : "No favorites.";
+export function fmtFavorites(favorites: Favorite[]): string {
+  if (!favorites.length) return "No favorites.";
+  const line = (f: Favorite) => (isTagFavorite(f) ? `- #${f.display} (${f.notes} note${f.notes === 1 ? "" : "s"})` : fmtList([f]));
+  return `Favorites:\n${favorites.map(line).join("\n")}`;
 }
 
 export function fmtSmartFolders(folders: SmartFolder[]): string {
