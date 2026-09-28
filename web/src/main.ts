@@ -3,7 +3,7 @@ import { EditorView } from "@codemirror/view";
 import type { EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
 import { api, clientId, connect, isArchived, useWorkspace, whoAmI, ApiError, type Change, type NoteMeta, type Scope, type ServerMsg } from "./api.ts";
-import { $, avatar, displayName, el, hueFor, hydrateIcons, icon, isSelf, setSelfName, timeAgo } from "./dom.ts";
+import { $, avatar, displayName, el, hueFor, hydrateIcons, icon, isSelf, NOTE_DRAG, setSelfName, timeAgo } from "./dom.ts";
 import { createState, linkTargetAt, remote, vimSlot } from "./editor/setup.ts";
 import { bumpEmbeds, editorContext } from "./editor/blocks.ts";
 import { clearFlash, flashChanges } from "./editor/agentFlash.ts";
@@ -58,7 +58,8 @@ const prefs = {
   vim: store.get("vim", true),
   panel: store.get("panel", true),
   htmlMode: store.get<"preview" | "source">("htmlMode", "preview"),
-  collapsed: new Set<string>(store.get<string[]>("collapsed", [])),
+  /** Folders whose subfolders are showing in the sidebar (they start closed). */
+  expanded: new Set<string>(store.get<string[]>("expanded", [])),
 };
 
 let notes: NoteMeta[] = [];
@@ -72,6 +73,7 @@ const notesPage = new NotesPage({
   open: (path, line) => void openNote(path, { line }),
   starred: (id) => isStarred(id),
   toggleStar: (path) => void toggleStar(path),
+  folderChanged: () => renderTree(),
   toast: (t) => toast(t),
   changed: () => {
     api.clearResolveCache();
@@ -210,7 +212,7 @@ async function leaveNote() {
 }
 
 /** Notes is home: every note, newest first. No note is open while it's showing. */
-async function showNotes(opts: { scope?: Scope; filter?: boolean; push?: boolean } = {}) {
+async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("notes");
   notesPage.show(opts);
@@ -391,7 +393,6 @@ async function newNote(folder = "") {
   for (let i = 2; taken.has(`${dir}${name}.md`.toLowerCase()); i++) name = `Untitled ${i}`;
   try {
     const r = await api.create(`${dir}${name}.md`, "# \n");
-    if (folder) prefs.collapsed.delete(folder);
     await refreshNotes();
     await openNote(r.path);
     view.dispatch({ selection: { anchor: view.state.doc.line(1).to } });
@@ -655,7 +656,7 @@ async function toggleStar(path: string) {
 
 const FAVORITE = "application/x-common-ink-favorite";
 
-/** Starred notes, in your order: drag one to reorder, or drag a note in from the folders to star it. */
+/** Starred notes, in your order: drag one to reorder, or drag a card in from Notes to star it. */
 function renderFavorites() {
   const list = favorites.filter((f) => !isArchived(f.path));
   const rows = list.map((f) => {
@@ -669,6 +670,8 @@ function renderFavorites() {
         onclick: () => openNote(f.path),
         ondragstart: (e: DragEvent) => {
           e.dataTransfer!.setData(FAVORITE, f.path);
+          e.dataTransfer!.setData(NOTE_DRAG, f.path); // so it can go to a folder or Archive too
+          document.body.classList.add("is-dragging");
           e.dataTransfer!.effectAllowed = "move";
         },
       },
@@ -686,10 +689,10 @@ function renderFavorites() {
   $("#favorites").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Star a note to keep it here.")]));
 }
 
-/** Let `node` take a favorite (to reorder) or a note from the folders (to star), marking it with `cls` while over it. */
+/** Let `node` take a favorite (to reorder) or a card from Notes (to star), marking it with `cls` while over it. */
 function favoriteDrop(node: HTMLElement, cls: string, before?: string) {
   node.addEventListener("dragover", (e) => {
-    if (!e.dataTransfer?.types.some((t) => t === FAVORITE || t === DRAG)) return;
+    if (!e.dataTransfer?.types.some((t) => t === FAVORITE || t === NOTE_DRAG)) return;
     e.preventDefault();
     e.stopPropagation();
     node.classList.add(cls);
@@ -698,7 +701,7 @@ function favoriteDrop(node: HTMLElement, cls: string, before?: string) {
     if (!node.contains(e.relatedTarget as Node)) node.classList.remove(cls);
   });
   node.addEventListener("drop", (e) => {
-    const path = e.dataTransfer?.getData(FAVORITE) || e.dataTransfer?.getData(DRAG);
+    const path = e.dataTransfer?.getData(FAVORITE) || e.dataTransfer?.getData(NOTE_DRAG);
     if (!path) return;
     e.preventDefault();
     e.stopPropagation();
@@ -724,17 +727,16 @@ async function dropFavorite(path: string, before?: string) {
   renderChrome();
 }
 
-// ------------------------------------------------------------------ sidebar tree
+// ------------------------------------------------------------------ sidebar folders
 
-interface Dir {
-  dirs: Map<string, Dir>;
-  files: NoteMeta[];
-}
-
-function recentAgentEdits(): Map<string, string> {
+/** Who (other than you) edited something under each folder in the last 15 minutes. */
+function recentAgentFolders(): Map<string, string> {
   const since = Date.now() - 15 * 60_000;
   const out = new Map<string, string>();
-  for (const c of changes) if (c.ts > since && !isSelf(c.source) && !out.has(c.path)) out.set(c.path, c.source);
+  for (const c of changes) {
+    if (c.ts <= since || isSelf(c.source)) continue;
+    for (let f = parentOf(c.path); f; f = parentOf(f)) if (!out.has(f)) out.set(f, c.source);
+  }
   return out;
 }
 
@@ -758,110 +760,98 @@ function allFolders(): string[] {
 }
 
 const parentOf = (p: string) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
-const DRAG = "application/x-common-ink-path";
 
+function setExpanded(folder: string, open: boolean) {
+  if (open) prefs.expanded.add(folder);
+  else prefs.expanded.delete(folder);
+  store.set("expanded", [...prefs.expanded]);
+}
+
+/**
+ * The sidebar: the views' counts and highlights, Favorites, and the folders. Folders start closed
+ * (the chevron shows subfolders) and hold no notes: clicking one shows Notes narrowed to it.
+ */
 function renderTree() {
   renderFavorites();
-  const root: Dir = { dirs: new Map(), files: [] };
+  const page = onPage();
   const archivedCount = notes.filter((n) => isArchived(n.path) && n.kind !== "asset").length;
   $("#archive-count").textContent = archivedCount ? String(archivedCount) : "";
-  $("#notes-btn").classList.toggle("is-active", onPage() === "notes");
-  $("#tasks-btn").classList.toggle("is-active", onPage() === "tasks");
-  $("#history-btn").classList.toggle("is-active", onPage() === "history" && !historyPage.noteFilter);
-  const dirOf = (parts: string[]) => {
-    let d = root;
-    for (const p of parts) {
-      if (!d.dirs.has(p)) d.dirs.set(p, { dirs: new Map(), files: [] });
-      d = d.dirs.get(p)!;
-    }
-    return d;
-  };
-  for (const n of notes) {
-    if (isArchived(n.path) || n.kind === "asset") continue;
-    const parts = n.path.split("/");
-    dirOf(parts.slice(0, -1)).files.push(n);
-  }
   const assetCount = notes.filter((n) => n.kind === "asset" && !isArchived(n.path)).length;
   $("#assets-count").textContent = assetCount ? String(assetCount) : "";
-  $("#assets-btn").classList.toggle("is-active", onPage() === "assets");
-  const empty = emptyFolders();
-  for (const f of [...empty]) {
-    if (notes.some((n) => n.path.startsWith(`${f}/`))) empty.delete(f); // it has notes now: it's a real folder
-    else dirOf(f.split("/"));
-  }
-  setEmptyFolders(empty);
+  const current = page === "notes" ? notesPage.folderFilter : "";
+  $("#notes-btn").classList.toggle("is-active", page === "notes" && !current);
+  $("#tasks-btn").classList.toggle("is-active", page === "tasks");
+  $("#history-btn").classList.toggle("is-active", page === "history" && !historyPage.noteFilter);
+  $("#assets-btn").classList.toggle("is-active", page === "assets");
 
-  const agents = recentAgentEdits();
+  const empty = emptyFolders();
+  for (const f of [...empty]) if (notes.some((n) => n.path.startsWith(`${f}/`))) empty.delete(f); // it has notes now: it's a real folder
+  setEmptyFolders(empty);
+  const folders = allFolders();
+  const count = new Map<string, number>();
+  for (const n of notes) {
+    if (isArchived(n.path) || n.kind === "asset") continue;
+    for (let f = parentOf(n.path); f; f = parentOf(f)) count.set(f, (count.get(f) ?? 0) + 1);
+  }
+  const agents = recentAgentFolders();
   const action = (title: string, ico: string, fn: () => void) =>
     el("button", { type: "button", class: "row-act", title, onclick: (e: Event) => (e.stopPropagation(), fn()) }, icon(ico, 14));
-  const walk = (d: Dir, prefix: string, depth: number): HTMLElement[] => {
-    const out: HTMLElement[] = [];
-    for (const [name, sub] of [...d.dirs].sort((a, b) => a[0].localeCompare(b[0]))) {
-      const path = prefix + name;
-      const collapsed = prefs.collapsed.has(path);
-      const isEmpty = !sub.files.length && !sub.dirs.size;
-      const row = el(
-        "div",
-        {
-          class: `tree-row is-dir${collapsed ? " is-collapsed" : ""}`,
-          style: { "--depth": String(depth) },
-          "data-folder": path,
-          title: path,
-          onclick: () => {
-            if (collapsed) prefs.collapsed.delete(path);
-            else prefs.collapsed.add(path);
-            store.set("collapsed", [...prefs.collapsed]);
-            renderTree();
+  const walk = (parent: string, depth: number): HTMLElement[] =>
+    folders
+      .filter((f) => parentOf(f) === parent)
+      .flatMap((path) => {
+        const subs = folders.some((f) => parentOf(f) === path);
+        const open = subs && prefs.expanded.has(path);
+        const n = count.get(path) ?? 0;
+        const agent = agents.get(path);
+        const row = el(
+          "div",
+          {
+            class: `tree-row is-folder${open ? "" : " is-collapsed"}${path === current ? " is-active" : ""}`,
+            style: { "--depth": String(depth) },
+            "data-folder": path,
+            title: n ? `Show the notes in ${path}` : `${path} is empty. Drag notes here.`,
+            tabindex: "0",
+            onclick: () => void showNotes({ scope: "active", folder: path }),
+            onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && void showNotes({ scope: "active", folder: path }),
           },
-        },
-        el("span", { class: "chev" }, icon("chevron", 13)),
-        el("span", { class: "tree-name" }, name),
-        el(
-          "span",
-          { class: "row-actions" },
-          action(`New note in ${path}`, "plus", () => void newNote(path)),
-          isEmpty && empty.has(path) ? action("Remove this empty folder", "close", () => (empty.delete(path), setEmptyFolders(empty), renderTree())) : null,
-        ),
-      );
-      dropTarget(row, () => path);
-      out.push(row);
-      if (collapsed) continue;
-      out.push(...walk(sub, `${path}/`, depth + 1));
-      if (isEmpty) out.push(el("div", { class: "tree-hint", style: { "--depth": String(depth + 1) } }, "Empty. Drag notes here."));
-    }
-    for (const f of d.files.sort((a, b) => a.path.localeCompare(b.path))) {
-      const agent = agents.get(f.path);
-      const row = el(
-        "div",
-        {
-          class: `tree-row is-file${f.path === session?.path ? " is-active" : ""}`,
-          style: { "--depth": String(depth) },
-          title: f.path,
-          draggable: "true",
-          onclick: () => openNote(f.path),
-          ondragstart: (e: DragEvent) => {
-            e.dataTransfer!.setData(DRAG, f.path);
-            e.dataTransfer!.effectAllowed = "move";
-            document.body.classList.add("is-dragging");
-          },
-          ondragend: endDrag,
-        },
-        icon(f.kind === "html" ? "html" : f.kind === "asset" ? "image" : "file", 14),
-        el("span", { class: "tree-name" }, displayName(f.path)),
-        agent ? el("span", { class: "agent-dot", title: `Edited by ${agent}`, style: { "--hue": String(hueFor(agent)) } }) : null,
-        el("span", { class: "row-actions" }, action("Archive", "archive", () => void archivePath(f.path))),
-      );
-      dropTarget(row, () => parentOf(f.path)); // dropping onto a note files it next to that note
-      out.push(row);
-    }
-    return out;
-  };
-  $("#tree").replaceChildren(...walk(root, "", 0));
+          subs
+            ? el(
+                "button",
+                {
+                  type: "button",
+                  class: "chev",
+                  title: open ? "Hide subfolders" : "Show subfolders",
+                  onclick: (e: Event) => {
+                    e.stopPropagation();
+                    setExpanded(path, !open);
+                    renderTree();
+                    $(`#tree .tree-row[data-folder="${CSS.escape(path)}"] .chev`).focus(); // the row was rebuilt; keep the keyboard here
+                  },
+                },
+                icon("chevron", 13),
+              )
+            : el("span", { class: "chev is-leaf" }),
+          icon("folder", 14),
+          el("span", { class: "tree-name" }, path.split("/").pop()!),
+          agent ? el("span", { class: "agent-dot", title: `${agent} edited notes here`, style: { "--hue": String(hueFor(agent)) } }) : null,
+          n ? el("span", { class: "n" }, String(n)) : null,
+          el(
+            "span",
+            { class: "row-actions" },
+            action(`New note in ${path}`, "plus", () => void newNote(path)),
+            !n && empty.has(path) ? action("Remove this empty folder", "close", () => (empty.delete(path), setEmptyFolders(empty), renderTree())) : null,
+          ),
+        );
+        dropTarget(row, () => path);
+        return [row, ...(open ? walk(path, depth + 1) : [])];
+      });
+  $("#tree").replaceChildren(...walk("", 0));
 }
 
 /** Highlight where a dragged note would land: a folder row, or the whole tree for the top level. */
 function markDrop(folder: string | null) {
-  document.querySelectorAll(".is-drop").forEach((n) => n.classList.remove("is-drop"));
+  document.querySelectorAll(".is-drop, .is-drop-before").forEach((n) => n.classList.remove("is-drop", "is-drop-before"));
   if (folder === null) return;
   (folder ? document.querySelector(`.tree-row[data-folder="${CSS.escape(folder)}"]`) : $("#tree"))?.classList.add("is-drop");
 }
@@ -871,7 +861,7 @@ function endDrag() {
 }
 function dropTarget(node: HTMLElement, folder: () => string, onDrop?: (path: string) => void) {
   node.addEventListener("dragover", (e) => {
-    if (!e.dataTransfer?.types.includes(DRAG)) return;
+    if (!e.dataTransfer?.types.includes(NOTE_DRAG)) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = "move";
@@ -882,7 +872,7 @@ function dropTarget(node: HTMLElement, folder: () => string, onDrop?: (path: str
     if (!node.contains(e.relatedTarget as Node)) node.classList.remove("is-drop");
   });
   node.addEventListener("drop", (e) => {
-    const path = e.dataTransfer?.getData(DRAG);
+    const path = e.dataTransfer?.getData(NOTE_DRAG);
     if (!path) return;
     e.preventDefault();
     e.stopPropagation();
@@ -908,10 +898,6 @@ async function moveToFolder(path: string, folder: string, opts: { undo?: boolean
   } finally {
     renaming = null;
   }
-  if (folder) {
-    prefs.collapsed.delete(folder);
-    store.set("collapsed", [...prefs.collapsed]);
-  }
   notes = await api.notes();
   if (from && !notes.some((n) => n.path.startsWith(`${from}/`))) {
     const empty = emptyFolders(); // moving the last note out shouldn't make the folder vanish
@@ -932,7 +918,7 @@ async function moveToFolder(path: string, folder: string, opts: { undo?: boolean
   }
 }
 
-/** Archive any note from the sidebar. The open note stays open (marked archived), like ⌘⇧E. */
+/** Archive a note dropped on Archive. The open note stays open (marked archived), like ⌘⇧E. */
 async function archivePath(path: string) {
   if (session?.path === path) return archiveCurrent();
   const r = await api.archive([path]).catch(() => null);
@@ -967,7 +953,7 @@ function startNewFolder() {
       const empty = emptyFolders();
       empty.add(name);
       setEmptyFolders(empty);
-      prefs.collapsed.delete(name);
+      if (parentOf(name)) setExpanded(parentOf(name), true); // show where the new folder went
       toast({ icon: "folder", text: `Made ${name}`, detail: "Drag notes onto it, or use Move on a note." });
     }
     renderTree();
@@ -1458,13 +1444,13 @@ async function boot() {
   const isDark = document.documentElement.dataset.theme === "dark" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
   $("#theme-toggle").replaceChildren(icon(isDark ? "sun" : "moon", 15));
   window.addEventListener("popstate", () => void route());
-  $("#notes-btn").addEventListener("click", () => void showNotes({ scope: "active" }));
+  $("#notes-btn").addEventListener("click", () => void showNotes({ scope: "active", folder: "" }));
   $("#tasks-btn").addEventListener("click", () => void showTasks());
   $("#history-btn").addEventListener("click", () => void showHistory());
   $("#assets-btn").addEventListener("click", () => void showAssets());
   $("#note-history-btn").addEventListener("click", () => session && void showHistory({ note: session.path }));
   $("#back-btn").addEventListener("click", () => void showNotes());
-  $("#archive-nav").addEventListener("click", () => void showNotes({ scope: "archived" }));
+  $("#archive-nav").addEventListener("click", () => void showNotes({ scope: "archived", folder: "" }));
   $("#archive-btn").addEventListener("click", () => void archiveCurrent());
   $("#star-btn").addEventListener("click", () => session && void toggleStar(session.path));
   $("#move-btn").addEventListener("click", () => openMovePicker($("#move-btn")));
@@ -1473,6 +1459,7 @@ async function boot() {
   dropTarget($("#tree"), () => "");
   dropTarget($("#archive-nav"), () => "", (path) => void archivePath(path));
   favoriteDrop($("#favorites"), "is-drop");
+  document.addEventListener("dragend", endDrag); // a drag that lands nowhere still clears its highlights
   vaultEvents.addEventListener("change", () => refreshTaskCountSoon());
   window.addEventListener("beforeunload", () => void flushSave());
   watchTimers((t) =>

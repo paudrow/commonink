@@ -2,7 +2,7 @@
 // the whole note in place; Edit opens it in the editor. Filter as you type, triage from the
 // keyboard (j/k, Enter to expand, o to open, e to archive, x to select), and archive in bulk.
 import { api, type FeedItem, type FeedPage, type Scope } from "./api.ts";
-import { $, avatar, displayName, el, escapeHtml, icon, timeAgo } from "./dom.ts";
+import { $, avatar, displayName, el, escapeHtml, icon, NOTE_DRAG, timeAgo } from "./dom.ts";
 import { renderMarkdown, sandboxFrame } from "./render.ts";
 import { hydrateDataEmbeds } from "./textPreview.ts";
 import { parseDirective } from "./widgets/args.ts";
@@ -12,6 +12,8 @@ interface Hooks {
   open(path: string, line?: number): void;
   starred(id: string): boolean;
   toggleStar(path: string): void;
+  /** The folder filter changed (the sidebar marks the folder being shown). */
+  folderChanged(): void;
   toast(t: { text: string; icon?: string; actionLabel?: string; action?: () => void }): void;
   changed(): void;
 }
@@ -81,11 +83,20 @@ export class NotesPage {
   get visible() {
     return !this.root.hidden;
   }
+  /** The folder Notes is narrowed to ("" for every folder). */
+  get folderFilter() {
+    return this.folder;
+  }
 
   /** Show the list where the reader left it: same scroll position, same cards open. */
-  show(opts: { scope?: Scope; filter?: boolean } = {}) {
+  show(opts: { scope?: Scope; filter?: boolean; folder?: string } = {}) {
     if (opts.scope && opts.scope !== this.scope) {
       this.scope = opts.scope;
+      this.scrollTop = 0;
+    }
+    if (opts.folder !== undefined && opts.folder !== this.folder) {
+      this.folder = opts.folder;
+      this.focus = 0;
       this.scrollTop = 0;
     }
     this.root.hidden = false;
@@ -140,17 +151,22 @@ export class NotesPage {
       ),
     );
     this.folderBar.replaceChildren(
-      ...["", ...page.folders].map((f) =>
-        el("button", { type: "button", class: `chip${f === this.folder ? " is-on" : ""}`, onclick: () => ((this.folder = f), (this.focus = 0), this.reload()) }, f || "All folders"),
+      // A subfolder picked in the sidebar gets a chip too, so it shows as the filter in use.
+      ...["", ...page.folders, ...(this.folder && !page.folders.includes(this.folder) ? [this.folder] : [])].map((f) =>
+        el("button", { type: "button", class: `chip${f === this.folder ? " is-on" : ""}`, onclick: () => ((this.folder = f), (this.focus = 0), this.hooks.folderChanged(), this.reload()) }, f || "All folders"),
       ),
     );
     const q = this.input.value.trim();
     const top = this.root.scrollTop;
-    this.list.replaceChildren(
-      ...(this.items.length
-        ? this.items.map((item, i) => this.card(item, i, q))
-        : [el("div", { class: "feed-empty" }, q ? `No ${this.scope === "all" ? "" : this.scope + " "}notes match “${q}”.` : this.scope === "archived" ? "Nothing archived yet. Press e on a note to archive it." : "No notes yet.")]),
-    );
+    const which = this.scope === "all" ? "" : `${this.scope} `;
+    const empty = q
+      ? `No ${which}notes match “${q}”${this.folder ? ` in ${this.folder}` : ""}.`
+      : this.folder
+        ? `No ${which}notes in ${this.folder}.`
+        : this.scope === "archived"
+          ? "Nothing archived yet. Press e on a note to archive it."
+          : "No notes yet.";
+    this.list.replaceChildren(...(this.items.length ? this.items.map((item, i) => this.card(item, i, q)) : [el("div", { class: "feed-empty" }, empty)]));
     this.root.scrollTop = top;
     this.more.textContent = this.items.length < page.total ? `Showing ${this.items.length} of ${page.total}` : "";
     this.renderBulk();
@@ -206,6 +222,14 @@ export class NotesPage {
         role: "listitem",
         "aria-expanded": String(open),
         "data-index": String(i),
+        // Drag a card to a folder in the sidebar to move it, onto Favorites to star it, or onto Archive.
+        // Not an open card (its text is there to select) or an archived one (a folder would unarchive it).
+        draggable: open || item.archived ? "false" : "true",
+        ondragstart: (e: DragEvent) => {
+          e.dataTransfer!.setData(NOTE_DRAG, item.path);
+          e.dataTransfer!.effectAllowed = "move";
+          document.body.classList.add("is-dragging");
+        },
       },
       check,
       el(
