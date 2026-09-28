@@ -4,7 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { LOCAL_USER, openVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
-import { fmtBacklinks, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtWrite } from "./core/format.ts";
+import { fmtBacklinks, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtTags, fmtWrite } from "./core/format.ts";
 
 const quire = openVault();
 
@@ -40,6 +40,7 @@ function run(fn: () => string): Result {
 const favorites = () => fmtFavorites(quire.favorites(LOCAL_USER));
 
 const readOnly = { readOnlyHint: true, openWorldHint: false } as const;
+const TAG = z.string().optional().describe("Only notes with this tag or a tag under it: work matches #work and #work/acme");
 const writes = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
 
 server.registerTool(
@@ -52,13 +53,31 @@ server.registerTool(
       query: z.string().describe("Words to search for"),
       limit: z.number().int().min(1).max(50).optional().describe("Max results (default 10)"),
       include_archived: z.boolean().optional().describe("Also search archived notes"),
+      tag: TAG,
     },
     annotations: readOnly,
   },
-  ({ query, limit, include_archived }) =>
+  ({ query, limit, include_archived, tag }) =>
     run(() => {
       quire.sync();
-      return fmtSearch(query, quire.search(query, limit ?? 10, include_archived ? "all" : "active"));
+      return fmtSearch(query, quire.search(query, limit ?? 10, include_archived ? "all" : "active", tag));
+    }),
+);
+
+server.registerTool(
+  "list_tags",
+  {
+    title: "List tags",
+    description:
+      "Every tag in the vault as a tree (tags nest with /), with how many notes, tasks and assets carry each one or a tag under it. " +
+      "Use the names with the `tag` filter of search_notes and list_notes.",
+    inputSchema: {},
+    annotations: readOnly,
+  },
+  () =>
+    run(() => {
+      quire.sync();
+      return fmtTags(quire.tags());
     }),
 );
 
@@ -84,21 +103,22 @@ server.registerTool(
   {
     title: "List notes",
     description:
-      "List notes in the vault or a folder, the most recently modified notes, or the user's starred notes (favorites, in their order). " +
-      "Archived notes (under Archive/) are excluded unless requested.",
+      "List notes in the vault or a folder, the notes and assets with a tag, the most recently modified notes, or the user's " +
+      "starred notes (favorites, in their order). Archived notes (under Archive/) are excluded unless requested.",
     inputSchema: {
       folder: z.string().optional(),
+      tag: TAG,
       recent: z.number().int().min(1).max(100).optional().describe("If set, list this many most recently modified notes"),
       starred: z.boolean().optional().describe("If set, list the user's favorites instead"),
       include_archived: z.boolean().optional(),
     },
     annotations: readOnly,
   },
-  ({ folder, recent, starred, include_archived }) =>
+  ({ folder, tag, recent, starred, include_archived }) =>
     run(() => {
       quire.sync();
       if (starred) return favorites();
-      return fmtList(recent ? quire.recent(recent) : quire.list(folder, include_archived ? "all" : "active"));
+      return fmtList(recent ? quire.recent(recent) : quire.list(folder, include_archived ? "all" : "active", tag));
     }),
 );
 

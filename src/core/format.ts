@@ -1,6 +1,6 @@
 // Plain-text renderings of core results, shared by the MCP server and the CLI.
 // Agents read markdown far more cheaply than JSON, so this is the default output.
-import type { Backlink, Change, Note, NoteMeta, SearchHit } from "./quire.ts";
+import type { Backlink, Change, Note, NoteMeta, SearchHit, TagCount } from "./quire.ts";
 
 export function fmtSearch(q: string, hits: SearchHit[]): string {
   if (!hits.length) return `No notes match "${q}".`;
@@ -32,6 +32,18 @@ export function fmtList(notes: NoteMeta[]): string {
 
 export function fmtFavorites(notes: NoteMeta[]): string {
   return notes.length ? `Favorites:\n${fmtList(notes)}` : "No favorites.";
+}
+
+/** The tag tree, children under their parents, with what carries each (counting tags under it). */
+export function fmtTags(tags: TagCount[]): string {
+  if (!tags.length) return "No tags yet.";
+  const n = (count: number, what: string) => (count ? `${count} ${what}${count === 1 ? "" : "s"}` : "");
+  return tags
+    .map((t) => {
+      const uses = [n(t.notes, "note"), n(t.tasks, "task"), n(t.assets, "asset")].filter(Boolean).join(", ");
+      return `${"  ".repeat(t.tag.split("/").length - 1)}- #${t.display} (${uses})`;
+    })
+    .join("\n");
 }
 
 export function fmtBacklinks(target: string, links: Backlink[]): string {

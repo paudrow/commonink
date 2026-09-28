@@ -102,6 +102,25 @@ test("archive moves each listed note and reports where it went", async () => {
   assert.deepEqual(events, ["moved Projects/Roadmap.md -> Archive/Projects/Roadmap.md", "tree"]);
 });
 
+test("tags are listed, asset tags set, and a rename reports what undoes it", async () => {
+  const { call, events } = setup();
+  assert.deepEqual((await call("PUT", "/asset-tags", { path: "chart.svg", tags: ["Plan/charts"] })).body, { tags: ["Plan/charts"] });
+  assert.deepEqual((await call("GET", "/asset-tags")).body, { "assets/chart.svg": ["Plan/charts"] });
+  assert.deepEqual(
+    (await call("GET", "/tags")).body.map((t: { tag: string; notes: number; assets: number }) => `${t.tag} ${t.notes}/${t.assets}`),
+    ["plan 1/1", "plan/charts 0/1", "q3 1/0"],
+  );
+  events.length = 0;
+  const r = await call("POST", "/tags/rename", { from: "plan", to: "roadmap" });
+  assert.equal(r.body.changes.length, 1);
+  assert.deepEqual(r.body.assets, { "assets/chart.svg": ["Plan/charts"] });
+  assert.deepEqual(events, ["written Projects/Roadmap.md by tester", "tree"]);
+  assert.match((await call("GET", "/note?path=Roadmap")).body.content, /^---\ntags: \[roadmap, q3\]\n---\n/);
+  assert.equal((await call("POST", "/tags/rename", { from: "q3", to: "not a tag" })).status, 400);
+  assert.equal((await call("PUT", "/asset-tags", { path: "Welcome", tags: ["x"] })).status, 400);
+  assert.equal((await call("PUT", "/asset-tags", { path: "chart.svg", tags: "x" })).status, 400);
+});
+
 test("favorites are starred, ordered and unstarred per person, and tell the other tabs", async () => {
   const { call, events } = setup();
   await call("POST", "/favorites/star", { path: "Welcome" });

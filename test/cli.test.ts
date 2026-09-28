@@ -60,6 +60,13 @@ test("an unknown command prints help and exits 2", () => {
   assert.match(r.stderr, /^Unknown command: frobnicate\n\nquire — markdown notes/);
 });
 
+test("tags lists the tag tree, and ls and search take --tag", () => {
+  const vault = tempVault();
+  assert.equal(quire(vault, ["tags"]).stdout, "- #plan (1 note)\n- #q3 (1 note)\n");
+  assert.equal(quire(vault, ["ls", "--tag", "Q3"]).stdout, "- Projects/Roadmap.md — Roadmap\n");
+  assert.equal(quire(vault, ["search", "importer", "--tag", "nope"]).stdout, 'No notes match "importer".\n');
+});
+
 test("star, unstar and starred keep your favorites in order", () => {
   const vault = tempVault();
   assert.equal(quire(vault, ["star", "Welcome", "Roadmap"]).stdout, "Favorites:\n- Welcome.md — Welcome\n- Projects/Roadmap.md — Roadmap\n");

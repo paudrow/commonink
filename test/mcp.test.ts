@@ -27,9 +27,16 @@ async function call(name: string, args: Record<string, unknown>) {
 test("the server lists every tool", async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
-    "append_to_note", "archive_note", "backlinks", "create_note", "edit_note", "list_notes",
+    "append_to_note", "archive_note", "backlinks", "create_note", "edit_note", "list_notes", "list_tags",
     "move_note", "read_note", "recent_changes", "search_notes", "star_note", "unarchive_note", "unstar_note",
   ]);
+});
+
+test("agents list tags as a tree and filter notes by a tag and the tags under it", async () => {
+  await call("create_note", { path: "Ideas/Plan B", content: "# Plan B\n\nA backup #plan/b for the importer.\n" });
+  assert.equal((await call("list_tags", {})).text, "- #plan (2 notes)\n  - #plan/b (1 note)\n- #q3 (1 note)");
+  assert.equal((await call("list_notes", { tag: "plan" })).text, "- Ideas/Plan B.md — Plan B\n- Projects/Roadmap.md — Roadmap");
+  assert.equal((await call("search_notes", { query: "importer", tag: "plan/b" })).text, "- Ideas/Plan B.md — Plan B\n    L3: A backup #plan/b for the importer.");
 });
 
 test("writes are attributed to the connected client", async () => {

@@ -145,7 +145,11 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     case "GET /favorites":
       return json(quire.favorites(host.user));
     case "GET /tasks":
-      return json(quire.tasks({ folder: q("folder") || undefined, note: q("note") || undefined }));
+      return json(quire.tasks({ folder: q("folder") || undefined, note: q("note") || undefined, tag: q("tag") || undefined }));
+    case "GET /tags":
+      return json(quire.tags());
+    case "GET /asset-tags":
+      return json(quire.assetTags());
     case "GET /diff":
       return json(quire.diff(qInt("from"), q("to") ? qInt("to") : qInt("from")));
 
@@ -180,6 +184,18 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       host.moved(r.from, r.path, r.version, r.change);
       host.tree();
       return json({ path: r.path, updated: r.updated });
+    }
+    case "PUT /asset-tags": {
+      const tags = quire.setAssetTags(str("path"), paths("tags"));
+      host.tree();
+      return json({ tags });
+    }
+    case "POST /tags/rename": {
+      const r = quire.renameTag(str("from"), str("to"), actor);
+      for (const e of r.edits) host.written(e.path, e.content, e.version, e.change);
+      host.tree();
+      // Restoring each change, and setting these assets' tags back, undoes the rename.
+      return json({ changes: r.edits.map((e) => e.change.id), assets: r.assets });
     }
     case "POST /restore": {
       const r = quire.restore(int("id"), actor);

@@ -2,15 +2,18 @@
 import fs from "node:fs";
 import { LOCAL_USER, openVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
-import { fmtBacklinks, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtWrite } from "./core/format.ts";
+import { fmtBacklinks, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtTags, fmtWrite } from "./core/format.ts";
 
 const HELP = `quire — markdown notes for you and your agents
 
 Usage: quire <command> [args] [--as <agent>] [--json]
 
-  search <query…> [--archived|--all] full-text search (prefix matching)
+  search <query…> [--tag T] [--archived|--all]
+                                   full-text search (prefix matching)
   read <note> [--offset N] [--limit N]
-  ls [folder] [--recent N] [--archived|--all]
+  ls [folder] [--tag T] [--recent N] [--archived|--all]
+  tags                             every tag, nested, with what carries it
+                                   (--tag work also matches #work/acme)
   archive <note…>                  move notes to Archive/ (links keep working)
   unarchive <note…>                move archived notes back
   create <path> [content | -]      '-' or no content reads stdin
@@ -70,8 +73,13 @@ if (cmd === "mcp") {
     switch (cmd) {
       case "search": {
         const query = args.join(" ");
-        const hits = q.search(query, num("limit") ?? 10, scope);
+        const hits = q.search(query, num("limit") ?? 10, scope, str("tag"));
         out(fmtSearch(query, hits), hits);
+        break;
+      }
+      case "tags": {
+        const tags = q.tags();
+        out(fmtTags(tags), tags);
         break;
       }
       case "read": {
@@ -80,7 +88,7 @@ if (cmd === "mcp") {
         break;
       }
       case "ls": {
-        const notes = num("recent") ? q.recent(num("recent")) : q.list(args[0], scope);
+        const notes = num("recent") ? q.recent(num("recent")) : q.list(args[0], scope, str("tag"));
         out(fmtList(notes), notes);
         break;
       }
