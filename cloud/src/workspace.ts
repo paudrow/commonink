@@ -100,6 +100,7 @@ export class Workspace extends DurableObject<Env> {
     const host: ApiHost = {
       quire: this.quire,
       actor: decodeURIComponent(req.headers.get("x-ci-actor") ?? "someone"),
+      user: req.headers.get("x-ci-user") ?? "",
       info: () => ({ mode: "cloud", name: decodeURIComponent(req.headers.get("x-ci-workspace-name") ?? "Workspace") }),
       written: (rel, content, version, change, origin) => this.announce(rel, content, version, change, origin),
       moved: (from, to, version, change) => {

@@ -59,3 +59,11 @@ test("an unknown command prints help and exits 2", () => {
   assert.equal(r.status, 2);
   assert.match(r.stderr, /^Unknown command: frobnicate\n\nquire — markdown notes/);
 });
+
+test("star, unstar and starred keep your favorites in order", () => {
+  const vault = tempVault();
+  assert.equal(quire(vault, ["star", "Welcome", "Roadmap"]).stdout, "Favorites:\n- Welcome.md — Welcome\n- Projects/Roadmap.md — Roadmap\n");
+  assert.equal(quire(vault, ["unstar", "Welcome"]).stdout, "Favorites:\n- Projects/Roadmap.md — Roadmap\n");
+  assert.deepEqual(JSON.parse(quire(vault, ["starred", "--json"]).stdout).map((n: { path: string }) => n.path), ["Projects/Roadmap.md"]);
+  assert.equal(quire(vault, ["star"]).stderr, "star needs <note>\n");
+});

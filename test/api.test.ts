@@ -11,6 +11,7 @@ function setup() {
   const host: ApiHost = {
     quire,
     actor: "tester",
+    user: "tester",
     info: () => ({ mode: "test" }),
     written: (rel, _content, _version, change) => events.push(`written ${rel} by ${change?.source ?? "-"}`),
     moved: (from, to) => events.push(`moved ${from} -> ${to}`),
@@ -99,4 +100,18 @@ test("archive moves each listed note and reports where it went", async () => {
   const r = await call("POST", "/archive", { paths: ["Roadmap"] });
   assert.deepEqual(r.body, { moved: [{ from: "Projects/Roadmap.md", to: "Archive/Projects/Roadmap.md" }] });
   assert.deepEqual(events, ["moved Projects/Roadmap.md -> Archive/Projects/Roadmap.md", "tree"]);
+});
+
+test("favorites are starred, ordered and unstarred per person, and tell the other tabs", async () => {
+  const { call, events } = setup();
+  await call("POST", "/favorites/star", { path: "Welcome" });
+  const starred = await call("POST", "/favorites/star", { path: "Projects/Roadmap.md" });
+  assert.deepEqual(starred.body.map((n: { path: string }) => n.path), ["Welcome.md", "Projects/Roadmap.md"]);
+  const ordered = await call("PUT", "/favorites", { paths: ["Projects/Roadmap.md"] });
+  assert.deepEqual(ordered.body.map((n: { path: string }) => n.path), ["Projects/Roadmap.md", "Welcome.md"]);
+  await call("POST", "/favorites/unstar", { path: "Welcome.md" });
+  assert.deepEqual((await call("GET", "/favorites")).body.map((n: { path: string }) => n.path), ["Projects/Roadmap.md"]);
+  assert.deepEqual(events, ["tree", "tree", "tree", "tree"]);
+  assert.equal((await call("POST", "/favorites/star", { path: "Nope" })).status, 404);
+  assert.equal((await call("PUT", "/favorites", { paths: "Welcome" })).status, 400);
 });

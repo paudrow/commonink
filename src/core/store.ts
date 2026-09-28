@@ -42,6 +42,11 @@ const SCHEMA = [
      id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, path TEXT NOT NULL, op TEXT NOT NULL,
      source TEXT NOT NULL, version TEXT, summary TEXT, from_path TEXT, before TEXT)`,
   `CREATE INDEX IF NOT EXISTS changes_path ON changes(path, version)`,
+  // Each person's starred notes, in their order. `path` is where the note was last seen, so a star
+  // can find its note again if the note comes back under a new ID (deleted, then restored).
+  `CREATE TABLE IF NOT EXISTS favorites(
+     user TEXT NOT NULL, note_id TEXT NOT NULL, path TEXT NOT NULL, pos INTEGER NOT NULL,
+     PRIMARY KEY(user, note_id))`,
 ];
 
 /** Create or upgrade the index + change log tables. Safe to run on every start. */

@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import { diffstat, versionOf, type Change } from "../core/quire.ts";
-import { openVault, PROJECT_ROOT } from "../core/local.ts";
+import { LOCAL_USER, openVault, PROJECT_ROOT } from "../core/local.ts";
 import { cleanPath, fileSecurityHeaders, isHidden, kindOf, mimeOf, MAX_UPLOAD, QuireError } from "../core/paths.ts";
 import { errorResponse, handleApi, json, type ApiHost } from "../core/api.ts";
 import { unfurl } from "./unfurl.ts";
@@ -147,6 +147,7 @@ function resync() {
 const host: ApiHost = {
   quire,
   actor: "you",
+  user: LOCAL_USER,
   info: () => ({ mode: "local", name: path.basename(files.root), vault: files.root, projectRoot: PROJECT_ROOT }),
   written(rel, content, version, change, origin) {
     seen.set(rel, version);

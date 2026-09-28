@@ -28,7 +28,7 @@ test("the server lists every tool", async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
     "append_to_note", "archive_note", "backlinks", "create_note", "edit_note", "list_notes",
-    "move_note", "read_note", "recent_changes", "search_notes", "unarchive_note",
+    "move_note", "read_note", "recent_changes", "search_notes", "star_note", "unarchive_note", "unstar_note",
   ]);
 });
 
@@ -61,4 +61,11 @@ test("tool errors come back as isError with the core's message", async () => {
 test("search_notes sees files written straight to disk", async () => {
   fs.writeFileSync(path.join(vault, "Side door.md"), "# Side door\n\nzeppelin\n");
   assert.equal((await call("search_notes", { query: "zeppelin" })).text, "- Side door.md — Side door\n    L3: zeppelin");
+});
+
+test("agents star and unstar notes for the vault's person", async () => {
+  assert.equal((await call("star_note", { paths: ["Roadmap", "Welcome"] })).text, "Favorites:\n- Projects/Roadmap.md — Roadmap\n- Welcome.md — Welcome");
+  assert.equal((await call("unstar_note", { paths: ["Roadmap"] })).text, "Favorites:\n- Welcome.md — Welcome");
+  assert.equal((await call("list_notes", { starred: true })).text, "Favorites:\n- Welcome.md — Welcome");
+  assert.equal((await call("star_note", { paths: ["Nope"] })).isError, true);
 });

@@ -157,3 +157,36 @@ test("a note renamed on disk keeps its ID within the rename window, and not afte
   assert.equal(rename("Projects/Roadmap.md", "Projects/Plan.md", 30_000), id);
   assert.notEqual(rename("Projects/Plan.md", "Projects/Later.md", 61_000), id);
 });
+
+test("a star follows its note through moves, archiving and renames, and is each person's own", () => {
+  const { dir, quire } = openTempVault();
+  quire.star("ana", "Roadmap");
+  quire.star("ana", "Welcome");
+  quire.star("ana", "Roadmap"); // again: no change
+  quire.star("bo", "Welcome");
+  quire.move("Roadmap", "Plans/Roadmap", "t");
+  quire.archive("Welcome", "t");
+  fs.renameSync(path.join(dir, "Plans/Roadmap.md"), path.join(dir, "Plans/Q3.md"));
+  quire.sync();
+  assert.deepEqual(quire.favorites("ana").map((n) => n.path), ["Plans/Q3.md", "Archive/Welcome.md"]);
+  quire.unarchive("Archive/Welcome.md", "t");
+  assert.deepEqual(quire.orderFavorites("ana", ["Welcome"]).map((n) => n.path), ["Welcome.md", "Plans/Q3.md"]);
+  assert.deepEqual(quire.unstar("ana", "Welcome").map((n) => n.path), ["Plans/Q3.md"]);
+  assert.deepEqual(quire.favorites("bo").map((n) => n.path), ["Welcome.md"]);
+});
+
+test("a starred note deleted and restored under a new ID keeps its star", () => {
+  let now = Date.UTC(2026, 0, 1);
+  const { dir, quire } = openTempVault(undefined, { now: () => now });
+  quire.star("ana", "Welcome");
+  const text = fs.readFileSync(path.join(dir, "Welcome.md"), "utf8");
+  fs.rmSync(path.join(dir, "Welcome.md"));
+  quire.sync();
+  assert.deepEqual(quire.favorites("ana"), []);
+  now += 3600_000; // long after the rename window: the note comes back with a new ID
+  fs.writeFileSync(path.join(dir, "Welcome.md"), text);
+  quire.sync();
+  const back = quire.meta("Welcome.md")!;
+  assert.deepEqual(quire.favorites("ana").map((n) => n.id), [back.id]);
+  assert.deepEqual(quire.unstar("ana", back.id), []);
+});

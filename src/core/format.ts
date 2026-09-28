@@ -30,6 +30,10 @@ export function fmtList(notes: NoteMeta[]): string {
   return notes.map((n) => `- ${n.path}${n.kind === "asset" ? "" : ` — ${n.title}`}`).join("\n");
 }
 
+export function fmtFavorites(notes: NoteMeta[]): string {
+  return notes.length ? `Favorites:\n${fmtList(notes)}` : "No favorites.";
+}
+
 export function fmtBacklinks(target: string, links: Backlink[]): string {
   if (!links.length) return `Nothing links to ${target}.`;
   return links.map((b) => `- ${b.path}:${b.line} (${b.kind}) ${b.text}`).join("\n");
