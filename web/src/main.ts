@@ -642,8 +642,7 @@ const isStarred = (id: string) => favorites.some((f) => f.id === id);
 
 /** Star a note, or unstar it if it's starred. */
 async function toggleStar(path: string) {
-  const id = notes.find((n) => n.path === path)?.id ?? (session?.path === path ? session.id : undefined);
-  const on = !!id && isStarred(id);
+  const on = favorites.some((f) => f.path === path);
   try {
     favorites = await (on ? api.unstar(path) : api.star(path));
   } catch {
