@@ -107,16 +107,16 @@ const META_COLS = "id, path, kind, title, version, mtime, size";
 /** How long a deleted file's ID waits for the same file to reappear under a new name. */
 const RENAME_WINDOW_MS = 60_000;
 
+export interface QuireOptions {
+  /** Milliseconds since the epoch: stamps changes and bounds the attribution and rename windows. Tests pass a fake clock. */
+  now?: () => number;
+}
 
 /**
  * The one core every surface (web UI, MCP server, CLI, Cloudflare workspace) talks to.
  * `files` is the source of truth (a folder locally, a table in the cloud); the rest of the
  * SQLite database is a rebuildable index plus the change log.
  */
-export interface QuireOptions {
-  /** Milliseconds since the epoch; stamps changes and bounds attribution. Tests pass a fake clock. */
-  now?: () => number;
-}
 
 export class Quire {
   private now: () => number;
@@ -209,7 +209,7 @@ export class Quire {
     const key = `${kind}:${version}`;
     const recent = this.gone.get(key);
     this.gone.delete(key);
-    if (recent && Date.now() - recent.at < RENAME_WINDOW_MS && !this.db.get("SELECT 1 FROM notes WHERE id = ?", recent.id)) return recent.id;
+    if (recent && this.now() - recent.at < RENAME_WINDOW_MS && !this.db.get("SELECT 1 FROM notes WHERE id = ?", recent.id)) return recent.id;
     const stale = this.db
       .all("SELECT path, id FROM notes WHERE kind = ? AND version = ? AND path != ?", kind, version, rel)
       .find((r) => !this.files.stat(r.path));
@@ -222,8 +222,8 @@ export class Quire {
   unindex(rel: string): void {
     const row = this.db.get("SELECT id, kind, version FROM notes WHERE path = ?", rel);
     if (row?.id) {
-      this.gone.set(`${row.kind}:${row.version}`, { id: row.id, at: Date.now() });
-      for (const [k, v] of this.gone) if (Date.now() - v.at > RENAME_WINDOW_MS) this.gone.delete(k);
+      this.gone.set(`${row.kind}:${row.version}`, { id: row.id, at: this.now() });
+      for (const [k, v] of this.gone) if (this.now() - v.at > RENAME_WINDOW_MS) this.gone.delete(k);
     }
     this.db.tx(() => {
       this.db.run("DELETE FROM notes WHERE path = ?", rel);

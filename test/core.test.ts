@@ -139,3 +139,21 @@ test("a failed disk write leaves the note, the index and the change log as they 
   assert.equal(quire.meta("Welcome.md")?.version, before.version);
   assert.deepEqual(quire.changes({ since: lastChange }), []);
 });
+
+test("a note renamed on disk keeps its ID within the rename window, and not after", () => {
+  let now = Date.UTC(2026, 0, 1);
+  const { dir, quire } = openTempVault(undefined, { now: () => now });
+  const id = quire.meta("Projects/Roadmap.md")!.id;
+  /** Delete `from`, let `gapMs` pass, then write the same text at `to`, syncing after each step as the watcher would. */
+  const rename = (from: string, to: string, gapMs: number) => {
+    const text = fs.readFileSync(path.join(dir, from), "utf8");
+    fs.rmSync(path.join(dir, from));
+    quire.sync();
+    now += gapMs;
+    fs.writeFileSync(path.join(dir, to), text);
+    quire.sync();
+    return quire.meta(to)!.id;
+  };
+  assert.equal(rename("Projects/Roadmap.md", "Projects/Plan.md", 30_000), id);
+  assert.notEqual(rename("Projects/Plan.md", "Projects/Later.md", 61_000), id);
+});
