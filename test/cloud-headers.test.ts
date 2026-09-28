@@ -49,6 +49,12 @@ test("every response carries the common security headers", async () => {
   assert.equal((await page("/api/me")).headers.get("content-security-policy"), "default-src 'none'; frame-ancestors 'none'");
 });
 
+test("pages the Worker writes itself get no script rights at all", async () => {
+  const res = await page("/auth/google"); // no Google client in tests: the "isn't set up" page
+  assert.equal(res.status, 503);
+  assert.equal(res.headers.get("content-security-policy"), "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
+});
+
 test("HTML notes run in /sandbox: its own policy, an opaque origin, framed only by the app", async () => {
   const res = await page("/sandbox");
   assert.equal(res.headers.get("content-security-policy"), "sandbox allow-scripts; frame-ancestors 'self'");

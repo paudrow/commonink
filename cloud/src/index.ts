@@ -33,7 +33,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
   }
   if (url.pathname.startsWith("/invite/")) return invite(req, env, url);
   if (url.pathname.startsWith("/api/")) return api(req, env, url);
-  return fetchAsset(env.ASSETS, req);
+  return fetchAsset(env.ASSETS, req, url);
 }
 
 interface Call {
