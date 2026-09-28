@@ -85,6 +85,17 @@ The server also refuses to replace a non-empty note with an empty one unless the
 
 The server binds to 127.0.0.1 and checks the `Host` header to block DNS rebinding. Writes must come from its own origin and be JSON, which blocks cross-site requests and requests from sandboxed notes. The WebSocket checks `Origin`. Rendered markdown goes through DOMPurify. Vault assets are served with a `sandbox` CSP, and HTML files are never served from the app's origin.
 
+## Who can sign up
+
+Online, new accounts are invite-only. Anyone can sign in with Google, but someone new gets an account only after they enter the sign-up code, or when they arrive through a workspace invite link. People who already have an account sign in as usual. The code is a Worker secret. Case and extra spaces don't matter, so it can be a phrase you say out loud:
+
+```bash
+npx wrangler secret put SIGNUP_CODE -c cloud/wrangler.jsonc    # set it or change it
+npx wrangler secret delete SIGNUP_CODE -c cloud/wrangler.jsonc # no new accounts except by invite
+```
+
+With no code set, sign-ups are closed. Each Google account gets 5 wrong tries a day, so the code can't be guessed. Developer sign-in (local and Previews) skips the gate.
+
 ## Testing
 
 ```bash
