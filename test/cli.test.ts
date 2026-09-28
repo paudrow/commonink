@@ -86,6 +86,16 @@ test("task add writes a task from words, and task move moves one", () => {
   assert.equal(quire(vault, ["task", "add"]).stderr, "Say what the task is: quire task add \"Call mom tomorrow\"\n");
 });
 
+test("today prints the day's sections", () => {
+  const vault = tempVault();
+  quire(vault, ["task", "Roadmap", "8", "--due", "2026-10-01"]);
+  assert.equal(
+    quire(vault, ["today", "--date", "2026-10-01"]).stdout,
+    "Thursday, October 1, 2026\n\nOverdue (0)\n- nothing\n\nDue today (1)\n- [ ] Ship the importer due:2026-10-01 — Projects/Roadmap.md:8\n\nStarting today (0)\n- nothing\n\nJournal: Journal/2026-10-01.md (not written yet)\n",
+  );
+  assert.equal(JSON.parse(quire(vault, ["today", "--date", "2026-10-01", "--json"]).stdout).sections[1].tasks[0].line, 8);
+});
+
 test("star and unstar take #tags as well as notes", () => {
   const vault = tempVault();
   assert.equal(quire(vault, ["star", "Welcome", "#plan"]).stdout, "Favorites:\n- Welcome.md — Welcome\n- #plan (1 note)\n");

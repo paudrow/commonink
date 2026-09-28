@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import { LOCAL_USER, openVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
-import { fmtBacklinks, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtTags, fmtTasks, fmtWrite } from "./core/format.ts";
+import { fmtBacklinks, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtTags, fmtTasks, fmtToday, fmtWrite } from "./core/format.ts";
 
 const HELP = `quire — markdown notes for you and your agents
 
@@ -16,6 +16,8 @@ Usage: quire <command> [args] [--as <agent>] [--json]
                                    (--tag work also matches #work/acme)
   tasks [--tag T] [--assignee P] [--due '<=today'] [--done|--all]
                                    open tasks (tokens: due: start: rec: #tag @person !high)
+  today [--date YYYY-MM-DD]        the day at a glance: overdue, due today, starting today,
+                                   and today's journal note
   task add "<task>"                add a task in words: "Pay rent every month on the 1st #home",
                                    "Call mom tomorrow → [[Family]]"; it goes in today's daily
                                    note (Journal/YYYY-MM-DD.md) or the → [[note]]
@@ -86,6 +88,11 @@ if (cmd === "mcp") {
         const query = args.join(" ");
         const hits = q.search(query, num("limit") ?? 10, scope, str("tag"));
         out(fmtSearch(query, hits), hits);
+        break;
+      }
+      case "today": {
+        const t = q.today(str("date"));
+        out(fmtToday(t), t);
         break;
       }
       case "tasks": {

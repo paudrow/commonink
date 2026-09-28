@@ -163,6 +163,20 @@ export interface QuireOptions {
  * SQLite database is a rebuildable index plus the change log and each person's favorites.
  */
 
+/** One section of the Today view: a heading and its tasks. */
+export interface TodaySection {
+  id: "overdue" | "due" | "starting";
+  title: string;
+  tasks: Task[];
+}
+export interface TodayView {
+  /** The reader's day, YYYY-MM-DD. */
+  date: string;
+  sections: TodaySection[];
+  /** Today's journal note, and whether it's been written yet. */
+  journal: { path: string; exists: boolean };
+}
+
 /**
  * The index of the task on `line` (1-based) whose text is `text`, or, if the note moved it, of the
  * nearest line with that text. Throws if it's gone (the note changed under the caller).
@@ -1066,9 +1080,49 @@ export class Quire {
     const rel = q.target ? this.mustResolve(q.target) : `Journal/${today}.md`;
     if (kindOf(rel) !== "md") throw new QuireError(`Tasks go in markdown notes, and ${rel} isn't one`);
     const before = this.files.read(rel);
-    const added = before === null ? { content: `# ${today}\n\n## Tasks\n\n${q.line}\n`, line: 5 } : withTasksAdded(before, [q.line], !q.target);
+    // A day with no note yet gets one from the daily template, with the task in its Tasks section.
+    const added = withTasksAdded(before ?? this.dailyTemplate(today), [q.line], !q.target);
     const r = this.commit(rel, before, added.content, source, before === null ? "create" : "edit");
     return { ...r, line: added.line, text: q.line.match(TASK_LINE)![4] };
+  }
+
+  /**
+   * The day at a glance: open tasks overdue, due today, and starting today (each task once, in that
+   * order of urgency), and today's journal note. `date` is the reader's day. Sections are a list so
+   * more (calendar, reviews, mail) can slot in beside these.
+   */
+  today(date = localDate(this.now())): TodayView {
+    if (!isDate(date)) throw new QuireError(`"today" must be a date like 2026-10-01, not "${date}"`);
+    const day = (d: string | null) => d?.slice(0, 10) ?? "";
+    const open = this.tasks({ today: date }).filter((t) => !t.done);
+    const overdue = open.filter((t) => day(t.meta.due) && day(t.meta.due) < date).sort((a, b) => day(a.meta.due).localeCompare(day(b.meta.due)));
+    const due = open.filter((t) => day(t.meta.due) === date);
+    const starting = open.filter((t) => day(t.meta.start) === date && !(day(t.meta.due) && day(t.meta.due) <= date));
+    const journal = `Journal/${date}.md`;
+    return {
+      date,
+      sections: [
+        { id: "overdue", title: "Overdue", tasks: overdue },
+        { id: "due", title: "Due today", tasks: due },
+        { id: "starting", title: "Starting today", tasks: starting },
+      ],
+      journal: { path: journal, exists: this.files.stat(journal) !== null },
+    };
+  }
+
+  /** Today's journal note (`Journal/YYYY-MM-DD.md`), made from the daily template if it's missing. */
+  dailyNote(date: string, source: string) {
+    if (!isDate(date)) throw new QuireError(`"today" must be a date like 2026-10-01, not "${date}"`);
+    const rel = `Journal/${date}.md`;
+    if (this.files.stat(rel)) return { path: rel, created: false, change: null };
+    const r = this.commit(rel, null, this.dailyTemplate(date), source, "create");
+    return { path: rel, created: true, version: r.version, change: r.change };
+  }
+
+  /** A new daily note: `Templates/Daily note.md` with {{date}} filled in, or a plain one with Tasks and Log. */
+  private dailyTemplate(date: string): string {
+    const template = this.files.read("Templates/Daily note.md");
+    return template !== null ? template.replaceAll("{{date}}", date) : `# ${date}\n\n## Tasks\n\n## Log\n`;
   }
 
   /**

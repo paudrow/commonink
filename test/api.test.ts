@@ -172,6 +172,18 @@ test("quick-add writes a task from words, and a task moves to another note", asy
   assert.deepEqual([moved.status, moved.body.path, moved.body.line], [200, "Journal/2026-10-01.md", 6]);
 });
 
+test("today reads the viewer's day, and its journal note is made on request", async () => {
+  const { call } = setup();
+  await call("POST", "/tasks/update", { path: "Roadmap", line: 8, text: "Ship the importer", patch: { due: "2026-10-01" } });
+  const t = await call("GET", "/today?today=2026-10-01");
+  assert.deepEqual(t.body.sections.map((s: { id: string; tasks: unknown[] }) => [s.id, s.tasks.length]), [["overdue", 0], ["due", 1], ["starting", 0]]);
+  assert.deepEqual(t.body.journal, { path: "Journal/2026-10-01.md", exists: false });
+  assert.equal((await call("GET", "/today?today=2026-10-02")).body.sections[0].tasks[0].summary, "Ship the importer");
+  const made = await call("POST", "/today/journal", { today: "2026-10-01" });
+  assert.deepEqual(made.body, { path: "Journal/2026-10-01.md", created: true });
+  assert.equal((await call("GET", "/today?today=soon")).status, 400);
+});
+
 test("a tag is starred and unstarred through the favorites routes a viewer can use", async () => {
   const { call } = setup();
   const starred = await call("POST", "/favorites/star", { tag: "plan" });

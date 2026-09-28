@@ -27,7 +27,7 @@ async function call(name: string, args: Record<string, unknown>) {
 test("the server lists every tool", async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
-    "add_task", "append_to_note", "archive_note", "backlinks", "create_note", "edit_note", "list_notes", "list_tags", "list_tasks", "move_note", "move_task", "read_note", "recent_changes", "search_notes", "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag", "update_task",
+    "add_task", "append_to_note", "archive_note", "backlinks", "create_note", "edit_note", "get_today", "list_notes", "list_tags", "list_tasks", "move_note", "move_task", "read_note", "recent_changes", "search_notes", "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag", "update_task",
   ]);
 });
 
@@ -49,6 +49,14 @@ test("agents add a task from words, to today's daily note or a named note, and m
   assert.equal(to.text, 'Added "- [ ] Draft the agenda" to Projects/Roadmap.md:10');
   assert.equal((await call("move_task", { path: "Roadmap", line: 10, text: "Draft the agenda", to: `Journal/${today}` })).text, `Moved "Draft the agenda" to Journal/${today}.md:6`);
   assert.equal((await call("add_task", { text: "tomorrow" })).isError, true);
+});
+
+test("agents read the day: overdue, due today, starting today, and the journal note", async () => {
+  const text = (await call("get_today", { today: "2026-10-05" })).text;
+  assert.match(text, /^Monday, October 5, 2026\n\nOverdue \(\d+\)\n/);
+  assert.match(text, /\nDue today \(0\)\n- nothing\n/);
+  assert.match(text, /\nJournal: Journal\/2026-10-05\.md \(not written yet\)$/);
+  assert.equal((await call("get_today", { today: "someday" })).isError, true);
 });
 
 test("agents list tags as a tree and filter notes by a tag and the tags under it", async () => {
