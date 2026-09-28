@@ -5,14 +5,15 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
-import { createServer as createVite } from "vite";
 import { diffstat, versionOf, type Change } from "../core/quire.ts";
 import { openVault, PROJECT_ROOT } from "../core/local.ts";
-import { cleanPath, fileSecurityHeaders, isHidden, kindOf, mimeOf, MAX_UPLOAD } from "../core/paths.ts";
+import { cleanPath, fileSecurityHeaders, isHidden, kindOf, mimeOf, MAX_UPLOAD, QuireError } from "../core/paths.ts";
 import { errorResponse, handleApi, json, type ApiHost } from "../core/api.ts";
 import { unfurl } from "./unfurl.ts";
 
+// PORT=0 picks a free port (printed on start). QUIRE_NO_UI=1 serves only /api, skipping Vite.
 const PORT = Number(process.env.PORT ?? 4777);
+const UI = process.env.QUIRE_NO_UI !== "1";
 const quire = openVault();
 const files = quire.files;
 
@@ -29,7 +30,7 @@ const httpServer = http.createServer((req, res) => {
   handle(req, res).catch((e) => send(res, errorResponse(e)));
 });
 
-const vite = await createVite({
+const vite = UI && await (await import("vite")).createServer({
   root: path.join(PROJECT_ROOT, "web"),
   server: { middlewareMode: true, hmr: { server: httpServer } },
   appType: "spa",
@@ -48,8 +49,9 @@ const vite = await createVite({
 
 // ------------------------------------------------------------------ security
 
-const hosts = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`]);
-const origins = new Set([...hosts].map((h) => `http://${h}`));
+// Filled in once we're listening, when the port is known.
+const hosts = new Set<string>();
+const origins = new Set<string>();
 /** Blocks DNS-rebinding: only answer requests addressed to us by a loopback name. */
 const hostOk = (req: http.IncomingMessage) => hosts.has(req.headers.host ?? "");
 /**
@@ -158,7 +160,7 @@ const host: ApiHost = {
 async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
   if (!hostOk(req)) return send(res, json({ error: "Forbidden host" }, 403));
   const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
-  if (!url.pathname.startsWith("/api/")) return vite.middlewares(req, res);
+  if (!url.pathname.startsWith("/api/")) return vite ? vite.middlewares(req, res) : send(res, json({ error: "Not found (QUIRE_NO_UI)" }, 404));
   if (!originOk(req)) return send(res, json({ error: "Cross-origin request refused" }, 403));
   const route = url.pathname.slice("/api".length);
   // Uploads are raw bytes; the Origin check above is what keeps other sites out.
@@ -166,7 +168,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
   if (req.method !== "GET" && !String(req.headers["content-type"]).startsWith("application/json")) {
     return send(res, json({ error: "JSON only" }, 415));
   }
-  if (route.startsWith("/files/")) return asset(res, decodeURIComponent(route.slice("/files/".length)));
+  if (route.startsWith("/files/")) return asset(res, decodePath(route.slice("/files/".length)));
   if (route === "/file-resolve") {
     const rel = quire.resolve(url.searchParams.get("target") ?? "", url.searchParams.get("from") ?? undefined);
     if (!rel || kindOf(rel) !== "asset") return send(res, json({ error: "Not found" }, 404));
@@ -178,8 +180,18 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
     if (!/^https?:\/\//i.test(target)) return send(res, json({ error: "http(s) URLs only" }, 400));
     return send(res, json(await unfurl(target)));
   }
-  const response = await handleApi(host, await toRequest(req, url), route);
+  const request = await toRequest(req, url);
+  if (!request) return tooLarge(res, "Request body is over 20 MB");
+  const response = await handleApi(host, request, route);
   send(res, response ?? json({ error: `No route ${req.method} ${url.pathname}` }, 404));
+}
+
+function decodePath(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    throw new QuireError(`Invalid path: ${s}`);
+  }
 }
 
 function asset(res: http.ServerResponse, raw: string) {
@@ -195,7 +207,7 @@ async function upload(req: http.IncomingMessage, res: http.ServerResponse, url: 
   try {
     const rel = quire.uploadPath(url.searchParams.get("name") ?? "", url.searchParams.get("folder") ?? "assets");
     const bytes = await readBody(req, MAX_UPLOAD);
-    if (!bytes) return send(res, json({ error: "That file is over 50 MB" }, 413));
+    if (!bytes) return tooLarge(res, "That file is over 50 MB");
     seen.set(rel, "uploading"); // the watcher leaves it to us
     files.write(rel, bytes);
     const r = quire.recordUpload(rel, false, host.actor);
@@ -208,25 +220,40 @@ async function upload(req: http.IncomingMessage, res: http.ServerResponse, url: 
   }
 }
 
-/** A request body, or null if it's over `limit` bytes. */
-async function readBody(req: http.IncomingMessage, limit: number): Promise<Uint8Array<ArrayBuffer> | null> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const c of req) {
-    size += (c as Buffer).length;
-    if (size > limit) return null;
-    chunks.push(c as Buffer);
-  }
-  return Uint8Array.from(Buffer.concat(chunks));
+/**
+ * A request body, or null if it's over `limit` bytes. An oversized body is left unread rather than
+ * destroyed, so the 413 (sent with `tooLarge`) reaches the client before the connection closes.
+ */
+function readBody(req: http.IncomingMessage, limit: number): Promise<Uint8Array<ArrayBuffer> | null> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    const onData = (c: Buffer) => {
+      size += c.length;
+      if (size <= limit) return void chunks.push(c);
+      req.off("data", onData);
+      req.pause();
+      resolve(null);
+    };
+    req.on("data", onData);
+    req.on("end", () => resolve(Uint8Array.from(Buffer.concat(chunks))));
+    req.on("error", reject);
+  });
 }
 
-async function toRequest(req: http.IncomingMessage, url: URL): Promise<Request> {
+const tooLarge = (res: http.ServerResponse, error: string) => {
+  res.setHeader("Connection", "close");
+  return send(res, json({ error }, 413));
+};
+
+/** The web-standard Request for the shared API, or null if the body is too big. */
+async function toRequest(req: http.IncomingMessage, url: URL): Promise<Request | null> {
   const headers = new Headers();
   for (const [k, v] of Object.entries(req.headers)) if (v !== undefined) headers.set(k, Array.isArray(v) ? v.join(", ") : v);
   let body: Uint8Array<ArrayBuffer> | undefined;
   if (req.method !== "GET" && req.method !== "HEAD") {
     body = (await readBody(req, 20 * 1024 * 1024)) ?? undefined;
-    if (!body) throw new Error("Body too large");
+    if (!body) return null;
   }
   return new Request(url, { method: req.method, headers, body });
 }
@@ -237,5 +264,7 @@ async function send(res: http.ServerResponse, r: Response) {
 }
 
 httpServer.listen(PORT, "127.0.0.1", () => {
-  console.log(`\n  Quire  http://localhost:${PORT}\n  vault  ${files.root}\n`);
+  const port = (httpServer.address() as { port: number }).port;
+  for (const h of [`localhost:${port}`, `127.0.0.1:${port}`]) hosts.add(h), origins.add(`http://${h}`);
+  console.log(`\n  Quire  http://localhost:${port}\n  vault  ${files.root}\n`);
 });
