@@ -183,7 +183,7 @@ test("Connected agents lists your agents, and Revoke cuts one off at once", asyn
   assert.equal((await cloud.call(people.owner, "GET", "/api/agents")).some((a: any) => a.id === list[0].id), false, "only your own");
   const stolen = await cloud.request(people.owner, "POST", "/api/agents/revoke", { id: list[0].id });
   assert.equal(stolen.status, 200);
-  assert.equal((await cloud.call(cookie, "GET", "/api/agents")).length, 1, "someone else can't revoke it");
+  assert.deepEqual((await cloud.call(cookie, "GET", "/api/agents")).map((a: any) => typeof a.usedAt), ["number"], "someone else can't revoke it, or touch it");
 
   await cloud.call(cookie, "POST", "/api/agents/revoke", { id: list[0].id });
   const after = await cloud.server.fetch(new URL("/mcp", cloud.origin), {
@@ -194,6 +194,46 @@ test("Connected agents lists your agents, and Revoke cuts one off at once", asyn
   assert.equal(after.status, 401);
   assert.equal((await post("/oauth/token", form({ grant_type: "refresh_token", refresh_token: refresh, client_id: client }))).status, 400);
   assert.deepEqual(await cloud.call(cookie, "GET", "/api/agents"), []);
+});
+
+test("one client can work in two workspaces; connecting again to one replaces only that one", async () => {
+  const cookie = await cloud.signIn("twoplaces");
+  const { workspaces } = await cloud.call(cookie, "GET", "/api/me");
+  const { id: second } = await cloud.call(cookie, "POST", "/api/workspaces", { name: "Second" });
+  const client = await register();
+  const tokenFor = async (ws: string) => {
+    const { code, verifier } = await authorizeCode(cookie, ws, client);
+    return ((await (await exchange(client, code, verifier)).json()) as { access_token: string }).access_token;
+  };
+  const status = async (token: string) =>
+    (
+      await cloud.server.fetch(new URL("/mcp", cloud.origin), {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      })
+    ).status;
+  const first = await tokenFor(workspaces[0].id);
+  const other = await tokenFor(second);
+  assert.deepEqual([await status(first), await status(other)], [200, 200]);
+  const again = await tokenFor(workspaces[0].id);
+  assert.deepEqual([await status(first), await status(other), await status(again)], [401, 200, 200]);
+  assert.deepEqual((await cloud.call(cookie, "GET", "/api/agents")).map((a: any) => a.workspace.name).sort(), ["Second", "Twoplaces's notes"]);
+});
+
+test("signing out everywhere disconnects your agents too", async () => {
+  const cookie = await cloud.signIn("leaver");
+  const { workspaces } = await cloud.call(cookie, "GET", "/api/me");
+  const { access } = await connect(cookie, workspaces[0].id);
+  await cloud.call(cookie, "POST", "/api/sign-out-everywhere", {});
+  const res = await cloud.server.fetch(new URL("/mcp", cloud.origin), { method: "POST", headers: { authorization: `Bearer ${access}` } });
+  assert.equal(res.status, 401);
+});
+
+test("sign-in and consent keep a popup's link to the app that opened it", async () => {
+  const res = await cloud.server.fetch(new URL("/authorize?client_id=x", cloud.origin), { redirect: "manual" });
+  assert.equal(res.headers.get("cross-origin-opener-policy"), "unsafe-none");
+  assert.equal((await cloud.server.fetch(new URL("/", cloud.origin))).headers.get("cross-origin-opener-policy"), "same-origin");
 });
 
 test("a client can revoke its own token (RFC 7009)", async () => {

@@ -7,7 +7,7 @@ import { assertPublicUrl, unfurl } from "../../src/core/unfurl.ts";
 import { MAX_UPLOAD } from "../../src/core/paths.ts";
 import { SANDBOX_PATH, sandboxPage } from "../../src/core/sandbox.ts";
 import { access, isAccountRoute, routeKey, type AccountRoute } from "./access.ts";
-import { authorize, listAgents, oauthOptions, revokeAgent, withOAuthStore, type OAuthEnv } from "./agents.ts";
+import { authorize, listAgents, oauthOptions, revokeAgents, withOAuthStore, type OAuthEnv } from "./agents.ts";
 import { clearSessionCookies, ensurePersonalWorkspace, handleAuth, readSession, seedWorkspace } from "./auth.ts";
 import { acceptInvite, createInvite, createWorkspace, endSessionsOf, locateNote, membership, workspacesOf, type User } from "./directory.ts";
 import type { Env } from "./env.ts";
@@ -95,12 +95,14 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
   "POST /api/agents/revoke": async ({ req, env, url, user }) => {
     const { id } = (await req.json()) as { id?: unknown };
     if (typeof id !== "string") return json({ error: '"id" must be a string' }, 400);
-    await revokeAgent(env, url, user, id);
+    await revokeAgents(env, url, user, id);
     return json({ ok: true });
   },
-  // Every session ends, and every open tab's live connection closes, which sends it to sign-in.
-  "POST /api/sign-out-everywhere": async ({ env, user }) => {
+  // Every session ends, every open tab's live connection closes (which sends it to sign-in), and
+  // every connected agent is disconnected: a stolen session could have connected one.
+  "POST /api/sign-out-everywhere": async ({ env, url, user }) => {
     await endSessionsOf(env.DB, user.id);
+    await revokeAgents(env, url, user, "all");
     await Promise.all((await workspacesOf(env.DB, user.id)).map((w) => env.WORKSPACE.get(env.WORKSPACE.idFromName(w.id)).disconnect(user.id)));
     const res = json({ ok: true });
     for (const c of clearSessionCookies()) res.headers.append("Set-Cookie", c);

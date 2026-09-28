@@ -42,6 +42,8 @@ export function secure(res: Response, url: URL): Response {
   if (res.status === 101) return res; // a WebSocket: nothing to add, and its headers can't change
   const out = new Response(res.body, res);
   const h = out.headers;
+  // Sign-in and consent may run in a popup (an agent connecting): keep its link to the opener.
+  if (url.pathname === "/authorize" || url.pathname.startsWith("/auth/")) h.set("Cross-Origin-Opener-Policy", "unsafe-none");
   for (const [k, v] of Object.entries(COMMON)) if (!h.has(k)) h.set(k, v);
   if (url.protocol === "https:") h.set("Strict-Transport-Security", "max-age=31536000");
   if (!h.has("Content-Security-Policy")) h.set("Content-Security-Policy", String(h.get("Content-Type")).startsWith("text/html") ? WORKER_PAGE : NOTHING);

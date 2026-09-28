@@ -3,7 +3,7 @@
 // with that person's role in it right now. @cloudflare/workers-oauth-provider runs the protocol; its
 // records live in D1 (oauth-store.ts). This file has the consent page, the MCP handler, and the
 // "Connected agents" list.
-import { AuthorizationError, getOAuthApi, type ConsentDescription, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
+import { AuthorizationError, getOAuthApi, type ConsentDescription, type GrantSummary, type OAuthHelpers, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
 import { json } from "../../src/core/api.ts";
 import { escapeHtml, page, readSession, text } from "./auth.ts";
 import { getUser, membership, workspacesOf, type User, type WorkspaceRef } from "./directory.ts";
@@ -87,7 +87,12 @@ export async function authorize(req: Request, env: Env, url: URL): Promise<Respo
       if (!ws) return text(400, "Pick one of your workspaces, then try again.");
       const approved = await oauth.approveConsent(req, handle);
       const client = clientName((await oauth.lookupClient(approved.request.clientId))?.clientName);
+      // Connecting again to the same workspace replaces that connection; other workspaces keep theirs.
+      for (const g of await grantsOf(oauth, user.id)) {
+        if (g.clientId === approved.request.clientId && g.metadata?.workspaceId === ws.id) await oauth.revokeGrant(g.id, user.id);
+      }
       const { redirectTo } = await oauth.completeAuthorization({
+        revokeExistingGrants: false,
         request: approved.request,
         userId: user.id,
         metadata: { client, workspaceId: ws.id },
@@ -161,21 +166,30 @@ export interface ConnectedAgent {
   usedAt: number | null;
 }
 
-export async function listAgents(env: Env, url: URL, user: User): Promise<ConnectedAgent[]> {
-  const oauth = oauthApi(env, url);
-  const grants = [];
+async function grantsOf(oauth: OAuthHelpers, userId: string) {
+  const grants: GrantSummary[] = [];
   let cursor: string | undefined;
   do {
-    const page = await oauth.listUserGrants(user.id, { cursor });
+    const page = await oauth.listUserGrants(userId, { cursor });
     grants.push(...page.items);
     cursor = page.cursor;
   } while (cursor);
+  return grants;
+}
+
+export async function listAgents(env: Env, url: URL, user: User): Promise<ConnectedAgent[]> {
+  const grants = await grantsOf(oauthApi(env, url), user.id);
   if (!grants.length) return [];
   const workspaces = new Map((await workspacesOf(env.DB, user.id)).map((w) => [w.id, w]));
-  const { results } = await env.DB.prepare(`SELECT grant_id, used_at FROM agent_use WHERE grant_id IN (${grants.map(() => "?").join(",")})`)
-    .bind(...grants.map((g) => g.id))
-    .all<{ grant_id: string; used_at: number }>();
-  const used = new Map(results.map((r) => [r.grant_id, r.used_at]));
+  const used = new Map<string, number>();
+  // D1 takes at most 100 parameters per query.
+  for (let i = 0; i < grants.length; i += 100) {
+    const ids = grants.slice(i, i + 100).map((g) => g.id);
+    const { results } = await env.DB.prepare(`SELECT grant_id, used_at FROM agent_use WHERE grant_id IN (${ids.map(() => "?").join(",")})`)
+      .bind(...ids)
+      .all<{ grant_id: string; used_at: number }>();
+    for (const r of results) used.set(r.grant_id, r.used_at);
+  }
   return grants
     .map((g) => {
       const ws = workspaces.get(g.metadata?.workspaceId);
@@ -192,8 +206,12 @@ export async function listAgents(env: Env, url: URL, user: User): Promise<Connec
     .sort((a, b) => (b.usedAt ?? b.connectedAt) - (a.usedAt ?? a.connectedAt));
 }
 
-/** Disconnect an agent: its tokens stop working with the next request. */
-export async function revokeAgent(env: Env, url: URL, user: User, grantId: string) {
-  await oauthApi(env, url).revokeGrant(grantId, user.id);
-  await env.DB.prepare("DELETE FROM agent_use WHERE grant_id = ?").bind(grantId).run();
+/** Disconnect agents (one, or all of them): their tokens stop working with the next request. */
+export async function revokeAgents(env: Env, url: URL, user: User, which: string | "all") {
+  const oauth = oauthApi(env, url);
+  for (const g of await grantsOf(oauth, user.id)) {
+    if (which !== "all" && g.id !== which) continue;
+    await oauth.revokeGrant(g.id, user.id);
+    await env.DB.prepare("DELETE FROM agent_use WHERE grant_id = ?").bind(g.id).run();
+  }
 }
