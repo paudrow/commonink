@@ -126,3 +126,16 @@ test("the clock lever decides change timestamps and the attribution window", () 
   assert.deepEqual(quire.changes({ since: "2025-12-31T23:59:59Z" }).map((c) => c.id), [change.id]);
   assert.deepEqual(quire.changes({ since: "2026-01-01T00:00:00Z" }), []);
 });
+
+test("a failed disk write leaves the note, the index and the change log as they were", () => {
+  const { quire } = openTempVault();
+  const before = quire.read("Welcome");
+  const lastChange = quire.changes({ limit: 1 })[0]?.id ?? 0;
+  quire.files.write = () => {
+    throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" });
+  };
+  assert.throws(() => quire.append("Welcome", "lost", "t"), /ENOSPC/);
+  assert.equal(quire.read("Welcome").content, before.content);
+  assert.equal(quire.meta("Welcome.md")?.version, before.version);
+  assert.deepEqual(quire.changes({ since: lastChange }), []);
+});
