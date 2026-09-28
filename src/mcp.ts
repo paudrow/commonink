@@ -1,21 +1,14 @@
 // stdio MCP server: lets any MCP client (Claude Code, Claude Desktop, Cursor, Codex…) work in the vault.
-import fs from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { Quire } from "./core/quire.ts";
+import { openVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
 import { fmtBacklinks, fmtChanges, fmtList, fmtRead, fmtSearch, fmtWrite } from "./core/format.ts";
 
-const quire = Quire.open();
+const quire = openVault();
 
-const agentsMd = (() => {
-  try {
-    return fs.readFileSync(quire.abs("AGENTS.md"), "utf8");
-  } catch {
-    return "";
-  }
-})();
+const agentsMd = quire.files.read("AGENTS.md") ?? "";
 
 const server = new McpServer(
   { name: "quire", version: "0.1.0" },

@@ -1,6 +1,6 @@
 // `quire` CLI — the same core as the MCP server, for agents that prefer a shell (and for you).
 import fs from "node:fs";
-import { Quire } from "./core/quire.ts";
+import { openVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
 import { fmtBacklinks, fmtChanges, fmtList, fmtRead, fmtSearch, fmtWrite } from "./core/format.ts";
 
@@ -52,7 +52,7 @@ if (cmd === "mcp") {
   console.log(HELP);
 } else {
   try {
-    const q = Quire.open();
+    const q = openVault();
     switch (cmd) {
       case "search": {
         const query = args.join(" ");

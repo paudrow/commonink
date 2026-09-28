@@ -79,6 +79,32 @@ export class ApiError extends Error {
 }
 
 export const clientId = crypto.randomUUID();
+
+/**
+ * Where the note API lives: "/api" for the local app, "/api/w/<workspace>" online. `live` is the
+ * WebSocket path for the same workspace.
+ */
+let BASE = "/api";
+let LIVE = "/ws";
+export function useWorkspace(base: string, live: string) {
+  BASE = base;
+  LIVE = live;
+  resolveCache.clear();
+}
+export const apiBase = () => BASE;
+export const fileUrl = (path: string) => `${BASE}/files/${path.split("/").map(encodeURIComponent).join("/")}`;
+
+export interface Me {
+  user: { id: string; name: string; email: string; picture: string | null };
+  workspaces: Array<{ id: string; name: string; kind: "personal" | "team"; role: "owner" | "editor" | "viewer" }>;
+}
+/** Online: who's signed in (null if nobody). Locally the endpoint doesn't exist: undefined. */
+export async function whoAmI(): Promise<{ me: Me | null; devLogin: boolean } | undefined> {
+  const r = await fetch("/api/me").catch(() => null);
+  if (!r || r.status === 404) return undefined;
+  const data = await r.json().catch(() => ({}));
+  return r.ok ? { me: data as Me, devLogin: false } : { me: null, devLogin: !!data.devLogin };
+}
 const enc = encodeURIComponent;
 
 async function j<T>(url: string, init?: RequestInit): Promise<T> {
@@ -96,29 +122,31 @@ const send = (method: string, body: unknown): RequestInit => ({
 const resolveCache = new Map<string, Promise<string | null>>();
 
 export const api = {
-  info: () => j<{ vault: string; name: string; projectRoot: string }>("/api/info"),
-  notes: () => j<NoteMeta[]>("/api/notes"),
-  note: (path: string) => j<Note>(`/api/note?path=${enc(path)}`),
-  search: (q: string, scope: Scope = "active") => j<SearchHit[]>(`/api/search?q=${enc(q)}&limit=20&scope=${scope}`),
+  info: () => j<{ mode: "local" | "cloud"; name: string; vault?: string }>(`${BASE}/info`),
+  createWorkspace: (name: string) => j<{ id: string }>("/api/workspaces", send("POST", { name })),
+  invite: (role: "editor" | "viewer") => j<{ url: string }>(`${BASE}/invites`, send("POST", { role })),
+  notes: () => j<NoteMeta[]>(`${BASE}/notes`),
+  note: (path: string) => j<Note>(`${BASE}/note?path=${enc(path)}`),
+  search: (q: string, scope: Scope = "active") => j<SearchHit[]>(`${BASE}/search?q=${enc(q)}&limit=20&scope=${scope}`),
   feed: (p: { q?: string; scope?: Scope; folder?: string; tag?: string; sort?: "modified" | "title"; offset?: number; limit?: number }) =>
-    j<FeedPage>(`/api/feed?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
+    j<FeedPage>(`${BASE}/feed?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
   tasks: (p: { folder?: string; note?: string }) =>
-    j<Task[]>(`/api/tasks?${new URLSearchParams(Object.entries(p).filter(([, v]) => v).map(([k, v]) => [k, String(v)]))}`),
-  setTask: (t: Task, done: boolean) => j<{ path: string; version: string }>("/api/tasks/set", send("POST", { path: t.path, line: t.line, text: t.text, done })),
-  archive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>("/api/archive", send("POST", { paths })),
-  unarchive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>("/api/unarchive", send("POST", { paths })),
-  backlinks: (path: string) => j<Backlink[]>(`/api/backlinks?path=${enc(path)}`),
-  changes: () => j<Change[]>("/api/changes?limit=40"),
+    j<Task[]>(`${BASE}/tasks?${new URLSearchParams(Object.entries(p).filter(([, v]) => v).map(([k, v]) => [k, String(v)]))}`),
+  setTask: (t: Task, done: boolean) => j<{ path: string; version: string }>(`${BASE}/tasks/set`, send("POST", { path: t.path, line: t.line, text: t.text, done })),
+  archive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/archive`, send("POST", { paths })),
+  unarchive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/unarchive`, send("POST", { paths })),
+  backlinks: (path: string) => j<Backlink[]>(`${BASE}/backlinks?path=${enc(path)}`),
+  changes: () => j<Change[]>(`${BASE}/changes?limit=40`),
   save: (path: string, content: string, baseVersion?: string, allowEmpty = false) =>
-    j<{ path: string; version: string }>("/api/note", send("PUT", { path, content, baseVersion, clientId, allowEmpty })),
-  create: (path: string, content: string) => j<{ path: string; version: string }>("/api/note", send("POST", { path, content })),
-  move: (from: string, to: string) => j<{ path: string; updated: string[] }>("/api/move", send("POST", { from, to })),
+    j<{ path: string; version: string }>(`${BASE}/note`, send("PUT", { path, content, baseVersion, clientId, allowEmpty })),
+  create: (path: string, content: string) => j<{ path: string; version: string }>(`${BASE}/note`, send("POST", { path, content })),
+  move: (from: string, to: string) => j<{ path: string; updated: string[] }>(`${BASE}/move`, send("POST", { from, to })),
   resolve(target: string, from?: string): Promise<string | null> {
     const key = `${from ?? ""}\u0000${target}`;
     if (!resolveCache.has(key)) {
       resolveCache.set(
         key,
-        j<{ path: string | null }>(`/api/resolve?target=${enc(target)}${from ? `&from=${enc(from)}` : ""}`).then((r) => r.path),
+        j<{ path: string | null }>(`${BASE}/resolve?target=${enc(target)}${from ? `&from=${enc(from)}` : ""}`).then((r) => r.path),
       );
     }
     return resolveCache.get(key)!;
@@ -128,13 +156,13 @@ export const api = {
 
 export function assetUrl(target: string, from?: string): string {
   if (/^https?:\/\//i.test(target)) return target;
-  return `/vault-resolve?target=${enc(target)}${from ? `&from=${enc(from)}` : ""}`;
+  return `${BASE}/file-resolve?target=${enc(target)}${from ? `&from=${enc(from)}` : ""}`;
 }
 
 export function connect(onMessage: (m: ServerMsg) => void, onStatus: (up: boolean) => void) {
   let delay = 500;
   const open = () => {
-    const ws = new WebSocket(`ws://${location.host}/ws`);
+    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${LIVE}`);
     ws.onopen = () => {
       delay = 500;
       onStatus(true);
