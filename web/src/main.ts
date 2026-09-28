@@ -283,7 +283,7 @@ async function showTags(opts: { push?: boolean } = {}) {
 /** Show what carries a tag (and the tags under it): its notes, or its tasks. */
 function openTag(tag: string, where: "notes" | "tasks" = "notes") {
   if (where === "tasks") void showTasks({ tag });
-  else void showNotes({ scope: "active", folder: "", tag });
+  else void showNotes({ scope: "active", query: { tag } });
 }
 
 async function showAssets(opts: { open?: string; push?: boolean } = {}) {
@@ -733,6 +733,7 @@ function renderSmartFolders(active: string | null) {
           renderTree();
         },
         remove: async () => {
+          if (!confirm(`Delete the smart folder ${f.name}${f.shared ? " for everyone in the workspace" : ""}? Its notes don't change.`)) return;
           smartFolders = await api.deleteSmartFolder(f.id);
           renderTree();
           toast({ icon: "spark", text: `Deleted ${f.name}` });
@@ -880,7 +881,7 @@ function renderTree() {
   renderFavorites();
   const page = onPage();
   // What Notes is showing, as a query: the Notes view, a folder and a smart folder each match one.
-  const showing = page === "notes" ? formatQuery(notesPage.query) : null;
+  const showing = page === "notes" && notesPage.scope === "active" ? formatQuery(notesPage.query) : null;
   renderSmartFolders(showing);
   const archivedCount = notes.filter((n) => isArchived(n.path) && n.kind !== "asset").length;
   $("#archive-count").textContent = archivedCount ? String(archivedCount) : "";
@@ -920,8 +921,8 @@ function renderTree() {
             "data-folder": path,
             title: n ? `Show the notes in ${path}` : `${path} is empty. Drag notes here.`,
             tabindex: "0",
-            onclick: () => void showNotes({ scope: "active", folder: path, tag: "" }),
-            onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && void showNotes({ scope: "active", folder: path, tag: "" }),
+            onclick: () => void showNotes({ scope: "active", query: { folder: path } }),
+            onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && void showNotes({ scope: "active", query: { folder: path } }),
           },
           subs
             ? el(
@@ -1554,14 +1555,14 @@ async function boot() {
   const isDark = document.documentElement.dataset.theme === "dark" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
   $("#theme-toggle").replaceChildren(icon(isDark ? "sun" : "moon", 15));
   window.addEventListener("popstate", () => void route());
-  $("#notes-btn").addEventListener("click", () => void showNotes({ scope: "active", folder: "", tag: "" }));
+  $("#notes-btn").addEventListener("click", () => void showNotes({ scope: "active", query: {} }));
   $("#tasks-btn").addEventListener("click", () => void showTasks());
   $("#history-btn").addEventListener("click", () => void showHistory());
   $("#assets-btn").addEventListener("click", () => void showAssets());
   $("#tags-btn").addEventListener("click", () => void showTags());
   $("#note-history-btn").addEventListener("click", () => session && void showHistory({ note: session.path }));
   $("#back-btn").addEventListener("click", () => void showNotes());
-  $("#archive-nav").addEventListener("click", () => void showNotes({ scope: "archived", folder: "", tag: "" }));
+  $("#archive-nav").addEventListener("click", () => void showNotes({ scope: "archived", query: {} }));
   $("#archive-btn").addEventListener("click", () => void archiveCurrent());
   $("#star-btn").addEventListener("click", () => session && void toggleStar(session.path));
   $("#move-btn").addEventListener("click", () => openMovePicker($("#move-btn")));

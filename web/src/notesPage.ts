@@ -36,7 +36,7 @@ export class NotesPage {
   private saveBtn: HTMLButtonElement;
   private bulk: HTMLElement;
   private more: HTMLElement;
-  private scope: Scope = "active";
+  scope: Scope = "active";
   private folder = "";
   /** The tag Notes is narrowed to ("" for any); its children count too. */
   private tag = "";

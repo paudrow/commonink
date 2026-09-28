@@ -18,7 +18,7 @@ export const query: WidgetSpec = {
   configAction: {
     label: "Save as smart folder",
     icon: "spark",
-    run: (args, env, anchor) => env.saveSmartFolder(formatQuery(toQuery(args)), args.label ?? "", anchor),
+    run: (args, env, anchor) => env.saveSmartFolder(formatQuery({ ...toQuery({ ...env.args, ...args }), limit: undefined }), args.label ?? "", anchor), // sort isn't in the form
   },
   fields: [
     { key: "label", label: "Label", type: "text", placeholder: "Active projects, Meetings…" },

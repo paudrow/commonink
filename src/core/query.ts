@@ -16,6 +16,7 @@ export interface NoteQuery {
 }
 
 const KEYS = ["q", "folder", "tag", "sort", "limit"] as const;
+const LIMIT = /^[1-9]\d{0,3}$/;
 
 /** `key=value` pairs; a key can also compare (`due<=today`), and then the operator starts its value ("<=today"). */
 export function parseAttrs(src: string): Record<string, string> {
@@ -42,14 +43,19 @@ export function formatAttrs(args: Record<string, string>): string {
     .join(" ");
 }
 
-/** The query in a set of args, leaving out other keys (a widget's label and id) and values that don't fit. */
+/**
+ * The query in a set of args, leaving out other keys (a widget's label and id) and values that
+ * don't fit. Tidied the way the Notes filters hold it (`tag=#Plan` is `tag=Plan`), so the two compare.
+ */
 export function toQuery(args: Record<string, string>): NoteQuery {
   const out: NoteQuery = {};
+  const folder = args.folder?.replace(/^\/+|\/+$/g, "");
+  const tag = args.tag ? cleanTag(args.tag) : null;
   if (args.q) out.q = args.q;
-  if (args.folder) out.folder = args.folder;
-  if (args.tag) out.tag = args.tag;
+  if (folder) out.folder = folder;
+  if (tag) out.tag = tag;
   if (args.sort === "modified" || args.sort === "title") out.sort = args.sort;
-  if (/^[1-9]\d*$/.test(args.limit ?? "")) out.limit = Number(args.limit);
+  if (LIMIT.test(args.limit ?? "")) out.limit = Number(args.limit);
   return out;
 }
 
@@ -62,11 +68,14 @@ export function formatQuery(q: NoteQuery): string {
 
 /** What's wrong with a query someone wants to save, or null. Stricter than toQuery, which drops what it can't use. */
 export function queryProblem(src: string): string | null {
+  if ((src.match(/"/g)?.length ?? 0) % 2) return "A quote isn't closed";
+  const bare = src.match(/(?:^|\s)([\w-]+)(?=\s|$)/);
+  if (bare) return `Give "${bare[1]}" a value, like ${bare[1] === "tag" ? "tag=work" : `${bare[1]}=…`}`;
   const args = parseAttrs(src);
   for (const [k, v] of Object.entries(args)) {
     if (!(KEYS as readonly string[]).includes(k)) return `Unknown query key "${k}": use ${KEYS.slice(0, -1).join(", ")} or ${KEYS.at(-1)}`;
     if (k === "sort" && v !== "modified" && v !== "title") return `"sort" is modified or title, not "${v}"`;
-    if (k === "limit" && !/^[1-9]\d*$/.test(v)) return `"limit" is a whole number above 0, not "${v}"`;
+    if (k === "limit" && !LIMIT.test(v)) return `"limit" is a whole number above 0, not "${v}"`;
     if (k === "tag" && !cleanTag(v)) return `"${v}" isn't a tag: use letters, numbers, - and _, nested with /`;
   }
   return null;

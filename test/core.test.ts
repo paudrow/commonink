@@ -423,6 +423,17 @@ test("smart folders are saved queries, shared with the workspace or one person's
   assert.deepEqual(quire.deleteSmartFolder("ana", "client work", true), []);
 });
 
+test("a smart folder name means your own before a shared one, a saved query keeps no limit, and there's a cap", () => {
+  const { quire } = openTempVault(TAGGED);
+  const shared = quire.saveSmartFolder("ana", { name: "Work", query: "tag=work limit=5", shared: true }, true);
+  assert.equal(shared.query, "tag=work");
+  quire.saveSmartFolder("bo", { name: "work", query: "folder=Ideas", shared: false }, true);
+  assert.deepEqual(quire.deleteSmartFolder("bo", "WORK", true).map((f) => f.name), ["Work"]);
+  assert.throws(() => quire.saveSmartFolder("bo", { name: "x".repeat(81), query: "", shared: false }, true), /80 characters/);
+  for (let i = 0; i < 50; i++) quire.saveSmartFolder("cy", { name: `f${i}`, query: "", shared: false }, true);
+  assert.throws(() => quire.saveSmartFolder("cy", { name: "one more", query: "", shared: false }, true), /50 smart folders/);
+});
+
 test("an index from before tags learns every note's tags on the next start", () => {
   const { dir, quire } = openTempVault(TAGGED);
   quire.db.exec("DROP TABLE tags");

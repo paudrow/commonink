@@ -245,12 +245,12 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     case "PUT /favorites":
       return json(favorited(quire.orderFavorites(host.user, paths("paths"))));
     case "POST /smart-folders": {
-      const f = quire.saveSmartFolder(host.user, { id: optStr("id"), name: str("name"), query: text("query"), shared: flag("shared") }, host.canEditShared);
+      const f = quire.saveSmartFolder(host.user, { id: optStr("id"), name: str("name"), query: text("query"), shared: flag("shared") }, host.canEditShared, true);
       host.tree();
       return json(f);
     }
     case "POST /smart-folders/delete": {
-      const list = quire.deleteSmartFolder(host.user, str("id"), host.canEditShared);
+      const list = quire.deleteSmartFolder(host.user, str("id"), host.canEditShared, true);
       host.tree();
       return json(list);
     }

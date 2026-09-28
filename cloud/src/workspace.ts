@@ -104,7 +104,7 @@ export class Workspace extends DurableObject<Env> {
       quire: this.quire,
       actor: decodeURIComponent(req.headers.get("x-ci-actor") ?? "someone"),
       user: req.headers.get("x-ci-user") ?? "",
-      canEditShared: req.headers.get("x-ci-role") !== "viewer",
+      canEditShared: ["owner", "editor"].includes(req.headers.get("x-ci-role") ?? ""), // an unknown or missing role can't
       info: () => ({ mode: "cloud", name: decodeURIComponent(req.headers.get("x-ci-workspace-name") ?? "Workspace") }),
       written: (rel, content, version, change, origin) => this.announce(rel, content, version, change, origin),
       moved: (from, to, version, change) => {

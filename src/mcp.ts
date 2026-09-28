@@ -122,7 +122,7 @@ server.registerTool(
       if (starred) return favorites();
       if (smart_folder) {
         const query = parseQuery(quire.findSmartFolder(LOCAL_USER, smart_folder).query);
-        return fmtList(quire.feed({ ...query, limit: query.limit ?? 500 }).items);
+        return fmtList(quire.feed({ ...query, limit: Infinity }).items);
       }
       return fmtList(recent ? quire.recent(recent) : quire.list(folder, include_archived ? "all" : "active", tag));
     }),

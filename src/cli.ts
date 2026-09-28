@@ -178,7 +178,7 @@ if (cmd === "mcp") {
           break;
         }
         const query = parseQuery(q.findSmartFolder(LOCAL_USER, args.join(" ")).query);
-        const notes = q.feed({ ...query, limit: query.limit ?? 500 }).items;
+        const notes = q.feed({ ...query, limit: Infinity }).items;
         out(fmtList(notes), notes);
         break;
       }
