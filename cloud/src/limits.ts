@@ -12,6 +12,7 @@ export const LIMITS = {
   invite: { max: 20, per: 60 * MINUTE, message: "That's a lot of invite links for one hour." },
   upload: { max: 120, per: 60 * MINUTE, message: "That's a lot of uploads for one hour." },
   unfurl: { max: 120, per: MINUTE, message: "Too many link previews at once." },
+  register: { max: 20, per: 60 * MINUTE, message: "Too many apps registered from your network." },
 } as const;
 
 /**

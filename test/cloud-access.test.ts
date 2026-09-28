@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { ACCOUNT_ROUTES, WORKSPACE_ROUTES } from "../cloud/src/access.ts";
+import { TOOL_ROUTES } from "../src/core/tools.ts";
 import { startCloud, team, type Cloud } from "./cloud.ts";
 
 const WHO = ["signedOut", "stranger", "viewer", "editor", "owner"] as const;
@@ -57,6 +58,8 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /api/workspaces", send: (w) => ["POST", "/api/workspaces", { name: `${w}'s team` }], expect: SIGNED_IN },
   { route: "GET /api/unfurl", send: () => ["GET", "/api/unfurl?url=https://example.invalid/"], expect: SIGNED_IN },
   { route: "GET /api/note-ids/*", send: () => ["GET", `/api/note-ids/${welcomeId}`], expect: READ },
+  { route: "GET /api/agents", send: () => ["GET", "/api/agents"], expect: SIGNED_IN },
+  { route: "POST /api/agents/revoke", send: () => ["POST", "/api/agents/revoke", { id: "not-a-grant" }], expect: SIGNED_IN },
   // Last: it ends everyone's sessions.
   { route: "POST /api/sign-out-everywhere", send: () => ["POST", "/api/sign-out-everywhere", {}], expect: SIGNED_IN },
 ];
@@ -91,6 +94,7 @@ test("every route online has a row in the access matrix, and every API route has
   const api = fs.readFileSync(path.resolve(import.meta.dirname, "../src/core/api.ts"), "utf8");
   const coreRoutes = [...api.matchAll(/case "((?:GET|POST|PUT|PATCH|DELETE) \/[^"]*)"/g)].map((m) => m[1]);
   assert.deepEqual(coreRoutes.filter((r) => !(r in WORKSPACE_ROUTES)), [], "core API routes with no role in cloud/src/access.ts");
+  assert.deepEqual(Object.entries(TOOL_ROUTES).filter(([, r]) => !(r in WORKSPACE_ROUTES)), [], "MCP tools whose route has no role");
 });
 
 test("each route answers each kind of person as the matrix says", async () => {

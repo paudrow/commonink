@@ -47,6 +47,8 @@ export const ACCOUNT_ROUTES = [
   "GET /api/unfurl",
   "GET /api/note-ids/*",
   "POST /api/sign-out-everywhere",
+  "GET /api/agents",
+  "POST /api/agents/revoke",
 ] as const;
 export type AccountRoute = (typeof ACCOUNT_ROUTES)[number];
 

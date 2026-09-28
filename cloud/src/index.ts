@@ -1,10 +1,13 @@
 // The Worker: signs people in, checks what they can open, and forwards workspace requests to that
-// workspace's Durable Object. Everything else is the web app, served from the edge as static assets.
+// workspace's Durable Object. Agents connect over OAuth to /mcp (agents.ts). Everything else is the
+// web app, served from the edge as static assets.
+import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import { json } from "../../src/core/api.ts";
 import { assertPublicUrl, unfurl } from "../../src/core/unfurl.ts";
 import { MAX_UPLOAD } from "../../src/core/paths.ts";
 import { SANDBOX_PATH, sandboxPage } from "../../src/core/sandbox.ts";
 import { access, isAccountRoute, routeKey, type AccountRoute } from "./access.ts";
+import { authorize, listAgents, oauthOptions, revokeAgent, withOAuthStore, type OAuthEnv } from "./agents.ts";
 import { clearSessionCookies, ensurePersonalWorkspace, handleAuth, readSession, seedWorkspace } from "./auth.ts";
 import { acceptInvite, createInvite, createWorkspace, endSessionsOf, locateNote, membership, workspacesOf, type User } from "./directory.ts";
 import type { Env } from "./env.ts";
@@ -13,10 +16,23 @@ import { limit } from "./limits.ts";
 
 export { Workspace } from "./workspace.ts";
 
+/** The web app, behind the OAuth provider, which answers /mcp and the OAuth endpoints itself. */
+const app: ExportedHandler<OAuthEnv> = { fetch: (req, env) => route(req, env, new URL(req.url)) };
+const providers = new Map<string, OAuthProvider<OAuthEnv>>();
+
 export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
-    return secure(await route(req, env, url), url);
+    // Anyone may register an OAuth client, so registrations are limited per address.
+    if (url.pathname === "/oauth/register" && req.method === "POST") {
+      const tooMany = await limit(env.DB, "register", req.headers.get("CF-Connecting-IP") ?? "unknown");
+      if (tooMany) return secure(tooMany, url);
+    }
+    // OAuth needs HTTPS, or plain HTTP on this machine. Anything else gets the app without /mcp.
+    if (url.protocol !== "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) return secure(await route(req, env, url), url);
+    let provider = providers.get(url.origin);
+    if (!provider) providers.set(url.origin, (provider = new OAuthProvider(oauthOptions(url.origin, app))));
+    return secure(await provider.fetch(req, withOAuthStore(env), ctx), url);
   },
 } satisfies ExportedHandler<Env>;
 
@@ -26,6 +42,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
     return Response.redirect(url.toString(), 301);
   }
   if (url.pathname === SANDBOX_PATH) return sandboxPage();
+  if (url.pathname === "/authorize") return authorize(req, env, url);
   if (url.pathname.startsWith("/auth/")) {
     const ip = req.headers.get("CF-Connecting-IP") ?? "unknown";
     const tooMany = url.pathname !== "/auth/logout" && (await limit(env.DB, "signIn", ip, "text"));
@@ -71,6 +88,13 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
     const noteId = url.pathname.match(/^\/api\/note-ids\/([a-z2-9]{8})$/)?.[1];
     const ws = noteId && (await locateNote(env.DB, user.id, noteId));
     return ws ? json({ workspace: ws }) : json({ error: "That note doesn't exist, or you don't have access to it" }, 404);
+  },
+  "GET /api/agents": async ({ env, url, user }) => json(await listAgents(env, url, user)),
+  "POST /api/agents/revoke": async ({ req, env, url, user }) => {
+    const { id } = (await req.json()) as { id?: unknown };
+    if (typeof id !== "string") return json({ error: '"id" must be a string' }, 400);
+    await revokeAgent(env, url, user, id);
+    return json({ ok: true });
   },
   // Every session ends, and every open tab's live connection closes, which sends it to sign-in.
   "POST /api/sign-out-everywhere": async ({ env, user }) => {
