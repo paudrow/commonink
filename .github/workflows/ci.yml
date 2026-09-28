@@ -7,9 +7,11 @@ on:
     branches: [main]
 
 # Superseded PR runs are cancelled; runs on main never are, so a deploy is never cut off halfway.
+# PR runs are grouped by PR number, not ref: a merged PR's "closed" run has ref refs/heads/main, and
+# sharing main's group let it cancel the production deploy.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'closed' }}
 
 jobs:
   check:
