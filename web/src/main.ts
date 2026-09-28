@@ -10,7 +10,7 @@ import { clearFlash, flashChanges } from "./editor/agentFlash.ts";
 import { editsBetween, merge3 } from "./merge.ts";
 import { sandboxFrame } from "./render.ts";
 import { Palette } from "./palette.ts";
-import { Feed } from "./feed.ts";
+import { NotesPage } from "./notesPage.ts";
 import { folderPicker } from "./folderPicker.ts";
 import { History } from "./history.ts";
 import { Assets } from "./assets.ts";
@@ -66,7 +66,7 @@ let changes: Change[] = [];
 let session: Session | null = null;
 
 const view = new EditorView({ parent: $("#editor-host") });
-const feed = new Feed({
+const notesPage = new NotesPage({
   open: (path, line) => void openNote(path, { line }),
   toast: (t) => toast(t),
   changed: () => {
@@ -180,11 +180,11 @@ function setUrl(url: string, how: "push" | "replace" = "push") {
 
 let unmountTasks: (() => void) | null = null;
 
-function showStage(which: "editor" | "html" | "feed" | "tasks" | "history" | "assets") {
+function showStage(which: "editor" | "html" | "notes" | "tasks" | "history" | "assets") {
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
   $("#assets-view").hidden = which !== "assets";
-  $("#feed-view").hidden = which !== "feed";
+  $("#notes-view").hidden = which !== "notes";
   $("#tasks-view").hidden = which !== "tasks";
   $("#history-view").hidden = which !== "history";
   if (which !== "tasks") {
@@ -205,13 +205,13 @@ async function leaveNote() {
   $("#backlinks").replaceChildren(el("div", { class: "panel-empty" }, "—"));
 }
 
-/** The feed is home: every note, newest first. No note is open while it's showing. */
-async function showFeed(opts: { scope?: Scope; filter?: boolean; push?: boolean } = {}) {
+/** Notes is home: every note, newest first. No note is open while it's showing. */
+async function showNotes(opts: { scope?: Scope; filter?: boolean; push?: boolean } = {}) {
   await leaveNote();
-  showStage("feed");
-  feed.show(opts);
+  showStage("notes");
+  notesPage.show(opts);
   if (opts.push !== false) setUrl("/notes");
-  document.title = "Feed · Common Ink";
+  document.title = "Notes · Common Ink";
   renderChrome();
   renderTree();
   renderOutline();
@@ -286,7 +286,7 @@ function pickFiles(): Promise<File[]> {
 }
 
 const onPage = () =>
-  feed.visible ? "feed" : !$("#tasks-view").hidden ? "tasks" : historyPage.visible ? "history" : assetsPage.visible ? "assets" : null;
+  notesPage.visible ? "notes" : !$("#tasks-view").hidden ? "tasks" : historyPage.visible ? "history" : assetsPage.visible ? "assets" : null;
 
 // ------------------------------------------------------------------ focus mode
 
@@ -591,7 +591,7 @@ function onMessage(m: ServerMsg) {
       if (["move", "archive", "unarchive"].includes(m.change.op) && m.change.from_path === session?.path && m.change.from_path !== renaming) {
         openNote(m.change.path, { push: false });
       }
-      feed.refreshSoon();
+      notesPage.refreshSoon();
       historyPage.refreshSoon();
       renderActivity();
       renderPresence();
@@ -607,7 +607,7 @@ function onMessage(m: ServerMsg) {
       return;
     }
     case "tree":
-      feed.refreshSoon();
+      notesPage.refreshSoon();
       api.clearResolveCache();
       refreshNotesSoon();
       refreshBacklinksSoon();
@@ -672,7 +672,7 @@ function renderTree() {
   const root: Dir = { dirs: new Map(), files: [] };
   const archivedCount = notes.filter((n) => isArchived(n.path) && n.kind !== "asset").length;
   $("#archive-count").textContent = archivedCount ? String(archivedCount) : "";
-  $("#feed-btn").classList.toggle("is-active", onPage() === "feed");
+  $("#notes-btn").classList.toggle("is-active", onPage() === "notes");
   $("#tasks-btn").classList.toggle("is-active", onPage() === "tasks");
   $("#history-btn").classList.toggle("is-active", onPage() === "history" && !historyPage.noteFilter);
   const dirOf = (parts: string[]) => {
@@ -845,7 +845,7 @@ async function archivePath(path: string) {
   const r = await api.archive([path]).catch(() => null);
   if (!r) return toast({ text: `Couldn't archive ${displayName(path)}` });
   await refreshNotes();
-  feed.refreshSoon();
+  notesPage.refreshSoon();
   toast({
     icon: "archive",
     text: `Archived ${displayName(path)}`,
@@ -853,7 +853,7 @@ async function archivePath(path: string) {
     action: async () => {
       await api.unarchive(r.moved.map((m) => m.to));
       await refreshNotes();
-      feed.refreshSoon();
+      notesPage.refreshSoon();
     },
   });
 }
@@ -892,7 +892,7 @@ function renderChrome() {
   const s = session;
   const crumbs = $("#crumbs");
   const page = onPage();
-  $("#back-btn").hidden = page === "feed";
+  $("#back-btn").hidden = page === "notes";
   $("#archive-btn").hidden = !s;
   $("#move-btn").hidden = !s;
   $("#note-history-btn").hidden = !s || s.kind === "asset";
@@ -902,7 +902,7 @@ function renderChrome() {
     $("#html-toggle").hidden = true;
     for (const id of ["#vim-mode", "#cursor-pos", "#word-count"]) $(id).textContent = "";
     $("#vim-mode").dataset.mode = "";
-    const label = { feed: "Feed", tasks: "Tasks", history: "History", assets: "Assets" };
+    const label = { notes: "Notes", tasks: "Tasks", history: "History", assets: "Assets" };
     const note = page === "history" ? historyPage.noteFilter : null;
     return crumbs.replaceChildren(
       ...(page ? [el("span", { class: "crumb-file" }, label[page])] : []),
@@ -1198,7 +1198,7 @@ Vim.defineEx("edit", "e", (_cm: unknown, params: { args?: string[] }) => {
   else palette.open();
 });
 Vim.defineEx("archive", "arch", () => void archiveCurrent());
-Vim.defineEx("feed", "fe", () => void showFeed());
+Vim.defineEx("notes", "note", () => void showNotes());
 Vim.defineEx("focus", "foc", () => void setFocusMode(!focusMode));
 Vim.defineAction("quireFollowLink", () => followLinkAtCursor());
 Vim.mapCommand("gd", "action", "quireFollowLink", {}, { context: "normal" });
@@ -1233,7 +1233,7 @@ window.addEventListener(
       void setFocusMode(!focusMode);
     } else if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
       e.preventDefault();
-      void showFeed({ filter: true });
+      void showNotes({ filter: true });
     } else if (mod && e.key === "e" && session?.kind === "html") {
       e.preventDefault();
       setHtmlMode(prefs.htmlMode === "preview" ? "source" : "preview");
@@ -1282,7 +1282,7 @@ let workspaceId = "";
 
 /**
  * Show whatever the address bar points at: /notes/<title>-<id>, /tasks, /history, /assets, or the
- * feed (/notes, /). Links from before paths (#/Projects/Plan.md, #tasks) still work and get rewritten.
+ * notes list (/notes, /). Links from before paths (#/Projects/Plan.md, #tasks) still work and get rewritten.
  */
 async function route() {
   const hash = location.hash;
@@ -1312,7 +1312,7 @@ async function route() {
   }
   if (link) toast({ text: workspaceId ? "That note doesn't exist, or you don't have access to it" : "That note doesn't exist any more" });
   setUrl("/notes", "replace");
-  return showFeed({ push: false });
+  return showNotes({ push: false });
 }
 
 /** The Tasks badge: how many checkboxes are still open across the workspace. */
@@ -1359,13 +1359,13 @@ async function boot() {
   const isDark = document.documentElement.dataset.theme === "dark" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
   $("#theme-toggle").replaceChildren(icon(isDark ? "sun" : "moon", 15));
   window.addEventListener("popstate", () => void route());
-  $("#feed-btn").addEventListener("click", () => void showFeed({ scope: "active" }));
+  $("#notes-btn").addEventListener("click", () => void showNotes({ scope: "active" }));
   $("#tasks-btn").addEventListener("click", () => void showTasks());
   $("#history-btn").addEventListener("click", () => void showHistory());
   $("#assets-btn").addEventListener("click", () => void showAssets());
   $("#note-history-btn").addEventListener("click", () => session && void showHistory({ note: session.path }));
-  $("#back-btn").addEventListener("click", () => void showFeed());
-  $("#archive-nav").addEventListener("click", () => void showFeed({ scope: "archived" }));
+  $("#back-btn").addEventListener("click", () => void showNotes());
+  $("#archive-nav").addEventListener("click", () => void showNotes({ scope: "archived" }));
   $("#archive-btn").addEventListener("click", () => void archiveCurrent());
   $("#move-btn").addEventListener("click", () => openMovePicker($("#move-btn")));
   $("#focus-btn").addEventListener("click", () => void setFocusMode(!focusMode));
@@ -1401,7 +1401,7 @@ async function boot() {
   });
 
   void refreshTaskCount();
-  // Home is the feed; a note's URL (or the tasks, history or assets page) opens that instead.
+  // Home is the notes list; a note's URL (or the tasks, history or assets page) opens that instead.
   await route();
 }
 

@@ -116,7 +116,7 @@ export function dataEmbed(target: string, from: string | undefined, opts: { acti
 
 /**
  * Rendered markdown shows `![[data.csv]]` as a "↳ data.csv" link; swap those for data cards
- * (in expanded feed cards and in notes embedded in notes).
+ * (in expanded note cards and in notes embedded in notes).
  */
 export function hydrateDataEmbeds(root: HTMLElement, from: string, settle?: () => void) {
   for (const a of root.querySelectorAll<HTMLAnchorElement>('a[href^="quire:"]')) {
