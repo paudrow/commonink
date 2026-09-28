@@ -40,8 +40,19 @@ for (let i = 0; i < argv.length; i++) {
 }
 const [cmd, ...args] = pos;
 const str = (k: string) => (typeof flags[k] === "string" ? (flags[k] as string) : undefined);
-const num = (k: string) => (str(k) ? Number(str(k)) : undefined);
-const source = str("as") ?? process.env.QUIRE_AGENT ?? "cli";
+/** A positive whole number from `--k`, or undefined if the flag is absent. */
+const num = (k: string) => {
+  const v = str(k);
+  if (v === undefined) return undefined;
+  if (!/^[1-9]\d*$/.test(v)) throw new QuireError(`--${k} must be a positive whole number, not "${v}"`);
+  return Number(v);
+};
+/** The i-th positional argument, which the command can't do without. */
+const need = (i: number, name: string) => {
+  if (args[i] === undefined) throw new QuireError(`${cmd} needs <${name}>`);
+  return args[i];
+};
+const source = str("as") || process.env.QUIRE_AGENT || "cli";
 const stdin = () => fs.readFileSync(0, "utf8");
 const scope = flags.archived ? ("archived" as const) : flags.all ? ("all" as const) : ("active" as const);
 const out = (text: string, data: unknown) => console.log(flags.json ? JSON.stringify(data, null, 2) : text);
@@ -61,7 +72,7 @@ if (cmd === "mcp") {
         break;
       }
       case "read": {
-        const n = q.read(args[0]);
+        const n = q.read(need(0, "note"));
         out(fmtRead(n, num("offset"), num("limit")), n);
         break;
       }
@@ -72,29 +83,29 @@ if (cmd === "mcp") {
       }
       case "create": {
         const content = args[1] === undefined || args[1] === "-" ? stdin() : args.slice(1).join(" ");
-        const r = q.create(args[0], content, source);
+        const r = q.create(need(0, "path"), content, source);
         out(fmtWrite(r, "Created"), r);
         break;
       }
       case "edit": {
         if (str("old") === undefined || str("new") === undefined) throw new QuireError("edit needs --old and --new");
-        const r = q.edit(args[0], { oldString: str("old")!, newString: str("new")!, replaceAll: !!flags.all, baseVersion: str("base") }, source);
+        const r = q.edit(need(0, "note"), { oldString: str("old")!, newString: str("new")!, replaceAll: !!flags.all, baseVersion: str("base") }, source);
         out(fmtWrite(r, "Edited"), r);
         break;
       }
       case "append": {
         const text = args[1] === undefined || args[1] === "-" ? stdin() : args.slice(1).join(" ");
-        const r = q.append(args[0], text, source);
+        const r = q.append(need(0, "note"), text, source);
         out(fmtWrite(r, "Appended to"), r);
         break;
       }
       case "mv": {
-        const r = q.move(args[0], args[1], source);
+        const r = q.move(need(0, "note"), need(1, "new-path"), source);
         out(`Moved to ${r.path}.${r.updated.length ? ` Updated links in: ${r.updated.join(", ")}` : ""}`, r);
         break;
       }
       case "backlinks": {
-        const links = q.backlinks(args[0]);
+        const links = q.backlinks(need(0, "note"));
         out(fmtBacklinks(args[0], links), links);
         break;
       }
@@ -113,7 +124,9 @@ if (cmd === "mcp") {
         break;
       }
       case "restore": {
-        const r = q.restore(Number(args[0]), source);
+        const id = need(0, "change-id");
+        if (!/^\d+$/.test(id)) throw new QuireError(`<change-id> must be a whole number, not "${id}"`);
+        const r = q.restore(Number(id), source);
         out(fmtWrite(r, "Restored"), r);
         break;
       }
