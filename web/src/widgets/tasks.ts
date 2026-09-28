@@ -12,14 +12,7 @@ import { tagsInLine } from "../../../src/core/tags.ts";
 import { addDays } from "../../../src/core/tasks.ts";
 import { metaChips, today } from "../taskChips.ts";
 import { taskPopover } from "../taskPopover.ts";
-import { openChipEditor } from "../taskChipEditors.ts";
-
-/** Everyone @-mentioned on a task anywhere, most tasks first. */
-async function people(): Promise<string[]> {
-  const count = new Map<string, number>();
-  for (const t of await api.tasks({}).catch(() => [])) for (const a of t.meta.assignees) count.set(a, (count.get(a) ?? 0) + 1);
-  return [...count].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([p]) => p);
-}
+import { openChipEditor, taskPeople } from "../taskChipEditors.ts";
 
 type Show = "open" | "done" | "all";
 type Group = "note" | "due" | "priority" | "tag" | "person";
@@ -182,7 +175,7 @@ export const tasks: WidgetSpec = {
         const chip = target.closest<HTMLElement>(".tk[data-field]");
         const tag = chip?.dataset.field === "tags" ? chip.dataset.value!.toLowerCase() : target.closest<HTMLElement>(".tag")?.dataset.tag;
         if (tag) env.openTag(tag);
-        else if (!chip || !openChipEditor(chip, { task: t, save, people, showPerson: env.openPerson })) env.open(t.path, t.line);
+        else if (!chip || !openChipEditor(chip, { task: t, save, people: taskPeople, showPerson: env.openPerson })) env.open(t.path, t.line);
       });
       const edit = el("button", { type: "button", class: "qt-edit", title: "Due date, priority, people…", onmousedown: prevent }, icon("sliders", 13));
       edit.addEventListener("click", () => taskPopover(edit, t, save));
