@@ -39,6 +39,47 @@ function parseIdRanges(s: string): number[] {
   return out;
 }
 
+const SCOPES: ArchiveScope[] = ["active", "archived", "all"];
+
+/** Typed reads of a request's JSON body and query string. Anything malformed is a 400 naming the field. */
+function inputs(body: unknown, url: URL) {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) throw new QuireError("Expected a JSON object");
+  const b = body as Record<string, unknown>;
+  const str = (k: string): string => {
+    if (typeof b[k] !== "string") throw new QuireError(`"${k}" must be a string`);
+    return b[k];
+  };
+  const int = (k: string, v: unknown = b[k]): number => {
+    if (!Number.isInteger(v)) throw new QuireError(`"${k}" must be a whole number`);
+    return v as number;
+  };
+  const q = (k: string) => url.searchParams.get(k) ?? "";
+  return {
+    str,
+    int,
+    optStr: (k: string) => (b[k] === undefined || b[k] === null ? undefined : str(k)),
+    text: (k: string) => (b[k] === undefined || b[k] === null ? "" : str(k)),
+    flag: (k: string) => !!b[k],
+    paths: (k: string): string[] => {
+      const v = b[k];
+      if (!Array.isArray(v) || !v.every((p) => typeof p === "string")) throw new QuireError(`"${k}" must be a list of strings`);
+      return v;
+    },
+    q,
+    qInt: (k: string) => int(k, q(k) === "" ? NaN : Number(q(k))),
+    /** A positive count from the query, `fallback` if absent or not positive, never above `max`. */
+    qCount: (k: string, fallback: number, max: number) => {
+      const n = Number(q(k));
+      return Number.isInteger(n) && n > 0 ? Math.min(n, max) : fallback;
+    },
+    qScope: (): ArchiveScope => {
+      const s = (q("scope") || "active") as ArchiveScope;
+      if (!SCOPES.includes(s)) throw new QuireError(`"scope" must be one of ${SCOPES.join(", ")}`);
+      return s;
+    },
+  };
+}
+
 /** Handle one API route (`route` is the path after the API base, e.g. "/note"). Null if it isn't a note route. */
 export async function handleApi(host: ApiHost, req: Request, route: string): Promise<Response | null> {
   try {
@@ -51,10 +92,10 @@ export async function handleApi(host: ApiHost, req: Request, route: string): Pro
 async function dispatch(host: ApiHost, req: Request, route: string): Promise<Response | null> {
   const { quire, actor } = host;
   const url = new URL(req.url);
-  const q = (k: string) => url.searchParams.get(k) ?? "";
-  const body: any = req.method === "GET" || req.method === "HEAD" ? {} : await req.json().catch(() => {
+  const raw = req.method === "GET" || req.method === "HEAD" ? {} : await req.json().catch(() => {
     throw new QuireError("Invalid JSON");
   });
+  const { str, int, optStr, text, flag, paths, q, qInt, qCount, qScope } = inputs(raw, url);
 
   const moveAll = (paths: string[], fn: (p: string) => ReturnType<Quire["move"]>) => {
     const moved = paths.map((p) => {
@@ -77,71 +118,71 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     case "GET /resolve":
       return json({ path: quire.resolve(q("target"), q("from") || undefined) });
     case "GET /search":
-      return json(quire.search(q("q"), Number(q("limit")) || 30, (q("scope") || "active") as ArchiveScope));
+      return json(quire.search(q("q"), qCount("limit", 30, 200), qScope()));
     case "GET /feed":
       return json(
         quire.feed({
           q: q("q"),
-          scope: (q("scope") || "active") as ArchiveScope,
+          scope: qScope(),
           folder: q("folder") || undefined,
           tag: q("tag") || undefined,
           sort: q("sort") === "title" ? "title" : "modified",
-          offset: Number(q("offset")) || 0,
-          limit: Number(q("limit")) || 30,
+          offset: qCount("offset", 0, Infinity),
+          limit: qCount("limit", 30, Infinity), // the feed re-fetches everything it has shown
         }),
       );
     case "GET /backlinks":
       return json(quire.backlinks(q("path")));
     case "GET /changes":
-      return json(quire.changes({ limit: Math.min(Number(q("limit")) || 50, 500), before: Number(q("before")) || undefined, path: q("path") || undefined }));
+      return json(quire.changes({ limit: qCount("limit", 50, 500), before: qCount("before", 0, Infinity) || undefined, path: q("path") || undefined }));
     case "GET /diffs":
       return json(quire.diffSet(parseIdRanges(q("ids"))));
     case "GET /tasks":
       return json(quire.tasks({ folder: q("folder") || undefined, note: q("note") || undefined }));
     case "GET /diff":
-      return json(quire.diff(Number(q("from")), Number(q("to") || q("from"))));
+      return json(quire.diff(qInt("from"), q("to") ? qInt("to") : qInt("from")));
 
     case "PUT /note": {
-      const rel = cleanPath(body.path);
-      const content = String(body.content ?? "");
+      const rel = cleanPath(str("path"));
+      const content = text("content");
       // Never let a client blank out a note by accident (e.g. a stale tab whose editor failed to load).
-      if (!content.trim() && !body.allowEmpty && quire.files.read(rel)?.trim()) {
+      if (!content.trim() && !flag("allowEmpty") && quire.files.read(rel)?.trim()) {
         return json({ error: `Refusing to replace ${rel} with an empty note`, code: "empty" }, 422);
       }
       const isNew = !quire.files.stat(rel);
-      const r = quire.save(rel, content, { baseVersion: body.baseVersion, source: actor });
-      host.written(rel, content, r.version, r.change, body.clientId);
+      const r = quire.save(rel, content, { baseVersion: optStr("baseVersion"), source: actor });
+      host.written(rel, content, r.version, r.change, optStr("clientId"));
       if (isNew) host.tree();
       return json({ path: rel, version: r.version });
     }
     case "POST /note": {
-      const content = String(body.content ?? "");
-      const r = quire.create(body.path, content, actor);
+      const content = text("content");
+      const r = quire.create(str("path"), content, actor);
       host.written(r.path, content, r.version, r.change);
       host.tree();
       return json({ path: r.path, version: r.version });
     }
     case "POST /tasks/set": {
-      const r = quire.setTask(String(body.path), Number(body.line), String(body.text), !!body.done, actor);
+      const r = quire.setTask(str("path"), int("line"), str("text"), flag("done"), actor);
       if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
       return json({ path: r.path, version: r.version });
     }
     case "POST /move": {
-      const r = quire.move(body.from, body.to, actor);
+      const r = quire.move(str("from"), str("to"), actor);
       for (const e of r.edits) host.written(e.path, e.content, e.version, e.change);
       host.moved(r.from, r.path, r.version, r.change);
       host.tree();
       return json({ path: r.path, updated: r.updated });
     }
     case "POST /restore": {
-      const r = quire.restore(Number(body.id), actor);
+      const r = quire.restore(int("id"), actor);
       if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
       return json({ path: r.path, version: r.version, change: r.change?.id ?? null }); // restoring `change` undoes this
     }
     case "POST /archive":
-      return moveAll(Array.isArray(body.paths) ? body.paths : [], (p) => quire.archive(p, actor));
+      return moveAll(paths("paths"), (p) => quire.archive(p, actor));
     case "POST /unarchive":
-      return moveAll(Array.isArray(body.paths) ? body.paths : [], (p) => quire.unarchive(p, actor));
+      return moveAll(paths("paths"), (p) => quire.unarchive(p, actor));
   }
   return null;
 }
