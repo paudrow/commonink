@@ -16,8 +16,10 @@ Usage: quire <command> [args] [--as <agent>] [--json]
                                    (--tag work also matches #work/acme)
   tasks [--tag T] [--assignee P] [--due '<=today'] [--done|--all]
                                    open tasks (tokens: due: start: rec: #tag @person !high)
-  task <note> <line> [--done|--undone] [--due D] [--priority high|low] …
-                                   tick a task or change its tokens; "none" clears one
+  task <note> <line> [--done|--undone] [--due D] [--rec R] [--skip] …
+                                   tick a task or change its tokens; "none" clears one.
+                                   --rec weekly, 6th, 1st-tue, after-1m (from done)…;
+                                   --skip moves a repeating task to its next date
   archive <note…>                  move notes to Archive/ (links keep working)
   unarchive <note…>                move archived notes back
   create <path> [content | -]      '-' or no content reads stdin
@@ -44,7 +46,7 @@ for (let i = 0; i < argv.length; i++) {
   if (a.startsWith("--")) {
     const key = a.slice(2);
     const next = argv[i + 1];
-    if (["all", "json", "help", "archived", "done", "undone"].includes(key) || next === undefined) flags[key] = true;
+    if (["all", "json", "help", "archived", "done", "undone", "skip"].includes(key) || next === undefined) flags[key] = true;
     else flags[key] = argv[++i];
   } else pos.push(a);
 }
@@ -97,7 +99,7 @@ if (cmd === "mcp") {
         const patch = Object.fromEntries(
           Object.entries({ checked, due: one("due"), start: one("start"), rec: one("rec"), priority: one("priority"), assignees: list("assignee"), tags: list("tag") }).filter(([, v]) => v !== undefined),
         );
-        const r = q.updateTask(note, line, task.text, patch, source);
+        const r = flags.skip ? q.skipTask(note, line, task.text, source) : q.updateTask(note, line, task.text, patch, source);
         out(fmtWrite(r, r.change ? "Updated" : "No change to"), r);
         break;
       }

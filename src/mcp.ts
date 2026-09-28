@@ -128,7 +128,7 @@ server.registerTool(
     title: "List tasks",
     description:
       "Checkbox tasks across the vault (not archived notes), as their markdown lines with path:line. A task's metadata is tokens in " +
-      "its text: due:YYYY-MM-DD, start:YYYY-MM-DD, rec:weekly, #tag, @person, !high or !low, and done:YYYY-MM-DD once ticked.",
+      "its text: due:YYYY-MM-DD, start:YYYY-MM-DD, rec:… (how it repeats), #tag, @person, !high or !low, and done:YYYY-MM-DD once ticked.",
     inputSchema: {
       status: z.enum(["open", "done", "all"]).optional().describe("Default open"),
       folder: z.string().optional(),
@@ -153,7 +153,8 @@ server.registerTool(
     title: "Update task",
     description:
       "Tick, untick or change the metadata of one task, by the path:line and text list_tasks gave. Only the fields you pass change: " +
-      "a value sets that token, null (or [] for lists) removes it, and the rest of the line stays as the user wrote it. Ticking adds done: with today's date.",
+      "a value sets that token, null (or [] for lists) removes it, and the rest of the line stays as the user wrote it. Ticking adds done: with today's date; " +
+      "ticking a repeating task (rec:) also adds its next occurrence on the line below, and unticking it straight after takes that back.",
     inputSchema: {
       path: z.string(),
       line: z.number().int().min(1),
@@ -161,16 +162,24 @@ server.registerTool(
       done: z.boolean().optional().describe("Tick (true) or untick (false)"),
       due: z.string().nullable().optional().describe("YYYY-MM-DD or YYYY-MM-DDTHH:MM"),
       start: z.string().nullable().optional().describe("Hide until this date"),
-      rec: z.string().nullable().optional().describe("How it repeats, e.g. weekly"),
+      rec: z
+        .string()
+        .nullable()
+        .optional()
+        .describe(
+          "How it repeats, from the due date: daily, weekly, monthly, yearly, 3d, 2w, mon,thu, 2w-mon,thu, 6th, last-day, 1st-tue,3rd-tue, last-fri, mar-1, 1st-mon-mar, day-50; " +
+            "a gap after it's done: after-1m, after-10d; or RRULE:FREQ=…;BYDAY=…",
+        ),
+      skip: z.boolean().optional().describe("Move a repeating task to its next date without ticking it (on its own: other fields are ignored)"),
       priority: z.enum(["high", "low"]).nullable().optional(),
       assignees: z.array(z.string()).optional().describe("People, without @"),
       tags: z.array(z.string()).optional().describe("Tags, without #"),
     },
     annotations: writes,
   },
-  ({ path, line, text, done, ...patch }) =>
+  ({ path, line, text, done, skip, ...patch }) =>
     run(() => {
-      const r = quire.updateTask(path, line, text, done === undefined ? patch : { ...patch, checked: done }, source());
+      const r = skip ? quire.skipTask(path, line, text, source()) : quire.updateTask(path, line, text, done === undefined ? patch : { ...patch, checked: done }, source());
       return fmtWrite(r, r.change ? "Updated" : "No change to");
     }),
 );

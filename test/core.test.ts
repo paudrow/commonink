@@ -433,6 +433,20 @@ test("tasks carry their tokens, filter by due date and person, and ticking one s
   assert.equal(fs.readFileSync(path.join(dir, "Plan.md"), "utf8").split("\n")[2], "- [ ] Send invoice due:2026-09-30 @jane !high #billing");
 });
 
+test("ticking a repeating task in its note adds the next one below, from any surface that ticks", () => {
+  const { dir, quire } = openTempVault({ "Bills.md": "# Bills\n\n- [ ] Pay rent due:2026-10-06 rec:6th\n" });
+  const r = quire.updateTask("Bills", 3, "Pay rent due:2026-10-06 rec:6th", { checked: true }, "t", "2026-10-04");
+  assert.deepEqual([r.line, r.text], [3, "Pay rent due:2026-10-06 rec:6th done:2026-10-04"]);
+  assert.equal(fs.readFileSync(path.join(dir, "Bills.md"), "utf8"), "# Bills\n\n- [x] Pay rent due:2026-10-06 rec:6th done:2026-10-04\n- [ ] Pay rent due:2026-11-06 rec:6th\n");
+  quire.setTask("Bills", 3, r.text, false, "t");
+  assert.equal(fs.readFileSync(path.join(dir, "Bills.md"), "utf8"), "# Bills\n\n- [ ] Pay rent due:2026-10-06 rec:6th\n");
+  assert.throws(() => quire.updateTask("Bills", 3, "Pay rent due:2026-10-06 rec:6th", { rec: "after-1st-tue" }, "t"), /not a calendar rule/);
+  const skipped = quire.skipTask("Bills", 3, "Pay rent due:2026-10-06 rec:6th", "t", "2026-10-04");
+  assert.equal(skipped.text, "Pay rent due:2026-11-06 rec:6th");
+  quire.updateTask("Bills", 3, skipped.text, { rec: null }, "t"); // "Stop repeating"
+  assert.throws(() => quire.skipTask("Bills", 3, "Pay rent due:2026-11-06", "t"), /nothing to skip/);
+});
+
 test("updateTask rewrites a task's tokens in its note, and refuses values that can't be written back", () => {
   const { dir, quire } = openTempVault({ "Plan.md": "# Plan\n\n- [ ] Send invoice due:2026-09-30 @jane\n" });
   const r = quire.updateTask("Plan", 3, "Send invoice due:2026-09-30 @jane", { due: "2026-10-07", assignees: [], priority: "low", tags: ["Work/Billing"] }, "t");
