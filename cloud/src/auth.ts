@@ -132,7 +132,10 @@ export async function handleAuth(req: Request, env: Env, onSignedIn: (user: User
       const profile = as
         ? { email: `${as}@localhost`, name: `${as[0].toUpperCase()}${as.slice(1)} Dev`, picture: null }
         : { email: "dev@localhost", name: "Dev User", picture: null };
-      const { user, isNew } = await upsertUser(env.DB, as ? `dev:${as}` : "dev:local", profile);
+      // Previews share one D1 but each has its own Durable Objects, so a developer there is someone
+      // new per Preview (keyed by its host); otherwise their workspace would be empty in the next one.
+      const local = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+      const { user, isNew } = await upsertUser(env.DB, `dev:${local ? "" : `${url.hostname}:`}${as || "local"}`, profile);
       return startSession(user, isNew, safeNext(url.searchParams.get("next")));
     }
 

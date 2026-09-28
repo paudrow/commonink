@@ -1327,7 +1327,9 @@ const refreshTaskCountSoon = debounce(refreshTaskCount, 400);
 async function boot() {
   // Online, the note API is per workspace and needs a signed-in person; locally it's just /api.
   const who = await whoAmI();
-  if (who && !who.me) return showSignIn(who.devLogin);
+  // Where developer sign-in is on (local `cloud:dev`, and Previews) there's nothing to choose: go straight in.
+  if (who && !who.me && who.devLogin) return location.assign(`/auth/dev?next=${encodeURIComponent(location.pathname + location.search)}`);
+  if (who && !who.me) return showSignIn();
   if (who?.me) {
     const ws = pickWorkspace(who.me);
     workspaceId = ws.id;
