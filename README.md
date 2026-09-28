@@ -32,7 +32,7 @@ Needs Node 22.13+ (uses the built-in `node:sqlite`). The vault defaults to `./va
 | Claude Desktop, Cursor, … | stdio server: command `/path/to/quire/bin/quire`, args `["mcp"]` |
 | Shell agents / scripts | `bin/quire --help`, and pass `--as <name>` so writes are attributed |
 
-Tools: `search_notes`, `read_note`, `list_notes`, `list_tags`, `create_note`, `edit_note`, `append_to_note`, `move_note`, `archive_note`, `unarchive_note`, `star_note`, `unstar_note`, `backlinks`, `recent_changes`. The server sends `vault/AGENTS.md` as its instructions, so edit that file to change agent conventions.
+Tools: `search_notes`, `read_note`, `list_notes`, `list_tags`, `list_tasks`, `update_task`, `create_note`, `edit_note`, `append_to_note`, `move_note`, `archive_note`, `unarchive_note`, `star_note`, `unstar_note`, `backlinks`, `recent_changes`. The server sends `vault/AGENTS.md` as its instructions, so edit that file to change agent conventions.
 
 ## How edits from agents and you stay safe together
 
@@ -50,7 +50,7 @@ CodeMirror 6 with vim mode (`@replit/codemirror-vim`), plus:
 - **Search.** `⌘K` does fuzzy name matching plus FTS5 full-text search. `gd` follows the link under the cursor, `:w` saves, `:e name` opens a note.
 - **Typing helpers.** `/` opens tools (embeds, widgets, blocks, dates), `@` links a note (people plug into the same menu later), and `[[` completes note names.
 - **Widgets** are one markdown line (generic-directive syntax), so agents can write them too. The sliders button edits the args in place. See `Dashboards/Overview.md` for all of them together.
-  - `::tasks{folder=… note=… tag=…}` rolls up checkboxes from across the vault, grouped by note with a progress bar. Ticking one edits the note it lives in, and the list updates as notes change.
+  - `::tasks{folder=… note=… tag=… assignee=… due<=today}` rolls up checkboxes from across the vault, grouped by note (or by due date, priority, tag or person) with a progress bar. Ticking one edits the note it lives in, and the list updates as notes change.
   - `::query{q=… folder=… tag=… limit=…}` is a live list of matching notes, good for dashboards.
   - `::calendar{folder=Journal}` shows a month of daily notes, shaded by how much you wrote, with your streak. Click a day to open it, or to start it.
   - `::timer{duration=25m label="Focus"}` and `::stopwatch{label="Run"}` keep their running state (time left, laps) in the browser, keyed by `id`, so they don't churn the file. Timers chime and notify even when their note isn't open.

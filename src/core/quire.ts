@@ -6,6 +6,7 @@ import { cleanPath, isHidden, kindOf, linkKey, QuireError, stemOf, type NoteKind
 import { extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
+import { dueFilter, editTask, localDate, parseTask, patchProblem, TASK_LINE, type TaskMeta, type TaskPatch } from "./tasks.ts";
 
 export interface NoteMeta {
   /** Stable across renames, moves and archiving; see ids.ts. */
@@ -93,11 +94,16 @@ export interface FeedItem {
 
 export interface Task {
   path: string;
+  /** The note's title. */
   title: string;
   line: number;
+  /** Everything after the checkbox, tokens included. */
   text: string;
+  /** The text without the tokens at its end. */
+  summary: string;
   done: boolean;
   heading: string | null;
+  meta: TaskMeta;
 }
 
 /** A tag in use, parents included: how it's shown, and how many notes, tasks and assets carry it or a tag under it. */
@@ -121,7 +127,6 @@ export interface TagUse {
  */
 export const ASSET_TAGS = "assets/.tags.json";
 
-const TASK = /^(\s*[-*+]\s+\[)([ xX])(\]\s+)(.*)$/;
 
 export const versionOf = (content: string) =>
   crypto.createHash("sha256").update(content).digest("hex").slice(0, 12);
@@ -226,7 +231,7 @@ export class Quire {
         for (const l of extractLinks(content)) this.db.run("INSERT INTO links(src, key, kind, line) VALUES (?,?,?,?)", rel, l.key, l.kind, l.line);
         const lines = content.split("\n");
         for (const t of scanTags(content)) {
-          const on = !t.frontmatter && TASK.test(lines[t.line - 1]) ? "task" : "note";
+          const on = !t.frontmatter && TASK_LINE.test(lines[t.line - 1]) ? "task" : "note";
           this.db.run("INSERT INTO tags(tag, kind, path, line) VALUES (?,?,?,?)", t.tag, on, rel, t.line);
           this.nameTag(t.display);
         }
@@ -919,13 +924,18 @@ export class Quire {
 
   /**
    * Checkbox tasks across the vault (active notes), in note order, with the heading each sits under.
-   * `tag` keeps the tasks whose line carries it (or a tag under it).
+   * `tag` keeps the tasks whose line carries it (or a tag under it), `assignee` the ones with that
+   * @person, and `due` the ones whose due date passes a filter like `<=today` (see dueFilter).
+   * `today` (YYYY-MM-DD) is the day that filter means by today; the default is the core's clock.
    */
-  tasks(opts: { folder?: string; note?: string; tag?: string } = {}): Task[] {
+  tasks(opts: { folder?: string; note?: string; tag?: string; assignee?: string; due?: string; today?: string } = {}): Task[] {
     const only = opts.note ? this.resolve(opts.note) : null;
     if (opts.note && !only) return [];
     const prefix = opts.folder ? opts.folder.replace(/^\/+|\/+$/g, "") + "/" : "";
     const tagged = opts.tag === undefined ? null : new Set(this.tagged(opts.tag).filter((r) => r.kind === "task").map((r) => `${r.path}:${r.line}`));
+    const due = opts.due ? dueFilter(opts.due, opts.today ?? localDate(this.now())) : null;
+    if (opts.due && !due) throw new QuireError(`Bad due filter "${opts.due}": use a date or today/tomorrow/yesterday, optionally after <, <=, > or >=`);
+    const person = opts.assignee?.replace(/^@/, "").toLowerCase();
     const out: Task[] = [];
     for (const n of this.list(undefined, "active", opts.tag)) {
       if (n.kind !== "md" || (only && n.path !== only) || (prefix && !n.path.startsWith(prefix))) continue;
@@ -938,28 +948,40 @@ export class Quire {
         if (fence) return;
         const h = line.match(/^#{1,6}\s+(.+?)\s*#*$/);
         if (h) heading = h[1];
-        const m = line.match(TASK);
-        if (m && m[4].trim() && (!tagged || tagged.has(`${n.path}:${i + 1}`))) out.push({ path: n.path, title: n.title, line: i + 1, text: m[4], done: m[2] !== " ", heading });
+        const t = parseTask(line);
+        if (!t || !t.text.trim() || (tagged && !tagged.has(`${n.path}:${i + 1}`))) return;
+        if ((due && !due(t.meta.due)) || (person && !t.meta.assignees.some((a) => a.toLowerCase() === person))) return;
+        out.push({ path: n.path, title: n.title, line: i + 1, text: t.text, summary: t.summary, done: t.done, heading, meta: t.meta });
       });
     }
     return out;
   }
 
-  /**
-   * Tick or untick one task at its source. `text` guards against the note having changed:
-   * if the line moved, the nearest line with the same task text is used.
-   */
+  /** Tick or untick one task at its source. */
   setTask(target: string, line: number, text: string, done: boolean, source: string) {
+    return this.updateTask(target, line, text, { checked: done }, source);
+  }
+
+  /**
+   * Change a task's tokens (see TaskPatch) at its source; the rest of the line stays as written.
+   * Ticking stamps `done:` with today's date and unticking takes it off, unless the patch sets it.
+   * `text` guards against the note having changed: if the line moved, the nearest line with the
+   * same task text is used.
+   */
+  updateTask(target: string, line: number, text: string, patch: TaskPatch, source: string) {
+    const problem = patchProblem(patch);
+    if (problem) throw new QuireError(problem);
     const note = this.read(target);
     const lines = note.content.split("\n");
-    const matches = (i: number) => lines[i]?.match(TASK)?.[4] === text;
+    const matches = (i: number) => lines[i]?.match(TASK_LINE)?.[4] === text;
     let i = line - 1;
     if (!matches(i)) {
       const near = lines.map((_, j) => j).filter(matches).sort((a, b) => Math.abs(a - i) - Math.abs(b - i));
       if (!near.length) throw new QuireError(`That task isn't in ${note.path} any more`, "conflict");
       i = near[0];
     }
-    lines[i] = lines[i].replace(TASK, (_m, a, _x, b, rest) => `${a}${done ? "x" : " "}${b}${rest}`);
+    const flips = patch.checked !== undefined && patch.checked !== parseTask(lines[i])!.done && !("done" in patch);
+    lines[i] = editTask(lines[i], flips ? { ...patch, done: patch.checked ? localDate(this.now()) : null } : patch);
     const next = lines.join("\n");
     if (next === note.content) return { ...note, change: null };
     return this.commit(note.path, note.content, next, source, "edit");

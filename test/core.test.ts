@@ -363,6 +363,43 @@ test("asset tags live in one vault file, follow the asset when it moves, and rel
   assert.equal(fs.readFileSync(path.join(dir, "assets/.tags.json"), "utf8"), "{}\n");
 });
 
+test("tasks carry their tokens, filter by due date and person, and ticking one stamps the day it was done", () => {
+  let now = Date.UTC(2026, 9, 1, 12);
+  const { dir, quire } = openTempVault(
+    {
+      "Plan.md": "# Plan\n\n- [ ] Send invoice due:2026-09-30 @jane !high #billing\n- [ ] Draft the deck due:2026-10-03 @sam\n- [ ] Someday\n",
+    },
+    { now: () => now },
+  );
+  const [invoice] = quire.tasks();
+  assert.deepEqual([invoice.summary, invoice.meta], [
+    "Send invoice",
+    { due: "2026-09-30", start: null, done: null, rec: null, priority: "high", assignees: ["jane"], tags: ["billing"] },
+  ]);
+  assert.deepEqual(quire.tasks({ due: "<=today" }).map((t) => t.summary), ["Send invoice"]);
+  assert.deepEqual(quire.tasks({ due: "<=today", today: "2026-10-03" }).map((t) => t.summary), ["Send invoice", "Draft the deck"]);
+  assert.deepEqual(quire.tasks({ assignee: "@Sam" }).map((t) => t.summary), ["Draft the deck"]);
+  assert.throws(() => quire.tasks({ due: "soon" }), /due filter/);
+
+  quire.setTask("Plan", 3, invoice.text, true, "t");
+  assert.equal(fs.readFileSync(path.join(dir, "Plan.md"), "utf8").split("\n")[2], "- [x] Send invoice due:2026-09-30 @jane !high #billing done:2026-10-01");
+  now += 86_400_000;
+  quire.setTask("Plan", 3, quire.tasks()[0].text, false, "t");
+  assert.equal(fs.readFileSync(path.join(dir, "Plan.md"), "utf8").split("\n")[2], "- [ ] Send invoice due:2026-09-30 @jane !high #billing");
+});
+
+test("updateTask rewrites a task's tokens in its note, and refuses values that can't be written back", () => {
+  const { dir, quire } = openTempVault({ "Plan.md": "# Plan\n\n- [ ] Send invoice due:2026-09-30 @jane\n" });
+  const r = quire.updateTask("Plan", 3, "Send invoice due:2026-09-30 @jane", { due: "2026-10-07", assignees: [], priority: "low", tags: ["Work/Billing"] }, "t");
+  assert.equal(r.change?.summary, "+1 −1");
+  assert.equal(fs.readFileSync(path.join(dir, "Plan.md"), "utf8"), "# Plan\n\n- [ ] Send invoice due:2026-10-07 !low #Work/Billing\n");
+  assert.deepEqual(quire.tagged("work").map((t) => `${t.kind}:${t.line}`), ["task:3"]);
+  const text = quire.tasks()[0].text;
+  assert.throws(() => quire.updateTask("Plan", 3, text, { due: "next week" }, "t"), /"due" must be a date/);
+  assert.throws(() => quire.updateTask("Plan", 3, text, { assignees: ["two words"] }, "t"), /isn't a person/);
+  assert.throws(() => quire.updateTask("Plan", 3, "Gone", { due: null }, "t"), /isn't in Plan\.md any more/);
+});
+
 test("an index from before tags learns every note's tags on the next start", () => {
   const { dir, quire } = openTempVault(TAGGED);
   quire.db.exec("DROP TABLE tags");

@@ -4,7 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { LOCAL_USER, openVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
-import { fmtBacklinks, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtTags, fmtWrite } from "./core/format.ts";
+import { fmtBacklinks, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtTags, fmtTasks, fmtWrite } from "./core/format.ts";
 
 const quire = openVault();
 
@@ -119,6 +119,59 @@ server.registerTool(
       quire.sync();
       if (starred) return favorites();
       return fmtList(recent ? quire.recent(recent) : quire.list(folder, include_archived ? "all" : "active", tag));
+    }),
+);
+
+server.registerTool(
+  "list_tasks",
+  {
+    title: "List tasks",
+    description:
+      "Checkbox tasks across the vault (not archived notes), as their markdown lines with path:line. A task's metadata is tokens in " +
+      "its text: due:YYYY-MM-DD, start:YYYY-MM-DD, rec:weekly, #tag, @person, !high or !low, and done:YYYY-MM-DD once ticked.",
+    inputSchema: {
+      status: z.enum(["open", "done", "all"]).optional().describe("Default open"),
+      folder: z.string().optional(),
+      note: z.string().optional().describe("Only this note's tasks"),
+      tag: TAG,
+      assignee: z.string().optional().describe("Only tasks with this @person"),
+      due: z.string().optional().describe("A due date filter: <=today (overdue or due today), tomorrow, >=2026-10-01…"),
+    },
+    annotations: readOnly,
+  },
+  ({ status, ...filters }) =>
+    run(() => {
+      quire.sync();
+      const want = status ?? "open";
+      return fmtTasks(quire.tasks(filters).filter((t) => want === "all" || t.done === (want === "done")));
+    }),
+);
+
+server.registerTool(
+  "update_task",
+  {
+    title: "Update task",
+    description:
+      "Tick, untick or change the metadata of one task, by the path:line and text list_tasks gave. Only the fields you pass change: " +
+      "a value sets that token, null (or [] for lists) removes it, and the rest of the line stays as the user wrote it. Ticking adds done: with today's date.",
+    inputSchema: {
+      path: z.string(),
+      line: z.number().int().min(1),
+      text: z.string().describe("The task's text after the checkbox, as list_tasks showed it (guards against the note having changed)"),
+      done: z.boolean().optional().describe("Tick (true) or untick (false)"),
+      due: z.string().nullable().optional().describe("YYYY-MM-DD or YYYY-MM-DDTHH:MM"),
+      start: z.string().nullable().optional().describe("Hide until this date"),
+      rec: z.string().nullable().optional().describe("How it repeats, e.g. weekly"),
+      priority: z.enum(["high", "low"]).nullable().optional(),
+      assignees: z.array(z.string()).optional().describe("People, without @"),
+      tags: z.array(z.string()).optional().describe("Tags, without #"),
+    },
+    annotations: writes,
+  },
+  ({ path, line, text, done, ...patch }) =>
+    run(() => {
+      const r = quire.updateTask(path, line, text, done === undefined ? patch : { ...patch, checked: done }, source());
+      return fmtWrite(r, r.change ? "Updated" : "No change to");
     }),
 );
 
