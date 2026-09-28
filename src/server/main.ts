@@ -8,7 +8,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import { createServer as createVite } from "vite";
 import { diffstat, versionOf, type Change } from "../core/quire.ts";
 import { openVault, PROJECT_ROOT } from "../core/local.ts";
-import { cleanPath, isHidden, kindOf, mimeOf } from "../core/paths.ts";
+import { cleanPath, fileSecurityHeaders, isHidden, kindOf, mimeOf, MAX_UPLOAD } from "../core/paths.ts";
 import { errorResponse, handleApi, json, type ApiHost } from "../core/api.ts";
 import { unfurl } from "./unfurl.ts";
 
@@ -160,10 +160,12 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
   const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
   if (!url.pathname.startsWith("/api/")) return vite.middlewares(req, res);
   if (!originOk(req)) return send(res, json({ error: "Cross-origin request refused" }, 403));
+  const route = url.pathname.slice("/api".length);
+  // Uploads are raw bytes; the Origin check above is what keeps other sites out.
+  if (route === "/upload" && req.method === "POST") return upload(req, res, url);
   if (req.method !== "GET" && !String(req.headers["content-type"]).startsWith("application/json")) {
     return send(res, json({ error: "JSON only" }, 415));
   }
-  const route = url.pathname.slice("/api".length);
   if (route.startsWith("/files/")) return asset(res, decodeURIComponent(route.slice("/files/".length)));
   if (route === "/file-resolve") {
     const rel = quire.resolve(url.searchParams.get("target") ?? "", url.searchParams.get("from") ?? undefined);
@@ -184,31 +186,49 @@ function asset(res: http.ServerResponse, raw: string) {
   const rel = cleanPath(raw);
   const mime = mimeOf(rel);
   if (!mime || !files.stat(rel)) return send(res, json({ error: "Not found" }, 404));
-  res.writeHead(200, {
-    "Content-Type": mime,
-    // Assets are agent-writable too: never let one run script in our origin (e.g. an SVG opened directly).
-    "Content-Security-Policy": "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; media-src 'self'",
-    "X-Content-Type-Options": "nosniff",
-    "Cache-Control": "no-cache",
-  });
+  res.writeHead(200, { "Content-Type": mime, "Content-Length": String(files.stat(rel)!.size), ...fileSecurityHeaders(mime), "Cache-Control": "no-cache" });
   fs.createReadStream(files.abs(rel)).pipe(res);
+}
+
+/** Save an uploaded file into the vault (assets/ by default), under a free name. */
+async function upload(req: http.IncomingMessage, res: http.ServerResponse, url: URL) {
+  try {
+    const rel = quire.uploadPath(url.searchParams.get("name") ?? "", url.searchParams.get("folder") ?? "assets");
+    const bytes = await readBody(req, MAX_UPLOAD);
+    if (!bytes) return send(res, json({ error: "That file is over 50 MB" }, 413));
+    seen.set(rel, "uploading"); // the watcher leaves it to us
+    files.write(rel, bytes);
+    const r = quire.recordUpload(rel, false, host.actor);
+    seen.set(rel, r.version);
+    announce(rel, null, r.version, r.change);
+    broadcast({ type: "tree" });
+    send(res, json({ path: rel, version: r.version, size: r.size }));
+  } catch (e) {
+    send(res, errorResponse(e));
+  }
+}
+
+/** A request body, or null if it's over `limit` bytes. */
+async function readBody(req: http.IncomingMessage, limit: number): Promise<Uint8Array<ArrayBuffer> | null> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const c of req) {
+    size += (c as Buffer).length;
+    if (size > limit) return null;
+    chunks.push(c as Buffer);
+  }
+  return Uint8Array.from(Buffer.concat(chunks));
 }
 
 async function toRequest(req: http.IncomingMessage, url: URL): Promise<Request> {
   const headers = new Headers();
   for (const [k, v] of Object.entries(req.headers)) if (v !== undefined) headers.set(k, Array.isArray(v) ? v.join(", ") : v);
-  let body: Buffer | undefined;
+  let body: Uint8Array<ArrayBuffer> | undefined;
   if (req.method !== "GET" && req.method !== "HEAD") {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    for await (const c of req) {
-      size += (c as Buffer).length;
-      if (size > 20 * 1024 * 1024) throw new Error("Body too large");
-      chunks.push(c as Buffer);
-    }
-    body = Buffer.concat(chunks);
+    body = (await readBody(req, 20 * 1024 * 1024)) ?? undefined;
+    if (!body) throw new Error("Body too large");
   }
-  return new Request(url, { method: req.method, headers, body: body ? new Uint8Array(body) : undefined });
+  return new Request(url, { method: req.method, headers, body });
 }
 
 async function send(res: http.ServerResponse, r: Response) {

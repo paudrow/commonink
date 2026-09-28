@@ -1,8 +1,10 @@
-// The feed: every note as a stream of cards, newest first. Filter as you type, triage from the
-// keyboard (j/k, Enter, e to archive, x to select), and archive in bulk.
+// The feed: every note as a stream of cards, newest first — the app's home. Click a card to read
+// the whole note in place; Edit opens it in the editor. Filter as you type, triage from the
+// keyboard (j/k, Enter to expand, o to open, e to archive, x to select), and archive in bulk.
 import { api, type FeedItem, type FeedPage, type Scope } from "./api.ts";
 import { $, avatar, displayName, el, escapeHtml, icon, timeAgo } from "./dom.ts";
-import { renderMarkdown } from "./render.ts";
+import { renderMarkdown, sandboxFrame } from "./render.ts";
+import { hydrateDataEmbeds } from "./textPreview.ts";
 import { parseDirective } from "./widgets/args.ts";
 import { WIDGETS } from "./widgets/index.ts";
 
@@ -28,6 +30,10 @@ export class Feed {
   private page: FeedPage | null = null;
   private focus = 0;
   private selected = new Set<string>();
+  /** Cards open to the whole note, and the text they show (kept so re-renders don't flash). */
+  private expanded = new Set<string>();
+  private full = new Map<string, { mtime: number; content: string }>();
+  private scrollTop = 0;
   private seq = 0;
   private timer = 0;
 
@@ -52,7 +58,11 @@ export class Feed {
         this.bulk,
         this.list,
         this.more,
-        el("footer", { class: "feed-keys" }, ...[["j k", "move"], ["↵", "open"], ["e", "archive"], ["x", "select"], ["/", "filter"]].map(([k, t]) => el("span", {}, el("kbd", {}, k), t))),
+        el(
+          "footer",
+          { class: "feed-keys" },
+          ...[["j k", "move"], ["↵", "expand"], ["o", "open"], ["e", "archive"], ["x", "select"], ["/", "filter"]].map(([k, t]) => el("span", {}, el("kbd", {}, k), t)),
+        ),
       ),
     );
     this.input.addEventListener("input", () => {
@@ -61,6 +71,7 @@ export class Feed {
     });
     this.root.addEventListener("keydown", (e) => this.key(e));
     this.root.addEventListener("scroll", () => {
+      if (!this.root.hidden) this.scrollTop = this.root.scrollTop;
       if (this.root.scrollTop + this.root.clientHeight > this.root.scrollHeight - 600) void this.loadMore();
     });
   }
@@ -69,15 +80,16 @@ export class Feed {
     return !this.root.hidden;
   }
 
+  /** Show the feed where the reader left it: same scroll position, same cards open. */
   show(opts: { scope?: Scope; filter?: boolean } = {}) {
-    if (opts.scope) this.scope = opts.scope;
+    if (opts.scope && opts.scope !== this.scope) {
+      this.scope = opts.scope;
+      this.scrollTop = 0;
+    }
     this.root.hidden = false;
+    this.root.scrollTop = this.scrollTop;
     void this.reload();
     (opts.filter ? this.input : this.root).focus({ preventScroll: true });
-  }
-
-  hide() {
-    this.root.hidden = true;
   }
 
   /** Re-query, keeping the focused note in place if it's still listed. */
@@ -131,16 +143,25 @@ export class Feed {
       ),
     );
     const q = this.input.value.trim();
+    const top = this.root.scrollTop;
     this.list.replaceChildren(
       ...(this.items.length
         ? this.items.map((item, i) => this.card(item, i, q))
         : [el("div", { class: "feed-empty" }, q ? `No ${this.scope === "all" ? "" : this.scope + " "}notes match “${q}”.` : this.scope === "archived" ? "Nothing archived yet. Press e on a note to archive it." : "No notes yet.")]),
     );
+    this.root.scrollTop = top;
     this.more.textContent = this.items.length < page.total ? `Showing ${this.items.length} of ${page.total}` : "";
     this.renderBulk();
   }
 
+  private rerender(path: string) {
+    const i = this.items.findIndex((x) => x.path === path);
+    const old = this.list.querySelector(`.feed-card[data-index="${i}"]`);
+    if (i >= 0 && old) old.replaceWith(this.card(this.items[i], i, this.input.value.trim()));
+  }
+
   private card(item: FeedItem, i: number, q: string): HTMLElement {
+    const open = this.expanded.has(item.path);
     const folder = item.path.replace(/^Archive\//, "").split("/").slice(0, -1).join("/");
     const archiveBtn = el(
       "button",
@@ -151,30 +172,38 @@ export class Feed {
       e.stopPropagation();
       void this.archive([item.path]);
     });
+    const editBtn = el("button", { type: "button", class: "fc-action", title: "Edit (o)" }, icon("edit", 15));
+    editBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.hooks.open(item.path);
+    });
     const check = el("button", { type: "button", class: "fc-check", title: "Select (x)" }, icon("check", 12));
     check.addEventListener("click", (e) => {
       e.stopPropagation();
       this.toggle(item.path);
     });
-    const body =
-      q && item.lines.length
-        ? el("div", { class: "fc-hits" }, ...item.lines.map((l) => el("div", { class: "fc-hit", html: highlight(l.text, q), onclick: (e: Event) => (e.stopPropagation(), this.hooks.open(item.path, l.line)) })))
-        : item.kind === "html"
-          ? el("div", { class: "fc-body is-muted" }, "HTML note")
-          : el("div", { class: "fc-body", html: renderMarkdown(forPreview(item.excerpt), item.path) });
-    body.querySelectorAll("input").forEach((b) => (b.disabled = true));
+    let body: HTMLElement;
+    if (open) body = this.fullBody(item);
+    else if (q && item.lines.length) {
+      body = el("div", { class: "fc-hits" }, ...item.lines.map((l) => el("div", { class: "fc-hit", html: highlight(l.text, q), onclick: (e: Event) => (e.stopPropagation(), this.hooks.open(item.path, l.line)) })));
+    } else if (item.kind === "html") body = el("div", { class: "fc-body is-muted" }, "HTML note · click to preview");
+    else {
+      body = el("div", { class: "fc-body", html: renderMarkdown(forPreview(item.excerpt), item.path) });
+      body.querySelectorAll("input").forEach((b) => (b.disabled = true));
+    }
     const node = el(
       "article",
       {
-        class: `feed-card${i === this.focus ? " is-focused" : ""}${this.selected.has(item.path) ? " is-selected" : ""}${item.archived ? " is-archived" : ""}`,
+        class: `feed-card${open ? " is-expanded" : ""}${i === this.focus ? " is-focused" : ""}${this.selected.has(item.path) ? " is-selected" : ""}${item.archived ? " is-archived" : ""}`,
         role: "listitem",
+        "aria-expanded": String(open),
         "data-index": String(i),
       },
       check,
       el(
         "div",
         { class: "fc-main" },
-        el("div", { class: "fc-head" }, el("span", { class: "fc-title" }, item.title), item.archived ? el("span", { class: "fc-badge" }, "Archived") : null, el("span", { class: "spacer" }), archiveBtn),
+        el("div", { class: "fc-head" }, el("span", { class: "fc-title" }, item.title), item.archived ? el("span", { class: "fc-badge" }, "Archived") : null, el("span", { class: "spacer" }), editBtn, archiveBtn),
         el(
           "div",
           { class: "fc-meta" },
@@ -184,10 +213,19 @@ export class Feed {
         ),
         body,
         item.tags.length ? el("div", { class: "fc-tags" }, ...item.tags.map((t) => el("span", { class: "tag" }, `#${t}`))) : null,
+        open
+          ? el(
+              "div",
+              { class: "fc-foot" },
+              el("button", { type: "button", class: "qw-btn primary", onclick: (e: Event) => (e.stopPropagation(), this.hooks.open(item.path)) }, icon("edit", 14), "Edit"),
+              el("button", { type: "button", class: "qw-btn", onclick: (e: Event) => (e.stopPropagation(), this.toggleExpand(i)) }, "Collapse"),
+            )
+          : null,
       ),
     );
     node.addEventListener("click", (e) => {
-      const a = (e.target as HTMLElement).closest("a");
+      const t = e.target as HTMLElement;
+      const a = t.closest("a");
       if (a) {
         e.preventDefault();
         const href = a.getAttribute("href") ?? "";
@@ -195,10 +233,62 @@ export class Feed {
         else if (href.startsWith("quire:")) void api.resolve(decodeURIComponent(href.slice(6)), item.path).then((p) => p && this.hooks.open(p));
         return;
       }
-      this.hooks.open(item.path);
+      // Reading an open card (selecting text, ticking tasks) shouldn't fold it back up.
+      if (t.closest("input, .fc-full") || String(getSelection() ?? "")) return;
+      this.toggleExpand(i);
     });
     node.addEventListener("mousemove", () => this.setFocus(i, false));
     return node;
+  }
+
+  /** The whole note, for an expanded card. Shows the last text it had while fetching the latest. */
+  private fullBody(item: FeedItem): HTMLElement {
+    const cached = this.full.get(item.path);
+    if (!cached || cached.mtime !== item.mtime) {
+      void api
+        .note(item.path)
+        .then((n) => {
+          this.full.set(item.path, { mtime: item.mtime, content: n.content });
+          if (this.expanded.has(item.path)) this.rerender(item.path);
+        })
+        .catch(() => {});
+    }
+    if (!cached) return el("div", { class: "fc-body is-muted" }, "Loading…");
+    if (item.kind === "html") {
+      const frame = sandboxFrame(cached.content, { autoHeight: true, title: item.title });
+      return el("div", { class: "fc-full is-html" }, frame);
+    }
+    const body = cached.content.replace(/^(---\r?\n[\s\S]*?\r?\n---\r?\n?)?\s*#\s+(.+)\n/, (m, fm = "", h: string) => (h.trim() === item.title ? fm : m));
+    const node = el("div", { class: "fc-body fc-full", html: renderMarkdown(forPreview(body), item.path) });
+    hydrateDataEmbeds(node, item.path);
+    node.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((box, n) => {
+      box.disabled = item.archived;
+      box.addEventListener("change", () => void this.setTask(item.path, n, box));
+    });
+    return node;
+  }
+
+  /** Tick the nth task of a note from its expanded card. */
+  private async setTask(path: string, n: number, box: HTMLInputElement) {
+    const tasks = await api.tasks({ note: path }).catch(() => null);
+    const t = tasks?.[n];
+    try {
+      if (!t) throw new Error("no such task");
+      await api.setTask(t, box.checked);
+    } catch {
+      box.checked = !box.checked;
+      this.hooks.toast({ text: "Couldn't update that task. Open the note to change it." });
+    }
+  }
+
+  private toggleExpand(i: number) {
+    const item = this.items[i];
+    if (!item) return;
+    if (this.expanded.has(item.path)) this.expanded.delete(item.path);
+    else this.expanded.add(item.path);
+    this.focus = i;
+    this.rerender(item.path);
+    this.list.querySelector(`.feed-card[data-index="${i}"]`)?.scrollIntoView({ block: "nearest" });
   }
 
   private renderBulk() {
@@ -261,8 +351,8 @@ export class Feed {
       if (e.key === "ArrowDown" || e.key === "Enter") {
         e.preventDefault();
         this.root.focus({ preventScroll: true });
-        if (e.key === "Enter" && this.items[0]) this.hooks.open(this.items[0].path);
-        else this.setFocus(0);
+        this.setFocus(0);
+        if (e.key === "Enter" && this.items[0] && !this.expanded.has(this.items[0].path)) this.toggleExpand(0);
       } else if (e.key === "Escape") {
         e.preventDefault();
         if (this.input.value) {
@@ -272,6 +362,7 @@ export class Feed {
       }
       return;
     }
+    if ((e.target as HTMLElement).closest("input, textarea")) return;
     const item = this.items[this.focus];
     const act: Record<string, () => void> = {
       j: () => this.setFocus(this.focus + 1),
@@ -280,12 +371,16 @@ export class Feed {
       ArrowUp: () => this.setFocus(this.focus - 1),
       g: () => this.setFocus(0),
       G: () => this.setFocus(this.items.length - 1),
-      Enter: () => item && this.hooks.open(item.path),
+      Enter: () => this.toggleExpand(this.focus),
       o: () => item && this.hooks.open(item.path),
       e: () => void this.archive(this.selected.size ? [...this.selected] : item ? [item.path] : []),
       x: () => item && this.toggle(item.path),
       "/": () => this.input.focus(),
-      Escape: () => (this.selected.clear(), this.render()),
+      Escape: () => {
+        this.selected.clear();
+        this.expanded.clear();
+        this.render();
+      },
     };
     const fn = act[e.key];
     if (fn) {

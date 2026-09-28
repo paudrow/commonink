@@ -3,7 +3,8 @@ import { autocompletion, startCompletion, type Completion, type CompletionContex
 import { syntaxTree } from "@codemirror/language";
 import type { EditorState, Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import type { NoteMeta } from "../api.ts";
+import { fileUrl, type NoteMeta } from "../api.ts";
+import { assetIcon, assetType } from "../assetKinds.ts";
 import { displayName, icon } from "../dom.ts";
 import { fuzzyScore } from "../fuzzy.ts";
 import { newId, serializeDirective } from "../widgets/args.ts";
@@ -12,6 +13,8 @@ import { editorContext } from "./blocks.ts";
 
 interface Option extends Completion {
   icon?: string;
+  /** An image to show instead of the icon (for image assets). */
+  thumb?: string;
 }
 
 const NOT_PROSE = new Set(["FencedCode", "CodeBlock", "InlineCode", "CodeText", "Frontmatter", "FrontmatterContent", "HTMLBlock", "CommentBlock", "URL", "Autolink", "WikiLink", "Embed"]);
@@ -20,7 +23,7 @@ function inProse(state: EditorState, pos: number): boolean {
   return true;
 }
 
-const kindIcon = (k: string) => (k === "html" ? "html" : k === "asset" ? "image" : "file");
+const iconOf = (n: NoteMeta) => (n.kind === "html" ? "html" : n.kind === "asset" ? assetIcon(n.path) : "file");
 const folderOf = (p: string) => p.split("/").slice(0, -1).join("/");
 
 /** The shortest name a [[link]] needs to resolve to this note. */
@@ -61,7 +64,7 @@ const noteMentions: MentionProvider = {
     const all = ctx.notes().filter((n) => n.kind !== "asset");
     return rankNotes(all.filter((n) => n.path !== ctx.path), query)
       .slice(0, 12)
-      .map((n) => ({ label: n.title, detail: folderOf(n.path), icon: kindIcon(n.kind), insert: `[[${linkName(n, all)}]]` }));
+      .map((n) => ({ label: n.title, detail: folderOf(n.path), icon: iconOf(n), insert: `[[${linkName(n, all)}]]` }));
   },
 };
 
@@ -105,7 +108,8 @@ function linkSource(ctx: CompletionContext): CompletionResult | null {
       return {
         label: n.kind === "md" ? n.title : name,
         detail: n.kind === "md" && n.title !== name ? name : folderOf(n.path),
-        icon: kindIcon(n.kind),
+        icon: iconOf(n),
+        thumb: n.kind === "asset" && assetType(n.path) === "image" ? fileUrl(n.path) : undefined,
         apply: (view: EditorView, _c: Completion, from: number, to: number) => {
           const insert = name + (closed ? "" : "]]");
           view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + name.length + 2 }, userEvent: "input.complete" });
@@ -166,7 +170,18 @@ const today = () => new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD
 
 const TOOLS: Tool[] = [
   { title: "Embed a note", hint: "Show another note inline", icon: "file", keywords: "embed note transclude include", section: "Embed", run: (v, f, t) => (insert(v, f, t, "![[]]", { cursor: 3, block: true }), soon(v)) },
-  { title: "Image or file", hint: "From the vault", icon: "image", keywords: "image picture photo file asset embed", section: "Embed", run: (v, f, t) => (insert(v, f, t, "![[]]", { cursor: 3, block: true }), soon(v)) },
+  { title: "Image or file", hint: "From your assets", icon: "image", keywords: "image picture photo file asset embed pdf", section: "Embed", run: (v, f, t) => (insert(v, f, t, "![[]]", { cursor: 3, block: true }), soon(v)) },
+  {
+    title: "Upload a file",
+    hint: "Image, PDF, audio, video…",
+    icon: "upload",
+    keywords: "upload file image photo pdf attach attachment",
+    section: "Embed",
+    run: (v, f, t) => {
+      v.dispatch({ changes: { from: f, to: t, insert: "" } });
+      void embedUploads(v, undefined, f);
+    },
+  },
   { title: "Link embed", hint: "YouTube, X, Bluesky, Spotify… or any page", icon: "video", keywords: "embed link url youtube video tweet x twitter bluesky mastodon instagram tiktok spotify vimeo loom bookmark", section: "Embed", run: (v, f, t) => insert(v, f, t, "https://", { cursor: 0, select: 8, block: true }) },
   widgetTool("tasks", "tasks todo checklist rollup dashboard open"),
   widgetTool("query", "notes list query dashboard recent folder tag"),
@@ -262,6 +277,43 @@ const pasteLinks = EditorView.domEventHandlers({
   },
 });
 
+// ------------------------------------------------------------------ pasting and dropping files
+
+/**
+ * Upload files (or pick some) and embed them at `pos`, each on its own line. A screenshot pasted
+ * from the clipboard is just "image.png", so it gets a dated name instead.
+ */
+async function embedUploads(view: EditorView, files: File[] | undefined, pos: number) {
+  const ctx = view.state.facet(editorContext);
+  const named = files?.map((f) => (/^image\.\w+$/i.test(f.name) ? new File([f], `Pasted ${stamp()}.${f.name.split(".").pop()}`, { type: f.type }) : f));
+  const names = await ctx.upload(named);
+  if (!names.length || view.state.facet(editorContext) !== ctx) return; // nothing uploaded, or the note changed
+  const line = view.state.doc.lineAt(Math.min(pos, view.state.doc.length));
+  const text = (line.text.trim() ? "\n" : "") + names.map((n) => `![[${n}]]`).join("\n") + "\n";
+  view.dispatch({ changes: { from: line.to, insert: text }, selection: { anchor: line.to + text.length }, userEvent: "input.paste", scrollIntoView: true });
+  view.focus();
+}
+
+const stamp = () => new Date().toISOString().slice(0, 19).replace("T", " ").replace(/:/g, ".");
+
+const pasteFiles = EditorView.domEventHandlers({
+  paste(event, view) {
+    const files = [...(event.clipboardData?.files ?? [])];
+    // Copied text often carries a picture of itself too; only a clipboard with no text is a file paste.
+    if (!files.length || event.clipboardData?.getData("text/plain")) return false;
+    event.preventDefault();
+    void embedUploads(view, files, view.state.selection.main.head);
+    return true;
+  },
+  drop(event, view) {
+    const files = [...(event.dataTransfer?.files ?? [])];
+    if (!files.length) return false;
+    event.preventDefault();
+    void embedUploads(view, files, view.posAtCoords({ x: event.clientX, y: event.clientY }) ?? view.state.selection.main.head);
+    return true;
+  },
+});
+
 // ------------------------------------------------------------------ extension
 
 export function typingHelpers(): Extension {
@@ -272,8 +324,23 @@ export function typingHelpers(): Extension {
       closeOnBlur: true,
       maxRenderedOptions: 40,
       optionClass: () => "q-option",
-      addToOptions: [{ position: 20, render: (c) => icon((c as Option).icon ?? "file", 15) }],
+      addToOptions: [
+        {
+          position: 20,
+          render: (c) => {
+            const o = c as Option;
+            if (!o.thumb) return icon(o.icon ?? "file", 15);
+            const img = document.createElement("img");
+            img.className = "q-thumb";
+            img.src = o.thumb;
+            img.alt = "";
+            img.loading = "lazy";
+            return img;
+          },
+        },
+      ],
     }),
     pasteLinks,
+    pasteFiles,
   ];
 }

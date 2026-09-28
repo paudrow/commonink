@@ -28,6 +28,17 @@ export function errorResponse(e: unknown): Response {
   return json({ error: "Internal error" }, 500);
 }
 
+/** "12-18,20" → [12…18, 20]. Capped, so a URL can't ask for millions of rows. */
+function parseIdRanges(s: string): number[] {
+  const out: number[] = [];
+  for (const part of s.split(",")) {
+    const [a, b = a] = part.split("-").map(Number);
+    if (!Number.isInteger(a) || !Number.isInteger(b) || b < a) continue;
+    for (let i = a; i <= b && out.length < 5000; i++) out.push(i);
+  }
+  return out;
+}
+
 /** Handle one API route (`route` is the path after the API base, e.g. "/note"). Null if it isn't a note route. */
 export async function handleApi(host: ApiHost, req: Request, route: string): Promise<Response | null> {
   try {
@@ -82,9 +93,13 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     case "GET /backlinks":
       return json(quire.backlinks(q("path")));
     case "GET /changes":
-      return json(quire.changes({ limit: Number(q("limit")) || 50 }));
+      return json(quire.changes({ limit: Math.min(Number(q("limit")) || 50, 500), before: Number(q("before")) || undefined, path: q("path") || undefined }));
+    case "GET /diffs":
+      return json(quire.diffSet(parseIdRanges(q("ids"))));
     case "GET /tasks":
       return json(quire.tasks({ folder: q("folder") || undefined, note: q("note") || undefined }));
+    case "GET /diff":
+      return json(quire.diff(Number(q("from")), Number(q("to") || q("from"))));
 
     case "PUT /note": {
       const rel = cleanPath(body.path);
@@ -117,6 +132,11 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       host.moved(r.from, r.path, r.version, r.change);
       host.tree();
       return json({ path: r.path, updated: r.updated });
+    }
+    case "POST /restore": {
+      const r = quire.restore(Number(body.id), actor);
+      if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
+      return json({ path: r.path, version: r.version, change: r.change?.id ?? null }); // restoring `change` undoes this
     }
     case "POST /archive":
       return moveAll(Array.isArray(body.paths) ? body.paths : [], (p) => quire.archive(p, actor));

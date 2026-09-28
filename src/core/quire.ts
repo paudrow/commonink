@@ -46,6 +46,30 @@ export interface Backlink {
 export const ARCHIVE = "Archive/";
 export const isArchived = (p: string) => p.startsWith(ARCHIVE);
 export type ArchiveScope = "active" | "archived" | "all";
+
+/** A run of selected changes to one note, as the text before its first and after its last. */
+export interface DiffRun {
+  from: number;
+  to: number;
+  count: number;
+  sources: string[];
+  tsFrom: number;
+  tsTo: number;
+  op: Change["op"];
+  /** The last change's summary ("+3 −1", or a file size for uploads). */
+  summary: string | null;
+  /** Changes to this note left out of the selection just before this run. */
+  skipped: number;
+  before: string | null;
+  after: string | null;
+}
+export interface DiffFile {
+  path: string;
+  runs: DiffRun[];
+  moves: Array<{ id: number; op: Change["op"]; from: string | null; to: string; ts: number; source: string }>;
+  /** Id of the latest selected change to this note (files are listed newest first). */
+  last: number;
+}
 const inScope = (p: string, scope: ArchiveScope) => scope === "all" || (scope === "archived") === isArchived(p);
 
 export interface FeedItem {
@@ -323,8 +347,14 @@ export class Quire {
     return null;
   }
 
-  changes(opts: { since?: string | number; limit?: number; path?: string } = {}): Change[] {
+  changes(opts: { since?: string | number; before?: number; limit?: number; path?: string } = {}): Change[] {
     const limit = opts.limit ?? 50;
+    if (opts.before) {
+      return this.db.all(
+        `SELECT ${CHANGE_COLS} FROM changes WHERE id < ? AND (? IS NULL OR path = ?) ORDER BY id DESC LIMIT ?`,
+        opts.before, opts.path ?? null, opts.path ?? null, limit,
+      );
+    }
     let sinceTs = 0;
     let sinceId = 0;
     if (typeof opts.since === "number" || /^\d+$/.test(String(opts.since ?? ""))) sinceId = Number(opts.since);
@@ -356,12 +386,127 @@ export class Quire {
     return { ...c, id: r.lastId, ts };
   }
 
+  /**
+   * The text of a note before change #from and after change #to (the same id for one change; a
+   * range for a run of autosaves). Either side is null if it can't be recovered.
+   */
+  diff(fromId: number, toId: number): { path: string; op: Change["op"]; before: string | null; after: string | null } {
+    const first = this.db.get("SELECT op, before FROM changes WHERE id = ?", fromId);
+    const last = this.db.get(`SELECT ${CHANGE_COLS} FROM changes WHERE id = ?`, toId) as Change | undefined;
+    if (!first || !last) throw new QuireError(`No change #${first ? toId : fromId}`, "not_found");
+    const before = first.op === "create" ? "" : (first.before as string | null);
+    return { path: last.path, op: last.op, before, after: this.textAfter(last) };
+  }
+
+  /**
+   * What a hand-picked set of changes did, note by note. Each note's selected changes are merged
+   * into runs; a change left out of the selection (on that note) splits a run, so every run is a
+   * real before/after rather than a guess at what the note would be without the skipped change.
+   * Changes to other notes don't matter: leaving them out just leaves those notes out.
+   */
+  diffSet(ids: number[]): DiffFile[] {
+    const want = new Set(ids.filter((n) => Number.isInteger(n) && n > 0));
+    if (!want.size) return [];
+    const lo = Math.min(...want);
+    const hi = Math.max(...want);
+    // The selected changes, plus anything else that happened to those notes in between.
+    const picked: Change[] = [];
+    const idList = [...want];
+    for (let i = 0; i < idList.length; i += 90) {
+      const chunk = idList.slice(i, i + 90);
+      picked.push(...(this.db.all(`SELECT ${CHANGE_COLS} FROM changes WHERE id IN (${chunk.map(() => "?").join(",")})`, ...chunk) as Change[]));
+    }
+    const between = [...new Set(picked.map((c) => c.path))].flatMap(
+      (p) => (this.db.all(`SELECT ${CHANGE_COLS} FROM changes WHERE path = ? AND id BETWEEN ? AND ?`, p, lo, hi) as Change[]).filter((c) => !want.has(c.id)),
+    );
+    const files = new Map<string, DiffFile & { open: DiffRun | null; broken: number }>();
+    const fileOf = (p: string) => {
+      if (!files.has(p)) files.set(p, { path: p, runs: [], moves: [], last: 0, open: null, broken: 0 });
+      return files.get(p)!;
+    };
+    for (const c of [...picked, ...between].sort((a, b) => a.id - b.id)) {
+      const moved = c.op === "move" || c.op === "archive" || c.op === "unarchive";
+      if (!want.has(c.id)) {
+        // Someone else's step on a note we're showing: the next selected change there starts a new run.
+        const f = files.get(c.path);
+        if (f && !moved) {
+          f.open = null;
+          f.broken++;
+        }
+        continue;
+      }
+      if (moved && c.from_path && files.has(c.from_path) && !files.has(c.path)) {
+        // Same note under its new name: keep its earlier runs together with what comes next.
+        const prev = files.get(c.from_path)!;
+        files.delete(c.from_path);
+        prev.path = c.path;
+        files.set(c.path, prev);
+      }
+      const f = fileOf(c.path);
+      f.last = c.id;
+      if (moved) {
+        f.moves.push({ id: c.id, op: c.op, from: c.from_path, to: c.path, ts: c.ts, source: c.source });
+        f.open = null;
+        continue;
+      }
+      if (f.open) {
+        f.open.to = c.id;
+        f.open.count++;
+        f.open.tsTo = c.ts;
+        f.open.summary = c.summary;
+        if (!f.open.sources.includes(c.source)) f.open.sources.push(c.source);
+      } else {
+        f.open = { from: c.id, to: c.id, count: 1, sources: [c.source], tsFrom: c.ts, tsTo: c.ts, op: c.op, summary: c.summary, skipped: f.runs.length ? f.broken : 0, before: null, after: null };
+        f.broken = 0;
+        f.runs.push(f.open);
+      }
+    }
+    return [...files.values()]
+      .sort((a, b) => b.last - a.last)
+      .map(({ open: _o, broken: _b, ...f }) => ({
+        ...f,
+        runs: f.runs.map((r) => {
+          const d = this.diff(r.from, r.to);
+          return { ...r, before: d.before, after: d.after };
+        }),
+      }));
+  }
+
+  /**
+   * A note's text right after a change: the next change's `before`, or the file as it is now,
+   * following later moves. Candidates are checked against the change's version hash.
+   */
+  private textAfter(c: Change): string | null {
+    if (!c.version) return null;
+    let at = c.path;
+    let since = c.id;
+    for (let hop = 0; hop < 8; hop++) {
+      for (const r of this.db.all("SELECT before FROM changes WHERE path = ? AND id > ? AND before IS NOT NULL ORDER BY id LIMIT 20", at, since)) {
+        if (versionOf(r.before) === c.version) return r.before;
+      }
+      const now = this.files.read(at);
+      if (now !== null && versionOf(now) === c.version) return now;
+      const moved = this.db.get("SELECT id, path FROM changes WHERE from_path = ? AND id > ? ORDER BY id LIMIT 1", at, since);
+      if (!moved) return null;
+      at = moved.path;
+      since = moved.id;
+    }
+    return null;
+  }
+
   /** Put a note back the way it was before change #id. */
   restore(id: number, source: string) {
     const row = this.db.get("SELECT path, op, before FROM changes WHERE id = ?", id);
     if (!row) throw new QuireError(`No change #${id}`, "not_found");
     if (row.before === null) throw new QuireError(`Change #${id} (${row.op} ${row.path}) has no earlier text to restore`);
-    return this.save(row.path, row.before, { source });
+    // The note may have been renamed or archived since: restore it where it lives now.
+    let at = row.path as string;
+    let since = id;
+    for (let moved; (moved = this.db.get("SELECT id, path FROM changes WHERE from_path = ? AND id > ? ORDER BY id LIMIT 1", at, since)); ) {
+      at = moved.path;
+      since = moved.id;
+    }
+    return { ...this.save(at, row.before, { source }), path: at };
   }
 
   // ---------------------------------------------------------------- writing
@@ -487,6 +632,25 @@ export class Quire {
     return this.commit(note.path, note.content, next, source, "edit");
   }
 
+  /**
+   * Where an uploaded file named `name` goes: `folder/name`, or "name 2.png" if that's taken.
+   * Throws for names that aren't a file type we store.
+   */
+  uploadPath(name: string, folder = "assets"): string {
+    const base = path.posix.basename(name.replace(/\\/g, "/")).replace(/[:*?"<>|#^[\]]/g, "").trim();
+    const rel = cleanPath(folder ? `${folder}/${base}` : base);
+    if (kindOf(rel) !== "asset") throw new QuireError(`Can't upload ${base || "that file"}: images, PDFs, audio, video and common documents only`);
+    return this.freePath(rel);
+  }
+
+  /** The host just wrote a file's bytes to `rel`: index it and log who added it. */
+  recordUpload(rel: string, existed: boolean, source: string) {
+    const meta = this.indexFile(rel);
+    if (!meta) throw new QuireError(`${rel} isn't there`, "not_found");
+    const change = this.recordChange({ path: rel, op: existed ? "edit" : "create", source, version: meta.version, summary: fmtBytes(meta.size), from_path: null });
+    return { ...meta, change };
+  }
+
   /** Archive a note: move it under Archive/ (links keep working: they resolve by name). */
   archive(target: string, source: string) {
     const rel = this.mustResolve(target);
@@ -562,6 +726,12 @@ function excerptOf(body: string, title: string, max = 700): string {
   let text = body.replace(/^\s*#\s+(.+)\n/, (m, h) => (h.trim() === title ? "" : m)).trim();
   if (text.length > max) text = text.slice(0, text.lastIndexOf("\n", max) > max / 2 ? text.lastIndexOf("\n", max) : max) + "…";
   return text;
+}
+
+export function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10 * 1024 ? 1 : 0)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
 export function diffstat(before: string, after: string): string {
