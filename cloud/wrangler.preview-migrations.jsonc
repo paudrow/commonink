@@ -4,6 +4,6 @@
   "$schema": "../node_modules/wrangler/config-schema.json",
   "name": "commonink-preview-migrations",
   "d1_databases": [
-    { "binding": "DB", "database_name": "commonink-preview", "database_id": "PREVIEW_DATABASE_ID", "migrations_dir": "migrations" }
+    { "binding": "DB", "database_name": "commonink-preview", "database_id": "743a059a-b302-4743-b39d-fc323d0e4e3a", "migrations_dir": "migrations" }
   ]
 }

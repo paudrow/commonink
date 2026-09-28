@@ -39,7 +39,7 @@
     "durable_objects": { "bindings": [{ "name": "WORKSPACE", "class_name": "Workspace" }] },
     "d1_databases": [
       // Keep in step with wrangler.preview-migrations.jsonc, which applies the migrations to it.
-      { "binding": "DB", "database_name": "commonink-preview", "database_id": "PREVIEW_DATABASE_ID", "migrations_dir": "migrations" }
+      { "binding": "DB", "database_name": "commonink-preview", "database_id": "743a059a-b302-4743-b39d-fc323d0e4e3a", "migrations_dir": "migrations" }
     ],
     "r2_buckets": [{ "binding": "FILES", "bucket_name": "commonink-preview-files" }]
   }
