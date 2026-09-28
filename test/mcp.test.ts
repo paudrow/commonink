@@ -1,0 +1,64 @@
+import { after, before, test } from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { tempVault } from "./helpers.ts";
+
+const BIN = path.resolve(import.meta.dirname, "../bin/quire");
+let vault: string;
+let client: Client;
+
+before(async () => {
+  vault = tempVault();
+  const env = Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined && e[0] !== "QUIRE_AGENT"));
+  client = new Client({ name: "test-agent", version: "1.0.0" });
+  await client.connect(new StdioClientTransport({ command: BIN, args: ["mcp"], env: { ...env, QUIRE_VAULT: vault } }));
+});
+
+after(() => client.close());
+
+async function call(name: string, args: Record<string, unknown>) {
+  const r = (await client.callTool({ name, arguments: args })) as { content: Array<{ text: string }>; isError?: boolean };
+  return { text: r.content.map((c) => c.text).join("\n"), isError: !!r.isError };
+}
+
+test("the server lists every tool", async () => {
+  const { tools } = await client.listTools();
+  assert.deepEqual(tools.map((t) => t.name).sort(), [
+    "append_to_note", "archive_note", "backlinks", "create_note", "edit_note", "list_notes",
+    "move_note", "read_note", "recent_changes", "search_notes", "unarchive_note",
+  ]);
+});
+
+test("writes are attributed to the connected client", async () => {
+  assert.equal((await call("create_note", { path: "Agent log", content: "# Agent log\n" })).isError, false);
+  assert.equal(fs.readFileSync(path.join(vault, "Agent log.md"), "utf8"), "# Agent log\n");
+  const changes = await call("recent_changes", { path: "Agent log.md" });
+  assert.match(changes.text, /^#\d+ \S+ test-agent: create Agent log\.md \(2 lines\)$/);
+});
+
+test("tool errors come back as isError with the core's message", async () => {
+  assert.deepEqual(await call("read_note", { path: "../../etc/passwd" }), {
+    text: 'No note matches "../../etc/passwd". Try search_notes to find it.',
+    isError: true,
+  });
+  assert.deepEqual(await call("edit_note", { path: "Roadmap", old_string: "not in the note", new_string: "x" }), {
+    text: "old_string not found in Projects/Roadmap.md. Re-read the note; it may have changed.",
+    isError: true,
+  });
+  assert.deepEqual(await call("create_note", { path: "assets/chart.svg", content: "x" }), {
+    text: "Only .md and .html notes can be created",
+    isError: true,
+  });
+  assert.deepEqual(await call("move_note", { from: "Welcome", to: "Welcome.png" }), {
+    text: "Moving Welcome.md can't change its file type from .md to .png",
+    isError: true,
+  });
+});
+
+test("search_notes sees files written straight to disk", async () => {
+  fs.writeFileSync(path.join(vault, "Side door.md"), "# Side door\n\nzeppelin\n");
+  assert.equal((await call("search_notes", { query: "zeppelin" })).text, "- Side door.md — Side door\n    L3: zeppelin");
+});
