@@ -153,6 +153,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
         doc: note.content,
         kind: note.kind === "html" ? "html" : "md",
         vim: prefs.vim,
+        readOnly: viewer,
         context: { path: note.path, openTarget, createNote, notes: () => notes, upload: (files) => uploadFiles(files), tags: () => tags, openTag, openPerson: (assignee) => void showTasks({ assignee }) },
         onUpdate: (docChanged, fromRemote, state) => onUpdate(next, docChanged, fromRemote, state),
       }),
@@ -1483,6 +1484,8 @@ function debounce<A extends unknown[]>(fn: (...a: A) => unknown, ms: number) {
 }
 
 let workspaceId = "";
+/** You can view this workspace but not edit it. */
+let viewer = false;
 
 /**
  * Show whatever the address bar points at: /notes/<title>-<id>, /tasks, /history, /assets, or the
@@ -1538,6 +1541,7 @@ async function boot() {
   if (who?.me) {
     const ws = pickWorkspace(who.me);
     workspaceId = ws.id;
+    viewer = ws.role === "viewer";
     useWorkspace(`/api/w/${ws.id}`, `/api/w/${ws.id}/live`);
     setSelfName(who.me.user.name);
     renderAccount(who.me, ws, (t) => toast(t));
