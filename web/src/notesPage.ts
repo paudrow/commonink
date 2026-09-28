@@ -64,7 +64,7 @@ export class NotesPage {
     this.saveBtn = el(
       "button",
       { type: "button", class: "chip tag-filter", title: "Keep these filters in the sidebar", onclick: () => this.hooks.saveQuery(this.saveBtn, formatQuery(this.query)) },
-      icon("spark", 13),
+      icon("folderSearch", 13),
       "Save as smart folder",
     );
     this.bulk = el("div", { class: "feed-bulk", hidden: true });

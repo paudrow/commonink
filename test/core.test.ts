@@ -468,6 +468,14 @@ test("smart folders are saved queries, shared with the workspace or one person's
   assert.deepEqual(quire.deleteSmartFolder("ana", "client work", true), []);
 });
 
+test("pinning and unpinning a tag only touches Favorites, never a smart folder with that tag's query", () => {
+  const { quire } = openTempVault(TAGGED);
+  const folder = quire.saveSmartFolder("ana", { name: "Billing", query: "tag=billing", shared: false }, true);
+  quire.starTag("ana", "billing");
+  assert.deepEqual(quire.unstarTag("ana", "billing"), []);
+  assert.deepEqual(quire.smartFolders("ana").map((f) => [f.id, f.query]), [[folder.id, "tag=billing"]]);
+});
+
 test("a smart folder name means your own before a shared one, a saved query keeps no limit, and there's a cap", () => {
   const { quire } = openTempVault(TAGGED);
   const shared = quire.saveSmartFolder("ana", { name: "Work", query: "tag=work limit=5", shared: true }, true);

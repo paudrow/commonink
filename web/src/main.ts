@@ -726,7 +726,7 @@ function saveSmartFolder(query: string, name: string, anchor: HTMLElement) {
       const saved = await api.saveSmartFolder(f);
       smartFolders = await api.smartFolders();
       renderTree();
-      toast({ icon: "spark", text: `Saved ${saved.name}`, detail: saved.shared ? "Everyone in the workspace sees it in their sidebar." : "Only you see it." });
+      toast({ icon: "folderSearch", text: `Saved ${saved.name}`, detail: saved.shared ? "Everyone in the workspace sees it in their sidebar." : "Only you see it." });
     },
   });
 }
@@ -791,7 +791,7 @@ function renderSmartFolders(active: string | null) {
           if (!confirm(`Delete the smart folder ${f.name}${f.shared ? " for everyone in the workspace" : ""}? Its notes don't change.`)) return;
           smartFolders = await api.deleteSmartFolder(f.id);
           renderTree();
-          toast({ icon: "spark", text: `Deleted ${f.name}` });
+          toast({ icon: "folderSearch", text: `Deleted ${f.name}` });
         },
       });
     });
@@ -805,7 +805,7 @@ function renderSmartFolders(active: string | null) {
         onclick: () => void showNotes({ scope: "active", query: parseQuery(f.query) }),
         onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && void showNotes({ scope: "active", query: parseQuery(f.query) }),
       },
-      icon("spark", 14),
+      icon("folderSearch", 14),
       el("span", { class: "tree-name" }, f.name),
       f.shared ? null : el("span", { class: "sf-mine", title: "Just you" }, icon("user", 11)),
       el("span", { class: "n" }, String(f.count)),
@@ -813,7 +813,7 @@ function renderSmartFolders(active: string | null) {
     );
   });
   // Empty: one quiet line pointing at the header's +, the one way to add one from here.
-  const hint = el("div", { class: "fav-hint" }, "Click ", el("span", { class: "hint-icon", "aria-label": "+" }, icon("plus", 11)), " to save a search here, or pin a tag from Tags below.");
+  const hint = el("div", { class: "fav-hint" }, "Click ", el("span", { class: "hint-icon", "aria-label": "+" }, icon("plus", 11)), " to save a search here.");
   $("#smart-folders").replaceChildren(...(rows.length ? rows : [hint]));
 }
 

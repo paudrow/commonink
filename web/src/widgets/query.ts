@@ -28,7 +28,7 @@ export const query: WidgetSpec = {
   defaults: { limit: "6" },
   configAction: {
     label: "Save as smart folder",
-    icon: "spark",
+    icon: "folderSearch",
     run: (args, env, anchor) => env.saveSmartFolder(formatQuery(toQuery(args)), args.label ?? "", anchor),
   },
   fields: [
