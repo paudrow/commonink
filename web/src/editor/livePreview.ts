@@ -3,11 +3,11 @@ import { syntaxTree } from "@codemirror/language";
 import type { EditorState, Range, Text } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { scanTags, type TagSpan } from "../../../src/core/tags.ts";
-import { lineTokens, parseTask, TASK_LINE } from "../../../src/core/tasks.ts";
+import { lineTokens, TASK_LINE } from "../../../src/core/tasks.ts";
 import { today, tokenChip } from "../taskChips.ts";
-import { openChipEditor, taskPeople } from "../taskChipEditors.ts";
-import { editorContext } from "./blocks.ts";
+import { openChipEditor } from "../taskChipEditors.ts";
 import { taskLineEdit } from "./taskEdit.ts";
+import { lineTaskContext } from "./taskTools.ts";
 
 const hide = Decoration.replace({});
 const CODE = new Set(["InlineCode", "FencedCode", "CodeBlock", "CodeText"]);
@@ -110,20 +110,8 @@ class TokenWidget extends WidgetType {
 }
 
 function openLineChip(view: EditorView, chip: HTMLElement) {
-  const line = view.state.doc.lineAt(view.posAtDOM(chip));
-  const task = parseTask(line.text);
-  if (!task) return;
-  const ctx = view.state.facet(editorContext);
-  openChipEditor(chip, {
-    task: { path: ctx.path, title: "", line: line.number, text: task.text, summary: task.summary, done: task.done, heading: null, meta: task.meta },
-    save: async (patch) => {
-      const spec = taskLineEdit(view.state, line.number, line.text, patch);
-      if (spec) view.dispatch(spec);
-    },
-    people: taskPeople,
-    showPerson: (name) => ctx.openPerson(name),
-    onClose: () => setTimeout(() => view.focus()), // after the key or click that closed it is done
-  });
+  const ctx = lineTaskContext(view, view.state.doc.lineAt(view.posAtDOM(chip)).number);
+  if (ctx) openChipEditor(chip, ctx);
 }
 
 class PlaceholderWidget extends WidgetType {

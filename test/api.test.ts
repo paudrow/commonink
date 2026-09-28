@@ -149,6 +149,10 @@ test("tasks filter by due date against the reader's today, and a task's tokens c
     assert.equal(r.status, 400, JSON.stringify(patch));
     assert.match(r.body.error, message);
   }
+  await call("POST", "/tasks/update", { path: "Roadmap", line: 8, text: "Ship the importer due:2026-10-01 @jane", patch: { summary: "Ship the exporter" } });
+  assert.equal((await call("GET", "/note?path=Roadmap")).body.content.split("\n")[7], "- [ ] Ship the exporter due:2026-10-01 @jane");
+  assert.equal((await call("POST", "/tasks/update", { path: "Roadmap", line: 8, text: "Ship the exporter due:2026-10-01 @jane", patch: { summary: 3 } })).status, 400);
+  await call("POST", "/tasks/update", { path: "Roadmap", line: 8, text: "Ship the exporter due:2026-10-01 @jane", patch: { summary: "Ship the importer" } });
   assert.equal((await call("GET", "/tasks?due=soon")).status, 400);
   assert.equal((await call("GET", "/tasks?due=today&today=garbage")).status, 400);
   await call("POST", "/tasks/set", { path: "Roadmap", line: 8, text: "Ship the importer due:2026-10-01 @jane", done: true, today: "2026-10-02" });

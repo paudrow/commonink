@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addDays, dueFilter, editTask, editTaskLines, parseTask, skipPatch } from "../src/core/tasks.ts";
+import { addDays, dueFilter, editTask, editTaskLines, parseTask, patchProblem, skipPatch } from "../src/core/tasks.ts";
 import { recLabel } from "../src/core/recurrence.ts";
 
 const LINE = "- [ ] Send invoice to Acme due:2026-10-01 rec:monthly #work/clients @jane !high";
@@ -134,6 +134,19 @@ test("skipping moves a repeating task to its next date without completing it", (
   assert.deepEqual(skipPatch(parseTask("- [ ] Standup due:2026-10-06 rec:1st-tue,3rd-tue")!.meta, "2026-10-01"), { due: "2026-10-20" });
   assert.deepEqual(skipPatch(parseTask("- [ ] Pills due:2026-10-06 start:2026-10-05 rec:after-1w")!.meta, "2026-10-01"), { due: "2026-10-13", start: "2026-10-12" });
   assert.equal(skipPatch(parseTask("- [ ] Once due:2026-10-06")!.meta, "2026-10-01"), null);
+});
+
+test("editing a task's text rewrites only the words before its tokens, never the tokens", () => {
+  const line = "  - [ ] Send invoice to Acme due:2026-10-01 rec:monthly #work/clients @jane !high";
+  assert.equal(editTask(line, { summary: "Send the Q4 invoice" }), "  - [ ] Send the Q4 invoice due:2026-10-01 rec:monthly #work/clients @jane !high");
+  // Mid-sentence tokens are part of the text; a task with no text gets some; spaces at either end go.
+  assert.equal(editTask("- [x] Ask @sam about it due:2026-10-01 done:2026-10-02", { summary: "Ask @ana about it" }), "- [x] Ask @ana about it due:2026-10-01 done:2026-10-02");
+  assert.equal(editTask("- [ ] due:2026-10-01", { summary: "  Call mom " }), "- [ ] Call mom due:2026-10-01");
+  assert.equal(editTask("- [ ] Plain", { summary: "Plainer" }), "- [ ] Plainer");
+  assert.equal(editTask("- [ ] Plain  ", { summary: "Plain" }), "- [ ] Plain  ");
+  // Text and a token in one patch: both land, the token in its place.
+  assert.equal(editTask("- [ ] a @jane", { summary: "b", priority: "high" }), "- [ ] b !high @jane");
+  assert.equal(patchProblem({ summary: "two\nlines" }), "A task's text is one line");
 });
 
 test("a due filter compares dates, with today, tomorrow and yesterday relative to the day given", () => {

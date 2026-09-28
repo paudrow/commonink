@@ -511,6 +511,11 @@ body.panel-closed #panel { opacity: 0; pointer-events: none; }
 .cm-embed-inline { background: var(--accent-soft); border-radius: 4px; text-decoration: none; padding: 0 2px; }
 .cm-bullet { color: var(--muted); font-weight: 700; display: inline-block; min-width: 0.6em; }
 .cm-list-num { color: var(--muted); font-variant-numeric: tabular-nums; }
+/* The cursor's task line: its ⚙ fields button and, while it has no tokens, a hint of what it can carry. */
+.cm-task-tools { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; vertical-align: -0.1em; user-select: none; }
+.cm-task-gear { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 5px; color: var(--muted); }
+.cm-task-gear:hover { background: var(--hover); color: var(--ink-strong); }
+.cm-task-hint { font: 12px var(--ui); color: var(--faint); cursor: pointer; }
 .cm-checkbox {
   display: inline-block;
   width: 1.02em;
@@ -1064,8 +1069,9 @@ body.panel-closed #panel { opacity: 0; pointer-events: none; }
 
 /* ------------------------------------------------------------------ tasks widget */
 .qt-top { display: flex; align-items: center; gap: 12px; margin-top: 2px; }
-.qt-summary { font-size: 13px; font-weight: 600; color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.qt-seg button { font-size: 11.5px; padding: 3px 9px; }
+.qt-summary { font-size: 13px; font-weight: 600; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.qt-seg { flex: none; }
+.qt-seg button { font-size: 11.5px; padding: 3px 9px; white-space: nowrap; }
 .qt-progress { height: 4px; border-radius: 99px; background: var(--hover); margin: 10px 0 6px; overflow: hidden; }
 .qt-progress span { display: block; height: 100%; width: 0; background: var(--ok); border-radius: 99px; transition: width 0.3s ease; }
 .qt-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
@@ -1280,6 +1286,8 @@ button.crumb:hover { background: var(--hover); color: var(--ink-strong); }
 .fp-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border-radius: 7px; font-size: 13.5px; color: var(--ink-2); text-align: left; }
 .fp-item svg { color: var(--muted); flex: none; }
 .fp-item span:first-of-type { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp-item > .avatar:first-child { flex: none; } /* a person's avatar stands where the icon does; the name after it takes the room */
+.fp-item > .avatar:first-child + span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fp-item.is-active { background: var(--hover); color: var(--ink-strong); }
 .fp-item.is-current { color: var(--muted); }
 .fp-here { font-size: 11px; color: var(--faint); }
@@ -1631,7 +1639,7 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .tk-person { padding-left: 2px; }
 .tk-person .avatar { font-size: 7px; box-shadow: none; }
 .tk-muted { color: var(--muted); }
-.qt-text > span:first-child { margin-right: 4px; }
+.qt-text > .qt-words { margin-right: 4px; }
 .qt-text .tk { font-size: 11.5px; }
 .qt-text .tag { margin: 0 2px; }
 .qt-row.is-done .qt-text .tk { text-decoration: none; opacity: 0.75; }
@@ -1640,24 +1648,22 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .qt-note.is-label { cursor: default; gap: 8px; }
 .qt-note.is-label:hover { background: none; color: var(--muted); }
 .qt-note .n { font-weight: 500; color: var(--faint); }
-.qt-edit { flex: none; align-self: center; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 5px; color: var(--muted); visibility: hidden; }
-.qt-row:hover .qt-edit, .qt-edit:focus-visible { visibility: visible; }
-.qt-edit:hover { background: var(--active); color: var(--ink-strong); }
-.task-pop { position: fixed; z-index: 60; width: 340px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--bg-elev); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18); }
-.task-pop .qw-field { grid-template-columns: 76px 1fr; align-items: center; }
-.task-pop-title { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.task-pop-title svg { flex: none; color: var(--muted); }
-.task-pop-control { display: flex; gap: 6px; }
-.task-pop input { min-width: 0; flex: 1; font: 13px var(--ui); color: var(--ink-strong); background: var(--bg); border: 1px solid var(--line-strong); border-radius: 7px; padding: 5px 8px; }
-.task-pop input:focus { outline: none; border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
-.task-pop input[type="time"] { flex: 0 0 96px; }
-.task-pop-error { font-size: 12.5px; color: var(--bad); }
+.qt-act { flex: none; align-self: center; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 5px; color: var(--muted); opacity: 0; }
+.qt-row:hover .qt-act, .qt-row:focus-within .qt-act { opacity: 1; } /* still focusable while hidden: Tab reaches them */
+.qt-act + .qt-act { margin-left: -8px; }
+.qt-act:hover { background: var(--active); color: var(--ink-strong); }
+.qt-words { cursor: text; }
+.qt-input { width: min(100%, 420px); margin-right: 4px; padding: 1px 6px; border: 1px solid var(--accent-line); border-radius: 6px; background: var(--bg-elev); color: var(--ink-strong); font: inherit; outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+.task-menu-item .task-menu-value { flex: none; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--ink-2); }
+.task-menu-item .task-menu-value.is-empty { color: var(--faint); }
 
 /* every task chip is one height and sits on the same line, whatever it holds (icon, avatar, text) */
 .tk { box-sizing: border-box; height: 20px; line-height: 1; vertical-align: middle; }
 .tk .avatar { width: 14px !important; height: 14px !important; }
 .tk-tag { background: var(--accent-soft); color: var(--accent-ink); }
-.qt-text .tk[data-field]:not([data-field="done"]) { cursor: pointer; }
+.qt-text .tk[data-field]:not([data-field="done"]), .fc-body:not(.is-readonly) .tk[data-field]:not([data-field="done"]), .fc-body .tk[data-field="tags"] { cursor: pointer; }
+.fc-body .tk { font-size: 11.5px; }
+.tk-run { white-space: normal; }
 .qt-text .tk[data-field]:not([data-field="done"]):hover { box-shadow: inset 0 0 0 1px var(--line-strong); }
 /* a chip's own editor */
 .chip-pop { width: 260px; }
@@ -1709,8 +1715,8 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 
 /* a tag pinned to Favorites */
 .pin-btn.is-pinned { color: var(--accent); }
-.pin-chip { border-style: solid; }
-.pin-chip.is-pinned { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); }
+.chip.pin-chip { border-style: solid; }
+.chip.pin-chip.is-pinned { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); }
 .fav-pinned { display: inline-grid; place-items: center; color: var(--accent); }
 .tree-row:hover .fav-pinned, .tree-row:focus-within .fav-pinned { display: none; }
 #favorites .tree-row.is-tag > svg { color: var(--muted); }

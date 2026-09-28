@@ -2,8 +2,9 @@
 // mark, a person, a tag. The markdown keeps the tokens; these only draw them. Each chip says which
 // token it is (data-field, data-value), so a task list can open that token's editor.
 import { avatar, el, icon } from "./dom.ts";
-import { localDate, type TaskMeta } from "../../src/core/tasks.ts";
+import { localDate, parseTask, TASK_LINE, type ParsedTask, type TaskMeta } from "../../src/core/tasks.ts";
 import { nextDue, parseRule, ruleLabel } from "../../src/core/recurrence.ts";
+import { tagsInLine } from "../../src/core/tags.ts";
 
 export const today = () => localDate(Date.now());
 
@@ -74,4 +75,50 @@ export function metaChips(meta: TaskMeta, done: boolean, tags: string[] = []): H
     ...[...tags].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })).map((t) => tokenChip("tags", t)),
     done && meta.done && tokenChip("done", meta.done, { now }),
   ].filter((c): c is HTMLElement => !!c);
+}
+
+/** Tags a task's chips show: the ones not already in its words (those stay there, in the sentence). */
+export function endTags(summary: string, tags: string[]): string[] {
+  const inText = new Set(tagsInLine(summary).map((h) => h.tag));
+  return tags.filter((tag) => !inText.has(tag.toLowerCase()));
+}
+
+// A placeholder for a task's chips that survives markdown rendering: private-use characters.
+const MARK = /\uE000(\d+)\uE001/g;
+
+/**
+ * Markdown with each task line's trailing tokens swapped for a placeholder, and those tasks in
+ * order, so rendered markdown shows a task's words and then its chips (see hydrateTaskChips), as
+ * task lists do. Lines in fenced code stay as written.
+ */
+export function withTaskChips(md: string): { md: string; tasks: ParsedTask[] } {
+  const tasks: ParsedTask[] = [];
+  let fence: string | null = null;
+  const lines = md.split("\n").map((line) => {
+    const f = line.match(/^\s{0,3}(`{3,}|~{3,})/)?.[1];
+    if (f && (!fence || (f[0] === fence[0] && f.length >= fence.length))) fence = fence ? null : f;
+    const t = !fence && !f ? parseTask(line) : null;
+    if (!t) return line;
+    tasks.push(t);
+    const [, open, box, close] = line.match(TASK_LINE)!;
+    return `${open}${box}${close}${t.summary} \uE000${tasks.length - 1}\uE001`;
+  });
+  return { md: lines.join("\n"), tasks };
+}
+
+/** Put each task's chips where withTaskChips left its placeholder. The chips carry the task's index (data-task). */
+export function hydrateTaskChips(node: HTMLElement, tasks: ParsedTask[]) {
+  const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+  const hits: Text[] = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) if (/\uE000/.test(n.nodeValue ?? "")) hits.push(n as Text);
+  for (const text of hits) {
+    const parts = (text.nodeValue ?? "").split(MARK);
+    text.replaceWith(
+      ...parts.map((part, i) => {
+        if (i % 2 === 0) return part;
+        const t = tasks[+part];
+        return t ? el("span", { class: "tk-run", "data-task": part }, ...metaChips(t.meta, t.done, endTags(t.summary, t.meta.tags))) : "";
+      }),
+    );
+  }
 }
