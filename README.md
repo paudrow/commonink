@@ -83,6 +83,24 @@ The server also refuses to replace a non-empty note with an empty one unless the
 
 The server binds to 127.0.0.1 and checks the `Host` header to block DNS rebinding. Writes must come from its own origin and be JSON, which blocks cross-site requests and requests from sandboxed notes. The WebSocket checks `Origin`. Rendered markdown goes through DOMPurify. Vault assets are served with a `sandbox` CSP, and HTML files are never served from the app's origin.
 
+## Testing
+
+```bash
+npm test        # node:test over test/*.test.ts
+npm run check   # both typechecks, then the tests
+```
+
+The tests run the real surfaces against throwaway vaults: the core and the shared API in-process, and the server, CLI and MCP server as child processes. These switches make that possible, and work just as well by hand:
+
+| Lever | What it does |
+| --- | --- |
+| `QUIRE_VAULT=<dir>` | The vault the server, CLI and MCP server open. |
+| `PORT=0` | The server picks a free port and prints it. |
+| `QUIRE_NO_UI=1` | The server serves only `/api` and skips Vite, so it starts in well under a second. |
+| `QUIRE_AGENT=<name>` | Who CLI and MCP writes are attributed to. |
+| `openVault(dir, { now })` | A fake clock for change timestamps and the attribution window. |
+| `tempVault(files)` in `test/helpers.ts` | A fresh vault folder holding the given files, removed when the tests exit. |
+
 ## Not built yet
 
 Suggestion mode (accept or reject agent edits), git auto-commits authored by each agent, semantic search (`sqlite-vec`), remote MCP over Streamable HTTP with OAuth, Yjs multiplayer, and an MCP App version of the editor.
