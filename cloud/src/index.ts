@@ -4,7 +4,7 @@ import { json } from "../../src/core/api.ts";
 import { unfurl } from "../../src/core/unfurl.ts";
 import { MAX_UPLOAD } from "../../src/core/paths.ts";
 import { ensurePersonalWorkspace, handleAuth, readSession, seedWorkspace } from "./auth.ts";
-import { acceptInvite, createInvite, createWorkspace, getUser, membership, workspacesOf } from "./directory.ts";
+import { acceptInvite, createInvite, createWorkspace, getUser, locateNote, membership, workspacesOf } from "./directory.ts";
 import type { Env } from "./env.ts";
 
 export { Workspace } from "./workspace.ts";
@@ -51,6 +51,12 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
     const target = url.searchParams.get("url") ?? "";
     if (!/^https?:\/\//i.test(target)) return json({ error: "http(s) URLs only" }, 400);
     return json(await unfurl(target));
+  }
+
+  const noteId = url.pathname.match(/^\/api\/note-ids\/([a-z2-9]{8})$/)?.[1];
+  if (noteId) {
+    const ws = await locateNote(env.DB, user.id, noteId);
+    return ws ? json({ workspace: ws }) : json({ error: "That note doesn't exist, or you don't have access to it" }, 404);
   }
 
   const m = url.pathname.match(/^\/api\/w\/([a-z0-9]+)(\/.*)$/);

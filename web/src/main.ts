@@ -1305,7 +1305,12 @@ async function route() {
   const link = parseNotePath(at);
   const path = link ? (notes.find((n) => n.id === link.id)?.path ?? (await api.resolve(link.id).catch(() => null))) : undefined;
   if (path) return path === session?.path ? undefined : openNote(path, { push: false });
-  if (link) toast({ text: "That note doesn't exist any more, or isn't in this workspace" });
+  if (link && workspaceId) {
+    // Online, the link may be to a note in another of your workspaces: switch to it (?w= picks it).
+    const where = await api.locate(link.id).catch(() => null);
+    if (where && where.workspace.id !== workspaceId) return void (location.href = `${location.pathname}?w=${where.workspace.id}`);
+  }
+  if (link) toast({ text: workspaceId ? "That note doesn't exist, or you don't have access to it" : "That note doesn't exist any more" });
   setUrl("/notes", "replace");
   return showFeed({ push: false });
 }

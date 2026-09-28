@@ -226,6 +226,13 @@ export class Quire {
     return this.db.get(`SELECT ${META_COLS} FROM notes WHERE path = ?`, rel) ?? null;
   }
 
+  /** Give the note with this ID a new one (its ID turned out to be taken elsewhere). Returns the new ID. */
+  reassignId(id: string): string {
+    const next = newNoteId();
+    this.db.run("UPDATE notes SET id = ? WHERE id = ?", next, id);
+    return next;
+  }
+
   /** The path of the note with this stable ID, wherever it lives now. */
   pathOf(id: string): string | null {
     return this.db.get("SELECT path FROM notes WHERE id = ?", id)?.path ?? null;

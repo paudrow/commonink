@@ -144,6 +144,8 @@ const resolveCache = new Map<string, Promise<string | null>>();
 
 export const api = {
   info: () => j<{ mode: "local" | "cloud"; name: string; vault?: string }>(`${BASE}/info`),
+  /** Online: which of your workspaces a note ID is in (404 if none you can open). */
+  locate: (id: string) => j<{ workspace: { id: string; name: string } }>(`/api/note-ids/${id}`),
   createWorkspace: (name: string) => j<{ id: string }>("/api/workspaces", send("POST", { name })),
   invite: (role: "editor" | "viewer") => j<{ url: string }>(`${BASE}/invites`, send("POST", { role })),
   notes: () => j<NoteMeta[]>(`${BASE}/notes`),
