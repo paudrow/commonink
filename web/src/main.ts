@@ -656,7 +656,7 @@ async function toggleStar(path: string) {
 
 const FAVORITE = "application/x-common-ink-favorite";
 
-/** Starred notes, in your order: drag one to reorder, or drag a note in from the folders to star it. */
+/** Starred notes, in your order: drag one to reorder, or drag a card in from Notes to star it. */
 function renderFavorites() {
   const list = favorites.filter((f) => !isArchived(f.path));
   const rows = list.map((f) => {
@@ -689,7 +689,7 @@ function renderFavorites() {
   $("#favorites").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Star a note to keep it here.")]));
 }
 
-/** Let `node` take a favorite (to reorder) or a note from the folders (to star), marking it with `cls` while over it. */
+/** Let `node` take a favorite (to reorder) or a card from Notes (to star), marking it with `cls` while over it. */
 function favoriteDrop(node: HTMLElement, cls: string, before?: string) {
   node.addEventListener("dragover", (e) => {
     if (!e.dataTransfer?.types.some((t) => t === FAVORITE || t === NOTE_DRAG)) return;
@@ -811,10 +811,26 @@ function renderTree() {
             style: { "--depth": String(depth) },
             "data-folder": path,
             title: n ? `Show the notes in ${path}` : `${path} is empty. Drag notes here.`,
+            tabindex: "0",
             onclick: () => void showNotes({ scope: "active", folder: path }),
+            onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && void showNotes({ scope: "active", folder: path }),
           },
           subs
-            ? el("button", { type: "button", class: "chev", title: open ? "Hide subfolders" : "Show subfolders", onclick: (e: Event) => (e.stopPropagation(), setExpanded(path, !open), renderTree()) }, icon("chevron", 13))
+            ? el(
+                "button",
+                {
+                  type: "button",
+                  class: "chev",
+                  title: open ? "Hide subfolders" : "Show subfolders",
+                  onclick: (e: Event) => {
+                    e.stopPropagation();
+                    setExpanded(path, !open);
+                    renderTree();
+                    $(`#tree .tree-row[data-folder="${CSS.escape(path)}"] .chev`).focus(); // the row was rebuilt; keep the keyboard here
+                  },
+                },
+                icon("chevron", 13),
+              )
             : el("span", { class: "chev is-leaf" }),
           icon("folder", 14),
           el("span", { class: "tree-name" }, path.split("/").pop()!),
@@ -835,7 +851,7 @@ function renderTree() {
 
 /** Highlight where a dragged note would land: a folder row, or the whole tree for the top level. */
 function markDrop(folder: string | null) {
-  document.querySelectorAll(".is-drop").forEach((n) => n.classList.remove("is-drop"));
+  document.querySelectorAll(".is-drop, .is-drop-before").forEach((n) => n.classList.remove("is-drop", "is-drop-before"));
   if (folder === null) return;
   (folder ? document.querySelector(`.tree-row[data-folder="${CSS.escape(folder)}"]`) : $("#tree"))?.classList.add("is-drop");
 }
@@ -902,7 +918,7 @@ async function moveToFolder(path: string, folder: string, opts: { undo?: boolean
   }
 }
 
-/** Archive any note from the sidebar. The open note stays open (marked archived), like ⌘⇧E. */
+/** Archive a note dropped on Archive. The open note stays open (marked archived), like ⌘⇧E. */
 async function archivePath(path: string) {
   if (session?.path === path) return archiveCurrent();
   const r = await api.archive([path]).catch(() => null);
@@ -1432,7 +1448,7 @@ async function boot() {
   $("#assets-btn").addEventListener("click", () => void showAssets());
   $("#note-history-btn").addEventListener("click", () => session && void showHistory({ note: session.path }));
   $("#back-btn").addEventListener("click", () => void showNotes());
-  $("#archive-nav").addEventListener("click", () => void showNotes({ scope: "archived" }));
+  $("#archive-nav").addEventListener("click", () => void showNotes({ scope: "archived", folder: "" }));
   $("#archive-btn").addEventListener("click", () => void archiveCurrent());
   $("#star-btn").addEventListener("click", () => session && void toggleStar(session.path));
   $("#move-btn").addEventListener("click", () => openMovePicker($("#move-btn")));

@@ -201,6 +201,7 @@ body.panel-closed #panel { opacity: 0; pointer-events: none; }
 .tree-row svg { color: var(--muted); flex: none; }
 .tree-row.is-active { background: var(--active); color: var(--ink-strong); font-weight: 550; }
 .tree-row.is-active svg { color: var(--accent); }
+.tree-row:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
 .tree-row .chev { display: inline-grid; place-items: center; width: 16px; height: 16px; margin: 0 -3px 0 -4px; border-radius: 4px; color: var(--muted); transition: transform 0.15s; transform: rotate(90deg); }
 .tree-row .chev:hover { background: var(--active); color: var(--ink-strong); }
 .tree-row .chev.is-leaf { visibility: hidden; }

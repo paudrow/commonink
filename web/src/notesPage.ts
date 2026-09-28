@@ -158,11 +158,15 @@ export class NotesPage {
     );
     const q = this.input.value.trim();
     const top = this.root.scrollTop;
-    this.list.replaceChildren(
-      ...(this.items.length
-        ? this.items.map((item, i) => this.card(item, i, q))
-        : [el("div", { class: "feed-empty" }, q ? `No ${this.scope === "all" ? "" : this.scope + " "}notes match “${q}”.` : this.scope === "archived" ? "Nothing archived yet. Press e on a note to archive it." : "No notes yet.")]),
-    );
+    const which = this.scope === "all" ? "" : `${this.scope} `;
+    const empty = q
+      ? `No ${which}notes match “${q}”${this.folder ? ` in ${this.folder}` : ""}.`
+      : this.folder
+        ? `No ${which}notes in ${this.folder}.`
+        : this.scope === "archived"
+          ? "Nothing archived yet. Press e on a note to archive it."
+          : "No notes yet.";
+    this.list.replaceChildren(...(this.items.length ? this.items.map((item, i) => this.card(item, i, q)) : [el("div", { class: "feed-empty" }, empty)]));
     this.root.scrollTop = top;
     this.more.textContent = this.items.length < page.total ? `Showing ${this.items.length} of ${page.total}` : "";
     this.renderBulk();
@@ -219,7 +223,8 @@ export class NotesPage {
         "aria-expanded": String(open),
         "data-index": String(i),
         // Drag a card to a folder in the sidebar to move it, onto Favorites to star it, or onto Archive.
-        draggable: open ? "false" : "true",
+        // Not an open card (its text is there to select) or an archived one (a folder would unarchive it).
+        draggable: open || item.archived ? "false" : "true",
         ondragstart: (e: DragEvent) => {
           e.dataTransfer!.setData(NOTE_DRAG, item.path);
           e.dataTransfer!.effectAllowed = "move";
