@@ -805,6 +805,7 @@ function renderSmartFolders(active: string | null) {
         onclick: () => void showNotes({ scope: "active", query: parseQuery(f.query) }),
         onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && void showNotes({ scope: "active", query: parseQuery(f.query) }),
       },
+      el("span", { class: "chev is-leaf" }), // the chevron column Folders and Tags rows have, so icons and names line up
       icon("folderSearch", 14),
       el("span", { class: "tree-name" }, f.name),
       f.shared ? null : el("span", { class: "sf-mine", title: "Just you" }, icon("user", 11)),
