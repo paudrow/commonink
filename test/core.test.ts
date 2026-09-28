@@ -269,3 +269,96 @@ test("a change-log upgrade that fails partway runs again on the next start", () 
 
   assert.deepEqual(openVault(dir).changes({ path: "B.md" }).map((c) => c.id), [...a].reverse());
 });
+
+const TAGGED: Record<string, string> = {
+  "Projects/Acme.md": "---\ntags: [Work/Clients/Acme]\n---\n# Acme\n\n- [ ] Send the invoice #billing\n- [x] Kickoff #Work/meetings\n",
+  "Ideas/Workshop.md": "# Workshop\n\nA #workshop idea, not #work. `#code` doesn't count.\n",
+  "Journal/2026-09-27.md": "# 2026-09-27\n\nFixed #27 and met #work/clients/beta.\n",
+  "assets/logo.svg": "<svg/>",
+};
+
+test("one index answers everything under a tag across notes, tasks and assets", () => {
+  const { quire } = openTempVault(TAGGED);
+  quire.setAssetTags("assets/logo.svg", ["work/brand", "Design"]);
+  assert.deepEqual(
+    quire.tagged("#WORK").map((r) => `${r.kind} ${r.path}:${r.line}`),
+    ["note Ideas/Workshop.md:3", "note Journal/2026-09-27.md:3", "note Projects/Acme.md:2", "task Projects/Acme.md:7", "asset assets/logo.svg:0"],
+  );
+  const counts = Object.fromEntries(quire.tags().map((t) => [t.tag, [t.notes, t.tasks, t.assets]]));
+  assert.deepEqual(counts, {
+    billing: [1, 1, 0],
+    design: [0, 0, 1],
+    work: [3, 1, 1],
+    "work/brand": [0, 0, 1],
+    "work/clients": [2, 0, 0],
+    "work/clients/acme": [1, 0, 0],
+    "work/clients/beta": [1, 0, 0],
+    "work/meetings": [1, 1, 0],
+    workshop: [1, 0, 0],
+  });
+});
+
+test("a tag is shown the way it was first written, whatever case later notes use", () => {
+  const { quire } = openTempVault({});
+  quire.create("A", "# A\n\n#Work/Acme\n", "t");
+  quire.create("B", "# B\n\n#work #WORK/acme #work/new\n", "t");
+  assert.deepEqual(quire.tags().map((t) => t.display), ["Work", "Work/Acme", "Work/new"]);
+});
+
+test("the index follows edits, and the Notes feed, search, lists and tasks filter by a tag and its children", () => {
+  const { quire } = openTempVault(TAGGED);
+  const feed = (tag: string) => quire.feed({ tag }).items.map((i) => i.path).sort();
+  assert.deepEqual(feed("work/clients"), ["Journal/2026-09-27.md", "Projects/Acme.md"]);
+  assert.deepEqual(quire.feed({ tag: "work/clients/acme" }).items.map((i) => [i.path, i.tags.map((t) => t.toLowerCase())]), [
+    ["Projects/Acme.md", ["work/clients/acme", "billing", "work/meetings"]],
+  ]);
+  quire.edit("Ideas/Workshop", { oldString: "not #work", newString: "not work" }, "t");
+  assert.deepEqual(feed("work"), ["Journal/2026-09-27.md", "Projects/Acme.md"]);
+  assert.deepEqual(quire.search("idea", 10, "active", "workshop").map((h) => h.path), ["Ideas/Workshop.md"]);
+  assert.deepEqual(quire.search("idea", 10, "active", "work").map((h) => h.path), []);
+  assert.deepEqual(quire.list(undefined, "active", "billing").map((n) => n.path), ["Projects/Acme.md"]);
+  assert.deepEqual(quire.tasks({ tag: "work" }).map((t) => t.text), ["Kickoff #Work/meetings"]);
+  quire.archive("Projects/Acme", "t");
+  assert.equal(quire.tags().some((t) => t.tag === "billing"), false);
+});
+
+test("renaming a tag rewrites it in every note and asset, and each note's change can be undone", () => {
+  const { quire } = openTempVault(TAGGED);
+  quire.setAssetTags("assets/logo.svg", ["work/brand"]);
+  const r = quire.renameTag("work/clients", "Customers", "t");
+  assert.deepEqual(r.edits.map((e) => e.path).sort(), ["Journal/2026-09-27.md", "Projects/Acme.md"]);
+  assert.equal(quire.read("Projects/Acme").content.startsWith("---\ntags: [Customers/Acme]\n---\n"), true);
+  assert.equal(quire.read("Journal/2026-09-27").content, "# 2026-09-27\n\nFixed #27 and met #Customers/beta.\n");
+  assert.deepEqual(quire.tagged("work/clients"), []);
+  assert.equal(quire.tags().find((t) => t.tag === "customers")?.display, "Customers");
+
+  const merged = quire.renameTag("work", "design", "t");
+  assert.deepEqual(merged.assets, { "assets/logo.svg": ["work/brand"] });
+  assert.deepEqual(quire.assetTags(), { "assets/logo.svg": ["design/brand"] });
+  for (const e of [...r.edits].reverse()) quire.restore(e.change.id, "t");
+  assert.equal(quire.read("Journal/2026-09-27").content, TAGGED["Journal/2026-09-27.md"]);
+  assert.throws(() => quire.renameTag("work", "not a tag", "t"), /isn't a tag/);
+});
+
+test("asset tags live in one vault file, follow the asset when it moves, and reload when the file changes", () => {
+  const { dir, quire } = openTempVault(TAGGED);
+  assert.deepEqual(quire.setAssetTags("logo.svg", ["#Brand", "brand", "Work/Brand"]), ["Brand", "Work/Brand"]);
+  assert.throws(() => quire.setAssetTags("logo.svg", ["two words"]), /isn't a tag/);
+  quire.move("assets/logo.svg", "assets/brand/logo.svg", "t");
+  assert.equal(
+    fs.readFileSync(path.join(dir, "assets/.tags.json"), "utf8"),
+    '{\n  "assets/brand/logo.svg": [\n    "Brand",\n    "Work/Brand"\n  ]\n}\n',
+  );
+  fs.writeFileSync(path.join(dir, "assets/.tags.json"), JSON.stringify({ "assets/brand/logo.svg": ["photo"] }));
+  quire.sync();
+  assert.deepEqual(quire.tagged("photo").map((r) => r.path), ["assets/brand/logo.svg"]);
+  assert.deepEqual(quire.setAssetTags("assets/brand/logo.svg", []), []);
+  assert.equal(fs.readFileSync(path.join(dir, "assets/.tags.json"), "utf8"), "{}\n");
+});
+
+test("an index from before tags learns every note's tags on the next start", () => {
+  const { dir, quire } = openTempVault(TAGGED);
+  quire.db.exec("DROP TABLE tags");
+  quire.db.exec("DROP TABLE tag_names");
+  assert.deepEqual(openVault(dir).tagged("billing").map((r) => `${r.kind} ${r.path}:${r.line}`), ["task Projects/Acme.md:6"]);
+});

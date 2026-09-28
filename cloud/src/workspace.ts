@@ -25,6 +25,9 @@ export class Workspace extends DurableObject<Env> {
     db.exec("CREATE TABLE IF NOT EXISTS registered_ids(id TEXT PRIMARY KEY)");
     this.files = new SqlContent(db);
     this.quire = new Quire(db, this.files);
+    // Notes only change through the core here, so this finds nothing to do, except after an
+    // upgrade that asks for notes to be indexed again (tags, say).
+    this.quire.sync();
     // Keep-alives are answered without waking the object.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
