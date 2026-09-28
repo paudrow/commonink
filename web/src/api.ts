@@ -120,6 +120,15 @@ export interface Me {
   user: { id: string; name: string; email: string; picture: string | null };
   workspaces: Array<{ id: string; name: string; kind: "personal" | "team"; role: "owner" | "editor" | "viewer" }>;
 }
+export interface ConnectedAgent {
+  id: string;
+  client: string;
+  /** How its changes are attributed in the change log, e.g. "Claude (via Audrow)". */
+  actor: string;
+  workspace: { id: string; name: string; role: "owner" | "editor" | "viewer" } | null;
+  connectedAt: number;
+  usedAt: number | null;
+}
 /** Online: who's signed in (null if nobody). Locally the endpoint doesn't exist: undefined. */
 export async function whoAmI(): Promise<{ me: Me | null; devLogin: boolean } | undefined> {
   const r = await fetch("/api/me").catch(() => null);
@@ -149,6 +158,11 @@ export const api = {
   locate: (id: string) => j<{ workspace: { id: string; name: string } }>(`/api/note-ids/${id}`),
   createWorkspace: (name: string) => j<{ id: string }>("/api/workspaces", send("POST", { name })),
   signOutEverywhere: () => j<{ ok: true }>("/api/sign-out-everywhere", send("POST", {})),
+  /** Online: the agents you've connected over MCP, most recently used first. */
+  agents: () => j<ConnectedAgent[]>("/api/agents"),
+  revokeAgent: (id: string) => j<{ ok: true }>("/api/agents/revoke", send("POST", { id })),
+  /** A page of a workspace's change log, whichever workspace is open. */
+  changesIn: (workspace: string) => j<Change[]>(`/api/w/${workspace}/changes?limit=200`),
   invite: (role: "editor" | "viewer") => j<{ url: string }>(`${BASE}/invites`, send("POST", { role })),
   notes: () => j<NoteMeta[]>(`${BASE}/notes`),
   note: (path: string) => j<Note>(`${BASE}/note?path=${enc(path)}`),
