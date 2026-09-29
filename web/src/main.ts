@@ -223,6 +223,8 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   }
   if (ticket !== pane.opens) return; // something else was opened here while this loaded
   hideBanner();
+  // The same note again (renamed, moved or archived while open) keeps its place.
+  const keep = pane.session?.id === note.id ? { scroll: pane.view.scrollSnapshot(), head: pane.view.state.selection.main.head } : null;
   const next: Session = {
     id: note.id,
     path: note.path,
@@ -281,10 +283,10 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   else {
     // Start below the frontmatter so it renders as properties rather than raw YAML.
     const fm = note.kind === "md" ? note.content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/) : null;
-    const pos = Math.min(cursors.get(note.path) ?? (fm ? fm[0].length : 0), pane.view.state.doc.length);
-    // Scrolled to the top by the view, as goToLine scrolls: setting scrollDOM.scrollTop = 0 lost to
-    // CodeMirror, which on focus puts back the scroll position the last note had.
-    pane.view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(0, { y: "start", yMargin: 80 }) });
+    const pos = Math.min(keep?.head ?? cursors.get(note.path) ?? (fm ? fm[0].length : 0), pane.view.state.doc.length);
+    // Scrolled by the view, as goToLine scrolls: setting scrollDOM.scrollTop = 0 lost to CodeMirror,
+    // which on focus puts back the scroll position the last note had.
+    pane.view.dispatch({ selection: { anchor: pos }, effects: keep?.scroll ?? EditorView.scrollIntoView(0, { y: "start", yMargin: 80 }) });
   }
   // Following a link or a click adds to history; back/forward, renames and old links just fix the URL up.
   if (opts.focus !== false) focusPane(pane, opts.push === false || opts.trail === false ? "replace" : "push");
