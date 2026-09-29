@@ -2,7 +2,7 @@
 // the whole note in place; Edit opens it in the editor. Filter as you type, triage from the
 // keyboard (j/k, Enter to expand, o to open, e to archive, x to select), and archive in bulk.
 import { api, type FeedItem, type FeedPage, type Scope } from "./api.ts";
-import { $, avatar, displayName, el, escapeHtml, icon, NOTE_DRAG, timeAgo } from "./dom.ts";
+import { $, authorAvatar, authorName, displayName, el, escapeHtml, icon, NOTE_DRAG, timeAgo } from "./dom.ts";
 import { renderMarkdown, sandboxFrame } from "./render.ts";
 import { hydrateDataEmbeds } from "./textPreview.ts";
 import { parseDirective } from "./widgets/args.ts";
@@ -240,7 +240,7 @@ export class NotesPage {
           "div",
           { class: "fc-meta" },
           folder ? el("span", {}, folder) : null,
-          item.lastSource ? el("span", { class: "fc-who" }, avatar(item.lastSource, 16), item.lastSource) : null,
+          item.lastSource ? el("span", { class: "fc-who" }, authorAvatar({ source: item.lastSource, ...item.lastBy }, 16), authorName({ source: item.lastSource, ...item.lastBy })) : null,
           el("span", { "data-ts": String(item.mtime) }, timeAgo(item.mtime)),
         ),
         body,

@@ -162,6 +162,8 @@ export interface ConnectedAgent {
   client: string;
   /** How its changes are attributed in the change log. */
   actor: string;
+  /** The person it works for, as its changes record them (`person`, with `agent` = client). */
+  person: string;
   workspace: { id: string; name: string; role: WorkspaceRef["role"] } | null;
   connectedAt: number;
   usedAt: number | null;
@@ -199,6 +201,7 @@ export async function listAgents(env: Env, url: URL, user: User): Promise<Connec
         id: g.id,
         client,
         actor: agentActor(client, user),
+        person: user.name,
         workspace: ws ? { id: ws.id, name: ws.name, role: ws.role } : null,
         connectedAt: g.createdAt * 1000,
         usedAt: used.get(g.id) ?? null,

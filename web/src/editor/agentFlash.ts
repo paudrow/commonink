@@ -1,23 +1,29 @@
 // Highlights lines an agent just changed, tagged with the agent's name, then fades out.
 import { StateEffect, StateField, type Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, type DecorationSet } from "@codemirror/view";
-import { hueFor } from "../dom.ts";
+import { hueFor, icon } from "../dom.ts";
 
-export const flashChanges = StateEffect.define<{ ranges: Array<{ from: number; to: number }>; source: string }>();
+/** Lines someone else just changed. `label` says who ("Claude for Audrow"); `agent` marks an agent's change. */
+export const flashChanges = StateEffect.define<{ ranges: Array<{ from: number; to: number }>; source: string; label: string; agent: boolean }>();
 export const clearFlash = StateEffect.define<null>();
 
 class AgentTag extends WidgetType {
-  constructor(readonly source: string) {
+  constructor(
+    readonly source: string,
+    readonly label: string,
+    readonly agent: boolean,
+  ) {
     super();
   }
   eq(o: AgentTag) {
-    return o.source === this.source;
+    return o.source === this.source && o.label === this.label;
   }
   toDOM() {
     const s = document.createElement("span");
     s.className = "cm-agent-tag";
     s.style.setProperty("--hue", String(hueFor(this.source)));
-    s.textContent = `✦ ${this.source}`;
+    if (this.agent) s.append(icon("bot", 11), " ");
+    s.append(this.label);
     return s;
   }
 }
@@ -44,7 +50,7 @@ export const agentFlash = StateField.define<DecorationSet>({
             add.push(Decoration.line({ class: "cm-agent-line", attributes: { style: `--hue:${hue}` } }).range(doc.line(l).from));
           }
           if (!tagged) {
-            add.push(Decoration.widget({ widget: new AgentTag(e.value.source), side: 1 }).range(first.to));
+            add.push(Decoration.widget({ widget: new AgentTag(e.value.source, e.value.label, e.value.agent), side: 1 }).range(first.to));
             tagged = true;
           }
         }
