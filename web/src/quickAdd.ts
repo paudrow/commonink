@@ -25,7 +25,7 @@ export const SHORTCUT = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘⇧." :
 export const isQuickAddKey = (e: KeyboardEvent) => (e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && e.code === "Period";
 
 /** A quick-add bar; focus it with the returned `focus`. */
-export function quickAddBar(opts: QuickAddOptions): { root: HTMLElement; focus(): void } {
+export function quickAddBar(opts: QuickAddOptions): { root: HTMLElement; focus(): void; destroy(): void } {
   /** What the bar last did ("Added to …"), until you type again. */
   let status: HTMLElement | null = null;
   let toNote = false;
@@ -78,7 +78,7 @@ export function quickAddBar(opts: QuickAddOptions): { root: HTMLElement; focus()
     typed: () => (status = null),
   });
   const root = el("div", { class: "qa" }, el("div", { class: "qa-field" }, icon("plus", 15), input.dom, targetChip), input.preview);
-  return { root, focus: () => input.focus() };
+  return { root, focus: () => input.focus(), destroy: () => input.destroy() };
 }
 
 /** The quick-add bar floating over whatever's open. Enter adds and closes it. */
@@ -87,6 +87,7 @@ export function openQuickAdd(opts: Omit<QuickAddOptions, "escape">) {
   const back = document.activeElement as HTMLElement | null;
   const close = () => {
     float.remove();
+    setTimeout(() => bar.destroy()); // after the key that closed it is handled
     document.removeEventListener("mousedown", outside, true);
     back?.focus?.(); // back to the note (and its Vim mode) or wherever it was opened from
   };
