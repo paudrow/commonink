@@ -1,5 +1,5 @@
 // The directory in D1: people, workspaces, memberships, invites.
-export type Role = "owner" | "editor" | "viewer";
+import type { Role } from "./access.ts";
 export interface User {
   id: string;
   email: string;
@@ -122,4 +122,39 @@ export async function acceptInvite(db: D1Database, token: string, userId: string
     .bind(inv.workspace_id, userId, inv.role, Date.now())
     .run();
   return inv.workspace_id;
+}
+
+// ------------------------------------------------------------------ sessions
+
+/** `id` is the SHA-256 of the cookie's token; the token itself is never stored. */
+export async function createSession(db: D1Database, id: string, userId: string, expiresAt: number, idleSince: number) {
+  const now = Date.now();
+  await db.batch([
+    // Sign-in is a good moment to forget this person's sessions that have run out.
+    db.prepare("DELETE FROM sessions WHERE user_id = ? AND (expires_at <= ? OR seen_at <= ?)").bind(userId, now, idleSince),
+    db.prepare("INSERT INTO sessions(id, user_id, created_at, seen_at, expires_at) VALUES (?,?,?,?,?)").bind(id, userId, now, now, expiresAt),
+  ]);
+}
+
+/** Who a session belongs to, if it hasn't expired or been idle since `idleSince`. */
+export function sessionUser(db: D1Database, id: string, idleSince: number) {
+  return db
+    .prepare(
+      `SELECT u.id, u.email, u.name, u.picture, s.seen_at AS seenAt FROM sessions s JOIN users u ON u.id = s.user_id
+       WHERE s.id = ? AND s.expires_at > ? AND s.seen_at > ?`,
+    )
+    .bind(id, Date.now(), idleSince)
+    .first<User & { seenAt: number }>();
+}
+
+export async function touchSession(db: D1Database, id: string) {
+  await db.prepare("UPDATE sessions SET seen_at = ? WHERE id = ?").bind(Date.now(), id).run();
+}
+
+export async function endSession(db: D1Database, id: string) {
+  await db.prepare("DELETE FROM sessions WHERE id = ?").bind(id).run();
+}
+
+export async function endSessionsOf(db: D1Database, userId: string) {
+  await db.prepare("DELETE FROM sessions WHERE user_id = ?").bind(userId).run();
 }

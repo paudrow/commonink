@@ -15,13 +15,14 @@
     { "pattern": "commonink.app", "custom_domain": true },
     { "pattern": "www.commonink.app", "custom_domain": true }
   ],
-  // The web app (built by Vite into ../dist) is served from the edge; the Worker only runs for these paths
-  // ("/" so it can redirect www).
+  // The web app (built by Vite into ../dist) is served from the edge. The Worker runs first for every
+  // page, so each gets its security headers and a fresh CSP nonce; only Vite's hashed scripts and
+  // styles under /assets/ skip it.
   "assets": {
     "directory": "../dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/", "/api/*", "/auth/*", "/invite/*"]
+    "run_worker_first": ["/*", "!/assets/*"]
   },
   // One Durable Object per workspace, each with its own SQLite database (notes, search index, change log).
   "durable_objects": { "bindings": [{ "name": "WORKSPACE", "class_name": "Workspace" }] },

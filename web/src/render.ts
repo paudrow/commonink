@@ -7,6 +7,7 @@ import { assetUrl } from "./api.ts";
 import { currentScheme } from "./dom.ts";
 import { isEmbeddable } from "./embeds/providers.ts";
 import { boardsIn } from "../../src/core/kanban.ts";
+import { SANDBOX_PATH } from "../../src/core/sandbox.ts";
 
 export { currentScheme };
 
@@ -95,12 +96,22 @@ export function sandboxFrame(html: string, opts: { autoHeight?: boolean; title?:
   const reporter = opts.autoHeight
     ? `<script>(()=>{const p=()=>parent.postMessage({quireFrameHeight:document.documentElement.scrollHeight},"*");new ResizeObserver(p).observe(document.documentElement);addEventListener("load",p);p()})()</script>`
     : "";
-  frame.srcdoc = html + reporter;
+  // Not srcdoc: that would inherit the app's CSP, which only lets our own scripts run. The sandbox
+  // page asks for its HTML each time it loads (moving a frame in the DOM reloads it).
+  sandboxHtml.set(frame, html + reporter);
+  frame.src = SANDBOX_PATH;
   return frame;
 }
 
+const sandboxHtml = new WeakMap<HTMLIFrameElement, string>();
 
 window.addEventListener("message", (e) => {
+  if ((e.data as { quireSandbox?: unknown })?.quireSandbox === "ready") {
+    for (const f of document.querySelectorAll<HTMLIFrameElement>("iframe")) {
+      if (f.contentWindow === e.source && sandboxHtml.has(f)) f.contentWindow?.postMessage({ quireHtml: sandboxHtml.get(f) }, "*");
+    }
+    return;
+  }
   const h = (e.data as { quireFrameHeight?: unknown })?.quireFrameHeight;
   if (typeof h !== "number") return;
   for (const f of document.querySelectorAll<HTMLIFrameElement>("iframe[data-autoheight]")) {

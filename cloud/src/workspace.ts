@@ -1,12 +1,16 @@
 // One Durable Object per workspace: its notes, full-text index, links and change log in embedded
 // SQLite (so every query is in-process), its files in R2, and a WebSocket hub for live updates.
-// Only the Worker can reach it, and the Worker has already checked who's asking and their role.
+// Only the Worker can reach it, and the Worker has already checked who's asking and their role; it
+// checks the role again against the same table, so a slip in the Worker can't open a route.
 import { DurableObject } from "cloudflare:workers";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { Quire } from "../../src/core/quire.ts";
 import { migrate } from "../../src/core/store.ts";
 import { errorResponse, handleApi, json, type ApiHost } from "../../src/core/api.ts";
 import { cleanPath, fileSecurityHeaders, kindOf, MAX_UPLOAD, mimeOf } from "../../src/core/paths.ts";
 import type { Change } from "../../src/core/quire.ts";
+import { createMcpServer } from "../../src/core/tools.ts";
+import { access, asRole } from "./access.ts";
 import { DoDb, SqlContent } from "./do-store.ts";
 import { SEED_FILES, SEED_NOTES } from "./seed.ts";
 import type { Env } from "./env.ts";
@@ -35,12 +39,16 @@ export class Workspace extends DurableObject<Env> {
   async fetch(req: Request): Promise<Response> {
     const wsId = req.headers.get("x-ci-workspace")!;
     const res = await this.handle(req, wsId);
-    // Claim any new note IDs once the request has done its work (the first request also backfills).
+    this.claimIds(wsId);
+    return res;
+  }
+
+  /** Claim any new note IDs once a request has done its work (the first request also backfills). */
+  private claimIds(wsId: string) {
     this.registering ??= this.registerIds(wsId)
       .catch((e) => console.error("Couldn't register note IDs", e))
       .finally(() => (this.registering = null));
     this.ctx.waitUntil(this.registering);
-    return res;
   }
 
   /**
@@ -79,16 +87,17 @@ export class Workspace extends DurableObject<Env> {
     const url = new URL(req.url);
     const route = url.pathname;
     const base = `/api/w/${wsId}`;
+    const user = req.headers.get("x-ci-user") ?? "";
+
+    const allowed = access(asRole(req.headers.get("x-ci-role")), req.method, route);
+    if (allowed === "unknown") return json({ error: `No route ${req.method} ${route}` }, 404);
+    if (allowed === "forbidden") return json({ error: "You can view this workspace but not edit it" }, 403);
 
     if (route === "/live") {
       if (req.headers.get("Upgrade") !== "websocket") return json({ error: "Expected a WebSocket" }, 426);
       const [client, server] = Object.values(new WebSocketPair());
-      this.ctx.acceptWebSocket(server);
+      this.ctx.acceptWebSocket(server, [user]); // tagged, so signing out everywhere can close it
       return new Response(null, { status: 101, webSocket: client });
-    }
-    if (route === "/seed" && req.method === "POST") {
-      await this.seed(wsId);
-      return json({ ok: true });
     }
     if (route.startsWith("/files/")) return this.serveFile(decodeURIComponent(route.slice("/files/".length)));
     if (route === "/upload" && req.method === "POST") {
@@ -103,7 +112,7 @@ export class Workspace extends DurableObject<Env> {
     const host: ApiHost = {
       quire: this.quire,
       actor: decodeURIComponent(req.headers.get("x-ci-actor") ?? "someone"),
-      user: req.headers.get("x-ci-user") ?? "",
+      user,
       canEditShared: ["owner", "editor"].includes(req.headers.get("x-ci-role") ?? ""), // an unknown or missing role can't
       info: () => ({ mode: "cloud", name: decodeURIComponent(req.headers.get("x-ci-workspace-name") ?? "Workspace") }),
       written: (rel, content, version, change, origin) => this.announce(rel, content, version, change, origin),
@@ -117,7 +126,7 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /** Fill a brand-new workspace with the starter notes (no-op if it has anything in it). */
-  private async seed(wsId: string) {
+  async seed(wsId: string) {
     if (!this.files.isEmpty) return;
     for (const [rel, { text, mime }] of Object.entries(SEED_FILES)) {
       const key = `ws/${wsId}/${crypto.randomUUID()}`;
@@ -178,6 +187,43 @@ export class Workspace extends DurableObject<Env> {
         ws.send(data);
       } catch {}
     }
+  }
+
+  /**
+   * One MCP request from a connected agent (the Worker has checked its token and membership). Tools
+   * are offered by `role`, and writes are attributed to `actor`, e.g. "Claude (via Audrow)". Open
+   * tabs hear about the agent's changes like any other.
+   */
+  async mcp(req: Request, who: { workspace: string; user: string; actor: string; role: string }): Promise<Response> {
+    const role = asRole(who.role);
+    const server = createMcpServer({
+      quire: this.quire,
+      user: who.user,
+      source: () => who.actor,
+      may: (route) => access(role, ...(route.split(" ") as [string, string])) === "allowed",
+      canEditShared: role === "owner" || role === "editor",
+    });
+    const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+    await server.connect(transport);
+    const last = this.quire.changes({ limit: 1 })[0]?.id ?? 0;
+    try {
+      return await transport.handleRequest(req);
+    } finally {
+      await server.close();
+      const made = this.quire.changes({ since: last, limit: 500 }).reverse();
+      for (const c of made) {
+        if (c.from_path && c.from_path !== c.path) this.broadcast({ type: "removed", path: c.from_path });
+        const content = kindOf(c.path) === "asset" ? null : this.files.read(c.path);
+        this.announce(c.path, content, c.version ?? "", c);
+      }
+      if (made.length) this.broadcast({ type: "tree" });
+      this.claimIds(who.workspace);
+    }
+  }
+
+  /** Close someone's live connections (they signed out everywhere). Their tabs then ask them to sign in. */
+  disconnect(userId: string) {
+    for (const ws of this.ctx.getWebSockets(userId)) ws.close(4001, "Signed out");
   }
 
   webSocketMessage() {}

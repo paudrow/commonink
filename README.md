@@ -34,6 +34,19 @@ Needs Node 22.13+ (uses the built-in `node:sqlite`). The vault defaults to `./va
 
 Tools: `search_notes`, `read_note`, `list_notes`, `list_tags`, `list_tasks`, `get_today`, `add_task`, `update_task`, `move_task`, `create_note`, `edit_note`, `append_to_note`, `move_note`, `archive_note`, `unarchive_note`, `star_note`, `unstar_note`, `star_tag`, `unstar_tag`, `list_smart_folders`, `save_smart_folder`, `delete_smart_folder`, `backlinks`, `recent_changes`. The server sends `vault/AGENTS.md` as its instructions, so edit that file to change agent conventions.
 
+### Connect an agent to a hosted workspace
+
+Online, agents connect over MCP's Streamable HTTP at `https://commonink.app/mcp` (a Preview's is `https://pr-<number>-commonink.<subdomain>.workers.dev/mcp`). They sign in with OAuth 2.1, so there's no key to copy:
+
+| Client | How |
+| --- | --- |
+| Claude (claude.ai, Desktop) | **Settings → Connectors → Add custom connector**, and paste the URL. |
+| Claude Code | `claude mcp add --transport http commonink https://commonink.app/mcp`, then `/mcp` to sign in. |
+| Cursor | Add `{"mcpServers": {"commonink": {"url": "https://commonink.app/mcp"}}}` to `.cursor/mcp.json`, then **Connect**. |
+| Anything else | Point an MCP client that supports OAuth at the URL. It registers itself (dynamic client registration) and signs in with PKCE. |
+
+The client opens Common Ink in your browser: sign in, pick the workspace it may use, and **Allow**. From then on it acts as you, with your role in that workspace at the time of each request: a viewer's agent only gets the read tools and starring. Its changes show in History as "Claude (via Audrow)". The same tools serve both kinds of connection (`src/core/tools.ts`). **Connected agents** in the account menu lists your agents, when each was last used and what it changed lately, and **Revoke** cuts one off at its next request.
+
 ## How edits from agents and you stay safe together
 
 - **Edits are exact-string replacements** with an optional `base_version`. A stale edit fails with a clear message instead of clobbering anything.
@@ -89,7 +102,9 @@ The server also refuses to replace a non-empty note with an empty one unless the
 
 ## Security notes
 
-The server binds to 127.0.0.1 and checks the `Host` header to block DNS rebinding. Writes must come from its own origin and be JSON, which blocks cross-site requests and requests from sandboxed notes. The WebSocket checks `Origin`. Rendered markdown goes through DOMPurify. Vault assets are served with a `sandbox` CSP, and HTML files are never served from the app's origin.
+The server binds to 127.0.0.1 and checks the `Host` header to block DNS rebinding. Writes must come from its own origin and be JSON, which blocks cross-site requests and requests from sandboxed notes. The WebSocket checks `Origin`. Rendered markdown goes through DOMPurify. Vault assets are served with a `sandbox` CSP. HTML notes run in `/sandbox`, a page with its own `sandbox` policy, so their scripts get an opaque origin: no cookies, no API, no access to the app.
+
+Online, every route has a least role that the Worker checks and the workspace checks again, sessions are `__Host-` cookies that expire and can be signed out everywhere, and every page gets a strict CSP with a fresh nonce. [docs/security/threat-model.md](docs/security/threat-model.md) lists what's protected, from whom, and what's still to do.
 
 ## Who can sign up
 
@@ -109,7 +124,7 @@ npm test        # node:test over test/*.test.ts
 npm run check   # both typechecks, then the tests
 ```
 
-The tests run the real surfaces against throwaway vaults: the core and the shared API in-process, and the server, CLI and MCP server as child processes. These switches make that possible, and work just as well by hand:
+The tests run the real surfaces against throwaway vaults: the core and the shared API in-process, and the server, CLI and MCP server as child processes. The online Worker runs locally in workerd (`test/cloud.ts`, through Wrangler's test harness), with its own empty D1, R2 and Durable Objects. These switches make that possible, and work just as well by hand:
 
 | Lever | What it does |
 | --- | --- |
@@ -131,4 +146,4 @@ node --import tsx scripts/preview-demo.ts <preview-url>    # then fill it
 
 ## Not built yet
 
-Suggestion mode (accept or reject agent edits), git auto-commits authored by each agent, semantic search (`sqlite-vec`), remote MCP over Streamable HTTP with OAuth, Yjs multiplayer, and an MCP App version of the editor.
+Suggestion mode (accept or reject agent edits), git auto-commits authored by each agent, semantic search (`sqlite-vec`), Yjs multiplayer, and an MCP App version of the editor.
