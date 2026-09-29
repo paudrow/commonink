@@ -76,6 +76,7 @@ class Counter {
       rename: (a, b) => inner.rename(a, b),
       stat: (rel) => inner.stat(rel),
       list: () => inner.list(),
+      listUnder: (dir) => inner.listUnder(dir),
     };
   }
 }

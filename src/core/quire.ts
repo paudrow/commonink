@@ -39,7 +39,8 @@ export interface Change {
   id: number;
   ts: number;
   path: string;
-  op: "create" | "edit" | "move" | "delete" | "archive" | "unarchive";
+  /** `delete` sends a note or asset to Trash, `restore` brings it back, `purge` deletes it forever. */
+  op: "create" | "edit" | "move" | "delete" | "archive" | "unarchive" | "restore" | "purge";
   source: string;
   version: string | null;
   summary: string | null;
@@ -78,6 +79,33 @@ export interface Backlink {
 export const ARCHIVE = "Archive/";
 export const isArchived = (p: string) => p.startsWith(ARCHIVE);
 export type ArchiveScope = "active" | "archived" | "all";
+
+/**
+ * A deleted note or asset, waiting in Trash. Its file sits at `.trash/<id>/<path>`, where the id is
+ * "<ms deleted>-<change id>": hidden, so no listing, search, index or /files route ever sees it.
+ */
+export interface TrashItem {
+  id: string;
+  /** Where it was. */
+  path: string;
+  kind: NoteKind;
+  size: number;
+  deletedAt: number;
+  /** When it's deleted for good. */
+  expiresAt: number;
+  /** Who deleted it, from the change log (null once the log no longer has it). */
+  by: Actor & { source: string } | null;
+  /** The start of a note's text; empty for an asset. */
+  excerpt: string;
+}
+
+/** What deleting some notes (or a folder) would touch: how many notes and assets, and who links to them. */
+export interface DeleteCheck {
+  notes: number;
+  assets: number;
+  /** Notes outside the set that link to or embed something in it. */
+  linkedFrom: string[];
+}
 
 /** A run of selected changes to one note, as the text before its first and after its last. */
 export interface DiffRun {
@@ -172,6 +200,12 @@ type IndexedRow = { id: string; kind: NoteKind; fts: number | null };
 
 const CHANGE_COLS = "id, ts, path, op, source, version, summary, from_path, note_id, person, agent";
 const META_COLS = "id, path, kind, title, version, mtime, size";
+const TRASH = ".trash";
+/** How long Trash keeps what's deleted. */
+export const TRASH_DAYS = 30;
+const TRASH_ID = /^(\d{1,15})-(\d{1,15})$/;
+/** An asset's tags, kept beside it in Trash so they come back with it. */
+const TRASH_TAGS = ".tags.json";
 /** How long a deleted file's ID waits for the same file to reappear under a new name. */
 const RENAME_WINDOW_MS = 60_000;
 
@@ -737,8 +771,8 @@ export class Quire {
     const first = this.db.get("SELECT op, before FROM changes WHERE id = ?", fromId);
     const last = this.db.get(`SELECT ${CHANGE_COLS} FROM changes WHERE id = ?`, toId) as Change | undefined;
     if (!first || !last) throw new QuireError(`No change #${first ? toId : fromId}`, "not_found");
-    const before = first.op === "create" ? "" : (first.before as string | null);
-    return { path: last.path, op: last.op, before, after: this.textAfter(last) };
+    const before = first.op === "create" || first.op === "restore" ? "" : (first.before as string | null);
+    return { path: last.path, op: last.op, before, after: last.op === "delete" ? "" : this.textAfter(last) };
   }
 
   /**
@@ -844,6 +878,9 @@ export class Quire {
   restore(id: number, source: string) {
     const row = this.db.get("SELECT path, op, before FROM changes WHERE id = ?", id);
     if (!row) throw new QuireError(`No change #${id}`, "not_found");
+    // A note deleted by this change is still in Trash: bring it back from there, ID and all.
+    const trashed = row.op === "delete" ? this.trashIds().find((t) => t.endsWith(`-${id}`)) : undefined;
+    if (trashed) return this.untrash([trashed], source)[0];
     if (row.before === null) throw new QuireError(`Change #${id} (${row.op} ${row.path}) has no earlier text to restore`);
     // The note may have been renamed or archived since: restore it where it lives now.
     let at = row.path as string;
@@ -1460,6 +1497,139 @@ export class Quire {
     const rel = this.mustResolve(target);
     if (!isArchived(rel)) throw new QuireError(`${rel} isn't archived`);
     return this.move(rel, this.freePath(rel.slice(ARCHIVE.length)), source, "unarchive");
+  }
+
+  // ---------------------------------------------------------------- trash
+
+  /** The notes and assets under `folder` (active and archived alike, since a folder holds both). */
+  private under(folder: string): string[] {
+    const dir = cleanPath(folder);
+    return this.db.all<{ path: string }>("SELECT path FROM notes WHERE substr(path, 1, ?) = ? ORDER BY path", dir.length + 1, `${dir}/`).map((r) => r.path);
+  }
+
+  /** What deleting these notes (or everything in `folder`) would touch. */
+  deleteCheck(targets: string[], folder?: string): DeleteCheck {
+    const rels = folder ? this.under(folder) : targets.map((t) => this.mustResolve(t));
+    const set = new Set(rels);
+    const from = new Set(rels.flatMap((r) => this.backlinks(r).map((b) => b.path)).filter((p) => !set.has(p)));
+    const assets = rels.filter((r) => kindOf(r) === "asset").length;
+    return { notes: rels.length - assets, assets, linkedFrom: [...from].sort() };
+  }
+
+  /** Send notes and assets to Trash. Their links show as missing until they come back. */
+  delete(targets: string[], source: string) {
+    const rels = [...new Set(targets.map((t) => this.mustResolve(t)))];
+    this.purgeExpired();
+    return rels.map((rel) => {
+      const meta = this.meta(rel) ?? this.indexFile(rel);
+      if (!meta) throw new QuireError(`No note matches "${rel}"`, "not_found");
+      const text = meta.kind === "asset" ? null : (this.files.read(rel) ?? "");
+      const summary = meta.kind === "asset" ? fmtBytes(meta.size) : diffstat(text!, "");
+      const change = this.recordChange({ path: rel, op: "delete", source, version: null, summary, from_path: null }, text);
+      const id = `${change.ts}-${change.id}`;
+      this.files.rename(rel, `${TRASH}/${id}/${rel}`);
+      const tags = this.assetTags();
+      if (tags[rel]) {
+        this.files.write(`${TRASH}/${id}/${TRASH_TAGS}`, JSON.stringify(tags[rel]));
+        delete tags[rel];
+        this.writeAssetTags(tags);
+      }
+      this.unindex(rel);
+      this.gone.delete(`${meta.kind}:${meta.version}`); // a new note with the same text mustn't take its ID
+      return { id, path: rel, change };
+    });
+  }
+
+  /**
+   * Delete everything in a folder. `notes: "trash"` sends it all to Trash; "lift" moves it up to the
+   * folder's parent instead (keeping any subfolders), under free names.
+   */
+  deleteFolder(folder: string, notes: "trash" | "lift", source: string) {
+    const dir = cleanPath(folder);
+    const rels = this.under(dir);
+    if (notes === "trash") return { deleted: this.delete(rels, source), moved: [] };
+    const parent = path.posix.dirname(dir);
+    const moved = rels.map((rel) => {
+      const rest = rel.slice(dir.length + 1);
+      return this.move(rel, this.freePath(parent === "." ? rest : `${parent}/${rest}`), source);
+    });
+    return { deleted: [], moved };
+  }
+
+  /** The ids of what's in Trash, newest first. */
+  private trashIds(): string[] {
+    const ids = new Set(this.files.listUnder(TRASH).map((f) => f.path.split("/")[1]).filter((id) => TRASH_ID.test(id)));
+    return [...ids].sort((a, b) => Number(b.split("-")[0]) - Number(a.split("-")[0]));
+  }
+
+  /** The deleted file in Trash item `id`, and what's kept beside it. */
+  private trashFile(id: string): { at: string; path: string; size: number } | null {
+    if (!TRASH_ID.test(id)) return null;
+    const prefix = `${TRASH}/${id}/`;
+    const f = this.files.listUnder(`${TRASH}/${id}`).find((x) => !x.path.slice(prefix.length).startsWith("."));
+    return f ? { at: f.path, path: f.path.slice(prefix.length), size: f.size } : null;
+  }
+
+  /** What's in Trash, newest first. Anything past its time is deleted for good first. */
+  trash(): TrashItem[] {
+    this.purgeExpired();
+    return this.trashIds().flatMap((id) => {
+      const f = this.trashFile(id);
+      if (!f) return [];
+      const [ms, changeId] = id.split("-").map(Number);
+      const c = this.db.get("SELECT source, person, agent FROM changes WHERE id = ? AND op = 'delete'", changeId);
+      const kind = kindOf(f.path) ?? "asset";
+      const text = kind === "asset" ? "" : (this.files.read(f.at) ?? "");
+      return [{ id, path: f.path, kind, size: f.size, deletedAt: ms, expiresAt: ms + TRASH_DAYS * 86_400_000, by: c ?? null, excerpt: kind === "md" ? excerptOf(splitFrontmatter(text).body, titleOf(text, kind, f.path), 240) : "" }];
+    });
+  }
+
+  /** Put Trash items back where they were, or under a free name if that's taken. */
+  untrash(ids: string[], source: string) {
+    return ids.map((id) => {
+      const f = this.trashFile(id);
+      if (!f) throw new QuireError("That's no longer in Trash", "not_found");
+      const noteId = this.db.get("SELECT note_id FROM changes WHERE id = ?", Number(id.split("-")[1]))?.note_id;
+      const dest = this.freePath(f.path);
+      this.files.rename(f.at, dest);
+      const tagsAt = `${TRASH}/${id}/${TRASH_TAGS}`;
+      const kept = this.files.read(tagsAt);
+      if (kept) {
+        this.writeAssetTags({ ...this.assetTags(), [dest]: JSON.parse(kept) });
+        this.files.remove(tagsAt);
+      }
+      const free = noteId && !this.db.get("SELECT 1 FROM notes WHERE id = ?", noteId);
+      const meta = this.indexFile(dest, undefined, free ? noteId : undefined)!;
+      const change = this.recordChange({ path: dest, op: "restore", source, version: meta.version, summary: dest === f.path ? "from Trash" : `from Trash, was ${f.path}`, from_path: null });
+      return { path: dest, version: meta.version, change };
+    });
+  }
+
+  /**
+   * Delete Trash items for good, their text in the change log with them. `source` logs who did it;
+   * items that just ran out of time go without an entry.
+   */
+  purge(ids: string[], source: string | null) {
+    return ids.flatMap((id) => {
+      const f = this.trashFile(id);
+      if (!f) return [];
+      for (const x of this.files.listUnder(`${TRASH}/${id}`)) this.files.remove(x.path);
+      const changeId = Number(id.split("-")[1]);
+      const noteId = this.db.get("SELECT note_id FROM changes WHERE id = ?", changeId)?.note_id;
+      if (noteId) this.db.run("UPDATE changes SET before = NULL WHERE note_id = ?", noteId);
+      else this.db.run("UPDATE changes SET before = NULL WHERE id = ?", changeId);
+      if (source) this.recordChange({ path: f.path, op: "purge", source, version: null, summary: "deleted forever", from_path: null });
+      return [f.path];
+    });
+  }
+
+  emptyTrash(source: string) {
+    return this.purge(this.trashIds(), source);
+  }
+
+  private purgeExpired() {
+    const cutoff = this.now() - TRASH_DAYS * 86_400_000;
+    this.purge(this.trashIds().filter((id) => Number(id.split("-")[0]) < cutoff), null);
   }
 
   /** `rel`, or "name 2.md", "name 3.md"… if it's taken. */

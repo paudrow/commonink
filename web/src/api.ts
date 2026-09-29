@@ -21,7 +21,7 @@ export interface Change {
   id: number;
   ts: number;
   path: string;
-  op: "create" | "edit" | "move" | "delete" | "archive" | "unarchive";
+  op: "create" | "edit" | "move" | "delete" | "archive" | "unarchive" | "restore" | "purge";
   source: string;
   version: string | null;
   summary: string | null;

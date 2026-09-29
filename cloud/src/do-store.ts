@@ -32,7 +32,11 @@ export class DoDb implements SqlDb {
  * listing and search, with their bytes in R2 under `blob`.
  */
 export class SqlContent implements Content {
-  constructor(private db: DoDb) {
+  /** `dropBlob` deletes an upload's bytes from R2 once nothing lists it any more. */
+  constructor(
+    private db: DoDb,
+    private dropBlob: (key: string) => void = () => {},
+  ) {
     db.exec(`CREATE TABLE IF NOT EXISTS files(
       path TEXT PRIMARY KEY, text TEXT, mtime REAL NOT NULL, size INTEGER NOT NULL, blob TEXT, mime TEXT)`);
   }
@@ -60,7 +64,9 @@ export class SqlContent implements Content {
     return this.db.get<{ blob: string | null; mime: string | null; size: number }>("SELECT blob, mime, size FROM files WHERE path = ?", rel) ?? null;
   }
   remove(rel: string) {
+    const key = this.blob(rel)?.blob;
     this.db.run("DELETE FROM files WHERE path = ?", rel);
+    if (key) this.dropBlob(key);
   }
   rename(from: string, to: string) {
     this.db.run("UPDATE files SET path = ?, mtime = ? WHERE path = ?", to, Date.now(), from);
@@ -69,7 +75,10 @@ export class SqlContent implements Content {
     return this.db.get<FileStat>("SELECT mtime, size FROM files WHERE path = ?", rel) ?? null;
   }
   list() {
-    return this.db.all<{ path: string } & FileStat>("SELECT path, mtime, size FROM files");
+    return this.db.all<{ path: string } & FileStat>("SELECT path, mtime, size FROM files WHERE path NOT LIKE '.%' AND path NOT LIKE '%/.%'");
+  }
+  listUnder(dir: string) {
+    return this.db.all<{ path: string } & FileStat>("SELECT path, mtime, size FROM files WHERE substr(path, 1, ?) = ?", dir.length + 1, `${dir}/`);
   }
   get isEmpty() {
     return !this.db.get("SELECT 1 AS x FROM files LIMIT 1");

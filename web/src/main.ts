@@ -1662,7 +1662,8 @@ const highlightLink = (t: string) =>
   t.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]!).replace(/!?\[\[([^\]]+)\]\]/g, (_m, x) => `<b>${x.split("|").pop()}</b>`);
 
 // activity
-const verb = (c: Change) => ({ create: "created", edit: "edited", move: "moved", delete: "deleted", archive: "archived", unarchive: "unarchived" })[c.op];
+const verb = (c: Change) =>
+  ({ create: "created", edit: "edited", move: "moved", delete: "deleted", archive: "archived", unarchive: "unarchived", restore: "restored", purge: "deleted forever" })[c.op];
 function renderActivity() {
   $("#activity").replaceChildren(
     ...(changes.length
