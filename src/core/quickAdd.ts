@@ -6,6 +6,7 @@
 // No Node imports: the app runs this as you type, and the server runs it again to write the task.
 import { addDays, editTask, isDate, parseTask, TASK_LINE, type TaskMeta, type TaskPatch } from "./tasks.ts";
 import { isInterval, nextDue, nth, parseRule } from "./recurrence.ts";
+import { tagsInLine } from "./tags.ts";
 
 export type QuickKind = "due" | "start" | "rec" | "ends" | "target";
 export interface QuickSpan {
@@ -216,17 +217,28 @@ export function typedTask(text: string, today: string, ignore: string[] = []): s
 
 /**
  * The patch for a task's words retyped in place (the Tasks page's inline edit): the new words, and
- * a token for each phrase read from them, next to the tokens the task already has. A phrase for a
- * field it has replaces that token; a repeat with no due date anywhere also gets its first one.
+ * a token for each phrase read from them or token typed after them, next to the tokens the task
+ * already has. A date, repeat or priority replaces its own; tags and people join the ones it has.
+ * A repeat with no due date anywhere also gets its first one.
  */
 export function retypeTask(line: string, words: string, today: string, ignore: string[] = []): TaskPatch {
   const q = parseQuickAdd(words, today, ignore, { targets: false });
   const had = parseTask(line)?.meta;
-  const kinds = new Set(q.spans.map((s) => s.kind));
-  const patch: TaskPatch = { summary: parseTask(q.line)!.summary };
-  if (kinds.has("due") || (kinds.has("rec") && !had?.due && q.meta.due)) patch.due = q.meta.due;
-  if (kinds.has("start")) patch.start = q.meta.start;
-  if (kinds.has("rec")) patch.rec = q.meta.rec;
-  if (kinds.has("ends")) Object.assign(patch, q.meta.until ? { until: q.meta.until } : {}, q.meta.times !== null ? { times: q.meta.times } : {});
+  const typed = parseTask(`- [ ] ${q.words}`)!; // the words, and any tokens typed at their end
+  const read = new Set<string>(q.spans.map((s) => s.kind));
+  const said = (field: "due" | "start" | "rec" | "until" | "times", kind: QuickKind) => read.has(kind) || typed.meta[field] !== null;
+  const patch: TaskPatch = { summary: typed.summary };
+  if (said("due", "due") || (read.has("rec") && !had?.due && q.meta.due)) patch.due = q.meta.due;
+  if (said("start", "start")) patch.start = q.meta.start;
+  if (said("rec", "rec")) patch.rec = q.meta.rec;
+  if (said("until", "ends") && q.meta.until) patch.until = q.meta.until;
+  if (said("times", "ends") && q.meta.times !== null) patch.times = q.meta.times;
+  if (typed.meta.priority) patch.priority = typed.meta.priority;
+  const inWords = new Set(tagsInLine(typed.summary).map((h) => h.tag.toLowerCase()));
+  const join = (old: string[], more: string[]) => (more.some((m) => !old.includes(m)) ? [...new Set([...old, ...more])] : null);
+  const tags = join(had?.tags ?? [], typed.meta.tags.filter((t) => !inWords.has(t.toLowerCase())));
+  const people = join(had?.assignees ?? [], typed.meta.assignees.filter((p) => !typed.summary.includes(`@${p}`)));
+  if (tags) patch.tags = tags;
+  if (people) patch.assignees = people;
   return patch;
 }

@@ -79,6 +79,11 @@ test("the same reading everywhere a task is typed: a card's text, and a task's w
   assert.deepEqual(retypeTask(line, "Call mom every week", TODAY), { summary: "Call mom", rec: "weekly" });
   assert.deepEqual(retypeTask(line, "Call mom next week", TODAY, ["next week"]), { summary: "Call mom next week" });
   assert.deepEqual(retypeTask("- [ ] Plain", "Plainer", TODAY), { summary: "Plainer" });
+  // Tokens typed at the end are the task's: a priority replaces its own, tags and people join the ones it has.
+  assert.deepEqual(retypeTask(line, "Call mom !low #trip @sam", TODAY), { summary: "Call mom", priority: "low", tags: ["trip"], assignees: ["jane", "sam"] });
+  assert.deepEqual(retypeTask(line, "Call mom @jane due:2026-10-09", TODAY), { summary: "Call mom", due: "2026-10-09" });
+  // A tag mid-sentence stays in the words.
+  assert.deepEqual(retypeTask(line, "Call #family mom", TODAY), { summary: "Call #family mom" });
 });
 
 test("tokens typed as tokens pass through where they are, and a phrase doesn't override one", () => {
