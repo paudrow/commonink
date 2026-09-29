@@ -6,6 +6,8 @@ import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, useWork
 import { normalizeTag } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
+import { hideBanner, showBanner } from "./banner.ts";
+import { showConflict as conflictBanner } from "./conflict.ts";
 import { createState, openLinkToSide, remote, vimSlot } from "./editor/setup.ts";
 import { linkTargetAt } from "./editor/linkAt.ts";
 import { bumpEmbeds, editorContext } from "./editor/blocks.ts";
@@ -792,32 +794,37 @@ function applyRemote(m: { path: string; content: string | null; version: string;
 
 function showConflict(s: Session, m: { path: string; content: string | null; version: string; source: string; change?: Change | null }) {
   const who = m.source === "you" ? "Another window" : m.source === "external" ? "Another program" : authorName(byOf(m));
+  const theirs = m.content!;
   clearTimeout(s.timer);
   status(s, "error");
-  showBanner(
-    `${who} changed ${split ? displayName(s.path) : "this note"} while you were typing, and the edits overlap.`,
-    [
-      "Keep mine",
-      () => {
-        s.base = m.content!;
-        s.baseVersion = m.version;
-        hideBanner();
-        scheduleSave(s, 0);
-      },
-    ],
-    [
-      "Use theirs",
-      () => {
-        const view = s.pane.view;
-        const { changes: edits, touched } = editsBetween(view.state.doc.toString(), m.content!);
-        view.dispatch({ changes: edits, annotations: remote.of(true), effects: flashOf(touched, m) });
-        s.base = m.content!;
-        s.baseVersion = m.version;
-        hideBanner();
-        status(s, "saved");
-      },
-    ],
-  );
+  conflictBanner({
+    who,
+    where: split ? displayName(s.path) : "this note",
+    mine: () => s.pane.view.state.doc.toString(),
+    theirs,
+    keepMine: () => {
+      s.base = theirs;
+      s.baseVersion = m.version;
+      scheduleSave(s, 0);
+      toast({ icon: "check", text: "Kept your version", detail: "Theirs is in History", actionLabel: "Undo", action: () => replaceText(s, theirs) });
+    },
+    useTheirs: () => {
+      const view = s.pane.view;
+      const mine = view.state.doc.toString();
+      const { changes: edits, touched } = editsBetween(mine, theirs);
+      view.dispatch({ changes: edits, annotations: remote.of(true), effects: flashOf(touched, m) });
+      s.base = theirs;
+      s.baseVersion = m.version;
+      status(s, "saved");
+      toast({ icon: "check", text: "Switched to their version", actionLabel: "Undo", action: () => replaceText(s, mine) });
+    },
+  });
+}
+
+/** Put `text` in a note's editor as your own edit, which saves it. */
+function replaceText(s: Session, text: string) {
+  if (s !== s.pane.session) return toast({ text: `${displayName(s.path)} isn't open any more` });
+  s.pane.view.dispatch({ changes: editsBetween(s.pane.view.state.doc.toString(), text).changes });
 }
 
 // ------------------------------------------------------------------ live updates
@@ -1738,23 +1745,6 @@ function showNoteIn(pane: Pane) {
   if (pane.index === 0) showStage(preview ? "html" : "editor");
   else [pane.host.hidden, pane.preview.hidden] = [preview, !preview];
   if (preview) renderHtmlPreview(pane);
-}
-
-// ------------------------------------------------------------------ banner
-
-function showBanner(text: string, ...actions: Array<[string, () => void]>) {
-  const b = $("#banner");
-  b.hidden = false;
-  b.className = "";
-  b.replaceChildren(
-    icon("info", 15),
-    el("span", { class: "banner-text" }, text),
-    ...actions.map(([label, fn]) => el("button", { class: "banner-btn", type: "button", onclick: fn }, label)),
-    el("button", { class: "banner-x", type: "button", title: "Dismiss", onclick: hideBanner }, "×"),
-  );
-}
-function hideBanner() {
-  $("#banner").hidden = true;
 }
 
 // ------------------------------------------------------------------ vim + keyboard
