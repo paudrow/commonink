@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 83
 title: Getting started teaches by doing
 ---
 1. Open [[Getting started]]: seven things to try, nothing ticked. It replaces the old Welcome note; the reference bits moved to [[Tips]].
