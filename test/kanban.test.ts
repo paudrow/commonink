@@ -212,6 +212,7 @@ test("board cards are tasks under their column; the note's own tasks keep their 
   assert.deepEqual(quire.outline("Launch").map((h) => h.text), ["Launch", "Backlog", "Doing", "Done"]);
   quire.edit("Launch", { oldString: "## Doing", newString: "## Doing {color=blue}" }, "you");
   assert.deepEqual(quire.outline("Launch").map((h) => h.text), ["Launch", "Backlog", "Doing", "Done"]);
+  assert.equal(quire.tasks({ note: "Launch" }).find((t) => t.line === 11)?.heading, "Doing");
 });
 
 test("links, backlinks and tags on cards are indexed like any others, and renaming a linked note keeps its card linked", () => {

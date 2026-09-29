@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { parseDirective, serializeDirective } from "../web/src/widgets/args.ts";
 import { fieldValues } from "../web/src/widgets/core.ts";
 import { QUERY_FIELDS, query } from "../web/src/widgets/query.ts";
-import { formatAttrs, parseAttrs, parseQuery } from "../src/core/query.ts";
+import { parseAttrs, serializeAttrs } from "../src/core/directive.ts";
+import { parseQuery } from "../src/core/query.ts";
 import { EditorState } from "@codemirror/state";
 import { history, undo } from "@codemirror/commands";
 import { HINTS, taskLineEdit, taskTools, taskToolsAt } from "../web/src/editor/taskEdit.ts";
@@ -22,7 +23,7 @@ test("the query fields cover every query key a smart folder keeps, and the widge
 });
 
 test("the shared fields write a query back as text, leaving out blanks and the default sort", () => {
-  const edit = (src: string) => formatAttrs(fieldValues(QUERY_FIELDS, parseAttrs(src)));
+  const edit = (src: string) => serializeAttrs(fieldValues(QUERY_FIELDS, parseAttrs(src)));
   assert.equal(edit('q="launch plan" tag=work sort=title limit=5'), 'q="launch plan" tag=work sort=title');
   assert.equal(edit("folder=Projects sort=modified"), "folder=Projects");
   assert.equal(edit(""), "");
