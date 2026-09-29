@@ -1,6 +1,9 @@
 // Regression tests for the security audit: hostile note text, paths and inputs.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { openVault } from "../src/core/local.ts";
 import { extractLinks, outlineOf, stripTags, titleOf } from "../src/core/parse.ts";
 import { headingText, withoutCodeOrLinks } from "../src/core/prose.ts";
@@ -81,6 +84,21 @@ test("one request for diffs can't ask for unbounded text", () => {
   assert.equal(runs.length, 13);
   assert.ok(text <= 18 * 1024 * 1024, `${text} bytes of text`);
   assert.equal(runs.at(-1)!.before, null, "the oldest runs come without their text");
+});
+
+test("a symlink in the vault doesn't lead reads, writes or listings outside it", () => {
+  const { dir, quire } = openTempVault();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "quire-outside-"));
+  fs.writeFileSync(path.join(outside, "secret.md"), "# Secret\n");
+  fs.symlinkSync(outside, path.join(dir, "linkdir"));
+  fs.symlinkSync(path.join(outside, "secret.md"), path.join(dir, "linked.md"));
+  quire.sync();
+  assert.deepEqual(quire.list(undefined, "all").map((n) => n.path).filter((p) => p.includes("link")), []);
+  assert.throws(() => quire.read("linkdir/secret.md"), /No note matches/);
+  assert.equal(quire.files.read("linked.md"), null);
+  assert.throws(() => quire.create("linkdir/pwned.md", "x", "agent"), /leads outside the vault/);
+  assert.deepEqual(fs.readdirSync(outside), ["secret.md"]);
+  fs.rmSync(outside, { recursive: true, force: true });
 });
 
 test("a link that isn't valid percent-encoding can't take the vault down", () => {

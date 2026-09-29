@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Quire, type QuireOptions } from "./quire.ts";
-import { kindOf } from "./paths.ts";
+import { kindOf, QuireError } from "./paths.ts";
 import { migrate, type Content, type FileStat, type SqlDb } from "./store.ts";
 
 export const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -46,8 +46,27 @@ class NodeDb implements SqlDb {
 /** Notes as files in a folder. Writes are atomic (temp file + rename) so watchers never see half a note. */
 export class FsContent implements Content {
   constructor(readonly root: string) {}
+  private realRoot: string | null = null;
+
+  /**
+   * Where a note lives on disk. A symlink in the vault (a synced or cloned folder can have them)
+   * mustn't lead reads or writes outside it, so the path, or its nearest existing folder, has to
+   * resolve to somewhere inside.
+   */
   abs(rel: string) {
-    return path.join(this.root, rel);
+    const p = path.join(this.root, rel);
+    this.realRoot ??= fs.realpathSync(this.root);
+    for (let probe = p; ; probe = path.dirname(probe)) {
+      let real: string;
+      try {
+        real = fs.realpathSync(probe);
+      } catch {
+        if (path.dirname(probe) === probe) return p;
+        continue; // doesn't exist yet: check the folder it would go in
+      }
+      if (real !== this.realRoot && !real.startsWith(this.realRoot + path.sep)) throw new QuireError(`${rel} leads outside the vault`);
+      return p;
+    }
   }
   read(rel: string) {
     try {
@@ -82,11 +101,15 @@ export class FsContent implements Content {
   list() {
     const out: Array<{ path: string } & FileStat> = [];
     const walk = (dir: string) => {
-      for (const ent of fs.readdirSync(this.abs(dir), { withFileTypes: true })) {
+      // Symlinks are neither files nor folders to readdir, so the walk never follows one out.
+      for (const ent of fs.readdirSync(path.join(this.root, dir), { withFileTypes: true })) {
         if (ent.name.startsWith(".") || ent.name === "node_modules") continue;
         const rel = dir ? `${dir}/${ent.name}` : ent.name;
         if (ent.isDirectory()) walk(rel);
-        else if (ent.isFile() && kindOf(rel)) out.push({ path: rel, ...this.stat(rel)! });
+        else if (ent.isFile() && kindOf(rel)) {
+          const st = fs.statSync(path.join(this.root, rel));
+          out.push({ path: rel, mtime: st.mtimeMs, size: st.size });
+        }
       }
     };
     walk("");
