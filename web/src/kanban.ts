@@ -7,7 +7,7 @@
 import { EditorView, keymap, placeholder } from "@codemirror/view";
 import { insertNewline } from "@codemirror/commands";
 import { api, ApiError, type Task } from "./api.ts";
-import { displayName, el, icon, NOTE_DRAG } from "./dom.ts";
+import { displayName, el, icon, LINK_DRAG, NOTE_DRAG } from "./dom.ts";
 import { onVaultChange } from "./events.ts";
 import { IS_MAC, sideClick } from "./panes.ts";
 import { renderMarkdown } from "./render.ts";
@@ -310,7 +310,7 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
           "div",
           { class: "kb-actions" },
           act("edit", "Edit (Enter)", () => openEdit(c, i, card)),
-          link ? null : act("file", "Open as note", () => void openAsNote(c, i, card.text)),
+          link ? act("split", "Open to the side", () => host.ctx.openTarget(link.target, host.path, { side: true })) : act("file", "Open as note", () => void openAsNote(c, i, card.text)),
           act("trash", "Delete (⌫)", () => remove(c, i, card.text)),
         );
     const node = el(
@@ -349,6 +349,8 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
         e.stopPropagation();
         dragging = { path: host.path, board: at, column: c, card: i, text: card.text };
         e.dataTransfer!.setData(CARD_DRAG, card.text);
+        // Out of the board, at the right edge of the window, a link card opens its note to the side.
+        if (link) e.dataTransfer!.setData(LINK_DRAG, JSON.stringify({ target: link.target, from: host.path }));
         e.dataTransfer!.effectAllowed = "move";
         requestAnimationFrame(() => node.classList.add("is-dragging"));
       });
