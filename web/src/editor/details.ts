@@ -7,7 +7,7 @@ import { EditorSelection, EditorState, Prec, StateEffect, StateField, type Range
 import { Decoration, EditorView, WidgetType, type Command } from "@codemirror/view";
 import { getCM } from "@replit/codemirror-vim";
 import { el, icon } from "../dom.ts";
-import { isShortcut } from "../typedKey.ts";
+import { matchKeys } from "../commands.ts";
 import { inline } from "../taskRow.ts";
 import { detailsIn, wrapInDetails, type Details } from "../../../src/core/details.ts";
 import { editorContext } from "./blocks.ts";
@@ -223,7 +223,7 @@ const keys = Prec.highest(
       if (view.state.readOnly) return false;
       // ⌘⌥S (Ctrl+Alt+S off a Mac) wraps the selection, by the letter the key types: on a Mac ⌥S
       // types "ß", and on Dvorak S is the physical ; key, which a CodeMirror keymap can mistake.
-      if (isShortcut(e, "Mod-Alt-s")) {
+      if (matchKeys(e, "Mod-Alt-s")) {
         e.preventDefault();
         return wrapSection(view);
       }
@@ -286,6 +286,12 @@ export const foldAll =
     view.dispatch({ effects: setFold.of({ all: open, keys: all.map((d) => d.key) }), ...(top ? { selection: { anchor: view.state.doc.line((top.summaryLine ?? top.from) + 1).to } } : {}) });
     return true;
   };
+
+/** How many sections there are to fold in the note (for the palette's Fold all). */
+export const foldCount = (state: EditorState) => {
+  const text = state.doc.toString();
+  return /<details/i.test(text) ? detailsIn(text).length : 0;
+};
 
 /** Wrap the selected lines in a collapsible section, or insert an empty one; the summary is selected, to name it. */
 export const wrapSection: Command = (view) => {

@@ -13,7 +13,7 @@ These notes belong to people. You are a guest editor.
   - To add a task someone asks for, `add_task` takes it in words ("call the bank tomorrow", "every month on the 1st") and files it under `## Tasks` in today's daily note, or in `→ [[Note]]`. Use `list_tasks` to find tasks and `update_task` to tick one or change its tokens; it leaves the rest of the line alone.
 - Smart folders are saved note queries in the sidebar, written like `::query` args: `tag=work sort=title`, `folder=Projects q="launch"`. `list_smart_folders` shows them, `list_notes` with `smart_folder` lists one's notes, and `save_smart_folder` makes one (shared unless `just_me`). Only make one when asked.
 - Your changes show in History as yours, "<your name> for <person>", for whoever connected you. If you use the `quire` CLI, set `QUIRE_AGENT=<your name>` (or pass `--agent <your name>`) so they do.
-- Widgets are single lines. Leave any `id=` value as it is.
+- Widgets are single lines. Leave any `id=` value, and any `<!-- guide:… -->` marker at the end of a task, as it is.
   - `::tasks{folder=Projects}` (or `tag=work`, `assignee=jane`, `due<=today`) collects checkbox tasks from those notes.
   - `::query{folder=Projects tag=meeting limit=5}` is a live list of matching notes.
   - `::today` is the day at a glance: overdue, due today, starting today, and today's journal note. `get_today` gives agents the same.

@@ -1,13 +1,18 @@
 import "./styles.css";
+import "./motion.css";
+import "./mobile.css";
 import { EditorView } from "@codemirror/view";
 import type { EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
 import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type Scope, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
 import { normalizeTag } from "../../src/core/tags.ts";
-import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setSelfName, timeAgo, type LinkDrag } from "./dom.ts";
+import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
+import { toast } from "./toast.ts";
+import { hideBanner, showBanner } from "./banner.ts";
+import { showConflict as conflictBanner } from "./conflict.ts";
 import { createState, openLinkToSide, remote, vimSlot } from "./editor/setup.ts";
 import { linkTargetAt } from "./editor/linkAt.ts";
-import { foldAll, foldAt } from "./editor/details.ts";
+import { foldAll, foldAt, foldCount } from "./editor/details.ts";
 import { bumpEmbeds, editorContext } from "./editor/blocks.ts";
 import { clearFlash, flashChanges } from "./editor/agentFlash.ts";
 import { editsBetween, merge3 } from "./merge.ts";
@@ -21,9 +26,14 @@ import { renderTasksPage } from "./tasksView.ts";
 import { isQuickAddKey, openQuickAdd } from "./quickAdd.ts";
 import { runTaskCommand } from "./taskCommand.ts";
 import type { TagsPage } from "./tagsPage.ts";
-import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
-import { vaultEvents } from "./events.ts";
-import { groupChanges } from "../../src/core/format.ts";
+import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./account.ts";
+import { appCommands, learnLayout, matchKeys } from "./commands.ts";
+import { toggleShortcuts } from "./shortcuts.ts";
+import { did, vaultEvents } from "./events.ts";
+import { guideMessage, startGuide } from "./onboarding.ts";
+import { store } from "./store.ts";
+import { changeVerb, groupChanges } from "../../src/core/format.ts";
+import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
 import { clampSide, forget, newLayout, parseLayout, SIDE_CLICK, sideClick, step, visit, type PaneTrail } from "./panes.ts";
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
@@ -31,6 +41,8 @@ import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
 import { safeDecode } from "../../src/core/uri.ts";
+import { AGENTS_BLURB, isAgentsNote } from "./agentsNote.ts";
+import { closeDrawer, setupMobileNav } from "./mobileNav.ts";
 
 // ------------------------------------------------------------------ state
 
@@ -68,29 +80,14 @@ interface Pane {
   opens: number;
 }
 
-const store = {
-  get<T>(k: string, d: T): T {
-    try {
-      const v = localStorage.getItem(`quire.${k}`);
-      return v === null ? d : JSON.parse(v);
-    } catch {
-      return d;
-    }
-  },
-  set(k: string, v: unknown) {
-    try {
-      localStorage.setItem(`quire.${k}`, JSON.stringify(v));
-    } catch {}
-  },
-};
-
 // This PR's first version stored a "Start on Today" choice; Today is the top of Tasks now.
 try {
   localStorage.removeItem("quire.startOnToday");
 } catch {}
 
 const prefs = {
-  vim: store.get("vim", true),
+  /** Off until you turn it on: in Vim, a stray Esc then `dd` deletes a line. */
+  vim: store.get("vim", false),
   panel: store.get("panel", true),
   htmlMode: store.get<"preview" | "source">("htmlMode", "preview"),
   /** Folders whose subfolders are showing in the sidebar (they start closed). */
@@ -144,6 +141,7 @@ const notesPage = new NotesPage({
     api.clearResolveCache();
     void refreshNotes();
   },
+  newNote: () => void newNote(),
 });
 // History, Assets and Tags load the first time they're opened (each is null until then).
 let historyPage: History | null = null;
@@ -156,8 +154,8 @@ const once = <T>(load: () => Promise<T>) => {
 const loadHistory = once(async () =>
   (historyPage = new (await import("./history.ts")).History({
     open: (path) => fromPage(path),
-    verb: (c) => verb(c),
     toast: (t) => toast(t),
+    newNote: viewer ? undefined : () => void newNote(),
   })),
 );
 const loadAssets = once(async () =>
@@ -186,10 +184,53 @@ const palette = new Palette(
   () => notes,
   (path, line, side) => openNote(path, { line, pane: side || paletteToSide ? sideOf(active) : active }),
   (name) => createNote(name),
+  () => commands(),
 );
 function openPalette(side = false) {
   paletteToSide = side;
+  did("search");
   palette.open();
+}
+
+/** Online, the account menu's actions (⌘K offers them too). */
+let account: AccountAction[] = [];
+/** Everything ⌘K can do right now, and every shortcut the sheet lists. */
+function commands() {
+  const s = active.session;
+  return appCommands({
+    note: s ? { kind: s.kind, starred: isStarred(s.id), archived: isArchived(s.path) } : null,
+    vim: prefs.vim,
+    split,
+    focusMode,
+    htmlMode: prefs.htmlMode,
+    hasStart: tags.some((t) => t.tag === "start" && t.notes > 0),
+    folds: s?.kind === "md" ? foldCount(active.view.state) : 0,
+    account,
+    newNote: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
+    newFolder: startNewFolder,
+    go: (page) => {
+      if (page === "notes" || page === "archive") void showNotes({ scope: page === "notes" ? "active" : "archived", query: {} });
+      else void { tasks: showTasks, tags: showTags, assets: showAssets, history: showHistory }[page]();
+    },
+    filterNotes: () => void showNotes({ filter: true }),
+    quickAdd,
+    toggleTheme,
+    toggleVim,
+    togglePanel: () => togglePanel(),
+    toggleFocus: () => void setFocusMode(!focusMode),
+    toggleSplit: () => void (split ? closePane(active) : openSplit()),
+    toggleHtml: () => setHtmlMode(prefs.htmlMode === "preview" ? "source" : "preview"),
+    star: () => s && void toggleStar(s.path),
+    archive: () => void archiveCurrent(),
+    move: () => openMovePicker($("#move-btn")),
+    noteHistory: () => s && void showHistory({ note: s.path }),
+    gettingStarted: async () => {
+      const start = (await api.feed({ tag: "start", limit: 1 }).catch(() => null))?.items[0];
+      if (start) void openNote(start.path);
+    },
+    shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
+    foldAll: (open) => foldAll(open)(active.view),
+  });
 }
 
 // ------------------------------------------------------------------ opening notes
@@ -224,6 +265,8 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   }
   if (ticket !== pane.opens) return; // something else was opened here while this loaded
   hideBanner();
+  // The same note again (renamed, moved or archived while open) keeps its place.
+  const keep = pane.session?.id === note.id ? { scroll: pane.view.scrollSnapshot(), head: pane.view.state.selection.main.head } : null;
   const next: Session = {
     id: note.id,
     path: note.path,
@@ -272,6 +315,9 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   if (isArchived(note.path)) {
     showBanner("This note is archived. It's hidden from search and the sidebar.", ["Unarchive", () => void archiveCurrent()]);
     $("#banner").classList.add("is-info");
+  } else if (isAgentsNote(note.path)) {
+    showBanner(AGENTS_BLURB);
+    $("#banner").classList.add("is-info");
   }
   pane.host.classList.toggle("is-code", note.kind === "html");
   showNoteIn(pane);
@@ -282,9 +328,10 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   else {
     // Start below the frontmatter so it renders as properties rather than raw YAML.
     const fm = note.kind === "md" ? note.content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/) : null;
-    const pos = Math.min(cursors.get(note.path) ?? (fm ? fm[0].length : 0), pane.view.state.doc.length);
-    pane.view.dispatch({ selection: { anchor: pos } });
-    pane.view.scrollDOM.scrollTop = 0;
+    const pos = Math.min(keep?.head ?? cursors.get(note.path) ?? (fm ? fm[0].length : 0), pane.view.state.doc.length);
+    // Scrolled by the view, as goToLine scrolls: setting scrollDOM.scrollTop = 0 lost to CodeMirror,
+    // which on focus puts back the scroll position the last note had.
+    pane.view.dispatch({ selection: { anchor: pos }, effects: keep?.scroll ?? EditorView.scrollIntoView(0, { y: "start", yMargin: 80 }) });
   }
   // Following a link or a click adds to history; back/forward, renames and old links just fix the URL up.
   if (opts.focus !== false) focusPane(pane, opts.push === false || opts.trail === false ? "replace" : "push");
@@ -400,6 +447,7 @@ function setUrl(url: string, how: "push" | "replace" = "push") {
 let unmountTasks: (() => void) | null = null;
 
 function showStage(which: "editor" | "html" | "notes" | "tasks" | "history" | "assets" | "tags") {
+  closeDrawer();
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
   $("#assets-view").hidden = which !== "assets";
@@ -544,7 +592,7 @@ async function setFocusMode(on: boolean) {
   focusMode = on;
   document.body.classList.toggle("is-focus", on);
   $("#focus-btn").replaceChildren(icon(on ? "unfocus" : "focus", 16));
-  $("#focus-btn").title = on ? "Leave focus mode (⌘⇧↵)" : "Focus mode (⌘⇧↵)";
+  setLabel($("#focus-btn"), on ? "Leave focus mode (⌘⇧↵)" : "Focus mode (⌘⇧↵)");
   const keyboard = (navigator as any).keyboard;
   try {
     if (on && !document.fullscreenElement) {
@@ -792,37 +840,66 @@ function applyRemote(m: { path: string; content: string | null; version: string;
 
 function showConflict(s: Session, m: { path: string; content: string | null; version: string; source: string; change?: Change | null }) {
   const who = m.source === "you" ? "Another window" : m.source === "external" ? "Another program" : authorName(byOf(m));
+  const theirs = m.content!;
   clearTimeout(s.timer);
   status(s, "error");
-  showBanner(
-    `${who} changed ${split ? displayName(s.path) : "this note"} while you were typing, and the edits overlap.`,
-    [
-      "Keep mine",
-      () => {
-        s.base = m.content!;
-        s.baseVersion = m.version;
-        hideBanner();
-        scheduleSave(s, 0);
-      },
-    ],
-    [
-      "Use theirs",
-      () => {
-        const view = s.pane.view;
-        const { changes: edits, touched } = editsBetween(view.state.doc.toString(), m.content!);
-        view.dispatch({ changes: edits, annotations: remote.of(true), effects: flashOf(touched, m) });
-        s.base = m.content!;
-        s.baseVersion = m.version;
-        hideBanner();
-        status(s, "saved");
-      },
-    ],
-  );
+  conflictBanner({
+    who,
+    where: split ? displayName(s.path) : "this note",
+    mine: () => s.pane.view.state.doc.toString(),
+    theirs,
+    keepMine: () => {
+      s.base = theirs;
+      s.baseVersion = m.version;
+      scheduleSave(s, 0);
+      toast({ icon: "check", text: "Kept your version", detail: "Theirs is in History", actionLabel: "Undo", action: () => replaceText(s, theirs) });
+    },
+    useTheirs: () => {
+      const view = s.pane.view;
+      const mine = view.state.doc.toString();
+      const { changes: edits, touched } = editsBetween(mine, theirs);
+      view.dispatch({ changes: edits, annotations: remote.of(true), effects: flashOf(touched, m) });
+      s.base = theirs;
+      s.baseVersion = m.version;
+      status(s, "saved");
+      toast({ icon: "check", text: "Switched to their version", actionLabel: "Undo", action: () => replaceText(s, mine) });
+    },
+  });
+}
+
+/** Put `text` in a note's editor as your own edit, which saves it. */
+function replaceText(s: Session, text: string) {
+  if (s !== s.pane.session) return toast({ text: `${displayName(s.path)} isn't open any more` });
+  s.pane.view.dispatch({ changes: editsBetween(s.pane.view.state.doc.toString(), text).changes });
+}
+
+/**
+ * Undo someone else's edit. In an open note it comes out of the editor, and what's been typed since
+ * stays; a note that isn't open is put back only if nothing has changed it since.
+ */
+async function undoChange(c: Change, after: string | null) {
+  const name = displayName(c.path);
+  const history = { actionLabel: "History", action: () => void showHistory({ note: c.path }) };
+  const d = await api.diff(c.id).catch(() => null);
+  const s = panes.find((p) => p.session?.path === c.path)?.session;
+  if (s && s.kind !== "asset" && d?.before != null && after !== null) {
+    const undone = merge3(after, s.pane.view.state.doc.toString(), d.before);
+    if (!undone.ok) return toast({ text: `${name} changed there since, so that edit can't be undone`, ...history });
+    replaceText(s, undone.text);
+    return toast({ icon: "reset", text: `Undid the edit to ${name}` });
+  }
+  try {
+    const r = await api.restore(c.id, c.version ?? undefined);
+    toast({ icon: "reset", text: `Undid the edit to ${displayName(r.path)}`, actionLabel: "Open", action: () => void openNote(r.path) });
+  } catch (e) {
+    toast({ text: e instanceof ApiError && e.status === 409 ? `${name} changed since, so that edit wasn't undone` : `Couldn't undo the edit to ${name}`, ...history });
+  }
 }
 
 // ------------------------------------------------------------------ live updates
 
 function onMessage(m: ServerMsg) {
+  guideMessage(m);
   if (m.type !== "change") vaultEvents.dispatchEvent(new Event("change"));
   switch (m.type) {
     case "note": {
@@ -837,11 +914,15 @@ function onMessage(m: ServerMsg) {
       const open = panes.some((p) => p.session?.path === m.path);
       if (open) applyRemote(m);
       if (!isSelf(m.source) && m.change) {
+        const c = m.change;
+        const undo = c.op === "edit";
         toast({
-          by: m.change,
-          text: `${verb(m.change)} ${displayName(m.path)}`,
-          detail: m.change.summary ?? undefined,
-          action: open ? undefined : () => openNote(m.path),
+          by: c,
+          text: `${changeVerb(c)} ${displayName(m.path)}`,
+          detail: c.summary ?? undefined,
+          actionLabel: undo ? "Undo" : undefined,
+          action: undo ? () => void undoChange(c, m.content) : open ? undefined : () => openNote(m.path),
+          open: undo && !open ? () => void openNote(m.path) : undefined,
         });
       }
       refreshNotesSoon();
@@ -1021,6 +1102,7 @@ function renderSmartFolders(active: string | null) {
       "div",
       {
         class: `tree-row is-file${f.query === active ? " is-active" : ""}`,
+        "aria-current": f.query === active && "page",
         style: { "--depth": "0" },
         title: `${f.query || "Every note"}${f.shared ? "" : " (just you)"}`,
         ...opens(() => void showNotes({ scope: "active", query: parseQuery(f.query) })),
@@ -1046,6 +1128,7 @@ function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
     "div",
     {
       class: `tree-row is-tag${active ? " is-active" : ""}`,
+      "aria-current": active && "page",
       style: { "--depth": "0" },
       title: `Notes tagged #${f.display}`,
       draggable: "true",
@@ -1069,17 +1152,19 @@ function renderFavorites() {
   // The tag Notes shows on its own (like a folder alone), which its favorite marks as open.
   const q = onPage() === "notes" && notesPage.scope === "active" ? notesPage.query : null;
   const shownTag = q?.tag && formatQuery(q) === formatQuery({ tag: q.tag }) ? (normalizeTag(q.tag) ?? "") : "";
-  const list = favorites.filter((f) => isTagFavorite(f) || !isArchived(f.path));
-  const rows = list.map((f) => {
+  const rows = favorites.map((f) => {
     if (isTagFavorite(f)) {
       const row = tagFavoriteRow(f, f.tag === shownTag);
       favoriteDrop(row, "is-drop-before", favoriteKey(f));
       return row;
     }
+    // An archived favorite stays, dimmed: archiving tidies search and the sidebar, not your stars.
+    const archived = isArchived(f.path);
     const row = el(
       "div",
       {
-        class: `tree-row is-file${f.path === active.session?.path ? " is-active" : ""}`,
+        class: `tree-row is-file${f.path === active.session?.path ? " is-active" : ""}${archived ? " is-archived" : ""}`,
+        "aria-current": f.path === active.session?.path && "page",
         style: { "--depth": "0" },
         title: f.path,
         draggable: "true",
@@ -1094,6 +1179,7 @@ function renderFavorites() {
       el("span", { class: "chev is-leaf" }),
       icon(f.kind === "html" ? "html" : "file", 14),
       el("span", { class: "tree-name" }, displayName(f.path)),
+      archived ? el("span", { class: "n" }, "Archived") : null,
       el(
         "span",
         { class: "row-actions" },
@@ -1104,7 +1190,7 @@ function renderFavorites() {
     favoriteDrop(row, "is-drop-before", f.path);
     return row;
   });
-  $("#favorites").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Star a note or a tag to keep it here.")]));
+  $("#favorites").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Star a note or a tag to keep it here. A note's star is in its top bar: ", icon("star", 12))]));
 }
 
 /** Let `node` take a favorite (to reorder) or a card from Notes (to star), marking it with `cls` while over it. */
@@ -1199,13 +1285,14 @@ function renderTree() {
   $("#archive-count").textContent = archivedCount ? String(archivedCount) : "";
   const assetCount = notes.filter((n) => n.kind === "asset" && !isArchived(n.path)).length;
   $("#assets-count").textContent = assetCount ? String(assetCount) : "";
-  $("#notes-btn").classList.toggle("is-active", showing === "");
+  setCurrent($("#notes-btn"), showing === "");
   const shownTag = showing === null ? "" : (parseQuery(showing).tag ?? "");
   renderTagTree(shownTag && showing === formatQuery({ tag: shownTag }) ? shownTag.toLowerCase() : ""); // a tag alone, like a folder alone
-  $("#tasks-btn").classList.toggle("is-active", page === "tasks");
-  $("#history-btn").classList.toggle("is-active", page === "history" && !historyPage?.noteFilter);
-  $("#assets-btn").classList.toggle("is-active", page === "assets");
-  $("#tags-page-btn").classList.toggle("is-on", page === "tags");
+  setCurrent($("#tasks-btn"), page === "tasks");
+  setCurrent($("#history-btn"), page === "history" && !historyPage?.noteFilter);
+  setCurrent($("#assets-btn"), page === "assets");
+  setCurrent($("#archive-nav"), page === "notes" && notesPage.scope === "archived");
+  setCurrent($("#tags-page-btn"), page === "tags", "is-on");
 
   const empty = emptyFolders();
   for (const f of [...empty]) if (notes.some((n) => n.path.startsWith(`${f}/`))) empty.delete(f); // it has notes now: it's a real folder
@@ -1231,6 +1318,7 @@ function renderTree() {
           "div",
           {
             class: `tree-row is-folder${open ? "" : " is-collapsed"}${showing === formatQuery({ folder: path }) ? " is-active" : ""}`,
+            "aria-current": showing === formatQuery({ folder: path }) && "page",
             style: { "--depth": String(depth) },
             "data-folder": path,
             title: n ? `Show the notes in ${path}` : `${path} is empty. Drag notes here.`,
@@ -1288,6 +1376,7 @@ function renderTagTree(active: string) {
           "div",
           {
             class: `tree-row is-tag${open ? "" : " is-collapsed"}${t.tag === active ? " is-active" : ""}`,
+            "aria-current": t.tag === active && "page",
             style: { "--depth": String(depth) },
             "data-tag": t.tag,
             title: `Notes tagged #${t.display}`,
@@ -1435,6 +1524,7 @@ async function archivePath(path: string) {
 
 /** An inline name field at the top of the tree; the folder appears (empty) when you press Enter. */
 function startNewFolder() {
+  if (prefs.folded.folders) $('[aria-controls="tree"]').click(); // unfold Folders, or the name field is hidden
   $("#tree").querySelector(".tree-row.is-input")?.remove();
   const input = el("input", { class: "tree-input", placeholder: "Folder name", spellcheck: "false" });
   const row = el("div", { class: "tree-row is-input", style: { "--depth": "0" } }, icon("folder", 14), input);
@@ -1474,7 +1564,7 @@ function renderChrome() {
   $("#note-history-btn").hidden = !s || s.kind === "asset";
   $("#focus-btn").hidden = !s || s.kind === "asset";
   $("#split-btn").hidden = !split && (!s || s.kind === "asset");
-  $("#split-btn").title = split ? "Close the side pane (⌘⌥\\)" : "Split view (⌘⌥\\)";
+  setLabel($("#split-btn"), split ? "Close the side pane (⌘⌥\\)" : "Split view (⌘⌥\\)");
   $("#split-btn").classList.toggle("is-on", split);
   $("#save-status").hidden = !s;
   renderPaneBars();
@@ -1491,10 +1581,10 @@ function renderChrome() {
   }
   const starred = isStarred(s.id);
   $("#star-btn").classList.toggle("is-on", starred);
-  $("#star-btn").title = starred ? "Unstar (take out of Favorites)" : "Star (add to Favorites)";
+  setLabel($("#star-btn"), starred ? "Unstar (take out of Favorites)" : "Star (add to Favorites)");
   $("#star-btn").replaceChildren(icon(starred ? "starred" : "star", 16));
   const archived = isArchived(s.path);
-  $("#archive-btn").title = archived ? "Unarchive note (⌘⇧E)" : "Archive note (⌘⇧E)";
+  setLabel($("#archive-btn"), archived ? "Unarchive note (⌘⇧E)" : "Archive note (⌘⇧E)");
   $("#archive-btn").replaceChildren(icon(archived ? "unarchive" : "archive", 16));
   const parts = s.path.split("/");
   const file = parts.pop()!;
@@ -1507,7 +1597,7 @@ function renderChrome() {
   });
   crumbs.replaceChildren(...folderCrumbs, name);
   $("#html-toggle").hidden = s.kind !== "html";
-  $("#html-toggle").querySelectorAll("button").forEach((b) => b.classList.toggle("is-on", b.dataset.mode === prefs.htmlMode));
+  $("#html-toggle").querySelectorAll("button").forEach((b) => setPressed(b, b.dataset.mode === prefs.htmlMode));
   setSaveStatus("saved");
 }
 
@@ -1589,7 +1679,9 @@ const vimWatched = new WeakSet<object>();
 function attachVim() {
   const cm = getCM(active.view);
   const node = $("#vim-mode");
-  $("#vim-toggle").classList.toggle("is-on", prefs.vim);
+  const toggle = $("#vim-toggle");
+  setPressed(toggle, prefs.vim);
+  toggle.textContent = `Vim keys: ${prefs.vim ? "on" : "off"}`;
   if (!cm || !prefs.vim) {
     node.textContent = "";
     node.dataset.mode = "";
@@ -1663,12 +1755,14 @@ const highlightLink = (t: string) =>
   t.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]!).replace(/!?\[\[([^\]]+)\]\]/g, (_m, x) => `<b>${x.split("|").pop()}</b>`);
 
 // activity
-const verb = (c: Change) => ({ create: "created", edit: "edited", move: "moved", delete: "deleted", archive: "archived", unarchive: "unarchived" })[c.op];
 function renderActivity() {
+  const entries = groupChanges(changes).slice(0, 30);
+  const idsOf = (g: (typeof entries)[number]) => toRanges(changes.filter((c) => c.id >= g.first && c.id <= g.id).map((c) => c.id));
+  void loadStats(entries.filter((g) => g.count > 1).map(idsOf)).then((fresh) => fresh && renderActivity());
   $("#activity").replaceChildren(
-    ...(changes.length
-      ? groupChanges(changes).slice(0, 30).map((c) => {
-          const [add, del] = (c.summary ?? "").match(/^\+(\d+) −(\d+)$/)?.slice(1) ?? [];
+    ...(entries.length
+      ? entries.map((c) => {
+          const stat = entryStat(c, c.count > 1 ? idsOf(c) : "");
           return el(
             "div",
             {
@@ -1687,13 +1781,13 @@ function renderActivity() {
                 "div",
                 { class: "act-line" },
                 el("b", {}, authorName(c)),
-                ` ${verb(c)} `,
+                ` ${changeVerb(c)} `,
                 el("a", { onclick: (e: Event) => (e.stopPropagation(), openNote(c.path)) }, displayName(c.path)),
               ),
               el(
                 "div",
                 { class: "act-meta" },
-                add !== undefined ? el("span", { class: "diffstat" }, el("span", { class: "add" }, `+${add}`), el("span", { class: "del" }, `−${del}`)) : null,
+                stat ? statEl(stat) : null,
                 c.op === "move" && c.from_path ? el("span", {}, `from ${displayName(c.from_path)}`) : null,
                 c.count > 1 ? el("span", {}, `${c.count} saves`) : null,
                 el("span", { "data-ts": String(c.ts) }, timeAgo(c.ts)),
@@ -1738,49 +1832,6 @@ function showNoteIn(pane: Pane) {
   if (pane.index === 0) showStage(preview ? "html" : "editor");
   else [pane.host.hidden, pane.preview.hidden] = [preview, !preview];
   if (preview) renderHtmlPreview(pane);
-}
-
-// ------------------------------------------------------------------ banner, toasts
-
-function showBanner(text: string, ...actions: Array<[string, () => void]>) {
-  const b = $("#banner");
-  b.hidden = false;
-  b.className = "";
-  b.replaceChildren(
-    icon("info", 15),
-    el("span", { class: "banner-text" }, text),
-    ...actions.map(([label, fn]) => el("button", { class: "banner-btn", type: "button", onclick: fn }, label)),
-    el("button", { class: "banner-x", type: "button", title: "Dismiss", onclick: hideBanner }, "×"),
-  );
-}
-function hideBanner() {
-  $("#banner").hidden = true;
-}
-
-function toast(t: { text: string; by?: { source: string; person: string | null; agent: string | null }; icon?: string; detail?: string; action?: () => void; actionLabel?: string; sticky?: boolean }) {
-  const button = t.action && t.actionLabel ? el("button", { class: "toast-action", type: "button" }, t.actionLabel) : null;
-  const node = el(
-    "div",
-    {
-      class: `toast${t.action && !button ? " is-clickable" : ""}${t.icon === "timer" ? " is-alert" : ""}`,
-      onclick: () => {
-        if (!button) t.action?.();
-        node.remove();
-      },
-    },
-    t.by ? authorAvatar(t.by, 22) : el("span", { class: "toast-icon" }, icon(t.icon ?? "info", 16)),
-    el("div", { class: "toast-body" }, el("div", { class: "toast-text" }, t.by ? el("b", {}, authorName(t.by)) : null, t.by ? ` ${t.text}` : t.text), t.detail ? el("div", { class: "toast-detail" }, t.detail) : null),
-    button,
-  );
-  button?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    t.action!();
-    node.remove();
-  });
-  $("#toasts").append(node);
-  const life = t.sticky ? 12_000 : 4200;
-  setTimeout(() => node.classList.add("is-leaving"), life);
-  setTimeout(() => node.remove(), life + 400);
 }
 
 // ------------------------------------------------------------------ vim + keyboard
@@ -1834,9 +1885,12 @@ window.addEventListener(
   "keydown",
   (e) => {
     const mod = e.metaKey || e.ctrlKey;
-    if (mod && (e.key === "k" || e.key === "p")) {
+    const quickOpen = matchKeys(e, "Mod-p") || matchKeys(e, "Mod-k");
+    if (quickOpen || matchKeys(e, "Mod-Shift-p")) {
       e.preventDefault();
-      palette.isOpen ? palette.close() : openPalette();
+      paletteToSide = false;
+      if (quickOpen && !palette.isOpen) did("search");
+      palette.toggle(quickOpen ? "" : ">");
     } else if (mod && !e.altKey && e.key === "\\") {
       e.preventDefault();
       togglePanel();
@@ -1852,12 +1906,12 @@ window.addEventListener(
     } else if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
       e.preventDefault();
       void showNotes({ filter: true });
-    } else if (mod && e.altKey && (e.code === "Backslash" || e.key === "\\")) {
+    } else if (matchKeys(e, "Mod-Alt-\\")) {
       e.preventDefault();
       void (split ? closePane(active) : openSplit());
-    } else if (mod && e.altKey && (e.code === "BracketLeft" || e.code === "BracketRight") && split) {
+    } else if ((matchKeys(e, "Mod-Alt-[") || matchKeys(e, "Mod-Alt-]")) && split) {
       e.preventDefault();
-      const p = panes[e.code === "BracketLeft" ? 0 : 1];
+      const p = panes[matchKeys(e, "Mod-Alt-[") ? 0 : 1];
       focusPane(p);
       if (p.session && p.session.kind !== "asset") p.view.focus();
     } else if (isQuickAddKey(e) || (e.key === "q" && !mod && !e.altKey && !typingIn(e.target))) {
@@ -1865,6 +1919,9 @@ window.addEventListener(
       e.preventDefault();
       e.stopPropagation(); // not the editor's (or Vim's) key as well
       quickAdd();
+    } else if (e.key === "?" && !mod && !e.altKey && !typingIn(e.target)) {
+      e.preventDefault();
+      toggleShortcuts(commands(), { vim: prefs.vim });
     } else if (mod && e.key === "e" && active.session?.kind === "html") {
       e.preventDefault();
       setHtmlMode(prefs.htmlMode === "preview" ? "source" : "preview");
@@ -1883,12 +1940,6 @@ function quickAdd() {
   });
 }
 
-/** Whether a key pressed here is someone typing: a field, a text area, or the editor. */
-function typingIn(target: EventTarget | null): boolean {
-  const t = target as HTMLElement | null;
-  return !!t?.closest?.("input, textarea, select, [contenteditable]:not([contenteditable=false]), .cm-editor");
-}
-
 const narrow = matchMedia("(max-width: 1100px)");
 function togglePanel(force?: boolean) {
   if (narrow.matches && force === undefined) {
@@ -1898,6 +1949,14 @@ function togglePanel(force?: boolean) {
   prefs.panel = force ?? !prefs.panel;
   store.set("panel", prefs.panel);
   document.body.classList.toggle("panel-closed", !prefs.panel);
+}
+
+function toggleVim() {
+  prefs.vim = !prefs.vim;
+  store.set("vim", prefs.vim);
+  for (const p of panes) p.view.dispatch({ effects: vimSlot.reconfigure(prefs.vim ? vim() : []) });
+  attachVim();
+  active.view.focus();
 }
 
 function toggleTheme() {
@@ -2070,10 +2129,13 @@ async function boot() {
     viewer = ws.role === "viewer";
     useWorkspace(`/api/w/${ws.id}`, `/api/w/${ws.id}/live`);
     setSelfName(who.me.user.name);
-    renderAccount(who.me, ws, (t) => toast(t));
+    account = renderAccount(who.me, ws, (t) => toast(t));
   }
 
   hydrateIcons();
+  setupMobileNav();
+  void learnLayout();
+  window.addEventListener("focus", () => void learnLayout()); // the layout may have changed while away
   togglePanel(prefs.panel);
   $("#search-btn").addEventListener("click", () => openPalette());
   // A new note goes at the top level, unless Notes is showing a folder: then it goes there.
@@ -2082,13 +2144,8 @@ async function boot() {
   setupPanes();
   $("#stage").addEventListener("mousedown", () => document.body.classList.remove("panel-overlay"));
   $("#theme-toggle").addEventListener("click", toggleTheme);
-  $("#vim-toggle").addEventListener("click", () => {
-    prefs.vim = !prefs.vim;
-    store.set("vim", prefs.vim);
-    for (const p of panes) p.view.dispatch({ effects: vimSlot.reconfigure(prefs.vim ? vim() : []) });
-    attachVim();
-    active.view.focus();
-  });
+  $("#vim-toggle").addEventListener("click", toggleVim);
+  attachVim(); // the toggle's label, before any note opens
   $("#html-toggle").addEventListener("click", (e) => {
     const mode = (e.target as HTMLElement).closest("button")?.dataset.mode as "preview" | "source" | undefined;
     if (mode) setHtmlMode(mode);
@@ -2123,7 +2180,7 @@ async function boot() {
       text: `${t.label || "Timer"} is done`,
       detail: t.note ? displayName(t.note) : undefined,
       action: t.note && t.note !== active.session?.path ? () => openNote(t.note!) : undefined,
-      sticky: true,
+      alert: true,
     }),
   );
   setInterval(() => {
@@ -2145,6 +2202,7 @@ async function boot() {
     $("#conn").title = up ? "Live: watching the vault for agent edits" : "Reconnecting…";
     if (up) refreshNotesSoon();
   });
+  if (!viewer) void startGuide({ archive: (path) => void archivePath(path), flush: () => flushSave() });
 
   void refreshTaskCount();
   // Home is the notes list; a note's URL (or the tasks, history or assets page) opens that instead.
