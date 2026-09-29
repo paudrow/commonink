@@ -12,6 +12,8 @@ const app = (over: Partial<App> = {}): App => {
   return {
     note: null,
     vim: false,
+    vimDisplayLines: false,
+    lineNumbers: false,
     split: false,
     focusMode: false,
     htmlMode: "preview",
@@ -24,6 +26,8 @@ const app = (over: Partial<App> = {}): App => {
     quickAdd: run("quickAdd"),
     toggleTheme: run("toggleTheme"),
     toggleVim: run("toggleVim"),
+    toggleVimDisplayLines: run("toggleVimDisplayLines"),
+    toggleLineNumbers: run("toggleLineNumbers"),
     togglePanel: run("togglePanel"),
     toggleFocus: run("toggleFocus"),
     toggleSplit: run("toggleSplit"),
@@ -87,8 +91,13 @@ test("commands match fuzzily, by name or by what they're about, and none alone l
 });
 
 test("commands follow the app: vim's state, the open note, Getting started, and the account menu", () => {
-  assert.deepEqual(titles("vim", app({ vim: true })), ["Turn vim keys off"]);
+  assert.deepEqual(titles("vim", app({ vim: true })), ["Vim: j and k move by line on screen (gj, gk)", "Turn vim keys off"]);
   assert.deepEqual(titles("vim", app({ vim: false })), ["Turn vim keys on"]);
+  assert.deepEqual(titles("gj", app({ vim: true })), ["Vim: j and k move by line on screen (gj, gk)"]);
+  assert.deepEqual(titles("gj", app({ vim: true, vimDisplayLines: true })), ["Vim: j and k move by line in the file"]);
+  assert.deepEqual(titles("gj", app({ vim: false })), []);
+  assert.deepEqual(titles("line numbers", app()).slice(0, 1), ["Show line numbers"]);
+  assert.deepEqual(titles("line numbers", app({ lineNumbers: true })).slice(0, 1), ["Hide line numbers"]);
   assert.deepEqual(titles("star", app()), []);
   assert.deepEqual(titles("star", app({ note: { kind: "md", starred: true, archived: false } })), ["Unstar note"]);
   assert.deepEqual(titles("html", app({ note: { kind: "html", starred: false, archived: false }, htmlMode: "preview" })), ["Show HTML source"]);

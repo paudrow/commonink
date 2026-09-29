@@ -6,7 +6,7 @@ import { getCM, vim, Vim } from "@replit/codemirror-vim";
 import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type Scope, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
 import { normalizeTag } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setSelfName, timeAgo, type LinkDrag } from "./dom.ts";
-import { createState, openLinkToSide, remote, vimSlot } from "./editor/setup.ts";
+import { createState, lineNumbersFor, lineNumbersSlot, openLinkToSide, remote, setVimDisplayLines, vimSlot } from "./editor/setup.ts";
 import { linkTargetAt } from "./editor/linkAt.ts";
 import { bumpEmbeds, editorContext } from "./editor/blocks.ts";
 import { clearFlash, flashChanges } from "./editor/agentFlash.ts";
@@ -95,6 +95,9 @@ try {
 
 const prefs = {
   vim: store.get("vim", !matchMedia("(pointer: coarse)").matches), // off on a touch screen: an on-screen keyboard has no Esc
+  /** In vim, j and k move by the line on screen (gj, gk), not the line in the file. */
+  vimDisplayLines: store.get("vimDisplayLines", false),
+  lineNumbers: store.get("lineNumbers", false),
   panel: store.get("panel", true),
   htmlMode: store.get<"preview" | "source">("htmlMode", "preview"),
   /** Folders whose subfolders are showing in the sidebar (they start closed). */
@@ -204,6 +207,8 @@ function commands() {
   return appCommands({
     note: s ? { kind: s.kind, starred: isStarred(s.id), archived: isArchived(s.path) } : null,
     vim: prefs.vim,
+    vimDisplayLines: prefs.vimDisplayLines,
+    lineNumbers: prefs.lineNumbers,
     split,
     focusMode,
     htmlMode: prefs.htmlMode,
@@ -219,6 +224,8 @@ function commands() {
     quickAdd,
     toggleTheme,
     toggleVim,
+    toggleVimDisplayLines,
+    toggleLineNumbers,
     togglePanel: () => togglePanel(),
     toggleFocus: () => void setFocusMode(!focusMode),
     toggleSplit: () => void (split ? closePane(active) : openSplit()),
@@ -290,6 +297,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
         doc: note.content,
         kind: note.kind === "html" ? "html" : "md",
         vim: prefs.vim,
+        lineNumbers: prefs.lineNumbers,
         readOnly: viewer,
         context: {
           path: note.path,
@@ -1868,6 +1876,7 @@ Vim.mapCommand("gd", "action", "quireFollowLink", {}, { context: "normal" });
 Vim.mapCommand("gf", "action", "quireFollowLink", {}, { context: "normal" });
 Vim.defineAction("quireOpenSide", () => openLinkToSide(active.view));
 Vim.mapCommand("gs", "action", "quireOpenSide", {}, { context: "normal" });
+setVimDisplayLines(prefs.vimDisplayLines);
 
 function followLinkAtCursor() {
   const link = linkTargetAt(active.view.state, active.view.state.selection.main.head);
@@ -1958,6 +1967,18 @@ function toggleVim() {
   for (const p of panes) p.view.dispatch({ effects: vimSlot.reconfigure(prefs.vim ? vim() : []) });
   attachVim();
   active.view.focus();
+}
+
+function toggleVimDisplayLines() {
+  prefs.vimDisplayLines = !prefs.vimDisplayLines;
+  store.set("vimDisplayLines", prefs.vimDisplayLines);
+  setVimDisplayLines(prefs.vimDisplayLines);
+}
+
+function toggleLineNumbers() {
+  prefs.lineNumbers = !prefs.lineNumbers;
+  store.set("lineNumbers", prefs.lineNumbers);
+  for (const p of panes) p.view.dispatch({ effects: lineNumbersSlot.reconfigure(lineNumbersFor(prefs.lineNumbers)) });
 }
 
 function toggleTheme() {

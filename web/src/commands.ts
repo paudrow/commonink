@@ -35,6 +35,9 @@ export interface App {
   /** The note in the focused pane. */
   note: { kind: "md" | "html" | "asset"; starred: boolean; archived: boolean } | null;
   vim: boolean;
+  /** In vim, j and k move by the line on screen. */
+  vimDisplayLines: boolean;
+  lineNumbers: boolean;
   split: boolean;
   focusMode: boolean;
   htmlMode: "preview" | "source";
@@ -49,6 +52,8 @@ export interface App {
   quickAdd(): void;
   toggleTheme(): void;
   toggleVim(): void;
+  toggleVimDisplayLines(): void;
+  toggleLineNumbers(): void;
   togglePanel(): void;
   toggleFocus(): void;
   toggleSplit(): void;
@@ -78,6 +83,15 @@ export function appCommands(app: App): Command[] {
     go("archive", "Archive", "archive", "archived"),
     { id: "theme", title: "Toggle theme", keywords: "dark light mode appearance colors", icon: "moon", run: app.toggleTheme },
     { id: "vim", title: app.vim ? "Turn vim keys off" : "Turn vim keys on", keywords: "vim keybindings modal editing toggle", icon: "code", run: app.toggleVim },
+    {
+      id: "vim-display-lines",
+      title: app.vimDisplayLines ? "Vim: j and k move by line in the file" : "Vim: j and k move by line on screen (gj, gk)",
+      keywords: "vim gj gk wrap wrapped visual display screen lines jk movement",
+      icon: "code",
+      available: app.vim,
+      run: app.toggleVimDisplayLines,
+    },
+    { id: "line-numbers", title: app.lineNumbers ? "Hide line numbers" : "Show line numbers", keywords: "line numbers gutter nu number", icon: "list", run: app.toggleLineNumbers },
     { id: "panel", title: "Toggle side panel", keywords: "outline backlinks activity sidebar", icon: "panel", keys: ["Mod-\\"], run: app.togglePanel },
     { id: "focus", title: app.focusMode ? "Leave focus mode" : "Focus mode", keywords: "zen full screen distraction", icon: app.focusMode ? "unfocus" : "focus", keys: ["Mod-Shift-Enter"], available: text || app.focusMode, run: app.toggleFocus },
     { id: "split", title: app.split ? "Close this pane" : "Open to the side", keywords: "split view pane side by side", icon: "split", keys: ["Mod-Alt-\\"], area: "Split view", run: app.toggleSplit },
