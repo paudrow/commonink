@@ -16,8 +16,8 @@ These notes belong to a person. You are a guest editor.
 - Your changes show in History as yours, "<your name> for you". With the `quire` CLI, set `QUIRE_AGENT=<your name>` (or pass `--agent <your name>`) so they do; without it they look like the person's own.
 - When you do something worth remembering, add a line to today's journal under `## Log`: `- HH:MM — what you did ([[Note]])`.
 - HTML notes are self-contained: inline CSS and JS only.
-- Widgets are single lines. Leave any `id=` value as it is.
-  - `::tasks{folder=Projects}`, `::tasks{note="Quire roadmap"}` or `::tasks{tag=work assignee=jane due<=today}`: live checklist of tasks from those notes. Add tasks to the notes themselves (`- [ ] …`); the widget collects them.
+- Widgets are single lines. Leave any `id=` value, and any `<!-- guide:… -->` marker at the end of a task, as it is.
+  - `::tasks{folder=Projects}`, `::tasks{note="Common Ink roadmap"}` or `::tasks{tag=work assignee=jane due<=today}`: live checklist of tasks from those notes. Add tasks to the notes themselves (`- [ ] …`); the widget collects them.
   - `::query{folder=Projects tag=meeting q="words" limit=5}`: live list of matching notes.
   - `::today` is the day at a glance: overdue, due today, starting today, and today's journal note. `get_today` gives agents the same.
   - `::calendar{folder=Journal}`: month of daily notes.

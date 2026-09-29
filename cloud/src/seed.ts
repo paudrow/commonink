@@ -1,11 +1,13 @@
 // What a brand-new workspace starts with.
-import welcome from "../seed/Welcome.md";
+import start from "../seed/Getting started.md";
+import tips from "../seed/Tips.md";
 import agents from "../seed/AGENTS.md";
 import overview from "../seed/Dashboards/Overview.md";
 import margin from "../seed/assets/margin.svg";
 
 export const SEED_NOTES: Record<string, string> = {
-  "Welcome.md": welcome,
+  "Getting started.md": start,
+  "Tips.md": tips,
   "AGENTS.md": agents,
   "Dashboards/Overview.md": overview,
 };
