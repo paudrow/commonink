@@ -7,6 +7,7 @@ These notes belong to a person. You are a guest editor.
 - Link related notes with `[[Note name]]`; embed with `![[Note name]]` or `![[Note name#Heading]]`.
 - Embed a CSV, JSON or text file the same way (`![[signups.csv]]`): it shows as a table (CSV) or formatted text in the note.
 - Make small, targeted edits (`edit_note` / `quire edit`) and keep the user's words intact; change their text only when they ask.
+- Your changes show in History as yours, "<your name> for you". With the `quire` CLI, set `QUIRE_AGENT=<your name>` (or pass `--agent <your name>`) so they do; without it they look like the person's own.
 - When you do something worth remembering, add a line to today's journal under `## Log`: `- HH:MM — what you did ([[Note]])`.
 - HTML notes are self-contained: inline CSS and JS only.
 - Widgets are single lines. Leave any `id=` value as it is.
