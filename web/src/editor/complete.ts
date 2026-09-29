@@ -11,6 +11,7 @@ import { newId, serializeDirective } from "../widgets/args.ts";
 import { pendingConfig, WIDGETS } from "../widgets/index.ts";
 import { editorContext } from "./blocks.ts";
 import { NEW_BOARD } from "../../../src/core/kanban.ts";
+import { wrapInDetails } from "../../../src/core/details.ts";
 import { taskPeople } from "../taskChipEditors.ts";
 import { taskTokenSource } from "./taskComplete.ts";
 import { inTaskText } from "./taskEdit.ts";
@@ -266,6 +267,14 @@ const TOOLS: Tool[] = [
   widgetTool("calendar", "calendar journal daily month diary"),
   widgetTool("timer", "timer countdown pomodoro alarm"),
   widgetTool("stopwatch", "stopwatch count up laps"),
+  {
+    title: "Collapsible section",
+    hint: "<details> · ⌘⌥S wraps a selection",
+    icon: "chevron",
+    keywords: "collapsible section details summary fold spoiler toggle accordion",
+    section: "Blocks",
+    run: (v, f, t) => insert(v, f, t, wrapInDetails(""), { cursor: "<details>\n<summary>".length, select: "Details".length, block: true }),
+  },
   { title: "Kanban board", hint: "Columns of cards", icon: "kanban", keywords: "kanban board columns cards pipeline trello", section: "Widgets", run: (v, f, t) => insert(v, f, t, NEW_BOARD, { own: true }) },
   widgetTool("kanban", "kanban board embed another note", "Kanban from another note"),
   {

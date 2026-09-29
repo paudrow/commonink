@@ -7,6 +7,7 @@ import { normalizeTag } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setSelfName, timeAgo, type LinkDrag } from "./dom.ts";
 import { createState, openLinkToSide, remote, vimSlot } from "./editor/setup.ts";
 import { linkTargetAt } from "./editor/linkAt.ts";
+import { foldAll, foldAt } from "./editor/details.ts";
 import { bumpEmbeds, editorContext } from "./editor/blocks.ts";
 import { clearFlash, flashChanges } from "./editor/agentFlash.ts";
 import { editsBetween, merge3 } from "./merge.ts";
@@ -1815,6 +1816,11 @@ Vim.mapCommand("gd", "action", "quireFollowLink", {}, { context: "normal" });
 Vim.mapCommand("gf", "action", "quireFollowLink", {}, { context: "normal" });
 Vim.defineAction("quireOpenSide", () => openLinkToSide(active.view));
 Vim.mapCommand("gs", "action", "quireOpenSide", {}, { context: "normal" });
+// Collapsible sections: za toggles the one under the cursor, zo/zc open and close it, zR/zM all of them.
+for (const [keys, run] of [["za", foldAt("toggle")], ["zo", foldAt("open")], ["zc", foldAt("close")], ["zR", foldAll(true)], ["zM", foldAll(false)]] as const) {
+  Vim.defineAction(`quireFold${keys}`, () => run(active.view));
+  Vim.mapCommand(keys, "action", `quireFold${keys}`, {}, { context: "normal" });
+}
 
 function followLinkAtCursor() {
   const link = linkTargetAt(active.view.state, active.view.state.selection.main.head);
@@ -1834,7 +1840,7 @@ window.addEventListener(
     } else if (mod && !e.altKey && e.key === "\\") {
       e.preventDefault();
       togglePanel();
-    } else if (mod && e.key === "s") {
+    } else if (mod && !e.altKey && e.key === "s") {
       e.preventDefault();
       flushSave();
     } else if (mod && e.shiftKey && e.key.toLowerCase() === "e") {

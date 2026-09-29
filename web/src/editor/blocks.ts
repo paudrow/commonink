@@ -21,6 +21,7 @@ import type { BoardHost, mountBoard } from "../kanban.ts";
 import { editsBetween } from "../merge.ts";
 import { redo, undo } from "@codemirror/commands";
 import { safeDecode } from "../../../src/core/uri.ts";
+import { foldDecorations, setFold } from "./details.ts";
 
 export interface EditorContext {
   path: string;
@@ -624,14 +625,15 @@ function buildBlocks(state: EditorState): DecorationSet {
   const doc = state.doc;
   const out: Range<Decoration>[] = [];
 
-  // Boards drawn in place of their block; nothing inside one renders on its own.
+  // Closed sections and boards drawn in place of their block; nothing inside one renders on its own.
   const drawn: Array<{ from: number; to: number }> = [];
   const text = doc.toString();
+  foldDecorations(state, text, out, drawn);
   if (text.includes(":::kanban")) {
     boardsIn(text).forEach((b, i) => {
       const first = doc.line(b.from + 1);
       const last = doc.line(b.close + 1);
-      if (touches(state, first.from, last.to)) return;
+      if (touches(state, first.from, last.to) || drawn.some((r) => first.from >= r.from && first.from <= r.to)) return;
       drawn.push({ from: first.from, to: last.to });
       out.push(Decoration.replace({ block: true, widget: new BoardWidget(doc.sliceString(first.from, last.to), i, first.text.trim()) }).range(first.from, last.to));
     });
@@ -730,7 +732,7 @@ export const blockWidgets = StateField.define<DecorationSet>({
     if (
       tr.docChanged ||
       tr.selection ||
-      tr.effects.some((e) => e.is(refreshEmbeds)) ||
+      tr.effects.some((e) => e.is(refreshEmbeds) || e.is(setFold)) ||
       syntaxTree(tr.startState) !== syntaxTree(tr.state)
     ) {
       return buildBlocks(tr.state);
@@ -758,7 +760,7 @@ export const stepIntoBlocks = EditorState.transactionFilter.of((tr) => {
   let hidden = 0;
   let target: number | null = null;
   deco.between(doc.line(lo).to, doc.line(hi).from, (from, to, d) => {
-    if (!d.spec.block || from === to) return;
+    if (!d.spec.block || from === to || d.spec.fold) return; // a closed section is stepped over, not into
     const first = doc.lineAt(from).number;
     const last = doc.lineAt(to).number;
     if (first <= lo || last >= hi) return;

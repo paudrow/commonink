@@ -22,4 +22,5 @@ These notes belong to people. You are a guest editor.
   - `::kanban{note="Launch"}` shows the Kanban board in another note.
 - Kanban boards are a block in a note, with ordinary text around it: a `:::kanban` line, `## Column` headings with `- [ ] card` lines under them, and a closing `:::`. Cards are tasks (same tokens), a card can be just a `[[Note]]` link, and lines indented under a card are its details. Moving a card into the column named `Done` ticks it. A column can have a colour after its name: `## Doing {color=blue}`. Use `read_board`, then `add_card`, `move_card` and `edit_card`.
 - Diagrams: a ```mermaid code block renders as a diagram.
+- Collapsible sections: `<details>`, a `<summary>Title</summary>` line, a blank line, any markdown, a blank line, then `</details>`. Use them for long transcripts, logs and reference material. `<details open>` starts open. Opening and closing one in the app doesn't change the note, so leave the tags as they are.
 - Archive notes that are done when asked to tidy up; they move under `Archive/` and keep their links.

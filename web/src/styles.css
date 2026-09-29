@@ -1957,3 +1957,15 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .cm-side-btn:hover { color: var(--accent-ink); border-color: var(--accent-line); }
 .cm-side-btn[hidden] { display: none; }
 body.is-link-dragging, body.is-link-dragging * { cursor: grabbing !important; user-select: none; }
+
+/* ------------------------------------------------------------------ collapsible sections (<details>) */
+.cm-details-head { display: flex; align-items: center; gap: 4px; margin-left: -26px; padding: 2px 0; font-weight: 600; color: var(--ink-strong); }
+.cm-details-toggle { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 5px; color: var(--muted); }
+.cm-details-toggle svg { transition: transform 0.12s; }
+.cm-details-head.is-open .cm-details-toggle svg { transform: rotate(90deg); }
+.cm-details-toggle:hover { background: var(--hover); color: var(--ink-strong); }
+.cm-details-summary { cursor: text; }
+.cm-details-body { display: block; margin: 0 0 4px; padding: 1px 8px; border-radius: 6px; font: 12px/1.6 var(--ui); color: var(--muted); background: var(--hover); cursor: pointer; }
+.cm-details-end { height: 8px; width: 18px; margin-left: -15px; border-left: 2px solid var(--line-strong); border-bottom: 2px solid var(--line-strong); border-bottom-left-radius: 6px; }
+details > summary { cursor: pointer; font-weight: 600; }
+details { margin: 0.4em 0; }
