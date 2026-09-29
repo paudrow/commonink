@@ -41,17 +41,17 @@
         <nav id="favorites" aria-label="Favorites"></nav>
         <div class="tree-head" data-section="smart">
           <button class="section-toggle" type="button" aria-expanded="true" aria-controls="smart-folders"><span class="ico" data-icon="chevron" data-size="12"></span><span>Smart folders</span></button>
-          <button id="new-smart-folder" class="icon-btn small" type="button" title="New smart folder"><span class="ico" data-icon="plus" data-size="15"></span></button>
+          <button id="new-smart-folder" class="icon-btn small" type="button" title="New smart folder" aria-label="New smart folder"><span class="ico" data-icon="plus" data-size="15"></span></button>
         </div>
         <nav id="smart-folders" aria-label="Smart folders"></nav>
         <div class="tree-head" data-section="folders">
           <button class="section-toggle" type="button" aria-expanded="true" aria-controls="tree"><span class="ico" data-icon="chevron" data-size="12"></span><span>Folders</span></button>
-          <button id="new-folder" class="icon-btn small" type="button" title="New folder"><span class="ico" data-icon="folderPlus" data-size="15"></span></button>
+          <button id="new-folder" class="icon-btn small" type="button" title="New folder" aria-label="New folder"><span class="ico" data-icon="folderPlus" data-size="15"></span></button>
         </div>
         <nav id="tree" aria-label="Folders"></nav>
         <div class="tree-head" data-section="tags">
           <button class="section-toggle" type="button" aria-expanded="true" aria-controls="tag-tree"><span class="ico" data-icon="chevron" data-size="12"></span><span>Tags</span></button>
-          <button id="tags-page-btn" class="icon-btn small" type="button" title="Rename and merge tags"><span class="ico" data-icon="sliders" data-size="15"></span></button>
+          <button id="tags-page-btn" class="icon-btn small" type="button" title="Rename and merge tags" aria-label="Rename and merge tags"><span class="ico" data-icon="sliders" data-size="15"></span></button>
         </div>
         <nav id="tag-tree" aria-label="Tags"></nav>
         </div>
@@ -68,16 +68,16 @@
           <div class="spacer"></div>
           <div id="agents" title="Agents active in the last 15 minutes"></div>
           <div id="save-status" aria-live="polite"></div>
-          <div id="html-toggle" class="seg" hidden>
+          <div id="html-toggle" class="seg" role="group" aria-label="Show as" hidden>
             <button data-mode="preview" type="button">Preview</button><button data-mode="source" type="button">Source</button>
           </div>
-          <button id="star-btn" class="icon-btn" type="button" title="Star (add to Favorites)"><span class="ico" data-icon="star"></span></button>
-          <button id="note-history-btn" class="icon-btn" type="button" title="History of this note"><span class="ico" data-icon="history"></span></button>
-          <button id="move-btn" class="icon-btn" type="button" title="Move to folder"><span class="ico" data-icon="move"></span></button>
-          <button id="archive-btn" class="icon-btn" type="button" title="Archive note (⌘⇧E)"><span class="ico" data-icon="archive"></span></button>
-          <button id="split-btn" class="icon-btn" type="button" title="Split view (⌘⌥\)"><span class="ico" data-icon="split"></span></button>
-          <button id="focus-btn" class="icon-btn" type="button" title="Focus mode (⌘⇧↵)"><span class="ico" data-icon="focus"></span></button>
-          <button id="panel-btn" class="icon-btn" type="button" title="Toggle side panel (⌘\)"><span class="ico" data-icon="panel"></span></button>
+          <button id="star-btn" class="icon-btn" type="button" title="Star (add to Favorites)" aria-label="Star (add to Favorites)"><span class="ico" data-icon="star"></span></button>
+          <button id="note-history-btn" class="icon-btn" type="button" title="History of this note" aria-label="History of this note"><span class="ico" data-icon="history"></span></button>
+          <button id="move-btn" class="icon-btn" type="button" title="Move to folder" aria-label="Move to folder"><span class="ico" data-icon="move"></span></button>
+          <button id="archive-btn" class="icon-btn" type="button" title="Archive note (⌘⇧E)" aria-label="Archive note (⌘⇧E)"><span class="ico" data-icon="archive"></span></button>
+          <button id="split-btn" class="icon-btn" type="button" title="Split view (⌘⌥\)" aria-label="Split view (⌘⌥\)"><span class="ico" data-icon="split"></span></button>
+          <button id="focus-btn" class="icon-btn" type="button" title="Focus mode (⌘⇧↵)" aria-label="Focus mode (⌘⇧↵)"><span class="ico" data-icon="focus"></span></button>
+          <button id="panel-btn" class="icon-btn" type="button" title="Toggle side panel (⌘\)" aria-label="Toggle side panel (⌘\)"><span class="ico" data-icon="panel"></span></button>
         </header>
         <div id="banner" hidden></div>
         <div id="stage">
@@ -104,7 +104,7 @@
           <span class="spacer"></span>
           <span id="conn" class="conn"></span>
           <button id="vim-toggle" class="chip-btn" type="button" title="Toggle vim keybindings">vim</button>
-          <button id="theme-toggle" class="icon-btn small" type="button" title="Toggle theme"><span class="ico" data-icon="moon"></span></button>
+          <button id="theme-toggle" class="icon-btn small" type="button" title="Toggle theme" aria-label="Toggle theme"><span class="ico" data-icon="moon"></span></button>
         </footer>
       </main>
 

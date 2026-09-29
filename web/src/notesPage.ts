@@ -65,8 +65,8 @@ export class NotesPage {
 
   constructor(private hooks: Hooks) {
     this.input = el("input", { placeholder: "Filter notes…", spellcheck: "false", autocomplete: "off" });
-    this.scopeBar = el("div", { class: "seg feed-scope" });
-    this.folderBar = el("div", { class: "feed-folders" });
+    this.scopeBar = el("div", { class: "seg feed-scope", role: "group", "aria-label": "Which notes" });
+    this.folderBar = el("div", { class: "feed-folders", role: "group", "aria-label": "Folder" });
     this.tagBar = el("div", { class: "feed-folders" });
     this.sortSel = el("select", { class: "qt-select feed-sort", "aria-label": "Sort" }, el("option", { value: "modified" }, "Newest"), el("option", { value: "title" }, "By title"));
     this.sortSel.addEventListener("change", () => ((this.sort = this.sortSel.value as "modified" | "title"), (this.focus = 0), this.reload()));
@@ -194,7 +194,7 @@ export class NotesPage {
       ...scopes.map(([s, label, n]) =>
         el(
           "button",
-          { type: "button", class: s === this.scope ? "is-on" : "", onclick: () => ((this.scope = s), (this.focus = 0), this.reload()) },
+          { type: "button", class: s === this.scope ? "is-on" : "", "aria-pressed": String(s === this.scope), onclick: () => ((this.scope = s), (this.focus = 0), this.reload()) },
           label,
           n !== null ? el("span", { class: "n" }, String(n)) : null,
         ),
@@ -203,7 +203,7 @@ export class NotesPage {
     this.folderBar.replaceChildren(
       // A subfolder picked in the sidebar gets a chip too, so it shows as the filter in use.
       ...["", ...page.folders, ...(this.folder && !page.folders.includes(this.folder) ? [this.folder] : [])].map((f) =>
-        el("button", { type: "button", class: `chip${f === this.folder ? " is-on" : ""}`, onclick: () => ((this.folder = f), (this.focus = 0), this.reload()) }, f || "All folders"),
+        el("button", { type: "button", class: `chip${f === this.folder ? " is-on" : ""}`, "aria-pressed": String(f === this.folder), onclick: () => ((this.folder = f), (this.focus = 0), this.reload()) }, f || "All folders"),
       ),
     );
     this.tagBar.replaceChildren(tagFilter({ current: this.tag, tags: this.hooks.tags, count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }), this.tag ? this.hooks.starButton(this.tag) : "");
@@ -256,7 +256,7 @@ export class NotesPage {
       e.stopPropagation();
       this.hooks.open(item.path);
     });
-    const check = el("button", { type: "button", class: "fc-check", title: "Select (x)" }, icon("check", 12));
+    const check = el("button", { type: "button", class: "fc-check", title: "Select (x)", "aria-pressed": String(this.selected.has(item.path)) }, icon("check", 12));
     check.addEventListener("click", (e) => {
       e.stopPropagation();
       this.toggle(item.path);

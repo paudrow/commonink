@@ -4,7 +4,7 @@ import type { EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
 import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type Scope, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
 import { normalizeTag } from "../../src/core/tags.ts";
-import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setSelfName, timeAgo, type LinkDrag } from "./dom.ts";
+import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, type LinkDrag } from "./dom.ts";
 import { createState, openLinkToSide, remote, vimSlot } from "./editor/setup.ts";
 import { linkTargetAt } from "./editor/linkAt.ts";
 import { bumpEmbeds, editorContext } from "./editor/blocks.ts";
@@ -543,7 +543,7 @@ async function setFocusMode(on: boolean) {
   focusMode = on;
   document.body.classList.toggle("is-focus", on);
   $("#focus-btn").replaceChildren(icon(on ? "unfocus" : "focus", 16));
-  $("#focus-btn").title = on ? "Leave focus mode (⌘⇧↵)" : "Focus mode (⌘⇧↵)";
+  setLabel($("#focus-btn"), on ? "Leave focus mode (⌘⇧↵)" : "Focus mode (⌘⇧↵)");
   const keyboard = (navigator as any).keyboard;
   try {
     if (on && !document.fullscreenElement) {
@@ -1020,6 +1020,7 @@ function renderSmartFolders(active: string | null) {
       "div",
       {
         class: `tree-row is-file${f.query === active ? " is-active" : ""}`,
+        "aria-current": f.query === active && "page",
         style: { "--depth": "0" },
         title: `${f.query || "Every note"}${f.shared ? "" : " (just you)"}`,
         ...opens(() => void showNotes({ scope: "active", query: parseQuery(f.query) })),
@@ -1045,6 +1046,7 @@ function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
     "div",
     {
       class: `tree-row is-tag${active ? " is-active" : ""}`,
+      "aria-current": active && "page",
       style: { "--depth": "0" },
       title: `Notes tagged #${f.display}`,
       draggable: "true",
@@ -1079,6 +1081,7 @@ function renderFavorites() {
       "div",
       {
         class: `tree-row is-file${f.path === active.session?.path ? " is-active" : ""}`,
+        "aria-current": f.path === active.session?.path && "page",
         style: { "--depth": "0" },
         title: f.path,
         draggable: "true",
@@ -1198,13 +1201,14 @@ function renderTree() {
   $("#archive-count").textContent = archivedCount ? String(archivedCount) : "";
   const assetCount = notes.filter((n) => n.kind === "asset" && !isArchived(n.path)).length;
   $("#assets-count").textContent = assetCount ? String(assetCount) : "";
-  $("#notes-btn").classList.toggle("is-active", showing === "");
+  setCurrent($("#notes-btn"), showing === "");
   const shownTag = showing === null ? "" : (parseQuery(showing).tag ?? "");
   renderTagTree(shownTag && showing === formatQuery({ tag: shownTag }) ? shownTag.toLowerCase() : ""); // a tag alone, like a folder alone
-  $("#tasks-btn").classList.toggle("is-active", page === "tasks");
-  $("#history-btn").classList.toggle("is-active", page === "history" && !historyPage?.noteFilter);
-  $("#assets-btn").classList.toggle("is-active", page === "assets");
-  $("#tags-page-btn").classList.toggle("is-on", page === "tags");
+  setCurrent($("#tasks-btn"), page === "tasks");
+  setCurrent($("#history-btn"), page === "history" && !historyPage?.noteFilter);
+  setCurrent($("#assets-btn"), page === "assets");
+  setCurrent($("#archive-nav"), page === "notes" && notesPage.scope === "archived");
+  setCurrent($("#tags-page-btn"), page === "tags", "is-on");
 
   const empty = emptyFolders();
   for (const f of [...empty]) if (notes.some((n) => n.path.startsWith(`${f}/`))) empty.delete(f); // it has notes now: it's a real folder
@@ -1230,6 +1234,7 @@ function renderTree() {
           "div",
           {
             class: `tree-row is-folder${open ? "" : " is-collapsed"}${showing === formatQuery({ folder: path }) ? " is-active" : ""}`,
+            "aria-current": showing === formatQuery({ folder: path }) && "page",
             style: { "--depth": String(depth) },
             "data-folder": path,
             title: n ? `Show the notes in ${path}` : `${path} is empty. Drag notes here.`,
@@ -1287,6 +1292,7 @@ function renderTagTree(active: string) {
           "div",
           {
             class: `tree-row is-tag${open ? "" : " is-collapsed"}${t.tag === active ? " is-active" : ""}`,
+            "aria-current": t.tag === active && "page",
             style: { "--depth": String(depth) },
             "data-tag": t.tag,
             title: `Notes tagged #${t.display}`,
@@ -1473,7 +1479,7 @@ function renderChrome() {
   $("#note-history-btn").hidden = !s || s.kind === "asset";
   $("#focus-btn").hidden = !s || s.kind === "asset";
   $("#split-btn").hidden = !split && (!s || s.kind === "asset");
-  $("#split-btn").title = split ? "Close the side pane (⌘⌥\\)" : "Split view (⌘⌥\\)";
+  setLabel($("#split-btn"), split ? "Close the side pane (⌘⌥\\)" : "Split view (⌘⌥\\)");
   $("#split-btn").classList.toggle("is-on", split);
   $("#save-status").hidden = !s;
   renderPaneBars();
@@ -1490,10 +1496,10 @@ function renderChrome() {
   }
   const starred = isStarred(s.id);
   $("#star-btn").classList.toggle("is-on", starred);
-  $("#star-btn").title = starred ? "Unstar (take out of Favorites)" : "Star (add to Favorites)";
+  setLabel($("#star-btn"), starred ? "Unstar (take out of Favorites)" : "Star (add to Favorites)");
   $("#star-btn").replaceChildren(icon(starred ? "starred" : "star", 16));
   const archived = isArchived(s.path);
-  $("#archive-btn").title = archived ? "Unarchive note (⌘⇧E)" : "Archive note (⌘⇧E)";
+  setLabel($("#archive-btn"), archived ? "Unarchive note (⌘⇧E)" : "Archive note (⌘⇧E)");
   $("#archive-btn").replaceChildren(icon(archived ? "unarchive" : "archive", 16));
   const parts = s.path.split("/");
   const file = parts.pop()!;
@@ -1506,7 +1512,7 @@ function renderChrome() {
   });
   crumbs.replaceChildren(...folderCrumbs, name);
   $("#html-toggle").hidden = s.kind !== "html";
-  $("#html-toggle").querySelectorAll("button").forEach((b) => b.classList.toggle("is-on", b.dataset.mode === prefs.htmlMode));
+  $("#html-toggle").querySelectorAll("button").forEach((b) => setPressed(b, b.dataset.mode === prefs.htmlMode));
   setSaveStatus("saved");
 }
 
@@ -1588,7 +1594,7 @@ const vimWatched = new WeakSet<object>();
 function attachVim() {
   const cm = getCM(active.view);
   const node = $("#vim-mode");
-  $("#vim-toggle").classList.toggle("is-on", prefs.vim);
+  setPressed($("#vim-toggle"), prefs.vim);
   if (!cm || !prefs.vim) {
     node.textContent = "";
     node.dataset.mode = "";
@@ -2076,6 +2082,7 @@ async function boot() {
   setupPanes();
   $("#stage").addEventListener("mousedown", () => document.body.classList.remove("panel-overlay"));
   $("#theme-toggle").addEventListener("click", toggleTheme);
+  setPressed($("#vim-toggle"), prefs.vim);
   $("#vim-toggle").addEventListener("click", () => {
     prefs.vim = !prefs.vim;
     store.set("vim", prefs.vim);

@@ -191,7 +191,7 @@ export class History {
   private renderList() {
     const items = this.visibleItems();
     const chip = (by: string, label: string, ico?: string) =>
-      el("button", { type: "button", class: `chip${this.by === by ? " is-on" : ""}`, onclick: () => void this.setBy(by) }, ico ? icon(ico, 12) : null, label);
+      el("button", { type: "button", class: `chip${this.by === by ? " is-on" : ""}`, "aria-pressed": String(this.by === by), onclick: () => void this.setBy(by) }, ico ? icon(ico, 12) : null, label);
     const agentPick = el(
       "select",
       { class: `hist-agent${this.agentNames.includes(this.by) ? " is-on" : ""}`, title: "One agent's changes", "aria-label": "One agent's changes", onchange: (e: Event) => void this.setBy((e.target as HTMLSelectElement).value) },
