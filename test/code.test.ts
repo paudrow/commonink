@@ -68,3 +68,29 @@ test("the code under the cursor is the block's lines without its fences or their
   assert.equal(codeAt(state, doc.indexOf("Intro")), null);
   assert.equal(codeAt(state, doc.lastIndexOf("```")), "");
 });
+
+test("the copy-block shortcut goes by the character typed, so Dvorak's c works where the US layout has i", async () => {
+  const { EditorState, EditorSelection } = await import("@codemirror/state");
+  const { EditorView } = await import("@codemirror/view");
+  const { ensureSyntaxTree } = await import("@codemirror/language");
+  const { markdownWithFrontmatter } = await import("../web/src/editor/language.ts");
+  const { copyCodeKey } = await import("../web/src/editor/blocks.ts");
+  const copied: string[] = [];
+  // What an EditorView needs that jsdom leaves out.
+  Object.assign(globalThis, { MutationObserver: window.MutationObserver });
+  Object.assign(window, { requestAnimationFrame: (f: () => void) => setTimeout(f), cancelAnimationFrame: clearTimeout });
+  Object.defineProperty(navigator, "clipboard", { value: { writeText: async (s: string) => void copied.push(s) }, configurable: true });
+  const doc = "```js\nconst a = 1;\n```\n";
+  const state = EditorState.create({ doc, selection: EditorSelection.cursor(doc.indexOf("const")), extensions: [markdownWithFrontmatter(), copyCodeKey] });
+  ensureSyntaxTree(state, doc.length, 5000);
+  const view = new EditorView({ state, parent: document.body });
+  // Off a Mac it's Ctrl+Shift. On Dvorak, "c" is the key at the US "i" (KeyI, keyCode 73), and the US "c" key types "j".
+  const press = (key: string, code: string, keyCode: number) =>
+    view.contentDOM.dispatchEvent(new window.KeyboardEvent("keydown", { key, code, keyCode, ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+  press("J", "KeyC", 67);
+  assert.deepEqual(copied, []);
+  press("C", "KeyI", 73);
+  await Promise.resolve();
+  assert.deepEqual(copied, ["const a = 1;"]);
+  view.destroy();
+});
