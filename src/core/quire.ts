@@ -908,8 +908,9 @@ export class Quire {
 
   /** The smart folders `user` sees (the workspace's shared ones and their own), in order, each with how many active notes match. */
   smartFolders(user: string): SmartFolder[] {
-    const all = this.feedRows();
-    return this.smartFolderRows(user).map((r) => this.counted(r, all));
+    const folders = this.smartFolderRows(user);
+    const all = folders.length ? this.feedRows() : [];
+    return folders.map((r) => this.counted(r, all));
   }
 
   private smartFolderRows(user: string) {

@@ -48,10 +48,11 @@ for (const size of SIZES) {
     );
   }
   const wake = async () => {
-    await worker.evictDurableObject("Workspace", { name: ws });
+    await worker.evictDurableObject("Workspace", { name: ws }).catch(() => {}); // not running: asleep already
     const t = performance.now();
     const res = await cloud.request(me, "GET", `${base}/info`);
-    await res.arrayBuffer();
+    const body = await res.text();
+    if (!res.ok) throw new Error(`Waking the workspace: ${res.status} ${body}`);
     return performance.now() - t;
   };
   record(size, "wake + index every note", [await wake()]);
