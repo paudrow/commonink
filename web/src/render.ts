@@ -11,6 +11,9 @@ import { boardsIn } from "../../src/core/kanban.ts";
 import { SANDBOX_PATH } from "../../src/core/sandbox.ts";
 import { safeDecode } from "../../src/core/uri.ts";
 import { headingName, headingText } from "../../src/core/prose.ts";
+import { gfmMarked, renderingFrom } from "./gfm.ts";
+
+marked.use(gfmMarked);
 
 export { currentScheme };
 
@@ -98,6 +101,7 @@ export function renderMarkdown(md: string, from: string, opts: { boards?: boolea
     .replace(/!\[([^[\]]*)\]\((?!https?:|\/)([^()\s]+)\)/g, (_m, alt, src) => `![${alt}](${assetUrl(safeDecode(src), from)})`);
   // marked recurses once per ">", so thousands of them overflow the stack: 20 levels is plenty.
   const flat = pre.replace(/^((?:[ \t]*>){20})(?:[ \t]*>)+/gm, "$1");
+  renderingFrom(from);
   const html = marked.parse(flat, { async: false, gfm: true }) as string;
   return DOMPurify.sanitize(html, NOTE_HTML);
 }
