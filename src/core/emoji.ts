@@ -43,3 +43,16 @@ export const SHORTCODE = /(?<![\w:/])(:([a-z0-9_+-]+):)(?![\w/])/g;
 
 /** Text with every known shortcode as its emoji; unknown ones stay as written. */
 export const withEmoji = (text: string) => text.replace(SHORTCODE, (m, _all, name: string) => emojiFor(name) ?? m);
+
+/** Shortcodes for what's typed after `:`: names starting with it (shortest first), then names containing it. */
+export function emojiMatches(query: string, limit = 20): Array<[string, string]> {
+  const q = query.toLowerCase();
+  const starts: Array<[string, string]> = [];
+  const contains: Array<[string, string]> = [];
+  for (const [name, emoji] of EMOJI) {
+    if (name.startsWith(q)) starts.push([name, emoji]);
+    else if (name.includes(q)) contains.push([name, emoji]);
+  }
+  const byLength = (a: [string, string], b: [string, string]) => a[0].length - b[0].length || a[0].localeCompare(b[0]);
+  return [...starts.sort(byLength), ...contains.sort(byLength)].slice(0, limit);
+}

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { footnotesIn, headingMatches, headingSlug, parseAlert } from "../src/core/gfm.ts";
-import { EMOJI, withEmoji } from "../src/core/emoji.ts";
+import { alertsIn, footnotesIn, headingMatches, headingSlug, parseAlert } from "../src/core/gfm.ts";
+import { EMOJI, emojiMatches, withEmoji } from "../src/core/emoji.ts";
 
 test("an alert is a blockquote whose first line names a type; Obsidian's names and fold marks count too", () => {
   assert.deepEqual(parseAlert("> [!NOTE]"), { type: "note", fold: null, title: "Note" });
@@ -9,6 +9,14 @@ test("an alert is a blockquote whose first line names a type; Obsidian's names a
   assert.deepEqual(parseAlert(">[!tip]+"), { type: "tip", fold: "+", title: "Tip" });
   assert.deepEqual(parseAlert("> [!danger] Careful"), { type: "caution", fold: null, title: "Careful" });
   assert.deepEqual([parseAlert("> [!unknown]"), parseAlert("[!NOTE]"), parseAlert("> text [!NOTE]")], [null, null, null]);
+});
+
+test("alert blocks: where each starts and ends, outside code, each with a key to remember its fold by", () => {
+  const md = "> [!NOTE]\n> one\n> two\n\n> plain quote\n> [!TIP] not first\n\n```\n> [!WARNING]\n```\n> [!tip]- Later\n> body\n\n> [!tip]- Later\n>\n> again\ntext";
+  assert.deepEqual(
+    alertsIn(md).map((a) => [a.type, a.fold, a.from, a.to, a.key]),
+    [["note", null, 0, 2, "alert:Note"], ["tip", "-", 10, 11, "alert:Later"], ["tip", "-", 13, 15, "alert:Later#2"]],
+  );
 });
 
 test("footnotes: definitions, references outside code, numbered by first reference like GitHub", () => {
@@ -28,4 +36,12 @@ test("shortcodes become emoji where a word starts; times, URLs and unknown names
   assert.equal(withEmoji("Shipped :tada: :rocket: and :+1:"), "Shipped 🎉 🚀 and 👍");
   assert.equal(withEmoji("at 10:30:00, see https://x.test/:tada: or :not_an_emoji:"), "at 10:30:00, see https://x.test/:tada: or :not_an_emoji:");
   assert.ok(EMOJI.size > 300, String(EMOJI.size));
+});
+
+test("emoji suggestions: names starting with what's typed first, shortest first, then ones containing it", () => {
+  assert.deepEqual(emojiMatches("ta").slice(0, 3), [["taco", "🌮"], ["tada", "🎉"], ["taxi", "🚕"]]);
+  assert.deepEqual(emojiMatches("rocket"), [["rocket", "🚀"]]);
+  assert.ok(emojiMatches("heart").slice(1).every(([n]) => n.includes("heart")));
+  assert.deepEqual(emojiMatches("zzzqq"), []);
+  assert.equal(emojiMatches("e").length, 20);
 });

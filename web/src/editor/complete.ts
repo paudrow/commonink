@@ -1,4 +1,4 @@
-// Typing helpers: `@` mentions, `[[` links, `#` tags, `/` tools, and smart link pasting.
+// Typing helpers: `@` mentions, `[[` links, `#` tags, `:` emoji, `/` tools, and smart link pasting.
 import { autocompletion, startCompletion, type Completion, type CompletionContext, type CompletionResult, type CompletionSource } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
 import type { EditorState, Extension } from "@codemirror/state";
@@ -15,11 +15,14 @@ import { wrapInDetails } from "../../../src/core/details.ts";
 import { taskPeople } from "../taskChipEditors.ts";
 import { taskTokenSource } from "./taskComplete.ts";
 import { inTaskText } from "./taskEdit.ts";
+import { emojiMatches } from "../../../src/core/emoji.ts";
 
 interface Option extends Completion {
   icon?: string;
   /** An image to show instead of the icon (for image assets). */
   thumb?: string;
+  /** An emoji to show instead of the icon. */
+  emoji?: string;
 }
 
 const NOT_PROSE = new Set(["FencedCode", "CodeBlock", "InlineCode", "CodeText", "Frontmatter", "FrontmatterContent", "HTMLBlock", "CommentBlock", "URL", "Autolink", "WikiLink", "Embed"]);
@@ -141,6 +144,23 @@ function linkSource(ctx: CompletionContext): CompletionResult | null {
       };
     });
   return { from: start, options, filter: false };
+}
+
+// ------------------------------------------------------------------ : emoji
+
+/**
+ * `:` and two letters where a word starts, in prose: emoji shortcodes (GitHub's names). Not in a
+ * time (10:30), a URL, or code. The shortcode goes in, so the note reads the same on GitHub.
+ */
+function emojiSource(ctx: CompletionContext): CompletionResult | null {
+  const m = ctx.matchBefore(/(?<![\w:/]):[a-z0-9_+-]{2,}$/);
+  if (!m || !inProse(ctx.state, m.from)) return null;
+  // An inline code span still being typed (its closing backtick not there yet) is code too.
+  const before = ctx.state.sliceDoc(ctx.state.doc.lineAt(m.from).from, m.from);
+  if ((before.match(/`/g)?.length ?? 0) % 2) return null;
+  const found = emojiMatches(m.text.slice(1));
+  if (!found.length) return null;
+  return { from: m.from, filter: false, options: found.map(([name, emoji], i): Option => ({ label: `:${name}:`, emoji, boost: -i, apply: `:${name}:` })) };
 }
 
 // ------------------------------------------------------------------ # tags
@@ -406,7 +426,7 @@ const pasteFiles = EditorView.domEventHandlers({
 // ------------------------------------------------------------------ extension
 
 export function typingHelpers(): Extension {
-  return [completions([toolSource, taskTokenSource, mentionSource, linkSource, tagSource, frontmatterTagSource]), pasteLinks, pasteFiles];
+  return [completions([toolSource, taskTokenSource, mentionSource, linkSource, tagSource, frontmatterTagSource, emojiSource]), pasteLinks, pasteFiles];
 }
 
 /** `[[` note names and `#` tags, for a field outside the note editor (a board's card). */
@@ -424,6 +444,7 @@ function completions(override: CompletionSource[]): Extension {
         position: 20,
         render: (c) => {
           const o = c as Option;
+          if (o.emoji) return Object.assign(document.createElement("span"), { className: "q-emoji", textContent: o.emoji });
           if (!o.thumb) return icon(o.icon ?? "file", 15);
           const img = document.createElement("img");
           img.className = "q-thumb";
