@@ -10,6 +10,7 @@ import { dueFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, s
 import { parseQuickAdd } from "./quickAdd.ts";
 import { formatQuery, parseQuery, queryProblem, type NoteQuery } from "./query.ts";
 import { addCard, boardsIn, checkCard, editCard, moveCard, type Board, type Place } from "./kanban.ts";
+import { safeDecode } from "./uri.ts";
 
 export interface NoteMeta {
   /** Stable across renames, moves and archiving; see ids.ts. */
@@ -1366,7 +1367,7 @@ export class Quire {
           oldKeys.has(linkKey(t)) && this.resolve(t, src) === null ? `${bang}[[${wikiTarget}${hash}${alias}]]` : m,
         )
         .replace(/(!?\[[^\]\n]*\]\()([^)\s]+)(\))/g, (m, pre, t, post) =>
-          oldKeys.has(linkKey(decodeURIComponent(t))) ? `${pre}${encodeURI(dest)}${post}` : m,
+          oldKeys.has(linkKey(safeDecode(t))) ? `${pre}${encodeURI(dest)}${post}` : m,
         );
       if (after !== before) {
         const r = this.commit(src, before, after, source, "edit");

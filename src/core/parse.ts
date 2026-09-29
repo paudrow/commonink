@@ -1,6 +1,7 @@
 import path from "node:path";
 import { linkKey, type NoteKind } from "./paths.ts";
 import { proseLines, withoutCode } from "./prose.ts";
+import { safeDecode } from "./uri.ts";
 
 export interface ParsedLink {
   target: string;
@@ -63,7 +64,7 @@ export function extractLinks(md: string): ParsedLink[] {
       links.push({ target: m[2].trim(), key: linkKey(m[2]), kind: m[1] ? "embed" : "wikilink", line });
     }
     for (const m of noCode.matchAll(MDLINK)) {
-      const target = decodeURIComponent(m[2]);
+      const target = safeDecode(m[2]);
       if (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith("#")) continue;
       links.push({ target, key: linkKey(target), kind: m[1] ? "embed" : "mdlink", line });
     }

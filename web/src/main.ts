@@ -26,6 +26,7 @@ import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { clampSide, forget, newLayout, parseLayout, SIDE_CLICK, sideClick, step, visit, type PaneTrail } from "./panes.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
+import { safeDecode } from "../../src/core/uri.ts";
 
 // ------------------------------------------------------------------ state
 
@@ -1777,7 +1778,7 @@ function followLinkAtCursor() {
   if (!link) return;
   if (link.target) openTarget(link.target, active.session?.path);
   else if (link.href && /^https?:/i.test(link.href)) window.open(link.href, "_blank", "noopener");
-  else if (link.href) openTarget(decodeURIComponent(link.href), active.session?.path);
+  else if (link.href) openTarget(safeDecode(link.href), active.session?.path);
 }
 
 window.addEventListener(
@@ -1944,7 +1945,7 @@ let viewer = false;
 async function route() {
   const hash = location.hash;
   if (hash.startsWith("#/") || /^#(feed|tasks|assets|history)\b/.test(hash)) {
-    const legacy = hash.startsWith("#/") ? decodeURIComponent(hash.slice(2)) : "";
+    const legacy = hash.startsWith("#/") ? safeDecode(hash.slice(2)) : "";
     const meta = legacy ? notes.find((n) => n.path === legacy) : undefined;
     const [page, query = ""] = hash.slice(1).split("?");
     const note = new URLSearchParams(query).get("note");

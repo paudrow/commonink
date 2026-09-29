@@ -14,6 +14,7 @@ import { access, asRole } from "./access.ts";
 import { DoDb, SqlContent } from "./do-store.ts";
 import { SEED_FILES, SEED_NOTES } from "./seed.ts";
 import type { Env } from "./env.ts";
+import { safeDecode } from "../../src/core/uri.ts";
 
 export class Workspace extends DurableObject<Env> {
   private db: DoDb;
@@ -99,7 +100,7 @@ export class Workspace extends DurableObject<Env> {
       this.ctx.acceptWebSocket(server, [user]); // tagged, so signing out everywhere can close it
       return new Response(null, { status: 101, webSocket: client });
     }
-    if (route.startsWith("/files/")) return this.serveFile(decodeURIComponent(route.slice("/files/".length)));
+    if (route.startsWith("/files/")) return this.serveFile(safeDecode(route.slice("/files/".length)));
     if (route === "/upload" && req.method === "POST") {
       return this.upload(req, url, wsId, decodeURIComponent(req.headers.get("x-ci-actor") ?? "someone"));
     }

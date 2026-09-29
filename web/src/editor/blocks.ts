@@ -20,6 +20,7 @@ import { hydrateBoards, mountBoard, type BoardHost } from "../kanban.ts";
 import { kanbanBlock } from "../widgets/kanban.ts";
 import { editsBetween } from "../merge.ts";
 import { redo, undo } from "@codemirror/commands";
+import { safeDecode } from "../../../src/core/uri.ts";
 
 export interface EditorContext {
   path: string;
@@ -215,7 +216,7 @@ class EmbedWidget extends WidgetType {
           if (!a) return;
           e.preventDefault();
           const href = a.getAttribute("href") ?? "";
-          if (href.startsWith("quire:")) ctx.openTarget(decodeURIComponent(href.slice(6)), path);
+          if (href.startsWith("quire:")) ctx.openTarget(safeDecode(href.slice(6)), path);
           else if (/^https?:/i.test(href)) window.open(href, "_blank", "noopener");
         });
       }
@@ -688,7 +689,7 @@ function buildBlocks(state: EditorState): DecorationSet {
           const img = wiki ? null : line.text.match(IMAGE_LINE);
           const bare = wiki || img ? null : line.text.match(BARE_URL);
           if (!wiki && !img && !bare) continue;
-          const target = wiki ? wiki[1].split("|")[0].trim() : img ? decodeURIComponent(img[2]) : bare![1];
+          const target = wiki ? wiki[1].split("|")[0].trim() : img ? safeDecode(img[2]) : bare![1];
           const kind = wiki ? embedKindOf(target) : img ? (embedKindOf(target) === "note" ? "image" : embedKindOf(target)) : embedKindOf(target, true);
           place(new EmbedWidget(target, kind, from, embedRev));
         }
