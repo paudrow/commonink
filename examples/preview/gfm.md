@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 75
 title: GitHub-flavored markdown
 ---
 1. Open [[GitHub markdown sampler]]. The five alerts are in GitHub's colours, with their icons. Shortcodes like `:tada:` are emoji, but `10:30`, the URL and the one in code stay as written. <kbd>⌘</kbd> <kbd>K</kbd>, H₂O and mc² render, and the badge and the skyline picture show. Put the cursor on any of them to see the markdown.
