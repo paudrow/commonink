@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 84
 title: Undo from any toast
 ---
 Every toast that can be undone now waits while you point at it or tab into it, stays 10 seconds, and is read out to screen readers. ⌘Z (Ctrl+Z off a Mac) presses the newest Undo whenever you aren't typing in a note or a field.
