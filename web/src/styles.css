@@ -515,7 +515,9 @@ body.panel-closed #panel { opacity: 0; pointer-events: none; }
 .cm-task-tools { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; vertical-align: -0.1em; user-select: none; }
 .cm-task-gear { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 5px; color: var(--muted); }
 .cm-task-gear:hover { background: var(--hover); color: var(--ink-strong); }
-.cm-task-hint { font: 12px var(--ui); color: var(--faint); cursor: pointer; }
+.cm-task-hint { font: 12px var(--ui); color: var(--faint); }
+.cm-hint-word { padding: 0 2px; border-radius: 4px; font: inherit; color: inherit; cursor: pointer; }
+.cm-hint-word:hover, .cm-hint-word:focus-visible { color: var(--ink-2); background: var(--hover); }
 .cm-checkbox {
   display: inline-block;
   width: 1.02em;
@@ -1719,11 +1721,10 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 #tag-tree .tree-row.is-active > svg { color: var(--accent); }
 #tags-page-btn.is-on { color: var(--accent); }
 
-/* a tag pinned to Favorites */
-.pin-btn.is-pinned { color: var(--accent); }
-.chip.pin-chip { border-style: solid; }
-.chip.pin-chip.is-pinned { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); }
-.fav-pinned { display: inline-grid; place-items: center; color: var(--accent); }
-.tree-row:hover .fav-pinned, .tree-row:focus-within .fav-pinned { display: none; }
+/* a tag's star: in Favorites it's filled, like a note's */
+.star-btn.is-starred { color: var(--warn); }
+.fc-action.tag-star { opacity: 1; }
+.fav-mark { display: inline-grid; place-items: center; color: var(--warn); }
+.tree-row:hover .fav-mark, .tree-row:focus-within .fav-mark { display: none; }
 #favorites .tree-row.is-tag > svg { color: var(--muted); }
 #favorites .tree-row.is-tag.is-active > svg { color: var(--accent); }
