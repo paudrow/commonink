@@ -2,64 +2,83 @@
 // that types "." whether that's US Period or Dvorak's E key. Mod is ⌘ on a Mac, Ctrl elsewhere.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { matchShortcut, shortcutLabel, type KeyLike } from "../web/src/keys.ts";
+import { formatKeys, learnLayout, matchKeys, type KeyLike } from "../web/src/keys.ts";
 
-const ev = (key: string, code: string, mods: Partial<KeyLike> = {}): KeyLike => ({ key, code, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...mods });
-const mac = { mac: true, layout: null };
-const win = { mac: false, layout: null };
+const press = (key: string, code: string, mods: Partial<KeyLike> = {}): KeyLike => ({ key, code, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...mods });
+const MAC = true;
+const WIN = false;
 /** What navigator.keyboard.getLayoutMap() gives: the character each physical key types. */
 const US = new Map([["Period", "."], ["KeyE", "e"], ["KeyV", "v"], ["Backslash", "\\"], ["BracketLeft", "["], ["BracketRight", "]"], ["Minus", "-"], ["Equal", "="], ["KeyS", "s"]]);
-const DVORAK = new Map([["Period", "v"], ["KeyE", "."], ["KeyV", "k"], ["Backslash", "\\"], ["BracketLeft", "/"], ["BracketRight", "="], ["Minus", "["], ["Equal", "]"], ["Semicolon", "s"], ["KeyS", "o"]]);
+const DVORAK = new Map([["Period", "v"], ["KeyE", "."], ["KeyV", "k"], ["Backslash", "\\"], ["BracketLeft", "/"], ["BracketRight", "="], ["Minus", "["], ["Equal", "]"], ["Semicolon", "s"], ["KeyS", "o"], ["KeyR", "p"], ["KeyP", "l"]]);
+const layout = (m: Map<string, string> | null) => learnLayout(m ? { getLayoutMap: async () => m } : undefined);
 
-test("the quick-add shortcut is the key that types '.', on US and Dvorak alike", () => {
-  // US: Shift+. types ">" on the Period key.
-  assert.ok(matchShortcut(ev(">", "Period", { metaKey: true, shiftKey: true }), "Mod+Shift+.", mac));
-  // Dvorak: "." is on the physical E key; with Shift it types ">" there.
-  assert.ok(matchShortcut(ev(">", "KeyE", { metaKey: true, shiftKey: true }), "Mod+Shift+.", mac));
-  assert.ok(matchShortcut(ev(".", "KeyE", { metaKey: true, shiftKey: true }), "Mod+Shift+.", mac), "some browsers report the unshifted character");
-  // Dvorak's physical Period key types "v": not the shortcut, even though its code is Period.
-  assert.equal(matchShortcut(ev("V", "Period", { metaKey: true, shiftKey: true }), "Mod+Shift+.", mac), false);
-  assert.equal(matchShortcut(ev("V", "Period", { metaKey: true, shiftKey: true }), "Mod+Shift+.", { mac: true, layout: DVORAK }), false);
-  // Modifiers are exact: no Shift, or an extra Alt, is another shortcut.
-  assert.equal(matchShortcut(ev(".", "Period", { metaKey: true }), "Mod+Shift+.", mac), false);
-  assert.equal(matchShortcut(ev(">", "Period", { metaKey: true, shiftKey: true, altKey: true }), "Mod+Shift+.", mac), false);
+test("the quick-add shortcut is the key that types '.', on US and Dvorak alike", async () => {
+  for (const map of [null, US, DVORAK]) {
+    await layout(map);
+    // US: Shift+. types ">" on the Period key.
+    if (map !== DVORAK) assert.ok(matchKeys(press(">", "Period", { metaKey: true, shiftKey: true }), "Mod-Shift-.", MAC));
+    // Dvorak: "." is on the physical E key; with Shift it types ">" there.
+    assert.ok(matchKeys(press(">", "KeyE", { metaKey: true, shiftKey: true }), "Mod-Shift-.", MAC));
+    assert.ok(matchKeys(press(".", "KeyE", { metaKey: true, shiftKey: true }), "Mod-Shift-.", MAC), "some browsers report the unshifted character");
+    // Dvorak's physical Period key types "v": not the shortcut, even though its code is Period.
+    if (map !== US) assert.equal(matchKeys(press("V", "Period", { metaKey: true, shiftKey: true }), "Mod-Shift-.", MAC), false);
+    // Modifiers are exact: no Shift, or an extra Alt, is another shortcut.
+    assert.equal(matchKeys(press(".", "Period", { metaKey: true }), "Mod-Shift-.", MAC), false);
+    assert.equal(matchKeys(press(">", "Period", { metaKey: true, shiftKey: true, altKey: true }), "Mod-Shift-.", MAC), false);
+  }
+  await layout(null);
 });
 
-test("Mod is ⌘ on a Mac and Ctrl elsewhere", () => {
-  assert.ok(matchShortcut(ev("k", "KeyK", { metaKey: true }), "Mod+k", mac));
-  assert.equal(matchShortcut(ev("k", "KeyK", { ctrlKey: true }), "Mod+k", mac), false, "Ctrl+K on a Mac is the editor's");
-  assert.ok(matchShortcut(ev("k", "KeyK", { ctrlKey: true }), "Mod+k", win));
-  assert.equal(matchShortcut(ev("k", "KeyK", { metaKey: true }), "Mod+k", win), false, "the Windows key isn't Mod");
+test("Mod is ⌘ on a Mac and Ctrl elsewhere; letters go by the character", async () => {
+  await layout(null);
+  assert.ok(matchKeys(press("p", "KeyP", { metaKey: true }), "Mod-p", MAC));
+  assert.equal(matchKeys(press("p", "KeyP", { ctrlKey: true }), "Mod-p", MAC), false, "Ctrl isn't Mod on a Mac");
+  assert.ok(matchKeys(press("p", "KeyP", { ctrlKey: true }), "Mod-p", WIN));
+  assert.equal(matchKeys(press("p", "KeyP", { metaKey: true }), "Mod-p", WIN), false, "the Windows key isn't Mod");
+  assert.ok(matchKeys(press("P", "KeyP", { metaKey: true, shiftKey: true }), "Mod-Shift-p", MAC));
+  assert.equal(matchKeys(press("P", "KeyP", { metaKey: true, shiftKey: true }), "Mod-p", MAC), false, "⌘⇧P isn't ⌘P");
   // Ctrl is Ctrl everywhere (the palette's Ctrl+N and Ctrl+P).
-  assert.ok(matchShortcut(ev("n", "KeyN", { ctrlKey: true }), "Ctrl+n", mac));
-  assert.ok(matchShortcut(ev("n", "KeyN", { ctrlKey: true }), "Ctrl+n", win));
-  // Letters by character: Dvorak's S is on the physical ; key.
-  assert.ok(matchShortcut(ev("s", "Semicolon", { ctrlKey: true }), "Mod+s", win));
-  assert.equal(matchShortcut(ev("o", "KeyS", { ctrlKey: true }), "Mod+s", win), false);
-  assert.ok(matchShortcut(ev("E", "KeyE", { metaKey: true, shiftKey: true }), "Mod+Shift+e", mac));
-  assert.ok(matchShortcut(ev("Enter", "Enter", { metaKey: true, shiftKey: true }), "Mod+Shift+Enter", mac));
-});
-
-test("with ⌥ on a Mac the key types a symbol, so the layout says which key it was", () => {
-  // US ⌘⌥[ types "“" on BracketLeft; Dvorak's [ is on the physical - key.
-  assert.ok(matchShortcut(ev("“", "BracketLeft", { metaKey: true, altKey: true }), "Mod+Alt+[", { mac: true, layout: US }));
-  assert.ok(matchShortcut(ev("“", "Minus", { metaKey: true, altKey: true }), "Mod+Alt+[", { mac: true, layout: DVORAK }));
-  assert.equal(matchShortcut(ev("÷", "BracketLeft", { metaKey: true, altKey: true }), "Mod+Alt+[", { mac: true, layout: DVORAK }), false);
-  assert.ok(matchShortcut(ev("«", "Backslash", { metaKey: true, altKey: true }), "Mod+Alt+\\", { mac: true, layout: DVORAK }));
-  // Without a layout map (Safari, Firefox), a composed symbol falls back to the US key.
-  assert.ok(matchShortcut(ev("“", "BracketLeft", { metaKey: true, altKey: true }), "Mod+Alt+[", mac));
+  assert.ok(matchKeys(press("n", "KeyN", { ctrlKey: true }), "Ctrl-n", MAC));
+  assert.ok(matchKeys(press("n", "KeyN", { ctrlKey: true }), "Ctrl-n", WIN));
+  assert.ok(matchKeys(press("Enter", "Enter", { metaKey: true, shiftKey: true }), "Mod-Shift-Enter", MAC));
+  // Dvorak: P is on the physical R key, S on the ; key.
+  for (const map of [null, DVORAK]) {
+    await layout(map);
+    assert.ok(matchKeys(press("p", "KeyR", { metaKey: true }), "Mod-p", MAC));
+    assert.equal(matchKeys(press("r", "KeyP", { metaKey: true }), "Mod-p", MAC), false);
+    assert.ok(matchKeys(press("s", "Semicolon", { ctrlKey: true }), "Mod-s", WIN));
+    assert.equal(matchKeys(press("o", "KeyS", { ctrlKey: true }), "Mod-s", WIN), false);
+  }
   // A layout without Latin letters: Ctrl+K types "л", so the key where K is on a US keyboard.
-  assert.ok(matchShortcut(ev("л", "KeyK", { ctrlKey: true }), "Mod+k", win));
-  assert.ok(matchShortcut(ev("л", "KeyK", { ctrlKey: true }), "Mod+k", { mac: false, layout: new Map([["KeyK", "л"]]) }));
-  // Windows: Ctrl+Alt+[ reports the character itself.
-  assert.ok(matchShortcut(ev("[", "Minus", { ctrlKey: true, altKey: true }), "Mod+Alt+[", win));
+  await layout(new Map([["KeyK", "л"]]));
+  assert.ok(matchKeys(press("л", "KeyK", { ctrlKey: true }), "Mod-k", WIN));
+  await layout(null);
+  assert.ok(matchKeys(press("л", "KeyK", { ctrlKey: true }), "Mod-k", WIN));
 });
 
-test("shortcuts are written the platform's way", () => {
-  assert.equal(shortcutLabel("Mod+Shift+.", true), "⌘⇧.");
-  assert.equal(shortcutLabel("Mod+Shift+.", false), "Ctrl+Shift+.");
-  assert.equal(shortcutLabel("Mod+Alt+\\", true), "⌘⌥\\");
-  assert.equal(shortcutLabel("Mod+Shift+Enter", true), "⌘⇧↵");
-  assert.equal(shortcutLabel("Mod+Alt+[", false), "Ctrl+Alt+[");
-  assert.equal(shortcutLabel("Mod+Shift+e", true), "⌘⇧E");
+test("with ⌥ on a Mac the key types a symbol, so the layout says which key it was", async () => {
+  // US ⌘⌥[ types "“" on BracketLeft; Dvorak's [ is on the physical - key.
+  await layout(US);
+  assert.ok(matchKeys(press("“", "BracketLeft", { metaKey: true, altKey: true }), "Mod-Alt-[", MAC));
+  await layout(DVORAK);
+  assert.ok(matchKeys(press("“", "Minus", { metaKey: true, altKey: true }), "Mod-Alt-[", MAC), "⌥ changed the character; the layout knows the key");
+  assert.equal(matchKeys(press("“", "BracketLeft", { metaKey: true, altKey: true }), "Mod-Alt-[", MAC), false);
+  assert.ok(matchKeys(press("«", "Backslash", { metaKey: true, altKey: true }), "Mod-Alt-\\", MAC));
+  // Without a layout map (Safari, Firefox), a composed symbol falls back to the US key.
+  await layout(null);
+  assert.ok(matchKeys(press("“", "BracketLeft", { metaKey: true, altKey: true }), "Mod-Alt-[", MAC), "no layout map: the US key");
+  // Windows: Ctrl+Alt+[ reports the character itself.
+  assert.ok(matchKeys(press("[", "Minus", { ctrlKey: true, altKey: true }), "Mod-Alt-[", WIN));
+});
+
+test("shortcuts read ⌘⇧E on a Mac and Ctrl+Shift+E elsewhere; keys typed as they are stay as they are", () => {
+  const keys = ["Mod-Shift-e", "Mod-Shift-.", "Mod-Alt-\\", "Mod-Enter", "Shift-Tab", "Mod-click", "G", "gd", ":w", "?"];
+  assert.deepEqual(
+    keys.map((k) => formatKeys(k, true)),
+    ["⌘⇧E", "⌘⇧.", "⌘⌥\\", "⌘↵", "⇧Tab", "⌘-click", "G", "gd", ":w", "?"],
+  );
+  assert.deepEqual(
+    keys.map((k) => formatKeys(k, false)),
+    ["Ctrl+Shift+E", "Ctrl+Shift+.", "Ctrl+Alt+\\", "Ctrl+↵", "Shift+Tab", "Ctrl-click", "G", "gd", ":w", "?"],
+  );
 });

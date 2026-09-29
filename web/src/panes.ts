@@ -11,6 +11,14 @@ export const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/
 export const sideClick = (e: { metaKey: boolean; ctrlKey: boolean; button?: number }, mac = IS_MAC) =>
   (e.button ?? 0) === 0 && (mac ? e.metaKey && !e.ctrlKey : e.ctrlKey);
 
+/**
+ * What a click on a real link to a note (`<a href="/notes/…">`) does: open it here, open it to
+ * the side (the same click as everywhere else), or leave it to the browser, which opens a new tab
+ * or window for a middle-click, Shift-click and the like.
+ */
+export const linkClick = (e: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; button?: number }, mac = IS_MAC): "open" | "side" | "browser" =>
+  sideClick(e, mac) ? "side" : (e.button ?? 0) !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey ? "browser" : "open";
+
 /** How that click is written in hints. */
 export const SIDE_CLICK = IS_MAC ? "⌘-click" : "Ctrl-click";
 

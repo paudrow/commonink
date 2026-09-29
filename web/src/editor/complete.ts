@@ -14,6 +14,8 @@ import { NEW_BOARD } from "../../../src/core/kanban.ts";
 import { taskPeople } from "../taskChipEditors.ts";
 import { taskTokenSource } from "./taskComplete.ts";
 import { inTaskText } from "./taskEdit.ts";
+import { did } from "../events.ts";
+import { slashUsed } from "./lineHint.ts";
 
 interface Option extends Completion {
   icon?: string;
@@ -105,8 +107,10 @@ async function mentionSource(ctx: CompletionContext): Promise<CompletionResult |
       detail: r.detail,
       icon: r.icon,
       section: { name: p.section, rank: p.rank },
-      apply: (view: EditorView, _c: Completion, _from: number, to: number) =>
-        view.dispatch({ changes: { from: at, to, insert: r.insert }, selection: { anchor: at + r.insert.length }, userEvent: "input.complete" }),
+      apply: (view: EditorView, _c: Completion, _from: number, to: number) => {
+        view.dispatch({ changes: { from: at, to, insert: r.insert }, selection: { anchor: at + r.insert.length }, userEvent: "input.complete" });
+        did("link");
+      },
     })),
   ));
   if (!options.length && /\s/.test(query)) return null; // "@ " in ordinary prose: get out of the way
@@ -136,6 +140,7 @@ function linkSource(ctx: CompletionContext): CompletionResult | null {
         apply: (view: EditorView, _c: Completion, from: number, to: number) => {
           const insert = name + (closed ? "" : "]]");
           view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + name.length + 2 }, userEvent: "input.complete" });
+          if (!embed) did("link");
         },
       };
     });
@@ -277,7 +282,7 @@ const TOOLS: Tool[] = [
     run: (v, f, t) => insert(v, f, t, "```mermaid\nflowchart LR\n  A[Idea] --> B[Note] --> C[Agent]\n```", { cursor: 58, block: true }),
   },
   { title: "Link to note", hint: "[[Note]]", icon: "link", keywords: "link wikilink note reference", section: "Insert", run: (v, f, t) => (insert(v, f, t, "[[]]", { cursor: 2 }), soon(v)) },
-  { title: "Task", hint: "- [ ]", icon: "task", keywords: "task todo checkbox check", section: "Blocks", run: (v, f, t) => insert(v, f, t, "- [ ] ", { block: true }) },
+  { title: "Checkbox", hint: "- [ ]", icon: "task", keywords: "todo task checkbox check", section: "Blocks", run: (v, f, t) => insert(v, f, t, "- [ ] ", { block: true }) },
   { title: "Heading 1", hint: "#", icon: "heading", keywords: "heading h1 title", section: "Blocks", run: (v, f, t) => insert(v, f, t, "# ", { block: true }) },
   { title: "Heading 2", hint: "##", icon: "heading", keywords: "heading h2 subtitle", section: "Blocks", run: (v, f, t) => insert(v, f, t, "## ", { block: true }) },
   { title: "Heading 3", hint: "###", icon: "heading", keywords: "heading h3", section: "Blocks", run: (v, f, t) => insert(v, f, t, "### ", { block: true }) },
@@ -292,14 +297,21 @@ const TOOLS: Tool[] = [
 ];
 const SECTION_RANK = { Embed: 0, Widgets: 1, Blocks: 2, Insert: 3 };
 
-function toolSource(ctx: CompletionContext): CompletionResult | null {
+/** How well `q` matches a tool's words; a whole word ("time" in "Current time") beats the start of a longer one ("Timer"). */
+function toolScore(q: string, text: string): number {
+  const s = fuzzyScore(q, text);
+  const word = ` ${text.toLowerCase()} `.includes(` ${q.toLowerCase()} `);
+  return s < 0 || !word ? s : s + 50;
+}
+
+export function toolSource(ctx: CompletionContext): CompletionResult | null {
   const m = ctx.matchBefore(/(?:^|\s)\/[\w-]*$/);
   if (!m) return null;
   const slash = m.from + m.text.lastIndexOf("/");
   if (!inProse(ctx.state, slash)) return null;
   const q = ctx.state.sliceDoc(slash + 1, ctx.pos);
   const matches = q
-    ? TOOLS.map((t) => ({ t, s: Math.max(fuzzyScore(q, t.title), fuzzyScore(q, t.keywords) - 20) }))
+    ? TOOLS.map((t) => ({ t, s: Math.max(toolScore(q, t.title), toolScore(q, t.keywords) - 20) }))
         .filter((x) => x.s >= 0)
         .sort((a, b) => b.s - a.s)
         .map((x) => x.t)
@@ -314,7 +326,7 @@ function toolSource(ctx: CompletionContext): CompletionResult | null {
       icon: t.icon,
       boost: -i,
       section: q ? undefined : { name: t.section, rank: SECTION_RANK[t.section] },
-      apply: (view: EditorView, _c: Completion, from: number, to: number) => t.run(view, from, to),
+      apply: (view: EditorView, _c: Completion, from: number, to: number) => (slashUsed(), t.run(view, from, to), did("slash")),
     })) as Option[],
   };
 }
