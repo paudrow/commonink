@@ -1454,7 +1454,9 @@ button.crumb:hover { background: var(--hover); color: var(--ink-strong); }
 /* Today: today's journal note, then sections of task rows (the top of Tasks, and ::today) */
 .td-block { margin-bottom: 18px; }
 .td-title { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; font-size: 13px; font-weight: 600; color: var(--ink-strong); }
-.td-title svg { color: var(--warn); }
+.td-title svg { flex: none; color: var(--warn); }
+/* On Tasks the title is the card's own: inset like the body under it (Journal, Overdue), its icon centred on the title's line. */
+.qw-today.is-standalone > .td-title { margin: 0; padding: 14px 14px 4px; line-height: 16px; }
 .td-section + .td-section { margin-top: 10px; }
 .td-section.is-overdue .qt-note { color: var(--bad); }
 .td-none { padding: 2px 0 4px; font-size: 13px; color: var(--faint); }
