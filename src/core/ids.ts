@@ -1,4 +1,5 @@
 // Stable note IDs and the URLs built from them. No Node imports: the web app uses this too.
+import { decodeTarget } from "./prose.ts";
 
 const ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789"; // no 0/o or 1/l
 
@@ -35,7 +36,7 @@ export const notePath = (title: string, id: string) => {
 export function parseNotePath(s: string): { id: string; slug: string } | null {
   const m = s.match(/(?:^|\/)notes\/([^/?#]+)\/?(?:[?#].*)?$/);
   if (!m) return null;
-  const last = decodeURIComponent(m[1]);
+  const last = decodeTarget(m[1]);
   const id = last.slice(-8);
   if (!NOTE_ID.test(id) || (last.length > 8 && last[last.length - 9] !== "-")) return null;
   return { id, slug: last.slice(0, -9) };

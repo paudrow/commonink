@@ -6,6 +6,7 @@ import { cleanPath, isHidden, kindOf, linkKey, QuireError, stemOf, type NoteKind
 import { extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
+import { decodeTarget } from "./prose.ts";
 import { dueFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
 import { parseQuickAdd } from "./quickAdd.ts";
 import { formatQuery, parseQuery, queryProblem, type NoteQuery } from "./query.ts";
@@ -1366,7 +1367,7 @@ export class Quire {
           oldKeys.has(linkKey(t)) && this.resolve(t, src) === null ? `${bang}[[${wikiTarget}${hash}${alias}]]` : m,
         )
         .replace(/(!?\[[^\]\n]*\]\()([^)\s]+)(\))/g, (m, pre, t, post) =>
-          oldKeys.has(linkKey(decodeURIComponent(t))) ? `${pre}${encodeURI(dest)}${post}` : m,
+          oldKeys.has(linkKey(decodeTarget(t))) ? `${pre}${encodeURI(dest)}${post}` : m,
         );
       if (after !== before) {
         const r = this.commit(src, before, after, source, "edit");

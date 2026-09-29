@@ -61,6 +61,14 @@ test("moving a note rewrites the links that point at it", () => {
   assert.deepEqual(quire.backlinks("Plan").map((b) => b.path), ["Welcome.md"]);
 });
 
+test("a link with a bare % (50%off.md) is read as written, so the vault still opens and links around it still move", () => {
+  const { quire } = openTempVault({ "Deals.md": "# Deals\n\nSee [the sale](50%off.md) and [[Other]].\n", "50%off.md": "# Sale\n", "Other.md": "# Other\n" });
+  assert.deepEqual(quire.backlinks("50%off").map((b) => b.path), ["Deals.md"]);
+  assert.deepEqual(quire.move("Other", "Elsewhere.md", "t").updated, ["Deals.md"]);
+  assert.deepEqual(quire.move("50%off.md", "Sale.md", "t").updated, ["Deals.md"]);
+  assert.equal(quire.read("Deals").content, "# Deals\n\nSee [the sale](Sale.md) and [[Elsewhere]].\n");
+});
+
 test("creating a second top-level note with the same title leaves the first as it was", () => {
   const { dir, quire } = openTempVault({});
   quire.create("Idea", "# Idea\n\nThe first one.\n", "t");

@@ -13,6 +13,7 @@ import { agentFlash } from "./agentFlash.ts";
 import { typingHelpers } from "./complete.ts";
 import { IS_MAC, sideClick } from "../panes.ts";
 import { taskLineTools } from "./taskTools.ts";
+import { decodeTarget } from "../../../src/core/prose.ts";
 
 /** Marks transactions that came from disk (agents), so they don't trigger a save of their own. */
 export const remote = Annotation.define<boolean>();
@@ -64,7 +65,7 @@ const linkClicks = EditorView.domEventHandlers({
     else if (t.dataset.href) {
       const href = t.dataset.href;
       if (/^https?:/i.test(href)) window.open(href, "_blank", "noopener");
-      else ctx.openTarget(decodeURIComponent(href), ctx.path);
+      else ctx.openTarget(decodeTarget(href), ctx.path);
     }
     return true;
   },
