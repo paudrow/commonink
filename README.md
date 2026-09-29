@@ -51,7 +51,7 @@ The client opens Common Ink in your browser: sign in, pick the workspace it may 
 
 - **Edits are exact-string replacements** with an optional `base_version`. A stale edit fails with a clear message instead of clobbering anything.
 - **Every write is attributed.** MCP writes carry the client's name, CLI writes use `--as`, and anything else (vim in a terminal, `sed`) is logged as `external` by the file watcher.
-- **Changes on disk land in the editor as a diff**, so your cursor, undo history and vim mode survive. If you have unsaved typing, it does a three-way merge. Overlapping edits get a Keep mine / Use theirs banner. Press `u` to undo an agent's edit.
+- **Changes on disk land in the editor as a diff**, so your cursor, undo history and vim mode survive. If you have unsaved typing, it does a three-way merge. Overlapping edits get a banner with Keep mine, Use theirs and Compare, which shows the two versions as a diff first; either choice comes with an Undo. An agent's edit comes with a toast whose Undo takes out just that edit and keeps what you've typed since. For a note that isn't open, Undo puts the note back only if nothing has changed it since.
 
 ## Editor
 
@@ -92,6 +92,8 @@ Online, IDs are unique across all workspaces. Each workspace claims its notes' I
 - **Archive** moves a note to `Archive/<original path>`, which takes it out of the sidebar, search, `@` suggestions and agents' default listings. Links keep working. Archive from Notes (`e`, or in bulk), the top bar or `⌘⇧E` in a note, `:archive` in vim, `quire archive <note…>`, or the MCP `archive_note` tool. Every archive comes with Undo, and unarchiving puts the note back where it was.
 
 ## Undo and recovery
+
+Anything you can undo in the app says so in a toast at the bottom right: archiving, moving, ticking a task, an agent's edit, a conflict's choice. A toast stays while the pointer or the keyboard focus is on it, and one with an Undo stays 10 seconds. ⌘Z (Ctrl+Z off a Mac) presses the newest Undo while you aren't typing in the editor or a field, where their own undo comes first. Esc closes a focused toast. Screen readers hear each toast as it comes.
 
 Every change in the log keeps the note's previous text. To put a note back the way it was before a change:
 
