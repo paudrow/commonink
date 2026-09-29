@@ -24,6 +24,46 @@ test("search keeps exactly one entry per note through edits, moves, archiving an
   assert.deepEqual(found(quire, "welcome"), ["Welcome.md"]);
 });
 
+const brief = (q: ReturnType<typeof openVault>, opts?: Parameters<ReturnType<typeof openVault>["tasks"]>[0]) =>
+  q.tasks(opts).map((t) => `${t.path}:${t.line} ${t.done ? "x" : " "} ${t.summary} [${t.heading}] ${t.meta.due ?? ""}`);
+
+const TASKY: Record<string, string> = {
+  "b/Plan.md": "# Plan\n\n## Now\n- [ ] Ship it due:2026-10-01 @jane\n```\n- [ ] not a task, it's code\n```\n:::kanban\n## Doing\n- [x] Card #work\n:::\n- [ ] After the board\n- [ ] \n",
+  "A.md": "# A\n\n- [ ] First\n",
+  "Archive/Old.md": "# Old\n\n- [ ] Archived\n",
+};
+
+test("tasks come from the index, and follow edits in the app, edits on disk, moves and deletes", () => {
+  const { dir, quire } = openTempVault(TASKY);
+  assert.deepEqual(brief(quire), [
+    "A.md:3   First [A] ",
+    "b/Plan.md:4   Ship it [Now] 2026-10-01",
+    "b/Plan.md:10 x Card [Doing] ",
+    "b/Plan.md:12   After the board [Now] ",
+  ]);
+  assert.deepEqual(brief(quire, { tag: "work" }), ["b/Plan.md:10 x Card [Doing] "]);
+  assert.deepEqual(brief(quire, { assignee: "@Jane", due: "<=2026-10-01", today: "2026-09-28" }), ["b/Plan.md:4   Ship it [Now] 2026-10-01"]);
+  assert.deepEqual(brief(quire, { note: "A", folder: "" }), ["A.md:3   First [A] "]);
+  assert.deepEqual(brief(quire, { folder: "b" }).length, 3);
+
+  quire.setTask("A", 3, "First", true, "t");
+  fs.writeFileSync(path.join(dir, "b/Plan.md"), "# Plan\n\n- [ ] Rewritten on disk\n");
+  quire.sync();
+  assert.deepEqual(brief(quire), ["A.md:3 x First [A] ", "b/Plan.md:3   Rewritten on disk [Plan] "]);
+  quire.archive("A", "t");
+  quire.move("b/Plan.md", "c/Plan.md", "t");
+  assert.deepEqual(brief(quire), ["c/Plan.md:3   Rewritten on disk [Plan] "]);
+  fs.rmSync(path.join(dir, "c/Plan.md"));
+  quire.sync();
+  assert.deepEqual(brief(quire), []);
+});
+
+test("an index from before tasks were indexed learns them on the next start", () => {
+  const { dir, quire } = openTempVault(TASKY);
+  quire.db.exec("DROP TABLE tasks");
+  assert.deepEqual(brief(openVault(dir), { note: "A" }), ["A.md:3   First [A] "]);
+});
+
 test("an index from before full-text rows were tracked keeps one entry per note after an edit", () => {
   const { dir, quire } = openTempVault();
   quire.db.exec("ALTER TABLE notes DROP COLUMN fts");

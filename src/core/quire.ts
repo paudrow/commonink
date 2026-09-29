@@ -204,6 +204,32 @@ function findTask(lines: string[], line: number, text: string, notePath: string)
   return near[0];
 }
 
+type TaskRow = { path: string; title: string; line: number; done: number; task: string };
+const toTask = (r: TaskRow): Task => {
+  const t = JSON.parse(r.task) as Pick<Task, "text" | "summary" | "heading" | "meta">;
+  return { path: r.path, title: r.title, line: r.line, text: t.text, summary: t.summary, done: r.done === 1, heading: t.heading, meta: t.meta };
+};
+
+/** A note's checkbox tasks (with text), each with the heading it sits under: what the index keeps for Quire.tasks. */
+function tasksIn(text: string): Array<Pick<Task, "line" | "text" | "summary" | "done" | "heading" | "meta">> {
+  const out: ReturnType<typeof tasksIn> = [];
+  let heading: string | null = null;
+  // A board's cards sit under its columns' headings; after its `:::`, the heading before it again.
+  let outside: string | null | undefined;
+  let fence = false;
+  text.split("\n").forEach((line, i) => {
+    if (/^\s*(```|~~~)/.test(line)) fence = !fence;
+    if (fence) return;
+    const h = line.match(/^#{1,6}\s+(.+?)\s*#*$/);
+    if (h) heading = h[1];
+    if (/^\s*:::kanban\b/i.test(line)) outside = heading;
+    else if (outside !== undefined && /^\s*:::\s*$/.test(line)) [heading, outside] = [outside, undefined];
+    const t = parseTask(line);
+    if (t && t.text.trim()) out.push({ line: i + 1, text: t.text, summary: t.summary, done: t.done, heading, meta: t.meta });
+  });
+  return out;
+}
+
 export class Quire {
   private now: () => number;
 
@@ -285,7 +311,11 @@ export class Quire {
       );
       this.db.run("DELETE FROM links WHERE src = ?", rel);
       this.db.run("DELETE FROM tags WHERE path = ? AND kind != 'asset'", rel);
+      this.db.run("DELETE FROM tasks WHERE path = ?", rel);
       if (kind === "md" && content) {
+        for (const { line, done, ...task } of tasksIn(content)) {
+          this.db.run("INSERT INTO tasks(path, line, done, due, start, task) VALUES (?,?,?,?,?,?)", rel, line, done ? 1 : 0, task.meta.due, task.meta.start, JSON.stringify(task));
+        }
         for (const l of extractLinks(content)) this.db.run("INSERT INTO links(src, key, kind, line) VALUES (?,?,?,?)", rel, l.key, l.kind, l.line);
         const lines = content.split("\n");
         for (const t of scanTags(content)) {
@@ -365,6 +395,7 @@ export class Quire {
       this.db.run("DELETE FROM notes WHERE path = ?", rel);
       this.db.run("DELETE FROM links WHERE src = ?", rel);
       this.db.run("DELETE FROM tags WHERE path = ? AND kind != 'asset'", rel);
+      this.db.run("DELETE FROM tasks WHERE path = ?", rel);
     });
   }
 
@@ -1115,29 +1146,31 @@ export class Quire {
     const due = opts.due ? dueFilter(opts.due, opts.today ?? localDate(this.now())) : null;
     if (opts.due && !due) throw new QuireError(`Bad due filter "${opts.due}": use a date or today/tomorrow/yesterday, optionally after <, <=, > or >=`);
     const person = opts.assignee?.replace(/^@/, "").toLowerCase();
-    const out: Task[] = [];
-    for (const n of this.list(undefined, "active", opts.tag)) {
-      if (n.kind !== "md" || (only && n.path !== only) || (prefix && !n.path.startsWith(prefix))) continue;
-      const text = this.files.read(n.path);
-      if (text === null) continue;
-      let heading: string | null = null;
-      // A board's cards sit under its columns' headings; after its `:::`, the heading before it again.
-      let outside: string | null | undefined;
-      let fence = false;
-      text.split("\n").forEach((line, i) => {
-        if (/^\s*(```|~~~)/.test(line)) fence = !fence;
-        if (fence) return;
-        const h = line.match(/^#{1,6}\s+(.+?)\s*#*$/);
-        if (h) heading = h[1];
-        if (/^\s*:::kanban\b/i.test(line)) outside = heading;
-        else if (outside !== undefined && /^\s*:::\s*$/.test(line)) [heading, outside] = [outside, undefined];
-        const t = parseTask(line);
-        if (!t || !t.text.trim() || (tagged && !tagged.has(`${n.path}:${i + 1}`))) return;
-        if ((due && !due(t.meta.due)) || (person && !t.meta.assignees.some((a) => a.toLowerCase() === person))) return;
-        out.push({ path: n.path, title: n.title, line: i + 1, text: t.text, summary: t.summary, done: t.done, heading, meta: t.meta });
-      });
-    }
-    return out;
+    // The query narrows to the note, or to notes with the tag on a task (the lines are checked below).
+    // Each is its own query so the planner uses the index.
+    const rows = only
+      ? this.taskRows("t.path = ?", only)
+      : opts.tag !== undefined
+        ? this.taskRows(`t.path IN (SELECT path FROM tags WHERE kind = 'task' AND ${UNDER})`, ...under(normalizeTag(opts.tag) ?? ""))
+        : this.taskRows("1");
+    return rows
+      .filter((r) => (!prefix || r.path.startsWith(prefix)) && (!tagged || tagged.has(`${r.path}:${r.line}`)))
+      .map(toTask)
+      .filter((t) => (!due || due(t.meta.due)) && (!person || t.meta.assignees.some((a) => a.toLowerCase() === person)));
+  }
+
+  /** How many tasks are still open in active notes: what tasks() would list with `done` false. */
+  openTaskCount(): number {
+    return this.db.get<{ n: number }>("SELECT count(*) AS n FROM tasks t JOIN notes n ON n.path = t.path WHERE substr(t.path, 1, 8) != 'Archive/' AND t.done = 0")!.n;
+  }
+
+  /** Tasks in active notes, from the index (see tasksIn), in note order: the ones `where` keeps. */
+  private taskRows(where: string, ...args: unknown[]): TaskRow[] {
+    return this.db.all<TaskRow>(
+      `SELECT t.path, n.title, t.line, t.done, t.task FROM tasks t JOIN notes n ON n.path = t.path
+       WHERE substr(t.path, 1, 8) != 'Archive/' AND ${where} ORDER BY t.path COLLATE NOCASE, t.path, t.line`,
+      ...args,
+    );
   }
 
   /** Tick or untick one task at its source. */
@@ -1236,7 +1269,8 @@ export class Quire {
   today(date = localDate(this.now())): TodayView {
     if (!isDate(date)) throw new QuireError(`"today" must be a date like 2026-10-01, not "${date}"`);
     const day = (d: string | null) => d?.slice(0, 10) ?? "";
-    const open = this.tasks({ today: date }).filter((t) => !t.done);
+    // Open tasks that could be in a section: due by today, or starting today.
+    const open = this.taskRows("t.done = 0 AND (substr(t.due, 1, 10) <= ? OR substr(t.start, 1, 10) = ?)", date, date).map(toTask);
     const overdue = open.filter((t) => day(t.meta.due) && day(t.meta.due) < date).sort((a, b) => day(a.meta.due).localeCompare(day(b.meta.due)));
     const due = open.filter((t) => day(t.meta.due) === date);
     const starting = open.filter((t) => day(t.meta.start) === date && !(day(t.meta.due) && day(t.meta.due) <= date));

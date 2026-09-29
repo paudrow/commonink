@@ -46,6 +46,9 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS tags_path ON tags(path)`,
   // How each tag is shown: segment by segment, the way it was first written.
   `CREATE TABLE IF NOT EXISTS tag_names(tag TEXT PRIMARY KEY, display TEXT NOT NULL)`,
+  // Each note's tasks as read when it was indexed (see Quire.tasks): the columns queries filter on, the rest as JSON.
+  `CREATE TABLE IF NOT EXISTS tasks(path TEXT NOT NULL, line INTEGER NOT NULL, done INTEGER NOT NULL, due TEXT, start TEXT, task TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS tasks_path ON tasks(path)`,
   `CREATE TABLE IF NOT EXISTS changes(
      id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, path TEXT NOT NULL, op TEXT NOT NULL,
      source TEXT NOT NULL, version TEXT, summary TEXT, from_path TEXT, before TEXT, note_id TEXT)`,
@@ -63,15 +66,18 @@ const SCHEMA = [
 
 /** Create or upgrade the index + change log tables. Safe to run on every start. */
 export function migrate(db: SqlDb) {
-  let tagless = false;
-  try {
-    db.get("SELECT 1 FROM tags LIMIT 1");
-  } catch {
-    tagless = true;
-  }
+  const lacks = (table: string) => {
+    try {
+      db.get(`SELECT 1 FROM ${table} LIMIT 1`);
+      return false;
+    } catch {
+      return true;
+    }
+  };
+  const stale = lacks("tags") || lacks("tasks");
   for (const stmt of SCHEMA) db.exec(stmt);
-  // An index from before tags: have the next sync read every note again to find them.
-  if (tagless) db.run("UPDATE notes SET mtime = -1");
+  // An index from before tags (or tasks): have the next sync read every note again to find them.
+  if (stale) db.run("UPDATE notes SET mtime = -1");
   // Indexes from before stable IDs lack the column. (ALTER, not a pragma: Durable Objects allow it.)
   try {
     db.exec("ALTER TABLE notes ADD COLUMN id TEXT");
