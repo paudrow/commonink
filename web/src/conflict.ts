@@ -50,10 +50,10 @@ function compare(c: Conflict, keep: () => void, use: () => void) {
       "header",
       { class: "conflict-head" },
       icon("info", 16),
-      el("h2", { id: "conflict-title" }, `Your version and ${c.who}'s`),
+      el("h2", { id: "conflict-title" }, "Your version and theirs"),
       el("button", { class: "icon-btn small", type: "button", title: "Close", "aria-label": "Close", onclick: closeCompare }, icon("close", 15)),
     ),
-    el("p", { class: "conflict-key" }, el("span", { class: "conflict-del" }, "− only in theirs"), el("span", { class: "conflict-add" }, "+ only in yours")),
+    el("p", { class: "conflict-key" }, el("span", { class: "conflict-del" }, "− only in theirs"), el("span", { class: "conflict-add" }, "+ only in yours"), el("span", { class: "conflict-who" }, `Theirs is from ${c.who}.`)),
     el("div", { class: "conflict-diff" }, renderDiff(c.theirs, c.mine())),
     el("p", { class: "conflict-note" }, "Their version is saved in History either way. If you use theirs, Undo brings yours back."),
     el(
