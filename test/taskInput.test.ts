@@ -9,6 +9,9 @@ import { api, type Task } from "../web/src/api.ts";
 import { taskRow } from "../web/src/taskRow.ts";
 import { quickAddBar } from "../web/src/quickAdd.ts";
 import { today } from "../web/src/taskChips.ts";
+import { mountBoard, type BoardHost } from "../web/src/kanban.ts";
+import { el } from "../web/src/dom.ts";
+import { addDays } from "../src/core/tasks.ts";
 
 const TODAY = today();
 const fieldIn = (root: Element) => EditorView.findFromDOM(root.querySelector(".qa-box")!)!;
@@ -131,4 +134,42 @@ test("the Tasks page's inline edit is a task input: phrases typed there become t
   press(fieldIn(row), "Escape");
   assert.equal(saved.length, 1);
   assert.equal(row.querySelector(".qt-words")!.textContent, "Call mom");
+});
+
+test("a Kanban card's add and edit fields are task inputs: phrases on the first line become tokens", async () => {
+  let md = ":::kanban\n## To do\n- [ ] Water plants every day\n\n## Done\n:::\n";
+  const root = el("div");
+  document.body.replaceChildren(root);
+  const host: BoardHost = {
+    ctx: {} as BoardHost["ctx"],
+    path: "Board.md",
+    text: () => md,
+    write: (next) => ((md = next), board.update(0)),
+    undo() {}, redo() {}, readOnly: false, editText() {}, resized() {},
+  };
+  const board = mountBoard(root, host, 0);
+  // Add: what's typed goes in as tokens, details stay under it, and the field stays open for the next card.
+  root.querySelector<HTMLElement>(".kb-add")!.click();
+  let view = fieldIn(root);
+  assert.equal(view.contentDOM.getAttribute("aria-label"), PLACEHOLDER);
+  typeInto(view, "Print badges tomorrow");
+  assert.equal(root.querySelector(".qa-hl")!.textContent, "tomorrow");
+  press(view, "Enter", { shiftKey: true });
+  typeInto(view, "bring lanyards");
+  press(view, "Enter");
+  await settle();
+  const due = addDays(TODAY, 1);
+  assert.match(md, new RegExp(`- \\[ \\] Print badges due:${due}\\n  bring lanyards\\n`));
+  assert.equal(fieldIn(root).state.doc.toString(), "", "ready for the next card");
+  press(fieldIn(root), "Escape");
+  await settle();
+  // Edit: the card's own words stay words ("every day" was written before); what's typed is read.
+  root.querySelector<HTMLElement>(".kb-card")!.click();
+  view = fieldIn(root);
+  assert.equal(view.state.doc.toString(), "Water plants every day");
+  assert.equal(root.querySelectorAll(".qa-hl").length, 0);
+  typeInto(view, " !high");
+  press(view, "Enter");
+  await settle();
+  assert.match(md, /- \[ \] Water plants every day !high\n/);
 });

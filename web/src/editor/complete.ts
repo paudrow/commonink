@@ -400,9 +400,6 @@ export function typingHelpers(): Extension {
   return [completions([toolSource, taskTokenSource, mentionSource, linkSource, tagSource, frontmatterTagSource]), pasteLinks, pasteFiles];
 }
 
-/** `[[` note names and `#` tags, for a field outside the note editor (a board's card). */
-export const fieldCompletions = (): Extension => completions([linkSource, tagSource]);
-
 function completions(override: CompletionSource[]): Extension {
   return autocompletion({
     override,

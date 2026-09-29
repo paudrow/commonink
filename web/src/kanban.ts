@@ -4,8 +4,6 @@
 // Lines the board can't place show in a banner with fixes to pick from. The board keeps no copy of its own: it
 // reads the note's markdown each time it draws, and each change is one core edit of that markdown
 // handed to its host (an editor transaction for the open note, a save for another note's board).
-import { EditorView, keymap, placeholder } from "@codemirror/view";
-import { insertNewline } from "@codemirror/commands";
 import { api, ApiError, type Task } from "./api.ts";
 import { displayName, el, icon, LINK_DRAG, NOTE_DRAG } from "./dom.ts";
 import { onVaultChange } from "./events.ts";
@@ -14,8 +12,9 @@ import { renderMarkdown } from "./render.ts";
 import { endTags, metaChips, today } from "./taskChips.ts";
 import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
 import { inline } from "./taskRow.ts";
-import { editorContext, type EditorContext } from "./editor/blocks.ts";
-import { fieldCompletions } from "./editor/complete.ts";
+import { type EditorContext } from "./editor/blocks.ts";
+import { taskInput } from "./taskInput.ts";
+import { typedTask } from "../../src/core/quickAdd.ts";
 import {
   addCard, addColumn, boardsIn, cardAsNote, cardLink, COLORS, deleteCard, editCard, fixesFor, fixProblem, moveCard, moveColumn, noteName, patchCard, renameColumn,
   setColumnColor, type Board, type Card, type Column, type Fix, type Problem,
@@ -497,12 +496,12 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
   function openAdd(c: number) {
     const col = board()?.columns[c];
     if (!col) return;
-    openField("add", c, undefined, cardField("", "Card text: [[ links a note, # tags, due:2026-10-01…", (text) => change((md) => addCard(md, { board: at, column: c }, text, today()))));
+    openField("add", c, undefined, cardField("", (text) => change((md) => addCard(md, { board: at, column: c }, text, today()))));
   }
 
   function openEdit(c: number, i: number, card: Card) {
     const text = [card.text, ...card.details].join("\n").replace(/\n+$/, "");
-    openField("edit", c, i, cardField(text, "Card text", (next) => {
+    openField("edit", c, i, cardField(text, (next) => {
       const now = cardNow(c, i, card.text);
       focus = { column: c, card: i };
       if (now) change((md) => editCard(md, now.from, next));
@@ -510,45 +509,33 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
   }
 
   /**
-   * A card's text in a small editor with the note editor's `[[` and `#` suggestions. Enter commits
-   * (and, when adding, stays open for the next card); Shift+Enter starts a line nested under the
-   * card; Escape, or Enter with nothing typed, closes.
+   * A card's text in the task input (taskInput.ts), as in quick-add: phrases typed on its first line
+   * light up and become tokens ("tomorrow" → due:). Enter commits (and, when adding, stays open for
+   * the next card); Shift+Enter starts a line nested under the card; Escape, or Enter with nothing
+   * typed, closes.
    */
-  function cardField(doc: string, hint: string, commit: (text: string) => void): Pick<Field, "dom" | "focus" | "destroy"> {
+  function cardField(doc: string, commit: (text: string) => void): Pick<Field, "dom" | "focus" | "destroy"> {
     const adding = !doc;
     const close = () => {
       field?.destroy();
       field = null;
       draw();
     };
-    const view = new EditorView({
-      doc,
-      extensions: [
-        editorContext.of({ ...host.ctx, path: host.path }),
-        fieldCompletions(),
-        keymap.of([
-          { key: "Shift-Enter", run: insertNewline },
-          {
-            key: "Enter",
-            run: (v) => {
-              const text = v.state.doc.toString();
-              if (!text.trim()) return queueMicrotask(close), true;
-              if (adding) v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: "" } });
-              commit(text);
-              if (!adding) queueMicrotask(close);
-              return true;
-            },
-          },
-          { key: "Escape", run: () => (queueMicrotask(close), true) },
-        ]),
-        EditorView.lineWrapping,
-        placeholder(hint),
-        EditorView.domEventHandlers({ keydown: (e) => e.stopPropagation() }),
-      ],
+    const input = taskInput({
+      value: doc,
+      compact: true,
+      multiline: true,
+      submit: (text, ignore) => {
+        if (!text.trim()) return queueMicrotask(close);
+        const [first, ...details] = text.split("\n");
+        if (adding) input.clear();
+        commit([typedTask(first, today(), ignore), ...details].join("\n"));
+        if (!adding) queueMicrotask(close);
+      },
+      cancel: () => queueMicrotask(close),
     });
-    view.dispatch({ selection: { anchor: view.state.doc.line(1).to } });
-    const dom = el("div", { class: "kb-field" }, view.dom, el("div", { class: "kb-field-hint" }, adding ? "Enter to add · Shift+Enter for details · Esc to close" : "Enter to save · Shift+Enter for details · Esc to cancel"));
-    return { dom, focus: () => !view.hasFocus && view.focus(), destroy: () => view.destroy() };
+    const dom = el("div", { class: "kb-field" }, input.dom, input.preview, el("div", { class: "kb-field-hint" }, adding ? "Enter to add · Shift+Enter for details · Esc to close" : "Enter to save · Shift+Enter for details · Esc to cancel"));
+    return { dom, focus: () => input.focus(), destroy: () => input.destroy() };
   }
 
   async function openAsNote(c: number, i: number, text: string) {
