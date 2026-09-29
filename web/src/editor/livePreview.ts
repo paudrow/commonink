@@ -363,9 +363,11 @@ function build(view: EditorView): DecorationSet {
             return false;
           }
           case "InlineMath": {
-            // Drawn while the cursor is off it; its source while it's on it.
-            const math = inlineTex(doc.sliceString(ref.from, ref.to));
-            if (math && !touches(state, ref.from, ref.to)) out.push(Decoration.replace({ widget: new MathWidget(math.tex, math.display) }).range(ref.from, ref.to));
+            // Drawn while the cursor is off it; its source while it's on it. Math across lines (a $$ block
+            // straight under text) can't be drawn from here: blocks.ts draws it.
+            const source = doc.sliceString(ref.from, ref.to);
+            const math = inlineTex(source);
+            if (math && !source.includes("\n") && !touches(state, ref.from, ref.to)) out.push(Decoration.replace({ widget: new MathWidget(math.tex, math.display) }).range(ref.from, ref.to));
             else out.push(Decoration.mark({ class: "cm-math-source" }).range(ref.from, ref.to));
             return false;
           }

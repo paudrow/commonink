@@ -22,11 +22,15 @@ export function drawMath(node: HTMLElement, tex: string, display: boolean, onDra
     if ("html" in out) {
       node.innerHTML = out.html; // sanitized last, in renderTex
       node.classList.remove("math-error");
-      node.removeAttribute("title");
+      for (const a of ["data-error", "aria-description", "tabindex"]) node.removeAttribute(a);
     } else {
+      // The source in red, with KaTeX's message in a tooltip on hover and on keyboard focus (styles.css).
+      // A native title waits a second and doesn't show over the editor, so it isn't enough.
       node.classList.add("math-error");
       node.textContent = display ? tex : `$${tex}$`;
-      node.title = out.error;
+      node.dataset.error = out.error;
+      node.setAttribute("aria-description", `Can't draw this formula: ${out.error}`);
+      node.tabIndex = 0;
     }
     if (display) node.append(copyButton(tex));
     onDrawn?.();

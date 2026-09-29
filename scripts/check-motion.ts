@@ -18,6 +18,7 @@ export const MOTION_NOTES: Record<string, string> = {
   "Embeds.md": "# Embeds\n\nTop\n\n![[Code]]\n\n![[Mermaid]]\n\nBottom",
   "Math.md": "# Math\n\nTop\n\n$$\na\n$$\n\n$$\nb\n$$\n\n$$\nc\n$$\n\nBottom",
   "Math tight.md": "# Math tight\n\nTop\n\n$$\na\n$$\n$$\nb\n$$\n$$\nc\n$$\n\nBottom",
+  "Math under text.md": "# Math under text\n\nTop\n$$\na\n$$\n$$\nb\n$$\nBottom",
 };
 
 function playwright(): any {

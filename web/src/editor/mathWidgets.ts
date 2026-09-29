@@ -2,6 +2,7 @@
 import { WidgetType, type EditorView } from "@codemirror/view";
 import { inlineMathAt, blockMathAt } from "../../../src/core/math.ts";
 import { drawMath } from "../math.ts";
+import { el } from "../dom.ts";
 
 /** The TeX of an InlineMath node's text ($…$, \(…\) and the rest), and whether it's display math. */
 export function inlineTex(source: string): { tex: string; display: boolean } | null {
@@ -33,25 +34,28 @@ export class MathWidget extends WidgetType {
   toDOM(view: EditorView) {
     const node = document.createElement(this.display ? "div" : "span");
     if (this.preview) node.classList.add("is-preview");
+    // A block's spacing is its wrapper's padding, never a margin: CodeMirror measures block widgets
+    // without margins, and a height it gets wrong sends the cursor past blocks on the way up or down.
+    const dom = this.display ? el("div", { class: "cm-math-block" }, node) : node;
     drawMath(node, this.tex, this.display, () => {
       if (!this.display) return;
       requestAnimationFrame(() => {
-        if (node.isConnected) heights.set(this.tex, node.offsetHeight);
+        if (dom.isConnected) heights.set(this.tex, dom.offsetHeight);
         view.requestMeasure();
       });
     });
     if (this.display && !this.preview) {
       // A click on a drawn block puts the cursor in its source, which shows it for editing.
-      node.addEventListener("mousedown", (e) => {
+      dom.addEventListener("mousedown", (e) => {
         if ((e.target as HTMLElement).closest("button")) return;
         e.preventDefault();
-        const line = view.state.doc.lineAt(view.posAtDOM(node));
+        const line = view.state.doc.lineAt(view.posAtDOM(dom));
         const target = view.state.doc.line(Math.min(line.number + 1, view.state.doc.lines));
         view.dispatch({ selection: { anchor: line.text.trim().length > 2 && !/^\s*```/.test(line.text) ? line.from + line.text.indexOf(line.text.trim()) + 2 : target.to } });
         view.focus();
       });
     }
-    return node;
+    return dom;
   }
   ignoreEvent() {
     return this.display;

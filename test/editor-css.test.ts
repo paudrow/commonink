@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 /** The outer element of each block widget the editor draws (blocks.ts, mathWidgets.ts). */
-const BLOCK_WIDGETS = ["cm-code-widget", "cm-diagram-block", "cm-embed-block", "cm-table-block", "cm-widget", "cm-properties-block"];
+const BLOCK_WIDGETS = ["cm-code-widget", "cm-math-block", "cm-diagram-block", "cm-embed-block", "cm-table-block", "cm-widget", "cm-properties-block"];
 
 test("block widgets in the editor space themselves with padding, never a vertical margin", () => {
   const css = fs.readFileSync(new URL("../web/src/styles.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");

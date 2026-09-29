@@ -21,7 +21,7 @@ import type { BoardHost, mountBoard } from "../kanban.ts";
 import { editsBetween } from "../merge.ts";
 import { codeWrapByDefault, copyCode, hydrateCode, renderCodeBlock } from "../code.ts";
 import { hydrateMath } from "../math.ts";
-import { blockTex, MathWidget } from "./mathWidgets.ts";
+import { blockTex, inlineTex, MathWidget } from "./mathWidgets.ts";
 import { redo, undo } from "@codemirror/commands";
 import { safeDecode } from "../../../src/core/uri.ts";
 
@@ -808,6 +808,13 @@ function buildBlocks(state: EditorState): DecorationSet {
         return false;
       }
       if (ref.name === "Paragraph") {
+        // Math across whole lines of a paragraph ($$ lines straight under text) draws as a block.
+        for (const m of ref.node.getChildren("InlineMath")) {
+          const source = doc.sliceString(m.from, m.to);
+          const [top, bottom] = [doc.lineAt(m.from), doc.lineAt(m.to)];
+          const math = source.includes("\n") ? inlineTex(source) : null;
+          if (math && !doc.sliceString(top.from, m.from).trim() && !doc.sliceString(m.to, bottom.to).trim()) out.push(mathBlock(state, top, bottom, math.tex));
+        }
         const first = doc.lineAt(ref.from).number;
         const last = lastLine(doc, ref.from, ref.to).number;
         for (let l = first; l <= last; l++) {
