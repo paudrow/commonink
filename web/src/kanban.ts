@@ -602,6 +602,11 @@ export function remoteBoard(root: HTMLElement, path: string, index: number, opts
     const n = await api.note(path).catch(() => null);
     if (!alive) return;
     if (!n) return opts.onMissing();
+    // Someone else changed the note: an undo step here would put back the text from before their change.
+    if (note && n.content !== note.content) {
+      past.length = 0;
+      future.length = 0;
+    }
     note = { content: n.content, version: n.version };
     if (!boardsIn(n.content)[index]) return opts.onMissing();
     if (board) board.update(index);
