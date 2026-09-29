@@ -68,6 +68,28 @@ test("the Tasks badge's count is the open tasks in active notes, without sending
   assert.equal(await count(), 2);
 });
 
+test("a starred tag counts the active notes under it, as the tag list does, and drops out when only archived notes or assets have it", () => {
+  const { quire } = openTempVault({
+    "A.md": "# A\n\n#Work/Clients/acme and #work/clients again\n\n- [ ] Call #work/calls\n",
+    "B.md": "# B\n\n#work\n",
+    "Archive/C.md": "# C\n\n#work/old #gone\n",
+    "assets/logo.svg": "<svg/>",
+  });
+  quire.setAssetTags("assets/logo.svg", ["brand", "work"]);
+  quire.starTag("you", "work");
+  quire.starTag("you", "work/clients");
+  assert.throws(() => quire.starTag("you", "brand"), /No note has #brand/);
+  assert.throws(() => quire.starTag("you", "gone"), /No note has #gone/);
+  assert.deepEqual(quire.favorites("you"), [
+    { tag: "work", display: "Work", notes: 2 },
+    { tag: "work/clients", display: "Work/Clients", notes: 1 },
+  ]);
+  const listed = quire.tags().filter((t) => t.tag === "work" || t.tag === "work/clients");
+  assert.deepEqual(listed.map((t) => ({ tag: t.tag, display: t.display, notes: t.notes })), quire.favorites("you"));
+  quire.save("A.md", "# A\n", { source: "t" });
+  assert.deepEqual(quire.favorites("you"), [{ tag: "work", display: "Work", notes: 1 }]);
+});
+
 test("an index from before tasks were indexed learns them on the next start", () => {
   const { dir, quire } = openTempVault(TASKY);
   quire.db.exec("DROP TABLE tasks");

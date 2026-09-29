@@ -789,12 +789,10 @@ export class Quire {
    */
   favorites(user: string): Favorite[] {
     const out: Favorite[] = [];
-    let inUse: Map<string, TagCount> | null = null;
     for (const f of this.db.all<{ note_id: string; path: string }>("SELECT note_id, path FROM favorites WHERE user = ? ORDER BY pos", user)) {
       if (f.note_id.startsWith("#")) {
-        inUse ??= new Map(this.tags().filter((t) => t.notes).map((t) => [t.tag, t]));
-        const t = inUse.get(f.note_id.slice(1));
-        if (t) out.push({ tag: t.tag, display: t.display, notes: t.notes });
+        const t = this.tagInUse(f.note_id.slice(1));
+        if (t) out.push(t);
         continue;
       }
       const here = this.pathOf(f.note_id);
@@ -833,7 +831,7 @@ export class Quire {
   starTag(user: string, raw: string): Favorite[] {
     const tag = normalizeTag(raw);
     if (!tag) throw new QuireError(`"${raw}" isn't a tag: use letters, numbers, - and _, nested with /`);
-    const t = this.tags().find((x) => x.tag === tag && x.notes);
+    const t = this.tagInUse(tag);
     if (!t) throw new QuireError(`No note has #${tag} yet`, "not_found");
     this.addFavorite(user, tagKey(tag), t.display);
     return this.favorites(user);
@@ -960,6 +958,17 @@ export class Quire {
     return [...uses]
       .sort(([a], [b]) => (a < b ? -1 : 1))
       .map(([tag, u]) => ({ tag, display: shown.get(tag) ?? tag, notes: u.notes.size, tasks: u.tasks.size, assets: u.assets.size }));
+  }
+
+  /** One tag's entry in tags(), counting only notes; null if no active note has it (or a tag under it). */
+  private tagInUse(tag: string): TagFavorite | null {
+    const notes = this.db.get<{ n: number }>(
+      `SELECT count(DISTINCT t.path) AS n FROM tags t JOIN notes n ON n.path = t.path
+       WHERE ${UNDER} AND t.kind != 'asset' AND substr(t.path, 1, 8) != 'Archive/'`,
+      ...under(tag),
+    )!.n;
+    if (!notes) return null;
+    return { tag, display: this.db.get<{ display: string }>("SELECT display FROM tag_names WHERE tag = ?", tag)?.display ?? tag, notes };
   }
 
   /** Everywhere `tag` or a tag under it is used, archived notes included, by path and line. */
