@@ -43,7 +43,7 @@ export function textStage(path: string, size: number): HTMLElement {
       const copy = el("button", { type: "button", class: "ap-text-copy", title: "Copy the whole file" }, icon("copy", 13), "Copy text");
       copy.addEventListener("click", () => void navigator.clipboard.writeText(text).then(() => (copy.lastChild!.textContent = "Copied")));
       const render = () => {
-        const seg = el("div", { class: "seg" }, ...modeButtons(format, mode, (m) => ((mode = m), remember(format, m), render())));
+        const seg = el("div", { class: "seg", role: "group", "aria-label": "Show as" }, ...modeButtons(format, mode, (m) => ((mode = m), remember(format, m), render())));
         const view = renderText(text, mode);
         bar.replaceChildren(...(MODES[format].length > 1 ? [seg] : []), el("span", { class: "ap-text-meta" }, view.meta), el("span", { class: "spacer" }), copy);
         body.replaceChildren(view.node);
@@ -62,7 +62,7 @@ function renderText(text: string, mode: Mode): { node: HTMLElement; meta: string
 function modeButtons(format: TextFormat, mode: Mode, pick: (m: Mode) => void): HTMLElement[] {
   if (MODES[format].length < 2) return [];
   return MODES[format].map((m) =>
-    el("button", { type: "button", class: m === mode ? "is-on" : "", onmousedown: (e: Event) => (e.preventDefault(), pick(m)) }, LABEL[m]),
+    el("button", { type: "button", class: m === mode ? "is-on" : "", "aria-pressed": String(m === mode), onmousedown: (e: Event) => (e.preventDefault(), pick(m)) }, LABEL[m]),
   );
 }
 
@@ -75,7 +75,7 @@ export function dataEmbed(target: string, from: string | undefined, opts: { acti
   const format = textFormat(name);
   const settle = opts.settle ?? (() => {});
   const meta = el("span", { class: "embed-meta" });
-  const seg = el("div", { class: "seg embed-seg" });
+  const seg = el("div", { class: "seg embed-seg", role: "group", "aria-label": "Show as" });
   const body = el("div", { class: "embed-body embed-data is-loading" }, el("div", { class: "skeleton" }), el("div", { class: "skeleton short" }));
   const wrap = el(
     "div",

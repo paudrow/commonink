@@ -163,7 +163,7 @@ export class Assets {
         .map((f) =>
           el(
             "button",
-            { type: "button", class: `chip${f === this.filter ? " is-on" : ""}`, onclick: () => ((this.filter = f), this.render()) },
+            { type: "button", class: `chip${f === this.filter ? " is-on" : ""}`, "aria-pressed": String(f === this.filter), onclick: () => ((this.filter = f), this.render()) },
             f === "all" ? null : icon(typeIcon(f), 13),
             f === "all" ? "All" : ASSET_LABEL[f],
             el("span", { class: "n" }, String(f === "all" ? all.length : counts[f])),

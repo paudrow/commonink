@@ -1,5 +1,7 @@
-// ⌘K: fuzzy jump by name + full-text search (SQLite FTS5 on the server), in one list.
+// Quick open (⌘P, or ⌘K): fuzzy jump by name + full-text search (SQLite FTS5 on the server), in one
+// list. A leading `>` (or ⌘⇧P, which types it) lists the app's commands instead.
 import { api, isArchived, type NoteMeta, type SearchHit } from "./api.ts";
+import { formatKeys, matchCommands, type Command } from "./commands.ts";
 import { $, displayName, el, escapeHtml, icon } from "./dom.ts";
 import { fuzzyScore } from "./fuzzy.ts";
 import { agentsBadge, isAgentsNote } from "./agentsNote.ts";
@@ -8,9 +10,13 @@ import { MOD_ENTER, paletteEnter } from "./panes.ts";
 type Item =
   | { type: "note"; note: NoteMeta; archived?: boolean }
   | { type: "hit"; hit: SearchHit }
+  | { type: "command"; command: Command }
   | { type: "create"; name: string };
 
 const kindIcon = (kind: string) => (kind === "html" ? "html" : kind === "asset" ? "image" : "file");
+
+const sectionOf = (item: Item, q: string) =>
+  item.type === "note" ? (item.archived ? "Archived" : q ? "Notes" : "Recent") : item.type === "hit" ? "In content" : item.type === "command" ? "Commands" : "";
 
 export class Palette {
   private root = $("#palette");
@@ -20,14 +26,18 @@ export class Palette {
   private active = 0;
   private seq = 0;
   private timer = 0;
+  /** Where the focus goes back to when the palette closes. */
+  private returnTo: HTMLElement | null = null;
 
   constructor(
     private notes: () => NoteMeta[],
     /** `side`: open it to the side (⌘Enter). */
     private onOpen: (path: string, line?: number, side?: boolean) => void,
     private onCreate: (name: string) => void,
+    private commands: () => Command[],
   ) {
     this.root.querySelector(".palette-side")!.textContent = MOD_ENTER;
+    document.querySelectorAll<HTMLElement>("kbd[data-keys]").forEach((k) => (k.textContent = formatKeys(k.dataset.keys!)));
     this.input.addEventListener("input", () => this.query());
     this.input.addEventListener("keydown", (e) => this.key(e));
     this.root.addEventListener("mousedown", (e) => {
@@ -40,20 +50,39 @@ export class Palette {
   }
 
   open(initial = "") {
+    if (this.root.hidden) this.returnTo = document.activeElement as HTMLElement | null;
     this.root.hidden = false;
     this.input.value = initial;
     this.input.focus();
-    this.input.select();
+    this.input.setSelectionRange(initial.length, initial.length); // after a `>`, typing adds to it
     this.query();
   }
 
+  /** ⌘P / ⌘K (`initial` ""), ⌘⇧P (">"): open it that way, switch to it, or close it if it's already that way. */
+  toggle(initial: "" | ">") {
+    const commands = this.input.value.trim().startsWith(">");
+    if (this.isOpen && commands === (initial === ">")) this.close();
+    else this.open(initial);
+  }
+
   close() {
+    if (this.root.hidden) return;
     this.root.hidden = true;
+    this.input.removeAttribute("aria-activedescendant");
+    if (this.returnTo?.isConnected) this.returnTo.focus({ preventScroll: true });
+    this.returnTo = null;
   }
 
   private query() {
     const q = this.input.value.trim();
     const seq = ++this.seq;
+    clearTimeout(this.timer);
+    if (q.startsWith(">")) {
+      return this.render(
+        matchCommands(q.slice(1), this.commands()).map((command) => ({ type: "command", command })),
+        q,
+      );
+    }
     const score = (note: NoteMeta) => (q ? Math.max(fuzzyScore(q, note.title), fuzzyScore(q, note.path) - 50) : note.mtime);
     const archived = q
       ? this.notes()
@@ -71,18 +100,15 @@ export class Palette {
       .sort((a, b) => b.score - a.score)
       .slice(0, q ? 6 : 9)
       .map((x) => ({ type: "note" as const, note: x.note }));
-    const base: Item[] = [...names, ...archived];
     const exact = this.notes().some((n) => displayName(n.path).toLowerCase() === q.toLowerCase() || n.title.toLowerCase() === q.toLowerCase());
-    if (q && !exact) base.push({ type: "create", name: q });
-    this.render(base, q);
-    clearTimeout(this.timer);
+    const create: Item[] = q && !exact ? [{ type: "create", name: q }] : [];
+    this.render([...names, ...archived, ...create], q);
     if (q.length < 2) return;
     this.timer = window.setTimeout(async () => {
       const hits = await api.search(q).catch(() => []);
       if (seq !== this.seq) return;
       const shown = new Set(names.map((n) => n.note.path));
       const content = hits.filter((h) => !shown.has(h.path) || h.lines.length).slice(0, 10).map((hit) => ({ type: "hit" as const, hit }));
-      const create = base.filter((i) => i.type === "create");
       this.render([...names, ...content, ...archived, ...create], q);
     }, 70);
   }
@@ -90,30 +116,45 @@ export class Palette {
   private render(items: Item[], q: string) {
     this.items = items;
     this.active = Math.min(this.active, Math.max(0, items.length - 1));
-    if (!q) this.active = 0;
+    if (!q || q === ">") this.active = 0;
     const rows: HTMLElement[] = [];
     let section = "";
+    let group: HTMLElement | null = null;
     items.forEach((item, i) => {
-      const sec = item.type === "note" ? (item.archived ? "Archived" : q ? "Notes" : "Recent") : item.type === "hit" ? "In content" : "";
-      if (sec && sec !== section) {
-        rows.push(el("div", { class: "palette-section" }, sec));
+      const sec = sectionOf(item, q);
+      if (sec !== section) {
+        const id = `palette-sec-${rows.length}`;
+        group = sec ? el("div", { role: "group", "aria-labelledby": id }, el("div", { class: "palette-section", id, role: "presentation" }, sec)) : null;
+        if (group) rows.push(group);
         section = sec;
       }
       const row = this.row(item, q);
       row.dataset.index = String(i);
+      row.id = `palette-opt-${i}`;
       row.addEventListener("mousemove", () => this.setActive(i));
       row.addEventListener("mousedown", (e) => {
         e.preventDefault();
         this.choose(i);
       });
-      rows.push(row);
+      if (group) group.append(row);
+      else rows.push(row);
     });
-    if (!items.length) rows.push(el("div", { class: "palette-empty" }, "Nothing found"));
+    if (!items.length) rows.push(el("div", { class: "palette-empty" }, q.startsWith(">") ? "No command matches" : "Nothing found"));
     this.list.replaceChildren(...rows);
     this.setActive(this.active);
   }
 
   private row(item: Item, q: string): HTMLElement {
+    if (item.type === "command") {
+      const c = item.command;
+      return el(
+        "div",
+        { class: "palette-item is-command", role: "option" },
+        icon(c.icon ?? "spark", 15),
+        el("span", { class: "pi-title" }, c.title),
+        c.keys ? el("kbd", {}, formatKeys(c.keys[0])) : null,
+      );
+    }
     if (item.type === "create") {
       return el("div", { class: "palette-item is-create", role: "option" }, icon("plus", 15), el("span", { class: "pi-title" }, `Create “${item.name}”`), el("kbd", {}, "⇧↵"));
     }
@@ -150,14 +191,23 @@ export class Palette {
 
   private setActive(i: number) {
     this.active = i;
-    this.list.querySelectorAll(".palette-item").forEach((r) => r.classList.toggle("is-active", Number((r as HTMLElement).dataset.index) === i));
-    this.list.querySelector(".is-active")?.scrollIntoView({ block: "nearest" });
+    this.list.querySelectorAll<HTMLElement>(".palette-item").forEach((r) => {
+      const on = Number(r.dataset.index) === i;
+      r.classList.toggle("is-active", on);
+      r.setAttribute("aria-selected", String(on));
+    });
+    const row = this.list.querySelector<HTMLElement>(".is-active");
+    if (row) this.input.setAttribute("aria-activedescendant", row.id);
+    else this.input.removeAttribute("aria-activedescendant");
+    row?.scrollIntoView?.({ block: "nearest" });
   }
 
   private choose(i: number, how: ReturnType<typeof paletteEnter> = "open") {
     const item = this.items[i];
     const q = this.input.value.trim();
     this.close();
+    if (item?.type === "command") return void item.command.run();
+    if (q.startsWith(">")) return;
     if (how === "create" || item?.type === "create") return q && this.onCreate(q);
     if (!item) return;
     if (item.type === "note") this.onOpen(item.note.path, undefined, how === "side");
@@ -177,6 +227,8 @@ export class Palette {
     } else if (e.key === "Escape") {
       e.preventDefault();
       this.close();
+    } else if (e.key === "Tab") {
+      e.preventDefault(); // the field is all there is to focus in here
     }
   }
 }

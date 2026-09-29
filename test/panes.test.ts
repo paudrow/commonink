@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EditorState } from "@codemirror/state";
-import { forget, paletteEnter, parseLayout, sideClick, step, visit } from "../web/src/panes.ts";
+import { forget, linkClick, paletteEnter, parseLayout, sideClick, step, visit } from "../web/src/panes.ts";
 import { markdownWithFrontmatter } from "../web/src/editor/language.ts";
 import { noteLinkAt } from "../web/src/editor/linkAt.ts";
 
@@ -30,6 +30,13 @@ test("open to the side is Cmd-click on a Mac and Ctrl-click elsewhere; a Mac's C
     [click(true, false), click(false, true), click(false, false), click(false, true, 1)].map((e) => sideClick(e, false)),
     [false, true, false, false],
   );
+});
+
+test("a note link opens in place on a plain click, to the side on a side click, and leaves new tabs and windows to the browser", () => {
+  const click = (keys: string, button = 0) => ({ metaKey: keys.includes("⌘"), ctrlKey: keys.includes("^"), shiftKey: keys.includes("⇧"), altKey: keys.includes("⌥"), button });
+  const clicks = [click(""), click("⌘"), click("^"), click("⇧"), click("⌥"), click("", 1), click("⌘⇧")];
+  assert.deepEqual(clicks.map((e) => linkClick(e, true)), ["open", "side", "browser", "browser", "browser", "browser", "side"]);
+  assert.deepEqual(clicks.map((e) => linkClick(e, false)), ["open", "browser", "side", "browser", "browser", "browser", "browser"]);
 });
 
 test("each pane keeps its own back and forward: visiting clears forward, and the same note twice is one visit", () => {

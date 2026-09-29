@@ -44,6 +44,11 @@ export interface DiffRun {
   skipped: number;
   before: string | null;
   after: string | null;
+  stat: LineStat | null;
+}
+export interface LineStat {
+  add: number;
+  del: number;
 }
 export interface DiffFile {
   path: string;
@@ -268,6 +273,8 @@ export const api = {
   changeAgents: () => j<string[]>(`${BASE}/changes/agents`),
   /** What a set of changes did, note by note. `ids` is ranges like "12-18,20". */
   diffs: (ids: string) => j<DiffFile[]>(`${BASE}/diffs?ids=${ids}`),
+  /** The net lines added and removed by each set of changes (ranges as for diffs), at most 50 sets. */
+  diffStats: (sets: string[]) => j<Array<LineStat | null>>(`${BASE}/diffstats?sets=${sets.join(";")}`),
   restore: (id: number) => j<{ path: string; version: string; change: number | null }>(`${BASE}/restore`, send("POST", { id })),
   changes: () => j<Change[]>(`${BASE}/changes?limit=40`),
   /** `origin` (this tab's clientId) marks a save the tab's editor already shows, so the live update skips it there. */
