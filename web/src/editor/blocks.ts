@@ -19,6 +19,7 @@ import { boardsIn, unclosedBoard } from "../../../src/core/kanban.ts";
 // Boards load with the first note that has one.
 import type { BoardHost, mountBoard } from "../kanban.ts";
 import { editsBetween } from "../merge.ts";
+import { codeWrapByDefault, copyCode, hydrateCode, renderCodeBlock } from "../code.ts";
 import { redo, undo } from "@codemirror/commands";
 import { safeDecode } from "../../../src/core/uri.ts";
 
@@ -208,6 +209,7 @@ class EmbedWidget extends WidgetType {
         const md = heading ? sectionOf(note.content, heading) : note.content;
         body.innerHTML = renderMarkdown(md, path, { boards: !heading });
         hydrateDataEmbeds(body, path, settle);
+        hydrateCode(body);
         body.querySelectorAll("input").forEach((i) => (i.disabled = true));
         if (body.querySelector(".kb-slot[data-board]")) {
           void import("../kanban.ts").then((m) => ((outer as any).stopBoards = m.hydrateBoards(body, path, { ctx, readOnly: view.state.readOnly, resized: settle })));
@@ -456,6 +458,88 @@ class HintWidget extends WidgetType {
   }
 }
 
+/**
+ * The code lines of the fenced block at `pos` (from the start of the first to the end of the last,
+ * without the fences), and how far the fence is indented; null if `pos` isn't in one.
+ */
+export function codeRange(state: EditorState, pos: number): { from: number; to: number; indent: number } | null {
+  for (let n: any = syntaxTree(state).resolveInner(pos, -1); n; n = n.parent) {
+    if (n.name !== "FencedCode") continue;
+    const doc = state.doc;
+    const first = doc.lineAt(n.from);
+    const last = lastLine(doc, n.from, n.to);
+    const closed = last.number > first.number && /^\s*(```|~~~)/.test(last.text);
+    const end = closed ? last.from - 1 : last.to;
+    return { from: Math.min(first.to + 1, end), to: Math.max(first.to, end), indent: first.text.match(/^\s*/)![0].length };
+  }
+  return null;
+}
+
+/** The code of the fenced block at `pos`, without its fences or their indent; null if `pos` isn't in one. */
+export function codeAt(state: EditorState, pos: number): string | null {
+  const r = codeRange(state, pos);
+  if (!r) return null;
+  if (r.to <= r.from) return "";
+  return state.doc.sliceString(r.from, r.to).split("\n").map((l) => l.slice(Math.min(r.indent, l.match(/^\s*/)![0].length))).join("\n");
+}
+
+/** Copy the code of the block the cursor is in (Mod-Shift-C). Only in a code block; elsewhere the key passes. */
+export const copyCodeCommand = (view: EditorView) => {
+  const code = codeAt(view.state, view.state.selection.main.head);
+  if (code === null) return false;
+  void copyCode(code);
+  return true;
+};
+
+/**
+ * A fenced code block while the cursor is elsewhere: drawn like rendered markdown's (code.ts), with
+ * copy, wrap and language on hover. A click in the code puts the cursor there.
+ */
+class CodeWidget extends WidgetType {
+  constructor(
+    readonly code: string,
+    readonly info: string,
+    readonly indent: number,
+    readonly wrapByDefault: boolean,
+  ) {
+    super();
+  }
+  eq(o: CodeWidget) {
+    return o.code === this.code && o.info === this.info && o.indent === this.indent && o.wrapByDefault === this.wrapByDefault;
+  }
+  get estimatedHeight() {
+    return heights.get(`c|${this.info}|${this.code}`) ?? 40 + this.code.split("\n").length * 22;
+  }
+  ignoreEvent() {
+    return true;
+  }
+  toDOM(view: EditorView) {
+    let dom: HTMLElement;
+    /** The opening fence's line, wherever the block is now. */
+    const fence = () => view.state.doc.lineAt(view.posAtDOM(dom));
+    dom = renderCodeBlock(this.code, this.info, {
+      setInfo: view.state.readOnly
+        ? undefined
+        : (info) => {
+            const line = fence();
+            const m = line.text.match(/^(\s*(?:`{3,}|~{3,})\s*)(.*)$/);
+            if (m) view.dispatch({ changes: { from: line.from + m[1].length, to: line.to, insert: info } });
+          },
+      edit: (n, column) => {
+        const doc = view.state.doc;
+        const line = doc.line(Math.min(fence().number + 1 + n, doc.lines));
+        view.dispatch({ selection: { anchor: Math.min(line.to, line.from + this.indent + column) } });
+        view.focus();
+      },
+    });
+    dom.classList.add("cm-code-widget");
+    requestAnimationFrame(() => {
+      if (dom.isConnected) heights.set(`c|${this.info}|${this.code}`, dom.offsetHeight);
+    });
+    return dom;
+  }
+}
+
 let mermaid: Promise<(typeof import("mermaid"))["default"]> | null = null;
 let diagramSeq = 0;
 
@@ -657,11 +741,20 @@ function buildBlocks(state: EditorState): DecorationSet {
       }
       if (ref.name === "FencedCode") {
         const info = ref.node.getChild("CodeInfo");
-        if (!info || doc.sliceString(info.from, info.to).trim().toLowerCase() !== "mermaid") return false;
+        const infoText = info ? doc.sliceString(info.from, info.to).trim() : "";
         const first = doc.lineAt(ref.from);
         const last = lastLine(doc, ref.from, ref.to);
         if (last.number === first.number) return false;
         const closed = /^\s*(```|~~~)/.test(last.text);
+        if (infoText.toLowerCase() !== "mermaid") {
+          // Any other closed block draws as a code block until the cursor goes in.
+          if (closed && !touches(state, first.from, last.to)) {
+            const indent = first.text.match(/^\s*/)![0].length;
+            const code = doc.sliceString(first.to + 1, Math.max(first.to + 1, last.from - 1)).split("\n").map((l) => l.slice(Math.min(indent, l.match(/^\s*/)![0].length))).join("\n");
+            out.push(Decoration.replace({ block: true, widget: new CodeWidget(code, infoText, indent, codeWrapByDefault()) }).range(first.from, last.to));
+          }
+          return false;
+        }
         const code = doc.sliceString(first.to + 1, closed ? Math.max(first.to + 1, last.from - 1) : last.to);
         const widget = new DiagramWidget(code, embedRev);
         if (touches(state, first.from, last.to)) {

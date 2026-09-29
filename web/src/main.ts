@@ -7,7 +7,8 @@ import { normalizeTag } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setSelfName, timeAgo, type LinkDrag } from "./dom.ts";
 import { createState, openLinkToSide, remote, vimSlot } from "./editor/setup.ts";
 import { linkTargetAt } from "./editor/linkAt.ts";
-import { bumpEmbeds, editorContext } from "./editor/blocks.ts";
+import { bumpEmbeds, codeRange, editorContext } from "./editor/blocks.ts";
+import { codeWrapByDefault, setCodeWrapByDefault } from "./code.ts";
 import { clearFlash, flashChanges } from "./editor/agentFlash.ts";
 import { editsBetween, merge3 } from "./merge.ts";
 import { sandboxFrame } from "./render.ts";
@@ -1810,6 +1811,19 @@ Vim.defineEx("vsplit", "vs", (_cm: unknown, params: { args?: string[] }) => {
 });
 Vim.defineEx("only", "on", () => split && void closePane(other(active)));
 Vim.defineEx("close", "clo", () => void closePane(active));
+// `ic`, the inner code block: the code between a fenced block's fences, for yic, dic, cic and vic.
+Vim.defineMotion("quireInnerCode", (_cm: unknown, head: { line: number; ch: number }) => {
+  const { state } = active.view;
+  const r = codeRange(state, state.doc.line(head.line + 1).from + head.ch);
+  if (!r || r.to <= r.from) return head;
+  const pos = (at: number) => {
+    const line = state.doc.lineAt(at);
+    return { line: line.number - 1, ch: at - line.from };
+  };
+  return [pos(r.from), pos(r.to)];
+});
+Vim.mapCommand("ic", "motion", "quireInnerCode", {}, { context: "operatorPending" });
+Vim.mapCommand("ic", "motion", "quireInnerCode", {}, { context: "visual" });
 Vim.defineAction("quireFollowLink", () => followLinkAtCursor());
 Vim.mapCommand("gd", "action", "quireFollowLink", {}, { context: "normal" });
 Vim.mapCommand("gf", "action", "quireFollowLink", {}, { context: "normal" });
@@ -2076,6 +2090,18 @@ async function boot() {
   setupPanes();
   $("#stage").addEventListener("mousedown", () => document.body.classList.remove("panel-overlay"));
   $("#theme-toggle").addEventListener("click", toggleTheme);
+  // Whether long lines in code blocks wrap, for blocks that don't say (```ts nowrap / wrap do).
+  const codeWrapChip = () => {
+    const on = codeWrapByDefault();
+    $("#codewrap-toggle").classList.toggle("is-on", on);
+    $("#codewrap-toggle").title = on ? "Long lines in code blocks wrap. Click to scroll them instead." : "Long lines in code blocks scroll. Click to wrap them.";
+  };
+  codeWrapChip();
+  $("#codewrap-toggle").addEventListener("click", () => {
+    setCodeWrapByDefault(!codeWrapByDefault());
+    codeWrapChip();
+    for (const p of panes) bumpEmbeds(p.view);
+  });
   $("#vim-toggle").addEventListener("click", () => {
     prefs.vim = !prefs.vim;
     store.set("vim", prefs.vim);
