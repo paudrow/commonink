@@ -783,24 +783,24 @@ body.is-resizing iframe { pointer-events: none; }
 /* ------------------------------------------------------------------ widgets */
 .cm-widget { padding: 0.2em 0 0.75em; white-space: normal; }
 
-/* The markdown behind an embed or widget: a quiet caption you can move onto and edit. */
+/* The markdown behind an embed or widget, shown above it while the cursor is on it; elsewhere a thin edge (.cm-embed-gap). */
 .cm-embed-src {
   font-family: var(--mono);
   font-size: 0.74em;
   line-height: 1.6;
-  color: var(--faint);
+  color: var(--accent-ink);
   padding-top: 0.8em !important;
   word-break: break-all;
 }
-.cm-embed-src.is-active { color: var(--accent-ink); }
-.cm-embed-src.is-active + .cm-embed-block :is(figure img, .embed-social.is-video, .bookmark),
-.cm-embed-src.is-active + .cm-embed-block .cm-embed:is(.is-note, .is-html),
-.cm-embed-src.is-active + .cm-widget .qw {
+.cm-embed-gap { height: 8px; cursor: text; }
+.cm-embed-src + .cm-embed-block :is(figure img, figure video, .embed-social.is-video, .bookmark),
+.cm-embed-src + .cm-embed-block .cm-embed:is(.is-note, .is-html),
+.cm-embed-src + .cm-widget .qw {
   outline: 2px solid var(--accent-line);
   outline-offset: 2px;
 }
 /* Post cards: highlight the card itself, whose corners are the provider's. */
-.cm-embed-src.is-active + .cm-embed-block .embed-social.is-card .embed-frame { outline: 2px solid var(--accent-line); outline-offset: 3px; border-radius: 14px; }
+.cm-embed-src + .cm-embed-block .embed-social.is-card .embed-frame { outline: 2px solid var(--accent-line); outline-offset: 3px; border-radius: 14px; }
 .qw {
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -910,6 +910,7 @@ body.is-resizing iframe { pointer-events: none; }
 .embed-url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 
 .cm-embed.is-bookmark { position: relative; }
+.cm-embed.is-video { position: relative; width: fit-content; max-width: 100%; }
 .bookmark {
   display: flex;
   min-height: 92px;
@@ -930,7 +931,8 @@ body.is-resizing iframe { pointer-events: none; }
 .bm-thumb { width: 200px; flex: none; background: var(--hover); border-left: 1px solid var(--line); }
 .bm-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .bm-edit { position: absolute; top: 6px; right: 6px; background: var(--bg-elev); box-shadow: var(--shadow-sm); opacity: 0; transition: opacity 0.15s; }
-.cm-embed.is-bookmark:hover .bm-edit { opacity: 1; }
+.cm-embed:is(.is-bookmark, .is-video):hover .bm-edit, .bm-edit:focus-visible { opacity: 1; }
+@media (hover: none) { .bm-edit { opacity: 1; } }
 @media (max-width: 760px) { .bm-thumb { width: 110px; } }
 
 .cm-autolink { text-decoration-style: dotted; }
@@ -939,7 +941,6 @@ body.is-resizing iframe { pointer-events: none; }
 .toast.is-alert .toast-icon { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
 
 .cm-title-placeholder { color: var(--faint); pointer-events: none; }
-
 /* ------------------------------------------------------------------ sidebar nav: notes + archive */
 .nav-item {
   display: flex;

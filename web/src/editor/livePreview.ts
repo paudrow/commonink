@@ -273,7 +273,7 @@ function build(view: EditorView): DecorationSet {
           }
           case "WikiLink":
           case "Embed": {
-            // A whole-line ![[embed]] is shown raw: it's the caption above the rendered embed.
+            // A whole-line ![[embed]] is shown raw: it's the line above the rendered embed, there while the cursor is on it.
             if (name === "Embed" && doc.lineAt(ref.from).text.trim() === doc.sliceString(ref.from, ref.to)) return false;
             const bang = name === "Embed" ? 1 : 0;
             const inner = doc.sliceString(ref.from + 2 + bang, ref.to - 2);
