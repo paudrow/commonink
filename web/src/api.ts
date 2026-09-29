@@ -256,8 +256,9 @@ export const api = {
   diffs: (ids: string) => j<DiffFile[]>(`${BASE}/diffs?ids=${ids}`),
   restore: (id: number) => j<{ path: string; version: string; change: number | null }>(`${BASE}/restore`, send("POST", { id })),
   changes: () => j<Change[]>(`${BASE}/changes?limit=40`),
-  save: (path: string, content: string, baseVersion?: string, allowEmpty = false) =>
-    j<{ path: string; version: string }>(`${BASE}/note`, send("PUT", { path, content, baseVersion, clientId, allowEmpty })),
+  /** `origin` (this tab's clientId) marks a save the tab's editor already shows, so the live update skips it there. */
+  save: (path: string, content: string, baseVersion?: string, allowEmpty = false, origin?: string) =>
+    j<{ path: string; version: string }>(`${BASE}/note`, send("PUT", { path, content, baseVersion, clientId: origin, allowEmpty })),
   create: (path: string, content: string) => j<{ path: string; version: string }>(`${BASE}/note`, send("POST", { path, content })),
   move: (from: string, to: string) => j<{ path: string; updated: string[] }>(`${BASE}/move`, send("POST", { from, to })),
   /** Upload a file's bytes; the server picks a free name under `folder` (assets/ by default). */

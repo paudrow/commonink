@@ -701,7 +701,7 @@ async function save(s: Session) {
   s.saving = true;
   status(s, "saving");
   try {
-    const r = await api.save(s.path, content, s.baseVersion, content.trim() === "");
+    const r = await api.save(s.path, content, s.baseVersion, content.trim() === "", clientId);
     s.base = content;
     s.baseVersion = r.version;
     if (s === s.pane.session && view.state.doc.lineAt(view.state.selection.main.head).number > 1) void nameUntitled(s);
@@ -731,7 +731,8 @@ async function flushSave(...only: Pane[]) {
   }
 }
 
-let flashTimer = 0;
+/** Each editor's pending end to its agent highlight, so a change in one pane doesn't keep the other's lit. */
+const flashTimers = new WeakMap<EditorView, number>();
 /** A new version arrived from disk. Apply it as a diff (keeps cursor, undo, vim state); 3-way merge if we have unsaved typing. */
 function applyRemote(m: { path: string; content: string | null; version: string; source: string }) {
   const s = panes.find((p) => p.session?.path === m.path)?.session;
@@ -757,8 +758,8 @@ function applyRemote(m: { path: string; content: string | null; version: string;
   if (target !== m.content) scheduleSave(s, 250);
   else status(s, "saved");
   if (s.kind === "html" && prefs.htmlMode === "preview") renderHtmlPreview(s.pane);
-  clearTimeout(flashTimer);
-  flashTimer = window.setTimeout(() => view.dispatch({ effects: clearFlash.of(null) }), 6000);
+  clearTimeout(flashTimers.get(view));
+  flashTimers.set(view, window.setTimeout(() => view.dispatch({ effects: clearFlash.of(null) }), 6000));
 }
 
 function showConflict(s: Session, m: { path: string; content: string | null; version: string; source: string }) {
@@ -800,10 +801,11 @@ function onMessage(m: ServerMsg) {
       const meta = notes.find((n) => n.path === m.path);
       if (meta) meta.version = m.version;
       refreshTagsSoon(); // your own typing can add a tag too
+      // The other pane may embed this note, and typing here changes what it shows there too.
+      for (const p of panes) if (p.session?.kind === "md" && p.session.path !== m.path && embedsPath(p, m.path)) bumpEmbeds(p.view);
       if (m.origin === clientId) return;
       const open = panes.some((p) => p.session?.path === m.path);
       if (open) applyRemote(m);
-      for (const p of panes) if (p.session?.kind === "md" && p.session.path !== m.path && embedsPath(p, m.path)) bumpEmbeds(p.view);
       if (!isSelf(m.source) && m.change) {
         toast({
           source: m.source,
