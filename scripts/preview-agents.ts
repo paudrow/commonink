@@ -47,10 +47,18 @@ async function signIn(): Promise<string> {
   }
 }
 
+/**
+ * Just after a deploy, the workspace's Durable Object can run the code from before it for a few
+ * seconds, and that doesn't know newer routes (a 404). Waiting for the new code also keeps the
+ * agents' edits from being recorded by the old code.
+ */
 async function get(route: string) {
-  const res = await fetch(origin + route, { headers: { cookie } });
-  if (!res.ok) throw new Error(`GET ${route} → ${res.status}`);
-  return res.json();
+  for (let attempt = 1; ; attempt++) {
+    const res = await fetch(origin + route, { headers: { cookie } });
+    if (res.ok) return res.json();
+    if ((res.status !== 404 && res.status < 500) || attempt === 8) throw new Error(`GET ${route} → ${res.status}`);
+    await new Promise((r) => setTimeout(r, attempt * 3000));
+  }
 }
 
 /** Connect an MCP client named `name` to this workspace, as the developer, and let it work. */
