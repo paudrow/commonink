@@ -76,6 +76,24 @@ test("vault files are served sandboxed, and paths can't climb out", async () => 
   assert.equal((await request("GET", "/api/files/Welcome.md")).status, 404);
 });
 
+test("other sites get nothing from the app's own files, and can't frame it", async () => {
+  assert.equal((await request("GET", "/", { headers: { Origin: "http://localhost:3000" } })).status, 403);
+  assert.equal((await request("GET", "/src/main.ts", { headers: { Origin: "http://evil.localhost:8080" } })).status, 403);
+  const own = await request("GET", "/", { headers: origin() });
+  assert.deepEqual([own.status, own.headers["content-security-policy"], own.headers["x-content-type-options"]], [404, "frame-ancestors 'self'", "nosniff"]);
+});
+
+test("a WebSocket to anything but /ws is closed, not left hanging", async () => {
+  const { default: WebSocket } = await import("ws");
+  const socket = new WebSocket(`ws://localhost:${port}/ws?x=1`, { headers: origin() });
+  const outcome = await Promise.race([
+    new Promise<string>((resolve) => socket.once("error", () => resolve("closed")).once("close", () => resolve("closed"))),
+    new Promise<string>((resolve) => setTimeout(() => resolve("hanging"), 2000)),
+  ]);
+  socket.terminate();
+  assert.equal(outcome, "closed");
+});
+
 test("HTML notes' sandbox page has its own policy and an opaque origin", async () => {
   const res = await request("GET", "/sandbox");
   assert.equal(res.status, 200);
