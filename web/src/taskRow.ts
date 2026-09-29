@@ -67,16 +67,19 @@ export function taskRow(t: Task, env: RowEnv, where: string | null): HTMLElement
 }
 
 /**
- * Draw a list of task rows again. If a row's checkbox had the keyboard focus, the checkbox now in
- * its place gets it (a task ticked off an Open list is gone, so that's the next one).
+ * Draw a list of task rows again. If a row's checkbox or button had the keyboard focus, the same
+ * control on the row now in its place gets it (a task ticked off an Open list is gone, so that's the next one).
  */
 export function redrawRows(list: HTMLElement, draw: () => void) {
-  const boxes = () => [...list.querySelectorAll<HTMLElement>(".qt-row .cm-checkbox")];
-  const at = boxes().indexOf(document.activeElement as HTMLElement);
+  const rows = () => [...list.querySelectorAll<HTMLElement>(".qt-row")];
+  const controls = (row: HTMLElement) => [...row.querySelectorAll<HTMLElement>(".cm-checkbox, .qt-act")];
+  const row = rows().findIndex((r) => r.contains(document.activeElement));
+  const control = row < 0 ? -1 : controls(rows()[row]).indexOf(document.activeElement as HTMLElement);
   draw();
-  if (at < 0) return;
-  const now = boxes();
-  now[Math.min(at, now.length - 1)]?.focus({ preventScroll: true });
+  if (control < 0) return;
+  const now = rows();
+  const there = now[Math.min(row, now.length - 1)];
+  if (there) controls(there)[control]?.focus({ preventScroll: true });
 }
 
 /** Tick or untick: shown at once, then the list reloads with what the note says now. */
