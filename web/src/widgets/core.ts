@@ -78,7 +78,7 @@ export function renderWidget(spec: WidgetSpec, env: WidgetEnv): { dom: HTMLEleme
     el("span", { class: "qw-kind" }, icon(spec.icon, 13), spec.title),
     env.args.label ? el("span", { class: "qw-label" }, env.args.label) : null,
     el("span", { class: "spacer" }),
-    env.readOnly ? null : gear,
+    env.readOnly || !spec.fields.length ? null : gear,
   );
   const body = el("div", { class: "qw-body" });
   const root = el("div", { class: `qw qw-${spec.name}` }, head, body);

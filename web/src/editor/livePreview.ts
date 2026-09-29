@@ -9,6 +9,7 @@ import { today, tokenChip } from "../taskChips.ts";
 import { openChipEditor } from "../taskChipEditors.ts";
 import { taskLineEdit } from "./taskEdit.ts";
 import { lineTaskContext } from "./taskTools.ts";
+import { did } from "../events.ts";
 
 const hide = Decoration.replace({});
 
@@ -73,6 +74,7 @@ class CheckboxWidget extends WidgetType {
       const spec = taskLineEdit(view.state, line.number, line.text, { checked: !this.checked }, today());
       if (spec) view.dispatch(spec);
       else view.dispatch({ changes: { from: this.pos + 1, to: this.pos + 2, insert: this.checked ? " " : "x" } });
+      if (!this.checked) did("tick");
     });
     return box;
   }
@@ -360,6 +362,10 @@ function build(view: EditorView): DecorationSet {
               if (closing && last.number > first.number) out.push(hide.range(last.from, last.to));
             }
             return false;
+          }
+          case "Comment": {
+            if (!touches(state, ref.from, ref.to)) out.push(hide.range(ref.from, ref.to)); // <!-- notes --> in a line, like the guide's markers
+            return;
           }
           case "HTMLBlock":
           case "CommentBlock": {

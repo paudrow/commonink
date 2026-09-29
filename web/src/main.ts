@@ -21,7 +21,8 @@ import { isQuickAddKey, openQuickAdd } from "./quickAdd.ts";
 import { runTaskCommand } from "./taskCommand.ts";
 import type { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
-import { vaultEvents } from "./events.ts";
+import { did, vaultEvents } from "./events.ts";
+import { guideMessage, startGuide } from "./onboarding.ts";
 import { groupChanges } from "../../src/core/format.ts";
 import { clampSide, forget, newLayout, parseLayout, SIDE_CLICK, sideClick, step, visit, type PaneTrail } from "./panes.ts";
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
@@ -188,6 +189,7 @@ const palette = new Palette(
 );
 function openPalette(side = false) {
   paletteToSide = side;
+  did("search");
   palette.open();
 }
 
@@ -822,6 +824,7 @@ function showConflict(s: Session, m: { path: string; content: string | null; ver
 // ------------------------------------------------------------------ live updates
 
 function onMessage(m: ServerMsg) {
+  guideMessage(m);
   if (m.type !== "change") vaultEvents.dispatchEvent(new Event("change"));
   switch (m.type) {
     case "note": {
@@ -2139,6 +2142,7 @@ async function boot() {
     $("#conn").title = up ? "Live: watching the vault for agent edits" : "Reconnecting…";
     if (up) refreshNotesSoon();
   });
+  if (!viewer) void startGuide({ archive: (path) => void archivePath(path), flush: () => flushSave() });
 
   void refreshTaskCount();
   // Home is the notes list; a note's URL (or the tasks, history or assets page) opens that instead.

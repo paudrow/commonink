@@ -14,6 +14,7 @@ import { NEW_BOARD } from "../../../src/core/kanban.ts";
 import { taskPeople } from "../taskChipEditors.ts";
 import { taskTokenSource } from "./taskComplete.ts";
 import { inTaskText } from "./taskEdit.ts";
+import { did } from "../events.ts";
 
 interface Option extends Completion {
   icon?: string;
@@ -105,8 +106,10 @@ async function mentionSource(ctx: CompletionContext): Promise<CompletionResult |
       detail: r.detail,
       icon: r.icon,
       section: { name: p.section, rank: p.rank },
-      apply: (view: EditorView, _c: Completion, _from: number, to: number) =>
-        view.dispatch({ changes: { from: at, to, insert: r.insert }, selection: { anchor: at + r.insert.length }, userEvent: "input.complete" }),
+      apply: (view: EditorView, _c: Completion, _from: number, to: number) => {
+        view.dispatch({ changes: { from: at, to, insert: r.insert }, selection: { anchor: at + r.insert.length }, userEvent: "input.complete" });
+        did("link");
+      },
     })),
   ));
   if (!options.length && /\s/.test(query)) return null; // "@ " in ordinary prose: get out of the way
@@ -136,6 +139,7 @@ function linkSource(ctx: CompletionContext): CompletionResult | null {
         apply: (view: EditorView, _c: Completion, from: number, to: number) => {
           const insert = name + (closed ? "" : "]]");
           view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + name.length + 2 }, userEvent: "input.complete" });
+          if (!embed) did("link");
         },
       };
     });
@@ -314,7 +318,7 @@ function toolSource(ctx: CompletionContext): CompletionResult | null {
       icon: t.icon,
       boost: -i,
       section: q ? undefined : { name: t.section, rank: SECTION_RANK[t.section] },
-      apply: (view: EditorView, _c: Completion, from: number, to: number) => t.run(view, from, to),
+      apply: (view: EditorView, _c: Completion, from: number, to: number) => (t.run(view, from, to), did("slash")),
     })) as Option[],
   };
 }
