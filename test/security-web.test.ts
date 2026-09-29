@@ -25,6 +25,56 @@ test("note HTML can't stand in for the app's elements or float over it", () => {
   assert.equal(renderMarkdown('<button popovertarget="p">b</button>', "a.md"), "<p><button>b</button></p>\n");
 });
 
+test("a link in note content opens in a new tab, never in place of the app", () => {
+  const opened: string[] = [];
+  const realOpen = window.open;
+  window.open = ((url: string) => (opened.push(url), null)) as typeof window.open;
+  const click = (href: string) => {
+    const a = document.createElement("a");
+    a.href = href;
+    a.textContent = "link";
+    document.body.append(a);
+    const e = new window.MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    a.dispatchEvent(e);
+    a.remove();
+    return e.defaultPrevented;
+  };
+  assert.deepEqual(
+    [click("https://evil.example/login"), click("/notes/plan-k3x9q2mf"), click("mailto:a@b.example"), click("weird:thing")],
+    [true, false, false, true],
+  );
+  assert.deepEqual(opened, ["https://evil.example/login"]);
+  window.open = realOpen;
+});
+
+test("a Mastodon-style embed, which can be any host, gets no forms, clipboard or unsandboxed popups", async () => {
+  const { resolveEmbed, providerFrame } = await import("../web/src/embeds/providers.ts");
+  const frame = providerFrame((await resolveEmbed("https://evil.example/@a/123456"))!);
+  assert.deepEqual([frame.getAttribute("sandbox"), frame.getAttribute("allow")], ["allow-scripts allow-same-origin allow-popups", "autoplay; picture-in-picture; fullscreen"]);
+  const youtube = providerFrame((await resolveEmbed("https://www.youtube.com/watch?v=dQw4w9WgXcQ"))!);
+  assert.match(youtube.getAttribute("sandbox")!, /allow-forms/);
+});
+
+test("hostile markdown renders in linear time, and deep quotes don't overflow the stack", async () => {
+  const { sectionOf } = await import("../web/src/render.ts");
+  const { toNumber } = await import("../web/src/csv.ts");
+  const cases: Array<[string, () => unknown]> = [
+    ["33k ![[", () => renderMarkdown("![[".repeat(33_000), "a.md")],
+    ["100k [", () => renderMarkdown("[".repeat(100_000), "a.md")],
+    ["a section heading with 100k spaces", () => sectionOf(`## a${" ".repeat(100_000)}b\n`, "x")],
+    ["a CSV cell of 100k digits", () => toNumber(`${"1".repeat(100_000)}x`)],
+  ];
+  const slow = cases.flatMap(([name, run]) => {
+    const t = performance.now();
+    run();
+    const ms = performance.now() - t;
+    return ms > 1500 ? [`${name}: ${Math.round(ms)} ms`] : [];
+  });
+  assert.deepEqual(slow, []);
+  assert.match(renderMarkdown("> ".repeat(5000) + "deep", "a.md"), /deep/);
+  assert.deepEqual(["$1,200", "15%", "-3.5", ".5", "1,2x"].map(toNumber), [1200, 15, -3.5, 0.5, NaN]);
+});
+
 test("an image link that isn't valid percent-encoding renders instead of throwing", () => {
   assert.equal(renderMarkdown("![a](%E0%A4%A)", "a.md"), '<p><img src="/api/file-resolve?target=%25E0%25A4%25A&amp;from=a.md" alt="a"></p>\n');
 });

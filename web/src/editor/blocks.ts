@@ -219,6 +219,7 @@ class EmbedWidget extends WidgetType {
           if (href.startsWith("quire:")) ctx.openTarget(safeDecode(href.slice(6)), path);
           else if (/^https?:/i.test(href)) window.open(href, "_blank", "noopener");
         });
+        body.addEventListener("click", (e) => (e.target as HTMLElement).closest("a") && e.preventDefault()); // opened on mousedown
       }
       settle();
     })().catch(() => {

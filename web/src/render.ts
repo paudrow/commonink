@@ -9,6 +9,7 @@ import { isEmbeddable } from "./embeds/providers.ts";
 import { boardsIn } from "../../src/core/kanban.ts";
 import { SANDBOX_PATH } from "../../src/core/sandbox.ts";
 import { safeDecode } from "../../src/core/uri.ts";
+import { headingText } from "../../src/core/prose.ts";
 
 export { currentScheme };
 
@@ -40,7 +41,10 @@ export function embedKindOf(target: string, bare = false): EmbedKind {
 export function sectionOf(md: string, heading: string): string {
   const lines = md.split("\n");
   const want = heading.trim().toLowerCase();
-  const start = lines.findIndex((l) => l.match(/^(#{1,6})\s+(.*?)\s*#*$/)?.[2].toLowerCase() === want);
+  const start = lines.findIndex((l) => {
+    const m = l.match(/^#{1,6}[ \t]+(.*)$/);
+    return !!m && headingText(m[1]).toLowerCase() === want;
+  });
   if (start < 0) return md;
   const level = lines[start].match(/^#+/)![0].length;
   // A board's column ends with the board.
@@ -73,14 +77,17 @@ export const NOTE_HTML = {
 export function renderMarkdown(md: string, from: string, opts: { boards?: boolean } = {}): string {
   const body = boardSlots(md.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, ""), !!opts.boards);
   const pre = body
-    .replace(/!\[\[([^\]|]+?)(?:\|[^\]]*)?\]\]/g, (_m, target: string) => {
+    // Each class leaves out "[" so no pattern backtracks across a long line of them.
+    .replace(/!\[\[([^[\]|]+)(?:\|[^[\]]*)?\]\]/g, (_m, target: string) => {
       const kind = embedKindOf(target);
       if (kind === "image") return `![${target}](${assetUrl(target, from)})`;
       return `[↳ ${target}](quire:${encodeURIComponent(target)})`;
     })
-    .replace(/\[\[([^\]|]+?)(?:\|([^\]]*))?\]\]/g, (_m, target: string, alias?: string) => `[${alias ?? target.replace(/#/, " › ")}](quire:${encodeURIComponent(target)})`)
-    .replace(/!\[([^\]]*)\]\((?!https?:|\/)([^)\s]+)\)/g, (_m, alt, src) => `![${alt}](${assetUrl(safeDecode(src), from)})`);
-  const html = marked.parse(pre, { async: false, gfm: true }) as string;
+    .replace(/\[\[([^[\]|]+)(?:\|([^[\]]*))?\]\]/g, (_m, target: string, alias?: string) => `[${alias ?? target.replace(/#/, " › ")}](quire:${encodeURIComponent(target)})`)
+    .replace(/!\[([^[\]]*)\]\((?!https?:|\/)([^()\s]+)\)/g, (_m, alt, src) => `![${alt}](${assetUrl(safeDecode(src), from)})`);
+  // marked recurses once per ">", so thousands of them overflow the stack: 20 levels is plenty.
+  const flat = pre.replace(/^((?:[ \t]*>){20})(?:[ \t]*>)+/gm, "$1");
+  const html = marked.parse(flat, { async: false, gfm: true }) as string;
   return DOMPurify.sanitize(html, NOTE_HTML);
 }
 
@@ -136,4 +143,15 @@ window.addEventListener("message", (e) => {
       }
     }
   }
+});
+
+// A link in note content never replaces the app (a look-alike sign-in page could stand in for it).
+// Where nothing else handled the click, an http(s) link opens in a new tab and any other kind
+// except mailto: does nothing.
+document.addEventListener("click", (e) => {
+  if (e.defaultPrevented || e.button !== 0) return;
+  const a = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+  if (!a || a.target === "_blank" || a.protocol === "mailto:" || a.origin === location.origin) return;
+  e.preventDefault();
+  if (/^https?:$/.test(a.protocol)) window.open(a.href, "_blank", "noopener,noreferrer");
 });
