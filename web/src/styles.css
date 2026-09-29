@@ -537,6 +537,9 @@ body.is-resizing iframe { pointer-events: none; }
 .cm-task-gear { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 5px; color: var(--muted); }
 .cm-task-gear:hover { background: var(--hover); color: var(--ink-strong); }
 .cm-task-hint { font: 12px var(--ui); color: var(--faint); }
+/* A phrase on the cursor's task line that Tab or a click would make a token: marked, never changed on its own. */
+.cm-phrase { text-decoration: underline dotted var(--accent-line); text-decoration-thickness: 1.5px; text-underline-offset: 3px; cursor: pointer; }
+.cm-phrase.is-rec, .cm-phrase.is-ends { text-decoration-color: color-mix(in srgb, var(--ok) 70%, transparent); }
 .cm-hint-word { padding: 0 2px; border-radius: 4px; font: inherit; color: inherit; cursor: pointer; }
 .cm-hint-word:hover, .cm-hint-word:focus-visible { color: var(--ink-2); background: var(--hover); }
 .cm-checkbox {
@@ -1826,7 +1829,7 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .qa-field:focus-within { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
 .qa-box { position: relative; flex: 1; min-width: 0; }
 .qa-hl { border-radius: 4px; background: var(--accent-soft); box-shadow: 0 0 0 2px var(--accent-soft); }
-.qa-hl.is-rec { background: color-mix(in srgb, var(--ok) 18%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 18%, transparent); }
+.qa-hl.is-rec, .qa-hl.is-ends { background: color-mix(in srgb, var(--ok) 18%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 18%, transparent); }
 .qa-hl.is-target { background: var(--hover); box-shadow: 0 0 0 2px var(--hover); }
 .qa-preview { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 2px; min-height: 22px; padding: 8px 2px 0; font-size: 13px; color: var(--ink-2); }
 .qa-words { margin-right: 6px; }
