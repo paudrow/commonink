@@ -125,10 +125,10 @@
     </div>
 
     <div id="palette" hidden>
-      <div class="palette-box" role="dialog" aria-label="Search notes">
-        <div class="palette-input"><span class="ico" data-icon="search"></span><input id="palette-input" placeholder="Search or jump to a note…" autocomplete="off" spellcheck="false" /></div>
-        <div id="palette-results" role="listbox"></div>
-        <div class="palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd class="palette-side">⌘↵</kbd> open to the side</span><span><kbd>⇧↵</kbd> create</span><span><kbd>esc</kbd> close</span></div>
+      <div class="palette-box" role="dialog" aria-modal="true" aria-label="Search notes and commands">
+        <div class="palette-input"><span class="ico" data-icon="search"></span><input id="palette-input" role="combobox" aria-label="Search notes and commands" aria-controls="palette-results" aria-expanded="true" aria-autocomplete="list" placeholder="Search notes, or type > for commands…" autocomplete="off" spellcheck="false" /></div>
+        <div id="palette-results" role="listbox" aria-label="Results"></div>
+        <div class="palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd class="palette-side">⌘↵</kbd> open to the side</span><span><kbd>⇧↵</kbd> create</span><span><kbd>&gt;</kbd> commands</span><span><kbd>esc</kbd> close</span></div>
       </div>
     </div>
     <div id="toasts"></div>
