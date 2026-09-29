@@ -3,6 +3,7 @@
 //
 //   npm run bench                              every size and backend
 //   npm run bench -- --sizes 1000 --backends do
+//   npm run bench -- --ops "tasks|feed"        only the operations whose names match
 //   npm run bench -- --explain                 also print each query's plan (on the largest vault)
 //   npm run bench -- --json out.json           also write the numbers as JSON
 //
@@ -26,6 +27,7 @@ const opt = (name: string) => {
 const SIZES = (opt("sizes") ?? "1000,10000").split(",").map(Number);
 const BACKENDS = (opt("backends") ?? "local,do").split(",") as Array<"local" | "do">;
 const EXPLAIN = args.includes("--explain");
+const OPS = new RegExp(opt("ops") ?? "");
 const JSON_OUT = opt("json");
 const USER = "you";
 
@@ -175,6 +177,7 @@ function openDo(v: GeneratedVault, reps: number): { build: number[]; backend: Ba
 
 /** Run `fn` `reps` times (after one warm-up) for timings, and once more through the counter. */
 function measure(size: number, name: string, b: Backend, reps: number, fn: (q: Quire, i: number) => void) {
+  if (!OPS.test(name)) return;
   fn(b.quire, -1);
   const samples: number[] = [];
   for (let i = 0; i < reps; i++) samples.push(time(() => fn(b.quire, i)));
@@ -191,7 +194,12 @@ function scenarios(size: number, v: GeneratedVault, b: Backend) {
   const tag = v.tags[3];
   const root = tag.split("/")[0];
 
-  // Setup, untimed: stars and smart folders someone might have.
+  // Setup, untimed: some history (three changes a note), and stars and smart folders someone might have.
+  b.quire.db.tx(() => {
+    for (const [i, n] of notes.entries()) {
+      for (const source of ["you", "Claude", i % 2 ? "external" : "you"]) b.quire.recordChange({ path: n.path, op: "edit", source, version: n.version, summary: "+1 −0", from_path: null });
+    }
+  });
   for (const n of notes.slice(0, 20)) b.quire.star(USER, n.path);
   for (const t of b.quire.tags().slice(0, 5)) b.quire.starTag(USER, t.tag);
   const folders = [`tag=${root}`, `tag=${tag}`, "folder=Projects", "folder=Journal sort=title", 'q="launch plan"', "q=budget tag=work", "folder=Ideas", `tag=${v.tags[10]}`];
