@@ -1,4 +1,5 @@
 import "./styles.css";
+import "./motion.css";
 import { EditorView } from "@codemirror/view";
 import type { EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
