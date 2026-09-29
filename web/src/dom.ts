@@ -96,10 +96,18 @@ const ICONS: Record<string, string> = {
 /** What a dragged note carries (its path), from a card in Notes or a favorite to a folder, Favorites or Archive. */
 export const NOTE_DRAG = "application/x-common-ink-path";
 
+/** Each icon parsed once per size; a long task list draws thousands. */
+const parsedIcons = new Map<string, SVGSVGElement>();
+
 export function icon(name: string, size = 16): SVGSVGElement {
-  const wrap = document.createElement("span");
-  wrap.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] ?? ""}</svg>`;
-  return wrap.firstChild as SVGSVGElement;
+  const key = `${name} ${size}`;
+  let svg = parsedIcons.get(key);
+  if (!svg) {
+    const wrap = document.createElement("span");
+    wrap.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] ?? ""}</svg>`;
+    parsedIcons.set(key, (svg = wrap.firstChild as SVGSVGElement));
+  }
+  return svg.cloneNode(true) as SVGSVGElement;
 }
 
 /** Fill every `<span class="ico" data-icon="…">` placeholder. */
