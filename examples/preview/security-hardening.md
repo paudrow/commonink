@@ -2,8 +2,6 @@
 pr: 58
 title: Security hardening
 ---
-# Security hardening
-
 Sessions now live on the server, every page runs under a strict Content-Security-Policy, and HTML notes run in their own sandbox page. Check that nothing you use every day broke.
 
 1. **Sign in again.** Sessions from before this change don't carry over, so the first visit after it deploys asks you to sign in once. On this Preview that happens by itself. After that, reloading keeps you signed in.
