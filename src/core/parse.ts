@@ -1,6 +1,6 @@
 import path from "node:path";
 import { linkKey, type NoteKind } from "./paths.ts";
-import { proseLines, withoutCode, headingText } from "./prose.ts";
+import { headingName, headingText, proseLines, withoutCode } from "./prose.ts";
 import { safeDecode } from "./uri.ts";
 
 export interface ParsedLink {
@@ -110,7 +110,7 @@ export function outlineOf(md: string): Heading[] {
     .map(([line, text]) => {
       const m = text.match(/^(#{1,6})[ \t]+(.+)$/);
       const words = m && headingText(m[2]);
-      return words ? { level: m[1].length, text: words, line } : null;
+      return words ? { level: m[1].length, text: headingName(words) || words, line } : null;
     })
     .filter((h): h is Heading => h !== null);
 }

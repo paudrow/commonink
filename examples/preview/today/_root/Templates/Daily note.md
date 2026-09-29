@@ -1,0 +1,7 @@
+# {{!date}}
+
+## Plan
+
+## Tasks
+
+## Log

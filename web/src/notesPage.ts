@@ -2,7 +2,7 @@
 // the whole note in place; Edit opens it in the editor. Filter as you type, triage from the
 // keyboard (j/k, Enter to expand, o to open, e to archive, x to select), and archive in bulk.
 import { api, type FeedItem, type FeedPage, type Scope, type TagCount } from "./api.ts";
-import { $, avatar, displayName, el, escapeHtml, icon, NOTE_DRAG, timeAgo } from "./dom.ts";
+import { $, authorAvatar, authorName, displayName, el, escapeHtml, icon, NOTE_DRAG, timeAgo } from "./dom.ts";
 import { renderMarkdown, sandboxFrame } from "./render.ts";
 import { hydrateDataEmbeds } from "./textPreview.ts";
 import { parseDirective } from "./widgets/args.ts";
@@ -24,8 +24,8 @@ interface Hooks {
   tags(): TagCount[];
   /** Save these filters (a query like `tag=work sort=title`) as a smart folder. */
   saveQuery(anchor: HTMLElement, query: string): void;
-  /** The pin-to-Favorites button for the tag Notes is narrowed to. */
-  pinButton(tag: string): HTMLElement;
+  /** The star (Add to / Remove from Favorites) for the tag Notes is narrowed to. */
+  starButton(tag: string): HTMLElement;
   /** Show every task of this person's. */
   openPerson(name: string): void;
   /** You can only view this workspace: chips show, but don't open editors. */
@@ -201,7 +201,7 @@ export class NotesPage {
         el("button", { type: "button", class: `chip${f === this.folder ? " is-on" : ""}`, onclick: () => ((this.folder = f), (this.focus = 0), this.reload()) }, f || "All folders"),
       ),
     );
-    this.tagBar.replaceChildren(tagFilter({ current: this.tag, tags: this.hooks.tags, count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }), this.tag ? this.hooks.pinButton(this.tag) : "");
+    this.tagBar.replaceChildren(tagFilter({ current: this.tag, tags: this.hooks.tags, count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }), this.tag ? this.hooks.starButton(this.tag) : "");
     this.sortSel.value = this.sort;
     this.saveBtn.hidden = !formatQuery(this.query);
     this.hooks.filtersChanged();
@@ -290,7 +290,7 @@ export class NotesPage {
           "div",
           { class: "fc-meta" },
           folder ? el("span", {}, folder) : null,
-          item.lastSource ? el("span", { class: "fc-who" }, avatar(item.lastSource, 16), item.lastSource) : null,
+          item.lastSource ? el("span", { class: "fc-who" }, authorAvatar({ source: item.lastSource, ...item.lastBy }, 16), authorName({ source: item.lastSource, ...item.lastBy })) : null,
           el("span", { "data-ts": String(item.mtime) }, timeAgo(item.mtime)),
         ),
         body,

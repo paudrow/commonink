@@ -170,6 +170,11 @@ test("quick-add writes a task from words, and a task moves to another note", asy
   assert.deepEqual(events, ["written Projects/Roadmap.md by tester"]);
   assert.equal((await call("POST", "/tasks/add", { text: "Stretch daily", today: "2026-10-01" })).body.path, "Journal/2026-10-01.md");
   assert.equal((await call("POST", "/tasks/add", { text: "x", ignore: "next week" })).status, 400);
+  const toNote = await call("POST", "/tasks/add", { text: "Tidy up", today: "2026-10-01", to: "Welcome" });
+  assert.deepEqual([toNote.body.path, toNote.body.text], ["Welcome.md", "Tidy up"]);
+  const removed = await call("POST", "/tasks/remove", { path: "Welcome", line: toNote.body.line, text: "Tidy up" });
+  assert.equal(removed.status, 200);
+  assert.equal((await call("GET", "/note?path=Welcome")).body.content, "# Welcome\n\nStart with [[Roadmap]].\n\n![[chart.svg]]\n");
   const moved = await call("POST", "/tasks/move", { path: "Roadmap", line: 10, text: "Ship the importer docs due:2026-10-02", to: "Journal/2026-10-01" });
   assert.deepEqual([moved.status, moved.body.path, moved.body.line], [200, "Journal/2026-10-01.md", 6]);
 });

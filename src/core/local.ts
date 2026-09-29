@@ -10,7 +10,7 @@ import { migrate, type Content, type FileStat, type SqlDb } from "./store.ts";
 export const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 export const DEFAULT_VAULT = process.env.QUIRE_VAULT ? path.resolve(process.env.QUIRE_VAULT) : path.join(PROJECT_ROOT, "vault");
 
-class NodeDb implements SqlDb {
+export class NodeDb implements SqlDb {
   private stmts = new Map<string, StatementSync>();
   constructor(private db: DatabaseSync) {}
   private prep(sql: string) {
@@ -128,7 +128,7 @@ export function openVault(root = DEFAULT_VAULT, opts: QuireOptions = {}): LocalV
   const sqlite = new DatabaseSync(path.join(root, ".quire", "index.db"));
   sqlite.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA synchronous=NORMAL;");
   const db = new NodeDb(sqlite);
-  migrate(db);
+  migrate(db, { local: true });
   const q = new Quire(db, new FsContent(root), opts) as LocalVault;
   q.sync();
   return q;

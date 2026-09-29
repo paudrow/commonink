@@ -4,7 +4,7 @@ import type { EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
 import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type Scope, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
 import { normalizeTag } from "../../src/core/tags.ts";
-import { $, avatar, displayName, el, hueFor, hydrateIcons, icon, isSelf, NOTE_DRAG, setSelfName, timeAgo } from "./dom.ts";
+import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, NOTE_DRAG, setSelfName, timeAgo } from "./dom.ts";
 import { createState, linkTargetAt, remote, vimSlot } from "./editor/setup.ts";
 import { bumpEmbeds, editorContext } from "./editor/blocks.ts";
 import { clearFlash, flashChanges } from "./editor/agentFlash.ts";
@@ -16,7 +16,8 @@ import { folderPicker } from "./folderPicker.ts";
 import { History } from "./history.ts";
 import { Assets } from "./assets.ts";
 import { renderTasksPage } from "./tasksView.ts";
-import { openQuickAdd } from "./quickAdd.ts";
+import { isQuickAddKey, openQuickAdd } from "./quickAdd.ts";
+import { runTaskCommand } from "./taskCommand.ts";
 import { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
@@ -24,6 +25,7 @@ import { groupChanges } from "../../src/core/format.ts";
 import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
 import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { clampSide, forget, newLayout, parseLayout, SIDE_CLICK, sideClick, step, visit, type PaneTrail } from "./panes.ts";
+import { headingName, headingText } from "../../src/core/prose.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
 import { safeDecode } from "../../src/core/uri.ts";
@@ -129,7 +131,7 @@ const notesPage = new NotesPage({
   filtersChanged: () => renderTree(),
   tags: () => tags,
   saveQuery: (anchor, query) => saveSmartFolder(query, "", anchor),
-  pinButton: (tag) => pinButton(tag, "chip"),
+  starButton: (tag) => tagStarButton(tag, "chip"),
   openPerson: (assignee) => void showTasks({ assignee }),
   readOnly: () => viewer,
   toast: (t) => toast(t),
@@ -422,7 +424,7 @@ async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: strin
 async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("tasks");
-  unmountTasks = renderTasksPage($("#tasks-view"), { open: (path, line, side) => void openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }), tags: () => tags }, { tag: opts.tag, assignee: opts.assignee });
+  unmountTasks = renderTasksPage($("#tasks-view"), { open: (path, line, side) => void openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }), tags: () => tags, vim: prefs.vim }, { tag: opts.tag, assignee: opts.assignee });
   $("#tasks-view").focus({ preventScroll: true });
   if (opts.push !== false) setUrl("/tasks");
   document.title = "Tasks · Common Ink";
@@ -655,8 +657,8 @@ function headingLine(pane: Pane, heading: string): number | undefined {
   const want = heading.trim().toLowerCase();
   const doc = pane.view.state.doc;
   for (let i = 1; i <= doc.lines; i++) {
-    const m = doc.line(i).text.match(/^#{1,6}\s+(.*?)\s*#*$/);
-    if (m && m[1].toLowerCase() === want) return i;
+    const m = doc.line(i).text.match(/^#{1,6}[ \t]+(.*)$/);
+    if (m && headingName(headingText(m[1])).toLowerCase() === want) return i;
   }
 }
 
@@ -733,7 +735,13 @@ async function flushSave(...only: Pane[]) {
 
 let flashTimer = 0;
 /** A new version arrived from disk. Apply it as a diff (keeps cursor, undo, vim state); 3-way merge if we have unsaved typing. */
-function applyRemote(m: { path: string; content: string | null; version: string; source: string }) {
+/** Who a live change is by, from its message: its change if it has one, else just its source. */
+const byOf = (m: { source: string; change?: Change | null }) => m.change ?? { source: m.source, person: null, agent: null };
+/** The editor highlight for lines someone else changed, labelled with who. */
+const flashOf = (ranges: Array<{ from: number; to: number }>, m: { source: string; change?: Change | null }) =>
+  flashChanges.of({ ranges, source: m.source, label: authorName(byOf(m)), agent: !!byOf(m).agent });
+
+function applyRemote(m: { path: string; content: string | null; version: string; source: string; change?: Change | null }) {
   const s = panes.find((p) => p.session?.path === m.path)?.session;
   if (!s || m.content === null || s.kind === "asset") return;
   if (m.version === s.baseVersion) return;
@@ -751,7 +759,7 @@ function applyRemote(m: { path: string; content: string | null; version: string;
     target = merged.text;
   }
   const { changes: edits, touched } = editsBetween(doc, target);
-  view.dispatch({ changes: edits, annotations: remote.of(true), effects: flashChanges.of({ ranges: touched, source: m.source }) });
+  view.dispatch({ changes: edits, annotations: remote.of(true), effects: flashOf(touched, m) });
   s.base = m.content;
   s.baseVersion = m.version;
   if (target !== m.content) scheduleSave(s, 250);
@@ -761,8 +769,8 @@ function applyRemote(m: { path: string; content: string | null; version: string;
   flashTimer = window.setTimeout(() => view.dispatch({ effects: clearFlash.of(null) }), 6000);
 }
 
-function showConflict(s: Session, m: { path: string; content: string | null; version: string; source: string }) {
-  const who = m.source === "you" ? "Another window" : m.source === "external" ? "Another program" : m.source;
+function showConflict(s: Session, m: { path: string; content: string | null; version: string; source: string; change?: Change | null }) {
+  const who = m.source === "you" ? "Another window" : m.source === "external" ? "Another program" : authorName(byOf(m));
   clearTimeout(s.timer);
   status(s, "error");
   showBanner(
@@ -781,7 +789,7 @@ function showConflict(s: Session, m: { path: string; content: string | null; ver
       () => {
         const view = s.pane.view;
         const { changes: edits, touched } = editsBetween(view.state.doc.toString(), m.content!);
-        view.dispatch({ changes: edits, annotations: remote.of(true), effects: flashChanges.of({ ranges: touched, source: m.source }) });
+        view.dispatch({ changes: edits, annotations: remote.of(true), effects: flashOf(touched, m) });
         s.base = m.content!;
         s.baseVersion = m.version;
         hideBanner();
@@ -806,7 +814,7 @@ function onMessage(m: ServerMsg) {
       for (const p of panes) if (p.session?.kind === "md" && p.session.path !== m.path && embedsPath(p, m.path)) bumpEmbeds(p.view);
       if (!isSelf(m.source) && m.change) {
         toast({
-          source: m.source,
+          by: m.change,
           text: `${verb(m.change)} ${displayName(m.path)}`,
           detail: m.change.summary ?? undefined,
           action: open ? undefined : () => openNote(m.path),
@@ -873,7 +881,7 @@ const refreshTagsSoon = debounce(async () => {
 // ------------------------------------------------------------------ favorites
 
 const isStarred = (id: string) => favorites.some((f) => !isTagFavorite(f) && f.id === id);
-const isPinned = (tag: string) => favorites.some((f) => isTagFavorite(f) && f.tag === normalizeTag(tag));
+const isTagStarred = (tag: string) => favorites.some((f) => isTagFavorite(f) && f.tag === normalizeTag(tag));
 
 /** Star a note, or unstar it if it's starred. */
 async function toggleStar(path: string) {
@@ -926,32 +934,33 @@ function newSmartFolder(anchor: HTMLElement) {
   });
 }
 
-/** Pin a tag to Favorites (or take it off): one click, and it's in Favorites beside your notes. */
-async function togglePin(tag: string) {
-  const on = isPinned(tag);
+/** Star a tag (or unstar it): one click, and it's in Favorites beside your notes. */
+async function toggleTagStar(tag: string) {
+  const on = isTagStarred(tag);
   try {
     favorites = await (on ? api.unstarTag(tag) : api.starTag(tag));
   } catch (e) {
-    return toast({ text: e instanceof Error ? e.message : `Couldn't pin #${tag}` });
+    return toast({ text: e instanceof Error ? e.message : `Couldn't ${on ? "unstar" : "star"} #${tag}` });
   }
   renderTree();
   notesPage.refreshSoon();
 }
 
-/** The pin for a tag, on its sidebar row (`row`) or on the Notes tag chip (`chip`). */
-function pinButton(tag: string, where: "row" | "chip"): HTMLElement {
-  const pinned = isPinned(tag);
+/** A tag's star, the same control notes have: on its sidebar row (`row`) or beside the Notes tag filter (`chip`). */
+function tagStarButton(tag: string, where: "row" | "chip"): HTMLElement {
+  const starred = isTagStarred(tag);
+  const label = starred ? "Remove from Favorites" : "Add to Favorites";
   return el(
     "button",
     {
       type: "button",
-      class: `${where === "row" ? "row-act" : "chip tag-filter pin-chip"} pin-btn${pinned ? " is-pinned" : ""}`,
-      title: pinned ? `Take #${tag} out of Favorites` : `Pin #${tag} to Favorites`,
-      "aria-pressed": String(pinned),
-      onclick: (e: Event) => (e.stopPropagation(), void togglePin(tag)),
+      class: `${where === "row" ? "row-act" : "fc-action tag-star"} star-btn${starred ? " is-starred" : ""}`,
+      title: label,
+      "aria-label": `${label}: #${tag}`,
+      "aria-pressed": String(starred),
+      onclick: (e: Event) => (e.stopPropagation(), void toggleTagStar(tag)),
     },
-    icon(pinned ? "pinned" : "pin", 13), // filled while it's in Favorites; a click takes it out
-    where === "chip" ? (pinned ? "Pinned" : "Pin") : "",
+    icon(starred ? "starred" : "star", where === "row" ? 14 : 15), // filled while it's a favorite; a click takes it out
   );
 }
 
@@ -1002,7 +1011,7 @@ function renderSmartFolders(active: string | null) {
 
 const FAVORITE = "application/x-common-ink-favorite";
 
-/** A pinned tag in Favorites: it opens Notes narrowed to the tag, like the tag's row under Tags. */
+/** A starred tag in Favorites: it opens Notes narrowed to the tag, like the tag's row under Tags. */
 function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
   return el(
     "div",
@@ -1020,14 +1029,15 @@ function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
         e.dataTransfer!.effectAllowed = "move";
       },
     },
+    el("span", { class: "chev is-leaf" }), // the chevron column Folders and Tags rows have, so icons and names line up
     icon("hash", 14),
     el("span", { class: "tree-name" }, f.display),
     el("span", { class: "n" }, String(f.notes)),
-    el("span", { class: "row-actions" }, pinButton(f.display, "row")),
+    el("span", { class: "row-actions" }, tagStarButton(f.display, "row")),
   );
 }
 
-/** Starred notes and pinned tags, in your order: drag one to reorder, or drag a card in from Notes to star it. */
+/** Starred notes and tags, in your order: drag one to reorder, or drag a card in from Notes to star it. */
 function renderFavorites() {
   // The tag Notes shows on its own (like a folder alone), which its favorite marks as open.
   const q = onPage() === "notes" && notesPage.scope === "active" ? notesPage.query : null;
@@ -1054,19 +1064,20 @@ function renderFavorites() {
           e.dataTransfer!.effectAllowed = "move";
         },
       },
+      el("span", { class: "chev is-leaf" }),
       icon(f.kind === "html" ? "html" : "file", 14),
       el("span", { class: "tree-name" }, displayName(f.path)),
       el(
         "span",
         { class: "row-actions" },
         el("button", { type: "button", class: "row-act", title: `Open to the side (${SIDE_CLICK})`, onclick: (e: Event) => (e.stopPropagation(), void openNote(f.path, { pane: sideOf(active) })) }, icon("split", 14)),
-        el("button", { type: "button", class: "row-act fav-star", title: "Unstar", onclick: (e: Event) => (e.stopPropagation(), void toggleStar(f.path)) }, icon("starred", 14)),
+        el("button", { type: "button", class: "row-act fav-star", title: "Remove from Favorites", onclick: (e: Event) => (e.stopPropagation(), void toggleStar(f.path)) }, icon("starred", 14)),
       ),
     );
     favoriteDrop(row, "is-drop-before", f.path);
     return row;
   });
-  $("#favorites").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Star a note, or pin a tag, to keep it here.")]));
+  $("#favorites").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Star a note or a tag to keep it here.")]));
 }
 
 /** Let `node` take a favorite (to reorder) or a card from Notes (to star), marking it with `cls` while over it. */
@@ -1280,9 +1291,9 @@ function renderTagTree(active: string) {
             : el("span", { class: "chev is-leaf" }),
           icon("hash", 14),
           el("span", { class: "tree-name" }, t.display.split("/").pop()!),
-          isPinned(t.display) ? el("span", { class: "fav-pinned", title: "Pinned to Favorites" }, icon("pinned", 11)) : null,
+          isTagStarred(t.display) ? el("span", { class: "fav-mark", title: "In Favorites" }, icon("starred", 11)) : null,
           el("span", { class: "n" }, String(t.notes)),
-          el("span", { class: "row-actions" }, pinButton(t.display, "row")),
+          el("span", { class: "row-actions" }, tagStarButton(t.display, "row")),
         );
         return [row, ...(open ? walk(t.tag, depth + 1) : [])];
       });
@@ -1502,7 +1513,7 @@ function startRename(label: HTMLElement) {
         const r = await api.move(s.path, /\.[a-z]+$/i.test(to) ? to : to + (ext === ".md" ? "" : ext));
         await refreshNotes();
         await openNote(r.path, { push: false });
-        if (r.updated.length) toast({ source: "you", text: `Renamed · updated links in ${r.updated.length} note${r.updated.length > 1 ? "s" : ""}` });
+        if (r.updated.length) toast({ by: { source: "you", person: "you", agent: null }, text: `Renamed · updated links in ${r.updated.length} note${r.updated.length > 1 ? "s" : ""}` });
         return;
       } catch (e) {
         toast({ text: e instanceof Error ? e.message : "Rename failed" });
@@ -1582,8 +1593,9 @@ function renderOutline() {
     for (let i = 1; i <= doc.lines; i++) {
       const t = doc.line(i).text;
       if (/^\s*(```|~~~)/.test(t)) fence = !fence;
-      const m = !fence && t.match(/^(#{1,6})\s+(.+?)\s*#*$/);
-      if (m) outlineHeadings.push({ level: m[1].length, text: m[2].replace(/[*_`~]|\[\[|\]\]/g, ""), line: i });
+      const m = !fence && t.match(/^(#{1,6})[ \t]+(.+)$/);
+      const words = m && headingText(m[2]);
+      if (words) outlineHeadings.push({ level: m[1].length, text: (headingName(words) || words).replace(/[*_`~]|\[\[|\]\]/g, ""), line: i });
     }
   }
   const min = Math.min(...outlineHeadings.map((h) => h.level));
@@ -1648,14 +1660,14 @@ function renderActivity() {
               onclick: () => void showHistory({ select: c.id }),
               onkeydown: (e: KeyboardEvent) => e.key === "Enter" && void showHistory({ select: c.id }),
             },
-            avatar(c.source, 22),
+            authorAvatar(c, 22),
             el(
               "div",
               { class: "act-body" },
               el(
                 "div",
                 { class: "act-line" },
-                el("b", {}, c.source),
+                el("b", {}, authorName(c)),
                 ` ${verb(c)} `,
                 el("a", { onclick: (e: Event) => (e.stopPropagation(), openNote(c.path)) }, displayName(c.path)),
               ),
@@ -1676,9 +1688,11 @@ function renderActivity() {
 
 function renderPresence() {
   const since = Date.now() - 15 * 60_000;
-  const active = [...new Set(changes.filter((c) => c.ts > since && !isSelf(c.source)).map((c) => c.source))].slice(0, 4);
-  $("#agents").replaceChildren(...active.map((a) => avatar(a, 22)));
-  $("#agents").title = active.length ? `Active in the last 15 min: ${active.join(", ")}` : "";
+  const bySource = new Map<string, Change>();
+  for (const c of changes) if (c.ts > since && !isSelf(c.source) && !bySource.has(c.source)) bySource.set(c.source, c);
+  const active = [...bySource.values()].slice(0, 4);
+  $("#agents").replaceChildren(...active.map((c) => authorAvatar(c, 22)));
+  $("#agents").title = active.length ? `Active in the last 15 min: ${active.map(authorName).join(", ")}` : "";
 }
 
 // ------------------------------------------------------------------ html notes
@@ -1714,7 +1728,7 @@ function showBanner(text: string, ...actions: Array<[string, () => void]>) {
   b.hidden = false;
   b.className = "";
   b.replaceChildren(
-    icon("spark", 15),
+    icon("info", 15),
     el("span", { class: "banner-text" }, text),
     ...actions.map(([label, fn]) => el("button", { class: "banner-btn", type: "button", onclick: fn }, label)),
     el("button", { class: "banner-x", type: "button", title: "Dismiss", onclick: hideBanner }, "×"),
@@ -1724,7 +1738,7 @@ function hideBanner() {
   $("#banner").hidden = true;
 }
 
-function toast(t: { text: string; source?: string; icon?: string; detail?: string; action?: () => void; actionLabel?: string; sticky?: boolean }) {
+function toast(t: { text: string; by?: { source: string; person: string | null; agent: string | null }; icon?: string; detail?: string; action?: () => void; actionLabel?: string; sticky?: boolean }) {
   const button = t.action && t.actionLabel ? el("button", { class: "toast-action", type: "button" }, t.actionLabel) : null;
   const node = el(
     "div",
@@ -1735,8 +1749,8 @@ function toast(t: { text: string; source?: string; icon?: string; detail?: strin
         node.remove();
       },
     },
-    t.source ? avatar(t.source, 22) : el("span", { class: "toast-icon" }, icon(t.icon ?? "spark", 16)),
-    el("div", { class: "toast-body" }, el("div", { class: "toast-text" }, t.source ? el("b", {}, t.source) : null, t.source ? ` ${t.text}` : t.text), t.detail ? el("div", { class: "toast-detail" }, t.detail) : null),
+    t.by ? authorAvatar(t.by, 22) : el("span", { class: "toast-icon" }, icon(t.icon ?? "info", 16)),
+    el("div", { class: "toast-body" }, el("div", { class: "toast-text" }, t.by ? el("b", {}, authorName(t.by)) : null, t.by ? ` ${t.text}` : t.text), t.detail ? el("div", { class: "toast-detail" }, t.detail) : null),
     button,
   );
   button?.addEventListener("click", (e) => {
@@ -1761,6 +1775,15 @@ Vim.defineEx("edit", "e", (_cm: unknown, params: { args?: string[] }) => {
 Vim.defineEx("archive", "arch", () => void archiveCurrent());
 Vim.defineEx("notes", "note", () => void showNotes());
 Vim.defineEx("star", "star", () => active.session && void toggleStar(active.session.path));
+// :task <words> adds a task (as quick-add reads it) to today's daily note, with an Undo; :task alone opens the bar.
+Vim.defineEx("task", "task", (_cm: unknown, params: { argString?: string }) =>
+  void runTaskCommand(params.argString ?? "", {
+    add: (text) => api.addTask(text),
+    remove: async (r) => void (await api.removeTask(r)),
+    openBar: quickAdd,
+    toast: (t) => toast({ icon: "check", ...t }),
+  }).catch((err) => toast({ text: err instanceof Error ? err.message : "Couldn't add the task" })),
+);
 Vim.defineEx("focus", "foc", () => void setFocusMode(!focusMode));
 Vim.defineEx("vsplit", "vs", (_cm: unknown, params: { args?: string[] }) => {
   const arg = params.args?.join(" ");
@@ -1803,13 +1826,11 @@ window.addEventListener(
     } else if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
       e.preventDefault();
       void showNotes({ filter: true });
-    } else if (e.key === "q" && !mod && !e.altKey && !typingIn(e.target)) {
-      // q, anywhere you aren't typing: the quick-add bar (Todoist's key, and free here).
+    } else if (isQuickAddKey(e) || (e.key === "q" && !mod && !e.altKey && !typingIn(e.target))) {
+      // ⌘⇧. anywhere (the editor in any Vim mode too), or q where you aren't typing: the quick-add bar.
       e.preventDefault();
-      openQuickAdd({
-        added: (r) => toast({ icon: "check", text: `Added to ${r.path.replace(/\.md$/, "")}`, actionLabel: "Open", action: () => void openNote(r.path, { line: r.line }) }),
-        open: (path, line) => void openNote(path, { line }),
-      });
+      e.stopPropagation(); // not the editor's (or Vim's) key as well
+      quickAdd();
     } else if (mod && e.altKey && (e.code === "Backslash" || e.key === "\\")) {
       e.preventDefault();
       void (split ? closePane(active) : openSplit());
@@ -1825,6 +1846,16 @@ window.addEventListener(
   },
   true,
 );
+
+/** The floating quick-add bar. From a note, Tab in it sends the task to that note. */
+function quickAdd() {
+  openQuickAdd({
+    added: (r) => toast({ icon: "check", text: `Added to ${r.path.replace(/\.md$/, "")}`, actionLabel: "Open", action: () => void openNote(r.path, { line: r.line }) }),
+    open: (path, line) => void openNote(path, { line }),
+    vim: prefs.vim,
+    note: active.session?.kind === "md" ? active.session.path : undefined,
+  });
+}
 
 /** Whether a key pressed here is someone typing: a field, a text area, or the editor. */
 function typingIn(target: EventTarget | null): boolean {

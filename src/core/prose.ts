@@ -47,6 +47,23 @@ export const withoutCode = (line: string) => line.replace(/`[^`]*`/g, (s) => " "
 /** The line with code spans and [[links]] blanked out, for finding words that mean something (tags, people). */
 export const withoutCodeOrLinks = (line: string) => withoutCode(line).replace(/\[\[[^[\]\n]*\]\]/g, (s) => " ".repeat(s.length));
 
+/**
+ * A heading's name and the `{key=value}` settings it can end with (a board column's `{color=blue}`),
+ * or null settings if it has none. Index lookups, not a regex like /[ \t]*\{[^}]*\}$/, which
+ * backtracks for seconds on a heading with a long run of spaces.
+ */
+export function headingSettings(text: string): { name: string; attrs: string | null } {
+  if (!text.endsWith("}")) return { name: text, attrs: null };
+  const open = text.indexOf("{", text.lastIndexOf("}", text.length - 2) + 1);
+  if (open < 0 || text.slice(open).includes("\n")) return { name: text, attrs: null };
+  let end = open;
+  while (end > 0 && (text[end - 1] === " " || text[end - 1] === "\t")) end--;
+  return { name: text.slice(0, end), attrs: text.slice(open + 1, -1) };
+}
+
+/** A heading's name without the `{key=value}` settings a heading can end with (see headingSettings). */
+export const headingName = (text: string) => headingSettings(text).name;
+
 /** How many lines the frontmatter block takes at the top of a note (0 if it has none). */
 export function frontmatterLines(md: string): number {
   const m = md.match(/^---\r?\n[\s\S]*?\r?\n---(\r?\n|$)/);

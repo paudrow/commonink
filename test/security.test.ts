@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { openVault } from "../src/core/local.ts";
 import { extractLinks, outlineOf, stripTags, titleOf } from "../src/core/parse.ts";
-import { headingText, withoutCodeOrLinks } from "../src/core/prose.ts";
+import { headingName, headingText, withoutCodeOrLinks } from "../src/core/prose.ts";
 import { scanTags, tagsInLine } from "../src/core/tags.ts";
 import { editTask, withTasksAdded } from "../src/core/tasks.ts";
 import { boardsIn } from "../src/core/kanban.ts";
@@ -22,6 +22,13 @@ test("headings keep their words and lose their closing #s", () => {
   assert.deepEqual(outlineOf("# One #\n## Two\n### ###\n"), [{ level: 1, text: "One", line: 1 }, { level: 2, text: "Two", line: 2 }]);
 });
 
+/** The Tasks view's headings for a note's tasks. */
+function tasksUnder(md: string) {
+  const { quire } = openTempVault();
+  quire.create("Hostile.md", md, "you");
+  return quire.tasks({ note: "Hostile" }).map((t) => t.heading);
+}
+
 /**
  * Inputs that took seconds to minutes before the audit (backtracking regexes on note text). Each
  * must now finish in well under a second; the old code took 4 s to 27 s on these sizes.
@@ -33,6 +40,9 @@ test("hostile note text parses in linear time", () => {
     ["the outline of the same", () => outlineOf(`## a${" ".repeat(4000)}b`)],
     ["a task section heading of the same", () => withTasksAdded(`## a${" ".repeat(4000)}b\n`, ["- [ ] x"], false)],
     ["a board column heading of the same", () => boardsIn(`:::kanban\n## a${spaces}b\n:::\n`)],
+    ["a coloured board column heading of the same", () => boardsIn(`:::kanban\n## a${spaces}b {color=blue}\n:::\n`)],
+    ["a heading ending in } after a long space run", () => headingName(`a${spaces}b}`)],
+    ["the Tasks view's heading for a task under the same", () => tasksUnder(`## a${spaces}b\n- [ ] x\n`)],
     ["100k [ in a row", () => extractLinks("[".repeat(100_000))],
     ["33k ![[ in a row", () => extractLinks("![[".repeat(33_000))],
     ["100k [ for tags", () => withoutCodeOrLinks("[".repeat(100_000))],
