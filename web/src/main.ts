@@ -30,6 +30,7 @@ import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
 import { safeDecode } from "../../src/core/uri.ts";
+import { AGENTS_BLURB, isAgentsNote } from "./agentsNote.ts";
 
 // ------------------------------------------------------------------ state
 
@@ -89,7 +90,8 @@ try {
 } catch {}
 
 const prefs = {
-  vim: store.get("vim", true),
+  /** Off until you turn it on: in Vim, a stray Esc then `dd` deletes a line. */
+  vim: store.get("vim", false),
   panel: store.get("panel", true),
   htmlMode: store.get<"preview" | "source">("htmlMode", "preview"),
   /** Folders whose subfolders are showing in the sidebar (they start closed). */
@@ -143,6 +145,7 @@ const notesPage = new NotesPage({
     api.clearResolveCache();
     void refreshNotes();
   },
+  newNote: () => void newNote(),
 });
 // History, Assets and Tags load the first time they're opened (each is null until then).
 let historyPage: History | null = null;
@@ -157,6 +160,7 @@ const loadHistory = once(async () =>
     open: (path) => fromPage(path),
     verb: (c) => verb(c),
     toast: (t) => toast(t),
+    newNote: viewer ? undefined : () => void newNote(),
   })),
 );
 const loadAssets = once(async () =>
@@ -270,6 +274,9 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   resetVimJumps();
   if (isArchived(note.path)) {
     showBanner("This note is archived. It's hidden from search and the sidebar.", ["Unarchive", () => void archiveCurrent()]);
+    $("#banner").classList.add("is-info");
+  } else if (isAgentsNote(note.path)) {
+    showBanner(AGENTS_BLURB);
     $("#banner").classList.add("is-info");
   }
   pane.host.classList.toggle("is-code", note.kind === "html");
@@ -1103,7 +1110,7 @@ function renderFavorites() {
     favoriteDrop(row, "is-drop-before", f.path);
     return row;
   });
-  $("#favorites").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Star a note or a tag to keep it here.")]));
+  $("#favorites").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Star a note or a tag to keep it here. A note's star is in its top bar: ", icon("star", 12))]));
 }
 
 /** Let `node` take a favorite (to reorder) or a card from Notes (to star), marking it with `cls` while over it. */
@@ -1588,7 +1595,10 @@ const vimWatched = new WeakSet<object>();
 function attachVim() {
   const cm = getCM(active.view);
   const node = $("#vim-mode");
-  $("#vim-toggle").classList.toggle("is-on", prefs.vim);
+  const toggle = $("#vim-toggle");
+  toggle.classList.toggle("is-on", prefs.vim);
+  toggle.setAttribute("aria-pressed", String(prefs.vim));
+  toggle.textContent = `Vim keys: ${prefs.vim ? "on" : "off"}`;
   if (!cm || !prefs.vim) {
     node.textContent = "";
     node.dataset.mode = "";
@@ -2083,6 +2093,7 @@ async function boot() {
     attachVim();
     active.view.focus();
   });
+  attachVim(); // the toggle's label, before any note opens
   $("#html-toggle").addEventListener("click", (e) => {
     const mode = (e.target as HTMLElement).closest("button")?.dataset.mode as "preview" | "source" | undefined;
     if (mode) setHtmlMode(mode);

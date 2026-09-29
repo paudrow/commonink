@@ -13,6 +13,8 @@ import { hydrateTaskChips, withTaskChips } from "./taskChips.ts";
 import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
 import { sideClick } from "./panes.ts";
 import { safeDecode } from "../../src/core/uri.ts";
+import { emptyState } from "./emptyState.ts";
+import { AGENTS_BLURB, agentsBadge } from "./agentsNote.ts";
 
 interface Hooks {
   /** `side`: to the side (a Cmd-click; Ctrl-click off a Mac). */
@@ -32,6 +34,8 @@ interface Hooks {
   readOnly(): boolean;
   toast(t: { text: string; icon?: string; actionLabel?: string; action?: () => void }): void;
   changed(): void;
+  /** The sidebar's New note. */
+  newNote(): void;
 }
 
 const PAGE = 40;
@@ -47,6 +51,9 @@ export class NotesPage {
   private saveBtn: HTMLButtonElement;
   private bulk: HTMLElement;
   private more: HTMLElement;
+  private search: HTMLElement;
+  private filters: HTMLElement;
+  private keys: HTMLElement;
   scope: Scope = "active";
   private folder = "";
   /** The tag Notes is narrowed to ("" for any); its children count too. */
@@ -79,26 +86,15 @@ export class NotesPage {
     this.bulk = el("div", { class: "feed-bulk", hidden: true });
     this.list = el("div", { class: "feed-list", role: "list" });
     this.more = el("div", { class: "feed-more" });
+    this.search = el("label", { class: "feed-search" }, icon("search", 16), this.input, el("kbd", {}, "/"));
+    this.filters = el("div", { class: "feed-filters" }, this.scopeBar, this.tagBar, this.folderBar, this.sortSel, this.saveBtn);
+    this.keys = el(
+      "footer",
+      { class: "feed-keys" },
+      ...[["j k", "move"], ["↵", "expand"], ["o", "open"], ["s", "star"], ["e", "archive"], ["x", "select"], ["/", "filter"]].map(([k, t]) => el("span", {}, el("kbd", {}, k), t)),
+    );
     this.root.append(
-      el(
-        "div",
-        { class: "feed" },
-        el(
-          "header",
-          { class: "feed-head" },
-          el("h1", {}, "Notes"),
-          el("label", { class: "feed-search" }, icon("search", 16), this.input, el("kbd", {}, "/")),
-          el("div", { class: "feed-filters" }, this.scopeBar, this.tagBar, this.folderBar, this.sortSel, this.saveBtn),
-        ),
-        this.bulk,
-        this.list,
-        this.more,
-        el(
-          "footer",
-          { class: "feed-keys" },
-          ...[["j k", "move"], ["↵", "expand"], ["o", "open"], ["s", "star"], ["e", "archive"], ["x", "select"], ["/", "filter"]].map(([k, t]) => el("span", {}, el("kbd", {}, k), t)),
-        ),
-      ),
+      el("div", { class: "feed" }, el("header", { class: "feed-head" }, el("h1", {}, "Notes"), this.search, this.filters), this.bulk, this.list, this.more, this.keys),
     );
     this.input.addEventListener("input", () => {
       clearTimeout(this.timer);
@@ -212,19 +208,50 @@ export class NotesPage {
     this.hooks.filtersChanged();
     const q = this.input.value.trim();
     const top = this.root.scrollTop;
-    const which = this.scope === "all" ? "" : `${this.scope} `;
-    const where = `${this.tag ? ` tagged #${this.tag}` : ""}${this.folder ? ` in ${this.folder}` : ""}`;
-    const empty = q
-      ? `No ${which}notes${where} match “${q}”.`
-      : this.folder || this.tag
-        ? `No ${which}notes${where}.`
-        : this.scope === "archived"
-          ? "Nothing archived yet. Press e on a note to archive it."
-          : "No notes yet.";
-    this.list.replaceChildren(...(this.items.length ? this.items.map((item, i) => this.card(item, i, q)) : [el("div", { class: "feed-empty" }, empty)]));
+    // With no notes at all there's nothing to filter, and with none listed nothing to move through.
+    const filtered = Boolean(q || this.folder || this.tag);
+    this.search.hidden = this.filters.hidden = !filtered && page.counts.active + page.counts.archived === 0;
+    this.folderBar.hidden = !page.folders.length && !this.folder;
+    this.keys.hidden = !this.items.length;
+    this.list.replaceChildren(...(this.items.length ? this.items.map((item, i) => this.card(item, i, q)) : [this.empty(q, filtered)]));
     this.root.scrollTop = top;
     this.more.textContent = this.items.length < page.total ? `Showing ${this.items.length} of ${page.total}` : "";
     this.renderBulk();
+  }
+
+  private empty(q: string, filtered: boolean): HTMLElement {
+    if (filtered) {
+      const which = this.scope === "all" ? "" : `${this.scope} `;
+      const where = `${this.tag ? ` tagged #${this.tag}` : ""}${this.folder ? ` in ${this.folder}` : ""}`;
+      return emptyState({
+        icon: "search",
+        title: q ? `No ${which}notes${where} match “${q}”` : `No ${which}notes${where}`,
+        text: ["Try other words, or clear the filters to see every note."],
+        action: { label: "Clear filters", icon: "close", run: () => this.clearFilters() },
+      });
+    }
+    if (this.scope === "archived") {
+      return emptyState({
+        icon: "archive",
+        title: "Nothing archived",
+        text: ["Archive a note you're done with (", el("kbd", {}, "e"), " on its card) to take it out of search and the sidebar. Its links keep working."],
+        action: { label: "Show active notes", run: () => ((this.scope = "active"), (this.focus = 0), void this.reload()) },
+      });
+    }
+    return emptyState({
+      icon: "file",
+      title: "No notes yet",
+      text: ["Notes are plain markdown that you and your agents can both read and edit."],
+      action: this.hooks.readOnly() ? null : { label: "New note", icon: "plus", run: () => this.hooks.newNote() },
+    });
+  }
+
+  private clearFilters() {
+    this.input.value = "";
+    this.folder = this.tag = "";
+    this.focus = 0;
+    this.root.scrollTop = this.scrollTop = 0;
+    void this.reload();
   }
 
   private rerender(path: string) {
@@ -266,6 +293,7 @@ export class NotesPage {
     else if (q && item.lines.length) {
       body = el("div", { class: "fc-hits" }, ...item.lines.map((l) => el("div", { class: "fc-hit", html: highlight(l.text, q), onclick: (e: Event) => (e.stopPropagation(), this.hooks.open(item.path, l.line)) })));
     } else if (item.kind === "html") body = el("div", { class: "fc-body is-muted" }, "HTML note · click to preview");
+    else if (item.role === "agents") body = el("div", { class: "fc-body is-muted" }, AGENTS_BLURB);
     else {
       body = this.markdown(forPreview(item.excerpt), item, "fc-body");
       body.querySelectorAll("input").forEach((b) => (b.disabled = true));
@@ -290,7 +318,7 @@ export class NotesPage {
       el(
         "div",
         { class: "fc-main" },
-        el("div", { class: "fc-head" }, el("span", { class: "fc-title" }, item.title), item.archived ? el("span", { class: "fc-badge" }, "Archived") : null, el("span", { class: "spacer" }), starBtn, editBtn, archiveBtn),
+        el("div", { class: "fc-head" }, el("span", { class: "fc-title" }, item.title), item.archived ? el("span", { class: "fc-badge" }, "Archived") : null, roleBadge(item), el("span", { class: "spacer" }), starBtn, editBtn, archiveBtn),
         el(
           "div",
           { class: "fc-meta" },
@@ -534,6 +562,13 @@ export class NotesPage {
       fn();
     }
   }
+}
+
+/** Why a card sits where it does: the note to start with, or the agents' instructions. */
+function roleBadge(item: FeedItem): HTMLElement | null {
+  if (item.role === "start") return el("span", { class: "fc-badge is-start", title: "Notes tagged start stay at the top until you archive them or remove the tag." }, "Start here");
+  if (item.role === "agents") return agentsBadge();
+  return null;
 }
 
 /** Widgets and bare links read better as one-line summaries in a preview. */
