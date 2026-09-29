@@ -92,6 +92,33 @@ test("board shows a note's boards, and card adds, moves and edits cards", () => 
   );
 });
 
+test("task add writes a task from words, and task move moves one", () => {
+  const vault = tempVault();
+  const today = new Date().toLocaleDateString("en-CA");
+  assert.equal(quire(vault, ["task", "add", "Call the printer → [[Roadmap]] !high"]).stdout, 'Added "- [ ] Call the printer !high" to Projects/Roadmap.md:10\n');
+  assert.equal(quire(vault, ["task", "add", "Stretch every day"]).stdout, `Added "- [ ] Stretch due:${today} rec:daily" to Journal/${today}.md:5\n`);
+  assert.equal(quire(vault, ["task", "move", "Roadmap", "10", "--to", "Welcome"]).stdout, 'Moved "Call the printer !high" to Welcome.md:7\n');
+  assert.equal(quire(vault, ["task", "add"]).stderr, "Say what the task is: quire task add \"Call mom tomorrow\"\n");
+});
+
+test("today prints the day's sections", () => {
+  const vault = tempVault();
+  quire(vault, ["task", "Roadmap", "8", "--due", "2026-10-01"]);
+  assert.equal(
+    quire(vault, ["today", "--date", "2026-10-01"]).stdout,
+    "Thursday, October 1, 2026\n\nOverdue (0)\n- nothing\n\nDue today (1)\n- [ ] Ship the importer due:2026-10-01 — Projects/Roadmap.md:8\n\nStarting today (0)\n- nothing\n\nJournal: Journal/2026-10-01.md (not written yet)\n",
+  );
+  assert.equal(JSON.parse(quire(vault, ["today", "--date", "2026-10-01", "--json"]).stdout).sections[1].tasks[0].line, 8);
+});
+
+test("smart-save, smart and smart-rm keep saved note queries", () => {
+  const vault = tempVault();
+  assert.match(quire(vault, ["smart-save", "Planning", "tag=plan", "--just-me"]).stdout, /^- Planning \(1 note, just you\): tag=plan \[[a-z2-9]{8}\]\n$/);
+  assert.equal(quire(vault, ["smart", "planning"]).stdout, "- Projects/Roadmap.md — Roadmap\n");
+  assert.equal(quire(vault, ["smart-save", "Bad", "colour=red"]).stderr, 'Unknown query key "colour": use q, folder, tag, sort or limit\n');
+  assert.equal(quire(vault, ["smart-rm", "Planning"]).stdout, "No smart folders.\n");
+});
+
 test("star and unstar take #tags as well as notes", () => {
   const vault = tempVault();
   assert.equal(quire(vault, ["star", "Welcome", "#plan"]).stdout, "Favorites:\n- Welcome.md — Welcome\n- #plan (1 note)\n");

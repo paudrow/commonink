@@ -3,10 +3,13 @@ import crypto from "node:crypto";
 import { diffLines } from "diff";
 import type { Content, SqlDb } from "./store.ts";
 import { cleanPath, isHidden, kindOf, linkKey, QuireError, stemOf, type NoteKind } from "./paths.ts";
+import { headingName } from "./prose.ts";
 import { extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
-import { dueFilter, editTask, isDate, localDate, parseTask, patchProblem, TASK_LINE, type TaskMeta, type TaskPatch } from "./tasks.ts";
+import { dueFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
+import { parseQuickAdd } from "./quickAdd.ts";
+import { formatQuery, parseQuery, queryProblem, type NoteQuery } from "./query.ts";
 import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
 
 export interface NoteMeta {
@@ -130,6 +133,16 @@ export interface TagCount {
   tasks: number;
   assets: number;
 }
+/** A saved note query in the sidebar, with how many active notes match it now. */
+export interface SmartFolder {
+  id: string;
+  name: string;
+  /** As ::query args: `tag=work sort=title`. */
+  query: string;
+  /** Shared with the whole workspace, rather than just the person who sees it. */
+  shared: boolean;
+  count: number;
+}
 /** Somewhere a tag is used: a note's line, a task's line, or an asset (line 0). */
 export interface TagUse {
   kind: "note" | "task" | "asset";
@@ -162,6 +175,40 @@ export interface QuireOptions {
  * `files` is the source of truth (a folder locally, a table in the cloud); the rest of the
  * SQLite database is a rebuildable index plus the change log and each person's favorites.
  */
+
+/** One section of the Today view: a heading and its tasks. */
+export interface TodaySection {
+  id: "overdue" | "due" | "starting";
+  title: string;
+  tasks: Task[];
+}
+export interface TodayView {
+  /** The reader's day, YYYY-MM-DD. */
+  date: string;
+  sections: TodaySection[];
+  /** Today's journal note, and whether it's been written yet. */
+  journal: { path: string; exists: boolean };
+}
+
+/** Cut the task on line index `i`, with the lines nested under it, out of `lines`; returns them, lifted to the top level. */
+function cutTask(lines: string[], i: number): string[] {
+  const indent = lines[i].match(/^\s*/)![0].length;
+  let j = i + 1;
+  while (j < lines.length && lines[j].trim() && lines[j].match(/^\s*/)![0].length > indent) j++;
+  return lines.splice(i, j - i).map((l) => l.slice(indent));
+}
+
+/**
+ * The index of the task on `line` (1-based) whose text is `text`, or, if the note moved it, of the
+ * nearest line with that text. Throws if it's gone (the note changed under the caller).
+ */
+function findTask(lines: string[], line: number, text: string, notePath: string): number {
+  const matches = (i: number) => lines[i]?.match(TASK_LINE)?.[4] === text;
+  if (matches(line - 1)) return line - 1;
+  const near = lines.map((_, j) => j).filter(matches).sort((a, b) => Math.abs(a - (line - 1)) - Math.abs(b - (line - 1)));
+  if (!near.length) throw new QuireError(`That task isn't in ${notePath} any more`, "conflict");
+  return near[0];
+}
 
 export class Quire {
   private now: () => number;
@@ -449,21 +496,11 @@ export class Quire {
    * A stream of notes, newest first, for the Notes view. `q` filters with full-text search;
    * `folder` matches the note's original folder whether or not it's archived.
    */
-  feed(opts: { q?: string; scope?: ArchiveScope; folder?: string; tag?: string; sort?: "modified" | "title"; offset?: number; limit?: number } = {}) {
+  feed(opts: Omit<NoteQuery, "limit"> & { scope?: ArchiveScope; offset?: number; limit?: number } = {}) {
     const scope = opts.scope ?? "active";
     const terms = searchTerms(opts.q ?? "");
-    let rows = this.db.all("SELECT id, path, kind, title, mtime FROM notes WHERE kind != 'asset' ORDER BY mtime DESC");
-    if (terms.length) {
-      const hits = new Set(this.db.all("SELECT path FROM notes_fts WHERE notes_fts MATCH ?", ftsQuery(terms)).map((r) => r.path));
-      rows = rows.filter((r) => hits.has(r.path));
-    }
+    let rows = this.matching(opts);
     const home = (p: string) => (isArchived(p) ? p.slice(ARCHIVE.length) : p);
-    if (opts.folder) rows = rows.filter((r) => home(r.path).startsWith(opts.folder!.replace(/\/?$/, "/")));
-    if (opts.tag) {
-      const on = new Set(this.tagged(opts.tag).map((r) => r.path));
-      rows = rows.filter((r) => on.has(r.path));
-    }
-    if (opts.sort === "title") rows.sort((a, b) => a.title.localeCompare(b.title));
     const counts = { active: rows.filter((r) => !isArchived(r.path)).length, archived: rows.filter((r) => isArchived(r.path)).length };
     rows = rows.filter((r) => inScope(r.path, scope));
     const lastSource = new Map(
@@ -493,6 +530,24 @@ export class Quire {
       };
     });
     return { items, total: rows.length, counts, folders: [...new Set(this.list(undefined, "all").filter((n) => n.kind !== "asset").map((n) => home(n.path)).filter((p) => p.includes("/")).map((p) => p.split("/")[0]))].sort() };
+  }
+
+  /** The notes a query matches, archived ones included, in its order. The part of the feed smart folder counts need. */
+  private matching(query: NoteQuery): Array<{ id: string; path: string; kind: NoteKind; title: string; mtime: number }> {
+    const terms = searchTerms(query.q ?? "");
+    let rows = this.db.all("SELECT id, path, kind, title, mtime FROM notes WHERE kind != 'asset' ORDER BY mtime DESC");
+    if (terms.length) {
+      const hits = new Set(this.db.all("SELECT path FROM notes_fts WHERE notes_fts MATCH ?", ftsQuery(terms)).map((r) => r.path));
+      rows = rows.filter((r) => hits.has(r.path));
+    }
+    const home = (p: string) => (isArchived(p) ? p.slice(ARCHIVE.length) : p);
+    if (query.folder) rows = rows.filter((r) => home(r.path).startsWith(query.folder!.replace(/\/?$/, "/")));
+    if (query.tag) {
+      const on = new Set(this.tagged(query.tag).map((r) => r.path));
+      rows = rows.filter((r) => on.has(r.path));
+    }
+    if (query.sort === "title") rows.sort((a, b) => a.title.localeCompare(b.title));
+    return rows;
   }
 
   backlinks(target: string): Backlink[] {
@@ -785,6 +840,72 @@ export class Quire {
     return meta;
   }
 
+  // ---------------------------------------------------------------- smart folders
+
+  /** The smart folders `user` sees (the workspace's shared ones and their own), in order, each with how many active notes match. */
+  smartFolders(user: string): SmartFolder[] {
+    return this.smartFolderRows(user).map((r) => this.counted(r));
+  }
+
+  private smartFolderRows(user: string) {
+    return this.db
+      .all<{ id: string; name: string; query: string; owner: string | null }>("SELECT id, name, query, owner FROM smart_folders WHERE owner IS NULL OR owner = ? ORDER BY pos", user)
+      .map((r) => ({ id: r.id, name: r.name, query: r.query, shared: r.owner === null }));
+  }
+
+  private counted(f: Omit<SmartFolder, "count">): SmartFolder {
+    return { ...f, count: this.matching(parseQuery(f.query)).filter((r) => !isArchived(r.path)).length };
+  }
+
+  /**
+   * One of `user`'s smart folders by ID, or (unless `idOnly`) by name in any case. A name means
+   * their own folder before a shared one, so it never reaches past theirs to the workspace's.
+   */
+  findSmartFolder(user: string, target: string, idOnly = false): SmartFolder {
+    const t = target.trim().toLowerCase();
+    const rows = this.smartFolderRows(user);
+    const named = idOnly ? [] : rows.filter((f) => f.name.toLowerCase() === t).sort((a, b) => Number(a.shared) - Number(b.shared));
+    const found = rows.find((f) => f.id === t) ?? named[0];
+    if (!found) throw new QuireError(`No smart folder "${target}". Try list_smart_folders.`, "not_found");
+    return this.counted(found);
+  }
+
+  /**
+   * Create a smart folder, or change one by `id`. A shared one belongs to the whole workspace, and
+   * only someone who `canEditShared` (not a viewer, online) may create, change or unshare one. A
+   * personal one is its owner's alone. The query is stored tidied.
+   */
+  saveSmartFolder(user: string, f: { id?: string; name: string; query: string; shared: boolean }, canEditShared: boolean, idOnly = false): SmartFolder {
+    const name = f.name.trim();
+    if (!name) throw new QuireError("Give the smart folder a name");
+    if (name.length > 80) throw new QuireError("A smart folder's name can be up to 80 characters");
+    if (f.query.length > 500) throw new QuireError("A smart folder's query can be up to 500 characters");
+    const problem = queryProblem(f.query);
+    if (problem) throw new QuireError(problem);
+    // A limit sizes a widget; a smart folder shows (and counts) every match.
+    const query = formatQuery({ ...parseQuery(f.query), limit: undefined });
+    const existing = f.id ? this.findSmartFolder(user, f.id, idOnly) : null;
+    if (!existing && this.db.get<{ n: number }>("SELECT count(*) AS n FROM smart_folders WHERE owner = ? OR (owner IS NULL AND ?)", user, f.shared ? 1 : 0)!.n >= 50) {
+      throw new QuireError("That's 50 smart folders already. Delete one to make another.");
+    }
+    if ((f.shared || existing?.shared) && !canEditShared) {
+      throw new QuireError("Only editors can create or change shared smart folders. Make it just yours instead.", "forbidden");
+    }
+    const owner = f.shared ? null : user;
+    const id = existing?.id ?? newNoteId();
+    if (existing) this.db.run("UPDATE smart_folders SET name = ?, query = ?, owner = ? WHERE id = ?", name, query, owner, id);
+    else this.db.run("INSERT INTO smart_folders(id, name, query, owner, pos) VALUES (?,?,?,?,(SELECT coalesce(max(pos), 0) + 1 FROM smart_folders))", id, name, query, owner);
+    return this.findSmartFolder(user, id);
+  }
+
+  /** Delete one of `user`'s smart folders (a shared one only if they `canEditShared`). Returns what they see now. */
+  deleteSmartFolder(user: string, target: string, canEditShared: boolean, idOnly = false): SmartFolder[] {
+    const f = this.findSmartFolder(user, target, idOnly);
+    if (f.shared && !canEditShared) throw new QuireError("Only editors can delete shared smart folders.", "forbidden");
+    this.db.run("DELETE FROM smart_folders WHERE id = ?", f.id);
+    return this.smartFolders(user);
+  }
+
   // ---------------------------------------------------------------- tags
 
   /** Every tag in active notes, tasks and assets, parents included, by tag. */
@@ -1006,7 +1127,7 @@ export class Quire {
         if (/^\s*(```|~~~)/.test(line)) fence = !fence;
         if (fence) return;
         const h = line.match(/^#{1,6}\s+(.+?)\s*#*$/);
-        if (h) heading = h[1];
+        if (h) heading = headingName(h[1]);
         if (/^\s*:::kanban\b/i.test(line)) outside = heading;
         else if (outside !== undefined && /^\s*:::\s*$/.test(line)) [heading, outside] = [outside, undefined];
         const t = parseTask(line);
@@ -1026,7 +1147,8 @@ export class Quire {
   /**
    * Change a task's tokens (see TaskPatch) at its source; the rest of the line stays as written.
    * Ticking stamps `done:` with `today` (the person's day; the core's clock by default) and
-   * unticking takes it off, unless the patch sets it. `text` guards against the note having
+   * unticking takes it off, unless the patch sets it; a repeating task gets its next occurrence
+   * below (see editTaskLines). `text` guards against the note having
    * changed: if the line moved, the nearest line with the same task text is used.
    */
   updateTask(target: string, line: number, text: string, patch: TaskPatch, source: string, today = localDate(this.now())) {
@@ -1034,18 +1156,11 @@ export class Quire {
     if (problem) throw new QuireError(problem);
     const note = this.read(target);
     const lines = note.content.split("\n");
-    const matches = (i: number) => lines[i]?.match(TASK_LINE)?.[4] === text;
-    let i = line - 1;
-    if (!matches(i)) {
-      const near = lines.map((_, j) => j).filter(matches).sort((a, b) => Math.abs(a - i) - Math.abs(b - i));
-      if (!near.length) throw new QuireError(`That task isn't in ${note.path} any more`, "conflict");
-      i = near[0];
-    }
-    const flips = patch.checked !== undefined && patch.checked !== parseTask(lines[i])!.done && !("done" in patch);
-    lines[i] = editTask(lines[i], flips ? { ...patch, done: patch.checked ? today : null } : patch);
+    const i = findTask(lines, line, text, note.path);
+    const edited = editTaskLines(lines, i, patch, today);
     // Where the task is now and its new text, so a caller can make its next change without re-reading.
-    const task = { line: i + 1, text: lines[i].match(TASK_LINE)![4] };
-    const next = lines.join("\n");
+    const task = { line: i + 1, text: edited[i].match(TASK_LINE)![4] };
+    const next = edited.join("\n");
     if (next === note.content) return { ...note, ...task, change: null };
     return { ...this.commit(note.path, note.content, next, source, "edit"), ...task };
   }
@@ -1091,6 +1206,103 @@ export class Quire {
 
   private commitBoard(note: Note, next: string, source: string) {
     return next === note.content ? { ...note, change: null } : this.commit(note.path, note.content, next, source, "edit");
+  }
+
+  /**
+   * Add a task typed the way you'd say it ("Pay rent every month on the 1st #home"; see
+   * quickAdd.ts). It goes under `## Tasks` in today's daily note (`Journal/YYYY-MM-DD.md`, made if
+   * needed), or in the note named with `→ [[Note]]`: at the end of its Tasks section, or of the note.
+   * `today` is the person's day; `ignore` holds phrases they chose to keep as words; `to` is a note
+   * to use instead of the daily note (the one the bar was opened from), which `→ [[Note]]` overrides.
+   */
+  addTask(input: string, source: string, opts: { today?: string; ignore?: string[]; to?: string } = {}) {
+    const today = opts.today ?? localDate(this.now());
+    if (!isDate(today)) throw new QuireError(`"today" must be a date like 2026-10-01, not "${today}"`);
+    const q = parseQuickAdd(input, today, opts.ignore);
+    if (!q.words) throw new QuireError("Say what the task is: once its dates and repeats are taken out, there are no words left");
+    const named = q.target ?? opts.to;
+    const rel = named ? this.mustResolve(named) : `Journal/${today}.md`;
+    if (kindOf(rel) !== "md") throw new QuireError(`Tasks go in markdown notes, and ${rel} isn't one`);
+    const before = this.files.read(rel);
+    // A day with no note yet gets one from the daily template, with the task in its Tasks section.
+    const added = withTasksAdded(before ?? this.dailyTemplate(today), [q.line], !named);
+    const r = this.commit(rel, before, added.content, source, before === null ? "create" : "edit");
+    return { ...r, line: added.line, text: q.line.match(TASK_LINE)![4] };
+  }
+
+  /**
+   * The day at a glance: open tasks overdue, due today, and starting today (each task once, in that
+   * order of urgency), and today's journal note. `date` is the reader's day. Sections are a list so
+   * more (calendar, reviews, mail) can slot in beside these.
+   */
+  today(date = localDate(this.now())): TodayView {
+    if (!isDate(date)) throw new QuireError(`"today" must be a date like 2026-10-01, not "${date}"`);
+    const open = this.tasks({ today: date }).filter((t) => !t.done);
+    const into = (id: string) => open.filter((t) => todaySection(t.meta, date) === id);
+    const overdue = into("overdue").sort((a, b) => a.meta.due!.localeCompare(b.meta.due!));
+    const [due, starting] = [into("due"), into("starting")];
+    const journal = `Journal/${date}.md`;
+    return {
+      date,
+      sections: [
+        { id: "overdue", title: "Overdue", tasks: overdue },
+        { id: "due", title: "Due today", tasks: due },
+        { id: "starting", title: "Starting today", tasks: starting },
+      ],
+      journal: { path: journal, exists: this.files.stat(journal) !== null },
+    };
+  }
+
+  /** Today's journal note (`Journal/YYYY-MM-DD.md`), made from the daily template if it's missing. */
+  dailyNote(date: string, source: string) {
+    if (!isDate(date)) throw new QuireError(`"today" must be a date like 2026-10-01, not "${date}"`);
+    const rel = `Journal/${date}.md`;
+    if (this.files.stat(rel)) return { path: rel, created: false, change: null };
+    const r = this.commit(rel, null, this.dailyTemplate(date), source, "create");
+    return { path: rel, created: true, version: r.version, change: r.change };
+  }
+
+  /** A new daily note: `Templates/Daily note.md` with {{date}} filled in, or a plain one with Tasks and Log. */
+  private dailyTemplate(date: string): string {
+    const template = this.files.read("Templates/Daily note.md");
+    return template !== null ? template.replaceAll("{{date}}", date) : `# ${date}\n\n## Tasks\n\n## Log\n`;
+  }
+
+  /**
+   * Move a task (and the lines nested under it) to another note: to the end of its Tasks section,
+   * or of the note. The task keeps its text and tokens; it's cut from where it was.
+   */
+  moveTask(target: string, line: number, text: string, to: string, source: string) {
+    const note = this.read(target);
+    const dest = this.mustResolve(to);
+    if (dest === note.path) throw new QuireError(`That task is already in ${dest}`);
+    if (kindOf(dest) !== "md") throw new QuireError(`Tasks go in markdown notes, and ${dest} isn't one`);
+    const lines = note.content.split("\n");
+    const block = cutTask(lines, findTask(lines, line, text, note.path));
+    const there = this.read(dest);
+    const added = withTasksAdded(there.content, block, false);
+    const cut = this.commit(note.path, note.content, lines.join("\n"), source, "edit");
+    const r = this.commit(dest, there.content, added.content, source, "edit");
+    // The note it left, too, so a caller can tell whoever shows that note.
+    return { ...r, cut, line: added.line, text: block[0].match(TASK_LINE)![4] };
+  }
+
+  /** Take a task (and the lines nested under it) out of its note: quick-add's Undo. */
+  removeTask(target: string, line: number, text: string, source: string) {
+    const note = this.read(target);
+    const lines = note.content.split("\n");
+    const i = findTask(lines, line, text, note.path);
+    cutTask(lines, i);
+    if (i > 0 && !lines[i - 1] && !lines[i]) lines.splice(i - 1, 1); // and the blank line adding it put before it
+    return this.commit(note.path, note.content, lines.join("\n"), source, "edit");
+  }
+
+  /** Move a repeating task to its next date without ticking it ("Skip this one"). */
+  skipTask(target: string, line: number, text: string, source: string, today = localDate(this.now())) {
+    const task = parseTask(`- [ ] ${text}`);
+    const patch = task && skipPatch(task.meta, today);
+    if (!patch) throw new QuireError("That task doesn't repeat, so there's nothing to skip");
+    return this.updateTask(target, line, text, patch, source, today);
   }
 
   /**

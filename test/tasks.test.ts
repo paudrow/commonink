@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addDays, dueFilter, editTask, formatRec, parseRec, parseTask, patchProblem, recLabel } from "../src/core/tasks.ts";
+import { addDays, dueFilter, editTask, editTaskLines, parseTask, patchProblem, skipPatch, todaySection, withTasksAdded } from "../src/core/tasks.ts";
+import { recLabel } from "../src/core/recurrence.ts";
 
 const LINE = "- [ ] Send invoice to Acme due:2026-10-01 rec:monthly #work/clients @jane !high";
 
@@ -92,9 +93,9 @@ test("each chip editor's change round-trips through the one writer, leaving the 
   assert.deepEqual([nextWeek, read(nextWeek).due], [line.replace("due:2026-10-01", "due:2026-10-05"), "2026-10-05"]);
   assert.equal(editTask(line, { due: null }), line.replace(" due:2026-10-01", ""));
   // Repeat: every N day/week/month/year.
-  const everyTwo = editTask(line, { rec: formatRec(2, "week") });
+  const everyTwo = editTask(line, { rec: "2w" });
   assert.deepEqual([everyTwo, read(everyTwo).rec], [line.replace("rec:monthly", "rec:2w"), "2w"]);
-  assert.equal(editTask(line, { rec: formatRec(1, "year") }), line.replace("rec:monthly", "rec:yearly"));
+  assert.equal(editTask(line, { rec: "yearly" }), line.replace("rec:monthly", "rec:yearly"));
   assert.equal(editTask(line, { rec: null }), line.replace(" rec:monthly", ""));
   // Person: picking someone else swaps them in place; Remove takes them out.
   assert.equal(editTask(line, { assignees: ["sam"] }), line.replace("@jane", "@sam"));
@@ -102,10 +103,37 @@ test("each chip editor's change round-trips through the one writer, leaving the 
   assert.equal(editTask(line, { assignees: [] }), line.replace(" @jane", ""));
 });
 
-test("a repeat reads as every N days, weeks, months or years", () => {
-  assert.deepEqual(["monthly", "2w", "+3d", "1y", "weekdays"].map(parseRec), [{ n: 1, unit: "month" }, { n: 2, unit: "week" }, { n: 3, unit: "day" }, { n: 1, unit: "year" }, null]);
-  assert.deepEqual([formatRec(1, "day"), formatRec(4, "month")], ["daily", "4m"]);
-  assert.deepEqual(["weekly", "2w", "weekdays"].map(recLabel), ["weekly", "every 2 weeks", "weekdays"]);
+test("a repeat's chip label says what it does, and a value it can't read shows as written", () => {
+  assert.deepEqual(["weekly", "2w", "1st-tue,3rd-tue", "weekdays"].map(recLabel), ["Weekly", "Every 2 weeks", "1st & 3rd Tue", "weekdays"]);
+  assert.equal(parseTask("- [ ] a rec:weekdays")!.meta.rec, null); // not a rule: plain text
+  assert.equal(parseTask("- [ ] a rec:RRULE:FREQ=MONTHLY;BYDAY=1TU,3TU")!.meta.rec, "RRULE:FREQ=MONTHLY;BYDAY=1TU,3TU");
+});
+
+test("ticking a repeating task marks it done and puts the next one right below; unticking takes it back", () => {
+  const bill = ["# Bills", "- [ ] Pay rent due:2026-10-06 start:2026-10-01 rec:6th @jane #home", "- [ ] Other"];
+  const ticked = editTaskLines(bill, 1, { checked: true }, "2026-10-04");
+  assert.deepEqual(ticked, [
+    "# Bills",
+    "- [x] Pay rent due:2026-10-06 start:2026-10-01 rec:6th @jane #home done:2026-10-04",
+    "- [ ] Pay rent due:2026-11-06 start:2026-11-01 rec:6th @jane #home",
+    "- [ ] Other",
+  ]);
+  assert.deepEqual(editTaskLines(ticked, 1, { checked: false }, "2026-10-05"), bill);
+
+  const dog = ["  - [ ] Dog medicine due:2026-10-01 rec:after-1m"];
+  assert.deepEqual(editTaskLines(dog, 0, { checked: true }, "2026-10-08"), ["  - [x] Dog medicine due:2026-10-01 rec:after-1m done:2026-10-08", "  - [ ] Dog medicine due:2026-11-08 rec:after-1m"]);
+  // No due date yet: the next one counts from the day it's done.
+  assert.deepEqual(editTaskLines(["- [ ] Water plants rec:weekly"], 0, { checked: true }, "2026-10-08")[1], "- [ ] Water plants due:2026-10-15 rec:weekly");
+  // A plain task ticks as before; an untick with the next line already changed leaves it alone.
+  assert.deepEqual(editTaskLines(["- [ ] Once"], 0, { checked: true }, "2026-10-08"), ["- [x] Once done:2026-10-08"]);
+  const edited = [...ticked.slice(0, 2), ticked[2] + " !high", ticked[3]];
+  assert.equal(editTaskLines(edited, 1, { checked: false }, "2026-10-05").length, 4);
+});
+
+test("skipping moves a repeating task to its next date without completing it", () => {
+  assert.deepEqual(skipPatch(parseTask("- [ ] Standup due:2026-10-06 rec:1st-tue,3rd-tue")!.meta, "2026-10-01"), { due: "2026-10-20" });
+  assert.deepEqual(skipPatch(parseTask("- [ ] Pills due:2026-10-06 start:2026-10-05 rec:after-1w")!.meta, "2026-10-01"), { due: "2026-10-13", start: "2026-10-12" });
+  assert.equal(skipPatch(parseTask("- [ ] Once due:2026-10-06")!.meta, "2026-10-01"), null);
 });
 
 test("editing a task's text rewrites only the words before its tokens, never the tokens", () => {
@@ -119,6 +147,27 @@ test("editing a task's text rewrites only the words before its tokens, never the
   // Text and a token in one patch: both land, the token in its place.
   assert.equal(editTask("- [ ] a @jane", { summary: "b", priority: "high" }), "- [ ] b !high @jane");
   assert.equal(patchProblem({ summary: "two\nlines" }), "A task's text is one line");
+});
+
+test("a task added to a note goes at the end of its Tasks section, or at the end of the note", () => {
+  const add = (content: string, heading = false) => withTasksAdded(content, ["- [ ] New"], heading).content;
+  assert.equal(add("# Day\n\n## Tasks\n\n- [ ] Old\n\n## Log\n\n- 09:00 hi\n"), "# Day\n\n## Tasks\n\n- [ ] Old\n- [ ] New\n\n## Log\n\n- 09:00 hi\n");
+  assert.equal(add("# Day\n\n## tasks\n\n## Log\n"), "# Day\n\n## tasks\n\n- [ ] New\n\n## Log\n");
+  assert.equal(add("# Day\n\n## Tasks\n- [ ] Old\n  - [ ] Sub"), "# Day\n\n## Tasks\n- [ ] Old\n  - [ ] Sub\n- [ ] New\n");
+  // No Tasks section: a daily note gets one; any other note gets the task at its end.
+  assert.equal(add("# Day\n\n## Log\n\n- 09:00 hi\n", true), "# Day\n\n## Log\n\n- 09:00 hi\n\n## Tasks\n\n- [ ] New\n");
+  assert.equal(add("# Launch\n\nNotes.\n"), "# Launch\n\nNotes.\n\n- [ ] New\n");
+  assert.equal(add("# Launch\n\n- [ ] Old\n"), "# Launch\n\n- [ ] Old\n- [ ] New\n");
+  // A heading inside fenced code isn't the section.
+  assert.equal(add("# N\n\n```\n## Tasks\n```\n"), "# N\n\n```\n## Tasks\n```\n\n- [ ] New\n");
+});
+
+test("a task is in one Today section at most: overdue, then due today, then starting today", () => {
+  const at = (line: string) => todaySection(parseTask(line)!.meta, "2026-09-28");
+  assert.deepEqual(
+    ["- [ ] a due:2026-09-27", "- [ ] a due:2026-09-28T09:00", "- [ ] a start:2026-09-28", "- [ ] a start:2026-09-28 due:2026-09-20", "- [ ] a start:2026-09-28 due:2026-10-01", "- [ ] a due:2026-09-29", "- [ ] a"].map(at),
+    ["overdue", "due", "starting", "overdue", "starting", null, null],
+  );
 });
 
 test("a due filter compares dates, with today, tomorrow and yesterday relative to the day given", () => {

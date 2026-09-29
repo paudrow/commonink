@@ -433,6 +433,118 @@ test("tasks carry their tokens, filter by due date and person, and ticking one s
   assert.equal(fs.readFileSync(path.join(dir, "Plan.md"), "utf8").split("\n")[2], "- [ ] Send invoice due:2026-09-30 @jane !high #billing");
 });
 
+test("a quick-added task goes to today's daily note under Tasks, or to the note it names", () => {
+  const { dir, quire } = openTempVault({ "Launch.md": "# Launch\n\n## Tasks\n\n- [ ] Book the venue\n\n## Notes\n\nText.\n" });
+  const read = (p: string) => fs.readFileSync(path.join(dir, p), "utf8");
+  const a = quire.addTask("Call mom tomorrow", "t", { today: "2026-09-28" });
+  assert.deepEqual([a.path, a.line, a.text], ["Journal/2026-09-28.md", 5, "Call mom due:2026-09-29"]);
+  assert.equal(read("Journal/2026-09-28.md"), "# 2026-09-28\n\n## Tasks\n\n- [ ] Call mom due:2026-09-29\n\n## Log\n");
+  quire.addTask("Pay rent every month on the 1st #home", "t", { today: "2026-09-28" });
+  assert.equal(read("Journal/2026-09-28.md"), "# 2026-09-28\n\n## Tasks\n\n- [ ] Call mom due:2026-09-29\n- [ ] Pay rent due:2026-10-01 rec:1st #home\n\n## Log\n");
+  // A daily note without a Tasks section gets one at its end.
+  fs.writeFileSync(path.join(dir, "Journal/2026-09-29.md"), "# 2026-09-29\n\n## Log\n\n- 09:00 hi\n");
+  quire.sync();
+  quire.addTask("Stretch", "t", { today: "2026-09-29" });
+  assert.equal(read("Journal/2026-09-29.md"), "# 2026-09-29\n\n## Log\n\n- 09:00 hi\n\n## Tasks\n\n- [ ] Stretch\n");
+  // → [[Note]] targets that note's Tasks section.
+  const b = quire.addTask("Print the badges → [[Launch]] next fri", "t", { today: "2026-09-28" });
+  assert.deepEqual([b.path, b.line], ["Launch.md", 6]);
+  assert.equal(read("Launch.md"), "# Launch\n\n## Tasks\n\n- [ ] Book the venue\n- [ ] Print the badges due:2026-10-02\n\n## Notes\n\nText.\n");
+  // A phrase clicked away stays words.
+  assert.equal(quire.addTask("Watch Next Week's show", "t", { today: "2026-09-28", ignore: ["next week"] }).text, "Watch Next Week's show");
+  assert.throws(() => quire.addTask("tomorrow", "t", { today: "2026-09-28" }), /Say what the task is/);
+  assert.throws(() => quire.addTask("x → [[Nowhere]]", "t"), /No note matches "Nowhere"/);
+  assert.throws(() => quire.addTask("x", "t", { today: "someday" }), /"today" must be a date/);
+});
+
+test("today is overdue, due today and starting today, in sections, with today's journal note", () => {
+  const { quire } = openTempVault({
+    "Work.md": [
+      "# Work",
+      "",
+      "- [ ] Late report due:2026-09-20",
+      "- [ ] Later report due:2026-09-25",
+      "- [ ] Standup due:2026-09-28 rec:weekdays",
+      "- [ ] Pay rent due:2026-09-28 rec:1st",
+      "- [ ] Draft the talk start:2026-09-28 due:2026-10-09",
+      "- [ ] Overdue and started start:2026-09-28 due:2026-09-27",
+      "- [x] Done already due:2026-09-28 done:2026-09-27",
+      "- [ ] Next week due:2026-10-05",
+      "- [ ] Just a thought",
+      "",
+    ].join("\n"),
+  });
+  const t = quire.today("2026-09-28");
+  const titles = (id: string) => t.sections.find((s) => s.id === id)!.tasks.map((x) => x.summary);
+  assert.deepEqual(t.sections.map((s) => [s.id, s.title]), [["overdue", "Overdue"], ["due", "Due today"], ["starting", "Starting today"]]);
+  assert.deepEqual(titles("overdue"), ["Late report", "Later report", "Overdue and started"]);
+  assert.deepEqual(titles("due"), ["Standup due:2026-09-28 rec:weekdays", "Pay rent"]); // rec:weekdays isn't a rule, so it's words
+  assert.deepEqual(titles("starting"), ["Draft the talk"]);
+  assert.deepEqual(t.journal, { path: "Journal/2026-09-28.md", exists: false });
+  assert.throws(() => quire.today("Monday"), /"today" must be a date/);
+});
+
+test("today's journal note is made from Templates/Daily note.md, or a plain one without it", () => {
+  const { dir, quire } = openTempVault({ "Welcome.md": "# Welcome\n" });
+  const read = (p: string) => fs.readFileSync(path.join(dir, p), "utf8");
+  const plain = quire.dailyNote("2026-09-28", "t");
+  assert.deepEqual([plain.path, plain.created], ["Journal/2026-09-28.md", true]);
+  assert.equal(read("Journal/2026-09-28.md"), "# 2026-09-28\n\n## Tasks\n\n## Log\n");
+  assert.equal(quire.dailyNote("2026-09-28", "t").created, false);
+  assert.equal(quire.today("2026-09-28").journal.exists, true);
+  fs.mkdirSync(path.join(dir, "Templates"));
+  fs.writeFileSync(path.join(dir, "Templates/Daily note.md"), "# {{date}}\n\n## Plan\n\n## Tasks\n\n## Notes\n");
+  quire.sync();
+  quire.dailyNote("2026-09-29", "t");
+  assert.equal(read("Journal/2026-09-29.md"), "# 2026-09-29\n\n## Plan\n\n## Tasks\n\n## Notes\n");
+  // Quick-add into a day with no note yet uses the same template.
+  quire.addTask("Stretch", "t", { today: "2026-09-30" });
+  assert.equal(read("Journal/2026-09-30.md"), "# 2026-09-30\n\n## Plan\n\n## Tasks\n\n- [ ] Stretch\n\n## Notes\n");
+});
+
+test("quick-add can go to a note it's given, and removing a task takes it (and what's nested) back out", () => {
+  const { dir, quire } = openTempVault({ "Launch.md": "# Launch\n\nNotes.\n", "Other.md": "# Other\n" });
+  const read = (p: string) => fs.readFileSync(path.join(dir, p), "utf8");
+  const r = quire.addTask("Print badges tomorrow", "t", { today: "2026-09-28", to: "Launch" });
+  assert.deepEqual([r.path, r.line, r.text], ["Launch.md", 5, "Print badges due:2026-09-29"]);
+  assert.equal(read("Launch.md"), "# Launch\n\nNotes.\n\n- [ ] Print badges due:2026-09-29\n");
+  // → [[Note]] in the words wins over the note it was given.
+  assert.equal(quire.addTask("Tidy → [[Other]]", "t", { today: "2026-09-28", to: "Launch" }).path, "Other.md");
+  quire.removeTask("Launch", 5, "Print badges due:2026-09-29", "t");
+  assert.equal(read("Launch.md"), "# Launch\n\nNotes.\n");
+  assert.throws(() => quire.removeTask("Launch", 5, "Print badges due:2026-09-29", "t"), /isn't in Launch\.md any more/);
+  assert.throws(() => quire.addTask("x", "t", { to: "Nowhere" }), /No note matches "Nowhere"/);
+});
+
+test("moving a task takes its line and the lines nested under it to another note's Tasks", () => {
+  const { dir, quire } = openTempVault({
+    "Inbox.md": "# Inbox\n\n- [ ] Plan the offsite @jane\n  - [ ] Pick a venue\n  Notes about it.\n- [ ] Other\n",
+    "Offsite.md": "# Offsite\n\n## Tasks\n\n- [ ] Budget\n",
+  });
+  const read = (p: string) => fs.readFileSync(path.join(dir, p), "utf8");
+  const r = quire.moveTask("Inbox", 3, "Plan the offsite @jane", "Offsite", "t");
+  assert.deepEqual([r.path, r.line, r.text], ["Offsite.md", 6, "Plan the offsite @jane"]);
+  assert.equal(read("Inbox.md"), "# Inbox\n\n- [ ] Other\n");
+  assert.equal(read("Offsite.md"), "# Offsite\n\n## Tasks\n\n- [ ] Budget\n- [ ] Plan the offsite @jane\n  - [ ] Pick a venue\n  Notes about it.\n");
+  assert.equal(quire.tasks({ note: "Offsite" }).length, 3);
+  assert.throws(() => quire.moveTask("Offsite", 6, "Plan the offsite @jane", "Offsite", "t"), /already in Offsite\.md/);
+  assert.throws(() => quire.moveTask("Inbox", 3, "stale", "Offsite", "t"), /isn't in Inbox\.md any more/);
+});
+
+test("ticking a repeating task in its note adds the next one below, from any surface that ticks", () => {
+  const { dir, quire } = openTempVault({ "Bills.md": "# Bills\n\n- [ ] Pay rent due:2026-10-06 rec:6th\n" });
+  const r = quire.updateTask("Bills", 3, "Pay rent due:2026-10-06 rec:6th", { checked: true }, "t", "2026-10-04");
+  assert.deepEqual([r.line, r.text], [3, "Pay rent due:2026-10-06 rec:6th done:2026-10-04"]);
+  assert.equal(fs.readFileSync(path.join(dir, "Bills.md"), "utf8"), "# Bills\n\n- [x] Pay rent due:2026-10-06 rec:6th done:2026-10-04\n- [ ] Pay rent due:2026-11-06 rec:6th\n");
+  quire.setTask("Bills", 3, r.text, false, "t");
+  assert.equal(fs.readFileSync(path.join(dir, "Bills.md"), "utf8"), "# Bills\n\n- [ ] Pay rent due:2026-10-06 rec:6th\n");
+  assert.throws(() => quire.updateTask("Bills", 3, "Pay rent due:2026-10-06 rec:6th", { rec: "after-1st-tue" }, "t"), /not a calendar rule/);
+  const skipped = quire.skipTask("Bills", 3, "Pay rent due:2026-10-06 rec:6th", "t", "2026-10-04");
+  assert.equal(skipped.text, "Pay rent due:2026-11-06 rec:6th");
+  quire.updateTask("Bills", 3, skipped.text, { rec: null }, "t"); // "Stop repeating"
+  assert.throws(() => quire.skipTask("Bills", 3, "Pay rent due:2026-11-06", "t"), /nothing to skip/);
+});
+
 test("updateTask rewrites a task's tokens in its note, and refuses values that can't be written back", () => {
   const { dir, quire } = openTempVault({ "Plan.md": "# Plan\n\n- [ ] Send invoice due:2026-09-30 @jane\n" });
   const r = quire.updateTask("Plan", 3, "Send invoice due:2026-09-30 @jane", { due: "2026-10-07", assignees: [], priority: "low", tags: ["Work/Billing"] }, "t");
@@ -443,6 +555,48 @@ test("updateTask rewrites a task's tokens in its note, and refuses values that c
   assert.throws(() => quire.updateTask("Plan", 3, text, { due: "next week" }, "t"), /"due" must be a date/);
   assert.throws(() => quire.updateTask("Plan", 3, text, { assignees: ["two words"] }, "t"), /isn't a person/);
   assert.throws(() => quire.updateTask("Plan", 3, "Gone", { due: null }, "t"), /isn't in Plan\.md any more/);
+});
+
+test("smart folders are saved queries, shared with the workspace or one person's own, each with a live count", () => {
+  const { quire } = openTempVault(TAGGED);
+  const clients = quire.saveSmartFolder("ana", { name: "Client work", query: "tag=work/clients  sort=title", shared: true }, true);
+  assert.deepEqual(clients, { id: clients.id, name: "Client work", query: "tag=work/clients sort=title", shared: true, count: 2 });
+  quire.saveSmartFolder("bo", { name: "Ideas", query: 'q="idea"', shared: false }, true);
+  assert.deepEqual(quire.smartFolders("ana").map((f) => f.name), ["Client work"]);
+  assert.deepEqual(quire.smartFolders("bo").map((f) => `${f.name} ${f.count}`), ["Client work 2", "Ideas 1"]);
+  quire.create("Projects/Beta", "# Beta\n\n#work/clients/beta\n", "t");
+  assert.equal(quire.smartFolders("ana")[0].count, 3);
+  assert.equal(quire.findSmartFolder("bo", "ideas").query, 'q=idea');
+
+  // Someone who can't edit shared things (a viewer online) keeps their own, and can't touch the workspace's.
+  assert.throws(() => quire.saveSmartFolder("vi", { name: "Mine", query: "", shared: true }, false), /Only editors/);
+  assert.throws(() => quire.saveSmartFolder("vi", { id: clients.id, name: "Renamed", query: "", shared: false }, false), /Only editors/);
+  assert.throws(() => quire.deleteSmartFolder("vi", clients.id, false), /Only editors/);
+  const own = quire.saveSmartFolder("vi", { name: "Mine", query: "folder=Ideas", shared: false }, false);
+  assert.equal(own.count, 1);
+  assert.throws(() => quire.saveSmartFolder("ana", { id: own.id, name: "Taken", query: "", shared: false }, true), /No smart folder/);
+  assert.throws(() => quire.saveSmartFolder("ana", { name: "Bad", query: "colour=red", shared: true }, true), /Unknown query key "colour"/);
+  assert.throws(() => quire.saveSmartFolder("ana", { name: " ", query: "", shared: true }, true), /name/);
+  assert.deepEqual(quire.deleteSmartFolder("ana", "client work", true), []);
+});
+
+test("starring and unstarring a tag only touches Favorites, never a smart folder with that tag's query", () => {
+  const { quire } = openTempVault(TAGGED);
+  const folder = quire.saveSmartFolder("ana", { name: "Billing", query: "tag=billing", shared: false }, true);
+  quire.starTag("ana", "billing");
+  assert.deepEqual(quire.unstarTag("ana", "billing"), []);
+  assert.deepEqual(quire.smartFolders("ana").map((f) => [f.id, f.query]), [[folder.id, "tag=billing"]]);
+});
+
+test("a smart folder name means your own before a shared one, a saved query keeps no limit, and there's a cap", () => {
+  const { quire } = openTempVault(TAGGED);
+  const shared = quire.saveSmartFolder("ana", { name: "Work", query: "tag=work limit=5", shared: true }, true);
+  assert.equal(shared.query, "tag=work");
+  quire.saveSmartFolder("bo", { name: "work", query: "folder=Ideas", shared: false }, true);
+  assert.deepEqual(quire.deleteSmartFolder("bo", "WORK", true).map((f) => f.name), ["Work"]);
+  assert.throws(() => quire.saveSmartFolder("bo", { name: "x".repeat(81), query: "", shared: false }, true), /80 characters/);
+  for (let i = 0; i < 50; i++) quire.saveSmartFolder("cy", { name: `f${i}`, query: "", shared: false }, true);
+  assert.throws(() => quire.saveSmartFolder("cy", { name: "one more", query: "", shared: false }, true), /50 smart folders/);
 });
 
 test("an index from before tags learns every note's tags on the next start", () => {

@@ -27,8 +27,10 @@ async function call(name: string, args: Record<string, unknown>) {
 test("the server lists every tool", async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
-    "add_card", "append_to_note", "archive_note", "backlinks", "create_note", "edit_card", "edit_note", "list_notes", "list_tags", "list_tasks", "move_card",
-    "move_note", "read_board", "read_note", "recent_changes", "search_notes", "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag", "update_task",
+    "add_card", "add_task", "append_to_note", "archive_note", "backlinks", "create_note", "delete_smart_folder",
+    "edit_card", "edit_note", "get_today", "list_notes", "list_smart_folders", "list_tags", "list_tasks",
+    "move_card", "move_note", "move_task", "read_board", "read_note", "recent_changes", "save_smart_folder",
+    "search_notes", "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag", "update_task",
   ]);
 });
 
@@ -50,6 +52,24 @@ test("agents read a board and add, move and edit its cards, each change attribut
   assert.match((await call("read_board", { path: "Launch" })).text, /^Board 1 of 1 in Launch\.md\n\n## Backlog\n- \[ \] Webhooks @sam due:2026-10-01 — L5\n    Retry on 500s\n\n## Done \(done column\)\n- \[x\] Pricing page done:\d{4}-\d{2}-\d{2} — L9$/);
   assert.match((await call("recent_changes", { path: "Launch.md", limit: 1 })).text, /test-agent: edit Launch\.md \(\+1 −1\)$/);
   assert.deepEqual(await call("move_card", { path: "Launch", card: "nope", to_column: "Done" }), { text: 'No card in Launch.md matches "nope"', isError: true });
+});
+
+test("agents add a task from words, to today's daily note or a named note, and move one", async () => {
+  const today = new Date().toLocaleDateString("en-CA");
+  const r = await call("add_task", { text: "Renew the domain every year on mar 1 !high" });
+  assert.match(r.text, new RegExp(`^Added "- \\[ \\] Renew the domain !high due:\\d{4}-03-01 rec:mar-1" to Journal/${today}\\.md:5$`));
+  const to = await call("add_task", { text: "Draft the agenda → [[Roadmap]]" });
+  assert.equal(to.text, 'Added "- [ ] Draft the agenda" to Projects/Roadmap.md:10');
+  assert.equal((await call("move_task", { path: "Roadmap", line: 10, text: "Draft the agenda", to: `Journal/${today}` })).text, `Moved "Draft the agenda" to Journal/${today}.md:6`);
+  assert.equal((await call("add_task", { text: "tomorrow" })).isError, true);
+});
+
+test("agents read the day: overdue, due today, starting today, and the journal note", async () => {
+  const text = (await call("get_today", { today: "2026-10-05" })).text;
+  assert.match(text, /^Monday, October 5, 2026\n\nOverdue \(\d+\)\n/);
+  assert.match(text, /\nDue today \(0\)\n- nothing\n/);
+  assert.match(text, /\nJournal: Journal\/2026-10-05\.md \(not written yet\)$/);
+  assert.equal((await call("get_today", { today: "someday" })).isError, true);
 });
 
 test("agents list tags as a tree and filter notes by a tag and the tags under it", async () => {
@@ -88,6 +108,14 @@ test("tool errors come back as isError with the core's message", async () => {
 test("search_notes sees files written straight to disk", async () => {
   fs.writeFileSync(path.join(vault, "Side door.md"), "# Side door\n\nzeppelin\n");
   assert.equal((await call("search_notes", { query: "zeppelin" })).text, "- Side door.md — Side door\n    L3: zeppelin");
+});
+
+test("agents save smart folders, list them with counts and list the notes in one", async () => {
+  const saved = await call("save_smart_folder", { name: "Q3", query: "tag=q3 sort=title" });
+  assert.match(saved.text, /^- Q3 \(1 note, shared\): tag=q3 sort=title \[[a-z2-9]{8}\]$/);
+  assert.equal((await call("list_notes", { smart_folder: "q3" })).text, "- Projects/Roadmap.md — Roadmap");
+  assert.equal((await call("save_smart_folder", { name: "Bad", query: "sort=size" })).text, '"sort" is modified or title, not "size"');
+  assert.equal((await call("delete_smart_folder", { smart_folder: "Q3" })).text, "No smart folders.");
 });
 
 test("agents star and unstar tags as favorites too", async () => {

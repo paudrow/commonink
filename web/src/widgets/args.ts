@@ -1,7 +1,6 @@
 // Widgets live in markdown as one-line leaf directives (the CommonMark "generic directives"
 // proposal, as used by remark-directive):   ::timer{duration=25m label="Tea" id=k3x9q}
 // Config is in the file; runtime state (running, laps) is kept per widget id in the browser.
-
 export { parseAttrs, parseDirective, serializeDirective, type Directive } from "../../../src/core/directive.ts";
 
 export const newId = () => Math.random().toString(36).slice(2, 7);
