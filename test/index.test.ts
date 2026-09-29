@@ -90,6 +90,19 @@ test("a starred tag counts the active notes under it, as the tag list does, and 
   assert.deepEqual(quire.favorites("you"), [{ tag: "work", display: "Work", notes: 1 }]);
 });
 
+test("a long Notes page still gives every note its tags, in the order written, and who changed it last", () => {
+  let now = 1_000;
+  const { quire } = openTempVault({}, { now: () => now++ });
+  for (let i = 0; i < 120; i++) quire.create(`N${i}.md`, `# N${i}\n\n#Second${i} then #first${i}\n\n#second${i} again\n`, i % 2 ? "Claude" : "you");
+  quire.save("N7.md", "# N7\n\n#Second7 then #first7\n\n#second7 again\n\nMore.\n", { source: "Jane" });
+  const page = quire.feed({ limit: 200 }).items;
+  assert.equal(page.length, 120);
+  const byPath = new Map(page.map((f) => [f.path, f]));
+  assert.deepEqual(byPath.get("N0.md")!.tags, ["Second0", "first0"]);
+  assert.deepEqual(byPath.get("N119.md")!.tags, ["Second119", "first119"]);
+  assert.deepEqual([byPath.get("N0.md")!.lastSource, byPath.get("N7.md")!.lastSource, byPath.get("N119.md")!.lastSource], ["you", "Jane", "Claude"]);
+});
+
 test("an index from before tasks were indexed learns them on the next start", () => {
   const { dir, quire } = openTempVault(TASKY);
   quire.db.exec("DROP TABLE tasks");

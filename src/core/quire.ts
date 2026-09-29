@@ -513,10 +513,10 @@ export class Quire {
     return rows.map((r) => ({ ...r, lines: this.matchingLines(r.path, terms) }));
   }
 
-  private matchingLines(rel: string, terms: string[], max = 3): SearchHit["lines"] {
+  private matchingLines(rel: string, terms: string[], max = 3, content = this.files.read(rel) ?? ""): SearchHit["lines"] {
     const needles = terms.map((t) => t.toLowerCase());
     const lines: SearchHit["lines"] = [];
-    const text = (this.files.read(rel) ?? "").split("\n");
+    const text = content.split("\n");
     for (let i = 0; i < text.length && lines.length < max; i++) {
       const l = text[i].toLowerCase();
       if (needles.some((n) => l.includes(n))) lines.push({ line: i + 1, text: text[i].trim().slice(0, 200) });
@@ -531,15 +531,35 @@ export class Quire {
   feed(opts: Omit<NoteQuery, "limit"> & { scope?: ArchiveScope; offset?: number; limit?: number } = {}) {
     const scope = opts.scope ?? "active";
     const terms = searchTerms(opts.q ?? "");
-    let rows = this.matching(opts);
+    const all = this.feedRows();
+    let rows = this.matching(opts, all);
     const home = (p: string) => (isArchived(p) ? p.slice(ARCHIVE.length) : p);
     const counts = { active: rows.filter((r) => !isArchived(r.path)).length, archived: rows.filter((r) => isArchived(r.path)).length };
     rows = rows.filter((r) => inScope(r.path, scope));
-    const lastSource = new Map(
-      this.db.all("SELECT path, source FROM changes WHERE id IN (SELECT max(id) FROM changes GROUP BY path)").map((r) => [r.path, r.source]),
-    );
     const offset = opts.offset ?? 0;
-    const items: FeedItem[] = rows.slice(offset, offset + (opts.limit ?? 30)).map((r) => {
+    const page = rows.slice(offset, offset + (opts.limit ?? 30));
+    // The page's tags and who changed each note last, a few queries for the whole page.
+    const tags = new Map<string, string[]>();
+    const lastSource = new Map<string, string>();
+    for (let i = 0; i < page.length; i += 90) {
+      const paths = page.slice(i, i + 90).map((r) => r.path);
+      const marks = paths.map(() => "?").join(",");
+      for (const t of this.db.all<{ path: string; display: string }>(
+        `SELECT t.path, coalesce(n.display, t.tag) AS display FROM tags t LEFT JOIN tag_names n ON n.tag = t.tag
+         WHERE t.path IN (${marks}) GROUP BY t.path, t.tag ORDER BY t.path, min(t.line), min(t.rowid)`,
+        ...paths,
+      )) {
+        if (!tags.has(t.path)) tags.set(t.path, []);
+        tags.get(t.path)!.push(t.display);
+      }
+      for (const c of this.db.all<{ path: string; source: string }>(
+        `SELECT path, source FROM changes WHERE id IN (SELECT max(id) FROM changes WHERE path IN (${marks}) GROUP BY path)`,
+        ...paths,
+      )) {
+        lastSource.set(c.path, c.source);
+      }
+    }
+    const items: FeedItem[] = page.map((r) => {
       const content = this.files.read(r.path) ?? "";
       const body = r.kind === "md" ? splitFrontmatter(content).body : "";
       return {
@@ -550,24 +570,23 @@ export class Quire {
         mtime: r.mtime,
         archived: isArchived(r.path),
         excerpt: excerptOf(body, r.title),
-        tags: this.db
-          .all<{ display: string }>(
-            `SELECT coalesce(n.display, t.tag) AS display FROM tags t LEFT JOIN tag_names n ON n.tag = t.tag
-             WHERE t.path = ? GROUP BY t.tag ORDER BY min(t.line), min(t.rowid)`,
-            r.path,
-          )
-          .map((t) => t.display),
-        lines: terms.length ? this.matchingLines(r.path, terms) : [],
+        tags: tags.get(r.path) ?? [],
+        lines: terms.length ? this.matchingLines(r.path, terms, 3, content) : [],
         lastSource: lastSource.get(r.path) ?? null,
       };
     });
-    return { items, total: rows.length, counts, folders: [...new Set(this.list(undefined, "all").filter((n) => n.kind !== "asset").map((n) => home(n.path)).filter((p) => p.includes("/")).map((p) => p.split("/")[0]))].sort() };
+    return { items, total: rows.length, counts, folders: [...new Set(all.map((n) => home(n.path)).filter((p) => p.includes("/")).map((p) => p.split("/")[0]))].sort() };
+  }
+
+  /** Every note (not assets), archived ones included, newest first: what matching() narrows. */
+  private feedRows(): Array<{ id: string; path: string; kind: NoteKind; title: string; mtime: number }> {
+    return this.db.all("SELECT id, path, kind, title, mtime FROM notes WHERE kind != 'asset' ORDER BY mtime DESC");
   }
 
   /** The notes a query matches, archived ones included, in its order. The part of the feed smart folder counts need. */
-  private matching(query: NoteQuery): Array<{ id: string; path: string; kind: NoteKind; title: string; mtime: number }> {
+  private matching(query: NoteQuery, all = this.feedRows()): ReturnType<Quire["feedRows"]> {
     const terms = searchTerms(query.q ?? "");
-    let rows = this.db.all("SELECT id, path, kind, title, mtime FROM notes WHERE kind != 'asset' ORDER BY mtime DESC");
+    let rows = all;
     if (terms.length) {
       const hits = new Set(this.db.all("SELECT path FROM notes_fts WHERE notes_fts MATCH ?", ftsQuery(terms)).map((r) => r.path));
       rows = rows.filter((r) => hits.has(r.path));
@@ -575,10 +594,11 @@ export class Quire {
     const home = (p: string) => (isArchived(p) ? p.slice(ARCHIVE.length) : p);
     if (query.folder) rows = rows.filter((r) => home(r.path).startsWith(query.folder!.replace(/\/?$/, "/")));
     if (query.tag) {
-      const on = new Set(this.tagged(query.tag).map((r) => r.path));
+      const key = normalizeTag(query.tag);
+      const on = new Set(key ? this.db.all<{ path: string }>(`SELECT DISTINCT path FROM tags WHERE ${UNDER}`, ...under(key)).map((r) => r.path) : []);
       rows = rows.filter((r) => on.has(r.path));
     }
-    if (query.sort === "title") rows.sort((a, b) => a.title.localeCompare(b.title));
+    if (query.sort === "title") rows = [...rows].sort((a, b) => a.title.localeCompare(b.title));
     return rows;
   }
 
@@ -874,7 +894,8 @@ export class Quire {
 
   /** The smart folders `user` sees (the workspace's shared ones and their own), in order, each with how many active notes match. */
   smartFolders(user: string): SmartFolder[] {
-    return this.smartFolderRows(user).map((r) => this.counted(r));
+    const all = this.feedRows();
+    return this.smartFolderRows(user).map((r) => this.counted(r, all));
   }
 
   private smartFolderRows(user: string) {
@@ -883,8 +904,8 @@ export class Quire {
       .map((r) => ({ id: r.id, name: r.name, query: r.query, shared: r.owner === null }));
   }
 
-  private counted(f: Omit<SmartFolder, "count">): SmartFolder {
-    return { ...f, count: this.matching(parseQuery(f.query)).filter((r) => !isArchived(r.path)).length };
+  private counted(f: Omit<SmartFolder, "count">, all = this.feedRows()): SmartFolder {
+    return { ...f, count: this.matching(parseQuery(f.query), all).filter((r) => !isArchived(r.path)).length };
   }
 
   /**
