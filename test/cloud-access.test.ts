@@ -23,6 +23,8 @@ let welcomeId: string;
 const restoreIds = {} as Record<Who, number>;
 /** A smart folder of each person's own, for them to delete. */
 const folderIds = {} as Record<Who, string>;
+/** Trash items for each person to restore and to delete for good. */
+const trashIds = {} as Record<Who, { restore: string; purge: string }>;
 
 /**
  * Every route online, what each kind of person gets back, and a request that works for anyone
@@ -70,6 +72,13 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /restore", send: (w) => ["POST", "/restore", { id: restoreIds[w] ?? 1 }], expect: EDIT },
   { route: "POST /archive", send: (w) => ["POST", "/archive", { paths: [`arch-${w}.md`] }], expect: EDIT },
   { route: "POST /unarchive", send: (w) => ["POST", "/unarchive", { paths: [`Archive/unarch-${w}.md`] }], expect: EDIT },
+  { route: "GET /delete-check", send: () => ["GET", "/delete-check?path=Welcome"], expect: EDIT },
+  { route: "POST /delete", send: (w) => ["POST", "/delete", { paths: [`del-${w}.md`] }], expect: EDIT },
+  { route: "POST /delete-folder", send: (w) => ["POST", "/delete-folder", { folder: `folder-${w}`, notes: "lift" }], expect: EDIT },
+  { route: "GET /trash", send: () => ["GET", "/trash"], expect: EDIT },
+  { route: "POST /trash/restore", send: (w) => ["POST", "/trash/restore", { ids: [trashIds[w].restore] }], expect: EDIT },
+  { route: "POST /trash/delete", send: (w) => ["POST", "/trash/delete", { ids: [trashIds[w].purge] }], expect: OWN },
+  { route: "POST /trash/empty", send: () => ["POST", "/trash/empty", {}], expect: OWN },
   { route: "POST /upload", send: (w) => ["POST", `/upload?name=up-${w}.txt`, new TextEncoder().encode("hi"), { "content-type": "text/plain" }], expect: EDIT },
   { route: "POST /invites", send: () => ["POST", "/invites", { role: "viewer" }], expect: OWN },
   { route: "GET /api/me", send: () => ["GET", "/api/me"], expect: SIGNED_IN },
@@ -102,6 +111,12 @@ before(async () => {
     await note(`restore-${w}.md`);
     await cloud.call(owner, "PUT", `${base}/note`, { path: `restore-${w}.md`, content: "# Changed\n" });
     restoreIds[w] = (await cloud.call(owner, "GET", `${base}/changes?path=restore-${w}.md&limit=1`))[0].id;
+    await note(`del-${w}.md`);
+    await note(`folder-${w}/Inside.md`);
+    await note(`trash-restore-${w}.md`);
+    await note(`trash-purge-${w}.md`);
+    const [restore, purge] = (await cloud.call(owner, "POST", `${base}/delete`, { paths: [`trash-restore-${w}.md`, `trash-purge-${w}.md`] })).trashed.map((t: { id: string }) => t.id);
+    trashIds[w] = { restore, purge };
   }
   for (const w of ["viewer", "editor", "owner"] as const) {
     folderIds[w] = (await cloud.call(people[w], "POST", `${base}/smart-folders`, { name: `Doomed ${w}`, query: "tag=plan" })).id;
@@ -159,4 +174,41 @@ test("a workspace checks the role again, whatever the Worker forwarded", async (
     [await send("POST", "/note", "viewer"), await send("POST", "/note"), await send("POST", "/note", "admin"), await send("POST", "/seed", "owner"), await send("GET", "/info", "viewer")],
     [403, 403, 403, 404, 200],
   );
+});
+
+type Trashed = { trashed: Array<{ id: string; path: string }> };
+
+test("what's in Trash can't be reached as a file, a note or through another workspace", async () => {
+  const owner = await cloud.signIn("owner"); // the matrix ended with signing everyone out everywhere
+  const { base } = people;
+  await cloud.request(owner, "POST", `${base}/note`, { path: "Secret.md", content: "# Secret\n\nthe plan\n" });
+  const { trashed } = (await (await cloud.request(owner, "POST", `${base}/delete`, { paths: ["Secret.md"] })).json()) as Trashed;
+  const id = trashed[0].id;
+  const tries = [
+    await cloud.request(owner, "GET", `${base}/note?path=Secret`),
+    await cloud.request(owner, "GET", `${base}/files/.trash/${id}/Secret.md`),
+    await cloud.request(owner, "GET", `${base}/files/%2Etrash/${id}/Secret.md`),
+    await cloud.request(owner, "GET", `${base}/search?q=plan`),
+  ];
+  assert.deepEqual(tries.slice(0, 3).map((r) => r.status >= 400), [true, true, true]);
+  assert.deepEqual(await tries[3].json(), []);
+  // Another workspace of the same owner has its own Trash, and can't restore this one's items.
+  const other = ((await (await cloud.request(owner, "POST", "/api/workspaces", { name: "Elsewhere" })).json()) as { id: string }).id;
+  assert.equal((await cloud.request(owner, "POST", `/api/w/${other}/trash/restore`, { ids: [id] })).status, 404);
+  const theirs = (await (await cloud.request(owner, "GET", `/api/w/${other}/trash`)).json()) as Array<{ id: string }>;
+  assert.equal(theirs.some((t) => t.id === id), false);
+});
+
+test("an upload deleted for good takes its bytes out of R2; one in Trash keeps them", async () => {
+  const owner = await cloud.signIn("owner");
+  const { base } = people;
+  const env = await cloud.server.getWorker().getEnv();
+  const keys = async () => (await env.FILES.list()).objects.length;
+  const up = (await (await cloud.request(owner, "POST", `${base}/upload?name=bin.txt`, new TextEncoder().encode("bytes"), { "content-type": "text/plain" })).json()) as { path: string };
+  const before = await keys();
+  const { trashed } = (await (await cloud.request(owner, "POST", `${base}/delete`, { paths: [up.path] })).json()) as Trashed;
+  assert.equal(await keys(), before);
+  await cloud.request(owner, "POST", `${base}/trash/delete`, { ids: [trashed[0].id] });
+  await new Promise((r) => setTimeout(r, 50)); // the delete runs after the response
+  assert.equal(await keys(), before - 1);
 });

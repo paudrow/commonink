@@ -53,6 +53,14 @@ export const WORKSPACE_ROUTES = {
   "POST /restore": "editor",
   "POST /archive": "editor",
   "POST /unarchive": "editor",
+  // Trash: editors delete and restore, and only they see what's in it; deleting for good is the owner's.
+  "GET /delete-check": "editor",
+  "POST /delete": "editor",
+  "POST /delete-folder": "editor",
+  "GET /trash": "editor",
+  "POST /trash/restore": "editor",
+  "POST /trash/delete": "owner",
+  "POST /trash/empty": "owner",
   "POST /upload": "editor",
   "POST /invites": "owner",
 } as const satisfies Record<string, Role>;
