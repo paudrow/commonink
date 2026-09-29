@@ -156,7 +156,6 @@ export interface TagUse {
  */
 export const ASSET_TAGS = "assets/.tags.json";
 
-
 export const versionOf = (content: string) =>
   crypto.createHash("sha256").update(content).digest("hex").slice(0, 12);
 
@@ -169,12 +168,6 @@ export interface QuireOptions {
   /** Milliseconds since the epoch: stamps changes and bounds the attribution and rename windows. Tests pass a fake clock. */
   now?: () => number;
 }
-
-/**
- * The one core every surface (web UI, MCP server, CLI, Cloudflare workspace) talks to.
- * `files` is the source of truth (a folder locally, a table in the cloud); the rest of the
- * SQLite database is a rebuildable index plus the change log and each person's favorites.
- */
 
 /** One section of the Today view: a heading and its tasks. */
 export interface TodaySection {
@@ -202,6 +195,11 @@ function findTask(lines: string[], line: number, text: string, notePath: string)
   return near[0];
 }
 
+/**
+ * The one core every surface (web UI, MCP server, CLI, Cloudflare workspace) talks to.
+ * `files` is the source of truth (a folder locally, a table in the cloud); the rest of the
+ * SQLite database is a rebuildable index plus the change log and each person's favorites.
+ */
 export class Quire {
   private now: () => number;
 

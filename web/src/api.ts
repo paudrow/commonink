@@ -159,7 +159,6 @@ export function useWorkspace(base: string, live: string) {
   LIVE = live;
   resolveCache.clear();
 }
-export const apiBase = () => BASE;
 export const fileUrl = (path: string) => `${BASE}/files/${path.split("/").map(encodeURIComponent).join("/")}`;
 
 export interface Me {

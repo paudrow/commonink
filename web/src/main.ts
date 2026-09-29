@@ -388,11 +388,9 @@ function showStage(which: "editor" | "html" | "notes" | "tasks" | "history" | "a
     unmountTasks?.();
     unmountTasks = null;
   }
-
 }
 
-/** Put the open note away (saved, named, cursor remembered) before showing a page that isn't a note. */
-/** Pages show in the main pane, which then has the focus. */
+/** Put the open note away (saved, named, cursor remembered) before showing a page that isn't a note. Pages show in the main pane, which then has the focus. */
 async function leaveNote() {
   const main = panes[0];
   await flushSave(main);
