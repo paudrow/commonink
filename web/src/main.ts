@@ -4,7 +4,8 @@ import type { EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
 import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type Scope, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
 import { normalizeTag } from "../../src/core/tags.ts";
-import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setSelfName, timeAgo, type LinkDrag } from "./dom.ts";
+import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
+import { toast } from "./toast.ts";
 import { createState, openLinkToSide, remote, vimSlot } from "./editor/setup.ts";
 import { linkTargetAt } from "./editor/linkAt.ts";
 import { bumpEmbeds, editorContext } from "./editor/blocks.ts";
@@ -1739,7 +1740,7 @@ function showNoteIn(pane: Pane) {
   if (preview) renderHtmlPreview(pane);
 }
 
-// ------------------------------------------------------------------ banner, toasts
+// ------------------------------------------------------------------ banner
 
 function showBanner(text: string, ...actions: Array<[string, () => void]>) {
   const b = $("#banner");
@@ -1754,32 +1755,6 @@ function showBanner(text: string, ...actions: Array<[string, () => void]>) {
 }
 function hideBanner() {
   $("#banner").hidden = true;
-}
-
-function toast(t: { text: string; by?: { source: string; person: string | null; agent: string | null }; icon?: string; detail?: string; action?: () => void; actionLabel?: string; sticky?: boolean }) {
-  const button = t.action && t.actionLabel ? el("button", { class: "toast-action", type: "button" }, t.actionLabel) : null;
-  const node = el(
-    "div",
-    {
-      class: `toast${t.action && !button ? " is-clickable" : ""}${t.icon === "timer" ? " is-alert" : ""}`,
-      onclick: () => {
-        if (!button) t.action?.();
-        node.remove();
-      },
-    },
-    t.by ? authorAvatar(t.by, 22) : el("span", { class: "toast-icon" }, icon(t.icon ?? "info", 16)),
-    el("div", { class: "toast-body" }, el("div", { class: "toast-text" }, t.by ? el("b", {}, authorName(t.by)) : null, t.by ? ` ${t.text}` : t.text), t.detail ? el("div", { class: "toast-detail" }, t.detail) : null),
-    button,
-  );
-  button?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    t.action!();
-    node.remove();
-  });
-  $("#toasts").append(node);
-  const life = t.sticky ? 12_000 : 4200;
-  setTimeout(() => node.classList.add("is-leaving"), life);
-  setTimeout(() => node.remove(), life + 400);
 }
 
 // ------------------------------------------------------------------ vim + keyboard
@@ -1875,12 +1850,6 @@ function quickAdd() {
     vim: prefs.vim,
     note: active.session?.kind === "md" ? active.session.path : undefined,
   });
-}
-
-/** Whether a key pressed here is someone typing: a field, a text area, or the editor. */
-function typingIn(target: EventTarget | null): boolean {
-  const t = target as HTMLElement | null;
-  return !!t?.closest?.("input, textarea, select, [contenteditable]:not([contenteditable=false]), .cm-editor");
 }
 
 const narrow = matchMedia("(max-width: 1100px)");
@@ -2117,7 +2086,7 @@ async function boot() {
       text: `${t.label || "Timer"} is done`,
       detail: t.note ? displayName(t.note) : undefined,
       action: t.note && t.note !== active.session?.path ? () => openNote(t.note!) : undefined,
-      sticky: true,
+      alert: true,
     }),
   );
   setInterval(() => {
