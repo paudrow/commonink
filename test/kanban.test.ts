@@ -94,6 +94,16 @@ test("a card moved into the done column is ticked with today's date, and moved o
   assert.equal(moveCard(shipped, 3, { board: 0, column: 1 }, 0, TODAY), `Intro\n:::kanban{done=Shipped}\n## Done-ish\n## Shipped\n- [x] a done:${TODAY}\n:::\n`);
 });
 
+test("ticking a repeating card puts the next one after it (its nested lines stay with it); unticking straight after takes that back", () => {
+  const md = ":::kanban\r\n## Doing\r\n- [ ] Pay rent due:2026-10-01 rec:monthly\r\n  From savings.\r\n- [ ] Other\r\n:::\r\n";
+  const ticked = checkCard(md, 2, true, TODAY);
+  assert.equal(ticked, `:::kanban\r\n## Doing\r\n- [x] Pay rent due:2026-10-01 rec:monthly done:${TODAY}\r\n  From savings.\r\n- [ ] Pay rent due:2026-11-01 rec:monthly\r\n- [ ] Other\r\n:::\r\n`);
+  assert.equal(checkCard(ticked, 2, false, TODAY), md);
+  const { quire } = openTempVault({ "Bills.md": md });
+  quire.editCard("Bills", "Pay rent", { done: true }, "agent", TODAY);
+  assert.equal(quire.read("Bills").content, ticked);
+});
+
 test("editing a card's text keeps its checkbox and nested lines; new detail lines nest under it", () => {
   const at = lineOf(NOTE, "Draft the announcement");
   const text = "Draft the launch post @audrow due:2026-10-15";

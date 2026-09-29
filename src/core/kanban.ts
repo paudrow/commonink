@@ -18,7 +18,7 @@
 // nested lines stay byte for byte. No Node imports: the editor uses this too.
 import { parseAttrs, serializeAttrs } from "./directive.ts";
 import { proseLines } from "./prose.ts";
-import { editTask, parseTask, TASK_LINE, type TaskPatch } from "./tasks.ts";
+import { editTask, editTaskLines, parseTask, TASK_LINE, type TaskPatch } from "./tasks.ts";
 
 export interface Card {
   /** Its list item's line (0-based); `to` is one past its last nested line. */
@@ -220,8 +220,21 @@ export function editCard(md: string, line: number, text: string): string {
   return raw.join("\n");
 }
 
-/** Tick or untick the card on `line`; `done:` is stamped with `today` or taken off. */
-export const checkCard = (md: string, line: number, checked: boolean, today: string) => patchCard(md, line, { checked, done: checked ? today : null });
+/**
+ * Tick or untick the card on `line`; `done:` is stamped with `today` or taken off. A repeating card
+ * works like any repeating task (see editTaskLines): ticked, its next occurrence is a new card after
+ * it and its nested lines; unticked straight after, that card goes again.
+ */
+export function checkCard(md: string, line: number, checked: boolean, today: string): string {
+  const { raw, cr } = split(md);
+  const { card } = locate(boardsIn(md), line);
+  // The line after the card is at most the board's closing `:::`, so it's always there.
+  const [first, ...after] = editTaskLines([raw[card.from], raw[card.to]].map((l) => l.replace(/\r$/, "")), 0, { checked }, today);
+  raw[card.from] = retext(raw[card.from], () => first);
+  if (after.length === 2) raw.splice(card.to, 0, after[0] + cr);
+  else if (!after.length) raw.splice(card.to, 1);
+  return raw.join("\n");
+}
 
 /** Change the task tokens on the card on `line` (see editTask); the rest of its line stays as written. */
 export function patchCard(md: string, line: number, patch: TaskPatch): string {

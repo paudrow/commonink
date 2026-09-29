@@ -371,7 +371,7 @@ export function createMcpServer(host: ToolHost): McpServer {
         path: z.string(),
         card: CARD,
         text: z.string().optional(),
-        done: z.boolean().optional().describe("Tick (true) or untick (false)"),
+        done: z.boolean().optional().describe("Tick (true) or untick (false). Ticking a repeating card (rec:) adds its next one after it, as update_task does."),
       },
       annotations: writes,
     },
