@@ -8,6 +8,7 @@ import { insertNewline } from "@codemirror/commands";
 import { api, ApiError, type Task } from "./api.ts";
 import { displayName, el, icon, NOTE_DRAG } from "./dom.ts";
 import { onVaultChange } from "./events.ts";
+import { sideClick } from "./panes.ts";
 import { renderMarkdown } from "./render.ts";
 import { metaChips, today } from "./taskChips.ts";
 import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
@@ -249,13 +250,15 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
       details,
       actions,
     );
+    // A side click takes the mousedown too, so the note editor around the board doesn't act on it.
+    node.addEventListener("mousedown", (e) => link && sideClick(e) && e.preventDefault());
     node.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
       const chip = target.closest<HTMLElement>(".tk[data-field]");
       const tag = chip?.dataset.field === "tags" ? chip.dataset.value!.toLowerCase() : target.closest<HTMLElement>(".tag")?.dataset.tag;
       if (tag) return host.ctx.openTag(tag, "tasks");
       if (chip && !host.readOnly && openChipEditor(chip, chipContext(c, i, card, task))) return;
-      if (link && !target.closest("a")) host.ctx.openTarget(link.target, host.path, { side: e.metaKey || e.ctrlKey });
+      if (link && !target.closest("a")) host.ctx.openTarget(link.target, host.path, { side: sideClick(e) });
     });
     node.addEventListener("dblclick", (e) => !link && !(e.target as HTMLElement).closest(".tk, .cm-checkbox, .kb-actions") && !host.readOnly && openEdit(c, i, card));
     node.addEventListener("keydown", (e) => keys(e, node, c, i, card, link));

@@ -16,7 +16,6 @@ import { folderPicker } from "./folderPicker.ts";
 import { History } from "./history.ts";
 import { Assets } from "./assets.ts";
 import { renderTasksPage } from "./tasksView.ts";
-import { renderTodayPage } from "./todayView.ts";
 import { openQuickAdd } from "./quickAdd.ts";
 import { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
@@ -24,7 +23,7 @@ import { vaultEvents } from "./events.ts";
 import { groupChanges } from "../../src/core/format.ts";
 import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
 import { smartFolderEditor } from "./smartFolderEditor.ts";
-import { clampSide, forget, newLayout, parseLayout, step, visit, type PaneTrail } from "./panes.ts";
+import { clampSide, forget, newLayout, parseLayout, SIDE_CLICK, sideClick, step, visit, type PaneTrail } from "./panes.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
 
@@ -78,6 +77,11 @@ const store = {
   },
 };
 
+// This PR's first version stored a "Start on Today" choice; Today is the top of Tasks now.
+try {
+  localStorage.removeItem("quire.startOnToday");
+} catch {}
+
 const prefs = {
   vim: store.get("vim", true),
   panel: store.get("panel", true),
@@ -87,8 +91,6 @@ const prefs = {
   /** Tags whose nested tags are showing in the sidebar (they start closed). */
   tagsOpen: new Set<string>(store.get<string[]>("tagsOpen", [])),
   /** Sidebar sections folded away from their header. Folders start folded: the sidebar leads with tags. */
-  /** Open the app on Today instead of Notes (per browser; Notes by default). */
-  startOnToday: store.get("startOnToday", false),
   folded: { favorites: false, smart: false, folders: true, tags: false, ...store.get<Record<string, boolean>>("folded", {}) } as Record<string, boolean>,
 };
 
@@ -118,7 +120,7 @@ let active = panes[0];
 let split = false;
 const other = (p: Pane) => panes[1 - p.index];
 /** A note opened from a page: in the main pane, or beside it while split. */
-const fromPage = (path: string, line?: number) => void openNote(path, { line, pane: split ? panes[1] : panes[0] });
+const fromPage = (path: string, line?: number, side = false) => void openNote(path, { line, pane: split || side ? panes[1] : panes[0] });
 const notesPage = new NotesPage({
   open: fromPage,
   starred: (id) => isStarred(id),
@@ -328,14 +330,12 @@ async function openSplit() {
 
 /** Where a note opened "to the side" of a pane goes. */
 const sideOf = (p: Pane) => (split ? other(p) : panes[1]);
-/** Cmd-click (Ctrl-click off a Mac) opens to the side. */
-const toSide = (e: MouseEvent | KeyboardEvent) => e.metaKey || e.ctrlKey;
 
 /** The bars over the panes while split: back and forward, the note's name, star, close. */
 function renderPaneBars() {
   if (!split) return;
   const page = onPage();
-  const label = { notes: "Notes", tasks: "Tasks", today: "Today", history: "History", assets: "Assets", tags: "Tags" };
+  const label = { notes: "Notes", tasks: "Tasks", history: "History", assets: "Assets", tags: "Tags" };
   for (const p of panes) {
     const s = p.session;
     const btn = (ico: string, title: string, run: () => void, cls = "", disabled = false) =>
@@ -374,25 +374,20 @@ function setUrl(url: string, how: "push" | "replace" = "push") {
 }
 
 let unmountTasks: (() => void) | null = null;
-let unmountToday: (() => void) | null = null;
 
-function showStage(which: "editor" | "html" | "notes" | "tasks" | "today" | "history" | "assets" | "tags") {
+function showStage(which: "editor" | "html" | "notes" | "tasks" | "history" | "assets" | "tags") {
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
   $("#assets-view").hidden = which !== "assets";
   $("#notes-view").hidden = which !== "notes";
   $("#tasks-view").hidden = which !== "tasks";
-  $("#today-view").hidden = which !== "today";
   $("#history-view").hidden = which !== "history";
   $("#tags-view").hidden = which !== "tags";
   if (which !== "tasks") {
     unmountTasks?.();
     unmountTasks = null;
   }
-  if (which !== "today") {
-    unmountToday?.();
-    unmountToday = null;
-  }
+
 }
 
 /** Put the open note away (saved, named, cursor remembered) before showing a page that isn't a note. */
@@ -430,24 +425,6 @@ async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean
   $("#tasks-view").focus({ preventScroll: true });
   if (opts.push !== false) setUrl("/tasks");
   document.title = "Tasks · Common Ink";
-  renderChrome();
-  renderTree();
-  renderOutline();
-}
-
-/** Today: the day at a glance, with the quick-add bar. */
-async function showToday(opts: { push?: boolean } = {}) {
-  await leaveNote();
-  showStage("today");
-  unmountToday = renderTodayPage($("#today-view"), {
-    open: (path, line) => void openNote(path, { line }),
-    openTag: (tag) => openTag(tag, "tasks"),
-    openPerson: (assignee) => void showTasks({ assignee }),
-    startHere: { get: () => prefs.startOnToday, set: (on) => store.set("startOnToday", (prefs.startOnToday = on)) },
-  });
-  $("#today-view").focus({ preventScroll: true });
-  if (opts.push !== false) setUrl("/today");
-  document.title = "Today · Common Ink";
   renderChrome();
   renderTree();
   renderOutline();
@@ -528,7 +505,7 @@ function pickFiles(): Promise<File[]> {
 }
 
 const onPage = () =>
-  notesPage.visible ? "notes" : !$("#tasks-view").hidden ? "tasks" : !$("#today-view").hidden ? "today" : historyPage.visible ? "history" : assetsPage.visible ? "assets" : tagsPage.visible ? "tags" : null;
+  notesPage.visible ? "notes" : !$("#tasks-view").hidden ? "tasks" : historyPage.visible ? "history" : assetsPage.visible ? "assets" : tagsPage.visible ? "tags" : null;
 
 // ------------------------------------------------------------------ focus mode
 
@@ -1068,7 +1045,7 @@ function renderFavorites() {
         style: { "--depth": "0" },
         title: f.path,
         draggable: "true",
-        onclick: (e: MouseEvent) => openNote(f.path, { pane: toSide(e) ? sideOf(active) : active }),
+        onclick: (e: MouseEvent) => openNote(f.path, { pane: sideClick(e) ? sideOf(active) : active }),
         ondragstart: (e: DragEvent) => {
           e.dataTransfer!.setData(FAVORITE, f.path);
           e.dataTransfer!.setData(NOTE_DRAG, f.path); // so it can go to a folder or Archive too
@@ -1081,7 +1058,7 @@ function renderFavorites() {
       el(
         "span",
         { class: "row-actions" },
-        el("button", { type: "button", class: "row-act", title: "Open to the side (⌘-click)", onclick: (e: Event) => (e.stopPropagation(), void openNote(f.path, { pane: sideOf(active) })) }, icon("split", 14)),
+        el("button", { type: "button", class: "row-act", title: `Open to the side (${SIDE_CLICK})`, onclick: (e: Event) => (e.stopPropagation(), void openNote(f.path, { pane: sideOf(active) })) }, icon("split", 14)),
         el("button", { type: "button", class: "row-act fav-star", title: "Unstar", onclick: (e: Event) => (e.stopPropagation(), void toggleStar(f.path)) }, icon("starred", 14)),
       ),
     );
@@ -1187,7 +1164,6 @@ function renderTree() {
   const shownTag = showing === null ? "" : (parseQuery(showing).tag ?? "");
   renderTagTree(shownTag && showing === formatQuery({ tag: shownTag }) ? shownTag.toLowerCase() : ""); // a tag alone, like a folder alone
   $("#tasks-btn").classList.toggle("is-active", page === "tasks");
-  $("#today-btn").classList.toggle("is-active", page === "today");
   $("#history-btn").classList.toggle("is-active", page === "history" && !historyPage.noteFilter);
   $("#assets-btn").classList.toggle("is-active", page === "assets");
   $("#tags-page-btn").classList.toggle("is-on", page === "tags");
@@ -1471,7 +1447,7 @@ function renderChrome() {
     $("#html-toggle").hidden = true;
     for (const id of ["#vim-mode", "#cursor-pos", "#word-count"]) $(id).textContent = "";
     $("#vim-mode").dataset.mode = "";
-    const label = { notes: "Notes", tasks: "Tasks", today: "Today", history: "History", assets: "Assets", tags: "Tags" };
+    const label = { notes: "Notes", tasks: "Tasks", history: "History", assets: "Assets", tags: "Tags" };
     const note = page === "history" ? historyPage.noteFilter : null;
     return crumbs.replaceChildren(
       ...(page ? [el("span", { class: "crumb-file" }, label[page])] : []),
@@ -1642,7 +1618,7 @@ async function refreshBacklinks() {
       ? links.map((b) =>
           el(
             "div",
-            { class: "backlink", onclick: () => openNote(b.path, { line: b.line }) },
+            { class: "backlink", onclick: (e: MouseEvent) => openNote(b.path, { line: b.line, pane: sideClick(e) ? sideOf(active) : active }) },
             el("div", { class: "bl-title" }, icon(b.kind === "embed" ? "open" : "link", 12), b.title),
             el("div", { class: "bl-text", html: highlightLink(b.text) }),
           ),
@@ -1978,10 +1954,9 @@ async function route() {
   }
   const at = location.pathname.replace(/\/+$/, "") || "/";
   if (at === "/tasks") return showTasks({ push: false });
-  if (at === "/today") return showToday({ push: false });
-  if (at === "/" && prefs.startOnToday) {
-    setUrl("/today", "replace");
-    return showToday({ push: false });
+  if (at === "/today") {
+    setUrl("/tasks", "replace"); // Today is the top of Tasks now
+    return showTasks({ push: false });
   }
   if (at === "/assets") return showAssets({ push: false });
   if (at === "/tags") return showTags({ push: false });
@@ -2050,7 +2025,6 @@ async function boot() {
   window.addEventListener("popstate", () => void route());
   $("#notes-btn").addEventListener("click", () => void showNotes({ scope: "active", query: {} }));
   $("#tasks-btn").addEventListener("click", () => void showTasks());
-  $("#today-btn").addEventListener("click", () => void showToday());
   $("#history-btn").addEventListener("click", () => void showHistory());
   $("#assets-btn").addEventListener("click", () => void showAssets());
   $("#tags-page-btn").addEventListener("click", () => void showTags());

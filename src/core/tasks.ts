@@ -329,3 +329,14 @@ export function withTasksAdded(content: string, block: string[], heading: boolea
   }
   return { content: lines.join("\n") + "\n", line: at + 1 };
 }
+
+/**
+ * Which Today section an open task is in on `date`: overdue (due before it), due today, or starting
+ * today; null if none. The most urgent wins, so a task is in one section at most.
+ */
+export function todaySection(meta: TaskMeta, date: string): "overdue" | "due" | "starting" | null {
+  const due = meta.due?.slice(0, 10) ?? "";
+  if (due && due < date) return "overdue";
+  if (due === date) return "due";
+  return meta.start?.slice(0, 10) === date ? "starting" : null;
+}

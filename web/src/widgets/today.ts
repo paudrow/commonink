@@ -1,7 +1,7 @@
 //   ::today   ::today{label="My day"}
-// The day at a glance: open tasks overdue, due today and starting today, then today's journal
-// note (open it, or start it from the daily template). The Today page is this widget with the
-// quick-add bar above it. Sections come from the core (Quire.today), so new kinds slot in there.
+// The day at a glance: today's journal note (open it, or start it from the daily template), then
+// open tasks overdue, due today and starting today. The top of the Tasks page is this widget, with
+// empty sections left out. Sections come from the core (Quire.today), so new kinds slot in there.
 import { api, type TodayView } from "../api.ts";
 import { el, icon } from "../dom.ts";
 import { onVaultChange } from "../events.ts";
@@ -45,9 +45,12 @@ export const todayWidget: WidgetSpec = {
         return env.remeasure();
       }
       const rowEnv = { open: env.open, openTag: env.openTag, openPerson: env.openPerson, reload: () => void load() };
+      // On the Tasks page (`compact`) a section with nothing in it isn't shown; the journal row always is.
+      const compact = env.args.compact === "true";
       const nothing = view.sections.every((s) => !s.tasks.length);
       list.replaceChildren(
-        ...view.sections.map((s) =>
+        journal(view),
+        ...view.sections.filter((s) => !compact || s.tasks.length).map((s) =>
           el(
             "section",
             { class: `td-section is-${s.id}${s.tasks.length ? "" : " is-empty"}` },
@@ -55,8 +58,7 @@ export const todayWidget: WidgetSpec = {
             ...(s.tasks.length ? s.tasks.map((t) => taskRow(t, rowEnv, t.title)) : [el("div", { class: "td-none" }, EMPTY[s.id] ?? "Nothing here.")]),
           ),
         ),
-        nothing ? el("div", { class: "td-clear" }, icon("check", 14), "A clear day. Add a task above, or pick one from Tasks.") : "",
-        journal(view),
+        nothing && !compact ? el("div", { class: "td-clear" }, icon("check", 14), "A clear day. Add a task above, or pick one from Tasks.") : "",
       );
       env.remeasure();
     }

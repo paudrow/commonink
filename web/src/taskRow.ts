@@ -5,6 +5,7 @@ import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { api, type Task, type TaskPatch } from "./api.ts";
 import { el, icon } from "./dom.ts";
+import { sideClick } from "./panes.ts";
 import { tagsInLine } from "../../src/core/tags.ts";
 import { endTags, metaChips } from "./taskChips.ts";
 import { openChipEditor, openTaskMenu, taskPeople } from "./taskChipEditors.ts";
@@ -38,11 +39,11 @@ export function taskRow(t: Task, env: RowEnv, where: string | null): HTMLElement
     // A click on the words edits them, so let that one place the caret; chips and tags keep focus where it is.
     const target = e.target as HTMLElement;
     if (target.closest(".qt-input")) return; // placing the caret or selecting in the open edit
-    if (!target.closest(".qt-words") || e.metaKey || e.ctrlKey) prevent(e);
+    if (!target.closest(".qt-words") || sideClick(e)) prevent(e);
   });
   text.addEventListener("click", (e) => {
     const target = e.target as HTMLElement;
-    if (e.metaKey || e.ctrlKey) return env.open(t.path, t.line, true); // ⌘-click: the note, at this line, to the side
+    if (sideClick(e)) return env.open(t.path, t.line, true); // ⌘-click (Ctrl-click off a Mac): the note, at this line, to the side
     const chip = target.closest<HTMLElement>(".tk[data-field]");
     const tag = chip?.dataset.field === "tags" ? chip.dataset.value!.toLowerCase() : target.closest<HTMLElement>(".tag")?.dataset.tag;
     if (tag) env.openTag(tag);
@@ -51,7 +52,7 @@ export function taskRow(t: Task, env: RowEnv, where: string | null): HTMLElement
   });
   const menu = el("button", { type: "button", class: "qt-act", title: "Priority, due, repeat, person, tags…", "aria-label": "Task fields", onmousedown: prevent }, icon("sliders", 13));
   menu.addEventListener("click", () => openTaskMenu(menu, ctx));
-  const go = el("button", { type: "button", class: "qt-act", title: "Go to note", "aria-label": `Go to ${t.title}, line ${t.line}`, onmousedown: prevent, onclick: (e: MouseEvent) => env.open(t.path, t.line, e.metaKey || e.ctrlKey) }, icon("open", 13));
+  const go = el("button", { type: "button", class: "qt-act", title: "Go to note", "aria-label": `Go to ${t.title}, line ${t.line}`, onmousedown: prevent, onclick: (e: MouseEvent) => env.open(t.path, t.line, sideClick(e)) }, icon("open", 13));
   const row = el("div", { class: `qt-row${t.done ? " is-done" : ""}` }, box, text, where ? el("span", { class: "qt-where" }, where) : null, menu, go);
   box.addEventListener("mousedown", (e) => {
     e.preventDefault();
