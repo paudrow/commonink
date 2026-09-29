@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 87
 title: Back and forward between notes
 ---
 1. Click Notes in the sidebar, then open [[Trip plan]]. Follow [[Flights]], and from there [[Airport transfer]]: click a link, or with vim on, put the cursor on it and press `gd`.
