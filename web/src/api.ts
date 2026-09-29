@@ -109,6 +109,13 @@ export interface TagCount {
   tasks: number;
   assets: number;
 }
+/** The day at a glance (Quire.today): sections of tasks, and today's journal note. */
+export interface TodayView {
+  date: string;
+  sections: Array<{ id: "overdue" | "due" | "starting"; title: string; tasks: Task[] }>;
+  journal: { path: string; exists: boolean };
+}
+
 export interface Task {
   path: string;
   /** The note's title. */
@@ -208,6 +215,10 @@ export const api = {
   setTask: (t: Task, done: boolean) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/set`, send("POST", { path: t.path, line: t.line, text: t.text, done, today: today() })),
   /** Change a task's tokens in its note; the rest of its line stays as written. */
   updateTask: (t: Task, patch: TaskPatch) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/update`, send("POST", { path: t.path, line: t.line, text: t.text, patch, today: today() })),
+  /** The day at a glance for `day` (the viewer's today). */
+  today: (day: string) => j<TodayView>(`${BASE}/today?today=${encodeURIComponent(day)}`),
+  /** Today's journal note, made from the daily template if it's missing. */
+  dailyNote: (day: string) => j<{ path: string; created: boolean }>(`${BASE}/today/journal`, send("POST", { today: day })),
   /** Add a task written in words (see src/core/quickAdd.ts); `ignore` holds phrases kept as words. */
   addTask: (text: string, ignore: string[] = [], to?: string) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/add`, send("POST", { text, ignore, to, today: today() })),
   /** Take a task (and what's nested under it) out of its note: quick-add's Undo. */

@@ -4,7 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { LOCAL_USER, openVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
-import { fmtBacklinks, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtWrite } from "./core/format.ts";
+import { fmtBacklinks, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtWrite } from "./core/format.ts";
 import { parseQuery } from "./core/query.ts";
 
 const quire = openVault();
@@ -150,6 +150,23 @@ server.registerTool(
       quire.sync();
       const want = status ?? "open";
       return fmtTasks(quire.tasks(filters).filter((t) => want === "all" || t.done === (want === "done")));
+    }),
+);
+
+server.registerTool(
+  "get_today",
+  {
+    title: "Get today",
+    description:
+      "The day at a glance: open tasks overdue, due today and starting today (repeating ones show their rec:), and whether today's " +
+      "journal note (Journal/YYYY-MM-DD.md) exists. A good start for a morning brief.",
+    inputSchema: { today: z.string().optional().describe("The day to read, YYYY-MM-DD; default the machine's today") },
+    annotations: readOnly,
+  },
+  ({ today }) =>
+    run(() => {
+      quire.sync();
+      return fmtToday(quire.today(today));
     }),
 );
 

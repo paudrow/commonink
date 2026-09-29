@@ -60,6 +60,11 @@ const store = {
   },
 };
 
+// This PR's first version stored a "Start on Today" choice; Today is the top of Tasks now.
+try {
+  localStorage.removeItem("quire.startOnToday");
+} catch {}
+
 const prefs = {
   vim: store.get("vim", true),
   panel: store.get("panel", true),
@@ -225,6 +230,7 @@ function showStage(which: "editor" | "html" | "notes" | "tasks" | "history" | "a
     unmountTasks?.();
     unmountTasks = null;
   }
+
 }
 
 /** Put the open note away (saved, named, cursor remembered) before showing a page that isn't a note. */
@@ -1698,6 +1704,10 @@ async function route() {
   }
   const at = location.pathname.replace(/\/+$/, "") || "/";
   if (at === "/tasks") return showTasks({ push: false });
+  if (at === "/today") {
+    setUrl("/tasks", "replace"); // Today is the top of Tasks now
+    return showTasks({ push: false });
+  }
   if (at === "/assets") return showAssets({ push: false });
   if (at === "/tags") return showTags({ push: false });
   if (at === "/history") {

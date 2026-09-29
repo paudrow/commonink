@@ -215,6 +215,16 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
       return json({ path: r.path, version: r.version, line: r.line, text: r.text });
     }
+    case "GET /today":
+      return json(quire.today(q("today") || undefined));
+    case "POST /today/journal": {
+      const r = quire.dailyNote(str("today"), actor);
+      if (r.change) {
+        host.written(r.path, quire.files.read(r.path), r.version!, r.change);
+        host.tree();
+      }
+      return json({ path: r.path, created: r.created });
+    }
     case "POST /tasks/add": {
       const r = quire.addTask(str("text"), actor, { today: optStr("today"), to: optStr("to"), ignore: (raw as { ignore?: unknown }).ignore === undefined ? [] : paths("ignore") });
       host.written(r.path, quire.files.read(r.path), r.version, r.change);

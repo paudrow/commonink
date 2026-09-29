@@ -1322,6 +1322,18 @@ button.crumb:hover { background: var(--hover); color: var(--ink-strong); }
 
 /* ------------------------------------------------------------------ tasks page */
 #tasks-view { position: absolute; inset: 0; overflow: auto; outline: none; }
+/* Today: today's journal note, then sections of task rows (the top of Tasks, and ::today) */
+.td-block { margin-bottom: 18px; }
+.td-title { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; font-size: 13px; font-weight: 600; color: var(--ink-strong); }
+.td-title svg { color: var(--warn); }
+.td-section + .td-section { margin-top: 10px; }
+.td-section.is-overdue .qt-note { color: var(--bad); }
+.td-none { padding: 2px 0 4px; font-size: 13px; color: var(--faint); }
+.td-clear { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: var(--hover); font-size: 13px; color: var(--ink-2); }
+.td-journal { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; margin: 0 -6px; border-radius: 7px; font-size: 14px; color: var(--ink); text-align: left; }
+.td-journal:hover { background: var(--hover); }
+.td-journal svg { color: var(--muted); }
+.td-path { margin-left: auto; font-size: 11.5px; color: var(--faint); }
 .page { max-width: 780px; margin: 0 auto; padding: 40px 32px 80px; }
 .page-head h1 { font-size: 26px; letter-spacing: -0.02em; margin: 0 0 6px; color: var(--heading); }
 .page-sub { margin: 0 0 22px; color: var(--muted); font-size: 14px; }

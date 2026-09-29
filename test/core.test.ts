@@ -438,9 +438,9 @@ test("a quick-added task goes to today's daily note under Tasks, or to the note 
   const read = (p: string) => fs.readFileSync(path.join(dir, p), "utf8");
   const a = quire.addTask("Call mom tomorrow", "t", { today: "2026-09-28" });
   assert.deepEqual([a.path, a.line, a.text], ["Journal/2026-09-28.md", 5, "Call mom due:2026-09-29"]);
-  assert.equal(read("Journal/2026-09-28.md"), "# 2026-09-28\n\n## Tasks\n\n- [ ] Call mom due:2026-09-29\n");
+  assert.equal(read("Journal/2026-09-28.md"), "# 2026-09-28\n\n## Tasks\n\n- [ ] Call mom due:2026-09-29\n\n## Log\n");
   quire.addTask("Pay rent every month on the 1st #home", "t", { today: "2026-09-28" });
-  assert.equal(read("Journal/2026-09-28.md"), "# 2026-09-28\n\n## Tasks\n\n- [ ] Call mom due:2026-09-29\n- [ ] Pay rent due:2026-10-01 rec:1st #home\n");
+  assert.equal(read("Journal/2026-09-28.md"), "# 2026-09-28\n\n## Tasks\n\n- [ ] Call mom due:2026-09-29\n- [ ] Pay rent due:2026-10-01 rec:1st #home\n\n## Log\n");
   // A daily note without a Tasks section gets one at its end.
   fs.writeFileSync(path.join(dir, "Journal/2026-09-29.md"), "# 2026-09-29\n\n## Log\n\n- 09:00 hi\n");
   quire.sync();
@@ -455,6 +455,51 @@ test("a quick-added task goes to today's daily note under Tasks, or to the note 
   assert.throws(() => quire.addTask("tomorrow", "t", { today: "2026-09-28" }), /Say what the task is/);
   assert.throws(() => quire.addTask("x → [[Nowhere]]", "t"), /No note matches "Nowhere"/);
   assert.throws(() => quire.addTask("x", "t", { today: "someday" }), /"today" must be a date/);
+});
+
+test("today is overdue, due today and starting today, in sections, with today's journal note", () => {
+  const { quire } = openTempVault({
+    "Work.md": [
+      "# Work",
+      "",
+      "- [ ] Late report due:2026-09-20",
+      "- [ ] Later report due:2026-09-25",
+      "- [ ] Standup due:2026-09-28 rec:weekdays",
+      "- [ ] Pay rent due:2026-09-28 rec:1st",
+      "- [ ] Draft the talk start:2026-09-28 due:2026-10-09",
+      "- [ ] Overdue and started start:2026-09-28 due:2026-09-27",
+      "- [x] Done already due:2026-09-28 done:2026-09-27",
+      "- [ ] Next week due:2026-10-05",
+      "- [ ] Just a thought",
+      "",
+    ].join("\n"),
+  });
+  const t = quire.today("2026-09-28");
+  const titles = (id: string) => t.sections.find((s) => s.id === id)!.tasks.map((x) => x.summary);
+  assert.deepEqual(t.sections.map((s) => [s.id, s.title]), [["overdue", "Overdue"], ["due", "Due today"], ["starting", "Starting today"]]);
+  assert.deepEqual(titles("overdue"), ["Late report", "Later report", "Overdue and started"]);
+  assert.deepEqual(titles("due"), ["Standup due:2026-09-28 rec:weekdays", "Pay rent"]); // rec:weekdays isn't a rule, so it's words
+  assert.deepEqual(titles("starting"), ["Draft the talk"]);
+  assert.deepEqual(t.journal, { path: "Journal/2026-09-28.md", exists: false });
+  assert.throws(() => quire.today("Monday"), /"today" must be a date/);
+});
+
+test("today's journal note is made from Templates/Daily note.md, or a plain one without it", () => {
+  const { dir, quire } = openTempVault({ "Welcome.md": "# Welcome\n" });
+  const read = (p: string) => fs.readFileSync(path.join(dir, p), "utf8");
+  const plain = quire.dailyNote("2026-09-28", "t");
+  assert.deepEqual([plain.path, plain.created], ["Journal/2026-09-28.md", true]);
+  assert.equal(read("Journal/2026-09-28.md"), "# 2026-09-28\n\n## Tasks\n\n## Log\n");
+  assert.equal(quire.dailyNote("2026-09-28", "t").created, false);
+  assert.equal(quire.today("2026-09-28").journal.exists, true);
+  fs.mkdirSync(path.join(dir, "Templates"));
+  fs.writeFileSync(path.join(dir, "Templates/Daily note.md"), "# {{date}}\n\n## Plan\n\n## Tasks\n\n## Notes\n");
+  quire.sync();
+  quire.dailyNote("2026-09-29", "t");
+  assert.equal(read("Journal/2026-09-29.md"), "# 2026-09-29\n\n## Plan\n\n## Tasks\n\n## Notes\n");
+  // Quick-add into a day with no note yet uses the same template.
+  quire.addTask("Stretch", "t", { today: "2026-09-30" });
+  assert.equal(read("Journal/2026-09-30.md"), "# 2026-09-30\n\n## Plan\n\n## Tasks\n\n- [ ] Stretch\n\n## Notes\n");
 });
 
 test("quick-add can go to a note it's given, and removing a task takes it (and what's nested) back out", () => {

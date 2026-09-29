@@ -1,6 +1,6 @@
 // Plain-text renderings of core results, shared by the MCP server and the CLI.
 // Agents read markdown far more cheaply than JSON, so this is the default output.
-import { isTagFavorite, type Backlink, type Change, type Favorite, type Note, type NoteMeta, type SearchHit, type SmartFolder, type TagCount, type Task } from "./quire.ts";
+import { isTagFavorite, type Backlink, type Change, type Favorite, type Note, type NoteMeta, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView } from "./quire.ts";
 
 export function fmtSearch(q: string, hits: SearchHit[]): string {
   if (!hits.length) return `No notes match "${q}".`;
@@ -101,4 +101,11 @@ export function fmtChanges(changes: Change[]): string {
 
 export function fmtWrite(r: { path: string; version: string; change?: Change | null }, verb: string): string {
   return `${verb} ${r.path} → version ${r.version}${r.change?.summary ? ` (${r.change.summary})` : ""}`;
+}
+
+/** The Today view as text: a heading for the day, each section's tasks, and the journal note. */
+export function fmtToday(t: TodayView): string {
+  const day = new Date(`${t.date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
+  const sections = t.sections.map((s) => `${s.title} (${s.tasks.length})\n${s.tasks.length ? fmtTasks(s.tasks) : "- nothing"}`);
+  return [day, ...sections, `Journal: ${t.journal.path}${t.journal.exists ? "" : " (not written yet)"}`].join("\n\n");
 }

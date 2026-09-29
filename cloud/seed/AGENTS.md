@@ -14,6 +14,7 @@ These notes belong to people. You are a guest editor.
 - Widgets are single lines. Leave any `id=` value as it is.
   - `::tasks{folder=Projects}` (or `tag=work`, `assignee=jane`, `due<=today`) collects checkbox tasks from those notes.
   - `::query{folder=Projects tag=meeting limit=5}` is a live list of matching notes.
+  - `::today` is the day at a glance: overdue, due today, starting today, and today's journal note. `get_today` gives agents the same.
   - `::calendar{folder=Journal}` shows a month of daily notes (`Journal/YYYY-MM-DD.md`).
   - `::timer{duration=25m label="Focus"}`, `::stopwatch{label="Run"}`.
 - Diagrams: a ```mermaid code block renders as a diagram.
