@@ -1,5 +1,6 @@
 import path from "node:path";
 import { linkKey, type NoteKind } from "./paths.ts";
+import { headingName, proseLines, withoutCode } from "./prose.ts";
 
 export interface ParsedLink {
   target: string;
@@ -54,26 +55,10 @@ export function searchableText(content: string, kind: NoteKind): string {
   return kind === "html" ? stripTags(content) : content;
 }
 
-/** Lines outside fenced code blocks, with their 1-based line numbers. */
-function proseLines(md: string): Array<[number, string]> {
-  const out: Array<[number, string]> = [];
-  let fence: string | null = null;
-  md.split("\n").forEach((line, i) => {
-    const f = line.match(/^\s*(```+|~~~+)/);
-    if (f) {
-      if (!fence) fence = f[1][0];
-      else if (f[1][0] === fence) fence = null;
-      return;
-    }
-    if (!fence) out.push([i + 1, line]);
-  });
-  return out;
-}
-
 export function extractLinks(md: string): ParsedLink[] {
   const links: ParsedLink[] = [];
   for (const [line, text] of proseLines(md)) {
-    const noCode = text.replace(/`[^`]*`/g, (s) => " ".repeat(s.length));
+    const noCode = withoutCode(text);
     for (const m of noCode.matchAll(WIKILINK)) {
       links.push({ target: m[2].trim(), key: linkKey(m[2]), kind: m[1] ? "embed" : "wikilink", line });
     }
@@ -96,7 +81,7 @@ export function outlineOf(md: string): Heading[] {
   return proseLines(md)
     .map(([line, text]) => {
       const m = text.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/);
-      return m ? { level: m[1].length, text: m[2], line } : null;
+      return m ? { level: m[1].length, text: headingName(m[2]), line } : null;
     })
     .filter((h): h is Heading => h !== null);
 }

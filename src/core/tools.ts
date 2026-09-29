@@ -3,13 +3,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { QuireError } from "./paths.ts";
-import { fmtBacklinks, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtWrite } from "./format.ts";
+import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtWrite } from "./format.ts";
+import { parseQuery } from "./query.ts";
 import type { Quire } from "./quire.ts";
 import { parseAuthorFilter } from "./actor.ts";
 
 export interface ToolHost {
   quire: Quire;
-  /** Whose favorites the tools read and change. */
+  /** Whose favorites and own smart folders the tools read and change. */
   user: string;
   /** Who writes are attributed to, given the name the client connected with. */
   source(client: string | undefined): string;
@@ -18,6 +19,8 @@ export interface ToolHost {
    * route they may not use aren't offered. Unset locally, where everything is allowed.
    */
   may?(route: string): boolean;
+  /** Whether the caller may make or change shared smart folders (online: editors and owners). Default yes. */
+  canEditShared?: boolean;
 }
 
 /**
@@ -29,16 +32,32 @@ export const TOOL_ROUTES: Record<string, string> = {
   search_notes: "GET /search",
   read_note: "GET /note",
   list_notes: "GET /notes",
+  list_tags: "GET /tags",
+  list_tasks: "GET /tasks",
+  get_today: "GET /today",
   backlinks: "GET /backlinks",
   recent_changes: "GET /changes",
+  read_board: "GET /note",
+  list_smart_folders: "GET /smart-folders",
   create_note: "POST /note",
   edit_note: "PUT /note",
   append_to_note: "PUT /note",
   move_note: "POST /move",
   archive_note: "POST /archive",
   unarchive_note: "POST /unarchive",
+  add_task: "POST /tasks/add",
+  move_task: "POST /tasks/move",
+  update_task: "POST /tasks/update",
+  // A board is text in its note: changing a card changes the note.
+  add_card: "PUT /note",
+  move_card: "PUT /note",
+  edit_card: "PUT /note",
   star_note: "POST /favorites/star",
   unstar_note: "POST /favorites/unstar",
+  star_tag: "POST /favorites/star",
+  unstar_tag: "POST /favorites/unstar",
+  save_smart_folder: "POST /smart-folders",
+  delete_smart_folder: "POST /smart-folders/delete",
 };
 
 type Result = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
@@ -52,10 +71,12 @@ function run(fn: () => string): Result {
 }
 
 const readOnly = { readOnlyHint: true, openWorldHint: false } as const;
+const TAG = z.string().optional().describe("Only notes with this tag or a tag under it: work matches #work and #work/acme");
 const writes = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
 
 export function createMcpServer(host: ToolHost): McpServer {
   const { quire, user } = host;
+  const canEditShared = host.canEditShared ?? true;
   const agentsMd = quire.files.read("AGENTS.md") ?? "";
   const mcp = new McpServer(
     { name: "quire", version: "0.1.0" },
@@ -94,13 +115,31 @@ export function createMcpServer(host: ToolHost): McpServer {
         query: z.string().describe("Words to search for"),
         limit: z.number().int().min(1).max(50).optional().describe("Max results (default 10)"),
         include_archived: z.boolean().optional().describe("Also search archived notes"),
+        tag: TAG,
       },
       annotations: readOnly,
     },
-    ({ query, limit, include_archived }) =>
+    ({ query, limit, include_archived, tag }) =>
       run(() => {
         quire.sync();
-        return fmtSearch(query, quire.search(query, limit ?? 10, include_archived ? "all" : "active"));
+        return fmtSearch(query, quire.search(query, limit ?? 10, include_archived ? "all" : "active", tag));
+      }),
+  );
+
+  server.registerTool(
+    "list_tags",
+    {
+      title: "List tags",
+      description:
+        "Every tag in the vault as a tree (tags nest with /), with how many notes, tasks and assets carry each one or a tag under it. " +
+        "Use the names with the `tag` filter of search_notes and list_notes.",
+      inputSchema: {},
+      annotations: readOnly,
+    },
+    () =>
+      run(() => {
+        quire.sync();
+        return fmtTags(quire.tags());
       }),
   );
 
@@ -126,22 +165,218 @@ export function createMcpServer(host: ToolHost): McpServer {
     {
       title: "List notes",
       description:
-        "List notes in the vault or a folder, the most recently modified notes, or the user's starred notes (favorites, in their order). " +
-        "Archived notes (under Archive/) are excluded unless requested.",
+        "List notes in the vault or a folder, the notes and assets with a tag, the most recently modified notes, or the user's " +
+        "starred notes (favorites, in their order). Archived notes (under Archive/) are excluded unless requested.",
       inputSchema: {
         folder: z.string().optional(),
+        tag: TAG,
         recent: z.number().int().min(1).max(100).optional().describe("If set, list this many most recently modified notes"),
         starred: z.boolean().optional().describe("If set, list the user's favorites instead"),
+        smart_folder: z.string().optional().describe("If set, list the notes in this smart folder (name or ID) instead"),
         include_archived: z.boolean().optional(),
       },
       annotations: readOnly,
     },
-    ({ folder, recent, starred, include_archived }) =>
+    ({ folder, tag, recent, starred, smart_folder, include_archived }) =>
       run(() => {
         quire.sync();
         if (starred) return favorites();
-        return fmtList(recent ? quire.recent(recent) : quire.list(folder, include_archived ? "all" : "active"));
+        if (smart_folder) {
+          const query = parseQuery(quire.findSmartFolder(user, smart_folder).query);
+          return fmtList(quire.feed({ ...query, limit: Infinity }).items);
+        }
+        return fmtList(recent ? quire.recent(recent) : quire.list(folder, include_archived ? "all" : "active", tag));
       }),
+  );
+
+  server.registerTool(
+    "list_tasks",
+    {
+      title: "List tasks",
+      description:
+        "Checkbox tasks across the vault (not archived notes), as their markdown lines with path:line. A task's metadata is tokens in " +
+        "its text: due:YYYY-MM-DD, start:YYYY-MM-DD, rec:… (how it repeats), #tag, @person, !high or !low, and done:YYYY-MM-DD once ticked.",
+      inputSchema: {
+        status: z.enum(["open", "done", "all"]).optional().describe("Default open"),
+        folder: z.string().optional(),
+        note: z.string().optional().describe("Only this note's tasks"),
+        tag: TAG,
+        assignee: z.string().optional().describe("Only tasks with this @person"),
+        due: z.string().optional().describe("A due date filter: <=today (overdue or due today), tomorrow, >=2026-10-01…"),
+      },
+      annotations: readOnly,
+    },
+    ({ status, ...filters }) =>
+      run(() => {
+        quire.sync();
+        const want = status ?? "open";
+        return fmtTasks(quire.tasks(filters).filter((t) => want === "all" || t.done === (want === "done")));
+      }),
+  );
+
+  server.registerTool(
+    "get_today",
+    {
+      title: "Get today",
+      description:
+        "The day at a glance: open tasks overdue, due today and starting today (repeating ones show their rec:), and whether today's " +
+        "journal note (Journal/YYYY-MM-DD.md) exists. A good start for a morning brief.",
+      inputSchema: { today: z.string().optional().describe("The day to read, YYYY-MM-DD; default the machine's today") },
+      annotations: readOnly,
+    },
+    ({ today }) =>
+      run(() => {
+        quire.sync();
+        return fmtToday(quire.today(today));
+      }),
+  );
+
+  server.registerTool(
+    "add_task",
+    {
+      title: "Add task",
+      description:
+        "Add a task written the way you'd say it: dates and repeats in words become tokens (\"Pay rent every month on the 1st #home\" → " +
+        "due:… rec:1st #home; \"call mom tomorrow\", \"next fri\", \"oct 3\", \"in 2 weeks\", \"every other week\", \"last friday of the month\", " +
+        "\"every 3 days after done\"). Tokens (due:, !high, @person, #tag) pass through. It goes under ## Tasks in today's daily note " +
+        "(Journal/YYYY-MM-DD.md, created if needed), or into the note named with → [[Note]].",
+      inputSchema: { text: z.string().describe("The task, e.g. \"Review the PR next fri → [[Launch]] @sam\"") },
+      annotations: writes,
+    },
+    ({ text }) =>
+      run(() => {
+        const r = quire.addTask(text, source());
+        return `Added "- [ ] ${r.text}" to ${r.path}:${r.line}`;
+      }),
+  );
+
+  server.registerTool(
+    "move_task",
+    {
+      title: "Move task",
+      description: "Move a task (and the lines nested under it) to another note, by the path:line and text list_tasks gave. It goes at the end of that note's Tasks section, or of the note.",
+      inputSchema: {
+        path: z.string(),
+        line: z.number().int().min(1),
+        text: z.string().describe("The task's text after the checkbox, as list_tasks showed it"),
+        to: z.string().describe("The note to move it to"),
+      },
+      annotations: writes,
+    },
+    ({ path, line, text, to }) =>
+      run(() => {
+        const r = quire.moveTask(path, line, text, to, source());
+        return `Moved "${r.text}" to ${r.path}:${r.line}`;
+      }),
+  );
+
+  server.registerTool(
+    "update_task",
+    {
+      title: "Update task",
+      description:
+        "Tick, untick or change the metadata of one task, by the path:line and text list_tasks gave. Only the fields you pass change: " +
+        "a value sets that token, null (or [] for lists) removes it, and the rest of the line stays as the user wrote it. Ticking adds done: with today's date; " +
+        "ticking a repeating task (rec:) also adds its next occurrence on the line below, and unticking it straight after takes that back.",
+      inputSchema: {
+        path: z.string(),
+        line: z.number().int().min(1),
+        text: z.string().describe("The task's text after the checkbox, as list_tasks showed it (guards against the note having changed)"),
+        done: z.boolean().optional().describe("Tick (true) or untick (false)"),
+        due: z.string().nullable().optional().describe("YYYY-MM-DD or YYYY-MM-DDTHH:MM"),
+        start: z.string().nullable().optional().describe("Hide until this date"),
+        rec: z
+          .string()
+          .nullable()
+          .optional()
+          .describe(
+            "How it repeats, from the due date: daily, weekly, monthly, yearly, 3d, 2w, mon,thu, 2w-mon,thu, 6th, last-day, 1st-tue,3rd-tue, last-fri, mar-1, 1st-mon-mar, day-50; " +
+              "a gap after it's done: after-1m, after-10d; or RRULE:FREQ=…;BYDAY=…",
+          ),
+        skip: z.boolean().optional().describe("Move a repeating task to its next date without ticking it (on its own: other fields are ignored)"),
+        priority: z.enum(["high", "low"]).nullable().optional(),
+        assignees: z.array(z.string()).optional().describe("People, without @"),
+        tags: z.array(z.string()).optional().describe("Tags, without #"),
+      },
+      annotations: writes,
+    },
+    ({ path, line, text, done, skip, ...patch }) =>
+      run(() => {
+        const r = skip ? quire.skipTask(path, line, text, source()) : quire.updateTask(path, line, text, done === undefined ? patch : { ...patch, checked: done }, source());
+        return fmtWrite(r, r.change ? "Updated" : "No change to");
+      }),
+  );
+
+  const BOARD_HELP =
+    "A board is a :::kanban block in a note (closed by :::): its ## headings are columns and its list items are cards, " +
+    "with task tokens like tasks. Moving a card into the column named Done ticks it. read_board also lists lines that aren't part of the board (problems): leave them unless the user asks.";
+  const CARD = z.string().describe("The card's line number from read_board, or words from its text that only that card has");
+
+  server.registerTool(
+    "read_board",
+    {
+      title: "Read board",
+      description: `The Kanban boards in a note, column by column, each card with its line number. ${BOARD_HELP}`,
+      inputSchema: { path: z.string() },
+      annotations: readOnly,
+    },
+    ({ path }) =>
+      run(() => {
+        const { note, boards, unclosed } = quire.boards(path);
+        return fmtBoards(note.path, boards, unclosed);
+      }),
+  );
+
+  server.registerTool(
+    "add_card",
+    {
+      title: "Add card",
+      description:
+        "Add a card to a column of a Kanban board in a note. The text is the card's line (tokens like due:2026-10-01 @jane #tag, or a [[Note]] link); " +
+        "more lines nest under it as details.",
+      inputSchema: {
+        path: z.string(),
+        column: z.string().describe("The column's name, or its number from 1"),
+        text: z.string(),
+        board: z.number().int().min(1).optional().describe("Which board (from 1), when the note has several with this column"),
+        position: z.number().int().min(1).optional().describe("Where in the column (from 1); default last"),
+      },
+      annotations: writes,
+    },
+    ({ path, column, text, board, position }) => run(() => fmtWrite(quire.addCard(path, column, text, source(), { board, position }), "Added a card to")),
+  );
+
+  server.registerTool(
+    "move_card",
+    {
+      title: "Move card",
+      description: "Move a card to another column of its board, or to another place in its column. Moving it into the done column ticks it; out of it, unticks it.",
+      inputSchema: {
+        path: z.string(),
+        card: CARD,
+        to_column: z.string().describe("The column's name, or its number from 1"),
+        position: z.number().int().min(1).optional().describe("Where in the column (from 1); default last"),
+      },
+      annotations: writes,
+    },
+    ({ path, card, to_column, position }) => run(() => fmtWrite(quire.moveCard(path, card, to_column, source(), { position }), "Moved a card in")),
+  );
+
+  server.registerTool(
+    "edit_card",
+    {
+      title: "Edit card",
+      description:
+        "Change a card's text or tick it. The new text replaces the card's line after its checkbox (keep any tokens you want to keep); more lines replace the details nested under it.",
+      inputSchema: {
+        path: z.string(),
+        card: CARD,
+        text: z.string().optional(),
+        done: z.boolean().optional().describe("Tick (true) or untick (false)"),
+      },
+      annotations: writes,
+    },
+    ({ path, card, text, done }) => run(() => fmtWrite(quire.editCard(path, card, { text, done }, source()), "Edited a card in")),
   );
 
   server.registerTool(
@@ -237,6 +472,30 @@ export function createMcpServer(host: ToolHost): McpServer {
   );
 
   server.registerTool(
+    "star_tag",
+    {
+      title: "Star tag",
+      description:
+        "Add tags to the user's favorites, beside their starred notes; clicking one in the app shows every note with that tag " +
+        "(or a tag under it). A starred tag follows renames and merges. Only star tags the user asked for.",
+      inputSchema: { tags: z.array(z.string()).min(1).describe("Tags, with or without #") },
+      annotations: writes,
+    },
+    ({ tags }) => run(() => (tags.forEach((t) => quire.starTag(user, t)), favorites())),
+  );
+
+  server.registerTool(
+    "unstar_tag",
+    {
+      title: "Unstar tag",
+      description: "Take tags out of the user's favorites. The tags and their notes don't change.",
+      inputSchema: { tags: z.array(z.string()).min(1) },
+      annotations: writes,
+    },
+    ({ tags }) => run(() => (tags.forEach((t) => quire.unstarTag(user, t)), favorites())),
+  );
+
+  server.registerTool(
     "unstar_note",
     {
       title: "Unstar note",
@@ -245,6 +504,56 @@ export function createMcpServer(host: ToolHost): McpServer {
       annotations: writes,
     },
     ({ paths }) => run(() => (paths.forEach((p) => quire.unstar(user, p)), favorites())),
+  );
+
+  server.registerTool(
+    "list_smart_folders",
+    {
+      title: "List smart folders",
+      description:
+        "The user's smart folders: saved note queries in the sidebar, each with its query and how many notes match now. " +
+        "list_notes with smart_folder lists one's notes.",
+      inputSchema: {},
+      annotations: readOnly,
+    },
+    () =>
+      run(() => {
+        quire.sync();
+        return fmtSmartFolders(quire.smartFolders(user));
+      }),
+  );
+
+  server.registerTool(
+    "save_smart_folder",
+    {
+      title: "Save smart folder",
+      description:
+        "Create a smart folder (a saved note query in the sidebar), or change one by id. The query uses ::query's keys: " +
+        'q="words" folder=Projects tag=work sort=title limit=10 (all optional; a tag includes the tags under it). Only save one the user asked for.',
+      inputSchema: {
+        name: z.string(),
+        query: z.string(),
+        just_me: z.boolean().optional().describe("Keep it the user's own instead of sharing it with the workspace"),
+        id: z.string().optional().describe("Change this smart folder instead of creating one"),
+      },
+      annotations: writes,
+    },
+    ({ name, query, just_me, id }) =>
+      run(() => {
+        quire.saveSmartFolder(user, { id, name, query, shared: !just_me }, canEditShared);
+        return fmtSmartFolders(quire.smartFolders(user));
+      }),
+  );
+
+  server.registerTool(
+    "delete_smart_folder",
+    {
+      title: "Delete smart folder",
+      description: "Delete a smart folder by name or ID. The notes in it don't change.",
+      inputSchema: { smart_folder: z.string() },
+      annotations: { ...writes, destructiveHint: true },
+    },
+    ({ smart_folder }) => run(() => fmtSmartFolders(quire.deleteSmartFolder(user, smart_folder, canEditShared))),
   );
 
   server.registerTool(

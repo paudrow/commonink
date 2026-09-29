@@ -8,7 +8,9 @@ const RANK: Record<Role, number> = { viewer: 0, editor: 1, owner: 2 };
 
 /**
  * Workspace routes (after /api/w/<id>) and the least role that may use each. Reads are open to
- * viewers. So are writes to what's each person's own (their favorites).
+ * viewers. So are writes to what can be each person's own: their favorites (notes and tags), and
+ * their smart folders. The workspace checks that a viewer's smart folders stay theirs
+ * (`canEditShared` in src/core/api.ts).
  */
 export const WORKSPACE_ROUTES = {
   "GET /info": "viewer",
@@ -24,15 +26,28 @@ export const WORKSPACE_ROUTES = {
   "GET /diff": "viewer",
   "GET /tasks": "viewer",
   "GET /favorites": "viewer",
+  "GET /smart-folders": "viewer",
+  "GET /tags": "viewer",
+  "GET /asset-tags": "viewer",
+  "GET /today": "viewer",
   "GET /files/*": "viewer",
   "GET /file-resolve": "viewer",
   "GET /live": "viewer",
   "POST /favorites/star": "viewer",
   "POST /favorites/unstar": "viewer",
   "PUT /favorites": "viewer",
+  "POST /smart-folders": "viewer",
+  "POST /smart-folders/delete": "viewer",
   "PUT /note": "editor",
   "POST /note": "editor",
   "POST /tasks/set": "editor",
+  "POST /tasks/update": "editor",
+  "POST /tasks/add": "editor",
+  "POST /tasks/remove": "editor",
+  "POST /tasks/move": "editor",
+  "POST /today/journal": "editor",
+  "POST /tags/rename": "editor",
+  "PUT /asset-tags": "editor",
   "POST /move": "editor",
   "POST /restore": "editor",
   "POST /archive": "editor",

@@ -1,0 +1,136 @@
+// Tags: every tag as a tree, with how many notes, tasks and assets carry it (tags under it
+// included). Click one to see its notes. Rename rewrites the tag everywhere; renaming onto a tag
+// that exists merges the two. Either comes with Undo.
+import { api, type TagCount } from "./api.ts";
+import { el, icon } from "./dom.ts";
+import { cleanTag } from "../../src/core/tags.ts";
+
+interface Hooks {
+  tags(): TagCount[];
+  /** The tags changed: fetch them again. */
+  refresh(): Promise<void>;
+  openTag(tag: string, where?: "notes" | "tasks"): void;
+  toast(t: { text: string; icon?: string; actionLabel?: string; action?: () => void }): void;
+}
+
+export class TagsPage {
+  readonly root: HTMLElement;
+  private list = el("div", { class: "tags-list", role: "list" });
+  private input = el("input", { placeholder: "Filter tags…", spellcheck: "false", autocomplete: "off" });
+
+  constructor(
+    root: HTMLElement,
+    private hooks: Hooks,
+  ) {
+    this.root = root;
+    root.append(
+      el(
+        "div",
+        { class: "page" },
+        el(
+          "header",
+          { class: "page-head" },
+          el("h1", {}, "Tags"),
+          el("p", { class: "page-sub" }, "Every #tag across your notes, tasks and assets. Nest them with /: a tag includes every tag under it."),
+        ),
+        el("label", { class: "feed-search tags-search" }, icon("search", 16), this.input),
+        this.list,
+      ),
+    );
+    this.input.addEventListener("input", () => this.render());
+  }
+
+  get visible() {
+    return !this.root.hidden;
+  }
+
+  show() {
+    this.root.hidden = false;
+    this.render();
+    this.input.focus({ preventScroll: true });
+  }
+
+  refresh() {
+    if (this.visible && !this.list.querySelector(".tag-rename")) this.render();
+  }
+
+  private render() {
+    const q = this.input.value.trim().replace(/^#/, "").toLowerCase();
+    const all = this.hooks.tags();
+    // A filter keeps the matching tags and their parents, so each still sits in its place in the tree.
+    const shown = q ? all.filter((t) => all.some((m) => m.tag.includes(q) && (m.tag === t.tag || m.tag.startsWith(`${t.tag}/`)))) : all;
+    this.list.replaceChildren(
+      ...(shown.length
+        ? shown.map((t) => this.row(t))
+        : [el("div", { class: "feed-empty" }, all.length ? `No tags match “${q}”.` : "No tags yet. Type #tag in a note, or add tags to an asset.")]),
+    );
+  }
+
+  private row(t: TagCount): HTMLElement {
+    const depth = t.tag.split("/").length - 1;
+    const name = t.display.split("/").pop()!;
+    const uses = [
+      t.notes ? `${t.notes} note${t.notes === 1 ? "" : "s"}` : "",
+      t.tasks ? `${t.tasks} task${t.tasks === 1 ? "" : "s"}` : "",
+      t.assets ? `${t.assets} asset${t.assets === 1 ? "" : "s"}` : "",
+    ].filter(Boolean);
+    const label = el("span", { class: "tags-name" }, "#", depth ? el("span", { class: "tags-parent" }, t.display.slice(0, -name.length)) : null, name);
+    const node = el(
+      "div",
+      { class: "tags-row", role: "listitem", style: { "--depth": String(depth) } },
+      el("button", { type: "button", class: "tags-open", title: `Notes tagged #${t.display}`, onclick: () => this.hooks.openTag(t.display) }, icon("hash", 14), label),
+      el("span", { class: "tags-uses" }, uses.join(" · ")),
+      t.tasks ? el("button", { type: "button", class: "row-act", title: `Tasks tagged #${t.display}`, onclick: () => this.hooks.openTag(t.display, "tasks") }, icon("task", 14)) : null,
+      el("button", { type: "button", class: "row-act", title: "Rename or merge", onclick: () => this.startRename(node, t) }, icon("edit", 14)),
+    );
+    return node;
+  }
+
+  private startRename(node: HTMLElement, t: TagCount) {
+    const input = el("input", { class: "tag-rename", value: t.display, spellcheck: "false" });
+    node.replaceChildren(icon("hash", 14), input, el("span", { class: "tags-uses" }, "Enter to rename, Esc to cancel"));
+    input.focus();
+    input.select();
+    let done = false;
+    const finish = async (commit: boolean) => {
+      if (done) return;
+      done = true;
+      const to = cleanTag(input.value);
+      if (commit && input.value.trim() && !to) {
+        this.hooks.toast({ text: "A tag is letters, numbers, - and _, nested with /" });
+      } else if (commit && to && to !== t.display) {
+        await this.rename(t, to);
+      }
+      this.render();
+    };
+    input.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") void finish(true);
+      if (e.key === "Escape") void finish(false);
+    });
+    input.addEventListener("blur", () => void finish(false));
+  }
+
+  private async rename(t: TagCount, to: string) {
+    const into = this.hooks.tags().find((x) => x.tag === to.toLowerCase() && x.tag !== t.tag);
+    if (into && !confirm(`#${into.display} already exists. Merge #${t.display} into it? Everything tagged #${t.display} will be tagged #${into.display}.`)) return;
+    let r;
+    try {
+      r = await api.renameTag(t.tag, into?.display ?? to); // a merge keeps the way the other tag is written
+    } catch (e) {
+      return this.hooks.toast({ text: e instanceof Error ? e.message : `Couldn't rename #${t.display}` });
+    }
+    await this.hooks.refresh();
+    const n = r.changes.length + Object.keys(r.assets).length;
+    this.hooks.toast({
+      icon: "hash",
+      text: `${into ? `Merged #${t.display} into` : `Renamed #${t.display} to`} #${into?.display ?? to}${n ? ` in ${n} place${n === 1 ? "" : "s"}` : ""}`,
+      actionLabel: "Undo",
+      action: async () => {
+        for (const id of [...r.changes].reverse()) await api.restore(id).catch(() => null);
+        for (const [path, tags] of Object.entries(r.assets)) await api.setAssetTags(path, tags).catch(() => null);
+        await this.hooks.refresh();
+      },
+    });
+  }
+}

@@ -74,8 +74,15 @@ async function mcp(token: string) {
   return { client, call, tools: async () => (await client.listTools()).tools.map((t) => t.name).sort() };
 }
 
-const READ_TOOLS = ["backlinks", "list_notes", "read_note", "recent_changes", "search_notes"];
-const ALL_TOOLS = ["append_to_note", "archive_note", "backlinks", "create_note", "edit_note", "list_notes", "move_note", "read_note", "recent_changes", "search_notes", "star_note", "unarchive_note", "unstar_note"];
+/** What a viewer's agent gets: reading, and what's each person's own (favorites, their smart folders). */
+const VIEWER_TOOLS = [
+  "backlinks", "delete_smart_folder", "get_today", "list_notes", "list_smart_folders", "list_tags", "list_tasks", "read_board",
+  "read_note", "recent_changes", "save_smart_folder", "search_notes", "star_note", "star_tag", "unstar_note", "unstar_tag",
+];
+const ALL_TOOLS = [
+  ...VIEWER_TOOLS, "add_card", "add_task", "append_to_note", "archive_note", "create_note", "edit_card", "edit_note", "move_card",
+  "move_note", "move_task", "unarchive_note", "update_task",
+].sort();
 
 test("an agent discovers where to sign in from /mcp", async () => {
   const res = await cloud.server.fetch(new URL("/mcp", cloud.origin), { method: "POST" });
@@ -123,7 +130,7 @@ test("an agent acts as its person, with their role, and its writes say who", asy
   const owner = await mcp((await connect(people.owner, people.id)).access);
   const viewer = await mcp((await connect(people.viewer, people.id)).access);
   assert.deepEqual(await owner.tools(), ALL_TOOLS);
-  assert.deepEqual(await viewer.tools(), [...READ_TOOLS, "star_note", "unstar_note"].sort());
+  assert.deepEqual(await viewer.tools(), VIEWER_TOOLS);
 
   assert.deepEqual(await owner.call("create_note", { path: "From an agent", content: "# From an agent\n" }), { text: "Created From an agent.md → version ef45559ebd67 (2 lines)", isError: false });
   // Its note's URL works like any other: the ID reaches the directory once the call is done,

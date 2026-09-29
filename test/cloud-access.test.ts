@@ -21,6 +21,8 @@ let cloud: Cloud;
 let people: Awaited<ReturnType<typeof team>>;
 let welcomeId: string;
 const restoreIds = {} as Record<Who, number>;
+/** A smart folder of each person's own, for them to delete. */
+const folderIds = {} as Record<Who, string>;
 
 /**
  * Every route online, what each kind of person gets back, and a request that works for anyone
@@ -40,15 +42,29 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "GET /diff", send: () => ["GET", "/diff?from=1"], expect: READ },
   { route: "GET /tasks", send: () => ["GET", "/tasks"], expect: READ },
   { route: "GET /favorites", send: () => ["GET", "/favorites"], expect: READ },
+  { route: "GET /smart-folders", send: () => ["GET", "/smart-folders"], expect: READ },
+  { route: "GET /tags", send: () => ["GET", "/tags"], expect: READ },
+  { route: "GET /asset-tags", send: () => ["GET", "/asset-tags"], expect: READ },
+  { route: "GET /today", send: () => ["GET", "/today?today=2026-10-01"], expect: READ },
   { route: "GET /files/*", send: () => ["GET", "/files/assets/margin.svg"], expect: READ },
   { route: "GET /file-resolve", send: () => ["GET", "/file-resolve?target=margin.svg"], expect: READ },
   { route: "GET /live", send: () => ["GET", "/live", undefined, liveHeaders()], expect: READ },
   { route: "POST /favorites/star", send: () => ["POST", "/favorites/star", { path: "Welcome.md" }], expect: READ },
   { route: "POST /favorites/unstar", send: () => ["POST", "/favorites/unstar", { path: "Welcome.md" }], expect: READ },
   { route: "PUT /favorites", send: () => ["PUT", "/favorites", { paths: [] }], expect: READ },
+  // A viewer's smart folders are their own; the workspace refuses them shared ones (test/api.test.ts).
+  { route: "POST /smart-folders", send: (w) => ["POST", "/smart-folders", { name: `Mine ${w}`, query: "tag=plan" }], expect: READ },
+  { route: "POST /smart-folders/delete", send: (w) => ["POST", "/smart-folders/delete", { id: folderIds[w] ?? "nope" }], expect: READ },
   { route: "PUT /note", send: (w) => ["PUT", "/note", { path: `put-${w}.md`, content: "# Put\n" }], expect: EDIT },
   { route: "POST /note", send: (w) => ["POST", "/note", { path: `new-${w}.md`, content: "# New\n" }], expect: EDIT },
   { route: "POST /tasks/set", send: (w) => ["POST", "/tasks/set", { path: `tasks-${w}.md`, line: 1, text: "Do it", done: true }], expect: EDIT },
+  { route: "POST /tasks/update", send: (w) => ["POST", "/tasks/update", { path: `update-${w}.md`, line: 1, text: "Change me", patch: { due: "2026-10-01" } }], expect: EDIT },
+  { route: "POST /tasks/add", send: (w) => ["POST", "/tasks/add", { text: `Call ${w} tomorrow → [[Welcome]]` }], expect: EDIT },
+  { route: "POST /tasks/remove", send: (w) => ["POST", "/tasks/remove", { path: `task-rm-${w}.md`, line: 1, text: "Remove me" }], expect: EDIT },
+  { route: "POST /tasks/move", send: (w) => ["POST", "/tasks/move", { path: `task-move-${w}.md`, line: 1, text: "Move me", to: "Welcome" }], expect: EDIT },
+  { route: "POST /today/journal", send: () => ["POST", "/today/journal", { today: "2026-10-01" }], expect: EDIT },
+  { route: "POST /tags/rename", send: (w) => ["POST", "/tags/rename", { from: `old-${w}`, to: `new-${w}` }], expect: EDIT },
+  { route: "PUT /asset-tags", send: (w) => ["PUT", "/asset-tags", { path: "assets/margin.svg", tags: [`asset-${w}`] }], expect: EDIT },
   { route: "POST /move", send: (w) => ["POST", "/move", { from: `move-${w}.md`, to: `moved-${w}.md` }], expect: EDIT },
   { route: "POST /restore", send: (w) => ["POST", "/restore", { id: restoreIds[w] ?? 1 }], expect: EDIT },
   { route: "POST /archive", send: (w) => ["POST", "/archive", { paths: [`arch-${w}.md`] }], expect: EDIT },
@@ -74,6 +90,10 @@ before(async () => {
   for (const w of WHO) {
     const note = (p: string, content = "# Note\n") => cloud.call(owner, "POST", `${base}/note`, { path: p, content });
     await note(`tasks-${w}.md`, "- [ ] Do it\n");
+    await note(`update-${w}.md`, "- [ ] Change me\n");
+    await note(`task-move-${w}.md`, "- [ ] Move me\n");
+    await note(`task-rm-${w}.md`, "- [ ] Remove me\n");
+    await note(`tag-${w}.md`, `# Tagged\n\n#old-${w}\n`);
     await note(`move-${w}.md`);
     await note(`arch-${w}.md`);
     await note(`unarch-${w}.md`);
@@ -81,6 +101,9 @@ before(async () => {
     await note(`restore-${w}.md`);
     await cloud.call(owner, "PUT", `${base}/note`, { path: `restore-${w}.md`, content: "# Changed\n" });
     restoreIds[w] = (await cloud.call(owner, "GET", `${base}/changes?path=restore-${w}.md&limit=1`))[0].id;
+  }
+  for (const w of ["viewer", "editor", "owner"] as const) {
+    folderIds[w] = (await cloud.call(people[w], "POST", `${base}/smart-folders`, { name: `Doomed ${w}`, query: "tag=plan" })).id;
   }
   const notes: Array<{ path: string; id: string }> = await cloud.call(owner, "GET", `${base}/notes`);
   welcomeId = notes.find((n) => n.path === "Welcome.md")!.id;
@@ -113,6 +136,13 @@ test("each route answers each kind of person as the matrix says", async () => {
     }
   }
   assert.deepEqual(actual, expected);
+});
+
+test("online, a viewer keeps smart folders of their own but can't share one", async () => {
+  const viewer = await cloud.signIn("viewer"); // the matrix ended with signing everyone out everywhere
+  const shared = await cloud.request(viewer, "POST", `${people.base}/smart-folders`, { name: "For everyone", query: "tag=plan", shared: true });
+  const own = await cloud.request(viewer, "POST", `${people.base}/smart-folders`, { name: "Just mine", query: "tag=plan" });
+  assert.deepEqual([shared.status, own.status], [403, 200]);
 });
 
 test("a workspace checks the role again, whatever the Worker forwarded", async () => {
