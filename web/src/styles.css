@@ -1689,11 +1689,10 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 #tag-tree .tree-row.is-active > svg { color: var(--accent); }
 #tags-page-btn.is-on { color: var(--accent); }
 
-/* a tag pinned to Favorites */
-.pin-btn.is-pinned { color: var(--accent); }
-.chip.pin-chip { border-style: solid; }
-.chip.pin-chip.is-pinned { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); }
-.fav-pinned { display: inline-grid; place-items: center; color: var(--accent); }
-.tree-row:hover .fav-pinned, .tree-row:focus-within .fav-pinned { display: none; }
+/* a tag's star: in Favorites it's filled, like a note's */
+.star-btn.is-starred { color: var(--warn); }
+.fc-action.tag-star { opacity: 1; }
+.fav-mark { display: inline-grid; place-items: center; color: var(--warn); }
+.tree-row:hover .fav-mark, .tree-row:focus-within .fav-mark { display: none; }
 #favorites .tree-row.is-tag > svg { color: var(--muted); }
 #favorites .tree-row.is-tag.is-active > svg { color: var(--accent); }

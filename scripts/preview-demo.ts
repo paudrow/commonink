@@ -1,6 +1,8 @@
 // Fill a pull request Preview with things to try, through its own API, as the developer the Preview
 // signs you in as: the sample vault, a note renamed after a few edits (for History), favorites where
-// the branch has them, and a "Try this PR" note at the top of Notes that says what to look at.
+// the branch has them, each PR's demo notes (examples/preview/, see preview-sections.ts), and a
+// "Try this PR" note at the top of Notes that says what to look at: this PR's steps first, then the
+// steps of the PRs it's stacked on.
 //
 //   node --import tsx scripts/preview-demo.ts <preview-url>
 //
@@ -8,10 +10,13 @@
 // run on every deploy: it adds only what's missing, and rewrites the "Try this PR" note.
 import fs from "node:fs";
 import path from "node:path";
+import { fillDates, readSections, sectionsMarkdown, type Section } from "./preview-sections.ts";
 
 const origin = new URL(process.argv[2] ?? "").origin;
 const VAULT = path.resolve(import.meta.dirname, "../examples/vault");
 const TRY = "Try this PR.md";
+const SECTIONS = readSections(path.resolve(import.meta.dirname, "../examples/preview"));
+const TODAY = new Date().toISOString().slice(0, 10);
 
 const cookie = await signIn();
 const me = (await call("GET", "/api/me")).data as { workspaces: Array<{ id: string; kind: string }> };
@@ -20,6 +25,7 @@ const api = `/api/w/${ws.id}`;
 const has = new Set(((await call("GET", `${api}/notes`)).data as Array<{ path: string }>).map((n) => n.path));
 
 await sampleVault();
+await demoFiles(SECTIONS);
 await renamedNote();
 const favorites = await starSome();
 await tryThisPr(favorites);
@@ -86,6 +92,20 @@ async function sampleVault() {
   }
 }
 
+/** Each section's demo notes and files the workspace doesn't have yet, with their dates filled in as of today. */
+async function demoFiles(sections: Section[]) {
+  for (const { to, from } of sections.flatMap((s) => s.files)) {
+    if (has.has(to)) continue;
+    if (/\.(md|html)$/.test(to)) await must("POST", `${api}/note`, { path: to, content: fillDates(fs.readFileSync(from, "utf8"), TODAY) });
+    else {
+      const [folder, name] = [path.posix.dirname(to), path.posix.basename(to)];
+      const type = to.endsWith(".svg") ? "image/svg+xml" : "application/octet-stream";
+      const r = await call("POST", `${api}/upload?name=${encodeURIComponent(name)}&folder=${encodeURIComponent(folder)}`, undefined, { data: new Blob([fs.readFileSync(from)]), type });
+      if (r.status >= 400) throw new Error(`Upload ${to} → ${r.status} ${JSON.stringify(r.data)}`);
+    }
+  }
+}
+
 /** "Draft plan" edited twice, renamed to "Q4 plan", edited again: its History should show all of it. */
 async function renamedNote() {
   if (has.has("Projects/Q4 plan.md")) return;
@@ -124,6 +144,7 @@ async function tryThisPr(favorites: boolean) {
     "",
     "This Preview has its own notes. Change anything: nothing here is real, and the next deploy tops it back up.",
     "",
+    ...sectionsMarkdown(SECTIONS, Number(n) || null),
     "## Set up for you",
     "",
     "- The sample notes: [[Welcome]], [[Quire roadmap]], [[Outside-in agents]], the [[Overview]] dashboard, and [[Checklist]] in a nested folder (`Projects/Launch`).",
