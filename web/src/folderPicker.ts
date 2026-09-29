@@ -8,7 +8,8 @@ export function folderPicker(anchor: HTMLElement, opts: { folders: string[]; cur
   const input = el("input", { class: "fp-input", placeholder: "Move to folder…", spellcheck: "false", autocomplete: "off" });
   const list = el("div", { class: "fp-list", role: "listbox" });
   const box = el("div", { class: "folder-picker", role: "dialog", "aria-label": "Move to folder" }, el("div", { class: "fp-head" }, icon("move", 15), input), list);
-  const r = anchor.getBoundingClientRect();
+  // A button tucked into the phone's More menu has no box: open under the top bar's right end.
+  const r = anchor.getClientRects().length ? anchor.getBoundingClientRect() : { bottom: 48, right: innerWidth };
   Object.assign(box.style, { top: `${r.bottom + 6}px`, right: `${Math.max(12, innerWidth - r.right)}px` });
 
   let items: Array<{ folder: string; label: string; create?: boolean }> = [];

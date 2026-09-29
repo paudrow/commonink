@@ -1,4 +1,5 @@
 import "./styles.css";
+import "./mobile.css";
 import { EditorView } from "@codemirror/view";
 import type { EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
@@ -31,6 +32,7 @@ import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
 import { safeDecode } from "../../src/core/uri.ts";
+import { closeDrawer, setupMobileNav } from "./mobileNav.ts";
 
 // ------------------------------------------------------------------ state
 
@@ -90,7 +92,7 @@ try {
 } catch {}
 
 const prefs = {
-  vim: store.get("vim", true),
+  vim: store.get("vim", !matchMedia("(pointer: coarse)").matches), // off on a touch screen: an on-screen keyboard has no Esc
   panel: store.get("panel", true),
   htmlMode: store.get<"preview" | "source">("htmlMode", "preview"),
   /** Folders whose subfolders are showing in the sidebar (they start closed). */
@@ -402,6 +404,7 @@ function setUrl(url: string, how: "push" | "replace" = "push") {
 let unmountTasks: (() => void) | null = null;
 
 function showStage(which: "editor" | "html" | "notes" | "tasks" | "history" | "assets" | "tags") {
+  closeDrawer();
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
   $("#assets-view").hidden = which !== "assets";
@@ -2075,6 +2078,7 @@ async function boot() {
   }
 
   hydrateIcons();
+  setupMobileNav();
   togglePanel(prefs.panel);
   $("#search-btn").addEventListener("click", () => openPalette());
   // A new note goes at the top level, unless Notes is showing a folder: then it goes there.
