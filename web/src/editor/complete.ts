@@ -14,6 +14,7 @@ import { NEW_BOARD } from "../../../src/core/kanban.ts";
 import { taskPeople } from "../taskChipEditors.ts";
 import { taskTokenSource } from "./taskComplete.ts";
 import { inTaskText } from "./taskEdit.ts";
+import { slashUsed } from "./lineHint.ts";
 
 interface Option extends Completion {
   icon?: string;
@@ -314,7 +315,7 @@ function toolSource(ctx: CompletionContext): CompletionResult | null {
       icon: t.icon,
       boost: -i,
       section: q ? undefined : { name: t.section, rank: SECTION_RANK[t.section] },
-      apply: (view: EditorView, _c: Completion, from: number, to: number) => t.run(view, from, to),
+      apply: (view: EditorView, _c: Completion, from: number, to: number) => (slashUsed(), t.run(view, from, to)),
     })) as Option[],
   };
 }

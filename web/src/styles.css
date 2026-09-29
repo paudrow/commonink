@@ -941,6 +941,8 @@ body.is-resizing iframe { pointer-events: none; }
 .toast.is-alert .toast-icon { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
 
 .cm-title-placeholder { color: var(--faint); pointer-events: none; }
+.cm-line-hint { color: var(--muted); font-style: italic; pointer-events: none; user-select: none; }
+
 /* ------------------------------------------------------------------ sidebar nav: notes + archive */
 .nav-item {
   display: flex;

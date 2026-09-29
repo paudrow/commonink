@@ -9,6 +9,7 @@ import { vim } from "@replit/codemirror-vim";
 import { markdownWithFrontmatter, quireHighlight } from "./language.ts";
 import { livePreview } from "./livePreview.ts";
 import { blockKeys, blockWidgets, editorContext, stepIntoBlocks, type EditorContext } from "./blocks.ts";
+import { lineHint } from "./lineHint.ts";
 import { agentFlash } from "./agentFlash.ts";
 import { typingHelpers } from "./complete.ts";
 import { IS_MAC, sideClick } from "../panes.ts";
@@ -114,7 +115,7 @@ export function createState(opts: {
 }): EditorState {
   const lang: Extension =
     opts.kind === "md"
-      ? [markdownWithFrontmatter(), keymap.of(markdownKeymap), livePreview, linkSideButton, keymap.of([{ key: "Mod-Alt-Enter", run: openLinkToSide }]), taskLineTools, blockWidgets, stepIntoBlocks, blockKeys, linkClicks, typingHelpers()]
+      ? [markdownWithFrontmatter(), keymap.of(markdownKeymap), livePreview, linkSideButton, keymap.of([{ key: "Mod-Alt-Enter", run: openLinkToSide }]), taskLineTools, blockWidgets, stepIntoBlocks, blockKeys, lineHint, linkClicks, typingHelpers()]
       : [html(), indentUnit.of("  ")];
   return EditorState.create({
     doc: opts.doc,
