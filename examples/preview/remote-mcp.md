@@ -2,8 +2,6 @@
 pr: 62
 title: Connect an agent
 ---
-# Connect an agent
-
 Agents like Claude can now connect to a hosted workspace over MCP, sign in with OAuth, and work in your notes as you. You'll need claude.ai (or Claude Desktop) signed in to your own account.
 
 1. **Add the connector.** In claude.ai, open **Settings → Connectors → Add custom connector**. Name it "Common Ink (PR 62)" and paste `https://pr-62-commonink.draftox.workers.dev/mcp`, then **Add**.
