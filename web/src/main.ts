@@ -812,8 +812,10 @@ function onMessage(m: ServerMsg) {
     case "note": {
       const meta = notes.find((n) => n.path === m.path);
       if (meta) meta.version = m.version;
-      refreshTagsSoon(); // your own typing can add a tag too
-      if (m.origin === clientId) return;
+      if (m.origin === clientId) {
+        refreshTagsSoon(); // your own typing can add a tag too (anyone else's refreshes the notes, tags included)
+        return;
+      }
       const open = panes.some((p) => p.session?.path === m.path);
       if (open) applyRemote(m);
       for (const p of panes) if (p.session?.kind === "md" && p.session.path !== m.path && embedsPath(p, m.path)) bumpEmbeds(p.view);
