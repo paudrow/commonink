@@ -16,7 +16,6 @@ import { folderPicker } from "./folderPicker.ts";
 import { History } from "./history.ts";
 import { Assets } from "./assets.ts";
 import { renderTasksPage } from "./tasksView.ts";
-import { renderTodayPage } from "./todayView.ts";
 import { openQuickAdd } from "./quickAdd.ts";
 import { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
@@ -58,6 +57,11 @@ const store = {
   },
 };
 
+// This PR's first version stored a "Start on Today" choice; Today is the top of Tasks now.
+try {
+  localStorage.removeItem("quire.startOnToday");
+} catch {}
+
 const prefs = {
   vim: store.get("vim", true),
   panel: store.get("panel", true),
@@ -67,8 +71,6 @@ const prefs = {
   /** Tags whose nested tags are showing in the sidebar (they start closed). */
   tagsOpen: new Set<string>(store.get<string[]>("tagsOpen", [])),
   /** Sidebar sections folded away from their header. Folders start folded: the sidebar leads with tags. */
-  /** Open the app on Today instead of Notes (per browser; Notes by default). */
-  startOnToday: store.get("startOnToday", false),
   folded: { favorites: false, smart: false, folders: true, tags: false, ...store.get<Record<string, boolean>>("folded", {}) } as Record<string, boolean>,
 };
 
@@ -209,25 +211,20 @@ function setUrl(url: string, how: "push" | "replace" = "push") {
 }
 
 let unmountTasks: (() => void) | null = null;
-let unmountToday: (() => void) | null = null;
 
-function showStage(which: "editor" | "html" | "notes" | "tasks" | "today" | "history" | "assets" | "tags") {
+function showStage(which: "editor" | "html" | "notes" | "tasks" | "history" | "assets" | "tags") {
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
   $("#assets-view").hidden = which !== "assets";
   $("#notes-view").hidden = which !== "notes";
   $("#tasks-view").hidden = which !== "tasks";
-  $("#today-view").hidden = which !== "today";
   $("#history-view").hidden = which !== "history";
   $("#tags-view").hidden = which !== "tags";
   if (which !== "tasks") {
     unmountTasks?.();
     unmountTasks = null;
   }
-  if (which !== "today") {
-    unmountToday?.();
-    unmountToday = null;
-  }
+
 }
 
 /** Put the open note away (saved, named, cursor remembered) before showing a page that isn't a note. */
@@ -261,24 +258,6 @@ async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean
   $("#tasks-view").focus({ preventScroll: true });
   if (opts.push !== false) setUrl("/tasks");
   document.title = "Tasks · Common Ink";
-  renderChrome();
-  renderTree();
-  renderOutline();
-}
-
-/** Today: the day at a glance, with the quick-add bar. */
-async function showToday(opts: { push?: boolean } = {}) {
-  await leaveNote();
-  showStage("today");
-  unmountToday = renderTodayPage($("#today-view"), {
-    open: (path, line) => void openNote(path, { line }),
-    openTag: (tag) => openTag(tag, "tasks"),
-    openPerson: (assignee) => void showTasks({ assignee }),
-    startHere: { get: () => prefs.startOnToday, set: (on) => store.set("startOnToday", (prefs.startOnToday = on)) },
-  });
-  $("#today-view").focus({ preventScroll: true });
-  if (opts.push !== false) setUrl("/today");
-  document.title = "Today · Common Ink";
   renderChrome();
   renderTree();
   renderOutline();
@@ -359,7 +338,7 @@ function pickFiles(): Promise<File[]> {
 }
 
 const onPage = () =>
-  notesPage.visible ? "notes" : !$("#tasks-view").hidden ? "tasks" : !$("#today-view").hidden ? "today" : historyPage.visible ? "history" : assetsPage.visible ? "assets" : tagsPage.visible ? "tags" : null;
+  notesPage.visible ? "notes" : !$("#tasks-view").hidden ? "tasks" : historyPage.visible ? "history" : assetsPage.visible ? "assets" : tagsPage.visible ? "tags" : null;
 
 // ------------------------------------------------------------------ focus mode
 
@@ -917,7 +896,6 @@ function renderTree() {
   $("#notes-btn").classList.toggle("is-active", page === "notes" && !current && !notesPage.tagFilter);
   renderTagTree(page === "notes" && !current ? notesPage.tagFilter.toLowerCase() : "");
   $("#tasks-btn").classList.toggle("is-active", page === "tasks");
-  $("#today-btn").classList.toggle("is-active", page === "today");
   $("#history-btn").classList.toggle("is-active", page === "history" && !historyPage.noteFilter);
   $("#assets-btn").classList.toggle("is-active", page === "assets");
   $("#tags-page-btn").classList.toggle("is-on", page === "tags");
@@ -1197,7 +1175,7 @@ function renderChrome() {
     $("#html-toggle").hidden = true;
     for (const id of ["#vim-mode", "#cursor-pos", "#word-count"]) $(id).textContent = "";
     $("#vim-mode").dataset.mode = "";
-    const label = { notes: "Notes", tasks: "Tasks", today: "Today", history: "History", assets: "Assets", tags: "Tags" };
+    const label = { notes: "Notes", tasks: "Tasks", history: "History", assets: "Assets", tags: "Tags" };
     const note = page === "history" ? historyPage.noteFilter : null;
     return crumbs.replaceChildren(
       ...(page ? [el("span", { class: "crumb-file" }, label[page])] : []),
@@ -1612,10 +1590,9 @@ async function route() {
   }
   const at = location.pathname.replace(/\/+$/, "") || "/";
   if (at === "/tasks") return showTasks({ push: false });
-  if (at === "/today") return showToday({ push: false });
-  if (at === "/" && prefs.startOnToday) {
-    setUrl("/today", "replace");
-    return showToday({ push: false });
+  if (at === "/today") {
+    setUrl("/tasks", "replace"); // Today is the top of Tasks now
+    return showTasks({ push: false });
   }
   if (at === "/assets") return showAssets({ push: false });
   if (at === "/tags") return showTags({ push: false });
@@ -1684,7 +1661,6 @@ async function boot() {
   window.addEventListener("popstate", () => void route());
   $("#notes-btn").addEventListener("click", () => void showNotes({ scope: "active", folder: "", tag: "" }));
   $("#tasks-btn").addEventListener("click", () => void showTasks());
-  $("#today-btn").addEventListener("click", () => void showToday());
   $("#history-btn").addEventListener("click", () => void showHistory());
   $("#assets-btn").addEventListener("click", () => void showAssets());
   $("#tags-page-btn").addEventListener("click", () => void showTags());

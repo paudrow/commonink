@@ -1319,11 +1319,11 @@ button.crumb:hover { background: var(--hover); color: var(--ink-strong); }
 .qw.is-standalone { margin: 0; }
 
 /* ------------------------------------------------------------------ tasks page */
-#tasks-view, #today-view { position: absolute; inset: 0; overflow: auto; outline: none; }
-/* Today: sections of task rows, then the journal note */
-.td-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
-.td-start { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 12.5px; color: var(--muted); cursor: pointer; white-space: nowrap; }
-.td-start input { margin: 0; }
+#tasks-view { position: absolute; inset: 0; overflow: auto; outline: none; }
+/* Today: today's journal note, then sections of task rows (the top of Tasks, and ::today) */
+.td-block { margin-bottom: 18px; }
+.td-title { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; font-size: 13px; font-weight: 600; color: var(--ink-strong); }
+.td-title svg { color: var(--warn); }
 .td-section + .td-section { margin-top: 10px; }
 .td-section.is-overdue .qt-note { color: var(--bad); }
 .td-none { padding: 2px 0 4px; font-size: 13px; color: var(--faint); }

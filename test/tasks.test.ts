@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addDays, dueFilter, editTask, editTaskLines, parseTask, patchProblem, skipPatch, withTasksAdded } from "../src/core/tasks.ts";
+import { addDays, dueFilter, editTask, editTaskLines, parseTask, patchProblem, skipPatch, todaySection, withTasksAdded } from "../src/core/tasks.ts";
 import { recLabel } from "../src/core/recurrence.ts";
 
 const LINE = "- [ ] Send invoice to Acme due:2026-10-01 rec:monthly #work/clients @jane !high";
@@ -160,6 +160,14 @@ test("a task added to a note goes at the end of its Tasks section, or at the end
   assert.equal(add("# Launch\n\n- [ ] Old\n"), "# Launch\n\n- [ ] Old\n- [ ] New\n");
   // A heading inside fenced code isn't the section.
   assert.equal(add("# N\n\n```\n## Tasks\n```\n"), "# N\n\n```\n## Tasks\n```\n\n- [ ] New\n");
+});
+
+test("a task is in one Today section at most: overdue, then due today, then starting today", () => {
+  const at = (line: string) => todaySection(parseTask(line)!.meta, "2026-09-28");
+  assert.deepEqual(
+    ["- [ ] a due:2026-09-27", "- [ ] a due:2026-09-28T09:00", "- [ ] a start:2026-09-28", "- [ ] a start:2026-09-28 due:2026-09-20", "- [ ] a start:2026-09-28 due:2026-10-01", "- [ ] a due:2026-09-29", "- [ ] a"].map(at),
+    ["overdue", "due", "starting", "overdue", "starting", null, null],
+  );
 });
 
 test("a due filter compares dates, with today, tomorrow and yesterday relative to the day given", () => {

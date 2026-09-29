@@ -1,5 +1,6 @@
 // Shared chrome for interactive widgets: the card, its header, and the settings form that
 // writes the widget's args back into the markdown line.
+import type { Task } from "../api.ts";
 import { el, icon } from "../dom.ts";
 import { formatDuration, parseDuration, serializeDirective } from "./args.ts";
 
@@ -30,6 +31,8 @@ export interface WidgetEnv {
   openTag(tag: string): void;
   /** Show a person's tasks. */
   openPerson(name: string): void;
+  /** Tasks a list leaves out (the Tasks page: the ones its Today section already shows). */
+  skip?(task: Task): boolean;
 }
 
 export interface WidgetSpec {
