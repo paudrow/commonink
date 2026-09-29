@@ -138,6 +138,9 @@ async function tryThisPr(favorites: boolean) {
   const body = (process.env.PR_BODY ?? "").replace(/^🤖 Generated with.*$/m, "").trim();
   const sha = process.env.PR_SHA?.slice(0, 7);
   const lines = [
+    "---",
+    "tags: [start]", // leads Notes, ahead of the Welcome note (the newest start note goes first)
+    "---",
     `# Try this PR${n ? ` (#${n})` : ""}`,
     "",
     `**${title}**${process.env.PR_URL ? ` · [open the pull request](${process.env.PR_URL})` : ""}${sha ? ` · deployed from \`${sha}\`` : ""}`,

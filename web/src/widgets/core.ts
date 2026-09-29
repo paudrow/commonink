@@ -37,6 +37,8 @@ export interface WidgetEnv {
   /** Run fn with this widget's state id; if the markdown has none yet, one is written first. */
   withId(fn: (id: string) => void): void;
   focusEditor(): void;
+  /** Show the widget's markdown line in the note, with the cursor on it (none on the Tasks page). */
+  editSource?(): void;
   remeasure(): void;
   /** Open a note (path or [[name]]), optionally at a line; `side`: to the side (Cmd/Ctrl-click). */
   open(target: string, line?: number, side?: boolean): void;
@@ -54,6 +56,8 @@ export interface WidgetEnv {
   readOnly?: boolean;
   /** Tasks a list leaves out (the Tasks page: the ones its Today section already shows). */
   skip?(task: Task): boolean;
+  /** What a list shows when there are no tasks at all (the Tasks page: where tasks come from). */
+  empty?(): HTMLElement;
 }
 
 export interface WidgetSpec {
@@ -72,12 +76,17 @@ export interface WidgetSpec {
 
 export function renderWidget(spec: WidgetSpec, env: WidgetEnv): { dom: HTMLElement; destroy: () => void } {
   const gear = el("button", { class: "qw-icon", type: "button", title: "Settings" }, icon("sliders", 15));
+  const source =
+    env.editSource && !env.readOnly
+      ? el("button", { class: "qw-icon", type: "button", title: "Edit as text", "aria-label": "Edit as text", onmousedown: (e: Event) => e.preventDefault(), onclick: env.editSource }, icon("code", 15))
+      : null;
   const head = el(
     "div",
     { class: "qw-head" },
     el("span", { class: "qw-kind" }, icon(spec.icon, 13), spec.title),
     env.args.label ? el("span", { class: "qw-label" }, env.args.label) : null,
     el("span", { class: "spacer" }),
+    source,
     env.readOnly ? null : gear,
   );
   const body = el("div", { class: "qw-body" });

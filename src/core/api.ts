@@ -166,6 +166,8 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json(quire.agents());
     case "GET /diffs":
       return json(quire.diffSet(parseIdRanges(q("ids"))));
+    case "GET /diffstats":
+      return json(quire.diffStats(q("sets").split(";").slice(0, 50).map(parseIdRanges)));
     case "GET /favorites":
       return json(quire.favorites(host.user));
     case "GET /smart-folders":
