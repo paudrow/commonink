@@ -1,3 +1,9 @@
+import { localDate, type TaskMeta, type TaskPatch } from "../../src/core/tasks.ts";
+
+/** The reader's day, which task writes and due filters go by (the server may be in another time zone). */
+const today = () => localDate(Date.now());
+
+export type { TaskMeta, TaskPatch };
 export type Kind = "md" | "html" | "asset";
 export interface NoteMeta {
   id: string;
@@ -96,11 +102,16 @@ export interface TagCount {
 }
 export interface Task {
   path: string;
+  /** The note's title. */
   title: string;
   line: number;
+  /** Everything after the checkbox, tokens included. */
   text: string;
+  /** The text without the tokens at its end. */
+  summary: string;
   done: boolean;
   heading: string | null;
+  meta: TaskMeta;
 }
 
 export type ServerMsg =
@@ -173,7 +184,7 @@ export const api = {
   search: (q: string, scope: Scope = "active") => j<SearchHit[]>(`${BASE}/search?q=${enc(q)}&limit=20&scope=${scope}`),
   feed: (p: { q?: string; scope?: Scope; folder?: string; tag?: string; sort?: "modified" | "title"; offset?: number; limit?: number }) =>
     j<FeedPage>(`${BASE}/feed?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
-  tasks: (p: { folder?: string; note?: string; tag?: string }) =>
+  tasks: (p: { folder?: string; note?: string; tag?: string; assignee?: string; due?: string; today?: string }) =>
     j<Task[]>(`${BASE}/tasks?${new URLSearchParams(Object.entries(p).filter(([, v]) => v).map(([k, v]) => [k, String(v)]))}`),
   tags: () => j<TagCount[]>(`${BASE}/tags`),
   /** Each tagged asset's tags. */
@@ -181,7 +192,9 @@ export const api = {
   setAssetTags: (path: string, tags: string[]) => j<{ tags: string[] }>(`${BASE}/asset-tags`, send("PUT", { path, tags })),
   /** Rename (or merge) a tag everywhere. Restoring `changes` and setting `assets` back undoes it. */
   renameTag: (from: string, to: string) => j<{ changes: number[]; assets: Record<string, string[]> }>(`${BASE}/tags/rename`, send("POST", { from, to })),
-  setTask: (t: Task, done: boolean) => j<{ path: string; version: string }>(`${BASE}/tasks/set`, send("POST", { path: t.path, line: t.line, text: t.text, done })),
+  setTask: (t: Task, done: boolean) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/set`, send("POST", { path: t.path, line: t.line, text: t.text, done, today: today() })),
+  /** Change a task's tokens in its note; the rest of its line stays as written. */
+  updateTask: (t: Task, patch: TaskPatch) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/update`, send("POST", { path: t.path, line: t.line, text: t.text, patch, today: today() })),
   /** Your starred notes, in your order. Each change returns the new list. */
   favorites: () => j<Favorite[]>(`${BASE}/favorites`),
   star: (path: string) => j<Favorite[]>(`${BASE}/favorites/star`, send("POST", { path })),

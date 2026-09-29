@@ -8,6 +8,8 @@ import { hydrateDataEmbeds } from "./textPreview.ts";
 import { parseDirective } from "./widgets/args.ts";
 import { WIDGETS } from "./widgets/index.ts";
 import { tagChip, tagFilter } from "./tagPicker.ts";
+import { hydrateTaskChips, withTaskChips } from "./taskChips.ts";
+import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
 
 interface Hooks {
   open(path: string, line?: number): void;
@@ -18,6 +20,10 @@ interface Hooks {
   tags(): TagCount[];
   /** The star (Add to / Remove from Favorites) for the tag Notes is narrowed to. */
   starButton(tag: string): HTMLElement;
+  /** Show every task of this person's. */
+  openPerson(name: string): void;
+  /** You can only view this workspace: chips show, but don't open editors. */
+  readOnly(): boolean;
   toast(t: { text: string; icon?: string; actionLabel?: string; action?: () => void }): void;
   changed(): void;
 }
@@ -231,7 +237,7 @@ export class NotesPage {
       body = el("div", { class: "fc-hits" }, ...item.lines.map((l) => el("div", { class: "fc-hit", html: highlight(l.text, q), onclick: (e: Event) => (e.stopPropagation(), this.hooks.open(item.path, l.line)) })));
     } else if (item.kind === "html") body = el("div", { class: "fc-body is-muted" }, "HTML note · click to preview");
     else {
-      body = el("div", { class: "fc-body", html: renderMarkdown(forPreview(item.excerpt), item.path) });
+      body = this.markdown(forPreview(item.excerpt), item, "fc-body");
       body.querySelectorAll("input").forEach((b) => (b.disabled = true));
     }
     const node = el(
@@ -276,6 +282,14 @@ export class NotesPage {
     );
     node.addEventListener("click", (e) => {
       const t = e.target as HTMLElement;
+      const chip = t.closest<HTMLElement>(".tk[data-field]");
+      if (chip) {
+        // A task's chip: a tag narrows Notes to it; the rest open the same editor they do in Tasks.
+        e.stopPropagation();
+        if (chip.dataset.field === "tags") this.setTag(chip.dataset.value!);
+        else void this.editChip(item, chip);
+        return;
+      }
       const a = t.closest("a");
       if (a) {
         e.preventDefault();
@@ -310,13 +324,43 @@ export class NotesPage {
       return el("div", { class: "fc-full is-html" }, frame);
     }
     const body = cached.content.replace(/^(---\r?\n[\s\S]*?\r?\n---\r?\n?)?\s*#\s+(.+)\n/, (m, fm = "", h: string) => (h.trim() === item.title ? fm : m));
-    const node = el("div", { class: "fc-body fc-full", html: renderMarkdown(forPreview(body), item.path) });
+    const node = this.markdown(forPreview(body), item, "fc-body fc-full");
     hydrateDataEmbeds(node, item.path);
     node.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((box, n) => {
       box.disabled = item.archived;
       box.addEventListener("change", () => void this.setTask(item.path, n, box));
     });
     return node;
+  }
+
+  /** A card's markdown, with each task's tokens drawn as chips after its words, as in Tasks. */
+  private markdown(md: string, item: FeedItem, cls: string): HTMLElement {
+    const { md: marked, tasks } = withTaskChips(md);
+    const node = el("div", { class: `${cls}${this.hooks.readOnly() || item.archived ? " is-readonly" : ""}`, html: renderMarkdown(marked, item.path) });
+    hydrateTaskChips(node, tasks);
+    node.querySelectorAll<HTMLElement>(".tk-run").forEach((run) => (run.dataset.text = tasks[+run.dataset.task!].text));
+    return node;
+  }
+
+  /** Open a chip's editor on its task in the note (found by its text, the nth with that text if there are several). */
+  private async editChip(item: FeedItem, chip: HTMLElement) {
+    if (this.hooks.readOnly() || item.archived || chip.dataset.field === "done") return;
+    const run = chip.closest<HTMLElement>(".tk-run")!;
+    const text = run.dataset.text!;
+    const same = [...(run.closest(".fc-body")?.querySelectorAll<HTMLElement>(".tk-run") ?? [])].filter((r) => r.dataset.text === text);
+    const tasks = await api.tasks({ note: item.path }).catch(() => []);
+    const task = tasks.filter((t) => t.text === text)[same.indexOf(run)];
+    if (!task) return this.hooks.toast({ text: "That task changed. Open the note to edit it." });
+    openChipEditor(chip, {
+      task,
+      save: async (patch) => {
+        await api.updateTask(task, patch);
+        this.full.delete(item.path); // an open card shows the note as it is now
+        this.refreshSoon();
+      },
+      people: taskPeople,
+      showPerson: (name) => this.hooks.openPerson(name),
+    });
   }
 
   /** Tick the nth task of a note from its expanded card. */

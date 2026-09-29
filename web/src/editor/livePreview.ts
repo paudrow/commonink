@@ -3,6 +3,10 @@ import { syntaxTree } from "@codemirror/language";
 import type { EditorState, Range, Text } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { scanTags, type TagSpan } from "../../../src/core/tags.ts";
+import { editTask, lineTokens, TASK_LINE } from "../../../src/core/tasks.ts";
+import { today, tokenChip } from "../taskChips.ts";
+import { openChipEditor } from "../taskChipEditors.ts";
+import { lineTaskContext } from "./taskTools.ts";
 
 const hide = Decoration.replace({});
 const CODE = new Set(["InlineCode", "FencedCode", "CodeBlock", "CodeText"]);
@@ -59,13 +63,53 @@ class CheckboxWidget extends WidgetType {
     box.setAttribute("aria-checked", String(this.checked));
     box.addEventListener("mousedown", (e) => {
       e.preventDefault();
-      view.dispatch({ changes: { from: this.pos + 1, to: this.pos + 2, insert: this.checked ? " " : "x" } });
+      const line = view.state.doc.lineAt(this.pos);
+      const next = editTask(line.text, { checked: !this.checked, done: this.checked ? null : today() }); // ticking stamps done:
+      if (next !== line.text) view.dispatch({ changes: { from: line.from, to: line.to, insert: next } });
+      else view.dispatch({ changes: { from: this.pos + 1, to: this.pos + 2, insert: this.checked ? " " : "x" } });
     });
     return box;
   }
   ignoreEvent() {
     return true;
   }
+}
+
+/**
+ * A task token (due date, repeat, person, priority) drawn as a chip. Clicking it opens the same
+ * editor as in task lists; the edit is a transaction on this line, so undo takes it back. The
+ * chip keeps the mousedown, so the cursor doesn't move onto the line (which would turn the chip
+ * back into text) and the editor keeps its selection. Clicking the task's text shows the raw tokens.
+ */
+class TokenWidget extends WidgetType {
+  constructor(
+    readonly field: Parameters<typeof tokenChip>[0],
+    readonly value: string,
+    readonly done: boolean,
+  ) {
+    super();
+  }
+  eq(o: TokenWidget) {
+    return o.field === this.field && o.value === this.value && o.done === this.done;
+  }
+  toDOM(view: EditorView) {
+    const chip = tokenChip(this.field, this.value, { done: this.done });
+    chip.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (!view.state.readOnly) openLineChip(view, chip);
+    });
+    return chip;
+  }
+  ignoreEvent() {
+    return true;
+  }
+}
+
+function openLineChip(view: EditorView, chip: HTMLElement) {
+  const ctx = lineTaskContext(view, view.state.doc.lineAt(view.posAtDOM(chip)).number);
+  if (ctx) openChipEditor(chip, ctx);
 }
 
 class PlaceholderWidget extends WidgetType {
@@ -130,6 +174,16 @@ function build(view: EditorView): DecorationSet {
     const raw = touches(state, from, to);
     out.push(Decoration.mark({ class: `cm-tag${raw ? " is-raw" : ""}`, attributes: { "data-tag": t.display } }).range(raw ? from : from + 1, to));
     if (!raw) out.push(hide.range(from, from + 1));
+  }
+
+  // A task's tokens render as chips while the cursor is off its line.
+  for (let n = first; n <= last; n++) {
+    const line = doc.line(n);
+    const task = line.text.match(TASK_LINE);
+    if (!task || lineTouched(state, line.from) || inCode(line.from)) continue;
+    for (const t of lineTokens(line.text)) {
+      out.push(Decoration.replace({ widget: new TokenWidget(t.field, t.value, task[2] !== " ") }).range(line.from + t.from, line.from + t.to));
+    }
   }
 
   for (const { from, to } of view.visibleRanges) {

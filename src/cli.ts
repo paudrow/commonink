@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import { LOCAL_USER, openVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
-import { fmtBacklinks, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtTags, fmtWrite } from "./core/format.ts";
+import { fmtBacklinks, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtTags, fmtTasks, fmtWrite } from "./core/format.ts";
 
 const HELP = `quire — markdown notes for you and your agents
 
@@ -14,6 +14,10 @@ Usage: quire <command> [args] [--as <agent>] [--json]
   ls [folder] [--tag T] [--recent N] [--archived|--all]
   tags                             every tag, nested, with what carries it
                                    (--tag work also matches #work/acme)
+  tasks [--tag T] [--assignee P] [--due '<=today'] [--done|--all]
+                                   open tasks (tokens: due: start: rec: #tag @person !high)
+  task <note> <line> [--done|--undone] [--due D] [--priority high|low] …
+                                   tick a task or change its tokens; "none" clears one
   archive <note…>                  move notes to Archive/ (links keep working)
   unarchive <note…>                move archived notes back
   create <path> [content | -]      '-' or no content reads stdin
@@ -40,7 +44,7 @@ for (let i = 0; i < argv.length; i++) {
   if (a.startsWith("--")) {
     const key = a.slice(2);
     const next = argv[i + 1];
-    if (["all", "json", "help", "archived"].includes(key) || next === undefined) flags[key] = true;
+    if (["all", "json", "help", "archived", "done", "undone"].includes(key) || next === undefined) flags[key] = true;
     else flags[key] = argv[++i];
   } else pos.push(a);
 }
@@ -75,6 +79,26 @@ if (cmd === "mcp") {
         const query = args.join(" ");
         const hits = q.search(query, num("limit") ?? 10, scope, str("tag"));
         out(fmtSearch(query, hits), hits);
+        break;
+      }
+      case "tasks": {
+        const tasks = q.tasks({ tag: str("tag"), assignee: str("assignee"), due: str("due") }).filter((t) => flags.all || t.done === !!flags.done);
+        out(fmtTasks(tasks), tasks);
+        break;
+      }
+      case "task": {
+        const note = need(0, "note");
+        const line = Number(need(1, "line"));
+        const task = q.tasks({ note }).find((t) => t.line === line);
+        if (!task) throw new QuireError(`There's no task on line ${args[1]} of ${note}`);
+        const one = (k: string) => (str(k) === undefined ? undefined : str(k) === "none" ? null : str(k));
+        const list = (k: string) => (str(k) === undefined ? undefined : str(k) === "none" ? [] : str(k)!.split(",").map((s) => s.trim().replace(/^[@#]/, "")));
+        const checked = flags.done ? true : flags.undone ? false : undefined;
+        const patch = Object.fromEntries(
+          Object.entries({ checked, due: one("due"), start: one("start"), rec: one("rec"), priority: one("priority"), assignees: list("assignee"), tags: list("tag") }).filter(([, v]) => v !== undefined),
+        );
+        const r = q.updateTask(note, line, task.text, patch, source);
+        out(fmtWrite(r, r.change ? "Updated" : "No change to"), r);
         break;
       }
       case "tags": {

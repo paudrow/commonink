@@ -32,7 +32,7 @@ Needs Node 22.13+ (uses the built-in `node:sqlite`). The vault defaults to `./va
 | Claude Desktop, Cursor, … | stdio server: command `/path/to/quire/bin/quire`, args `["mcp"]` |
 | Shell agents / scripts | `bin/quire --help`, and pass `--as <name>` so writes are attributed |
 
-Tools: `search_notes`, `read_note`, `list_notes`, `list_tags`, `create_note`, `edit_note`, `append_to_note`, `move_note`, `archive_note`, `unarchive_note`, `star_note`, `unstar_note`, `star_tag`, `unstar_tag`, `backlinks`, `recent_changes`. The server sends `vault/AGENTS.md` as its instructions, so edit that file to change agent conventions.
+Tools: `search_notes`, `read_note`, `list_notes`, `list_tags`, `list_tasks`, `update_task`, `create_note`, `edit_note`, `append_to_note`, `move_note`, `archive_note`, `unarchive_note`, `star_note`, `unstar_note`, `star_tag`, `unstar_tag`, `backlinks`, `recent_changes`. The server sends `vault/AGENTS.md` as its instructions, so edit that file to change agent conventions.
 
 ## How edits from agents and you stay safe together
 
@@ -45,12 +45,13 @@ Tools: `search_notes`, `read_note`, `list_notes`, `list_tags`, `create_note`, `e
 CodeMirror 6 with vim mode (`@replit/codemirror-vim`), plus:
 
 - **Live preview.** Markup hides when your cursor leaves it. Checkboxes can be clicked, `#tags` show as chips (click one to see its notes), and tables and frontmatter render as cards.
+- **Task details** are tokens at the end of a task's line, in the spirit of todo.txt: `- [ ] Send invoice due:2026-10-01 rec:monthly #work/clients @jane !high`. Also `start:` (hidden until then; `scheduled:` works too) and `done:`, which ticking adds and unticking takes off. Off the cursor's line they show as chips (a date pill that turns red when overdue, a repeat mark, a person, a priority flag). Chips look and work the same in the Tasks view, `::tasks`, Notes cards and the editor: each opens its own editor (priority, a due date with quick picks, "every N weeks", a person) and rewrites only its token, and chips always show in one order (priority, due, repeat, person, tags). Every task also has a ⚙ menu listing all its fields, set or not; a new one goes in at its place among the tokens. In task lists, click a task's words to edit them in place (Enter or leaving saves, Escape cancels; only the words change), and the ↗ button or ⌘/Ctrl-click opens the note at that line. In the editor, the ⚙ sits at the end of the cursor's task line (with a faint "due · repeat · @ · # · !" hint while it has no tokens), and typing `due:`, `start:`, `rec:`, `!` or `@` on a task line offers values. Tasks group by note, due date, priority, tag or person. One parser (`src/core/tasks.ts`) serves the editor, the server, MCP (`list_tasks`, `update_task`) and the CLI (`quire tasks`, `quire task`).
 - **Embeds.** `![[Note]]`, `![[Note#Heading]]`, `![[image.svg]]`, `![[page.html]]`, and YouTube links.
 - **HTML notes** render in a sandboxed iframe with an opaque origin, both full-page and embedded (`⌘E` toggles source).
 - **Search.** `⌘K` does fuzzy name matching plus FTS5 full-text search. `gd` follows the link under the cursor, `:w` saves, `:e name` opens a note.
 - **Typing helpers.** `/` opens tools (embeds, widgets, blocks, dates), `@` links a note (people plug into the same menu later), and `[[` completes note names.
 - **Widgets** are one markdown line (generic-directive syntax), so agents can write them too. The sliders button edits the args in place. See `Dashboards/Overview.md` for all of them together.
-  - `::tasks{folder=… note=… tag=…}` rolls up checkboxes from across the vault, grouped by note with a progress bar. Ticking one edits the note it lives in, and the list updates as notes change.
+  - `::tasks{folder=… note=… tag=… assignee=… due<=today}` rolls up checkboxes from across the vault, grouped by note (or by due date, priority, tag or person) with a progress bar. Ticking one edits the note it lives in, and the list updates as notes change.
   - `::query{q=… folder=… tag=… limit=…}` is a live list of matching notes, good for dashboards.
   - `::calendar{folder=Journal}` shows a month of daily notes, shaded by how much you wrote, with your streak. Click a day to open it, or to start it.
   - `::timer{duration=25m label="Focus"}` and `::stopwatch{label="Run"}` keep their running state (time left, laps) in the browser, keyed by `id`, so they don't churn the file. Timers chime and notify even when their note isn't open.

@@ -129,6 +129,38 @@ test("tags are listed, asset tags set, and a rename reports what undoes it", asy
   assert.equal((await call("PUT", "/asset-tags", { path: "chart.svg", tags: "x" })).status, 400);
 });
 
+test("tasks filter by due date against the reader's today, and a task's tokens change in place", async () => {
+  const { call, events } = setup();
+  await call("POST", "/tasks/update", { path: "Roadmap", line: 8, text: "Ship the importer", patch: { due: "2026-10-01", assignees: ["jane"] } });
+  assert.deepEqual(events, ["written Projects/Roadmap.md by tester"]);
+  const due = async (q: string) => (await call("GET", `/tasks?${q}`)).body.map((t: { summary: string }) => t.summary);
+  assert.deepEqual(await due("due=%3C%3Dtoday&today=2026-10-01"), ["Ship the importer"]);
+  assert.deepEqual(await due("due=%3C%3Dtoday&today=2026-09-30&assignee=jane"), []);
+  assert.deepEqual(await due("assignee=jane"), ["Ship the importer"]);
+  assert.equal((await call("GET", "/note?path=Roadmap")).body.content.split("\n")[7], "- [ ] Ship the importer due:2026-10-01 @jane");
+  const bad: Array<[unknown, RegExp]> = [
+    [{ due: 5 }, /"patch\.due" isn't a task field or has the wrong type/],
+    [{ owner: "x" }, /"patch\.owner" isn't a task field/],
+    ["x", /"patch" must be an object/],
+    [{ priority: "urgent" }, /"priority" must be high or low/],
+  ];
+  for (const [patch, message] of bad) {
+    const r = await call("POST", "/tasks/update", { path: "Roadmap", line: 8, text: "Ship the importer due:2026-10-01 @jane", patch });
+    assert.equal(r.status, 400, JSON.stringify(patch));
+    assert.match(r.body.error, message);
+  }
+  await call("POST", "/tasks/update", { path: "Roadmap", line: 8, text: "Ship the importer due:2026-10-01 @jane", patch: { summary: "Ship the exporter" } });
+  assert.equal((await call("GET", "/note?path=Roadmap")).body.content.split("\n")[7], "- [ ] Ship the exporter due:2026-10-01 @jane");
+  assert.equal((await call("POST", "/tasks/update", { path: "Roadmap", line: 8, text: "Ship the exporter due:2026-10-01 @jane", patch: { summary: 3 } })).status, 400);
+  await call("POST", "/tasks/update", { path: "Roadmap", line: 8, text: "Ship the exporter due:2026-10-01 @jane", patch: { summary: "Ship the importer" } });
+  assert.equal((await call("GET", "/tasks?due=soon")).status, 400);
+  assert.equal((await call("GET", "/tasks?due=today&today=garbage")).status, 400);
+  await call("POST", "/tasks/set", { path: "Roadmap", line: 8, text: "Ship the importer due:2026-10-01 @jane", done: true, today: "2026-10-02" });
+  assert.equal((await call("GET", "/note?path=Roadmap")).body.content.split("\n")[7], "- [x] Ship the importer due:2026-10-01 @jane done:2026-10-02");
+  const late = await call("POST", "/tasks/set", { path: "Roadmap", line: 8, text: "Ship the importer due:2026-10-01 @jane done:2026-10-02", done: false, today: "someday" });
+  assert.deepEqual([late.status, late.body.error], [400, `"today" must be a date like 2026-10-01, not "someday"`]);
+});
+
 test("a tag is starred and unstarred through the favorites routes a viewer can use", async () => {
   const { call } = setup();
   const starred = await call("POST", "/favorites/star", { tag: "plan" });

@@ -2,6 +2,7 @@
 // local Node server and in a Cloudflare workspace Durable Object.
 import { cleanPath, QuireError } from "./paths.ts";
 import type { ArchiveScope, Change, Quire } from "./quire.ts";
+import type { TaskPatch } from "./tasks.ts";
 
 export interface ApiHost {
   quire: Quire;
@@ -43,6 +44,23 @@ function parseIdRanges(s: string): number[] {
 
 const SCOPES: ArchiveScope[] = ["active", "archived", "all"];
 
+/** A task patch from a request body: each field a string, null, or (for lists) strings. Values are the core's to check. */
+function taskPatch(v: unknown): TaskPatch {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) throw new QuireError(`"patch" must be an object`);
+  const out: Record<string, unknown> = {};
+  for (const [k, x] of Object.entries(v)) {
+    const ok =
+      k === "checked" ? typeof x === "boolean"
+      : k === "summary" ? typeof x === "string"
+      : k === "assignees" || k === "tags" ? Array.isArray(x) && x.every((s) => typeof s === "string")
+      : ["due", "start", "done", "rec", "priority"].includes(k) ? x === null || typeof x === "string"
+      : false;
+    if (!ok) throw new QuireError(`"patch.${k}" isn't a task field or has the wrong type`);
+    out[k] = x;
+  }
+  return out as TaskPatch;
+}
+
 /** Typed reads of a request's JSON body and query string. Anything malformed is a 400 naming the field. */
 function inputs(body: unknown, url: URL) {
   if (typeof body !== "object" || body === null || Array.isArray(body)) throw new QuireError("Expected a JSON object");
@@ -62,6 +80,7 @@ function inputs(body: unknown, url: URL) {
     optStr: (k: string) => (b[k] === undefined || b[k] === null ? undefined : str(k)),
     text: (k: string) => (b[k] === undefined || b[k] === null ? "" : str(k)),
     flag: (k: string) => !!b[k],
+    patch: () => taskPatch(b.patch),
     paths: (k: string): string[] => {
       const v = b[k];
       if (!Array.isArray(v) || !v.every((p) => typeof p === "string")) throw new QuireError(`"${k}" must be a list of strings`);
@@ -97,7 +116,7 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
   const raw = req.method === "GET" || req.method === "HEAD" ? {} : await req.json().catch(() => {
     throw new QuireError("Invalid JSON");
   });
-  const { str, int, optStr, text, flag, paths, q, qInt, qCount, qScope } = inputs(raw, url);
+  const { str, int, optStr, text, flag, paths, patch, q, qInt, qCount, qScope } = inputs(raw, url);
 
   const moveAll = (paths: string[], fn: (p: string) => ReturnType<Quire["move"]>) => {
     const moved = paths.map((p) => {
@@ -145,7 +164,16 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     case "GET /favorites":
       return json(quire.favorites(host.user));
     case "GET /tasks":
-      return json(quire.tasks({ folder: q("folder") || undefined, note: q("note") || undefined, tag: q("tag") || undefined }));
+      return json(
+        quire.tasks({
+          folder: q("folder") || undefined,
+          note: q("note") || undefined,
+          tag: q("tag") || undefined,
+          assignee: q("assignee") || undefined,
+          due: q("due") || undefined,
+          today: q("today") || undefined, // the browser's day, so "today" means the reader's today
+        }),
+      );
     case "GET /tags":
       return json(quire.tags());
     case "GET /asset-tags":
@@ -174,9 +202,14 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json({ path: r.path, version: r.version });
     }
     case "POST /tasks/set": {
-      const r = quire.setTask(str("path"), int("line"), str("text"), flag("done"), actor);
+      const r = quire.setTask(str("path"), int("line"), str("text"), flag("done"), actor, optStr("today")); // done: gets the person's day
       if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
-      return json({ path: r.path, version: r.version });
+      return json({ path: r.path, version: r.version, line: r.line, text: r.text });
+    }
+    case "POST /tasks/update": {
+      const r = quire.updateTask(str("path"), int("line"), str("text"), patch(), actor, optStr("today"));
+      if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
+      return json({ path: r.path, version: r.version, line: r.line, text: r.text });
     }
     case "POST /move": {
       const r = quire.move(str("from"), str("to"), actor);

@@ -67,6 +67,16 @@ test("tags lists the tag tree, and ls and search take --tag", () => {
   assert.equal(quire(vault, ["search", "importer", "--tag", "nope"]).stdout, 'No notes match "importer".\n');
 });
 
+test("tasks lists open tasks, and task changes one's tokens or ticks it", () => {
+  const vault = tempVault();
+  assert.equal(quire(vault, ["tasks"]).stdout, "- [ ] Ship the importer — Projects/Roadmap.md:8\n");
+  assert.match(quire(vault, ["task", "Roadmap", "8", "--due", "2026-10-01", "--assignee", "@jane,sam"]).stdout, /^Updated Projects\/Roadmap\.md/);
+  assert.equal(quire(vault, ["tasks", "--assignee", "sam"]).stdout, "- [ ] Ship the importer due:2026-10-01 @jane @sam — Projects/Roadmap.md:8\n");
+  quire(vault, ["task", "Roadmap", "8", "--due", "none", "--assignee", "none", "--done"]);
+  assert.match(fs.readFileSync(path.join(vault, "Projects/Roadmap.md"), "utf8"), /\n- \[x\] Ship the importer done:\d{4}-\d{2}-\d{2}\n/);
+  assert.equal(quire(vault, ["task", "Roadmap", "3"]).stderr, "There's no task on line 3 of Roadmap\n");
+});
+
 test("star and unstar take #tags as well as notes", () => {
   const vault = tempVault();
   assert.equal(quire(vault, ["star", "Welcome", "#plan"]).stdout, "Favorites:\n- Welcome.md — Welcome\n- #plan (1 note)\n");

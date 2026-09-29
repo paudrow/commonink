@@ -84,6 +84,8 @@ const notesPage = new NotesPage({
   folderChanged: () => renderTree(),
   tags: () => tags,
   starButton: (tag) => tagStarButton(tag, "chip"),
+  openPerson: (assignee) => void showTasks({ assignee }),
+  readOnly: () => viewer,
   toast: (t) => toast(t),
   changed: () => {
     api.clearResolveCache();
@@ -155,7 +157,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
         doc: note.content,
         kind: note.kind === "html" ? "html" : "md",
         vim: prefs.vim,
-        context: { path: note.path, openTarget, createNote, notes: () => notes, upload: (files) => uploadFiles(files), tags: () => tags, openTag },
+        context: { path: note.path, openTarget, createNote, notes: () => notes, upload: (files) => uploadFiles(files), tags: () => tags, openTag, openPerson: (assignee) => void showTasks({ assignee }) },
         onUpdate: (docChanged, fromRemote, state) => onUpdate(next, docChanged, fromRemote, state),
       }),
     );
@@ -242,10 +244,10 @@ async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: strin
   renderOutline();
 }
 
-async function showTasks(opts: { tag?: string; push?: boolean } = {}) {
+async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("tasks");
-  unmountTasks = renderTasksPage($("#tasks-view"), { open: (path, line) => void openNote(path, { line }), tags: () => tags }, opts.tag);
+  unmountTasks = renderTasksPage($("#tasks-view"), { open: (path, line) => void openNote(path, { line }), tags: () => tags }, { tag: opts.tag, assignee: opts.assignee });
   $("#tasks-view").focus({ preventScroll: true });
   if (opts.push !== false) setUrl("/tasks");
   document.title = "Tasks · Common Ink";
@@ -1551,6 +1553,8 @@ function debounce<A extends unknown[]>(fn: (...a: A) => unknown, ms: number) {
 }
 
 let workspaceId = "";
+/** You can view this workspace but not edit it. */
+let viewer = false;
 
 /**
  * Show whatever the address bar points at: /notes/<title>-<id>, /tasks, /history, /assets, or the
@@ -1606,6 +1610,7 @@ async function boot() {
   if (who?.me) {
     const ws = pickWorkspace(who.me);
     workspaceId = ws.id;
+    viewer = ws.role === "viewer";
     useWorkspace(`/api/w/${ws.id}`, `/api/w/${ws.id}/live`);
     setSelfName(who.me.user.name);
     renderAccount(who.me, ws, (t) => toast(t));

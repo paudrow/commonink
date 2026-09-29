@@ -14,19 +14,28 @@ export function parseDirective(line: string): Directive | null {
   return m ? { name: m[1].toLowerCase(), args: parseAttrs(m[2] ?? "") } : null;
 }
 
+/** `key=value` pairs; a key can also compare (`due<=today`), and then the operator starts its value ("<=today"). */
 export function parseAttrs(src: string): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const m of src.matchAll(/([\w-]+)(?:=(?:"([^"]*)"|'([^']*)'|([^\s"']+)))?/g)) {
-    out[m[1]] = m[2] ?? m[3] ?? m[4] ?? "true";
+  for (const m of src.matchAll(/([\w-]+)(?:(<=|>=|<|>|=)(?:"([^"]*)"|'([^']*)'|([^\s"']+)))?/g)) {
+    const value = m[3] ?? m[4] ?? m[5];
+    out[m[1]] = value === undefined ? "true" : m[2] === "=" ? value : `${m[2]}${value}`;
   }
   return out;
 }
+
+/** Args that compare (`due<=today`), and so are written with their operator. Any other value is just a value. */
+const COMPARES = new Set(["due"]);
 
 export function serializeDirective({ name, args }: Directive): string {
   const keys = [...Object.keys(args).filter((k) => k !== "id"), ...("id" in args ? ["id"] : [])];
   const parts = keys
     .filter((k) => args[k] !== undefined && args[k] !== "")
-    .map((k) => (/^[\w.:/+-]+$/.test(args[k]) ? `${k}=${args[k]}` : `${k}="${args[k].replace(/"/g, "'")}"`));
+    .map((k) => {
+      const op = COMPARES.has(k) ? args[k].match(/^(<=|>=|<|>)\s*/) : null;
+      const value = op ? args[k].slice(op[0].length) : args[k];
+      return `${k}${op ? op[1] : "="}${/^[\w.:/+-]+$/.test(value) ? value : `"${value.replace(/"/g, "'")}"`}`;
+    });
   return parts.length ? `::${name}{${parts.join(" ")}}` : `::${name}`;
 }
 
