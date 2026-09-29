@@ -159,6 +159,9 @@ export const ASSET_TAGS = "assets/.tags.json";
 export const versionOf = (content: string) =>
   crypto.createHash("sha256").update(content).digest("hex").slice(0, 12);
 
+/** What reindexing a path needs to know about its row, if it has one. */
+type IndexedRow = { id: string; kind: NoteKind; fts: number | null };
+
 const CHANGE_COLS = "id, ts, path, op, source, version, summary, from_path, note_id";
 const META_COLS = "id, path, kind, title, version, mtime, size";
 /** How long a deleted file's ID waits for the same file to reappear under a new name. */
@@ -269,17 +272,18 @@ export class Quire {
       title = titleOf(content, kind, rel);
       body = searchableText(content, kind);
     }
-    const noteId: string = this.db.get("SELECT id FROM notes WHERE path = ?", rel)?.id ?? id ?? this.renamedId(rel, kind, version, st.size) ?? newNoteId();
+    const known = this.db.get<IndexedRow>("SELECT id, kind, fts FROM notes WHERE path = ?", rel);
+    const noteId: string = known?.id ?? id ?? this.renamedId(rel, kind, version, st.size) ?? newNoteId();
     return this.db.tx(() => {
+      this.dropText(rel, known);
+      const fts = kind === "asset" ? null : this.db.run("INSERT INTO notes_fts(path, title, body) VALUES (?,?,?)", rel, title, body).lastId;
       this.db.run(
-        `INSERT INTO notes(path, kind, title, stem, version, mtime, size, id) VALUES (?,?,?,?,?,?,?,?)
+        `INSERT INTO notes(path, kind, title, stem, version, mtime, size, id, fts) VALUES (?,?,?,?,?,?,?,?,?)
          ON CONFLICT(path) DO UPDATE SET kind=excluded.kind, title=excluded.title, stem=excluded.stem,
-           version=excluded.version, mtime=excluded.mtime, size=excluded.size`,
-        rel, kind, title, stemOf(rel), version, st.mtime, st.size, noteId,
+           version=excluded.version, mtime=excluded.mtime, size=excluded.size, fts=excluded.fts`,
+        rel, kind, title, stemOf(rel), version, st.mtime, st.size, noteId, fts,
       );
-      this.db.run("DELETE FROM notes_fts WHERE path = ?", rel);
       this.db.run("DELETE FROM links WHERE src = ?", rel);
-      if (kind !== "asset") this.db.run("INSERT INTO notes_fts(path, title, body) VALUES (?,?,?)", rel, title, body);
       this.db.run("DELETE FROM tags WHERE path = ? AND kind != 'asset'", rel);
       if (kind === "md" && content) {
         for (const l of extractLinks(content)) this.db.run("INSERT INTO links(src, key, kind, line) VALUES (?,?,?,?)", rel, l.key, l.kind, l.line);
@@ -344,15 +348,21 @@ export class Quire {
     return stale.id;
   }
 
+  /** Take a note's text out of the full-text index: by its row, or (an index from before `fts`) by path. */
+  private dropText(rel: string, known: IndexedRow | undefined) {
+    if (known?.fts != null) this.db.run("DELETE FROM notes_fts WHERE rowid = ?", known.fts);
+    else if (known && known.kind !== "asset") this.db.run("DELETE FROM notes_fts WHERE path = ?", rel);
+  }
+
   unindex(rel: string): void {
-    const row = this.db.get("SELECT id, kind, version FROM notes WHERE path = ?", rel);
+    const row = this.db.get<IndexedRow & { version: string }>("SELECT id, kind, version, fts FROM notes WHERE path = ?", rel);
     if (row?.id) {
       this.gone.set(`${row.kind}:${row.version}`, { id: row.id, at: this.now() });
       for (const [k, v] of this.gone) if (this.now() - v.at > RENAME_WINDOW_MS) this.gone.delete(k);
     }
     this.db.tx(() => {
+      this.dropText(rel, row);
       this.db.run("DELETE FROM notes WHERE path = ?", rel);
-      this.db.run("DELETE FROM notes_fts WHERE path = ?", rel);
       this.db.run("DELETE FROM links WHERE src = ?", rel);
       this.db.run("DELETE FROM tags WHERE path = ? AND kind != 'asset'", rel);
     });

@@ -33,6 +33,8 @@ const SCHEMA = [
      path TEXT PRIMARY KEY, kind TEXT NOT NULL, title TEXT NOT NULL, stem TEXT NOT NULL,
      version TEXT NOT NULL, mtime REAL NOT NULL, size INTEGER NOT NULL, id TEXT)`,
   `CREATE INDEX IF NOT EXISTS notes_stem ON notes(stem)`,
+  // A file new to the index looks for the note it was renamed from by content.
+  `CREATE INDEX IF NOT EXISTS notes_version ON notes(version)`,
   `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
      path, title, body, tokenize='porter unicode61 remove_diacritics 2', prefix='2 3')`,
   `CREATE TABLE IF NOT EXISTS links(src TEXT NOT NULL, key TEXT NOT NULL, kind TEXT NOT NULL, line INTEGER NOT NULL)`,
@@ -78,6 +80,16 @@ export function migrate(db: SqlDb) {
   for (const { path } of db.all<{ path: string }>("SELECT path FROM notes WHERE id IS NULL")) {
     db.run("UPDATE notes SET id = ? WHERE path = ?", newNoteId(), path);
   }
+  // Each note's row in the full-text index (`fts`), so reindexing a note replaces its row directly:
+  // FTS5 can only find a row by path by reading every row. Older indexes learn theirs in one pass.
+  db.tx(() => {
+    try {
+      db.exec("ALTER TABLE notes ADD COLUMN fts INTEGER");
+    } catch {
+      return;
+    }
+    for (const r of db.all<{ fts: number; path: string }>("SELECT rowid AS fts, path FROM notes_fts")) db.run("UPDATE notes SET fts = ? WHERE path = ?", r.fts, r.path);
+  });
   // Change logs from before changes carried the note's ID: fill it in where the log can tell. One
   // transaction, so an upgrade that dies partway leaves the column out and runs again next start.
   db.tx(() => {
