@@ -167,6 +167,9 @@ export const ASSET_TAGS = "assets/.tags.json";
 export const versionOf = (content: string) =>
   crypto.createHash("sha256").update(content).digest("hex").slice(0, 12);
 
+/** What reindexing a path needs to know about its row, if it has one. */
+type IndexedRow = { id: string; kind: NoteKind; fts: number | null };
+
 const CHANGE_COLS = "id, ts, path, op, source, version, summary, from_path, note_id, person, agent";
 const META_COLS = "id, path, kind, title, version, mtime, size";
 /** How long a deleted file's ID waits for the same file to reappear under a new name. */
@@ -222,6 +225,29 @@ function findTask(lines: string[], line: number, text: string, notePath: string)
   const near = lines.map((_, j) => j).filter(matches).sort((a, b) => Math.abs(a - (line - 1)) - Math.abs(b - (line - 1)));
   if (!near.length) throw new QuireError(`That task isn't in ${notePath} any more`, "conflict");
   return near[0];
+}
+
+type TaskRow = { path: string; title: string; line: number; done: number; task: string };
+const toTask = (r: TaskRow): Task => {
+  const t = JSON.parse(r.task) as Pick<Task, "text" | "summary" | "heading" | "meta">;
+  return { path: r.path, title: r.title, line: r.line, text: t.text, summary: t.summary, done: r.done === 1, heading: t.heading, meta: t.meta };
+};
+
+/** A note's checkbox tasks (with text), each with the heading it sits under: what the index keeps for Quire.tasks. */
+function tasksIn(text: string): Array<Pick<Task, "line" | "text" | "summary" | "done" | "heading" | "meta">> {
+  const out: ReturnType<typeof tasksIn> = [];
+  let heading: string | null = null;
+  // A board's cards sit under its columns' headings; after its `:::`, the heading before it again.
+  let outside: string | null | undefined;
+  for (const [at, line] of proseLines(text)) {
+    const words = headingText(line.match(/^#{1,6}[ \t]+(.*)$/)?.[1] ?? "");
+    if (words) heading = headingName(words) || words;
+    if (/^\s*:::kanban\b/i.test(line)) outside = heading;
+    else if (outside !== undefined && /^\s*:::\s*$/.test(line)) [heading, outside] = [outside, undefined];
+    const t = parseTask(line);
+    if (t && t.text.trim()) out.push({ line: at, text: t.text, summary: t.summary, done: t.done, heading, meta: t.meta });
+  }
+  return out;
 }
 
 export class Quire {
@@ -299,26 +325,28 @@ export class Quire {
       title = titleOf(content, kind, rel);
       body = searchableText(content, kind);
     }
-    const noteId: string = this.db.get("SELECT id FROM notes WHERE path = ?", rel)?.id ?? id ?? this.renamedId(rel, kind, version, st.size) ?? newNoteId();
+    const known = this.db.get<IndexedRow>("SELECT id, kind, fts FROM notes WHERE path = ?", rel);
+    const noteId: string = known?.id ?? id ?? this.renamedId(rel, kind, version, st.size) ?? newNoteId();
     return this.db.tx(() => {
+      this.dropText(rel, known);
+      const fts = kind === "asset" ? null : this.db.run("INSERT INTO notes_fts(path, title, body) VALUES (?,?,?)", rel, title, body).lastId;
       this.db.run(
-        `INSERT INTO notes(path, kind, title, stem, version, mtime, size, id) VALUES (?,?,?,?,?,?,?,?)
+        `INSERT INTO notes(path, kind, title, stem, version, mtime, size, id, fts) VALUES (?,?,?,?,?,?,?,?,?)
          ON CONFLICT(path) DO UPDATE SET kind=excluded.kind, title=excluded.title, stem=excluded.stem,
-           version=excluded.version, mtime=excluded.mtime, size=excluded.size`,
-        rel, kind, title, stemOf(rel), version, st.mtime, st.size, noteId,
+           version=excluded.version, mtime=excluded.mtime, size=excluded.size, fts=excluded.fts`,
+        rel, kind, title, stemOf(rel), version, st.mtime, st.size, noteId, fts,
       );
-      this.db.run("DELETE FROM notes_fts WHERE path = ?", rel);
       this.db.run("DELETE FROM links WHERE src = ?", rel);
-      if (kind !== "asset") this.db.run("INSERT INTO notes_fts(path, title, body) VALUES (?,?,?)", rel, title, body);
       this.db.run("DELETE FROM tags WHERE path = ? AND kind != 'asset'", rel);
+      this.db.run("DELETE FROM tasks WHERE path = ?", rel);
       if (kind === "md" && content) {
-        for (const l of extractLinks(content)) this.db.run("INSERT INTO links(src, key, kind, line) VALUES (?,?,?,?)", rel, l.key, l.kind, l.line);
+        const tasks = tasksIn(content).map(({ line, done, ...task }) => [rel, line, done ? 1 : 0, task.meta.due, task.meta.start, JSON.stringify(task)]);
+        insertRows(this.db, "INSERT INTO tasks(path, line, done, due, start, task)", tasks);
+        insertRows(this.db, "INSERT INTO links(src, key, kind, line)", extractLinks(content).map((l) => [rel, l.key, l.kind, l.line]));
         const lines = content.split("\n");
-        for (const t of scanTags(content)) {
-          const on = !t.frontmatter && TASK_LINE.test(lines[t.line - 1]) ? "task" : "note";
-          this.db.run("INSERT INTO tags(tag, kind, path, line) VALUES (?,?,?,?)", t.tag, on, rel, t.line);
-          this.nameTag(t.display);
-        }
+        const tags = scanTags(content);
+        insertRows(this.db, "INSERT INTO tags(tag, kind, path, line)", tags.map((t) => [t.tag, !t.frontmatter && TASK_LINE.test(lines[t.line - 1]) ? "task" : "note", rel, t.line]));
+        for (const display of new Set(tags.map((t) => t.display))) this.nameTag(display);
       }
       return { id: noteId, path: rel, kind, title, version, mtime: st.mtime, size: st.size };
     });
@@ -374,17 +402,24 @@ export class Quire {
     return stale.id;
   }
 
+  /** Take a note's text out of the full-text index: by its row, or (an index from before `fts`) by path. */
+  private dropText(rel: string, known: IndexedRow | undefined) {
+    if (known?.fts != null) this.db.run("DELETE FROM notes_fts WHERE rowid = ?", known.fts);
+    else if (known && known.kind !== "asset") this.db.run("DELETE FROM notes_fts WHERE path = ?", rel);
+  }
+
   unindex(rel: string): void {
-    const row = this.db.get("SELECT id, kind, version FROM notes WHERE path = ?", rel);
+    const row = this.db.get<IndexedRow & { version: string }>("SELECT id, kind, version, fts FROM notes WHERE path = ?", rel);
     if (row?.id) {
       this.gone.set(`${row.kind}:${row.version}`, { id: row.id, at: this.now() });
       for (const [k, v] of this.gone) if (this.now() - v.at > RENAME_WINDOW_MS) this.gone.delete(k);
     }
     this.db.tx(() => {
+      this.dropText(rel, row);
       this.db.run("DELETE FROM notes WHERE path = ?", rel);
-      this.db.run("DELETE FROM notes_fts WHERE path = ?", rel);
       this.db.run("DELETE FROM links WHERE src = ?", rel);
       this.db.run("DELETE FROM tags WHERE path = ? AND kind != 'asset'", rel);
+      this.db.run("DELETE FROM tasks WHERE path = ?", rel);
     });
   }
 
@@ -489,23 +524,26 @@ export class Quire {
     const terms = searchTerms(query);
     const key = tag === undefined ? null : normalizeTag(tag);
     if (!terms.length || (tag !== undefined && !key)) return [];
+    // Ordered by rank, the full-text index hands hits over best first, so the query stops at `limit`
+    // and makes snippets only for the hits it returns (a 1 MB note's snippet can take 200 ms).
     const rows = this.db.all(
       `SELECT n.path, n.title, n.kind,
               snippet(notes_fts, 2, char(1), char(2), '…', 16) AS snippet,
-              bm25(notes_fts, 4.0, 8.0, 1.0) AS score
+              rank AS score
        FROM notes_fts JOIN notes n ON n.path = notes_fts.path
-       WHERE notes_fts MATCH ? AND (? = 'all' OR (n.path LIKE 'Archive/%') = (? = 'archived'))
+       WHERE notes_fts MATCH ? AND rank MATCH 'bm25(4.0, 8.0, 1.0)'
+         AND (? = 'all' OR (n.path LIKE 'Archive/%') = (? = 'archived'))
          AND (? IS NULL OR n.path IN (SELECT path FROM tags WHERE ${UNDER}))
-       ORDER BY score LIMIT ?`,
+       ORDER BY rank LIMIT ?`,
       ftsQuery(terms), scope, scope, key, ...under(key ?? ""), limit,
     );
     return rows.map((r) => ({ ...r, lines: this.matchingLines(r.path, terms) }));
   }
 
-  private matchingLines(rel: string, terms: string[], max = 3): SearchHit["lines"] {
+  private matchingLines(rel: string, terms: string[], max = 3, content = this.files.read(rel) ?? ""): SearchHit["lines"] {
     const needles = terms.map((t) => t.toLowerCase());
     const lines: SearchHit["lines"] = [];
-    const text = (this.files.read(rel) ?? "").split("\n");
+    const text = content.split("\n");
     for (let i = 0; i < text.length && lines.length < max; i++) {
       const l = text[i].toLowerCase();
       if (needles.some((n) => l.includes(n))) lines.push({ line: i + 1, text: text[i].trim().slice(0, 200) });
@@ -520,17 +558,35 @@ export class Quire {
   feed(opts: Omit<NoteQuery, "limit"> & { scope?: ArchiveScope; offset?: number; limit?: number } = {}) {
     const scope = opts.scope ?? "active";
     const terms = searchTerms(opts.q ?? "");
-    let rows = this.matching(opts);
+    const all = this.feedRows();
+    let rows = this.matching(opts, all);
     const home = (p: string) => (isArchived(p) ? p.slice(ARCHIVE.length) : p);
     const counts = { active: rows.filter((r) => !isArchived(r.path)).length, archived: rows.filter((r) => isArchived(r.path)).length };
     rows = rows.filter((r) => inScope(r.path, scope));
-    const last = new Map(
-      this.db
-        .all<{ path: string } & Actor & { source: string }>("SELECT path, source, person, agent FROM changes WHERE id IN (SELECT max(id) FROM changes GROUP BY path)")
-        .map((r) => [r.path, r]),
-    );
     const offset = opts.offset ?? 0;
-    const items: FeedItem[] = rows.slice(offset, offset + (opts.limit ?? 30)).map((r) => {
+    const page = rows.slice(offset, offset + (opts.limit ?? 30));
+    // The page's tags and who changed each note last, a few queries for the whole page.
+    const tags = new Map<string, string[]>();
+    const last = new Map<string, Actor & { source: string }>();
+    for (let i = 0; i < page.length; i += 90) {
+      const paths = page.slice(i, i + 90).map((r) => r.path);
+      const marks = paths.map(() => "?").join(",");
+      for (const t of this.db.all<{ path: string; display: string }>(
+        `SELECT t.path, coalesce(n.display, t.tag) AS display FROM tags t LEFT JOIN tag_names n ON n.tag = t.tag
+         WHERE t.path IN (${marks}) GROUP BY t.path, t.tag ORDER BY t.path, min(t.line), min(t.rowid)`,
+        ...paths,
+      )) {
+        if (!tags.has(t.path)) tags.set(t.path, []);
+        tags.get(t.path)!.push(t.display);
+      }
+      for (const c of this.db.all<{ path: string } & Actor & { source: string }>(
+        `SELECT path, source, person, agent FROM changes WHERE id IN (SELECT max(id) FROM changes WHERE path IN (${marks}) GROUP BY path)`,
+        ...paths,
+      )) {
+        last.set(c.path, c);
+      }
+    }
+    const items: FeedItem[] = page.map((r) => {
       const content = this.files.read(r.path) ?? "";
       const body = r.kind === "md" ? splitFrontmatter(content).body : "";
       return {
@@ -541,25 +597,24 @@ export class Quire {
         mtime: r.mtime,
         archived: isArchived(r.path),
         excerpt: excerptOf(body, r.title),
-        tags: this.db
-          .all<{ display: string }>(
-            `SELECT coalesce(n.display, t.tag) AS display FROM tags t LEFT JOIN tag_names n ON n.tag = t.tag
-             WHERE t.path = ? GROUP BY t.tag ORDER BY min(t.line), min(t.rowid)`,
-            r.path,
-          )
-          .map((t) => t.display),
-        lines: terms.length ? this.matchingLines(r.path, terms) : [],
+        tags: tags.get(r.path) ?? [],
+        lines: terms.length ? this.matchingLines(r.path, terms, 3, content) : [],
         lastSource: last.get(r.path)?.source ?? null,
         lastBy: last.has(r.path) ? { person: last.get(r.path)!.person, agent: last.get(r.path)!.agent } : null,
       };
     });
-    return { items, total: rows.length, counts, folders: [...new Set(this.list(undefined, "all").filter((n) => n.kind !== "asset").map((n) => home(n.path)).filter((p) => p.includes("/")).map((p) => p.split("/")[0]))].sort() };
+    return { items, total: rows.length, counts, folders: [...new Set(all.map((n) => home(n.path)).filter((p) => p.includes("/")).map((p) => p.split("/")[0]))].sort() };
+  }
+
+  /** Every note (not assets), archived ones included, newest first: what matching() narrows. */
+  private feedRows(): Array<{ id: string; path: string; kind: NoteKind; title: string; mtime: number }> {
+    return this.db.all("SELECT id, path, kind, title, mtime FROM notes WHERE kind != 'asset' ORDER BY mtime DESC");
   }
 
   /** The notes a query matches, archived ones included, in its order. The part of the feed smart folder counts need. */
-  private matching(query: NoteQuery): Array<{ id: string; path: string; kind: NoteKind; title: string; mtime: number }> {
+  private matching(query: NoteQuery, all = this.feedRows()): ReturnType<Quire["feedRows"]> {
     const terms = searchTerms(query.q ?? "");
-    let rows = this.db.all("SELECT id, path, kind, title, mtime FROM notes WHERE kind != 'asset' ORDER BY mtime DESC");
+    let rows = all;
     if (terms.length) {
       const hits = new Set(this.db.all("SELECT path FROM notes_fts WHERE notes_fts MATCH ?", ftsQuery(terms)).map((r) => r.path));
       rows = rows.filter((r) => hits.has(r.path));
@@ -567,10 +622,11 @@ export class Quire {
     const home = (p: string) => (isArchived(p) ? p.slice(ARCHIVE.length) : p);
     if (query.folder) rows = rows.filter((r) => home(r.path).startsWith(query.folder!.replace(/\/?$/, "/")));
     if (query.tag) {
-      const on = new Set(this.tagged(query.tag).map((r) => r.path));
+      const key = normalizeTag(query.tag);
+      const on = new Set(key ? this.db.all<{ path: string }>(`SELECT DISTINCT path FROM tags WHERE ${UNDER}`, ...under(key)).map((r) => r.path) : []);
       rows = rows.filter((r) => on.has(r.path));
     }
-    if (query.sort === "title") rows.sort((a, b) => a.title.localeCompare(b.title));
+    if (query.sort === "title") rows = [...rows].sort((a, b) => a.title.localeCompare(b.title));
     return rows;
   }
 
@@ -583,12 +639,26 @@ export class Quire {
       ...keys, rel,
     );
     const cache = new Map<string, string[]>();
+    const resolve = this.resolver();
     return rows
       .filter((r) => {
         const t = this.linkTargetAt(r.path, r.line, keys, cache);
-        return t !== null && this.resolve(t, r.path) === rel;
+        return t !== null && resolve(t, r.path) === rel;
       })
       .map((r) => ({ ...r, text: (cache.get(r.path)?.[r.line - 1] ?? "").trim().slice(0, 200) }));
+  }
+
+  /**
+   * resolve(), remembering each answer, for reading many links while no note comes or goes. What a
+   * link resolves to depends only on its text and the folder it's in.
+   */
+  private resolver() {
+    const seen = new Map<string, string | null>();
+    return (target: string, from: string) => {
+      const key = `${path.posix.dirname(from)}\n${target}`;
+      if (!seen.has(key)) seen.set(key, this.resolve(target, from));
+      return seen.get(key)!;
+    };
   }
 
   /** Find the raw link target on a line whose key matches (so ambiguous names resolve correctly). */
@@ -794,12 +864,10 @@ export class Quire {
    */
   favorites(user: string): Favorite[] {
     const out: Favorite[] = [];
-    let inUse: Map<string, TagCount> | null = null;
     for (const f of this.db.all<{ note_id: string; path: string }>("SELECT note_id, path FROM favorites WHERE user = ? ORDER BY pos", user)) {
       if (f.note_id.startsWith("#")) {
-        inUse ??= new Map(this.tags().filter((t) => t.notes).map((t) => [t.tag, t]));
-        const t = inUse.get(f.note_id.slice(1));
-        if (t) out.push({ tag: t.tag, display: t.display, notes: t.notes });
+        const t = this.tagInUse(f.note_id.slice(1));
+        if (t) out.push(t);
         continue;
       }
       const here = this.pathOf(f.note_id);
@@ -838,7 +906,7 @@ export class Quire {
   starTag(user: string, raw: string): Favorite[] {
     const tag = normalizeTag(raw);
     if (!tag) throw new QuireError(`"${raw}" isn't a tag: use letters, numbers, - and _, nested with /`);
-    const t = this.tags().find((x) => x.tag === tag && x.notes);
+    const t = this.tagInUse(tag);
     if (!t) throw new QuireError(`No note has #${tag} yet`, "not_found");
     this.addFavorite(user, tagKey(tag), t.display);
     return this.favorites(user);
@@ -881,7 +949,9 @@ export class Quire {
 
   /** The smart folders `user` sees (the workspace's shared ones and their own), in order, each with how many active notes match. */
   smartFolders(user: string): SmartFolder[] {
-    return this.smartFolderRows(user).map((r) => this.counted(r));
+    const folders = this.smartFolderRows(user);
+    const all = folders.length ? this.feedRows() : [];
+    return folders.map((r) => this.counted(r, all));
   }
 
   private smartFolderRows(user: string) {
@@ -890,8 +960,8 @@ export class Quire {
       .map((r) => ({ id: r.id, name: r.name, query: r.query, shared: r.owner === null }));
   }
 
-  private counted(f: Omit<SmartFolder, "count">): SmartFolder {
-    return { ...f, count: this.matching(parseQuery(f.query)).filter((r) => !isArchived(r.path)).length };
+  private counted(f: Omit<SmartFolder, "count">, all = this.feedRows()): SmartFolder {
+    return { ...f, count: this.matching(parseQuery(f.query), all).filter((r) => !isArchived(r.path)).length };
   }
 
   /**
@@ -965,6 +1035,17 @@ export class Quire {
     return [...uses]
       .sort(([a], [b]) => (a < b ? -1 : 1))
       .map(([tag, u]) => ({ tag, display: shown.get(tag) ?? tag, notes: u.notes.size, tasks: u.tasks.size, assets: u.assets.size }));
+  }
+
+  /** One tag's entry in tags(), counting only notes; null if no active note has it (or a tag under it). */
+  private tagInUse(tag: string): TagFavorite | null {
+    const notes = this.db.get<{ n: number }>(
+      `SELECT count(DISTINCT t.path) AS n FROM tags t JOIN notes n ON n.path = t.path
+       WHERE ${UNDER} AND t.kind != 'asset' AND substr(t.path, 1, 8) != 'Archive/'`,
+      ...under(tag),
+    )!.n;
+    if (!notes) return null;
+    return { tag, display: this.db.get<{ display: string }>("SELECT display FROM tag_names WHERE tag = ?", tag)?.display ?? tag, notes };
   }
 
   /** Everywhere `tag` or a tag under it is used, archived notes included, by path and line. */
@@ -1155,26 +1236,31 @@ export class Quire {
     const due = opts.due ? dueFilter(opts.due, opts.today ?? localDate(this.now())) : null;
     if (opts.due && !due) throw new QuireError(`Bad due filter "${opts.due}": use a date or today/tomorrow/yesterday, optionally after <, <=, > or >=`);
     const person = opts.assignee?.replace(/^@/, "").toLowerCase();
-    const out: Task[] = [];
-    for (const n of this.list(undefined, "active", opts.tag)) {
-      if (n.kind !== "md" || (only && n.path !== only) || (prefix && !n.path.startsWith(prefix))) continue;
-      const text = this.files.read(n.path);
-      if (text === null) continue;
-      let heading: string | null = null;
-      // A board's cards sit under its columns' headings; after its `:::`, the heading before it again.
-      let outside: string | null | undefined;
-      for (const [at, line] of proseLines(text)) {
-        const words = headingText(line.match(/^#{1,6}[ \t]+(.*)$/)?.[1] ?? "");
-        if (words) heading = headingName(words) || words;
-        if (/^\s*:::kanban\b/i.test(line)) outside = heading;
-        else if (outside !== undefined && /^\s*:::\s*$/.test(line)) [heading, outside] = [outside, undefined];
-        const t = parseTask(line);
-        if (!t || !t.text.trim() || (tagged && !tagged.has(`${n.path}:${at}`))) continue;
-        if ((due && !due(t.meta.due)) || (person && !t.meta.assignees.some((a) => a.toLowerCase() === person))) continue;
-        out.push({ path: n.path, title: n.title, line: at, text: t.text, summary: t.summary, done: t.done, heading, meta: t.meta });
-      }
-    }
-    return out;
+    // The query narrows to the note, or to notes with the tag on a task (the lines are checked below).
+    // Each is its own query so the planner uses the index.
+    const rows = only
+      ? this.taskRows("t.path = ?", only)
+      : opts.tag !== undefined
+        ? this.taskRows(`t.path IN (SELECT path FROM tags WHERE kind = 'task' AND ${UNDER})`, ...under(normalizeTag(opts.tag) ?? ""))
+        : this.taskRows("1");
+    return rows
+      .filter((r) => (!prefix || r.path.startsWith(prefix)) && (!tagged || tagged.has(`${r.path}:${r.line}`)))
+      .map(toTask)
+      .filter((t) => (!due || due(t.meta.due)) && (!person || t.meta.assignees.some((a) => a.toLowerCase() === person)));
+  }
+
+  /** How many tasks are still open in active notes: what tasks() would list with `done` false. */
+  openTaskCount(): number {
+    return this.db.get<{ n: number }>("SELECT count(*) AS n FROM tasks t JOIN notes n ON n.path = t.path WHERE substr(t.path, 1, 8) != 'Archive/' AND t.done = 0")!.n;
+  }
+
+  /** Tasks in active notes, from the index (see tasksIn), in note order: the ones `where` keeps. */
+  private taskRows(where: string, ...args: unknown[]): TaskRow[] {
+    return this.db.all<TaskRow>(
+      `SELECT t.path, n.title, t.line, t.done, t.task FROM tasks t JOIN notes n ON n.path = t.path
+       WHERE substr(t.path, 1, 8) != 'Archive/' AND ${where} ORDER BY t.path COLLATE NOCASE, t.path, t.line`,
+      ...args,
+    );
   }
 
   /** Tick or untick one task at its source. */
@@ -1275,7 +1361,8 @@ export class Quire {
    */
   today(date = localDate(this.now())): TodayView {
     if (!isDate(date)) throw new QuireError(`"today" must be a date like 2026-10-01, not "${date}"`);
-    const open = this.tasks({ today: date }).filter((t) => !t.done);
+    // Open tasks that could be in a section: due by today, or starting today.
+    const open = this.taskRows("t.done = 0 AND (substr(t.due, 1, 10) <= ? OR substr(t.start, 1, 10) = ?)", date, date).map(toTask);
     const into = (id: string) => open.filter((t) => todaySection(t.meta, date) === id);
     const overdue = into("overdue").sort((a, b) => a.meta.due!.localeCompare(b.meta.due!));
     const [due, starting] = [into("due"), into("starting")];
@@ -1414,11 +1501,12 @@ export class Quire {
     const wikiTarget = newStemUnique ? path.posix.basename(dest).replace(/\.(md|markdown)$/i, "") : dest.replace(/\.(md|markdown)$/i, "");
     const updated: string[] = [];
     const edits: Array<{ path: string; content: string; version: string; change: Change }> = [];
+    const resolve = this.resolver(); // rewriting links changes no note's path
     for (const src of referrers) {
       const before = this.files.read(src) ?? "";
       const after = before
         .replace(/(!?)\[\[([^\]|#\n]+)(#[^\]|\n]*)?(\|[^\]\n]*)?\]\]/g, (m, bang, t, hash = "", alias = "") =>
-          oldKeys.has(linkKey(t)) && this.resolve(t, src) === null ? `${bang}[[${wikiTarget}${hash}${alias}]]` : m,
+          oldKeys.has(linkKey(t)) && resolve(t, src) === null ? `${bang}[[${wikiTarget}${hash}${alias}]]` : m,
         )
         .replace(/(!?\[[^\]\n]*\]\()([^)\s]+)(\))/g, (m, pre, t, post) =>
           oldKeys.has(linkKey(safeDecode(t))) ? `${pre}${encodeURI(dest)}${post}` : m,
@@ -1430,6 +1518,21 @@ export class Quire {
       }
     }
     return { path: dest, from, version: meta.version, change, updated, edits };
+  }
+}
+
+/**
+ * Insert `rows` (all the same width) in as few statements as a Durable Object allows: at most 100
+ * bound parameters each. A 1 MB note has thousands of links, tags and tasks, and online every
+ * statement is a call out of JavaScript.
+ */
+function insertRows(db: SqlDb, insert: string, rows: unknown[][]) {
+  if (!rows.length) return;
+  const per = Math.floor(100 / rows[0].length);
+  const tuple = `(${Array(rows[0].length).fill("?").join(",")})`;
+  for (let i = 0; i < rows.length; i += per) {
+    const chunk = rows.slice(i, i + per);
+    db.run(`${insert} VALUES ${Array(chunk.length).fill(tuple).join(",")}`, ...chunk.flat());
   }
 }
 

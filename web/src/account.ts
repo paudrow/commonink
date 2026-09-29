@@ -1,5 +1,5 @@
 // Online-only UI: the sign-in screen, and the account menu (workspaces, invites, connected agents, sign out).
-import { showAgents } from "./agentsPage.ts";
+
 import { api, type Me } from "./api.ts";
 import { $, el, icon } from "./dom.ts";
 
@@ -91,7 +91,7 @@ export function renderAccount(me: Me, current: Me["workspaces"][number], toast: 
           }),
         ]
       : []),
-    item("Connected agents…", "bot", () => void showAgents()),
+    item("Connected agents…", "bot", () => void import("./agentsPage.ts").then((m) => m.showAgents())),
     el("div", { class: "acct-sep" }),
     item("Sign out", "open", () => {
       const form = el("form", { method: "post", action: "/auth/logout" });

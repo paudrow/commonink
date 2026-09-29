@@ -15,6 +15,9 @@ export async function startCloud(vars: Record<string, string> = {}) {
   const assets = fs.mkdtempSync(path.join(os.tmpdir(), "commonink-assets-"));
   fs.writeFileSync(path.join(assets, "index.html"), APP_HTML);
   fs.writeFileSync(path.join(assets, "favicon.svg"), "<svg xmlns='http://www.w3.org/2000/svg'/>");
+  fs.mkdirSync(path.join(assets, "assets"));
+  fs.writeFileSync(path.join(assets, "assets/app.js"), "export {};\n");
+  fs.copyFileSync(path.resolve(CLOUD, "../web/public/_headers"), path.join(assets, "_headers"));
   const config = JSON.parse(fs.readFileSync(path.join(CLOUD, "wrangler.jsonc"), "utf8").replace(/^\s*\/\/.*$/gm, ""));
   const { $schema, routes, previews, ...rest } = config;
   const server = createTestHarness({

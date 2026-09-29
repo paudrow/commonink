@@ -13,8 +13,14 @@ export class DoDb implements SqlDb {
     return this.all<T>(sql, ...params)[0];
   }
   run(sql: string, ...params: unknown[]) {
-    this.storage.sql.exec(sql, ...params);
-    return { lastId: Number(this.storage.sql.exec("SELECT last_insert_rowid() AS id").one().id) };
+    const { sql: db } = this.storage;
+    db.exec(sql, ...params);
+    // Looked up only when read, which the few callers that need it do straight after the insert.
+    return {
+      get lastId() {
+        return Number(db.exec("SELECT last_insert_rowid() AS id").one().id);
+      },
+    };
   }
   tx<T>(fn: () => T): T {
     return this.storage.transactionSync(fn);

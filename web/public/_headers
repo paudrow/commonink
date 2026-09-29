@@ -1,0 +1,5 @@
+# Static asset headers (Cloudflare reads this file; it isn't served). Vite names every file under
+# /assets/ by a hash of its contents, so a browser can keep it for good: a change is a new name.
+# Pages go through the Worker, which sends them with no-store and a fresh CSP nonce.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

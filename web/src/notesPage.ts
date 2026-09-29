@@ -172,8 +172,13 @@ export class NotesPage {
     const page = await api.feed({ ...this.query, scope: this.scope, offset: this.items.length, limit: PAGE }).catch(() => null);
     delete this.more.dataset.loading;
     if (!page) return;
+    // Draw just the new cards: the ones above stay as they are.
+    const from = this.items.length;
+    const q = this.input.value.trim();
     this.items.push(...page.items);
-    this.render();
+    this.list.append(...page.items.map((item, k) => this.card(item, from + k, q)));
+    const { total } = this.page!;
+    this.more.textContent = this.items.length < total ? `Showing ${this.items.length} of ${total}` : "";
   }
 
   // ---------------------------------------------------------------- rendering

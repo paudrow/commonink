@@ -13,13 +13,17 @@
     "agent-demo": "node --disable-warning=ExperimentalWarning --import tsx scripts/agent-demo.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --disable-warning=ExperimentalWarning --import tsx --test \"test/**/*.test.ts\"",
-    "check": "npm run typecheck && npm run cloud:typecheck && npm test",
+    "check": "npm run typecheck && npm run cloud:typecheck && tsc -p bench && npm test",
     "build:web": "vite build web --outDir ../dist --emptyOutDir",
     "cloud:dev": "npm run build:web && wrangler d1 migrations apply commonink --local -c cloud/wrangler.jsonc && wrangler dev -c cloud/wrangler.jsonc --port 8787 --local-upstream localhost:8787",
     "cloud:preview": "npm run build:web && wrangler d1 migrations apply commonink-preview --remote -c cloud/wrangler.preview-migrations.jsonc && wrangler preview -c cloud/wrangler.jsonc",
     "cloud:deploy": "npm run build:web && wrangler d1 migrations apply commonink --remote -c cloud/wrangler.jsonc && wrangler deploy -c cloud/wrangler.jsonc",
     "cloud:typecheck": "tsc -p cloud",
-    "brand": "tsx scripts/brand.ts"
+    "brand": "tsx scripts/brand.ts",
+    "bench": "node --disable-warning=ExperimentalWarning --import tsx bench/core.ts",
+    "bench:cloud": "node --disable-warning=ExperimentalWarning --import tsx bench/cloud.ts",
+    "bench:bundle": "tsx bench/bundle.ts",
+    "bench:web": "node --disable-warning=ExperimentalWarning --import tsx bench/web.ts"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^1.2.1",

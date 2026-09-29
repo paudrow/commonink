@@ -34,6 +34,8 @@ const SCHEMA = [
      path TEXT PRIMARY KEY, kind TEXT NOT NULL, title TEXT NOT NULL, stem TEXT NOT NULL,
      version TEXT NOT NULL, mtime REAL NOT NULL, size INTEGER NOT NULL, id TEXT)`,
   `CREATE INDEX IF NOT EXISTS notes_stem ON notes(stem)`,
+  // A file new to the index looks for the note it was renamed from by content.
+  `CREATE INDEX IF NOT EXISTS notes_version ON notes(version)`,
   `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
      path, title, body, tokenize='porter unicode61 remove_diacritics 2', prefix='2 3')`,
   `CREATE TABLE IF NOT EXISTS links(src TEXT NOT NULL, key TEXT NOT NULL, kind TEXT NOT NULL, line INTEGER NOT NULL)`,
@@ -45,6 +47,9 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS tags_path ON tags(path)`,
   // How each tag is shown: segment by segment, the way it was first written.
   `CREATE TABLE IF NOT EXISTS tag_names(tag TEXT PRIMARY KEY, display TEXT NOT NULL)`,
+  // Each note's tasks as read when it was indexed (see Quire.tasks): the columns queries filter on, the rest as JSON.
+  `CREATE TABLE IF NOT EXISTS tasks(path TEXT NOT NULL, line INTEGER NOT NULL, done INTEGER NOT NULL, due TEXT, start TEXT, task TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS tasks_path ON tasks(path)`,
   `CREATE TABLE IF NOT EXISTS changes(
      id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, path TEXT NOT NULL, op TEXT NOT NULL,
      source TEXT NOT NULL, version TEXT, summary TEXT, from_path TEXT, before TEXT, note_id TEXT, person TEXT, agent TEXT)`,
@@ -65,15 +70,18 @@ const SCHEMA = [
  * disk, whose old change log reads differently (see legacyActor).
  */
 export function migrate(db: SqlDb, opts: { local?: boolean } = {}) {
-  let tagless = false;
-  try {
-    db.get("SELECT 1 FROM tags LIMIT 1");
-  } catch {
-    tagless = true;
-  }
+  const lacks = (table: string) => {
+    try {
+      db.get(`SELECT 1 FROM ${table} LIMIT 1`);
+      return false;
+    } catch {
+      return true;
+    }
+  };
+  const stale = lacks("tags") || lacks("tasks");
   for (const stmt of SCHEMA) db.exec(stmt);
-  // An index from before tags: have the next sync read every note again to find them.
-  if (tagless) db.run("UPDATE notes SET mtime = -1");
+  // An index from before tags (or tasks): have the next sync read every note again to find them.
+  if (stale) db.run("UPDATE notes SET mtime = -1");
   // Indexes from before stable IDs lack the column. (ALTER, not a pragma: Durable Objects allow it.)
   try {
     db.exec("ALTER TABLE notes ADD COLUMN id TEXT");
@@ -82,6 +90,16 @@ export function migrate(db: SqlDb, opts: { local?: boolean } = {}) {
   for (const { path } of db.all<{ path: string }>("SELECT path FROM notes WHERE id IS NULL")) {
     db.run("UPDATE notes SET id = ? WHERE path = ?", newNoteId(), path);
   }
+  // Each note's row in the full-text index (`fts`), so reindexing a note replaces its row directly:
+  // FTS5 can only find a row by path by reading every row. Older indexes learn theirs in one pass.
+  db.tx(() => {
+    try {
+      db.exec("ALTER TABLE notes ADD COLUMN fts INTEGER");
+    } catch {
+      return;
+    }
+    for (const r of db.all<{ fts: number; path: string }>("SELECT rowid AS fts, path FROM notes_fts")) db.run("UPDATE notes SET fts = ? WHERE path = ?", r.fts, r.path);
+  });
   // Change logs from before changes carried the note's ID: fill it in where the log can tell. One
   // transaction, so an upgrade that dies partway leaves the column out and runs again next start.
   db.tx(() => {

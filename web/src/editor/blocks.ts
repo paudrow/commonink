@@ -16,7 +16,8 @@ import { touches } from "./livePreview.ts";
 import { dataEmbed, hydrateDataEmbeds } from "../textPreview.ts";
 import { scanTags } from "../../../src/core/tags.ts";
 import { boardsIn, unclosedBoard } from "../../../src/core/kanban.ts";
-import { hydrateBoards, mountBoard, type BoardHost } from "../kanban.ts";
+// Boards load with the first note that has one.
+import type { BoardHost, mountBoard } from "../kanban.ts";
 import { editsBetween } from "../merge.ts";
 import { redo, undo } from "@codemirror/commands";
 import { safeDecode } from "../../../src/core/uri.ts";
@@ -208,7 +209,9 @@ class EmbedWidget extends WidgetType {
         body.innerHTML = renderMarkdown(md, path, { boards: !heading });
         hydrateDataEmbeds(body, path, settle);
         body.querySelectorAll("input").forEach((i) => (i.disabled = true));
-        (outer as any).stopBoards = hydrateBoards(body, path, { ctx, readOnly: view.state.readOnly, resized: settle });
+        if (body.querySelector(".kb-slot[data-board]")) {
+          void import("../kanban.ts").then((m) => ((outer as any).stopBoards = m.hydrateBoards(body, path, { ctx, readOnly: view.state.readOnly, resized: settle })));
+        }
         body.querySelectorAll("img").forEach((img) => img.addEventListener("load", settle));
         body.addEventListener("mousedown", (e) => {
           const a = (e.target as HTMLElement).closest("a");
@@ -425,10 +428,14 @@ class BoardWidget extends WidgetType {
       e.preventDefault();
       t.closest<HTMLElement>(".kb-card")?.focus({ preventScroll: true });
     });
-    const b = mountBoard(body, host, this.index);
-    (root as any).board = b;
+    let gone = false;
+    void import("../kanban.ts").then((m) => {
+      if (gone) return;
+      const b = ((root as any).board = m.mountBoard(body, host, at.index));
+      (root as any).destroyWidget = b.destroy;
+    });
+    (root as any).destroyWidget = () => (gone = true);
     root.append(card);
-    (root as any).destroyWidget = b.destroy;
     return root;
   }
   destroy(dom: HTMLElement) {

@@ -41,6 +41,7 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "GET /diffs", send: () => ["GET", "/diffs?ids=1-3"], expect: READ },
   { route: "GET /diff", send: () => ["GET", "/diff?from=1"], expect: READ },
   { route: "GET /tasks", send: () => ["GET", "/tasks"], expect: READ },
+  { route: "GET /tasks/count", send: () => ["GET", "/tasks/count"], expect: READ },
   { route: "GET /favorites", send: () => ["GET", "/favorites"], expect: READ },
   { route: "GET /smart-folders", send: () => ["GET", "/smart-folders"], expect: READ },
   { route: "GET /tags", send: () => ["GET", "/tags"], expect: READ },

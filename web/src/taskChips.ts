@@ -8,14 +8,22 @@ import { tagsInLine } from "../../src/core/tags.ts";
 
 export const today = () => localDate(Date.now());
 
+/** Day names by day, for the day they were worked out on: a long task list shows the same few dates many times. */
+const dayNames = { now: "", names: new Map<string, string>() };
+
 /** "Today", "Tomorrow", "Yesterday", "Oct 1", or "Oct 1, 2027", then the time if there is one. */
 export function dayLabel(value: string, now = today()): string {
   const day = value.slice(0, 10);
-  const at = (n: number) => localDate(new Date(`${now}T12:00:00`).getTime() + n * 86_400_000);
-  const d = new Date(`${day}T12:00:00`);
-  const name =
-    day === now ? "Today" : day === at(1) ? "Tomorrow" : day === at(-1) ? "Yesterday"
-    : d.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(day.slice(0, 4) === now.slice(0, 4) ? {} : { year: "numeric" }) });
+  if (dayNames.now !== now) Object.assign(dayNames, { now, names: new Map() });
+  let name = dayNames.names.get(day);
+  if (name === undefined) {
+    const at = (n: number) => localDate(new Date(`${now}T12:00:00`).getTime() + n * 86_400_000);
+    const d = new Date(`${day}T12:00:00`);
+    name =
+      day === now ? "Today" : day === at(1) ? "Tomorrow" : day === at(-1) ? "Yesterday"
+      : d.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(day.slice(0, 4) === now.slice(0, 4) ? {} : { year: "numeric" }) });
+    dayNames.names.set(day, name);
+  }
   return value.length > 10 ? `${name} ${value.slice(11)}` : name;
 }
 
