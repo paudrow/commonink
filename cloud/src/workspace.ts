@@ -97,7 +97,10 @@ export class Workspace extends DurableObject<Env> {
     if (route === "/live") {
       if (req.headers.get("Upgrade") !== "websocket") return json({ error: "Expected a WebSocket" }, 426);
       const [client, server] = Object.values(new WebSocketPair());
-      this.ctx.acceptWebSocket(server, [user]); // tagged, so signing out everywhere can close it
+      // Tagged by person and by session, so signing out (here or everywhere) can close it, and it
+      // closes when its session runs out.
+      this.ctx.acceptWebSocket(server, [user, `s:${req.headers.get("x-ci-session") ?? ""}`]);
+      server.serializeAttachment({ expires: Number(req.headers.get("x-ci-session-expires")) || 0 });
       return new Response(null, { status: 101, webSocket: client });
     }
     if (route.startsWith("/files/")) return this.serveFile(safeDecode(route.slice("/files/".length)));
@@ -183,9 +186,12 @@ export class Workspace extends DurableObject<Env> {
 
   private broadcast(msg: Record<string, unknown>) {
     const data = JSON.stringify(msg);
+    const now = Date.now();
     for (const ws of this.ctx.getWebSockets()) {
       try {
-        ws.send(data);
+        const { expires } = (ws.deserializeAttachment() ?? {}) as { expires?: number };
+        if (expires && expires < now) ws.close(4001, "Session expired");
+        else ws.send(data);
       } catch {}
     }
   }
@@ -222,9 +228,9 @@ export class Workspace extends DurableObject<Env> {
     }
   }
 
-  /** Close someone's live connections (they signed out everywhere). Their tabs then ask them to sign in. */
-  disconnect(userId: string) {
-    for (const ws of this.ctx.getWebSockets(userId)) ws.close(4001, "Signed out");
+  /** Close the live connections tagged `tag`: a person's (signed out everywhere) or one session's. Their tabs then ask them to sign in. */
+  disconnect(tag: string) {
+    for (const ws of this.ctx.getWebSockets(tag)) ws.close(4001, "Signed out");
   }
 
   webSocketMessage() {}
