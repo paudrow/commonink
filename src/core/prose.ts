@@ -47,6 +47,9 @@ export const withoutCode = (line: string) => line.replace(/`[^`]*`/g, (s) => " "
 /** The line with code spans and [[links]] blanked out, for finding words that mean something (tags, people). */
 export const withoutCodeOrLinks = (line: string) => withoutCode(line).replace(/\[\[[^\]\n]*\]\]/g, (s) => " ".repeat(s.length));
 
+/** A heading's name without the `{key=value}` settings a heading can end with (a board column's `{color=blue}`). */
+export const headingName = (text: string) => text.replace(/[ \t]*\{[^}\n]*\}$/, "");
+
 /** How many lines the frontmatter block takes at the top of a note (0 if it has none). */
 export function frontmatterLines(md: string): number {
   const m = md.match(/^---\r?\n[\s\S]*?\r?\n---(\r?\n|$)/);
