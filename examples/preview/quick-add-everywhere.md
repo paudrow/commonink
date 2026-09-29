@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 72
 title: Quick-add everywhere
 ---
 1. On **Tasks**, click the words of "Return the library books" and add ` tomorrow`: it lights up as in the quick-add bar and the chip under it shows the date. Press Enter and it's the task's due date. Esc instead leaves the words as they were.
