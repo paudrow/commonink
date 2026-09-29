@@ -14,5 +14,5 @@
     "verbatimModuleSyntax": false,
     "isolatedModules": true
   },
-  "include": ["src", "web/src", "scripts", "test"]
+  "include": ["src", "web/src", "scripts", "test", "bench/cloud.ts", "bench/web.ts"]
 }

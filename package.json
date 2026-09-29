@@ -20,7 +20,8 @@
     "cloud:deploy": "npm run build:web && wrangler d1 migrations apply commonink --remote -c cloud/wrangler.jsonc && wrangler deploy -c cloud/wrangler.jsonc",
     "cloud:typecheck": "tsc -p cloud",
     "brand": "tsx scripts/brand.ts",
-    "bench": "node --disable-warning=ExperimentalWarning --import tsx bench/core.ts"
+    "bench": "node --disable-warning=ExperimentalWarning --import tsx bench/core.ts",
+    "bench:cloud": "node --disable-warning=ExperimentalWarning --import tsx bench/cloud.ts"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^1.2.1",
