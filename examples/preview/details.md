@@ -1,5 +1,5 @@
 ---
-pr: 70
+pr: 71
 title: Collapsible sections
 ---
 1. Open [[Meeting with folds]]. "Full transcript" and "Raw log" start closed, and "Links and references" starts open (it's `<details open>`). Click a triangle to open or close one. The note doesn't change: History shows no edit.
