@@ -9,6 +9,7 @@ import { today, tokenChip } from "../taskChips.ts";
 import { openChipEditor } from "../taskChipEditors.ts";
 import { taskLineEdit } from "./taskEdit.ts";
 import { lineTaskContext } from "./taskTools.ts";
+import { inlineTex, MathWidget } from "./mathWidgets.ts";
 
 const hide = Decoration.replace({});
 
@@ -359,6 +360,20 @@ function build(view: EditorView): DecorationSet {
               const closing = marks.length > 1 ? marks[marks.length - 1] : null;
               if (closing && last.number > first.number) out.push(hide.range(last.from, last.to));
             }
+            return false;
+          }
+          case "InlineMath": {
+            // Drawn while the cursor is off it; its source while it's on it.
+            const math = inlineTex(doc.sliceString(ref.from, ref.to));
+            if (math && !touches(state, ref.from, ref.to)) out.push(Decoration.replace({ widget: new MathWidget(math.tex, math.display) }).range(ref.from, ref.to));
+            else out.push(Decoration.mark({ class: "cm-math-source" }).range(ref.from, ref.to));
+            return false;
+          }
+          case "BlockMath": {
+            // Blocks draw in blocks.ts; while one is being edited, its lines read as source.
+            const first = doc.lineAt(ref.from).number;
+            const last = endLine(state, ref.from, ref.to).number;
+            for (let l = first; l <= last; l++) out.push(Decoration.line({ class: "cm-math-block-source" }).range(doc.line(l).from));
             return false;
           }
           case "HTMLBlock":

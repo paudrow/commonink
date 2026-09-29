@@ -600,6 +600,16 @@ body.is-resizing iframe { pointer-events: none; }
 .cb-line.is-add { background: color-mix(in srgb, var(--ok) 14%, transparent); }
 .cb-line.is-del { background: color-mix(in srgb, var(--bad) 14%, transparent); }
 .cb.has-numbers .cb-line::before { counter-increment: cb-line; content: counter(cb-line); display: inline-block; width: 2.6em; margin-left: -0.4em; padding-right: 1em; text-align: right; color: var(--faint); user-select: none; }
+/* Math (math.ts): inline in its line, display on its own, the source in red when it doesn't parse. */
+.math-inline { white-space: nowrap; }
+.math-display { position: relative; display: block; margin: 0.5em 0 0.8em; padding: 0.5em 2.5em; overflow-x: auto; overflow-y: hidden; text-align: center; }
+.math-display.is-preview { margin-top: 0.2em; border-radius: 10px; background: var(--code-bg); }
+.math-error { color: var(--bad); font-family: var(--mono); font-size: 0.85em; white-space: pre-wrap; text-decoration: underline wavy color-mix(in srgb, var(--bad) 45%, transparent); text-underline-offset: 3px; cursor: help; }
+.math-display.math-error { text-align: left; }
+.math-copy { position: absolute; top: 6px; right: 6px; opacity: 0; transition: opacity 0.12s; }
+.math-display:hover .math-copy, .math-copy:focus-visible, .math-copy.is-done { opacity: 1; }
+.cm-math-source { font-family: var(--mono); font-size: 0.88em; color: var(--ink-2); }
+.cm-math-block-source { font-family: var(--mono); font-size: 0.84em; color: var(--ink-2); }
 .cb-picker { position: fixed; z-index: 60; width: 240px; }
 .cb-picker-input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--ink); font: inherit; }
 

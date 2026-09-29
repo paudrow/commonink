@@ -1,5 +1,6 @@
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { codeLanguage } from "../codeLanguage.ts";
+import { MathSyntax } from "./mathSyntax.ts";
 import { yamlFrontmatter } from "@codemirror/lang-yaml";
 import { HighlightStyle } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
@@ -38,7 +39,7 @@ export const WikiLinks: MarkdownConfig = {
 
 export const markdownWithFrontmatter = () =>
   yamlFrontmatter({
-    content: markdown({ base: markdownLanguage, codeLanguages: codeLanguage, extensions: [WikiLinks] }),
+    content: markdown({ base: markdownLanguage, codeLanguages: codeLanguage, extensions: [WikiLinks, MathSyntax] }),
   });
 
 export const quireHighlight = HighlightStyle.define([

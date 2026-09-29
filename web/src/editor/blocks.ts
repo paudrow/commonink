@@ -1,7 +1,7 @@
 // Block-level live preview: whole-line embeds, tables and frontmatter render as widgets.
 // Block decorations must come from a StateField (they change vertical layout).
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
-import { EditorSelection, EditorState, Facet, StateEffect, StateField, type Range, type Text } from "@codemirror/state";
+import { EditorSelection, EditorState, Facet, StateEffect, StateField, type Line, type Range, type Text } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, type DecorationSet } from "@codemirror/view";
 import { api, assetUrl } from "../api.ts";
 import { el, icon } from "../dom.ts";
@@ -20,6 +20,8 @@ import { boardsIn, unclosedBoard } from "../../../src/core/kanban.ts";
 import type { BoardHost, mountBoard } from "../kanban.ts";
 import { editsBetween } from "../merge.ts";
 import { codeWrapByDefault, copyCode, hydrateCode, renderCodeBlock } from "../code.ts";
+import { hydrateMath } from "../math.ts";
+import { blockTex, MathWidget } from "./mathWidgets.ts";
 import { redo, undo } from "@codemirror/commands";
 import { safeDecode } from "../../../src/core/uri.ts";
 
@@ -210,6 +212,7 @@ class EmbedWidget extends WidgetType {
         body.innerHTML = renderMarkdown(md, path, { boards: !heading });
         hydrateDataEmbeds(body, path, settle);
         hydrateCode(body);
+        hydrateMath(body);
         body.querySelectorAll("input").forEach((i) => (i.disabled = true));
         if (body.querySelector(".kb-slot[data-board]")) {
           void import("../kanban.ts").then((m) => ((outer as any).stopBoards = m.hydrateBoards(body, path, { ctx, readOnly: view.state.readOnly, resized: settle })));
@@ -456,6 +459,18 @@ class HintWidget extends WidgetType {
   toDOM() {
     return el("div", { class: "cm-block-hint" }, icon("spark", 12), this.text);
   }
+}
+
+/**
+ * Display math from `first` to `last`: drawn in their place, or, while the cursor is in them, drawn
+ * under them as a live preview (the way diagrams are).
+ */
+function mathBlock(state: EditorState, first: Line, last: Line, tex: string): Range<Decoration> {
+  if (!touches(state, first.from, last.to)) return Decoration.replace({ block: true, widget: new MathWidget(tex, true) }).range(first.from, last.to);
+  const widget = new MathWidget(tex, true, true);
+  return last.number < state.doc.lines
+    ? Decoration.widget({ block: true, side: -1, widget }).range(last.to + 1)
+    : Decoration.widget({ block: true, side: 1, widget }).range(last.to);
 }
 
 /**
@@ -746,6 +761,11 @@ function buildBlocks(state: EditorState): DecorationSet {
         const last = lastLine(doc, ref.from, ref.to);
         if (last.number === first.number) return false;
         const closed = /^\s*(```|~~~)/.test(last.text);
+        if (/^math$/i.test(infoText) && closed) {
+          const tex = doc.sliceString(first.to + 1, Math.max(first.to + 1, last.from - 1)).trim();
+          if (tex) out.push(mathBlock(state, first, last, tex));
+          return false;
+        }
         if (infoText.toLowerCase() !== "mermaid") {
           // Any other closed block draws as a code block until the cursor goes in.
           if (closed && !touches(state, first.from, last.to)) {
@@ -767,6 +787,13 @@ function buildBlocks(state: EditorState): DecorationSet {
         } else {
           out.push(Decoration.replace({ block: true, widget }).range(first.from, last.to));
         }
+        return false;
+      }
+      if (ref.name === "BlockMath") {
+        const first = doc.lineAt(ref.from);
+        const last = lastLine(doc, ref.from, ref.to);
+        const tex = blockTex(doc.sliceString(first.from, last.to));
+        if (tex) out.push(mathBlock(state, first, last, tex));
         return false;
       }
       if (ref.name === "Table") {
