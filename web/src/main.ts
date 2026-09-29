@@ -26,6 +26,7 @@ import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./
 import { appCommands, learnLayout, matchKeys } from "./commands.ts";
 import { toggleShortcuts } from "./shortcuts.ts";
 import { vaultEvents } from "./events.ts";
+import { store } from "./store.ts";
 import { changeVerb, groupChanges } from "../../src/core/format.ts";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
 import { clampSide, forget, newLayout, parseLayout, SIDE_CLICK, sideClick, step, visit, type PaneTrail } from "./panes.ts";
@@ -73,22 +74,6 @@ interface Pane {
   /** Counts what the pane was asked to show, so a note that loads after a later request doesn't replace it. */
   opens: number;
 }
-
-const store = {
-  get<T>(k: string, d: T): T {
-    try {
-      const v = localStorage.getItem(`quire.${k}`);
-      return v === null ? d : JSON.parse(v);
-    } catch {
-      return d;
-    }
-  },
-  set(k: string, v: unknown) {
-    try {
-      localStorage.setItem(`quire.${k}`, JSON.stringify(v));
-    } catch {}
-  },
-};
 
 // This PR's first version stored a "Start on Today" choice; Today is the top of Tasks now.
 try {
