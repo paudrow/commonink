@@ -16,6 +16,8 @@ import { folderPicker } from "./folderPicker.ts";
 import { History } from "./history.ts";
 import { Assets } from "./assets.ts";
 import { renderTasksPage } from "./tasksView.ts";
+import { isQuickAddKey, openQuickAdd } from "./quickAdd.ts";
+import { runTaskCommand } from "./taskCommand.ts";
 import { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
@@ -252,7 +254,7 @@ async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: strin
 async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("tasks");
-  unmountTasks = renderTasksPage($("#tasks-view"), { open: (path, line) => void openNote(path, { line }), tags: () => tags }, { tag: opts.tag, assignee: opts.assignee });
+  unmountTasks = renderTasksPage($("#tasks-view"), { open: (path, line) => void openNote(path, { line }), tags: () => tags, vim: prefs.vim }, { tag: opts.tag, assignee: opts.assignee });
   $("#tasks-view").focus({ preventScroll: true });
   if (opts.push !== false) setUrl("/tasks");
   document.title = "Tasks · Common Ink";
@@ -1566,6 +1568,15 @@ Vim.defineEx("edit", "e", (_cm: unknown, params: { args?: string[] }) => {
 Vim.defineEx("archive", "arch", () => void archiveCurrent());
 Vim.defineEx("notes", "note", () => void showNotes());
 Vim.defineEx("star", "star", () => session && void toggleStar(session.path));
+// :task <words> adds a task (as quick-add reads it) to today's daily note, with an Undo; :task alone opens the bar.
+Vim.defineEx("task", "task", (_cm: unknown, params: { argString?: string }) =>
+  void runTaskCommand(params.argString ?? "", {
+    add: (text) => api.addTask(text),
+    remove: async (r) => void (await api.removeTask(r)),
+    openBar: quickAdd,
+    toast: (t) => toast({ icon: "check", ...t }),
+  }).catch((err) => toast({ text: err instanceof Error ? err.message : "Couldn't add the task" })),
+);
 Vim.defineEx("focus", "foc", () => void setFocusMode(!focusMode));
 Vim.defineAction("quireFollowLink", () => followLinkAtCursor());
 Vim.mapCommand("gd", "action", "quireFollowLink", {}, { context: "normal" });
@@ -1601,6 +1612,11 @@ window.addEventListener(
     } else if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
       e.preventDefault();
       void showNotes({ filter: true });
+    } else if (isQuickAddKey(e) || (e.key === "q" && !mod && !e.altKey && !typingIn(e.target))) {
+      // ⌘⇧. anywhere (the editor in any Vim mode too), or q where you aren't typing: the quick-add bar.
+      e.preventDefault();
+      e.stopPropagation(); // not the editor's (or Vim's) key as well
+      quickAdd();
     } else if (mod && e.key === "e" && session?.kind === "html") {
       e.preventDefault();
       setHtmlMode(prefs.htmlMode === "preview" ? "source" : "preview");
@@ -1608,6 +1624,22 @@ window.addEventListener(
   },
   true,
 );
+
+/** The floating quick-add bar. From a note, Tab in it sends the task to that note. */
+function quickAdd() {
+  openQuickAdd({
+    added: (r) => toast({ icon: "check", text: `Added to ${r.path.replace(/\.md$/, "")}`, actionLabel: "Open", action: () => void openNote(r.path, { line: r.line }) }),
+    open: (path, line) => void openNote(path, { line }),
+    vim: prefs.vim,
+    note: session?.kind === "md" ? session.path : undefined,
+  });
+}
+
+/** Whether a key pressed here is someone typing: a field, a text area, or the editor. */
+function typingIn(target: EventTarget | null): boolean {
+  const t = target as HTMLElement | null;
+  return !!t?.closest?.("input, textarea, select, [contenteditable]:not([contenteditable=false]), .cm-editor");
+}
 
 const narrow = matchMedia("(max-width: 1100px)");
 function togglePanel(force?: boolean) {

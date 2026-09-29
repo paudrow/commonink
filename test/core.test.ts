@@ -433,6 +433,59 @@ test("tasks carry their tokens, filter by due date and person, and ticking one s
   assert.equal(fs.readFileSync(path.join(dir, "Plan.md"), "utf8").split("\n")[2], "- [ ] Send invoice due:2026-09-30 @jane !high #billing");
 });
 
+test("a quick-added task goes to today's daily note under Tasks, or to the note it names", () => {
+  const { dir, quire } = openTempVault({ "Launch.md": "# Launch\n\n## Tasks\n\n- [ ] Book the venue\n\n## Notes\n\nText.\n" });
+  const read = (p: string) => fs.readFileSync(path.join(dir, p), "utf8");
+  const a = quire.addTask("Call mom tomorrow", "t", { today: "2026-09-28" });
+  assert.deepEqual([a.path, a.line, a.text], ["Journal/2026-09-28.md", 5, "Call mom due:2026-09-29"]);
+  assert.equal(read("Journal/2026-09-28.md"), "# 2026-09-28\n\n## Tasks\n\n- [ ] Call mom due:2026-09-29\n");
+  quire.addTask("Pay rent every month on the 1st #home", "t", { today: "2026-09-28" });
+  assert.equal(read("Journal/2026-09-28.md"), "# 2026-09-28\n\n## Tasks\n\n- [ ] Call mom due:2026-09-29\n- [ ] Pay rent due:2026-10-01 rec:1st #home\n");
+  // A daily note without a Tasks section gets one at its end.
+  fs.writeFileSync(path.join(dir, "Journal/2026-09-29.md"), "# 2026-09-29\n\n## Log\n\n- 09:00 hi\n");
+  quire.sync();
+  quire.addTask("Stretch", "t", { today: "2026-09-29" });
+  assert.equal(read("Journal/2026-09-29.md"), "# 2026-09-29\n\n## Log\n\n- 09:00 hi\n\n## Tasks\n\n- [ ] Stretch\n");
+  // → [[Note]] targets that note's Tasks section.
+  const b = quire.addTask("Print the badges → [[Launch]] next fri", "t", { today: "2026-09-28" });
+  assert.deepEqual([b.path, b.line], ["Launch.md", 6]);
+  assert.equal(read("Launch.md"), "# Launch\n\n## Tasks\n\n- [ ] Book the venue\n- [ ] Print the badges due:2026-10-02\n\n## Notes\n\nText.\n");
+  // A phrase clicked away stays words.
+  assert.equal(quire.addTask("Watch Next Week's show", "t", { today: "2026-09-28", ignore: ["next week"] }).text, "Watch Next Week's show");
+  assert.throws(() => quire.addTask("tomorrow", "t", { today: "2026-09-28" }), /Say what the task is/);
+  assert.throws(() => quire.addTask("x → [[Nowhere]]", "t"), /No note matches "Nowhere"/);
+  assert.throws(() => quire.addTask("x", "t", { today: "someday" }), /"today" must be a date/);
+});
+
+test("quick-add can go to a note it's given, and removing a task takes it (and what's nested) back out", () => {
+  const { dir, quire } = openTempVault({ "Launch.md": "# Launch\n\nNotes.\n", "Other.md": "# Other\n" });
+  const read = (p: string) => fs.readFileSync(path.join(dir, p), "utf8");
+  const r = quire.addTask("Print badges tomorrow", "t", { today: "2026-09-28", to: "Launch" });
+  assert.deepEqual([r.path, r.line, r.text], ["Launch.md", 5, "Print badges due:2026-09-29"]);
+  assert.equal(read("Launch.md"), "# Launch\n\nNotes.\n\n- [ ] Print badges due:2026-09-29\n");
+  // → [[Note]] in the words wins over the note it was given.
+  assert.equal(quire.addTask("Tidy → [[Other]]", "t", { today: "2026-09-28", to: "Launch" }).path, "Other.md");
+  quire.removeTask("Launch", 5, "Print badges due:2026-09-29", "t");
+  assert.equal(read("Launch.md"), "# Launch\n\nNotes.\n");
+  assert.throws(() => quire.removeTask("Launch", 5, "Print badges due:2026-09-29", "t"), /isn't in Launch\.md any more/);
+  assert.throws(() => quire.addTask("x", "t", { to: "Nowhere" }), /No note matches "Nowhere"/);
+});
+
+test("moving a task takes its line and the lines nested under it to another note's Tasks", () => {
+  const { dir, quire } = openTempVault({
+    "Inbox.md": "# Inbox\n\n- [ ] Plan the offsite @jane\n  - [ ] Pick a venue\n  Notes about it.\n- [ ] Other\n",
+    "Offsite.md": "# Offsite\n\n## Tasks\n\n- [ ] Budget\n",
+  });
+  const read = (p: string) => fs.readFileSync(path.join(dir, p), "utf8");
+  const r = quire.moveTask("Inbox", 3, "Plan the offsite @jane", "Offsite", "t");
+  assert.deepEqual([r.path, r.line, r.text], ["Offsite.md", 6, "Plan the offsite @jane"]);
+  assert.equal(read("Inbox.md"), "# Inbox\n\n- [ ] Other\n");
+  assert.equal(read("Offsite.md"), "# Offsite\n\n## Tasks\n\n- [ ] Budget\n- [ ] Plan the offsite @jane\n  - [ ] Pick a venue\n  Notes about it.\n");
+  assert.equal(quire.tasks({ note: "Offsite" }).length, 3);
+  assert.throws(() => quire.moveTask("Offsite", 6, "Plan the offsite @jane", "Offsite", "t"), /already in Offsite\.md/);
+  assert.throws(() => quire.moveTask("Inbox", 3, "stale", "Offsite", "t"), /isn't in Inbox\.md any more/);
+});
+
 test("ticking a repeating task in its note adds the next one below, from any surface that ticks", () => {
   const { dir, quire } = openTempVault({ "Bills.md": "# Bills\n\n- [ ] Pay rent due:2026-10-06 rec:6th\n" });
   const r = quire.updateTask("Bills", 3, "Pay rent due:2026-10-06 rec:6th", { checked: true }, "t", "2026-10-04");

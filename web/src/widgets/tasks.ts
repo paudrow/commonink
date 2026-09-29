@@ -161,7 +161,11 @@ export const tasks: WidgetSpec = {
         Object.assign(t, await api.updateTask(t, patch)); // its new text, for the next change
         void load();
       };
-      const ctx = { task: t, save, people: taskPeople, showPerson: env.openPerson };
+      const move = async (to: string) => {
+        await api.moveTask(t, to);
+        void load();
+      };
+      const ctx = { task: t, save, people: taskPeople, showPerson: env.openPerson, move };
       text.addEventListener("mousedown", (e) => {
         // A click on the words edits them, so let that one place the caret; chips and tags keep focus where it is.
         const target = e.target as HTMLElement;

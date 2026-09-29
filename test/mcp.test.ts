@@ -27,8 +27,10 @@ async function call(name: string, args: Record<string, unknown>) {
 test("the server lists every tool", async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
-    "append_to_note", "archive_note", "backlinks", "create_note", "delete_smart_folder", "edit_note", "list_notes", "list_smart_folders", "list_tags", "list_tasks", "move_note",
-    "read_note", "recent_changes", "save_smart_folder", "search_notes", "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag", "update_task",
+    "add_task", "append_to_note", "archive_note", "backlinks", "create_note", "delete_smart_folder", "edit_note",
+    "list_notes", "list_smart_folders", "list_tags", "list_tasks", "move_note", "move_task", "read_note",
+    "recent_changes", "save_smart_folder", "search_notes", "star_note", "star_tag", "unarchive_note", "unstar_note",
+    "unstar_tag", "update_task",
   ]);
 });
 
@@ -40,6 +42,16 @@ test("agents list tasks with their tokens and change one without touching the re
   await call("update_task", { path: "Chores", line: 3, text: "Water the plants !high due:2026-10-01 @sam", priority: null, done: true });
   assert.match((await call("list_tasks", { status: "done", due: "2026-10-01" })).text, /^- \[x\] Water the plants due:2026-10-01 @sam done:\d{4}-\d{2}-\d{2} — Chores\.md:3$/);
   assert.equal((await call("update_task", { path: "Chores", line: 3, text: "stale", done: false })).isError, true);
+});
+
+test("agents add a task from words, to today's daily note or a named note, and move one", async () => {
+  const today = new Date().toLocaleDateString("en-CA");
+  const r = await call("add_task", { text: "Renew the domain every year on mar 1 !high" });
+  assert.match(r.text, new RegExp(`^Added "- \\[ \\] Renew the domain !high due:\\d{4}-03-01 rec:mar-1" to Journal/${today}\\.md:5$`));
+  const to = await call("add_task", { text: "Draft the agenda → [[Roadmap]]" });
+  assert.equal(to.text, 'Added "- [ ] Draft the agenda" to Projects/Roadmap.md:10');
+  assert.equal((await call("move_task", { path: "Roadmap", line: 10, text: "Draft the agenda", to: `Journal/${today}` })).text, `Moved "Draft the agenda" to Journal/${today}.md:6`);
+  assert.equal((await call("add_task", { text: "tomorrow" })).isError, true);
 });
 
 test("agents list tags as a tree and filter notes by a tag and the tags under it", async () => {

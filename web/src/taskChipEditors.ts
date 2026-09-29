@@ -17,6 +17,8 @@ export interface ChipContext {
   showPerson(name: string): void;
   /** The editor closed (saved, Escape, or a click away): the note editor takes its focus back. */
   onClose?(): void;
+  /** Move the task to another note (task lists offer "Move to…"). */
+  move?(to: string): Promise<void>;
 }
 
 /** Everyone @-mentioned on a task anywhere, most tasks first. */
@@ -67,10 +69,10 @@ const item = (label: string | Node, iconName: string | Node | null, on: () => vo
     current ? el("span", { class: "fp-here" }, "now") : null,
   );
 
-/** Run a save from a popover, keeping it open with the error if the note changed underneath. */
-const saving = (close: () => void, ctx: ChipContext, patch: TaskPatch) => async () => {
+/** Run a save from a popover (a patch, or another `run`), and say so if it fails. */
+const saving = (close: () => void, ctx: ChipContext, patch: TaskPatch, run = () => ctx.save(patch)) => async () => {
   try {
-    await ctx.save(patch);
+    await run();
     close();
   } catch (e) {
     close();
@@ -485,6 +487,44 @@ export function openTaskMenu(anchor: HTMLElement, ctx: ChipContext) {
         now ? el("span", { class: "task-menu-value" }, now) : el("span", { class: "task-menu-value is-empty" }, "Add"),
       );
     }),
+    ...(ctx.move
+      ? [
+          el("div", { class: "fp-sep" }),
+          item(`Move to…`, "move", () => {
+            handedOff = true;
+            close();
+            movePicker(anchor, ctx);
+          }),
+        ]
+      : []),
   );
   list.querySelector<HTMLElement>(".fp-item")?.focus();
+}
+
+/** "Move to…": pick another note (by title) and the task goes to it, into its Tasks section. */
+function movePicker(anchor: HTMLElement, ctx: ChipContext) {
+  const input = el("input", { class: "fp-input", placeholder: "Move to note…", spellcheck: "false", autocomplete: "off" });
+  const list = el("div", { class: "fp-list" });
+  const { close } = popover(anchor, ctx, "Move task", el("div", { class: "fp-head" }, icon("move", 15), input), list);
+  let notes: Array<{ path: string; title: string }> = [];
+  const render = () => {
+    const q = input.value.trim().toLowerCase();
+    const matches = notes.filter((n) => n.path !== ctx.task.path && (n.title.toLowerCase().includes(q) || n.path.toLowerCase().includes(q))).slice(0, 8);
+    list.replaceChildren(
+      ...matches.map((n) => item(n.title, "file", saving(close, ctx, {}, () => ctx.move!(n.path)))),
+      ...(matches.length ? [] : [el("div", { class: "fp-empty" }, notes.length ? "No note matches" : "Loading notes…")]),
+    );
+  };
+  input.addEventListener("input", render);
+  input.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    list.querySelector<HTMLButtonElement>(".fp-item")?.click();
+  });
+  render();
+  void api
+    .notes()
+    .then((all) => ((notes = all.filter((n) => n.kind === "md" && !n.path.startsWith("Archive/")).sort((a, b) => b.mtime - a.mtime)), render()))
+    .catch(() => {});
+  input.focus();
 }

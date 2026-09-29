@@ -283,3 +283,49 @@ export function addDays(day: string, n: number): string {
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 }
+
+/**
+ * A note with task lines added: at the end of its "Tasks" section (a heading named Tasks, at any
+ * level), or, without one, at the end of the note, under a new `## Tasks` heading if `heading`
+ * (a daily note) or right after the last line otherwise. `line` is where the first one landed.
+ */
+export function withTasksAdded(content: string, block: string[], heading: boolean): { content: string; line: number } {
+  const lines = content.replace(/\n+$/, "").split("\n");
+  if (lines.length === 1 && lines[0] === "") lines.pop();
+  let fence: string | null = null;
+  let section = -1;
+  let level = 0;
+  let end = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    const f = lines[i].match(/^\s{0,3}(`{3,}|~{3,})/)?.[1];
+    if (f && (!fence || (f[0] === fence[0] && f.length >= fence.length))) fence = fence ? null : f;
+    const h = !fence && !f ? lines[i].match(/^(#{1,6})\s+(.*?)\s*#*\s*$/) : null;
+    if (!h) continue;
+    if (section < 0 && h[2].toLowerCase() === "tasks") [section, level] = [i, h[1].length];
+    else if (section >= 0 && h[1].length <= level) {
+      end = i;
+      break;
+    }
+  }
+  let at: number;
+  if (section >= 0) {
+    // After the section's last line with anything on it; a section with nothing yet gets a blank line first.
+    let last = end;
+    while (last > section + 1 && !lines[last - 1].trim()) last--;
+    const empty = last === section + 1;
+    const insert = empty ? ["", ...block] : block;
+    lines.splice(last, 0, ...insert);
+    at = last + (empty ? 1 : 0);
+    const after = last + insert.length;
+    if (after < lines.length && lines[after].trim()) lines.splice(after, 0, ""); // keep a blank line before the next heading
+  } else if (heading) {
+    lines.push(...(lines.length ? [""] : []), "## Tasks", "", ...block);
+    at = lines.length - block.length;
+  } else {
+    // Straight after a list; after a blank line otherwise.
+    if (lines.length && !/^\s*([-*+]|\d+[.)])\s/.test(lines[lines.length - 1])) lines.push("");
+    at = lines.length;
+    lines.push(...block);
+  }
+  return { content: lines.join("\n") + "\n", line: at + 1 };
+}

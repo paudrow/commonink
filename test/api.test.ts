@@ -163,6 +163,22 @@ test("tasks filter by due date against the reader's today, and a task's tokens c
   assert.deepEqual([late.status, late.body.error], [400, `"today" must be a date like 2026-10-01, not "someday"`]);
 });
 
+test("quick-add writes a task from words, and a task moves to another note", async () => {
+  const { call, events } = setup();
+  const added = await call("POST", "/tasks/add", { text: "Ship the importer docs → [[Roadmap]] tomorrow", today: "2026-10-01", ignore: [] });
+  assert.deepEqual(added.body, { path: "Projects/Roadmap.md", version: added.body.version, line: 10, text: "Ship the importer docs due:2026-10-02" });
+  assert.deepEqual(events, ["written Projects/Roadmap.md by tester"]);
+  assert.equal((await call("POST", "/tasks/add", { text: "Stretch daily", today: "2026-10-01" })).body.path, "Journal/2026-10-01.md");
+  assert.equal((await call("POST", "/tasks/add", { text: "x", ignore: "next week" })).status, 400);
+  const toNote = await call("POST", "/tasks/add", { text: "Tidy up", today: "2026-10-01", to: "Welcome" });
+  assert.deepEqual([toNote.body.path, toNote.body.text], ["Welcome.md", "Tidy up"]);
+  const removed = await call("POST", "/tasks/remove", { path: "Welcome", line: toNote.body.line, text: "Tidy up" });
+  assert.equal(removed.status, 200);
+  assert.equal((await call("GET", "/note?path=Welcome")).body.content, "# Welcome\n\nStart with [[Roadmap]].\n\n![[chart.svg]]\n");
+  const moved = await call("POST", "/tasks/move", { path: "Roadmap", line: 10, text: "Ship the importer docs due:2026-10-02", to: "Journal/2026-10-01" });
+  assert.deepEqual([moved.status, moved.body.path, moved.body.line], [200, "Journal/2026-10-01.md", 6]);
+});
+
 test("smart folders: an editor shares one, a viewer keeps their own but can't create, change or delete shared ones", async () => {
   const vault = openTempVault();
   const editor = setup({ user: "ed" }, vault);
