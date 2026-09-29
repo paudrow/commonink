@@ -1068,17 +1068,18 @@ function renderFavorites() {
   // The tag Notes shows on its own (like a folder alone), which its favorite marks as open.
   const q = onPage() === "notes" && notesPage.scope === "active" ? notesPage.query : null;
   const shownTag = q?.tag && formatQuery(q) === formatQuery({ tag: q.tag }) ? (normalizeTag(q.tag) ?? "") : "";
-  const list = favorites.filter((f) => isTagFavorite(f) || !isArchived(f.path));
-  const rows = list.map((f) => {
+  const rows = favorites.map((f) => {
     if (isTagFavorite(f)) {
       const row = tagFavoriteRow(f, f.tag === shownTag);
       favoriteDrop(row, "is-drop-before", favoriteKey(f));
       return row;
     }
+    // An archived favorite stays, dimmed: archiving tidies search and the sidebar, not your stars.
+    const archived = isArchived(f.path);
     const row = el(
       "div",
       {
-        class: `tree-row is-file${f.path === active.session?.path ? " is-active" : ""}`,
+        class: `tree-row is-file${f.path === active.session?.path ? " is-active" : ""}${archived ? " is-archived" : ""}`,
         style: { "--depth": "0" },
         title: f.path,
         draggable: "true",
@@ -1093,6 +1094,7 @@ function renderFavorites() {
       el("span", { class: "chev is-leaf" }),
       icon(f.kind === "html" ? "html" : "file", 14),
       el("span", { class: "tree-name" }, displayName(f.path)),
+      archived ? el("span", { class: "n" }, "Archived") : null,
       el(
         "span",
         { class: "row-actions" },
