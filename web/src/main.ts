@@ -91,7 +91,7 @@ try {
 } catch {}
 
 const prefs = {
-  vim: store.get("vim", true),
+  vim: store.get("vim", !matchMedia("(pointer: coarse)").matches), // off on a touch screen: an on-screen keyboard has no Esc
   panel: store.get("panel", true),
   htmlMode: store.get<"preview" | "source">("htmlMode", "preview"),
   /** Folders whose subfolders are showing in the sidebar (they start closed). */
