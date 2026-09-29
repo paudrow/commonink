@@ -1,0 +1,7 @@
+# Secret scanning in CI (.github/workflows/ci.yml): gitleaks' default rules, plus known non-secrets.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "The sample WebSocket key from RFC 6455, used in tests"
+regexes = ['''dGhlIHNhbXBsZSBub25jZQ==''']

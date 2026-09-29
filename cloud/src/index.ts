@@ -1,7 +1,7 @@
 // The Worker: signs people in, checks what they can open, and forwards workspace requests to that
 // workspace's Durable Object. Everything else is the web app, served from the edge as static assets.
 import { json } from "../../src/core/api.ts";
-import { unfurl } from "../../src/core/unfurl.ts";
+import { assertPublicUrl, unfurl } from "../../src/core/unfurl.ts";
 import { MAX_UPLOAD } from "../../src/core/paths.ts";
 import { SANDBOX_PATH, sandboxPage } from "../../src/core/sandbox.ts";
 import { access, isAccountRoute, routeKey, type AccountRoute } from "./access.ts";
@@ -9,6 +9,7 @@ import { clearSessionCookies, ensurePersonalWorkspace, handleAuth, readSession, 
 import { acceptInvite, createInvite, createWorkspace, endSessionsOf, locateNote, membership, workspacesOf, type User } from "./directory.ts";
 import type { Env } from "./env.ts";
 import { fetchAsset, secure } from "./headers.ts";
+import { limit } from "./limits.ts";
 
 export { Workspace } from "./workspace.ts";
 
@@ -25,7 +26,11 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
     return Response.redirect(url.toString(), 301);
   }
   if (url.pathname === SANDBOX_PATH) return sandboxPage();
-  if (url.pathname.startsWith("/auth/")) return handleAuth(req, env, (user) => ensurePersonalWorkspace(env, user));
+  if (url.pathname.startsWith("/auth/")) {
+    const ip = req.headers.get("CF-Connecting-IP") ?? "unknown";
+    const tooMany = url.pathname !== "/auth/logout" && (await limit(env.DB, "signIn", ip, "text"));
+    return tooMany || handleAuth(req, env, (user) => ensurePersonalWorkspace(env, user));
+  }
   if (url.pathname.startsWith("/invite/")) return invite(req, env, url);
   if (url.pathname.startsWith("/api/")) return api(req, env, url);
   return fetchAsset(env.ASSETS, req, url);
@@ -42,6 +47,8 @@ interface Call {
 const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
   "GET /api/me": async ({ env, user }) => json({ user, workspaces: await workspacesOf(env.DB, user.id) }),
   "POST /api/workspaces": async ({ req, env, user }) => {
+    const tooMany = await limit(env.DB, "workspace", user.id);
+    if (tooMany) return tooMany;
     const { name } = (await req.json()) as { name?: string };
     const clean = String(name ?? "").trim().slice(0, 80);
     if (!clean) return json({ error: "Give the workspace a name" }, 400);
@@ -49,10 +56,18 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
     await seedWorkspace(env, id);
     return json({ id });
   },
-  "GET /api/unfurl": async ({ url }) => {
+  "GET /api/unfurl": async ({ env, url, user }) => {
     const target = url.searchParams.get("url") ?? "";
     if (!/^https?:\/\//i.test(target)) return json({ error: "http(s) URLs only" }, 400);
-    return json(await unfurl(target));
+    const tooMany = await limit(env.DB, "unfurl", user.id);
+    if (tooMany) return tooMany;
+    // Public hosts on default ports, and never this app (it would fetch itself).
+    return json(
+      await unfurl(target, (u) => {
+        assertPublicUrl(u);
+        if (u.hostname.replace(/\.$/, "") === url.hostname) throw new Error("self"); // "commonink.app." too
+      }),
+    );
   },
   "GET /api/note-ids/*": async ({ env, url, user }) => {
     const noteId = url.pathname.match(/^\/api\/note-ids\/([a-z2-9]{8})$/)?.[1];
@@ -99,8 +114,15 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
   if (route === "/invites" && req.method === "POST") {
     if (ws.kind !== "team") return json({ error: "Only a team's owner can invite people" }, 403);
     const { role } = (await req.json()) as { role?: string };
+    const tooMany = await limit(env.DB, "invite", user.id);
+    if (tooMany) return tooMany;
     const token = await createInvite(env.DB, ws.id, user.id, role === "viewer" ? "viewer" : "editor");
     return json({ url: `${url.origin}/invite/${token}` });
+  }
+
+  if (isUpload) {
+    const tooMany = await limit(env.DB, "upload", user.id);
+    if (tooMany) return tooMany;
   }
 
   // Forward to the workspace. Only this Worker can reach it, so these headers can be trusted there.
