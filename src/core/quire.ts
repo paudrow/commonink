@@ -313,16 +313,13 @@ export class Quire {
       this.db.run("DELETE FROM tags WHERE path = ? AND kind != 'asset'", rel);
       this.db.run("DELETE FROM tasks WHERE path = ?", rel);
       if (kind === "md" && content) {
-        for (const { line, done, ...task } of tasksIn(content)) {
-          this.db.run("INSERT INTO tasks(path, line, done, due, start, task) VALUES (?,?,?,?,?,?)", rel, line, done ? 1 : 0, task.meta.due, task.meta.start, JSON.stringify(task));
-        }
-        for (const l of extractLinks(content)) this.db.run("INSERT INTO links(src, key, kind, line) VALUES (?,?,?,?)", rel, l.key, l.kind, l.line);
+        const tasks = tasksIn(content).map(({ line, done, ...task }) => [rel, line, done ? 1 : 0, task.meta.due, task.meta.start, JSON.stringify(task)]);
+        insertRows(this.db, "INSERT INTO tasks(path, line, done, due, start, task)", tasks);
+        insertRows(this.db, "INSERT INTO links(src, key, kind, line)", extractLinks(content).map((l) => [rel, l.key, l.kind, l.line]));
         const lines = content.split("\n");
-        for (const t of scanTags(content)) {
-          const on = !t.frontmatter && TASK_LINE.test(lines[t.line - 1]) ? "task" : "note";
-          this.db.run("INSERT INTO tags(tag, kind, path, line) VALUES (?,?,?,?)", t.tag, on, rel, t.line);
-          this.nameTag(t.display);
-        }
+        const tags = scanTags(content);
+        insertRows(this.db, "INSERT INTO tags(tag, kind, path, line)", tags.map((t) => [t.tag, !t.frontmatter && TASK_LINE.test(lines[t.line - 1]) ? "task" : "note", rel, t.line]));
+        for (const display of new Set(tags.map((t) => t.display))) this.nameTag(display);
       }
       return { id: noteId, path: rel, kind, title, version, mtime: st.mtime, size: st.size };
     });
@@ -1467,6 +1464,21 @@ export class Quire {
       }
     }
     return { path: dest, from, version: meta.version, change, updated, edits };
+  }
+}
+
+/**
+ * Insert `rows` (all the same width) in as few statements as a Durable Object allows: at most 100
+ * bound parameters each. A 1 MB note has thousands of links, tags and tasks, and online every
+ * statement is a call out of JavaScript.
+ */
+function insertRows(db: SqlDb, insert: string, rows: unknown[][]) {
+  if (!rows.length) return;
+  const per = Math.floor(100 / rows[0].length);
+  const tuple = `(${Array(rows[0].length).fill("?").join(",")})`;
+  for (let i = 0; i < rows.length; i += per) {
+    const chunk = rows.slice(i, i + per);
+    db.run(`${insert} VALUES ${Array(chunk.length).fill(tuple).join(",")}`, ...chunk.flat());
   }
 }
 
