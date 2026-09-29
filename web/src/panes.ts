@@ -11,6 +11,14 @@ export const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/
 export const sideClick = (e: { metaKey: boolean; ctrlKey: boolean; button?: number }, mac = IS_MAC) =>
   (e.button ?? 0) === 0 && (mac ? e.metaKey && !e.ctrlKey : e.ctrlKey);
 
+/**
+ * What a click on a real link to a note (`<a href="/notes/…">`) does: open it here, open it to
+ * the side (the same click as everywhere else), or leave it to the browser, which opens a new tab
+ * or window for a middle-click, Shift-click and the like.
+ */
+export const linkClick = (e: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; button?: number }, mac = IS_MAC): "open" | "side" | "browser" =>
+  sideClick(e, mac) ? "side" : (e.button ?? 0) !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey ? "browser" : "open";
+
 /** How that click is written in hints. */
 export const SIDE_CLICK = IS_MAC ? "⌘-click" : "Ctrl-click";
 
@@ -105,10 +113,11 @@ export function historyStep(at: number, to: unknown): { dir: "back" | "forward";
   return { dir: to < at ? "back" : "forward", steps: Math.abs(to - at) };
 }
 
-/** Where you were in a note: the cursor, and how far down it was scrolled. */
+/** Where you were in a note: the cursor, and the view: the line at its top and how far into that line. */
 export interface Place {
   pos: number;
   top: number;
+  off: number;
 }
 /** Remember a note's place (by its ID, so renames keep it), keeping the latest `keep` notes. */
 export function rememberPlace(places: Record<string, Place>, id: string, place: Place, keep = 200): Record<string, Place> {

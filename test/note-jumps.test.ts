@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { historyStep, pageEntry, pageOf, rememberPlace, step, visit } from "../web/src/panes.ts";
-import { isShortcut } from "../web/src/typedKey.ts";
+import { learnLayout, matchKeys } from "../web/src/commands.ts";
 
 test("a page is in a pane's trail only when you went to it; back from a linked note is the note that linked it", () => {
   // Notes (clicked) → A → link to B → link to C.
@@ -28,19 +28,19 @@ test("a browser back or forward is a step in the focused pane, as many as the br
 
 test("where you were in each note is kept for the latest notes, newest last", () => {
   let places = {};
-  for (let i = 0; i < 5; i++) places = rememberPlace(places, `n${i}`, { pos: i, top: i * 10 }, 3);
+  for (let i = 0; i < 5; i++) places = rememberPlace(places, `n${i}`, { pos: i, top: i * 10, off: 0 }, 3);
   assert.deepEqual(Object.keys(places), ["n2", "n3", "n4"]);
-  places = rememberPlace(places, "n2", { pos: 9, top: 90 }, 3);
-  assert.deepEqual(Object.entries(places), [["n3", { pos: 3, top: 30 }], ["n4", { pos: 4, top: 40 }], ["n2", { pos: 9, top: 90 }]]);
+  places = rememberPlace(places, "n2", { pos: 9, top: 90, off: 4 }, 3);
+  assert.deepEqual(Object.entries(places), [["n3", { pos: 3, top: 30, off: 0 }], ["n4", { pos: 4, top: 40, off: 0 }], ["n2", { pos: 9, top: 90, off: 4 }]]);
 });
 
-test("back and forward keys by the character typed: ⌘[ and ⌘] (Ctrl off a Mac), on US and Dvorak", () => {
-  const DVORAK = { get: (code: string) => ({ Minus: "[", Equal: "]", BracketLeft: "/", BracketRight: "=" })[code] };
+test("back and forward keys by the character typed: ⌘[ and ⌘] (Ctrl off a Mac), on US and Dvorak", async () => {
   const key = (key: string, code: string, mods: Partial<Record<"metaKey" | "ctrlKey" | "altKey" | "shiftKey", boolean>>) => ({ key, code, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...mods });
-  const mac = { mac: true, layout: DVORAK };
-  assert.equal(isShortcut(key("[", "Minus", { metaKey: true }), "Mod-[", mac), true, "Dvorak's [ is the physical - key");
-  assert.equal(isShortcut(key("/", "BracketLeft", { metaKey: true }), "Mod-[", mac), false, "and its physical [ key types /");
-  assert.equal(isShortcut(key("]", "BracketRight", { metaKey: true }), "Mod-]", { mac: true, layout: null }), true, "US Mac");
-  assert.equal(isShortcut(key("[", "BracketLeft", { ctrlKey: true }), "Mod-[", { mac: false, layout: null }), true, "Windows: Ctrl+[");
-  assert.equal(isShortcut(key("[", "BracketLeft", { metaKey: true, shiftKey: true }), "Mod-[", mac), false, "⌘⇧[ isn't back");
+  await learnLayout({ getLayoutMap: async () => new Map([["Minus", "["], ["Equal", "]"], ["BracketLeft", "/"], ["BracketRight", "="]]) });
+  assert.equal(matchKeys(key("[", "Minus", { metaKey: true }), "Mod-[", true), true, "Dvorak's [ is the physical - key");
+  assert.equal(matchKeys(key("/", "BracketLeft", { metaKey: true }), "Mod-[", true), false, "and its physical [ key types /");
+  assert.equal(matchKeys(key("]", "Equal", { metaKey: true }), "Mod-]", true), true);
+  assert.equal(matchKeys(key("[", "BracketLeft", { ctrlKey: true }), "Mod-[", false), true, "Windows: Ctrl+[");
+  assert.equal(matchKeys(key("[", "Minus", { metaKey: true, shiftKey: true }), "Mod-[", true), false, "⌘⇧[ isn't back");
+  await learnLayout(undefined);
 });

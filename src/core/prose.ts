@@ -41,6 +41,49 @@ export function proseLines(md: string): Array<[number, string]> {
   return out;
 }
 
+/**
+ * `md` with `fn` applied to each stretch of text outside code, line by line. Code (fenced and
+ * indented blocks as proseLines finds them, and `code spans`) is left exactly as written.
+ */
+export function mapOutsideCode(md: string, fn: (text: string) => string): string {
+  const prose = new Set(proseLines(md).map(([n]) => n - 1));
+  return md
+    .split("\n")
+    .map((line, i) => {
+      if (!prose.has(i)) return line;
+      let out = "";
+      let at = 0;
+      for (const [from, to] of codeSpans(line)) {
+        out += fn(line.slice(at, from)) + line.slice(from, to);
+        at = to;
+      }
+      return out + fn(line.slice(at));
+    })
+    .join("\n");
+}
+
+/** A line's code spans as [from, to) ranges: a run of backticks up to the next run of the same length. */
+function codeSpans(line: string): Array<[number, number]> {
+  const runs = [...line.matchAll(/`+/g)].map((m) => ({ at: m.index, len: m[0].length }));
+  const next: Array<number | undefined> = [];
+  const seen = new Map<number, number>();
+  for (let i = runs.length - 1; i >= 0; i--) {
+    next[i] = seen.get(runs[i].len);
+    seen.set(runs[i].len, i);
+  }
+  const spans: Array<[number, number]> = [];
+  for (let i = 0; i < runs.length; ) {
+    const j = next[i];
+    if (j === undefined) {
+      i++;
+      continue;
+    }
+    spans.push([runs[i].at, runs[j].at + runs[j].len]);
+    i = j + 1;
+  }
+  return spans;
+}
+
 /** The line with `code spans` blanked out, same length, so columns still line up. */
 export const withoutCode = (line: string) => line.replace(/`[^`]*`/g, (s) => " ".repeat(s.length));
 

@@ -277,7 +277,7 @@ const TOOLS: Tool[] = [
     run: (v, f, t) => insert(v, f, t, "```mermaid\nflowchart LR\n  A[Idea] --> B[Note] --> C[Agent]\n```", { cursor: 58, block: true }),
   },
   { title: "Link to note", hint: "[[Note]]", icon: "link", keywords: "link wikilink note reference", section: "Insert", run: (v, f, t) => (insert(v, f, t, "[[]]", { cursor: 2 }), soon(v)) },
-  { title: "Task", hint: "- [ ]", icon: "task", keywords: "task todo checkbox check", section: "Blocks", run: (v, f, t) => insert(v, f, t, "- [ ] ", { block: true }) },
+  { title: "Checkbox", hint: "- [ ]", icon: "task", keywords: "todo task checkbox check", section: "Blocks", run: (v, f, t) => insert(v, f, t, "- [ ] ", { block: true }) },
   { title: "Heading 1", hint: "#", icon: "heading", keywords: "heading h1 title", section: "Blocks", run: (v, f, t) => insert(v, f, t, "# ", { block: true }) },
   { title: "Heading 2", hint: "##", icon: "heading", keywords: "heading h2 subtitle", section: "Blocks", run: (v, f, t) => insert(v, f, t, "## ", { block: true }) },
   { title: "Heading 3", hint: "###", icon: "heading", keywords: "heading h3", section: "Blocks", run: (v, f, t) => insert(v, f, t, "### ", { block: true }) },
@@ -292,14 +292,21 @@ const TOOLS: Tool[] = [
 ];
 const SECTION_RANK = { Embed: 0, Widgets: 1, Blocks: 2, Insert: 3 };
 
-function toolSource(ctx: CompletionContext): CompletionResult | null {
+/** How well `q` matches a tool's words; a whole word ("time" in "Current time") beats the start of a longer one ("Timer"). */
+function toolScore(q: string, text: string): number {
+  const s = fuzzyScore(q, text);
+  const word = ` ${text.toLowerCase()} `.includes(` ${q.toLowerCase()} `);
+  return s < 0 || !word ? s : s + 50;
+}
+
+export function toolSource(ctx: CompletionContext): CompletionResult | null {
   const m = ctx.matchBefore(/(?:^|\s)\/[\w-]*$/);
   if (!m) return null;
   const slash = m.from + m.text.lastIndexOf("/");
   if (!inProse(ctx.state, slash)) return null;
   const q = ctx.state.sliceDoc(slash + 1, ctx.pos);
   const matches = q
-    ? TOOLS.map((t) => ({ t, s: Math.max(fuzzyScore(q, t.title), fuzzyScore(q, t.keywords) - 20) }))
+    ? TOOLS.map((t) => ({ t, s: Math.max(toolScore(q, t.title), toolScore(q, t.keywords) - 20) }))
         .filter((x) => x.s >= 0)
         .sort((a, b) => b.s - a.s)
         .map((x) => x.t)

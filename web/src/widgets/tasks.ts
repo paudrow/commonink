@@ -49,7 +49,7 @@ const SORTERS: Record<Sort, (a: Task, b: Task) => number> = {
 
 export const tasks: WidgetSpec = {
   name: "tasks",
-  title: "Tasks",
+  title: "Task list",
   icon: "task",
   hint: "Open tasks from across your notes",
   keywords: "tasks todo checklist rollup dashboard due",
@@ -76,15 +76,15 @@ export const tasks: WidgetSpec = {
 
     const summary = el("div", { class: "qt-summary" });
     const bar = el("span");
-    const seg = el("div", { class: "seg qt-seg" });
-    const select = <T extends string>(options: Record<T, string>, value: () => T, set: (v: T) => void) => {
-      const s = el("select", { class: "qt-select", onmousedown: (e: Event) => e.stopPropagation() }, ...Object.entries(options).map(([k, label]) => el("option", { value: k }, label as string)));
+    const seg = el("div", { class: "seg qt-seg", role: "group", "aria-label": "Show" });
+    const select = <T extends string>(label: string, options: Record<T, string>, value: () => T, set: (v: T) => void) => {
+      const s = el("select", { class: "qt-select", "aria-label": label, onmousedown: (e: Event) => e.stopPropagation() }, ...Object.entries(options).map(([k, label]) => el("option", { value: k }, label as string)));
       s.value = value();
       s.addEventListener("change", () => (set(s.value as T), render()));
       return s;
     };
-    const groupSel = select(GROUPS, () => group, (v) => (group = v));
-    const sortSel = select(SORTS, () => sort, (v) => (sort = v));
+    const groupSel = select("Group", GROUPS, () => group, (v) => (group = v));
+    const sortSel = select("Sort", SORTS, () => sort, (v) => (sort = v));
     const list = el("div", { class: "qt-list" });
     body.append(el("div", { class: "qt-top" }, summary, el("span", { class: "spacer" }), groupSel, sortSel, seg), el("div", { class: "qt-progress" }, bar), list);
 
@@ -107,7 +107,7 @@ export const tasks: WidgetSpec = {
       bar.style.width = `${all.length ? (done / all.length) * 100 : 0}%`;
       seg.replaceChildren(
         ...(["open", "done", "all"] as Show[]).map((s) =>
-          el("button", { type: "button", class: s === show ? "is-on" : "", onmousedown: prevent, onclick: () => ((show = s), render()) }, s[0].toUpperCase() + s.slice(1)),
+          el("button", { type: "button", class: s === show ? "is-on" : "", "aria-pressed": String(s === show), onmousedown: prevent, onclick: () => ((show = s), render()) }, s[0].toUpperCase() + s.slice(1)),
         ),
       );
       // Open tasks that start later stay out of the way until then; All shows them.
