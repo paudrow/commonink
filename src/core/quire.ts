@@ -826,8 +826,8 @@ export class Quire {
 
   /**
    * The lines each set of changes added and removed, as diffSet counts them (its runs summed): the
-   * net change, which for a run of autosaves is less than the sum of each save's own count. Null
-   * for a set with a run whose text isn't available.
+   * net change, not the sum of each save's own count, so a line typed and then deleted counts for
+   * nothing. Null for a set with a run whose text isn't available.
    */
   diffStats(sets: number[][]): Array<LineStat | null> {
     const budget = { left: DIFF_TEXT_BUDGET };

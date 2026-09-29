@@ -210,7 +210,7 @@ export class History {
     items.forEach((it, i) => {
       const d = dayLabel(it.ts);
       if (d !== day) rows.push(el("div", { class: "hist-day" }, (day = d)));
-      const stat = entryStat(it, toRanges(this.idsOf(it)));
+      const stat = entryStat(it, it.count > 1 ? toRanges(this.idsOf(it)) : "");
       const on = this.selected.has(it.id);
       const row = el(
         "div",
