@@ -1,27 +1,5 @@
-// Security headers on everything the Worker sends. Every allowance in the app's policy is there for
-// something the app does; docs/security/threat-model.md says which.
-
-/** The app's policy. Scripts run only from our own files, or inline with this response's nonce. */
-export function appPolicy(nonce: string, url: URL) {
-  return [
-    "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}'`,
-    // CodeMirror, mermaid and the widgets set styles at runtime. Styles can't run code.
-    "style-src 'self' 'unsafe-inline'",
-    // Pasted images, link-card images and favicons come from anywhere on the web.
-    "img-src 'self' data: blob: https:",
-    "media-src 'self' blob: https:",
-    "font-src 'self' data:",
-    // Live updates, and Bluesky's handle lookup for post embeds.
-    `connect-src 'self' ${url.protocol === "https:" ? "wss" : "ws"}://${url.host} https://public.api.bsky.app`,
-    // HTML notes (in /sandbox, which has its own policy) and embeds: YouTube, X, Mastodon on any server…
-    "frame-src 'self' https:",
-    "object-src 'none'",
-    "base-uri 'none'",
-    "form-action 'self'",
-    "frame-ancestors 'none'",
-  ].join("; ");
-}
+// Security headers on everything the Worker sends. The app's own policy is in src/core/csp.ts.
+import { appPolicy } from "../../src/core/csp.ts";
 
 /** Anything else we send that has no policy of its own (JSON, redirects, icons). */
 const NOTHING = "default-src 'none'; frame-ancestors 'none'";

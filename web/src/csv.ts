@@ -49,7 +49,7 @@ export function csvTable(text: string): CsvTable | null {
 }
 
 /** "$1,200", "15%", "-3.5" → numbers; anything else → NaN. */
-export const toNumber = (v: string) => (/^[-+]?[$€£]?\s*[\d,]*\.?\d+\s*%?$/.test(v.trim()) ? Number(v.replace(/[,$€£%\s]/g, "")) : NaN);
+export const toNumber = (v: string) => (/^[-+]?[$€£]?\s*(?:\d[\d,]*(?:\.\d+)?|\.\d+)\s*%?$/.test(v.trim()) ? Number(v.replace(/[,$€£%\s]/g, "")) : NaN);
 
 function isNumericColumn(rows: string[][], c: number): boolean {
   let seen = 0;

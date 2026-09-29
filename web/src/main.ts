@@ -4,7 +4,6 @@ import type { EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
 import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type Scope, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
 import { normalizeTag } from "../../src/core/tags.ts";
-import { headingName, proseLines } from "../../src/core/prose.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setSelfName, timeAgo, type LinkDrag } from "./dom.ts";
 import { createState, openLinkToSide, remote, vimSlot } from "./editor/setup.ts";
 import { linkTargetAt } from "./editor/linkAt.ts";
@@ -24,11 +23,13 @@ import { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
 import { groupChanges } from "../../src/core/format.ts";
+import { clampSide, forget, newLayout, parseLayout, SIDE_CLICK, sideClick, step, visit, type PaneTrail } from "./panes.ts";
+import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
 import { smartFolderEditor } from "./smartFolderEditor.ts";
-import { clampSide, forget, newLayout, parseLayout, SIDE_CLICK, sideClick, step, visit, type PaneTrail } from "./panes.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
+import { safeDecode } from "../../src/core/uri.ts";
 
 // ------------------------------------------------------------------ state
 
@@ -661,8 +662,8 @@ function headingLine(pane: Pane, heading: string): number | undefined {
   const want = heading.trim().toLowerCase();
   const doc = pane.view.state.doc;
   for (let i = 1; i <= doc.lines; i++) {
-    const m = doc.line(i).text.match(/^#{1,6}\s+(.*?)\s*#*$/);
-    if (m && headingName(m[1]).toLowerCase() === want) return i;
+    const m = doc.line(i).text.match(/^#{1,6}[ \t]+(.*)$/);
+    if (m && headingName(headingText(m[1])).toLowerCase() === want) return i;
   }
 }
 
@@ -1594,8 +1595,9 @@ function renderOutline() {
   outlineHeadings = [];
   if (active.session?.kind === "md") {
     for (const [i, t] of proseLines(active.view.state.doc.toString())) {
-      const m = t.match(/^(#{1,6})\s+(.+?)\s*#*$/);
-      if (m) outlineHeadings.push({ level: m[1].length, text: headingName(m[2]).replace(/[*_`~]|\[\[|\]\]/g, ""), line: i });
+      const m = t.match(/^(#{1,6})[ \t]+(.+)$/);
+      const words = m && headingText(m[2]);
+      if (words) outlineHeadings.push({ level: m[1].length, text: (headingName(words) || words).replace(/[*_`~]|\[\[|\]\]/g, ""), line: i });
     }
   }
   const min = Math.min(...outlineHeadings.map((h) => h.level));
@@ -1803,7 +1805,7 @@ function followLinkAtCursor() {
   if (!link) return;
   if (link.target) openTarget(link.target, active.session?.path);
   else if (link.href && /^https?:/i.test(link.href)) window.open(link.href, "_blank", "noopener");
-  else if (link.href) openTarget(decodeURIComponent(link.href), active.session?.path);
+  else if (link.href) openTarget(safeDecode(link.href), active.session?.path);
 }
 
 window.addEventListener(
@@ -1828,11 +1830,6 @@ window.addEventListener(
     } else if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
       e.preventDefault();
       void showNotes({ filter: true });
-    } else if (isQuickAddKey(e) || (e.key === "q" && !mod && !e.altKey && !typingIn(e.target))) {
-      // ⌘⇧. anywhere (the editor in any Vim mode too), or q where you aren't typing: the quick-add bar.
-      e.preventDefault();
-      e.stopPropagation(); // not the editor's (or Vim's) key as well
-      quickAdd();
     } else if (mod && e.altKey && (e.code === "Backslash" || e.key === "\\")) {
       e.preventDefault();
       void (split ? closePane(active) : openSplit());
@@ -1841,6 +1838,11 @@ window.addEventListener(
       const p = panes[e.code === "BracketLeft" ? 0 : 1];
       focusPane(p);
       if (p.session && p.session.kind !== "asset") p.view.focus();
+    } else if (isQuickAddKey(e) || (e.key === "q" && !mod && !e.altKey && !typingIn(e.target))) {
+      // ⌘⇧. anywhere (the editor in any Vim mode too), or q where you aren't typing: the quick-add bar.
+      e.preventDefault();
+      e.stopPropagation(); // not the editor's (or Vim's) key as well
+      quickAdd();
     } else if (mod && e.key === "e" && active.session?.kind === "html") {
       e.preventDefault();
       setHtmlMode(prefs.htmlMode === "preview" ? "source" : "preview");
@@ -1993,7 +1995,7 @@ let viewer = false;
 async function route() {
   const hash = location.hash;
   if (hash.startsWith("#/") || /^#(feed|tasks|assets|history)\b/.test(hash)) {
-    const legacy = hash.startsWith("#/") ? decodeURIComponent(hash.slice(2)) : "";
+    const legacy = hash.startsWith("#/") ? safeDecode(hash.slice(2)) : "";
     const meta = legacy ? notes.find((n) => n.path === legacy) : undefined;
     const [page, query = ""] = hash.slice(1).split("?");
     const note = new URLSearchParams(query).get("note");

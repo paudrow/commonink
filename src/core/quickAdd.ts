@@ -60,7 +60,7 @@ const PREFIXED = `(?:${DATE}|${DAY_ANY})`;
 const re = (src: string) => new RegExp(`${B}(?:${src})${E}`, "giu");
 const DUE = re(`(?:on|by|due|before|for)\\s+${PREFIXED}|${DATE}`);
 const START = re(`(?:start(?:s|ing)?(?:\\s+on)?|from)\\s+${PREFIXED}`);
-const TARGET = /(?:→|->)\s*\[\[([^\]\n]+)\]\]/gu;
+const TARGET = /(?:→|->)\s*\[\[([^[\]\n]+)\]\]/gu;
 
 const count = (s: string) => NUMBERS[s.toLowerCase()] ?? parseInt(s, 10);
 const unitOf = (s: string) => s.toLowerCase()[0];

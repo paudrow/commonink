@@ -45,13 +45,38 @@ export function proseLines(md: string): Array<[number, string]> {
 export const withoutCode = (line: string) => line.replace(/`[^`]*`/g, (s) => " ".repeat(s.length));
 
 /** The line with code spans and [[links]] blanked out, for finding words that mean something (tags, people). */
-export const withoutCodeOrLinks = (line: string) => withoutCode(line).replace(/\[\[[^\]\n]*\]\]/g, (s) => " ".repeat(s.length));
+export const withoutCodeOrLinks = (line: string) => withoutCode(line).replace(/\[\[[^[\]\n]*\]\]/g, (s) => " ".repeat(s.length));
 
-/** A heading's name without the `{key=value}` settings a heading can end with (a board column's `{color=blue}`). */
-export const headingName = (text: string) => text.replace(/[ \t]*\{[^}\n]*\}$/, "");
+/**
+ * A heading's name and the `{key=value}` settings it can end with (a board column's `{color=blue}`),
+ * or null settings if it has none. Index lookups, not a regex like /[ \t]*\{[^}]*\}$/, which
+ * backtracks for seconds on a heading with a long run of spaces.
+ */
+export function headingSettings(text: string): { name: string; attrs: string | null } {
+  if (!text.endsWith("}")) return { name: text, attrs: null };
+  const open = text.indexOf("{", text.lastIndexOf("}", text.length - 2) + 1);
+  if (open < 0 || text.slice(open).includes("\n")) return { name: text, attrs: null };
+  let end = open;
+  while (end > 0 && (text[end - 1] === " " || text[end - 1] === "\t")) end--;
+  return { name: text.slice(0, end), attrs: text.slice(open + 1, -1) };
+}
+
+/** A heading's name without the `{key=value}` settings a heading can end with (see headingSettings). */
+export const headingName = (text: string) => headingSettings(text).name;
 
 /** How many lines the frontmatter block takes at the top of a note (0 if it has none). */
 export function frontmatterLines(md: string): number {
   const m = md.match(/^---\r?\n[\s\S]*?\r?\n---(\r?\n|$)/);
   return m ? m[0].replace(/\r?\n$/, "").split("\n").length : 0;
+}
+
+/**
+ * The words of an ATX heading, given what follows its opening #s: "Plan ##  " → "Plan". A loop,
+ * not a regex like /(.+?)\s*#*\s*$/, which takes seconds on a heading with a long run of spaces.
+ */
+export function headingText(rest: string): string {
+  const s = rest.trimEnd();
+  let i = s.length;
+  while (i > 0 && s[i - 1] === "#") i--;
+  return i < s.length && (i === 0 || s[i - 1] === " " || s[i - 1] === "\t") ? s.slice(0, i).trimEnd() : s;
 }

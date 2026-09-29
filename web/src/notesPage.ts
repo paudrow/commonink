@@ -12,6 +12,7 @@ import { formatQuery, type NoteQuery } from "../../src/core/query.ts";
 import { hydrateTaskChips, withTaskChips } from "./taskChips.ts";
 import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
 import { sideClick } from "./panes.ts";
+import { safeDecode } from "../../src/core/uri.ts";
 
 interface Hooks {
   /** `side`: to the side (a Cmd-click; Ctrl-click off a Mac). */
@@ -320,7 +321,7 @@ export class NotesPage {
         e.preventDefault();
         const href = a.getAttribute("href") ?? "";
         if (/^https?:/i.test(href)) window.open(href, "_blank", "noopener");
-        else if (href.startsWith("quire:")) void api.resolve(decodeURIComponent(href.slice(6)), item.path).then((p) => p && this.hooks.open(p, undefined, side));
+        else if (href.startsWith("quire:")) void api.resolve(safeDecode(href.slice(6)), item.path).then((p) => p && this.hooks.open(p, undefined, side));
         return;
       }
       if (side && !t.closest("button, input")) return this.hooks.open(item.path, undefined, true);
@@ -367,7 +368,11 @@ export class NotesPage {
     const { md: marked, tasks } = withTaskChips(md);
     const node = el("div", { class: `${cls}${this.hooks.readOnly() || item.archived ? " is-readonly" : ""}`, html: renderMarkdown(marked, item.path) });
     hydrateTaskChips(node, tasks);
-    node.querySelectorAll<HTMLElement>(".tk-run").forEach((run) => (run.dataset.text = tasks[+run.dataset.task!].text));
+    // A note can write its own <span class="tk-run">, so only the ones that name a real task count.
+    node.querySelectorAll<HTMLElement>(".tk-run").forEach((run) => {
+      const task = tasks[+run.dataset.task!];
+      if (task) run.dataset.text = task.text;
+    });
     return node;
   }
 

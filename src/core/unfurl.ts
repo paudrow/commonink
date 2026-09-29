@@ -17,6 +17,8 @@ export type UrlGuard = (u: URL) => Promise<void> | void;
 
 export const MAX_REDIRECTS = 3;
 export const MAX_BYTES = 512 * 1024;
+/** How much of a page's head is read for its tags. */
+const HEAD_BYTES = 64 * 1024;
 const TIMEOUT = 6000;
 const TTL = 6 * 3600_000;
 const CACHE_SIZE = 500;
@@ -65,15 +67,21 @@ async function fetchPreview(raw: string, guard: UrlGuard | undefined, timeout: n
     return { ...empty(raw), siteName: u.hostname };
   }
   const html = await readCapped(res, MAX_BYTES);
-  const head = html.slice(0, html.search(/<\/head>/i) + 1 || undefined);
-  const meta = (name: string) => {
-    for (const m of head.matchAll(/<meta\b[^>]*>/gi)) {
-      const tag = m[0];
-      const key = tag.match(/\b(?:property|name)\s*=\s*["']([^"']+)["']/i)?.[1]?.toLowerCase();
-      if (key === name) return decode(tag.match(/\bcontent\s*=\s*(?:"([^"]*)"|'([^']*)')/i)?.slice(1).find((x) => x !== undefined) ?? "") || null;
+  // The page is hostile too: only its head is read, at most HEAD_BYTES of it, and every pattern
+  // below stops at the next "<", so none can backtrack across the page.
+  const end = html.search(/<\/head>/i);
+  const head = html.slice(0, Math.min(end < 0 ? html.length : end, HEAD_BYTES));
+  const metas = new Map<string, string>();
+  const links: Array<Record<string, string>> = [];
+  for (const [tag, name] of head.matchAll(/<(meta|link)\b[^<>]*>/gi)) {
+    const attrs = attributes(tag);
+    if (name.toLowerCase() === "link") links.push(attrs);
+    else {
+      const key = (attrs.property ?? attrs.name)?.toLowerCase();
+      if (key && attrs.content !== undefined && !metas.has(key)) metas.set(key, attrs.content);
     }
-    return null;
-  };
+  }
+  const meta = (name: string) => decode(metas.get(name) ?? "") || null;
   const abs = (href: string | null) => {
     try {
       return href ? new URL(href, u).href : null;
@@ -81,15 +89,25 @@ async function fetchPreview(raw: string, guard: UrlGuard | undefined, timeout: n
       return null;
     }
   };
-  const icon = head.match(/<link\b[^>]*rel\s*=\s*["'][^"']*icon[^"']*["'][^>]*>/i)?.[0].match(/href\s*=\s*["']([^"']+)["']/i)?.[1];
+  const icon = links.find((l) => /icon/i.test(l.rel ?? "") && l.href)?.href;
   return {
     url: raw,
-    title: meta("og:title") ?? meta("twitter:title") ?? (decode(head.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1] ?? "") || null),
+    title: meta("og:title") ?? meta("twitter:title") ?? (decode(head.match(/<title[^<>]*>([^<]*)<\/title>/i)?.[1] ?? "") || null),
     description: meta("og:description") ?? meta("twitter:description") ?? meta("description"),
     image: abs(meta("og:image") ?? meta("twitter:image")),
     siteName: meta("og:site_name") ?? u.hostname.replace(/^www\./, ""),
     favicon: abs(icon ?? "/favicon.ico"),
   };
+}
+
+/** A tag's attributes, names lowercased: `<meta property="og:title" content='Hi'>` → { property, content }. */
+function attributes(tag: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const m of tag.matchAll(/([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>=`]+))/g)) {
+    const key = m[1].toLowerCase();
+    if (!(key in out)) out[key] = m[2] ?? m[3] ?? m[4];
+  }
+  return out;
 }
 
 async function readCapped(res: Response, max: number): Promise<string> {

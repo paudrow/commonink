@@ -1733,6 +1733,22 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .ap-table .is-num { text-align: right; }
 .ap-table .dt-none { padding: 18px; text-align: center; color: var(--faint); }
 
+/* Connected agents (account menu, online) */
+#agents-page { position: fixed; inset: 0; z-index: 50; background: rgba(20, 16, 10, 0.28); backdrop-filter: blur(3px); display: flex; justify-content: center; align-items: flex-start; padding-top: 10vh; animation: fade 0.12s ease-out; }
+.agents-box { width: min(620px, calc(100vw - 32px)); max-height: 76vh; overflow: auto; background: var(--bg-elev); border-radius: 14px; box-shadow: var(--shadow-lg); padding: 16px 18px 18px; animation: pop 0.14s ease-out; }
+.agents-head { display: flex; align-items: center; gap: 9px; color: var(--muted); }
+.agents-head h2 { flex: 1; margin: 0; font-size: 16px; color: var(--ink-strong); }
+.agents-how { margin: 8px 0 14px; font-size: 13px; color: var(--ink-2); }
+.agents-how code { font: 12.5px var(--mono); background: var(--hover); padding: 1px 5px; border-radius: 5px; user-select: all; }
+.agents-row { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-top: 1px solid var(--line); }
+.agents-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.agents-meta { font-size: 12.5px; color: var(--muted); }
+.agents-changes { margin: 6px 0 0; padding: 0; list-style: none; font-size: 12.5px; color: var(--ink-2); }
+.agents-changes li { display: flex; gap: 8px; }
+.agents-changes li span:first-child { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agents-when, .agents-none { color: var(--faint); }
+.agents-revoke { width: auto; flex: none; color: var(--bad); }
+.agents-empty { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
 /* tags: one pill everywhere, a chip in the editor, the filter chip, and the Tags page */
 .tag { display: inline-flex; align-items: center; gap: 3px; background: var(--accent-soft); color: var(--accent-ink); padding: 1px 8px; border-radius: 999px; font-size: 12px; line-height: 1.5; white-space: nowrap; }
 .tag.is-link { cursor: pointer; }
@@ -1899,6 +1915,7 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .chip-rec-dates { font-size: 12.5px; color: var(--muted); }
 .chip-rec-text { width: 100%; height: 32px; box-sizing: border-box; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-elev); color: var(--ink-strong); padding: 0 8px; font: 13px var(--mono); }
 .tk-next { color: var(--muted); font-weight: 400; }
+
 .qw-select { height: 32px; width: 100%; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-elev); color: var(--ink-strong); padding: 0 8px; font: 14px var(--ui); outline: none; }
 
 /* sidebar sections: one scrolling column, each folding away from its header */
@@ -1924,22 +1941,6 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 #favorites .tree-row.is-tag > svg { color: var(--muted); }
 #favorites .tree-row.is-tag.is-active > svg { color: var(--accent); }
 
-/* Connected agents (account menu, online) */
-#agents-page { position: fixed; inset: 0; z-index: 50; background: rgba(20, 16, 10, 0.28); backdrop-filter: blur(3px); display: flex; justify-content: center; align-items: flex-start; padding-top: 10vh; animation: fade 0.12s ease-out; }
-.agents-box { width: min(620px, calc(100vw - 32px)); max-height: 76vh; overflow: auto; background: var(--bg-elev); border-radius: 14px; box-shadow: var(--shadow-lg); padding: 16px 18px 18px; animation: pop 0.14s ease-out; }
-.agents-head { display: flex; align-items: center; gap: 9px; color: var(--muted); }
-.agents-head h2 { flex: 1; margin: 0; font-size: 16px; color: var(--ink-strong); }
-.agents-how { margin: 8px 0 14px; font-size: 13px; color: var(--ink-2); }
-.agents-how code { font: 12.5px var(--mono); background: var(--hover); padding: 1px 5px; border-radius: 5px; user-select: all; }
-.agents-row { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-top: 1px solid var(--line); }
-.agents-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.agents-meta { font-size: 12.5px; color: var(--muted); }
-.agents-changes { margin: 6px 0 0; padding: 0; list-style: none; font-size: 12.5px; color: var(--ink-2); }
-.agents-changes li { display: flex; gap: 8px; }
-.agents-changes li span:first-child { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agents-when, .agents-none { color: var(--faint); }
-.agents-revoke { width: auto; flex: none; color: var(--bad); }
-.agents-empty { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
 /* ------------------------------------------------------------------ links: out of the app, and to the side */
 /* A link that leaves the app (web, email) ends in a small ↗; links to notes don't. It's the link's
    own end padding, so it stays on the line with the link's last word. */

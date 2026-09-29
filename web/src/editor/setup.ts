@@ -17,6 +17,7 @@ import { LINK_DRAG, type LinkDrag } from "../dom.ts";
 import { noteLinkAt } from "./linkAt.ts";
 import { linkSideButton } from "./sideButton.ts";
 import { taskLineTools } from "./taskTools.ts";
+import { safeDecode } from "../../../src/core/uri.ts";
 
 /** Marks transactions that came from disk (agents), so they don't trigger a save of their own. */
 export const remote = Annotation.define<boolean>();
@@ -57,7 +58,7 @@ const linkClicks = EditorView.domEventHandlers({
       else if (t.dataset.href) {
         const href = t.dataset.href;
         if (linkKind(href) === "external") window.open(href, "_blank", "noopener");
-        else ctx.openTarget(decodeURIComponent(href), ctx.path, { side });
+        else ctx.openTarget(safeDecode(href), ctx.path, { side });
       }
     };
     // A rendered [[link]] can also be dragged to the right edge of the window, to open it there.
