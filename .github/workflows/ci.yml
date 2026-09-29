@@ -114,6 +114,8 @@ jobs:
           echo "url=$url" >> "$GITHUB_OUTPUT"
       - name: Fill it with things to try
         run: node --disable-warning=ExperimentalWarning --import tsx scripts/preview-demo.ts "${{ steps.deploy.outputs.url }}"
+      - name: Have two agents make changes in it
+        run: node --disable-warning=ExperimentalWarning --import tsx scripts/preview-agents.ts "${{ steps.deploy.outputs.url }}"
       - name: Show it on the pull request
         env:
           URL: ${{ steps.deploy.outputs.url }}

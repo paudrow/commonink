@@ -100,7 +100,7 @@ test("an agent discovers where to sign in from /mcp", async () => {
 test("the consent page names the agent, where access goes, and each workspace with your role", async () => {
   const { html } = await connect(people.viewer, people.id);
   assert.match(html, /Connect Test Agent to Common Ink\?/);
-  assert.match(html, /Its changes show in History as <strong>Test Agent \(via Viewer\)<\/strong>/);
+  assert.match(html, /Its changes show in History as <strong>Test Agent for Viewer<\/strong>/);
   assert.match(html, /Access goes to <strong>127\.0\.0\.1<\/strong>\. That's an app on your computer/);
   assert.match(html, /<strong>Team<\/strong><br><span class="muted">You're a viewer: it can read notes, and star them for you\.<\/span>/);
 });
@@ -142,7 +142,7 @@ test("an agent acts as its person, with their role, and its writes say who", asy
   for (let i = 0; i < 40 && status !== 200; i++) status = await new Promise((r) => setTimeout(r, 50)).then(locate);
   assert.equal(status, 200);
   const [latest] = await cloud.call(people.owner, "GET", `${people.base}/changes?limit=1`);
-  assert.deepEqual([latest.path, latest.source], ["From an agent.md", "Test Agent (via Owner)"]);
+  assert.deepEqual([latest.path, latest.agent, latest.person, latest.source], ["From an agent.md", "Test Agent", "Owner Dev", "Test Agent (via Owner Dev)"]);
 
   const refused = await viewer.call("create_note", { path: "Nope", content: "x" });
   assert.equal(refused.isError, true);
@@ -185,7 +185,7 @@ test("Connected agents lists your agents, and Revoke cuts one off at once", asyn
   const list = await cloud.call(cookie, "GET", "/api/agents");
   assert.deepEqual(
     list.map((a: any) => [a.client, a.actor, a.workspace.name, a.workspace.role, typeof a.usedAt]),
-    [["Test Agent", "Test Agent (via Revoker)", "Revoker's notes", "owner", "number"]],
+    [["Test Agent", "Test Agent for Revoker", "Revoker's notes", "owner", "number"]],
   );
   assert.equal((await cloud.call(people.owner, "GET", "/api/agents")).some((a: any) => a.id === list[0].id), false, "only your own");
   const stolen = await cloud.request(people.owner, "POST", "/api/agents/revoke", { id: list[0].id });

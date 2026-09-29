@@ -68,7 +68,7 @@ test("agents read a board and add, move and edit its cards, each change attribut
   await call("move_card", { path: "Launch", card: "pricing", to_column: "Done" });
   assert.match((await call("edit_card", { path: "Launch", card: "5", text: "Webhooks @sam due:2026-10-01\nRetry on 500s" })).text, /^Edited a card in Launch\.md/);
   assert.match((await call("read_board", { path: "Launch" })).text, /^Board 1 of 1 in Launch\.md\n\n## Backlog\n- \[ \] Webhooks @sam due:2026-10-01 — L5\n    Retry on 500s\n\n## Done \(done column\)\n- \[x\] Pricing page done:\d{4}-\d{2}-\d{2} — L9$/);
-  assert.match((await call("recent_changes", { path: "Launch.md", limit: 1 })).text, /test-agent: edit Launch\.md \(\+1 −1\)$/);
+  assert.match((await call("recent_changes", { path: "Launch.md", limit: 1 })).text, /test-agent for you: edit Launch\.md \(\+1 −1\)$/);
   assert.deepEqual(await call("move_card", { path: "Launch", card: "nope", to_column: "Done" }), { text: 'No card in Launch.md matches "nope"', isError: true });
 });
 
@@ -83,7 +83,9 @@ test("writes are attributed to the connected client", async () => {
   assert.equal((await call("create_note", { path: "Agent log", content: "# Agent log\n" })).isError, false);
   assert.equal(fs.readFileSync(path.join(vault, "Agent log.md"), "utf8"), "# Agent log\n");
   const changes = await call("recent_changes", { path: "Agent log.md" });
-  assert.match(changes.text, /^#\d+ \S+ test-agent: create Agent log\.md \(2 lines\)$/);
+  assert.match(changes.text, /^#\d+ \S+ test-agent for you: create Agent log\.md \(2 lines\)$/);
+  assert.equal((await call("recent_changes", { path: "Agent log.md", by: "people" })).text, "No changes.");
+  assert.match((await call("recent_changes", { path: "Agent log.md", by: "test-agent" })).text, /test-agent for you: create Agent log\.md/);
 });
 
 test("tool errors come back as isError with the core's message", async () => {

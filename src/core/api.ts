@@ -3,6 +3,7 @@
 import { cleanPath, QuireError } from "./paths.ts";
 import type { ArchiveScope, Change, Quire } from "./quire.ts";
 import type { TaskPatch } from "./tasks.ts";
+import { parseAuthorFilter } from "./actor.ts";
 
 export interface ApiHost {
   quire: Quire;
@@ -160,7 +161,9 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     case "GET /backlinks":
       return json(quire.backlinks(q("path")));
     case "GET /changes":
-      return json(quire.changes({ limit: qCount("limit", 50, 500), before: qCount("before", 0, Infinity) || undefined, path: q("path") || undefined }));
+      return json(quire.changes({ limit: qCount("limit", 50, 500), before: qCount("before", 0, Infinity) || undefined, path: q("path") || undefined, by: parseAuthorFilter(q("by")) }));
+    case "GET /changes/agents":
+      return json(quire.agents());
     case "GET /diffs":
       return json(quire.diffSet(parseIdRanges(q("ids"))));
     case "GET /favorites":
@@ -226,10 +229,15 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json({ path: r.path, created: r.created });
     }
     case "POST /tasks/add": {
-      const r = quire.addTask(str("text"), actor, { today: optStr("today"), ignore: (raw as { ignore?: unknown }).ignore === undefined ? [] : paths("ignore") });
+      const r = quire.addTask(str("text"), actor, { today: optStr("today"), to: optStr("to"), ignore: (raw as { ignore?: unknown }).ignore === undefined ? [] : paths("ignore") });
       host.written(r.path, quire.files.read(r.path), r.version, r.change);
       if (r.change?.op === "create") host.tree();
       return json({ path: r.path, version: r.version, line: r.line, text: r.text });
+    }
+    case "POST /tasks/remove": {
+      const r = quire.removeTask(str("path"), int("line"), str("text"), actor);
+      host.written(r.path, quire.files.read(r.path), r.version, r.change);
+      return json({ path: r.path, version: r.version });
     }
     case "POST /tasks/move": {
       const r = quire.moveTask(str("path"), int("line"), str("text"), str("to"), actor);

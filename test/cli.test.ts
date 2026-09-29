@@ -14,17 +14,21 @@ function quire(vault: string, args: string[], input?: string) {
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 }
 
-test("create reads stdin, edits are attributed to --as, and changes lists them", () => {
+test("create reads stdin, edits are attributed to --agent (or --as), and changes lists them", () => {
   const vault = tempVault();
   assert.equal(quire(vault, ["create", "Inbox", "-"], "# Inbox\n\n- milk\n").status, 0);
   assert.equal(fs.readFileSync(path.join(vault, "Inbox.md"), "utf8"), "# Inbox\n\n- milk\n");
   const edit = quire(vault, ["edit", "Inbox", "--old", "milk", "--new", "oat milk", "--as", "shopper"]);
   assert.match(edit.stdout, /^Edited Inbox\.md → version [0-9a-f]{12} \(\+1 −1\)\n$/);
+  quire(vault, ["append", "Inbox", "- eggs", "--agent", "Planner"]);
   const changes = quire(vault, ["changes", "--json"]);
   assert.deepEqual(
-    JSON.parse(changes.stdout).map((c: { op: string; source: string; path: string }) => `${c.op} ${c.path} by ${c.source}`),
-    ["edit Inbox.md by shopper", "create Inbox.md by cli"],
+    JSON.parse(changes.stdout).map((c: { op: string; path: string; person: string; agent: string | null }) => `${c.op} ${c.path} by ${c.agent ?? "-"} for ${c.person}`),
+    ["edit Inbox.md by Planner for you", "edit Inbox.md by shopper for you", "create Inbox.md by - for you"],
   );
+  assert.match(quire(vault, ["changes", "--by", "people"]).stdout, /^#1 \S+ you: create Inbox\.md \(4 lines\)\n$/);
+  assert.equal(quire(vault, ["changes", "--by", "ai"]).stdout.split("\n").filter(Boolean).length, 2);
+  assert.match(quire(vault, ["changes", "--by", "Planner"]).stdout, /^#3 \S+ Planner for you: edit Inbox\.md \(\+2 −0\)\n$/);
 });
 
 test("read prints numbered lines and honours --offset/--limit", () => {
@@ -112,6 +116,11 @@ test("board shows a note's boards, and card adds, moves and edits cards", () => 
   assert.match(quire(vault, ["board", "Launch"]).stdout, /^Board 1 of 1 in Launch\.md\n\n## To do\n- \[ \] Pick a logo @ana — L5\n\n## Done \(done column\)\n- \[x\] Tiers done:\d{4}-\d{2}-\d{2} — L8\n$/);
   assert.equal(quire(vault, ["card", "edit", "Launch", "5", "--undone"]).stdout.startsWith("No change to Launch.md"), true);
   assert.equal(quire(vault, ["card", "shuffle", "Launch"]).stderr, 'card needs add, move or edit, not "shuffle"\n');
+  fs.writeFileSync(path.join(vault, "Messy.md"), "# Messy\n\n:::kanban\n## To do {color=blue}\nA loose line\n- [ ] Card\n:::\n\n:::kanban\n## Open\n");
+  assert.equal(
+    quire(vault, ["board", "Messy"]).stdout,
+    "Board 1 of 1 in Messy.md\n\nProblems (the lines stay as they are until fixed):\n- Line 5 in To do isn't a card (stray, L5)\n\n## To do {color=blue}\n- [ ] Card — L6\n\nProblem: the :::kanban on line 9 has no closing ::: line, so it shows as text.\n",
+  );
 });
 
 test("star and unstar take #tags as well as notes", () => {

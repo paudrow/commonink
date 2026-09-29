@@ -508,6 +508,20 @@ test("today's journal note is made from Templates/Daily note.md, or a plain one 
   assert.equal(read("Journal/2026-09-30.md"), "# 2026-09-30\n\n## Plan\n\n## Tasks\n\n- [ ] Stretch\n\n## Notes\n");
 });
 
+test("quick-add can go to a note it's given, and removing a task takes it (and what's nested) back out", () => {
+  const { dir, quire } = openTempVault({ "Launch.md": "# Launch\n\nNotes.\n", "Other.md": "# Other\n" });
+  const read = (p: string) => fs.readFileSync(path.join(dir, p), "utf8");
+  const r = quire.addTask("Print badges tomorrow", "t", { today: "2026-09-28", to: "Launch" });
+  assert.deepEqual([r.path, r.line, r.text], ["Launch.md", 5, "Print badges due:2026-09-29"]);
+  assert.equal(read("Launch.md"), "# Launch\n\nNotes.\n\n- [ ] Print badges due:2026-09-29\n");
+  // → [[Note]] in the words wins over the note it was given.
+  assert.equal(quire.addTask("Tidy → [[Other]]", "t", { today: "2026-09-28", to: "Launch" }).path, "Other.md");
+  quire.removeTask("Launch", 5, "Print badges due:2026-09-29", "t");
+  assert.equal(read("Launch.md"), "# Launch\n\nNotes.\n");
+  assert.throws(() => quire.removeTask("Launch", 5, "Print badges due:2026-09-29", "t"), /isn't in Launch\.md any more/);
+  assert.throws(() => quire.addTask("x", "t", { to: "Nowhere" }), /No note matches "Nowhere"/);
+});
+
 test("moving a task takes its line and the lines nested under it to another note's Tasks", () => {
   const { dir, quire } = openTempVault({
     "Inbox.md": "# Inbox\n\n- [ ] Plan the offsite @jane\n  - [ ] Pick a venue\n  Notes about it.\n- [ ] Other\n",
@@ -572,7 +586,7 @@ test("smart folders are saved queries, shared with the workspace or one person's
   assert.deepEqual(quire.deleteSmartFolder("ana", "client work", true), []);
 });
 
-test("pinning and unpinning a tag only touches Favorites, never a smart folder with that tag's query", () => {
+test("starring and unstarring a tag only touches Favorites, never a smart folder with that tag's query", () => {
   const { quire } = openTempVault(TAGGED);
   const folder = quire.saveSmartFolder("ana", { name: "Billing", query: "tag=billing", shared: false }, true);
   quire.starTag("ana", "billing");

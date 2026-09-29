@@ -8,6 +8,7 @@ import { currentScheme } from "./dom.ts";
 import { isEmbeddable } from "./embeds/providers.ts";
 import { boardsIn } from "../../src/core/kanban.ts";
 import { SANDBOX_PATH } from "../../src/core/sandbox.ts";
+import { headingName } from "../../src/core/prose.ts";
 
 export { currentScheme };
 
@@ -39,7 +40,10 @@ export function embedKindOf(target: string, bare = false): EmbedKind {
 export function sectionOf(md: string, heading: string): string {
   const lines = md.split("\n");
   const want = heading.trim().toLowerCase();
-  const start = lines.findIndex((l) => l.match(/^(#{1,6})\s+(.*?)\s*#*$/)?.[2].toLowerCase() === want);
+  const start = lines.findIndex((l) => {
+    const m = l.match(/^(#{1,6})\s+(.*?)\s*#*$/);
+    return !!m && headingName(m[2]).toLowerCase() === want;
+  });
   if (start < 0) return md;
   const level = lines[start].match(/^#+/)![0].length;
   // A board's column ends with the board.

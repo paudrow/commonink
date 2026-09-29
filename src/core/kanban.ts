@@ -1,24 +1,29 @@
 // Kanban boards: a `:::kanban` block inside an ordinary note, with notes above and below it.
 //
-//   :::kanban{done="Shipped"}
+//   :::kanban
 //   ## Backlog
 //   - [ ] [[Pricing page]] #business
 //   - [ ] Draft the announcement @audrow due:2026-10-15
 //
-//   ## Shipped
-//   - [x] [[Landing page]]
+//   ## Doing {color=blue}
+//
+//   ## Done
+//   - [x] [[Landing page]] done:2026-09-20
 //   :::
 //
-// Inside the block, headings of the first heading level used are columns and list items under
-// them are cards, with any lines nested under an item. It stays real markdown, so tasks, links,
-// tags and backlinks work in it as anywhere else. The column named by `done=` (by default one
-// named "Done") is the done column: a card moved into it is ticked, and one moved out unticked.
+// Inside the block, every heading is a column (any level) and the list items under it are cards,
+// with any lines nested under an item. A column can carry a colour after its name, `{color=blue}`.
+// It stays real markdown, so tasks, links, tags and backlinks work in it as anywhere else. The
+// column named "Done" is the done column: a card moved into it is ticked, and one moved out
+// unticked. The board draws no checkboxes; where a card is says whether it's done.
 //
-// Every change is a splice of whole lines, so the rest of the note, its blank lines and a card's
-// nested lines stay byte for byte. No Node imports: the editor uses this too.
+// Lines the board can't place (text before the first column, a paragraph between cards) are
+// problems: reported with where they are, shown to the person with fixes to pick from, and never
+// changed until they pick one. Every change is a splice of whole lines, so the rest of the note,
+// its blank lines and a card's nested lines stay byte for byte. No Node imports: the editor uses this too.
 import { parseAttrs, serializeAttrs } from "./directive.ts";
 import { proseLines } from "./prose.ts";
-import { editTask, editTaskLines, parseTask, TASK_LINE, type TaskPatch } from "./tasks.ts";
+import { editTask, nextOccurrence, parseTask, TASK_LINE, type TaskPatch } from "./tasks.ts";
 
 export interface Card {
   /** Its list item's line (0-based); `to` is one past its last nested line. */
@@ -33,32 +38,58 @@ export interface Card {
 }
 export interface Column {
   title: string;
+  /** From `{color=…}` after its name; see COLORS. */
+  color: string | null;
   /** Its heading's line; `to` is the next column's heading, or the board's closing `:::`. */
   from: number;
   to: number;
   done: boolean;
   cards: Card[];
 }
+/**
+ * Something on a board that isn't what a board expects. The board still draws; the lines stay as
+ * they are until a fix is picked (see fixesFor).
+ */
+export interface Problem {
+  kind: "before-columns" | "stray" | "duplicate-column" | "unknown-setting";
+  /** The lines it covers (0-based, `to` exclusive). */
+  from: number;
+  to: number;
+  message: string;
+}
 export interface Board {
   /** The `:::kanban` line; `close` is the line of its `:::`. */
   from: number;
   close: number;
   args: Record<string, string>;
-  /** The heading level of its columns (2 for `##`). */
-  level: number;
   columns: Column[];
+  problems: Problem[];
 }
+
+/** Column colours, in the order the menu offers them. The app draws each for light and dark. */
+export const COLORS = ["gray", "red", "orange", "yellow", "green", "teal", "blue", "purple"] as const;
 
 const OPEN = /^\s*:::kanban(?:\{([^}\n]*)\})?\s*$/i;
 const CLOSE = /^\s*:::\s*$/;
 const HEADING = /^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/;
-const ITEM = /^( {0,3})([-*+])([ \t]+)(.*)$/;
+const ITEM = /^( {0,3})([-*+]|\d{1,9}[.)])([ \t]+)(.*)$/;
+/** A heading's text: its name, then any `{key=value}` settings. */
+const TITLE = /^(.*?)(?:[ \t]*\{([^}\n]*)\})?$/;
+/** Settings the opening line may carry. `done` names another done column: kept for older files, not offered. */
+const SETTINGS = new Set(["done"]);
 
 /** A new board, for the insert menu. */
 export const NEW_BOARD = ":::kanban\n## Backlog\n- [ ] Your first card\n\n## Doing\n\n## Done\n:::";
 
 /** Every closed `:::kanban` block in a note, in order. One inside code doesn't count. */
 export function boardsIn(md: string): Board[] {
+  return scan(md).boards;
+}
+
+/** The line of a `:::kanban` that's never closed (so it shows as text), or null. */
+export const unclosedBoard = (md: string) => scan(md).unclosed;
+
+function scan(md: string): { boards: Board[]; unclosed: number | null } {
   const lines = md.split("\n").map((l) => l.replace(/\r$/, ""));
   const prose = new Set(proseLines(md).map(([n]) => n - 1));
   const boards: Board[] = [];
@@ -66,32 +97,60 @@ export function boardsIn(md: string): Board[] {
     const open = prose.has(i) ? lines[i].match(OPEN) : null;
     if (!open) continue;
     const close = lines.findIndex((l, j) => j > i && prose.has(j) && CLOSE.test(l));
-    if (close < 0) break;
+    if (close < 0) return { boards, unclosed: i };
     boards.push(readBoard(lines, prose, i, close, parseAttrs(open[1] ?? "")));
     i = close;
   }
-  return boards;
+  return { boards, unclosed: null };
 }
 
 function readBoard(lines: string[], prose: Set<number>, from: number, close: number, args: Record<string, string>): Board {
-  const heads: Array<{ at: number; level: number; title: string }> = [];
+  const heads: Array<{ at: number; title: string; color: string | null }> = [];
   for (let i = from + 1; i < close; i++) {
     const h = prose.has(i) ? lines[i].match(HEADING) : null;
-    if (h && h[2]) heads.push({ at: i, level: h[1].length, title: h[2] });
+    if (!h || !h[2]) continue;
+    const [, title, attrs] = h[2].match(TITLE)!;
+    heads.push({ at: i, title: title.trim() || h[2], color: attrs === undefined ? null : (parseAttrs(attrs).color ?? null) });
   }
-  const level = heads[0]?.level ?? 2;
-  const cols = heads.filter((h) => h.level === level);
+  const problems: Problem[] = [];
   const done = (args.done || "Done").trim().toLowerCase();
-  const columns = cols.map((h, k) => {
-    const to = cols[k + 1]?.at ?? close;
-    return { title: h.title, from: h.at, to, done: h.title.trim().toLowerCase() === done, cards: readCards(lines, prose, h.at + 1, to) };
+  const columns = heads.map((h, k) => {
+    const to = heads[k + 1]?.at ?? close;
+    const { cards, stray } = readCards(lines, prose, h.at + 1, to);
+    for (const s of stray) problems.push({ kind: "stray", ...s, message: `${count(s)} in ${h.title} ${s.to - s.from === 1 ? "isn't a card" : "aren't cards"}` });
+    return { title: h.title, color: h.color, from: h.at, to, done: h.title.toLowerCase() === done, cards };
   });
-  return { from, close, args, level, columns };
+  const first = heads[0]?.at ?? close;
+  const before = trimBlank(lines, from + 1, first);
+  if (before) problems.unshift({ kind: "before-columns", ...before, message: `${count(before)} before the first column ${before.to - before.from === 1 ? "isn't" : "aren't"} part of any column` });
+  const seen = new Map<string, number>();
+  for (const c of columns) {
+    const key = c.title.toLowerCase();
+    if (seen.has(key)) problems.push({ kind: "duplicate-column", from: c.from, to: c.from + 1, message: `Two columns are called ${c.title}: agents can only tell them apart by number` });
+    else seen.set(key, c.from);
+  }
+  const unknown = Object.keys(args).filter((k) => !SETTINGS.has(k));
+  if (unknown.length) problems.push({ kind: "unknown-setting", from, to: from + 1, message: `The board doesn't use ${unknown.map((k) => `${k}=`).join(", ")}` });
+  problems.sort((a, b) => a.from - b.from);
+  return { from, close, args, columns, problems };
 }
 
-/** List items between `from` and `to` that aren't nested in another, each with the lines nested under it. */
-function readCards(lines: string[], prose: Set<number>, from: number, to: number): Card[] {
+const count = (r: { from: number; to: number }) => (r.to - r.from === 1 ? `Line ${r.from + 1}` : `Lines ${r.from + 1}–${r.to}`);
+
+/** The lines from `from` to `to` without blank ones at either end, or null if all are blank. */
+function trimBlank(lines: string[], from: number, to: number): { from: number; to: number } | null {
+  while (from < to && !lines[from].trim()) from++;
+  while (to > from && !lines[to - 1].trim()) to--;
+  return from < to ? { from, to } : null;
+}
+
+/**
+ * List items between `from` and `to` that aren't nested in another, each with the lines nested
+ * under it, and the runs of other lines (a paragraph, a rule) that are neither.
+ */
+function readCards(lines: string[], prose: Set<number>, from: number, to: number) {
   const cards: Card[] = [];
+  const stray: Array<{ from: number; to: number }> = [];
   let open: { card: Card; indent: number } | null = null;
   for (let i = from; i < to; i++) {
     const line = lines[i];
@@ -103,14 +162,20 @@ function readCards(lines: string[], prose: Set<number>, from: number, to: number
     }
     const item = prose.has(i) ? line.match(ITEM) : null;
     open = null;
-    if (!item) continue;
+    if (!item) {
+      const last = stray.at(-1);
+      // A run of lines the board can't place, blank lines inside it included.
+      if (last && trimBlank(lines, last.to, i) === null) last.to = i + 1;
+      else stray.push({ from: i, to: i + 1 });
+      continue;
+    }
     const task = parseTask(line);
     const card: Card = { from: i, to: i + 1, checked: task ? task.done : null, text: task ? task.text : item[4], details: [] };
     cards.push(card);
     open = { card, indent: item[1].length };
   }
   for (const c of cards) c.details = dedent(lines.slice(c.from + 1, c.to));
-  return cards;
+  return { cards, stray };
 }
 
 function dedent(lines: string[]): string[] {
@@ -144,6 +209,12 @@ function locate(boards: Board[], line: number) {
   throw new Error(`There's no card on line ${line + 1}`);
 }
 
+function boardAt(boards: Board[], board: number): Board {
+  const b = boards[board];
+  if (!b) throw new Error("That board isn't in the note any more");
+  return b;
+}
+
 function columnAt(boards: Board[], at: Place): Column {
   const column = boards[at.board]?.columns[at.column];
   if (!column) throw new Error("That column isn't on the board any more");
@@ -160,8 +231,16 @@ function slot(raw: string[], column: Column, index: number, skip?: Card): number
   return at;
 }
 
-/** A card's first line ticked (`done:` stamped with `today`) or unticked. A list item without a checkbox stays as it is. */
-const tick = (line: string, checked: boolean, today: string) => retext(line, (t) => editTask(t, { checked, done: checked ? today : null }));
+/**
+ * A card's first line ticked (`done:` stamped with `today`) or unticked. A list item without a
+ * checkbox gets one when it's ticked, so it counts as done like any other card.
+ */
+function tick(line: string, checked: boolean, today: string) {
+  return retext(line, (t) => {
+    const boxed = TASK_LINE.test(t) || !checked ? t : t.replace(ITEM, (_m, indent, bullet, gap, rest) => `${indent}${/\d/.test(bullet) ? "-" : bullet}${gap}[ ] ${rest}`);
+    return editTask(boxed, { checked, done: checked ? today : null });
+  });
+}
 
 /**
  * Add a card with `text` to a column, `index`th (default last). A text of several lines puts the
@@ -182,19 +261,34 @@ export function addCard(md: string, at: Place, text: string, today: string, inde
 
 /**
  * Move the card on `line` (0-based) to be `index`th in a column, on this board or another in the
- * note. Into the done column ticks it; out of it, into another column, unticks it.
+ * note. Into the done column ticks it; out of it, into another column, unticks it. A repeating
+ * card moved into the done column leaves its next occurrence at the top of the board's first
+ * column (the first that isn't the done column).
  */
-export function moveCard(md: string, line: number, to: Place, index: number, today: string): string {
-  const { raw } = split(md);
+export function moveCard(md: string, line: number, to: Place, index: number, today: string, next = nextOccurrence): string {
+  const { raw, cr } = split(md);
   const boards = boardsIn(md);
   const { column: from, card } = locate(boards, line);
   const dest = columnAt(boards, to);
-  const block = raw.slice(card.from, card.to);
-  if (card.checked !== null && dest.done !== from.done && card.checked !== dest.done) block[0] = tick(block[0], dest.done, today);
+  // A card indented (up to three spaces) comes out flush left, so it can't land nested under another.
+  const pad = raw[card.from].match(/^ */)![0];
+  const block = raw.slice(card.from, card.to).map((l) => (l.startsWith(pad) ? l.slice(pad.length) : l));
+  const flips = dest.done !== from.done && !!card.checked !== dest.done && (card.checked !== null || dest.done);
+  if (flips) block[0] = tick(block[0], dest.done, today);
+  const following = flips && dest.done ? next(block[0].replace(/\r$/, ""), today) : null;
   let at = slot(raw, dest, index, card);
   raw.splice(card.from, block.length);
   if (at > card.from) at -= block.length;
   raw.splice(at, 0, ...block);
+  return withNext(raw, cr, to.board, following);
+}
+
+/** The note's lines with a repeating card's next occurrence (if any) at the top of the board's first column that isn't the done column. */
+function withNext(raw: string[], cr: string, board: number, following: string | null): string {
+  if (!following) return raw.join("\n");
+  const b = boardsIn(raw.join("\n"))[board];
+  const start = b.columns.find((c) => !c.done) ?? b.columns[0];
+  raw.splice(slot(raw, start, 0), 0, following + cr);
   return raw.join("\n");
 }
 
@@ -213,7 +307,7 @@ export function editCard(md: string, line: number, text: string): string {
   if (details.join("\n") === card.details.join("\n")) block.push(...raw.slice(card.from + 1, card.to));
   else {
     const nested = raw.slice(card.from + 1, card.to).find((l) => l.trim());
-    const pad = nested ? nested.match(/^\s*/)![0] : " ".repeat(prefix.match(/^\s*[-*+][ \t]+/)![0].length);
+    const pad = nested ? nested.match(/^\s*/)![0] : " ".repeat(head.match(ITEM)!.slice(1, 4).join("").length);
     block.push(...details.map((d) => (d ? pad + d : "") + cr));
   }
   raw.splice(card.from, card.to - card.from, ...block);
@@ -221,19 +315,15 @@ export function editCard(md: string, line: number, text: string): string {
 }
 
 /**
- * Tick or untick the card on `line`; `done:` is stamped with `today` or taken off. A repeating card
- * works like any repeating task (see editTaskLines): ticked, its next occurrence is a new card after
- * it and its nested lines; unticked straight after, that card goes again.
+ * Tick or untick the card on `line`; `done:` is stamped with `today` or taken off. Ticking a repeating
+ * card leaves its next occurrence where moving it into the done column would (see moveCard).
  */
 export function checkCard(md: string, line: number, checked: boolean, today: string): string {
   const { raw, cr } = split(md);
-  const { card } = locate(boardsIn(md), line);
-  // The line after the card is at most the board's closing `:::`, so it's always there.
-  const [first, ...after] = editTaskLines([raw[card.from], raw[card.to]].map((l) => l.replace(/\r$/, "")), 0, { checked }, today);
-  raw[card.from] = retext(raw[card.from], () => first);
-  if (after.length === 2) raw.splice(card.to, 0, after[0] + cr);
-  else if (!after.length) raw.splice(card.to, 1);
-  return raw.join("\n");
+  const { card, place } = locate(boardsIn(md), line);
+  raw[card.from] = tick(raw[card.from], checked, today);
+  const following = checked && !card.checked ? nextOccurrence(raw[card.from].replace(/\r$/, ""), today) : null;
+  return withNext(raw, cr, place.board, following);
 }
 
 /** Change the task tokens on the card on `line` (see editTask); the rest of its line stays as written. */
@@ -252,21 +342,47 @@ export function deleteCard(md: string, line: number): string {
   return raw.join("\n");
 }
 
+/** A column heading's `#`s, as its last column (or `##` on a board without one). */
+const hashes = (raw: string[], b: Board) => raw[b.columns.at(-1)?.from ?? -1]?.match(/^ {0,3}(#{1,6})/)?.[1] ?? "##";
+
 /** Add an empty column at the end of a board. */
 export function addColumn(md: string, board: number, title: string): string {
   const { raw, cr } = split(md);
-  const b = boardsIn(md)[board];
-  if (!b) throw new Error("That board isn't in the note any more");
+  const b = boardAt(boardsIn(md), board);
   const gap = b.columns.length && raw[b.close - 1].trim() ? [cr] : [];
-  raw.splice(b.close, 0, ...gap, `${"#".repeat(b.level)} ${title.trim()}${cr}`);
+  raw.splice(b.close, 0, ...gap, `${hashes(raw, b)} ${title.trim()}${cr}`);
   return raw.join("\n");
 }
 
-/** Rename a column: its heading's text changes, and nothing else. */
+/** A heading line with a new name and settings (`{color=…}`), its `#`s and anything after them kept. */
+function heading(line: string, title: string, attrs: Record<string, string>) {
+  const set = serializeAttrs(attrs);
+  return retext(line, (l) => `${l.match(/^ {0,3}#{1,6}[ \t]+/)![0]}${title}${set ? ` {${set}}` : ""}`);
+}
+
+/** The settings on a column's heading, `{…}` after its name. */
+function headingAttrs(line: string): Record<string, string> {
+  const text = line.replace(/\r$/, "").match(HEADING)?.[2] ?? "";
+  const attrs = text.match(TITLE)?.[2];
+  return attrs === undefined ? {} : parseAttrs(attrs);
+}
+
+/** Rename a column: its heading's name changes; its level and colour stay. */
 export function renameColumn(md: string, at: Place, title: string): string {
   const { raw } = split(md);
   const column = columnAt(boardsIn(md), at);
-  raw[column.from] = retext(raw[column.from], (l) => `${l.match(/^ {0,3}#{1,6}[ \t]+/)![0]}${title.trim()}`);
+  raw[column.from] = heading(raw[column.from], title.trim(), headingAttrs(raw[column.from]));
+  return raw.join("\n");
+}
+
+/** Give a column a colour (one of COLORS), or take it off with null. It's written after the name: `## Doing {color=blue}`. */
+export function setColumnColor(md: string, at: Place, color: string | null): string {
+  const { raw } = split(md);
+  const column = columnAt(boardsIn(md), at);
+  const attrs = headingAttrs(raw[column.from]);
+  if (color) attrs.color = color;
+  else delete attrs.color;
+  raw[column.from] = heading(raw[column.from], column.title, attrs);
   return raw.join("\n");
 }
 
@@ -290,13 +406,50 @@ export function moveColumn(md: string, at: Place, index: number): string {
   return raw.join("\n");
 }
 
-/** Rewrite a board's `:::kanban{…}` line with new settings. */
-export function setBoardArgs(md: string, board: number, args: Record<string, string>): string {
+// ---------------------------------------------------------------- problems and their fixes
+
+/** What a problem's lines can be turned into. */
+export type Fix = "cards" | "move" | "remove";
+
+/** The fixes that are safe for a problem, in the order to offer them. Anything else is Edit as text. */
+export function fixesFor(problem: Problem, board: Board): Fix[] {
+  switch (problem.kind) {
+    case "before-columns":
+      return board.columns.length ? ["move", "remove"] : ["remove"];
+    case "stray":
+      return ["cards", "remove"];
+    case "unknown-setting":
+      return ["remove"];
+    case "duplicate-column":
+      return [];
+  }
+}
+
+/**
+ * Apply one of a problem's fixes (see fixesFor): make its lines cards where they are, move them
+ * into the first column as cards, or remove them (an unknown setting: just that setting).
+ */
+export function fixProblem(md: string, board: number, problem: number, fix: Fix): string {
   const { raw } = split(md);
-  const b = boardsIn(md)[board];
-  if (!b) throw new Error("That board isn't in the note any more");
-  const attrs = serializeAttrs(args);
-  raw[b.from] = retext(raw[b.from], (l) => `${l.match(/^\s*/)![0]}:::kanban${attrs ? `{${attrs}}` : ""}`);
+  const b = boardAt(boardsIn(md), board);
+  const p = b.problems[problem];
+  if (!p || !fixesFor(p, b).includes(fix)) throw new Error("That problem isn't on the board any more");
+  if (p.kind === "unknown-setting") {
+    const kept = Object.fromEntries(Object.entries(b.args).filter(([k]) => SETTINGS.has(k)));
+    const attrs = serializeAttrs(kept);
+    raw[b.from] = retext(raw[b.from], (l) => `${l.match(/^\s*/)![0]}:::kanban${attrs ? `{${attrs}}` : ""}`);
+    return raw.join("\n");
+  }
+  const lines = raw.slice(p.from, p.to);
+  const cards = lines.filter((l) => l.trim()).map((l) => retext(l, (t) => `- [ ] ${t.trim()}`));
+  if (fix === "remove") raw.splice(p.from, p.to - p.from);
+  else if (fix === "cards") raw.splice(p.from, p.to - p.from, ...cards);
+  else {
+    const column = b.columns[0];
+    const at = slot(raw, column, 0);
+    raw.splice(at, 0, ...cards);
+    raw.splice(p.from, p.to - p.from);
+  }
   return raw.join("\n");
 }
 

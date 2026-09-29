@@ -1,5 +1,6 @@
 // Plain-text renderings of core results, shared by the MCP server and the CLI.
 // Agents read markdown far more cheaply than JSON, so this is the default output.
+import { authorLabel } from "./actor.ts";
 import { isTagFavorite, type Backlink, type Change, type Favorite, type Note, type NoteMeta, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView } from "./quire.ts";
 import type { Board } from "./kanban.ts";
 
@@ -95,7 +96,7 @@ export function fmtChanges(changes: Change[]): string {
       const moved = c.op === "move" || c.op === "archive" || c.op === "unarchive";
       const what = moved ? `${c.op === "move" ? "moved" : `${c.op}d`} ${c.from_path} → ${c.path}` : `${c.op} ${c.path}`;
       const saves = c.count > 1 ? `, ${c.count} saves` : "";
-      return `#${c.id} ${when} ${c.source}: ${what}${c.summary && !moved ? ` (${c.summary}${saves})` : ""}`;
+      return `#${c.id} ${when} ${authorLabel(c)}: ${what}${c.summary && !moved ? ` (${c.summary}${saves})` : ""}`;
     })
     .join("\n");
 }
@@ -112,17 +113,21 @@ export function fmtToday(t: TodayView): string {
 }
 
 /** A note's boards, column by column: each card as its markdown line with its line number, and the lines nested under it. */
-export function fmtBoards(path: string, boards: Board[]): string {
-  if (!boards.length) return `${path} has no board.`;
-  return boards
-    .map((b, i) => {
-      const columns = b.columns.map((c) =>
-        [
-          `${"#".repeat(b.level)} ${c.title}${c.done ? " (done column)" : ""}`,
-          ...c.cards.flatMap((k) => [`- ${k.checked === null ? "" : `[${k.checked ? "x" : " "}] `}${k.text} — L${k.from + 1}`, ...k.details.map((d) => (d ? `    ${d}` : ""))]),
-        ].join("\n"),
-      );
-      return [`Board ${i + 1} of ${boards.length} in ${path}`, ...columns].join("\n\n");
-    })
-    .join("\n\n");
+export function fmtBoards(path: string, boards: Board[], unclosed: number | null = null): string {
+  const open = unclosed === null ? "" : `\n\nProblem: the :::kanban on line ${unclosed + 1} has no closing ::: line, so it shows as text.`;
+  if (!boards.length) return `${path} has no board.${open}`;
+  return (
+    boards
+      .map((b, i) => {
+        const columns = b.columns.map((c) =>
+          [
+            `## ${c.title}${c.done ? " (done column)" : ""}${c.color ? ` {color=${c.color}}` : ""}`,
+            ...c.cards.flatMap((k) => [`- ${k.checked === null ? "" : `[${k.checked ? "x" : " "}] `}${k.text} — L${k.from + 1}`, ...k.details.map((d) => (d ? `    ${d}` : ""))]),
+          ].join("\n"),
+        );
+        const problems = b.problems.map((p) => `- ${p.message} (${p.kind}, L${p.from + 1}${p.to - p.from > 1 ? `–${p.to}` : ""})`);
+        return [`Board ${i + 1} of ${boards.length} in ${path}`, ...(problems.length ? [`Problems (the lines stay as they are until fixed):\n${problems.join("\n")}`] : []), ...columns].join("\n\n");
+      })
+      .join("\n\n") + open
+  );
 }
