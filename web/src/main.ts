@@ -4,8 +4,9 @@ import type { EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
 import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type Scope, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
 import { normalizeTag } from "../../src/core/tags.ts";
-import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, NOTE_DRAG, setSelfName, timeAgo } from "./dom.ts";
-import { createState, linkTargetAt, remote, vimSlot } from "./editor/setup.ts";
+import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setSelfName, timeAgo, type LinkDrag } from "./dom.ts";
+import { createState, openLinkToSide, remote, vimSlot } from "./editor/setup.ts";
+import { linkTargetAt } from "./editor/linkAt.ts";
 import { bumpEmbeds, editorContext } from "./editor/blocks.ts";
 import { clearFlash, flashChanges } from "./editor/agentFlash.ts";
 import { editsBetween, merge3 } from "./merge.ts";
@@ -178,7 +179,7 @@ const loadTags = once(async () =>
 let paletteToSide = false;
 const palette = new Palette(
   () => notes,
-  (path, line) => openNote(path, { line, pane: paletteToSide ? sideOf(active) : active }),
+  (path, line, side) => openNote(path, { line, pane: side || paletteToSide ? sideOf(active) : active }),
   (name) => createNote(name),
 );
 function openPalette(side = false) {
@@ -1809,6 +1810,8 @@ Vim.defineEx("close", "clo", () => void closePane(active));
 Vim.defineAction("quireFollowLink", () => followLinkAtCursor());
 Vim.mapCommand("gd", "action", "quireFollowLink", {}, { context: "normal" });
 Vim.mapCommand("gf", "action", "quireFollowLink", {}, { context: "normal" });
+Vim.defineAction("quireOpenSide", () => openLinkToSide(active.view));
+Vim.mapCommand("gs", "action", "quireOpenSide", {}, { context: "normal" });
 
 function followLinkAtCursor() {
   const link = linkTargetAt(active.view.state, active.view.state.selection.main.head);
@@ -1939,9 +1942,11 @@ function setupPanes() {
     saveLayout();
   });
 
-  // Drag a note (from the sidebar or Notes) to the right edge to open it there.
+  // Drag a note (a sidebar row, a Notes card, a task) or a link (in a note, a board's link card) to
+  // the right edge to open it there. Inside a board, its columns take the drag first.
   const zone = $("#side-drop");
-  const edge = (e: DragEvent) => e.dataTransfer?.types.includes(NOTE_DRAG) && e.clientX > stage.getBoundingClientRect().right - Math.max(96, stage.clientWidth * 0.18);
+  const atEdge = (x: number) => x > stage.getBoundingClientRect().right - Math.max(96, stage.clientWidth * 0.18);
+  const edge = (e: DragEvent) => !!e.dataTransfer?.types.some((t) => t === NOTE_DRAG || t === LINK_DRAG) && atEdge(e.clientX);
   stage.addEventListener("dragover", (e) => {
     zone.hidden = !edge(e);
     if (!zone.hidden) e.preventDefault();
@@ -1950,12 +1955,25 @@ function setupPanes() {
   stage.addEventListener("drop", (e) => {
     const on = !zone.hidden;
     zone.hidden = true;
-    const path = on ? e.dataTransfer!.getData(NOTE_DRAG) : "";
+    if (!on) return;
+    const link = e.dataTransfer!.getData(LINK_DRAG);
+    const path = e.dataTransfer!.getData(NOTE_DRAG);
+    if (link) {
+      e.preventDefault();
+      const { target, from } = JSON.parse(link) as { target: string; from: string };
+      return void openTarget(target, from, panes[1]);
+    }
     if (!path || notes.find((n) => n.path === path)?.kind === "asset") return;
     e.preventDefault();
     void openNote(path, { pane: panes[1] });
   });
   document.addEventListener("dragend", () => (zone.hidden = true));
+  // A [[link]] dragged in the editor (a pointer drag, see dragLink in editor/setup.ts).
+  window.addEventListener(LINK_DRAG, (ev) => {
+    const d = (ev as CustomEvent<LinkDrag>).detail;
+    zone.hidden = d.phase === "drop" || !atEdge(d.x);
+    if (d.phase === "drop" && atEdge(d.x)) void openTarget(d.target, d.from, panes[1]);
+  });
 
   $("#split-btn").addEventListener("click", () => void (split ? closePane(panes[1]) : openSplit()));
   // Clicking or tabbing into a pane gives it the focus.
