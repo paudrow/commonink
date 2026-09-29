@@ -40,6 +40,11 @@ export interface App {
   htmlMode: "preview" | "source";
   /** A note tagged `start` exists. */
   hasStart: boolean;
+  /** The focused pane has somewhere to go back / forward to. */
+  canBack: boolean;
+  canForward: boolean;
+  /** The cursor is on a link (a [[link]] or a markdown link). */
+  onLink: boolean;
   /** Online, the account menu's actions; locally, none. */
   account: Array<{ label: string; icon: string; run: () => unknown; workspace?: boolean; current?: boolean }>;
   newNote(): void;
@@ -59,6 +64,11 @@ export interface App {
   noteHistory(): void;
   gettingStarted(): void;
   shortcuts(): void;
+  /** Back or forward through what the focused pane has shown. */
+  back(): void;
+  forward(): void;
+  /** Follow the link under the cursor. */
+  followLink(): void;
 }
 
 export function appCommands(app: App): Command[] {
@@ -84,6 +94,9 @@ export function appCommands(app: App): Command[] {
     { id: "star", title: note?.starred ? "Unstar note" : "Star note", keywords: "star favorite favourite", icon: note?.starred ? "starred" : "star", available: !!note, run: app.star },
     { id: "archive", title: note?.archived ? "Unarchive note" : "Archive note", keywords: "archive remove hide", icon: note?.archived ? "unarchive" : "archive", keys: ["Mod-Shift-e"], available: !!note, run: app.archive },
     { id: "move", title: "Move to folder…", keywords: "move note folder file", icon: "move", available: !!note, run: app.move },
+    { id: "back", title: "Go back", keywords: "previous history return last note ctrl-o", icon: "back", keys: ["Mod-["], available: app.canBack, run: app.back },
+    { id: "forward", title: "Go forward", keywords: "next history ctrl-i", icon: "chevron", keys: ["Mod-]"], available: app.canForward, run: app.forward },
+    { id: "follow-link", title: "Follow link", keywords: "open link under the cursor gd go to", icon: "link", area: "Editor", available: app.onLink, run: app.followLink },
     { id: "note-history", title: "History of this note", keywords: "versions changes diff restore", icon: "history", available: !!note, run: app.noteHistory },
     {
       id: "html-mode",
@@ -109,7 +122,6 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: ["Mod-Shift-p"], label: "Commands", area: "Global" },
   { keys: [">"], label: "In quick open, switch to commands", area: "Global" },
   { keys: ["Mod-s"], label: "Save now", area: "Global" },
-  { keys: ["Mod-[", "Mod-]"], label: "Back / forward through the notes this pane showed", area: "Global" },
   { keys: ["j", "k"], label: "Next / previous note", area: "Notes page" },
   { keys: ["g", "G"], label: "First / last note", area: "Notes page" },
   { keys: ["Enter"], label: "Expand the note's preview", area: "Notes page" },

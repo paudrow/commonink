@@ -203,6 +203,9 @@ function commands() {
     focusMode,
     htmlMode: prefs.htmlMode,
     hasStart: tags.some((t) => t.tag === "start" && t.notes > 0),
+    canBack: active.trail.back.length > 0,
+    canForward: active.trail.forward.length > 0,
+    onLink: s?.kind === "md" && !!linkTargetAt(active.view.state, active.view.state.selection.main.head),
     account,
     newNote: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
     newFolder: startNewFolder,
@@ -227,6 +230,9 @@ function commands() {
       if (start) void openNote(start.path);
     },
     shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
+    back: () => void stepPane(active, "back"),
+    forward: () => void stepPane(active, "forward"),
+    followLink: () => followLinkAtCursor(),
   });
 }
 
