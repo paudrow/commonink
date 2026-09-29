@@ -13,6 +13,7 @@ import { parseQuickAdd } from "./quickAdd.ts";
 import { formatQuery, parseQuery, queryProblem, type NoteQuery } from "./query.ts";
 import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
 import { safeDecode } from "./uri.ts";
+import { AGENTS_NOTE, START_TAG, type NoteRole } from "./noteRoles.ts";
 
 export interface NoteMeta {
   /** Stable across renames, moves and archiving; see ids.ts. */
@@ -94,6 +95,12 @@ export interface DiffRun {
   skipped: number;
   before: string | null;
   after: string | null;
+  /** Lines added and removed from before to after (null without both texts). */
+  stat: LineStat | null;
+}
+export interface LineStat {
+  add: number;
+  del: number;
 }
 export interface DiffFile {
   path: string;
@@ -117,6 +124,7 @@ export interface FeedItem {
   lastSource: string | null;
   /** Who made the last change: a person, or an agent for one. */
   lastBy: Actor | null;
+  role: NoteRole | null;
 }
 
 export interface Task {
@@ -553,7 +561,8 @@ export class Quire {
 
   /**
    * A stream of notes, newest first, for the Notes view. `q` filters with full-text search;
-   * `folder` matches the note's original folder whether or not it's archived.
+   * `folder` matches the note's original folder whether or not it's archived. Newest first puts
+   * `start` notes ahead and the agents' instructions after the rest (see noteRoles.ts).
    */
   feed(opts: Omit<NoteQuery, "limit"> & { scope?: ArchiveScope; offset?: number; limit?: number } = {}) {
     const scope = opts.scope ?? "active";
@@ -563,6 +572,12 @@ export class Quire {
     const home = (p: string) => (isArchived(p) ? p.slice(ARCHIVE.length) : p);
     const counts = { active: rows.filter((r) => !isArchived(r.path)).length, archived: rows.filter((r) => isArchived(r.path)).length };
     rows = rows.filter((r) => inScope(r.path, scope));
+    const starts = new Set(this.db.all<{ path: string }>("SELECT DISTINCT path FROM tags WHERE tag = ?", START_TAG).map((r) => r.path));
+    const roleOf = (p: string): NoteRole | null => (p === AGENTS_NOTE ? "agents" : starts.has(p) && !isArchived(p) ? "start" : null);
+    if (opts.sort !== "title") {
+      const rank = (p: string) => ({ start: 0, agents: 2, none: 1 })[roleOf(p) ?? "none"];
+      rows = [...rows].sort((a, b) => rank(a.path) - rank(b.path));
+    }
     const offset = opts.offset ?? 0;
     const page = rows.slice(offset, offset + (opts.limit ?? 30));
     // The page's tags and who changed each note last, a few queries for the whole page.
@@ -601,6 +616,7 @@ export class Quire {
         lines: terms.length ? this.matchingLines(r.path, terms, 3, content) : [],
         lastSource: last.get(r.path)?.source ?? null,
         lastBy: last.has(r.path) ? { person: last.get(r.path)!.person, agent: last.get(r.path)!.agent } : null,
+        role: roleOf(r.path),
       };
     });
     return { items, total: rows.length, counts, folders: [...new Set(all.map((n) => home(n.path)).filter((p) => p.includes("/")).map((p) => p.split("/")[0]))].sort() };
@@ -746,8 +762,9 @@ export class Quire {
    * into runs; a change left out of the selection (on that note) splits a run, so every run is a
    * real before/after rather than a guess at what the note would be without the skipped change.
    * Changes to other notes don't matter: leaving them out just leaves those notes out.
+   * `budget` caps the text read (shared by the sets of one diffStats call).
    */
-  diffSet(ids: number[]): DiffFile[] {
+  diffSet(ids: number[], budget = { left: DIFF_TEXT_BUDGET }): DiffFile[] {
     const want = new Set(ids.filter((n) => Number.isInteger(n) && n > 0));
     if (!want.size) return [];
     const lo = Math.min(...want);
@@ -799,23 +816,36 @@ export class Quire {
         f.open.summary = c.summary;
         if (!f.open.sources.includes(c.source)) f.open.sources.push(c.source);
       } else {
-        f.open = { from: c.id, to: c.id, count: 1, sources: [c.source], tsFrom: c.ts, tsTo: c.ts, op: c.op, summary: c.summary, skipped: f.runs.length ? f.broken : 0, before: null, after: null };
+        f.open = { from: c.id, to: c.id, count: 1, sources: [c.source], tsFrom: c.ts, tsTo: c.ts, op: c.op, summary: c.summary, skipped: f.runs.length ? f.broken : 0, before: null, after: null, stat: null };
         f.broken = 0;
         f.runs.push(f.open);
       }
     }
-    let budget = DIFF_TEXT_BUDGET;
     return [...files.values()]
       .sort((a, b) => b.last - a.last)
       .map(({ open: _o, broken: _b, ...f }) => ({
         ...f,
         runs: f.runs.map((r) => {
-          if (budget <= 0) return r; // past the budget: the run without its text
+          if (budget.left <= 0) return r; // past the budget: the run without its text
           const d = this.diff(r.from, r.to);
-          budget -= (d.before?.length ?? 0) + (d.after?.length ?? 0);
-          return { ...r, before: d.before, after: d.after };
+          budget.left -= (d.before?.length ?? 0) + (d.after?.length ?? 0);
+          return { ...r, before: d.before, after: d.after, stat: d.before === null || d.after === null ? null : lineStat(d.before, d.after) };
         }),
       }));
+  }
+
+  /**
+   * The lines each set of changes added and removed, as diffSet counts them (its runs summed): the
+   * net change, not the sum of each save's own count, so a line typed and then deleted counts for
+   * nothing. Null for a set with a run whose text isn't available.
+   */
+  diffStats(sets: number[][]): Array<LineStat | null> {
+    const budget = { left: DIFF_TEXT_BUDGET };
+    return sets.map((ids) => {
+      const runs = this.diffSet(ids, budget).flatMap((f) => f.runs);
+      if (!runs.length || runs.some((r) => !r.stat)) return null;
+      return runs.reduce((t, r) => ({ add: t.add + r.stat!.add, del: t.del + r.stat!.del }), { add: 0, del: 0 });
+    });
   }
 
   /**
@@ -1599,6 +1629,12 @@ export function fmtBytes(n: number): string {
 }
 
 export function diffstat(before: string, after: string): string {
+  const { add, del } = lineStat(before, after);
+  return `+${add} −${del}`;
+}
+
+/** The lines added and removed from `before` to `after`. */
+export function lineStat(before: string, after: string): LineStat {
   let add = 0;
   let del = 0;
   // A full line diff is quadratic when everything changed (10k lines took 9 s), so it gives up
@@ -1609,11 +1645,11 @@ export function diffstat(before: string, after: string): string {
     if (part.added) add += part.count ?? 0;
     else if (part.removed) del += part.count ?? 0;
   }
-  return `+${add} −${del}`;
+  return { add, del };
 }
 
 /** Lines added and removed as multisets: exact for rewrites, an estimate for moves. Linear. */
-function lineCountStat(before: string, after: string): string {
+function lineCountStat(before: string, after: string): LineStat {
   const count = new Map<string, number>();
   for (const l of before.split("\n")) count.set(l, (count.get(l) ?? 0) + 1);
   let add = 0;
@@ -1624,5 +1660,5 @@ function lineCountStat(before: string, after: string): string {
   }
   let del = 0;
   for (const n of count.values()) del += n;
-  return `+${add} −${del}`;
+  return { add, del };
 }
