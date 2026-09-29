@@ -27,10 +27,20 @@ test("rendered markdown marks each formula for drawing, with its source showing 
 
 test("a $$ block right under a line of text is still display math, and reading math stays linear", () => {
   assert.equal(renderMarkdown("Text above\n$$\na + b\n$$\nand after", "n.md"), '<p>Text above\n<span class="math" data-tex="a + b" data-display="">a + b</span>\nand after</p>\n');
-  for (const src of ["[".repeat(100_000), "![[".repeat(33_000), "$a ".repeat(33_000), "\\(".repeat(50_000), "para\n\n".repeat(20_000)]) {
-    const t = performance.now();
-    renderMarkdown(src, "n.md");
-    assert.ok(performance.now() - t < 1000, `slow on ${JSON.stringify(src.slice(0, 8))}: ${Math.round(performance.now() - t)} ms`);
+  // Twice the input takes about twice as long; a scan from every position would take four times.
+  // Timed by growth, not a fixed bound, which a slow CI machine can cross.
+  const time = (src: string) => {
+    let best = Infinity;
+    for (let i = 0; i < 3; i++) {
+      const t = performance.now();
+      renderMarkdown(src, "n.md");
+      best = Math.min(best, performance.now() - t);
+    }
+    return best;
+  };
+  for (const [unit, n] of [["[", 50_000], ["![[", 16_000], ["$a ", 16_000], ["\\(", 25_000], ["para\n\n", 10_000]] as const) {
+    const [once, twice] = [time(unit.repeat(n)), time(unit.repeat(2 * n))];
+    assert.ok(twice < 3 * once + 20, `${JSON.stringify(unit)} grows faster than its input: ${Math.round(once)} ms, then ${Math.round(twice)} ms`);
   }
 });
 
