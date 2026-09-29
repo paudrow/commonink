@@ -168,7 +168,14 @@ const RENAME_WINDOW_MS = 60_000;
 export interface QuireOptions {
   /** Milliseconds since the epoch: stamps changes and bounds the attribution and rename windows. Tests pass a fake clock. */
   now?: () => number;
+  /** The largest note a write may leave behind, in bytes (UTF-8). Online, a SQLite row holds 2 MB. */
+  maxNoteBytes?: number;
 }
+
+/** The default largest note: enough for any note a person writes, not enough to exhaust memory. */
+export const MAX_NOTE_BYTES = 10 * 1024 * 1024;
+/** How much note text one GET /diffs may send back in all; runs past it come without their text. */
+const DIFF_TEXT_BUDGET = 16 * 1024 * 1024;
 
 /**
  * The one core every surface (web UI, MCP server, CLI, Cloudflare workspace) talks to.
@@ -204,6 +211,7 @@ function findTask(lines: string[], line: number, text: string, notePath: string)
 
 export class Quire {
   private now: () => number;
+  private maxNoteBytes: number;
 
   constructor(
     readonly db: SqlDb,
@@ -211,6 +219,7 @@ export class Quire {
     opts: QuireOptions = {},
   ) {
     this.now = opts.now ?? Date.now;
+    this.maxNoteBytes = opts.maxNoteBytes ?? MAX_NOTE_BYTES;
   }
 
   /** IDs of files that just left the index, by kind and content, so a rename seen as delete + add keeps its ID. */
@@ -697,12 +706,15 @@ export class Quire {
         f.runs.push(f.open);
       }
     }
+    let budget = DIFF_TEXT_BUDGET;
     return [...files.values()]
       .sort((a, b) => b.last - a.last)
       .map(({ open: _o, broken: _b, ...f }) => ({
         ...f,
         runs: f.runs.map((r) => {
+          if (budget <= 0) return r; // past the budget: the run without its text
           const d = this.diff(r.from, r.to);
+          budget -= (d.before?.length ?? 0) + (d.after?.length ?? 0);
           return { ...r, before: d.before, after: d.after };
         }),
       }));
@@ -1018,6 +1030,10 @@ export class Quire {
   // ---------------------------------------------------------------- writing
 
   private commit(rel: string, before: string | null, after: string, source: string, op: Change["op"]) {
+    // Every write through the core lands here, so one limit covers the API, MCP, the CLI and online.
+    if (after.length > this.maxNoteBytes / 4 && new TextEncoder().encode(after).length > this.maxNoteBytes) {
+      throw new QuireError(`${rel} would be over ${Math.round(this.maxNoteBytes / 1024 / 1024)} MB, the most a note can hold`, "invalid");
+    }
     this.files.write(rel, after);
     const meta = this.indexFile(rel, after)!;
     const change = this.recordChange(

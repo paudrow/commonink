@@ -29,7 +29,8 @@ export class Workspace extends DurableObject<Env> {
     // Note IDs this workspace has claimed in the directory (see registerIds).
     db.exec("CREATE TABLE IF NOT EXISTS registered_ids(id TEXT PRIMARY KEY)");
     this.files = new SqlContent(db);
-    this.quire = new Quire(db, this.files);
+    // A note and its previous text are each a SQLite row here, which holds at most 2 MB.
+    this.quire = new Quire(db, this.files, { maxNoteBytes: 1_900_000 });
     // Notes only change through the core here, so this finds nothing to do, except after an
     // upgrade that asks for notes to be indexed again (tags, say).
     this.quire.sync();
