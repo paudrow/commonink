@@ -1,5 +1,6 @@
 import "./styles.css";
 import "./motion.css";
+import "./mobile.css";
 import { EditorView } from "@codemirror/view";
 import type { EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
@@ -21,9 +22,12 @@ import { renderTasksPage } from "./tasksView.ts";
 import { isQuickAddKey, openQuickAdd } from "./quickAdd.ts";
 import { runTaskCommand } from "./taskCommand.ts";
 import type { TagsPage } from "./tagsPage.ts";
-import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
+import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./account.ts";
+import { appCommands, learnLayout, matchKeys } from "./commands.ts";
+import { toggleShortcuts } from "./shortcuts.ts";
 import { vaultEvents } from "./events.ts";
-import { groupChanges } from "../../src/core/format.ts";
+import { changeVerb, groupChanges } from "../../src/core/format.ts";
+import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
 import { clampSide, forget, newLayout, parseLayout, SIDE_CLICK, sideClick, step, visit, type PaneTrail } from "./panes.ts";
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
@@ -31,6 +35,7 @@ import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
 import { safeDecode } from "../../src/core/uri.ts";
+import { closeDrawer, setupMobileNav } from "./mobileNav.ts";
 
 // ------------------------------------------------------------------ state
 
@@ -90,7 +95,7 @@ try {
 } catch {}
 
 const prefs = {
-  vim: store.get("vim", true),
+  vim: store.get("vim", !matchMedia("(pointer: coarse)").matches), // off on a touch screen: an on-screen keyboard has no Esc
   panel: store.get("panel", true),
   htmlMode: store.get<"preview" | "source">("htmlMode", "preview"),
   /** Folders whose subfolders are showing in the sidebar (they start closed). */
@@ -156,7 +161,6 @@ const once = <T>(load: () => Promise<T>) => {
 const loadHistory = once(async () =>
   (historyPage = new (await import("./history.ts")).History({
     open: (path) => fromPage(path),
-    verb: (c) => verb(c),
     toast: (t) => toast(t),
   })),
 );
@@ -186,10 +190,50 @@ const palette = new Palette(
   () => notes,
   (path, line, side) => openNote(path, { line, pane: side || paletteToSide ? sideOf(active) : active }),
   (name) => createNote(name),
+  () => commands(),
 );
 function openPalette(side = false) {
   paletteToSide = side;
   palette.open();
+}
+
+/** Online, the account menu's actions (⌘K offers them too). */
+let account: AccountAction[] = [];
+/** Everything ⌘K can do right now, and every shortcut the sheet lists. */
+function commands() {
+  const s = active.session;
+  return appCommands({
+    note: s ? { kind: s.kind, starred: isStarred(s.id), archived: isArchived(s.path) } : null,
+    vim: prefs.vim,
+    split,
+    focusMode,
+    htmlMode: prefs.htmlMode,
+    hasStart: tags.some((t) => t.tag === "start" && t.notes > 0),
+    account,
+    newNote: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
+    newFolder: startNewFolder,
+    go: (page) => {
+      if (page === "notes" || page === "archive") void showNotes({ scope: page === "notes" ? "active" : "archived", query: {} });
+      else void { tasks: showTasks, tags: showTags, assets: showAssets, history: showHistory }[page]();
+    },
+    filterNotes: () => void showNotes({ filter: true }),
+    quickAdd,
+    toggleTheme,
+    toggleVim,
+    togglePanel: () => togglePanel(),
+    toggleFocus: () => void setFocusMode(!focusMode),
+    toggleSplit: () => void (split ? closePane(active) : openSplit()),
+    toggleHtml: () => setHtmlMode(prefs.htmlMode === "preview" ? "source" : "preview"),
+    star: () => s && void toggleStar(s.path),
+    archive: () => void archiveCurrent(),
+    move: () => openMovePicker($("#move-btn")),
+    noteHistory: () => s && void showHistory({ note: s.path }),
+    gettingStarted: async () => {
+      const start = (await api.feed({ tag: "start", limit: 1 }).catch(() => null))?.items[0];
+      if (start) void openNote(start.path);
+    },
+    shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
+  });
 }
 
 // ------------------------------------------------------------------ opening notes
@@ -224,6 +268,8 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   }
   if (ticket !== pane.opens) return; // something else was opened here while this loaded
   hideBanner();
+  // The same note again (renamed, moved or archived while open) keeps its place.
+  const keep = pane.session?.id === note.id ? { scroll: pane.view.scrollSnapshot(), head: pane.view.state.selection.main.head } : null;
   const next: Session = {
     id: note.id,
     path: note.path,
@@ -282,9 +328,10 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   else {
     // Start below the frontmatter so it renders as properties rather than raw YAML.
     const fm = note.kind === "md" ? note.content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/) : null;
-    const pos = Math.min(cursors.get(note.path) ?? (fm ? fm[0].length : 0), pane.view.state.doc.length);
-    pane.view.dispatch({ selection: { anchor: pos } });
-    pane.view.scrollDOM.scrollTop = 0;
+    const pos = Math.min(keep?.head ?? cursors.get(note.path) ?? (fm ? fm[0].length : 0), pane.view.state.doc.length);
+    // Scrolled by the view, as goToLine scrolls: setting scrollDOM.scrollTop = 0 lost to CodeMirror,
+    // which on focus puts back the scroll position the last note had.
+    pane.view.dispatch({ selection: { anchor: pos }, effects: keep?.scroll ?? EditorView.scrollIntoView(0, { y: "start", yMargin: 80 }) });
   }
   // Following a link or a click adds to history; back/forward, renames and old links just fix the URL up.
   if (opts.focus !== false) focusPane(pane, opts.push === false || opts.trail === false ? "replace" : "push");
@@ -400,6 +447,7 @@ function setUrl(url: string, how: "push" | "replace" = "push") {
 let unmountTasks: (() => void) | null = null;
 
 function showStage(which: "editor" | "html" | "notes" | "tasks" | "history" | "assets" | "tags") {
+  closeDrawer();
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
   $("#assets-view").hidden = which !== "assets";
@@ -839,7 +887,7 @@ function onMessage(m: ServerMsg) {
       if (!isSelf(m.source) && m.change) {
         toast({
           by: m.change,
-          text: `${verb(m.change)} ${displayName(m.path)}`,
+          text: `${changeVerb(m.change)} ${displayName(m.path)}`,
           detail: m.change.summary ?? undefined,
           action: open ? undefined : () => openNote(m.path),
         });
@@ -1071,17 +1119,18 @@ function renderFavorites() {
   // The tag Notes shows on its own (like a folder alone), which its favorite marks as open.
   const q = onPage() === "notes" && notesPage.scope === "active" ? notesPage.query : null;
   const shownTag = q?.tag && formatQuery(q) === formatQuery({ tag: q.tag }) ? (normalizeTag(q.tag) ?? "") : "";
-  const list = favorites.filter((f) => isTagFavorite(f) || !isArchived(f.path));
-  const rows = list.map((f) => {
+  const rows = favorites.map((f) => {
     if (isTagFavorite(f)) {
       const row = tagFavoriteRow(f, f.tag === shownTag);
       favoriteDrop(row, "is-drop-before", favoriteKey(f));
       return row;
     }
+    // An archived favorite stays, dimmed: archiving tidies search and the sidebar, not your stars.
+    const archived = isArchived(f.path);
     const row = el(
       "div",
       {
-        class: `tree-row is-file${f.path === active.session?.path ? " is-active" : ""}`,
+        class: `tree-row is-file${f.path === active.session?.path ? " is-active" : ""}${archived ? " is-archived" : ""}`,
         "aria-current": f.path === active.session?.path && "page",
         style: { "--depth": "0" },
         title: f.path,
@@ -1097,6 +1146,7 @@ function renderFavorites() {
       el("span", { class: "chev is-leaf" }),
       icon(f.kind === "html" ? "html" : "file", 14),
       el("span", { class: "tree-name" }, displayName(f.path)),
+      archived ? el("span", { class: "n" }, "Archived") : null,
       el(
         "span",
         { class: "row-actions" },
@@ -1441,6 +1491,7 @@ async function archivePath(path: string) {
 
 /** An inline name field at the top of the tree; the folder appears (empty) when you press Enter. */
 function startNewFolder() {
+  if (prefs.folded.folders) $('[aria-controls="tree"]').click(); // unfold Folders, or the name field is hidden
   $("#tree").querySelector(".tree-row.is-input")?.remove();
   const input = el("input", { class: "tree-input", placeholder: "Folder name", spellcheck: "false" });
   const row = el("div", { class: "tree-row is-input", style: { "--depth": "0" } }, icon("folder", 14), input);
@@ -1669,12 +1720,14 @@ const highlightLink = (t: string) =>
   t.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]!).replace(/!?\[\[([^\]]+)\]\]/g, (_m, x) => `<b>${x.split("|").pop()}</b>`);
 
 // activity
-const verb = (c: Change) => ({ create: "created", edit: "edited", move: "moved", delete: "deleted", archive: "archived", unarchive: "unarchived" })[c.op];
 function renderActivity() {
+  const entries = groupChanges(changes).slice(0, 30);
+  const idsOf = (g: (typeof entries)[number]) => toRanges(changes.filter((c) => c.id >= g.first && c.id <= g.id).map((c) => c.id));
+  void loadStats(entries.filter((g) => g.count > 1).map(idsOf)).then((fresh) => fresh && renderActivity());
   $("#activity").replaceChildren(
-    ...(changes.length
-      ? groupChanges(changes).slice(0, 30).map((c) => {
-          const [add, del] = (c.summary ?? "").match(/^\+(\d+) −(\d+)$/)?.slice(1) ?? [];
+    ...(entries.length
+      ? entries.map((c) => {
+          const stat = entryStat(c, c.count > 1 ? idsOf(c) : "");
           return el(
             "div",
             {
@@ -1693,13 +1746,13 @@ function renderActivity() {
                 "div",
                 { class: "act-line" },
                 el("b", {}, authorName(c)),
-                ` ${verb(c)} `,
+                ` ${changeVerb(c)} `,
                 el("a", { onclick: (e: Event) => (e.stopPropagation(), openNote(c.path)) }, displayName(c.path)),
               ),
               el(
                 "div",
                 { class: "act-meta" },
-                add !== undefined ? el("span", { class: "diffstat" }, el("span", { class: "add" }, `+${add}`), el("span", { class: "del" }, `−${del}`)) : null,
+                stat ? statEl(stat) : null,
                 c.op === "move" && c.from_path ? el("span", {}, `from ${displayName(c.from_path)}`) : null,
                 c.count > 1 ? el("span", {}, `${c.count} saves`) : null,
                 el("span", { "data-ts": String(c.ts) }, timeAgo(c.ts)),
@@ -1835,9 +1888,11 @@ window.addEventListener(
   "keydown",
   (e) => {
     const mod = e.metaKey || e.ctrlKey;
-    if (mod && (e.key === "k" || e.key === "p")) {
+    const quickOpen = matchKeys(e, "Mod-p") || matchKeys(e, "Mod-k");
+    if (quickOpen || matchKeys(e, "Mod-Shift-p")) {
       e.preventDefault();
-      palette.isOpen ? palette.close() : openPalette();
+      paletteToSide = false;
+      palette.toggle(quickOpen ? "" : ">");
     } else if (mod && !e.altKey && e.key === "\\") {
       e.preventDefault();
       togglePanel();
@@ -1853,12 +1908,12 @@ window.addEventListener(
     } else if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
       e.preventDefault();
       void showNotes({ filter: true });
-    } else if (mod && e.altKey && (e.code === "Backslash" || e.key === "\\")) {
+    } else if (matchKeys(e, "Mod-Alt-\\")) {
       e.preventDefault();
       void (split ? closePane(active) : openSplit());
-    } else if (mod && e.altKey && (e.code === "BracketLeft" || e.code === "BracketRight") && split) {
+    } else if ((matchKeys(e, "Mod-Alt-[") || matchKeys(e, "Mod-Alt-]")) && split) {
       e.preventDefault();
-      const p = panes[e.code === "BracketLeft" ? 0 : 1];
+      const p = panes[matchKeys(e, "Mod-Alt-[") ? 0 : 1];
       focusPane(p);
       if (p.session && p.session.kind !== "asset") p.view.focus();
     } else if (isQuickAddKey(e) || (e.key === "q" && !mod && !e.altKey && !typingIn(e.target))) {
@@ -1866,6 +1921,9 @@ window.addEventListener(
       e.preventDefault();
       e.stopPropagation(); // not the editor's (or Vim's) key as well
       quickAdd();
+    } else if (e.key === "?" && !mod && !e.altKey && !typingIn(e.target)) {
+      e.preventDefault();
+      toggleShortcuts(commands(), { vim: prefs.vim });
     } else if (mod && e.key === "e" && active.session?.kind === "html") {
       e.preventDefault();
       setHtmlMode(prefs.htmlMode === "preview" ? "source" : "preview");
@@ -1899,6 +1957,14 @@ function togglePanel(force?: boolean) {
   prefs.panel = force ?? !prefs.panel;
   store.set("panel", prefs.panel);
   document.body.classList.toggle("panel-closed", !prefs.panel);
+}
+
+function toggleVim() {
+  prefs.vim = !prefs.vim;
+  store.set("vim", prefs.vim);
+  for (const p of panes) p.view.dispatch({ effects: vimSlot.reconfigure(prefs.vim ? vim() : []) });
+  attachVim();
+  active.view.focus();
 }
 
 function toggleTheme() {
@@ -2071,10 +2137,13 @@ async function boot() {
     viewer = ws.role === "viewer";
     useWorkspace(`/api/w/${ws.id}`, `/api/w/${ws.id}/live`);
     setSelfName(who.me.user.name);
-    renderAccount(who.me, ws, (t) => toast(t));
+    account = renderAccount(who.me, ws, (t) => toast(t));
   }
 
   hydrateIcons();
+  setupMobileNav();
+  void learnLayout();
+  window.addEventListener("focus", () => void learnLayout()); // the layout may have changed while away
   togglePanel(prefs.panel);
   $("#search-btn").addEventListener("click", () => openPalette());
   // A new note goes at the top level, unless Notes is showing a folder: then it goes there.
@@ -2084,13 +2153,7 @@ async function boot() {
   $("#stage").addEventListener("mousedown", () => document.body.classList.remove("panel-overlay"));
   $("#theme-toggle").addEventListener("click", toggleTheme);
   setPressed($("#vim-toggle"), prefs.vim);
-  $("#vim-toggle").addEventListener("click", () => {
-    prefs.vim = !prefs.vim;
-    store.set("vim", prefs.vim);
-    for (const p of panes) p.view.dispatch({ effects: vimSlot.reconfigure(prefs.vim ? vim() : []) });
-    attachVim();
-    active.view.focus();
-  });
+  $("#vim-toggle").addEventListener("click", toggleVim);
   $("#html-toggle").addEventListener("click", (e) => {
     const mode = (e.target as HTMLElement).closest("button")?.dataset.mode as "preview" | "source" | undefined;
     if (mode) setHtmlMode(mode);

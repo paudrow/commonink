@@ -94,6 +94,9 @@ test("one request for diffs can't ask for unbounded text", () => {
   assert.equal(runs.length, 13);
   assert.ok(text <= 18 * 1024 * 1024, `${text} bytes of text`);
   assert.equal(runs.at(-1)!.before, null, "the oldest runs come without their text");
+  // Net stats for many sets share one budget: once it's spent, the rest come back unknown.
+  const stats = quire.diffStats(Array.from({ length: 50 }, () => ids.slice(0, 2)));
+  assert.deepEqual([stats[0], stats.at(-1)], [{ add: 2, del: 2 }, null]);
 });
 
 test("a symlink in the vault doesn't lead reads, writes or listings outside it", () => {

@@ -54,8 +54,74 @@ function switchTo(id: string) {
   location.href = "/";
 }
 
-/** The account button at the bottom of the sidebar, with its menu. */
-export function renderAccount(me: Me, current: Me["workspaces"][number], toast: (t: { text: string; icon?: string }) => void) {
+/** An entry in the account menu, which ⌘K offers too. `session` ones (signing out) go below a line. */
+export interface AccountAction {
+  label: string;
+  icon: string;
+  run: () => unknown;
+  workspace?: boolean;
+  current?: boolean;
+  session?: boolean;
+}
+
+function accountActions(me: Me, current: Me["workspaces"][number], toast: (t: { text: string; icon?: string }) => void): AccountAction[] {
+  return [
+    ...me.workspaces.map((w) => ({
+      label: `${w.name}${w.kind === "personal" ? " (you)" : ""}`,
+      icon: w.kind === "team" ? "feed" : "file",
+      run: () => switchTo(w.id),
+      workspace: true,
+      current: w.id === current.id,
+    })),
+    {
+      label: "New team workspace…",
+      icon: "plus",
+      run: async () => {
+        const name = prompt("Name your team workspace", "My team")?.trim();
+        if (!name) return;
+        const { id } = await api.createWorkspace(name);
+        switchTo(id);
+      },
+    },
+    ...(current.kind === "team" && current.role === "owner"
+      ? [
+          {
+            label: "Copy invite link",
+            icon: "link",
+            run: async () => {
+              const { url } = await api.invite("editor");
+              await navigator.clipboard.writeText(url).catch(() => prompt("Invite link (one person, 7 days)", url));
+              toast({ icon: "link", text: "Invite link copied. It works once, for 7 days." });
+            },
+          },
+        ]
+      : []),
+    { label: "Connected agents…", icon: "bot", run: () => void import("./agentsPage.ts").then((m) => m.showAgents()) },
+    {
+      label: "Sign out",
+      icon: "open",
+      session: true,
+      run: () => {
+        const form = el("form", { method: "post", action: "/auth/logout" });
+        document.body.append(form);
+        form.submit();
+      },
+    },
+    {
+      label: "Sign out everywhere…",
+      icon: "open",
+      session: true,
+      run: async () => {
+        if (!confirm("Sign out of Common Ink on every device and browser, including this one, and disconnect your agents?")) return;
+        await api.signOutEverywhere();
+        location.href = "/";
+      },
+    },
+  ];
+}
+
+/** The account button at the bottom of the sidebar, with its menu. Returns the menu's actions. */
+export function renderAccount(me: Me, current: Me["workspaces"][number], toast: (t: { text: string; icon?: string }) => void): AccountAction[] {
   const face = me.user.picture
     ? el("img", { class: "acct-face", src: me.user.picture, alt: "", referrerpolicy: "no-referrer" })
     : el("span", { class: "acct-face is-initial" }, me.user.name.slice(0, 1).toUpperCase());
@@ -68,41 +134,14 @@ export function renderAccount(me: Me, current: Me["workspaces"][number], toast: 
   );
   const menu = el("div", { class: "acct-menu", hidden: true });
   const close = () => (menu.hidden = true);
-  const item = (label: string, ico: string, fn: () => void, extra?: string) =>
-    el("button", { class: `acct-item${extra ? ` ${extra}` : ""}`, type: "button", onclick: () => (close(), fn()) }, icon(ico, 15), el("span", {}, label));
-
+  const actions = accountActions(me, current, toast);
+  const sep = actions.findIndex((a) => a.session);
   menu.append(
     el("div", { class: "acct-section" }, "Workspaces"),
-    ...me.workspaces.map((w) =>
-      item(`${w.name}${w.kind === "personal" ? " (you)" : ""}`, w.kind === "team" ? "feed" : "file", () => switchTo(w.id), w.id === current.id ? "is-current" : ""),
-    ),
-    item("New team workspace…", "plus", async () => {
-      const name = prompt("Name your team workspace", "My team")?.trim();
-      if (!name) return;
-      const { id } = await api.createWorkspace(name);
-      switchTo(id);
-    }),
-    ...(current.kind === "team" && current.role === "owner"
-      ? [
-          item("Copy invite link", "link", async () => {
-            const { url } = await api.invite("editor");
-            await navigator.clipboard.writeText(url).catch(() => prompt("Invite link (one person, 7 days)", url));
-            toast({ icon: "link", text: "Invite link copied. It works once, for 7 days." });
-          }),
-        ]
-      : []),
-    item("Connected agents…", "bot", () => void import("./agentsPage.ts").then((m) => m.showAgents())),
-    el("div", { class: "acct-sep" }),
-    item("Sign out", "open", () => {
-      const form = el("form", { method: "post", action: "/auth/logout" });
-      document.body.append(form);
-      form.submit();
-    }),
-    item("Sign out everywhere…", "open", async () => {
-      if (!confirm("Sign out of Common Ink on every device and browser, including this one, and disconnect your agents?")) return;
-      await api.signOutEverywhere();
-      location.href = "/";
-    }),
+    ...actions.flatMap((a, i) => [
+      i === sep ? el("div", { class: "acct-sep" }) : null,
+      el("button", { class: `acct-item${a.current ? " is-current" : ""}`, type: "button", onclick: () => (close(), a.run()) }, icon(a.icon, 15), el("span", {}, a.label)),
+    ]).filter((n) => n !== null),
   );
   button.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -113,4 +152,5 @@ export function renderAccount(me: Me, current: Me["workspaces"][number], toast: 
   });
   const box = el("div", { class: "acct" }, menu, button);
   $("#sidebar .sidebar-foot").prepend(box);
+  return actions;
 }
