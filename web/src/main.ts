@@ -955,6 +955,13 @@ function pinButton(tag: string, where: "row" | "chip"): HTMLElement {
   );
 }
 
+/** How a sidebar row opens what it names: a click, or Enter while the row (not a button in it) has the keyboard. */
+const opens = (go: (e?: MouseEvent) => void) => ({
+  tabindex: "0",
+  onclick: (e: MouseEvent) => go(e),
+  onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && go(),
+});
+
 /** Saved note queries, each with a live count. Click one to see its notes; the sliders edit it. */
 function renderSmartFolders(active: string | null) {
   const rows = smartFolders.map((f) => {
@@ -983,9 +990,7 @@ function renderSmartFolders(active: string | null) {
         class: `tree-row is-file${f.query === active ? " is-active" : ""}`,
         style: { "--depth": "0" },
         title: `${f.query || "Every note"}${f.shared ? "" : " (just you)"}`,
-        tabindex: "0",
-        onclick: () => void showNotes({ scope: "active", query: parseQuery(f.query) }),
-        onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && void showNotes({ scope: "active", query: parseQuery(f.query) }),
+        ...opens(() => void showNotes({ scope: "active", query: parseQuery(f.query) })),
       },
       el("span", { class: "chev is-leaf" }), // the chevron column Folders and Tags rows have, so icons and names line up
       icon("folderSearch", 14),
@@ -1011,9 +1016,7 @@ function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
       style: { "--depth": "0" },
       title: `Notes tagged #${f.display}`,
       draggable: "true",
-      tabindex: "0",
-      onclick: () => openTag(f.display),
-      onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && openTag(f.display),
+      ...opens(() => openTag(f.display)),
       ondragstart: (e: DragEvent) => {
         e.dataTransfer!.setData(FAVORITE, favoriteKey(f));
         document.body.classList.add("is-dragging");
@@ -1046,7 +1049,7 @@ function renderFavorites() {
         style: { "--depth": "0" },
         title: f.path,
         draggable: "true",
-        onclick: (e: MouseEvent) => openNote(f.path, { pane: sideClick(e) ? sideOf(active) : active }),
+        ...opens((e) => void openNote(f.path, { pane: e && sideClick(e) ? sideOf(active) : active })),
         ondragstart: (e: DragEvent) => {
           e.dataTransfer!.setData(FAVORITE, f.path);
           e.dataTransfer!.setData(NOTE_DRAG, f.path); // so it can go to a folder or Archive too
@@ -1196,9 +1199,7 @@ function renderTree() {
             style: { "--depth": String(depth) },
             "data-folder": path,
             title: n ? `Show the notes in ${path}` : `${path} is empty. Drag notes here.`,
-            tabindex: "0",
-            onclick: () => void showNotes({ scope: "active", query: { folder: path } }),
-            onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && void showNotes({ scope: "active", query: { folder: path } }),
+            ...opens(() => void showNotes({ scope: "active", query: { folder: path } })),
           },
           subs
             ? el(
@@ -1255,9 +1256,7 @@ function renderTagTree(active: string) {
             style: { "--depth": String(depth) },
             "data-tag": t.tag,
             title: `Notes tagged #${t.display}`,
-            tabindex: "0",
-            onclick: () => openTag(t.display),
-            onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && openTag(t.display),
+            ...opens(() => openTag(t.display)),
           },
           subs
             ? el(
