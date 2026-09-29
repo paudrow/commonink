@@ -2,8 +2,6 @@
 pr: 64
 title: Security audit
 ---
-# Security audit
-
 This audit fixed crashes, slowdowns and a few ways a note could act on the people reading it. These are the fixes you can see.
 
 1. **A stray % doesn't break a note any more.** Open [[Percent link]]. It contains `[done](100%)`, which used to crash the local app and make the note fail online. Now it opens, and you can edit and save it. Add another `[x](50%)` and save to check.
