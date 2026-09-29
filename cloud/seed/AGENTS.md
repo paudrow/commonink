@@ -15,6 +15,6 @@ These notes belong to people. You are a guest editor.
   - `::calendar{folder=Journal}` shows a month of daily notes (`Journal/YYYY-MM-DD.md`).
   - `::timer{duration=25m label="Focus"}`, `::stopwatch{label="Run"}`.
   - `::kanban{note="Launch"}` shows the Kanban board in another note.
-- Kanban boards are a block in a note, with ordinary text around it: a `:::kanban` line, `## Column` headings with `- [ ] card` lines under them, and a closing `:::`. Cards are tasks (same tokens), a card can be just a `[[Note]]` link, and lines indented under a card are its details. Moving a card into the column named `Done` (or the one `:::kanban{done="Shipped"}` names) ticks it.
+- Kanban boards are a block in a note, with ordinary text around it: a `:::kanban` line, `## Column` headings with `- [ ] card` lines under them, and a closing `:::`. Cards are tasks (same tokens), a card can be just a `[[Note]]` link, and lines indented under a card are its details. Moving a card into the column named `Done` ticks it. A column can have a colour after its name: `## Doing {color=blue}`.
 - Diagrams: a ```mermaid code block renders as a diagram.
 - Archive notes that are done when asked to tidy up; they move under `Archive/` and keep their links.

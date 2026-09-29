@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  addCard, addColumn, boardsIn, cardAsNote, cardLink, checkCard, deleteCard, editCard, moveCard, moveColumn, noteName, renameColumn, setBoardArgs,
+  addCard, addColumn, boardsIn, cardAsNote, cardLink, checkCard, deleteCard, editCard, moveCard, moveColumn, noteName, renameColumn,
+  setColumnColor, unclosedBoard,
 } from "../src/core/kanban.ts";
 import { openTempVault } from "./helpers.ts";
 
@@ -42,16 +43,21 @@ test("a :::kanban block's headings are columns and its list items are cards, wit
       ["Done", true, [[true, "[[Landing page]]", []]]],
     ],
   );
-  assert.deepEqual([board.from, board.close, board.level], [4, 17, 2]);
+  assert.deepEqual([board.from, board.close, board.problems], [4, 17, []]);
 });
 
-test("a note can hold several boards; one in code, or one never closed, isn't a board", () => {
-  const md = "```md\n:::kanban\n## Not a column\n:::\n```\n\n:::kanban{done=Shipped}\n### Ideas\n* one\n### Shipped\n:::\n\ntext\n\n:::kanban\n## A\n:::\n\n:::kanban\n## Open\n";
+test("a note can hold several boards; one in code isn't a board, and one never closed is reported where it opens", () => {
+  const md = "```md\n:::kanban\n## Not a column\n:::\n```\n\n:::kanban\n### Ideas\n* one\n1. two\n### Done\n:::\n\ntext\n\n:::kanban\n## A\n:::\n\n:::kanban\n## Open\n";
   const boards = boardsIn(md);
-  assert.deepEqual(boards.map((b) => [b.args, b.level, b.columns.map((c) => `${c.title}${c.done ? " (done)" : ""}:${c.cards.length}`)]), [
-    [{ done: "Shipped" }, 3, ["Ideas:1", "Shipped (done):0"]],
-    [{}, 2, ["A:0"]],
-  ]);
+  assert.deepEqual(boards.map((b) => b.columns.map((c) => `${c.title}${c.done ? " (done)" : ""}:${c.cards.map((k) => k.text).join("+")}`)), [["Ideas:one+two", "Done (done):"], ["A:"]]);
+  assert.equal(unclosedBoard(md), 19);
+  assert.equal(unclosedBoard(NOTE), null);
+});
+
+test("every heading in a board is a column, whatever its level; a column's colour follows its name", () => {
+  const md = NOTE.replace("## Doing", "### Doing {color=blue}").replace("## Done", "# Done");
+  assert.deepEqual(boardsIn(md)[0].columns.map((c) => [c.title, c.color, c.done, c.cards.length]), [["Backlog", null, false, 2], ["Doing", "blue", false, 1], ["Done", null, true, 1]]);
+  assert.deepEqual(boardsIn(md)[0].problems, []);
 });
 
 test("moving a card changes only where its lines are: text around the board, blank lines and its nested lines stay byte for byte", () => {
@@ -127,11 +133,25 @@ test("columns are added at the end, renamed in place, and reordered with the bla
   assert.equal(moveColumn(moveColumn(NOTE, { board: 0, column: 0 }, 2), { board: 0, column: 2 }, 0), NOTE);
 });
 
-test("a board's settings live on its opening line", () => {
-  const md = setBoardArgs(NOTE, 0, { done: "Shipped it" });
-  assert.equal(md, NOTE.replace(":::kanban\n", ':::kanban{done="Shipped it"}\n'));
-  assert.deepEqual(boardsIn(md)[0].columns.map((c) => c.done), [false, false, false]);
-  assert.equal(setBoardArgs(md, 0, {}), NOTE);
+test("column colours are written after the name and taken off again; renaming keeps a colour and a heading's level", () => {
+  const blue = setColumnColor(NOTE, { board: 0, column: 1 }, "blue");
+  assert.equal(blue, NOTE.replace("## Doing\n", "## Doing {color=blue}\n"));
+  assert.equal(setColumnColor(blue, { board: 0, column: 1 }, "green"), NOTE.replace("## Doing\n", "## Doing {color=green}\n"));
+  assert.equal(renameColumn(blue.replace("## Doing", "### Doing"), { board: 0, column: 1 }, "In progress"), NOTE.replace("## Doing\n", "### In progress {color=blue}\n"));
+  assert.equal(setColumnColor(blue, { board: 0, column: 1 }, null), NOTE);
+});
+
+test("the done column is the one named Done; an older file's done= still names another", () => {
+  const md = NOTE.replace(":::kanban", ":::kanban{done=Doing}");
+  assert.deepEqual(boardsIn(md)[0].columns.map((c) => c.done), [false, true, false]);
+  assert.deepEqual(boardsIn(md)[0].problems, []);
+});
+
+test("a plain list item moved into Done gets a ticked box, so it counts as done", () => {
+  const md = "x\n:::kanban\n## To do\n- Call Sam\n1. Ship it\n## Done\n:::\n";
+  const one = moveCard(md, 3, { board: 0, column: 1 }, 0, TODAY);
+  assert.equal(one, `x\n:::kanban\n## To do\n1. Ship it\n## Done\n- [x] Call Sam done:${TODAY}\n:::\n`);
+  assert.equal(moveCard(one, 3, { board: 0, column: 1 }, 1, TODAY), `x\n:::kanban\n## To do\n## Done\n- [x] Call Sam done:${TODAY}\n- [x] Ship it done:${TODAY}\n:::\n`);
 });
 
 test("Windows line endings survive every change", () => {

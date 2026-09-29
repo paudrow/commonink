@@ -7,7 +7,7 @@ import { extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, typ
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
 import { dueFilter, editTask, isDate, localDate, parseTask, patchProblem, TASK_LINE, type TaskMeta, type TaskPatch } from "./tasks.ts";
-import { addCard, boardsIn, checkCard, editCard, moveCard, type Board, type Place } from "./kanban.ts";
+import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
 
 export interface NoteMeta {
   /** Stable across renames, moves and archiving; see ids.ts. */
@@ -1053,9 +1053,10 @@ export class Quire {
   // ---------------------------------------------------------------- boards
 
   /** A note and the `:::kanban` boards in it (see kanban.ts). */
-  boards(target: string): { note: Note; boards: Board[] } {
+  /** `unclosed`: the line of a `:::kanban` with no closing `:::`, which shows as text. */
+  boards(target: string): { note: Note; boards: Board[]; unclosed: number | null } {
     const note = this.read(target);
-    return { note, boards: boardsIn(note.content) };
+    return { note, boards: boardsIn(note.content), unclosed: unclosedBoard(note.content) };
   }
 
   /**

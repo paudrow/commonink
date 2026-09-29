@@ -85,6 +85,11 @@ test("board shows a note's boards, and card adds, moves and edits cards", () => 
   assert.match(quire(vault, ["board", "Launch"]).stdout, /^Board 1 of 1 in Launch\.md\n\n## To do\n- \[ \] Pick a logo @ana — L5\n\n## Done \(done column\)\n- \[x\] Tiers done:\d{4}-\d{2}-\d{2} — L8\n$/);
   assert.equal(quire(vault, ["card", "edit", "Launch", "5", "--undone"]).stdout.startsWith("No change to Launch.md"), true);
   assert.equal(quire(vault, ["card", "shuffle", "Launch"]).stderr, 'card needs add, move or edit, not "shuffle"\n');
+  fs.writeFileSync(path.join(vault, "Messy.md"), "# Messy\n\n:::kanban\n## To do {color=blue}\nA loose line\n- [ ] Card\n:::\n\n:::kanban\n## Open\n");
+  assert.equal(
+    quire(vault, ["board", "Messy"]).stdout,
+    "Board 1 of 1 in Messy.md\n\nProblems (the lines stay as they are until fixed):\n- Line 5 in To do isn't a card (stray, L5)\n\n## To do {color=blue}\n- [ ] Card — L6\n\nProblem: the :::kanban on line 9 has no closing ::: line, so it shows as text.\n",
+  );
 });
 
 test("star and unstar take #tags as well as notes", () => {

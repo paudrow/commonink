@@ -107,8 +107,8 @@ if (cmd === "mcp") {
         break;
       }
       case "board": {
-        const { note, boards } = q.boards(need(0, "note"));
-        out(fmtBoards(note.path, boards), boards);
+        const { note, boards, unclosed } = q.boards(need(0, "note"));
+        out(fmtBoards(note.path, boards, unclosed), { boards, unclosed });
         break;
       }
       case "card": {
