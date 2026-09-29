@@ -13,6 +13,7 @@ import { parseQuickAdd } from "./quickAdd.ts";
 import { formatQuery, parseQuery, queryProblem, type NoteQuery } from "./query.ts";
 import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
 import { safeDecode } from "./uri.ts";
+import { AGENTS_NOTE, START_TAG, type NoteRole } from "./noteRoles.ts";
 
 export interface NoteMeta {
   /** Stable across renames, moves and archiving; see ids.ts. */
@@ -123,6 +124,7 @@ export interface FeedItem {
   lastSource: string | null;
   /** Who made the last change: a person, or an agent for one. */
   lastBy: Actor | null;
+  role: NoteRole | null;
 }
 
 export interface Task {
@@ -559,7 +561,8 @@ export class Quire {
 
   /**
    * A stream of notes, newest first, for the Notes view. `q` filters with full-text search;
-   * `folder` matches the note's original folder whether or not it's archived.
+   * `folder` matches the note's original folder whether or not it's archived. Newest first puts
+   * `start` notes ahead and the agents' instructions after the rest (see noteRoles.ts).
    */
   feed(opts: Omit<NoteQuery, "limit"> & { scope?: ArchiveScope; offset?: number; limit?: number } = {}) {
     const scope = opts.scope ?? "active";
@@ -569,6 +572,12 @@ export class Quire {
     const home = (p: string) => (isArchived(p) ? p.slice(ARCHIVE.length) : p);
     const counts = { active: rows.filter((r) => !isArchived(r.path)).length, archived: rows.filter((r) => isArchived(r.path)).length };
     rows = rows.filter((r) => inScope(r.path, scope));
+    const starts = new Set(this.db.all<{ path: string }>("SELECT DISTINCT path FROM tags WHERE tag = ?", START_TAG).map((r) => r.path));
+    const roleOf = (p: string): NoteRole | null => (p === AGENTS_NOTE ? "agents" : starts.has(p) && !isArchived(p) ? "start" : null);
+    if (opts.sort !== "title") {
+      const rank = (p: string) => ({ start: 0, agents: 2, none: 1 })[roleOf(p) ?? "none"];
+      rows = [...rows].sort((a, b) => rank(a.path) - rank(b.path));
+    }
     const offset = opts.offset ?? 0;
     const page = rows.slice(offset, offset + (opts.limit ?? 30));
     // The page's tags and who changed each note last, a few queries for the whole page.
@@ -607,6 +616,7 @@ export class Quire {
         lines: terms.length ? this.matchingLines(r.path, terms, 3, content) : [],
         lastSource: last.get(r.path)?.source ?? null,
         lastBy: last.has(r.path) ? { person: last.get(r.path)!.person, agent: last.get(r.path)!.agent } : null,
+        role: roleOf(r.path),
       };
     });
     return { items, total: rows.length, counts, folders: [...new Set(all.map((n) => home(n.path)).filter((p) => p.includes("/")).map((p) => p.split("/")[0]))].sort() };
@@ -860,8 +870,8 @@ export class Quire {
     return null;
   }
 
-  /** Put a note back the way it was before change #id. */
-  restore(id: number, source: string) {
+  /** Put a note back the way it was before change #id; with `baseVersion`, only if the note is still at it. */
+  restore(id: number, source: string, baseVersion?: string) {
     const row = this.db.get("SELECT path, op, before FROM changes WHERE id = ?", id);
     if (!row) throw new QuireError(`No change #${id}`, "not_found");
     if (row.before === null) throw new QuireError(`Change #${id} (${row.op} ${row.path}) has no earlier text to restore`);
@@ -872,7 +882,7 @@ export class Quire {
       at = moved.path;
       since = moved.id;
     }
-    return { ...this.save(at, row.before, { source }), path: at };
+    return { ...this.save(at, row.before, { source, baseVersion }), path: at };
   }
 
   // ---------------------------------------------------------------- favorites

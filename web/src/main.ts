@@ -6,7 +6,10 @@ import { EditorSelection, type EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
 import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type Scope, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
 import { normalizeTag } from "../../src/core/tags.ts";
-import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, type LinkDrag } from "./dom.ts";
+import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
+import { toast } from "./toast.ts";
+import { hideBanner, showBanner } from "./banner.ts";
+import { showConflict as conflictBanner } from "./conflict.ts";
 import { createState, openLinkToSide, remote, vimSlot } from "./editor/setup.ts";
 import { linkTargetAt } from "./editor/linkAt.ts";
 import { bumpEmbeds, editorContext } from "./editor/blocks.ts";
@@ -25,7 +28,9 @@ import type { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./account.ts";
 import { appCommands, learnLayout, matchKeys } from "./commands.ts";
 import { toggleShortcuts } from "./shortcuts.ts";
-import { vaultEvents } from "./events.ts";
+import { did, vaultEvents } from "./events.ts";
+import { guideMessage, startGuide } from "./onboarding.ts";
+import { store } from "./store.ts";
 import { changeVerb, groupChanges } from "../../src/core/format.ts";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
 import { clampSide, forget, historyStep, IS_MAC, newLayout, pageEntry, pageOf, parseLayout, rememberPlace, SIDE_CLICK, sideClick, step, visit, type PaneTrail, type Place } from "./panes.ts";
@@ -35,6 +40,7 @@ import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
 import { safeDecode } from "../../src/core/uri.ts";
+import { AGENTS_BLURB, isAgentsNote } from "./agentsNote.ts";
 import { closeDrawer, setupMobileNav } from "./mobileNav.ts";
 
 // ------------------------------------------------------------------ state
@@ -73,29 +79,14 @@ interface Pane {
   opens: number;
 }
 
-const store = {
-  get<T>(k: string, d: T): T {
-    try {
-      const v = localStorage.getItem(`quire.${k}`);
-      return v === null ? d : JSON.parse(v);
-    } catch {
-      return d;
-    }
-  },
-  set(k: string, v: unknown) {
-    try {
-      localStorage.setItem(`quire.${k}`, JSON.stringify(v));
-    } catch {}
-  },
-};
-
 // This PR's first version stored a "Start on Today" choice; Today is the top of Tasks now.
 try {
   localStorage.removeItem("quire.startOnToday");
 } catch {}
 
 const prefs = {
-  vim: store.get("vim", !matchMedia("(pointer: coarse)").matches), // off on a touch screen: an on-screen keyboard has no Esc
+  /** Off until you turn it on: in Vim, a stray Esc then `dd` deletes a line. */
+  vim: store.get("vim", false),
   panel: store.get("panel", true),
   htmlMode: store.get<"preview" | "source">("htmlMode", "preview"),
   /** Folders whose subfolders are showing in the sidebar (they start closed). */
@@ -149,6 +140,7 @@ const notesPage = new NotesPage({
     api.clearResolveCache();
     void refreshNotes();
   },
+  newNote: () => void newNote(),
 });
 // History, Assets and Tags load the first time they're opened (each is null until then).
 let historyPage: History | null = null;
@@ -162,6 +154,7 @@ const loadHistory = once(async () =>
   (historyPage = new (await import("./history.ts")).History({
     open: (path) => fromPage(path),
     toast: (t) => toast(t),
+    newNote: viewer ? undefined : () => void newNote(),
   })),
 );
 const loadAssets = once(async () =>
@@ -194,6 +187,7 @@ const palette = new Palette(
 );
 function openPalette(side = false) {
   paletteToSide = side;
+  did("search");
   palette.open();
 }
 
@@ -340,6 +334,9 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   resetVimJumps();
   if (isArchived(note.path)) {
     showBanner("This note is archived. It's hidden from search and the sidebar.", ["Unarchive", () => void archiveCurrent()]);
+    $("#banner").classList.add("is-info");
+  } else if (isAgentsNote(note.path)) {
+    showBanner(AGENTS_BLURB);
     $("#banner").classList.add("is-info");
   }
   pane.host.classList.toggle("is-code", note.kind === "html");
@@ -908,37 +905,66 @@ function applyRemote(m: { path: string; content: string | null; version: string;
 
 function showConflict(s: Session, m: { path: string; content: string | null; version: string; source: string; change?: Change | null }) {
   const who = m.source === "you" ? "Another window" : m.source === "external" ? "Another program" : authorName(byOf(m));
+  const theirs = m.content!;
   clearTimeout(s.timer);
   status(s, "error");
-  showBanner(
-    `${who} changed ${split ? displayName(s.path) : "this note"} while you were typing, and the edits overlap.`,
-    [
-      "Keep mine",
-      () => {
-        s.base = m.content!;
-        s.baseVersion = m.version;
-        hideBanner();
-        scheduleSave(s, 0);
-      },
-    ],
-    [
-      "Use theirs",
-      () => {
-        const view = s.pane.view;
-        const { changes: edits, touched } = editsBetween(view.state.doc.toString(), m.content!);
-        view.dispatch({ changes: edits, annotations: remote.of(true), effects: flashOf(touched, m) });
-        s.base = m.content!;
-        s.baseVersion = m.version;
-        hideBanner();
-        status(s, "saved");
-      },
-    ],
-  );
+  conflictBanner({
+    who,
+    where: split ? displayName(s.path) : "this note",
+    mine: () => s.pane.view.state.doc.toString(),
+    theirs,
+    keepMine: () => {
+      s.base = theirs;
+      s.baseVersion = m.version;
+      scheduleSave(s, 0);
+      toast({ icon: "check", text: "Kept your version", detail: "Theirs is in History", actionLabel: "Undo", action: () => replaceText(s, theirs) });
+    },
+    useTheirs: () => {
+      const view = s.pane.view;
+      const mine = view.state.doc.toString();
+      const { changes: edits, touched } = editsBetween(mine, theirs);
+      view.dispatch({ changes: edits, annotations: remote.of(true), effects: flashOf(touched, m) });
+      s.base = theirs;
+      s.baseVersion = m.version;
+      status(s, "saved");
+      toast({ icon: "check", text: "Switched to their version", actionLabel: "Undo", action: () => replaceText(s, mine) });
+    },
+  });
+}
+
+/** Put `text` in a note's editor as your own edit, which saves it. */
+function replaceText(s: Session, text: string) {
+  if (s !== s.pane.session) return toast({ text: `${displayName(s.path)} isn't open any more` });
+  s.pane.view.dispatch({ changes: editsBetween(s.pane.view.state.doc.toString(), text).changes });
+}
+
+/**
+ * Undo someone else's edit. In an open note it comes out of the editor, and what's been typed since
+ * stays; a note that isn't open is put back only if nothing has changed it since.
+ */
+async function undoChange(c: Change, after: string | null) {
+  const name = displayName(c.path);
+  const history = { actionLabel: "History", action: () => void showHistory({ note: c.path }) };
+  const d = await api.diff(c.id).catch(() => null);
+  const s = panes.find((p) => p.session?.path === c.path)?.session;
+  if (s && s.kind !== "asset" && d?.before != null && after !== null) {
+    const undone = merge3(after, s.pane.view.state.doc.toString(), d.before);
+    if (!undone.ok) return toast({ text: `${name} changed there since, so that edit can't be undone`, ...history });
+    replaceText(s, undone.text);
+    return toast({ icon: "reset", text: `Undid the edit to ${name}` });
+  }
+  try {
+    const r = await api.restore(c.id, c.version ?? undefined);
+    toast({ icon: "reset", text: `Undid the edit to ${displayName(r.path)}`, actionLabel: "Open", action: () => void openNote(r.path) });
+  } catch (e) {
+    toast({ text: e instanceof ApiError && e.status === 409 ? `${name} changed since, so that edit wasn't undone` : `Couldn't undo the edit to ${name}`, ...history });
+  }
 }
 
 // ------------------------------------------------------------------ live updates
 
 function onMessage(m: ServerMsg) {
+  guideMessage(m);
   if (m.type !== "change") vaultEvents.dispatchEvent(new Event("change"));
   switch (m.type) {
     case "note": {
@@ -953,11 +979,15 @@ function onMessage(m: ServerMsg) {
       const open = panes.some((p) => p.session?.path === m.path);
       if (open) applyRemote(m);
       if (!isSelf(m.source) && m.change) {
+        const c = m.change;
+        const undo = c.op === "edit";
         toast({
-          by: m.change,
-          text: `${changeVerb(m.change)} ${displayName(m.path)}`,
-          detail: m.change.summary ?? undefined,
-          action: open ? undefined : () => openNote(m.path),
+          by: c,
+          text: `${changeVerb(c)} ${displayName(m.path)}`,
+          detail: c.summary ?? undefined,
+          actionLabel: undo ? "Undo" : undefined,
+          action: undo ? () => void undoChange(c, m.content) : open ? undefined : () => openNote(m.path),
+          open: undo && !open ? () => void openNote(m.path) : undefined,
         });
       }
       refreshNotesSoon();
@@ -1225,7 +1255,7 @@ function renderFavorites() {
     favoriteDrop(row, "is-drop-before", f.path);
     return row;
   });
-  $("#favorites").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Star a note or a tag to keep it here.")]));
+  $("#favorites").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Star a note or a tag to keep it here. A note's star is in its top bar: ", icon("star", 12))]));
 }
 
 /** Let `node` take a favorite (to reorder) or a card from Notes (to star), marking it with `cls` while over it. */
@@ -1714,7 +1744,9 @@ const vimWatched = new WeakSet<object>();
 function attachVim() {
   const cm = getCM(active.view);
   const node = $("#vim-mode");
-  setPressed($("#vim-toggle"), prefs.vim);
+  const toggle = $("#vim-toggle");
+  setPressed(toggle, prefs.vim);
+  toggle.textContent = `Vim keys: ${prefs.vim ? "on" : "off"}`;
   if (!cm || !prefs.vim) {
     node.textContent = "";
     node.dataset.mode = "";
@@ -1867,49 +1899,6 @@ function showNoteIn(pane: Pane) {
   if (preview) renderHtmlPreview(pane);
 }
 
-// ------------------------------------------------------------------ banner, toasts
-
-function showBanner(text: string, ...actions: Array<[string, () => void]>) {
-  const b = $("#banner");
-  b.hidden = false;
-  b.className = "";
-  b.replaceChildren(
-    icon("info", 15),
-    el("span", { class: "banner-text" }, text),
-    ...actions.map(([label, fn]) => el("button", { class: "banner-btn", type: "button", onclick: fn }, label)),
-    el("button", { class: "banner-x", type: "button", title: "Dismiss", onclick: hideBanner }, "×"),
-  );
-}
-function hideBanner() {
-  $("#banner").hidden = true;
-}
-
-function toast(t: { text: string; by?: { source: string; person: string | null; agent: string | null }; icon?: string; detail?: string; action?: () => void; actionLabel?: string; sticky?: boolean }) {
-  const button = t.action && t.actionLabel ? el("button", { class: "toast-action", type: "button" }, t.actionLabel) : null;
-  const node = el(
-    "div",
-    {
-      class: `toast${t.action && !button ? " is-clickable" : ""}${t.icon === "timer" ? " is-alert" : ""}`,
-      onclick: () => {
-        if (!button) t.action?.();
-        node.remove();
-      },
-    },
-    t.by ? authorAvatar(t.by, 22) : el("span", { class: "toast-icon" }, icon(t.icon ?? "info", 16)),
-    el("div", { class: "toast-body" }, el("div", { class: "toast-text" }, t.by ? el("b", {}, authorName(t.by)) : null, t.by ? ` ${t.text}` : t.text), t.detail ? el("div", { class: "toast-detail" }, t.detail) : null),
-    button,
-  );
-  button?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    t.action!();
-    node.remove();
-  });
-  $("#toasts").append(node);
-  const life = t.sticky ? 12_000 : 4200;
-  setTimeout(() => node.classList.add("is-leaving"), life);
-  setTimeout(() => node.remove(), life + 400);
-}
-
 // ------------------------------------------------------------------ vim + keyboard
 
 Vim.defineEx("write", "w", () => void flushSave());
@@ -1974,6 +1963,7 @@ window.addEventListener(
     } else if (quickOpen || matchKeys(e, "Mod-Shift-p")) {
       e.preventDefault();
       paletteToSide = false;
+      if (quickOpen && !palette.isOpen) did("search");
       palette.toggle(quickOpen ? "" : ">");
     } else if (mod && !e.altKey && e.key === "\\") {
       e.preventDefault();
@@ -2022,12 +2012,6 @@ function quickAdd() {
     vim: prefs.vim,
     note: active.session?.kind === "md" ? active.session.path : undefined,
   });
-}
-
-/** Whether a key pressed here is someone typing: a field, a text area, or the editor. */
-function typingIn(target: EventTarget | null): boolean {
-  const t = target as HTMLElement | null;
-  return !!t?.closest?.("input, textarea, select, [contenteditable]:not([contenteditable=false]), .cm-editor");
 }
 
 const narrow = matchMedia("(max-width: 1100px)");
@@ -2234,8 +2218,8 @@ async function boot() {
   setupPanes();
   $("#stage").addEventListener("mousedown", () => document.body.classList.remove("panel-overlay"));
   $("#theme-toggle").addEventListener("click", toggleTheme);
-  setPressed($("#vim-toggle"), prefs.vim);
   $("#vim-toggle").addEventListener("click", toggleVim);
+  attachVim(); // the toggle's label, before any note opens
   $("#html-toggle").addEventListener("click", (e) => {
     const mode = (e.target as HTMLElement).closest("button")?.dataset.mode as "preview" | "source" | undefined;
     if (mode) setHtmlMode(mode);
@@ -2270,7 +2254,7 @@ async function boot() {
       text: `${t.label || "Timer"} is done`,
       detail: t.note ? displayName(t.note) : undefined,
       action: t.note && t.note !== active.session?.path ? () => openNote(t.note!) : undefined,
-      sticky: true,
+      alert: true,
     }),
   );
   setInterval(() => {
@@ -2292,6 +2276,7 @@ async function boot() {
     $("#conn").title = up ? "Live: watching the vault for agent edits" : "Reconnecting…";
     if (up) refreshNotesSoon();
   });
+  if (!viewer) void startGuide({ archive: (path) => void archivePath(path), flush: () => flushSave() });
 
   void refreshTaskCount();
   // Home is the notes list; a note's URL (or the tasks, history or assets page) opens that instead.

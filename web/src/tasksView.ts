@@ -6,6 +6,7 @@ import { el, icon } from "./dom.ts";
 import { tagFilter } from "./tagPicker.ts";
 import { WIDGETS } from "./widgets/index.ts";
 import { quickAddBar } from "./quickAdd.ts";
+import { emptyState } from "./emptyState.ts";
 import { todaySection } from "../../src/core/tasks.ts";
 import { today } from "./taskChips.ts";
 import type { Task } from "./api.ts";
@@ -15,7 +16,7 @@ type Open = (path: string, line?: number, side?: boolean) => void;
 /** Mount a task list into `host`; returns its cleanup. Clicking a task's tag calls `openTag`, and "Show …'s tasks" `openPerson`. */
 export function mountTasks(
   host: HTMLElement,
-  opts: { limit: number; tag?: string; assignee?: string; open: Open; openTag(tag: string): void; openPerson(name: string): void; skip?(t: Task): boolean },
+  opts: { limit: number; tag?: string; assignee?: string; open: Open; openTag(tag: string): void; openPerson(name: string): void; skip?(t: Task): boolean; empty?(): HTMLElement },
 ): () => void {
   const body = el("div", { class: "qw-body" });
   const card = el("div", { class: "qw qw-tasks is-standalone" }, body);
@@ -36,6 +37,7 @@ export function mountTasks(
       sources: { tags: () => [], folders: () => [] }, // the Tasks page has no settings form
       openPerson: opts.openPerson,
       skip: opts.skip,
+      empty: opts.empty,
     },
     card,
   );
@@ -69,6 +71,14 @@ export function renderTasksPage(root: HTMLElement, hooks: { open: Open; tags(): 
   const host = el("div");
   const todayHost = el("div", { class: "td-block" });
   const filters = el("div", { class: "feed-filters page-filters" });
+  const bar = quickAddBar({ added: () => {}, open: hooks.open, vim: hooks.vim }); // Today and the list below reload when the note changes
+  const empty = () =>
+    emptyState({
+      icon: "task",
+      title: "No tasks yet",
+      text: ["Any line in a note that starts with ", el("code", {}, "- [ ]"), " shows up here, so you can tick it off without opening the note."],
+      action: { label: "Add a task", icon: "plus", run: () => bar.focus() },
+    });
   let unmount = () => {};
   const show = (next: { tag?: string; assignee?: string }) => {
     unmount();
@@ -91,7 +101,7 @@ export function renderTasksPage(root: HTMLElement, hooks: { open: Open; tags(): 
           )
         : "",
     );
-    const unmountList = mountTasks(host, { limit: 500, ...next, ...links, skip });
+    const unmountList = mountTasks(host, { limit: 500, ...next, ...links, skip, empty: whole ? empty : undefined });
     unmount = () => (unmountToday(), unmountList());
   };
   root.replaceChildren(
@@ -99,7 +109,7 @@ export function renderTasksPage(root: HTMLElement, hooks: { open: Open; tags(): 
       "div",
       { class: "page" },
       el("header", { class: "page-head" }, el("h1", {}, "Tasks"), el("p", { class: "page-sub" }, "Every checkbox across your notes. Tick one here and it's ticked in its note.")),
-      quickAddBar({ added: () => {}, open: hooks.open, vim: hooks.vim }).root, // Today and the list below reload when the note changes
+      bar.root,
       todayHost,
       filters,
       host,

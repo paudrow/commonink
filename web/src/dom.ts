@@ -205,6 +205,12 @@ export function timeAgo(ts: number): string {
 export const escapeHtml = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
+/** Whether a key pressed here is someone typing: a field, a text area, or the editor. */
+export function typingIn(target: EventTarget | null): boolean {
+  const t = target as HTMLElement | null;
+  return !!t?.closest?.("input, textarea, select, [contenteditable]:not([contenteditable=false]), .cm-editor");
+}
+
 export const displayName = (p: string) => p.split("/").pop()!.replace(/\.(md|markdown)$/i, "");
 
 export function currentScheme(): "light" | "dark" {
