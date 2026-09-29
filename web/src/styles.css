@@ -1942,3 +1942,17 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .agents-when, .agents-none { color: var(--faint); }
 .agents-revoke { width: auto; flex: none; color: var(--bad); }
 .agents-empty { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
+/* ------------------------------------------------------------------ links: out of the app, and to the side */
+/* A link that leaves the app (web, email) ends in a small ↗; links to notes don't. It's the link's
+   own end padding, so it stays on the line with the link's last word. */
+:is(.cm-md-link.is-external:not(.is-raw), .cm-autolink.is-external, a.is-external) { padding-right: 0.9em; background: var(--ext-icon) right 0.05em center / 0.68em no-repeat; }
+:root { --ext-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234545b8' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 17 17 7M8 7h9v9'/%3E%3C/svg%3E"); }
+:root[data-theme="dark"] { --ext-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a9a9ff' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 17 17 7M8 7h9v9'/%3E%3C/svg%3E"); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --ext-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a9a9ff' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 17 17 7M8 7h9v9'/%3E%3C/svg%3E"); }
+}
+/* The split button a hovered [[link]] shows at its end, over the text so nothing moves. */
+.cm-side-btn { position: absolute; z-index: 6; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--bg-elev); color: var(--muted); box-shadow: var(--shadow-sm); cursor: pointer; }
+.cm-side-btn:hover { color: var(--accent-ink); border-color: var(--accent-line); }
+.cm-side-btn[hidden] { display: none; }
+body.is-link-dragging, body.is-link-dragging * { cursor: grabbing !important; user-select: none; }

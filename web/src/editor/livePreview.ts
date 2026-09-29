@@ -3,6 +3,7 @@ import { syntaxTree } from "@codemirror/language";
 import type { EditorState, Range, Text } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { scanTags, type TagSpan } from "../../../src/core/tags.ts";
+import { externalTitle, linkKind } from "../links.ts";
 import { lineTokens, TASK_LINE } from "../../../src/core/tasks.ts";
 import { today, tokenChip } from "../taskChips.ts";
 import { openChipEditor } from "../taskChipEditors.ts";
@@ -10,6 +11,9 @@ import { taskLineEdit } from "./taskEdit.ts";
 import { lineTaskContext } from "./taskTools.ts";
 
 const hide = Decoration.replace({});
+
+/** A markdown link's attributes: where it goes, and for one that leaves the app, its domain as a tooltip. */
+const linkAttrs = (href: string): Record<string, string> => (linkKind(href) === "external" ? { "data-href": href, title: externalTitle(href) } : { "data-href": href });
 const CODE = new Set(["InlineCode", "FencedCode", "CodeBlock", "CodeText"]);
 
 /** A document's tags, found by the same parser the index uses, so a chip here is a tag there. */
@@ -246,7 +250,7 @@ function build(view: EditorView): DecorationSet {
               const href = url ? doc.sliceString(url.from, url.to) : "";
               const active = touches(state, ref.from, ref.to);
               out.push(
-                Decoration.mark({ class: `cm-md-link${active ? " is-raw" : ""}`, attributes: { "data-href": href } }).range(marks[0].to, marks[1].from),
+                Decoration.mark({ class: `cm-md-link${active ? " is-raw" : ""}${linkKind(href) === "external" ? " is-external" : ""}`, attributes: linkAttrs(href) }).range(marks[0].to, marks[1].from),
               );
               if (!active) {
                 out.push(hide.range(marks[0].from, marks[0].to));
@@ -258,7 +262,8 @@ function build(view: EditorView): DecorationSet {
           case "URL": {
             // Bare URLs in prose (GFM autolinks) and <url>: ⌘-click opens them.
             if (node.parent?.name !== "Link" && node.parent?.name !== "Image") {
-              out.push(Decoration.mark({ class: "cm-md-link is-raw cm-autolink", attributes: { "data-href": doc.sliceString(ref.from, ref.to) } }).range(ref.from, ref.to));
+              const href = doc.sliceString(ref.from, ref.to);
+              out.push(Decoration.mark({ class: `cm-md-link is-raw cm-autolink${linkKind(href) === "external" ? " is-external" : ""}`, attributes: linkAttrs(href) }).range(ref.from, ref.to));
             }
             return;
           }
