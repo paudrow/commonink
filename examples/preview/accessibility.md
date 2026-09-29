@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 85
 title: Accessibility
 ---
 1. Open [[Contrast check]], then switch themes with the moon button at the bottom right. The dates, counts, `Low` chip, code comment and sidebar headings (FAVORITES, FOLDERS) read clearly in both. In dark, the timer's **Start** button has dark text on the purple.
