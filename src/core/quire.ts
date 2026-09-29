@@ -196,6 +196,14 @@ export interface TodayView {
   journal: { path: string; exists: boolean };
 }
 
+/** Cut the task on line index `i`, with the lines nested under it, out of `lines`; returns them, lifted to the top level. */
+function cutTask(lines: string[], i: number): string[] {
+  const indent = lines[i].match(/^\s*/)![0].length;
+  let j = i + 1;
+  while (j < lines.length && lines[j].trim() && lines[j].match(/^\s*/)![0].length > indent) j++;
+  return lines.splice(i, j - i).map((l) => l.slice(indent));
+}
+
 /**
  * The index of the task on `line` (1-based) whose text is `text`, or, if the note moved it, of the
  * nearest line with that text. Throws if it's gone (the note changed under the caller).
@@ -1222,18 +1230,20 @@ export class Quire {
    * Add a task typed the way you'd say it ("Pay rent every month on the 1st #home"; see
    * quickAdd.ts). It goes under `## Tasks` in today's daily note (`Journal/YYYY-MM-DD.md`, made if
    * needed), or in the note named with `→ [[Note]]`: at the end of its Tasks section, or of the note.
-   * `today` is the person's day; `ignore` holds phrases they chose to keep as words.
+   * `today` is the person's day; `ignore` holds phrases they chose to keep as words; `to` is a note
+   * to use instead of the daily note (the one the bar was opened from), which `→ [[Note]]` overrides.
    */
-  addTask(input: string, source: string, opts: { today?: string; ignore?: string[] } = {}) {
+  addTask(input: string, source: string, opts: { today?: string; ignore?: string[]; to?: string } = {}) {
     const today = opts.today ?? localDate(this.now());
     if (!isDate(today)) throw new QuireError(`"today" must be a date like 2026-10-01, not "${today}"`);
     const q = parseQuickAdd(input, today, opts.ignore);
     if (!q.words) throw new QuireError("Say what the task is: once its dates and repeats are taken out, there are no words left");
-    const rel = q.target ? this.mustResolve(q.target) : `Journal/${today}.md`;
+    const named = q.target ?? opts.to;
+    const rel = named ? this.mustResolve(named) : `Journal/${today}.md`;
     if (kindOf(rel) !== "md") throw new QuireError(`Tasks go in markdown notes, and ${rel} isn't one`);
     const before = this.files.read(rel);
     // A day with no note yet gets one from the daily template, with the task in its Tasks section.
-    const added = withTasksAdded(before ?? this.dailyTemplate(today), [q.line], !q.target);
+    const added = withTasksAdded(before ?? this.dailyTemplate(today), [q.line], !named);
     const r = this.commit(rel, before, added.content, source, before === null ? "create" : "edit");
     return { ...r, line: added.line, text: q.line.match(TASK_LINE)![4] };
   }
@@ -1286,18 +1296,23 @@ export class Quire {
     if (dest === note.path) throw new QuireError(`That task is already in ${dest}`);
     if (kindOf(dest) !== "md") throw new QuireError(`Tasks go in markdown notes, and ${dest} isn't one`);
     const lines = note.content.split("\n");
-    const i = findTask(lines, line, text, note.path);
-    const indent = lines[i].match(/^\s*/)![0].length;
-    let j = i + 1;
-    while (j < lines.length && lines[j].trim() && lines[j].match(/^\s*/)![0].length > indent) j++;
-    const block = lines.slice(i, j).map((l) => l.slice(indent)); // it lands at the top level there
-    lines.splice(i, j - i);
+    const block = cutTask(lines, findTask(lines, line, text, note.path));
     const there = this.read(dest);
     const added = withTasksAdded(there.content, block, false);
     const cut = this.commit(note.path, note.content, lines.join("\n"), source, "edit");
     const r = this.commit(dest, there.content, added.content, source, "edit");
     // The note it left, too, so a caller can tell whoever shows that note.
     return { ...r, cut, line: added.line, text: block[0].match(TASK_LINE)![4] };
+  }
+
+  /** Take a task (and the lines nested under it) out of its note: quick-add's Undo. */
+  removeTask(target: string, line: number, text: string, source: string) {
+    const note = this.read(target);
+    const lines = note.content.split("\n");
+    const i = findTask(lines, line, text, note.path);
+    cutTask(lines, i);
+    if (i > 0 && !lines[i - 1] && !lines[i]) lines.splice(i - 1, 1); // and the blank line adding it put before it
+    return this.commit(note.path, note.content, lines.join("\n"), source, "edit");
   }
 
   /** Move a repeating task to its next date without ticking it ("Skip this one"). */

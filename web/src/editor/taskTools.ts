@@ -1,12 +1,13 @@
 // What a task line offers while the cursor is on it: a ⚙ button at the end of the line that opens
-// the task's field menu (the same one task lists have), and, while the task has no tokens yet, a
-// faint hint of what it can carry. Every change goes through taskLineEdit, so undo takes it back.
-import { WidgetType, type EditorView } from "@codemirror/view";
+// the task's field menu (the same one task lists have, and ⌘. opens it from the keyboard), and a
+// faint hint of the fields it doesn't have yet (`due · repeat · @ · # · !`), each word opening that
+// field's editor. Every change goes through taskLineEdit, so undo takes it back.
+import { keymap, WidgetType, type EditorView } from "@codemirror/view";
 import { parseTask } from "../../../src/core/tasks.ts";
 import { el, icon } from "../dom.ts";
 import { openFieldEditor, openTaskMenu, taskPeople, type ChipContext, type MenuField } from "../taskChipEditors.ts";
 import { editorContext } from "./blocks.ts";
-import { taskLineEdit, taskTools } from "./taskEdit.ts";
+import { HINTS, taskLineEdit, taskTools, taskToolsAt, type HintField } from "./taskEdit.ts";
 
 /** A task on line `n` as the chip editors take it, saving through a transaction on that line. */
 export function lineTaskContext(view: EditorView, n: number): ChipContext | null {
@@ -39,21 +40,29 @@ export function openFieldAt(view: EditorView, field: MenuField, pos: number, opt
 }
 
 class ToolsWidget extends WidgetType {
-  constructor(readonly hint: boolean) {
+  constructor(readonly missing: HintField[]) {
     super();
   }
   eq(o: ToolsWidget) {
-    return o.hint === this.hint;
+    return o.missing.join() === this.missing.join();
   }
   toDOM(view: EditorView) {
-    const button = el("button", { type: "button", class: "cm-task-gear", title: "Priority, due, repeat, person, tags…", "aria-label": "Task fields" }, icon("sliders", 13));
-    const wrap = el("span", { class: "cm-task-tools" }, button, this.hint ? el("span", { class: "cm-task-hint", "aria-hidden": "true" }, "due · repeat · @ · # · !") : null);
+    const button = el("button", { type: "button", class: "cm-task-gear", title: "Priority, due, repeat, person, tags… (⌘.)", "aria-label": "Task fields" }, icon("sliders", 13));
+    // Each word opens its field's editor, anchored to the word: `due` the date, `repeat` the repeat…
+    const words = HINTS.filter(([, f]) => this.missing.includes(f)).map(([word, field]) =>
+      el("button", { type: "button", class: "cm-hint-word", "data-field": field, title: `Add ${WORD_TITLES[field]}` }, word),
+    );
+    const hint = words.length ? el("span", { class: "cm-task-hint" }, ...words.flatMap((w, i) => (i ? [" · ", w] : [w]))) : null;
+    const wrap = el("span", { class: "cm-task-tools" }, button, hint);
     wrap.addEventListener("mousedown", (e) => {
       if (e.button !== 0) return;
-      e.preventDefault(); // the cursor stays on the line, so the button does too
+      e.preventDefault(); // the cursor stays on the line, so the tools do too
       e.stopPropagation();
       const ctx = lineTaskContext(view, view.state.doc.lineAt(view.posAtDOM(wrap)).number);
-      if (ctx) openTaskMenu(button, ctx);
+      const word = (e.target as HTMLElement).closest<HTMLElement>(".cm-hint-word");
+      if (!ctx) return;
+      if (word) openFieldEditor(word.dataset.field as HintField, word, "", ctx);
+      else if ((e.target as HTMLElement).closest(".cm-task-gear")) openTaskMenu(button, ctx);
     });
     return wrap;
   }
@@ -62,5 +71,22 @@ class ToolsWidget extends WidgetType {
   }
 }
 
-/** The editor extension: the tools on the cursor's task line. */
-export const taskLineTools = taskTools((hint) => new ToolsWidget(hint));
+const WORD_TITLES: Record<HintField, string> = { due: "a due date", rec: "a repeat", assignees: "a person", tags: "a tag", priority: "a priority" };
+
+/** ⌘. (Ctrl+. elsewhere) on a task line opens its ⚙ menu from the keyboard; the menu's items take Tab and Enter. */
+const openMenuKey = keymap.of([
+  {
+    key: "Mod-.",
+    run: (view) => {
+      const at = taskToolsAt(view.state);
+      const gear = view.dom.querySelector<HTMLElement>(".cm-task-gear");
+      const ctx = at && lineTaskContext(view, at.line);
+      if (!ctx || !gear) return false;
+      openTaskMenu(gear, ctx);
+      return true;
+    },
+  },
+]);
+
+/** The editor extension: the tools on the cursor's task line, and ⌘. to open its menu. */
+export const taskLineTools = [taskTools((missing) => new ToolsWidget(missing)), openMenuKey];

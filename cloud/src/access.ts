@@ -43,6 +43,7 @@ export const WORKSPACE_ROUTES = {
   "POST /tasks/set": "editor",
   "POST /tasks/update": "editor",
   "POST /tasks/add": "editor",
+  "POST /tasks/remove": "editor",
   "POST /tasks/move": "editor",
   "POST /today/journal": "editor",
   "POST /tags/rename": "editor",
