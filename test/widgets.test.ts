@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { parseDirective, serializeDirective } from "../web/src/widgets/args.ts";
 import { EditorState } from "@codemirror/state";
 import { history, undo } from "@codemirror/commands";
-import { taskLineEdit, taskTools, taskToolsAt } from "../web/src/editor/taskEdit.ts";
+import { HINTS, taskLineEdit, taskTools, taskToolsAt } from "../web/src/editor/taskEdit.ts";
 import { dayPicks, taskTokenSource } from "../web/src/editor/taskComplete.ts";
 import { withTaskChips } from "../web/src/taskChips.ts";
 import type { TaskPatch } from "../src/core/tasks.ts";
@@ -99,30 +99,53 @@ test("the days offered after due: count from today: tomorrow, then the coming we
 
 test("the task line's tools and hint are drawn at the end of the cursor's task line, and are never in the document", () => {
   class Dummy extends WidgetType {
-    constructor(readonly hint: boolean) {
+    constructor(readonly missing: string[]) {
       super();
     }
     toDOM() {
       return null as unknown as HTMLElement;
     }
   }
-  const field = taskTools((hint) => new Dummy(hint));
-  const doc = "# List\n- [ ] Call mom\n- [ ] Pay rent due:2026-10-01\nProse\n```\n- [ ] in code\n```";
+  const field = taskTools((missing) => new Dummy(missing));
+  const doc = "# List\n- [ ] Call mom\n- [ ] Pay rent !high due:2026-10-01 rec:monthly\n- [ ] All of it !low due:2026-10-01 rec:weekly @sam #home\nProse\n```\n- [ ] in code\n```";
   const widgets = (line: number) => {
-    const s = at(doc, line).update({}).state;
+    const s = at(doc, line);
     const state = EditorState.create({ doc: s.doc, selection: s.selection, extensions: [markdown(), field] });
     ensureSyntaxTree(state, state.doc.length, 5000);
-    const found: Array<{ pos: number; hint: boolean }> = [];
-    state.field(field).between(0, state.doc.length, (from, _to, d) => void found.push({ pos: from, hint: (d.spec.widget as Dummy).hint }));
+    const found: Array<{ pos: number; missing: string[] }> = [];
+    state.field(field).between(0, state.doc.length, (from, _to, d) => void found.push({ pos: from, missing: (d.spec.widget as Dummy).missing }));
     assert.equal(state.doc.toString(), doc); // drawn, never written
     return found;
   };
-  assert.deepEqual(widgets(2), [{ pos: doc.indexOf("Call mom") + "Call mom".length, hint: true }]);
-  assert.deepEqual(widgets(3), [{ pos: doc.indexOf("2026-10-01") + 10, hint: false }]);
+  assert.deepEqual(widgets(2), [{ pos: doc.indexOf("Call mom") + "Call mom".length, missing: ["due", "rec", "assignees", "tags", "priority"] }]);
+  // Some tokens: the hint lists only what's missing; all of them: just the ⚙.
+  assert.deepEqual(widgets(3)[0].missing, ["assignees", "tags"]);
+  assert.deepEqual(widgets(4)[0].missing, []);
   assert.deepEqual(widgets(1), []);
-  assert.deepEqual(widgets(4), []);
-  assert.equal(taskToolsAt(at(doc, 6)), null); // a task-looking line in code
+  assert.deepEqual(widgets(5), []);
+  assert.equal(taskToolsAt(at(doc, 7)), null); // a task-looking line in code
   assert.equal(taskToolsAt(EditorState.create({ doc: "- [ ] a", extensions: [EditorState.readOnly.of(true)] })), null);
+  assert.deepEqual(HINTS.map(([word]) => word), ["due", "repeat", "@", "#", "!"]);
+});
+
+test("each hint word's editor writes its token at its place among the tokens, as one undoable change", () => {
+  const line = "- [ ] Pay rent !high due:2026-10-01";
+  // What each word's editor saves when a value is picked.
+  const picks: Record<string, TaskPatch> = { due: { due: "2026-10-02" }, rec: { rec: "monthly" }, assignees: { assignees: ["jane"] }, tags: { tags: ["home"] }, priority: { priority: "low" } };
+  const want: Record<string, string> = {
+    due: "- [ ] Pay rent !high due:2026-10-02",
+    rec: "- [ ] Pay rent !high due:2026-10-01 rec:monthly",
+    assignees: "- [ ] Pay rent !high due:2026-10-01 @jane",
+    tags: "- [ ] Pay rent !high due:2026-10-01 #home",
+    priority: "- [ ] Pay rent !low due:2026-10-01",
+  };
+  for (const [, field] of HINTS) {
+    let state = EditorState.create({ doc: `${line}\n- [ ] Next`, extensions: [history()] });
+    state = state.update(taskLineEdit(state, 1, line, picks[field])!).state;
+    assert.equal(state.doc.line(1).text, want[field], field);
+    undo({ state, dispatch: (tr) => (state = tr.state) });
+    assert.equal(state.doc.line(1).text, line);
+  }
 });
 
 test("a Notes card shows a task's words, then its chips where its tokens were; code keeps its text", () => {
