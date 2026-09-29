@@ -46,6 +46,8 @@ export function renderTodayPage(root: HTMLElement, hooks: TodayHooks): () => voi
       remeasure() {},
       open: hooks.open,
       openTag: hooks.openTag,
+      saveSmartFolder() {},
+      sources: { tags: () => [], folders: () => [] }, // Today has no settings form
       openPerson: hooks.openPerson,
     },
     card,

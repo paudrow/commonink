@@ -1,6 +1,7 @@
 // Widgets live in markdown as one-line leaf directives (the CommonMark "generic directives"
 // proposal, as used by remark-directive):   ::timer{duration=25m label="Tea" id=k3x9q}
 // Config is in the file; runtime state (running, laps) is kept per widget id in the browser.
+import { formatAttrs, parseAttrs } from "../../../src/core/query.ts";
 
 export interface Directive {
   name: string;
@@ -14,29 +15,10 @@ export function parseDirective(line: string): Directive | null {
   return m ? { name: m[1].toLowerCase(), args: parseAttrs(m[2] ?? "") } : null;
 }
 
-/** `key=value` pairs; a key can also compare (`due<=today`), and then the operator starts its value ("<=today"). */
-export function parseAttrs(src: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const m of src.matchAll(/([\w-]+)(?:(<=|>=|<|>|=)(?:"([^"]*)"|'([^']*)'|([^\s"']+)))?/g)) {
-    const value = m[3] ?? m[4] ?? m[5];
-    out[m[1]] = value === undefined ? "true" : m[2] === "=" ? value : `${m[2]}${value}`;
-  }
-  return out;
-}
-
-/** Args that compare (`due<=today`), and so are written with their operator. Any other value is just a value. */
-const COMPARES = new Set(["due"]);
-
 export function serializeDirective({ name, args }: Directive): string {
-  const keys = [...Object.keys(args).filter((k) => k !== "id"), ...("id" in args ? ["id"] : [])];
-  const parts = keys
-    .filter((k) => args[k] !== undefined && args[k] !== "")
-    .map((k) => {
-      const op = COMPARES.has(k) ? args[k].match(/^(<=|>=|<|>)\s*/) : null;
-      const value = op ? args[k].slice(op[0].length) : args[k];
-      return `${k}${op ? op[1] : "="}${/^[\w.:/+-]+$/.test(value) ? value : `"${value.replace(/"/g, "'")}"`}`;
-    });
-  return parts.length ? `::${name}{${parts.join(" ")}}` : `::${name}`;
+  const { id, ...rest } = args;
+  const attrs = formatAttrs(id === undefined ? rest : { ...rest, id }); // the id goes last
+  return attrs ? `::${name}{${attrs}}` : `::${name}`;
 }
 
 export const newId = () => Math.random().toString(36).slice(2, 7);
