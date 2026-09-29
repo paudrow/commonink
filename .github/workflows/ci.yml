@@ -13,13 +13,18 @@ concurrency:
   group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'closed' }}
 
+# The workflow token can only read the code; the jobs that post to the PR ask for that themselves.
+# Actions are pinned to commits (Dependabot keeps them current), so a moved tag can't change what runs.
+permissions:
+  contents: read
+
 jobs:
   check:
     if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
           cache: npm
@@ -37,7 +42,7 @@ jobs:
     if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
       - name: Scan for secrets
@@ -64,8 +69,8 @@ jobs:
         run: |
           echo "::error::Add the CLOUDFLARE_API_TOKEN secret and CLOUDFLARE_ACCOUNT_ID variable to this repository to enable deploys."
           exit 1
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
           cache: npm
@@ -99,8 +104,8 @@ jobs:
       PR_SHA: ${{ github.event.pull_request.head.sha }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
           cache: npm
@@ -113,7 +118,9 @@ jobs:
           [ -n "$url" ] || { echo "::error::No Preview URL in the wrangler output"; exit 1; }
           echo "url=$url" >> "$GITHUB_OUTPUT"
       - name: Fill it with things to try
-        run: node --disable-warning=ExperimentalWarning --import tsx scripts/preview-demo.ts "${{ steps.deploy.outputs.url }}"
+        env:
+          URL: ${{ steps.deploy.outputs.url }}
+        run: node --disable-warning=ExperimentalWarning --import tsx scripts/preview-demo.ts "$URL"
       - name: Show it on the pull request
         env:
           URL: ${{ steps.deploy.outputs.url }}
@@ -147,8 +154,8 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
           cache: npm
