@@ -53,6 +53,10 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS favorites(
      user TEXT NOT NULL, note_id TEXT NOT NULL, path TEXT NOT NULL, pos INTEGER NOT NULL,
      PRIMARY KEY(user, note_id))`,
+  // Saved note queries in the sidebar (see query.ts). A null `owner` shares one with the whole
+  // workspace; a user ID makes it just that person's.
+  `CREATE TABLE IF NOT EXISTS smart_folders(
+     id TEXT PRIMARY KEY, name TEXT NOT NULL, query TEXT NOT NULL, owner TEXT, pos INTEGER NOT NULL)`,
 ];
 
 /** Create or upgrade the index + change log tables. Safe to run on every start. */
