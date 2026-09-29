@@ -7,8 +7,9 @@
 import { EditorView, keymap, placeholder } from "@codemirror/view";
 import { insertNewline } from "@codemirror/commands";
 import { api, ApiError, type Task } from "./api.ts";
-import { displayName, el, icon, NOTE_DRAG } from "./dom.ts";
+import { displayName, el, icon, LINK_DRAG, NOTE_DRAG } from "./dom.ts";
 import { onVaultChange } from "./events.ts";
+import { IS_MAC, sideClick } from "./panes.ts";
 import { renderMarkdown } from "./render.ts";
 import { metaChips, today } from "./taskChips.ts";
 import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
@@ -311,7 +312,7 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
           "div",
           { class: "kb-actions" },
           act("edit", "Edit (Enter)", () => openEdit(c, i, card)),
-          link ? null : act("file", "Open as note", () => void openAsNote(c, i, card.text)),
+          link ? act("split", "Open to the side", () => host.ctx.openTarget(link.target, host.path, { side: true })) : act("file", "Open as note", () => void openAsNote(c, i, card.text)),
           act("trash", "Delete (⌫)", () => remove(c, i, card.text)),
         );
     const node = el(
@@ -329,15 +330,18 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
       details,
       actions,
     );
+    // A side click takes the mousedown too, so the note editor around the board doesn't act on it.
+    node.addEventListener("mousedown", (e) => link && sideClick(e) && e.preventDefault());
     node.addEventListener("click", (e) => {
+      if (IS_MAC && e.ctrlKey) return; // the right-click menu
       const target = e.target as HTMLElement;
       const chip = target.closest<HTMLElement>(".tk[data-field]");
       const tag = chip?.dataset.field === "tags" ? chip.dataset.value!.toLowerCase() : target.closest<HTMLElement>(".tag")?.dataset.tag;
       if (tag) return host.ctx.openTag(tag, "tasks");
       if (chip) return void (!host.readOnly && openChipEditor(chip, chipContext(c, i, card, task)));
-      if (link && target.closest(".kb-link-name")) return host.ctx.openTarget(link.target, host.path);
+      if (link && target.closest(".kb-link-name")) return host.ctx.openTarget(link.target, host.path, { side: sideClick(e) });
       if (target.closest(".kb-actions, a")) return;
-      if (host.readOnly) return link && host.ctx.openTarget(link.target, host.path);
+      if (host.readOnly) return link && host.ctx.openTarget(link.target, host.path, { side: sideClick(e) });
       openEdit(c, i, card);
     });
     node.addEventListener("keydown", (e) => keys(e, node, c, i, card, link));
@@ -347,6 +351,8 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
         e.stopPropagation();
         dragging = { path: host.path, board: at, column: c, card: i, text: card.text };
         e.dataTransfer!.setData(CARD_DRAG, card.text);
+        // Out of the board, at the right edge of the window, a link card opens its note to the side.
+        if (link) e.dataTransfer!.setData(LINK_DRAG, JSON.stringify({ target: link.target, from: host.path }));
         e.dataTransfer!.effectAllowed = "move";
         requestAnimationFrame(() => node.classList.add("is-dragging"));
       });

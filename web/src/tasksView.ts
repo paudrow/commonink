@@ -10,7 +10,7 @@ import { todaySection } from "../../src/core/tasks.ts";
 import { today } from "./taskChips.ts";
 import type { Task } from "./api.ts";
 
-type Open = (path: string, line?: number) => void;
+type Open = (path: string, line?: number, side?: boolean) => void;
 
 /** Mount a task list into `host`; returns its cleanup. Clicking a task's tag calls `openTag`, and "Show …'s tasks" `openPerson`. */
 export function mountTasks(
@@ -30,7 +30,7 @@ export function mountTasks(
       withId() {},
       focusEditor() {},
       remeasure() {},
-      open: (target, line) => opts.open(target, line),
+      open: (target, line, side) => opts.open(target, line, side),
       openTag: opts.openTag,
       saveSmartFolder() {},
       sources: { tags: () => [], folders: () => [] }, // the Tasks page has no settings form

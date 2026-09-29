@@ -38,8 +38,8 @@ export interface WidgetEnv {
   withId(fn: (id: string) => void): void;
   focusEditor(): void;
   remeasure(): void;
-  /** Open a note (path or [[name]]), optionally at a line. */
-  open(target: string, line?: number): void;
+  /** Open a note (path or [[name]]), optionally at a line; `side`: to the side (Cmd/Ctrl-click). */
+  open(target: string, line?: number, side?: boolean): void;
   /** Show what carries a tag (a tag clicked in the widget). */
   openTag(tag: string): void;
   /** Offer to keep a note query (`tag=work sort=title`) as a smart folder, named `name` to start with. */

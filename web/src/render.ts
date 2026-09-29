@@ -6,10 +6,19 @@ import DOMPurify from "dompurify";
 import { assetUrl } from "./api.ts";
 import { currentScheme } from "./dom.ts";
 import { isEmbeddable } from "./embeds/providers.ts";
+import { externalTitle, linkKind } from "./links.ts";
 import { boardsIn } from "../../src/core/kanban.ts";
 import { headingName } from "../../src/core/prose.ts";
 
 export { currentScheme };
+
+// Links in rendered markdown that leave the app (web pages, email) are marked, with their domain as a tooltip.
+DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+  const href = node.tagName === "A" ? node.getAttribute("href") : null;
+  if (!href || linkKind(href) !== "external") return;
+  node.classList.add("is-external");
+  node.setAttribute("title", externalTitle(href));
+});
 
 const IMAGE = /\.(png|jpe?g|gif|webp|avif|svg)$/i;
 const VIDEO = /\.(mp4|webm)$/i;
