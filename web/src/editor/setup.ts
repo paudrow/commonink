@@ -8,7 +8,7 @@ import { html } from "@codemirror/lang-html";
 import { vim } from "@replit/codemirror-vim";
 import { markdownWithFrontmatter, quireHighlight } from "./language.ts";
 import { livePreview } from "./livePreview.ts";
-import { blockWidgets, copyCodeCommand, editorContext, stepIntoBlocks, type EditorContext } from "./blocks.ts";
+import { blockWidgets, copyCodeKey, editorContext, stepIntoBlocks, type EditorContext } from "./blocks.ts";
 import { agentFlash } from "./agentFlash.ts";
 import { typingHelpers } from "./complete.ts";
 import { IS_MAC, sideClick } from "../panes.ts";
@@ -128,7 +128,8 @@ export function createState(opts: {
       rectangularSelection(),
       highlightSelectionMatches(),
       EditorView.lineWrapping,
-      keymap.of([{ key: "Mod-Shift-c", run: copyCodeCommand }, ...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
+      copyCodeKey,
+      keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
       lang,
       syntaxHighlighting(quireHighlight),
       agentFlash,

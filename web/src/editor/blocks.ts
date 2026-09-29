@@ -1,7 +1,7 @@
 // Block-level live preview: whole-line embeds, tables and frontmatter render as widgets.
 // Block decorations must come from a StateField (they change vertical layout).
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
-import { EditorSelection, EditorState, Facet, StateEffect, StateField, type Range, type Text } from "@codemirror/state";
+import { EditorSelection, EditorState, Facet, Prec, StateEffect, StateField, type Range, type Text } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, type DecorationSet } from "@codemirror/view";
 import { api, assetUrl } from "../api.ts";
 import { el, icon } from "../dom.ts";
@@ -20,6 +20,7 @@ import { boardsIn, unclosedBoard } from "../../../src/core/kanban.ts";
 import type { BoardHost, mountBoard } from "../kanban.ts";
 import { editsBetween } from "../merge.ts";
 import { codeWrapByDefault, copyCode, hydrateCode, renderCodeBlock } from "../code.ts";
+import { IS_MAC } from "../panes.ts";
 import { redo, undo } from "@codemirror/commands";
 import { safeDecode } from "../../../src/core/uri.ts";
 
@@ -490,6 +491,23 @@ export const copyCodeCommand = (view: EditorView) => {
   void copyCode(code);
   return true;
 };
+
+/**
+ * ⌘⇧C (Ctrl+Shift+C off a Mac) by the character typed, so it's the key that types "c" on Dvorak
+ * too. A CodeMirror keymap can fall back to the key's US position when the browser reports one.
+ * (Switch to matchShortcut in keys.ts once it's on main.)
+ */
+export const copyCodeKey = Prec.highest(
+  EditorView.domEventHandlers({
+    keydown(e, view) {
+      const mod = IS_MAC ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+      if (!mod || !e.shiftKey || e.altKey || e.key.toLowerCase() !== "c") return false;
+      if (!copyCodeCommand(view)) return false;
+      e.preventDefault();
+      return true;
+    },
+  }),
+);
 
 /**
  * A fenced code block while the cursor is elsewhere: drawn like rendered markdown's (code.ts), with
