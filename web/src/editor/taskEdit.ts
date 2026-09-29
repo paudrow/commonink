@@ -30,24 +30,28 @@ export function inTaskText(state: EditorState, pos: number): boolean {
   return !!m && pos >= line.to - m[4].length && !inCode(state, pos);
 }
 
+export type HintField = "due" | "rec" | "assignees" | "tags" | "priority";
+/** The hint's words, in the order they show, and the field each one's editor sets. */
+export const HINTS: Array<[string, HintField]> = [["due", "due"], ["repeat", "rec"], ["@", "assignees"], ["#", "tags"], ["!", "priority"]];
+
 /**
  * Where the task line's tools go: the end of the line the cursor is on, if it's a task (and the
- * editor takes edits). `hint` is for a task with no tokens yet, to show what it can carry.
+ * editor takes edits). `missing` is the fields the task doesn't have yet, which the hint offers.
  */
-export function taskToolsAt(state: EditorState): { line: number; pos: number; hint: boolean } | null {
+export function taskToolsAt(state: EditorState): { line: number; pos: number; missing: HintField[] } | null {
   const { head, anchor } = state.selection.main;
   const line = state.doc.lineAt(head);
   if (state.readOnly || state.doc.lineAt(anchor).number !== line.number || !inTaskText(state, line.to)) return null;
   const m = parseTask(line.text)!.meta;
-  const bare = !m.due && !m.start && !m.done && !m.rec && !m.priority && !m.assignees.length && !m.tags.length;
-  return { line: line.number, pos: line.to, hint: bare };
+  const has: Record<HintField, boolean> = { due: !!m.due, rec: !!m.rec, assignees: m.assignees.length > 0, tags: m.tags.length > 0, priority: !!m.priority };
+  return { line: line.number, pos: line.to, missing: HINTS.map(([, f]) => f).filter((f) => !has[f]) };
 }
 
 /** The task line's tools as a decoration at the end of the cursor's line: drawn, never part of the document. */
-export function taskTools(widget: (hint: boolean) => WidgetType) {
+export function taskTools(widget: (missing: HintField[]) => WidgetType) {
   const build = (state: EditorState): DecorationSet => {
     const at = taskToolsAt(state);
-    return at ? Decoration.set([Decoration.widget({ widget: widget(at.hint), side: 1 }).range(at.pos)]) : Decoration.none;
+    return at ? Decoration.set([Decoration.widget({ widget: widget(at.missing), side: 1 }).range(at.pos)]) : Decoration.none;
   };
   return StateField.define<DecorationSet>({
     create: build,
