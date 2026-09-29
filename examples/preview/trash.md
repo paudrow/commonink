@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 74
 title: Trash and deleting
 ---
 Anything you can add, you can now delete. It goes to **Trash** for 30 days first. Deleting comes with Undo, and asks first only when other notes link to what's going, or when it's a whole folder.
