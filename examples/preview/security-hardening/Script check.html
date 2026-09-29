@@ -1,0 +1,21 @@
+<!doctype html>
+<title>Script check</title>
+<style>
+  body { font: 15px/1.6 -apple-system, system-ui, sans-serif; margin: 24px; color: #26241f; }
+  button { font: inherit; padding: 6px 14px; border-radius: 8px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
+  .ok { color: #1f7a3a; }
+</style>
+<h1 id="status">Waiting for the script…</h1>
+<p><button id="count" onclick="this.dataset.n = (+this.dataset.n || 0) + 1; this.textContent = 'Clicked ' + this.dataset.n + ' times'">Click me</button></p>
+<p id="cookies"></p>
+<script>
+  document.getElementById("status").textContent = "The script ran";
+  document.getElementById("status").className = "ok";
+  let cookies;
+  try {
+    cookies = "It can read cookies: " + JSON.stringify(document.cookie);
+  } catch (e) {
+    cookies = "It can't read your cookies (" + e.name + "): it runs sandboxed, apart from the app.";
+  }
+  document.getElementById("cookies").textContent = cookies;
+</script>
