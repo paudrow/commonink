@@ -870,8 +870,8 @@ export class Quire {
     return null;
   }
 
-  /** Put a note back the way it was before change #id. */
-  restore(id: number, source: string) {
+  /** Put a note back the way it was before change #id; with `baseVersion`, only if the note is still at it. */
+  restore(id: number, source: string, baseVersion?: string) {
     const row = this.db.get("SELECT path, op, before FROM changes WHERE id = ?", id);
     if (!row) throw new QuireError(`No change #${id}`, "not_found");
     if (row.before === null) throw new QuireError(`Change #${id} (${row.op} ${row.path}) has no earlier text to restore`);
@@ -882,7 +882,7 @@ export class Quire {
       at = moved.path;
       since = moved.id;
     }
-    return { ...this.save(at, row.before, { source }), path: at };
+    return { ...this.save(at, row.before, { source, baseVersion }), path: at };
   }
 
   // ---------------------------------------------------------------- favorites

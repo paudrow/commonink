@@ -131,7 +131,9 @@
         <div class="palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd class="palette-side">⌘↵</kbd> open to the side</span><span><kbd>⇧↵</kbd> create</span><span><kbd data-keys="Mod-p">⌘P</kbd> notes</span><span><kbd data-keys="Mod-Shift-p">⌘⇧P</kbd> or <kbd>&gt;</kbd> commands</span><span><kbd>esc</kbd> close</span></div>
       </div>
     </div>
-    <div id="toasts"></div>
+    <div id="toasts" role="region" aria-label="Notifications"></div>
+    <div id="toast-status" class="sr-only" role="status"></div>
+    <div id="toast-alert" class="sr-only" role="alert"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

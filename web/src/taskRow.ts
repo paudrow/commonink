@@ -10,6 +10,7 @@ import { sideClick } from "./panes.ts";
 import { tagsInLine } from "../../src/core/tags.ts";
 import { endTags, metaChips } from "./taskChips.ts";
 import { openChipEditor, openTaskMenu, taskPeople } from "./taskChipEditors.ts";
+import { toast } from "./toast.ts";
 
 export interface RowEnv {
   /** `side`: in the other pane (Cmd/Ctrl-click). */
@@ -74,11 +75,21 @@ export function taskRow(t: Task, env: RowEnv, where: string | null): HTMLElement
   return row;
 }
 
+/** How long a task just ticked stays in its list, struck through, before a list that hides it lets it go. */
+export const LINGER = 1500;
+const lingerFor = () => (matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : LINGER);
+/** Each list's latest redraw, held while a row in it lingers. */
+const held = new Map<HTMLElement, () => void>();
+/** Tasks being ticked or unticked right now: another click waits for the first. */
+const busy = new WeakSet<Task>();
+
 /**
  * Draw a list of task rows again. If a row's checkbox or button had the keyboard focus, the same
  * control on the row now in its place gets it (a task ticked off an Open list is gone, so that's the next one).
+ * While a row just ticked lingers, the redraw waits for it.
  */
 export function redrawRows(list: HTMLElement, draw: () => void) {
+  if (list.querySelector(".qt-row.is-lingering")) return void held.set(list, () => redrawRows(list, draw));
   const rows = () => [...list.querySelectorAll<HTMLElement>(".qt-row")];
   const controls = (row: HTMLElement) => [...row.querySelectorAll<HTMLElement>(".cm-checkbox, .qt-act")];
   const row = rows().findIndex((r) => r.contains(document.activeElement));
@@ -90,19 +101,62 @@ export function redrawRows(list: HTMLElement, draw: () => void) {
   if (there) controls(there)[control]?.focus({ preventScroll: true });
 }
 
-/** Tick or untick: shown at once, then the list reloads with what the note says now. */
+/**
+ * Tick or untick: shown at once, then the list reloads with what the note says now. The row stays a
+ * moment first, so a list that hides done tasks doesn't whisk away the one you just ticked, and
+ * ticking one done says so, with an Undo.
+ */
 async function toggle(t: Task, row: HTMLElement, box: HTMLElement, env: RowEnv) {
+  if (busy.has(t)) return;
+  busy.add(t);
   const next = !t.done;
-  row.classList.toggle("is-done", next);
-  box.classList.toggle("is-checked", next);
+  show(row, box, next);
+  linger(row, lingerFor());
   try {
     const r = await api.setTask(t, next);
     Object.assign(t, { done: next, line: r.line, text: r.text }); // ticking adds done:, so the text changed too
+    if (next) toast({ icon: "check", text: `Done: ${clip(t.summary)}`, actionLabel: "Undo", action: () => void untick(t, row, box) });
   } catch {
     // The note changed underneath us: the reload shows what's there now.
   }
+  busy.delete(t);
   env.reload();
 }
+
+async function untick(t: Task, row: HTMLElement, box: HTMLElement) {
+  if (!t.done || busy.has(t)) return;
+  show(row, box, false);
+  busy.add(t);
+  try {
+    const r = await api.setTask(t, false);
+    Object.assign(t, { done: false, line: r.line, text: r.text });
+  } catch {
+    toast({ text: `Couldn't reopen “${clip(t.summary)}”. Open its note to change it.` });
+  }
+  busy.delete(t); // the note changed, so every list of tasks reloads
+}
+
+function show(row: HTMLElement, box: HTMLElement, done: boolean) {
+  row.classList.toggle("is-done", done);
+  box.classList.toggle("is-checked", done);
+  box.setAttribute("aria-checked", String(done));
+  box.title = done ? "Mark open" : "Mark done";
+}
+
+function linger(row: HTMLElement, ms: number) {
+  if (!ms) return;
+  row.classList.add("is-lingering");
+  setTimeout(() => {
+    row.classList.remove("is-lingering");
+    for (const [list, redraw] of held) {
+      if (list.querySelector(".qt-row.is-lingering")) continue;
+      held.delete(list);
+      redraw();
+    }
+  }, ms);
+}
+
+const clip = (s: string) => (s.length > 80 ? `${s.slice(0, 79)}…` : s);
 
 /**
  * Edit a task's words in place: an input over them, its chips left as they are. Enter or leaving

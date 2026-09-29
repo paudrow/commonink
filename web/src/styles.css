@@ -307,9 +307,23 @@ body.panel-closed #panel { opacity: 0; pointer-events: none; }
   font-size: 13px;
 }
 #banner svg { color: var(--warn); flex: none; }
-.banner-text { flex: 1; }
+#banner { flex-wrap: wrap; }
+.banner-text { flex: 1 1 220px; }
 .banner-btn { padding: 4px 10px; border-radius: 6px; background: var(--bg-elev); border: 1px solid var(--line-strong); font-size: 12.5px; font-weight: 550; }
 .banner-btn:hover { border-color: var(--muted); }
+.conflict-dialog { padding: 0; border: 0; border-radius: 14px; background: var(--bg-elev); color: var(--ink); box-shadow: var(--shadow-lg); width: min(760px, calc(100vw - 32px)); max-height: 84vh; }
+.conflict-dialog::backdrop { background: rgba(20, 16, 10, 0.28); backdrop-filter: blur(3px); }
+.conflict-box { display: flex; flex-direction: column; max-height: 84vh; }
+.conflict-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px 6px; }
+.conflict-head svg { color: var(--warn); flex: none; }
+.conflict-head h2 { flex: 1; margin: 0; font-size: 15px; font-weight: 650; color: var(--ink-strong); }
+.conflict-key { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 0 16px 8px; font: 12px var(--mono); }
+.conflict-del { color: var(--bad); }
+.conflict-add { color: var(--ok); }
+.conflict-who { font-family: var(--ui); color: var(--muted); }
+.conflict-diff { flex: 1; min-height: 80px; overflow: auto; border-block: 1px solid var(--line); padding: 8px 0; }
+.conflict-note { margin: 0; padding: 10px 16px 0; font-size: 12.5px; color: var(--muted); }
+.conflict-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 16px 14px; }
 .banner-x { width: 24px; height: 24px; border-radius: 6px; color: var(--muted); font-size: 17px; }
 
 #stage { flex: 1; min-height: 0; position: relative; }
@@ -527,6 +541,8 @@ body.is-resizing iframe { pointer-events: none; }
   transition: opacity 0.35s, transform 0.35s;
 }
 .toast.is-clickable { cursor: pointer; }
+.toast:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .toast.is-leaving { opacity: 0; transform: translateY(6px); }
 .toast b { font-weight: 650; color: var(--ink-strong); }
 .toast .avatar { box-shadow: none; }

@@ -269,7 +269,7 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json({ changes: r.edits.map((e) => e.change.id), assets: r.assets });
     }
     case "POST /restore": {
-      const r = quire.restore(int("id"), actor);
+      const r = quire.restore(int("id"), actor, optStr("version"));
       if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
       return json({ path: r.path, version: r.version, change: r.change?.id ?? null }); // restoring `change` undoes this
     }
