@@ -1800,7 +1800,7 @@ Vim.defineEx("task", "task", (_cm: unknown, params: { argString?: string }) =>
   void runTaskCommand(params.argString ?? "", {
     add: (text) => api.addTask(text),
     remove: async (r) => void (await api.removeTask(r)),
-    openBar: quickAdd,
+    openBar: () => setTimeout(quickAdd), // once Vim has closed its : prompt, which gives the note the focus back
     toast: (t) => toast({ icon: "check", ...t }),
   }).catch((err) => toast({ text: err instanceof Error ? err.message : "Couldn't add the task" })),
 );

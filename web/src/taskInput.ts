@@ -178,6 +178,9 @@ export function taskInput(opts: TaskInputOptions): TaskInput {
     ],
   });
   view.dispatch({ selection: { anchor: view.state.doc.line(1).to } });
+  // An empty field is for typing: with Vim it starts in insert mode, so the first key typed is text.
+  const cm = getCM(view);
+  if (cm && !view.state.doc.length) Vim.handleKey(cm, "i", "mapping");
   render();
 
   return {
