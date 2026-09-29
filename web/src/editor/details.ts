@@ -3,11 +3,13 @@
 // note in this browser, and never an edit: only `<details open>` in the file sets how it starts.
 // With the cursor on its tags they show as written; a jump into a closed section (search, a link to
 // a line) opens it.
+// Obsidian's foldable alerts (`> [!note]-`) fold the same way, by the same state.
 import { EditorSelection, EditorState, StateEffect, StateField, type Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, type Command } from "@codemirror/view";
 import { el, icon } from "../dom.ts";
 import { inline } from "../taskRow.ts";
 import { detailsIn, wrapInDetails, type Details } from "../../../src/core/details.ts";
+import { alertsIn, type AlertBlock } from "../../../src/core/gfm.ts";
 import { editorContext } from "./blocks.ts";
 import { touches } from "./livePreview.ts";
 
@@ -47,6 +49,10 @@ const remember = EditorView.updateListener.of((u) => {
 });
 
 const isOpen = (state: EditorState, d: Details) => state.field(foldState, false)?.[d.key] ?? d.open;
+/** Is a foldable alert open: as the person left it, else as its mark says (`+` open, `-` closed). */
+export const alertOpen = (state: EditorState, a: AlertBlock) => state.field(foldState, false)?.[a.key] ?? a.fold !== "-";
+/** The alerts that fold, and have a body to fold. */
+const foldingAlerts = (text: string) => (text.includes("[!") ? alertsIn(text).filter((a) => a.fold && a.to > a.from) : []);
 
 /** The fold's header: a triangle, and the summary (its markdown, sanitized). */
 class HeaderWidget extends WidgetType {
@@ -119,8 +125,16 @@ class EndWidget extends WidgetType {
  * renders on its own). Called from the editor's block decorations (see blocks.ts).
  */
 export function foldDecorations(state: EditorState, text: string, out: Range<Decoration>[], hidden: Array<{ from: number; to: number }>) {
-  if (!/<details/i.test(text)) return;
   const doc = state.doc;
+  for (const a of foldingAlerts(text)) {
+    // A closed alert shows its title line (drawn in gfm.ts); its body hides until opened.
+    const first = doc.line(a.from + 1);
+    const last = doc.line(a.to + 1);
+    if (alertOpen(state, a) || touches(state, first.to + 1, last.to)) continue;
+    hidden.push({ from: first.to, to: last.to });
+    out.push(Decoration.replace({ fold: true }).range(first.to, last.to));
+  }
+  if (!/<details/i.test(text)) return;
   for (const d of detailsIn(text)) {
     const first = doc.line(d.from + 1);
     if (hidden.some((r) => first.from >= r.from && first.from <= r.to)) continue;
@@ -144,17 +158,23 @@ export function foldDecorations(state: EditorState, text: string, out: Range<Dec
 const openOnJump = EditorState.transactionExtender.of((tr) => {
   if (!tr.selection) return null;
   const text = tr.newDoc.toString();
-  if (!/<details/i.test(text)) return null;
+  if (!/<details|\[!/i.test(text)) return null;
   const line = tr.newDoc.lineAt(tr.newSelection.main.head).number - 1;
-  const inside = detailsIn(text).filter((d) => line > (d.summaryLine ?? d.from) && line <= d.close && !isOpen(tr.startState, d));
-  return inside.length ? { effects: inside.map((d) => setFold.of({ key: d.key, open: true })) } : null;
+  const alerts = foldingAlerts(text).filter((a) => line > a.from && line <= a.to && !alertOpen(tr.startState, a));
+  const inside = /<details/i.test(text) ? detailsIn(text).filter((d) => line > (d.summaryLine ?? d.from) && line <= d.close && !isOpen(tr.startState, d)) : [];
+  const keys = [...inside.map((d) => d.key), ...alerts.map((a) => a.key)];
+  return keys.length ? { effects: keys.map((key) => setFold.of({ key, open: true })) } : null;
 });
 
 /** Closed sections are one step for the cursor: arrows move past them rather than into them. */
 const atomic = EditorView.atomicRanges.of((view) => {
   const text = view.state.doc.toString();
   const ranges: Range<Decoration>[] = [];
-  if (!/<details/i.test(text)) return Decoration.none;
+  for (const a of foldingAlerts(text)) {
+    if (alertOpen(view.state, a)) continue;
+    ranges.push(Decoration.mark({}).range(view.state.doc.line(a.from + 1).to, view.state.doc.line(a.to + 1).to));
+  }
+  if (!/<details/i.test(text)) return Decoration.set(ranges, true);
   for (const d of detailsIn(text)) {
     if (isOpen(view.state, d)) continue;
     const first = view.state.doc.line(d.from + 1);
@@ -182,22 +202,38 @@ export const foldAt =
   (how: "open" | "close" | "toggle"): Command =>
   (view) => {
     const d = sectionAt(view.state);
-    if (!d) return false;
+    if (!d) return foldAlertAt(view, how);
     const open = how === "toggle" ? !isOpen(view.state, d) : how === "open";
     const at = view.state.doc.line(d.from + 1).from;
     view.dispatch({ effects: setFold.of({ key: d.key, open }), ...(open ? {} : { selection: { anchor: at } }) });
     return true;
   };
 
-/** Open or close every section in the note (vim `zR`, `zM`). */
+/** The foldable alert the cursor is in: opened, closed or toggled, with the cursor left on its title. */
+function foldAlertAt(view: EditorView, how: "open" | "close" | "toggle"): boolean {
+  const line = view.state.doc.lineAt(view.state.selection.main.head).number - 1;
+  const a = foldingAlerts(view.state.doc.toString()).find((a) => line >= a.from && line <= a.to);
+  if (!a) return false;
+  const open = how === "toggle" ? !alertOpen(view.state, a) : how === "open";
+  const title = view.state.doc.line(a.from + 1);
+  view.dispatch({ effects: setFold.of({ key: a.key, open }), ...(open || line === a.from ? {} : { selection: { anchor: title.to } }) });
+  return true;
+}
+
+/** Open or close every section and foldable alert in the note (vim `zR`, `zM`). */
 export const foldAll =
   (open: boolean): Command =>
   (view) => {
-    const all = detailsIn(view.state.doc.toString());
-    if (!all.length) return false;
+    const text = view.state.doc.toString();
+    const all = detailsIn(text);
+    const alerts = foldingAlerts(text);
+    if (!all.length && !alerts.length) return false;
     const inside = sectionAt(view.state);
     const top = inside && !open ? all.find((d) => d.depth === 0 && d.from <= inside.from && inside.close <= d.close) : null;
-    view.dispatch({ effects: setFold.of({ all: open, keys: all.map((d) => d.key) }), ...(top ? { selection: { anchor: view.state.doc.line(top.from + 1).from } } : {}) });
+    const line = view.state.doc.lineAt(view.state.selection.main.head).number - 1;
+    const alert = !open && !top ? alerts.find((a) => line > a.from && line <= a.to) : null;
+    const anchor = top ? view.state.doc.line(top.from + 1).from : alert ? view.state.doc.line(alert.from + 1).to : null;
+    view.dispatch({ effects: setFold.of({ all: open, keys: [...all.map((d) => d.key), ...alerts.map((a) => a.key)] }), ...(anchor !== null ? { selection: { anchor } } : {}) });
     return true;
   };
 

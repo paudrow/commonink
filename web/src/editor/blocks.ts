@@ -22,6 +22,8 @@ import { editsBetween } from "../merge.ts";
 import { redo, undo } from "@codemirror/commands";
 import { safeDecode } from "../../../src/core/uri.ts";
 import { foldDecorations, setFold } from "./details.ts";
+import { htmlImageBlock } from "./gfm.ts";
+import { followInPage } from "../gfm.ts";
 
 export interface EditorContext {
   path: string;
@@ -41,6 +43,8 @@ export interface EditorContext {
   saveSmartFolder(query: string, name: string, anchor: HTMLElement): void;
   /** Show a person's tasks. */
   openPerson(name: string): void;
+  /** This note's address in the app (`/notes/<title>-<id>`), for a link to one of its headings. */
+  noteUrl?(): string;
 }
 export const editorContext = Facet.define<EditorContext, EditorContext>({ combine: (v) => v[0] });
 
@@ -221,6 +225,7 @@ class EmbedWidget extends WidgetType {
           const href = a.getAttribute("href") ?? "";
           if (href.startsWith("quire:")) ctx.openTarget(safeDecode(href.slice(6)), path);
           else if (/^https?:/i.test(href)) window.open(href, "_blank", "noopener");
+          else followInPage(body, href); // a footnote, or a #heading in the embedded note
         });
         body.addEventListener("click", (e) => (e.target as HTMLElement).closest("a") && e.preventDefault()); // opened on mousedown
       }
@@ -655,6 +660,10 @@ function buildBlocks(state: EditorState): DecorationSet {
           const yaml = doc.sliceString(first.to + 1, Math.max(first.to + 1, last.from - 1));
           out.push(Decoration.replace({ block: true, widget: new PropertiesWidget(yaml) }).range(first.from, last.to));
         }
+        return false;
+      }
+      if (ref.name === "HTMLBlock") {
+        htmlImageBlock(state, ref.from, ref.to, out);
         return false;
       }
       if (ref.name === "FencedCode") {

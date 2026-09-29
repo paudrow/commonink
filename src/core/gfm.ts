@@ -35,6 +35,38 @@ export function parseAlert(line: string): Alert | null {
   return { type, fold: (m[2] as "-" | "+" | undefined) ?? null, title: m[3].trim() || ALERTS[type] };
 }
 
+export interface AlertBlock extends Alert {
+  /** Its first and last lines (0-based). */
+  from: number;
+  to: number;
+  /** Names it among the note's alerts, to remember a fold by: its title, `#2` on for a repeat. */
+  key: string;
+}
+
+/** A note's alerts: blockquotes, outside code, whose first line is an alert's marker. */
+export function alertsIn(md: string): AlertBlock[] {
+  const out: AlertBlock[] = [];
+  const seen = new Map<string, number>();
+  let current: AlertBlock | null = null;
+  let lastQuoted = -2;
+  for (const [n, text] of proseLines(md)) {
+    const line = n - 1;
+    const quoted = /^\s{0,3}>/.test(text);
+    if (quoted && current && line === lastQuoted + 1) current.to = line;
+    else if (quoted && line !== lastQuoted + 1) {
+      const alert = parseAlert(text);
+      current = null;
+      if (alert) {
+        const k = (seen.get(alert.title) ?? 0) + 1;
+        seen.set(alert.title, k);
+        out.push((current = { ...alert, from: line, to: line, key: `alert:${alert.title}${k > 1 ? `#${k}` : ""}` }));
+      }
+    } else if (!quoted) current = null;
+    if (quoted) lastQuoted = line;
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- footnotes
 
 export interface Footnotes {
