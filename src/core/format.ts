@@ -68,6 +68,17 @@ export function fmtBacklinks(target: string, links: Backlink[]): string {
   return links.map((b) => `- ${b.path}:${b.line} (${b.kind}) ${b.text}`).join("\n");
 }
 
+const folderOf = (path: string) => path.slice(0, path.lastIndexOf("/") + 1);
+
+/** A move that kept its folder is a rename. */
+export const isRename = (from: string | null, to: string) => from !== null && folderOf(from) === folderOf(to);
+
+/** What a change did, as a past-tense verb ("you renamed Groceries"). */
+export function changeVerb(c: Pick<Change, "op" | "path" | "from_path">): string {
+  if (c.op === "move" && isRename(c.from_path, c.path)) return "renamed";
+  return { create: "created", edit: "edited", move: "moved", delete: "deleted", archive: "archived", unarchive: "unarchived" }[c.op];
+}
+
 /**
  * Collapse runs of edits by the same source to the same note (autosaves) into one entry.
  * `first` is the id of the run's earliest change (`id` is its latest).

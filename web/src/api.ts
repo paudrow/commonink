@@ -1,6 +1,7 @@
 import { localDate, type TaskMeta, type TaskPatch } from "../../src/core/tasks.ts";
 import type { GuideAction, GuideState } from "../../src/core/guide.ts";
 import { did } from "./events.ts";
+import type { NoteRole } from "../../src/core/noteRoles.ts";
 
 /** The reader's day, which task writes and due filters go by (the server may be in another time zone). */
 const today = () => localDate(Date.now());
@@ -45,6 +46,11 @@ export interface DiffRun {
   skipped: number;
   before: string | null;
   after: string | null;
+  stat: LineStat | null;
+}
+export interface LineStat {
+  add: number;
+  del: number;
 }
 export interface DiffFile {
   path: string;
@@ -80,6 +86,7 @@ export interface FeedItem {
   lastSource: string | null;
   /** Who made the last change (see authorName). */
   lastBy: { person: string | null; agent: string | null } | null;
+  role: NoteRole | null;
 }
 export interface FeedPage {
   items: FeedItem[];
@@ -273,7 +280,12 @@ export const api = {
   changeAgents: () => j<string[]>(`${BASE}/changes/agents`),
   /** What a set of changes did, note by note. `ids` is ranges like "12-18,20". */
   diffs: (ids: string) => j<DiffFile[]>(`${BASE}/diffs?ids=${ids}`),
-  restore: (id: number) => j<{ path: string; version: string; change: number | null }>(`${BASE}/restore`, send("POST", { id })),
+  /** A note's text before and after change #id. */
+  diff: (id: number) => j<{ path: string; before: string | null; after: string | null }>(`${BASE}/diff?from=${id}`),
+  /** The net lines added and removed by each set of changes (ranges as for diffs), at most 50 sets. */
+  diffStats: (sets: string[]) => j<Array<LineStat | null>>(`${BASE}/diffstats?sets=${sets.join(";")}`),
+  /** Put a note back the way it was before change #id; with `version`, only if the note is still at that version. */
+  restore: (id: number, version?: string) => j<{ path: string; version: string; change: number | null }>(`${BASE}/restore`, send("POST", { id, version })),
   changes: () => j<Change[]>(`${BASE}/changes?limit=40`),
   /** `origin` (this tab's clientId) marks a save the tab's editor already shows, so the live update skips it there. */
   save: (path: string, content: string, baseVersion?: string, allowEmpty = false, origin?: string) =>
