@@ -1,4 +1,6 @@
-// Vault-wide change notifications for live widgets (task lists, note lists, calendars).
+// App-wide events: vault changes for live widgets, and what the person just did, for the guide.
+import type { GuideStep } from "../../src/core/guide.ts";
+
 export const vaultEvents = new EventTarget();
 
 export function onVaultChange(fn: () => void, ms = 250): () => void {
@@ -13,3 +15,9 @@ export function onVaultChange(fn: () => void, ms = 250): () => void {
     vaultEvents.removeEventListener("change", handler);
   };
 }
+
+/** Something the person just did that the Getting started checklist asks them to try (see onboarding.ts). */
+export const DIDS = ["slash", "link", "search", "star", "tick"] as const satisfies readonly GuideStep[];
+export type Did = (typeof DIDS)[number];
+export const didEvents = new EventTarget();
+export const did = (what: Did) => didEvents.dispatchEvent(new Event(what));

@@ -1,0 +1,17 @@
+/* Reduce motion (a system setting): every transition and animation ends at once, so panels, cards
+   and toasts appear in their final place. An agent's highlight still shows for its six seconds,
+   then goes without fading. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0s !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+  .cm-agent-line, .cm-agent-tag {
+    animation-duration: 6s !important;
+    animation-timing-function: step-end !important;
+  }
+}

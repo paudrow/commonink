@@ -52,13 +52,17 @@ try {
   for (const note of Object.keys(MOTION_NOTES)) {
     const lines = MOTION_NOTES[note].split("\n").length;
     for (const [mode, down, up] of [["vim", "j", "k"], ["arrows", "ArrowDown", "ArrowUp"]]) {
+      // Vim keys on for j/k, off for the arrows (as in any editor); the app remembers the choice here.
+      await p.goto(`http://localhost:${port}/`);
+      await p.evaluate(`localStorage.setItem("quire.vim", "${mode === "vim"}")`);
       await p.goto(`http://localhost:${port}/notes/x-${ids.get(note)}`);
       await p.locator("#editor-host .cm-content").waitFor();
       await p.waitForTimeout(1200); // widgets drawn and measured
       await p.locator("#editor-host .cm-line").first().click();
-      await p.keyboard.press("Escape");
-      await p.keyboard.type("gg");
-      if (mode === "arrows") await p.keyboard.press("i"); // insert mode: the arrows as in any editor
+      if (mode === "vim") {
+        await p.keyboard.press("Escape");
+        await p.keyboard.type("gg");
+      } else await p.keyboard.press("ControlOrMeta+Home");
       const trail = [await line()];
       for (let i = 1; i < lines; i++) {
         await p.keyboard.press(down);
@@ -70,7 +74,6 @@ try {
         await p.waitForTimeout(40);
         trail.push(await line());
       }
-      await p.keyboard.press("Escape");
       const want = [...Array(lines).keys()].map((i) => i + 1);
       const expected = [...want, ...want.slice(0, -1).reverse()].join(" ");
       const ok = trail.join(" ") === expected;

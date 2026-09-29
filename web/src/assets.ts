@@ -6,6 +6,7 @@ import { $, el, icon } from "./dom.ts";
 import { tagChip, tagFilter, tagPicker } from "./tagPicker.ts";
 import { normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { fuzzyScore } from "./fuzzy.ts";
+import { emptyState } from "./emptyState.ts";
 import { textStage, textThumb } from "./textPreview.ts";
 import { ASSET_LABEL, assetIcon, assetType, extOf, fmtBytes, typeIcon, type AssetType } from "./assetKinds.ts";
 
@@ -162,7 +163,7 @@ export class Assets {
         .map((f) =>
           el(
             "button",
-            { type: "button", class: `chip${f === this.filter ? " is-on" : ""}`, onclick: () => ((this.filter = f), this.render()) },
+            { type: "button", class: `chip${f === this.filter ? " is-on" : ""}`, "aria-pressed": String(f === this.filter), onclick: () => ((this.filter = f), this.render()) },
             f === "all" ? null : icon(typeIcon(f), 13),
             f === "all" ? "All" : ASSET_LABEL[f],
             el("span", { class: "n" }, String(f === "all" ? all.length : counts[f])),
@@ -196,13 +197,21 @@ export class Assets {
       ...list.map((n) => this.card(n)),
       ...(!list.length && !this.uploading.length
         ? [
-            el(
-              "div",
-              { class: "as-empty" },
-              icon("upload", 26),
-              el("b", {}, all.length ? "Nothing matches" : "No assets yet"),
-              el("span", {}, all.length ? "Try another type or search." : "Drop images, PDFs, audio or video here, or paste an image into any note."),
-            ),
+            all.length
+              ? emptyState({
+                  class: "as-empty",
+                  icon: "search",
+                  title: "Nothing matches",
+                  text: ["Try another type, tag or search."],
+                  action: { label: "Show every file", icon: "close", run: () => ((this.input.value = ""), (this.filter = "all"), this.setTag("")) },
+                })
+              : emptyState({
+                  class: "as-empty",
+                  icon: "upload",
+                  title: "No assets yet",
+                  text: ["Images, PDFs, audio and video for your notes live here. Drop files on this page, or paste an image into any note."],
+                  action: { label: "Upload files", icon: "upload", run: () => this.picker.click() },
+                }),
           ]
         : []),
     );
