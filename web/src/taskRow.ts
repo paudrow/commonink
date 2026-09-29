@@ -23,7 +23,7 @@ const prevent = (e: Event) => e.preventDefault();
 
 /** A task's row. `where` is the muted label on the right (its heading, or its note when grouped otherwise). */
 export function taskRow(t: Task, env: RowEnv, where: string | null): HTMLElement {
-  const box = el("span", { class: `cm-checkbox${t.done ? " is-checked" : ""}`, role: "checkbox", "aria-checked": String(t.done), title: t.done ? "Mark open" : "Mark done" });
+  const box = el("span", { class: `cm-checkbox${t.done ? " is-checked" : ""}`, role: "checkbox", tabindex: "0", "aria-checked": String(t.done), "aria-label": t.summary, title: t.done ? "Mark open" : "Mark done" });
   const words = el("span", { class: "qt-words", html: inline(t.summary) });
   const text = el("span", { class: "qt-text", title: `${t.title}, line ${t.line}` }, words, ...metaChips(t.meta, t.done, endTags(t.summary, t.meta.tags))); // tags mid-sentence stay there
   const save = async (patch: TaskPatch) => {
@@ -58,7 +58,25 @@ export function taskRow(t: Task, env: RowEnv, where: string | null): HTMLElement
     e.preventDefault();
     void toggle(t, row, box, env);
   });
+  box.addEventListener("keydown", (e) => {
+    if (e.key !== " " && e.key !== "Enter") return;
+    e.preventDefault();
+    void toggle(t, row, box, env);
+  });
   return row;
+}
+
+/**
+ * Draw a list of task rows again. If a row's checkbox had the keyboard focus, the checkbox now in
+ * its place gets it (a task ticked off an Open list is gone, so that's the next one).
+ */
+export function redrawRows(list: HTMLElement, draw: () => void) {
+  const boxes = () => [...list.querySelectorAll<HTMLElement>(".qt-row .cm-checkbox")];
+  const at = boxes().indexOf(document.activeElement as HTMLElement);
+  draw();
+  if (at < 0) return;
+  const now = boxes();
+  now[Math.min(at, now.length - 1)]?.focus({ preventScroll: true });
 }
 
 /** Tick or untick: shown at once, then the list reloads with what the note says now. */
@@ -69,9 +87,10 @@ async function toggle(t: Task, row: HTMLElement, box: HTMLElement, env: RowEnv) 
   try {
     const r = await api.setTask(t, next);
     Object.assign(t, { done: next, line: r.line, text: r.text }); // ticking adds done:, so the text changed too
-  } finally {
-    env.reload(); // on a failure too: the note changed underneath us, so show what's there now
+  } catch {
+    // The note changed underneath us: the reload shows what's there now.
   }
+  env.reload();
 }
 
 /**

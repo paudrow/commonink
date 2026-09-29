@@ -9,7 +9,7 @@ import type { WidgetSpec } from "./core.ts";
 import { sideClick } from "../panes.ts";
 import { addDays } from "../../../src/core/tasks.ts";
 import { today } from "../taskChips.ts";
-import { taskRow } from "../taskRow.ts";
+import { redrawRows, taskRow } from "../taskRow.ts";
 
 type Show = "open" | "done" | "all";
 type Group = "note" | "due" | "priority" | "tag" | "person";
@@ -125,7 +125,7 @@ export const tasks: WidgetSpec = {
         }
       }
       const ordered = group === "note" ? [...groups] : [...groups].sort(([, a], [, b]) => a.rank.localeCompare(b.rank));
-      list.replaceChildren(
+      redrawRows(list, () => list.replaceChildren(
         ...(problem
           ? [el("div", { class: "qt-empty" }, problem)]
           : shown.length
@@ -143,7 +143,7 @@ export const tasks: WidgetSpec = {
         ...(visible.length > shown.length
           ? [el("button", { type: "button", class: "qt-more", onmousedown: prevent, onclick: () => ((expanded = true), render()) }, `Show ${visible.length - shown.length} more`)]
           : []),
-      );
+      ));
       env.remeasure();
     }
 
