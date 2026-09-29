@@ -15,9 +15,8 @@ import type { NoteMeta, TagCount } from "../api.ts";
 import { touches } from "./livePreview.ts";
 import { dataEmbed, hydrateDataEmbeds } from "../textPreview.ts";
 import { scanTags } from "../../../src/core/tags.ts";
-import { boardsIn, setBoardArgs } from "../../../src/core/kanban.ts";
+import { boardsIn, unclosedBoard } from "../../../src/core/kanban.ts";
 import { hydrateBoards, mountBoard, type BoardHost } from "../kanban.ts";
-import { kanbanBlock } from "../widgets/kanban.ts";
 import { editsBetween } from "../merge.ts";
 import { redo, undo } from "@codemirror/commands";
 
@@ -403,36 +402,48 @@ class BoardWidget extends WidgetType {
       },
       resized,
     };
-    const env: WidgetEnv = {
-      args: board()?.args ?? {},
-      note: ctx().path,
-      openConfig: false,
-      update: (args) => view.dispatch({ changes: editsBetween(view.state.doc.toString(), setBoardArgs(view.state.doc.toString(), at.index, args)).changes }),
-      withId: (fn) => fn(""),
-      focusEditor: () => view.focus(),
-      remeasure: resized,
-      open: (target) => ctx().openTarget(target, ctx().path),
-      openTag: (tag) => ctx().openTag(tag, "tasks"),
-      openPerson: (name) => ctx().openPerson(name),
-      saveSmartFolder: () => {}, // a board's settings have no query to save
-      sources: { tags: () => ctx().tags(), folders: () => ctx().folders() },
-      editor: ctx(),
-      readOnly: view.state.readOnly,
-    };
-    const spec = kanbanBlock((body, _env, card) => {
-      const edit = el("button", { class: "qw-icon", type: "button", title: "Edit as text", "aria-label": "Edit as text", onclick: host.editText }, icon("code", 15));
-      card.querySelector(".qw-head")!.insertBefore(edit, card.querySelector(".qw-head .qw-icon"));
-      const b = mountBoard(body, host, this.index);
-      (root as any).board = b;
-      return b.destroy;
+    const body = el("div", { class: "qw-body" });
+    const card = el(
+      "div",
+      { class: "qw qw-kanban" },
+      el(
+        "div",
+        { class: "qw-head" },
+        el("span", { class: "qw-kind" }, icon("kanban", 13), "Kanban"),
+        el("span", { class: "spacer" }),
+        el("button", { class: "qw-icon", type: "button", title: "Edit as text", "aria-label": "Edit as text", onclick: host.editText }, icon("code", 15)),
+      ),
+      body,
+    );
+    // The board is not text: a press on it mustn't put the note's cursor there (which would show
+    // the block as markdown), except in the board's own fields.
+    root.addEventListener("mousedown", (e) => {
+      const t = e.target as HTMLElement;
+      if (t.closest("input, textarea, .cm-editor")) return;
+      e.preventDefault();
+      t.closest<HTMLElement>(".kb-card")?.focus({ preventScroll: true });
     });
-    const { dom, destroy } = renderWidget(spec, env);
-    root.append(dom);
-    (root as any).destroyWidget = destroy;
+    const b = mountBoard(body, host, this.index);
+    (root as any).board = b;
+    root.append(card);
+    (root as any).destroyWidget = b.destroy;
     return root;
   }
   destroy(dom: HTMLElement) {
     (dom as any).destroyWidget?.();
+  }
+}
+
+/** A quiet note under a line, for markdown that almost makes a block. */
+class HintWidget extends WidgetType {
+  constructor(readonly text: string) {
+    super();
+  }
+  eq(o: HintWidget) {
+    return o.text === this.text;
+  }
+  toDOM() {
+    return el("div", { class: "cm-block-hint" }, icon("spark", 12), this.text);
   }
 }
 
@@ -617,6 +628,11 @@ function buildBlocks(state: EditorState): DecorationSet {
     });
   }
   const hidden = (pos: number) => drawn.some((r) => pos >= r.from && pos <= r.to);
+  const unclosed = text.includes(":::kanban") ? unclosedBoard(text) : null;
+  if (unclosed !== null) {
+    const line = doc.line(unclosed + 1);
+    out.push(Decoration.widget({ block: true, side: 1, widget: new HintWidget("This board has no closing ::: line yet, so it shows as text. Add ::: on a line of its own after its last card.") }).range(line.to));
+  }
 
   tree.iterate({
     enter(ref) {

@@ -4,13 +4,14 @@ import crypto from "node:crypto";
 import { diffLines } from "diff";
 import type { Content, SqlDb } from "./store.ts";
 import { cleanPath, isHidden, kindOf, linkKey, QuireError, stemOf, type NoteKind } from "./paths.ts";
+import { headingName } from "./prose.ts";
 import { extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
 import { dueFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
 import { parseQuickAdd } from "./quickAdd.ts";
 import { formatQuery, parseQuery, queryProblem, type NoteQuery } from "./query.ts";
-import { addCard, boardsIn, checkCard, editCard, moveCard, type Board, type Place } from "./kanban.ts";
+import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
 
 export interface NoteMeta {
   /** Stable across renames, moves and archiving; see ids.ts. */
@@ -1146,7 +1147,7 @@ export class Quire {
         if (/^\s*(```|~~~)/.test(line)) fence = !fence;
         if (fence) return;
         const h = line.match(/^#{1,6}\s+(.+?)\s*#*$/);
-        if (h) heading = h[1];
+        if (h) heading = headingName(h[1]);
         if (/^\s*:::kanban\b/i.test(line)) outside = heading;
         else if (outside !== undefined && /^\s*:::\s*$/.test(line)) [heading, outside] = [outside, undefined];
         const t = parseTask(line);
@@ -1187,9 +1188,10 @@ export class Quire {
   // ---------------------------------------------------------------- boards
 
   /** A note and the `:::kanban` boards in it (see kanban.ts). */
-  boards(target: string): { note: Note; boards: Board[] } {
+  /** `unclosed`: the line of a `:::kanban` with no closing `:::`, which shows as text. */
+  boards(target: string): { note: Note; boards: Board[]; unclosed: number | null } {
     const note = this.read(target);
-    return { note, boards: boardsIn(note.content) };
+    return { note, boards: boardsIn(note.content), unclosed: unclosedBoard(note.content) };
   }
 
   /**

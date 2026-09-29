@@ -48,16 +48,3 @@ export const kanban: WidgetSpec = {
     };
   },
 };
-
-/** The settings form of a `:::kanban` block: the editor draws its board through `mount`. */
-export const kanbanBlock = (mount: WidgetSpec["mount"]): WidgetSpec => ({
-  name: "kanban",
-  title: "Kanban",
-  icon: "kanban",
-  hint: "Columns of cards in this note",
-  keywords: "",
-  block: true,
-  defaults: {},
-  fields: [{ key: "done", label: "Done column", type: "text", placeholder: "Done: cards moved into it are ticked" }],
-  mount,
-});

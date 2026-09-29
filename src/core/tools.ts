@@ -309,7 +309,7 @@ export function createMcpServer(host: ToolHost): McpServer {
 
   const BOARD_HELP =
     "A board is a :::kanban block in a note (closed by :::): its ## headings are columns and its list items are cards, " +
-    "with task tokens like tasks. The column named by done= on the :::kanban line (by default \"Done\") ticks cards moved into it.";
+    "with task tokens like tasks. Moving a card into the column named Done ticks it. read_board also lists lines that aren't part of the board (problems): leave them unless the user asks.";
   const CARD = z.string().describe("The card's line number from read_board, or words from its text that only that card has");
 
   server.registerTool(
@@ -322,8 +322,8 @@ export function createMcpServer(host: ToolHost): McpServer {
     },
     ({ path }) =>
       run(() => {
-        const { note, boards } = quire.boards(path);
-        return fmtBoards(note.path, boards);
+        const { note, boards, unclosed } = quire.boards(path);
+        return fmtBoards(note.path, boards, unclosed);
       }),
   );
 

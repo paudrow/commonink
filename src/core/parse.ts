@@ -1,6 +1,6 @@
 import path from "node:path";
 import { linkKey, type NoteKind } from "./paths.ts";
-import { proseLines, withoutCode } from "./prose.ts";
+import { headingName, proseLines, withoutCode } from "./prose.ts";
 
 export interface ParsedLink {
   target: string;
@@ -81,7 +81,7 @@ export function outlineOf(md: string): Heading[] {
   return proseLines(md)
     .map(([line, text]) => {
       const m = text.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/);
-      return m ? { level: m[1].length, text: m[2], line } : null;
+      return m ? { level: m[1].length, text: headingName(m[2]), line } : null;
     })
     .filter((h): h is Heading => h !== null);
 }
