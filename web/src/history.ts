@@ -3,15 +3,15 @@
 // note by note; a change left out on the same note splits that note into separate diffs.
 import { api, fileUrl, type Change, type DiffFile, type DiffRun } from "./api.ts";
 import { $, authorAvatar, authorName, displayName, el, icon, isSelf } from "./dom.ts";
-import { diffCounts, renderDiff } from "./diff.ts";
+import { renderDiff } from "./diff.ts";
+import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
 import { assetIcon, assetType, extOf } from "./assetKinds.ts";
-import { groupChanges } from "../../src/core/format.ts";
+import { changeVerb, groupChanges, isRename } from "../../src/core/format.ts";
 
 type Item = Change & { count: number; first: number };
 
 interface Hooks {
   open(path: string): void;
-  verb(c: Change): string;
   toast(t: { text: string; icon?: string; actionLabel?: string; action?: () => void }): void;
 }
 
@@ -210,7 +210,7 @@ export class History {
     items.forEach((it, i) => {
       const d = dayLabel(it.ts);
       if (d !== day) rows.push(el("div", { class: "hist-day" }, (day = d)));
-      const [add, del] = (it.summary ?? "").match(/^\+(\d+) −(\d+)$/)?.slice(1) ?? [];
+      const stat = entryStat(it, it.count > 1 ? toRanges(this.idsOf(it)) : "");
       const on = this.selected.has(it.id);
       const row = el(
         "div",
@@ -220,11 +220,11 @@ export class History {
         el(
           "div",
           { class: "hist-body" },
-          el("div", { class: "hist-line" }, el("b", {}, authorName(it)), ` ${this.hooks.verb(it)} `, el("span", { class: "hist-note" }, displayName(it.path))),
+          el("div", { class: "hist-line" }, el("b", {}, authorName(it)), ` ${changeVerb(it)} `, el("span", { class: "hist-note" }, displayName(it.path))),
           el(
             "div",
             { class: "hist-meta" },
-            add !== undefined ? el("span", { class: "diffstat" }, el("span", { class: "add" }, `+${add}`), el("span", { class: "del" }, `−${del}`)) : null,
+            stat ? statEl(stat) : null,
             it.count > 1 ? el("span", {}, `${it.count} saves`) : null,
             el("span", {}, clock(it.ts)),
           ),
@@ -235,6 +235,7 @@ export class History {
       rows.push(row);
     });
     this.listEl.replaceChildren(...(rows.length ? rows : [el("div", { class: "hist-empty" }, this.by ? "No changes like that yet." : "No changes yet.")]));
+    void loadStats(items.filter((it) => it.count > 1).map((it) => toRanges(this.idsOf(it)))).then((fresh) => fresh && this.renderList());
     this.moreEl.replaceChildren(
       ...(this.more ? [el("button", { type: "button", class: "link-btn", onclick: () => void this.load(true) }, "Load older changes")] : []),
     );
@@ -253,7 +254,7 @@ export class History {
           : el("b", {}, "Nothing selected"),
         picked.length && saves > picked.length ? el("span", {}, `${saves} saves`) : null,
         files ? el("span", {}, `${files.length} note${files.length === 1 ? "" : "s"}`) : null,
-        files?.some((f) => !isAsset(f.path)) ? totals(files) : null,
+        files?.some((f) => !isAsset(f.path)) ? statEl(totalsOf(files.flatMap((f) => f.runs))) : null,
       ),
       el("span", { class: "spacer" }),
       el("span", { class: "hist-who" }, ...who.slice(0, 5).map((it) => authorAvatar(it, 20))),
@@ -287,7 +288,7 @@ export class History {
         "div",
         { class: "hist-move" },
         icon(m.op === "archive" ? "archive" : m.op === "unarchive" ? "unarchive" : "move", 13),
-        `${m.op === "move" ? "Moved" : m.op === "archive" ? "Archived" : "Unarchived"} `,
+        `${m.op === "move" ? (isRename(m.from, m.to) ? "Renamed" : "Moved") : m.op === "archive" ? "Archived" : "Unarchived"} `,
         el("code", {}, m.from ?? "?"),
         " → ",
         el("code", {}, m.to),
@@ -302,7 +303,7 @@ export class History {
         { class: "hist-file-head" },
         icon("file", 14),
         el("button", { type: "button", class: "hist-file-name", title: "Open this note", onclick: () => this.hooks.open(f.path) }, f.path),
-        c ? el("span", { class: "diffstat" }, el("span", { class: "add" }, `+${c.add}`), el("span", { class: "del" }, `−${c.del}`)) : null,
+        c ? statEl(c) : null,
         el("span", { class: "spacer" }),
         el("button", { type: "button", class: "icon-btn small", title: "Open this note", onclick: () => this.hooks.open(f.path) }, icon("open", 14)),
       ),
@@ -400,38 +401,7 @@ function assetRun(path: string, r: DiffRun): HTMLElement {
   );
 }
 
-/** Change ids as compact ranges for the URL: [12, 13, 14, 20] → "12-14,20". */
-function toRanges(ids: number[]): string {
-  const sorted = [...new Set(ids)].sort((a, b) => a - b);
-  const out: string[] = [];
-  for (let i = 0; i < sorted.length; ) {
-    let j = i;
-    while (j + 1 < sorted.length && sorted[j + 1] === sorted[j] + 1) j++;
-    out.push(i === j ? `${sorted[i]}` : `${sorted[i]}-${sorted[j]}`);
-    i = j + 1;
-  }
-  return out.join(",");
-}
-
-function totalsOf(runs: DiffRun[]) {
-  let add = 0;
-  let del = 0;
-  for (const r of runs) {
-    if (r.before === null || r.after === null) continue;
-    const c = diffCounts(r.before, r.after);
-    add += c.add;
-    del += c.del;
-  }
-  return { add, del };
-}
-
-function totals(files: DiffFile[]) {
-  const t = files.reduce((acc, f) => {
-    const c = totalsOf(f.runs);
-    return { add: acc.add + c.add, del: acc.del + c.del };
-  }, { add: 0, del: 0 });
-  return el("span", { class: "diffstat" }, el("span", { class: "add" }, `+${t.add}`), el("span", { class: "del" }, `−${t.del}`));
-}
+const totalsOf = (runs: DiffRun[]) => runs.reduce((t, r) => ({ add: t.add + (r.stat?.add ?? 0), del: t.del + (r.stat?.del ?? 0) }), { add: 0, del: 0 });
 
 function dayLabel(ts: number): string {
   const d = new Date(ts);

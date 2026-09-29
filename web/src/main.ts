@@ -22,7 +22,8 @@ import { runTaskCommand } from "./taskCommand.ts";
 import type { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
-import { groupChanges } from "../../src/core/format.ts";
+import { changeVerb, groupChanges } from "../../src/core/format.ts";
+import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
 import { clampSide, forget, newLayout, parseLayout, SIDE_CLICK, sideClick, step, visit, type PaneTrail } from "./panes.ts";
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
@@ -155,7 +156,6 @@ const once = <T>(load: () => Promise<T>) => {
 const loadHistory = once(async () =>
   (historyPage = new (await import("./history.ts")).History({
     open: (path) => fromPage(path),
-    verb: (c) => verb(c),
     toast: (t) => toast(t),
   })),
 );
@@ -223,6 +223,8 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   }
   if (ticket !== pane.opens) return; // something else was opened here while this loaded
   hideBanner();
+  // The same note again (renamed, moved or archived while open) keeps its place.
+  const keep = pane.session?.id === note.id ? { scroll: pane.view.scrollSnapshot(), head: pane.view.state.selection.main.head } : null;
   const next: Session = {
     id: note.id,
     path: note.path,
@@ -281,9 +283,10 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   else {
     // Start below the frontmatter so it renders as properties rather than raw YAML.
     const fm = note.kind === "md" ? note.content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/) : null;
-    const pos = Math.min(cursors.get(note.path) ?? (fm ? fm[0].length : 0), pane.view.state.doc.length);
-    pane.view.dispatch({ selection: { anchor: pos } });
-    pane.view.scrollDOM.scrollTop = 0;
+    const pos = Math.min(keep?.head ?? cursors.get(note.path) ?? (fm ? fm[0].length : 0), pane.view.state.doc.length);
+    // Scrolled by the view, as goToLine scrolls: setting scrollDOM.scrollTop = 0 lost to CodeMirror,
+    // which on focus puts back the scroll position the last note had.
+    pane.view.dispatch({ selection: { anchor: pos }, effects: keep?.scroll ?? EditorView.scrollIntoView(0, { y: "start", yMargin: 80 }) });
   }
   // Following a link or a click adds to history; back/forward, renames and old links just fix the URL up.
   if (opts.focus !== false) focusPane(pane, opts.push === false || opts.trail === false ? "replace" : "push");
@@ -838,7 +841,7 @@ function onMessage(m: ServerMsg) {
       if (!isSelf(m.source) && m.change) {
         toast({
           by: m.change,
-          text: `${verb(m.change)} ${displayName(m.path)}`,
+          text: `${changeVerb(m.change)} ${displayName(m.path)}`,
           detail: m.change.summary ?? undefined,
           action: open ? undefined : () => openNote(m.path),
         });
@@ -1068,17 +1071,18 @@ function renderFavorites() {
   // The tag Notes shows on its own (like a folder alone), which its favorite marks as open.
   const q = onPage() === "notes" && notesPage.scope === "active" ? notesPage.query : null;
   const shownTag = q?.tag && formatQuery(q) === formatQuery({ tag: q.tag }) ? (normalizeTag(q.tag) ?? "") : "";
-  const list = favorites.filter((f) => isTagFavorite(f) || !isArchived(f.path));
-  const rows = list.map((f) => {
+  const rows = favorites.map((f) => {
     if (isTagFavorite(f)) {
       const row = tagFavoriteRow(f, f.tag === shownTag);
       favoriteDrop(row, "is-drop-before", favoriteKey(f));
       return row;
     }
+    // An archived favorite stays, dimmed: archiving tidies search and the sidebar, not your stars.
+    const archived = isArchived(f.path);
     const row = el(
       "div",
       {
-        class: `tree-row is-file${f.path === active.session?.path ? " is-active" : ""}`,
+        class: `tree-row is-file${f.path === active.session?.path ? " is-active" : ""}${archived ? " is-archived" : ""}`,
         style: { "--depth": "0" },
         title: f.path,
         draggable: "true",
@@ -1093,6 +1097,7 @@ function renderFavorites() {
       el("span", { class: "chev is-leaf" }),
       icon(f.kind === "html" ? "html" : "file", 14),
       el("span", { class: "tree-name" }, displayName(f.path)),
+      archived ? el("span", { class: "n" }, "Archived") : null,
       el(
         "span",
         { class: "row-actions" },
@@ -1662,12 +1667,14 @@ const highlightLink = (t: string) =>
   t.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]!).replace(/!?\[\[([^\]]+)\]\]/g, (_m, x) => `<b>${x.split("|").pop()}</b>`);
 
 // activity
-const verb = (c: Change) => ({ create: "created", edit: "edited", move: "moved", delete: "deleted", archive: "archived", unarchive: "unarchived" })[c.op];
 function renderActivity() {
+  const entries = groupChanges(changes).slice(0, 30);
+  const idsOf = (g: (typeof entries)[number]) => toRanges(changes.filter((c) => c.id >= g.first && c.id <= g.id).map((c) => c.id));
+  void loadStats(entries.filter((g) => g.count > 1).map(idsOf)).then((fresh) => fresh && renderActivity());
   $("#activity").replaceChildren(
-    ...(changes.length
-      ? groupChanges(changes).slice(0, 30).map((c) => {
-          const [add, del] = (c.summary ?? "").match(/^\+(\d+) −(\d+)$/)?.slice(1) ?? [];
+    ...(entries.length
+      ? entries.map((c) => {
+          const stat = entryStat(c, c.count > 1 ? idsOf(c) : "");
           return el(
             "div",
             {
@@ -1686,13 +1693,13 @@ function renderActivity() {
                 "div",
                 { class: "act-line" },
                 el("b", {}, authorName(c)),
-                ` ${verb(c)} `,
+                ` ${changeVerb(c)} `,
                 el("a", { onclick: (e: Event) => (e.stopPropagation(), openNote(c.path)) }, displayName(c.path)),
               ),
               el(
                 "div",
                 { class: "act-meta" },
-                add !== undefined ? el("span", { class: "diffstat" }, el("span", { class: "add" }, `+${add}`), el("span", { class: "del" }, `−${del}`)) : null,
+                stat ? statEl(stat) : null,
                 c.op === "move" && c.from_path ? el("span", {}, `from ${displayName(c.from_path)}`) : null,
                 c.count > 1 ? el("span", {}, `${c.count} saves`) : null,
                 el("span", { "data-ts": String(c.ts) }, timeAgo(c.ts)),
