@@ -22,7 +22,7 @@ const done = (await get(`/api/w/${ws.id}/changes/agents`)) as string[];
 
 if (!done.includes("Claude")) {
   await asAgent("Claude", async (call) => {
-    await call("append_to_note", { path: "Quire roadmap", text: "- [ ] Show which changes an agent made, and for whom" });
+    await call("append_to_note", { path: "Common Ink roadmap", text: "- [ ] Show which changes an agent made, and for whom" });
     await call("create_note", {
       path: "Ideas/Agent handoff.md",
       content: "# Agent handoff\n\nWhat an agent leaves for the next one: what it changed, why, and what's still open.\n\n- Link the notes it touched\n- Say what it didn't finish\n",

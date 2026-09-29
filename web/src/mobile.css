@@ -1,0 +1,102 @@
+/* ------------------------------------------------------------------ phones and touch screens (mobileNav.ts) */
+/* Three widths: a phone (up to 760px) gets the drawer; a phone or a touch tablet (up to 1100px)
+   gets the More menu; any touch screen gets 44px targets. */
+
+#menu-btn, #search-top, .more-wrap, #fab-new { display: none; }
+.more-wrap { position: relative; flex: none; }
+#more-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 45;
+  min-width: 220px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-lg);
+}
+.more-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 0 10px; border-radius: 8px; font-size: 14px; color: var(--ink-2); text-align: left; }
+.more-item:hover, .more-item:focus-visible { background: var(--hover); color: var(--ink-strong); outline: none; }
+.more-item svg { color: var(--muted); flex: none; }
+#scrim { position: fixed; inset: 0; z-index: 34; background: rgba(20, 16, 10, 0.32); animation: fade 0.15s ease-out; }
+.fab {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 4;
+  width: 56px;
+  height: 56px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 8px 24px -6px rgba(45, 45, 150, 0.55);
+}
+
+@media (pointer: coarse), (max-width: 760px) {
+  #topbar .icon-btn, #statusbar .icon-btn, #sidebar .tree-head .icon-btn { width: 44px; height: 44px; flex: none; }
+  #topbar :is(.back-btn, button.crumb) { min-width: 44px; min-height: 44px; }
+  #statusbar { height: 44px; }
+  /* The vim chip keeps its look; its tap area grows to 44px. */
+  #statusbar .chip-btn { position: relative; }
+  #statusbar .chip-btn::after { content: ""; position: absolute; inset: -12px -6px; }
+  #sidebar .search-pill, #sidebar .nav-item, #sidebar .ghost-btn, #sidebar .tree-row, .acct-btn, .acct-item { height: auto; min-height: 44px; }
+  #sidebar .tree-head { margin-top: 0; }
+  #sidebar .section-toggle { min-height: 44px; }
+  #sidebar .tree-row .chev { width: 32px; height: 44px; margin: 0 -8px 0 -10px; }
+}
+
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1100px) {
+  .more-wrap { display: block; }
+  #note-history-btn, #move-btn, #archive-btn, #focus-btn, #panel-btn, #html-toggle { display: none; }
+  #topbar { gap: 4px; padding-right: 4px; }
+  /* A long name ends in … instead of running under the presence avatars. */
+  #crumbs { overflow: hidden; padding-block: 4px; }
+}
+
+@media (pointer: coarse) {
+  /* No hover to reveal it: in focus mode the top bar stays visible, not tappable while invisible. */
+  body.is-focus #topbar { opacity: 1; }
+}
+
+@media (max-width: 760px) {
+  /* One column; the sidebar and panel float. dvh so the status bar clears a phone's browser bar. */
+  #app { display: flex; height: 100dvh; }
+  #main { flex: 1; }
+  #sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 35;
+    width: min(300px, 86vw);
+    transform: translateX(-100%);
+    transition: transform 0.2s ease, visibility 0s linear 0.2s;
+  }
+  body.drawer-open #sidebar { visibility: visible; transform: none; transition: transform 0.2s ease; box-shadow: var(--shadow-lg); }
+  #panel { width: auto; left: max(8px, calc(100vw - 300px)); }
+
+  #menu-btn, #search-top { display: grid; }
+  #back-btn, #split-btn { display: none; }
+  #topbar { padding-left: 4px; }
+  #crumbs :is(.crumb, .crumb-sep) { display: none; }
+  #crumbs .crumb-file { margin-left: 0; }
+  #save-status { flex: none; }
+  #save-status:not([data-state="error"]) { font-size: 0; min-width: 0; gap: 0; }
+  #agents .avatar:nth-child(n + 2) { display: none; }
+  body:has(#notes-view:not([hidden])) #fab-new { display: grid; }
+  .feed { padding-bottom: 96px; }
+
+  /* Split view: one pane at a time, the focused one. Its bar's close button brings back the other. */
+  body.is-split #stage > :is(#editor-host, #html-preview, #notes-view, #tasks-view, #history-view, #assets-view, #tags-view), #main-bar { right: 0; }
+  #side-pane { left: 0; width: auto; border-left: 0; z-index: 6; }
+  #pane-divider { display: none; }
+  body:has(#main-bar.is-focused) #side-pane { display: none; }
+}
+
+@media (max-width: 760px) and (pointer: coarse) {
+  #vim-toggle:not(.is-on) { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #sidebar, body.drawer-open #sidebar { transition: none; }
+}

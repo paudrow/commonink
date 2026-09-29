@@ -10,7 +10,7 @@ import { externalTitle, linkKind } from "./links.ts";
 import { boardsIn } from "../../src/core/kanban.ts";
 import { SANDBOX_PATH } from "../../src/core/sandbox.ts";
 import { safeDecode } from "../../src/core/uri.ts";
-import { headingName, headingText } from "../../src/core/prose.ts";
+import { headingName, headingText, mapOutsideCode } from "../../src/core/prose.ts";
 
 export { currentScheme };
 
@@ -99,15 +99,17 @@ export const NOTE_HTML = {
 /** Markdown to safe HTML. `boards` leaves a slot for each Kanban board to draw a live board in (see hydrateBoards); otherwise a board shows as its headings and lists. */
 export function renderMarkdown(md: string, from: string, opts: { boards?: boolean } = {}): string {
   const body = boardSlots(md.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, ""), !!opts.boards);
-  const pre = body
-    // Each class leaves out "[" so no pattern backtracks across a long line of them.
-    .replace(/!\[\[([^[\]|]+)(?:\|[^[\]]*)?\]\]/g, (_m, target: string) => {
-      const kind = embedKindOf(target);
-      if (kind === "image") return `![${target}](${assetUrl(target, from)})`;
-      return `[↳ ${target}](quire:${encodeURIComponent(target)})`;
-    })
-    .replace(/\[\[([^[\]|]+)(?:\|([^[\]]*))?\]\]/g, (_m, target: string, alias?: string) => `[${alias ?? target.replace(/#/, " › ")}](quire:${encodeURIComponent(target)})`)
-    .replace(/!\[([^[\]]*)\]\((?!https?:|\/)([^()\s]+)\)/g, (_m, alt, src) => `![${alt}](${assetUrl(safeDecode(src), from)})`);
+  const pre = mapOutsideCode(body, (text) =>
+    text
+      // Each class leaves out "[" so no pattern backtracks across a long line of them.
+      .replace(/!\[\[([^[\]|]+)(?:\|[^[\]]*)?\]\]/g, (_m, target: string) => {
+        const kind = embedKindOf(target);
+        if (kind === "image") return `![${target}](${assetUrl(target, from)})`;
+        return `[↳ ${target}](quire:${encodeURIComponent(target)})`;
+      })
+      .replace(/\[\[([^[\]|]+)(?:\|([^[\]]*))?\]\]/g, (_m, target: string, alias?: string) => `[${alias ?? target.replace(/#/, " › ")}](quire:${encodeURIComponent(target)})`)
+      .replace(/!\[([^[\]]*)\]\((?!https?:|\/)([^()\s]+)\)/g, (_m, alt, src) => `![${alt}](${assetUrl(safeDecode(src), from)})`),
+  );
   // marked recurses once per ">", so thousands of them overflow the stack: 20 levels is plenty.
   const flat = pre.replace(/^((?:[ \t]*>){20})(?:[ \t]*>)+/gm, "$1");
   const html = marked.parse(flat, { async: false, gfm: true }) as string;
