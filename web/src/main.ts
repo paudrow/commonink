@@ -28,7 +28,8 @@ import type { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./account.ts";
 import { appCommands, learnLayout, matchKeys } from "./commands.ts";
 import { toggleShortcuts } from "./shortcuts.ts";
-import { vaultEvents } from "./events.ts";
+import { did, vaultEvents } from "./events.ts";
+import { guideMessage, startGuide } from "./onboarding.ts";
 import { store } from "./store.ts";
 import { changeVerb, groupChanges } from "../../src/core/format.ts";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
@@ -186,6 +187,7 @@ const palette = new Palette(
 );
 function openPalette(side = false) {
   paletteToSide = side;
+  did("search");
   palette.open();
 }
 
@@ -894,6 +896,7 @@ async function undoChange(c: Change, after: string | null) {
 // ------------------------------------------------------------------ live updates
 
 function onMessage(m: ServerMsg) {
+  guideMessage(m);
   if (m.type !== "change") vaultEvents.dispatchEvent(new Event("change"));
   switch (m.type) {
     case "note": {
@@ -1878,6 +1881,7 @@ window.addEventListener(
     if (quickOpen || matchKeys(e, "Mod-Shift-p")) {
       e.preventDefault();
       paletteToSide = false;
+      if (quickOpen && !palette.isOpen) did("search");
       palette.toggle(quickOpen ? "" : ">");
     } else if (mod && !e.altKey && e.key === "\\") {
       e.preventDefault();
@@ -2190,6 +2194,7 @@ async function boot() {
     $("#conn").title = up ? "Live: watching the vault for agent edits" : "Reconnecting…";
     if (up) refreshNotesSoon();
   });
+  if (!viewer) void startGuide({ archive: (path) => void archivePath(path), flush: () => flushSave() });
 
   void refreshTaskCount();
   // Home is the notes list; a note's URL (or the tasks, history or assets page) opens that instead.

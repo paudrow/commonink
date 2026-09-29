@@ -937,6 +937,19 @@ body.is-resizing iframe { pointer-events: none; }
 .qw-config-foot { display: flex; align-items: center; gap: 8px; padding-top: 4px; }
 .qw-md { font: 11.5px var(--mono); color: var(--muted); background: var(--code-bg); padding: 4px 8px; border-radius: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .qw-md.is-error { color: var(--bad-ink); }
+/* ::guide cards in Getting started */
+.qw-guide .qw-main { flex-wrap: nowrap; }
+.qw-guide-text { flex: 1; min-width: 0; margin: 0; color: var(--ink-2); line-height: 1.5; }
+.qw-guide .qw-progress { margin: 12px -14px -14px; }
+.qw-guide-how { display: grid; gap: 8px; margin-top: 10px; justify-items: start; }
+.qw-guide-how[hidden] { display: none; }
+.qw-guide-how .qw-sub { margin: 0; }
+.qw-guide-how details { width: 100%; font-size: 13px; color: var(--ink-2); }
+.qw-guide-how summary { cursor: pointer; }
+.qw-guide-how details > * + * { margin-top: 8px; }
+.qw-guide-code { display: flex; align-items: flex-start; gap: 8px; width: 100%; }
+.qw-guide-code code, .qw-guide-code pre { flex: 1; min-width: 0; margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--code-bg); font: 12px/1.5 var(--mono); color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
+@media (max-width: 600px) { .qw-guide .qw-main, .qw-guide-code { flex-wrap: wrap; } }
 
 /* ------------------------------------------------------------------ social embeds + link cards */
 .embed-social { border-radius: 12px; }
