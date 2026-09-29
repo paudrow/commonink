@@ -23,3 +23,4 @@ These notes belong to people. You are a guest editor.
 - Kanban boards are a block in a note, with ordinary text around it: a `:::kanban` line, `## Column` headings with `- [ ] card` lines under them, and a closing `:::`. Cards are tasks (same tokens), a card can be just a `[[Note]]` link, and lines indented under a card are its details. Moving a card into the column named `Done` ticks it. A column can have a colour after its name: `## Doing {color=blue}`. Use `read_board`, then `add_card`, `move_card` and `edit_card`.
 - Diagrams: a ```mermaid code block renders as a diagram.
 - Archive notes that are done when asked to tidy up; they move under `Archive/` and keep their links.
+- Delete (`delete_note`) only when asked to delete something. It goes to Trash, where people can restore it for 30 days; you can't delete anything for good.

@@ -32,7 +32,7 @@ Needs Node 22.13+ (uses the built-in `node:sqlite`). The vault defaults to `./va
 | Claude Desktop, Cursor, … | stdio server: command `/path/to/quire/bin/quire`, args `["mcp"]` |
 | Shell agents / scripts | `bin/quire --help`, and pass `--as <name>` so writes are attributed |
 
-Tools: `search_notes`, `read_note`, `list_notes`, `list_tags`, `list_tasks`, `get_today`, `add_task`, `update_task`, `move_task`, `read_board`, `add_card`, `move_card`, `edit_card`, `create_note`, `edit_note`, `append_to_note`, `move_note`, `archive_note`, `unarchive_note`, `star_note`, `unstar_note`, `star_tag`, `unstar_tag`, `list_smart_folders`, `save_smart_folder`, `delete_smart_folder`, `backlinks`, `recent_changes`. The server sends `vault/AGENTS.md` as its instructions, so edit that file to change agent conventions.
+Tools: `search_notes`, `read_note`, `list_notes`, `list_tags`, `list_tasks`, `get_today`, `add_task`, `update_task`, `move_task`, `read_board`, `add_card`, `move_card`, `edit_card`, `create_note`, `edit_note`, `append_to_note`, `move_note`, `archive_note`, `unarchive_note`, `delete_note`, `star_note`, `unstar_note`, `star_tag`, `unstar_tag`, `list_smart_folders`, `save_smart_folder`, `delete_smart_folder`, `backlinks`, `recent_changes`. The server sends `vault/AGENTS.md` as its instructions, so edit that file to change agent conventions.
 
 ### Connect an agent to a hosted workspace
 

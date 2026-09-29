@@ -27,7 +27,7 @@ async function call(name: string, args: Record<string, unknown>) {
 test("the server lists every tool", async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
-    "add_card", "add_task", "append_to_note", "archive_note", "backlinks", "create_note", "delete_smart_folder",
+    "add_card", "add_task", "append_to_note", "archive_note", "backlinks", "create_note", "delete_note", "delete_smart_folder",
     "edit_card", "edit_note", "get_today", "list_notes", "list_smart_folders", "list_tags", "list_tasks",
     "move_card", "move_note", "move_task", "read_board", "read_note", "recent_changes", "save_smart_folder",
     "search_notes", "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag", "update_task",
@@ -131,4 +131,13 @@ test("agents star and unstar notes for the vault's person", async () => {
   assert.equal((await call("unstar_note", { paths: ["Roadmap"] })).text, "Favorites:\n- Welcome.md — Welcome");
   assert.equal((await call("list_notes", { starred: true })).text, "Favorites:\n- Welcome.md — Welcome");
   assert.equal((await call("star_note", { paths: ["Nope"] })).isError, true);
+});
+
+test("an agent's delete goes to Trash, attributed to it, and it has no way to delete for good", async () => {
+  await call("create_note", { path: "Scratch", content: "# Scratch\n" });
+  assert.deepEqual(await call("delete_note", { paths: ["Scratch"] }), { text: "Moved Scratch.md to Trash", isError: false });
+  assert.match((await call("recent_changes", { limit: 1 })).text, /test-agent for you: delete Scratch\.md/);
+  assert.equal((await call("read_note", { path: "Scratch" })).isError, true);
+  const { tools } = await client.listTools();
+  assert.deepEqual(tools.map((t) => t.name).filter((n) => /trash|purge|forever/.test(n)), []);
 });
