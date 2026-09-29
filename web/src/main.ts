@@ -23,6 +23,7 @@ import type { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
 import { changeVerb, groupChanges } from "../../src/core/format.ts";
+import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
 import { clampSide, forget, newLayout, parseLayout, SIDE_CLICK, sideClick, step, visit, type PaneTrail } from "./panes.ts";
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
@@ -1665,10 +1666,13 @@ const highlightLink = (t: string) =>
 
 // activity
 function renderActivity() {
+  const entries = groupChanges(changes).slice(0, 30);
+  const idsOf = (g: (typeof entries)[number]) => toRanges(changes.filter((c) => c.id >= g.first && c.id <= g.id).map((c) => c.id));
+  void loadStats(entries.filter((g) => g.count > 1).map(idsOf)).then((fresh) => fresh && renderActivity());
   $("#activity").replaceChildren(
-    ...(changes.length
-      ? groupChanges(changes).slice(0, 30).map((c) => {
-          const [add, del] = (c.summary ?? "").match(/^\+(\d+) −(\d+)$/)?.slice(1) ?? [];
+    ...(entries.length
+      ? entries.map((c) => {
+          const stat = entryStat(c, c.count > 1 ? idsOf(c) : "");
           return el(
             "div",
             {
@@ -1693,7 +1697,7 @@ function renderActivity() {
               el(
                 "div",
                 { class: "act-meta" },
-                add !== undefined ? el("span", { class: "diffstat" }, el("span", { class: "add" }, `+${add}`), el("span", { class: "del" }, `−${del}`)) : null,
+                stat ? statEl(stat) : null,
                 c.op === "move" && c.from_path ? el("span", {}, `from ${displayName(c.from_path)}`) : null,
                 c.count > 1 ? el("span", {}, `${c.count} saves`) : null,
                 el("span", { "data-ts": String(c.ts) }, timeAgo(c.ts)),
