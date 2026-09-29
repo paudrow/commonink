@@ -13,7 +13,7 @@ import { IS_MAC, sideClick } from "./panes.ts";
 import { renderMarkdown } from "./render.ts";
 import { metaChips, today } from "./taskChips.ts";
 import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
-import { inline } from "./widgets/tasks.ts";
+import { inline } from "./taskRow.ts";
 import { editorContext, type EditorContext } from "./editor/blocks.ts";
 import { fieldCompletions } from "./editor/complete.ts";
 import {

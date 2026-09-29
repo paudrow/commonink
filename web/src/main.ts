@@ -2,7 +2,7 @@ import "./styles.css";
 import { EditorView } from "@codemirror/view";
 import type { EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
-import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type Scope, type ServerMsg, type TagCount, type TagFavorite } from "./api.ts";
+import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type Scope, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
 import { normalizeTag } from "../../src/core/tags.ts";
 import { $, avatar, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setSelfName, timeAgo, type LinkDrag } from "./dom.ts";
 import { createState, openLinkToSide, remote, vimSlot } from "./editor/setup.ts";
@@ -17,12 +17,16 @@ import { folderPicker } from "./folderPicker.ts";
 import { History } from "./history.ts";
 import { Assets } from "./assets.ts";
 import { renderTasksPage } from "./tasksView.ts";
+import { isQuickAddKey, openQuickAdd } from "./quickAdd.ts";
+import { runTaskCommand } from "./taskCommand.ts";
 import { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
 import { groupChanges } from "../../src/core/format.ts";
 import { clampSide, forget, newLayout, parseLayout, SIDE_CLICK, sideClick, step, visit, type PaneTrail } from "./panes.ts";
 import { headingName } from "../../src/core/prose.ts";
+import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
+import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
 
@@ -76,6 +80,11 @@ const store = {
   },
 };
 
+// This PR's first version stored a "Start on Today" choice; Today is the top of Tasks now.
+try {
+  localStorage.removeItem("quire.startOnToday");
+} catch {}
+
 const prefs = {
   vim: store.get("vim", true),
   panel: store.get("panel", true),
@@ -94,6 +103,8 @@ let favorites: Favorite[] = [];
 let changes: Change[] = [];
 /** Every tag in use, for suggestions and filters. */
 let tags: TagCount[] = [];
+/** Your smart folders (the workspace's shared ones and your own), with live counts. */
+let smartFolders: SmartFolder[] = [];
 
 const layoutKey = () => `layout:${workspaceId || "local"}`;
 /** How the window was split, and each pane's trail; read again once the workspace is known (see boot). */
@@ -117,8 +128,9 @@ const notesPage = new NotesPage({
   open: fromPage,
   starred: (id) => isStarred(id),
   toggleStar: (path) => void toggleStar(path),
-  folderChanged: () => renderTree(),
+  filtersChanged: () => renderTree(),
   tags: () => tags,
+  saveQuery: (anchor, query) => saveSmartFolder(query, "", anchor),
   starButton: (tag) => tagStarButton(tag, "chip"),
   openPerson: (assignee) => void showTasks({ assignee }),
   readOnly: () => viewer,
@@ -221,8 +233,10 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
           notes: () => notes,
           upload: (files) => uploadFiles(files),
           tags: () => tags,
+          folders: () => allFolders(),
           openTag,
           openPerson: (assignee) => void showTasks({ assignee }),
+          saveSmartFolder,
         },
         onUpdate: (docChanged, fromRemote, state) => onUpdate(next, docChanged, fromRemote, state),
       }),
@@ -376,6 +390,7 @@ function showStage(which: "editor" | "html" | "notes" | "tasks" | "history" | "a
     unmountTasks?.();
     unmountTasks = null;
   }
+
 }
 
 /** Put the open note away (saved, named, cursor remembered) before showing a page that isn't a note. */
@@ -395,7 +410,7 @@ async function leaveNote() {
 }
 
 /** Notes is home: every note, newest first. No note is open while it's showing. */
-async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: string; tag?: string; push?: boolean } = {}) {
+async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: string; tag?: string; query?: NoteQuery; push?: boolean } = {}) {
   await leaveNote();
   showStage("notes");
   notesPage.show(opts);
@@ -409,7 +424,7 @@ async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: strin
 async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("tasks");
-  unmountTasks = renderTasksPage($("#tasks-view"), { open: (path, line, side) => void openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }), tags: () => tags }, { tag: opts.tag, assignee: opts.assignee });
+  unmountTasks = renderTasksPage($("#tasks-view"), { open: (path, line, side) => void openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }), tags: () => tags, vim: prefs.vim }, { tag: opts.tag, assignee: opts.assignee });
   $("#tasks-view").focus({ preventScroll: true });
   if (opts.push !== false) setUrl("/tasks");
   document.title = "Tasks · Common Ink";
@@ -446,7 +461,7 @@ async function showTags(opts: { push?: boolean } = {}) {
 /** Show what carries a tag (and the tags under it): its notes, or its tasks. */
 function openTag(tag: string, where: "notes" | "tasks" = "notes") {
   if (where === "tasks") void showTasks({ tag });
-  else void showNotes({ scope: "active", folder: "", tag });
+  else void showNotes({ scope: "active", query: { tag } });
 }
 
 async function showAssets(opts: { open?: string; push?: boolean } = {}) {
@@ -842,7 +857,7 @@ function embedsPath(pane: Pane, path: string): boolean {
 }
 
 async function refreshNotes() {
-  [notes, favorites, tags] = await Promise.all([api.notes(), api.favorites(), api.tags()]);
+  [notes, favorites, tags, smartFolders] = await Promise.all([api.notes(), api.favorites(), api.tags(), api.smartFolders()]);
   // The open note's title may have changed: keep the slug in its URL current.
   const open = active.session && notes.find((n) => n.id === active.session!.id);
   if (open && parseNotePath(location.pathname)?.id === open.id) setUrl(notePath(open.title, open.id), "replace");
@@ -875,6 +890,44 @@ async function toggleStar(path: string) {
   notesPage.refreshSoon();
 }
 
+// ------------------------------------------------------------------ smart folders
+
+/** A starting name for a query: its tag, folder and words ("#work · Projects"). */
+function nameFor(query: string): string {
+  const q = parseQuery(query);
+  return [q.tag && `#${q.tag}`, q.folder, q.q && `“${q.q}”`].filter(Boolean).join(" · ") || "All notes";
+}
+
+/** What the settings forms' tag and folder fields suggest. */
+const fieldSources = { tags: () => tags, folders: () => allFolders() };
+
+/** Offer to keep a note query as a smart folder (from the Notes filters or a ::query widget). */
+function saveSmartFolder(query: string, name: string, anchor: HTMLElement) {
+  smartFolderEditor(anchor, { name: name || nameFor(query), query, shared: !viewer }, {
+    canShare: !viewer,
+    sources: fieldSources,
+    save: async (f) => {
+      const saved = await api.saveSmartFolder(f);
+      smartFolders = await api.smartFolders();
+      renderTree();
+      toast({ icon: "folderSearch", text: `Saved ${saved.name}`, detail: saved.shared ? "Everyone in the workspace sees it in their sidebar." : "Only you see it." });
+    },
+  });
+}
+
+/** A new smart folder from scratch (the Smart folders header, or its empty row). Saving opens it. */
+function newSmartFolder(anchor: HTMLElement) {
+  smartFolderEditor(anchor, { name: "", query: "", shared: !viewer }, {
+    canShare: !viewer,
+    sources: fieldSources,
+    save: async (f) => {
+      const saved = await api.saveSmartFolder(f);
+      smartFolders = await api.smartFolders();
+      await showNotes({ scope: "active", query: parseQuery(saved.query) });
+    },
+  });
+}
+
 /** Star a tag (or unstar it): one click, and it's in Favorites beside your notes. */
 async function toggleTagStar(tag: string) {
   const on = isTagStarred(tag);
@@ -903,6 +956,51 @@ function tagStarButton(tag: string, where: "row" | "chip"): HTMLElement {
     },
     icon(starred ? "starred" : "star", where === "row" ? 14 : 15), // filled while it's a favorite; a click takes it out
   );
+}
+
+/** Saved note queries, each with a live count. Click one to see its notes; the sliders edit it. */
+function renderSmartFolders(active: string | null) {
+  const rows = smartFolders.map((f) => {
+    const edit = el("button", { type: "button", class: "row-act", title: "Edit or delete" }, icon("sliders", 14));
+    edit.addEventListener("click", (e) => {
+      e.stopPropagation();
+      smartFolderEditor(edit, f, {
+        canShare: !viewer,
+        sources: fieldSources,
+        save: async (next) => {
+          await api.saveSmartFolder(next);
+          smartFolders = await api.smartFolders();
+          renderTree();
+        },
+        remove: async () => {
+          if (!confirm(`Delete the smart folder ${f.name}${f.shared ? " for everyone in the workspace" : ""}? Its notes don't change.`)) return;
+          smartFolders = await api.deleteSmartFolder(f.id);
+          renderTree();
+          toast({ icon: "folderSearch", text: `Deleted ${f.name}` });
+        },
+      });
+    });
+    return el(
+      "div",
+      {
+        class: `tree-row is-file${f.query === active ? " is-active" : ""}`,
+        style: { "--depth": "0" },
+        title: `${f.query || "Every note"}${f.shared ? "" : " (just you)"}`,
+        tabindex: "0",
+        onclick: () => void showNotes({ scope: "active", query: parseQuery(f.query) }),
+        onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && void showNotes({ scope: "active", query: parseQuery(f.query) }),
+      },
+      el("span", { class: "chev is-leaf" }), // the chevron column Folders and Tags rows have, so icons and names line up
+      icon("folderSearch", 14),
+      el("span", { class: "tree-name" }, f.name),
+      f.shared ? null : el("span", { class: "sf-mine", title: "Just you" }, icon("user", 11)),
+      el("span", { class: "n" }, String(f.count)),
+      f.shared && viewer ? null : el("span", { class: "row-actions" }, edit),
+    );
+  });
+  // Empty: one quiet line pointing at the header's +, the one way to add one from here.
+  const hint = el("div", { class: "fav-hint" }, "Click ", el("span", { class: "hint-icon", "aria-label": "+" }, icon("plus", 11)), " to save a search here.");
+  $("#smart-folders").replaceChildren(...(rows.length ? rows : [hint]));
 }
 
 const FAVORITE = "application/x-common-ink-favorite";
@@ -935,7 +1033,9 @@ function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
 
 /** Starred notes and tags, in your order: drag one to reorder, or drag a card in from Notes to star it. */
 function renderFavorites() {
-  const shownTag = onPage() === "notes" && !notesPage.folderFilter ? (normalizeTag(notesPage.tagFilter) ?? "") : "";
+  // The tag Notes shows on its own (like a folder alone), which its favorite marks as open.
+  const q = onPage() === "notes" && notesPage.scope === "active" ? notesPage.query : null;
+  const shownTag = q?.tag && formatQuery(q) === formatQuery({ tag: q.tag }) ? (normalizeTag(q.tag) ?? "") : "";
   const list = favorites.filter((f) => isTagFavorite(f) || !isArchived(f.path));
   const rows = list.map((f) => {
     if (isTagFavorite(f)) {
@@ -1059,13 +1159,16 @@ function setExpanded(folder: string, open: boolean) {
 function renderTree() {
   renderFavorites();
   const page = onPage();
+  // What Notes is showing, as a query: the Notes view, a folder and a smart folder each match one.
+  const showing = page === "notes" && notesPage.scope === "active" ? formatQuery(notesPage.query) : null;
+  renderSmartFolders(showing);
   const archivedCount = notes.filter((n) => isArchived(n.path) && n.kind !== "asset").length;
   $("#archive-count").textContent = archivedCount ? String(archivedCount) : "";
   const assetCount = notes.filter((n) => n.kind === "asset" && !isArchived(n.path)).length;
   $("#assets-count").textContent = assetCount ? String(assetCount) : "";
-  const current = page === "notes" ? notesPage.folderFilter : "";
-  $("#notes-btn").classList.toggle("is-active", page === "notes" && !current && !notesPage.tagFilter);
-  renderTagTree(page === "notes" && !current ? notesPage.tagFilter.toLowerCase() : "");
+  $("#notes-btn").classList.toggle("is-active", showing === "");
+  const shownTag = showing === null ? "" : (parseQuery(showing).tag ?? "");
+  renderTagTree(shownTag && showing === formatQuery({ tag: shownTag }) ? shownTag.toLowerCase() : ""); // a tag alone, like a folder alone
   $("#tasks-btn").classList.toggle("is-active", page === "tasks");
   $("#history-btn").classList.toggle("is-active", page === "history" && !historyPage.noteFilter);
   $("#assets-btn").classList.toggle("is-active", page === "assets");
@@ -1094,13 +1197,13 @@ function renderTree() {
         const row = el(
           "div",
           {
-            class: `tree-row is-folder${open ? "" : " is-collapsed"}${path === current ? " is-active" : ""}`,
+            class: `tree-row is-folder${open ? "" : " is-collapsed"}${showing === formatQuery({ folder: path }) ? " is-active" : ""}`,
             style: { "--depth": String(depth) },
             "data-folder": path,
             title: n ? `Show the notes in ${path}` : `${path} is empty. Drag notes here.`,
             tabindex: "0",
-            onclick: () => void showNotes({ scope: "active", folder: path, tag: "" }),
-            onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && void showNotes({ scope: "active", folder: path, tag: "" }),
+            onclick: () => void showNotes({ scope: "active", query: { folder: path } }),
+            onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && void showNotes({ scope: "active", query: { folder: path } }),
           },
           subs
             ? el(
@@ -1663,6 +1766,15 @@ Vim.defineEx("edit", "e", (_cm: unknown, params: { args?: string[] }) => {
 Vim.defineEx("archive", "arch", () => void archiveCurrent());
 Vim.defineEx("notes", "note", () => void showNotes());
 Vim.defineEx("star", "star", () => active.session && void toggleStar(active.session.path));
+// :task <words> adds a task (as quick-add reads it) to today's daily note, with an Undo; :task alone opens the bar.
+Vim.defineEx("task", "task", (_cm: unknown, params: { argString?: string }) =>
+  void runTaskCommand(params.argString ?? "", {
+    add: (text) => api.addTask(text),
+    remove: async (r) => void (await api.removeTask(r)),
+    openBar: quickAdd,
+    toast: (t) => toast({ icon: "check", ...t }),
+  }).catch((err) => toast({ text: err instanceof Error ? err.message : "Couldn't add the task" })),
+);
 Vim.defineEx("focus", "foc", () => void setFocusMode(!focusMode));
 Vim.defineEx("vsplit", "vs", (_cm: unknown, params: { args?: string[] }) => {
   const arg = params.args?.join(" ");
@@ -1715,6 +1827,11 @@ window.addEventListener(
       const p = panes[e.code === "BracketLeft" ? 0 : 1];
       focusPane(p);
       if (p.session && p.session.kind !== "asset") p.view.focus();
+    } else if (isQuickAddKey(e) || (e.key === "q" && !mod && !e.altKey && !typingIn(e.target))) {
+      // ⌘⇧. anywhere (the editor in any Vim mode too), or q where you aren't typing: the quick-add bar.
+      e.preventDefault();
+      e.stopPropagation(); // not the editor's (or Vim's) key as well
+      quickAdd();
     } else if (mod && e.key === "e" && active.session?.kind === "html") {
       e.preventDefault();
       setHtmlMode(prefs.htmlMode === "preview" ? "source" : "preview");
@@ -1722,6 +1839,22 @@ window.addEventListener(
   },
   true,
 );
+
+/** The floating quick-add bar. From a note, Tab in it sends the task to that note. */
+function quickAdd() {
+  openQuickAdd({
+    added: (r) => toast({ icon: "check", text: `Added to ${r.path.replace(/\.md$/, "")}`, actionLabel: "Open", action: () => void openNote(r.path, { line: r.line }) }),
+    open: (path, line) => void openNote(path, { line }),
+    vim: prefs.vim,
+    note: active.session?.kind === "md" ? active.session.path : undefined,
+  });
+}
+
+/** Whether a key pressed here is someone typing: a field, a text area, or the editor. */
+function typingIn(target: EventTarget | null): boolean {
+  const t = target as HTMLElement | null;
+  return !!t?.closest?.("input, textarea, select, [contenteditable]:not([contenteditable=false]), .cm-editor");
+}
 
 const narrow = matchMedia("(max-width: 1100px)");
 function togglePanel(force?: boolean) {
@@ -1841,7 +1974,7 @@ function debounce<A extends unknown[]>(fn: (...a: A) => unknown, ms: number) {
 }
 
 let workspaceId = "";
-/** You can view this workspace but not edit it. */
+/** You can view this workspace but not edit it: you keep smart folders of your own but can't change shared ones. */
 let viewer = false;
 
 /**
@@ -1861,6 +1994,10 @@ async function route() {
   }
   const at = location.pathname.replace(/\/+$/, "") || "/";
   if (at === "/tasks") return showTasks({ push: false });
+  if (at === "/today") {
+    setUrl("/tasks", "replace"); // Today is the top of Tasks now
+    return showTasks({ push: false });
+  }
   if (at === "/assets") return showAssets({ push: false });
   if (at === "/tags") return showTags({ push: false });
   if (at === "/history") {
@@ -1908,7 +2045,7 @@ async function boot() {
   togglePanel(prefs.panel);
   $("#search-btn").addEventListener("click", () => openPalette());
   // A new note goes at the top level, unless Notes is showing a folder: then it goes there.
-  $("#new-note").addEventListener("click", () => void newNote(onPage() === "notes" ? notesPage.folderFilter : ""));
+  $("#new-note").addEventListener("click", () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""));
   $("#panel-btn").addEventListener("click", () => togglePanel());
   setupPanes();
   $("#stage").addEventListener("mousedown", () => document.body.classList.remove("panel-overlay"));
@@ -1927,15 +2064,16 @@ async function boot() {
   const isDark = document.documentElement.dataset.theme === "dark" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
   $("#theme-toggle").replaceChildren(icon(isDark ? "sun" : "moon", 15));
   window.addEventListener("popstate", () => void route());
-  $("#notes-btn").addEventListener("click", () => void showNotes({ scope: "active", folder: "", tag: "" }));
+  $("#notes-btn").addEventListener("click", () => void showNotes({ scope: "active", query: {} }));
   $("#tasks-btn").addEventListener("click", () => void showTasks());
   $("#history-btn").addEventListener("click", () => void showHistory());
   $("#assets-btn").addEventListener("click", () => void showAssets());
   $("#tags-page-btn").addEventListener("click", () => void showTags());
+  $("#new-smart-folder").addEventListener("click", () => newSmartFolder($("#new-smart-folder")));
   setupSections();
   $("#note-history-btn").addEventListener("click", () => active.session && void showHistory({ note: active.session.path }));
   $("#back-btn").addEventListener("click", () => void showNotes());
-  $("#archive-nav").addEventListener("click", () => void showNotes({ scope: "archived", folder: "", tag: "" }));
+  $("#archive-nav").addEventListener("click", () => void showNotes({ scope: "archived", query: {} }));
   $("#archive-btn").addEventListener("click", () => void archiveCurrent());
   $("#star-btn").addEventListener("click", () => active.session && void toggleStar(active.session.path));
   $("#move-btn").addEventListener("click", () => openMovePicker($("#move-btn")));
@@ -1961,11 +2099,12 @@ async function boot() {
     renderPresence();
   }, 30_000);
 
-  const [info, list, starred, recent, tagList] = await Promise.all([api.info(), api.notes(), api.favorites(), api.changes(), api.tags()]);
+  const [info, list, starred, recent, tagList, smart] = await Promise.all([api.info(), api.notes(), api.favorites(), api.changes(), api.tags(), api.smartFolders()]);
   $("#vault-name").textContent = info.name;
   notes = list;
   favorites = starred;
   tags = tagList;
+  smartFolders = smart;
   changes = recent;
   renderActivity();
   renderPresence();

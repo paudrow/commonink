@@ -28,10 +28,14 @@ export interface EditorContext {
   notes(): NoteMeta[];
   /** Upload files (or pick some, if none given); resolves to the names to embed them by. */
   upload(files?: File[]): Promise<string[]>;
-  /** Tags in use, for `#` suggestions. */
+  /** Tags in use, for `#` suggestions and widget settings. */
   tags(): TagCount[];
+  /** Every folder, for widget settings. */
+  folders(): string[];
   /** Show what carries a tag: notes, or (from a task) tasks. */
   openTag(tag: string, where?: "notes" | "tasks"): void;
+  /** Offer to keep a note query as a smart folder (from a ::query widget's settings). */
+  saveSmartFolder(query: string, name: string, anchor: HTMLElement): void;
   /** Show a person's tasks. */
   openPerson(name: string): void;
 }
@@ -320,6 +324,8 @@ class DirectiveWidget extends WidgetType {
       focusEditor: () => view.focus(),
       open: (target, line, side) => view.state.facet(editorContext).openTarget(line ? `${target}#L${line}` : target, this.note, { side }),
       openTag: (tag) => view.state.facet(editorContext).openTag(tag, "tasks"),
+      saveSmartFolder: (query, name, anchor) => view.state.facet(editorContext).saveSmartFolder(query, name, anchor),
+      sources: { tags: () => view.state.facet(editorContext).tags(), folders: () => view.state.facet(editorContext).folders() },
       openPerson: (name) => view.state.facet(editorContext).openPerson(name),
       editor: view.state.facet(editorContext),
       readOnly: view.state.readOnly,

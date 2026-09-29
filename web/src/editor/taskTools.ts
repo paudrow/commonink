@@ -28,14 +28,14 @@ export function lineTaskContext(view: EditorView, n: number): ChipContext | null
 }
 
 /** Open one field's editor for the task at `pos`, under the cursor (from a completion, like "Pick a date…"). */
-export function openFieldAt(view: EditorView, field: MenuField, pos: number) {
+export function openFieldAt(view: EditorView, field: MenuField, pos: number, opts?: { more?: boolean }) {
   const ctx = lineTaskContext(view, view.state.doc.lineAt(pos).number);
   const at = view.coordsAtPos(pos);
   if (!ctx || !at) return;
   // The editors open under an element; a one-pixel one where the cursor is stands in for a chip.
   const anchor = el("span", { style: { position: "fixed", left: `${at.left}px`, top: `${at.top}px`, width: "1px", height: `${at.bottom - at.top}px` } });
   document.body.append(anchor);
-  openFieldEditor(field, anchor, "", ctx);
+  openFieldEditor(field, anchor, "", ctx, opts);
   anchor.remove();
 }
 

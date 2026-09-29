@@ -2,7 +2,8 @@
 import fs from "node:fs";
 import { LOCAL_USER, openVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
-import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtTags, fmtTasks, fmtWrite } from "./core/format.ts";
+import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtWrite } from "./core/format.ts";
+import { parseQuery } from "./core/query.ts";
 
 const HELP = `quire — markdown notes for you and your agents
 
@@ -16,8 +17,17 @@ Usage: quire <command> [args] [--as <agent>] [--json]
                                    (--tag work also matches #work/acme)
   tasks [--tag T] [--assignee P] [--due '<=today'] [--done|--all]
                                    open tasks (tokens: due: start: rec: #tag @person !high)
-  task <note> <line> [--done|--undone] [--due D] [--priority high|low] …
-                                   tick a task or change its tokens; "none" clears one
+  today [--date YYYY-MM-DD]        the day at a glance: overdue, due today, starting today,
+                                   and today's journal note
+  task add "<task>"                add a task in words: "Pay rent every month on the 1st #home",
+                                   "Call mom tomorrow → [[Family]]"; it goes in today's daily
+                                   note (Journal/YYYY-MM-DD.md) or the → [[note]]
+  task move <note> <line> --to <note>
+                                   move a task (and what's nested under it) to another note
+  task <note> <line> [--done|--undone] [--due D] [--rec R] [--skip] …
+                                   tick a task or change its tokens; "none" clears one.
+                                   --rec weekly, 6th, 1st-tue, after-1m (from done)…;
+                                   --skip moves a repeating task to its next date
   board <note>                     the note's Kanban boards (:::kanban blocks), cards with line numbers
   card add <note> <column> <text…> [--board N] [--position N]
   card move <note> <card> <column> [--position N]
@@ -32,6 +42,10 @@ Usage: quire <command> [args] [--as <agent>] [--json]
   backlinks <note>
   star <note…> / unstar <note…>    add to or take out of your favorites ('#tag' for a tag)
   starred                          list your favorites, in order
+  smart [name]                     your smart folders, or the notes in one
+  smart-save <name> [query…] [--just-me] [--id ID]
+                                   save a note query (q="…" folder=… tag=… sort=title)
+  smart-rm <name>                  delete a smart folder
   changes [--since <iso|id>] [--path <path|id|url>] [--limit N]
                                    --path brings the note's history under earlier names too
   restore <change-id>              put a note back the way it was before that change
@@ -49,7 +63,7 @@ for (let i = 0; i < argv.length; i++) {
   if (a.startsWith("--")) {
     const key = a.slice(2);
     const next = argv[i + 1];
-    if (["all", "json", "help", "archived", "done", "undone"].includes(key) || next === undefined) flags[key] = true;
+    if (["all", "json", "help", "archived", "done", "undone", "skip", "just-me"].includes(key) || next === undefined) flags[key] = true;
     else flags[key] = argv[++i];
   } else pos.push(a);
 }
@@ -86,12 +100,33 @@ if (cmd === "mcp") {
         out(fmtSearch(query, hits), hits);
         break;
       }
+      case "today": {
+        const t = q.today(str("date"));
+        out(fmtToday(t), t);
+        break;
+      }
       case "tasks": {
         const tasks = q.tasks({ tag: str("tag"), assignee: str("assignee"), due: str("due") }).filter((t) => flags.all || t.done === !!flags.done);
         out(fmtTasks(tasks), tasks);
         break;
       }
       case "task": {
+        if (args[0] === "add") {
+          if (!args[1]) throw new QuireError('Say what the task is: quire task add "Call mom tomorrow"');
+          const r = q.addTask(args.slice(1).join(" "), source);
+          out(`Added "- [ ] ${r.text}" to ${r.path}:${r.line}`, r);
+          break;
+        }
+        if (args[0] === "move") {
+          const [note, line] = [need(1, "note"), Number(need(2, "line"))];
+          const task = q.tasks({ note }).find((t) => t.line === line);
+          if (!task) throw new QuireError(`There's no task on line ${args[2]} of ${note}`);
+          const to = str("to");
+          if (!to) throw new QuireError("task move needs --to <note>");
+          const r = q.moveTask(note, line, task.text, to, source);
+          out(`Moved "${r.text}" to ${r.path}:${r.line}`, r);
+          break;
+        }
         const note = need(0, "note");
         const line = Number(need(1, "line"));
         const task = q.tasks({ note }).find((t) => t.line === line);
@@ -102,7 +137,7 @@ if (cmd === "mcp") {
         const patch = Object.fromEntries(
           Object.entries({ checked, due: one("due"), start: one("start"), rec: one("rec"), priority: one("priority"), assignees: list("assignee"), tags: list("tag") }).filter(([, v]) => v !== undefined),
         );
-        const r = q.updateTask(note, line, task.text, patch, source);
+        const r = flags.skip ? q.skipTask(note, line, task.text, source) : q.updateTask(note, line, task.text, patch, source);
         out(fmtWrite(r, r.change ? "Updated" : "No change to"), r);
         break;
       }
@@ -188,6 +223,27 @@ if (cmd === "mcp") {
         }
         const list = q.favorites(LOCAL_USER);
         out(fmtFavorites(list), list);
+        break;
+      }
+      case "smart": {
+        if (!args.length) {
+          const list = q.smartFolders(LOCAL_USER);
+          out(fmtSmartFolders(list), list);
+          break;
+        }
+        const query = parseQuery(q.findSmartFolder(LOCAL_USER, args.join(" ")).query);
+        const notes = q.feed({ ...query, limit: Infinity }).items;
+        out(fmtList(notes), notes);
+        break;
+      }
+      case "smart-save": {
+        const f = q.saveSmartFolder(LOCAL_USER, { id: str("id"), name: need(0, "name"), query: args.slice(1).join(" "), shared: !flags["just-me"] }, true);
+        out(fmtSmartFolders([f]), f);
+        break;
+      }
+      case "smart-rm": {
+        const list = q.deleteSmartFolder(LOCAL_USER, need(0, "name"), true);
+        out(fmtSmartFolders(list), list);
         break;
       }
       case "starred": {

@@ -3,10 +3,22 @@
 import { api, type FeedItem } from "../api.ts";
 import { el, escapeHtml, icon, timeAgo } from "../dom.ts";
 import { onVaultChange } from "../events.ts";
-import type { WidgetSpec } from "./core.ts";
+import type { Field, WidgetSpec } from "./core.ts";
+import { formatQuery, toQuery } from "../../../src/core/query.ts";
 import { sideClick } from "../panes.ts";
 
 const prevent = (e: Event) => e.preventDefault();
+
+/**
+ * The note query's fields, as the settings form shows them. The ::query widget and the smart
+ * folder editor both use this list, so a query term added here shows up in both.
+ */
+export const QUERY_FIELDS: Field[] = [
+  { key: "q", label: "Matching", type: "text", placeholder: "Search words (optional)" },
+  { key: "folder", label: "Folder", type: "text", placeholder: "e.g. Projects", picker: "folder" },
+  { key: "tag", label: "Tag", type: "text", placeholder: "e.g. meeting (includes meeting/…)", picker: "tag" },
+  { key: "sort", label: "Sort", type: "select", options: [["modified", "Newest first"], ["title", "By title"]] },
+];
 
 export const query: WidgetSpec = {
   name: "query",
@@ -15,11 +27,14 @@ export const query: WidgetSpec = {
   hint: "Live list of notes by search, folder or tag",
   keywords: "query list notes dashboard recent folder tag search",
   defaults: { limit: "6" },
+  configAction: {
+    label: "Save as smart folder",
+    icon: "folderSearch",
+    run: (args, env, anchor) => env.saveSmartFolder(formatQuery(toQuery(args)), args.label ?? "", anchor),
+  },
   fields: [
     { key: "label", label: "Label", type: "text", placeholder: "Active projects, Meetings…" },
-    { key: "q", label: "Matching", type: "text", placeholder: "Search words (optional)" },
-    { key: "folder", label: "Folder", type: "text", placeholder: "e.g. Projects" },
-    { key: "tag", label: "Tag", type: "text", placeholder: "e.g. meeting" },
+    ...QUERY_FIELDS,
     { key: "limit", label: "Show", type: "text", placeholder: "6" },
   ],
 
@@ -28,12 +43,11 @@ export const query: WidgetSpec = {
     const list = el("div", { class: "qq-list" });
     const foot = el("div", { class: "qq-foot" });
     body.append(list, foot);
-    const limit = Math.min(Number(env.args.limit) || 6, 50);
+    const query = toQuery(env.args);
+    const limit = Math.min(query.limit ?? 6, 50);
 
     async function load() {
-      const page = await api
-        .feed({ q: env.args.q, folder: env.args.folder, tag: env.args.tag, sort: env.args.sort === "title" ? "title" : "modified", scope: "active", limit: limit + 1 })
-        .catch(() => null);
+      const page = await api.feed({ ...query, scope: "active", limit: limit + 1 }).catch(() => null);
       if (!alive || !page) return;
       const items = page.items.filter((i) => i.path !== env.note).slice(0, limit); // a dashboard shouldn't list itself
       const total = page.total - (page.items.some((i) => i.path === env.note) ? 1 : 0);

@@ -8,6 +8,7 @@ import { hydrateDataEmbeds } from "./textPreview.ts";
 import { parseDirective } from "./widgets/args.ts";
 import { WIDGETS } from "./widgets/index.ts";
 import { tagChip, tagFilter } from "./tagPicker.ts";
+import { formatQuery, type NoteQuery } from "../../src/core/query.ts";
 import { hydrateTaskChips, withTaskChips } from "./taskChips.ts";
 import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
 import { sideClick } from "./panes.ts";
@@ -17,9 +18,11 @@ interface Hooks {
   open(path: string, line?: number, side?: boolean): void;
   starred(id: string): boolean;
   toggleStar(path: string): void;
-  /** The folder or tag filter changed (the sidebar marks the one being shown). */
-  folderChanged(): void;
+  /** The filters changed (the sidebar marks the folder or smart folder being shown). */
+  filtersChanged(): void;
   tags(): TagCount[];
+  /** Save these filters (a query like `tag=work sort=title`) as a smart folder. */
+  saveQuery(anchor: HTMLElement, query: string): void;
   /** The star (Add to / Remove from Favorites) for the tag Notes is narrowed to. */
   starButton(tag: string): HTMLElement;
   /** Show every task of this person's. */
@@ -39,12 +42,15 @@ export class NotesPage {
   private scopeBar: HTMLElement;
   private folderBar: HTMLElement;
   private tagBar: HTMLElement;
+  private sortSel: HTMLSelectElement;
+  private saveBtn: HTMLButtonElement;
   private bulk: HTMLElement;
   private more: HTMLElement;
-  private scope: Scope = "active";
+  scope: Scope = "active";
   private folder = "";
   /** The tag Notes is narrowed to ("" for any); its children count too. */
   private tag = "";
+  private sort: "modified" | "title" = "modified";
   private items: FeedItem[] = [];
   private page: FeedPage | null = null;
   private focus = 0;
@@ -61,6 +67,14 @@ export class NotesPage {
     this.scopeBar = el("div", { class: "seg feed-scope" });
     this.folderBar = el("div", { class: "feed-folders" });
     this.tagBar = el("div", { class: "feed-folders" });
+    this.sortSel = el("select", { class: "qt-select feed-sort", "aria-label": "Sort" }, el("option", { value: "modified" }, "Newest"), el("option", { value: "title" }, "By title"));
+    this.sortSel.addEventListener("change", () => ((this.sort = this.sortSel.value as "modified" | "title"), (this.focus = 0), this.reload()));
+    this.saveBtn = el(
+      "button",
+      { type: "button", class: "chip tag-filter", title: "Keep these filters in the sidebar", onclick: () => this.hooks.saveQuery(this.saveBtn, formatQuery(this.query)) },
+      icon("folderSearch", 13),
+      "Save as smart folder",
+    );
     this.bulk = el("div", { class: "feed-bulk", hidden: true });
     this.list = el("div", { class: "feed-list", role: "list" });
     this.more = el("div", { class: "feed-more" });
@@ -73,7 +87,7 @@ export class NotesPage {
           { class: "feed-head" },
           el("h1", {}, "Notes"),
           el("label", { class: "feed-search" }, icon("search", 16), this.input, el("kbd", {}, "/")),
-          el("div", { class: "feed-filters" }, this.scopeBar, this.tagBar, this.folderBar),
+          el("div", { class: "feed-filters" }, this.scopeBar, this.tagBar, this.folderBar, this.sortSel, this.saveBtn),
         ),
         this.bulk,
         this.list,
@@ -99,17 +113,22 @@ export class NotesPage {
   get visible() {
     return !this.root.hidden;
   }
-  /** The folder Notes is narrowed to ("" for every folder). */
-  get folderFilter() {
-    return this.folder;
-  }
-  /** The tag Notes is narrowed to ("" for any), as written. */
-  get tagFilter() {
-    return this.tag;
+  /** What Notes shows, as a note query: the same thing a ::query widget or a smart folder holds. */
+  get query(): NoteQuery {
+    const q = this.input.value.trim();
+    return { ...(q && { q }), ...(this.folder && { folder: this.folder }), ...(this.tag && { tag: this.tag }), ...(this.sort === "title" && { sort: "title" as const }) };
   }
 
   /** Show the list where the reader left it: same scroll position, same cards open. */
-  show(opts: { scope?: Scope; filter?: boolean; folder?: string; tag?: string } = {}) {
+  /** `query` replaces all the filters (a smart folder); `folder` and `tag` change just those. */
+  show(opts: { scope?: Scope; filter?: boolean; folder?: string; tag?: string; query?: NoteQuery } = {}) {
+    if (opts.query) {
+      this.input.value = opts.query.q ?? "";
+      this.sort = opts.query.sort ?? "modified";
+      opts = { ...opts, folder: opts.query.folder ?? "", tag: opts.query.tag ?? "" };
+      this.focus = 0;
+      this.scrollTop = 0;
+    }
     if (opts.scope && opts.scope !== this.scope) {
       this.scope = opts.scope;
       this.scrollTop = 0;
@@ -134,7 +153,7 @@ export class NotesPage {
   async reload() {
     const seq = ++this.seq;
     const keep = this.items[this.focus]?.path;
-    const page = await api.feed({ q: this.input.value.trim(), scope: this.scope, folder: this.folder, tag: this.tag, limit: Math.max(PAGE, this.items.length) }).catch(() => null);
+    const page = await api.feed({ ...this.query, scope: this.scope, limit: Math.max(PAGE, this.items.length) }).catch(() => null);
     if (!page || seq !== this.seq) return;
     this.page = page;
     this.items = page.items;
@@ -149,7 +168,7 @@ export class NotesPage {
   private async loadMore() {
     if (!this.page || this.items.length >= this.page.total || this.more.dataset.loading) return;
     this.more.dataset.loading = "1";
-    const page = await api.feed({ q: this.input.value.trim(), scope: this.scope, folder: this.folder, tag: this.tag, offset: this.items.length, limit: PAGE }).catch(() => null);
+    const page = await api.feed({ ...this.query, scope: this.scope, offset: this.items.length, limit: PAGE }).catch(() => null);
     delete this.more.dataset.loading;
     if (!page) return;
     this.items.push(...page.items);
@@ -178,10 +197,13 @@ export class NotesPage {
     this.folderBar.replaceChildren(
       // A subfolder picked in the sidebar gets a chip too, so it shows as the filter in use.
       ...["", ...page.folders, ...(this.folder && !page.folders.includes(this.folder) ? [this.folder] : [])].map((f) =>
-        el("button", { type: "button", class: `chip${f === this.folder ? " is-on" : ""}`, onclick: () => ((this.folder = f), (this.focus = 0), this.hooks.folderChanged(), this.reload()) }, f || "All folders"),
+        el("button", { type: "button", class: `chip${f === this.folder ? " is-on" : ""}`, onclick: () => ((this.folder = f), (this.focus = 0), this.reload()) }, f || "All folders"),
       ),
     );
     this.tagBar.replaceChildren(tagFilter({ current: this.tag, tags: this.hooks.tags, count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }), this.tag ? this.hooks.starButton(this.tag) : "");
+    this.sortSel.value = this.sort;
+    this.saveBtn.hidden = !formatQuery(this.query);
+    this.hooks.filtersChanged();
     const q = this.input.value.trim();
     const top = this.root.scrollTop;
     const which = this.scope === "all" ? "" : `${this.scope} `;
@@ -383,7 +405,6 @@ export class NotesPage {
   /** Narrow Notes to a tag (and the tags under it), or "" for every note. */
   setTag(tag: string) {
     this.tag = tag;
-    this.hooks.folderChanged(); // the sidebar marks the tag being shown
     this.focus = 0;
     this.root.scrollTop = this.scrollTop = 0;
     void this.reload();

@@ -2,17 +2,14 @@
 // Every checkbox across the vault (or a folder, a note, a tag, a person, a due date), grouped by note
 // or by due date, priority, tag or person. Ticking one, or changing its details, edits the note it
 // lives in, so agents and people can add tasks anywhere and clear them in one place.
-import { marked } from "marked";
-import DOMPurify from "dompurify";
-import { api, type Task, type TaskPatch } from "../api.ts";
-import { el, icon, NOTE_DRAG } from "../dom.ts";
+import { api, type Task } from "../api.ts";
+import { el, icon } from "../dom.ts";
 import { onVaultChange } from "../events.ts";
 import type { WidgetSpec } from "./core.ts";
 import { sideClick } from "../panes.ts";
-import { tagsInLine } from "../../../src/core/tags.ts";
 import { addDays } from "../../../src/core/tasks.ts";
-import { endTags, metaChips, today } from "../taskChips.ts";
-import { openChipEditor, openTaskMenu, taskPeople } from "../taskChipEditors.ts";
+import { today } from "../taskChips.ts";
+import { taskRow } from "../taskRow.ts";
 
 type Show = "open" | "done" | "all";
 type Group = "note" | "due" | "priority" | "tag" | "person";
@@ -95,7 +92,7 @@ export const tasks: WidgetSpec = {
       try {
         const t = await api.tasks({ folder: env.args.folder, note: env.args.note, tag: env.args.tag, assignee: env.args.assignee, due: env.args.due, today: today() });
         if (!alive) return;
-        [all, problem] = [t, ""];
+        [all, problem] = [env.skip ? t.filter((x) => !env.skip!(x)) : t, ""];
       } catch (e) {
         if (!alive) return;
         [all, problem] = [[], e instanceof Error ? e.message : "Couldn't load tasks"];
@@ -151,90 +148,8 @@ export const tasks: WidgetSpec = {
     }
 
     function row(t: Task) {
-      const box = el("span", { class: `cm-checkbox${t.done ? " is-checked" : ""}`, role: "checkbox", "aria-checked": String(t.done), title: t.done ? "Mark open" : "Mark done" });
-      box.addEventListener("mousedown", (e) => {
-        e.preventDefault();
-        void toggle(t);
-      });
-      const words = el("span", { class: "qt-words", html: inline(t.summary) });
-      const text = el("span", { class: "qt-text", title: `${t.title}, line ${t.line}` }, words, ...metaChips(t.meta, t.done, endTags(t.summary, t.meta.tags))); // tags mid-sentence stay there
-      const save = async (patch: TaskPatch) => {
-        Object.assign(t, await api.updateTask(t, patch)); // its new text, for the next change
-        void load();
-      };
-      const ctx = { task: t, save, people: taskPeople, showPerson: env.openPerson };
-      text.addEventListener("mousedown", (e) => {
-        // A click on the words edits them, so let that one place the caret; chips and tags keep focus where it is.
-        const target = e.target as HTMLElement;
-        if (target.closest(".qt-input")) return; // placing the caret or selecting in the open edit
-        if (!target.closest(".qt-words") || sideClick(e)) prevent(e);
-      });
-      text.addEventListener("click", (e) => {
-        const target = e.target as HTMLElement;
-        if (sideClick(e)) return env.open(t.path, t.line, true); // ⌘-click (Ctrl-click off a Mac): the note, at this line, to the side
-        const chip = target.closest<HTMLElement>(".tk[data-field]");
-        const tag = chip?.dataset.field === "tags" ? chip.dataset.value!.toLowerCase() : target.closest<HTMLElement>(".tag")?.dataset.tag;
-        if (tag) env.openTag(tag);
-        else if (chip) openChipEditor(chip, ctx);
-        else if (target.closest(".qt-words")) editWords(t, words, save);
-      });
-      const menu = el("button", { type: "button", class: "qt-act", title: "Priority, due, repeat, person, tags…", "aria-label": "Task fields", onmousedown: prevent }, icon("sliders", 13));
-      menu.addEventListener("click", () => openTaskMenu(menu, ctx));
-      const go = el("button", { type: "button", class: "qt-act", title: "Go to note", "aria-label": `Go to ${t.title}, line ${t.line}`, onmousedown: prevent, onclick: (e: MouseEvent) => env.open(t.path, t.line, sideClick(e)) }, icon("open", 13));
-      const side = el("button", { type: "button", class: "qt-act", title: "Open to the side", "aria-label": `Open ${t.title} to the side`, onmousedown: prevent, onclick: () => env.open(t.path, t.line, true) }, icon("split", 13));
       const where = group === "note" ? (t.heading && t.heading !== t.title ? t.heading : null) : t.title;
-      // A row dragged to the right edge of the window opens its note there.
-      const row = el("div", { class: `qt-row${t.done ? " is-done" : ""}`, draggable: "true" }, box, text, where ? el("span", { class: "qt-where" }, where) : null, menu, go, side);
-      row.addEventListener("dragstart", (e) => {
-        if ((e.target as HTMLElement).closest("input")) return e.preventDefault();
-        e.dataTransfer!.setData(NOTE_DRAG, t.path);
-        e.dataTransfer!.effectAllowed = "copy";
-      });
-      return row;
-    }
-
-    /**
-     * Edit a task's words in place: an input over them, its chips left as they are. Enter or leaving
-     * the input saves (only the words change; the core leaves the tokens be), Escape puts them back.
-     */
-    function editWords(t: Task, words: HTMLElement, save: (patch: TaskPatch) => Promise<void>) {
-      const input = el("input", { class: "qt-input", value: t.summary, "aria-label": "Task text", spellcheck: "true" });
-      let done = false;
-      const finish = (keep: boolean) => {
-        if (done) return;
-        done = true;
-        const next = input.value.trim();
-        input.replaceWith(words);
-        if (keep && next && next !== t.summary) {
-          words.innerHTML = inline(next); // show it now; the reload confirms it
-          void save({ summary: next }).catch((e) => {
-            words.innerHTML = inline(t.summary);
-            alert(e instanceof Error ? e.message : "Couldn't change the task");
-          });
-        }
-      };
-      input.addEventListener("keydown", (e) => {
-        e.stopPropagation();
-        if (e.key === "Enter") (e.preventDefault(), finish(true));
-        else if (e.key === "Escape") (e.preventDefault(), finish(false));
-      });
-      input.addEventListener("blur", () => finish(true));
-      input.addEventListener("click", (e) => e.stopPropagation());
-      words.replaceWith(input);
-      input.focus();
-      input.setSelectionRange(input.value.length, input.value.length);
-    }
-
-    async function toggle(t: Task) {
-      const next = !t.done;
-      try {
-        const r = await api.setTask(t, next);
-        Object.assign(t, { done: next, line: r.line, text: r.text }); // ticking adds done:, so the text changed too
-        render();
-        void load();
-      } catch {
-        void load(); // the note changed underneath us: show what's there now
-      }
+      return taskRow(t, { open: env.open, openTag: env.openTag, openPerson: env.openPerson, reload: () => void load() }, where);
     }
 
     void load();
@@ -245,15 +160,3 @@ export const tasks: WidgetSpec = {
     };
   },
 };
-
-/** Task text as inline markdown; [[links]] shown by name, #tags as chips. */
-export function inline(md: string): string {
-  const hits = tagsInLine(md);
-  let text = md;
-  for (let i = hits.length - 1; i >= 0; i--) text = `${text.slice(0, hits[i].from - 1)}\u0003${i}\u0004${text.slice(hits[i].to)}`;
-  const withLinks = text.replace(/\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g, (_m, t: string, alias?: string) => `\u0001${alias ?? t}\u0002`);
-  const html = DOMPurify.sanitize(marked.parseInline(withLinks, { async: false }) as string, { FORBID_TAGS: ["img", "style"] });
-  return html
-    .replace(/\u0001([^\u0002]*)\u0002/g, '<span class="qt-link">$1</span>') // already escaped by marked
-    .replace(/\u0003(\d+)\u0004/g, (_m, i) => `<span class="tag" data-tag="${hits[+i].tag}" title="Tasks tagged #${hits[+i].display}">#${hits[+i].display}</span>`); // tags are letters, digits, _ - /
-}

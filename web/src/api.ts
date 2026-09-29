@@ -81,6 +81,15 @@ export interface FeedPage {
   folders: string[];
 }
 export const isArchived = (p: string) => p.startsWith("Archive/");
+/** A saved note query in the sidebar, with how many active notes match it now. */
+export interface SmartFolder {
+  id: string;
+  name: string;
+  /** As ::query args: `tag=work sort=title`. */
+  query: string;
+  shared: boolean;
+  count: number;
+}
 /** A tag in someone's favorites, and how many active notes carry it (or a tag under it). */
 export interface TagFavorite {
   tag: string;
@@ -100,6 +109,13 @@ export interface TagCount {
   tasks: number;
   assets: number;
 }
+/** The day at a glance (Quire.today): sections of tasks, and today's journal note. */
+export interface TodayView {
+  date: string;
+  sections: Array<{ id: "overdue" | "due" | "starting"; title: string; tasks: Task[] }>;
+  journal: { path: string; exists: boolean };
+}
+
 export interface Task {
   path: string;
   /** The note's title. */
@@ -187,6 +203,10 @@ export const api = {
   tasks: (p: { folder?: string; note?: string; tag?: string; assignee?: string; due?: string; today?: string }) =>
     j<Task[]>(`${BASE}/tasks?${new URLSearchParams(Object.entries(p).filter(([, v]) => v).map(([k, v]) => [k, String(v)]))}`),
   tags: () => j<TagCount[]>(`${BASE}/tags`),
+  smartFolders: () => j<SmartFolder[]>(`${BASE}/smart-folders`),
+  /** Create a smart folder, or change one by `id`. */
+  saveSmartFolder: (f: { id?: string; name: string; query: string; shared: boolean }) => j<SmartFolder>(`${BASE}/smart-folders`, send("POST", f)),
+  deleteSmartFolder: (id: string) => j<SmartFolder[]>(`${BASE}/smart-folders/delete`, send("POST", { id })),
   /** Each tagged asset's tags. */
   assetTags: () => j<Record<string, string[]>>(`${BASE}/asset-tags`),
   setAssetTags: (path: string, tags: string[]) => j<{ tags: string[] }>(`${BASE}/asset-tags`, send("PUT", { path, tags })),
@@ -195,6 +215,16 @@ export const api = {
   setTask: (t: Task, done: boolean) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/set`, send("POST", { path: t.path, line: t.line, text: t.text, done, today: today() })),
   /** Change a task's tokens in its note; the rest of its line stays as written. */
   updateTask: (t: Task, patch: TaskPatch) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/update`, send("POST", { path: t.path, line: t.line, text: t.text, patch, today: today() })),
+  /** The day at a glance for `day` (the viewer's today). */
+  today: (day: string) => j<TodayView>(`${BASE}/today?today=${encodeURIComponent(day)}`),
+  /** Today's journal note, made from the daily template if it's missing. */
+  dailyNote: (day: string) => j<{ path: string; created: boolean }>(`${BASE}/today/journal`, send("POST", { today: day })),
+  /** Add a task written in words (see src/core/quickAdd.ts); `ignore` holds phrases kept as words. */
+  addTask: (text: string, ignore: string[] = [], to?: string) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/add`, send("POST", { text, ignore, to, today: today() })),
+  /** Take a task (and what's nested under it) out of its note: quick-add's Undo. */
+  removeTask: (t: { path: string; line: number; text: string }) => j<{ path: string; version: string }>(`${BASE}/tasks/remove`, send("POST", { path: t.path, line: t.line, text: t.text })),
+  /** Move a task (and what's nested under it) to another note. */
+  moveTask: (t: Task, to: string) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/move`, send("POST", { path: t.path, line: t.line, text: t.text, to })),
   /** Your starred notes, in your order. Each change returns the new list. */
   favorites: () => j<Favorite[]>(`${BASE}/favorites`),
   star: (path: string) => j<Favorite[]>(`${BASE}/favorites/star`, send("POST", { path })),
