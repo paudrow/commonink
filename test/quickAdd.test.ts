@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseQuickAdd } from "../src/core/quickAdd.ts";
+import { parseQuickAdd, retypeTask, typedTask } from "../src/core/quickAdd.ts";
 
 const TODAY = "2026-09-28"; // a Monday
 const line = (input: string, ignore: string[] = []) => parseQuickAdd(input, TODAY, ignore).line;
@@ -67,6 +67,18 @@ test("a repeat's end in words: until a date, for a stretch, or a number of times
   // Without a repeat, "until" and "N times" are just words.
   assert.equal(line("Wait until dec 1"), "- [ ] Wait until due:2026-12-01");
   assert.equal(line("Knock 3 times"), "- [ ] Knock 3 times");
+});
+
+test("the same reading everywhere a task is typed: a card's text, and a task's words retyped in place", () => {
+  // A card (or anything that isn't the quick-add bar): no → [[Note]] target, just the task's text.
+  assert.equal(typedTask("Print badges next fri → [[Launch]] #event", TODAY), "Print badges → [[Launch]] due:2026-10-02 #event");
+  assert.equal(typedTask("Pay rent every month on the 1st", TODAY, ["every month on the 1st"]), "Pay rent every month on the 1st");
+  // Retyping a task's words: phrases become tokens next to the ones it has, which stay put.
+  const line = "- [ ] Call mom !high due:2026-10-05 @jane";
+  assert.deepEqual(retypeTask(line, "Call mom about the trip tomorrow", TODAY), { summary: "Call mom about the trip", due: "2026-09-29" });
+  assert.deepEqual(retypeTask(line, "Call mom every week", TODAY), { summary: "Call mom", rec: "weekly" });
+  assert.deepEqual(retypeTask(line, "Call mom next week", TODAY, ["next week"]), { summary: "Call mom next week" });
+  assert.deepEqual(retypeTask("- [ ] Plain", "Plainer", TODAY), { summary: "Plainer" });
 });
 
 test("tokens typed as tokens pass through where they are, and a phrase doesn't override one", () => {

@@ -7,7 +7,7 @@ import { parseAttrs, serializeAttrs } from "../src/core/directive.ts";
 import { parseQuery } from "../src/core/query.ts";
 import { EditorState } from "@codemirror/state";
 import { history, undo } from "@codemirror/commands";
-import { HINTS, taskLineEdit, taskTools, taskToolsAt } from "../web/src/editor/taskEdit.ts";
+import { convertPhrases, HINTS, phrasesAt, taskLineEdit, taskTools, taskToolsAt } from "../web/src/editor/taskEdit.ts";
 import { dayPicks, taskTokenSource } from "../web/src/editor/taskComplete.ts";
 import { withTaskChips } from "../web/src/taskChips.ts";
 import type { TaskPatch } from "../src/core/tasks.ts";
@@ -163,6 +163,30 @@ test("each hint word's editor writes its token at its place among the tokens, as
     undo({ state, dispatch: (tr) => (state = tr.state) });
     assert.equal(state.doc.line(1).text, line);
   }
+});
+
+test("phrases on the cursor's task line are only marked, and become tokens on Tab or a click, in one undoable change", () => {
+  const doc = "- [ ] Call mom tomorrow every week\nCall the bank tomorrow\n```\n- [ ] in code tomorrow\n```";
+  const st = (line: number) => at(doc, line);
+  const spans = phrasesAt(st(1), "2026-09-28")!;
+  assert.deepEqual(spans.phrases.map((p) => [st(1).sliceDoc(p.from, p.to), p.kind]), [["tomorrow", "due"], ["every week", "rec"]]);
+  assert.equal(phrasesAt(st(2), "2026-09-28"), null); // not a task line
+  assert.equal(phrasesAt(st(4), "2026-09-28"), null); // in code
+  // Marked, not changed: the document is what was typed.
+  assert.equal(st(1).doc.toString(), doc);
+  // Tab: all of them, in one change that one undo takes back.
+  let state = EditorState.create({ doc, extensions: [history()] });
+  state = state.update(convertPhrases(state, 1, "2026-09-28")!).state;
+  assert.equal(state.doc.line(1).text, "- [ ] Call mom due:2026-09-29 rec:weekly");
+  undo({ state, dispatch: (tr) => (state = tr.state) });
+  assert.equal(state.doc.toString(), doc);
+  // A click: just that phrase.
+  state = state.update(convertPhrases(state, 1, "2026-09-28", "every week")!).state;
+  assert.equal(state.doc.line(1).text, "- [ ] Call mom tomorrow due:2026-09-28 rec:weekly");
+  assert.equal(convertPhrases(EditorState.create({ doc: "- [ ] Nothing to read" }), 1, "2026-09-28"), null);
+  // A ticked task keeps its box; indentation stays.
+  const done = EditorState.create({ doc: "  - [x] Filed tomorrow" });
+  assert.equal(done.update(convertPhrases(done, 1, "2026-09-28")!).state.doc.toString(), "  - [x] Filed due:2026-09-29");
 });
 
 test("a Notes card shows a task's words, then its chips where its tokens were; code keeps its text", () => {
