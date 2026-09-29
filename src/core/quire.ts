@@ -229,8 +229,13 @@ export class Quire {
       const k = known.get(rel);
       known.delete(rel);
       if (!k || k.mtime !== st.mtime || k.size !== st.size) {
-        this.indexFile(rel);
-        indexed++;
+        // One note the parser chokes on mustn't keep the whole vault from opening.
+        try {
+          this.indexFile(rel);
+          indexed++;
+        } catch (e) {
+          console.error(`Couldn't index ${rel}:`, e);
+        }
       }
     }
     for (const rel of known.keys()) {
@@ -1444,9 +1449,28 @@ export function fmtBytes(n: number): string {
 export function diffstat(before: string, after: string): string {
   let add = 0;
   let del = 0;
-  for (const part of diffLines(before, after)) {
+  // A full line diff is quadratic when everything changed (10k lines took 9 s), so it gives up
+  // past this many edits and the count comes from which lines appear how often instead.
+  const parts = diffLines(before, after, { maxEditLength: 2000 });
+  if (!parts) return lineCountStat(before, after);
+  for (const part of parts) {
     if (part.added) add += part.count ?? 0;
     else if (part.removed) del += part.count ?? 0;
   }
+  return `+${add} −${del}`;
+}
+
+/** Lines added and removed as multisets: exact for rewrites, an estimate for moves. Linear. */
+function lineCountStat(before: string, after: string): string {
+  const count = new Map<string, number>();
+  for (const l of before.split("\n")) count.set(l, (count.get(l) ?? 0) + 1);
+  let add = 0;
+  for (const l of after.split("\n")) {
+    const n = count.get(l) ?? 0;
+    if (n) count.set(l, n - 1);
+    else add++;
+  }
+  let del = 0;
+  for (const n of count.values()) del += n;
   return `+${add} −${del}`;
 }

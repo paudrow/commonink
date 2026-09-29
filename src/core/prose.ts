@@ -45,10 +45,21 @@ export function proseLines(md: string): Array<[number, string]> {
 export const withoutCode = (line: string) => line.replace(/`[^`]*`/g, (s) => " ".repeat(s.length));
 
 /** The line with code spans and [[links]] blanked out, for finding words that mean something (tags, people). */
-export const withoutCodeOrLinks = (line: string) => withoutCode(line).replace(/\[\[[^\]\n]*\]\]/g, (s) => " ".repeat(s.length));
+export const withoutCodeOrLinks = (line: string) => withoutCode(line).replace(/\[\[[^[\]\n]*\]\]/g, (s) => " ".repeat(s.length));
 
 /** How many lines the frontmatter block takes at the top of a note (0 if it has none). */
 export function frontmatterLines(md: string): number {
   const m = md.match(/^---\r?\n[\s\S]*?\r?\n---(\r?\n|$)/);
   return m ? m[0].replace(/\r?\n$/, "").split("\n").length : 0;
+}
+
+/**
+ * The words of an ATX heading, given what follows its opening #s: "Plan ##  " → "Plan". A loop,
+ * not a regex like /(.+?)\s*#*\s*$/, which takes seconds on a heading with a long run of spaces.
+ */
+export function headingText(rest: string): string {
+  const s = rest.trimEnd();
+  let i = s.length;
+  while (i > 0 && s[i - 1] === "#") i--;
+  return i < s.length && (i === 0 || s[i - 1] === " " || s[i - 1] === "\t") ? s.slice(0, i).trimEnd() : s;
 }

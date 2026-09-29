@@ -17,7 +17,7 @@
 // Every change is a splice of whole lines, so the rest of the note, its blank lines and a card's
 // nested lines stay byte for byte. No Node imports: the editor uses this too.
 import { parseAttrs, serializeAttrs } from "./directive.ts";
-import { proseLines } from "./prose.ts";
+import { headingText, proseLines } from "./prose.ts";
 import { editTask, parseTask, TASK_LINE, type TaskPatch } from "./tasks.ts";
 
 export interface Card {
@@ -51,7 +51,7 @@ export interface Board {
 
 const OPEN = /^\s*:::kanban(?:\{([^}\n]*)\})?\s*$/i;
 const CLOSE = /^\s*:::\s*$/;
-const HEADING = /^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/;
+const HEADING = /^ {0,3}(#{1,6})[ \t]+(.*)$/; // the words are headingText(m[2])
 const ITEM = /^( {0,3})([-*+])([ \t]+)(.*)$/;
 
 /** A new board, for the insert menu. */
@@ -65,8 +65,9 @@ export function boardsIn(md: string): Board[] {
   for (let i = 0; i < lines.length; i++) {
     const open = prose.has(i) ? lines[i].match(OPEN) : null;
     if (!open) continue;
-    const close = lines.findIndex((l, j) => j > i && prose.has(j) && CLOSE.test(l));
-    if (close < 0) break;
+    let close = i + 1;
+    while (close < lines.length && !(prose.has(close) && CLOSE.test(lines[close]))) close++;
+    if (close === lines.length) break;
     boards.push(readBoard(lines, prose, i, close, parseAttrs(open[1] ?? "")));
     i = close;
   }
@@ -77,7 +78,8 @@ function readBoard(lines: string[], prose: Set<number>, from: number, close: num
   const heads: Array<{ at: number; level: number; title: string }> = [];
   for (let i = from + 1; i < close; i++) {
     const h = prose.has(i) ? lines[i].match(HEADING) : null;
-    if (h && h[2]) heads.push({ at: i, level: h[1].length, title: h[2] });
+    const title = h ? headingText(h[2]) : "";
+    if (h && title) heads.push({ at: i, level: h[1].length, title });
   }
   const level = heads[0]?.level ?? 2;
   const cols = heads.filter((h) => h.level === level);
@@ -114,7 +116,9 @@ function readCards(lines: string[], prose: Set<number>, from: number, to: number
 }
 
 function dedent(lines: string[]): string[] {
-  const indent = Math.min(...lines.filter((l) => l.trim()).map((l) => l.match(/^\s*/)![0].length));
+  // A loop, not Math.min(...spread), which overflows the stack on a card with 200k detail lines.
+  let indent = Infinity;
+  for (const l of lines) if (l.trim()) indent = Math.min(indent, l.length - l.trimStart().length);
   return lines.map((l) => (l.trim() ? l.slice(indent) : ""));
 }
 

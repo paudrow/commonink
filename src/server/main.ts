@@ -90,7 +90,19 @@ fs.watch(files.root, { recursive: true }, (_event, filename) => {
   if (isHidden(rel) && rel !== ASSET_TAGS) return;
   const key = kindOf(rel) ? rel : "*"; // directory events → full resync
   clearTimeout(timers.get(key));
-  timers.set(key, setTimeout(() => (timers.delete(key), key === "*" ? resync() : onDiskChange(rel)), 80));
+  timers.set(
+    key,
+    setTimeout(() => {
+      timers.delete(key);
+      // A file the parser chokes on is logged, not allowed to take the server down.
+      try {
+        if (key === "*") resync();
+        else onDiskChange(rel);
+      } catch (e) {
+        console.error(`Couldn't pick up ${rel}:`, e);
+      }
+    }, 80),
+  );
 });
 
 function onDiskChange(rel: string) {
