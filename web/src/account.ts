@@ -91,6 +91,7 @@ export function renderAccount(me: Me, current: Me["workspaces"][number], toast: 
           }),
         ]
       : []),
+    item(current.role === "owner" ? "Workspace settings…" : "Members…", "sliders", () => void import("./workspaceSettings.ts").then((m) => m.showWorkspaceSettings(current, me.user, toast))),
     item("Connected agents…", "bot", () => void import("./agentsPage.ts").then((m) => m.showAgents())),
     el("div", { class: "acct-sep" }),
     item("Sign out", "open", () => {
