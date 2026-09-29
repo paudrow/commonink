@@ -18,8 +18,8 @@ interface Hooks {
   /** The folder or tag filter changed (the sidebar marks the one being shown). */
   folderChanged(): void;
   tags(): TagCount[];
-  /** The pin-to-Favorites button for the tag Notes is narrowed to. */
-  pinButton(tag: string): HTMLElement;
+  /** The star (Add to / Remove from Favorites) for the tag Notes is narrowed to. */
+  starButton(tag: string): HTMLElement;
   /** Show every task of this person's. */
   openPerson(name: string): void;
   /** You can only view this workspace: chips show, but don't open editors. */
@@ -179,7 +179,7 @@ export class NotesPage {
         el("button", { type: "button", class: `chip${f === this.folder ? " is-on" : ""}`, onclick: () => ((this.folder = f), (this.focus = 0), this.hooks.folderChanged(), this.reload()) }, f || "All folders"),
       ),
     );
-    this.tagBar.replaceChildren(tagFilter({ current: this.tag, tags: this.hooks.tags, count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }), this.tag ? this.hooks.pinButton(this.tag) : "");
+    this.tagBar.replaceChildren(tagFilter({ current: this.tag, tags: this.hooks.tags, count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }), this.tag ? this.hooks.starButton(this.tag) : "");
     const q = this.input.value.trim();
     const top = this.root.scrollTop;
     const which = this.scope === "all" ? "" : `${this.scope} `;

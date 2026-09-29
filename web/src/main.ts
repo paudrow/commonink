@@ -16,7 +16,8 @@ import { folderPicker } from "./folderPicker.ts";
 import { History } from "./history.ts";
 import { Assets } from "./assets.ts";
 import { renderTasksPage } from "./tasksView.ts";
-import { openQuickAdd } from "./quickAdd.ts";
+import { isQuickAddKey, openQuickAdd } from "./quickAdd.ts";
+import { runTaskCommand } from "./taskCommand.ts";
 import { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
@@ -89,7 +90,7 @@ const notesPage = new NotesPage({
   toggleStar: (path) => void toggleStar(path),
   folderChanged: () => renderTree(),
   tags: () => tags,
-  pinButton: (tag) => pinButton(tag, "chip"),
+  starButton: (tag) => tagStarButton(tag, "chip"),
   openPerson: (assignee) => void showTasks({ assignee }),
   readOnly: () => viewer,
   toast: (t) => toast(t),
@@ -254,7 +255,7 @@ async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: strin
 async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("tasks");
-  unmountTasks = renderTasksPage($("#tasks-view"), { open: (path, line) => void openNote(path, { line }), tags: () => tags }, { tag: opts.tag, assignee: opts.assignee });
+  unmountTasks = renderTasksPage($("#tasks-view"), { open: (path, line) => void openNote(path, { line }), tags: () => tags, vim: prefs.vim }, { tag: opts.tag, assignee: opts.assignee });
   $("#tasks-view").focus({ preventScroll: true });
   if (opts.push !== false) setUrl("/tasks");
   document.title = "Tasks · Common Ink";
@@ -693,7 +694,7 @@ const refreshTagsSoon = debounce(async () => {
 // ------------------------------------------------------------------ favorites
 
 const isStarred = (id: string) => favorites.some((f) => !isTagFavorite(f) && f.id === id);
-const isPinned = (tag: string) => favorites.some((f) => isTagFavorite(f) && f.tag === normalizeTag(tag));
+const isTagStarred = (tag: string) => favorites.some((f) => isTagFavorite(f) && f.tag === normalizeTag(tag));
 
 /** Star a note, or unstar it if it's starred. */
 async function toggleStar(path: string) {
@@ -708,38 +709,39 @@ async function toggleStar(path: string) {
   notesPage.refreshSoon();
 }
 
-/** Pin a tag to Favorites (or take it off): one click, and it's in Favorites beside your notes. */
-async function togglePin(tag: string) {
-  const on = isPinned(tag);
+/** Star a tag (or unstar it): one click, and it's in Favorites beside your notes. */
+async function toggleTagStar(tag: string) {
+  const on = isTagStarred(tag);
   try {
     favorites = await (on ? api.unstarTag(tag) : api.starTag(tag));
   } catch (e) {
-    return toast({ text: e instanceof Error ? e.message : `Couldn't pin #${tag}` });
+    return toast({ text: e instanceof Error ? e.message : `Couldn't ${on ? "unstar" : "star"} #${tag}` });
   }
   renderTree();
   notesPage.refreshSoon();
 }
 
-/** The pin for a tag, on its sidebar row (`row`) or on the Notes tag chip (`chip`). */
-function pinButton(tag: string, where: "row" | "chip"): HTMLElement {
-  const pinned = isPinned(tag);
+/** A tag's star, the same control notes have: on its sidebar row (`row`) or beside the Notes tag filter (`chip`). */
+function tagStarButton(tag: string, where: "row" | "chip"): HTMLElement {
+  const starred = isTagStarred(tag);
+  const label = starred ? "Remove from Favorites" : "Add to Favorites";
   return el(
     "button",
     {
       type: "button",
-      class: `${where === "row" ? "row-act" : "chip tag-filter pin-chip"} pin-btn${pinned ? " is-pinned" : ""}`,
-      title: pinned ? `Take #${tag} out of Favorites` : `Pin #${tag} to Favorites`,
-      "aria-pressed": String(pinned),
-      onclick: (e: Event) => (e.stopPropagation(), void togglePin(tag)),
+      class: `${where === "row" ? "row-act" : "fc-action tag-star"} star-btn${starred ? " is-starred" : ""}`,
+      title: label,
+      "aria-label": `${label}: #${tag}`,
+      "aria-pressed": String(starred),
+      onclick: (e: Event) => (e.stopPropagation(), void toggleTagStar(tag)),
     },
-    icon(pinned ? "pinned" : "pin", 13), // filled while it's in Favorites; a click takes it out
-    where === "chip" ? (pinned ? "Pinned" : "Pin") : "",
+    icon(starred ? "starred" : "star", where === "row" ? 14 : 15), // filled while it's a favorite; a click takes it out
   );
 }
 
 const FAVORITE = "application/x-common-ink-favorite";
 
-/** A pinned tag in Favorites: it opens Notes narrowed to the tag, like the tag's row under Tags. */
+/** A starred tag in Favorites: it opens Notes narrowed to the tag, like the tag's row under Tags. */
 function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
   return el(
     "div",
@@ -757,14 +759,15 @@ function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
         e.dataTransfer!.effectAllowed = "move";
       },
     },
+    el("span", { class: "chev is-leaf" }), // the chevron column Folders and Tags rows have, so icons and names line up
     icon("hash", 14),
     el("span", { class: "tree-name" }, f.display),
     el("span", { class: "n" }, String(f.notes)),
-    el("span", { class: "row-actions" }, pinButton(f.display, "row")),
+    el("span", { class: "row-actions" }, tagStarButton(f.display, "row")),
   );
 }
 
-/** Starred notes and pinned tags, in your order: drag one to reorder, or drag a card in from Notes to star it. */
+/** Starred notes and tags, in your order: drag one to reorder, or drag a card in from Notes to star it. */
 function renderFavorites() {
   const shownTag = onPage() === "notes" && !notesPage.folderFilter ? (normalizeTag(notesPage.tagFilter) ?? "") : "";
   const list = favorites.filter((f) => isTagFavorite(f) || !isArchived(f.path));
@@ -789,18 +792,19 @@ function renderFavorites() {
           e.dataTransfer!.effectAllowed = "move";
         },
       },
+      el("span", { class: "chev is-leaf" }),
       icon(f.kind === "html" ? "html" : "file", 14),
       el("span", { class: "tree-name" }, displayName(f.path)),
       el(
         "span",
         { class: "row-actions" },
-        el("button", { type: "button", class: "row-act fav-star", title: "Unstar", onclick: (e: Event) => (e.stopPropagation(), void toggleStar(f.path)) }, icon("starred", 14)),
+        el("button", { type: "button", class: "row-act fav-star", title: "Remove from Favorites", onclick: (e: Event) => (e.stopPropagation(), void toggleStar(f.path)) }, icon("starred", 14)),
       ),
     );
     favoriteDrop(row, "is-drop-before", f.path);
     return row;
   });
-  $("#favorites").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Star a note, or pin a tag, to keep it here.")]));
+  $("#favorites").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Star a note or a tag to keep it here.")]));
 }
 
 /** Let `node` take a favorite (to reorder) or a card from Notes (to star), marking it with `cls` while over it. */
@@ -1011,9 +1015,9 @@ function renderTagTree(active: string) {
             : el("span", { class: "chev is-leaf" }),
           icon("hash", 14),
           el("span", { class: "tree-name" }, t.display.split("/").pop()!),
-          isPinned(t.display) ? el("span", { class: "fav-pinned", title: "Pinned to Favorites" }, icon("pinned", 11)) : null,
+          isTagStarred(t.display) ? el("span", { class: "fav-mark", title: "In Favorites" }, icon("starred", 11)) : null,
           el("span", { class: "n" }, String(t.notes)),
-          el("span", { class: "row-actions" }, pinButton(t.display, "row")),
+          el("span", { class: "row-actions" }, tagStarButton(t.display, "row")),
         );
         return [row, ...(open ? walk(t.tag, depth + 1) : [])];
       });
@@ -1477,6 +1481,15 @@ Vim.defineEx("edit", "e", (_cm: unknown, params: { args?: string[] }) => {
 Vim.defineEx("archive", "arch", () => void archiveCurrent());
 Vim.defineEx("notes", "note", () => void showNotes());
 Vim.defineEx("star", "star", () => session && void toggleStar(session.path));
+// :task <words> adds a task (as quick-add reads it) to today's daily note, with an Undo; :task alone opens the bar.
+Vim.defineEx("task", "task", (_cm: unknown, params: { argString?: string }) =>
+  void runTaskCommand(params.argString ?? "", {
+    add: (text) => api.addTask(text),
+    remove: async (r) => void (await api.removeTask(r)),
+    openBar: quickAdd,
+    toast: (t) => toast({ icon: "check", ...t }),
+  }).catch((err) => toast({ text: err instanceof Error ? err.message : "Couldn't add the task" })),
+);
 Vim.defineEx("focus", "foc", () => void setFocusMode(!focusMode));
 Vim.defineAction("quireFollowLink", () => followLinkAtCursor());
 Vim.mapCommand("gd", "action", "quireFollowLink", {}, { context: "normal" });
@@ -1512,13 +1525,11 @@ window.addEventListener(
     } else if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
       e.preventDefault();
       void showNotes({ filter: true });
-    } else if (e.key === "q" && !mod && !e.altKey && !typingIn(e.target)) {
-      // q, anywhere you aren't typing: the quick-add bar (Todoist's key, and free here).
+    } else if (isQuickAddKey(e) || (e.key === "q" && !mod && !e.altKey && !typingIn(e.target))) {
+      // ⌘⇧. anywhere (the editor in any Vim mode too), or q where you aren't typing: the quick-add bar.
       e.preventDefault();
-      openQuickAdd({
-        added: (r) => toast({ icon: "check", text: `Added to ${r.path.replace(/\.md$/, "")}`, actionLabel: "Open", action: () => void openNote(r.path, { line: r.line }) }),
-        open: (path, line) => void openNote(path, { line }),
-      });
+      e.stopPropagation(); // not the editor's (or Vim's) key as well
+      quickAdd();
     } else if (mod && e.key === "e" && session?.kind === "html") {
       e.preventDefault();
       setHtmlMode(prefs.htmlMode === "preview" ? "source" : "preview");
@@ -1526,6 +1537,16 @@ window.addEventListener(
   },
   true,
 );
+
+/** The floating quick-add bar. From a note, Tab in it sends the task to that note. */
+function quickAdd() {
+  openQuickAdd({
+    added: (r) => toast({ icon: "check", text: `Added to ${r.path.replace(/\.md$/, "")}`, actionLabel: "Open", action: () => void openNote(r.path, { line: r.line }) }),
+    open: (path, line) => void openNote(path, { line }),
+    vim: prefs.vim,
+    note: session?.kind === "md" ? session.path : undefined,
+  });
+}
 
 /** Whether a key pressed here is someone typing: a field, a text area, or the editor. */
 function typingIn(target: EventTarget | null): boolean {
