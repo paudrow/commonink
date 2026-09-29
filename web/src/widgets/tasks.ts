@@ -69,6 +69,8 @@ export const tasks: WidgetSpec = {
     let group: Group = Object.hasOwn(GROUPS, env.args.group ?? "") ? (env.args.group as Group) : "note";
     let sort: Sort = Object.hasOwn(SORTS, env.args.sort ?? "") ? (env.args.sort as Sort) : "note";
     let all: Task[] = [];
+    /** Tasks were found, counting the ones `skip` leaves out. */
+    let found = false;
     let problem = "";
     let expanded = false;
     let alive = true;
@@ -86,13 +88,15 @@ export const tasks: WidgetSpec = {
     const groupSel = select("Group", GROUPS, () => group, (v) => (group = v));
     const sortSel = select("Sort", SORTS, () => sort, (v) => (sort = v));
     const list = el("div", { class: "qt-list" });
-    body.append(el("div", { class: "qt-top" }, summary, el("span", { class: "spacer" }), groupSel, sortSel, seg), el("div", { class: "qt-progress" }, bar), list);
+    const top = el("div", { class: "qt-top" }, summary, el("span", { class: "spacer" }), groupSel, sortSel, seg);
+    const progress = el("div", { class: "qt-progress" }, bar);
+    body.append(top, progress, list);
 
     async function load() {
       try {
         const t = await api.tasks({ folder: env.args.folder, note: env.args.note, tag: env.args.tag, assignee: env.args.assignee, due: env.args.due, today: today() });
         if (!alive) return;
-        [all, problem] = [env.skip ? t.filter((x) => !env.skip!(x)) : t, ""];
+        [all, problem, found] = [env.skip ? t.filter((x) => !env.skip!(x)) : t, "", t.length > 0];
       } catch (e) {
         if (!alive) return;
         [all, problem] = [[], e instanceof Error ? e.message : "Couldn't load tasks"];
@@ -104,6 +108,8 @@ export const tasks: WidgetSpec = {
       const now = today();
       const done = all.filter((t) => t.done).length;
       summary.textContent = all.length ? `${done} of ${all.length} done` : "No tasks yet";
+      const blank = !found && !problem && !!env.empty;
+      top.hidden = progress.hidden = blank;
       bar.style.width = `${all.length ? (done / all.length) * 100 : 0}%`;
       seg.replaceChildren(
         ...(["open", "done", "all"] as Show[]).map((s) =>
@@ -139,7 +145,7 @@ export const tasks: WidgetSpec = {
                   ...g.tasks.map(row),
                 ),
               )
-            : [el("div", { class: "qt-empty" }, show === "open" && all.length ? "All done." : "Nothing here.")]),
+            : [blank ? env.empty!() : el("div", { class: "qt-empty" }, show === "open" && all.length ? "All done." : "Nothing here.")]),
         ...(visible.length > shown.length
           ? [el("button", { type: "button", class: "qt-more", onmousedown: prevent, onclick: () => ((expanded = true), render()) }, `Show ${visible.length - shown.length} more`)]
           : []),

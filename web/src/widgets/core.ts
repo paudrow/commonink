@@ -54,6 +54,8 @@ export interface WidgetEnv {
   readOnly?: boolean;
   /** Tasks a list leaves out (the Tasks page: the ones its Today section already shows). */
   skip?(task: Task): boolean;
+  /** What a list shows when there are no tasks at all (the Tasks page: where tasks come from). */
+  empty?(): HTMLElement;
 }
 
 export interface WidgetSpec {

@@ -1,4 +1,5 @@
 import { localDate, type TaskMeta, type TaskPatch } from "../../src/core/tasks.ts";
+import type { NoteRole } from "../../src/core/noteRoles.ts";
 
 /** The reader's day, which task writes and due filters go by (the server may be in another time zone). */
 const today = () => localDate(Date.now());
@@ -83,6 +84,7 @@ export interface FeedItem {
   lastSource: string | null;
   /** Who made the last change (see authorName). */
   lastBy: { person: string | null; agent: string | null } | null;
+  role: NoteRole | null;
 }
 export interface FeedPage {
   items: FeedItem[];
