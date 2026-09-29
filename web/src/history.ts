@@ -5,13 +5,12 @@ import { api, fileUrl, type Change, type DiffFile, type DiffRun } from "./api.ts
 import { $, authorAvatar, authorName, displayName, el, icon, isSelf } from "./dom.ts";
 import { diffCounts, renderDiff } from "./diff.ts";
 import { assetIcon, assetType, extOf } from "./assetKinds.ts";
-import { groupChanges } from "../../src/core/format.ts";
+import { changeVerb, groupChanges, isRename } from "../../src/core/format.ts";
 
 type Item = Change & { count: number; first: number };
 
 interface Hooks {
   open(path: string): void;
-  verb(c: Change): string;
   toast(t: { text: string; icon?: string; actionLabel?: string; action?: () => void }): void;
 }
 
@@ -220,7 +219,7 @@ export class History {
         el(
           "div",
           { class: "hist-body" },
-          el("div", { class: "hist-line" }, el("b", {}, authorName(it)), ` ${this.hooks.verb(it)} `, el("span", { class: "hist-note" }, displayName(it.path))),
+          el("div", { class: "hist-line" }, el("b", {}, authorName(it)), ` ${changeVerb(it)} `, el("span", { class: "hist-note" }, displayName(it.path))),
           el(
             "div",
             { class: "hist-meta" },
@@ -287,7 +286,7 @@ export class History {
         "div",
         { class: "hist-move" },
         icon(m.op === "archive" ? "archive" : m.op === "unarchive" ? "unarchive" : "move", 13),
-        `${m.op === "move" ? "Moved" : m.op === "archive" ? "Archived" : "Unarchived"} `,
+        `${m.op === "move" ? (isRename(m.from, m.to) ? "Renamed" : "Moved") : m.op === "archive" ? "Archived" : "Unarchived"} `,
         el("code", {}, m.from ?? "?"),
         " → ",
         el("code", {}, m.to),

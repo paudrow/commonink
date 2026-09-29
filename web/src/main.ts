@@ -22,7 +22,7 @@ import { runTaskCommand } from "./taskCommand.ts";
 import type { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
-import { groupChanges } from "../../src/core/format.ts";
+import { changeVerb, groupChanges } from "../../src/core/format.ts";
 import { clampSide, forget, newLayout, parseLayout, SIDE_CLICK, sideClick, step, visit, type PaneTrail } from "./panes.ts";
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
@@ -155,7 +155,6 @@ const once = <T>(load: () => Promise<T>) => {
 const loadHistory = once(async () =>
   (historyPage = new (await import("./history.ts")).History({
     open: (path) => fromPage(path),
-    verb: (c) => verb(c),
     toast: (t) => toast(t),
   })),
 );
@@ -839,7 +838,7 @@ function onMessage(m: ServerMsg) {
       if (!isSelf(m.source) && m.change) {
         toast({
           by: m.change,
-          text: `${verb(m.change)} ${displayName(m.path)}`,
+          text: `${changeVerb(m.change)} ${displayName(m.path)}`,
           detail: m.change.summary ?? undefined,
           action: open ? undefined : () => openNote(m.path),
         });
@@ -1663,7 +1662,6 @@ const highlightLink = (t: string) =>
   t.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]!).replace(/!?\[\[([^\]]+)\]\]/g, (_m, x) => `<b>${x.split("|").pop()}</b>`);
 
 // activity
-const verb = (c: Change) => ({ create: "created", edit: "edited", move: "moved", delete: "deleted", archive: "archived", unarchive: "unarchived" })[c.op];
 function renderActivity() {
   $("#activity").replaceChildren(
     ...(changes.length
@@ -1687,7 +1685,7 @@ function renderActivity() {
                 "div",
                 { class: "act-line" },
                 el("b", {}, authorName(c)),
-                ` ${verb(c)} `,
+                ` ${changeVerb(c)} `,
                 el("a", { onclick: (e: Event) => (e.stopPropagation(), openNote(c.path)) }, displayName(c.path)),
               ),
               el(
