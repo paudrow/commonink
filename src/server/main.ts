@@ -5,7 +5,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
-import { diffstat, versionOf, type Change } from "../core/quire.ts";
+import { ASSET_TAGS, diffstat, versionOf, type Change } from "../core/quire.ts";
 import { LOCAL_USER, openVault, PROJECT_ROOT } from "../core/local.ts";
 import { cleanPath, fileSecurityHeaders, isHidden, kindOf, mimeOf, MAX_UPLOAD, QuireError } from "../core/paths.ts";
 import { errorResponse, handleApi, json, type ApiHost } from "../core/api.ts";
@@ -87,13 +87,17 @@ const timers = new Map<string, NodeJS.Timeout>();
 fs.watch(files.root, { recursive: true }, (_event, filename) => {
   if (!filename) return;
   const rel = filename.split(path.sep).join("/");
-  if (isHidden(rel)) return;
+  if (isHidden(rel) && rel !== ASSET_TAGS) return;
   const key = kindOf(rel) ? rel : "*"; // directory events → full resync
   clearTimeout(timers.get(key));
   timers.set(key, setTimeout(() => (timers.delete(key), key === "*" ? resync() : onDiskChange(rel)), 80));
 });
 
 function onDiskChange(rel: string) {
+  if (rel === ASSET_TAGS) {
+    quire.sync(); // re-reads the asset tags file if it changed
+    return broadcast({ type: "tree" });
+  }
   if (!files.stat(rel)) {
     if (!seen.delete(rel)) return;
     lastText.delete(rel);
@@ -149,6 +153,7 @@ const host: ApiHost = {
   quire,
   actor: "you",
   user: LOCAL_USER,
+  canEditShared: true,
   info: () => ({ mode: "local", name: path.basename(files.root), vault: files.root, projectRoot: PROJECT_ROOT }),
   written(rel, content, version, change, origin) {
     seen.set(rel, version);

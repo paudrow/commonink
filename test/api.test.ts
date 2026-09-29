@@ -5,13 +5,15 @@ import path from "node:path";
 import { handleApi, type ApiHost } from "../src/core/api.ts";
 import { openTempVault } from "./helpers.ts";
 
-function setup() {
-  const { dir, quire } = openTempVault();
+/** The API over a fresh vault. `canEditShared: false` is how a viewer's requests reach a workspace online. */
+function setup({ canEditShared = true, user = "tester" } = {}, vault?: ReturnType<typeof openTempVault>) {
+  const { dir, quire } = vault ?? openTempVault();
   const events: string[] = [];
   const host: ApiHost = {
     quire,
-    actor: "tester",
-    user: "tester",
+    actor: user,
+    user,
+    canEditShared,
     info: () => ({ mode: "test" }),
     written: (rel, _content, _version, change) => events.push(`written ${rel} by ${change?.source ?? "-"}`),
     moved: (from, to) => events.push(`moved ${from} -> ${to}`),
@@ -35,6 +37,14 @@ test("a PUT then GET round-trips a note and announces the write", async () => {
   const got = await call("GET", "/note?path=Ideas/New");
   assert.equal(got.body.content, "# New\n");
   assert.deepEqual(events, ["written Ideas/New.md by tester", "tree"]);
+});
+
+test("a POST for a note that exists is a 409 naming it, so the app opens it instead of writing over it", async () => {
+  const { call } = setup();
+  assert.equal((await call("POST", "/note", { path: "Idea.md", content: "# Idea\n\nfirst\n" })).status, 200);
+  const again = await call("POST", "/note", { path: "Idea.md", content: "# Idea\n\nsecond\n" });
+  assert.deepEqual([again.status, again.body.code, again.body.path], [409, "exists", "Idea.md"]);
+  assert.equal((await call("GET", "/note?path=Idea.md")).body.content, "# Idea\n\nfirst\n");
 });
 
 test("a stale baseVersion is a 409 carrying the current text", async () => {
@@ -100,6 +110,119 @@ test("archive moves each listed note and reports where it went", async () => {
   const r = await call("POST", "/archive", { paths: ["Roadmap"] });
   assert.deepEqual(r.body, { moved: [{ from: "Projects/Roadmap.md", to: "Archive/Projects/Roadmap.md" }] });
   assert.deepEqual(events, ["moved Projects/Roadmap.md -> Archive/Projects/Roadmap.md", "tree"]);
+});
+
+test("tags are listed, asset tags set, and a rename reports what undoes it", async () => {
+  const { call, events } = setup();
+  assert.deepEqual((await call("PUT", "/asset-tags", { path: "chart.svg", tags: ["Plan/charts"] })).body, { tags: ["Plan/charts"] });
+  assert.deepEqual((await call("GET", "/asset-tags")).body, { "assets/chart.svg": ["Plan/charts"] });
+  assert.deepEqual(
+    (await call("GET", "/tags")).body.map((t: { tag: string; notes: number; assets: number }) => `${t.tag} ${t.notes}/${t.assets}`),
+    ["plan 1/1", "plan/charts 0/1", "q3 1/0"],
+  );
+  events.length = 0;
+  const r = await call("POST", "/tags/rename", { from: "plan", to: "roadmap" });
+  assert.equal(r.body.changes.length, 1);
+  assert.deepEqual(r.body.assets, { "assets/chart.svg": ["Plan/charts"] });
+  assert.deepEqual(events, ["written Projects/Roadmap.md by tester", "tree"]);
+  assert.match((await call("GET", "/note?path=Roadmap")).body.content, /^---\ntags: \[roadmap, q3\]\n---\n/);
+  assert.equal((await call("POST", "/tags/rename", { from: "q3", to: "not a tag" })).status, 400);
+  assert.equal((await call("PUT", "/asset-tags", { path: "Welcome", tags: ["x"] })).status, 400);
+  assert.equal((await call("PUT", "/asset-tags", { path: "chart.svg", tags: "x" })).status, 400);
+});
+
+test("tasks filter by due date against the reader's today, and a task's tokens change in place", async () => {
+  const { call, events } = setup();
+  await call("POST", "/tasks/update", { path: "Roadmap", line: 8, text: "Ship the importer", patch: { due: "2026-10-01", assignees: ["jane"] } });
+  assert.deepEqual(events, ["written Projects/Roadmap.md by tester"]);
+  const due = async (q: string) => (await call("GET", `/tasks?${q}`)).body.map((t: { summary: string }) => t.summary);
+  assert.deepEqual(await due("due=%3C%3Dtoday&today=2026-10-01"), ["Ship the importer"]);
+  assert.deepEqual(await due("due=%3C%3Dtoday&today=2026-09-30&assignee=jane"), []);
+  assert.deepEqual(await due("assignee=jane"), ["Ship the importer"]);
+  assert.equal((await call("GET", "/note?path=Roadmap")).body.content.split("\n")[7], "- [ ] Ship the importer due:2026-10-01 @jane");
+  const bad: Array<[unknown, RegExp]> = [
+    [{ due: 5 }, /"patch\.due" isn't a task field or has the wrong type/],
+    [{ owner: "x" }, /"patch\.owner" isn't a task field/],
+    ["x", /"patch" must be an object/],
+    [{ priority: "urgent" }, /"priority" must be high or low/],
+  ];
+  for (const [patch, message] of bad) {
+    const r = await call("POST", "/tasks/update", { path: "Roadmap", line: 8, text: "Ship the importer due:2026-10-01 @jane", patch });
+    assert.equal(r.status, 400, JSON.stringify(patch));
+    assert.match(r.body.error, message);
+  }
+  await call("POST", "/tasks/update", { path: "Roadmap", line: 8, text: "Ship the importer due:2026-10-01 @jane", patch: { summary: "Ship the exporter" } });
+  assert.equal((await call("GET", "/note?path=Roadmap")).body.content.split("\n")[7], "- [ ] Ship the exporter due:2026-10-01 @jane");
+  assert.equal((await call("POST", "/tasks/update", { path: "Roadmap", line: 8, text: "Ship the exporter due:2026-10-01 @jane", patch: { summary: 3 } })).status, 400);
+  await call("POST", "/tasks/update", { path: "Roadmap", line: 8, text: "Ship the exporter due:2026-10-01 @jane", patch: { summary: "Ship the importer" } });
+  assert.equal((await call("GET", "/tasks?due=soon")).status, 400);
+  assert.equal((await call("GET", "/tasks?due=today&today=garbage")).status, 400);
+  await call("POST", "/tasks/set", { path: "Roadmap", line: 8, text: "Ship the importer due:2026-10-01 @jane", done: true, today: "2026-10-02" });
+  assert.equal((await call("GET", "/note?path=Roadmap")).body.content.split("\n")[7], "- [x] Ship the importer due:2026-10-01 @jane done:2026-10-02");
+  const late = await call("POST", "/tasks/set", { path: "Roadmap", line: 8, text: "Ship the importer due:2026-10-01 @jane done:2026-10-02", done: false, today: "someday" });
+  assert.deepEqual([late.status, late.body.error], [400, `"today" must be a date like 2026-10-01, not "someday"`]);
+});
+
+test("quick-add writes a task from words, and a task moves to another note", async () => {
+  const { call, events } = setup();
+  const added = await call("POST", "/tasks/add", { text: "Ship the importer docs → [[Roadmap]] tomorrow", today: "2026-10-01", ignore: [] });
+  assert.deepEqual(added.body, { path: "Projects/Roadmap.md", version: added.body.version, line: 10, text: "Ship the importer docs due:2026-10-02" });
+  assert.deepEqual(events, ["written Projects/Roadmap.md by tester"]);
+  assert.equal((await call("POST", "/tasks/add", { text: "Stretch daily", today: "2026-10-01" })).body.path, "Journal/2026-10-01.md");
+  assert.equal((await call("POST", "/tasks/add", { text: "x", ignore: "next week" })).status, 400);
+  const toNote = await call("POST", "/tasks/add", { text: "Tidy up", today: "2026-10-01", to: "Welcome" });
+  assert.deepEqual([toNote.body.path, toNote.body.text], ["Welcome.md", "Tidy up"]);
+  const removed = await call("POST", "/tasks/remove", { path: "Welcome", line: toNote.body.line, text: "Tidy up" });
+  assert.equal(removed.status, 200);
+  assert.equal((await call("GET", "/note?path=Welcome")).body.content, "# Welcome\n\nStart with [[Roadmap]].\n\n![[chart.svg]]\n");
+  const moved = await call("POST", "/tasks/move", { path: "Roadmap", line: 10, text: "Ship the importer docs due:2026-10-02", to: "Journal/2026-10-01" });
+  assert.deepEqual([moved.status, moved.body.path, moved.body.line], [200, "Journal/2026-10-01.md", 6]);
+});
+
+test("today reads the viewer's day, and its journal note is made on request", async () => {
+  const { call } = setup();
+  await call("POST", "/tasks/update", { path: "Roadmap", line: 8, text: "Ship the importer", patch: { due: "2026-10-01" } });
+  const t = await call("GET", "/today?today=2026-10-01");
+  assert.deepEqual(t.body.sections.map((s: { id: string; tasks: unknown[] }) => [s.id, s.tasks.length]), [["overdue", 0], ["due", 1], ["starting", 0]]);
+  assert.deepEqual(t.body.journal, { path: "Journal/2026-10-01.md", exists: false });
+  assert.equal((await call("GET", "/today?today=2026-10-02")).body.sections[0].tasks[0].summary, "Ship the importer");
+  const made = await call("POST", "/today/journal", { today: "2026-10-01" });
+  assert.deepEqual(made.body, { path: "Journal/2026-10-01.md", created: true });
+  assert.equal((await call("GET", "/today?today=soon")).status, 400);
+});
+
+test("smart folders: an editor shares one, a viewer keeps their own but can't create, change or delete shared ones", async () => {
+  const vault = openTempVault();
+  const editor = setup({ user: "ed" }, vault);
+  const viewer = setup({ user: "vi", canEditShared: false }, vault);
+  const shared = await editor.call("POST", "/smart-folders", { name: "Planning", query: "tag=plan", shared: true });
+  assert.deepEqual(shared.body, { id: shared.body.id, name: "Planning", query: "tag=plan", shared: true, count: 1 });
+  assert.deepEqual(editor.events, ["tree"]);
+
+  const refused: Array<[string, unknown]> = [
+    ["/smart-folders", { name: "Team view", query: "", shared: true }],
+    ["/smart-folders", { id: shared.body.id, name: "Renamed", query: "tag=plan", shared: true }],
+    ["/smart-folders", { id: shared.body.id, name: "Planning", query: "tag=plan", shared: false }],
+    ["/smart-folders/delete", { id: shared.body.id }],
+  ];
+  for (const [route, body] of refused) {
+    const r = await viewer.call("POST", route, body);
+    assert.deepEqual([r.status, r.body.code], [403, "forbidden"], JSON.stringify(body));
+  }
+  const mine = await viewer.call("POST", "/smart-folders", { name: "Roadmap words", query: 'q="importer"' });
+  assert.deepEqual([mine.status, mine.body.shared, mine.body.count], [200, false, 1]);
+  assert.deepEqual((await viewer.call("GET", "/smart-folders")).body.map((f: { name: string }) => f.name), ["Planning", "Roadmap words"]);
+  assert.deepEqual((await editor.call("GET", "/smart-folders")).body.map((f: { name: string }) => f.name), ["Planning"]);
+  assert.equal((await viewer.call("POST", "/smart-folders/delete", { id: mine.body.id })).status, 200);
+  assert.equal((await editor.call("POST", "/smart-folders", { name: "Bad", query: "sort=size" })).status, 400);
+});
+
+test("a tag is starred and unstarred through the favorites routes a viewer can use", async () => {
+  const { call } = setup();
+  const starred = await call("POST", "/favorites/star", { tag: "plan" });
+  assert.deepEqual(starred.body, [{ tag: "plan", display: "plan", notes: 1 }]);
+  assert.equal((await call("POST", "/favorites/star", { tag: "27" })).status, 400);
+  assert.deepEqual((await call("POST", "/favorites/unstar", { tag: "#plan" })).body, []);
 });
 
 test("favorites are starred, ordered and unstarred per person, and tell the other tabs", async () => {

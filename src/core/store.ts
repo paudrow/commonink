@@ -38,6 +38,12 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS links(src TEXT NOT NULL, key TEXT NOT NULL, kind TEXT NOT NULL, line INTEGER NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS links_key ON links(key)`,
   `CREATE INDEX IF NOT EXISTS links_src ON links(src)`,
+  // Where each tag is used: a note line (frontmatter or body), a task line, or an asset (line 0).
+  `CREATE TABLE IF NOT EXISTS tags(tag TEXT NOT NULL, kind TEXT NOT NULL, path TEXT NOT NULL, line INTEGER NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS tags_tag ON tags(tag)`,
+  `CREATE INDEX IF NOT EXISTS tags_path ON tags(path)`,
+  // How each tag is shown: segment by segment, the way it was first written.
+  `CREATE TABLE IF NOT EXISTS tag_names(tag TEXT PRIMARY KEY, display TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS changes(
      id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, path TEXT NOT NULL, op TEXT NOT NULL,
      source TEXT NOT NULL, version TEXT, summary TEXT, from_path TEXT, before TEXT, note_id TEXT)`,
@@ -47,11 +53,23 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS favorites(
      user TEXT NOT NULL, note_id TEXT NOT NULL, path TEXT NOT NULL, pos INTEGER NOT NULL,
      PRIMARY KEY(user, note_id))`,
+  // Saved note queries in the sidebar (see query.ts). A null `owner` shares one with the whole
+  // workspace; a user ID makes it just that person's.
+  `CREATE TABLE IF NOT EXISTS smart_folders(
+     id TEXT PRIMARY KEY, name TEXT NOT NULL, query TEXT NOT NULL, owner TEXT, pos INTEGER NOT NULL)`,
 ];
 
 /** Create or upgrade the index + change log tables. Safe to run on every start. */
 export function migrate(db: SqlDb) {
+  let tagless = false;
+  try {
+    db.get("SELECT 1 FROM tags LIMIT 1");
+  } catch {
+    tagless = true;
+  }
   for (const stmt of SCHEMA) db.exec(stmt);
+  // An index from before tags: have the next sync read every note again to find them.
+  if (tagless) db.run("UPDATE notes SET mtime = -1");
   // Indexes from before stable IDs lack the column. (ALTER, not a pragma: Durable Objects allow it.)
   try {
     db.exec("ALTER TABLE notes ADD COLUMN id TEXT");

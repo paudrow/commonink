@@ -27,6 +27,9 @@ export class Workspace extends DurableObject<Env> {
     db.exec("CREATE TABLE IF NOT EXISTS registered_ids(id TEXT PRIMARY KEY)");
     this.files = new SqlContent(db);
     this.quire = new Quire(db, this.files);
+    // Notes only change through the core here, so this finds nothing to do, except after an
+    // upgrade that asks for notes to be indexed again (tags, say).
+    this.quire.sync();
     // Keep-alives are answered without waking the object.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
@@ -104,6 +107,7 @@ export class Workspace extends DurableObject<Env> {
       quire: this.quire,
       actor: decodeURIComponent(req.headers.get("x-ci-actor") ?? "someone"),
       user,
+      canEditShared: ["owner", "editor"].includes(req.headers.get("x-ci-role") ?? ""), // an unknown or missing role can't
       info: () => ({ mode: "cloud", name: decodeURIComponent(req.headers.get("x-ci-workspace-name") ?? "Workspace") }),
       written: (rel, content, version, change, origin) => this.announce(rel, content, version, change, origin),
       moved: (from, to, version, change) => {
