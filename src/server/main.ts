@@ -1,6 +1,7 @@
 // Local web app server: JSON API + live updates over WebSocket + Vite for the UI.
 // Binds to 127.0.0.1 only. Agents never talk to this server; they write through the MCP server / CLI
 // (or straight to disk), and the file watcher here picks the change up and attributes it.
+import { randomBytes } from "node:crypto";
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -10,6 +11,7 @@ import { LOCAL_USER, openVault, PROJECT_ROOT } from "../core/local.ts";
 import { cleanPath, fileSecurityHeaders, isHidden, kindOf, mimeOf, MAX_UPLOAD, QuireError } from "../core/paths.ts";
 import { errorResponse, handleApi, json, type ApiHost } from "../core/api.ts";
 import { SANDBOX_PATH, sandboxPage } from "../core/sandbox.ts";
+import { appPolicy } from "../core/csp.ts";
 import { unfurl } from "./unfurl.ts";
 
 // PORT=0 picks a free port (printed on start). QUIRE_NO_UI=1 serves only /api, skipping Vite.
@@ -31,7 +33,12 @@ const httpServer = http.createServer((req, res) => {
   handle(req, res).catch((e) => send(res, errorResponse(e)));
 });
 
+// The same CSP as online. Vite stamps this nonce on the scripts in the page it serves; it lasts
+// as long as the server, since Vite builds the page once per request from a fixed setting.
+const NONCE = randomBytes(16).toString("base64");
+
 const vite = UI && await (await import("vite")).createServer({
+  html: { cspNonce: NONCE },
   root: path.join(PROJECT_ROOT, "web"),
   // No CORS, and nothing but the app's own files: Vite would otherwise serve anything under the
   // project (the default vault, .dev.vars) to any localhost page that asked.
@@ -194,7 +201,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
   if (url.pathname === SANDBOX_PATH) return send(res, sandboxPage());
   if (!url.pathname.startsWith("/api/")) {
     res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("Content-Security-Policy", "frame-ancestors 'self'"); // no framing the app to click through it
+    res.setHeader("Content-Security-Policy", appPolicy(NONCE, url)); // also: no framing the app to click through it
     return vite ? vite.middlewares(req, res) : send(res, json({ error: "Not found (QUIRE_NO_UI)" }, 404));
   }
   const route = url.pathname.slice("/api".length);

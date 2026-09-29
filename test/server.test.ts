@@ -76,11 +76,13 @@ test("vault files are served sandboxed, and paths can't climb out", async () => 
   assert.equal((await request("GET", "/api/files/Welcome.md")).status, 404);
 });
 
-test("other sites get nothing from the app's own files, and can't frame it", async () => {
+test("other sites get nothing from the app's own files, and the app has the same strict CSP as online", async () => {
   assert.equal((await request("GET", "/", { headers: { Origin: "http://localhost:3000" } })).status, 403);
   assert.equal((await request("GET", "/src/main.ts", { headers: { Origin: "http://evil.localhost:8080" } })).status, 403);
   const own = await request("GET", "/", { headers: origin() });
-  assert.deepEqual([own.status, own.headers["content-security-policy"], own.headers["x-content-type-options"]], [404, "frame-ancestors 'self'", "nosniff"]);
+  assert.deepEqual([own.status, own.headers["x-content-type-options"]], [404, "nosniff"]);
+  // The same policy as online: our scripts or the page's nonce only, and no framing.
+  assert.match(String(own.headers["content-security-policy"]), /^default-src 'self'; script-src 'self' 'nonce-[\w+/=]{24}'; .*; frame-ancestors 'none'$/);
 });
 
 test("a WebSocket to anything but /ws is closed, not left hanging", async () => {
