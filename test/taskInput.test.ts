@@ -52,6 +52,15 @@ test("a click on a lit phrase keeps it as words; Enter hands over the text and t
   assert.deepEqual(calls.at(-1), ["cancel"]);
 });
 
+test("phrases already in the text a field opens with stay words: only what you type is read", () => {
+  const { input, calls, type, key } = mount({ value: "Call mom tomorrow" });
+  assert.equal(input.dom.querySelectorAll(".qa-hl").length, 0);
+  key("Enter");
+  assert.deepEqual(calls, [["submit", "Call mom tomorrow", ["tomorrow"]]]);
+  type(" every week");
+  assert.deepEqual([...input.dom.querySelectorAll(".qa-hl")].map((n) => n.textContent), ["every week"]);
+});
+
 test("Tab is the host's while typing, and a card's input takes a nested line on Shift+Enter", () => {
   let tabs = 0;
   const bar = mount({ tab: () => (tabs++, true) });

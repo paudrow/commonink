@@ -23,6 +23,7 @@ export const HINT = 'Try "Pay rent every month on the 1st #home" or "Call mom to
 export const taskInputPrefs = { vim: false };
 
 export interface TaskInputOptions {
+  /** The text it opens with. Phrases already in it stay words; only what's typed is read. */
   value?: string;
   placeholder?: string;
   /** Vim keys (default: the app's setting). */
@@ -100,7 +101,9 @@ function suggest(ctx: CompletionContext): CompletionResult | null {
 /** A task input; put `dom` and `preview` where the host wants them. */
 export function taskInput(opts: TaskInputOptions): TaskInput {
   const useVim = opts.vim ?? taskInputPrefs.vim;
-  const ignore = new Set<string>();
+  const phrase = (s: string) => s.toLowerCase().replace(/\s+/g, " ");
+  const opening = opts.value?.split("\n")[0] ?? "";
+  const ignore = new Set(parseQuickAdd(opening, today(), [], { targets: !!opts.targets }).spans.map((s) => phrase(opening.slice(s.from, s.to))));
   const preview = el("div", { class: "qa-preview", "aria-live": "polite" });
   let parsed: QuickAdd | null = null;
   const firstLine = () => view.state.doc.line(1).text;
@@ -152,7 +155,7 @@ export function taskInput(opts: TaskInputOptions): TaskInput {
           click: (_e, v) => {
             const at = v.state.selection.main;
             const hit = at.empty && parsed?.spans.find((s) => at.head > s.from && at.head < s.to);
-            if (hit) (ignore.add(firstLine().slice(hit.from, hit.to).toLowerCase().replace(/\s+/g, " ")), render());
+            if (hit) (ignore.add(phrase(firstLine().slice(hit.from, hit.to))), render());
             return false;
           },
           focus: (_e, v) => {
@@ -181,6 +184,7 @@ export function taskInput(opts: TaskInputOptions): TaskInput {
     dom: el("div", { class: `qa-box qa-cm${opts.compact ? " qa-compact" : ""}${opts.multiline ? " is-multiline" : ""}` }, view.dom),
     preview,
     focus() {
+      if (view.hasFocus) return;
       view.focus();
       const cm = getCM(view);
       if (cm && inNormal(view)) Vim.handleKey(cm, useVim && view.state.doc.length ? "A" : "i", "mapping"); // ready to type, at the end
