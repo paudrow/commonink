@@ -79,3 +79,26 @@ test("a live connection closes when its session runs out, before it hears anythi
   assert.equal(await closed, 4001);
   assert.deepEqual(heard.filter((m) => m.includes("secret")), []);
 });
+
+test("bad input gets a 4xx with a plain message, never an exception from inside", async () => {
+  const cookie = await cloud.signIn("sloppy");
+  const { workspaces } = await cloud.call(cookie, "GET", "/api/me");
+  const base = `/api/w/${workspaces[0].id}`;
+  const raw = (method: string, p: string, body: string) =>
+    cloud.server.fetch(new URL(p, cloud.origin), { method, headers: { cookie, origin: cloud.origin, "content-type": "application/json" }, body });
+  const answers = [
+    await raw("POST", "/api/workspaces", ""),
+    await raw("POST", "/api/agents/revoke", "{not json"),
+    await cloud.request(cookie, "GET", `${base}/files/%E0%A4%A`),
+    await cloud.request(cookie, "GET", `${base}/files/..%2f..%2fx.png`),
+  ];
+  assert.deepEqual(
+    await Promise.all(answers.map(async (r) => [r.status, ((await r.json()) as { error: string }).error])),
+    [
+      [400, "Give the workspace a name"],
+      [400, '"id" must be a string'],
+      [404, "Not found"],
+      [400, "Invalid path: ../../x.png"],
+    ],
+  );
+});

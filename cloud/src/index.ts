@@ -53,6 +53,12 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
   return fetchAsset(env.ASSETS, req, url);
 }
 
+/** A request's JSON body as an object; anything else (empty, malformed, a list) counts as {}. */
+async function body(req: Request): Promise<Record<string, unknown>> {
+  const data = await req.json().catch(() => null);
+  return data && typeof data === "object" && !Array.isArray(data) ? (data as Record<string, unknown>) : {};
+}
+
 interface Call {
   req: Request;
   env: Env;
@@ -66,8 +72,8 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
   "POST /api/workspaces": async ({ req, env, user }) => {
     const tooMany = await limit(env.DB, "workspace", user.id);
     if (tooMany) return tooMany;
-    const { name } = (await req.json()) as { name?: string };
-    const clean = String(name ?? "").trim().slice(0, 80);
+    const { name } = (await body(req)) as { name?: unknown };
+    const clean = (typeof name === "string" ? name : "").trim().slice(0, 80);
     if (!clean) return json({ error: "Give the workspace a name" }, 400);
     const id = await createWorkspace(env.DB, user, clean, "team");
     await seedWorkspace(env, id);
@@ -93,7 +99,7 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
   },
   "GET /api/agents": async ({ env, url, user }) => json(await listAgents(env, url, user)),
   "POST /api/agents/revoke": async ({ req, env, url, user }) => {
-    const { id } = (await req.json()) as { id?: unknown };
+    const { id } = (await body(req)) as { id?: unknown };
     if (typeof id !== "string") return json({ error: '"id" must be a string' }, 400);
     await revokeAgents(env, url, user, id);
     return json({ ok: true });
@@ -145,7 +151,7 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
 
   if (route === "/invites" && req.method === "POST") {
     if (ws.kind !== "team") return json({ error: "Only a team's owner can invite people" }, 403);
-    const { role } = (await req.json()) as { role?: string };
+    const { role } = (await body(req)) as { role?: unknown };
     const tooMany = await limit(env.DB, "invite", user.id);
     if (tooMany) return tooMany;
     const token = await createInvite(env.DB, ws.id, user.id, role === "viewer" ? "viewer" : "editor");

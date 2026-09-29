@@ -40,7 +40,8 @@ export class Workspace extends DurableObject<Env> {
 
   async fetch(req: Request): Promise<Response> {
     const wsId = req.headers.get("x-ci-workspace")!;
-    const res = await this.handle(req, wsId);
+    // Anything unexpected is a plain 500, with no stack or message from inside.
+    const res = await this.handle(req, wsId).catch(errorResponse);
     this.claimIds(wsId);
     return res;
   }
