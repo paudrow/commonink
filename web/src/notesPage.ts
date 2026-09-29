@@ -365,7 +365,11 @@ export class NotesPage {
     const { md: marked, tasks } = withTaskChips(md);
     const node = el("div", { class: `${cls}${this.hooks.readOnly() || item.archived ? " is-readonly" : ""}`, html: renderMarkdown(marked, item.path) });
     hydrateTaskChips(node, tasks);
-    node.querySelectorAll<HTMLElement>(".tk-run").forEach((run) => (run.dataset.text = tasks[+run.dataset.task!].text));
+    // A note can write its own <span class="tk-run">, so only the ones that name a real task count.
+    node.querySelectorAll<HTMLElement>(".tk-run").forEach((run) => {
+      const task = tasks[+run.dataset.task!];
+      if (task) run.dataset.text = task.text;
+    });
     return node;
   }
 

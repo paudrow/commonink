@@ -57,6 +57,18 @@ export function sectionOf(md: string, heading: string): string {
 
 const SAFE_URI = /^(?:(?:https?|mailto|quire):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i;
 
+/**
+ * What note content may be as HTML. No styles or forms. Its ids and names are prefixed, so a note
+ * can't stand in for the app's own elements (`#backlinks`), and it can't put itself in the top
+ * layer as a popover.
+ */
+export const NOTE_HTML = {
+  ALLOWED_URI_REGEXP: SAFE_URI,
+  FORBID_TAGS: ["style", "form"],
+  FORBID_ATTR: ["style", "popover", "popovertarget", "popovertargetaction"],
+  SANITIZE_NAMED_PROPS: true,
+};
+
 /** Markdown to safe HTML. `boards` leaves a slot for each Kanban board to draw a live board in (see hydrateBoards); otherwise a board shows as its headings and lists. */
 export function renderMarkdown(md: string, from: string, opts: { boards?: boolean } = {}): string {
   const body = boardSlots(md.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, ""), !!opts.boards);
@@ -69,7 +81,7 @@ export function renderMarkdown(md: string, from: string, opts: { boards?: boolea
     .replace(/\[\[([^\]|]+?)(?:\|([^\]]*))?\]\]/g, (_m, target: string, alias?: string) => `[${alias ?? target.replace(/#/, " › ")}](quire:${encodeURIComponent(target)})`)
     .replace(/!\[([^\]]*)\]\((?!https?:|\/)([^)\s]+)\)/g, (_m, alt, src) => `![${alt}](${assetUrl(safeDecode(src), from)})`);
   const html = marked.parse(pre, { async: false, gfm: true }) as string;
-  return DOMPurify.sanitize(html, { ALLOWED_URI_REGEXP: SAFE_URI, FORBID_TAGS: ["style", "form"], FORBID_ATTR: ["style"] });
+  return DOMPurify.sanitize(html, NOTE_HTML);
 }
 
 function boardSlots(md: string, slots: boolean): string {
