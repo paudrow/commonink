@@ -6,14 +6,17 @@ import DOMPurify from "dompurify";
 import { assetUrl } from "./api.ts";
 import { currentScheme } from "./dom.ts";
 import { isEmbeddable } from "./embeds/providers.ts";
-import { SANDBOX_PATH } from "../../src/core/sandbox.ts";
 import { externalTitle, linkKind } from "./links.ts";
 import { boardsIn } from "../../src/core/kanban.ts";
-import { headingName } from "../../src/core/prose.ts";
+import { SANDBOX_PATH } from "../../src/core/sandbox.ts";
+import { safeDecode } from "../../src/core/uri.ts";
+import { headingName, headingText } from "../../src/core/prose.ts";
 
 export { currentScheme };
 
 // Links in rendered markdown that leave the app (web pages, email) are marked, with their domain as a tooltip.
+// It runs after DOMPurify has dropped a node's unsafe attributes, so it only sees hrefs that passed,
+// and it only adds a class and a title built from a parsed domain (test/security-web.test.ts).
 DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   const href = node.tagName === "A" ? node.getAttribute("href") : null;
   if (!href || linkKind(href) !== "external") return;
@@ -50,8 +53,8 @@ export function sectionOf(md: string, heading: string): string {
   const lines = md.split("\n");
   const want = heading.trim().toLowerCase();
   const start = lines.findIndex((l) => {
-    const m = l.match(/^(#{1,6})\s+(.*?)\s*#*$/);
-    return !!m && headingName(m[2]).toLowerCase() === want;
+    const m = l.match(/^#{1,6}[ \t]+(.*)$/);
+    return !!m && headingName(headingText(m[1])).toLowerCase() === want;
   });
   if (start < 0) return md;
   const level = lines[start].match(/^#+/)![0].length;
@@ -69,19 +72,34 @@ export function sectionOf(md: string, heading: string): string {
 
 const SAFE_URI = /^(?:(?:https?|mailto|quire):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i;
 
+/**
+ * What note content may be as HTML. No styles or forms. Its ids and names are prefixed, so a note
+ * can't stand in for the app's own elements (`#backlinks`), and it can't put itself in the top
+ * layer as a popover.
+ */
+export const NOTE_HTML = {
+  ALLOWED_URI_REGEXP: SAFE_URI,
+  FORBID_TAGS: ["style", "form"],
+  FORBID_ATTR: ["style", "popover", "popovertarget", "popovertargetaction"],
+  SANITIZE_NAMED_PROPS: true,
+};
+
 /** Markdown to safe HTML. `boards` leaves a slot for each Kanban board to draw a live board in (see hydrateBoards); otherwise a board shows as its headings and lists. */
 export function renderMarkdown(md: string, from: string, opts: { boards?: boolean } = {}): string {
   const body = boardSlots(md.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, ""), !!opts.boards);
   const pre = body
-    .replace(/!\[\[([^\]|]+?)(?:\|[^\]]*)?\]\]/g, (_m, target: string) => {
+    // Each class leaves out "[" so no pattern backtracks across a long line of them.
+    .replace(/!\[\[([^[\]|]+)(?:\|[^[\]]*)?\]\]/g, (_m, target: string) => {
       const kind = embedKindOf(target);
       if (kind === "image") return `![${target}](${assetUrl(target, from)})`;
       return `[↳ ${target}](quire:${encodeURIComponent(target)})`;
     })
-    .replace(/\[\[([^\]|]+?)(?:\|([^\]]*))?\]\]/g, (_m, target: string, alias?: string) => `[${alias ?? target.replace(/#/, " › ")}](quire:${encodeURIComponent(target)})`)
-    .replace(/!\[([^\]]*)\]\((?!https?:|\/)([^)\s]+)\)/g, (_m, alt, src) => `![${alt}](${assetUrl(decodeURIComponent(src), from)})`);
-  const html = marked.parse(pre, { async: false, gfm: true }) as string;
-  return DOMPurify.sanitize(html, { ALLOWED_URI_REGEXP: SAFE_URI, FORBID_TAGS: ["style", "form"], FORBID_ATTR: ["style"] });
+    .replace(/\[\[([^[\]|]+)(?:\|([^[\]]*))?\]\]/g, (_m, target: string, alias?: string) => `[${alias ?? target.replace(/#/, " › ")}](quire:${encodeURIComponent(target)})`)
+    .replace(/!\[([^[\]]*)\]\((?!https?:|\/)([^()\s]+)\)/g, (_m, alt, src) => `![${alt}](${assetUrl(safeDecode(src), from)})`);
+  // marked recurses once per ">", so thousands of them overflow the stack: 20 levels is plenty.
+  const flat = pre.replace(/^((?:[ \t]*>){20})(?:[ \t]*>)+/gm, "$1");
+  const html = marked.parse(flat, { async: false, gfm: true }) as string;
+  return DOMPurify.sanitize(html, NOTE_HTML);
 }
 
 function boardSlots(md: string, slots: boolean): string {
@@ -136,4 +154,15 @@ window.addEventListener("message", (e) => {
       }
     }
   }
+});
+
+// A link in note content never replaces the app (a look-alike sign-in page could stand in for it).
+// Where nothing else handled the click, an http(s) link opens in a new tab and any other kind
+// except mailto: does nothing.
+document.addEventListener("click", (e) => {
+  if (e.defaultPrevented || e.button !== 0) return;
+  const a = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+  if (!a || a.target === "_blank" || a.protocol === "mailto:" || a.origin === location.origin) return;
+  e.preventDefault();
+  if (/^https?:$/.test(a.protocol)) window.open(a.href, "_blank", "noopener,noreferrer");
 });

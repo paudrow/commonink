@@ -130,3 +130,14 @@ test("fuzz: random edits never break the parser, problems stay inside their boar
   }
   assert.ok(boardsSeen > 200, `only ${boardsSeen} boards survived the edits`);
 });
+
+test("with the recurrence engine in, a repeating card moved into Done starts its next week in the first column", () => {
+  // Done is the board's first column here, so the next one goes to the first that isn't Done.
+  const md = ":::kanban\n## Done\n## To do\n- [ ] Plan\n## Doing\n- [ ] Water plants rec:weekly due:2026-09-28 #home\n:::\n";
+  assert.equal(
+    moveCard(md, 5, { board: 0, column: 0 }, 0, TODAY),
+    `:::kanban\n## Done\n- [x] Water plants rec:weekly due:2026-09-28 #home done:${TODAY}\n## To do\n- [ ] Water plants rec:weekly due:2026-10-05 #home\n- [ ] Plan\n## Doing\n:::\n`,
+  );
+  // A card that doesn't repeat leaves nothing behind.
+  assert.equal(moveCard(":::kanban\n## To do\n- [ ] Other\n## Done\n:::\n", 2, { board: 0, column: 1 }, 0, TODAY), `:::kanban\n## To do\n## Done\n- [x] Other done:${TODAY}\n:::\n`);
+});

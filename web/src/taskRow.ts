@@ -3,6 +3,7 @@
 // ⌘/Ctrl-click to open the note at the line. Every change goes to the note the task lives in.
 import { marked } from "marked";
 import DOMPurify from "dompurify";
+import { NOTE_HTML } from "./render.ts";
 import { api, type Task, type TaskPatch } from "./api.ts";
 import { el, icon, NOTE_DRAG } from "./dom.ts";
 import { sideClick } from "./panes.ts";
@@ -113,14 +114,20 @@ function editWords(t: Task, words: HTMLElement, save: (patch: TaskPatch) => Prom
   input.setSelectionRange(input.value.length, input.value.length);
 }
 
-/** Task text as inline markdown; [[links]] shown by name, #tags as chips. */
+/**
+ * Task text as inline markdown; [[links]] shown by name, #tags as chips. Links and tags go in as
+ * placeholders (control characters, taken out of the text first) and become spans before the
+ * sanitizer runs, so nothing is added to the HTML after it's been cleaned. No images, forms or
+ * inputs: a task is a line of text.
+ */
 export function inline(md: string): string {
-  const hits = tagsInLine(md);
-  let text = md;
+  const clean = md.replace(/[\u0001-\u0004]/g, "");
+  const hits = tagsInLine(clean);
+  let text = clean;
   for (let i = hits.length - 1; i >= 0; i--) text = `${text.slice(0, hits[i].from - 1)}\u0003${i}\u0004${text.slice(hits[i].to)}`;
   const withLinks = text.replace(/\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g, (_m, t: string, alias?: string) => `\u0001${alias ?? t}\u0002`);
-  const html = DOMPurify.sanitize(marked.parseInline(withLinks, { async: false }) as string, { FORBID_TAGS: ["img", "style"] });
-  return html
+  const html = (marked.parseInline(withLinks, { async: false }) as string)
     .replace(/\u0001([^\u0002]*)\u0002/g, '<span class="qt-link">$1</span>') // already escaped by marked
     .replace(/\u0003(\d+)\u0004/g, (_m, i) => `<span class="tag" data-tag="${hits[+i].tag}" title="Tasks tagged #${hits[+i].display}">#${hits[+i].display}</span>`); // tags are letters, digits, _ - /
+  return DOMPurify.sanitize(html, { ...NOTE_HTML, FORBID_TAGS: [...NOTE_HTML.FORBID_TAGS, "img", "input", "button", "textarea", "select"] });
 }

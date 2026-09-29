@@ -18,6 +18,8 @@ const server = http.createServer((req, res) => {
   if (p === "/slow") return; // never answers
   if (p === "/json") return (res.writeHead(200, { "Content-Type": "application/json" }), res.end('{"a":"<title>Not a page</title>"}'));
   if (p === "/huge") return html(`${" ".repeat(MAX_BYTES)}<title>Too far in</title>`);
+  if (p === "/icons") return html('<link rel="icon'.repeat(4096)); // 64 KB: minutes for the old icon regex
+  if (p === "/metas") return html("<meta".repeat(100_000)); // 500 KB with no ">"
   res.writeHead(404).end();
 });
 
@@ -58,6 +60,15 @@ test("a page that never answers gives up at the deadline", async () => {
 test("only HTML is read, and only its first 512 KB", async () => {
   assert.equal((await unfurl(`${base}/json`, guard)).title, null);
   assert.equal((await unfurl(`${base}/huge`, guard)).title, null);
+});
+
+test("a page built to make the tag parser backtrack is read in well under a second", async () => {
+  for (const p of ["/icons", "/metas"]) {
+    const t = performance.now();
+    const r = await unfurl(`${base}${p}`, guard);
+    assert.deepEqual([r.title, r.favicon], [null, `${base}/favicon.ico`]);
+    assert.ok(performance.now() - t < 1000, `${p} took ${Math.round(performance.now() - t)} ms`);
+  }
 });
 
 test("URLs with credentials aren't fetched", async () => {

@@ -87,12 +87,17 @@ export async function createWorkspace(db: D1Database, owner: User, name: string,
   return id;
 }
 
+/** Invites are stored by the SHA-256 of their token, like sessions: a leaked table lets no one in. */
+const inviteKey = async (token: string) =>
+  [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)))].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+/** A new invite link's token. It works once, for 7 days. */
 export async function createInvite(db: D1Database, workspaceId: string, by: string, role: "editor" | "viewer") {
-  const token = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "").slice(0, 8);
+  const token = [...crypto.getRandomValues(new Uint8Array(20))].map((b) => b.toString(16).padStart(2, "0")).join("");
   const now = Date.now();
   await db
     .prepare("INSERT INTO invites(token, workspace_id, role, created_by, created_at, expires_at) VALUES (?,?,?,?,?,?)")
-    .bind(token, workspaceId, role, by, now, now + 7 * 86400_000)
+    .bind(await inviteKey(token), workspaceId, role, by, now, now + 7 * 86400_000)
     .run();
   return token;
 }
@@ -109,19 +114,32 @@ export async function recordFailedSignup(db: D1Database, sub: string) {
 
 /** Whether an invite link is still good, without using it. */
 export async function inviteIsValid(db: D1Database, token: string) {
-  const inv = await db.prepare("SELECT expires_at FROM invites WHERE token = ?").bind(token).first<{ expires_at: number }>();
-  return !!inv && inv.expires_at >= Date.now();
+  return !!(await inviteInfo(db, token));
 }
 
-/** Join a workspace from an invite link. Returns the workspace id, or null if the link is bad or expired. */
+/** What an invite link is for, if it's still good: the workspace and the role it gives. */
+export async function inviteInfo(db: D1Database, token: string) {
+  return db
+    .prepare(
+      `SELECT i.workspace_id AS workspaceId, w.name AS workspaceName, i.role FROM invites i JOIN workspaces w ON w.id = i.workspace_id
+       WHERE i.token = ? AND i.expires_at >= ?`,
+    )
+    .bind(await inviteKey(token), Date.now())
+    .first<{ workspaceId: string; workspaceName: string; role: Role }>();
+}
+
+/**
+ * Join a workspace from an invite link, which it uses up. Returns the workspace id, or null if the
+ * link is bad, expired or used. Someone who's already a member keeps their role and the link.
+ */
 export async function acceptInvite(db: D1Database, token: string, userId: string) {
-  const inv = await db.prepare("SELECT workspace_id, role, expires_at FROM invites WHERE token = ?").bind(token).first<{ workspace_id: string; role: Role; expires_at: number }>();
-  if (!inv || inv.expires_at < Date.now()) return null;
-  await db
-    .prepare("INSERT INTO members(workspace_id, user_id, role, created_at) VALUES (?,?,?,?) ON CONFLICT DO NOTHING")
-    .bind(inv.workspace_id, userId, inv.role, Date.now())
-    .run();
-  return inv.workspace_id;
+  const inv = await inviteInfo(db, token);
+  if (!inv) return null;
+  if (await membership(db, userId, inv.workspaceId)) return inv.workspaceId;
+  const used = await db.prepare("DELETE FROM invites WHERE token = ? RETURNING workspace_id").bind(await inviteKey(token)).first();
+  if (!used) return null; // someone else used it a moment ago
+  await db.prepare("INSERT INTO members(workspace_id, user_id, role, created_at) VALUES (?,?,?,?) ON CONFLICT DO NOTHING").bind(inv.workspaceId, userId, inv.role, Date.now()).run();
+  return inv.workspaceId;
 }
 
 // ------------------------------------------------------------------ sessions
@@ -140,11 +158,11 @@ export async function createSession(db: D1Database, id: string, userId: string, 
 export function sessionUser(db: D1Database, id: string, idleSince: number) {
   return db
     .prepare(
-      `SELECT u.id, u.email, u.name, u.picture, s.seen_at AS seenAt FROM sessions s JOIN users u ON u.id = s.user_id
+      `SELECT u.id, u.email, u.name, u.picture, s.seen_at AS seenAt, s.expires_at AS expiresAt FROM sessions s JOIN users u ON u.id = s.user_id
        WHERE s.id = ? AND s.expires_at > ? AND s.seen_at > ?`,
     )
     .bind(id, Date.now(), idleSince)
-    .first<User & { seenAt: number }>();
+    .first<User & { seenAt: number; expiresAt: number }>();
 }
 
 export async function touchSession(db: D1Database, id: string) {

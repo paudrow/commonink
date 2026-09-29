@@ -14,6 +14,8 @@ export interface EmbedInfo {
   height?: number;
   maxWidth?: number;
   heightFrom?: (data: unknown) => number | null;
+  /** The provider is whatever host the URL names (Mastodon), not a known one: sandboxed tighter. */
+  anyHost?: boolean;
   onLoad?: (frame: HTMLIFrameElement) => void;
 }
 
@@ -139,6 +141,7 @@ const PROVIDERS: Provider[] = [
       const id = Number(uid().replace(/\D/g, "").slice(0, 8) || 1);
       return {
         provider: "mastodon",
+        anyHost: true,
         label: "Mastodon",
         url: u.href,
         src: `${u.origin}${u.pathname.replace(/\/$/, "")}/embed`,
@@ -223,8 +226,13 @@ export function providerFrame(info: EmbedInfo): HTMLIFrameElement {
   f.loading = "lazy";
   f.allowFullscreen = true;
   f.referrerPolicy = "strict-origin-when-cross-origin"; // YouTube refuses to play without a referrer
-  f.setAttribute("allow", "autoplay; encrypted-media; picture-in-picture; fullscreen; clipboard-write");
-  f.setAttribute("sandbox", "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation allow-forms");
+  // A provider on any host (Mastodon) could be any page at all, so it gets no forms, no clipboard,
+  // and popups that stay sandboxed.
+  f.setAttribute("allow", info.anyHost ? "autoplay; picture-in-picture; fullscreen" : "autoplay; encrypted-media; picture-in-picture; fullscreen; clipboard-write");
+  f.setAttribute(
+    "sandbox",
+    info.anyHost ? "allow-scripts allow-same-origin allow-popups" : "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation allow-forms",
+  );
   f.dataset.provider = info.provider;
   if (!info.aspect) f.style.height = `${info.height ?? 400}px`;
   if (info.onLoad) f.addEventListener("load", () => info.onLoad!(f));

@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import { diffLines } from "diff";
 import type { Content, SqlDb } from "./store.ts";
 import { cleanPath, isHidden, kindOf, linkKey, QuireError, stemOf, type NoteKind } from "./paths.ts";
-import { headingName } from "./prose.ts";
+import { headingName, headingText } from "./prose.ts";
 import { extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
@@ -12,6 +12,7 @@ import { dueFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, s
 import { parseQuickAdd } from "./quickAdd.ts";
 import { formatQuery, parseQuery, queryProblem, type NoteQuery } from "./query.ts";
 import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
+import { safeDecode } from "./uri.ts";
 
 export interface NoteMeta {
   /** Stable across renames, moves and archiving; see ids.ts. */
@@ -175,7 +176,14 @@ const RENAME_WINDOW_MS = 60_000;
 export interface QuireOptions {
   /** Milliseconds since the epoch: stamps changes and bounds the attribution and rename windows. Tests pass a fake clock. */
   now?: () => number;
+  /** The largest note a write may leave behind, in bytes (UTF-8). Online, a SQLite row holds 2 MB. */
+  maxNoteBytes?: number;
 }
+
+/** The default largest note: enough for any note a person writes, not enough to exhaust memory. */
+export const MAX_NOTE_BYTES = 10 * 1024 * 1024;
+/** How much note text one GET /diffs may send back in all; runs past it come without their text. */
+const DIFF_TEXT_BUDGET = 16 * 1024 * 1024;
 
 /**
  * The one core every surface (web UI, MCP server, CLI, Cloudflare workspace) talks to.
@@ -219,6 +227,7 @@ function findTask(lines: string[], line: number, text: string, notePath: string)
 
 export class Quire {
   private now: () => number;
+  private maxNoteBytes: number;
 
   constructor(
     readonly db: SqlDb,
@@ -226,6 +235,7 @@ export class Quire {
     opts: QuireOptions = {},
   ) {
     this.now = opts.now ?? Date.now;
+    this.maxNoteBytes = opts.maxNoteBytes ?? MAX_NOTE_BYTES;
   }
 
   /** IDs of files that just left the index, by kind and content, so a rename seen as delete + add keeps its ID. */
@@ -244,8 +254,13 @@ export class Quire {
       const k = known.get(rel);
       known.delete(rel);
       if (!k || k.mtime !== st.mtime || k.size !== st.size) {
-        this.indexFile(rel);
-        indexed++;
+        // One note the parser chokes on mustn't keep the whole vault from opening.
+        try {
+          this.indexFile(rel);
+          indexed++;
+        } catch (e) {
+          console.error(`Couldn't index ${rel}:`, e);
+        }
       }
     }
     for (const rel of known.keys()) {
@@ -720,12 +735,15 @@ export class Quire {
         f.runs.push(f.open);
       }
     }
+    let budget = DIFF_TEXT_BUDGET;
     return [...files.values()]
       .sort((a, b) => b.last - a.last)
       .map(({ open: _o, broken: _b, ...f }) => ({
         ...f,
         runs: f.runs.map((r) => {
+          if (budget <= 0) return r; // past the budget: the run without its text
           const d = this.diff(r.from, r.to);
+          budget -= (d.before?.length ?? 0) + (d.after?.length ?? 0);
           return { ...r, before: d.before, after: d.after };
         }),
       }));
@@ -1041,6 +1059,10 @@ export class Quire {
   // ---------------------------------------------------------------- writing
 
   private commit(rel: string, before: string | null, after: string, source: string, op: Change["op"]) {
+    // Every write through the core lands here, so one limit covers the API, MCP, the CLI and online.
+    if (after.length > this.maxNoteBytes / 4 && new TextEncoder().encode(after).length > this.maxNoteBytes) {
+      throw new QuireError(`${rel} would be over ${Math.round(this.maxNoteBytes / 1024 / 1024)} MB, the most a note can hold`, "invalid");
+    }
     this.files.write(rel, after);
     const meta = this.indexFile(rel, after)!;
     const change = this.recordChange(
@@ -1146,8 +1168,8 @@ export class Quire {
       text.split("\n").forEach((line, i) => {
         if (/^\s*(```|~~~)/.test(line)) fence = !fence;
         if (fence) return;
-        const h = line.match(/^#{1,6}\s+(.+?)\s*#*$/);
-        if (h) heading = headingName(h[1]);
+        const words = headingText(line.match(/^#{1,6}[ \t]+(.*)$/)?.[1] ?? "");
+        if (words) heading = headingName(words) || words;
         if (/^\s*:::kanban\b/i.test(line)) outside = heading;
         else if (outside !== undefined && /^\s*:::\s*$/.test(line)) [heading, outside] = [outside, undefined];
         const t = parseTask(line);
@@ -1403,7 +1425,7 @@ export class Quire {
           oldKeys.has(linkKey(t)) && this.resolve(t, src) === null ? `${bang}[[${wikiTarget}${hash}${alias}]]` : m,
         )
         .replace(/(!?\[[^\]\n]*\]\()([^)\s]+)(\))/g, (m, pre, t, post) =>
-          oldKeys.has(linkKey(decodeURIComponent(t))) ? `${pre}${encodeURI(dest)}${post}` : m,
+          oldKeys.has(linkKey(safeDecode(t))) ? `${pre}${encodeURI(dest)}${post}` : m,
         );
       if (after !== before) {
         const r = this.commit(src, before, after, source, "edit");
@@ -1480,9 +1502,28 @@ export function fmtBytes(n: number): string {
 export function diffstat(before: string, after: string): string {
   let add = 0;
   let del = 0;
-  for (const part of diffLines(before, after)) {
+  // A full line diff is quadratic when everything changed (10k lines took 9 s), so it gives up
+  // past this many edits and the count comes from which lines appear how often instead.
+  const parts = diffLines(before, after, { maxEditLength: 2000 });
+  if (!parts) return lineCountStat(before, after);
+  for (const part of parts) {
     if (part.added) add += part.count ?? 0;
     else if (part.removed) del += part.count ?? 0;
   }
+  return `+${add} −${del}`;
+}
+
+/** Lines added and removed as multisets: exact for rewrites, an estimate for moves. Linear. */
+function lineCountStat(before: string, after: string): string {
+  const count = new Map<string, number>();
+  for (const l of before.split("\n")) count.set(l, (count.get(l) ?? 0) + 1);
+  let add = 0;
+  for (const l of after.split("\n")) {
+    const n = count.get(l) ?? 0;
+    if (n) count.set(l, n - 1);
+    else add++;
+  }
+  let del = 0;
+  for (const n of count.values()) del += n;
   return `+${add} −${del}`;
 }

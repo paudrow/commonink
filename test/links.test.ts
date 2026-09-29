@@ -11,7 +11,7 @@ test("http, https and mailto links leave the app; anything else is a note", () =
 
 test("an external link's tooltip names its domain, or the address a mailto writes to", () => {
   assert.deepEqual(
-    ["https://www.github.com/paudrow/commonink", "http://docs.example.org:8080/x", "mailto:sam%40acme.test?subject=Hi", "https://"].map(externalTitle),
-    ["github.com · opens in your browser", "docs.example.org · opens in your browser", "sam@acme.test · opens in your browser", "https:// · opens in your browser"],
+    ["https://www.github.com/paudrow/commonink", "http://docs.example.org:8080/x", "mailto:sam%40acme.test?subject=Hi", "https://", "mailto:%", "mailto:<img src=x onerror=alert(1)>@x.org", "https://%zz"].map(externalTitle),
+    ["github.com · opens in your browser", "docs.example.org · opens in your browser", "sam@acme.test · opens in your browser", "Opens in your browser", "Opens in your browser", "Opens in your browser", "Opens in your browser"],
   );
 });

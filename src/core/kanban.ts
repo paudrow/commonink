@@ -22,7 +22,7 @@
 // changed until they pick one. Every change is a splice of whole lines, so the rest of the note,
 // its blank lines and a card's nested lines stay byte for byte. No Node imports: the editor uses this too.
 import { parseAttrs, serializeAttrs } from "./directive.ts";
-import { proseLines } from "./prose.ts";
+import { headingSettings, headingText, proseLines } from "./prose.ts";
 import { editTask, nextOccurrence, parseTask, TASK_LINE, type TaskPatch } from "./tasks.ts";
 
 export interface Card {
@@ -71,10 +71,8 @@ export const COLORS = ["gray", "red", "orange", "yellow", "green", "teal", "blue
 
 const OPEN = /^\s*:::kanban(?:\{([^}\n]*)\})?\s*$/i;
 const CLOSE = /^\s*:::\s*$/;
-const HEADING = /^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/;
+const HEADING = /^ {0,3}(#{1,6})[ \t]+(.*)$/; // the words are headingText(m[2])
 const ITEM = /^( {0,3})([-*+]|\d{1,9}[.)])([ \t]+)(.*)$/;
-/** A heading's text: its name, then any `{key=value}` settings. */
-const TITLE = /^(.*?)(?:[ \t]*\{([^}\n]*)\})?$/;
 /** Settings the opening line may carry. `done` names another done column: kept for older files, not offered. */
 const SETTINGS = new Set(["done"]);
 
@@ -96,8 +94,9 @@ function scan(md: string): { boards: Board[]; unclosed: number | null } {
   for (let i = 0; i < lines.length; i++) {
     const open = prose.has(i) ? lines[i].match(OPEN) : null;
     if (!open) continue;
-    const close = lines.findIndex((l, j) => j > i && prose.has(j) && CLOSE.test(l));
-    if (close < 0) return { boards, unclosed: i };
+    let close = i + 1;
+    while (close < lines.length && !(prose.has(close) && CLOSE.test(lines[close]))) close++;
+    if (close === lines.length) return { boards, unclosed: i };
     boards.push(readBoard(lines, prose, i, close, parseAttrs(open[1] ?? "")));
     i = close;
   }
@@ -108,9 +107,10 @@ function readBoard(lines: string[], prose: Set<number>, from: number, close: num
   const heads: Array<{ at: number; title: string; color: string | null }> = [];
   for (let i = from + 1; i < close; i++) {
     const h = prose.has(i) ? lines[i].match(HEADING) : null;
-    if (!h || !h[2]) continue;
-    const [, title, attrs] = h[2].match(TITLE)!;
-    heads.push({ at: i, title: title.trim() || h[2], color: attrs === undefined ? null : (parseAttrs(attrs).color ?? null) });
+    const words = h ? headingText(h[2]) : "";
+    if (!words) continue;
+    const { name, attrs } = headingSettings(words);
+    heads.push({ at: i, title: name.trim() || words, color: attrs === null ? null : (parseAttrs(attrs).color ?? null) });
   }
   const problems: Problem[] = [];
   const done = (args.done || "Done").trim().toLowerCase();
@@ -179,7 +179,9 @@ function readCards(lines: string[], prose: Set<number>, from: number, to: number
 }
 
 function dedent(lines: string[]): string[] {
-  const indent = Math.min(...lines.filter((l) => l.trim()).map((l) => l.match(/^\s*/)![0].length));
+  // A loop, not Math.min(...spread), which overflows the stack on a card with 200k detail lines.
+  let indent = Infinity;
+  for (const l of lines) if (l.trim()) indent = Math.min(indent, l.length - l.trimStart().length);
   return lines.map((l) => (l.trim() ? l.slice(indent) : ""));
 }
 
@@ -354,8 +356,8 @@ function heading(line: string, title: string, attrs: Record<string, string>) {
 /** The settings on a column's heading, `{…}` after its name. */
 function headingAttrs(line: string): Record<string, string> {
   const text = line.replace(/\r$/, "").match(HEADING)?.[2] ?? "";
-  const attrs = text.match(TITLE)?.[2];
-  return attrs === undefined ? {} : parseAttrs(attrs);
+  const { attrs } = headingSettings(headingText(text));
+  return attrs === null ? {} : parseAttrs(attrs);
 }
 
 /** Rename a column: its heading's name changes; its level and colour stay. */
