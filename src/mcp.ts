@@ -4,7 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { LOCAL_USER, openVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
-import { fmtBacklinks, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtWrite } from "./core/format.ts";
+import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtWrite } from "./core/format.ts";
 import { parseQuery } from "./core/query.ts";
 
 const quire = openVault();
@@ -244,6 +244,78 @@ server.registerTool(
       const r = skip ? quire.skipTask(path, line, text, source()) : quire.updateTask(path, line, text, done === undefined ? patch : { ...patch, checked: done }, source());
       return fmtWrite(r, r.change ? "Updated" : "No change to");
     }),
+);
+
+const BOARD_HELP =
+  "A board is a :::kanban block in a note (closed by :::): its ## headings are columns and its list items are cards, " +
+  "with task tokens like tasks. The column named by done= on the :::kanban line (by default \"Done\") ticks cards moved into it.";
+const CARD = z.string().describe("The card's line number from read_board, or words from its text that only that card has");
+
+server.registerTool(
+  "read_board",
+  {
+    title: "Read board",
+    description: `The Kanban boards in a note, column by column, each card with its line number. ${BOARD_HELP}`,
+    inputSchema: { path: z.string() },
+    annotations: readOnly,
+  },
+  ({ path }) =>
+    run(() => {
+      const { note, boards } = quire.boards(path);
+      return fmtBoards(note.path, boards);
+    }),
+);
+
+server.registerTool(
+  "add_card",
+  {
+    title: "Add card",
+    description:
+      "Add a card to a column of a Kanban board in a note. The text is the card's line (tokens like due:2026-10-01 @jane #tag, or a [[Note]] link); " +
+      "more lines nest under it as details.",
+    inputSchema: {
+      path: z.string(),
+      column: z.string().describe("The column's name, or its number from 1"),
+      text: z.string(),
+      board: z.number().int().min(1).optional().describe("Which board (from 1), when the note has several with this column"),
+      position: z.number().int().min(1).optional().describe("Where in the column (from 1); default last"),
+    },
+    annotations: writes,
+  },
+  ({ path, column, text, board, position }) => run(() => fmtWrite(quire.addCard(path, column, text, source(), { board, position }), "Added a card to")),
+);
+
+server.registerTool(
+  "move_card",
+  {
+    title: "Move card",
+    description: "Move a card to another column of its board, or to another place in its column. Moving it into the done column ticks it; out of it, unticks it.",
+    inputSchema: {
+      path: z.string(),
+      card: CARD,
+      to_column: z.string().describe("The column's name, or its number from 1"),
+      position: z.number().int().min(1).optional().describe("Where in the column (from 1); default last"),
+    },
+    annotations: writes,
+  },
+  ({ path, card, to_column, position }) => run(() => fmtWrite(quire.moveCard(path, card, to_column, source(), { position }), "Moved a card in")),
+);
+
+server.registerTool(
+  "edit_card",
+  {
+    title: "Edit card",
+    description:
+      "Change a card's text or tick it. The new text replaces the card's line after its checkbox (keep any tokens you want to keep); more lines replace the details nested under it.",
+    inputSchema: {
+      path: z.string(),
+      card: CARD,
+      text: z.string().optional(),
+      done: z.boolean().optional().describe("Tick (true) or untick (false)"),
+    },
+    annotations: writes,
+  },
+  ({ path, card, text, done }) => run(() => fmtWrite(quire.editCard(path, card, { text, done }, source()), "Edited a card in")),
 );
 
 server.registerTool(

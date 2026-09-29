@@ -2,6 +2,7 @@
 // asked for (a ::query widget, a smart folder, the Notes filter bar, an agent), written the way the
 // widget writes them: `q="launch plan" folder=Projects tag=work sort=title limit=5`. Quire.feed
 // runs it. No Node imports: the web app uses this too.
+import { parseAttrs, serializeAttrs } from "./directive.ts";
 import { cleanTag } from "./tags.ts";
 
 export interface NoteQuery {
@@ -17,31 +18,6 @@ export interface NoteQuery {
 
 const KEYS = ["q", "folder", "tag", "sort", "limit"] as const;
 const LIMIT = /^[1-9]\d{0,3}$/;
-
-/** `key=value` pairs; a key can also compare (`due<=today`), and then the operator starts its value ("<=today"). */
-export function parseAttrs(src: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const m of src.matchAll(/([\w-]+)(?:(<=|>=|<|>|=)(?:"([^"]*)"|'([^']*)'|([^\s"']+)))?/g)) {
-    const value = m[3] ?? m[4] ?? m[5];
-    out[m[1]] = value === undefined ? "true" : m[2] === "=" ? value : `${m[2]}${value}`;
-  }
-  return out;
-}
-
-/** Keys that compare (`due<=today`), and so are written with their operator. Any other value is just a value. */
-const COMPARES = new Set(["due"]);
-
-/** The pairs back as text, quoting values that need it. Empty values are left out. */
-export function formatAttrs(args: Record<string, string>): string {
-  return Object.keys(args)
-    .filter((k) => args[k] !== undefined && args[k] !== "")
-    .map((k) => {
-      const op = COMPARES.has(k) ? args[k].match(/^(<=|>=|<|>)\s*/) : null;
-      const value = op ? args[k].slice(op[0].length) : args[k];
-      return `${k}${op ? op[1] : "="}${/^[\w.:/+-]+$/.test(value) ? value : `"${value.replace(/"/g, "'")}"`}`;
-    })
-    .join(" ");
-}
 
 /**
  * The query in a set of args, leaving out other keys (a widget's label and id) and values that
@@ -63,7 +39,7 @@ export const parseQuery = (src: string) => toQuery(parseAttrs(src));
 
 /** A query as text. Sorting by modified is the default, so it's left out. */
 export function formatQuery(q: NoteQuery): string {
-  return formatAttrs({ q: q.q ?? "", folder: q.folder ?? "", tag: q.tag ?? "", sort: q.sort === "title" ? "title" : "", limit: q.limit ? String(q.limit) : "" });
+  return serializeAttrs({ q: q.q ?? "", folder: q.folder ?? "", tag: q.tag ?? "", sort: q.sort === "title" ? "title" : "", limit: q.limit ? String(q.limit) : "" });
 }
 
 /** What's wrong with a query someone wants to save, or null. Stricter than toQuery, which drops what it can't use. */

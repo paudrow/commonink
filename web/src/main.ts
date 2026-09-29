@@ -24,6 +24,7 @@ import { vaultEvents } from "./events.ts";
 import { groupChanges } from "../../src/core/format.ts";
 import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
 import { smartFolderEditor } from "./smartFolderEditor.ts";
+import { clampSide, forget, newLayout, parseLayout, step, visit, type PaneTrail } from "./panes.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
 
@@ -42,6 +43,23 @@ interface Session {
   timer: number;
   /** Set once the user edits this note. A session that was never edited never writes. */
   edited: boolean;
+  /** The pane it's open in. */
+  pane: Pane;
+}
+
+/**
+ * A place a note shows: the main pane (which also shows the pages: Notes, Tasks…) and, split, the
+ * side pane. Each has its own editor, note, and back and forward. The focused one (`active`) is
+ * the one the top bar, the side panel, the status bar and the address bar follow.
+ */
+interface Pane {
+  index: 0 | 1;
+  view: EditorView;
+  session: Session | null;
+  host: HTMLElement;
+  preview: HTMLElement;
+  bar: HTMLElement;
+  trail: PaneTrail;
 }
 
 const store = {
@@ -82,11 +100,27 @@ let changes: Change[] = [];
 let tags: TagCount[] = [];
 /** Your smart folders (the workspace's shared ones and your own), with live counts. */
 let smartFolders: SmartFolder[] = [];
-let session: Session | null = null;
 
-const view = new EditorView({ parent: $("#editor-host") });
+const layoutKey = () => `layout:${workspaceId || "local"}`;
+/** How the window was split, and each pane's trail; read again once the workspace is known (see boot). */
+let layout = newLayout();
+const makePane = (index: 0 | 1, host: HTMLElement, preview: HTMLElement, bar: HTMLElement): Pane => ({
+  index,
+  view: new EditorView({ parent: host }),
+  session: null,
+  host,
+  preview,
+  bar,
+  trail: layout.panes[index],
+});
+const panes: [Pane, Pane] = [makePane(0, $("#editor-host"), $("#html-preview"), $("#main-bar")), makePane(1, $("#side-host"), $("#side-preview"), $("#side-bar"))];
+let active = panes[0];
+let split = false;
+const other = (p: Pane) => panes[1 - p.index];
+/** A note opened from a page: in the main pane, or beside it while split. */
+const fromPage = (path: string, line?: number) => void openNote(path, { line, pane: split ? panes[1] : panes[0] });
 const notesPage = new NotesPage({
-  open: (path, line) => void openNote(path, { line }),
+  open: fromPage,
   starred: (id) => isStarred(id),
   toggleStar: (path) => void toggleStar(path),
   filtersChanged: () => renderTree(),
@@ -102,14 +136,14 @@ const notesPage = new NotesPage({
   },
 });
 const historyPage = new History({
-  open: (path) => void openNote(path),
+  open: (path) => fromPage(path),
   verb: (c) => verb(c),
   toast: (t) => toast(t),
 });
 const assetsPage = new Assets({
   notes: () => notes,
   upload: (files) => uploadFiles(files),
-  open: (path) => void openNote(path),
+  open: (path) => fromPage(path),
   archive: (path) => archivePath(path),
   embedName: (path) => embedName(path),
   tags: () => tags,
@@ -122,20 +156,38 @@ const tagsPage = new TagsPage($("#tags-view"), {
   openTag: (tag, where) => openTag(tag, where),
   toast: (t) => toast(t),
 });
+/** The palette's next pick opens to the side (⌘⌥\ with nothing to show there yet). */
+let paletteToSide = false;
 const palette = new Palette(
   () => notes,
-  (path, line) => openNote(path, { line }),
+  (path, line) => openNote(path, { line, pane: paletteToSide ? sideOf(active) : active }),
   (name) => createNote(name),
 );
+function openPalette(side = false) {
+  paletteToSide = side;
+  palette.open();
+}
 
 // ------------------------------------------------------------------ opening notes
 
 const cursors = new Map<string, number>();
 
-async function openNote(path: string, opts: { line?: number; heading?: string; push?: boolean } = {}) {
-  await flushSave();
-  if (session) await nameUntitled(session);
-  if (session && session.kind !== "asset") cursors.set(session.path, view.state.selection.main.head);
+/**
+ * Open a note in a pane (the focused one by default). A note shows in one pane at a time: if the
+ * other pane has it, that pane takes the focus instead. `trail: false` is a step back or forward.
+ */
+async function openNote(path: string, opts: { line?: number; heading?: string; push?: boolean; pane?: Pane; trail?: boolean; focus?: boolean } = {}) {
+  const pane = opts.pane ?? active;
+  const beside = other(pane);
+  if ((split || pane.index === 1) && beside.session?.path === path) {
+    focusPane(beside);
+    const line = opts.line ?? (opts.heading ? headingLine(beside, opts.heading) : undefined);
+    if (line) goToLine(beside, line);
+    return beside.view.focus();
+  }
+  await flushSave(pane);
+  if (pane.session) await nameUntitled(pane.session);
+  if (pane.session && pane.session.kind !== "asset") cursors.set(pane.session.path, pane.view.state.selection.main.head);
   const meta = notes.find((n) => n.path === path);
   if (meta?.kind === "asset") return showAssets({ open: meta.path, push: opts.push });
 
@@ -157,16 +209,30 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
     again: false,
     timer: 0,
     edited: false,
+    pane,
   };
   // Build the editor before switching sessions: if this throws, the old note stays open and
   // nothing can be saved into the wrong file.
   try {
-    view.setState(
+    pane.view.setState(
       createState({
         doc: note.content,
         kind: note.kind === "html" ? "html" : "md",
         vim: prefs.vim,
-        context: { path: note.path, openTarget, createNote, notes: () => notes, upload: (files) => uploadFiles(files), tags: () => tags, folders: () => allFolders(), openTag, openPerson: (assignee) => void showTasks({ assignee }), saveSmartFolder },
+        readOnly: viewer,
+        context: {
+          path: note.path,
+          // Followed from one pane of a split, a link or card opens in the other; Cmd/Ctrl-click opens it to the side.
+          openTarget: (target, from, o) => void openTarget(target, from, split || o?.side ? other(pane) : pane),
+          createNote,
+          notes: () => notes,
+          upload: (files) => uploadFiles(files),
+          tags: () => tags,
+          folders: () => allFolders(),
+          openTag,
+          openPerson: (assignee) => void showTasks({ assignee }),
+          saveSmartFolder,
+        },
         onUpdate: (docChanged, fromRemote, state) => onUpdate(next, docChanged, fromRemote, state),
       }),
     );
@@ -174,36 +240,130 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
     console.error(e);
     return showBanner(`Couldn't open ${note.path} in the editor. Reload the page to try again.`);
   }
-  session = next;
+  pane.session = next;
+  pane.trail = opts.trail === false ? { ...pane.trail, note: note.id } : visit(pane.trail, note.id);
   resetVimJumps();
   if (isArchived(note.path)) {
     showBanner("This note is archived. It's hidden from search and the sidebar.", ["Unarchive", () => void archiveCurrent()]);
     $("#banner").classList.add("is-info");
   }
-  attachVim();
-  $("#editor-host").classList.toggle("is-code", note.kind === "html");
-  showStage(note.kind === "html" && prefs.htmlMode === "preview" ? "html" : "editor");
-  if (note.kind === "html") renderHtmlPreview();
+  pane.host.classList.toggle("is-code", note.kind === "html");
+  showNoteIn(pane);
+  if (pane.index === 1 && !split) setSplit(true);
 
-  const line = opts.line ?? (opts.heading ? headingLine(opts.heading) : undefined);
-  if (line) goToLine(line);
+  const line = opts.line ?? (opts.heading ? headingLine(pane, opts.heading) : undefined);
+  if (line) goToLine(pane, line);
   else {
     // Start below the frontmatter so it renders as properties rather than raw YAML.
     const fm = note.kind === "md" ? note.content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/) : null;
-    const pos = Math.min(cursors.get(note.path) ?? (fm ? fm[0].length : 0), view.state.doc.length);
-    view.dispatch({ selection: { anchor: pos } });
-    view.scrollDOM.scrollTop = 0;
+    const pos = Math.min(cursors.get(note.path) ?? (fm ? fm[0].length : 0), pane.view.state.doc.length);
+    pane.view.dispatch({ selection: { anchor: pos } });
+    pane.view.scrollDOM.scrollTop = 0;
   }
-  if (note.kind === "md" || prefs.htmlMode === "source") view.focus();
-
   // Following a link or a click adds to history; back/forward, renames and old links just fix the URL up.
-  setUrl(notePath(note.title, note.id), opts.push === false ? "replace" : "push");
-  document.title = `${note.title} · Common Ink`;
+  if (opts.focus !== false) focusPane(pane, opts.push === false || opts.trail === false ? "replace" : "push");
+  else renderPaneBars();
+  if (opts.focus !== false && (note.kind === "md" || prefs.htmlMode === "source")) pane.view.focus();
+}
+
+/**
+ * Give a pane the focus: the address bar, title, top bar, side panel and status bar follow it.
+ * `how` is how the address bar changes (push: a new place to go back from).
+ */
+function focusPane(p: Pane, how: "push" | "replace" = "replace") {
+  active = p;
+  const s = p.session;
+  if (s) {
+    setUrl(notePath(s.title, s.id), how);
+    document.title = `${s.title} · Common Ink`;
+  }
+  attachVim();
   renderChrome();
   renderTree();
   renderOutline();
-  renderStatus(view.state);
+  if (s && s.kind !== "asset") renderStatus(p.view.state);
   refreshBacklinks();
+  saveLayout();
+}
+
+function saveLayout() {
+  layout = { split, side: layout.side, focus: active.index, panes: [panes[0].trail, panes[1].trail] };
+  store.set(layoutKey(), layout);
+}
+
+/** Show or hide the side pane. Hiding it lets its note go (the caller saves it first). */
+function setSplit(on: boolean) {
+  split = on;
+  document.body.classList.toggle("is-split", on);
+  $("#side-pane").hidden = !on;
+  $("#pane-divider").hidden = !on;
+  $("#main-bar").hidden = !on;
+  $("#stage").style.setProperty("--side", `${layout.side * 100}%`);
+  if (!on) panes[1].session = null;
+  renderPaneBars();
+  for (const p of panes) p.view.requestMeasure();
+}
+
+/** Close a pane, back to one. Closing the main pane moves the side pane's note into it. */
+async function closePane(p: Pane) {
+  if (!split) return;
+  const side = panes[1];
+  await flushSave();
+  const moving = p.index === 0 ? side.session : null;
+  if (side.session) cursors.set(side.session.path, side.view.state.selection.main.head);
+  setSplit(false);
+  if (moving) await openNote(moving.path, { pane: panes[0], push: false });
+  else focusPane(panes[0]);
+  if (panes[0].session && panes[0].session.kind !== "asset") panes[0].view.focus();
+}
+
+/** Split the window: the side pane shows the note it last had, else the one the main pane showed before this one, else asks. */
+async function openSplit() {
+  const main = panes[0].session?.id;
+  const want = [panes[1].trail.note, ...[...panes[0].trail.back].reverse()].find((id) => id && id !== main);
+  const path = want ? notes.find((n) => n.id === want && n.kind !== "asset")?.path : undefined;
+  if (path) await openNote(path, { pane: panes[1] });
+  else openPalette(true);
+}
+
+/** Where a note opened "to the side" of a pane goes. */
+const sideOf = (p: Pane) => (split ? other(p) : panes[1]);
+/** Cmd-click (Ctrl-click off a Mac) opens to the side. */
+const toSide = (e: MouseEvent | KeyboardEvent) => e.metaKey || e.ctrlKey;
+
+/** The bars over the panes while split: back and forward, the note's name, star, close. */
+function renderPaneBars() {
+  if (!split) return;
+  const page = onPage();
+  const label = { notes: "Notes", tasks: "Tasks", today: "Today", history: "History", assets: "Assets", tags: "Tags" };
+  for (const p of panes) {
+    const s = p.session;
+    const btn = (ico: string, title: string, run: () => void, cls = "", disabled = false) =>
+      el("button", { type: "button", class: `icon-btn small ${cls}`, title, "aria-label": title, disabled, onclick: (e: Event) => (e.stopPropagation(), run()) }, icon(ico, 14));
+    const starred = s ? isStarred(s.id) : false;
+    p.bar.replaceChildren(
+      btn("back", "Back in this pane", () => void stepPane(p, "back"), "", !p.trail.back.length),
+      btn("back", "Forward in this pane", () => void stepPane(p, "forward"), "is-forward", !p.trail.forward.length),
+      el("span", { class: "pane-title" }, s ? s.title : p.index === 0 && page ? label[page] : ""),
+      el("span", { class: "spacer" }),
+      ...(s && s.kind !== "asset" ? [btn(starred ? "starred" : "star", starred ? "Unstar" : "Star", () => void toggleStar(s.path), starred ? "is-on" : "")] : []),
+      btn("close", "Close this pane (⌘⌥\\)", () => void closePane(p)),
+    );
+    p.bar.classList.toggle("is-focused", p === active);
+  }
+}
+
+/** Go back or forward in one pane, past notes that are gone or open in the other pane. */
+async function stepPane(p: Pane, dir: "back" | "forward") {
+  let from = p.trail;
+  for (let to = step(from, dir); to; to = step(from, dir)) {
+    const path = notes.find((n) => n.id === to!.note)?.path;
+    if (path && path !== other(p).session?.path) {
+      p.trail = to;
+      return openNote(path, { pane: p, trail: false });
+    }
+    from = { ...forget(from, to.note!), note: from.note };
+  }
 }
 
 /** Point the address bar at `url` (path + query) unless it's already there. */
@@ -236,11 +396,15 @@ function showStage(which: "editor" | "html" | "notes" | "tasks" | "today" | "his
 }
 
 /** Put the open note away (saved, named, cursor remembered) before showing a page that isn't a note. */
+/** Pages show in the main pane, which then has the focus. */
 async function leaveNote() {
-  await flushSave();
-  if (session) await nameUntitled(session);
-  if (session && session.kind !== "asset") cursors.set(session.path, view.state.selection.main.head);
-  session = null;
+  const main = panes[0];
+  await flushSave(main);
+  if (main.session) await nameUntitled(main.session);
+  if (main.session && main.session.kind !== "asset") cursors.set(main.session.path, main.view.state.selection.main.head);
+  main.session = null;
+  active = main;
+  renderPaneBars();
   hideBanner();
   await setFocusMode(false);
   $("#backlink-count").textContent = "";
@@ -262,7 +426,7 @@ async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: strin
 async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("tasks");
-  unmountTasks = renderTasksPage($("#tasks-view"), { open: (path, line) => void openNote(path, { line }), tags: () => tags }, { tag: opts.tag, assignee: opts.assignee });
+  unmountTasks = renderTasksPage($("#tasks-view"), { open: (path, line, side) => void openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }), tags: () => tags }, { tag: opts.tag, assignee: opts.assignee });
   $("#tasks-view").focus({ preventScroll: true });
   if (opts.push !== false) setUrl("/tasks");
   document.title = "Tasks · Common Ink";
@@ -375,7 +539,7 @@ let focusMode = false;
  * the editor (vim) where the browser allows it; otherwise leaving full screen keeps focus mode.
  */
 async function setFocusMode(on: boolean) {
-  if (on && (!session || session.kind === "asset")) return;
+  if (on && (!active.session || active.session.kind === "asset")) return;
   if (on === focusMode) return;
   focusMode = on;
   document.body.classList.toggle("is-focus", on);
@@ -393,13 +557,13 @@ async function setFocusMode(on: boolean) {
   } catch {
     // Full screen can be refused (e.g. inside a frame); focus mode still works in the window.
   }
-  view.requestMeasure();
-  if (session && session.kind !== "asset") view.focus();
+  active.view.requestMeasure();
+  if (active.session && active.session.kind !== "asset") active.view.focus();
 }
 
 /** Archive the open note (or unarchive it, if it's archived). Stays on the note, with Undo. */
 async function archiveCurrent() {
-  const s = session;
+  const s = active.session;
   if (!s) return;
   await flushSave();
   const restore = isArchived(s.path);
@@ -421,18 +585,18 @@ async function archiveCurrent() {
     action: async () => {
       const back = (await (restore ? api.archive([to]) : api.unarchive([to]))).moved[0].to;
       await refreshNotes();
-      if (session?.path === to) {
+      if (active.session?.path === to) {
         await openNote(back, { push: false });
       }
     },
   });
 }
 
-async function openTarget(target: string, from?: string) {
+async function openTarget(target: string, from?: string, pane = active) {
   const [name, anchor] = target.split("#");
-  const path = name ? await api.resolve(name, from) : session?.path;
+  const path = name ? await api.resolve(name, from) : from;
   const line = anchor?.match(/^L(\d+)$/)?.[1]; // Note#L12 → line 12 (used by widgets)
-  if (path) openNote(path, line ? { line: Number(line) } : { heading: anchor });
+  if (path) openNote(path, { pane, ...(line ? { line: Number(line) } : { heading: anchor }) });
   else createNote(name);
 }
 
@@ -448,8 +612,8 @@ async function createNote(name: string) {
     const r = await api.create(path, body);
     await refreshNotes();
     await openNote(r.path);
-    view.dispatch({ selection: { anchor: view.state.doc.length } });
-    const cm = getCM(view);
+    active.view.dispatch({ selection: { anchor: active.view.state.doc.length } });
+    const cm = getCM(active.view);
     if (cm && prefs.vim) Vim.handleKey(cm, "A", "user");
   } catch (e) {
     if (e instanceof ApiError && e.status === 409) openNote(e.data.path ?? path);
@@ -467,9 +631,9 @@ async function newNote(folder = "") {
     const r = await api.create(`${dir}${name}.md`, "# \n");
     await refreshNotes();
     await openNote(r.path);
-    view.dispatch({ selection: { anchor: view.state.doc.line(1).to } });
-    view.focus();
-    const cm = getCM(view);
+    active.view.dispatch({ selection: { anchor: active.view.state.doc.line(1).to } });
+    active.view.focus();
+    const cm = getCM(active.view);
     if (cm && prefs.vim) Vim.handleKey(cm, "A", "user");
   } catch {
     toast({ text: "Couldn't create a note" });
@@ -483,7 +647,7 @@ let renaming: string | null = null;
 async function nameUntitled(s: Session) {
   const stem = s.path.split("/").pop()!.replace(/\.md$/i, "");
   if (s.kind !== "md" || !UNTITLED.test(stem) || renaming) return;
-  const title = view.state.doc.line(1).text.match(/^#\s+(.+?)\s*#*$/)?.[1]?.trim();
+  const title = s.pane.view.state.doc.line(1).text.match(/^#\s+(.+?)\s*#*$/)?.[1]?.trim();
   const clean = title?.replace(/[\\/:*?"<>|#^[\]]/g, " ").replace(/\s+/g, " ").trim().slice(0, 120);
   if (!clean || UNTITLED.test(clean)) return;
   const dir = s.path.includes("/") ? s.path.slice(0, s.path.lastIndexOf("/") + 1) : "";
@@ -492,10 +656,11 @@ async function nameUntitled(s: Session) {
   renaming = s.path;
   try {
     const r = await api.move(s.path, target);
-    view.state.facet(editorContext).path = r.path; // the open editor now belongs to the new path
+    s.pane.view.state.facet(editorContext).path = r.path; // the open editor now belongs to the new path
     s.path = r.path;
     s.title = title!;
-    if (s === session) {
+    if (s === active.session) {
+      renderPaneBars();
       setUrl(notePath(s.title, s.id), "replace");
       document.title = `${s.title} · Common Ink`;
       renderChrome();
@@ -508,62 +673,66 @@ async function nameUntitled(s: Session) {
   }
 }
 
-function headingLine(heading: string): number | undefined {
+function headingLine(pane: Pane, heading: string): number | undefined {
   const want = heading.trim().toLowerCase();
-  const doc = view.state.doc;
+  const doc = pane.view.state.doc;
   for (let i = 1; i <= doc.lines; i++) {
     const m = doc.line(i).text.match(/^#{1,6}\s+(.*?)\s*#*$/);
     if (m && m[1].toLowerCase() === want) return i;
   }
 }
 
-function goToLine(line: number) {
-  const l = view.state.doc.line(Math.min(Math.max(1, line), view.state.doc.lines));
-  view.dispatch({ selection: { anchor: l.from }, effects: EditorView.scrollIntoView(l.from, { y: "start", yMargin: 80 }) });
+function goToLine(pane: Pane, line: number) {
+  const l = pane.view.state.doc.line(Math.min(Math.max(1, line), pane.view.state.doc.lines));
+  pane.view.dispatch({ selection: { anchor: l.from }, effects: EditorView.scrollIntoView(l.from, { y: "start", yMargin: 80 }) });
 }
 
 // ------------------------------------------------------------------ saving & merging agent edits
 
 function onUpdate(s: Session, docChanged: boolean, fromRemote: boolean, state: EditorState) {
-  if (s !== session) return;
+  if (s !== s.pane.session) return;
   if (docChanged && !fromRemote) {
     s.edited = true;
-    scheduleSave();
+    scheduleSave(s);
   }
+  if (s.pane !== active) return;
   renderStatusSoon(state);
   if (docChanged) renderOutlineSoon();
 }
 
-function scheduleSave(delay = 600) {
-  const s = session;
-  if (!s || s.kind === "asset") return;
+/** The save status in the top bar is the focused pane's. */
+const status = (s: Session, state: Parameters<typeof setSaveStatus>[0]) => s.pane === active && setSaveStatus(state);
+
+function scheduleSave(s: Session, delay = 600) {
+  if (s.kind === "asset") return;
   clearTimeout(s.timer);
-  setSaveStatus("editing");
+  status(s, "editing");
   s.timer = window.setTimeout(() => save(s), delay);
 }
 
 async function save(s: Session) {
-  if (s !== session || !s.edited) return;
+  const view = s.pane.view;
+  if (s !== s.pane.session || !s.edited) return;
   if (view.state.facet(editorContext)?.path !== s.path) {
     console.error(`Refusing to save ${s.path}: the editor is showing a different note`);
-    return setSaveStatus("error");
+    return status(s, "error");
   }
   if (s.saving) return void (s.again = true);
   const content = view.state.doc.toString();
-  if (content === s.base) return setSaveStatus("saved");
+  if (content === s.base) return status(s, "saved");
   s.saving = true;
-  setSaveStatus("saving");
+  status(s, "saving");
   try {
     const r = await api.save(s.path, content, s.baseVersion, content.trim() === "");
     s.base = content;
     s.baseVersion = r.version;
-    if (s === session && view.state.doc.lineAt(view.state.selection.main.head).number > 1) void nameUntitled(s);
-    if (s === session) setSaveStatus(view.state.doc.toString() === content ? "saved" : "editing");
+    if (s === s.pane.session && view.state.doc.lineAt(view.state.selection.main.head).number > 1) void nameUntitled(s);
+    if (s === s.pane.session) status(s, view.state.doc.toString() === content ? "saved" : "editing");
   } catch (e) {
     if (e instanceof ApiError && e.status === 409) {
       applyRemote({ path: s.path, content: e.data.content, version: e.data.version, source: e.data.source ?? "external" });
     } else {
-      setSaveStatus("error");
+      status(s, "error");
     }
   } finally {
     s.saving = false;
@@ -574,67 +743,71 @@ async function save(s: Session) {
   }
 }
 
-async function flushSave() {
-  const s = session;
-  if (!s || s.kind === "asset" || !s.edited) return;
-  clearTimeout(s.timer);
-  if (view.state.doc.toString() !== s.base) await save(s);
+/** Save now whatever's waiting to be saved, in one pane or both. */
+async function flushSave(...only: Pane[]) {
+  for (const p of only.length ? only : panes) {
+    const s = p.session;
+    if (!s || s.kind === "asset" || !s.edited) continue;
+    clearTimeout(s.timer);
+    if (p.view.state.doc.toString() !== s.base) await save(s);
+  }
 }
 
 let flashTimer = 0;
 /** A new version arrived from disk. Apply it as a diff (keeps cursor, undo, vim state); 3-way merge if we have unsaved typing. */
 function applyRemote(m: { path: string; content: string | null; version: string; source: string }) {
-  const s = session;
-  if (!s || s.path !== m.path || m.content === null || s.kind === "asset") return;
+  const s = panes.find((p) => p.session?.path === m.path)?.session;
+  if (!s || m.content === null || s.kind === "asset") return;
   if (m.version === s.baseVersion) return;
+  const view = s.pane.view;
   const doc = view.state.doc.toString();
   if (doc === m.content) {
     s.base = m.content;
     s.baseVersion = m.version;
-    return setSaveStatus("saved");
+    return status(s, "saved");
   }
   let target = m.content;
   if (doc !== s.base) {
     const merged = merge3(s.base, doc, m.content);
-    if (!merged.ok) return showConflict(m);
+    if (!merged.ok) return showConflict(s, m);
     target = merged.text;
   }
   const { changes: edits, touched } = editsBetween(doc, target);
   view.dispatch({ changes: edits, annotations: remote.of(true), effects: flashChanges.of({ ranges: touched, source: m.source }) });
   s.base = m.content;
   s.baseVersion = m.version;
-  if (target !== m.content) scheduleSave(250);
-  else setSaveStatus("saved");
-  if (s.kind === "html" && prefs.htmlMode === "preview") renderHtmlPreview();
+  if (target !== m.content) scheduleSave(s, 250);
+  else status(s, "saved");
+  if (s.kind === "html" && prefs.htmlMode === "preview") renderHtmlPreview(s.pane);
   clearTimeout(flashTimer);
   flashTimer = window.setTimeout(() => view.dispatch({ effects: clearFlash.of(null) }), 6000);
 }
 
-function showConflict(m: { path: string; content: string | null; version: string; source: string }) {
-  const s = session!;
+function showConflict(s: Session, m: { path: string; content: string | null; version: string; source: string }) {
   const who = m.source === "you" ? "Another window" : m.source === "external" ? "Another program" : m.source;
   clearTimeout(s.timer);
-  setSaveStatus("error");
+  status(s, "error");
   showBanner(
-    `${who} changed this note while you were typing, and the edits overlap.`,
+    `${who} changed ${split ? displayName(s.path) : "this note"} while you were typing, and the edits overlap.`,
     [
       "Keep mine",
       () => {
         s.base = m.content!;
         s.baseVersion = m.version;
         hideBanner();
-        scheduleSave(0);
+        scheduleSave(s, 0);
       },
     ],
     [
       "Use theirs",
       () => {
+        const view = s.pane.view;
         const { changes: edits, touched } = editsBetween(view.state.doc.toString(), m.content!);
         view.dispatch({ changes: edits, annotations: remote.of(true), effects: flashChanges.of({ ranges: touched, source: m.source }) });
         s.base = m.content!;
         s.baseVersion = m.version;
         hideBanner();
-        setSaveStatus("saved");
+        status(s, "saved");
       },
     ],
   );
@@ -650,24 +823,27 @@ function onMessage(m: ServerMsg) {
       if (meta) meta.version = m.version;
       refreshTagsSoon(); // your own typing can add a tag too
       if (m.origin === clientId) return;
-      if (m.path === session?.path) applyRemote(m);
-      else if (session?.kind === "md" && embedsPath(m.path)) bumpEmbeds(view);
+      const open = panes.some((p) => p.session?.path === m.path);
+      if (open) applyRemote(m);
+      for (const p of panes) if (p.session?.kind === "md" && p.session.path !== m.path && embedsPath(p, m.path)) bumpEmbeds(p.view);
       if (!isSelf(m.source) && m.change) {
         toast({
           source: m.source,
           text: `${verb(m.change)} ${displayName(m.path)}`,
           detail: m.change.summary ?? undefined,
-          action: m.path === session?.path ? undefined : () => openNote(m.path),
+          action: open ? undefined : () => openNote(m.path),
         });
       }
       refreshNotesSoon();
-      if (session && m.path !== session.path) refreshBacklinksSoon();
+      if (active.session && m.path !== active.session.path) refreshBacklinksSoon();
       return;
     }
     case "change": {
       if (!changes.some((c) => c.id === m.change.id)) changes = [m.change, ...changes].slice(0, 60);
-      if (["move", "archive", "unarchive"].includes(m.change.op) && m.change.from_path === session?.path && m.change.from_path !== renaming) {
-        openNote(m.change.path, { push: false });
+      for (const pane of panes) {
+        if (["move", "archive", "unarchive"].includes(m.change.op) && m.change.from_path === pane.session?.path && m.change.from_path !== renaming) {
+          openNote(m.change.path, { push: false, pane, trail: false, focus: pane === active });
+        }
       }
       notesPage.refreshSoon();
       historyPage.refreshSoon();
@@ -679,7 +855,7 @@ function onMessage(m: ServerMsg) {
     case "removed": {
       const path = m.path;
       setTimeout(() => {
-        if (session?.path === path && !notes.some((n) => n.path === path)) showBanner("This note was moved or deleted on disk.");
+        if (panes.some((p) => p.session?.path === path) && !notes.some((n) => n.path === path)) showBanner(`${displayName(path)} was moved or deleted on disk.`);
       }, 400);
       refreshNotesSoon();
       return;
@@ -689,21 +865,21 @@ function onMessage(m: ServerMsg) {
       api.clearResolveCache();
       refreshNotesSoon();
       refreshBacklinksSoon();
-      if (session?.kind === "md") bumpEmbeds(view);
+      for (const p of panes) if (p.session?.kind === "md") bumpEmbeds(p.view);
       return;
   }
 }
 
-function embedsPath(path: string): boolean {
+function embedsPath(pane: Pane, path: string): boolean {
   const name = displayName(path).toLowerCase();
-  const text = view.state.doc.toString().toLowerCase();
+  const text = pane.view.state.doc.toString().toLowerCase();
   return text.includes(`![[${name}`) || text.includes(`![[${path.toLowerCase()}`) || text.includes(`![[${path.toLowerCase().replace(/\.md$/, "")}`);
 }
 
 async function refreshNotes() {
   [notes, favorites, tags, smartFolders] = await Promise.all([api.notes(), api.favorites(), api.tags(), api.smartFolders()]);
   // The open note's title may have changed: keep the slug in its URL current.
-  const open = session && notes.find((n) => n.id === session!.id);
+  const open = active.session && notes.find((n) => n.id === active.session!.id);
   if (open && parseNotePath(location.pathname)?.id === open.id) setUrl(notePath(open.title, open.id), "replace");
   renderTree();
   assetsPage.refresh();
@@ -888,11 +1064,11 @@ function renderFavorites() {
     const row = el(
       "div",
       {
-        class: `tree-row is-file${f.path === session?.path ? " is-active" : ""}`,
+        class: `tree-row is-file${f.path === active.session?.path ? " is-active" : ""}`,
         style: { "--depth": "0" },
         title: f.path,
         draggable: "true",
-        onclick: () => openNote(f.path),
+        onclick: (e: MouseEvent) => openNote(f.path, { pane: toSide(e) ? sideOf(active) : active }),
         ondragstart: (e: DragEvent) => {
           e.dataTransfer!.setData(FAVORITE, f.path);
           e.dataTransfer!.setData(NOTE_DRAG, f.path); // so it can go to a folder or Archive too
@@ -905,6 +1081,7 @@ function renderFavorites() {
       el(
         "span",
         { class: "row-actions" },
+        el("button", { type: "button", class: "row-act", title: "Open to the side (⌘-click)", onclick: (e: Event) => (e.stopPropagation(), void openNote(f.path, { pane: sideOf(active) })) }, icon("split", 14)),
         el("button", { type: "button", class: "row-act fav-star", title: "Unstar", onclick: (e: Event) => (e.stopPropagation(), void toggleStar(f.path)) }, icon("starred", 14)),
       ),
     );
@@ -1195,7 +1372,7 @@ async function moveToFolder(path: string, folder: string, opts: { undo?: boolean
   const from = parentOf(path);
   if (folder === from) return;
   const dest = `${folder ? `${folder}/` : ""}${path.split("/").pop()}`;
-  const wasOpen = session?.path === path;
+  const wasOpen = active.session?.path === path;
   if (wasOpen) await flushSave();
   renaming = path;
   let r;
@@ -1228,7 +1405,7 @@ async function moveToFolder(path: string, folder: string, opts: { undo?: boolean
 
 /** Archive a note dropped on Archive. The open note stays open (marked archived), like ⌘⇧E. */
 async function archivePath(path: string) {
-  if (session?.path === path) return archiveCurrent();
+  if (active.session?.path === path) return archiveCurrent();
   const r = await api.archive([path]).catch(() => null);
   if (!r) return toast({ text: `Couldn't archive ${displayName(path)}` });
   await refreshNotes();
@@ -1276,7 +1453,7 @@ function startNewFolder() {
 // ------------------------------------------------------------------ chrome: crumbs, status, panel
 
 function renderChrome() {
-  const s = session;
+  const s = active.session;
   const crumbs = $("#crumbs");
   const page = onPage();
   $("#back-btn").hidden = page === "notes";
@@ -1285,7 +1462,11 @@ function renderChrome() {
   $("#star-btn").hidden = !s || s.kind === "asset";
   $("#note-history-btn").hidden = !s || s.kind === "asset";
   $("#focus-btn").hidden = !s || s.kind === "asset";
+  $("#split-btn").hidden = !split && (!s || s.kind === "asset");
+  $("#split-btn").title = split ? "Close the side pane (⌘⌥\\)" : "Split view (⌘⌥\\)";
+  $("#split-btn").classList.toggle("is-on", split);
   $("#save-status").hidden = !s;
+  renderPaneBars();
   if (!s) {
     $("#html-toggle").hidden = true;
     for (const id of ["#vim-mode", "#cursor-pos", "#word-count"]) $(id).textContent = "";
@@ -1320,13 +1501,13 @@ function renderChrome() {
 }
 
 function openMovePicker(anchor: HTMLElement) {
-  const s = session;
+  const s = active.session;
   if (!s) return;
   folderPicker(anchor, { folders: allFolders(), current: parentOf(s.path), onPick: (folder) => void moveToFolder(s.path, folder) });
 }
 
 function startRename(label: HTMLElement) {
-  const s = session;
+  const s = active.session;
   if (!s) return;
   const ext = s.path.match(/\.[^.]+$/)?.[0] ?? "";
   const input = el("input", { class: "rename-input", value: s.path.replace(/\.(md|markdown)$/i, ""), spellcheck: "false" });
@@ -1375,8 +1556,8 @@ function renderStatus(state: EditorState) {
   const head = state.selection.main.head;
   const line = state.doc.lineAt(head);
   $("#cursor-pos").textContent = `Ln ${line.number}, Col ${head - line.from + 1}`;
-  const words = session?.kind === "md" ? (state.doc.toString().match(/[\p{L}\p{N}’']+/gu)?.length ?? 0) : 0;
-  $("#word-count").textContent = session?.kind === "md" ? `${words.toLocaleString()} words` : "";
+  const words = active.session?.kind === "md" ? (state.doc.toString().match(/[\p{L}\p{N}’']+/gu)?.length ?? 0) : 0;
+  $("#word-count").textContent = active.session?.kind === "md" ? `${words.toLocaleString()} words` : "";
   highlightOutline(line.number);
 }
 
@@ -1392,8 +1573,10 @@ function resetVimJumps() {
   Object.assign(fresh, prev, { jumpList: fresh.jumpList });
 }
 
+/** Editors whose vim mode the status bar already follows. */
+const vimWatched = new WeakSet<object>();
 function attachVim() {
-  const cm = getCM(view);
+  const cm = getCM(active.view);
   const node = $("#vim-mode");
   $("#vim-toggle").classList.toggle("is-on", prefs.vim);
   if (!cm || !prefs.vim) {
@@ -1405,8 +1588,10 @@ function attachVim() {
     node.dataset.mode = mode;
     node.textContent = sub ? `${mode} ${sub}` : mode;
   };
-  set("normal");
-  cm.on("vim-mode-change", (e: { mode: string; subMode?: string }) => set(e.mode, e.subMode));
+  set(cm.state.vim?.insertMode ? "insert" : cm.state.vim?.visualMode ? "visual" : "normal");
+  if (vimWatched.has(cm)) return;
+  vimWatched.add(cm);
+  cm.on("vim-mode-change", (e: { mode: string; subMode?: string }) => getCM(active.view) === cm && set(e.mode, e.subMode));
 }
 
 // outline
@@ -1414,9 +1599,9 @@ let outlineHeadings: Array<{ level: number; text: string; line: number }> = [];
 function renderOutline() {
   const box = $("#outline");
   outlineHeadings = [];
-  if (session?.kind === "md") {
+  if (active.session?.kind === "md") {
     let fence = false;
-    const doc = view.state.doc;
+    const doc = active.view.state.doc;
     for (let i = 1; i <= doc.lines; i++) {
       const t = doc.line(i).text;
       if (/^\s*(```|~~~)/.test(t)) fence = !fence;
@@ -1430,13 +1615,13 @@ function renderOutline() {
       ? outlineHeadings.map((h) =>
           el(
             "div",
-            { class: "outline-item", style: { "--depth": String(h.level - min) }, "data-line": String(h.line), onclick: () => (goToLine(h.line), view.focus()) },
+            { class: "outline-item", style: { "--depth": String(h.level - min) }, "data-line": String(h.line), onclick: () => (goToLine(active, h.line), active.view.focus()) },
             h.text,
           ),
         )
-      : [el("div", { class: "panel-empty" }, session?.kind === "md" ? "No headings" : "—")]),
+      : [el("div", { class: "panel-empty" }, active.session?.kind === "md" ? "No headings" : "—")]),
   );
-  highlightOutline(view.state.doc.lineAt(view.state.selection.main.head).number);
+  highlightOutline(active.view.state.doc.lineAt(active.view.state.selection.main.head).number);
 }
 const renderOutlineSoon = debounce(renderOutline, 250);
 function highlightOutline(line: number) {
@@ -1447,10 +1632,10 @@ function highlightOutline(line: number) {
 
 // backlinks
 async function refreshBacklinks() {
-  const s = session;
+  const s = active.session;
   if (!s) return;
   const links = await api.backlinks(s.path).catch(() => []);
-  if (s !== session) return;
+  if (s !== active.session) return;
   $("#backlink-count").textContent = links.length ? String(links.length) : "";
   $("#backlinks").replaceChildren(
     ...(links.length
@@ -1521,21 +1706,28 @@ function renderPresence() {
 
 // ------------------------------------------------------------------ html notes
 
-function renderHtmlPreview() {
-  if (session?.kind !== "html") return;
-  const frame = sandboxFrame(view.state.doc.toString(), { title: session.title });
+function renderHtmlPreview(pane = active) {
+  if (pane.session?.kind !== "html") return;
+  const frame = sandboxFrame(pane.view.state.doc.toString(), { title: pane.session.title });
   frame.className = "html-frame";
-  $("#html-preview").replaceChildren(frame);
+  pane.preview.replaceChildren(frame);
 }
 
 function setHtmlMode(mode: "preview" | "source") {
   prefs.htmlMode = mode;
   store.set("htmlMode", mode);
-  if (session?.kind !== "html") return;
-  if (mode === "preview") renderHtmlPreview();
-  showStage(mode === "preview" ? "html" : "editor");
-  if (mode === "source") view.focus();
+  for (const p of panes) if (p.session?.kind === "html") showNoteIn(p);
+  if (active.session?.kind !== "html") return;
+  if (mode === "source") active.view.focus();
   renderChrome();
+}
+
+/** Show a pane's note as its editor, or an HTML note as its preview if that's the mode. */
+function showNoteIn(pane: Pane) {
+  const preview = pane.session?.kind === "html" && prefs.htmlMode === "preview";
+  if (pane.index === 0) showStage(preview ? "html" : "editor");
+  else [pane.host.hidden, pane.preview.hidden] = [preview, !preview];
+  if (preview) renderHtmlPreview(pane);
 }
 
 // ------------------------------------------------------------------ banner, toasts
@@ -1586,23 +1778,30 @@ function toast(t: { text: string; source?: string; icon?: string; detail?: strin
 Vim.defineEx("write", "w", () => void flushSave());
 Vim.defineEx("edit", "e", (_cm: unknown, params: { args?: string[] }) => {
   const arg = params.args?.join(" ");
-  if (arg) openTarget(arg, session?.path);
-  else palette.open();
+  if (arg) openTarget(arg, active.session?.path);
+  else openPalette();
 });
 Vim.defineEx("archive", "arch", () => void archiveCurrent());
 Vim.defineEx("notes", "note", () => void showNotes());
-Vim.defineEx("star", "star", () => session && void toggleStar(session.path));
+Vim.defineEx("star", "star", () => active.session && void toggleStar(active.session.path));
 Vim.defineEx("focus", "foc", () => void setFocusMode(!focusMode));
+Vim.defineEx("vsplit", "vs", (_cm: unknown, params: { args?: string[] }) => {
+  const arg = params.args?.join(" ");
+  if (arg) void openTarget(arg, active.session?.path, sideOf(active));
+  else if (!split) void openSplit();
+});
+Vim.defineEx("only", "on", () => split && void closePane(other(active)));
+Vim.defineEx("close", "clo", () => void closePane(active));
 Vim.defineAction("quireFollowLink", () => followLinkAtCursor());
 Vim.mapCommand("gd", "action", "quireFollowLink", {}, { context: "normal" });
 Vim.mapCommand("gf", "action", "quireFollowLink", {}, { context: "normal" });
 
 function followLinkAtCursor() {
-  const link = linkTargetAt(view.state, view.state.selection.main.head);
+  const link = linkTargetAt(active.view.state, active.view.state.selection.main.head);
   if (!link) return;
-  if (link.target) openTarget(link.target, session?.path);
+  if (link.target) openTarget(link.target, active.session?.path);
   else if (link.href && /^https?:/i.test(link.href)) window.open(link.href, "_blank", "noopener");
-  else if (link.href) openTarget(decodeURIComponent(link.href), session?.path);
+  else if (link.href) openTarget(decodeURIComponent(link.href), active.session?.path);
 }
 
 window.addEventListener(
@@ -1611,8 +1810,8 @@ window.addEventListener(
     const mod = e.metaKey || e.ctrlKey;
     if (mod && (e.key === "k" || e.key === "p")) {
       e.preventDefault();
-      palette.isOpen ? palette.close() : palette.open();
-    } else if (mod && e.key === "\\") {
+      palette.isOpen ? palette.close() : openPalette();
+    } else if (mod && !e.altKey && e.key === "\\") {
       e.preventDefault();
       togglePanel();
     } else if (mod && e.key === "s") {
@@ -1634,7 +1833,15 @@ window.addEventListener(
         added: (r) => toast({ icon: "check", text: `Added to ${r.path.replace(/\.md$/, "")}`, actionLabel: "Open", action: () => void openNote(r.path, { line: r.line }) }),
         open: (path, line) => void openNote(path, { line }),
       });
-    } else if (mod && e.key === "e" && session?.kind === "html") {
+    } else if (mod && e.altKey && (e.code === "Backslash" || e.key === "\\")) {
+      e.preventDefault();
+      void (split ? closePane(active) : openSplit());
+    } else if (mod && e.altKey && (e.code === "BracketLeft" || e.code === "BracketRight") && split) {
+      e.preventDefault();
+      const p = panes[e.code === "BracketLeft" ? 0 : 1];
+      focusPane(p);
+      if (p.session && p.session.kind !== "asset") p.view.focus();
+    } else if (mod && e.key === "e" && active.session?.kind === "html") {
       e.preventDefault();
       setHtmlMode(prefs.htmlMode === "preview" ? "source" : "preview");
     }
@@ -1670,8 +1877,74 @@ function toggleTheme() {
     localStorage.setItem("quire.theme", next);
   } catch {}
   $("#theme-toggle").replaceChildren(icon(next === "dark" ? "sun" : "moon", 15));
-  if (session?.kind === "html") renderHtmlPreview();
-  if (session?.kind === "md") bumpEmbeds(view);
+  for (const p of panes) {
+    if (p.session?.kind === "html") renderHtmlPreview(p);
+    if (p.session?.kind === "md") bumpEmbeds(p.view);
+  }
+}
+
+// ------------------------------------------------------------------ split view
+
+/** The divider, the drop zone at the right edge, the split button, and focus following clicks into a pane. */
+function setupPanes() {
+  const stage = $("#stage");
+  const divider = $("#pane-divider");
+  const resize = (clientX: number) => {
+    const r = stage.getBoundingClientRect();
+    layout.side = clampSide((r.right - clientX) / r.width);
+    stage.style.setProperty("--side", `${layout.side * 100}%`);
+    for (const p of panes) p.view.requestMeasure();
+  };
+  divider.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    divider.setPointerCapture(e.pointerId);
+    document.body.classList.add("is-resizing");
+    const move = (ev: PointerEvent) => resize(ev.clientX);
+    const up = () => {
+      divider.removeEventListener("pointermove", move);
+      document.body.classList.remove("is-resizing");
+      saveLayout();
+    };
+    divider.addEventListener("pointermove", move);
+    divider.addEventListener("pointerup", up, { once: true });
+  });
+  divider.addEventListener("keydown", (e) => {
+    const by = e.key === "ArrowLeft" ? 0.05 : e.key === "ArrowRight" ? -0.05 : 0;
+    if (!by) return;
+    e.preventDefault();
+    layout.side = clampSide(layout.side + by);
+    stage.style.setProperty("--side", `${layout.side * 100}%`);
+    saveLayout();
+  });
+
+  // Drag a note (from the sidebar or Notes) to the right edge to open it there.
+  const zone = $("#side-drop");
+  const edge = (e: DragEvent) => e.dataTransfer?.types.includes(NOTE_DRAG) && e.clientX > stage.getBoundingClientRect().right - Math.max(96, stage.clientWidth * 0.18);
+  stage.addEventListener("dragover", (e) => {
+    zone.hidden = !edge(e);
+    if (!zone.hidden) e.preventDefault();
+  });
+  stage.addEventListener("dragleave", (e) => !stage.contains(e.relatedTarget as Node) && (zone.hidden = true));
+  stage.addEventListener("drop", (e) => {
+    const on = !zone.hidden;
+    zone.hidden = true;
+    const path = on ? e.dataTransfer!.getData(NOTE_DRAG) : "";
+    if (!path || notes.find((n) => n.path === path)?.kind === "asset") return;
+    e.preventDefault();
+    void openNote(path, { pane: panes[1] });
+  });
+  document.addEventListener("dragend", () => (zone.hidden = true));
+
+  $("#split-btn").addEventListener("click", () => void (split ? closePane(panes[1]) : openSplit()));
+  // Clicking or tabbing into a pane gives it the focus.
+  // (Not from a pane bar's buttons: redrawing the bar on mousedown would swallow their click.)
+  const follow = (p: Pane) => (e: Event) => p !== active && split && !(e.target as Element).closest?.(".pane-bar button") && focusPane(p);
+  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#tasks-view", "#history-view", "#assets-view", "#tags-view"]], [panes[1], ["#side-pane"]]] as const) {
+    for (const sel of nodes) {
+      $(sel).addEventListener("focusin", follow(p));
+      $(sel).addEventListener("mousedown", follow(p));
+    }
+  }
 }
 
 // ------------------------------------------------------------------ utils + boot
@@ -1718,7 +1991,7 @@ async function route() {
   }
   const link = parseNotePath(at);
   const path = link ? (notes.find((n) => n.id === link.id)?.path ?? (await api.resolve(link.id).catch(() => null))) : undefined;
-  if (path) return path === session?.path ? undefined : openNote(path, { push: false });
+  if (path) return path === active.session?.path ? undefined : openNote(path, { push: false });
   if (link && workspaceId) {
     // Online, the link may be to a note in another of your workspaces: switch to it (?w= picks it).
     const where = await api.locate(link.id).catch(() => null);
@@ -1755,18 +2028,19 @@ async function boot() {
 
   hydrateIcons();
   togglePanel(prefs.panel);
-  $("#search-btn").addEventListener("click", () => palette.open());
+  $("#search-btn").addEventListener("click", () => openPalette());
   // A new note goes at the top level, unless Notes is showing a folder: then it goes there.
   $("#new-note").addEventListener("click", () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""));
   $("#panel-btn").addEventListener("click", () => togglePanel());
+  setupPanes();
   $("#stage").addEventListener("mousedown", () => document.body.classList.remove("panel-overlay"));
   $("#theme-toggle").addEventListener("click", toggleTheme);
   $("#vim-toggle").addEventListener("click", () => {
     prefs.vim = !prefs.vim;
     store.set("vim", prefs.vim);
-    view.dispatch({ effects: vimSlot.reconfigure(prefs.vim ? vim() : []) });
+    for (const p of panes) p.view.dispatch({ effects: vimSlot.reconfigure(prefs.vim ? vim() : []) });
     attachVim();
-    view.focus();
+    active.view.focus();
   });
   $("#html-toggle").addEventListener("click", (e) => {
     const mode = (e.target as HTMLElement).closest("button")?.dataset.mode as "preview" | "source" | undefined;
@@ -1783,11 +2057,11 @@ async function boot() {
   $("#tags-page-btn").addEventListener("click", () => void showTags());
   $("#new-smart-folder").addEventListener("click", () => newSmartFolder($("#new-smart-folder")));
   setupSections();
-  $("#note-history-btn").addEventListener("click", () => session && void showHistory({ note: session.path }));
+  $("#note-history-btn").addEventListener("click", () => active.session && void showHistory({ note: active.session.path }));
   $("#back-btn").addEventListener("click", () => void showNotes());
   $("#archive-nav").addEventListener("click", () => void showNotes({ scope: "archived", query: {} }));
   $("#archive-btn").addEventListener("click", () => void archiveCurrent());
-  $("#star-btn").addEventListener("click", () => session && void toggleStar(session.path));
+  $("#star-btn").addEventListener("click", () => active.session && void toggleStar(active.session.path));
   $("#move-btn").addEventListener("click", () => openMovePicker($("#move-btn")));
   $("#focus-btn").addEventListener("click", () => void setFocusMode(!focusMode));
   $("#new-folder").addEventListener("click", () => startNewFolder());
@@ -1802,7 +2076,7 @@ async function boot() {
       icon: "timer",
       text: `${t.label || "Timer"} is done`,
       detail: t.note ? displayName(t.note) : undefined,
-      action: t.note && t.note !== session?.path ? () => openNote(t.note!) : undefined,
+      action: t.note && t.note !== active.session?.path ? () => openNote(t.note!) : undefined,
       sticky: true,
     }),
   );
@@ -1828,9 +2102,21 @@ async function boot() {
 
   void refreshTaskCount();
   // Home is the notes list; a note's URL (or the tasks, history or assets page) opens that instead.
-  await route();
+  // Split as you left it: the side pane's note first, then the address bar's note in the pane that had the focus.
+  layout = parseLayout(JSON.stringify(store.get(layoutKey(), null)));
+  panes[0].trail = layout.panes[0];
+  panes[1].trail = layout.panes[1];
+  const beside = layout.split ? notes.find((n) => n.id === layout.panes[1].note && n.kind !== "asset") : undefined;
+  if (beside) await openNote(beside.path, { pane: panes[1], focus: false, trail: false });
+  if (beside && parseNotePath(location.pathname)?.id === beside.id) {
+    // The address bar names the side pane's note: the main pane gets back what it had.
+    const main = notes.find((n) => n.id === layout.panes[0].note && n.kind !== "asset");
+    if (main) await openNote(main.path, { pane: panes[0], focus: false, trail: false });
+    else await showNotes({ push: false });
+    focusPane(panes[1]);
+  } else await route();
 }
 
 boot();
 
-(window as any).quire = { view }; // handy in devtools
+(window as any).quire = { panes }; // handy in devtools

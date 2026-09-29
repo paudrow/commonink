@@ -10,7 +10,8 @@ import { endTags, metaChips } from "./taskChips.ts";
 import { openChipEditor, openTaskMenu, taskPeople } from "./taskChipEditors.ts";
 
 export interface RowEnv {
-  open(path: string, line?: number): void;
+  /** `side`: in the other pane (Cmd/Ctrl-click). */
+  open(path: string, line?: number, side?: boolean): void;
   openTag(tag: string): void;
   openPerson(name: string): void;
   /** The list reloads after a change (the task's line, or where it lives, moved). */
@@ -41,7 +42,7 @@ export function taskRow(t: Task, env: RowEnv, where: string | null): HTMLElement
   });
   text.addEventListener("click", (e) => {
     const target = e.target as HTMLElement;
-    if (e.metaKey || e.ctrlKey) return env.open(t.path, t.line); // ⌘-click: the note, at this line
+    if (e.metaKey || e.ctrlKey) return env.open(t.path, t.line, true); // ⌘-click: the note, at this line, to the side
     const chip = target.closest<HTMLElement>(".tk[data-field]");
     const tag = chip?.dataset.field === "tags" ? chip.dataset.value!.toLowerCase() : target.closest<HTMLElement>(".tag")?.dataset.tag;
     if (tag) env.openTag(tag);
@@ -50,7 +51,7 @@ export function taskRow(t: Task, env: RowEnv, where: string | null): HTMLElement
   });
   const menu = el("button", { type: "button", class: "qt-act", title: "Priority, due, repeat, person, tags…", "aria-label": "Task fields", onmousedown: prevent }, icon("sliders", 13));
   menu.addEventListener("click", () => openTaskMenu(menu, ctx));
-  const go = el("button", { type: "button", class: "qt-act", title: "Go to note", "aria-label": `Go to ${t.title}, line ${t.line}`, onmousedown: prevent, onclick: () => env.open(t.path, t.line) }, icon("open", 13));
+  const go = el("button", { type: "button", class: "qt-act", title: "Go to note", "aria-label": `Go to ${t.title}, line ${t.line}`, onmousedown: prevent, onclick: (e: MouseEvent) => env.open(t.path, t.line, e.metaKey || e.ctrlKey) }, icon("open", 13));
   const row = el("div", { class: `qt-row${t.done ? " is-done" : ""}` }, box, text, where ? el("span", { class: "qt-where" }, where) : null, menu, go);
   box.addEventListener("mousedown", (e) => {
     e.preventDefault();

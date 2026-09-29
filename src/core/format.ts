@@ -1,6 +1,7 @@
 // Plain-text renderings of core results, shared by the MCP server and the CLI.
 // Agents read markdown far more cheaply than JSON, so this is the default output.
 import { isTagFavorite, type Backlink, type Change, type Favorite, type Note, type NoteMeta, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView } from "./quire.ts";
+import type { Board } from "./kanban.ts";
 
 export function fmtSearch(q: string, hits: SearchHit[]): string {
   if (!hits.length) return `No notes match "${q}".`;
@@ -108,4 +109,20 @@ export function fmtToday(t: TodayView): string {
   const day = new Date(`${t.date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
   const sections = t.sections.map((s) => `${s.title} (${s.tasks.length})\n${s.tasks.length ? fmtTasks(s.tasks) : "- nothing"}`);
   return [day, ...sections, `Journal: ${t.journal.path}${t.journal.exists ? "" : " (not written yet)"}`].join("\n\n");
+}
+
+/** A note's boards, column by column: each card as its markdown line with its line number, and the lines nested under it. */
+export function fmtBoards(path: string, boards: Board[]): string {
+  if (!boards.length) return `${path} has no board.`;
+  return boards
+    .map((b, i) => {
+      const columns = b.columns.map((c) =>
+        [
+          `${"#".repeat(b.level)} ${c.title}${c.done ? " (done column)" : ""}`,
+          ...c.cards.flatMap((k) => [`- ${k.checked === null ? "" : `[${k.checked ? "x" : " "}] `}${k.text} — L${k.from + 1}`, ...k.details.map((d) => (d ? `    ${d}` : ""))]),
+        ].join("\n"),
+      );
+      return [`Board ${i + 1} of ${boards.length} in ${path}`, ...columns].join("\n\n");
+    })
+    .join("\n\n");
 }

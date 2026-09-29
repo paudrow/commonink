@@ -133,7 +133,7 @@ export const tasks: WidgetSpec = {
                   "div",
                   { class: "qt-group" },
                   group === "note"
-                    ? el("button", { type: "button", class: "qt-note", onmousedown: prevent, onclick: () => env.open(key) }, icon("file", 13), g.label)
+                    ? el("button", { type: "button", class: "qt-note", onmousedown: prevent, onclick: (e: MouseEvent) => env.open(key, undefined, e.metaKey || e.ctrlKey) }, icon("file", 13), g.label)
                     : el("div", { class: "qt-note is-label" }, g.label, el("span", { class: "n" }, String(g.tasks.length))),
                   ...g.tasks.map(row),
                 ),

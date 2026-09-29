@@ -15,10 +15,16 @@ import type { NoteMeta, TagCount } from "../api.ts";
 import { touches } from "./livePreview.ts";
 import { dataEmbed, hydrateDataEmbeds } from "../textPreview.ts";
 import { scanTags } from "../../../src/core/tags.ts";
+import { boardsIn, setBoardArgs } from "../../../src/core/kanban.ts";
+import { hydrateBoards, mountBoard, type BoardHost } from "../kanban.ts";
+import { kanbanBlock } from "../widgets/kanban.ts";
+import { editsBetween } from "../merge.ts";
+import { redo, undo } from "@codemirror/commands";
 
 export interface EditorContext {
   path: string;
-  openTarget(target: string, from: string): void;
+  /** Open a note. `side`: to the side of this one (Cmd/Ctrl-click). */
+  openTarget(target: string, from: string, opts?: { side?: boolean }): void;
   createNote(name: string): void;
   notes(): NoteMeta[];
   /** Upload files (or pick some, if none given); resolves to the names to embed them by. */
@@ -199,9 +205,10 @@ class EmbedWidget extends WidgetType {
         body.replaceChildren(frame);
       } else {
         const md = heading ? sectionOf(note.content, heading) : note.content;
-        body.innerHTML = renderMarkdown(md, path);
+        body.innerHTML = renderMarkdown(md, path, { boards: !heading });
         hydrateDataEmbeds(body, path, settle);
         body.querySelectorAll("input").forEach((i) => (i.disabled = true));
+        (outer as any).stopBoards = hydrateBoards(body, path, { ctx, readOnly: view.state.readOnly, resized: settle });
         body.querySelectorAll("img").forEach((img) => img.addEventListener("load", settle));
         body.addEventListener("mousedown", (e) => {
           const a = (e.target as HTMLElement).closest("a");
@@ -219,6 +226,10 @@ class EmbedWidget extends WidgetType {
       settle();
     });
     return wrap;
+  }
+
+  destroy(dom: HTMLElement) {
+    for (const stop of (dom as any).stopBoards ?? []) stop();
   }
 }
 
@@ -312,11 +323,13 @@ class DirectiveWidget extends WidgetType {
         env.update({ ...args, id });
       },
       focusEditor: () => view.focus(),
-      open: (target, line) => view.state.facet(editorContext).openTarget(line ? `${target}#L${line}` : target, this.note),
+      open: (target, line, side) => view.state.facet(editorContext).openTarget(line ? `${target}#L${line}` : target, this.note, { side }),
       openTag: (tag) => view.state.facet(editorContext).openTag(tag, "tasks"),
       saveSmartFolder: (query, name, anchor) => view.state.facet(editorContext).saveSmartFolder(query, name, anchor),
       sources: { tags: () => view.state.facet(editorContext).tags(), folders: () => view.state.facet(editorContext).folders() },
       openPerson: (name) => view.state.facet(editorContext).openPerson(name),
+      editor: view.state.facet(editorContext),
+      readOnly: view.state.readOnly,
       remeasure: () =>
         requestAnimationFrame(() => {
           if (root.isConnected) heights.set(`w|${this.source}`, root.offsetHeight);
@@ -327,6 +340,95 @@ class DirectiveWidget extends WidgetType {
     root.append(dom);
     (root as any).destroyWidget = destroy;
     env.remeasure();
+    return root;
+  }
+  destroy(dom: HTMLElement) {
+    (dom as any).destroyWidget?.();
+  }
+}
+
+/**
+ * A `:::kanban` block drawn as its board, while the cursor is outside it. Each board change is a
+ * transaction on the note, so it saves and undoes like typing. A change to the block's text redraws
+ * the same board in place; new settings build it again.
+ */
+class BoardWidget extends WidgetType {
+  constructor(
+    readonly source: string,
+    readonly index: number,
+    readonly opening: string,
+  ) {
+    super();
+  }
+  eq(o: BoardWidget) {
+    return o.source === this.source && o.index === this.index;
+  }
+  get estimatedHeight() {
+    return heights.get(`k|${this.index}|${this.opening}`) ?? 320;
+  }
+  ignoreEvent() {
+    return true;
+  }
+  updateDOM(dom: HTMLElement) {
+    const board = (dom as any).board as ReturnType<typeof mountBoard> | undefined;
+    if (!board || dom.dataset.opening !== this.opening) return false;
+    (dom as any).at.index = this.index;
+    board.update(this.index);
+    return true;
+  }
+  toDOM(view: EditorView) {
+    const root = el("div", { class: "cm-widget cm-board", contenteditable: "false", "data-opening": this.opening });
+    const at = ((root as any).at = { index: this.index });
+    const ctx = () => view.state.facet(editorContext);
+    const resized = () =>
+      requestAnimationFrame(() => {
+        if (root.isConnected) heights.set(`k|${this.index}|${this.opening}`, root.offsetHeight);
+        view.requestMeasure();
+      });
+    const board = () => boardsIn(view.state.doc.toString())[at.index];
+    const host: BoardHost = {
+      ctx: ctx(),
+      get path() {
+        return ctx().path;
+      },
+      text: () => view.state.doc.toString(),
+      write: (next) => view.dispatch({ changes: editsBetween(view.state.doc.toString(), next).changes, userEvent: "input.board" }),
+      undo: () => undo(view),
+      redo: () => redo(view),
+      readOnly: view.state.readOnly,
+      editText: () => {
+        const b = board();
+        if (b) view.dispatch({ selection: { anchor: view.state.doc.line(b.from + 1).to }, scrollIntoView: true });
+        view.focus();
+      },
+      resized,
+    };
+    const env: WidgetEnv = {
+      args: board()?.args ?? {},
+      note: ctx().path,
+      openConfig: false,
+      update: (args) => view.dispatch({ changes: editsBetween(view.state.doc.toString(), setBoardArgs(view.state.doc.toString(), at.index, args)).changes }),
+      withId: (fn) => fn(""),
+      focusEditor: () => view.focus(),
+      remeasure: resized,
+      open: (target) => ctx().openTarget(target, ctx().path),
+      openTag: (tag) => ctx().openTag(tag, "tasks"),
+      openPerson: (name) => ctx().openPerson(name),
+      saveSmartFolder: () => {}, // a board's settings have no query to save
+      sources: { tags: () => ctx().tags(), folders: () => ctx().folders() },
+      editor: ctx(),
+      readOnly: view.state.readOnly,
+    };
+    const spec = kanbanBlock((body, _env, card) => {
+      const edit = el("button", { class: "qw-icon", type: "button", title: "Edit as text", "aria-label": "Edit as text", onclick: host.editText }, icon("code", 15));
+      card.querySelector(".qw-head")!.insertBefore(edit, card.querySelector(".qw-head .qw-icon"));
+      const b = mountBoard(body, host, this.index);
+      (root as any).board = b;
+      return b.destroy;
+    });
+    const { dom, destroy } = renderWidget(spec, env);
+    root.append(dom);
+    (root as any).destroyWidget = destroy;
     return root;
   }
   destroy(dom: HTMLElement) {
@@ -502,8 +604,23 @@ function buildBlocks(state: EditorState): DecorationSet {
   const doc = state.doc;
   const out: Range<Decoration>[] = [];
 
+  // Boards drawn in place of their block; nothing inside one renders on its own.
+  const drawn: Array<{ from: number; to: number }> = [];
+  const text = doc.toString();
+  if (text.includes(":::kanban")) {
+    boardsIn(text).forEach((b, i) => {
+      const first = doc.line(b.from + 1);
+      const last = doc.line(b.close + 1);
+      if (touches(state, first.from, last.to)) return;
+      drawn.push({ from: first.from, to: last.to });
+      out.push(Decoration.replace({ block: true, widget: new BoardWidget(doc.sliceString(first.from, last.to), i, first.text.trim()) }).range(first.from, last.to));
+    });
+  }
+  const hidden = (pos: number) => drawn.some((r) => pos >= r.from && pos <= r.to);
+
   tree.iterate({
     enter(ref) {
+      if (hidden(ref.from)) return false;
       if (ref.name === "Frontmatter") {
         const first = doc.lineAt(ref.from);
         const last = lastLine(doc, ref.from, ref.to);
@@ -548,6 +665,7 @@ function buildBlocks(state: EditorState): DecorationSet {
         const last = lastLine(doc, ref.from, ref.to).number;
         for (let l = first; l <= last; l++) {
           const line = doc.line(l);
+          if (hidden(line.from)) continue;
           // The markdown line stays visible (as a quiet caption) above what it renders, so the
           // cursor can move onto it and edit it like any other line.
           const place = (widget: WidgetType) => {

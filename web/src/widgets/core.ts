@@ -5,6 +5,7 @@ import type { TagCount } from "../api.ts";
 import { el, icon } from "../dom.ts";
 import { tagPicker } from "../tagPicker.ts";
 import { formatDuration, parseDuration, serializeDirective } from "./args.ts";
+import type { EditorContext } from "../editor/blocks.ts";
 
 export interface Field {
   key: string;
@@ -37,8 +38,8 @@ export interface WidgetEnv {
   withId(fn: (id: string) => void): void;
   focusEditor(): void;
   remeasure(): void;
-  /** Open a note (path or [[name]]), optionally at a line. */
-  open(target: string, line?: number): void;
+  /** Open a note (path or [[name]]), optionally at a line; `side`: to the side (Cmd/Ctrl-click). */
+  open(target: string, line?: number, side?: boolean): void;
   /** Show what carries a tag (a tag clicked in the widget). */
   openTag(tag: string): void;
   /** Offer to keep a note query (`tag=work sort=title`) as a smart folder, named `name` to start with. */
@@ -47,6 +48,10 @@ export interface WidgetEnv {
   sources: FieldSources;
   /** Show a person's tasks. */
   openPerson(name: string): void;
+  /** The note editor the widget is in (none on the Tasks page): its note names and tags, for suggestions. */
+  editor?: EditorContext;
+  /** The person can read this workspace but not change it. */
+  readOnly?: boolean;
 }
 
 export interface WidgetSpec {
@@ -59,6 +64,8 @@ export interface WidgetSpec {
   defaults: Record<string, string>;
   /** A button in the settings form that does something with the args being edited (not yet saved). */
   configAction?: { label: string; icon: string; run(args: Record<string, string>, env: WidgetEnv, anchor: HTMLElement): void };
+  /** Settings for a block (`:::name{…}` … `:::`) rather than a one-line widget. */
+  block?: boolean;
   /** Build the widget body; return a cleanup function. */
   mount(body: HTMLElement, env: WidgetEnv, card: HTMLElement): () => void;
 }
@@ -71,7 +78,7 @@ export function renderWidget(spec: WidgetSpec, env: WidgetEnv): { dom: HTMLEleme
     el("span", { class: "qw-kind" }, icon(spec.icon, 13), spec.title),
     env.args.label ? el("span", { class: "qw-label" }, env.args.label) : null,
     el("span", { class: "spacer" }),
-    gear,
+    env.readOnly ? null : gear,
   );
   const body = el("div", { class: "qw-body" });
   const root = el("div", { class: `qw qw-${spec.name}` }, head, body);
@@ -139,7 +146,7 @@ function configForm(
   const refresh = () => {
     const valid = spec.fields.every((f) => f.type !== "duration" || parseDuration(values[f.key]) !== null);
     save.disabled = !valid;
-    preview.textContent = valid ? serializeDirective({ name: spec.name, args: normalized() }) : "Duration like 25m, 1h30m or 4:30";
+    preview.textContent = valid ? (spec.block ? ":" : "") + serializeDirective({ name: spec.name, args: normalized() }) : "Duration like 25m, 1h30m or 4:30";
     preview.classList.toggle("is-error", !valid);
   };
 
