@@ -56,6 +56,21 @@ test("a stale baseVersion is a 409 carrying the current text", async () => {
   assert.equal(r.body.content, "# Welcome\n\nStart with [[Roadmap]].\n\n![[chart.svg]]\n");
 });
 
+test("undoing an agent's edit restores the note only while it's still at that edit's version", async () => {
+  const { call, quire } = setup();
+  quire.save("Plan.md", "# Plan\n\nship it\n", { source: "you" });
+  const agent = quire.edit("Plan.md", { oldString: "ship it", newString: "ship it friday" }, "claude");
+  const undo = await call("POST", "/restore", { id: agent.change!.id, version: agent.change!.version });
+  assert.equal(undo.status, 200);
+  assert.equal((await call("GET", "/note?path=Plan.md")).body.content, "# Plan\n\nship it\n");
+
+  const again = quire.edit("Plan.md", { oldString: "ship it", newString: "ship it monday" }, "claude");
+  quire.save("Plan.md", "# Plan\n\nship it monday, with notes\n", { source: "you" });
+  const late = await call("POST", "/restore", { id: again.change!.id, version: again.change!.version });
+  assert.deepEqual([late.status, late.body.code], [409, "conflict"]);
+  assert.equal((await call("GET", "/note?path=Plan.md")).body.content, "# Plan\n\nship it monday, with notes\n", "the later edit is kept");
+});
+
 test("the API refuses to blank out a note unless told to", async () => {
   const { call } = setup();
   assert.equal((await call("PUT", "/note", { path: "Welcome.md", content: "  \n" })).status, 422);

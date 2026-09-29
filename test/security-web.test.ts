@@ -61,6 +61,7 @@ test("hostile markdown renders in linear time, and deep quotes don't overflow th
   const cases: Array<[string, () => unknown]> = [
     ["33k ![[", () => renderMarkdown("![[".repeat(33_000), "a.md")],
     ["100k [", () => renderMarkdown("[".repeat(100_000), "a.md")],
+    ["backtick runs that never close", () => renderMarkdown(Array.from({ length: 400 }, (_, i) => "`".repeat(i + 1)).join(" [[a]] "), "a.md")],
     ["a section heading with 100k spaces", () => sectionOf(`## a${" ".repeat(100_000)}b\n`, "x")],
     ["a CSV cell of 100k digits", () => toNumber(`${"1".repeat(100_000)}x`)],
   ];

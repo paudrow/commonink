@@ -1,9 +1,12 @@
 import { localDate, type TaskMeta, type TaskPatch } from "../../src/core/tasks.ts";
+import type { GuideAction, GuideState } from "../../src/core/guide.ts";
+import { did } from "./events.ts";
+import type { NoteRole } from "../../src/core/noteRoles.ts";
 
 /** The reader's day, which task writes and due filters go by (the server may be in another time zone). */
 const today = () => localDate(Date.now());
 
-export type { TaskMeta, TaskPatch };
+export type { GuideState, TaskMeta, TaskPatch };
 export type Kind = "md" | "html" | "asset";
 export interface NoteMeta {
   id: string;
@@ -43,6 +46,11 @@ export interface DiffRun {
   skipped: number;
   before: string | null;
   after: string | null;
+  stat: LineStat | null;
+}
+export interface LineStat {
+  add: number;
+  del: number;
 }
 export interface DiffFile {
   path: string;
@@ -78,6 +86,7 @@ export interface FeedItem {
   lastSource: string | null;
   /** Who made the last change (see authorName). */
   lastBy: { person: string | null; agent: string | null } | null;
+  role: NoteRole | null;
 }
 export interface FeedPage {
   items: FeedItem[];
@@ -225,7 +234,8 @@ const send = (method: string, body: unknown): RequestInit => ({
 const resolveCache = new Map<string, Promise<string | null>>();
 
 export const api = {
-  info: () => j<{ mode: "local" | "cloud"; name: string; vault?: string }>(`${BASE}/info`),
+  /** Locally, `vault` and `projectRoot` (where bin/quire is) are absolute paths. */
+  info: () => j<{ mode: "local" | "cloud"; name: string; vault?: string; projectRoot?: string }>(`${BASE}/info`),
   /** Online: which of your workspaces a note ID is in (404 if none you can open). */
   locate: (id: string) => j<{ workspace: { id: string; name: string } }>(`/api/note-ids/${id}`),
   createWorkspace: (name: string) => j<{ id: string }>("/api/workspaces", send("POST", { name })),
@@ -255,7 +265,7 @@ export const api = {
   setAssetTags: (path: string, tags: string[]) => j<{ tags: string[] }>(`${BASE}/asset-tags`, send("PUT", { path, tags })),
   /** Rename (or merge) a tag everywhere. Restoring `changes` and setting `assets` back undoes it. */
   renameTag: (from: string, to: string) => j<{ changes: number[]; assets: Record<string, string[]> }>(`${BASE}/tags/rename`, send("POST", { from, to })),
-  setTask: (t: Task, done: boolean) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/set`, send("POST", { path: t.path, line: t.line, text: t.text, done, today: today() })),
+  setTask: (t: Task, done: boolean) => (done && did("tick"), j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/set`, send("POST", { path: t.path, line: t.line, text: t.text, done, today: today() }))),
   /** Change a task's tokens in its note; the rest of its line stays as written. */
   updateTask: (t: Task, patch: TaskPatch) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/update`, send("POST", { path: t.path, line: t.line, text: t.text, patch, today: today() })),
   /** The day at a glance for `day` (the viewer's today). */
@@ -270,12 +280,16 @@ export const api = {
   moveTask: (t: Task, to: string) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/move`, send("POST", { path: t.path, line: t.line, text: t.text, to })),
   /** Your starred notes, in your order. Each change returns the new list. */
   favorites: () => j<Favorite[]>(`${BASE}/favorites`),
-  star: (path: string) => j<Favorite[]>(`${BASE}/favorites/star`, send("POST", { path })),
+  star: (path: string) => (did("star"), j<Favorite[]>(`${BASE}/favorites/star`, send("POST", { path }))),
   unstar: (path: string) => j<Favorite[]>(`${BASE}/favorites/unstar`, send("POST", { path })),
   starTag: (tag: string) => j<Favorite[]>(`${BASE}/favorites/star`, send("POST", { tag })),
   unstarTag: (tag: string) => j<Favorite[]>(`${BASE}/favorites/unstar`, send("POST", { tag })),
   /** `keys` are note paths and "#tag"s (see favoriteKey). */
   orderFavorites: (keys: string[]) => j<Favorite[]>(`${BASE}/favorites`, send("PUT", { paths: keys })),
+  /** The Getting started checklist's state, or null if there isn't one (see src/core/guide.ts). */
+  guide: () => j<GuideState | null>(`${BASE}/guide`),
+  /** Have the guide tick a step, show its demo edit, or close the checklist. */
+  guideDo: (action: GuideAction) => j<GuideState | null>(`${BASE}/guide`, send("POST", { action })),
   archive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/archive`, send("POST", { paths })),
   /** What deleting these notes, or everything in a folder, would touch. */
   deleteCheck: (o: { paths?: string[]; folder?: string }) =>
@@ -297,7 +311,12 @@ export const api = {
   changeAgents: () => j<string[]>(`${BASE}/changes/agents`),
   /** What a set of changes did, note by note. `ids` is ranges like "12-18,20". */
   diffs: (ids: string) => j<DiffFile[]>(`${BASE}/diffs?ids=${ids}`),
-  restore: (id: number) => j<{ path: string; version: string; change: number | null }>(`${BASE}/restore`, send("POST", { id })),
+  /** A note's text before and after change #id. */
+  diff: (id: number) => j<{ path: string; before: string | null; after: string | null }>(`${BASE}/diff?from=${id}`),
+  /** The net lines added and removed by each set of changes (ranges as for diffs), at most 50 sets. */
+  diffStats: (sets: string[]) => j<Array<LineStat | null>>(`${BASE}/diffstats?sets=${sets.join(";")}`),
+  /** Put a note back the way it was before change #id; with `version`, only if the note is still at that version. */
+  restore: (id: number, version?: string) => j<{ path: string; version: string; change: number | null }>(`${BASE}/restore`, send("POST", { id, version })),
   changes: () => j<Change[]>(`${BASE}/changes?limit=40`),
   /** `origin` (this tab's clientId) marks a save the tab's editor already shows, so the live update skips it there. */
   save: (path: string, content: string, baseVersion?: string, allowEmpty = false, origin?: string) =>

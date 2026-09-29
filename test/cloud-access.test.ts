@@ -19,7 +19,7 @@ const SIGNED_IN: Expect[] = [401, "ok", "ok", "ok", "ok"];
 
 let cloud: Cloud;
 let people: Awaited<ReturnType<typeof team>>;
-let welcomeId: string;
+let startId: string;
 const restoreIds = {} as Record<Who, number>;
 /** A smart folder of each person's own, for them to delete. */
 const folderIds = {} as Record<Who, string>;
@@ -33,14 +33,15 @@ const trashIds = {} as Record<Who, { restore: string; purge: string }>;
 const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }> = [
   { route: "GET /info", send: () => ["GET", "/info"], expect: READ },
   { route: "GET /notes", send: () => ["GET", "/notes"], expect: READ },
-  { route: "GET /note", send: () => ["GET", "/note?path=Welcome.md"], expect: READ },
-  { route: "GET /resolve", send: () => ["GET", "/resolve?target=Welcome"], expect: READ },
+  { route: "GET /note", send: () => ["GET", "/note?path=Getting%20started.md"], expect: READ },
+  { route: "GET /resolve", send: () => ["GET", "/resolve?target=Getting%20started"], expect: READ },
   { route: "GET /search", send: () => ["GET", "/search?q=welcome"], expect: READ },
   { route: "GET /feed", send: () => ["GET", "/feed"], expect: READ },
-  { route: "GET /backlinks", send: () => ["GET", "/backlinks?path=Welcome.md"], expect: READ },
+  { route: "GET /backlinks", send: () => ["GET", "/backlinks?path=Getting%20started.md"], expect: READ },
   { route: "GET /changes", send: () => ["GET", "/changes?by=ai"], expect: READ },
   { route: "GET /changes/agents", send: () => ["GET", "/changes/agents"], expect: READ },
   { route: "GET /diffs", send: () => ["GET", "/diffs?ids=1-3"], expect: READ },
+  { route: "GET /diffstats", send: () => ["GET", "/diffstats?sets=1-3;4"], expect: READ },
   { route: "GET /diff", send: () => ["GET", "/diff?from=1"], expect: READ },
   { route: "GET /tasks", send: () => ["GET", "/tasks"], expect: READ },
   { route: "GET /tasks/count", send: () => ["GET", "/tasks/count"], expect: READ },
@@ -52,8 +53,8 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "GET /files/*", send: () => ["GET", "/files/assets/margin.svg"], expect: READ },
   { route: "GET /file-resolve", send: () => ["GET", "/file-resolve?target=margin.svg"], expect: READ },
   { route: "GET /live", send: () => ["GET", "/live", undefined, liveHeaders()], expect: READ },
-  { route: "POST /favorites/star", send: () => ["POST", "/favorites/star", { path: "Welcome.md" }], expect: READ },
-  { route: "POST /favorites/unstar", send: () => ["POST", "/favorites/unstar", { path: "Welcome.md" }], expect: READ },
+  { route: "POST /favorites/star", send: () => ["POST", "/favorites/star", { path: "Getting started.md" }], expect: READ },
+  { route: "POST /favorites/unstar", send: () => ["POST", "/favorites/unstar", { path: "Getting started.md" }], expect: READ },
   { route: "PUT /favorites", send: () => ["PUT", "/favorites", { paths: [] }], expect: READ },
   // A viewer's smart folders are their own; the workspace refuses them shared ones (test/api.test.ts).
   { route: "POST /smart-folders", send: (w) => ["POST", "/smart-folders", { name: `Mine ${w}`, query: "tag=plan" }], expect: READ },
@@ -62,9 +63,11 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /note", send: (w) => ["POST", "/note", { path: `new-${w}.md`, content: "# New\n" }], expect: EDIT },
   { route: "POST /tasks/set", send: (w) => ["POST", "/tasks/set", { path: `tasks-${w}.md`, line: 1, text: "Do it", done: true }], expect: EDIT },
   { route: "POST /tasks/update", send: (w) => ["POST", "/tasks/update", { path: `update-${w}.md`, line: 1, text: "Change me", patch: { due: "2026-10-01" } }], expect: EDIT },
-  { route: "POST /tasks/add", send: (w) => ["POST", "/tasks/add", { text: `Call ${w} tomorrow → [[Welcome]]` }], expect: EDIT },
+  { route: "POST /tasks/add", send: (w) => ["POST", "/tasks/add", { text: `Call ${w} tomorrow → [[Getting started]]` }], expect: EDIT },
   { route: "POST /tasks/remove", send: (w) => ["POST", "/tasks/remove", { path: `task-rm-${w}.md`, line: 1, text: "Remove me" }], expect: EDIT },
-  { route: "POST /tasks/move", send: (w) => ["POST", "/tasks/move", { path: `task-move-${w}.md`, line: 1, text: "Move me", to: "Welcome" }], expect: EDIT },
+  { route: "POST /tasks/move", send: (w) => ["POST", "/tasks/move", { path: `task-move-${w}.md`, line: 1, text: "Move me", to: "Getting started" }], expect: EDIT },
+  { route: "GET /guide", send: () => ["GET", "/guide"], expect: READ },
+  { route: "POST /guide", send: () => ["POST", "/guide", { action: "search" }], expect: EDIT },
   { route: "POST /today/journal", send: () => ["POST", "/today/journal", { today: "2026-10-01" }], expect: EDIT },
   { route: "POST /tags/rename", send: (w) => ["POST", "/tags/rename", { from: `old-${w}`, to: `new-${w}` }], expect: EDIT },
   { route: "PUT /asset-tags", send: (w) => ["PUT", "/asset-tags", { path: "assets/margin.svg", tags: [`asset-${w}`] }], expect: EDIT },
@@ -72,7 +75,7 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /restore", send: (w) => ["POST", "/restore", { id: restoreIds[w] ?? 1 }], expect: EDIT },
   { route: "POST /archive", send: (w) => ["POST", "/archive", { paths: [`arch-${w}.md`] }], expect: EDIT },
   { route: "POST /unarchive", send: (w) => ["POST", "/unarchive", { paths: [`Archive/unarch-${w}.md`] }], expect: EDIT },
-  { route: "GET /delete-check", send: () => ["GET", "/delete-check?path=Welcome"], expect: EDIT },
+  { route: "GET /delete-check", send: (w) => ["GET", `/delete-check?path=tasks-${w}.md`], expect: EDIT },
   { route: "POST /delete", send: (w) => ["POST", "/delete", { paths: [`del-${w}.md`] }], expect: EDIT },
   { route: "POST /delete-folder", send: (w) => ["POST", "/delete-folder", { folder: `folder-${w}`, notes: "lift" }], expect: EDIT },
   { route: "GET /trash", send: () => ["GET", "/trash"], expect: EDIT },
@@ -84,7 +87,7 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "GET /api/me", send: () => ["GET", "/api/me"], expect: SIGNED_IN },
   { route: "POST /api/workspaces", send: (w) => ["POST", "/api/workspaces", { name: `${w}'s team` }], expect: SIGNED_IN },
   { route: "GET /api/unfurl", send: () => ["GET", "/api/unfurl?url=https://example.invalid/"], expect: SIGNED_IN },
-  { route: "GET /api/note-ids/*", send: () => ["GET", `/api/note-ids/${welcomeId}`], expect: READ },
+  { route: "GET /api/note-ids/*", send: () => ["GET", `/api/note-ids/${startId}`], expect: READ },
   { route: "GET /api/agents", send: () => ["GET", "/api/agents"], expect: SIGNED_IN },
   { route: "POST /api/agents/revoke", send: () => ["POST", "/api/agents/revoke", { id: "not-a-grant" }], expect: SIGNED_IN },
   // Last: it ends everyone's sessions.
@@ -122,9 +125,9 @@ before(async () => {
     folderIds[w] = (await cloud.call(people[w], "POST", `${base}/smart-folders`, { name: `Doomed ${w}`, query: "tag=plan" })).id;
   }
   const notes: Array<{ path: string; id: string }> = await cloud.call(owner, "GET", `${base}/notes`);
-  welcomeId = notes.find((n) => n.path === "Welcome.md")!.id;
+  startId = notes.find((n) => n.path === "Getting started.md")!.id;
   // Note IDs reach the directory just after the request that made them.
-  for (let i = 0; i < 50 && (await cloud.request(owner, "GET", `/api/note-ids/${welcomeId}`)).status !== 200; i++) await new Promise((r) => setTimeout(r, 50));
+  for (let i = 0; i < 50 && (await cloud.request(owner, "GET", `/api/note-ids/${startId}`)).status !== 200; i++) await new Promise((r) => setTimeout(r, 50));
 });
 
 after(() => cloud.close());

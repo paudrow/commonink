@@ -1,11 +1,11 @@
 ---
-title: Welcome to Quire
-tags: [start, tour]
+title: Tips
+tags: [tour]
 ---
 
-# Welcome to Quire
+# Tips
 
-Quire is a **local-first** notebook. Every note is a plain markdown file in `vault/`, and any agent that speaks *MCP* (or just has a shell) can search, read and edit it right alongside you.
+Common Ink is a **local-first** notebook. Every note is a plain markdown file in `vault/`, and any agent that speaks *MCP* (or just has a shell) can search, read and edit it right alongside you.
 
 ![[margin.svg]]
 
@@ -23,7 +23,7 @@ Markup tucks itself away when your cursor leaves it: **bold**, *italic*, ~~struc
 
 Link with [[Outside-in agents]], or embed a note (or just one section of it) with `![[…]]`:
 
-![[Quire roadmap#Next]]
+![[Common Ink roadmap#Next]]
 
 HTML notes render in a sandbox, even when embedded:
 
@@ -60,6 +60,8 @@ for (const hit of hits) console.log(hit.path, hit.lines);
 ## Keys
 
 - `⌘K` search and jump between notes
+- `⌘Z` takes back the last change in a note, an agent's included
+- Vim keys: toggle them in the status bar
 - `/` inserts tools and widgets, `@` links a note, `[[` completes note names
 - `gd` follows the link under the cursor (vim), `:w` saves, `:e name` opens a note
 - `⌘\` toggles the side panel; `⌘E` flips an HTML note between preview and source
