@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseDirective, serializeDirective } from "../web/src/widgets/args.ts";
+import { fieldValues } from "../web/src/widgets/core.ts";
+import { QUERY_FIELDS, query } from "../web/src/widgets/query.ts";
+import { formatAttrs, parseAttrs, parseQuery } from "../src/core/query.ts";
 import { EditorState } from "@codemirror/state";
 import { history, undo } from "@codemirror/commands";
 import { HINTS, taskLineEdit, taskTools, taskToolsAt } from "../web/src/editor/taskEdit.ts";
@@ -11,6 +14,19 @@ import { CompletionContext } from "@codemirror/autocomplete";
 import { markdown } from "@codemirror/lang-markdown";
 import { ensureSyntaxTree } from "@codemirror/language";
 import { WidgetType } from "@codemirror/view";
+
+test("the query fields cover every query key a smart folder keeps, and the widget shows them all", () => {
+  const every = parseQuery('q=x folder=A tag=b sort=title limit=5');
+  assert.deepEqual(QUERY_FIELDS.map((f) => f.key).sort(), Object.keys(every).filter((k) => k !== "limit").sort());
+  assert.deepEqual(query.fields.map((f) => f.key), ["label", ...QUERY_FIELDS.map((f) => f.key), "limit"]);
+});
+
+test("the shared fields write a query back as text, leaving out blanks and the default sort", () => {
+  const edit = (src: string) => formatAttrs(fieldValues(QUERY_FIELDS, parseAttrs(src)));
+  assert.equal(edit('q="launch plan" tag=work sort=title limit=5'), 'q="launch plan" tag=work sort=title');
+  assert.equal(edit("folder=Projects sort=modified"), "folder=Projects");
+  assert.equal(edit(""), "");
+});
 
 test("a chip edit in the editor rewrites only its token on that line, and one undo puts the line back", () => {
   const doc = "# Chores\n\n- [ ] Pay rent !high due:2026-10-01 rec:monthly @jane #admin\n- [ ] Other\n";

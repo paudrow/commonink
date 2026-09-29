@@ -32,6 +32,8 @@ export function mountTasks(
       remeasure() {},
       open: (target, line) => opts.open(target, line),
       openTag: opts.openTag,
+      saveSmartFolder() {},
+      sources: { tags: () => [], folders: () => [] }, // the Tasks page has no settings form
       openPerson: opts.openPerson,
       skip: opts.skip,
     },
@@ -46,7 +48,18 @@ function mountToday(host: HTMLElement, hooks: { open: Open; openTag(tag: string)
   host.replaceChildren(card);
   return WIDGETS.today.mount(
     body,
-    { args: { compact: "true" }, note: "", openConfig: false, update() {}, withId() {}, focusEditor() {}, remeasure() {}, ...hooks },
+    {
+      args: { compact: "true" },
+      note: "",
+      openConfig: false,
+      update() {},
+      withId() {},
+      focusEditor() {},
+      remeasure() {},
+      saveSmartFolder() {},
+      sources: { tags: () => [], folders: () => [] }, // no settings form here either
+      ...hooks,
+    },
     card,
   );
 }

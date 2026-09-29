@@ -81,6 +81,15 @@ export interface FeedPage {
   folders: string[];
 }
 export const isArchived = (p: string) => p.startsWith("Archive/");
+/** A saved note query in the sidebar, with how many active notes match it now. */
+export interface SmartFolder {
+  id: string;
+  name: string;
+  /** As ::query args: `tag=work sort=title`. */
+  query: string;
+  shared: boolean;
+  count: number;
+}
 /** A tag in someone's favorites, and how many active notes carry it (or a tag under it). */
 export interface TagFavorite {
   tag: string;
@@ -194,6 +203,10 @@ export const api = {
   tasks: (p: { folder?: string; note?: string; tag?: string; assignee?: string; due?: string; today?: string }) =>
     j<Task[]>(`${BASE}/tasks?${new URLSearchParams(Object.entries(p).filter(([, v]) => v).map(([k, v]) => [k, String(v)]))}`),
   tags: () => j<TagCount[]>(`${BASE}/tags`),
+  smartFolders: () => j<SmartFolder[]>(`${BASE}/smart-folders`),
+  /** Create a smart folder, or change one by `id`. */
+  saveSmartFolder: (f: { id?: string; name: string; query: string; shared: boolean }) => j<SmartFolder>(`${BASE}/smart-folders`, send("POST", f)),
+  deleteSmartFolder: (id: string) => j<SmartFolder[]>(`${BASE}/smart-folders/delete`, send("POST", { id })),
   /** Each tagged asset's tags. */
   assetTags: () => j<Record<string, string[]>>(`${BASE}/asset-tags`),
   setAssetTags: (path: string, tags: string[]) => j<{ tags: string[] }>(`${BASE}/asset-tags`, send("PUT", { path, tags })),

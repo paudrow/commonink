@@ -33,6 +33,11 @@ export async function upsertUser(db: D1Database, sub: string, profile: { email: 
   return { user, isNew: true };
 }
 
+/** Whether a Google (or dev) identity already has an account. */
+export async function hasUser(db: D1Database, sub: string) {
+  return !!(await db.prepare("SELECT 1 FROM users WHERE google_sub = ?").bind(sub).first());
+}
+
 export function getUser(db: D1Database, id: string) {
   return db.prepare("SELECT id, email, name, picture FROM users WHERE id = ?").bind(id).first<User>();
 }
@@ -90,6 +95,22 @@ export async function createInvite(db: D1Database, workspaceId: string, by: stri
     .bind(token, workspaceId, role, by, now, now + 7 * 86400_000)
     .run();
   return token;
+}
+
+/** Wrong sign-up codes entered for this identity since `since`. */
+export async function failedSignups(db: D1Database, sub: string, since: number) {
+  const row = await db.prepare("SELECT COUNT(*) AS n FROM signup_attempts WHERE sub = ? AND at > ?").bind(sub, since).first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+export async function recordFailedSignup(db: D1Database, sub: string) {
+  await db.prepare("INSERT INTO signup_attempts(sub, at) VALUES (?, ?)").bind(sub, Date.now()).run();
+}
+
+/** Whether an invite link is still good, without using it. */
+export async function inviteIsValid(db: D1Database, token: string) {
+  const inv = await db.prepare("SELECT expires_at FROM invites WHERE token = ?").bind(token).first<{ expires_at: number }>();
+  return !!inv && inv.expires_at >= Date.now();
 }
 
 /** Join a workspace from an invite link. Returns the workspace id, or null if the link is bad or expired. */

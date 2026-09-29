@@ -32,7 +32,7 @@ Needs Node 22.13+ (uses the built-in `node:sqlite`). The vault defaults to `./va
 | Claude Desktop, Cursor, … | stdio server: command `/path/to/quire/bin/quire`, args `["mcp"]` |
 | Shell agents / scripts | `bin/quire --help`, and pass `--as <name>` so writes are attributed |
 
-Tools: `search_notes`, `read_note`, `list_notes`, `list_tags`, `list_tasks`, `get_today`, `add_task`, `update_task`, `move_task`, `create_note`, `edit_note`, `append_to_note`, `move_note`, `archive_note`, `unarchive_note`, `star_note`, `unstar_note`, `star_tag`, `unstar_tag`, `backlinks`, `recent_changes`. The server sends `vault/AGENTS.md` as its instructions, so edit that file to change agent conventions.
+Tools: `search_notes`, `read_note`, `list_notes`, `list_tags`, `list_tasks`, `get_today`, `add_task`, `update_task`, `move_task`, `create_note`, `edit_note`, `append_to_note`, `move_note`, `archive_note`, `unarchive_note`, `star_note`, `unstar_note`, `star_tag`, `unstar_tag`, `list_smart_folders`, `save_smart_folder`, `delete_smart_folder`, `backlinks`, `recent_changes`. The server sends `vault/AGENTS.md` as its instructions, so edit that file to change agent conventions.
 
 ## How edits from agents and you stay safe together
 
@@ -73,6 +73,7 @@ Online, IDs are unique across all workspaces. Each workspace claims its notes' I
 - **The sidebar** leads with tags: the views (Notes, Tasks, Assets, History), then Favorites, Folders and Tags, each of which folds away from its header (remembered in this browser; Folders starts folded, since folders are storage and tags are how you find things). Tags is the tag tree with counts: nested tags open from their chevron, and clicking one opens Notes narrowed to it. Its header button opens the Tags page, for renaming and merging. Folders list no notes either: clicking one opens Notes narrowed to it. Drag a card from Notes onto a folder to move the note there, onto Favorites to star it, or onto Archive. New note puts the note at the top level, or in the folder Notes is showing.
 - **Favorites** are the notes (and tags) you reach for, at the top of the sidebar. Star a tag with the same star notes have, on its row under Tags or beside the tag filter in Notes, or with `quire star '#work'` / MCP `star_tag`; clicking it opens Notes narrowed to that tag. A starred tag follows renames and merges, and drops out of sight while no note uses it. Star a note from its top bar, from its card in Notes (`s`), with `:star` in vim, `quire star <note…>`, or the MCP `star_note` tool. Drag favorites to reorder them, or drag a card from Notes onto Favorites to star it. Stars point at the note's stable ID, so they follow it through renames, moves and archiving. They're each person's own: stored beside the index locally, and per person in each workspace online, never in a note.
 - **Tags** are `#tag` in a note (a task's tags go on its line) or `tags: [a, b]` in its frontmatter, and nest with `/`: `#work` includes `#work/clients/acme`. Case doesn't matter, and a tag shows the way it was first written. A `#` in a heading, code or a URL isn't a tag, and neither is `#27`. Typing `#` suggests tags, most used first. Notes, Tasks and Assets each have a Tag filter, and clicking a tag anywhere filters by it. The **Tags** page shows the tree with counts; renaming a tag there rewrites it in every note and asset (renaming onto an existing tag merges them), with Undo. Assets are tagged from their preview, and their tags live in `assets/.tags.json`. The index keeps a `tags` table (tag, kind, path, line) current with every write, so filters never re-read the vault.
+- **Smart folders** are saved note queries in the sidebar, under Favorites, each with a live count: `tag=work/clients sort=title`, `folder=Projects q="launch"`. They use the same keys as `::query` (`q`, `folder`, `tag`, `sort`, `limit`), parsed by one parser (`src/core/query.ts`) and run by one engine (`Quire.feed`), which the Notes filter bar uses too, so the three can't drift. Make one with the + on the Smart folders header, or save the Notes filters or a `::query` widget's settings ("Save as smart folder"). The editor is the `::query` settings form, with a live count of matching notes. Clicking one opens Notes with its filters applied. A smart folder is shared with the workspace unless you choose **Just me**. They live in the workspace database next to favorites (`smart_folders`, where a null `owner` means shared). Online, a viewer can keep their own smart folders, but only editors and owners can create, change or delete shared ones.
 - **Archive** moves a note to `Archive/<original path>`, which takes it out of the sidebar, search, `@` suggestions and agents' default listings. Links keep working. Archive from Notes (`e`, or in bulk), the top bar or `⌘⇧E` in a note, `:archive` in vim, `quire archive <note…>`, or the MCP `archive_note` tool. Every archive comes with Undo, and unarchiving puts the note back where it was.
 
 ## Undo and recovery
@@ -89,6 +90,17 @@ The server also refuses to replace a non-empty note with an empty one unless the
 ## Security notes
 
 The server binds to 127.0.0.1 and checks the `Host` header to block DNS rebinding. Writes must come from its own origin and be JSON, which blocks cross-site requests and requests from sandboxed notes. The WebSocket checks `Origin`. Rendered markdown goes through DOMPurify. Vault assets are served with a `sandbox` CSP, and HTML files are never served from the app's origin.
+
+## Who can sign up
+
+Online, new accounts are invite-only. Anyone can sign in with Google, but someone new gets an account only after they enter the sign-up code, or when they arrive through a workspace invite link. People who already have an account sign in as usual. The code is a Worker secret. Case and extra spaces don't matter, so it can be a phrase you say out loud:
+
+```bash
+npx wrangler secret put SIGNUP_CODE -c cloud/wrangler.jsonc    # set it or change it
+npx wrangler secret delete SIGNUP_CODE -c cloud/wrangler.jsonc # no new accounts except by invite
+```
+
+With no code set, sign-ups are closed. Each Google account gets 5 wrong tries a day, so the code can't be guessed. Developer sign-in (local and Previews) skips the gate.
 
 ## Testing
 

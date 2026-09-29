@@ -557,6 +557,48 @@ test("updateTask rewrites a task's tokens in its note, and refuses values that c
   assert.throws(() => quire.updateTask("Plan", 3, "Gone", { due: null }, "t"), /isn't in Plan\.md any more/);
 });
 
+test("smart folders are saved queries, shared with the workspace or one person's own, each with a live count", () => {
+  const { quire } = openTempVault(TAGGED);
+  const clients = quire.saveSmartFolder("ana", { name: "Client work", query: "tag=work/clients  sort=title", shared: true }, true);
+  assert.deepEqual(clients, { id: clients.id, name: "Client work", query: "tag=work/clients sort=title", shared: true, count: 2 });
+  quire.saveSmartFolder("bo", { name: "Ideas", query: 'q="idea"', shared: false }, true);
+  assert.deepEqual(quire.smartFolders("ana").map((f) => f.name), ["Client work"]);
+  assert.deepEqual(quire.smartFolders("bo").map((f) => `${f.name} ${f.count}`), ["Client work 2", "Ideas 1"]);
+  quire.create("Projects/Beta", "# Beta\n\n#work/clients/beta\n", "t");
+  assert.equal(quire.smartFolders("ana")[0].count, 3);
+  assert.equal(quire.findSmartFolder("bo", "ideas").query, 'q=idea');
+
+  // Someone who can't edit shared things (a viewer online) keeps their own, and can't touch the workspace's.
+  assert.throws(() => quire.saveSmartFolder("vi", { name: "Mine", query: "", shared: true }, false), /Only editors/);
+  assert.throws(() => quire.saveSmartFolder("vi", { id: clients.id, name: "Renamed", query: "", shared: false }, false), /Only editors/);
+  assert.throws(() => quire.deleteSmartFolder("vi", clients.id, false), /Only editors/);
+  const own = quire.saveSmartFolder("vi", { name: "Mine", query: "folder=Ideas", shared: false }, false);
+  assert.equal(own.count, 1);
+  assert.throws(() => quire.saveSmartFolder("ana", { id: own.id, name: "Taken", query: "", shared: false }, true), /No smart folder/);
+  assert.throws(() => quire.saveSmartFolder("ana", { name: "Bad", query: "colour=red", shared: true }, true), /Unknown query key "colour"/);
+  assert.throws(() => quire.saveSmartFolder("ana", { name: " ", query: "", shared: true }, true), /name/);
+  assert.deepEqual(quire.deleteSmartFolder("ana", "client work", true), []);
+});
+
+test("starring and unstarring a tag only touches Favorites, never a smart folder with that tag's query", () => {
+  const { quire } = openTempVault(TAGGED);
+  const folder = quire.saveSmartFolder("ana", { name: "Billing", query: "tag=billing", shared: false }, true);
+  quire.starTag("ana", "billing");
+  assert.deepEqual(quire.unstarTag("ana", "billing"), []);
+  assert.deepEqual(quire.smartFolders("ana").map((f) => [f.id, f.query]), [[folder.id, "tag=billing"]]);
+});
+
+test("a smart folder name means your own before a shared one, a saved query keeps no limit, and there's a cap", () => {
+  const { quire } = openTempVault(TAGGED);
+  const shared = quire.saveSmartFolder("ana", { name: "Work", query: "tag=work limit=5", shared: true }, true);
+  assert.equal(shared.query, "tag=work");
+  quire.saveSmartFolder("bo", { name: "work", query: "folder=Ideas", shared: false }, true);
+  assert.deepEqual(quire.deleteSmartFolder("bo", "WORK", true).map((f) => f.name), ["Work"]);
+  assert.throws(() => quire.saveSmartFolder("bo", { name: "x".repeat(81), query: "", shared: false }, true), /80 characters/);
+  for (let i = 0; i < 50; i++) quire.saveSmartFolder("cy", { name: `f${i}`, query: "", shared: false }, true);
+  assert.throws(() => quire.saveSmartFolder("cy", { name: "one more", query: "", shared: false }, true), /50 smart folders/);
+});
+
 test("an index from before tags learns every note's tags on the next start", () => {
   const { dir, quire } = openTempVault(TAGGED);
   quire.db.exec("DROP TABLE tags");

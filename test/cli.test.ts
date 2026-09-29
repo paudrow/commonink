@@ -96,6 +96,14 @@ test("today prints the day's sections", () => {
   assert.equal(JSON.parse(quire(vault, ["today", "--date", "2026-10-01", "--json"]).stdout).sections[1].tasks[0].line, 8);
 });
 
+test("smart-save, smart and smart-rm keep saved note queries", () => {
+  const vault = tempVault();
+  assert.match(quire(vault, ["smart-save", "Planning", "tag=plan", "--just-me"]).stdout, /^- Planning \(1 note, just you\): tag=plan \[[a-z2-9]{8}\]\n$/);
+  assert.equal(quire(vault, ["smart", "planning"]).stdout, "- Projects/Roadmap.md — Roadmap\n");
+  assert.equal(quire(vault, ["smart-save", "Bad", "colour=red"]).stderr, 'Unknown query key "colour": use q, folder, tag, sort or limit\n');
+  assert.equal(quire(vault, ["smart-rm", "Planning"]).stdout, "No smart folders.\n");
+});
+
 test("star and unstar take #tags as well as notes", () => {
   const vault = tempVault();
   assert.equal(quire(vault, ["star", "Welcome", "#plan"]).stdout, "Favorites:\n- Welcome.md — Welcome\n- #plan (1 note)\n");
