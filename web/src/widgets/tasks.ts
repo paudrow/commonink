@@ -49,7 +49,7 @@ const SORTERS: Record<Sort, (a: Task, b: Task) => number> = {
 
 export const tasks: WidgetSpec = {
   name: "tasks",
-  title: "Tasks",
+  title: "Task list",
   icon: "task",
   hint: "Open tasks from across your notes",
   keywords: "tasks todo checklist rollup dashboard due",
