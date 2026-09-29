@@ -2,8 +2,6 @@
 pr: 59
 title: Link previews and rate limits
 ---
-# Link previews and rate limits
-
 The link-card fetcher now reads only public web pages, and sign-in, invites, uploads and link cards have rate limits. You mostly can't see this working: that's the point. Here's what you can check.
 
 1. **A normal link still gets a card.** Open [[Link cards]]. The example.com link shows a card with its title, "Example Domain".
