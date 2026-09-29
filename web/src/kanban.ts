@@ -8,6 +8,7 @@ import { api, ApiError, type Task } from "./api.ts";
 import { displayName, el, icon, LINK_DRAG, NOTE_DRAG } from "./dom.ts";
 import { onVaultChange } from "./events.ts";
 import { IS_MAC, sideClick } from "./panes.ts";
+import { matchShortcut } from "./keys.ts";
 import { renderMarkdown } from "./render.ts";
 import { endTags, metaChips, today } from "./taskChips.ts";
 import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
@@ -386,12 +387,12 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
 
   function keys(e: KeyboardEvent, node: HTMLElement, c: number, i: number, card: Card, link: ReturnType<typeof cardLink>) {
     if (e.target !== node) return;
-    const mod = e.metaKey || e.ctrlKey;
     const b = board();
     if (!b) return;
     const step = ({ ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] } as Record<string, [number, number]>)[e.key];
     let handled = true;
-    if (mod && e.key.toLowerCase() === "z") e.shiftKey ? host.redo() : host.undo();
+    if (matchShortcut(e, "Mod+z")) host.undo();
+    else if (matchShortcut(e, "Mod+Shift+z")) host.redo();
     else if (step && e.altKey && !host.readOnly) {
       const column = c + step[0];
       const target = b.columns[column];
@@ -405,7 +406,7 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
       const column = Math.min(Math.max(0, c + step[0]), b.columns.length - 1);
       const place = step[0] ? Math.min(i, b.columns[column].cards.length - 1) : i + step[1];
       lane.querySelector<HTMLElement>(`.kb-card[data-column="${column}"][data-card="${place}"]`)?.focus();
-    } else if (e.key === "Enter" && (mod || host.readOnly) && link) host.ctx.openTarget(link.target, host.path);
+    } else if ((matchShortcut(e, "Mod+Enter") || (e.key === "Enter" && host.readOnly)) && link) host.ctx.openTarget(link.target, host.path);
     else if (e.key === "Enter" && !host.readOnly) openEdit(c, i, card);
     else if ((e.key === "Delete" || e.key === "Backspace") && !host.readOnly) remove(c, i, card.text);
     else handled = false;

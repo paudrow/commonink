@@ -3,6 +3,7 @@ import { api, isArchived, type NoteMeta, type SearchHit } from "./api.ts";
 import { $, displayName, el, escapeHtml, icon } from "./dom.ts";
 import { fuzzyScore } from "./fuzzy.ts";
 import { MOD_ENTER, paletteEnter } from "./panes.ts";
+import { matchShortcut } from "./keys.ts";
 
 type Item =
   | { type: "note"; note: NoteMeta; archived?: boolean }
@@ -163,8 +164,9 @@ export class Palette {
   }
 
   private key(e: KeyboardEvent) {
-    const down = e.key === "ArrowDown" || (e.ctrlKey && (e.key === "n" || e.key === "j"));
-    const up = e.key === "ArrowUp" || (e.ctrlKey && (e.key === "p" || e.key === "k"));
+    // Ctrl+N/J and Ctrl+P/K move too (Ctrl on a Mac as well), by the letter typed.
+    const down = e.key === "ArrowDown" || matchShortcut(e, "Ctrl+n") || matchShortcut(e, "Ctrl+j");
+    const up = e.key === "ArrowUp" || matchShortcut(e, "Ctrl+p") || matchShortcut(e, "Ctrl+k");
     if (down || up) {
       e.preventDefault();
       const n = this.items.length;

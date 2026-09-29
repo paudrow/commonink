@@ -7,6 +7,7 @@ import { api } from "./api.ts";
 import { el, icon } from "./dom.ts";
 import { today } from "./taskChips.ts";
 import { targetOf } from "./taskCommand.ts";
+import { shortcutLabel } from "./keys.ts";
 import { HINT, taskInput, type TaskInput } from "./taskInput.ts";
 
 export interface QuickAddOptions {
@@ -20,9 +21,9 @@ export interface QuickAddOptions {
   note?: string;
 }
 
-/** The shortcut that opens the bar from anywhere, the editor included: ⌘⇧. (Ctrl+Shift+. elsewhere). */
-export const SHORTCUT = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘⇧." : "Ctrl+Shift+.";
-export const isQuickAddKey = (e: KeyboardEvent) => (e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && e.code === "Period";
+/** The shortcut that opens the bar from anywhere, the editor included: the key that types "." (keys.ts), with ⌘⇧ (Ctrl+Shift off a Mac). */
+export const QUICK_ADD = "Mod+Shift+.";
+const SHORTCUT = shortcutLabel(QUICK_ADD);
 
 /** A quick-add bar; focus it with the returned `focus`. */
 export function quickAddBar(opts: QuickAddOptions): { root: HTMLElement; focus(): void; destroy(): void } {
