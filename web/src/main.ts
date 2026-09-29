@@ -500,15 +500,17 @@ function openTag(tag: string, where: "notes" | "tasks" = "notes") {
 
 /** Trash: what's been deleted, to restore (or, for owners and locally, to delete for good). */
 async function showTrash(opts: { push?: boolean } = {}) {
+  if (viewer) return showNotes({ push: opts.push }); // viewers have no Trash
   await leaveNote();
   showStage("trash");
   trashPage ??= new TrashPage({ ...deleteHooks, canPurge: () => owner, open: (path) => fromPage(path) });
-  await trashPage.show();
+  const loading = trashPage.show(); // the page and its chrome show at once; the list fills in
   if (opts.push !== false) setUrl("/trash");
   document.title = "Trash · Common Ink";
   renderChrome();
   renderTree();
   renderOutline();
+  await loading;
 }
 
 async function showAssets(opts: { open?: string; push?: boolean } = {}) {

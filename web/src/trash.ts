@@ -126,6 +126,7 @@ export class TrashPage {
   private list = el("div", { class: "tr-list" });
   private head = el("div", { class: "tr-head" });
   private items: TrashItem[] = [];
+  private loaded = false;
 
   constructor(private hooks: DeleteHooks & { canPurge(): boolean; open(path: string): void }) {
     this.root.append(el("div", { class: "trash" }, this.head, this.list));
@@ -133,8 +134,9 @@ export class TrashPage {
 
   async show() {
     this.root.hidden = false;
-    await this.load();
+    this.render();
     this.root.focus({ preventScroll: true });
+    await this.load();
   }
 
   /** Something may have been deleted or restored elsewhere. */
@@ -144,6 +146,7 @@ export class TrashPage {
 
   private async load() {
     this.items = await api.trash().catch(() => []);
+    this.loaded = true;
     this.render();
   }
 
@@ -157,7 +160,9 @@ export class TrashPage {
     this.list.replaceChildren(
       ...(this.items.length
         ? this.items.map((t) => this.row(t, purge))
-        : [el("div", { class: "as-empty" }, icon("trash", 26), el("b", {}, "Trash is empty"), el("span", {}, "Delete a note from its top bar, from Notes with the Delete key, or with :trash in vim."))]),
+        : !this.loaded
+          ? []
+          : [el("div", { class: "as-empty" }, icon("trash", 26), el("b", {}, "Trash is empty"), el("span", {}, "Delete a note from its top bar, from Notes with the Delete key, or with :trash in vim."))]),
     );
   }
 
