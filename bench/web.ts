@@ -221,6 +221,8 @@ try {
   }
   const frames: number[] = await p.evaluate(() => (window as any).__frames.slice(1));
   record("Notes scroll (60 wheel turns)", "frame time", frames);
+  record("Notes scroll (60 wheel turns)", "frames over 50 ms", [frames.filter((f) => f > 50).length]);
+  record("Notes scroll (60 wheel turns)", "longest frame", [Math.max(...frames)]);
   record("Notes scroll (60 wheel turns)", "cards loaded", [await p.evaluate(() => document.querySelectorAll(".feed-card").length)]);
 
   // The Tags page with 1k tags.
