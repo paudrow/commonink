@@ -3,9 +3,10 @@ import { syntaxTree } from "@codemirror/language";
 import type { EditorState, Range, Text } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { scanTags, type TagSpan } from "../../../src/core/tags.ts";
-import { editTask, lineTokens, TASK_LINE } from "../../../src/core/tasks.ts";
+import { lineTokens, TASK_LINE } from "../../../src/core/tasks.ts";
 import { today, tokenChip } from "../taskChips.ts";
 import { openChipEditor } from "../taskChipEditors.ts";
+import { taskLineEdit } from "./taskEdit.ts";
 import { lineTaskContext } from "./taskTools.ts";
 
 const hide = Decoration.replace({});
@@ -64,8 +65,9 @@ class CheckboxWidget extends WidgetType {
     box.addEventListener("mousedown", (e) => {
       e.preventDefault();
       const line = view.state.doc.lineAt(this.pos);
-      const next = editTask(line.text, { checked: !this.checked, done: this.checked ? null : today() }); // ticking stamps done:
-      if (next !== line.text) view.dispatch({ changes: { from: line.from, to: line.to, insert: next } });
+      // Ticking stamps done: (and adds a repeating task's next occurrence below); one undo takes it back.
+      const spec = taskLineEdit(view.state, line.number, line.text, { checked: !this.checked }, today());
+      if (spec) view.dispatch(spec);
       else view.dispatch({ changes: { from: this.pos + 1, to: this.pos + 2, insert: this.checked ? " " : "x" } });
     });
     return box;

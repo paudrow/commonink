@@ -2,7 +2,8 @@
 // mark, a person, a tag. The markdown keeps the tokens; these only draw them. Each chip says which
 // token it is (data-field, data-value), so a task list can open that token's editor.
 import { avatar, el, icon } from "./dom.ts";
-import { localDate, parseTask, recLabel, TASK_LINE, type ParsedTask, type TaskMeta } from "../../src/core/tasks.ts";
+import { localDate, parseTask, TASK_LINE, type ParsedTask, type TaskMeta } from "../../src/core/tasks.ts";
+import { nextDue, parseRule, ruleLabel } from "../../src/core/recurrence.ts";
 import { tagsInLine } from "../../src/core/tags.ts";
 
 export const today = () => localDate(Date.now());
@@ -20,8 +21,11 @@ export function dayLabel(value: string, now = today()): string {
 
 export type ChipField = keyof Omit<TaskMeta, "tags" | "assignees"> | "assignees" | "tags";
 
-/** One token as a chip. `done` mutes a due date that would otherwise show as overdue. */
-export function tokenChip(field: ChipField, value: string, opts: { done?: boolean; now?: string } = {}): HTMLElement {
+/**
+ * One token as a chip. `done` mutes a due date that would otherwise show as overdue. `next` is a
+ * repeating task's date after this one, shown on its repeat chip in task lists.
+ */
+export function tokenChip(field: ChipField, value: string, opts: { done?: boolean; now?: string; next?: string | null } = {}): HTMLElement {
   const now = opts.now ?? today();
   const chip = (cls: string, title: string, ...children: Array<Node | string>) =>
     el("span", { class: `tk ${cls}`.trim(), title, "data-field": field, "data-value": value }, ...children);
@@ -34,8 +38,13 @@ export function tokenChip(field: ChipField, value: string, opts: { done?: boolea
       return chip("", `Hidden until ${value}`, icon("clock", 12), `from ${dayLabel(value, now)}`);
     case "done":
       return chip("tk-muted", `Done ${value}`, icon("check", 12), dayLabel(value, now));
-    case "rec":
-      return chip("", `Repeats ${recLabel(value)}`, icon("reset", 12), recLabel(value));
+    case "rec": {
+      const rule = parseRule(value);
+      const then = opts.next ? dayLabel(opts.next, now) : null;
+      const title = `${rule ? ruleLabel(rule, true) : `Repeats ${value}`}${then ? `. After this one: ${then}` : ""}`;
+      const label = rule ? ruleLabel(rule) : value;
+      return then ? chip("", title, icon("reset", 12), label, el("span", { class: "tk-next" }, `· ${then}`)) : chip("", title, icon("reset", 12), label);
+    }
     case "priority":
       return chip(`tk-priority is-${value}`, `${value === "high" ? "High" : "Low"} priority`, icon("flag", 12), value === "high" ? "High" : "Low");
     case "assignees":
@@ -43,6 +52,12 @@ export function tokenChip(field: ChipField, value: string, opts: { done?: boolea
     case "tags":
       return chip("tk-tag", `Tasks tagged #${value}`, `#${value}`);
   }
+}
+
+/** The date after a repeating task's current due date, when the calendar says (not for `after-` rules, which wait for completion). */
+function nextOf(meta: TaskMeta): string | null {
+  const rule = meta.rec ? parseRule(meta.rec) : null;
+  return rule && rule.from === "due" && meta.due ? nextDue(rule, meta.due, meta.due) : null;
 }
 
 /**
@@ -55,7 +70,7 @@ export function metaChips(meta: TaskMeta, done: boolean, tags: string[] = []): H
     meta.priority && tokenChip("priority", meta.priority),
     meta.due && tokenChip("due", meta.due, { done, now }),
     meta.start && meta.start.slice(0, 10) > now && tokenChip("start", meta.start, { now }),
-    meta.rec && tokenChip("rec", meta.rec),
+    meta.rec && tokenChip("rec", meta.rec, { next: done ? null : nextOf(meta) }),
     ...meta.assignees.map((a) => tokenChip("assignees", a)),
     ...[...tags].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })).map((t) => tokenChip("tags", t)),
     done && meta.done && tokenChip("done", meta.done, { now }),

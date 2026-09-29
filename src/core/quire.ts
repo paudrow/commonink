@@ -6,7 +6,7 @@ import { cleanPath, isHidden, kindOf, linkKey, QuireError, stemOf, type NoteKind
 import { extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
-import { dueFilter, editTask, isDate, localDate, parseTask, patchProblem, TASK_LINE, type TaskMeta, type TaskPatch } from "./tasks.ts";
+import { dueFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, skipPatch, TASK_LINE, type TaskMeta, type TaskPatch } from "./tasks.ts";
 import { formatQuery, parseQuery, queryProblem, type NoteQuery } from "./query.ts";
 
 export interface NoteMeta {
@@ -1106,7 +1106,8 @@ export class Quire {
   /**
    * Change a task's tokens (see TaskPatch) at its source; the rest of the line stays as written.
    * Ticking stamps `done:` with `today` (the person's day; the core's clock by default) and
-   * unticking takes it off, unless the patch sets it. `text` guards against the note having
+   * unticking takes it off, unless the patch sets it; a repeating task gets its next occurrence
+   * below (see editTaskLines). `text` guards against the note having
    * changed: if the line moved, the nearest line with the same task text is used.
    */
   updateTask(target: string, line: number, text: string, patch: TaskPatch, source: string, today = localDate(this.now())) {
@@ -1121,13 +1122,20 @@ export class Quire {
       if (!near.length) throw new QuireError(`That task isn't in ${note.path} any more`, "conflict");
       i = near[0];
     }
-    const flips = patch.checked !== undefined && patch.checked !== parseTask(lines[i])!.done && !("done" in patch);
-    lines[i] = editTask(lines[i], flips ? { ...patch, done: patch.checked ? today : null } : patch);
+    const edited = editTaskLines(lines, i, patch, today);
     // Where the task is now and its new text, so a caller can make its next change without re-reading.
-    const task = { line: i + 1, text: lines[i].match(TASK_LINE)![4] };
-    const next = lines.join("\n");
+    const task = { line: i + 1, text: edited[i].match(TASK_LINE)![4] };
+    const next = edited.join("\n");
     if (next === note.content) return { ...note, ...task, change: null };
     return { ...this.commit(note.path, note.content, next, source, "edit"), ...task };
+  }
+
+  /** Move a repeating task to its next date without ticking it ("Skip this one"). */
+  skipTask(target: string, line: number, text: string, source: string, today = localDate(this.now())) {
+    const task = parseTask(`- [ ] ${text}`);
+    const patch = task && skipPatch(task.meta, today);
+    if (!patch) throw new QuireError("That task doesn't repeat, so there's nothing to skip");
+    return this.updateTask(target, line, text, patch, source, today);
   }
 
   /**
