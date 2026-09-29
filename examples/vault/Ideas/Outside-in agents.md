@@ -9,7 +9,7 @@ The notes app never embeds a model. Instead it makes itself **easy for any agent
 The hard part isn't the protocol. It's *sharing a document* with a collaborator who types at 1,000 words a minute:
 
 - Edits are **exact-string replacements** with an optional `base_version`, never blind rewrites.
-- When a file changes under the editor, Quire applies it as a diff, so your cursor, undo history and vim mode survive. If you had unsaved typing, it does a three-way merge.
+- When a file changes under the editor, Common Ink applies it as a diff, so your cursor, undo history and vim mode survive. If you had unsaved typing, it does a three-way merge.
 - Every write is **attributed**: MCP writes carry the client's name, and anything else shows up as `external`.
 
-See the plan in [[Quire roadmap]].
+See the plan in [[Common Ink roadmap]].

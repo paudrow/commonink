@@ -1,5 +1,5 @@
 // Highlights lines an agent just changed, tagged with the agent's name, then fades out.
-import { StateEffect, StateField, type Range } from "@codemirror/state";
+import { MapMode, StateEffect, StateField, type Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, type DecorationSet } from "@codemirror/view";
 import { hueFor, icon } from "../dom.ts";
 
@@ -31,7 +31,8 @@ class AgentTag extends WidgetType {
 export const agentFlash = StateField.define<DecorationSet>({
   create: () => Decoration.none,
   update(deco, tr) {
-    deco = deco.map(tr.changes);
+    // A highlighted line that gets deleted (an agent's line taken back with ⌘Z) takes its highlight with it.
+    if (tr.docChanged) deco = deco.update({ filter: (from) => tr.changes.mapPos(from, 1, MapMode.TrackAfter) !== null }).map(tr.changes);
     for (const e of tr.effects) {
       if (e.is(clearFlash)) deco = Decoration.none;
       if (e.is(flashChanges)) {

@@ -1,4 +1,4 @@
-# Quire roadmap
+# Common Ink roadmap
 
 Local first, then hosted. The vault on disk stays the source of truth either way.
 

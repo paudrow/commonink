@@ -3,7 +3,8 @@
 import { cleanPath, QuireError } from "./paths.ts";
 import type { ArchiveScope, Change, Quire } from "./quire.ts";
 import type { TaskPatch } from "./tasks.ts";
-import { parseAuthorFilter } from "./actor.ts";
+import { agentSource, parseAuthorFilter } from "./actor.ts";
+import { findStartNote, GUIDE, parseGuideAction, runGuide } from "./guide.ts";
 
 export interface ApiHost {
   quire: Quire;
@@ -167,6 +168,8 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json(quire.agents());
     case "GET /diffs":
       return json(quire.diffSet(parseIdRanges(q("ids"))));
+    case "GET /diffstats":
+      return json(quire.diffStats(q("sets").split(";").slice(0, 50).map(parseIdRanges)));
     case "GET /favorites":
       return json(quire.favorites(host.user));
     case "GET /smart-folders":
@@ -268,7 +271,7 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json({ changes: r.edits.map((e) => e.change.id), assets: r.assets });
     }
     case "POST /restore": {
-      const r = quire.restore(int("id"), actor);
+      const r = quire.restore(int("id"), actor, optStr("version"));
       if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
       return json({ path: r.path, version: r.version, change: r.change?.id ?? null }); // restoring `change` undoes this
     }
@@ -288,6 +291,15 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       const list = quire.deleteSmartFolder(host.user, str("id"), host.canEditShared, true);
       host.tree();
       return json(list);
+    }
+    case "GET /guide":
+      return json(findStartNote(quire)?.state ?? null);
+    // The guide ticks its own checklist as the person tries things. Only these fixed edits, and
+    // only in the start note, so this can't be used to write anything else under the guide's name.
+    case "POST /guide": {
+      const r = runGuide(quire, parseGuideAction(str("action")), agentSource(GUIDE, actor));
+      if (r.write) host.written(r.write.path, r.write.content, r.write.version, r.write.change);
+      return json(r.state);
     }
     case "POST /archive":
       return moveAll(paths("paths"), (p) => quire.archive(p, actor));

@@ -7,16 +7,6 @@ const CONTEXT = 2;
 const LONG = 60; // an added/removed block longer than this shows its first SHOWN lines
 const SHOWN = 30;
 
-export function diffCounts(before: string, after: string): { add: number; del: number } {
-  let add = 0;
-  let del = 0;
-  for (const p of diffLines(before, after)) {
-    if (p.added) add += p.count ?? 0;
-    else if (p.removed) del += p.count ?? 0;
-  }
-  return { add, del };
-}
-
 export function renderDiff(before: string, after: string): HTMLElement {
   const out = el("div", { class: "cv-diff" });
   const parts = diffLines(before, after);
