@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 79
 title: Phone layout
 ---
 1. Open the Preview on a phone, or narrow the window below 760px. Tap ☰: the sidebar slides in over a dimmed page. Tap the dimmed page, press Esc, or pick Tasks: it closes. No page scrolls sideways.
