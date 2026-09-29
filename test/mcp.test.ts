@@ -36,7 +36,9 @@ test("writes are attributed to the connected client", async () => {
   assert.equal((await call("create_note", { path: "Agent log", content: "# Agent log\n" })).isError, false);
   assert.equal(fs.readFileSync(path.join(vault, "Agent log.md"), "utf8"), "# Agent log\n");
   const changes = await call("recent_changes", { path: "Agent log.md" });
-  assert.match(changes.text, /^#\d+ \S+ test-agent: create Agent log\.md \(2 lines\)$/);
+  assert.match(changes.text, /^#\d+ \S+ test-agent for you: create Agent log\.md \(2 lines\)$/);
+  assert.equal((await call("recent_changes", { path: "Agent log.md", by: "people" })).text, "No changes.");
+  assert.match((await call("recent_changes", { path: "Agent log.md", by: "test-agent" })).text, /test-agent for you: create Agent log\.md/);
 });
 
 test("tool errors come back as isError with the core's message", async () => {

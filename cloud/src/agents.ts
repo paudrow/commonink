@@ -9,6 +9,7 @@ import { escapeHtml, page, readSession, text } from "./auth.ts";
 import { getUser, membership, workspacesOf, type User, type WorkspaceRef } from "./directory.ts";
 import type { Env } from "./env.ts";
 import { D1Kv } from "./oauth-store.ts";
+import { agentSource, authorLabel } from "../../src/core/actor.ts";
 
 /** What a grant carries: who connected, to which workspace, and the client's name. */
 export interface AgentProps {
@@ -40,7 +41,7 @@ export function oauthOptions(origin: string, app: ExportedHandler<OAuthEnv>): OA
 const oauthApi = (env: Env, url: URL) => getOAuthApi(oauthOptions(url.origin, { fetch: () => new Response(null, { status: 404 }) }), withOAuthStore(env));
 
 /** "Claude (via Audrow)": how an agent's changes appear in the change log. */
-export const agentActor = (client: string, user: Pick<User, "name">) => `${client} (via ${user.name.split(" ")[0]})`;
+export const agentActor = (client: string, user: Pick<User, "name">) => authorLabel({ source: "", person: user.name, agent: client }, "");
 
 /** A client names itself when it registers, so keep that name short and printable. */
 const clientName = (name: string | undefined) => (name ?? "").replace(/[\x00-\x1f\x7f()]/g, "").trim().slice(0, 40) || "An agent";
@@ -64,7 +65,7 @@ async function serveMcp(req: Request, env: OAuthEnv, ctx: ExecutionContext<Agent
       .run(),
   );
   const stub = env.WORKSPACE.get(env.WORKSPACE.idFromName(ws.id));
-  return stub.mcp(req, { workspace: ws.id, user: user.id, actor: agentActor(client, user), role: ws.role });
+  return stub.mcp(req, { workspace: ws.id, user: user.id, actor: agentSource(client, user.name), role: ws.role });
 }
 
 // ------------------------------------------------------------------ consent

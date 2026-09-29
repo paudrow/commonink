@@ -2,6 +2,7 @@
 // local Node server and in a Cloudflare workspace Durable Object.
 import { cleanPath, QuireError } from "./paths.ts";
 import type { ArchiveScope, Change, Quire } from "./quire.ts";
+import { parseAuthorFilter } from "./actor.ts";
 
 export interface ApiHost {
   quire: Quire;
@@ -139,7 +140,9 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     case "GET /backlinks":
       return json(quire.backlinks(q("path")));
     case "GET /changes":
-      return json(quire.changes({ limit: qCount("limit", 50, 500), before: qCount("before", 0, Infinity) || undefined, path: q("path") || undefined }));
+      return json(quire.changes({ limit: qCount("limit", 50, 500), before: qCount("before", 0, Infinity) || undefined, path: q("path") || undefined, by: parseAuthorFilter(q("by")) }));
+    case "GET /changes/agents":
+      return json(quire.agents());
     case "GET /diffs":
       return json(quire.diffSet(parseIdRanges(q("ids"))));
     case "GET /favorites":

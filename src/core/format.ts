@@ -1,5 +1,6 @@
 // Plain-text renderings of core results, shared by the MCP server and the CLI.
 // Agents read markdown far more cheaply than JSON, so this is the default output.
+import { authorLabel } from "./actor.ts";
 import type { Backlink, Change, Note, NoteMeta, SearchHit } from "./quire.ts";
 
 export function fmtSearch(q: string, hits: SearchHit[]): string {
@@ -67,7 +68,7 @@ export function fmtChanges(changes: Change[]): string {
       const moved = c.op === "move" || c.op === "archive" || c.op === "unarchive";
       const what = moved ? `${c.op === "move" ? "moved" : `${c.op}d`} ${c.from_path} → ${c.path}` : `${c.op} ${c.path}`;
       const saves = c.count > 1 ? `, ${c.count} saves` : "";
-      return `#${c.id} ${when} ${c.source}: ${what}${c.summary && !moved ? ` (${c.summary}${saves})` : ""}`;
+      return `#${c.id} ${when} ${authorLabel(c)}: ${what}${c.summary && !moved ? ` (${c.summary}${saves})` : ""}`;
     })
     .join("\n");
 }
