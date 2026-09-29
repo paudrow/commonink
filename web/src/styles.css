@@ -848,7 +848,7 @@ body.panel-closed #panel { opacity: 0; pointer-events: none; }
 .qw-field-label { color: var(--ink-2); font-weight: 550; padding-top: 7px; }
 .qw-field.is-toggle { align-items: center; }
 .qw-field.is-toggle .qw-field-label { padding-top: 0; }
-.qw-field-control { display: grid; gap: 8px; }
+.qw-field-control { display: grid; gap: 8px; min-width: 0; }
 .qw-field input[type="text"] {
   height: 32px;
   border: 1px solid var(--line-strong);
@@ -1659,6 +1659,34 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .task-menu-item .task-menu-value { flex: none; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--ink-2); }
 .task-menu-item .task-menu-value.is-empty { color: var(--faint); }
 
+/* smart folders: sidebar rows, the save/edit popover, and the Notes filter bar's sort */
+#smart-folders .tree-row > svg:first-child { color: var(--accent); }
+.sf-mine { display: inline-grid; place-items: center; color: var(--faint); }
+.sf-just-me { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+.sf-just-me input { margin: 0; }
+.sf-just-me .sf-hint { color: var(--faint); font-size: 12px; }
+.sf-editor .qw-config-foot .qw-btn:first-child svg { color: var(--bad); }
+.feed-sort { margin-left: auto; }
+
+/* shared settings fields: selects, pickers, and the smart folder editor's live count */
+.qw-select { height: 32px; width: 100%; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-elev); color: var(--ink-strong); padding: 0 8px; font: 14px var(--ui); outline: none; }
+.qw-select:focus { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.qw-picked { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.qw-picked input { flex: 1; min-width: 0; width: auto; }
+.qw-pick { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--muted); background: var(--bg-elev); }
+.qw-pick:hover { color: var(--accent-ink); border-color: var(--accent-line); background: var(--accent-soft); }
+.sf-pop { position: fixed; z-index: 60; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--bg-elev); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18); }
+.sf-pop-title { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sf-pop-title svg { flex: none; color: var(--muted); }
+.sf-pop input:not([type="checkbox"]) { min-width: 0; flex: 1; font: 13px var(--ui); color: var(--ink-strong); background: var(--bg); border: 1px solid var(--line-strong); border-radius: 7px; padding: 5px 8px; }
+.sf-pop input:focus { outline: none; border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.sf-pop-error { font-size: 12.5px; color: var(--bad); }
+.sf-editor { width: 360px; }
+.sf-editor .qw-field { grid-template-columns: 76px 1fr; align-items: center; }
+.sf-count { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; padding-left: 88px; min-height: 1.4em; }
+.sf-count.is-error { color: var(--bad); }
+.qw-config-foot .qw-btn { white-space: nowrap; flex: none; }
+
 /* every task chip is one height and sits on the same line, whatever it holds (icon, avatar, text) */
 .tk { box-sizing: border-box; height: 20px; line-height: 1; vertical-align: middle; }
 .tk .avatar { width: 14px !important; height: 14px !important; }
@@ -1699,12 +1727,14 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .chip-rec-dates { font-size: 12.5px; color: var(--muted); }
 .chip-rec-text { width: 100%; height: 32px; box-sizing: border-box; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-elev); color: var(--ink-strong); padding: 0 8px; font: 13px var(--mono); }
 .tk-next { color: var(--muted); font-weight: 400; }
+
 .qw-select { height: 32px; width: 100%; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-elev); color: var(--ink-strong); padding: 0 8px; font: 14px var(--ui); outline: none; }
 
 /* sidebar sections: one scrolling column, each folding away from its header */
 .sidebar-sections { flex: 1; min-height: 0; overflow: auto; padding-bottom: 12px; }
 .sidebar-sections > #tree, .sidebar-sections > #favorites { flex: none; max-height: none; overflow: visible; }
-#tag-tree { padding: 4px 8px 4px; }
+#tag-tree, #smart-folders { padding: 4px 8px 4px; }
+.hint-icon { display: inline-grid; place-items: center; width: 16px; height: 16px; border: 1px solid var(--line-strong); border-radius: 4px; vertical-align: -3px; color: var(--muted); }
 .section-toggle { display: inline-flex; align-items: center; gap: 4px; margin-left: -4px; padding: 3px 4px; border-radius: 5px; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; }
 .section-toggle:hover { color: var(--ink-2); background: var(--hover); }
 .section-toggle:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 0; }

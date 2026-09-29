@@ -4,7 +4,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { LOCAL_USER, openVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
-import { fmtBacklinks, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtTags, fmtTasks, fmtWrite } from "./core/format.ts";
+import { fmtBacklinks, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtWrite } from "./core/format.ts";
+import { parseQuery } from "./core/query.ts";
 
 const quire = openVault();
 
@@ -110,14 +111,19 @@ server.registerTool(
       tag: TAG,
       recent: z.number().int().min(1).max(100).optional().describe("If set, list this many most recently modified notes"),
       starred: z.boolean().optional().describe("If set, list the user's favorites instead"),
+      smart_folder: z.string().optional().describe("If set, list the notes in this smart folder (name or ID) instead"),
       include_archived: z.boolean().optional(),
     },
     annotations: readOnly,
   },
-  ({ folder, tag, recent, starred, include_archived }) =>
+  ({ folder, tag, recent, starred, smart_folder, include_archived }) =>
     run(() => {
       quire.sync();
       if (starred) return favorites();
+      if (smart_folder) {
+        const query = parseQuery(quire.findSmartFolder(LOCAL_USER, smart_folder).query);
+        return fmtList(quire.feed({ ...query, limit: Infinity }).items);
+      }
       return fmtList(recent ? quire.recent(recent) : quire.list(folder, include_archived ? "all" : "active", tag));
     }),
 );
@@ -309,6 +315,56 @@ server.registerTool(
     annotations: writes,
   },
   ({ paths }) => run(() => (paths.forEach((p) => quire.unstar(LOCAL_USER, p)), favorites())),
+);
+
+server.registerTool(
+  "list_smart_folders",
+  {
+    title: "List smart folders",
+    description:
+      "The user's smart folders: saved note queries in the sidebar, each with its query and how many notes match now. " +
+      "list_notes with smart_folder lists one's notes.",
+    inputSchema: {},
+    annotations: readOnly,
+  },
+  () =>
+    run(() => {
+      quire.sync();
+      return fmtSmartFolders(quire.smartFolders(LOCAL_USER));
+    }),
+);
+
+server.registerTool(
+  "save_smart_folder",
+  {
+    title: "Save smart folder",
+    description:
+      "Create a smart folder (a saved note query in the sidebar), or change one by id. The query uses ::query's keys: " +
+      'q="words" folder=Projects tag=work sort=title limit=10 (all optional; a tag includes the tags under it). Only save one the user asked for.',
+    inputSchema: {
+      name: z.string(),
+      query: z.string(),
+      just_me: z.boolean().optional().describe("Keep it the user's own instead of sharing it with the workspace"),
+      id: z.string().optional().describe("Change this smart folder instead of creating one"),
+    },
+    annotations: writes,
+  },
+  ({ name, query, just_me, id }) =>
+    run(() => {
+      quire.saveSmartFolder(LOCAL_USER, { id, name, query, shared: !just_me }, true);
+      return fmtSmartFolders(quire.smartFolders(LOCAL_USER));
+    }),
+);
+
+server.registerTool(
+  "delete_smart_folder",
+  {
+    title: "Delete smart folder",
+    description: "Delete a smart folder by name or ID. The notes in it don't change.",
+    inputSchema: { smart_folder: z.string() },
+    annotations: { ...writes, destructiveHint: true },
+  },
+  ({ smart_folder }) => run(() => fmtSmartFolders(quire.deleteSmartFolder(LOCAL_USER, smart_folder, true))),
 );
 
 server.registerTool(

@@ -92,7 +92,7 @@ export function linkKey(target: string): string {
 export class QuireError extends Error {
   constructor(
     message: string,
-    public code: "not_found" | "conflict" | "invalid" | "exists" = "invalid",
+    public code: "not_found" | "conflict" | "invalid" | "exists" | "forbidden" = "invalid",
     public data?: Record<string, unknown>,
   ) {
     super(message);
