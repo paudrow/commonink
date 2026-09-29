@@ -34,6 +34,8 @@ export function quickAddBar(opts: QuickAddOptions): { root: HTMLElement; input: 
   let picks: string[] = [];
   let active = 0;
   let status: HTMLElement | null = null;
+  /** A task is on its way to the server: another Enter now would add it twice. */
+  let adding = false;
 
   const render = () => {
     const text = input.value;
@@ -97,8 +99,9 @@ export function quickAddBar(opts: QuickAddOptions): { root: HTMLElement; input: 
   };
 
   const submit = async () => {
-    if (!parsed?.words) return;
+    if (!parsed?.words || adding) return;
     const text = input.value;
+    adding = true;
     try {
       const r = await api.addTask(text, [...ignore]);
       input.value = "";
@@ -114,6 +117,8 @@ export function quickAddBar(opts: QuickAddOptions): { root: HTMLElement; input: 
       opts.added(r);
     } catch (e) {
       preview.replaceChildren(el("span", { class: "qa-error" }, e instanceof Error ? e.message : "Couldn't add the task"));
+    } finally {
+      adding = false;
     }
   };
 
@@ -160,16 +165,21 @@ export function quickAddBar(opts: QuickAddOptions): { root: HTMLElement; input: 
   return { root, input };
 }
 
-/** The quick-add bar floating over whatever's open (the `q` shortcut). Enter adds and closes it. */
+/**
+ * The quick-add bar floating over whatever's open (the `q` shortcut). Enter adds and closes it, and
+ * closing it with Enter or Escape gives the focus back to what had it.
+ */
 export function openQuickAdd(opts: Omit<QuickAddOptions, "escape">) {
   if (document.querySelector(".qa-float")) return;
-  const close = () => {
+  const back = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const close = (refocus: boolean) => {
     float.remove();
     document.removeEventListener("mousedown", outside, true);
+    if (refocus) back?.focus({ preventScroll: true });
   };
-  const bar = quickAddBar({ ...opts, added: (r) => (opts.added(r), close()), escape: close });
+  const bar = quickAddBar({ ...opts, added: (r) => (opts.added(r), close(true)), escape: () => close(true) });
   const float = el("div", { class: "qa-float", role: "dialog", "aria-label": "Add a task" }, bar.root);
-  const outside = (e: MouseEvent) => !float.contains(e.target as Node) && close();
+  const outside = (e: MouseEvent) => !float.contains(e.target as Node) && close(false); // the click puts the focus where it lands
   document.addEventListener("mousedown", outside, true);
   document.body.append(float);
   bar.input.focus();
