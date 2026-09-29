@@ -178,6 +178,8 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
           today: q("today") || undefined, // the browser's day, so "today" means the reader's today
         }),
       );
+    case "GET /tasks/count":
+      return json({ open: quire.openTaskCount() });
     case "GET /tags":
       return json(quire.tags());
     case "GET /asset-tags":

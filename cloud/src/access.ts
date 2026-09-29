@@ -24,6 +24,7 @@ export const WORKSPACE_ROUTES = {
   "GET /diffs": "viewer",
   "GET /diff": "viewer",
   "GET /tasks": "viewer",
+  "GET /tasks/count": "viewer",
   "GET /favorites": "viewer",
   "GET /smart-folders": "viewer",
   "GET /tags": "viewer",

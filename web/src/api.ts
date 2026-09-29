@@ -217,6 +217,8 @@ export const api = {
     j<FeedPage>(`${BASE}/feed?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
   tasks: (p: { folder?: string; note?: string; tag?: string; assignee?: string; due?: string; today?: string }) =>
     j<Task[]>(`${BASE}/tasks?${new URLSearchParams(Object.entries(p).filter(([, v]) => v).map(([k, v]) => [k, String(v)]))}`),
+  /** How many tasks are still open across the workspace (the Tasks badge). */
+  openTasks: () => j<{ open: number }>(`${BASE}/tasks/count`).then((r) => r.open),
   tags: () => j<TagCount[]>(`${BASE}/tags`),
   smartFolders: () => j<SmartFolder[]>(`${BASE}/smart-folders`),
   /** Create a smart folder, or change one by `id`. */

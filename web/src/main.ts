@@ -2004,9 +2004,8 @@ async function route() {
 
 /** The Tasks badge: how many checkboxes are still open across the workspace. */
 async function refreshTaskCount() {
-  const tasks = await api.tasks({}).catch(() => null);
-  if (!tasks) return;
-  const open = tasks.filter((t) => !t.done).length;
+  const open = await api.openTasks().catch(() => null);
+  if (open === null) return;
   $("#tasks-count").textContent = open ? String(open) : "";
 }
 const refreshTaskCountSoon = debounce(refreshTaskCount, 400);

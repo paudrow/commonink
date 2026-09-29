@@ -4,6 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { handleApi } from "../src/core/api.ts";
 import { openVault } from "../src/core/local.ts";
 import { openTempVault } from "./helpers.ts";
 
@@ -56,6 +57,15 @@ test("tasks come from the index, and follow edits in the app, edits on disk, mov
   fs.rmSync(path.join(dir, "c/Plan.md"));
   quire.sync();
   assert.deepEqual(brief(quire), []);
+});
+
+test("the Tasks badge's count is the open tasks in active notes, without sending the tasks", async () => {
+  const { quire } = openTempVault(TASKY);
+  const host = { quire, actor: "t", user: "t", canEditShared: true, info: () => ({}), written() {}, moved() {}, tree() {} };
+  const count = async () => (await (await handleApi(host, new Request("http://localhost/api/tasks/count"), "/tasks/count"))!.json()).open;
+  assert.equal(await count(), 3);
+  quire.setTask("A", 3, "First", true, "t");
+  assert.equal(await count(), 2);
 });
 
 test("an index from before tasks were indexed learns them on the next start", () => {
