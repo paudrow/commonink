@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 78
 title: New-user defaults
 ---
 1. Open [[Esc then dd]] and follow it: Vim keys start off, so Esc then `dd` types letters instead of deleting a line. The status bar toggle reads "Vim keys: off" or "on".
