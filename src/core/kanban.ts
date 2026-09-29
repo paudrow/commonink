@@ -282,9 +282,14 @@ export function moveCard(md: string, line: number, to: Place, index: number, tod
   raw.splice(card.from, block.length);
   if (at > card.from) at -= block.length;
   raw.splice(at, 0, ...block);
+  return withNext(raw, cr, to.board, following);
+}
+
+/** The note's lines with a repeating card's next occurrence (if any) at the top of the board's first column that isn't the done column. */
+function withNext(raw: string[], cr: string, board: number, following: string | null): string {
   if (!following) return raw.join("\n");
-  const board = boardsIn(raw.join("\n"))[to.board];
-  const start = board.columns.find((c) => !c.done) ?? board.columns[0];
+  const b = boardsIn(raw.join("\n"))[board];
+  const start = b.columns.find((c) => !c.done) ?? b.columns[0];
   raw.splice(slot(raw, start, 0), 0, following + cr);
   return raw.join("\n");
 }
@@ -311,12 +316,16 @@ export function editCard(md: string, line: number, text: string): string {
   return raw.join("\n");
 }
 
-/** Tick or untick the card on `line`; `done:` is stamped with `today` or taken off. */
+/**
+ * Tick or untick the card on `line`; `done:` is stamped with `today` or taken off. Ticking a repeating
+ * card leaves its next occurrence where moving it into the done column would (see moveCard).
+ */
 export function checkCard(md: string, line: number, checked: boolean, today: string): string {
-  const { raw } = split(md);
-  const { card } = locate(boardsIn(md), line);
+  const { raw, cr } = split(md);
+  const { card, place } = locate(boardsIn(md), line);
   raw[card.from] = tick(raw[card.from], checked, today);
-  return raw.join("\n");
+  const following = checked && !card.checked ? nextOccurrence(raw[card.from].replace(/\r$/, ""), today) : null;
+  return withNext(raw, cr, place.board, following);
 }
 
 /** Change the task tokens on the card on `line` (see editTask); the rest of its line stays as written. */

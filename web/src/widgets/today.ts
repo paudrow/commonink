@@ -7,7 +7,7 @@ import { el, icon } from "../dom.ts";
 import { onVaultChange } from "../events.ts";
 import type { WidgetSpec } from "./core.ts";
 import { today } from "../taskChips.ts";
-import { taskRow } from "../taskRow.ts";
+import { redrawRows, taskRow } from "../taskRow.ts";
 
 const EMPTY: Record<string, string> = { overdue: "Nothing overdue.", due: "Nothing due today.", starting: "Nothing starts today." };
 
@@ -40,17 +40,18 @@ export const todayWidget: WidgetSpec = {
     }
 
     function render() {
-      if (!view) {
+      const v = view;
+      if (!v) {
         list.replaceChildren(el("div", { class: "qt-empty" }, problem || "Loading…"));
         return env.remeasure();
       }
       const rowEnv = { open: env.open, openTag: env.openTag, openPerson: env.openPerson, reload: () => void load() };
       // On the Tasks page (`compact`) a section with nothing in it isn't shown; the journal row always is.
       const compact = env.args.compact === "true";
-      const nothing = view.sections.every((s) => !s.tasks.length);
-      list.replaceChildren(
-        journal(view),
-        ...view.sections.filter((s) => !compact || s.tasks.length).map((s) =>
+      const nothing = v.sections.every((s) => !s.tasks.length);
+      redrawRows(list, () => list.replaceChildren(
+        journal(v),
+        ...v.sections.filter((s) => !compact || s.tasks.length).map((s) =>
           el(
             "section",
             { class: `td-section is-${s.id}${s.tasks.length ? "" : " is-empty"}` },
@@ -59,7 +60,7 @@ export const todayWidget: WidgetSpec = {
           ),
         ),
         nothing && !compact ? el("div", { class: "td-clear" }, icon("check", 14), "A clear day. Add a task above, or pick one from Tasks.") : "",
-      );
+      ));
       env.remeasure();
     }
 

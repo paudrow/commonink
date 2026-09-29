@@ -24,7 +24,7 @@ import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
 import { groupChanges } from "../../src/core/format.ts";
 import { clampSide, forget, newLayout, parseLayout, SIDE_CLICK, sideClick, step, visit, type PaneTrail } from "./panes.ts";
-import { headingName, headingText } from "../../src/core/prose.ts";
+import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
 import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
@@ -63,6 +63,8 @@ interface Pane {
   preview: HTMLElement;
   bar: HTMLElement;
   trail: PaneTrail;
+  /** Counts what the pane was asked to show, so a note that loads after a later request doesn't replace it. */
+  opens: number;
 }
 
 const store = {
@@ -118,6 +120,7 @@ const makePane = (index: 0 | 1, host: HTMLElement, preview: HTMLElement, bar: HT
   preview,
   bar,
   trail: layout.panes[index],
+  opens: 0,
 });
 const panes: [Pane, Pane] = [makePane(0, $("#editor-host"), $("#html-preview"), $("#main-bar")), makePane(1, $("#side-host"), $("#side-preview"), $("#side-bar"))];
 let active = panes[0];
@@ -191,6 +194,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
     if (line) goToLine(beside, line);
     return beside.view.focus();
   }
+  const ticket = ++pane.opens;
   await flushSave(pane);
   if (pane.session) await nameUntitled(pane.session);
   if (pane.session && pane.session.kind !== "asset") cursors.set(pane.session.path, pane.view.state.selection.main.head);
@@ -203,6 +207,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   } catch {
     return toast({ text: `Couldn't open ${path}` });
   }
+  if (ticket !== pane.opens) return; // something else was opened here while this loaded
   hideBanner();
   const next: Session = {
     id: note.id,
@@ -391,13 +396,12 @@ function showStage(which: "editor" | "html" | "notes" | "tasks" | "history" | "a
     unmountTasks?.();
     unmountTasks = null;
   }
-
 }
 
-/** Put the open note away (saved, named, cursor remembered) before showing a page that isn't a note. */
-/** Pages show in the main pane, which then has the focus. */
+/** Put the open note away (saved, named, cursor remembered) before showing a page that isn't a note. Pages show in the main pane, which then has the focus. */
 async function leaveNote() {
   const main = panes[0];
+  main.opens++; // a note still loading into it doesn't come back over the page
   await flushSave(main);
   if (main.session) await nameUntitled(main.session);
   if (main.session && main.session.kind !== "asset") cursors.set(main.session.path, main.view.state.selection.main.head);
@@ -704,7 +708,7 @@ async function save(s: Session) {
   s.saving = true;
   status(s, "saving");
   try {
-    const r = await api.save(s.path, content, s.baseVersion, content.trim() === "");
+    const r = await api.save(s.path, content, s.baseVersion, content.trim() === "", clientId);
     s.base = content;
     s.baseVersion = r.version;
     if (s === s.pane.session && view.state.doc.lineAt(view.state.selection.main.head).number > 1) void nameUntitled(s);
@@ -734,7 +738,8 @@ async function flushSave(...only: Pane[]) {
   }
 }
 
-let flashTimer = 0;
+/** Each editor's pending end to its agent highlight, so a change in one pane doesn't keep the other's lit. */
+const flashTimers = new WeakMap<EditorView, number>();
 /** A new version arrived from disk. Apply it as a diff (keeps cursor, undo, vim state); 3-way merge if we have unsaved typing. */
 /** Who a live change is by, from its message: its change if it has one, else just its source. */
 const byOf = (m: { source: string; change?: Change | null }) => m.change ?? { source: m.source, person: null, agent: null };
@@ -766,8 +771,8 @@ function applyRemote(m: { path: string; content: string | null; version: string;
   if (target !== m.content) scheduleSave(s, 250);
   else status(s, "saved");
   if (s.kind === "html" && prefs.htmlMode === "preview") renderHtmlPreview(s.pane);
-  clearTimeout(flashTimer);
-  flashTimer = window.setTimeout(() => view.dispatch({ effects: clearFlash.of(null) }), 6000);
+  clearTimeout(flashTimers.get(view));
+  flashTimers.set(view, window.setTimeout(() => view.dispatch({ effects: clearFlash.of(null) }), 6000));
 }
 
 function showConflict(s: Session, m: { path: string; content: string | null; version: string; source: string; change?: Change | null }) {
@@ -809,10 +814,11 @@ function onMessage(m: ServerMsg) {
       const meta = notes.find((n) => n.path === m.path);
       if (meta) meta.version = m.version;
       refreshTagsSoon(); // your own typing can add a tag too
+      // The other pane may embed this note, and typing here changes what it shows there too.
+      for (const p of panes) if (p.session?.kind === "md" && p.session.path !== m.path && embedsPath(p, m.path)) bumpEmbeds(p.view);
       if (m.origin === clientId) return;
       const open = panes.some((p) => p.session?.path === m.path);
       if (open) applyRemote(m);
-      for (const p of panes) if (p.session?.kind === "md" && p.session.path !== m.path && embedsPath(p, m.path)) bumpEmbeds(p.view);
       if (!isSelf(m.source) && m.change) {
         toast({
           by: m.change,
@@ -965,6 +971,13 @@ function tagStarButton(tag: string, where: "row" | "chip"): HTMLElement {
   );
 }
 
+/** How a sidebar row opens what it names: a click, or Enter while the row (not a button in it) has the keyboard. */
+const opens = (go: (e?: MouseEvent) => void) => ({
+  tabindex: "0",
+  onclick: (e: MouseEvent) => go(e),
+  onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && go(),
+});
+
 /** Saved note queries, each with a live count. Click one to see its notes; the sliders edit it. */
 function renderSmartFolders(active: string | null) {
   const rows = smartFolders.map((f) => {
@@ -993,9 +1006,7 @@ function renderSmartFolders(active: string | null) {
         class: `tree-row is-file${f.query === active ? " is-active" : ""}`,
         style: { "--depth": "0" },
         title: `${f.query || "Every note"}${f.shared ? "" : " (just you)"}`,
-        tabindex: "0",
-        onclick: () => void showNotes({ scope: "active", query: parseQuery(f.query) }),
-        onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && void showNotes({ scope: "active", query: parseQuery(f.query) }),
+        ...opens(() => void showNotes({ scope: "active", query: parseQuery(f.query) })),
       },
       el("span", { class: "chev is-leaf" }), // the chevron column Folders and Tags rows have, so icons and names line up
       icon("folderSearch", 14),
@@ -1021,9 +1032,7 @@ function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
       style: { "--depth": "0" },
       title: `Notes tagged #${f.display}`,
       draggable: "true",
-      tabindex: "0",
-      onclick: () => openTag(f.display),
-      onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && openTag(f.display),
+      ...opens(() => openTag(f.display)),
       ondragstart: (e: DragEvent) => {
         e.dataTransfer!.setData(FAVORITE, favoriteKey(f));
         document.body.classList.add("is-dragging");
@@ -1057,7 +1066,7 @@ function renderFavorites() {
         style: { "--depth": "0" },
         title: f.path,
         draggable: "true",
-        onclick: (e: MouseEvent) => openNote(f.path, { pane: sideClick(e) ? sideOf(active) : active }),
+        ...opens((e) => void openNote(f.path, { pane: e && sideClick(e) ? sideOf(active) : active })),
         ondragstart: (e: DragEvent) => {
           e.dataTransfer!.setData(FAVORITE, f.path);
           e.dataTransfer!.setData(NOTE_DRAG, f.path); // so it can go to a folder or Archive too
@@ -1208,9 +1217,7 @@ function renderTree() {
             style: { "--depth": String(depth) },
             "data-folder": path,
             title: n ? `Show the notes in ${path}` : `${path} is empty. Drag notes here.`,
-            tabindex: "0",
-            onclick: () => void showNotes({ scope: "active", query: { folder: path } }),
-            onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && void showNotes({ scope: "active", query: { folder: path } }),
+            ...opens(() => void showNotes({ scope: "active", query: { folder: path } })),
           },
           subs
             ? el(
@@ -1267,9 +1274,7 @@ function renderTagTree(active: string) {
             style: { "--depth": String(depth) },
             "data-tag": t.tag,
             title: `Notes tagged #${t.display}`,
-            tabindex: "0",
-            onclick: () => openTag(t.display),
-            onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && openTag(t.display),
+            ...opens(() => openTag(t.display)),
           },
           subs
             ? el(
@@ -1589,12 +1594,8 @@ function renderOutline() {
   const box = $("#outline");
   outlineHeadings = [];
   if (active.session?.kind === "md") {
-    let fence = false;
-    const doc = active.view.state.doc;
-    for (let i = 1; i <= doc.lines; i++) {
-      const t = doc.line(i).text;
-      if (/^\s*(```|~~~)/.test(t)) fence = !fence;
-      const m = !fence && t.match(/^(#{1,6})[ \t]+(.+)$/);
+    for (const [i, t] of proseLines(active.view.state.doc.toString())) {
+      const m = t.match(/^(#{1,6})[ \t]+(.+)$/);
       const words = m && headingText(m[2]);
       if (words) outlineHeadings.push({ level: m[1].length, text: (headingName(words) || words).replace(/[*_`~]|\[\[|\]\]/g, ""), line: i });
     }

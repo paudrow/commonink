@@ -663,8 +663,6 @@ body.is-resizing iframe { pointer-events: none; }
 .cm-embed figure { margin: 0; }
 .cm-embed.is-image img { display: block; max-width: 100%; border-radius: 12px; cursor: pointer; box-shadow: var(--shadow-sm); }
 .cm-embed.is-video video { display: block; max-width: 100%; border-radius: 12px; }
-.embed-video { aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; background: #000; box-shadow: var(--shadow-sm); }
-.embed-video iframe { width: 100%; height: 100%; border: 0; display: block; }
 
 .cm-table-block { padding: 0.5em 0 0.9em; white-space: normal; }
 .cm-table-widget { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; cursor: text; }
@@ -795,7 +793,7 @@ body.is-resizing iframe { pointer-events: none; }
   word-break: break-all;
 }
 .cm-embed-src.is-active { color: var(--accent-ink); }
-.cm-embed-src.is-active + .cm-embed-block :is(figure img, .embed-social.is-video, .bookmark, .embed-video),
+.cm-embed-src.is-active + .cm-embed-block :is(figure img, .embed-social.is-video, .bookmark),
 .cm-embed-src.is-active + .cm-embed-block .cm-embed:is(.is-note, .is-html),
 .cm-embed-src.is-active + .cm-widget .qw {
   outline: 2px solid var(--accent-line);
@@ -1104,6 +1102,7 @@ body.is-resizing iframe { pointer-events: none; }
 .qt-row { display: flex; align-items: baseline; gap: 10px; padding: 4px 6px; margin: 0 -6px; border-radius: 7px; font-size: 14.5px; line-height: 1.45; }
 .qt-row:hover { background: var(--hover); }
 .qt-row .cm-checkbox { flex: none; transform: translateY(0.15em); }
+.qt-row .cm-checkbox:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .qt-text { flex: 1; min-width: 0; color: var(--ink); cursor: pointer; }
 .qt-text code { font: 0.86em var(--mono); background: var(--code-bg); padding: 0.1em 0.3em; border-radius: 4px; }
 .qt-text a, .qt-link { color: var(--accent-ink); }
@@ -1891,7 +1890,6 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .chip-rec { display: grid; gap: 10px; padding: 12px; }
 .chip-rec-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
 .chip-rec .chip-n { width: 64px; height: 32px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-elev); color: var(--ink-strong); padding: 0 8px; font: 14px var(--ui); }
-.chip-rec .chip-unit { flex: 1; }
 .chip-rec .qw-config-foot { padding-top: 0; }
 .chip-pop:focus { outline: none; }
 .chip-rec-list { max-height: none; }

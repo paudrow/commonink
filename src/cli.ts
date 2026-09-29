@@ -10,7 +10,7 @@ const HELP = `quire — markdown notes for you and your agents
 
 Usage: quire <command> [args] [--agent <name>] [--json]
 
-  search <query…> [--tag T] [--archived|--all]
+  search <query…> [--tag T] [--limit N] [--archived|--all]
                                    full-text search (prefix matching)
   read <note> [--offset N] [--limit N]
   ls [folder] [--tag T] [--recent N] [--archived|--all]
@@ -25,7 +25,8 @@ Usage: quire <command> [args] [--agent <name>] [--json]
                                    note (Journal/YYYY-MM-DD.md) or the → [[note]]
   task move <note> <line> --to <note>
                                    move a task (and what's nested under it) to another note
-  task <note> <line> [--done|--undone] [--due D] [--rec R] [--skip] …
+  task <note> <line> [--done|--undone] [--due D] [--start D] [--rec R]
+       [--priority high|low] [--assignee P,…] [--tag T,…] [--skip]
                                    tick a task or change its tokens; "none" clears one.
                                    --rec weekly, 6th, 1st-tue, after-1m (from done)…;
                                    --skip moves a repeating task to its next date

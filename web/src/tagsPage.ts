@@ -55,6 +55,7 @@ export class TagsPage {
   }
 
   private render() {
+    const had = this.list.contains(document.activeElement) ? document.activeElement?.closest(".tags-row")?.getAttribute("data-tag") : null;
     const q = this.input.value.trim().replace(/^#/, "").toLowerCase();
     const all = this.hooks.tags();
     // A filter keeps the matching tags and their parents, so each still sits in its place in the tree.
@@ -64,6 +65,12 @@ export class TagsPage {
         ? shown.map((t) => this.row(t))
         : [el("div", { class: "feed-empty" }, all.length ? `No tags match “${q}”.` : "No tags yet. Type #tag in a note, or add tags to an asset.")]),
     );
+    if (had) this.focusTag(had); // a redraw (a live update) keeps the keyboard on the tag it was on
+  }
+
+  /** Give the keyboard to a tag's row. Its buttons stay hidden until the row has the focus, so the tag's own button takes it. */
+  private focusTag(tag: string) {
+    this.list.querySelector<HTMLElement>(`.tags-row[data-tag="${CSS.escape(tag)}"] .tags-open`)?.focus();
   }
 
   private row(t: TagCount): HTMLElement {
@@ -77,17 +84,17 @@ export class TagsPage {
     const label = el("span", { class: "tags-name" }, "#", depth ? el("span", { class: "tags-parent" }, t.display.slice(0, -name.length)) : null, name);
     const node = el(
       "div",
-      { class: "tags-row", role: "listitem", style: { "--depth": String(depth) } },
+      { class: "tags-row", role: "listitem", "data-tag": t.tag, style: { "--depth": String(depth) } },
       el("button", { type: "button", class: "tags-open", title: `Notes tagged #${t.display}`, onclick: () => this.hooks.openTag(t.display) }, icon("hash", 14), label),
       el("span", { class: "tags-uses" }, uses.join(" · ")),
       t.tasks ? el("button", { type: "button", class: "row-act", title: `Tasks tagged #${t.display}`, onclick: () => this.hooks.openTag(t.display, "tasks") }, icon("task", 14)) : null,
-      el("button", { type: "button", class: "row-act", title: "Rename or merge", onclick: () => this.startRename(node, t) }, icon("edit", 14)),
+      el("button", { type: "button", class: "row-act tags-rename", title: "Rename or merge", "aria-label": `Rename or merge #${t.display}`, onclick: () => this.startRename(node, t) }, icon("edit", 14)),
     );
     return node;
   }
 
   private startRename(node: HTMLElement, t: TagCount) {
-    const input = el("input", { class: "tag-rename", value: t.display, spellcheck: "false" });
+    const input = el("input", { class: "tag-rename", value: t.display, spellcheck: "false", "aria-label": `New name for #${t.display}` });
     node.replaceChildren(icon("hash", 14), input, el("span", { class: "tags-uses" }, "Enter to rename, Esc to cancel"));
     input.focus();
     input.select();
@@ -95,13 +102,16 @@ export class TagsPage {
     const finish = async (commit: boolean) => {
       if (done) return;
       done = true;
+      const typing = document.activeElement === input; // Enter or Escape, not a blur to somewhere else
       const to = cleanTag(input.value);
+      let now = t.tag;
       if (commit && input.value.trim() && !to) {
         this.hooks.toast({ text: "A tag is letters, numbers, - and _, nested with /" });
       } else if (commit && to && to !== t.display) {
-        await this.rename(t, to);
+        if (await this.rename(t, to)) now = to.toLowerCase();
       }
       this.render();
+      if (typing) this.focusTag(now); // from the keyboard, back to the tag, under its new name if it has one
     };
     input.addEventListener("keydown", (e) => {
       e.stopPropagation();
@@ -111,14 +121,16 @@ export class TagsPage {
     input.addEventListener("blur", () => void finish(false));
   }
 
-  private async rename(t: TagCount, to: string) {
+  /** Rename (or merge) a tag, with Undo. Whether it happened. */
+  private async rename(t: TagCount, to: string): Promise<boolean> {
     const into = this.hooks.tags().find((x) => x.tag === to.toLowerCase() && x.tag !== t.tag);
-    if (into && !confirm(`#${into.display} already exists. Merge #${t.display} into it? Everything tagged #${t.display} will be tagged #${into.display}.`)) return;
-    let r;
+    if (into && !confirm(`#${into.display} already exists. Merge #${t.display} into it? Everything tagged #${t.display} will be tagged #${into.display}.`)) return false;
+    let r: Awaited<ReturnType<typeof api.renameTag>>;
     try {
       r = await api.renameTag(t.tag, into?.display ?? to); // a merge keeps the way the other tag is written
     } catch (e) {
-      return this.hooks.toast({ text: e instanceof Error ? e.message : `Couldn't rename #${t.display}` });
+      this.hooks.toast({ text: e instanceof Error ? e.message : `Couldn't rename #${t.display}` });
+      return false;
     }
     await this.hooks.refresh();
     const n = r.changes.length + Object.keys(r.assets).length;
@@ -132,5 +144,6 @@ export class TagsPage {
         await this.hooks.refresh();
       },
     });
+    return true;
   }
 }

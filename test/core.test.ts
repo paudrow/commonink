@@ -107,6 +107,12 @@ test("tasks come from checkbox lines with the heading above them", () => {
   assert.equal(quire.tasks()[0].done, true);
 });
 
+test("tasks and headings in code don't count, whichever fence the code uses", () => {
+  const note = "# Code\n\n~~~md\n## Not a heading\n```js\n- [ ] not a task\n~~~\n\n    - [ ] indented code, not a task\n\n## Real\n- [ ] a real task\n";
+  const { quire } = openTempVault({ "Code.md": note });
+  assert.deepEqual(quire.tasks().map((t) => [t.line, t.text, t.heading]), [[12, "a real task", "Real"]]);
+});
+
 test("save writes only notes: never over an asset, never a file type the vault doesn't hold", () => {
   const { dir, quire } = openTempVault();
   const svg = fs.readFileSync(path.join(dir, "assets/chart.svg"), "utf8");

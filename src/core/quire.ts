@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import { diffLines } from "diff";
 import type { Content, SqlDb } from "./store.ts";
 import { cleanPath, isHidden, kindOf, linkKey, QuireError, stemOf, type NoteKind } from "./paths.ts";
-import { headingName, headingText } from "./prose.ts";
+import { headingName, headingText, proseLines } from "./prose.ts";
 import { extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
@@ -163,7 +163,6 @@ export interface TagUse {
  * written. Hidden, so it isn't an asset itself; the core rewrites it when an asset moves.
  */
 export const ASSET_TAGS = "assets/.tags.json";
-
 
 export const versionOf = (content: string) =>
   crypto.createHash("sha256").update(content).digest("hex").slice(0, 12);
@@ -1164,19 +1163,16 @@ export class Quire {
       let heading: string | null = null;
       // A board's cards sit under its columns' headings; after its `:::`, the heading before it again.
       let outside: string | null | undefined;
-      let fence = false;
-      text.split("\n").forEach((line, i) => {
-        if (/^\s*(```|~~~)/.test(line)) fence = !fence;
-        if (fence) return;
+      for (const [at, line] of proseLines(text)) {
         const words = headingText(line.match(/^#{1,6}[ \t]+(.*)$/)?.[1] ?? "");
         if (words) heading = headingName(words) || words;
         if (/^\s*:::kanban\b/i.test(line)) outside = heading;
         else if (outside !== undefined && /^\s*:::\s*$/.test(line)) [heading, outside] = [outside, undefined];
         const t = parseTask(line);
-        if (!t || !t.text.trim() || (tagged && !tagged.has(`${n.path}:${i + 1}`))) return;
-        if ((due && !due(t.meta.due)) || (person && !t.meta.assignees.some((a) => a.toLowerCase() === person))) return;
-        out.push({ path: n.path, title: n.title, line: i + 1, text: t.text, summary: t.summary, done: t.done, heading, meta: t.meta });
-      });
+        if (!t || !t.text.trim() || (tagged && !tagged.has(`${n.path}:${at}`))) continue;
+        if ((due && !due(t.meta.due)) || (person && !t.meta.assignees.some((a) => a.toLowerCase() === person))) continue;
+        out.push({ path: n.path, title: n.title, line: at, text: t.text, summary: t.summary, done: t.done, heading, meta: t.meta });
+      }
     }
     return out;
   }
