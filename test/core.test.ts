@@ -580,7 +580,7 @@ test("smart folders are saved queries, shared with the workspace or one person's
   assert.deepEqual(quire.deleteSmartFolder("ana", "client work", true), []);
 });
 
-test("pinning and unpinning a tag only touches Favorites, never a smart folder with that tag's query", () => {
+test("starring and unstarring a tag only touches Favorites, never a smart folder with that tag's query", () => {
   const { quire } = openTempVault(TAGGED);
   const folder = quire.saveSmartFolder("ana", { name: "Billing", query: "tag=billing", shared: false }, true);
   quire.starTag("ana", "billing");
