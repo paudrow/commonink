@@ -1881,6 +1881,7 @@ window.addEventListener(
     if (quickOpen || matchKeys(e, "Mod-Shift-p")) {
       e.preventDefault();
       paletteToSide = false;
+      if (quickOpen && !palette.isOpen) did("search");
       palette.toggle(quickOpen ? "" : ">");
     } else if (mod && !e.altKey && e.key === "\\") {
       e.preventDefault();
