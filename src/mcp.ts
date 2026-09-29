@@ -4,7 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { LOCAL_USER, openVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
-import { fmtBacklinks, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtWrite } from "./core/format.ts";
+import { fmtBacklinks, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtTags, fmtTasks, fmtToday, fmtWrite } from "./core/format.ts";
 
 const quire = openVault();
 
@@ -40,6 +40,7 @@ function run(fn: () => string): Result {
 const favorites = () => fmtFavorites(quire.favorites(LOCAL_USER));
 
 const readOnly = { readOnlyHint: true, openWorldHint: false } as const;
+const TAG = z.string().optional().describe("Only notes with this tag or a tag under it: work matches #work and #work/acme");
 const writes = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
 
 server.registerTool(
@@ -52,13 +53,31 @@ server.registerTool(
       query: z.string().describe("Words to search for"),
       limit: z.number().int().min(1).max(50).optional().describe("Max results (default 10)"),
       include_archived: z.boolean().optional().describe("Also search archived notes"),
+      tag: TAG,
     },
     annotations: readOnly,
   },
-  ({ query, limit, include_archived }) =>
+  ({ query, limit, include_archived, tag }) =>
     run(() => {
       quire.sync();
-      return fmtSearch(query, quire.search(query, limit ?? 10, include_archived ? "all" : "active"));
+      return fmtSearch(query, quire.search(query, limit ?? 10, include_archived ? "all" : "active", tag));
+    }),
+);
+
+server.registerTool(
+  "list_tags",
+  {
+    title: "List tags",
+    description:
+      "Every tag in the vault as a tree (tags nest with /), with how many notes, tasks and assets carry each one or a tag under it. " +
+      "Use the names with the `tag` filter of search_notes and list_notes.",
+    inputSchema: {},
+    annotations: readOnly,
+  },
+  () =>
+    run(() => {
+      quire.sync();
+      return fmtTags(quire.tags());
     }),
 );
 
@@ -84,21 +103,140 @@ server.registerTool(
   {
     title: "List notes",
     description:
-      "List notes in the vault or a folder, the most recently modified notes, or the user's starred notes (favorites, in their order). " +
-      "Archived notes (under Archive/) are excluded unless requested.",
+      "List notes in the vault or a folder, the notes and assets with a tag, the most recently modified notes, or the user's " +
+      "starred notes (favorites, in their order). Archived notes (under Archive/) are excluded unless requested.",
     inputSchema: {
       folder: z.string().optional(),
+      tag: TAG,
       recent: z.number().int().min(1).max(100).optional().describe("If set, list this many most recently modified notes"),
       starred: z.boolean().optional().describe("If set, list the user's favorites instead"),
       include_archived: z.boolean().optional(),
     },
     annotations: readOnly,
   },
-  ({ folder, recent, starred, include_archived }) =>
+  ({ folder, tag, recent, starred, include_archived }) =>
     run(() => {
       quire.sync();
       if (starred) return favorites();
-      return fmtList(recent ? quire.recent(recent) : quire.list(folder, include_archived ? "all" : "active"));
+      return fmtList(recent ? quire.recent(recent) : quire.list(folder, include_archived ? "all" : "active", tag));
+    }),
+);
+
+server.registerTool(
+  "list_tasks",
+  {
+    title: "List tasks",
+    description:
+      "Checkbox tasks across the vault (not archived notes), as their markdown lines with path:line. A task's metadata is tokens in " +
+      "its text: due:YYYY-MM-DD, start:YYYY-MM-DD, rec:… (how it repeats), #tag, @person, !high or !low, and done:YYYY-MM-DD once ticked.",
+    inputSchema: {
+      status: z.enum(["open", "done", "all"]).optional().describe("Default open"),
+      folder: z.string().optional(),
+      note: z.string().optional().describe("Only this note's tasks"),
+      tag: TAG,
+      assignee: z.string().optional().describe("Only tasks with this @person"),
+      due: z.string().optional().describe("A due date filter: <=today (overdue or due today), tomorrow, >=2026-10-01…"),
+    },
+    annotations: readOnly,
+  },
+  ({ status, ...filters }) =>
+    run(() => {
+      quire.sync();
+      const want = status ?? "open";
+      return fmtTasks(quire.tasks(filters).filter((t) => want === "all" || t.done === (want === "done")));
+    }),
+);
+
+server.registerTool(
+  "get_today",
+  {
+    title: "Get today",
+    description:
+      "The day at a glance: open tasks overdue, due today and starting today (repeating ones show their rec:), and whether today's " +
+      "journal note (Journal/YYYY-MM-DD.md) exists. A good start for a morning brief.",
+    inputSchema: { today: z.string().optional().describe("The day to read, YYYY-MM-DD; default the machine's today") },
+    annotations: readOnly,
+  },
+  ({ today }) =>
+    run(() => {
+      quire.sync();
+      return fmtToday(quire.today(today));
+    }),
+);
+
+server.registerTool(
+  "add_task",
+  {
+    title: "Add task",
+    description:
+      "Add a task written the way you'd say it: dates and repeats in words become tokens (\"Pay rent every month on the 1st #home\" → " +
+      "due:… rec:1st #home; \"call mom tomorrow\", \"next fri\", \"oct 3\", \"in 2 weeks\", \"every other week\", \"last friday of the month\", " +
+      "\"every 3 days after done\"). Tokens (due:, !high, @person, #tag) pass through. It goes under ## Tasks in today's daily note " +
+      "(Journal/YYYY-MM-DD.md, created if needed), or into the note named with → [[Note]].",
+    inputSchema: { text: z.string().describe("The task, e.g. \"Review the PR next fri → [[Launch]] @sam\"") },
+    annotations: writes,
+  },
+  ({ text }) =>
+    run(() => {
+      const r = quire.addTask(text, source());
+      return `Added "- [ ] ${r.text}" to ${r.path}:${r.line}`;
+    }),
+);
+
+server.registerTool(
+  "move_task",
+  {
+    title: "Move task",
+    description: "Move a task (and the lines nested under it) to another note, by the path:line and text list_tasks gave. It goes at the end of that note's Tasks section, or of the note.",
+    inputSchema: {
+      path: z.string(),
+      line: z.number().int().min(1),
+      text: z.string().describe("The task's text after the checkbox, as list_tasks showed it"),
+      to: z.string().describe("The note to move it to"),
+    },
+    annotations: writes,
+  },
+  ({ path, line, text, to }) =>
+    run(() => {
+      const r = quire.moveTask(path, line, text, to, source());
+      return `Moved "${r.text}" to ${r.path}:${r.line}`;
+    }),
+);
+
+server.registerTool(
+  "update_task",
+  {
+    title: "Update task",
+    description:
+      "Tick, untick or change the metadata of one task, by the path:line and text list_tasks gave. Only the fields you pass change: " +
+      "a value sets that token, null (or [] for lists) removes it, and the rest of the line stays as the user wrote it. Ticking adds done: with today's date; " +
+      "ticking a repeating task (rec:) also adds its next occurrence on the line below, and unticking it straight after takes that back.",
+    inputSchema: {
+      path: z.string(),
+      line: z.number().int().min(1),
+      text: z.string().describe("The task's text after the checkbox, as list_tasks showed it (guards against the note having changed)"),
+      done: z.boolean().optional().describe("Tick (true) or untick (false)"),
+      due: z.string().nullable().optional().describe("YYYY-MM-DD or YYYY-MM-DDTHH:MM"),
+      start: z.string().nullable().optional().describe("Hide until this date"),
+      rec: z
+        .string()
+        .nullable()
+        .optional()
+        .describe(
+          "How it repeats, from the due date: daily, weekly, monthly, yearly, 3d, 2w, mon,thu, 2w-mon,thu, 6th, last-day, 1st-tue,3rd-tue, last-fri, mar-1, 1st-mon-mar, day-50; " +
+            "a gap after it's done: after-1m, after-10d; or RRULE:FREQ=…;BYDAY=…",
+        ),
+      skip: z.boolean().optional().describe("Move a repeating task to its next date without ticking it (on its own: other fields are ignored)"),
+      priority: z.enum(["high", "low"]).nullable().optional(),
+      assignees: z.array(z.string()).optional().describe("People, without @"),
+      tags: z.array(z.string()).optional().describe("Tags, without #"),
+    },
+    annotations: writes,
+  },
+  ({ path, line, text, done, skip, ...patch }) =>
+    run(() => {
+      const r = skip ? quire.skipTask(path, line, text, source()) : quire.updateTask(path, line, text, done === undefined ? patch : { ...patch, checked: done }, source());
+      return fmtWrite(r, r.change ? "Updated" : "No change to");
     }),
 );
 
@@ -192,6 +330,30 @@ server.registerTool(
     annotations: writes,
   },
   ({ paths }) => run(() => (paths.forEach((p) => quire.star(LOCAL_USER, p)), favorites())),
+);
+
+server.registerTool(
+  "star_tag",
+  {
+    title: "Star tag",
+    description:
+      "Add tags to the user's favorites, beside their starred notes; clicking one in the app shows every note with that tag " +
+      "(or a tag under it). A starred tag follows renames and merges. Only star tags the user asked for.",
+    inputSchema: { tags: z.array(z.string()).min(1).describe("Tags, with or without #") },
+    annotations: writes,
+  },
+  ({ tags }) => run(() => (tags.forEach((t) => quire.starTag(LOCAL_USER, t)), favorites())),
+);
+
+server.registerTool(
+  "unstar_tag",
+  {
+    title: "Unstar tag",
+    description: "Take tags out of the user's favorites. The tags and their notes don't change.",
+    inputSchema: { tags: z.array(z.string()).min(1) },
+    annotations: writes,
+  },
+  ({ tags }) => run(() => (tags.forEach((t) => quire.unstarTag(LOCAL_USER, t)), favorites())),
 );
 
 server.registerTool(

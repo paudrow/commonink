@@ -27,9 +27,43 @@ async function call(name: string, args: Record<string, unknown>) {
 test("the server lists every tool", async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
-    "append_to_note", "archive_note", "backlinks", "create_note", "edit_note", "list_notes",
-    "move_note", "read_note", "recent_changes", "search_notes", "star_note", "unarchive_note", "unstar_note",
+    "add_task", "append_to_note", "archive_note", "backlinks", "create_note", "edit_note", "get_today", "list_notes", "list_tags", "list_tasks", "move_note", "move_task", "read_note", "recent_changes", "search_notes", "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag", "update_task",
   ]);
+});
+
+test("agents list tasks with their tokens and change one without touching the rest of its line", async () => {
+  await call("create_note", { path: "Chores", content: "# Chores\n\n- [ ] Water the plants\n" });
+  const r = await call("update_task", { path: "Chores", line: 3, text: "Water the plants", due: "2026-10-01", priority: "high", assignees: ["sam"] });
+  assert.match(r.text, /^Updated Chores\.md → version [0-9a-f]{12} \(\+1 −1\)$/);
+  assert.equal((await call("list_tasks", { assignee: "sam" })).text, "- [ ] Water the plants !high due:2026-10-01 @sam — Chores.md:3");
+  await call("update_task", { path: "Chores", line: 3, text: "Water the plants !high due:2026-10-01 @sam", priority: null, done: true });
+  assert.match((await call("list_tasks", { status: "done", due: "2026-10-01" })).text, /^- \[x\] Water the plants due:2026-10-01 @sam done:\d{4}-\d{2}-\d{2} — Chores\.md:3$/);
+  assert.equal((await call("update_task", { path: "Chores", line: 3, text: "stale", done: false })).isError, true);
+});
+
+test("agents add a task from words, to today's daily note or a named note, and move one", async () => {
+  const today = new Date().toLocaleDateString("en-CA");
+  const r = await call("add_task", { text: "Renew the domain every year on mar 1 !high" });
+  assert.match(r.text, new RegExp(`^Added "- \\[ \\] Renew the domain !high due:\\d{4}-03-01 rec:mar-1" to Journal/${today}\\.md:5$`));
+  const to = await call("add_task", { text: "Draft the agenda → [[Roadmap]]" });
+  assert.equal(to.text, 'Added "- [ ] Draft the agenda" to Projects/Roadmap.md:10');
+  assert.equal((await call("move_task", { path: "Roadmap", line: 10, text: "Draft the agenda", to: `Journal/${today}` })).text, `Moved "Draft the agenda" to Journal/${today}.md:6`);
+  assert.equal((await call("add_task", { text: "tomorrow" })).isError, true);
+});
+
+test("agents read the day: overdue, due today, starting today, and the journal note", async () => {
+  const text = (await call("get_today", { today: "2026-10-05" })).text;
+  assert.match(text, /^Monday, October 5, 2026\n\nOverdue \(\d+\)\n/);
+  assert.match(text, /\nDue today \(0\)\n- nothing\n/);
+  assert.match(text, /\nJournal: Journal\/2026-10-05\.md \(not written yet\)$/);
+  assert.equal((await call("get_today", { today: "someday" })).isError, true);
+});
+
+test("agents list tags as a tree and filter notes by a tag and the tags under it", async () => {
+  await call("create_note", { path: "Ideas/Plan B", content: "# Plan B\n\nA backup #plan/b for the importer.\n" });
+  assert.equal((await call("list_tags", {})).text, "- #plan (2 notes)\n  - #plan/b (1 note)\n- #q3 (1 note)");
+  assert.equal((await call("list_notes", { tag: "plan" })).text, "- Ideas/Plan B.md — Plan B\n- Projects/Roadmap.md — Roadmap");
+  assert.equal((await call("search_notes", { query: "importer", tag: "plan/b" })).text, "- Ideas/Plan B.md — Plan B\n    L3: A backup #plan/b for the importer.");
 });
 
 test("writes are attributed to the connected client", async () => {
@@ -61,6 +95,12 @@ test("tool errors come back as isError with the core's message", async () => {
 test("search_notes sees files written straight to disk", async () => {
   fs.writeFileSync(path.join(vault, "Side door.md"), "# Side door\n\nzeppelin\n");
   assert.equal((await call("search_notes", { query: "zeppelin" })).text, "- Side door.md — Side door\n    L3: zeppelin");
+});
+
+test("agents star and unstar tags as favorites too", async () => {
+  assert.equal((await call("star_tag", { tags: ["#q3"] })).text, "Favorites:\n- #q3 (1 note)");
+  assert.equal((await call("unstar_tag", { tags: ["q3"] })).text, "No favorites.");
+  assert.equal((await call("star_tag", { tags: ["nowhere"] })).isError, true);
 });
 
 test("agents star and unstar notes for the vault's person", async () => {

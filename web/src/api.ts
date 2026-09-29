@@ -1,3 +1,9 @@
+import { localDate, type TaskMeta, type TaskPatch } from "../../src/core/tasks.ts";
+
+/** The reader's day, which task writes and due filters go by (the server may be in another time zone). */
+const today = () => localDate(Date.now());
+
+export type { TaskMeta, TaskPatch };
 export type Kind = "md" | "html" | "asset";
 export interface NoteMeta {
   id: string;
@@ -75,13 +81,44 @@ export interface FeedPage {
   folders: string[];
 }
 export const isArchived = (p: string) => p.startsWith("Archive/");
+/** A tag in someone's favorites, and how many active notes carry it (or a tag under it). */
+export interface TagFavorite {
+  tag: string;
+  display: string;
+  notes: number;
+}
+/** A favorite is a note or a tag, in one order. */
+export type Favorite = NoteMeta | TagFavorite;
+export const isTagFavorite = (f: Favorite): f is TagFavorite => "tag" in f;
+/** How a favorite is named in an order: a note's path, or "#" and the tag. */
+export const favoriteKey = (f: Favorite) => (isTagFavorite(f) ? `#${f.tag}` : f.path);
+/** A tag in use (parents included), and how many notes, tasks and assets carry it or a tag under it. */
+export interface TagCount {
+  tag: string;
+  display: string;
+  notes: number;
+  tasks: number;
+  assets: number;
+}
+/** The day at a glance (Quire.today): sections of tasks, and today's journal note. */
+export interface TodayView {
+  date: string;
+  sections: Array<{ id: "overdue" | "due" | "starting"; title: string; tasks: Task[] }>;
+  journal: { path: string; exists: boolean };
+}
+
 export interface Task {
   path: string;
+  /** The note's title. */
   title: string;
   line: number;
+  /** Everything after the checkbox, tokens included. */
   text: string;
+  /** The text without the tokens at its end. */
+  summary: string;
   done: boolean;
   heading: string | null;
+  meta: TaskMeta;
 }
 
 export type ServerMsg =
@@ -154,14 +191,33 @@ export const api = {
   search: (q: string, scope: Scope = "active") => j<SearchHit[]>(`${BASE}/search?q=${enc(q)}&limit=20&scope=${scope}`),
   feed: (p: { q?: string; scope?: Scope; folder?: string; tag?: string; sort?: "modified" | "title"; offset?: number; limit?: number }) =>
     j<FeedPage>(`${BASE}/feed?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
-  tasks: (p: { folder?: string; note?: string }) =>
+  tasks: (p: { folder?: string; note?: string; tag?: string; assignee?: string; due?: string; today?: string }) =>
     j<Task[]>(`${BASE}/tasks?${new URLSearchParams(Object.entries(p).filter(([, v]) => v).map(([k, v]) => [k, String(v)]))}`),
-  setTask: (t: Task, done: boolean) => j<{ path: string; version: string }>(`${BASE}/tasks/set`, send("POST", { path: t.path, line: t.line, text: t.text, done })),
+  tags: () => j<TagCount[]>(`${BASE}/tags`),
+  /** Each tagged asset's tags. */
+  assetTags: () => j<Record<string, string[]>>(`${BASE}/asset-tags`),
+  setAssetTags: (path: string, tags: string[]) => j<{ tags: string[] }>(`${BASE}/asset-tags`, send("PUT", { path, tags })),
+  /** Rename (or merge) a tag everywhere. Restoring `changes` and setting `assets` back undoes it. */
+  renameTag: (from: string, to: string) => j<{ changes: number[]; assets: Record<string, string[]> }>(`${BASE}/tags/rename`, send("POST", { from, to })),
+  setTask: (t: Task, done: boolean) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/set`, send("POST", { path: t.path, line: t.line, text: t.text, done, today: today() })),
+  /** Change a task's tokens in its note; the rest of its line stays as written. */
+  updateTask: (t: Task, patch: TaskPatch) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/update`, send("POST", { path: t.path, line: t.line, text: t.text, patch, today: today() })),
+  /** The day at a glance for `day` (the viewer's today). */
+  today: (day: string) => j<TodayView>(`${BASE}/today?today=${encodeURIComponent(day)}`),
+  /** Today's journal note, made from the daily template if it's missing. */
+  dailyNote: (day: string) => j<{ path: string; created: boolean }>(`${BASE}/today/journal`, send("POST", { today: day })),
+  /** Add a task written in words (see src/core/quickAdd.ts); `ignore` holds phrases kept as words. */
+  addTask: (text: string, ignore: string[] = []) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/add`, send("POST", { text, ignore, today: today() })),
+  /** Move a task (and what's nested under it) to another note. */
+  moveTask: (t: Task, to: string) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/move`, send("POST", { path: t.path, line: t.line, text: t.text, to })),
   /** Your starred notes, in your order. Each change returns the new list. */
-  favorites: () => j<NoteMeta[]>(`${BASE}/favorites`),
-  star: (path: string) => j<NoteMeta[]>(`${BASE}/favorites/star`, send("POST", { path })),
-  unstar: (path: string) => j<NoteMeta[]>(`${BASE}/favorites/unstar`, send("POST", { path })),
-  orderFavorites: (paths: string[]) => j<NoteMeta[]>(`${BASE}/favorites`, send("PUT", { paths })),
+  favorites: () => j<Favorite[]>(`${BASE}/favorites`),
+  star: (path: string) => j<Favorite[]>(`${BASE}/favorites/star`, send("POST", { path })),
+  unstar: (path: string) => j<Favorite[]>(`${BASE}/favorites/unstar`, send("POST", { path })),
+  starTag: (tag: string) => j<Favorite[]>(`${BASE}/favorites/star`, send("POST", { tag })),
+  unstarTag: (tag: string) => j<Favorite[]>(`${BASE}/favorites/unstar`, send("POST", { tag })),
+  /** `keys` are note paths and "#tag"s (see favoriteKey). */
+  orderFavorites: (keys: string[]) => j<Favorite[]>(`${BASE}/favorites`, send("PUT", { paths: keys })),
   archive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/archive`, send("POST", { paths })),
   unarchive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/unarchive`, send("POST", { paths })),
   backlinks: (path: string) => j<Backlink[]>(`${BASE}/backlinks?path=${enc(path)}`),

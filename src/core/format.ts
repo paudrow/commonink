@@ -1,6 +1,6 @@
 // Plain-text renderings of core results, shared by the MCP server and the CLI.
 // Agents read markdown far more cheaply than JSON, so this is the default output.
-import type { Backlink, Change, Note, NoteMeta, SearchHit } from "./quire.ts";
+import { isTagFavorite, type Backlink, type Change, type Favorite, type Note, type NoteMeta, type SearchHit, type TagCount, type Task, type TodayView } from "./quire.ts";
 
 export function fmtSearch(q: string, hits: SearchHit[]): string {
   if (!hits.length) return `No notes match "${q}".`;
@@ -30,8 +30,28 @@ export function fmtList(notes: NoteMeta[]): string {
   return notes.map((n) => `- ${n.path}${n.kind === "asset" ? "" : ` — ${n.title}`}`).join("\n");
 }
 
-export function fmtFavorites(notes: NoteMeta[]): string {
-  return notes.length ? `Favorites:\n${fmtList(notes)}` : "No favorites.";
+export function fmtFavorites(favorites: Favorite[]): string {
+  if (!favorites.length) return "No favorites.";
+  const line = (f: Favorite) => (isTagFavorite(f) ? `- #${f.display} (${f.notes} note${f.notes === 1 ? "" : "s"})` : fmtList([f]));
+  return `Favorites:\n${favorites.map(line).join("\n")}`;
+}
+
+/** Tasks as their markdown lines (tokens and all), each with where it lives. */
+export function fmtTasks(tasks: Task[]): string {
+  if (!tasks.length) return "No tasks match.";
+  return tasks.map((t) => `- [${t.done ? "x" : " "}] ${t.text} — ${t.path}:${t.line}`).join("\n");
+}
+
+/** The tag tree, children under their parents, with what carries each (counting tags under it). */
+export function fmtTags(tags: TagCount[]): string {
+  if (!tags.length) return "No tags yet.";
+  const n = (count: number, what: string) => (count ? `${count} ${what}${count === 1 ? "" : "s"}` : "");
+  return tags
+    .map((t) => {
+      const uses = [n(t.notes, "note"), n(t.tasks, "task"), n(t.assets, "asset")].filter(Boolean).join(", ");
+      return `${"  ".repeat(t.tag.split("/").length - 1)}- #${t.display} (${uses})`;
+    })
+    .join("\n");
 }
 
 export function fmtBacklinks(target: string, links: Backlink[]): string {
@@ -74,4 +94,11 @@ export function fmtChanges(changes: Change[]): string {
 
 export function fmtWrite(r: { path: string; version: string; change?: Change | null }, verb: string): string {
   return `${verb} ${r.path} → version ${r.version}${r.change?.summary ? ` (${r.change.summary})` : ""}`;
+}
+
+/** The Today view as text: a heading for the day, each section's tasks, and the journal note. */
+export function fmtToday(t: TodayView): string {
+  const day = new Date(`${t.date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
+  const sections = t.sections.map((s) => `${s.title} (${s.tasks.length})\n${s.tasks.length ? fmtTasks(s.tasks) : "- nothing"}`);
+  return [day, ...sections, `Journal: ${t.journal.path}${t.journal.exists ? "" : " (not written yet)"}`].join("\n\n");
 }

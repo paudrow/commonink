@@ -11,6 +11,7 @@ import { livePreview } from "./livePreview.ts";
 import { blockWidgets, editorContext, stepIntoBlocks, type EditorContext } from "./blocks.ts";
 import { agentFlash } from "./agentFlash.ts";
 import { typingHelpers } from "./complete.ts";
+import { taskLineTools } from "./taskTools.ts";
 
 /** Marks transactions that came from disk (agents), so they don't trigger a save of their own. */
 export const remote = Annotation.define<boolean>();
@@ -45,6 +46,12 @@ export function linkTargetAt(state: EditorState, pos: number): { target?: string
 
 const linkClicks = EditorView.domEventHandlers({
   mousedown(e, view) {
+    const tag = (e.target as HTMLElement).closest<HTMLElement>(".cm-tag");
+    if (tag && e.button === 0 && (!tag.classList.contains("is-raw") || e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      view.state.facet(editorContext).openTag(tag.dataset.tag!);
+      return true;
+    }
     const t = (e.target as HTMLElement).closest<HTMLElement>(".cm-wikilink, .cm-md-link");
     if (!t || e.button !== 0) return false;
     if (t.classList.contains("is-raw") && !(e.metaKey || e.ctrlKey)) return false;
@@ -69,7 +76,7 @@ export function createState(opts: {
 }): EditorState {
   const lang: Extension =
     opts.kind === "md"
-      ? [markdownWithFrontmatter(), keymap.of(markdownKeymap), livePreview, blockWidgets, stepIntoBlocks, linkClicks, typingHelpers()]
+      ? [markdownWithFrontmatter(), keymap.of(markdownKeymap), livePreview, taskLineTools, blockWidgets, stepIntoBlocks, linkClicks, typingHelpers()]
       : [html(), indentUnit.of("  ")];
   return EditorState.create({
     doc: opts.doc,

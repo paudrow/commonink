@@ -26,6 +26,10 @@ export interface WidgetEnv {
   remeasure(): void;
   /** Open a note (path or [[name]]), optionally at a line. */
   open(target: string, line?: number): void;
+  /** Show what carries a tag (a tag clicked in the widget). */
+  openTag(tag: string): void;
+  /** Show a person's tasks. */
+  openPerson(name: string): void;
 }
 
 export interface WidgetSpec {

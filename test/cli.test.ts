@@ -60,6 +60,48 @@ test("an unknown command prints help and exits 2", () => {
   assert.match(r.stderr, /^Unknown command: frobnicate\n\nquire — markdown notes/);
 });
 
+test("tags lists the tag tree, and ls and search take --tag", () => {
+  const vault = tempVault();
+  assert.equal(quire(vault, ["tags"]).stdout, "- #plan (1 note)\n- #q3 (1 note)\n");
+  assert.equal(quire(vault, ["ls", "--tag", "Q3"]).stdout, "- Projects/Roadmap.md — Roadmap\n");
+  assert.equal(quire(vault, ["search", "importer", "--tag", "nope"]).stdout, 'No notes match "importer".\n');
+});
+
+test("tasks lists open tasks, and task changes one's tokens or ticks it", () => {
+  const vault = tempVault();
+  assert.equal(quire(vault, ["tasks"]).stdout, "- [ ] Ship the importer — Projects/Roadmap.md:8\n");
+  assert.match(quire(vault, ["task", "Roadmap", "8", "--due", "2026-10-01", "--assignee", "@jane,sam"]).stdout, /^Updated Projects\/Roadmap\.md/);
+  assert.equal(quire(vault, ["tasks", "--assignee", "sam"]).stdout, "- [ ] Ship the importer due:2026-10-01 @jane @sam — Projects/Roadmap.md:8\n");
+  quire(vault, ["task", "Roadmap", "8", "--due", "none", "--assignee", "none", "--done"]);
+  assert.match(fs.readFileSync(path.join(vault, "Projects/Roadmap.md"), "utf8"), /\n- \[x\] Ship the importer done:\d{4}-\d{2}-\d{2}\n/);
+  assert.equal(quire(vault, ["task", "Roadmap", "3"]).stderr, "There's no task on line 3 of Roadmap\n");
+});
+
+test("task add writes a task from words, and task move moves one", () => {
+  const vault = tempVault();
+  const today = new Date().toLocaleDateString("en-CA");
+  assert.equal(quire(vault, ["task", "add", "Call the printer → [[Roadmap]] !high"]).stdout, 'Added "- [ ] Call the printer !high" to Projects/Roadmap.md:10\n');
+  assert.equal(quire(vault, ["task", "add", "Stretch every day"]).stdout, `Added "- [ ] Stretch due:${today} rec:daily" to Journal/${today}.md:5\n`);
+  assert.equal(quire(vault, ["task", "move", "Roadmap", "10", "--to", "Welcome"]).stdout, 'Moved "Call the printer !high" to Welcome.md:7\n');
+  assert.equal(quire(vault, ["task", "add"]).stderr, "Say what the task is: quire task add \"Call mom tomorrow\"\n");
+});
+
+test("today prints the day's sections", () => {
+  const vault = tempVault();
+  quire(vault, ["task", "Roadmap", "8", "--due", "2026-10-01"]);
+  assert.equal(
+    quire(vault, ["today", "--date", "2026-10-01"]).stdout,
+    "Thursday, October 1, 2026\n\nOverdue (0)\n- nothing\n\nDue today (1)\n- [ ] Ship the importer due:2026-10-01 — Projects/Roadmap.md:8\n\nStarting today (0)\n- nothing\n\nJournal: Journal/2026-10-01.md (not written yet)\n",
+  );
+  assert.equal(JSON.parse(quire(vault, ["today", "--date", "2026-10-01", "--json"]).stdout).sections[1].tasks[0].line, 8);
+});
+
+test("star and unstar take #tags as well as notes", () => {
+  const vault = tempVault();
+  assert.equal(quire(vault, ["star", "Welcome", "#plan"]).stdout, "Favorites:\n- Welcome.md — Welcome\n- #plan (1 note)\n");
+  assert.equal(quire(vault, ["unstar", "#plan"]).stdout, "Favorites:\n- Welcome.md — Welcome\n");
+});
+
 test("star, unstar and starred keep your favorites in order", () => {
   const vault = tempVault();
   assert.equal(quire(vault, ["star", "Welcome", "Roadmap"]).stdout, "Favorites:\n- Welcome.md — Welcome\n- Projects/Roadmap.md — Roadmap\n");

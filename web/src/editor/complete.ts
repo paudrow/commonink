@@ -1,15 +1,18 @@
-// Typing helpers: `@` mentions, `[[` links, `/` tools, and smart link pasting.
+// Typing helpers: `@` mentions, `[[` links, `#` tags, `/` tools, and smart link pasting.
 import { autocompletion, startCompletion, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
 import type { EditorState, Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { fileUrl, type NoteMeta } from "../api.ts";
+import { fileUrl, type NoteMeta, type TagCount } from "../api.ts";
 import { assetIcon, assetType } from "../assetKinds.ts";
 import { displayName, icon } from "../dom.ts";
 import { fuzzyScore } from "../fuzzy.ts";
 import { newId, serializeDirective } from "../widgets/args.ts";
 import { pendingConfig, WIDGETS } from "../widgets/index.ts";
 import { editorContext } from "./blocks.ts";
+import { taskPeople } from "../taskChipEditors.ts";
+import { taskTokenSource } from "./taskComplete.ts";
+import { inTaskText } from "./taskEdit.ts";
 
 interface Option extends Completion {
   icon?: string;
@@ -70,13 +73,32 @@ const noteMentions: MentionProvider = {
 
 const MENTIONS: MentionProvider[] = [noteMentions];
 
-function mentionSource(ctx: CompletionContext): CompletionResult | null {
+/** People already on tasks, for `@` on a task line; fetched at most every half minute. */
+let people: { at: number; list: Promise<string[]> } | null = null;
+const peopleOnTasks = () => {
+  if (!people || Date.now() - people.at > 30_000) people = { at: Date.now(), list: taskPeople() };
+  return people.list;
+};
+
+async function mentionSource(ctx: CompletionContext): Promise<CompletionResult | null> {
   const m = ctx.matchBefore(/(?:^|[\s([{"'])@[^@\n]{0,40}$/);
   if (!m) return null;
   const at = m.from + m.text.indexOf("@");
   if (!inProse(ctx.state, at)) return null;
   const query = ctx.state.sliceDoc(at + 1, ctx.pos);
-  const options: Option[] = MENTIONS.flatMap((p) =>
+  // On a task line, @ is first a person to put on it: someone already on a task, or a new name.
+  const onTask = inTaskText(ctx.state, at);
+  const found = onTask ? (await peopleOnTasks().catch(() => [])).filter((p) => p.toLowerCase().includes(query.toLowerCase())) : [];
+  const person = (name: string): Option => ({
+    label: `@${name}`,
+    icon: "at",
+    section: { name: "People", rank: -1 },
+    apply: (view: EditorView, _c: Completion, _from: number, to: number) =>
+      view.dispatch({ changes: { from: at, to, insert: `@${name}` }, selection: { anchor: at + name.length + 1 }, userEvent: "input.complete" }),
+  });
+  const typedName = /^[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*$/u.test(query) && !found.some((p) => p.toLowerCase() === query.toLowerCase());
+  const options: Option[] = [...found.slice(0, 8).map(person), ...(onTask && typedName ? [person(query)] : [])];
+  options.push(...MENTIONS.flatMap((p) =>
     p.search(query, ctx.state).map((r) => ({
       label: r.label,
       detail: r.detail,
@@ -85,7 +107,7 @@ function mentionSource(ctx: CompletionContext): CompletionResult | null {
       apply: (view: EditorView, _c: Completion, _from: number, to: number) =>
         view.dispatch({ changes: { from: at, to, insert: r.insert }, selection: { anchor: at + r.insert.length }, userEvent: "input.complete" }),
     })),
-  );
+  ));
   if (!options.length && /\s/.test(query)) return null; // "@ " in ordinary prose: get out of the way
   return { from: at + 1, options, filter: false };
 }
@@ -117,6 +139,61 @@ function linkSource(ctx: CompletionContext): CompletionResult | null {
       };
     });
   return { from: start, options, filter: false };
+}
+
+// ------------------------------------------------------------------ # tags
+
+const uses = (t: TagCount) => t.notes + t.tasks + t.assets;
+
+/** Tags in use that match what's typed after `from`, most used first, each with its full nested path. */
+function tagOptions(ctx: CompletionContext, from: number): CompletionResult | null {
+  const query = ctx.state.sliceDoc(from, ctx.pos);
+  const ranked = ctx.state
+    .facet(editorContext)
+    .tags()
+    .map((t) => ({ t, s: query ? fuzzyScore(query, t.display) : 0 }))
+    .filter((x) => x.s >= 0 && x.t.display !== query)
+    .sort((a, b) => b.s - a.s || uses(b.t) - uses(a.t));
+  if (!ranked.length) return null;
+  return {
+    from,
+    filter: false,
+    options: ranked.slice(0, 30).map(({ t }, i) => ({
+      label: t.display,
+      detail: [t.notes && `${t.notes} note${t.notes === 1 ? "" : "s"}`, t.tasks && `${t.tasks} task${t.tasks === 1 ? "" : "s"}`].filter(Boolean).join(", "),
+      icon: "hash",
+      boost: -i,
+      apply: t.display,
+    })) as Option[],
+  };
+}
+
+/** `#` in prose. Not at the start of a line until a letter follows (that's a heading), and not in a heading. */
+function tagSource(ctx: CompletionContext): CompletionResult | null {
+  const m = ctx.matchBefore(/(?<!\S)#[\p{L}\p{N}_/-]*$/u);
+  if (!m || !inProse(ctx.state, m.from)) return null;
+  const line = ctx.state.doc.lineAt(ctx.pos);
+  if (/^ {0,3}#{1,6}\s/.test(line.text)) return null;
+  if (m.text === "#" && !ctx.state.sliceDoc(line.from, m.from).trim()) return null;
+  return tagOptions(ctx, m.from + 1);
+}
+
+/** The frontmatter `tags:` field: `tags: [a, b`, `tags: a, b`, or a `- item` under `tags:`. */
+function frontmatterTagSource(ctx: CompletionContext): CompletionResult | null {
+  let inside = false;
+  for (let n: any = syntaxTree(ctx.state).resolveInner(ctx.pos, -1); n; n = n.parent) if (n.name === "Frontmatter") inside = true;
+  if (!inside) return null;
+  const doc = ctx.state.doc;
+  const line = doc.lineAt(ctx.pos);
+  const before = line.text.slice(0, ctx.pos - line.from);
+  let m = before.match(/^tags:\s*\[?(?:[^,\]]*,\s*)*#?([^,\]\s]*)$/);
+  if (!m) {
+    m = before.match(/^\s*-\s+#?(\S*)$/);
+    let n = line.number - 1;
+    while (m && n >= 1 && /^\s*-\s/.test(doc.line(n).text)) n--;
+    if (!m || n < 1 || !/^tags:\s*$/.test(doc.line(n).text)) return null;
+  }
+  return tagOptions(ctx, ctx.pos - m[1].length);
 }
 
 // ------------------------------------------------------------------ / tools
@@ -319,7 +396,7 @@ const pasteFiles = EditorView.domEventHandlers({
 export function typingHelpers(): Extension {
   return [
     autocompletion({
-      override: [toolSource, mentionSource, linkSource],
+      override: [toolSource, taskTokenSource, mentionSource, linkSource, tagSource, frontmatterTagSource],
       icons: false,
       closeOnBlur: true,
       maxRenderedOptions: 40,

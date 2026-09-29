@@ -1,19 +1,29 @@
 // Notes: every note as a stream of cards, newest first — the app's home. Click a card to read
 // the whole note in place; Edit opens it in the editor. Filter as you type, triage from the
 // keyboard (j/k, Enter to expand, o to open, e to archive, x to select), and archive in bulk.
-import { api, type FeedItem, type FeedPage, type Scope } from "./api.ts";
+import { api, type FeedItem, type FeedPage, type Scope, type TagCount } from "./api.ts";
 import { $, avatar, displayName, el, escapeHtml, icon, NOTE_DRAG, timeAgo } from "./dom.ts";
 import { renderMarkdown, sandboxFrame } from "./render.ts";
 import { hydrateDataEmbeds } from "./textPreview.ts";
 import { parseDirective } from "./widgets/args.ts";
 import { WIDGETS } from "./widgets/index.ts";
+import { tagChip, tagFilter } from "./tagPicker.ts";
+import { hydrateTaskChips, withTaskChips } from "./taskChips.ts";
+import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
 
 interface Hooks {
   open(path: string, line?: number): void;
   starred(id: string): boolean;
   toggleStar(path: string): void;
-  /** The folder filter changed (the sidebar marks the folder being shown). */
+  /** The folder or tag filter changed (the sidebar marks the one being shown). */
   folderChanged(): void;
+  tags(): TagCount[];
+  /** The pin-to-Favorites button for the tag Notes is narrowed to. */
+  pinButton(tag: string): HTMLElement;
+  /** Show every task of this person's. */
+  openPerson(name: string): void;
+  /** You can only view this workspace: chips show, but don't open editors. */
+  readOnly(): boolean;
   toast(t: { text: string; icon?: string; actionLabel?: string; action?: () => void }): void;
   changed(): void;
 }
@@ -26,10 +36,13 @@ export class NotesPage {
   private list: HTMLElement;
   private scopeBar: HTMLElement;
   private folderBar: HTMLElement;
+  private tagBar: HTMLElement;
   private bulk: HTMLElement;
   private more: HTMLElement;
   private scope: Scope = "active";
   private folder = "";
+  /** The tag Notes is narrowed to ("" for any); its children count too. */
+  private tag = "";
   private items: FeedItem[] = [];
   private page: FeedPage | null = null;
   private focus = 0;
@@ -45,6 +58,7 @@ export class NotesPage {
     this.input = el("input", { placeholder: "Filter notes…", spellcheck: "false", autocomplete: "off" });
     this.scopeBar = el("div", { class: "seg feed-scope" });
     this.folderBar = el("div", { class: "feed-folders" });
+    this.tagBar = el("div", { class: "feed-folders" });
     this.bulk = el("div", { class: "feed-bulk", hidden: true });
     this.list = el("div", { class: "feed-list", role: "list" });
     this.more = el("div", { class: "feed-more" });
@@ -57,7 +71,7 @@ export class NotesPage {
           { class: "feed-head" },
           el("h1", {}, "Notes"),
           el("label", { class: "feed-search" }, icon("search", 16), this.input, el("kbd", {}, "/")),
-          el("div", { class: "feed-filters" }, this.scopeBar, this.folderBar),
+          el("div", { class: "feed-filters" }, this.scopeBar, this.tagBar, this.folderBar),
         ),
         this.bulk,
         this.list,
@@ -87,15 +101,24 @@ export class NotesPage {
   get folderFilter() {
     return this.folder;
   }
+  /** The tag Notes is narrowed to ("" for any), as written. */
+  get tagFilter() {
+    return this.tag;
+  }
 
   /** Show the list where the reader left it: same scroll position, same cards open. */
-  show(opts: { scope?: Scope; filter?: boolean; folder?: string } = {}) {
+  show(opts: { scope?: Scope; filter?: boolean; folder?: string; tag?: string } = {}) {
     if (opts.scope && opts.scope !== this.scope) {
       this.scope = opts.scope;
       this.scrollTop = 0;
     }
     if (opts.folder !== undefined && opts.folder !== this.folder) {
       this.folder = opts.folder;
+      this.focus = 0;
+      this.scrollTop = 0;
+    }
+    if (opts.tag !== undefined && opts.tag !== this.tag) {
+      this.tag = opts.tag;
       this.focus = 0;
       this.scrollTop = 0;
     }
@@ -109,7 +132,7 @@ export class NotesPage {
   async reload() {
     const seq = ++this.seq;
     const keep = this.items[this.focus]?.path;
-    const page = await api.feed({ q: this.input.value.trim(), scope: this.scope, folder: this.folder, limit: Math.max(PAGE, this.items.length) }).catch(() => null);
+    const page = await api.feed({ q: this.input.value.trim(), scope: this.scope, folder: this.folder, tag: this.tag, limit: Math.max(PAGE, this.items.length) }).catch(() => null);
     if (!page || seq !== this.seq) return;
     this.page = page;
     this.items = page.items;
@@ -124,7 +147,7 @@ export class NotesPage {
   private async loadMore() {
     if (!this.page || this.items.length >= this.page.total || this.more.dataset.loading) return;
     this.more.dataset.loading = "1";
-    const page = await api.feed({ q: this.input.value.trim(), scope: this.scope, folder: this.folder, offset: this.items.length, limit: PAGE }).catch(() => null);
+    const page = await api.feed({ q: this.input.value.trim(), scope: this.scope, folder: this.folder, tag: this.tag, offset: this.items.length, limit: PAGE }).catch(() => null);
     delete this.more.dataset.loading;
     if (!page) return;
     this.items.push(...page.items);
@@ -156,13 +179,15 @@ export class NotesPage {
         el("button", { type: "button", class: `chip${f === this.folder ? " is-on" : ""}`, onclick: () => ((this.folder = f), (this.focus = 0), this.hooks.folderChanged(), this.reload()) }, f || "All folders"),
       ),
     );
+    this.tagBar.replaceChildren(tagFilter({ current: this.tag, tags: this.hooks.tags, count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }), this.tag ? this.hooks.pinButton(this.tag) : "");
     const q = this.input.value.trim();
     const top = this.root.scrollTop;
     const which = this.scope === "all" ? "" : `${this.scope} `;
+    const where = `${this.tag ? ` tagged #${this.tag}` : ""}${this.folder ? ` in ${this.folder}` : ""}`;
     const empty = q
-      ? `No ${which}notes match “${q}”${this.folder ? ` in ${this.folder}` : ""}.`
-      : this.folder
-        ? `No ${which}notes in ${this.folder}.`
+      ? `No ${which}notes${where} match “${q}”.`
+      : this.folder || this.tag
+        ? `No ${which}notes${where}.`
         : this.scope === "archived"
           ? "Nothing archived yet. Press e on a note to archive it."
           : "No notes yet.";
@@ -212,7 +237,7 @@ export class NotesPage {
       body = el("div", { class: "fc-hits" }, ...item.lines.map((l) => el("div", { class: "fc-hit", html: highlight(l.text, q), onclick: (e: Event) => (e.stopPropagation(), this.hooks.open(item.path, l.line)) })));
     } else if (item.kind === "html") body = el("div", { class: "fc-body is-muted" }, "HTML note · click to preview");
     else {
-      body = el("div", { class: "fc-body", html: renderMarkdown(forPreview(item.excerpt), item.path) });
+      body = this.markdown(forPreview(item.excerpt), item, "fc-body");
       body.querySelectorAll("input").forEach((b) => (b.disabled = true));
     }
     const node = el(
@@ -244,7 +269,7 @@ export class NotesPage {
           el("span", { "data-ts": String(item.mtime) }, timeAgo(item.mtime)),
         ),
         body,
-        item.tags.length ? el("div", { class: "fc-tags" }, ...item.tags.map((t) => el("span", { class: "tag" }, `#${t}`))) : null,
+        item.tags.length ? el("div", { class: "fc-tags" }, ...item.tags.map((t) => tagChip(t, () => this.setTag(t)))) : null,
         open
           ? el(
               "div",
@@ -257,6 +282,14 @@ export class NotesPage {
     );
     node.addEventListener("click", (e) => {
       const t = e.target as HTMLElement;
+      const chip = t.closest<HTMLElement>(".tk[data-field]");
+      if (chip) {
+        // A task's chip: a tag narrows Notes to it; the rest open the same editor they do in Tasks.
+        e.stopPropagation();
+        if (chip.dataset.field === "tags") this.setTag(chip.dataset.value!);
+        else void this.editChip(item, chip);
+        return;
+      }
       const a = t.closest("a");
       if (a) {
         e.preventDefault();
@@ -291,13 +324,43 @@ export class NotesPage {
       return el("div", { class: "fc-full is-html" }, frame);
     }
     const body = cached.content.replace(/^(---\r?\n[\s\S]*?\r?\n---\r?\n?)?\s*#\s+(.+)\n/, (m, fm = "", h: string) => (h.trim() === item.title ? fm : m));
-    const node = el("div", { class: "fc-body fc-full", html: renderMarkdown(forPreview(body), item.path) });
+    const node = this.markdown(forPreview(body), item, "fc-body fc-full");
     hydrateDataEmbeds(node, item.path);
     node.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((box, n) => {
       box.disabled = item.archived;
       box.addEventListener("change", () => void this.setTask(item.path, n, box));
     });
     return node;
+  }
+
+  /** A card's markdown, with each task's tokens drawn as chips after its words, as in Tasks. */
+  private markdown(md: string, item: FeedItem, cls: string): HTMLElement {
+    const { md: marked, tasks } = withTaskChips(md);
+    const node = el("div", { class: `${cls}${this.hooks.readOnly() || item.archived ? " is-readonly" : ""}`, html: renderMarkdown(marked, item.path) });
+    hydrateTaskChips(node, tasks);
+    node.querySelectorAll<HTMLElement>(".tk-run").forEach((run) => (run.dataset.text = tasks[+run.dataset.task!].text));
+    return node;
+  }
+
+  /** Open a chip's editor on its task in the note (found by its text, the nth with that text if there are several). */
+  private async editChip(item: FeedItem, chip: HTMLElement) {
+    if (this.hooks.readOnly() || item.archived || chip.dataset.field === "done") return;
+    const run = chip.closest<HTMLElement>(".tk-run")!;
+    const text = run.dataset.text!;
+    const same = [...(run.closest(".fc-body")?.querySelectorAll<HTMLElement>(".tk-run") ?? [])].filter((r) => r.dataset.text === text);
+    const tasks = await api.tasks({ note: item.path }).catch(() => []);
+    const task = tasks.filter((t) => t.text === text)[same.indexOf(run)];
+    if (!task) return this.hooks.toast({ text: "That task changed. Open the note to edit it." });
+    openChipEditor(chip, {
+      task,
+      save: async (patch) => {
+        await api.updateTask(task, patch);
+        this.full.delete(item.path); // an open card shows the note as it is now
+        this.refreshSoon();
+      },
+      people: taskPeople,
+      showPerson: (name) => this.hooks.openPerson(name),
+    });
   }
 
   /** Tick the nth task of a note from its expanded card. */
@@ -311,6 +374,15 @@ export class NotesPage {
       box.checked = !box.checked;
       this.hooks.toast({ text: "Couldn't update that task. Open the note to change it." });
     }
+  }
+
+  /** Narrow Notes to a tag (and the tags under it), or "" for every note. */
+  setTag(tag: string) {
+    this.tag = tag;
+    this.hooks.folderChanged(); // the sidebar marks the tag being shown
+    this.focus = 0;
+    this.root.scrollTop = this.scrollTop = 0;
+    void this.reload();
   }
 
   private toggleExpand(i: number) {

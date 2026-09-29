@@ -2,7 +2,8 @@ import "./styles.css";
 import { EditorView } from "@codemirror/view";
 import type { EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
-import { api, clientId, connect, isArchived, useWorkspace, whoAmI, ApiError, type Change, type NoteMeta, type Scope, type ServerMsg } from "./api.ts";
+import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type Scope, type ServerMsg, type TagCount, type TagFavorite } from "./api.ts";
+import { normalizeTag } from "../../src/core/tags.ts";
 import { $, avatar, displayName, el, hueFor, hydrateIcons, icon, isSelf, NOTE_DRAG, setSelfName, timeAgo } from "./dom.ts";
 import { createState, linkTargetAt, remote, vimSlot } from "./editor/setup.ts";
 import { bumpEmbeds, editorContext } from "./editor/blocks.ts";
@@ -15,6 +16,9 @@ import { folderPicker } from "./folderPicker.ts";
 import { History } from "./history.ts";
 import { Assets } from "./assets.ts";
 import { renderTasksPage } from "./tasksView.ts";
+import { renderTodayPage } from "./todayView.ts";
+import { openQuickAdd } from "./quickAdd.ts";
+import { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
 import { groupChanges } from "../../src/core/format.ts";
@@ -60,12 +64,20 @@ const prefs = {
   htmlMode: store.get<"preview" | "source">("htmlMode", "preview"),
   /** Folders whose subfolders are showing in the sidebar (they start closed). */
   expanded: new Set<string>(store.get<string[]>("expanded", [])),
+  /** Tags whose nested tags are showing in the sidebar (they start closed). */
+  tagsOpen: new Set<string>(store.get<string[]>("tagsOpen", [])),
+  /** Sidebar sections folded away from their header. Folders start folded: the sidebar leads with tags. */
+  /** Open the app on Today instead of Notes (per browser; Notes by default). */
+  startOnToday: store.get("startOnToday", false),
+  folded: { favorites: false, smart: false, folders: true, tags: false, ...store.get<Record<string, boolean>>("folded", {}) } as Record<string, boolean>,
 };
 
 let notes: NoteMeta[] = [];
 /** Your starred notes, in your order (archived ones too; the sidebar leaves those out). */
-let favorites: NoteMeta[] = [];
+let favorites: Favorite[] = [];
 let changes: Change[] = [];
+/** Every tag in use, for suggestions and filters. */
+let tags: TagCount[] = [];
 let session: Session | null = null;
 
 const view = new EditorView({ parent: $("#editor-host") });
@@ -74,6 +86,10 @@ const notesPage = new NotesPage({
   starred: (id) => isStarred(id),
   toggleStar: (path) => void toggleStar(path),
   folderChanged: () => renderTree(),
+  tags: () => tags,
+  pinButton: (tag) => pinButton(tag, "chip"),
+  openPerson: (assignee) => void showTasks({ assignee }),
+  readOnly: () => viewer,
   toast: (t) => toast(t),
   changed: () => {
     api.clearResolveCache();
@@ -91,6 +107,14 @@ const assetsPage = new Assets({
   open: (path) => void openNote(path),
   archive: (path) => archivePath(path),
   embedName: (path) => embedName(path),
+  tags: () => tags,
+  refreshTags: () => refreshNotes(),
+  toast: (t) => toast(t),
+});
+const tagsPage = new TagsPage($("#tags-view"), {
+  tags: () => tags,
+  refresh: () => refreshNotes(),
+  openTag: (tag, where) => openTag(tag, where),
   toast: (t) => toast(t),
 });
 const palette = new Palette(
@@ -137,7 +161,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
         doc: note.content,
         kind: note.kind === "html" ? "html" : "md",
         vim: prefs.vim,
-        context: { path: note.path, openTarget, createNote, notes: () => notes, upload: (files) => uploadFiles(files) },
+        context: { path: note.path, openTarget, createNote, notes: () => notes, upload: (files) => uploadFiles(files), tags: () => tags, openTag, openPerson: (assignee) => void showTasks({ assignee }) },
         onUpdate: (docChanged, fromRemote, state) => onUpdate(next, docChanged, fromRemote, state),
       }),
     );
@@ -185,17 +209,24 @@ function setUrl(url: string, how: "push" | "replace" = "push") {
 }
 
 let unmountTasks: (() => void) | null = null;
+let unmountToday: (() => void) | null = null;
 
-function showStage(which: "editor" | "html" | "notes" | "tasks" | "history" | "assets") {
+function showStage(which: "editor" | "html" | "notes" | "tasks" | "today" | "history" | "assets" | "tags") {
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
   $("#assets-view").hidden = which !== "assets";
   $("#notes-view").hidden = which !== "notes";
   $("#tasks-view").hidden = which !== "tasks";
+  $("#today-view").hidden = which !== "today";
   $("#history-view").hidden = which !== "history";
+  $("#tags-view").hidden = which !== "tags";
   if (which !== "tasks") {
     unmountTasks?.();
     unmountTasks = null;
+  }
+  if (which !== "today") {
+    unmountToday?.();
+    unmountToday = null;
   }
 }
 
@@ -212,7 +243,7 @@ async function leaveNote() {
 }
 
 /** Notes is home: every note, newest first. No note is open while it's showing. */
-async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: string; push?: boolean } = {}) {
+async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: string; tag?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("notes");
   notesPage.show(opts);
@@ -223,13 +254,31 @@ async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: strin
   renderOutline();
 }
 
-async function showTasks(opts: { push?: boolean } = {}) {
+async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("tasks");
-  unmountTasks = renderTasksPage($("#tasks-view"), (path, line) => void openNote(path, { line }));
+  unmountTasks = renderTasksPage($("#tasks-view"), { open: (path, line) => void openNote(path, { line }), tags: () => tags }, { tag: opts.tag, assignee: opts.assignee });
   $("#tasks-view").focus({ preventScroll: true });
   if (opts.push !== false) setUrl("/tasks");
   document.title = "Tasks · Common Ink";
+  renderChrome();
+  renderTree();
+  renderOutline();
+}
+
+/** Today: the day at a glance, with the quick-add bar. */
+async function showToday(opts: { push?: boolean } = {}) {
+  await leaveNote();
+  showStage("today");
+  unmountToday = renderTodayPage($("#today-view"), {
+    open: (path, line) => void openNote(path, { line }),
+    openTag: (tag) => openTag(tag, "tasks"),
+    openPerson: (assignee) => void showTasks({ assignee }),
+    startHere: { get: () => prefs.startOnToday, set: (on) => store.set("startOnToday", (prefs.startOnToday = on)) },
+  });
+  $("#today-view").focus({ preventScroll: true });
+  if (opts.push !== false) setUrl("/today");
+  document.title = "Today · Common Ink";
   renderChrome();
   renderTree();
   renderOutline();
@@ -246,6 +295,24 @@ async function showHistory(opts: { note?: string | null; select?: number; push?:
   renderChrome();
   renderTree();
   renderOutline();
+}
+
+async function showTags(opts: { push?: boolean } = {}) {
+  await leaveNote();
+  showStage("tags");
+  tagsPage.show();
+  refreshTagsSoon();
+  if (opts.push !== false) setUrl("/tags");
+  document.title = "Tags · Common Ink";
+  renderChrome();
+  renderTree();
+  renderOutline();
+}
+
+/** Show what carries a tag (and the tags under it): its notes, or its tasks. */
+function openTag(tag: string, where: "notes" | "tasks" = "notes") {
+  if (where === "tasks") void showTasks({ tag });
+  else void showNotes({ scope: "active", folder: "", tag });
 }
 
 async function showAssets(opts: { open?: string; push?: boolean } = {}) {
@@ -292,7 +359,7 @@ function pickFiles(): Promise<File[]> {
 }
 
 const onPage = () =>
-  notesPage.visible ? "notes" : !$("#tasks-view").hidden ? "tasks" : historyPage.visible ? "history" : assetsPage.visible ? "assets" : null;
+  notesPage.visible ? "notes" : !$("#tasks-view").hidden ? "tasks" : !$("#today-view").hidden ? "today" : historyPage.visible ? "history" : assetsPage.visible ? "assets" : tagsPage.visible ? "tags" : null;
 
 // ------------------------------------------------------------------ focus mode
 
@@ -576,6 +643,7 @@ function onMessage(m: ServerMsg) {
     case "note": {
       const meta = notes.find((n) => n.path === m.path);
       if (meta) meta.version = m.version;
+      refreshTagsSoon(); // your own typing can add a tag too
       if (m.origin === clientId) return;
       if (m.path === session?.path) applyRemote(m);
       else if (session?.kind === "md" && embedsPath(m.path)) bumpEmbeds(view);
@@ -628,22 +696,29 @@ function embedsPath(path: string): boolean {
 }
 
 async function refreshNotes() {
-  [notes, favorites] = await Promise.all([api.notes(), api.favorites()]);
+  [notes, favorites, tags] = await Promise.all([api.notes(), api.favorites(), api.tags()]);
   // The open note's title may have changed: keep the slug in its URL current.
   const open = session && notes.find((n) => n.id === session!.id);
   if (open && parseNotePath(location.pathname)?.id === open.id) setUrl(notePath(open.title, open.id), "replace");
   renderTree();
   assetsPage.refresh();
+  tagsPage.refresh();
 }
 const refreshNotesSoon = debounce(refreshNotes, 120);
+const refreshTagsSoon = debounce(async () => {
+  tags = await api.tags().catch(() => tags);
+  tagsPage.refresh();
+  renderTree();
+}, 400);
 
 // ------------------------------------------------------------------ favorites
 
-const isStarred = (id: string) => favorites.some((f) => f.id === id);
+const isStarred = (id: string) => favorites.some((f) => !isTagFavorite(f) && f.id === id);
+const isPinned = (tag: string) => favorites.some((f) => isTagFavorite(f) && f.tag === normalizeTag(tag));
 
 /** Star a note, or unstar it if it's starred. */
 async function toggleStar(path: string) {
-  const on = favorites.some((f) => f.path === path);
+  const on = favorites.some((f) => !isTagFavorite(f) && f.path === path);
   try {
     favorites = await (on ? api.unstar(path) : api.star(path));
   } catch {
@@ -654,12 +729,72 @@ async function toggleStar(path: string) {
   notesPage.refreshSoon();
 }
 
+/** Pin a tag to Favorites (or take it off): one click, and it's in Favorites beside your notes. */
+async function togglePin(tag: string) {
+  const on = isPinned(tag);
+  try {
+    favorites = await (on ? api.unstarTag(tag) : api.starTag(tag));
+  } catch (e) {
+    return toast({ text: e instanceof Error ? e.message : `Couldn't pin #${tag}` });
+  }
+  renderTree();
+  notesPage.refreshSoon();
+}
+
+/** The pin for a tag, on its sidebar row (`row`) or on the Notes tag chip (`chip`). */
+function pinButton(tag: string, where: "row" | "chip"): HTMLElement {
+  const pinned = isPinned(tag);
+  return el(
+    "button",
+    {
+      type: "button",
+      class: `${where === "row" ? "row-act" : "chip tag-filter pin-chip"} pin-btn${pinned ? " is-pinned" : ""}`,
+      title: pinned ? `Take #${tag} out of Favorites` : `Pin #${tag} to Favorites`,
+      "aria-pressed": String(pinned),
+      onclick: (e: Event) => (e.stopPropagation(), void togglePin(tag)),
+    },
+    icon(pinned ? "pinned" : "pin", 13), // filled while it's in Favorites; a click takes it out
+    where === "chip" ? (pinned ? "Pinned" : "Pin") : "",
+  );
+}
+
 const FAVORITE = "application/x-common-ink-favorite";
 
-/** Starred notes, in your order: drag one to reorder, or drag a card in from Notes to star it. */
+/** A pinned tag in Favorites: it opens Notes narrowed to the tag, like the tag's row under Tags. */
+function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
+  return el(
+    "div",
+    {
+      class: `tree-row is-tag${active ? " is-active" : ""}`,
+      style: { "--depth": "0" },
+      title: `Notes tagged #${f.display}`,
+      draggable: "true",
+      tabindex: "0",
+      onclick: () => openTag(f.display),
+      onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && openTag(f.display),
+      ondragstart: (e: DragEvent) => {
+        e.dataTransfer!.setData(FAVORITE, favoriteKey(f));
+        document.body.classList.add("is-dragging");
+        e.dataTransfer!.effectAllowed = "move";
+      },
+    },
+    icon("hash", 14),
+    el("span", { class: "tree-name" }, f.display),
+    el("span", { class: "n" }, String(f.notes)),
+    el("span", { class: "row-actions" }, pinButton(f.display, "row")),
+  );
+}
+
+/** Starred notes and pinned tags, in your order: drag one to reorder, or drag a card in from Notes to star it. */
 function renderFavorites() {
-  const list = favorites.filter((f) => !isArchived(f.path));
+  const shownTag = onPage() === "notes" && !notesPage.folderFilter ? (normalizeTag(notesPage.tagFilter) ?? "") : "";
+  const list = favorites.filter((f) => isTagFavorite(f) || !isArchived(f.path));
   const rows = list.map((f) => {
+    if (isTagFavorite(f)) {
+      const row = tagFavoriteRow(f, f.tag === shownTag);
+      favoriteDrop(row, "is-drop-before", favoriteKey(f));
+      return row;
+    }
     const row = el(
       "div",
       {
@@ -686,7 +821,7 @@ function renderFavorites() {
     favoriteDrop(row, "is-drop-before", f.path);
     return row;
   });
-  $("#favorites").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Star a note to keep it here.")]));
+  $("#favorites").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Star a note, or pin a tag, to keep it here.")]));
 }
 
 /** Let `node` take a favorite (to reorder) or a card from Notes (to star), marking it with `cls` while over it. */
@@ -711,17 +846,17 @@ function favoriteDrop(node: HTMLElement, cls: string, before?: string) {
   });
 }
 
-/** A note dropped on Favorites: starred if it wasn't, and put before `before` (or at the end). */
-async function dropFavorite(path: string, before?: string) {
-  if (!path || path === before) return;
+/** A favorite (a note path or "#tag") or a note dropped on Favorites: starred if it wasn't, and put before `before` (or at the end). */
+async function dropFavorite(key: string, before?: string) {
+  if (!key || key === before) return;
   try {
-    if (!favorites.some((f) => f.path === path)) favorites = await api.star(path);
-    const order = favorites.map((f) => f.path).filter((p) => p !== path);
+    if (!favorites.some((f) => favoriteKey(f) === key)) favorites = await (key.startsWith("#") ? api.starTag(key) : api.star(key));
+    const order = favorites.map(favoriteKey).filter((k) => k !== key);
     const at = before ? order.indexOf(before) : -1;
-    order.splice(at < 0 ? order.length : at, 0, path);
+    order.splice(at < 0 ? order.length : at, 0, key);
     favorites = await api.orderFavorites(order);
   } catch {
-    return toast({ text: `Couldn't add ${displayName(path)} to Favorites` });
+    return toast({ text: `Couldn't add ${key.startsWith("#") ? key : displayName(key)} to Favorites` });
   }
   renderTree();
   renderChrome();
@@ -779,10 +914,13 @@ function renderTree() {
   const assetCount = notes.filter((n) => n.kind === "asset" && !isArchived(n.path)).length;
   $("#assets-count").textContent = assetCount ? String(assetCount) : "";
   const current = page === "notes" ? notesPage.folderFilter : "";
-  $("#notes-btn").classList.toggle("is-active", page === "notes" && !current);
+  $("#notes-btn").classList.toggle("is-active", page === "notes" && !current && !notesPage.tagFilter);
+  renderTagTree(page === "notes" && !current ? notesPage.tagFilter.toLowerCase() : "");
   $("#tasks-btn").classList.toggle("is-active", page === "tasks");
+  $("#today-btn").classList.toggle("is-active", page === "today");
   $("#history-btn").classList.toggle("is-active", page === "history" && !historyPage.noteFilter);
   $("#assets-btn").classList.toggle("is-active", page === "assets");
+  $("#tags-page-btn").classList.toggle("is-on", page === "tags");
 
   const empty = emptyFolders();
   for (const f of [...empty]) if (notes.some((n) => n.path.startsWith(`${f}/`))) empty.delete(f); // it has notes now: it's a real folder
@@ -812,8 +950,8 @@ function renderTree() {
             "data-folder": path,
             title: n ? `Show the notes in ${path}` : `${path} is empty. Drag notes here.`,
             tabindex: "0",
-            onclick: () => void showNotes({ scope: "active", folder: path }),
-            onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && void showNotes({ scope: "active", folder: path }),
+            onclick: () => void showNotes({ scope: "active", folder: path, tag: "" }),
+            onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && void showNotes({ scope: "active", folder: path, tag: "" }),
           },
           subs
             ? el(
@@ -847,6 +985,83 @@ function renderTree() {
         return [row, ...(open ? walk(path, depth + 1) : [])];
       });
   $("#tree").replaceChildren(...walk("", 0));
+}
+
+/**
+ * Tags in the sidebar, as a tree with how many notes carry each (tags under it included). Nested
+ * tags start closed; clicking a tag shows Notes narrowed to it, the way a folder does.
+ */
+function renderTagTree(active: string) {
+  const shown = tags.filter((t) => t.notes > 0);
+  const parent = (t: string) => (t.includes("/") ? t.slice(0, t.lastIndexOf("/")) : "");
+  const walk = (under: string, depth: number): HTMLElement[] =>
+    shown
+      .filter((t) => parent(t.tag) === under)
+      .flatMap((t) => {
+        const subs = shown.some((s) => parent(s.tag) === t.tag);
+        // The tag being shown stays visible: its parents open for it.
+        const open = subs && (prefs.tagsOpen.has(t.tag) || active.startsWith(`${t.tag}/`));
+        const row = el(
+          "div",
+          {
+            class: `tree-row is-tag${open ? "" : " is-collapsed"}${t.tag === active ? " is-active" : ""}`,
+            style: { "--depth": String(depth) },
+            "data-tag": t.tag,
+            title: `Notes tagged #${t.display}`,
+            tabindex: "0",
+            onclick: () => openTag(t.display),
+            onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && openTag(t.display),
+          },
+          subs
+            ? el(
+                "button",
+                {
+                  type: "button",
+                  class: "chev",
+                  title: open ? "Hide nested tags" : "Show nested tags",
+                  onclick: (e: Event) => {
+                    e.stopPropagation();
+                    if (open) prefs.tagsOpen.delete(t.tag);
+                    else prefs.tagsOpen.add(t.tag);
+                    store.set("tagsOpen", [...prefs.tagsOpen]);
+                    renderTree();
+                    $(`#tag-tree .tree-row[data-tag="${CSS.escape(t.tag)}"] .chev`).focus(); // the row was rebuilt; keep the keyboard here
+                  },
+                },
+                icon("chevron", 13),
+              )
+            : el("span", { class: "chev is-leaf" }),
+          icon("hash", 14),
+          el("span", { class: "tree-name" }, t.display.split("/").pop()!),
+          isPinned(t.display) ? el("span", { class: "fav-pinned", title: "Pinned to Favorites" }, icon("pinned", 11)) : null,
+          el("span", { class: "n" }, String(t.notes)),
+          el("span", { class: "row-actions" }, pinButton(t.display, "row")),
+        );
+        return [row, ...(open ? walk(t.tag, depth + 1) : [])];
+      });
+  const rows = walk("", 0);
+  $("#tag-tree").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Write #tag in a note to see it here.")]));
+}
+
+/** Fold a sidebar section away from its header, or open it again. Remembered in this browser. */
+function setupSections() {
+  document.querySelectorAll<HTMLElement>(".tree-head[data-section]").forEach((head) => {
+    const section = head.dataset.section!;
+    const toggle = head.querySelector<HTMLButtonElement>(".section-toggle")!;
+    const body = $(`#${toggle.getAttribute("aria-controls")}`);
+    const apply = () => {
+      const folded = !!prefs.folded[section];
+      toggle.setAttribute("aria-expanded", String(!folded));
+      head.classList.toggle("is-folded", folded);
+      body.hidden = folded;
+    };
+    toggle.addEventListener("click", () => {
+      prefs.folded[section] = !prefs.folded[section];
+      store.set("folded", prefs.folded);
+      apply();
+    });
+    apply();
+  });
 }
 
 /** Highlight where a dragged note would land: a folder row, or the whole tree for the top level. */
@@ -982,7 +1197,7 @@ function renderChrome() {
     $("#html-toggle").hidden = true;
     for (const id of ["#vim-mode", "#cursor-pos", "#word-count"]) $(id).textContent = "";
     $("#vim-mode").dataset.mode = "";
-    const label = { notes: "Notes", tasks: "Tasks", history: "History", assets: "Assets" };
+    const label = { notes: "Notes", tasks: "Tasks", today: "Today", history: "History", assets: "Assets", tags: "Tags" };
     const note = page === "history" ? historyPage.noteFilter : null;
     return crumbs.replaceChildren(
       ...(page ? [el("span", { class: "crumb-file" }, label[page])] : []),
@@ -1319,6 +1534,13 @@ window.addEventListener(
     } else if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
       e.preventDefault();
       void showNotes({ filter: true });
+    } else if (e.key === "q" && !mod && !e.altKey && !typingIn(e.target)) {
+      // q, anywhere you aren't typing: the quick-add bar (Todoist's key, and free here).
+      e.preventDefault();
+      openQuickAdd({
+        added: (r) => toast({ icon: "check", text: `Added to ${r.path.replace(/\.md$/, "")}`, actionLabel: "Open", action: () => void openNote(r.path, { line: r.line }) }),
+        open: (path, line) => void openNote(path, { line }),
+      });
     } else if (mod && e.key === "e" && session?.kind === "html") {
       e.preventDefault();
       setHtmlMode(prefs.htmlMode === "preview" ? "source" : "preview");
@@ -1326,6 +1548,12 @@ window.addEventListener(
   },
   true,
 );
+
+/** Whether a key pressed here is someone typing: a field, a text area, or the editor. */
+function typingIn(target: EventTarget | null): boolean {
+  const t = target as HTMLElement | null;
+  return !!t?.closest?.("input, textarea, select, [contenteditable]:not([contenteditable=false]), .cm-editor");
+}
 
 const narrow = matchMedia("(max-width: 1100px)");
 function togglePanel(force?: boolean) {
@@ -1364,6 +1592,8 @@ function debounce<A extends unknown[]>(fn: (...a: A) => unknown, ms: number) {
 }
 
 let workspaceId = "";
+/** You can view this workspace but not edit it. */
+let viewer = false;
 
 /**
  * Show whatever the address bar points at: /notes/<title>-<id>, /tasks, /history, /assets, or the
@@ -1382,7 +1612,13 @@ async function route() {
   }
   const at = location.pathname.replace(/\/+$/, "") || "/";
   if (at === "/tasks") return showTasks({ push: false });
+  if (at === "/today") return showToday({ push: false });
+  if (at === "/" && prefs.startOnToday) {
+    setUrl("/today", "replace");
+    return showToday({ push: false });
+  }
   if (at === "/assets") return showAssets({ push: false });
+  if (at === "/tags") return showTags({ push: false });
   if (at === "/history") {
     const id = new URLSearchParams(location.search).get("note");
     return showHistory({ note: id && NOTE_ID.test(id) ? (notes.find((n) => n.id === id)?.path ?? null) : null, push: false });
@@ -1418,6 +1654,7 @@ async function boot() {
   if (who?.me) {
     const ws = pickWorkspace(who.me);
     workspaceId = ws.id;
+    viewer = ws.role === "viewer";
     useWorkspace(`/api/w/${ws.id}`, `/api/w/${ws.id}/live`);
     setSelfName(who.me.user.name);
     renderAccount(who.me, ws, (t) => toast(t));
@@ -1426,7 +1663,8 @@ async function boot() {
   hydrateIcons();
   togglePanel(prefs.panel);
   $("#search-btn").addEventListener("click", () => palette.open());
-  $("#new-note").addEventListener("click", () => void newNote());
+  // A new note goes at the top level, unless Notes is showing a folder: then it goes there.
+  $("#new-note").addEventListener("click", () => void newNote(onPage() === "notes" ? notesPage.folderFilter : ""));
   $("#panel-btn").addEventListener("click", () => togglePanel());
   $("#stage").addEventListener("mousedown", () => document.body.classList.remove("panel-overlay"));
   $("#theme-toggle").addEventListener("click", toggleTheme);
@@ -1444,13 +1682,16 @@ async function boot() {
   const isDark = document.documentElement.dataset.theme === "dark" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
   $("#theme-toggle").replaceChildren(icon(isDark ? "sun" : "moon", 15));
   window.addEventListener("popstate", () => void route());
-  $("#notes-btn").addEventListener("click", () => void showNotes({ scope: "active", folder: "" }));
+  $("#notes-btn").addEventListener("click", () => void showNotes({ scope: "active", folder: "", tag: "" }));
   $("#tasks-btn").addEventListener("click", () => void showTasks());
+  $("#today-btn").addEventListener("click", () => void showToday());
   $("#history-btn").addEventListener("click", () => void showHistory());
   $("#assets-btn").addEventListener("click", () => void showAssets());
+  $("#tags-page-btn").addEventListener("click", () => void showTags());
+  setupSections();
   $("#note-history-btn").addEventListener("click", () => session && void showHistory({ note: session.path }));
   $("#back-btn").addEventListener("click", () => void showNotes());
-  $("#archive-nav").addEventListener("click", () => void showNotes({ scope: "archived", folder: "" }));
+  $("#archive-nav").addEventListener("click", () => void showNotes({ scope: "archived", folder: "", tag: "" }));
   $("#archive-btn").addEventListener("click", () => void archiveCurrent());
   $("#star-btn").addEventListener("click", () => session && void toggleStar(session.path));
   $("#move-btn").addEventListener("click", () => openMovePicker($("#move-btn")));
@@ -1476,10 +1717,11 @@ async function boot() {
     renderPresence();
   }, 30_000);
 
-  const [info, list, starred, recent] = await Promise.all([api.info(), api.notes(), api.favorites(), api.changes()]);
+  const [info, list, starred, recent, tagList] = await Promise.all([api.info(), api.notes(), api.favorites(), api.changes(), api.tags()]);
   $("#vault-name").textContent = info.name;
   notes = list;
   favorites = starred;
+  tags = tagList;
   changes = recent;
   renderActivity();
   renderPresence();
