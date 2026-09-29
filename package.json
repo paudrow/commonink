@@ -23,7 +23,8 @@
     "bench": "node --disable-warning=ExperimentalWarning --import tsx bench/core.ts",
     "bench:cloud": "node --disable-warning=ExperimentalWarning --import tsx bench/cloud.ts",
     "bench:bundle": "tsx bench/bundle.ts",
-    "bench:web": "node --disable-warning=ExperimentalWarning --import tsx bench/web.ts"
+    "bench:web": "node --disable-warning=ExperimentalWarning --import tsx bench/web.ts",
+    "check:motion": "node --disable-warning=ExperimentalWarning --import tsx scripts/check-motion.ts"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^1.2.1",
