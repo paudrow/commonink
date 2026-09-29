@@ -60,6 +60,8 @@ interface Pane {
   preview: HTMLElement;
   bar: HTMLElement;
   trail: PaneTrail;
+  /** Counts what the pane was asked to show, so a note that loads after a later request doesn't replace it. */
+  opens: number;
 }
 
 const store = {
@@ -115,6 +117,7 @@ const makePane = (index: 0 | 1, host: HTMLElement, preview: HTMLElement, bar: HT
   preview,
   bar,
   trail: layout.panes[index],
+  opens: 0,
 });
 const panes: [Pane, Pane] = [makePane(0, $("#editor-host"), $("#html-preview"), $("#main-bar")), makePane(1, $("#side-host"), $("#side-preview"), $("#side-bar"))];
 let active = panes[0];
@@ -188,6 +191,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
     if (line) goToLine(beside, line);
     return beside.view.focus();
   }
+  const ticket = ++pane.opens;
   await flushSave(pane);
   if (pane.session) await nameUntitled(pane.session);
   if (pane.session && pane.session.kind !== "asset") cursors.set(pane.session.path, pane.view.state.selection.main.head);
@@ -200,6 +204,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   } catch {
     return toast({ text: `Couldn't open ${path}` });
   }
+  if (ticket !== pane.opens) return; // something else was opened here while this loaded
   hideBanner();
   const next: Session = {
     id: note.id,
@@ -393,6 +398,7 @@ function showStage(which: "editor" | "html" | "notes" | "tasks" | "history" | "a
 /** Put the open note away (saved, named, cursor remembered) before showing a page that isn't a note. Pages show in the main pane, which then has the focus. */
 async function leaveNote() {
   const main = panes[0];
+  main.opens++; // a note still loading into it doesn't come back over the page
   await flushSave(main);
   if (main.session) await nameUntitled(main.session);
   if (main.session && main.session.kind !== "asset") cursors.set(main.session.path, main.view.state.selection.main.head);
