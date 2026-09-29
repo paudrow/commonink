@@ -1,5 +1,6 @@
 // The two things the core needs from its environment. Locally: node:sqlite + a folder of files.
 // On Cloudflare: a Durable Object's embedded SQLite for both.
+import { legacyActor } from "./actor.ts";
 import { newNoteId } from "./ids.ts";
 
 /** A synchronous SQLite connection (node:sqlite locally, ctx.storage.sql in a Durable Object). */
@@ -51,7 +52,7 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS tasks_path ON tasks(path)`,
   `CREATE TABLE IF NOT EXISTS changes(
      id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, path TEXT NOT NULL, op TEXT NOT NULL,
-     source TEXT NOT NULL, version TEXT, summary TEXT, from_path TEXT, before TEXT, note_id TEXT)`,
+     source TEXT NOT NULL, version TEXT, summary TEXT, from_path TEXT, before TEXT, note_id TEXT, person TEXT, agent TEXT)`,
   `CREATE INDEX IF NOT EXISTS changes_path ON changes(path, version)`,
   // Each person's starred notes, in their order. `path` is where the note was last seen, so a star
   // can find its note again if the note comes back under a new ID (deleted, then restored).
@@ -64,8 +65,11 @@ const SCHEMA = [
      id TEXT PRIMARY KEY, name TEXT NOT NULL, query TEXT NOT NULL, owner TEXT, pos INTEGER NOT NULL)`,
 ];
 
-/** Create or upgrade the index + change log tables. Safe to run on every start. */
-export function migrate(db: SqlDb) {
+/**
+ * Create or upgrade the index + change log tables. Safe to run on every start. `local`: a vault on
+ * disk, whose old change log reads differently (see legacyActor).
+ */
+export function migrate(db: SqlDb, opts: { local?: boolean } = {}) {
   const lacks = (table: string) => {
     try {
       db.get(`SELECT 1 FROM ${table} LIMIT 1`);
@@ -107,6 +111,21 @@ export function migrate(db: SqlDb) {
     backfillChangeNoteIds(db);
   });
   db.exec("CREATE INDEX IF NOT EXISTS changes_note ON changes(note_id, id)");
+  // Who made each change, a person or an agent for one, so History can tell them apart. Older
+  // rows get theirs from the source text, once, in the same transaction as the new columns.
+  db.tx(() => {
+    try {
+      db.exec("ALTER TABLE changes ADD COLUMN person TEXT");
+      db.exec("ALTER TABLE changes ADD COLUMN agent TEXT");
+    } catch {
+      return;
+    }
+    for (const { source } of db.all<{ source: string }>("SELECT DISTINCT source FROM changes")) {
+      const a = legacyActor(source, !!opts.local);
+      db.run("UPDATE changes SET person = ?, agent = ? WHERE source = ?", a.person, a.agent, source);
+    }
+  });
+  db.exec("CREATE INDEX IF NOT EXISTS changes_agent ON changes(agent, id)");
   // Older local indexes predate the `before` column. (Durable Objects may refuse pragmas; their
   // databases are always created with the current schema, so there's nothing to upgrade.)
   let cols: string[];

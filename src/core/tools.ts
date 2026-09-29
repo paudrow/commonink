@@ -6,6 +6,7 @@ import { QuireError } from "./paths.ts";
 import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtWrite } from "./format.ts";
 import { parseQuery } from "./query.ts";
 import type { Quire } from "./quire.ts";
+import { parseAuthorFilter } from "./actor.ts";
 
 export interface ToolHost {
   quire: Quire;
@@ -308,7 +309,7 @@ export function createMcpServer(host: ToolHost): McpServer {
 
   const BOARD_HELP =
     "A board is a :::kanban block in a note (closed by :::): its ## headings are columns and its list items are cards, " +
-    "with task tokens like tasks. The column named by done= on the :::kanban line (by default \"Done\") ticks cards moved into it.";
+    "with task tokens like tasks. Moving a card into the column named Done ticks it. read_board also lists lines that aren't part of the board (problems): leave them unless the user asks.";
   const CARD = z.string().describe("The card's line number from read_board, or words from its text that only that card has");
 
   server.registerTool(
@@ -321,8 +322,8 @@ export function createMcpServer(host: ToolHost): McpServer {
     },
     ({ path }) =>
       run(() => {
-        const { note, boards } = quire.boards(path);
-        return fmtBoards(note.path, boards);
+        const { note, boards, unclosed } = quire.boards(path);
+        return fmtBoards(note.path, boards, unclosed);
       }),
   );
 
@@ -588,15 +589,17 @@ export function createMcpServer(host: ToolHost): McpServer {
       description:
         "What changed in the vault and who changed it (you, the user, or other agents). " +
         "`since` is an ISO timestamp or a change id from a previous call — use it to catch up. " +
-        "`path` (a path, ID or note URL) narrows it to one note, including its history under earlier names.",
+        "`path` (a path, ID or note URL) narrows it to one note, including its history under earlier names. " +
+        "`by` narrows it to people's own changes (`people`), any agent's (`ai`), or one agent's (its name).",
       inputSchema: {
         since: z.string().optional(),
         path: z.string().optional(),
         limit: z.number().int().min(1).max(200).optional(),
+        by: z.string().optional().describe('"people", "ai", or an agent\'s name'),
       },
       annotations: readOnly,
     },
-    ({ since, path, limit }) => run(() => fmtChanges(quire.changes({ since, path, limit: limit ?? 30 }))),
+    ({ since, path, limit, by }) => run(() => fmtChanges(quire.changes({ since, path, limit: limit ?? 30, by: parseAuthorFilter(by) }))),
   );
 
   return mcp;

@@ -66,8 +66,6 @@ export interface WidgetSpec {
   defaults: Record<string, string>;
   /** A button in the settings form that does something with the args being edited (not yet saved). */
   configAction?: { label: string; icon: string; run(args: Record<string, string>, env: WidgetEnv, anchor: HTMLElement): void };
-  /** Settings for a block (`:::name{…}` … `:::`) rather than a one-line widget. */
-  block?: boolean;
   /** Build the widget body; return a cleanup function. */
   mount(body: HTMLElement, env: WidgetEnv, card: HTMLElement): () => void;
 }
@@ -95,7 +93,9 @@ export function renderWidget(spec: WidgetSpec, env: WidgetEnv): { dom: HTMLEleme
   const open = () => {
     if (form) return close();
     form = configForm(spec, env, {
+      // Save closes the form itself: a save that leaves the line as it was doesn't redraw the widget.
       save: (args) => {
+        close();
         env.update(args);
         env.focusEditor();
       },
@@ -148,7 +148,7 @@ function configForm(
   const refresh = () => {
     const valid = spec.fields.every((f) => f.type !== "duration" || parseDuration(values[f.key]) !== null);
     save.disabled = !valid;
-    preview.textContent = valid ? (spec.block ? ":" : "") + serializeDirective({ name: spec.name, args: normalized() }) : "Duration like 25m, 1h30m or 4:30";
+    preview.textContent = valid ? serializeDirective({ name: spec.name, args: normalized() }) : "Duration like 25m, 1h30m or 4:30";
     preview.classList.toggle("is-error", !valid);
   };
 

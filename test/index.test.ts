@@ -4,6 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { agentSource } from "../src/core/actor.ts";
 import { handleApi } from "../src/core/api.ts";
 import { openVault } from "../src/core/local.ts";
 import { openTempVault } from "./helpers.ts";
@@ -93,14 +94,15 @@ test("a starred tag counts the active notes under it, as the tag list does, and 
 test("a long Notes page still gives every note its tags, in the order written, and who changed it last", () => {
   let now = 1_000;
   const { quire } = openTempVault({}, { now: () => now++ });
-  for (let i = 0; i < 120; i++) quire.create(`N${i}.md`, `# N${i}\n\n#Second${i} then #first${i}\n\n#second${i} again\n`, i % 2 ? "Claude" : "you");
+  for (let i = 0; i < 120; i++) quire.create(`N${i}.md`, `# N${i}\n\n#Second${i} then #first${i}\n\n#second${i} again\n`, i % 2 ? agentSource("Claude", "you") : "you");
   quire.save("N7.md", "# N7\n\n#Second7 then #first7\n\n#second7 again\n\nMore.\n", { source: "Jane" });
   const page = quire.feed({ limit: 200 }).items;
   assert.equal(page.length, 120);
   const byPath = new Map(page.map((f) => [f.path, f]));
   assert.deepEqual(byPath.get("N0.md")!.tags, ["Second0", "first0"]);
   assert.deepEqual(byPath.get("N119.md")!.tags, ["Second119", "first119"]);
-  assert.deepEqual([byPath.get("N0.md")!.lastSource, byPath.get("N7.md")!.lastSource, byPath.get("N119.md")!.lastSource], ["you", "Jane", "Claude"]);
+  assert.deepEqual([byPath.get("N0.md")!.lastSource, byPath.get("N7.md")!.lastSource, byPath.get("N119.md")!.lastSource], ["you", "Jane", "Claude (via you)"]);
+  assert.deepEqual([byPath.get("N0.md")!.lastBy, byPath.get("N119.md")!.lastBy], [{ person: "you", agent: null }, { person: "you", agent: "Claude" }]);
 });
 
 test("the same [[name]] in different folders links to each folder's own note", () => {

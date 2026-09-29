@@ -36,7 +36,8 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "GET /search", send: () => ["GET", "/search?q=welcome"], expect: READ },
   { route: "GET /feed", send: () => ["GET", "/feed"], expect: READ },
   { route: "GET /backlinks", send: () => ["GET", "/backlinks?path=Welcome.md"], expect: READ },
-  { route: "GET /changes", send: () => ["GET", "/changes"], expect: READ },
+  { route: "GET /changes", send: () => ["GET", "/changes?by=ai"], expect: READ },
+  { route: "GET /changes/agents", send: () => ["GET", "/changes/agents"], expect: READ },
   { route: "GET /diffs", send: () => ["GET", "/diffs?ids=1-3"], expect: READ },
   { route: "GET /diff", send: () => ["GET", "/diff?from=1"], expect: READ },
   { route: "GET /tasks", send: () => ["GET", "/tasks"], expect: READ },
@@ -60,6 +61,7 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /tasks/set", send: (w) => ["POST", "/tasks/set", { path: `tasks-${w}.md`, line: 1, text: "Do it", done: true }], expect: EDIT },
   { route: "POST /tasks/update", send: (w) => ["POST", "/tasks/update", { path: `update-${w}.md`, line: 1, text: "Change me", patch: { due: "2026-10-01" } }], expect: EDIT },
   { route: "POST /tasks/add", send: (w) => ["POST", "/tasks/add", { text: `Call ${w} tomorrow → [[Welcome]]` }], expect: EDIT },
+  { route: "POST /tasks/remove", send: (w) => ["POST", "/tasks/remove", { path: `task-rm-${w}.md`, line: 1, text: "Remove me" }], expect: EDIT },
   { route: "POST /tasks/move", send: (w) => ["POST", "/tasks/move", { path: `task-move-${w}.md`, line: 1, text: "Move me", to: "Welcome" }], expect: EDIT },
   { route: "POST /today/journal", send: () => ["POST", "/today/journal", { today: "2026-10-01" }], expect: EDIT },
   { route: "POST /tags/rename", send: (w) => ["POST", "/tags/rename", { from: `old-${w}`, to: `new-${w}` }], expect: EDIT },
@@ -91,6 +93,7 @@ before(async () => {
     await note(`tasks-${w}.md`, "- [ ] Do it\n");
     await note(`update-${w}.md`, "- [ ] Change me\n");
     await note(`task-move-${w}.md`, "- [ ] Move me\n");
+    await note(`task-rm-${w}.md`, "- [ ] Remove me\n");
     await note(`tag-${w}.md`, `# Tagged\n\n#old-${w}\n`);
     await note(`move-${w}.md`);
     await note(`arch-${w}.md`);

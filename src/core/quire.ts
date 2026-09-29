@@ -1,15 +1,17 @@
+import { actorOf, authorWhere, type Actor, type AuthorFilter } from "./actor.ts";
 import path from "node:path";
 import crypto from "node:crypto";
 import { diffLines } from "diff";
 import type { Content, SqlDb } from "./store.ts";
 import { cleanPath, isHidden, kindOf, linkKey, QuireError, stemOf, type NoteKind } from "./paths.ts";
+import { headingName } from "./prose.ts";
 import { extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
 import { dueFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
 import { parseQuickAdd } from "./quickAdd.ts";
 import { formatQuery, parseQuery, queryProblem, type NoteQuery } from "./query.ts";
-import { addCard, boardsIn, checkCard, editCard, moveCard, type Board, type Place } from "./kanban.ts";
+import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
 
 export interface NoteMeta {
   /** Stable across renames, moves and archiving; see ids.ts. */
@@ -43,6 +45,10 @@ export interface Change {
   from_path: string | null;
   /** The note's stable ID, so its history holds together across renames. Null if the log can't tell. */
   note_id: string | null;
+  /** Who it was by or for (see actor.ts); `source` is the same as display text. */
+  person: string | null;
+  /** The agent that made it, or null for a person's own change. */
+  agent: string | null;
 }
 /** A tag in someone's favorites: what it's called now, and how many active notes carry it (or a tag under it). */
 export interface TagFavorite {
@@ -108,6 +114,8 @@ export interface FeedItem {
   tags: string[];
   lines: Array<{ line: number; text: string }>;
   lastSource: string | null;
+  /** Who made the last change: a person, or an agent for one. */
+  lastBy: Actor | null;
 }
 
 export interface Task {
@@ -162,7 +170,7 @@ export const versionOf = (content: string) =>
 /** What reindexing a path needs to know about its row, if it has one. */
 type IndexedRow = { id: string; kind: NoteKind; fts: number | null };
 
-const CHANGE_COLS = "id, ts, path, op, source, version, summary, from_path, note_id";
+const CHANGE_COLS = "id, ts, path, op, source, version, summary, from_path, note_id, person, agent";
 const META_COLS = "id, path, kind, title, version, mtime, size";
 /** How long a deleted file's ID waits for the same file to reappear under a new name. */
 const RENAME_WINDOW_MS = 60_000;
@@ -190,6 +198,14 @@ export interface TodayView {
   sections: TodaySection[];
   /** Today's journal note, and whether it's been written yet. */
   journal: { path: string; exists: boolean };
+}
+
+/** Cut the task on line index `i`, with the lines nested under it, out of `lines`; returns them, lifted to the top level. */
+function cutTask(lines: string[], i: number): string[] {
+  const indent = lines[i].match(/^\s*/)![0].length;
+  let j = i + 1;
+  while (j < lines.length && lines[j].trim() && lines[j].match(/^\s*/)![0].length > indent) j++;
+  return lines.splice(i, j - i).map((l) => l.slice(indent));
 }
 
 /**
@@ -221,7 +237,7 @@ function tasksIn(text: string): Array<Pick<Task, "line" | "text" | "summary" | "
     if (/^\s*(```|~~~)/.test(line)) fence = !fence;
     if (fence) return;
     const h = line.match(/^#{1,6}\s+(.+?)\s*#*$/);
-    if (h) heading = h[1];
+    if (h) heading = headingName(h[1]);
     if (/^\s*:::kanban\b/i.test(line)) outside = heading;
     else if (outside !== undefined && /^\s*:::\s*$/.test(line)) [heading, outside] = [outside, undefined];
     const t = parseTask(line);
@@ -540,7 +556,7 @@ export class Quire {
     const page = rows.slice(offset, offset + (opts.limit ?? 30));
     // The page's tags and who changed each note last, a few queries for the whole page.
     const tags = new Map<string, string[]>();
-    const lastSource = new Map<string, string>();
+    const last = new Map<string, Actor & { source: string }>();
     for (let i = 0; i < page.length; i += 90) {
       const paths = page.slice(i, i + 90).map((r) => r.path);
       const marks = paths.map(() => "?").join(",");
@@ -552,11 +568,11 @@ export class Quire {
         if (!tags.has(t.path)) tags.set(t.path, []);
         tags.get(t.path)!.push(t.display);
       }
-      for (const c of this.db.all<{ path: string; source: string }>(
-        `SELECT path, source FROM changes WHERE id IN (SELECT max(id) FROM changes WHERE path IN (${marks}) GROUP BY path)`,
+      for (const c of this.db.all<{ path: string } & Actor & { source: string }>(
+        `SELECT path, source, person, agent FROM changes WHERE id IN (SELECT max(id) FROM changes WHERE path IN (${marks}) GROUP BY path)`,
         ...paths,
       )) {
-        lastSource.set(c.path, c.source);
+        last.set(c.path, c);
       }
     }
     const items: FeedItem[] = page.map((r) => {
@@ -572,7 +588,8 @@ export class Quire {
         excerpt: excerptOf(body, r.title),
         tags: tags.get(r.path) ?? [],
         lines: terms.length ? this.matchingLines(r.path, terms, 3, content) : [],
-        lastSource: lastSource.get(r.path) ?? null,
+        lastSource: last.get(r.path)?.source ?? null,
+        lastBy: last.has(r.path) ? { person: last.get(r.path)!.person, agent: last.get(r.path)!.agent } : null,
       };
     });
     return { items, total: rows.length, counts, folders: [...new Set(all.map((n) => home(n.path)).filter((p) => p.includes("/")).map((p) => p.split("/")[0]))].sort() };
@@ -646,11 +663,12 @@ export class Quire {
    * that still exists brings its whole history, under earlier names too; a gone one, what happened at
    * that exact path.
    */
-  changes(opts: { since?: string | number; before?: number; limit?: number; path?: string } = {}): Change[] {
+  changes(opts: { since?: string | number; before?: number; limit?: number; path?: string; by?: AuthorFilter } = {}): Change[] {
     const limit = opts.limit ?? 50;
     const noteId = opts.path ? this.idOf(opts.path) : null;
     const p = opts.path ?? null;
-    const [where, args] = noteId ? ["note_id = ?", [noteId]] : ["(? IS NULL OR path = ?)", [p, p]];
+    const [byWhere, byArgs] = authorWhere(opts.by);
+    const [where, args] = noteId ? [`note_id = ? AND ${byWhere}`, [noteId, ...byArgs]] : [`(? IS NULL OR path = ?) AND ${byWhere}`, [p, p, ...byArgs]];
     if (opts.before) {
       return this.db.all(`SELECT ${CHANGE_COLS} FROM changes WHERE id < ? AND ${where} ORDER BY id DESC LIMIT ?`, opts.before, ...args, limit);
     }
@@ -680,15 +698,24 @@ export class Quire {
     );
   }
 
-  /** `before` is the note's previous text, kept so any change can be undone with restore(). */
-  recordChange(c: Omit<Change, "id" | "ts" | "note_id">, before: string | null = null): Change {
+  /** The agents that appear in the change log, by name, for filtering History by one. */
+  agents(): string[] {
+    return this.db.all<{ agent: string }>("SELECT DISTINCT agent FROM changes WHERE agent IS NOT NULL ORDER BY agent").map((r) => r.agent);
+  }
+
+  /**
+   * `before` is the note's previous text, kept so any change can be undone with restore(). The
+   * `source` says who (see actorOf): an agent's carries its person too.
+   */
+  recordChange(c: Omit<Change, "id" | "ts" | "note_id" | "person" | "agent">, before: string | null = null): Change {
     const ts = this.now();
     const noteId = this.meta(c.path)?.id ?? null;
+    const { source, person, agent } = actorOf(c.source);
     const r = this.db.run(
-      "INSERT INTO changes(ts, path, op, source, version, summary, from_path, before, note_id) VALUES (?,?,?,?,?,?,?,?,?)",
-      ts, c.path, c.op, c.source, c.version, c.summary, c.from_path, before, noteId,
+      "INSERT INTO changes(ts, path, op, source, version, summary, from_path, before, note_id, person, agent) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+      ts, c.path, c.op, source, c.version, c.summary, c.from_path, before, noteId, person, agent,
     );
-    return { ...c, id: r.lastId, ts, note_id: noteId };
+    return { ...c, source, id: r.lastId, ts, note_id: noteId, person, agent };
   }
 
   /**
@@ -1247,9 +1274,10 @@ export class Quire {
   // ---------------------------------------------------------------- boards
 
   /** A note and the `:::kanban` boards in it (see kanban.ts). */
-  boards(target: string): { note: Note; boards: Board[] } {
+  /** `unclosed`: the line of a `:::kanban` with no closing `:::`, which shows as text. */
+  boards(target: string): { note: Note; boards: Board[]; unclosed: number | null } {
     const note = this.read(target);
-    return { note, boards: boardsIn(note.content) };
+    return { note, boards: boardsIn(note.content), unclosed: unclosedBoard(note.content) };
   }
 
   /**
@@ -1290,18 +1318,20 @@ export class Quire {
    * Add a task typed the way you'd say it ("Pay rent every month on the 1st #home"; see
    * quickAdd.ts). It goes under `## Tasks` in today's daily note (`Journal/YYYY-MM-DD.md`, made if
    * needed), or in the note named with `→ [[Note]]`: at the end of its Tasks section, or of the note.
-   * `today` is the person's day; `ignore` holds phrases they chose to keep as words.
+   * `today` is the person's day; `ignore` holds phrases they chose to keep as words; `to` is a note
+   * to use instead of the daily note (the one the bar was opened from), which `→ [[Note]]` overrides.
    */
-  addTask(input: string, source: string, opts: { today?: string; ignore?: string[] } = {}) {
+  addTask(input: string, source: string, opts: { today?: string; ignore?: string[]; to?: string } = {}) {
     const today = opts.today ?? localDate(this.now());
     if (!isDate(today)) throw new QuireError(`"today" must be a date like 2026-10-01, not "${today}"`);
     const q = parseQuickAdd(input, today, opts.ignore);
     if (!q.words) throw new QuireError("Say what the task is: once its dates and repeats are taken out, there are no words left");
-    const rel = q.target ? this.mustResolve(q.target) : `Journal/${today}.md`;
+    const named = q.target ?? opts.to;
+    const rel = named ? this.mustResolve(named) : `Journal/${today}.md`;
     if (kindOf(rel) !== "md") throw new QuireError(`Tasks go in markdown notes, and ${rel} isn't one`);
     const before = this.files.read(rel);
     // A day with no note yet gets one from the daily template, with the task in its Tasks section.
-    const added = withTasksAdded(before ?? this.dailyTemplate(today), [q.line], !q.target);
+    const added = withTasksAdded(before ?? this.dailyTemplate(today), [q.line], !named);
     const r = this.commit(rel, before, added.content, source, before === null ? "create" : "edit");
     return { ...r, line: added.line, text: q.line.match(TASK_LINE)![4] };
   }
@@ -1355,18 +1385,23 @@ export class Quire {
     if (dest === note.path) throw new QuireError(`That task is already in ${dest}`);
     if (kindOf(dest) !== "md") throw new QuireError(`Tasks go in markdown notes, and ${dest} isn't one`);
     const lines = note.content.split("\n");
-    const i = findTask(lines, line, text, note.path);
-    const indent = lines[i].match(/^\s*/)![0].length;
-    let j = i + 1;
-    while (j < lines.length && lines[j].trim() && lines[j].match(/^\s*/)![0].length > indent) j++;
-    const block = lines.slice(i, j).map((l) => l.slice(indent)); // it lands at the top level there
-    lines.splice(i, j - i);
+    const block = cutTask(lines, findTask(lines, line, text, note.path));
     const there = this.read(dest);
     const added = withTasksAdded(there.content, block, false);
     const cut = this.commit(note.path, note.content, lines.join("\n"), source, "edit");
     const r = this.commit(dest, there.content, added.content, source, "edit");
     // The note it left, too, so a caller can tell whoever shows that note.
     return { ...r, cut, line: added.line, text: block[0].match(TASK_LINE)![4] };
+  }
+
+  /** Take a task (and the lines nested under it) out of its note: quick-add's Undo. */
+  removeTask(target: string, line: number, text: string, source: string) {
+    const note = this.read(target);
+    const lines = note.content.split("\n");
+    const i = findTask(lines, line, text, note.path);
+    cutTask(lines, i);
+    if (i > 0 && !lines[i - 1] && !lines[i]) lines.splice(i - 1, 1); // and the blank line adding it put before it
+    return this.commit(note.path, note.content, lines.join("\n"), source, "edit");
   }
 
   /** Move a repeating task to its next date without ticking it ("Skip this one"). */

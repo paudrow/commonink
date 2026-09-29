@@ -2,7 +2,7 @@
 // ⌘-click to add or skip changes, shift-click to take a whole range. The diff on the right is
 // note by note; a change left out on the same note splits that note into separate diffs.
 import { api, fileUrl, type Change, type DiffFile, type DiffRun } from "./api.ts";
-import { $, avatar, displayName, el, icon, isSelf } from "./dom.ts";
+import { $, authorAvatar, authorName, displayName, el, icon, isSelf } from "./dom.ts";
 import { diffCounts, renderDiff } from "./diff.ts";
 import { assetIcon, assetType, extOf } from "./assetKinds.ts";
 import { groupChanges } from "../../src/core/format.ts";
@@ -17,6 +17,16 @@ interface Hooks {
 
 const PAGE = 200;
 
+/** Whose changes History shows: everyone's (""), "people", "ai", or one agent's name. Kept per browser. */
+const BY_KEY = "quire.history.by";
+function savedBy(): string {
+  try {
+    return localStorage.getItem(BY_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 export class History {
   readonly root = $("#history-view");
   private listEl: HTMLElement;
@@ -27,7 +37,9 @@ export class History {
   private raw: Change[] = [];
   private items: Item[] = [];
   private note: string | null = null;
-  private source: string | null = null;
+  private by = savedBy();
+  /** The agents in the change log, for the per-agent filter. */
+  private agentNames: string[] = [];
   /** Selected items, by their latest change id. */
   private selected = new Set<number>();
   private anchor = 0;
@@ -74,7 +86,6 @@ export class History {
     const note = opts.note ?? null;
     if (note !== this.note || !this.raw.length) {
       this.note = note;
-      this.source = null;
       this.selected.clear();
       await this.load();
     } else {
@@ -92,7 +103,7 @@ export class History {
   refreshSoon = debounce(() => this.visible && void this.refresh().then(() => this.renderList()), 400);
 
   private async refresh() {
-    const fresh = await api.history({ limit: PAGE, path: this.note ?? undefined }).catch(() => null);
+    const fresh = await api.history({ limit: PAGE, path: this.note ?? undefined, by: this.by || undefined }).catch(() => null);
     if (!fresh) return;
     const older = this.raw.filter((c) => c.id < (fresh.at(-1)?.id ?? 0));
     this.raw = [...fresh, ...older];
@@ -102,7 +113,8 @@ export class History {
   private async load(older = false) {
     const seq = ++this.seq;
     const before = older ? this.raw.at(-1)?.id : undefined;
-    const page = await api.history({ limit: PAGE, before, path: this.note ?? undefined }).catch(() => null);
+    const page = await api.history({ limit: PAGE, before, path: this.note ?? undefined, by: this.by || undefined }).catch(() => null);
+    if (!older) void api.changeAgents().then((a) => ((this.agentNames = a), this.renderList()), () => {});
     if (!page || seq !== this.seq) return;
     this.raw = older ? [...this.raw, ...page] : page;
     this.more = page.length === PAGE;
@@ -119,7 +131,19 @@ export class History {
   }
 
   private visibleItems(): Item[] {
-    return this.source ? this.items.filter((it) => it.source === this.source) : this.items;
+    return this.items;
+  }
+
+  /** Show only people's changes, any agent's, or one agent's (filtered by the server, so long histories stay quick). */
+  private async setBy(by: string) {
+    this.by = by;
+    try {
+      localStorage.setItem(BY_KEY, by);
+    } catch {}
+    this.selected.clear();
+    await this.load();
+    if (this.items.length) this.selectOnly(0);
+    else this.render();
   }
 
   // ---------------------------------------------------------------- selection
@@ -166,21 +190,20 @@ export class History {
 
   private renderList() {
     const items = this.visibleItems();
-    const sources = [...new Set(this.items.map((it) => it.source))];
+    const chip = (by: string, label: string, ico?: string) =>
+      el("button", { type: "button", class: `chip${this.by === by ? " is-on" : ""}`, onclick: () => void this.setBy(by) }, ico ? icon(ico, 12) : null, label);
+    const agentPick = el(
+      "select",
+      { class: `hist-agent${this.agentNames.includes(this.by) ? " is-on" : ""}`, title: "One agent's changes", "aria-label": "One agent's changes", onchange: (e: Event) => void this.setBy((e.target as HTMLSelectElement).value) },
+      el("option", { value: "", disabled: true, selected: !this.agentNames.includes(this.by) }, "One agent…"),
+      ...this.agentNames.map((a) => el("option", { value: a, selected: a === this.by }, a)),
+    );
     this.filtersEl.replaceChildren(
       ...(this.note
         ? [el("span", { class: "chip is-on hist-note-chip" }, icon("file", 12), displayName(this.note), el("button", { type: "button", title: "Show every note", onclick: () => void this.show({ note: null }) }, icon("close", 12)))]
         : []),
-      ...(sources.length > 1
-        ? ["", ...sources].map((s) =>
-            el(
-              "button",
-              { type: "button", class: `chip${s === (this.source ?? "") ? " is-on" : ""}`, onclick: () => ((this.source = s || null), this.selected.clear(), this.selectOnly(0)) },
-              s ? avatar(s, 14) : null,
-              s ? (isSelf(s) ? "You" : s) : "Everyone",
-            ),
-          )
-        : []),
+      el("span", { class: "hist-by", role: "group", "aria-label": "Whose changes" }, chip("", "Everyone"), chip("people", "People", "user"), chip("ai", "AI", "bot")),
+      ...(this.agentNames.length > 1 ? [agentPick] : []),
     );
     let day = "";
     const rows: HTMLElement[] = [];
@@ -193,11 +216,11 @@ export class History {
         "div",
         { class: `hist-row${on ? " is-selected" : ""}${i === this.focus ? " is-focused" : ""}`, role: "option", "aria-selected": String(on) },
         el("span", { class: "hist-check" }, icon("check", 11)),
-        avatar(it.source, 22),
+        authorAvatar(it, 22),
         el(
           "div",
           { class: "hist-body" },
-          el("div", { class: "hist-line" }, el("b", {}, isSelf(it.source) ? "You" : it.source), ` ${this.hooks.verb(it)} `, el("span", { class: "hist-note" }, displayName(it.path))),
+          el("div", { class: "hist-line" }, el("b", {}, authorName(it)), ` ${this.hooks.verb(it)} `, el("span", { class: "hist-note" }, displayName(it.path))),
           el(
             "div",
             { class: "hist-meta" },
@@ -211,7 +234,7 @@ export class History {
       row.addEventListener("click", (e) => this.click(i, e));
       rows.push(row);
     });
-    this.listEl.replaceChildren(...(rows.length ? rows : [el("div", { class: "hist-empty" }, "No changes yet.")]));
+    this.listEl.replaceChildren(...(rows.length ? rows : [el("div", { class: "hist-empty" }, this.by ? "No changes like that yet." : "No changes yet.")]));
     this.moreEl.replaceChildren(
       ...(this.more ? [el("button", { type: "button", class: "link-btn", onclick: () => void this.load(true) }, "Load older changes")] : []),
     );
@@ -220,7 +243,7 @@ export class History {
   private renderSummary(files: DiffFile[] | null) {
     const picked = this.visibleItems().filter((it) => this.selected.has(it.id));
     const saves = picked.reduce((n, it) => n + it.count, 0);
-    const who = [...new Set(picked.map((it) => it.source))];
+    const who = [...new Map(picked.map((it) => [it.source, it])).values()];
     this.summaryEl.replaceChildren(
       el(
         "div",
@@ -233,7 +256,7 @@ export class History {
         files?.some((f) => !isAsset(f.path)) ? totals(files) : null,
       ),
       el("span", { class: "spacer" }),
-      el("span", { class: "hist-who" }, ...who.slice(0, 5).map((s) => avatar(s, 20))),
+      el("span", { class: "hist-who" }, ...who.slice(0, 5).map((it) => authorAvatar(it, 20))),
       ...(picked.length > 1 ? [el("button", { type: "button", class: "qw-btn", onclick: () => this.selectOnly(this.focus) }, "Clear")] : []),
     );
   }
