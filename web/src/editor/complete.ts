@@ -16,6 +16,7 @@ import { taskPeople } from "../taskChipEditors.ts";
 import { taskTokenSource } from "./taskComplete.ts";
 import { inTaskText } from "./taskEdit.ts";
 import { emojiMatches } from "../../../src/core/emoji.ts";
+import { IS_MAC } from "../panes.ts";
 
 interface Option extends Completion {
   icon?: string;
@@ -289,7 +290,7 @@ const TOOLS: Tool[] = [
   widgetTool("stopwatch", "stopwatch count up laps"),
   {
     title: "Collapsible section",
-    hint: "<details> · ⌘⌥S wraps a selection",
+    hint: `<details> · ${IS_MAC ? "⌘⌥S" : "Ctrl+Alt+S"} wraps a selection`,
     icon: "chevron",
     keywords: "collapsible section details summary fold spoiler toggle accordion",
     section: "Blocks",

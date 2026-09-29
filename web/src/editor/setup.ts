@@ -16,7 +16,7 @@ import { linkKind } from "../links.ts";
 import { LINK_DRAG, type LinkDrag } from "../dom.ts";
 import { noteLinkAt } from "./linkAt.ts";
 import { linkSideButton } from "./sideButton.ts";
-import { details, wrapSection } from "./details.ts";
+import { details } from "./details.ts";
 import { gfmPreview } from "./gfm.ts";
 import { taskLineTools } from "./taskTools.ts";
 import { safeDecode } from "../../../src/core/uri.ts";
@@ -116,7 +116,7 @@ export function createState(opts: {
 }): EditorState {
   const lang: Extension =
     opts.kind === "md"
-      ? [markdownWithFrontmatter(), keymap.of(markdownKeymap), gfmPreview, livePreview, linkSideButton, keymap.of([{ key: "Mod-Alt-Enter", run: openLinkToSide }, { key: "Mod-Alt-s", run: wrapSection }]), details, taskLineTools, blockWidgets, stepIntoBlocks, linkClicks, typingHelpers()]
+      ? [markdownWithFrontmatter(), keymap.of(markdownKeymap), gfmPreview, livePreview, linkSideButton, keymap.of([{ key: "Mod-Alt-Enter", run: openLinkToSide }]), details, taskLineTools, blockWidgets, stepIntoBlocks, linkClicks, typingHelpers()]
       : [html(), indentUnit.of("  ")];
   return EditorState.create({
     doc: opts.doc,

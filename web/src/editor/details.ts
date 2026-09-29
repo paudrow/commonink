@@ -8,6 +8,7 @@ import { EditorSelection, EditorState, Prec, StateEffect, StateField, type Range
 import { Decoration, EditorView, WidgetType, type Command } from "@codemirror/view";
 import { getCM } from "@replit/codemirror-vim";
 import { el, icon } from "../dom.ts";
+import { isShortcut } from "../typedKey.ts";
 import { inline } from "../taskRow.ts";
 import { detailsIn, wrapInDetails, type Details } from "../../../src/core/details.ts";
 import { alertsIn, type AlertBlock } from "../../../src/core/gfm.ts";
@@ -96,11 +97,21 @@ class SummaryWidget extends WidgetType {
   eq(o: SummaryWidget) {
     return o.key === this.key && o.open === this.open && o.summary === this.summary;
   }
-  ignoreEvent(e: Event) {
-    return !!(e.target as HTMLElement).closest?.(".cm-details-toggle");
+  ignoreEvent() {
+    return true;
   }
   toDOM(view: EditorView) {
-    return el("span", { class: "cm-details-summary" }, toggleButton(view, this.key, this.open), el("span", { html: inline(this.summary) }));
+    const text = el("span", { html: inline(this.summary), title: "Click to edit the summary" });
+    // A click on the summary puts the cursor at the end of its text, to edit it (the line then shows as written).
+    text.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const line = view.state.doc.lineAt(view.posAtDOM(text));
+      const end = line.text.search(/<\/summary\s*>/i);
+      view.dispatch({ selection: { anchor: end >= 0 ? line.from + end : line.to } });
+      view.focus();
+    });
+    return el("span", { class: "cm-details-summary" }, toggleButton(view, this.key, this.open), text);
   }
 }
 
@@ -224,10 +235,17 @@ const vimNormal = (view: EditorView) => {
   const vim = (getCM(view) as { state?: { vim?: { insertMode?: boolean; visualMode?: boolean } } } | null)?.state?.vim;
   return !!vim && !vim.insertMode && !vim.visualMode;
 };
-const space = Prec.highest(
+const keys = Prec.highest(
   EditorView.domEventHandlers({
     keydown(e, view) {
-      if (e.key !== " " || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || view.state.readOnly) return false;
+      if (view.state.readOnly) return false;
+      // ⌘⌥S (Ctrl+Alt+S off a Mac) wraps the selection, by the letter the key types: on a Mac ⌥S
+      // types "ß", and on Dvorak S is the physical ; key, which a CodeMirror keymap can mistake.
+      if (isShortcut(e, "Mod-Alt-s")) {
+        e.preventDefault();
+        return wrapSection(view);
+      }
+      if (e.key !== " " || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return false;
       if (!spaceToggles(view, vimNormal(view))) return false;
       e.preventDefault();
       return true;
@@ -253,7 +271,7 @@ const atomic = EditorView.atomicRanges.of((view) => {
   return atoms.length ? Decoration.set(atoms.map((a) => Decoration.mark({}).range(a.from, a.to)), true) : Decoration.none;
 });
 
-export const details = [foldState, remember, openOnJump, atomic, space];
+export const details = [foldState, remember, openOnJump, atomic, keys];
 
 /** The innermost section the cursor is in (its tags included). */
 function sectionAt(state: EditorState): Details | null {
