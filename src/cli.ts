@@ -4,10 +4,11 @@ import { LOCAL_USER, openVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
 import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtWrite } from "./core/format.ts";
 import { parseQuery } from "./core/query.ts";
+import { agentSource, parseAuthorFilter } from "./core/actor.ts";
 
 const HELP = `quire — markdown notes for you and your agents
 
-Usage: quire <command> [args] [--as <agent>] [--json]
+Usage: quire <command> [args] [--agent <name>] [--json]
 
   search <query…> [--tag T] [--archived|--all]
                                    full-text search (prefix matching)
@@ -46,13 +47,15 @@ Usage: quire <command> [args] [--as <agent>] [--json]
   smart-save <name> [query…] [--just-me] [--id ID]
                                    save a note query (q="…" folder=… tag=… sort=title)
   smart-rm <name>                  delete a smart folder
-  changes [--since <iso|id>] [--path <path|id|url>] [--limit N]
-                                   --path brings the note's history under earlier names too
+  changes [--since <iso|id>] [--path <path|id|url>] [--limit N] [--by people|ai|<agent>]
+                                   --path brings the note's history under earlier names too;
+                                   --by shows only people's changes, any agent's, or one agent's
   restore <change-id>              put a note back the way it was before that change
   mcp                              run the stdio MCP server
 
 <note> can be a path, a path without .md, a [[wikilink]] name, a note ID or a note URL.
-Writes are attributed to --as, $QUIRE_AGENT, or "cli".
+Writes are yours, unless an agent says it's the one writing: --agent <name> (or --as), or
+$QUIRE_AGENT. Agents: set QUIRE_AGENT, so History shows your changes as "<agent> for you".
 Vault: $QUIRE_VAULT (default: ./vault next to this tool).`;
 
 const argv = process.argv.slice(2);
@@ -81,7 +84,8 @@ const need = (i: number, name: string) => {
   if (args[i] === undefined) throw new QuireError(`${cmd} needs <${name}>`);
   return args[i];
 };
-const source = str("as") || process.env.QUIRE_AGENT || "cli";
+const agent = str("agent") || str("as") || process.env.QUIRE_AGENT;
+const source = agent ? agentSource(agent, LOCAL_USER) : LOCAL_USER;
 const stdin = () => fs.readFileSync(0, "utf8");
 const scope = flags.archived ? ("archived" as const) : flags.all ? ("all" as const) : ("active" as const);
 const out = (text: string, data: unknown) => console.log(flags.json ? JSON.stringify(data, null, 2) : text);
@@ -201,7 +205,7 @@ if (cmd === "mcp") {
         break;
       }
       case "changes": {
-        const cs = q.changes({ since: str("since"), path: str("path"), limit: num("limit") ?? 30 });
+        const cs = q.changes({ since: str("since"), path: str("path"), limit: num("limit") ?? 30, by: parseAuthorFilter(str("by")) });
         out(fmtChanges(cs), cs);
         break;
       }

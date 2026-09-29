@@ -27,6 +27,9 @@ export interface Change {
   summary: string | null;
   from_path: string | null;
   note_id: string | null;
+  /** Who it was by or for; `agent` is set when an agent made it (see authorLabel). */
+  person: string | null;
+  agent: string | null;
 }
 export interface DiffRun {
   from: number;
@@ -73,6 +76,8 @@ export interface FeedItem {
   tags: string[];
   lines: Array<{ line: number; text: string }>;
   lastSource: string | null;
+  /** Who made the last change (see authorName). */
+  lastBy: { person: string | null; agent: string | null } | null;
 }
 export interface FeedPage {
   items: FeedItem[];
@@ -171,6 +176,8 @@ export interface ConnectedAgent {
   client: string;
   /** How its changes are attributed in the change log, e.g. "Claude (via Audrow)". */
   actor: string;
+  /** The person it works for, and its name in the change log (`person`, `agent` there). */
+  person: string;
   workspace: { id: string; name: string; role: "owner" | "editor" | "viewer" } | null;
   connectedAt: number;
   usedAt: number | null;
@@ -250,8 +257,10 @@ export const api = {
   unarchive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/unarchive`, send("POST", { paths })),
   backlinks: (path: string) => j<Backlink[]>(`${BASE}/backlinks?path=${enc(path)}`),
   /** A page of the change log, newest first; `before` pages further back. */
-  history: (p: { limit?: number; before?: number; path?: string }) =>
+  history: (p: { limit?: number; before?: number; path?: string; by?: string }) =>
     j<Change[]>(`${BASE}/changes?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
+  /** The agents in the change log, for filtering History by one. */
+  changeAgents: () => j<string[]>(`${BASE}/changes/agents`),
   /** What a set of changes did, note by note. `ids` is ranges like "12-18,20". */
   diffs: (ids: string) => j<DiffFile[]>(`${BASE}/diffs?ids=${ids}`),
   restore: (id: number) => j<{ path: string; version: string; change: number | null }>(`${BASE}/restore`, send("POST", { id })),

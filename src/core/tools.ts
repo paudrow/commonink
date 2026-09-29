@@ -6,6 +6,7 @@ import { QuireError } from "./paths.ts";
 import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtWrite } from "./format.ts";
 import { parseQuery } from "./query.ts";
 import type { Quire } from "./quire.ts";
+import { parseAuthorFilter } from "./actor.ts";
 
 export interface ToolHost {
   quire: Quire;
@@ -588,15 +589,17 @@ export function createMcpServer(host: ToolHost): McpServer {
       description:
         "What changed in the vault and who changed it (you, the user, or other agents). " +
         "`since` is an ISO timestamp or a change id from a previous call — use it to catch up. " +
-        "`path` (a path, ID or note URL) narrows it to one note, including its history under earlier names.",
+        "`path` (a path, ID or note URL) narrows it to one note, including its history under earlier names. " +
+        "`by` narrows it to people's own changes (`people`), any agent's (`ai`), or one agent's (its name).",
       inputSchema: {
         since: z.string().optional(),
         path: z.string().optional(),
         limit: z.number().int().min(1).max(200).optional(),
+        by: z.string().optional().describe('"people", "ai", or an agent\'s name'),
       },
       annotations: readOnly,
     },
-    ({ since, path, limit }) => run(() => fmtChanges(quire.changes({ since, path, limit: limit ?? 30 }))),
+    ({ since, path, limit, by }) => run(() => fmtChanges(quire.changes({ since, path, limit: limit ?? 30, by: parseAuthorFilter(by) }))),
   );
 
   return mcp;

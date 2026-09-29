@@ -91,7 +91,7 @@ export function renderAccount(me: Me, current: Me["workspaces"][number], toast: 
           }),
         ]
       : []),
-    item("Connected agents…", "spark", () => void showAgents()),
+    item("Connected agents…", "bot", () => void showAgents()),
     el("div", { class: "acct-sep" }),
     item("Sign out", "open", () => (location.href = "/auth/logout")),
     item("Sign out everywhere…", "open", async () => {

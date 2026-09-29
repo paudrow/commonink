@@ -51,7 +51,7 @@ function row(a: ConnectedAgent, refresh: () => Promise<void>) {
   const used = a.usedAt ? `last used ${timeAgo(a.usedAt)}` : "not used yet";
   if (a.workspace) {
     api.changesIn(a.workspace.id).then((all) => {
-      const mine = all.filter((c) => c.source === a.actor).slice(0, 5);
+      const mine = all.filter((c) => c.agent === a.client && c.person === a.person).slice(0, 5);
       changes.replaceChildren(
         ...(mine.length ? mine.map((c) => el("li", {}, el("span", {}, `${c.op} ${c.path}`), el("span", { class: "agents-when" }, timeAgo(c.ts)))) : [el("li", { class: "agents-none" }, "No recent changes.")]),
       );

@@ -14,17 +14,21 @@ function quire(vault: string, args: string[], input?: string) {
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 }
 
-test("create reads stdin, edits are attributed to --as, and changes lists them", () => {
+test("create reads stdin, edits are attributed to --agent (or --as), and changes lists them", () => {
   const vault = tempVault();
   assert.equal(quire(vault, ["create", "Inbox", "-"], "# Inbox\n\n- milk\n").status, 0);
   assert.equal(fs.readFileSync(path.join(vault, "Inbox.md"), "utf8"), "# Inbox\n\n- milk\n");
   const edit = quire(vault, ["edit", "Inbox", "--old", "milk", "--new", "oat milk", "--as", "shopper"]);
   assert.match(edit.stdout, /^Edited Inbox\.md → version [0-9a-f]{12} \(\+1 −1\)\n$/);
+  quire(vault, ["append", "Inbox", "- eggs", "--agent", "Planner"]);
   const changes = quire(vault, ["changes", "--json"]);
   assert.deepEqual(
-    JSON.parse(changes.stdout).map((c: { op: string; source: string; path: string }) => `${c.op} ${c.path} by ${c.source}`),
-    ["edit Inbox.md by shopper", "create Inbox.md by cli"],
+    JSON.parse(changes.stdout).map((c: { op: string; path: string; person: string; agent: string | null }) => `${c.op} ${c.path} by ${c.agent ?? "-"} for ${c.person}`),
+    ["edit Inbox.md by Planner for you", "edit Inbox.md by shopper for you", "create Inbox.md by - for you"],
   );
+  assert.match(quire(vault, ["changes", "--by", "people"]).stdout, /^#1 \S+ you: create Inbox\.md \(4 lines\)\n$/);
+  assert.equal(quire(vault, ["changes", "--by", "ai"]).stdout.split("\n").filter(Boolean).length, 2);
+  assert.match(quire(vault, ["changes", "--by", "Planner"]).stdout, /^#3 \S+ Planner for you: edit Inbox\.md \(\+2 −0\)\n$/);
 });
 
 test("read prints numbered lines and honours --offset/--limit", () => {
