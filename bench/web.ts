@@ -5,6 +5,7 @@
 //
 //   npm run bench:web                        against the dev server (Vite)
 //   npm run bench:web -- --dist dist         first load only, from a production build
+//   npm run bench:web -- --url https://…     first load only, from a hosted app with developer sign-in
 //   PLAYWRIGHT_CORE=/path/to/playwright-core npm run bench:web
 //
 // Needs playwright-core and its Chromium (npx playwright-core install chromium-headless-shell).
@@ -22,6 +23,7 @@ const opt = (name: string) => {
   return i < 0 ? undefined : args[i + 1];
 };
 const DIST = opt("dist");
+const URL_ = opt("url");
 const REPS = Number(opt("reps") ?? 5);
 const JSON_OUT = opt("json");
 
@@ -92,15 +94,26 @@ function record(scenario: string, metric: string, samples: number[]) {
   console.log(`${scenario.padEnd(30)} ${metric.padEnd(34)} ${String(row.runs).padStart(5)}  ${row.p50.toFixed(1).padStart(9)}  ${row.p95.toFixed(1).padStart(9)}`);
 }
 
-const vault = scratchVault();
+const vault = URL_ ? "" : scratchVault();
 const apiPort = 4790 + Math.floor(Math.random() * 100);
-const stopServer = await startServer(vault, apiPort);
+const stopServer = URL_ ? () => {} : await startServer(vault, apiPort);
 const appPort = DIST ? apiPort + 200 : apiPort;
 const stopPreview = DIST ? await startPreview(DIST, apiPort, appPort) : () => {};
-const origin = `http://localhost:${appPort}`;
+const origin = URL_ ? new URL(URL_).origin : `http://localhost:${appPort}`;
 const { chromium } = await playwright();
 const browser = await chromium.launch();
-const ids = new Map<string, string>((await (await fetch(`http://localhost:${apiPort}/api/notes`)).json()).map((n: { path: string; id: string }) => [n.path, n.id]));
+const ids = new Map<string, string>(URL_ ? [] : (await (await fetch(`http://localhost:${apiPort}/api/notes`)).json()).map((n: { path: string; id: string }) => [n.path, n.id]));
+
+/** Developer sign-in on a hosted app (Previews have it): the cookies, for new profiles to start with. */
+async function signIn() {
+  const context = await browser.newContext();
+  const p = await context.newPage();
+  await p.goto(`${origin}/auth/dev?as=bench&next=/notes`);
+  await waitFor(p, ".feed-card", { timeout: 60_000 });
+  const state = await context.storageState();
+  await context.close();
+  return { cookies: state.cookies, origins: [] };
+}
 const noteUrl = (p: string) => `${origin}/notes/x-${ids.get(p)}`;
 
 async function page() {
@@ -141,30 +154,57 @@ const elapsed = async (_p: unknown, fn: () => Promise<unknown>) => {
 
 console.log(`${"scenario".padEnd(30)} ${"metric".padEnd(34)} ${"runs".padStart(5)}  ${"p50 ms".padStart(9)}  ${"p95 ms".padStart(9)}`);
 try {
-  // First load: a new browser profile each time, to the Notes page with its first cards drawn.
+  // First load: an empty cache each time, to the Notes page with its first cards drawn; then the
+  // same page loaded again with that cache. Online, developer sign-in happens first (a Preview).
   {
-    const dcl: number[] = [];
-    const cards: number[] = [];
-    const bytes: number[] = [];
+    const signedIn = URL_ ? await signIn() : undefined;
+    const m = { dcl: [] as number[], cards: [] as number[], kb: [] as number[], again: [] as number[], againKb: [] as number[], revalidated: [] as number[] };
     for (let i = 0; i < REPS; i++) {
-      const { context, p } = await page();
-      let got = 0;
-      p.on("response", (r: any) => void r.body().then((b: Buffer) => (got += b.length)).catch(() => {}));
-      const t = performance.now();
-      await p.goto(`${origin}/notes`, { waitUntil: "domcontentloaded" });
-      dcl.push(performance.now() - t);
-      await waitFor(p, ".feed-card", { timeout: 60_000 });
-      cards.push(performance.now() - t);
-      await p.waitForTimeout(1500); // the requests that follow the first cards
-      bytes.push(got / 1024);
+      const context = await browser.newContext({ viewport: { width: 1400, height: 900 }, storageState: signedIn });
+      const p = await context.newPage();
+      const cdp = await context.newCDPSession(p);
+      await cdp.send("Network.enable");
+      let wire = 0;
+      // Script and style requests that went to the server (a 304 counts): the rest came from the cache.
+      const assets = new Set<string>();
+      const cached = new Set<string>();
+      cdp.on("Network.loadingFinished", (e: { encodedDataLength: number }) => (wire += e.encodedDataLength));
+      cdp.on("Network.requestWillBeSent", (e: { requestId: string; request: { url: string } }) => e.request.url.includes("/assets/") && assets.add(e.requestId));
+      cdp.on("Network.requestServedFromCache", (e: { requestId: string }) => cached.add(e.requestId));
+      cdp.on("Network.responseReceived", (e: { requestId: string; response: { fromDiskCache: boolean; fromMemoryCache: boolean } }) => {
+        if (e.response.fromDiskCache || e.response.fromMemoryCache) cached.add(e.requestId);
+      });
+      const load = async () => {
+        wire = 0;
+        assets.clear();
+        cached.clear();
+        const t = performance.now();
+        await p.goto(`${origin}/notes`, { waitUntil: "domcontentloaded" });
+        const dcl = performance.now() - t;
+        await waitFor(p, ".feed-card", { timeout: 60_000 });
+        const cards = performance.now() - t;
+        await p.waitForTimeout(1500); // the requests that follow the first cards
+        return { dcl, cards, kb: wire / 1024, assets: [...assets].filter((id) => !cached.has(id)).length };
+      };
+      const first = await load();
+      m.dcl.push(first.dcl);
+      m.cards.push(first.cards);
+      m.kb.push(first.kb);
+      const again = await load();
+      m.again.push(again.cards);
+      m.againKb.push(again.kb);
+      m.revalidated.push(again.assets);
       await context.close();
     }
-    const label = DIST ? "first load (build)" : "first load (dev server)";
-    record(label, "DOMContentLoaded", dcl);
-    record(label, "Notes cards drawn", cards);
-    record(label, "KB transferred (uncompressed)", bytes);
+    const label = URL_ ? "first load (hosted)" : DIST ? "first load (build)" : "first load (dev server)";
+    record(label, "DOMContentLoaded", m.dcl);
+    record(label, "Notes cards drawn", m.cards);
+    record(label, "KB over the wire", m.kb);
+    record(label, "again: Notes cards drawn", m.again);
+    record(label, "again: KB over the wire", m.againKb);
+    record(label, "again: /assets/ from the network", m.revalidated);
   }
-  if (DIST) throw "done"; // the rest runs against the dev server
+  if (DIST || URL_) throw "done"; // the rest runs against the dev server
 
   let { context, p } = await page();
   await p.goto(`${origin}/notes`);
@@ -330,6 +370,6 @@ try {
   await browser.close();
   stopPreview();
   stopServer();
-  fs.rmSync(vault, { recursive: true, force: true });
+  if (vault) fs.rmSync(vault, { recursive: true, force: true });
 }
 if (JSON_OUT) fs.writeFileSync(JSON_OUT, `${JSON.stringify({ machine: `${os.cpus()[0]?.model} x${os.cpus().length}, ${os.platform()} ${os.release()}`, today: TODAY, mode: DIST ? "build" : "dev", rows }, null, 2)}\n`);
