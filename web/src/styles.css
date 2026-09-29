@@ -2040,7 +2040,8 @@ details.markdown-alert[open] > summary { margin-bottom: 0.3em; }
 .cm-sub { vertical-align: sub; font-size: 0.78em; }
 .cm-sup { vertical-align: super; font-size: 0.78em; }
 .cm-br { display: block; }
-.cm-html-block { display: block; padding: 4px 0; cursor: pointer; }
+.cm-html-block { display: block; padding: 4px 0; white-space: normal; cursor: pointer; }
+.cm-html-inline { white-space: normal; }
 .cm-html-block img, .cm-html-inline img { max-width: 100%; vertical-align: middle; }
 .cm-html-block p { margin: 0; }
 .cm-html-block picture, .cm-html-block picture > img { display: block; }
