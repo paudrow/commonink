@@ -19,7 +19,7 @@ const SECTIONS = readSections(path.resolve(import.meta.dirname, "../examples/pre
 const TODAY = new Date().toISOString().slice(0, 10);
 
 const cookie = await signIn();
-const me = (await call("GET", "/api/me")).data as { workspaces: Array<{ id: string; kind: string }> };
+const me = (await call("GET", "/api/me")).data as { workspaces: Array<{ id: string; kind: string; name: string }> };
 const ws = me.workspaces.find((w) => w.kind === "personal") ?? me.workspaces[0];
 const api = `/api/w/${ws.id}`;
 const has = new Set(((await call("GET", `${api}/notes`)).data as Array<{ path: string }>).map((n) => n.path));
@@ -29,15 +29,16 @@ await demoFiles(SECTIONS);
 await renamedNote();
 const favorites = await starSome();
 await tryThisPr(favorites);
+await sharedTeam();
 console.log(`Filled ${origin} (workspace ${ws.id})`);
 
 /**
  * Sign in the way a browser does on a Preview: /auth/dev sets the session cookie. A brand-new
  * Preview's first requests can fail while its Durable Objects come up, so server errors are retried.
  */
-async function signIn(): Promise<string> {
+async function signIn(as = ""): Promise<string> {
   for (let attempt = 1; ; attempt++) {
-    const res = await fetch(`${origin}/auth/dev?next=/`, { redirect: "manual" });
+    const res = await fetch(`${origin}/auth/dev?next=/${as ? `&as=${as}` : ""}`, { redirect: "manual" });
     const session = res.headers.getSetCookie().map((c) => c.split(";")[0]).find((c) => !c.endsWith("="));
     if (session) return session;
     if (res.status < 500 || attempt === 6) throw new Error(`Developer sign-in failed at ${origin} (${res.status}). Is DEV_LOGIN on for Previews?`);
@@ -161,4 +162,22 @@ async function tryThisPr(favorites: boolean) {
     const order = ((await must("GET", `${api}/favorites`)) as Array<{ path: string }>).map((f) => f.path);
     await must("PUT", `${api}/favorites`, { paths: [TRY, ...order.filter((p) => p !== TRY)] });
   }
+}
+
+/**
+ * A team workspace the developer owns with a second person in it, Sam (a developer sign-in, which
+ * only Previews have), plus an invite link Sam used and one that's still open: something to try
+ * members, roles, invites, leaving and deleting on. Made again if it's been left or deleted.
+ */
+async function sharedTeam() {
+  const TEAM = "Launch team";
+  if (me.workspaces.some((w) => w.kind === "team" && w.name === TEAM)) return;
+  const made = await call("POST", "/api/workspaces", { name: TEAM });
+  if (made.status >= 400) throw new Error(`Couldn't make ${TEAM}: ${made.status}`);
+  const base = `/api/w/${(made.data as { id: string }).id}`;
+  const invite = (await must("POST", `${base}/invites`, { role: "editor" })) as { url: string };
+  const sam = await signIn("sam");
+  const join = await fetch(origin + new URL(invite.url).pathname, { method: "POST", redirect: "manual", headers: { cookie: sam, origin } });
+  if (join.status !== 302) throw new Error(`Sam couldn't join ${TEAM}: ${join.status}`);
+  await must("POST", `${base}/invites`, { role: "viewer" });
 }
