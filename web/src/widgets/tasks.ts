@@ -8,6 +8,7 @@ import { api, type Task, type TaskPatch } from "../api.ts";
 import { el, icon } from "../dom.ts";
 import { onVaultChange } from "../events.ts";
 import type { WidgetSpec } from "./core.ts";
+import { sideClick } from "../panes.ts";
 import { tagsInLine } from "../../../src/core/tags.ts";
 import { addDays } from "../../../src/core/tasks.ts";
 import { endTags, metaChips, today } from "../taskChips.ts";
@@ -136,7 +137,7 @@ export const tasks: WidgetSpec = {
                   "div",
                   { class: "qt-group" },
                   group === "note"
-                    ? el("button", { type: "button", class: "qt-note", onmousedown: prevent, onclick: (e: MouseEvent) => env.open(key, undefined, e.metaKey || e.ctrlKey) }, icon("file", 13), g.label)
+                    ? el("button", { type: "button", class: "qt-note", onmousedown: prevent, onclick: (e: MouseEvent) => env.open(key, undefined, sideClick(e)) }, icon("file", 13), g.label)
                     : el("div", { class: "qt-note is-label" }, g.label, el("span", { class: "n" }, String(g.tasks.length))),
                   ...g.tasks.map(row),
                 ),
@@ -166,11 +167,11 @@ export const tasks: WidgetSpec = {
         // A click on the words edits them, so let that one place the caret; chips and tags keep focus where it is.
         const target = e.target as HTMLElement;
         if (target.closest(".qt-input")) return; // placing the caret or selecting in the open edit
-        if (!target.closest(".qt-words") || e.metaKey || e.ctrlKey) prevent(e);
+        if (!target.closest(".qt-words") || sideClick(e)) prevent(e);
       });
       text.addEventListener("click", (e) => {
         const target = e.target as HTMLElement;
-        if (e.metaKey || e.ctrlKey) return env.open(t.path, t.line, true); // ⌘-click: the note, at this line, to the side
+        if (sideClick(e)) return env.open(t.path, t.line, true); // ⌘-click (Ctrl-click off a Mac): the note, at this line, to the side
         const chip = target.closest<HTMLElement>(".tk[data-field]");
         const tag = chip?.dataset.field === "tags" ? chip.dataset.value!.toLowerCase() : target.closest<HTMLElement>(".tag")?.dataset.tag;
         if (tag) env.openTag(tag);
@@ -179,7 +180,7 @@ export const tasks: WidgetSpec = {
       });
       const menu = el("button", { type: "button", class: "qt-act", title: "Priority, due, repeat, person, tags…", "aria-label": "Task fields", onmousedown: prevent }, icon("sliders", 13));
       menu.addEventListener("click", () => openTaskMenu(menu, ctx));
-      const go = el("button", { type: "button", class: "qt-act", title: "Go to note", "aria-label": `Go to ${t.title}, line ${t.line}`, onmousedown: prevent, onclick: (e: MouseEvent) => env.open(t.path, t.line, e.metaKey || e.ctrlKey) }, icon("open", 13));
+      const go = el("button", { type: "button", class: "qt-act", title: "Go to note", "aria-label": `Go to ${t.title}, line ${t.line}`, onmousedown: prevent, onclick: (e: MouseEvent) => env.open(t.path, t.line, sideClick(e)) }, icon("open", 13));
       const where = group === "note" ? (t.heading && t.heading !== t.title ? t.heading : null) : t.title;
       return el("div", { class: `qt-row${t.done ? " is-done" : ""}` }, box, text, where ? el("span", { class: "qt-where" }, where) : null, menu, go);
     }

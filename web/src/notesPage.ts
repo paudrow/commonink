@@ -10,9 +10,11 @@ import { WIDGETS } from "./widgets/index.ts";
 import { tagChip, tagFilter } from "./tagPicker.ts";
 import { hydrateTaskChips, withTaskChips } from "./taskChips.ts";
 import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
+import { sideClick } from "./panes.ts";
 
 interface Hooks {
-  open(path: string, line?: number): void;
+  /** `side`: to the side (a Cmd-click; Ctrl-click off a Mac). */
+  open(path: string, line?: number, side?: boolean): void;
   starred(id: string): boolean;
   toggleStar(path: string): void;
   /** The folder or tag filter changed (the sidebar marks the one being shown). */
@@ -291,13 +293,15 @@ export class NotesPage {
         return;
       }
       const a = t.closest("a");
+      const side = sideClick(e);
       if (a) {
         e.preventDefault();
         const href = a.getAttribute("href") ?? "";
         if (/^https?:/i.test(href)) window.open(href, "_blank", "noopener");
-        else if (href.startsWith("quire:")) void api.resolve(decodeURIComponent(href.slice(6)), item.path).then((p) => p && this.hooks.open(p));
+        else if (href.startsWith("quire:")) void api.resolve(decodeURIComponent(href.slice(6)), item.path).then((p) => p && this.hooks.open(p, undefined, side));
         return;
       }
+      if (side && !t.closest("button, input")) return this.hooks.open(item.path, undefined, true);
       // Reading an open card (selecting text, ticking tasks) shouldn't fold it back up.
       if (t.closest("input, .fc-full") || String(getSelection() ?? "")) return;
       this.toggleExpand(i);

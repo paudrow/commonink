@@ -2,6 +2,18 @@
 // window is divided. Kept per viewer in browser storage; the app works the same without it.
 // No DOM here: the app shell (main.ts) draws the panes.
 
+export const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent);
+
+/**
+ * A click that opens a note to the side: Cmd-click on a Mac, Ctrl-click elsewhere (CodeMirror's
+ * "Mod"). On a Mac, Ctrl-click is the right-click menu, so it never counts.
+ */
+export const sideClick = (e: { metaKey: boolean; ctrlKey: boolean; button?: number }, mac = IS_MAC) =>
+  (e.button ?? 0) === 0 && (mac ? e.metaKey && !e.ctrlKey : e.ctrlKey);
+
+/** How that click is written in hints. */
+export const SIDE_CLICK = IS_MAC ? "⌘-click" : "Ctrl-click";
+
 /** One pane's place: the note it shows (by ID, so renames don't lose it) and where it's been. */
 export interface PaneTrail {
   note: string | null;

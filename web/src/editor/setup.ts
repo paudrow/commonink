@@ -11,6 +11,7 @@ import { livePreview } from "./livePreview.ts";
 import { blockWidgets, editorContext, stepIntoBlocks, type EditorContext } from "./blocks.ts";
 import { agentFlash } from "./agentFlash.ts";
 import { typingHelpers } from "./complete.ts";
+import { IS_MAC, sideClick } from "../panes.ts";
 import { taskLineTools } from "./taskTools.ts";
 
 /** Marks transactions that came from disk (agents), so they don't trigger a save of their own. */
@@ -46,6 +47,7 @@ export function linkTargetAt(state: EditorState, pos: number): { target?: string
 
 const linkClicks = EditorView.domEventHandlers({
   mousedown(e, view) {
+    if (IS_MAC && e.ctrlKey) return false; // a Mac's Ctrl-click is the right-click menu: leave it be
     const tag = (e.target as HTMLElement).closest<HTMLElement>(".cm-tag");
     if (tag && e.button === 0 && (!tag.classList.contains("is-raw") || e.metaKey || e.ctrlKey)) {
       e.preventDefault();
@@ -57,8 +59,8 @@ const linkClicks = EditorView.domEventHandlers({
     if (t.classList.contains("is-raw") && !(e.metaKey || e.ctrlKey)) return false;
     e.preventDefault();
     const ctx = view.state.facet(editorContext);
-    // Cmd/Ctrl-click on a rendered link opens it to the side; on a raw one (cursor on it) it's how you follow it.
-    if (t.dataset.target !== undefined) ctx.openTarget(t.dataset.target, ctx.path, { side: !t.classList.contains("is-raw") && (e.metaKey || e.ctrlKey) });
+    // ⌘-click (Ctrl-click off a Mac) on a rendered link opens it to the side; on a raw one (cursor on it) it follows it.
+    if (t.dataset.target !== undefined) ctx.openTarget(t.dataset.target, ctx.path, { side: !t.classList.contains("is-raw") && sideClick(e) });
     else if (t.dataset.href) {
       const href = t.dataset.href;
       if (/^https?:/i.test(href)) window.open(href, "_blank", "noopener");

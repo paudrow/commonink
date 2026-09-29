@@ -20,7 +20,7 @@ import { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
 import { groupChanges } from "../../src/core/format.ts";
-import { clampSide, forget, newLayout, parseLayout, step, visit, type PaneTrail } from "./panes.ts";
+import { clampSide, forget, newLayout, parseLayout, SIDE_CLICK, sideClick, step, visit, type PaneTrail } from "./panes.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
 
@@ -110,7 +110,7 @@ let active = panes[0];
 let split = false;
 const other = (p: Pane) => panes[1 - p.index];
 /** A note opened from a page: in the main pane, or beside it while split. */
-const fromPage = (path: string, line?: number) => void openNote(path, { line, pane: split ? panes[1] : panes[0] });
+const fromPage = (path: string, line?: number, side = false) => void openNote(path, { line, pane: split || side ? panes[1] : panes[0] });
 const notesPage = new NotesPage({
   open: fromPage,
   starred: (id) => isStarred(id),
@@ -317,8 +317,6 @@ async function openSplit() {
 
 /** Where a note opened "to the side" of a pane goes. */
 const sideOf = (p: Pane) => (split ? other(p) : panes[1]);
-/** Cmd-click (Ctrl-click off a Mac) opens to the side. */
-const toSide = (e: MouseEvent | KeyboardEvent) => e.metaKey || e.ctrlKey;
 
 /** The bars over the panes while split: back and forward, the note's name, star, close. */
 function renderPaneBars() {
@@ -948,7 +946,7 @@ function renderFavorites() {
         style: { "--depth": "0" },
         title: f.path,
         draggable: "true",
-        onclick: (e: MouseEvent) => openNote(f.path, { pane: toSide(e) ? sideOf(active) : active }),
+        onclick: (e: MouseEvent) => openNote(f.path, { pane: sideClick(e) ? sideOf(active) : active }),
         ondragstart: (e: DragEvent) => {
           e.dataTransfer!.setData(FAVORITE, f.path);
           e.dataTransfer!.setData(NOTE_DRAG, f.path); // so it can go to a folder or Archive too
@@ -961,7 +959,7 @@ function renderFavorites() {
       el(
         "span",
         { class: "row-actions" },
-        el("button", { type: "button", class: "row-act", title: "Open to the side (⌘-click)", onclick: (e: Event) => (e.stopPropagation(), void openNote(f.path, { pane: sideOf(active) })) }, icon("split", 14)),
+        el("button", { type: "button", class: "row-act", title: `Open to the side (${SIDE_CLICK})`, onclick: (e: Event) => (e.stopPropagation(), void openNote(f.path, { pane: sideOf(active) })) }, icon("split", 14)),
         el("button", { type: "button", class: "row-act fav-star", title: "Unstar", onclick: (e: Event) => (e.stopPropagation(), void toggleStar(f.path)) }, icon("starred", 14)),
       ),
     );
@@ -1518,7 +1516,7 @@ async function refreshBacklinks() {
       ? links.map((b) =>
           el(
             "div",
-            { class: "backlink", onclick: () => openNote(b.path, { line: b.line }) },
+            { class: "backlink", onclick: (e: MouseEvent) => openNote(b.path, { line: b.line, pane: sideClick(e) ? sideOf(active) : active }) },
             el("div", { class: "bl-title" }, icon(b.kind === "embed" ? "open" : "link", 12), b.title),
             el("div", { class: "bl-text", html: highlightLink(b.text) }),
           ),

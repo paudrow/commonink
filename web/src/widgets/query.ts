@@ -4,6 +4,7 @@ import { api, type FeedItem } from "../api.ts";
 import { el, escapeHtml, icon, timeAgo } from "../dom.ts";
 import { onVaultChange } from "../events.ts";
 import type { WidgetSpec } from "./core.ts";
+import { sideClick } from "../panes.ts";
 
 const prevent = (e: Event) => e.preventDefault();
 
@@ -47,7 +48,7 @@ export const query: WidgetSpec = {
       const preview = hit ? highlight(hit.text, env.args.q ?? "") : escapeHtml(firstLine(item.excerpt));
       const node = el(
         "button",
-        { type: "button", class: "qq-row", onmousedown: prevent, onclick: (e: MouseEvent) => env.open(item.path, hit?.line, e.metaKey || e.ctrlKey) },
+        { type: "button", class: "qq-row", onmousedown: prevent, onclick: (e: MouseEvent) => env.open(item.path, hit?.line, sideClick(e)) },
         icon(item.kind === "html" ? "html" : "file", 14),
         el(
           "span",

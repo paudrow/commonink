@@ -1,6 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { forget, parseLayout, step, visit } from "../web/src/panes.ts";
+import { forget, parseLayout, sideClick, step, visit } from "../web/src/panes.ts";
+
+test("open to the side is Cmd-click on a Mac and Ctrl-click elsewhere; a Mac's Ctrl-click is the right-click menu, never a side click", () => {
+  const click = (metaKey: boolean, ctrlKey: boolean, button = 0) => ({ metaKey, ctrlKey, button });
+  assert.deepEqual(
+    [click(true, false), click(false, true), click(true, true), click(false, false), click(true, false, 2)].map((e) => sideClick(e, true)),
+    [true, false, false, false, false],
+  );
+  assert.deepEqual(
+    [click(true, false), click(false, true), click(false, false), click(false, true, 1)].map((e) => sideClick(e, false)),
+    [false, true, false, false],
+  );
+});
 
 test("each pane keeps its own back and forward: visiting clears forward, and the same note twice is one visit", () => {
   let p = visit(visit(visit({ note: null, back: [], forward: [] }, "a"), "b"), "c");
