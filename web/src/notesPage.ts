@@ -4,6 +4,7 @@
 import { api, type FeedItem, type FeedPage, type Scope, type TagCount, type Task } from "./api.ts";
 import { $, authorAvatar, authorName, displayName, el, escapeHtml, icon, NOTE_DRAG, timeAgo } from "./dom.ts";
 import { renderMarkdown, sandboxFrame } from "./render.ts";
+import { hydrateCode } from "./code.ts";
 import { hydrateDataEmbeds } from "./textPreview.ts";
 import { parseDirective } from "./widgets/args.ts";
 import { WIDGETS } from "./widgets/index.ts";
@@ -373,6 +374,7 @@ export class NotesPage {
     const { md: marked, tasks } = withTaskChips(md);
     const node = el("div", { class: `${cls}${this.hooks.readOnly() || item.archived ? " is-readonly" : ""}`, html: renderMarkdown(marked, item.path) });
     hydrateTaskChips(node, tasks);
+    hydrateCode(node);
     // A note can write its own <span class="tk-run">, so only the ones that name a real task count.
     node.querySelectorAll<HTMLElement>(".tk-run").forEach((run) => {
       const task = tasks[+run.dataset.task!];
