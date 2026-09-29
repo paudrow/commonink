@@ -81,6 +81,21 @@ test("tasks lists open tasks, and task changes one's tokens or ticks it", () => 
   assert.equal(quire(vault, ["task", "Roadmap", "3"]).stderr, "There's no task on line 3 of Roadmap\n");
 });
 
+test("board shows a note's boards, and card adds, moves and edits cards", () => {
+  const vault = tempVault({ "Launch.md": "# Launch\n\n:::kanban\n## To do\n- [ ] Tiers\n\n## Done\n:::\n" });
+  assert.match(quire(vault, ["card", "add", "Launch", "to do", "Pick", "a", "logo"]).stdout, /^Changed a card in Launch\.md/);
+  quire(vault, ["card", "move", "Launch", "tiers", "Done"]);
+  quire(vault, ["card", "edit", "Launch", "logo", "--text", "Pick a logo @ana"]);
+  assert.match(quire(vault, ["board", "Launch"]).stdout, /^Board 1 of 1 in Launch\.md\n\n## To do\n- \[ \] Pick a logo @ana — L5\n\n## Done \(done column\)\n- \[x\] Tiers done:\d{4}-\d{2}-\d{2} — L8\n$/);
+  assert.equal(quire(vault, ["card", "edit", "Launch", "5", "--undone"]).stdout.startsWith("No change to Launch.md"), true);
+  assert.equal(quire(vault, ["card", "shuffle", "Launch"]).stderr, 'card needs add, move or edit, not "shuffle"\n');
+  fs.writeFileSync(path.join(vault, "Messy.md"), "# Messy\n\n:::kanban\n## To do {color=blue}\nA loose line\n- [ ] Card\n:::\n\n:::kanban\n## Open\n");
+  assert.equal(
+    quire(vault, ["board", "Messy"]).stdout,
+    "Board 1 of 1 in Messy.md\n\nProblems (the lines stay as they are until fixed):\n- Line 5 in To do isn't a card (stray, L5)\n\n## To do {color=blue}\n- [ ] Card — L6\n\nProblem: the :::kanban on line 9 has no closing ::: line, so it shows as text.\n",
+  );
+});
+
 test("task add writes a task from words, and task move moves one", () => {
   const vault = tempVault();
   const today = new Date().toLocaleDateString("en-CA");
@@ -106,21 +121,6 @@ test("smart-save, smart and smart-rm keep saved note queries", () => {
   assert.equal(quire(vault, ["smart", "planning"]).stdout, "- Projects/Roadmap.md — Roadmap\n");
   assert.equal(quire(vault, ["smart-save", "Bad", "colour=red"]).stderr, 'Unknown query key "colour": use q, folder, tag, sort or limit\n');
   assert.equal(quire(vault, ["smart-rm", "Planning"]).stdout, "No smart folders.\n");
-});
-
-test("board shows a note's boards, and card adds, moves and edits cards", () => {
-  const vault = tempVault({ "Launch.md": "# Launch\n\n:::kanban\n## To do\n- [ ] Tiers\n\n## Done\n:::\n" });
-  assert.match(quire(vault, ["card", "add", "Launch", "to do", "Pick", "a", "logo"]).stdout, /^Changed a card in Launch\.md/);
-  quire(vault, ["card", "move", "Launch", "tiers", "Done"]);
-  quire(vault, ["card", "edit", "Launch", "logo", "--text", "Pick a logo @ana"]);
-  assert.match(quire(vault, ["board", "Launch"]).stdout, /^Board 1 of 1 in Launch\.md\n\n## To do\n- \[ \] Pick a logo @ana — L5\n\n## Done \(done column\)\n- \[x\] Tiers done:\d{4}-\d{2}-\d{2} — L8\n$/);
-  assert.equal(quire(vault, ["card", "edit", "Launch", "5", "--undone"]).stdout.startsWith("No change to Launch.md"), true);
-  assert.equal(quire(vault, ["card", "shuffle", "Launch"]).stderr, 'card needs add, move or edit, not "shuffle"\n');
-  fs.writeFileSync(path.join(vault, "Messy.md"), "# Messy\n\n:::kanban\n## To do {color=blue}\nA loose line\n- [ ] Card\n:::\n\n:::kanban\n## Open\n");
-  assert.equal(
-    quire(vault, ["board", "Messy"]).stdout,
-    "Board 1 of 1 in Messy.md\n\nProblems (the lines stay as they are until fixed):\n- Line 5 in To do isn't a card (stray, L5)\n\n## To do {color=blue}\n- [ ] Card — L6\n\nProblem: the :::kanban on line 9 has no closing ::: line, so it shows as text.\n",
-  );
 });
 
 test("star and unstar take #tags as well as notes", () => {

@@ -23,10 +23,10 @@ import { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
 import { groupChanges } from "../../src/core/format.ts";
-import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
-import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { clampSide, forget, newLayout, parseLayout, SIDE_CLICK, sideClick, step, visit, type PaneTrail } from "./panes.ts";
 import { headingName, headingText } from "../../src/core/prose.ts";
+import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
+import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
 import { safeDecode } from "../../src/core/uri.ts";
@@ -1829,11 +1829,6 @@ window.addEventListener(
     } else if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
       e.preventDefault();
       void showNotes({ filter: true });
-    } else if (isQuickAddKey(e) || (e.key === "q" && !mod && !e.altKey && !typingIn(e.target))) {
-      // ⌘⇧. anywhere (the editor in any Vim mode too), or q where you aren't typing: the quick-add bar.
-      e.preventDefault();
-      e.stopPropagation(); // not the editor's (or Vim's) key as well
-      quickAdd();
     } else if (mod && e.altKey && (e.code === "Backslash" || e.key === "\\")) {
       e.preventDefault();
       void (split ? closePane(active) : openSplit());
@@ -1842,6 +1837,11 @@ window.addEventListener(
       const p = panes[e.code === "BracketLeft" ? 0 : 1];
       focusPane(p);
       if (p.session && p.session.kind !== "asset") p.view.focus();
+    } else if (isQuickAddKey(e) || (e.key === "q" && !mod && !e.altKey && !typingIn(e.target))) {
+      // ⌘⇧. anywhere (the editor in any Vim mode too), or q where you aren't typing: the quick-add bar.
+      e.preventDefault();
+      e.stopPropagation(); // not the editor's (or Vim's) key as well
+      quickAdd();
     } else if (mod && e.key === "e" && active.session?.kind === "html") {
       e.preventDefault();
       setHtmlMode(prefs.htmlMode === "preview" ? "source" : "preview");

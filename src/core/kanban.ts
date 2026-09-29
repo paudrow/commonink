@@ -23,8 +23,7 @@
 // its blank lines and a card's nested lines stay byte for byte. No Node imports: the editor uses this too.
 import { parseAttrs, serializeAttrs } from "./directive.ts";
 import { headingSettings, headingText, proseLines } from "./prose.ts";
-import * as tasks from "./tasks.ts";
-import { editTask, parseTask, TASK_LINE, type TaskPatch } from "./tasks.ts";
+import { editTask, nextOccurrence, parseTask, TASK_LINE, type TaskPatch } from "./tasks.ts";
 
 export interface Card {
   /** Its list item's line (0-based); `to` is one past its last nested line. */
@@ -244,12 +243,6 @@ function tick(line: string, checked: boolean, today: string) {
     return editTask(boxed, { checked, done: checked ? today : null });
   });
 }
-
-/**
- * The line that follows a repeating task done on `done`, from the recurrence engine (#52) once it's
- * in: `nextOccurrence` in tasks.ts. Until then nothing follows, and a repeating card is just ticked.
- */
-const nextOccurrence = (tasks as unknown as { nextOccurrence?: (line: string, done: string) => string | null }).nextOccurrence ?? (() => null);
 
 /**
  * Add a card with `text` to a column, `index`th (default last). A text of several lines puts the
