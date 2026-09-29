@@ -14,6 +14,7 @@ import { access, asRole } from "./access.ts";
 import { DoDb, SqlContent } from "./do-store.ts";
 import { SEED_FILES, SEED_NOTES } from "./seed.ts";
 import type { Env } from "./env.ts";
+import { safeDecode } from "../../src/core/uri.ts";
 
 export class Workspace extends DurableObject<Env> {
   private db: DoDb;
@@ -28,7 +29,8 @@ export class Workspace extends DurableObject<Env> {
     // Note IDs this workspace has claimed in the directory (see registerIds).
     db.exec("CREATE TABLE IF NOT EXISTS registered_ids(id TEXT PRIMARY KEY)");
     this.files = new SqlContent(db);
-    this.quire = new Quire(db, this.files);
+    // A note and its previous text are each a SQLite row here, which holds at most 2 MB.
+    this.quire = new Quire(db, this.files, { maxNoteBytes: 1_900_000 });
     // Notes only change through the core here, so this finds nothing to do, except after an
     // upgrade that asks for notes to be indexed again (tags, say).
     this.quire.sync();
@@ -38,7 +40,8 @@ export class Workspace extends DurableObject<Env> {
 
   async fetch(req: Request): Promise<Response> {
     const wsId = req.headers.get("x-ci-workspace")!;
-    const res = await this.handle(req, wsId);
+    // Anything unexpected is a plain 500, with no stack or message from inside.
+    const res = await this.handle(req, wsId).catch(errorResponse);
     this.claimIds(wsId);
     return res;
   }
@@ -96,10 +99,13 @@ export class Workspace extends DurableObject<Env> {
     if (route === "/live") {
       if (req.headers.get("Upgrade") !== "websocket") return json({ error: "Expected a WebSocket" }, 426);
       const [client, server] = Object.values(new WebSocketPair());
-      this.ctx.acceptWebSocket(server, [user]); // tagged, so signing out everywhere can close it
+      // Tagged by person and by session, so signing out (here or everywhere) can close it, and it
+      // closes when its session runs out.
+      this.ctx.acceptWebSocket(server, [user, `s:${req.headers.get("x-ci-session") ?? ""}`]);
+      server.serializeAttachment({ expires: Number(req.headers.get("x-ci-session-expires")) || 0 });
       return new Response(null, { status: 101, webSocket: client });
     }
-    if (route.startsWith("/files/")) return this.serveFile(decodeURIComponent(route.slice("/files/".length)));
+    if (route.startsWith("/files/")) return this.serveFile(safeDecode(route.slice("/files/".length)));
     if (route === "/upload" && req.method === "POST") {
       return this.upload(req, url, wsId, decodeURIComponent(req.headers.get("x-ci-actor") ?? "someone"));
     }
@@ -182,9 +188,12 @@ export class Workspace extends DurableObject<Env> {
 
   private broadcast(msg: Record<string, unknown>) {
     const data = JSON.stringify(msg);
+    const now = Date.now();
     for (const ws of this.ctx.getWebSockets()) {
       try {
-        ws.send(data);
+        const { expires } = (ws.deserializeAttachment() ?? {}) as { expires?: number };
+        if (expires && expires < now) ws.close(4001, "Session expired");
+        else ws.send(data);
       } catch {}
     }
   }
@@ -221,9 +230,9 @@ export class Workspace extends DurableObject<Env> {
     }
   }
 
-  /** Close someone's live connections (they signed out everywhere). Their tabs then ask them to sign in. */
-  disconnect(userId: string) {
-    for (const ws of this.ctx.getWebSockets(userId)) ws.close(4001, "Signed out");
+  /** Close the live connections tagged `tag`: a person's (signed out everywhere) or one session's. Their tabs then ask them to sign in. */
+  disconnect(tag: string) {
+    for (const ws of this.ctx.getWebSockets(tag)) ws.close(4001, "Signed out");
   }
 
   webSocketMessage() {}

@@ -5,6 +5,7 @@ import { assetUrl, fileUrl } from "./api.ts";
 import { el, icon } from "./dom.ts";
 import { assetIcon, fmtBytes, textFormat, type TextFormat } from "./assetKinds.ts";
 import { compareCells, csvTable, rowFilter } from "./csv.ts";
+import { safeDecode } from "../../src/core/uri.ts";
 
 const MAX_PREVIEW = 5 * 1024 * 1024; // bigger than this: offer the download instead
 const MAX_EMBED = 2 * 1024 * 1024; // …and in a note, send people to the Assets page
@@ -121,7 +122,7 @@ export function dataEmbed(target: string, from: string | undefined, opts: { acti
 export function hydrateDataEmbeds(root: HTMLElement, from: string, settle?: () => void) {
   for (const a of root.querySelectorAll<HTMLAnchorElement>('a[href^="quire:"]')) {
     if (!a.textContent?.startsWith("↳ ")) continue; // an embed, not an ordinary link
-    const target = decodeURIComponent(a.getAttribute("href")!.slice(6));
+    const target = safeDecode(a.getAttribute("href")!.slice(6));
     if (!/\.(csv|json|txt)$/i.test(target.split("#")[0])) continue;
     const card = dataEmbed(target, from, { settle });
     const p = a.parentElement;

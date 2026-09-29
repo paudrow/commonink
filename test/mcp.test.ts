@@ -27,10 +27,10 @@ async function call(name: string, args: Record<string, unknown>) {
 test("the server lists every tool", async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
-    "add_card", "add_task", "append_to_note", "archive_note", "backlinks", "create_note", "delete_smart_folder", "edit_card",
-    "edit_note", "get_today", "list_notes", "list_smart_folders", "list_tags", "list_tasks", "move_card", "move_note",
-    "move_task", "read_board", "read_note", "recent_changes", "save_smart_folder", "search_notes", "star_note", "star_tag",
-    "unarchive_note", "unstar_note", "unstar_tag", "update_task",
+    "add_card", "add_task", "append_to_note", "archive_note", "backlinks", "create_note", "delete_smart_folder",
+    "edit_card", "edit_note", "get_today", "list_notes", "list_smart_folders", "list_tags", "list_tasks",
+    "move_card", "move_note", "move_task", "read_board", "read_note", "recent_changes", "save_smart_folder",
+    "search_notes", "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag", "update_task",
   ]);
 });
 
@@ -42,6 +42,16 @@ test("agents list tasks with their tokens and change one without touching the re
   await call("update_task", { path: "Chores", line: 3, text: "Water the plants !high due:2026-10-01 @sam", priority: null, done: true });
   assert.match((await call("list_tasks", { status: "done", due: "2026-10-01" })).text, /^- \[x\] Water the plants due:2026-10-01 @sam done:\d{4}-\d{2}-\d{2} — Chores\.md:3$/);
   assert.equal((await call("update_task", { path: "Chores", line: 3, text: "stale", done: false })).isError, true);
+});
+
+test("agents read a board and add, move and edit its cards, each change attributed to them", async () => {
+  await call("create_note", { path: "Launch", content: "# Launch\n\n:::kanban\n## Backlog\n- [ ] Pricing page\n\n## Done\n:::\n" });
+  await call("add_card", { path: "Launch", column: "backlog", text: "Webhooks @sam\nRetry on 500s" });
+  await call("move_card", { path: "Launch", card: "pricing", to_column: "Done" });
+  assert.match((await call("edit_card", { path: "Launch", card: "5", text: "Webhooks @sam due:2026-10-01\nRetry on 500s" })).text, /^Edited a card in Launch\.md/);
+  assert.match((await call("read_board", { path: "Launch" })).text, /^Board 1 of 1 in Launch\.md\n\n## Backlog\n- \[ \] Webhooks @sam due:2026-10-01 — L5\n    Retry on 500s\n\n## Done \(done column\)\n- \[x\] Pricing page done:\d{4}-\d{2}-\d{2} — L9$/);
+  assert.match((await call("recent_changes", { path: "Launch.md", limit: 1 })).text, /test-agent for you: edit Launch\.md \(\+1 −1\)$/);
+  assert.deepEqual(await call("move_card", { path: "Launch", card: "nope", to_column: "Done" }), { text: 'No card in Launch.md matches "nope"', isError: true });
 });
 
 test("agents add a task from words, to today's daily note or a named note, and move one", async () => {
@@ -60,16 +70,6 @@ test("agents read the day: overdue, due today, starting today, and the journal n
   assert.match(text, /\nDue today \(0\)\n- nothing\n/);
   assert.match(text, /\nJournal: Journal\/2026-10-05\.md \(not written yet\)$/);
   assert.equal((await call("get_today", { today: "someday" })).isError, true);
-});
-
-test("agents read a board and add, move and edit its cards, each change attributed to them", async () => {
-  await call("create_note", { path: "Launch", content: "# Launch\n\n:::kanban\n## Backlog\n- [ ] Pricing page\n\n## Done\n:::\n" });
-  await call("add_card", { path: "Launch", column: "backlog", text: "Webhooks @sam\nRetry on 500s" });
-  await call("move_card", { path: "Launch", card: "pricing", to_column: "Done" });
-  assert.match((await call("edit_card", { path: "Launch", card: "5", text: "Webhooks @sam due:2026-10-01\nRetry on 500s" })).text, /^Edited a card in Launch\.md/);
-  assert.match((await call("read_board", { path: "Launch" })).text, /^Board 1 of 1 in Launch\.md\n\n## Backlog\n- \[ \] Webhooks @sam due:2026-10-01 — L5\n    Retry on 500s\n\n## Done \(done column\)\n- \[x\] Pricing page done:\d{4}-\d{2}-\d{2} — L9$/);
-  assert.match((await call("recent_changes", { path: "Launch.md", limit: 1 })).text, /test-agent for you: edit Launch\.md \(\+1 −1\)$/);
-  assert.deepEqual(await call("move_card", { path: "Launch", card: "nope", to_column: "Done" }), { text: 'No card in Launch.md matches "nope"', isError: true });
 });
 
 test("agents list tags as a tree and filter notes by a tag and the tags under it", async () => {

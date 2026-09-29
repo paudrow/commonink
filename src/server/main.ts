@@ -1,6 +1,7 @@
 // Local web app server: JSON API + live updates over WebSocket + Vite for the UI.
 // Binds to 127.0.0.1 only. Agents never talk to this server; they write through the MCP server / CLI
 // (or straight to disk), and the file watcher here picks the change up and attributes it.
+import { randomBytes } from "node:crypto";
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -10,6 +11,7 @@ import { LOCAL_USER, openVault, PROJECT_ROOT } from "../core/local.ts";
 import { cleanPath, fileSecurityHeaders, isHidden, kindOf, mimeOf, MAX_UPLOAD, QuireError } from "../core/paths.ts";
 import { errorResponse, handleApi, json, type ApiHost } from "../core/api.ts";
 import { SANDBOX_PATH, sandboxPage } from "../core/sandbox.ts";
+import { appPolicy } from "../core/csp.ts";
 import { unfurl } from "./unfurl.ts";
 
 // PORT=0 picks a free port (printed on start). QUIRE_NO_UI=1 serves only /api, skipping Vite.
@@ -31,9 +33,21 @@ const httpServer = http.createServer((req, res) => {
   handle(req, res).catch((e) => send(res, errorResponse(e)));
 });
 
+// The same CSP as online. Vite stamps this nonce on the scripts in the page it serves; it lasts
+// as long as the server, since Vite builds the page once per request from a fixed setting.
+const NONCE = randomBytes(16).toString("base64");
+
 const vite = UI && await (await import("vite")).createServer({
+  html: { cspNonce: NONCE },
   root: path.join(PROJECT_ROOT, "web"),
-  server: { middlewareMode: true, hmr: { server: httpServer } },
+  // No CORS, and nothing but the app's own files: Vite would otherwise serve anything under the
+  // project (the default vault, .dev.vars) to any localhost page that asked.
+  server: {
+    middlewareMode: true,
+    hmr: { server: httpServer },
+    cors: false,
+    fs: { strict: true, deny: [".env", ".env.*", "*.{crt,pem}", "**/.git/**", "**/.dev.vars", "**/.quire/**", "**/vault/**"] },
+  },
   appType: "spa",
   logLevel: "warn",
   // Pre-bundle everything up front. If Vite discovers a dependency mid-session it re-bundles and
@@ -68,7 +82,10 @@ const originOk = (req: http.IncomingMessage) => {
 
 const wss = new WebSocketServer({ noServer: true });
 httpServer.on("upgrade", (req, socket, head) => {
-  if (req.url !== "/ws") return; // Vite's HMR socket handles itself
+  if (req.url !== "/ws") {
+    if (!vite) socket.destroy(); // with Vite, its HMR socket handles itself; without, nothing does
+    return;
+  }
   if (!hostOk(req) || !origins.has(req.headers.origin ?? "")) return socket.destroy();
   wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
 });
@@ -90,7 +107,19 @@ fs.watch(files.root, { recursive: true }, (_event, filename) => {
   if (isHidden(rel) && rel !== ASSET_TAGS) return;
   const key = kindOf(rel) ? rel : "*"; // directory events → full resync
   clearTimeout(timers.get(key));
-  timers.set(key, setTimeout(() => (timers.delete(key), key === "*" ? resync() : onDiskChange(rel)), 80));
+  timers.set(
+    key,
+    setTimeout(() => {
+      timers.delete(key);
+      // A file the parser chokes on is logged, not allowed to take the server down.
+      try {
+        if (key === "*") resync();
+        else onDiskChange(rel);
+      } catch (e) {
+        console.error(`Couldn't pick up ${rel}:`, e);
+      }
+    }, 80),
+  );
 });
 
 function onDiskChange(rel: string) {
@@ -167,9 +196,14 @@ const host: ApiHost = {
 async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
   if (!hostOk(req)) return send(res, json({ error: "Forbidden host" }, 403));
   const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
-  if (url.pathname === SANDBOX_PATH) return send(res, sandboxPage());
-  if (!url.pathname.startsWith("/api/")) return vite ? vite.middlewares(req, res) : send(res, json({ error: "Not found (QUIRE_NO_UI)" }, 404));
+  // Every path, the app's files included: another site (or another localhost port) gets nothing.
   if (!originOk(req)) return send(res, json({ error: "Cross-origin request refused" }, 403));
+  if (url.pathname === SANDBOX_PATH) return send(res, sandboxPage());
+  if (!url.pathname.startsWith("/api/")) {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Content-Security-Policy", appPolicy(NONCE, url)); // also: no framing the app to click through it
+    return vite ? vite.middlewares(req, res) : send(res, json({ error: "Not found (QUIRE_NO_UI)" }, 404));
+  }
   const route = url.pathname.slice("/api".length);
   // Uploads are raw bytes; the Origin check above is what keeps other sites out.
   if (route === "/upload" && req.method === "POST") return upload(req, res, url);

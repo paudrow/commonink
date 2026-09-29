@@ -11,7 +11,7 @@ import { displayName, el, icon, LINK_DRAG, NOTE_DRAG } from "./dom.ts";
 import { onVaultChange } from "./events.ts";
 import { IS_MAC, sideClick } from "./panes.ts";
 import { renderMarkdown } from "./render.ts";
-import { metaChips, today } from "./taskChips.ts";
+import { endTags, metaChips, today } from "./taskChips.ts";
 import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
 import { inline } from "./taskRow.ts";
 import { editorContext, type EditorContext } from "./editor/blocks.ts";
@@ -21,7 +21,7 @@ import {
   setColumnColor, type Board, type Card, type Column, type Fix, type Problem,
 } from "../../src/core/kanban.ts";
 import { parseTask } from "../../src/core/tasks.ts";
-import { scanTags, tagsInLine } from "../../src/core/tags.ts";
+import { scanTags } from "../../src/core/tags.ts";
 
 export interface BoardHost {
   /** The editor the board is shown in: note names and tags for suggestions, and opening notes, tags and people. */
@@ -299,9 +299,7 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
     const task = parseTask(`- [${card.checked ? "x" : " "}] ${card.text}`)!;
     const link = cardLink(card);
     const done = !!card.checked;
-    // Tags in the middle of the text stay there; the ones at the end join the other chips.
-    const inText = new Set(tagsInLine(task.summary).map((h) => h.tag));
-    const chips = metaChips(task.meta, done, task.meta.tags.filter((t) => !inText.has(t.toLowerCase())));
+    const chips = metaChips(task.meta, done, endTags(task.summary, task.meta.tags)); // tags mid-sentence stay there
     const details = card.details.some((d) => d.trim()) ? el("div", { class: "kb-details", html: renderMarkdown(card.details.join("\n"), host.path) }) : null;
     details?.querySelectorAll("input").forEach((b) => (b.disabled = true));
     const act = (name: string, label: string, run: () => void) =>
@@ -717,6 +715,11 @@ export function remoteBoard(root: HTMLElement, path: string, index: number, opts
     const n = await api.note(path).catch(() => null);
     if (!alive) return;
     if (!n) return opts.onMissing();
+    // Someone else changed the note: an undo step here would put back the text from before their change.
+    if (note && n.content !== note.content) {
+      past.length = 0;
+      future.length = 0;
+    }
     note = { content: n.content, version: n.version };
     if (!boardsIn(n.content)[index]) return opts.onMissing();
     if (board) board.update(index);

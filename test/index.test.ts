@@ -60,6 +60,28 @@ test("tasks come from the index, and follow edits in the app, edits on disk, mov
   assert.deepEqual(brief(quire), []);
 });
 
+test("the task index reads lines and headings the way the note is shown: fences, indented code and closing #s", () => {
+  const note = [
+    "# Plan ##", // closing #s aren't part of the heading
+    "- [ ] Under the title",
+    "````",
+    "- [ ] in a fence",
+    "```", // too short to close it
+    "- [ ] still fenced",
+    "````",
+    "A paragraph.",
+    "",
+    "    - [ ] indented code, not a task",
+    "",
+    "## Now {color=blue}", // a column's settings aren't part of its name
+    "- [ ] Ship it",
+    "### #hashtag heading #",
+    "- [x] Tagged heading",
+  ].join("\n");
+  const { quire } = openTempVault({ "P.md": `${note}\n` });
+  assert.deepEqual(brief(quire), ["P.md:2   Under the title [Plan] ", "P.md:13   Ship it [Now] ", "P.md:15 x Tagged heading [#hashtag heading] "]);
+});
+
 test("the Tasks badge's count is the open tasks in active notes, without sending the tasks", async () => {
   const { quire } = openTempVault(TASKY);
   const host = { quire, actor: "t", user: "t", canEditShared: true, info: () => ({}), written() {}, moved() {}, tree() {} };

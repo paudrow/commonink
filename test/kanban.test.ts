@@ -100,6 +100,20 @@ test("a card moved into the done column is ticked with today's date, and moved o
   assert.equal(moveCard(shipped, 3, { board: 0, column: 1 }, 0, TODAY), `Intro\n:::kanban{done=Shipped}\n## Done-ish\n## Shipped\n- [x] a done:${TODAY}\n:::\n`);
 });
 
+test("a repeating card repeats once, ticked where it is or moved into Done: its next one goes to the top of the first column", () => {
+  const md = ":::kanban\r\n## To do\r\n- [ ] Other\r\n## Doing\r\n- [ ] Pay rent due:2026-10-01 rec:monthly\r\n  From savings.\r\n## Done\r\n:::\r\n";
+  const next = "- [ ] Pay rent due:2026-11-01 rec:monthly\r\n";
+  const ticked = checkCard(md, 4, true, TODAY);
+  assert.equal(ticked, `:::kanban\r\n## To do\r\n${next}- [ ] Other\r\n## Doing\r\n- [x] Pay rent due:2026-10-01 rec:monthly done:${TODAY}\r\n  From savings.\r\n## Done\r\n:::\r\n`);
+  // Moved into Done once ticked, it doesn't repeat a second time.
+  assert.equal((moveCard(ticked, 5, { board: 0, column: 2 }, 0, TODAY).match(/Pay rent/g) ?? []).length, 2);
+  const moved = moveCard(md, 4, { board: 0, column: 2 }, 0, TODAY);
+  assert.equal(moved, `:::kanban\r\n## To do\r\n${next}- [ ] Other\r\n## Doing\r\n## Done\r\n- [x] Pay rent due:2026-10-01 rec:monthly done:${TODAY}\r\n  From savings.\r\n:::\r\n`);
+  const { quire } = openTempVault({ "Bills.md": md });
+  quire.editCard("Bills", "Pay rent", { done: true }, "agent", TODAY);
+  assert.equal(quire.read("Bills").content, ticked);
+});
+
 test("editing a card's text keeps its checkbox and nested lines; new detail lines nest under it", () => {
   const at = lineOf(NOTE, "Draft the announcement");
   const text = "Draft the launch post @audrow due:2026-10-15";

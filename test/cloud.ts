@@ -80,7 +80,7 @@ export async function team(cloud: Cloud) {
   const join = async (as: string, role: "editor" | "viewer") => {
     const cookie = await cloud.signIn(as);
     const { url } = await cloud.call(owner, "POST", `${base}/invites`, { role });
-    const res = await cloud.request(cookie, "GET", new URL(url).pathname);
+    const res = await cloud.request(cookie, "POST", new URL(url).pathname);
     if (res.status !== 302) throw new Error(`${as} couldn't join (${res.status})`);
     return cookie;
   };

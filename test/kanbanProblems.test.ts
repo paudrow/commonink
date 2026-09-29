@@ -17,6 +17,14 @@ test("a repeating card moved into Done leaves its next occurrence at the top of 
   );
 });
 
+test("with the recurrence engine, a weekly card moved into Done comes back a week later at the top of the board", () => {
+  const md = "x\n:::kanban\n## Doing\n- [ ] Other\n- [ ] Water plants rec:weekly due:2026-09-28\n## Done\n:::\n";
+  assert.equal(
+    moveCard(md, 4, { board: 0, column: 1 }, 0, TODAY),
+    `x\n:::kanban\n## Doing\n- [ ] Water plants rec:weekly due:2026-10-05\n- [ ] Other\n## Done\n- [x] Water plants rec:weekly due:2026-09-28 done:${TODAY}\n:::\n`,
+  );
+});
+
 const MESSY = `# Plan
 
 :::kanban{wip=3}

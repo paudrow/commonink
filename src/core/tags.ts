@@ -40,7 +40,9 @@ export const tagMatches = (tag: string, filter: string) => tag === filter || tag
 export function tagsInLine(line: string): TagHit[] {
   const out: TagHit[] = [];
   for (const m of withoutCodeOrLinks(line).matchAll(INLINE)) {
-    const text = m[1].replace(/\/+$/, "");
+    let end = m[1].length;
+    while (end > 0 && m[1][end - 1] === "/") end--; // a loop: /\/+$/ is quadratic on a long run of slashes
+    const text = m[1].slice(0, end);
     const display = cleanTag(text);
     if (!display) continue;
     const from = m.index + 1;
@@ -79,7 +81,7 @@ function frontmatterTags(lines: string[], fm: number): FrontmatterTags | null {
   for (let i = 1; i < fm - 1; i++) {
     const head = lines[i].match(/^tags:[ \t]*/);
     if (!head) continue;
-    const value = lines[i].slice(head[0].length).replace(/\s+$/, "");
+    const value = lines[i].slice(head[0].length).trimEnd();
     const items: FrontmatterTags["items"] = [];
     const add = (line: number, from: number, raw: string) => {
       const lead = raw.length - raw.trimStart().length;

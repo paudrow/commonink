@@ -1,7 +1,7 @@
 // Notes: every note as a stream of cards, newest first — the app's home. Click a card to read
 // the whole note in place; Edit opens it in the editor. Filter as you type, triage from the
 // keyboard (j/k, Enter to expand, o to open, e to archive, x to select), and archive in bulk.
-import { api, type FeedItem, type FeedPage, type Scope, type TagCount } from "./api.ts";
+import { api, type FeedItem, type FeedPage, type Scope, type TagCount, type Task } from "./api.ts";
 import { $, authorAvatar, authorName, displayName, el, escapeHtml, icon, NOTE_DRAG, timeAgo } from "./dom.ts";
 import { renderMarkdown, sandboxFrame } from "./render.ts";
 import { hydrateDataEmbeds } from "./textPreview.ts";
@@ -12,6 +12,7 @@ import { formatQuery, type NoteQuery } from "../../src/core/query.ts";
 import { hydrateTaskChips, withTaskChips } from "./taskChips.ts";
 import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
 import { sideClick } from "./panes.ts";
+import { safeDecode } from "../../src/core/uri.ts";
 
 interface Hooks {
   /** `side`: to the side (a Cmd-click; Ctrl-click off a Mac). */
@@ -325,7 +326,7 @@ export class NotesPage {
         e.preventDefault();
         const href = a.getAttribute("href") ?? "";
         if (/^https?:/i.test(href)) window.open(href, "_blank", "noopener");
-        else if (href.startsWith("quire:")) void api.resolve(decodeURIComponent(href.slice(6)), item.path).then((p) => p && this.hooks.open(p, undefined, side));
+        else if (href.startsWith("quire:")) void api.resolve(safeDecode(href.slice(6)), item.path).then((p) => p && this.hooks.open(p, undefined, side));
         return;
       }
       if (side && !t.closest("button, input")) return this.hooks.open(item.path, undefined, true);
@@ -357,9 +358,12 @@ export class NotesPage {
     const body = cached.content.replace(/^(---\r?\n[\s\S]*?\r?\n---\r?\n?)?\s*#\s+(.+)\n/, (m, fm = "", h: string) => (h.trim() === item.title ? fm : m));
     const node = this.markdown(forPreview(body), item, "fc-body fc-full");
     hydrateDataEmbeds(node, item.path);
-    node.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((box, n) => {
-      box.disabled = item.archived;
-      box.addEventListener("change", () => void this.setTask(item.path, n, box));
+    node.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((box) => {
+      // Its task is the one whose chips sit in the same list item. A checkbox that isn't a task line the core reads (a numbered or quoted item) can't be ticked from here.
+      const li = box.closest("li");
+      const run = [...(li?.querySelectorAll<HTMLElement>(".tk-run") ?? [])].find((r) => r.closest("li") === li);
+      box.disabled = item.archived || !run;
+      if (run) box.addEventListener("change", () => void this.setTask(item, run, box));
     });
     return node;
   }
@@ -369,18 +373,26 @@ export class NotesPage {
     const { md: marked, tasks } = withTaskChips(md);
     const node = el("div", { class: `${cls}${this.hooks.readOnly() || item.archived ? " is-readonly" : ""}`, html: renderMarkdown(marked, item.path) });
     hydrateTaskChips(node, tasks);
-    node.querySelectorAll<HTMLElement>(".tk-run").forEach((run) => (run.dataset.text = tasks[+run.dataset.task!].text));
+    // A note can write its own <span class="tk-run">, so only the ones that name a real task count.
+    node.querySelectorAll<HTMLElement>(".tk-run").forEach((run) => {
+      const task = tasks[+run.dataset.task!];
+      if (task) run.dataset.text = task.text;
+    });
     return node;
   }
 
-  /** Open a chip's editor on its task in the note (found by its text, the nth with that text if there are several). */
-  private async editChip(item: FeedItem, chip: HTMLElement) {
-    if (this.hooks.readOnly() || item.archived || chip.dataset.field === "done") return;
-    const run = chip.closest<HTMLElement>(".tk-run")!;
+  /** The task in the note that a card's task line (its `.tk-run`) shows: found by its text, the nth with that text if there are several. */
+  private async taskOf(item: FeedItem, run: HTMLElement): Promise<Task | undefined> {
     const text = run.dataset.text!;
     const same = [...(run.closest(".fc-body")?.querySelectorAll<HTMLElement>(".tk-run") ?? [])].filter((r) => r.dataset.text === text);
     const tasks = await api.tasks({ note: item.path }).catch(() => []);
-    const task = tasks.filter((t) => t.text === text)[same.indexOf(run)];
+    return tasks.filter((t) => t.text === text)[same.indexOf(run)];
+  }
+
+  /** Open a chip's editor on its task in the note. */
+  private async editChip(item: FeedItem, chip: HTMLElement) {
+    if (this.hooks.readOnly() || item.archived || chip.dataset.field === "done") return;
+    const task = await this.taskOf(item, chip.closest<HTMLElement>(".tk-run")!);
     if (!task) return this.hooks.toast({ text: "That task changed. Open the note to edit it." });
     openChipEditor(chip, {
       task,
@@ -394,10 +406,9 @@ export class NotesPage {
     });
   }
 
-  /** Tick the nth task of a note from its expanded card. */
-  private async setTask(path: string, n: number, box: HTMLInputElement) {
-    const tasks = await api.tasks({ note: path }).catch(() => null);
-    const t = tasks?.[n];
+  /** Tick a task from its note's expanded card. */
+  private async setTask(item: FeedItem, run: HTMLElement, box: HTMLInputElement) {
+    const t = await this.taskOf(item, run);
     try {
       if (!t) throw new Error("no such task");
       await api.setTask(t, box.checked);

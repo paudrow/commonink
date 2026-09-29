@@ -88,8 +88,11 @@ export function quickAddBar(opts: QuickAddOptions): { root: HTMLElement; focus()
     );
   };
 
+  /** A task is on its way to the server: another Enter now would add it twice. */
+  let adding = false;
   const submit = async () => {
-    if (!parsed?.words) return;
+    if (!parsed?.words || adding) return;
+    adding = true;
     try {
       const r = await api.addTask(field.value(), [...ignore], where().to);
       field.clear();
@@ -105,6 +108,8 @@ export function quickAddBar(opts: QuickAddOptions): { root: HTMLElement; focus()
       opts.added(r);
     } catch (e) {
       preview.replaceChildren(el("span", { class: "qa-error" }, e instanceof Error ? e.message : "Couldn't add the task"));
+    } finally {
+      adding = false;
     }
   };
 

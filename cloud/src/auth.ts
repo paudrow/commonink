@@ -69,17 +69,27 @@ const setCookie = (name: string, value: string, maxAge: number) =>
 const sha256 = async (s: string) => b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
 const idleSince = () => Date.now() - IDLE_DAYS * 86400_000;
 
-/** Who's signed in on this request, if anyone. */
-export async function readSession(req: Request, env: Env): Promise<User | null> {
+export interface Session {
+  /** The stored ID (the hash of the cookie's token); live connections are tagged with it. */
+  id: string;
+  user: User;
+  expiresAt: number;
+}
+
+/** This request's session, if it has a current one. */
+export async function readSessionOf(req: Request, env: Env): Promise<Session | null> {
   const token = cookie(req, SESSION);
   if (!token) return null;
   const id = await sha256(token);
   const row = await sessionUser(env.DB, id, idleSince());
   if (!row) return null;
-  const { seenAt, ...user } = row;
+  const { seenAt, expiresAt, ...user } = row;
   if (Date.now() - seenAt > TOUCH_EVERY) await touchSession(env.DB, id);
-  return user;
+  return { id, user, expiresAt };
 }
+
+/** Who's signed in on this request, if anyone. */
+export const readSession = async (req: Request, env: Env) => (await readSessionOf(req, env))?.user ?? null;
 
 export const clearSessionCookies = () => [setCookie(SESSION, "", 0), setCookie(LEGACY_SESSION, "", 0)];
 
@@ -116,7 +126,12 @@ interface PendingSignup {
  */
 const safeNext = (next: string | null) => (next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/");
 
-export async function handleAuth(req: Request, env: Env, onSignedIn: (user: User, isNew: boolean) => Promise<void>): Promise<Response> {
+export async function handleAuth(
+  req: Request,
+  env: Env,
+  onSignedIn: (user: User, isNew: boolean) => Promise<void>,
+  onSignedOut: (session: Session) => Promise<void>,
+): Promise<Response> {
   const url = new URL(req.url);
   const redirect = (to: string, cookies: string[] = []) => {
     const headers = new Headers({ Location: to });
@@ -224,9 +239,17 @@ export async function handleAuth(req: Request, env: Env, onSignedIn: (user: User
       return startSession(user, isNew, safeNext(url.searchParams.get("next")));
     }
 
+    // A POST from our own pages; opening the address only asks, so an image in a note can't sign you out.
     case "/auth/logout": {
-      const token = cookie(req, SESSION);
-      if (token) await endSession(env.DB, await sha256(token));
+      if (req.method !== "POST") {
+        return page(200, `<h1>Sign out of Common Ink?</h1><form method="post" action="/auth/logout"><button type="submit">Sign out</button></form><p style="margin-top:14px"><a href="/">Back</a></p>`);
+      }
+      if (req.headers.get("Origin") !== url.origin) return text(403, "Cross-origin request refused");
+      const session = await readSessionOf(req, env);
+      if (session) {
+        await endSession(env.DB, session.id);
+        await onSignedOut(session); // its open tabs stop hearing about changes
+      }
       return redirect("/", [...clearSessionCookies(), setCookie(SIGNUP, "", 0)]);
     }
   }

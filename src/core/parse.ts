@@ -1,6 +1,7 @@
 import path from "node:path";
 import { linkKey, type NoteKind } from "./paths.ts";
-import { headingName, proseLines, withoutCode } from "./prose.ts";
+import { headingName, headingText, proseLines, withoutCode } from "./prose.ts";
+import { safeDecode } from "./uri.ts";
 
 export interface ParsedLink {
   target: string;
@@ -10,8 +11,10 @@ export interface ParsedLink {
 }
 
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
-const WIKILINK = /(!?)\[\[([^\]|#\n]+)(#[^\]|\n]*)?(\|[^\]\n]*)?\]\]/g;
-const MDLINK = /(!?)\[[^\]\n]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+// Note text is hostile, so no pattern here may backtrack across a long line: each scanning class
+// leaves out the character that starts the next attempt ("[" for links), which keeps them linear.
+const WIKILINK = /(!?)\[\[([^[\]|#\n]+)(#[^[\]|\n]*)?(\|[^[\]\n]*)?\]\]/g;
+const MDLINK = /(!?)\[[^[\]\n]*\]\(([^()\s]+)(?:\s+"[^"\n]*")?\)/g;
 
 export function splitFrontmatter(md: string): { data: Record<string, string>; body: string } {
   const m = md.match(FRONTMATTER);
@@ -29,20 +32,45 @@ export function titleOf(content: string, kind: NoteKind, p: string): string {
   if (kind === "md") {
     const { data, body } = splitFrontmatter(content);
     if (data.title) return data.title;
-    const h1 = body.match(/^#\s+(.+?)\s*#*\s*$/m);
-    return h1 ? h1[1] : fallback;
+    const h1 = body.match(/^#[ \t]+(.+)$/m);
+    return (h1 && headingText(h1[1])) || fallback;
   }
   if (kind === "html") {
-    const t = content.match(/<title[^>]*>([^<]*)<\/title>/i) ?? content.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
-    return t ? stripTags(t[1]).trim() || fallback : fallback;
+    const t = content.match(/<title[^<>]*>([^<]*)<\/title>/i)?.[1] ?? between(content, "<h1", "</h1>");
+    return t !== null ? stripTags(t).trim() || fallback : fallback;
   }
   return fallback;
 }
 
+/** The inside of the first `<open …>…close` in `html` (case-insensitive), or null. */
+function between(html: string, open: string, close: string): string | null {
+  const lower = html.toLowerCase();
+  const at = lower.indexOf(open);
+  const start = at < 0 ? -1 : lower.indexOf(">", at);
+  const end = start < 0 ? -1 : lower.indexOf(close, start);
+  return end < 0 ? null : html.slice(start + 1, end);
+}
+
+/** `html` without its <script> and <style> elements, found with indexOf (a lazy regex is quadratic on unclosed ones). */
+function withoutScripts(html: string): string {
+  const lower = html.toLowerCase();
+  let out = "";
+  let at = 0;
+  for (;;) {
+    const s = lower.indexOf("<script", at);
+    const t = lower.indexOf("<style", at);
+    const open = s < 0 ? t : t < 0 ? s : Math.min(s, t);
+    if (open < 0) return out + html.slice(at);
+    const close = lower.indexOf(open === s ? "</script>" : "</style>", open);
+    if (close < 0) return out + html.slice(at);
+    out += `${html.slice(at, open)} `;
+    at = close + (open === s ? 9 : 8);
+  }
+}
+
 export function stripTags(html: string): string {
-  return html
-    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
+  return withoutScripts(html)
+    .replace(/<[^<>]+>/g, " ")
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
@@ -63,7 +91,7 @@ export function extractLinks(md: string): ParsedLink[] {
       links.push({ target: m[2].trim(), key: linkKey(m[2]), kind: m[1] ? "embed" : "wikilink", line });
     }
     for (const m of noCode.matchAll(MDLINK)) {
-      const target = decodeURIComponent(m[2]);
+      const target = safeDecode(m[2]);
       if (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith("#")) continue;
       links.push({ target, key: linkKey(target), kind: m[1] ? "embed" : "mdlink", line });
     }
@@ -80,8 +108,9 @@ export interface Heading {
 export function outlineOf(md: string): Heading[] {
   return proseLines(md)
     .map(([line, text]) => {
-      const m = text.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/);
-      return m ? { level: m[1].length, text: headingName(m[2]), line } : null;
+      const m = text.match(/^(#{1,6})[ \t]+(.+)$/);
+      const words = m && headingText(m[2]);
+      return words ? { level: m[1].length, text: headingName(words) || words, line } : null;
     })
     .filter((h): h is Heading => h !== null);
 }

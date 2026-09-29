@@ -51,7 +51,7 @@ test("a session ends after 14 idle days or 30 days in all, and use keeps it aliv
 
 test("signing out ends the session on the server, not just in this browser", async () => {
   const cookie = await cloud.signIn("leaver");
-  const res = await cloud.request(cookie, "GET", "/auth/logout");
+  const res = await cloud.request(cookie, "POST", "/auth/logout");
   assert.equal(res.status, 302);
   assert.equal(await me(cookie), 401);
 });

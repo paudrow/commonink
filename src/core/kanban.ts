@@ -22,9 +22,8 @@
 // changed until they pick one. Every change is a splice of whole lines, so the rest of the note,
 // its blank lines and a card's nested lines stay byte for byte. No Node imports: the editor uses this too.
 import { parseAttrs, serializeAttrs } from "./directive.ts";
-import { proseLines } from "./prose.ts";
-import * as tasks from "./tasks.ts";
-import { editTask, parseTask, TASK_LINE, type TaskPatch } from "./tasks.ts";
+import { headingSettings, headingText, proseLines } from "./prose.ts";
+import { editTask, nextOccurrence, parseTask, TASK_LINE, type TaskPatch } from "./tasks.ts";
 
 export interface Card {
   /** Its list item's line (0-based); `to` is one past its last nested line. */
@@ -72,10 +71,8 @@ export const COLORS = ["gray", "red", "orange", "yellow", "green", "teal", "blue
 
 const OPEN = /^\s*:::kanban(?:\{([^}\n]*)\})?\s*$/i;
 const CLOSE = /^\s*:::\s*$/;
-const HEADING = /^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/;
+const HEADING = /^ {0,3}(#{1,6})[ \t]+(.*)$/; // the words are headingText(m[2])
 const ITEM = /^( {0,3})([-*+]|\d{1,9}[.)])([ \t]+)(.*)$/;
-/** A heading's text: its name, then any `{key=value}` settings. */
-const TITLE = /^(.*?)(?:[ \t]*\{([^}\n]*)\})?$/;
 /** Settings the opening line may carry. `done` names another done column: kept for older files, not offered. */
 const SETTINGS = new Set(["done"]);
 
@@ -97,8 +94,9 @@ function scan(md: string): { boards: Board[]; unclosed: number | null } {
   for (let i = 0; i < lines.length; i++) {
     const open = prose.has(i) ? lines[i].match(OPEN) : null;
     if (!open) continue;
-    const close = lines.findIndex((l, j) => j > i && prose.has(j) && CLOSE.test(l));
-    if (close < 0) return { boards, unclosed: i };
+    let close = i + 1;
+    while (close < lines.length && !(prose.has(close) && CLOSE.test(lines[close]))) close++;
+    if (close === lines.length) return { boards, unclosed: i };
     boards.push(readBoard(lines, prose, i, close, parseAttrs(open[1] ?? "")));
     i = close;
   }
@@ -109,9 +107,10 @@ function readBoard(lines: string[], prose: Set<number>, from: number, close: num
   const heads: Array<{ at: number; title: string; color: string | null }> = [];
   for (let i = from + 1; i < close; i++) {
     const h = prose.has(i) ? lines[i].match(HEADING) : null;
-    if (!h || !h[2]) continue;
-    const [, title, attrs] = h[2].match(TITLE)!;
-    heads.push({ at: i, title: title.trim() || h[2], color: attrs === undefined ? null : (parseAttrs(attrs).color ?? null) });
+    const words = h ? headingText(h[2]) : "";
+    if (!words) continue;
+    const { name, attrs } = headingSettings(words);
+    heads.push({ at: i, title: name.trim() || words, color: attrs === null ? null : (parseAttrs(attrs).color ?? null) });
   }
   const problems: Problem[] = [];
   const done = (args.done || "Done").trim().toLowerCase();
@@ -180,7 +179,9 @@ function readCards(lines: string[], prose: Set<number>, from: number, to: number
 }
 
 function dedent(lines: string[]): string[] {
-  const indent = Math.min(...lines.filter((l) => l.trim()).map((l) => l.match(/^\s*/)![0].length));
+  // A loop, not Math.min(...spread), which overflows the stack on a card with 200k detail lines.
+  let indent = Infinity;
+  for (const l of lines) if (l.trim()) indent = Math.min(indent, l.length - l.trimStart().length);
   return lines.map((l) => (l.trim() ? l.slice(indent) : ""));
 }
 
@@ -244,12 +245,6 @@ function tick(line: string, checked: boolean, today: string) {
 }
 
 /**
- * The line that follows a repeating task done on `done`, from the recurrence engine (#52) once it's
- * in: `nextOccurrence` in tasks.ts. Until then nothing follows, and a repeating card is just ticked.
- */
-const nextOccurrence = (tasks as unknown as { nextOccurrence?: (line: string, done: string) => string | null }).nextOccurrence ?? (() => null);
-
-/**
  * Add a card with `text` to a column, `index`th (default last). A text of several lines puts the
  * rest under the card. A card added to the done column starts ticked.
  */
@@ -287,9 +282,14 @@ export function moveCard(md: string, line: number, to: Place, index: number, tod
   raw.splice(card.from, block.length);
   if (at > card.from) at -= block.length;
   raw.splice(at, 0, ...block);
+  return withNext(raw, cr, to.board, following);
+}
+
+/** The note's lines with a repeating card's next occurrence (if any) at the top of the board's first column that isn't the done column. */
+function withNext(raw: string[], cr: string, board: number, following: string | null): string {
   if (!following) return raw.join("\n");
-  const board = boardsIn(raw.join("\n"))[to.board];
-  const start = board.columns.find((c) => !c.done) ?? board.columns[0];
+  const b = boardsIn(raw.join("\n"))[board];
+  const start = b.columns.find((c) => !c.done) ?? b.columns[0];
   raw.splice(slot(raw, start, 0), 0, following + cr);
   return raw.join("\n");
 }
@@ -316,12 +316,16 @@ export function editCard(md: string, line: number, text: string): string {
   return raw.join("\n");
 }
 
-/** Tick or untick the card on `line`; `done:` is stamped with `today` or taken off. */
+/**
+ * Tick or untick the card on `line`; `done:` is stamped with `today` or taken off. Ticking a repeating
+ * card leaves its next occurrence where moving it into the done column would (see moveCard).
+ */
 export function checkCard(md: string, line: number, checked: boolean, today: string): string {
-  const { raw } = split(md);
-  const { card } = locate(boardsIn(md), line);
+  const { raw, cr } = split(md);
+  const { card, place } = locate(boardsIn(md), line);
   raw[card.from] = tick(raw[card.from], checked, today);
-  return raw.join("\n");
+  const following = checked && !card.checked ? nextOccurrence(raw[card.from].replace(/\r$/, ""), today) : null;
+  return withNext(raw, cr, place.board, following);
 }
 
 /** Change the task tokens on the card on `line` (see editTask); the rest of its line stays as written. */
@@ -361,8 +365,8 @@ function heading(line: string, title: string, attrs: Record<string, string>) {
 /** The settings on a column's heading, `{…}` after its name. */
 function headingAttrs(line: string): Record<string, string> {
   const text = line.replace(/\r$/, "").match(HEADING)?.[2] ?? "";
-  const attrs = text.match(TITLE)?.[2];
-  return attrs === undefined ? {} : parseAttrs(attrs);
+  const { attrs } = headingSettings(headingText(text));
+  return attrs === null ? {} : parseAttrs(attrs);
 }
 
 /** Rename a column: its heading's name changes; its level and colour stay. */

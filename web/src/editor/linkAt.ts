@@ -3,6 +3,7 @@
 import { syntaxTree } from "@codemirror/language";
 import type { EditorState } from "@codemirror/state";
 import { linkKind } from "../links.ts";
+import { safeDecode } from "../../../src/core/uri.ts";
 
 export function linkTargetAt(state: EditorState, pos: number): { target?: string; href?: string } | null {
   for (let node: any = syntaxTree(state).resolveInner(pos, 1); node; node = node.parent) {
@@ -28,7 +29,7 @@ export function noteLinkAt(state: EditorState): string | null {
     if (pos < 0) continue;
     const link = linkTargetAt(state, pos);
     if (link?.target) return link.target;
-    if (link?.href) return linkKind(link.href) === "internal" ? decodeURIComponent(link.href) : null;
+    if (link?.href) return linkKind(link.href) === "internal" ? safeDecode(link.href) : null;
   }
   return null;
 }

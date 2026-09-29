@@ -86,14 +86,18 @@ export function renderAccount(me: Me, current: Me["workspaces"][number], toast: 
       ? [
           item("Copy invite link", "link", async () => {
             const { url } = await api.invite("editor");
-            await navigator.clipboard.writeText(url).catch(() => prompt("Invite link (valid 7 days)", url));
-            toast({ icon: "link", text: "Invite link copied. It works for 7 days." });
+            await navigator.clipboard.writeText(url).catch(() => prompt("Invite link (one person, 7 days)", url));
+            toast({ icon: "link", text: "Invite link copied. It works once, for 7 days." });
           }),
         ]
       : []),
     item("Connected agents…", "bot", () => void import("./agentsPage.ts").then((m) => m.showAgents())),
     el("div", { class: "acct-sep" }),
-    item("Sign out", "open", () => (location.href = "/auth/logout")),
+    item("Sign out", "open", () => {
+      const form = el("form", { method: "post", action: "/auth/logout" });
+      document.body.append(form);
+      form.submit();
+    }),
     item("Sign out everywhere…", "open", async () => {
       if (!confirm("Sign out of Common Ink on every device and browser, including this one, and disconnect your agents?")) return;
       await api.signOutEverywhere();

@@ -44,8 +44,10 @@ function popover(anchor: HTMLElement, ctx: ChipContext, label: string, ...childr
   };
   const close = () => {
     if (!box.isConnected) return;
+    const hadFocus = box.contains(document.activeElement);
     box.remove();
     document.removeEventListener("mousedown", outside, true);
+    if (hadFocus) anchor.focus({ preventScroll: true }); // back to the ⚙ it was opened from (a chip can't take it; onClose may move it on)
     ctx.onClose?.();
   };
   const outside = (e: MouseEvent) => {
@@ -88,6 +90,7 @@ const priority: Editor = (anchor, value, ctx) => {
       item(label, "flag", saving(close, ctx, { priority: p }), (value || null) === p),
     ),
   );
+  list.querySelector<HTMLElement>(".is-current")?.focus();
 };
 
 /** Due or start: a date (keeping any time of day), quick picks, and Clear. */

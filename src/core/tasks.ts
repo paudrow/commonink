@@ -2,7 +2,7 @@
 //   - [ ] Send invoice to Acme due:2026-10-01 rec:monthly #work/clients @jane !high
 // The line stays the source of truth. This reads the tokens and rewrites one at a time in place, so
 // an edit never touches the rest of the line. No Node imports: the editor uses this too.
-import { withoutCodeOrLinks } from "./prose.ts";
+import { headingText, withoutCodeOrLinks } from "./prose.ts";
 import { daysBetween, nextDue, parseRule, ruleProblem, shiftDate } from "./recurrence.ts";
 import { cleanTag, normalizeTag, tagsInLine } from "./tags.ts";
 
@@ -151,6 +151,13 @@ function tidy(field: Field, values: string[]): string[] {
   return clean.filter((v, i) => clean.findIndex((o) => same(field, o, v)) === i);
 }
 
+/** How many spaces and tabs come just before `at` (a loop: /[ \t]*$/ is quadratic on a long run). */
+function blanksBefore(text: string, at: number): number {
+  let i = at;
+  while (i > 0 && (text[i - 1] === " " || text[i - 1] === "\t")) i--;
+  return at - i;
+}
+
 /**
  * Apply a patch to a task line. A token whose value stays is left as written; a changed value (or
  * a person swapped for another) is replaced where it stands; a cleared one is cut out with the
@@ -195,7 +202,7 @@ export function editTask(line: string, patch: TaskPatch): string {
         text = text.slice(0, t.from) + write(field, fresh[i], t.key) + text.slice(t.to);
         continue;
       }
-      const before = text.slice(0, t.from).match(/[ \t]*$/)![0].length;
+      const before = blanksBefore(text, t.from);
       const after = before ? 0 : text.slice(t.to).match(/^[ \t]*/)![0].length;
       text = text.slice(0, t.from - before) + text.slice(t.to + after);
     }
@@ -256,7 +263,8 @@ export function skipPatch(meta: TaskMeta, today: string): Pick<TaskPatch, "due" 
 function insertToken(text: string, field: Field, token: string): string {
   const next = trailing(text, tokensOf(text)).find((t) => RANK[t.field] > RANK[field]);
   if (next) return `${text.slice(0, next.from)}${token} ${text.slice(next.from)}`;
-  return text.replace(/\s*$/, (ws) => `${text.trim() ? " " : ""}${token}${ws}`);
+  const body = text.trimEnd();
+  return `${body}${body ? " " : ""}${token}${text.slice(body.length)}`;
 }
 
 /**
@@ -290,7 +298,9 @@ export function addDays(day: string, n: number): string {
  * (a daily note) or right after the last line otherwise. `line` is where the first one landed.
  */
 export function withTasksAdded(content: string, block: string[], heading: boolean): { content: string; line: number } {
-  const lines = content.replace(/\n+$/, "").split("\n");
+  let last = content.length;
+  while (last > 0 && content[last - 1] === "\n") last--; // a loop: /\n+$/ is quadratic on many blank lines
+  const lines = content.slice(0, last).split("\n");
   if (lines.length === 1 && lines[0] === "") lines.pop();
   let fence: string | null = null;
   let section = -1;
@@ -299,9 +309,9 @@ export function withTasksAdded(content: string, block: string[], heading: boolea
   for (let i = 0; i < lines.length; i++) {
     const f = lines[i].match(/^\s{0,3}(`{3,}|~{3,})/)?.[1];
     if (f && (!fence || (f[0] === fence[0] && f.length >= fence.length))) fence = fence ? null : f;
-    const h = !fence && !f ? lines[i].match(/^(#{1,6})\s+(.*?)\s*#*\s*$/) : null;
+    const h = !fence && !f ? lines[i].match(/^(#{1,6})\s+(.*)$/) : null;
     if (!h) continue;
-    if (section < 0 && h[2].toLowerCase() === "tasks") [section, level] = [i, h[1].length];
+    if (section < 0 && headingText(h[2]).toLowerCase() === "tasks") [section, level] = [i, h[1].length];
     else if (section >= 0 && h[1].length <= level) {
       end = i;
       break;
