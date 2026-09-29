@@ -1,6 +1,24 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { forget, parseLayout, sideClick, step, visit } from "../web/src/panes.ts";
+import { EditorState } from "@codemirror/state";
+import { forget, paletteEnter, parseLayout, sideClick, step, visit } from "../web/src/panes.ts";
+import { markdownWithFrontmatter } from "../web/src/editor/language.ts";
+import { noteLinkAt } from "../web/src/editor/linkAt.ts";
+
+test("in the palette, Enter opens in place, ⌘Enter (Ctrl+Enter off a Mac) opens to the side, and Shift+Enter makes a note", () => {
+  const key = (metaKey: boolean, ctrlKey: boolean, shiftKey = false) => ({ metaKey, ctrlKey, shiftKey });
+  assert.deepEqual([key(false, false), key(true, false), key(false, true), key(false, false, true), key(true, false, true)].map((e) => paletteEnter(e, true)), ["open", "side", "open", "create", "create"]);
+  assert.deepEqual([key(false, false), key(true, false), key(false, true)].map((e) => paletteEnter(e, false)), ["open", "open", "side"]);
+});
+
+test("⌘⌥Enter finds the note linked under the cursor, or just before it, and never a web link", () => {
+  const doc = "See [[Pricing page|tiers]] and [the plan](Projects/Plan.md) or [site](https://example.com).";
+  const at = (text: string, offset = 0) => {
+    const state = EditorState.create({ doc, extensions: [markdownWithFrontmatter()], selection: { anchor: doc.indexOf(text) + offset } });
+    return noteLinkAt(state);
+  };
+  assert.deepEqual([at("Pricing"), at("tiers]]", 7), at("the plan"), at("site"), at("See")], ["Pricing page", "Pricing page", "Projects/Plan.md", null, null]);
+});
 
 test("open to the side is Cmd-click on a Mac and Ctrl-click elsewhere; a Mac's Ctrl-click is the right-click menu, never a side click", () => {
   const click = (metaKey: boolean, ctrlKey: boolean, button = 0) => ({ metaKey, ctrlKey, button });

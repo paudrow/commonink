@@ -5,7 +5,7 @@ import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { NOTE_HTML } from "./render.ts";
 import { api, type Task, type TaskPatch } from "./api.ts";
-import { el, icon } from "./dom.ts";
+import { el, icon, NOTE_DRAG } from "./dom.ts";
 import { sideClick } from "./panes.ts";
 import { tagsInLine } from "../../src/core/tags.ts";
 import { endTags, metaChips } from "./taskChips.ts";
@@ -54,7 +54,14 @@ export function taskRow(t: Task, env: RowEnv, where: string | null): HTMLElement
   const menu = el("button", { type: "button", class: "qt-act", title: "Priority, due, repeat, person, tags…", "aria-label": "Task fields", onmousedown: prevent }, icon("sliders", 13));
   menu.addEventListener("click", () => openTaskMenu(menu, ctx));
   const go = el("button", { type: "button", class: "qt-act", title: "Go to note", "aria-label": `Go to ${t.title}, line ${t.line}`, onmousedown: prevent, onclick: (e: MouseEvent) => env.open(t.path, t.line, sideClick(e)) }, icon("open", 13));
-  const row = el("div", { class: `qt-row${t.done ? " is-done" : ""}` }, box, text, where ? el("span", { class: "qt-where" }, where) : null, menu, go);
+  const side = el("button", { type: "button", class: "qt-act", title: "Open to the side", "aria-label": `Open ${t.title} to the side`, onmousedown: prevent, onclick: () => env.open(t.path, t.line, true) }, icon("split", 13));
+  // A row dragged to the right edge of the window opens its note there.
+  const row = el("div", { class: `qt-row${t.done ? " is-done" : ""}`, draggable: "true" }, box, text, where ? el("span", { class: "qt-where" }, where) : null, menu, go, side);
+  row.addEventListener("dragstart", (e) => {
+    if ((e.target as HTMLElement).closest("input")) return e.preventDefault();
+    e.dataTransfer!.setData(NOTE_DRAG, t.path);
+    e.dataTransfer!.effectAllowed = "copy";
+  });
   box.addEventListener("mousedown", (e) => {
     e.preventDefault();
     void toggle(t, row, box, env);
