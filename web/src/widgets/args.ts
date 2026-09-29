@@ -1,34 +1,7 @@
 // Widgets live in markdown as one-line leaf directives (the CommonMark "generic directives"
 // proposal, as used by remark-directive):   ::timer{duration=25m label="Tea" id=k3x9q}
 // Config is in the file; runtime state (running, laps) is kept per widget id in the browser.
-
-export interface Directive {
-  name: string;
-  args: Record<string, string>;
-}
-
-const DIRECTIVE = /^\s*::([a-z][\w-]*)(?:\{([^}\n]*)\})?\s*$/i;
-
-export function parseDirective(line: string): Directive | null {
-  const m = line.match(DIRECTIVE);
-  return m ? { name: m[1].toLowerCase(), args: parseAttrs(m[2] ?? "") } : null;
-}
-
-export function parseAttrs(src: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const m of src.matchAll(/([\w-]+)(?:=(?:"([^"]*)"|'([^']*)'|([^\s"']+)))?/g)) {
-    out[m[1]] = m[2] ?? m[3] ?? m[4] ?? "true";
-  }
-  return out;
-}
-
-export function serializeDirective({ name, args }: Directive): string {
-  const keys = [...Object.keys(args).filter((k) => k !== "id"), ...("id" in args ? ["id"] : [])];
-  const parts = keys
-    .filter((k) => args[k] !== undefined && args[k] !== "")
-    .map((k) => (/^[\w.:/+-]+$/.test(args[k]) ? `${k}=${args[k]}` : `${k}="${args[k].replace(/"/g, "'")}"`));
-  return parts.length ? `::${name}{${parts.join(" ")}}` : `::${name}`;
-}
+export { parseAttrs, parseDirective, serializeDirective, type Directive } from "../../../src/core/directive.ts";
 
 export const newId = () => Math.random().toString(36).slice(2, 7);
 

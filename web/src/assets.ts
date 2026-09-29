@@ -1,8 +1,10 @@
 // Assets: every image, PDF, video, audio clip and document in the workspace, as a grid you can
-// filter by type, sort, and search (with suggestions as you type). Drop files anywhere on the
-// page to upload them; click one for a big preview, where it's used, and what you can do with it.
-import { api, fileUrl, isArchived, type NoteMeta } from "./api.ts";
+// filter by type or tag, sort, and search (with suggestions as you type). Drop files anywhere on the
+// page to upload them; click one for a big preview, its tags, where it's used, and what you can do with it.
+import { api, fileUrl, isArchived, type NoteMeta, type TagCount } from "./api.ts";
 import { $, el, icon } from "./dom.ts";
+import { tagChip, tagFilter, tagPicker } from "./tagPicker.ts";
+import { normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { fuzzyScore } from "./fuzzy.ts";
 import { textStage, textThumb } from "./textPreview.ts";
 import { ASSET_LABEL, assetIcon, assetType, extOf, fmtBytes, typeIcon, type AssetType } from "./assetKinds.ts";
@@ -16,6 +18,9 @@ interface Hooks {
   open(path: string): void;
   archive(path: string): Promise<void>;
   embedName(path: string): string;
+  tags(): TagCount[];
+  /** Asset tags changed: fetch the tag list again. */
+  refreshTags(): Promise<void>;
   toast(t: { text: string; icon?: string }): void;
 }
 
@@ -31,6 +36,11 @@ export class Assets {
   private countEl: HTMLElement;
   private picker: HTMLInputElement;
   private filter: Filter = "all";
+  /** The tag the grid is narrowed to ("" for any); tags under it count too. */
+  private tag = "";
+  private tagBar = el("div", { class: "as-chips as-tag-bar" });
+  /** Each tagged asset's tags, as written. */
+  private assetTags: Record<string, string[]> = {};
   private sort: Sort = "newest";
   private shown: NoteMeta[] = [];
   private active = 0;
@@ -75,6 +85,7 @@ export class Assets {
           this.sortSel,
         ),
         this.chips,
+        this.tagBar,
         this.grid,
         el("div", { class: "as-drop" }, el("div", {}, icon("upload", 28), el("b", {}, "Drop to upload"), el("span", {}, "Files go in assets/"))),
       ),
@@ -111,13 +122,28 @@ export class Assets {
   show(opts: { open?: string } = {}) {
     this.root.hidden = false;
     this.render();
+    void this.loadTags();
     if (opts.open) this.preview(opts.open);
     else this.root.focus({ preventScroll: true });
   }
 
   /** The list of files changed (upload, rename, archive, agent edits). */
   refresh() {
-    if (this.visible) this.render();
+    if (!this.visible) return;
+    this.render();
+    void this.loadTags();
+  }
+
+  private async loadTags() {
+    const next = await api.assetTags().catch(() => null);
+    if (!next || JSON.stringify(next) === JSON.stringify(this.assetTags)) return;
+    this.assetTags = next;
+    this.render();
+  }
+
+  private setTag(tag: string) {
+    this.tag = tag;
+    this.render();
   }
 
   private all(): NoteMeta[] {
@@ -143,8 +169,11 @@ export class Assets {
           ),
         ),
     );
+    this.tagBar.replaceChildren(tagFilter({ current: this.tag, tags: this.hooks.tags, count: (t) => t.assets, onChange: (tag) => this.setTag(tag) }));
     const q = this.input.value.trim();
+    const want = normalizeTag(this.tag);
     let list = all.filter((n) => this.filter === "all" || assetType(n.path) === this.filter);
+    if (want) list = list.filter((n) => (this.assetTags[n.path] ?? []).some((t) => tagMatches(t.toLowerCase(), want)));
     if (q) {
       list = list
         .map((n) => ({ n, s: Math.max(fuzzyScore(q, n.path.split("/").pop()!), fuzzyScore(q, n.path) - 30) }))
@@ -189,6 +218,7 @@ export class Assets {
       el("div", { class: "as-thumb" }, thumb(n, type)),
       el("div", { class: "as-name" }, nameOf(n)),
       el("div", { class: "as-meta" }, el("span", { class: "as-ext" }, extOf(n.path)), fmtBytes(n.size), folder && folder !== "assets" ? el("span", { class: "as-folder" }, folder) : null),
+      this.assetTags[n.path] ? el("div", { class: "as-tags" }, ...this.assetTags[n.path].map((t) => tagChip(t, () => this.setTag(t)))) : null,
     );
   }
 
@@ -271,6 +301,52 @@ export class Assets {
                 ? textStage(path, meta.size)
                 : el("div", { class: "ap-file" }, el("span", { class: "ap-ext" }, extOf(path)), el("span", {}, "No preview for this kind of file"));
     const usedIn = el("div", { class: "ap-used" }, el("div", { class: "ap-label" }, "Used in"), el("div", { class: "ap-muted" }, "…"));
+    const tagsBox = el("div", { class: "ap-tags" });
+    const drawTags = () => {
+      const mine = this.assetTags[path] ?? [];
+      const save = async (change: (tags: string[]) => string[]) => {
+        try {
+          // From the tags as they are now: the list may have reloaded since this was drawn.
+          const tags = (await api.setAssetTags(path, change(this.assetTags[path] ?? []))).tags;
+          if (tags.length) this.assetTags[path] = tags;
+          else delete this.assetTags[path];
+        } catch (e) {
+          return this.hooks.toast({ text: e instanceof Error ? e.message : "Couldn't save the tags" });
+        }
+        drawTags();
+        this.render();
+        await this.hooks.refreshTags();
+      };
+      const add: HTMLButtonElement = el(
+        "button",
+        {
+          type: "button",
+          class: "chip tag-filter",
+          onclick: () =>
+            tagPicker(add, {
+              tags: this.hooks.tags().filter((t) => !mine.some((m) => m.toLowerCase() === t.tag)),
+              count: (t) => t.notes + t.tasks + t.assets,
+              create: true,
+              placeholder: "Add a tag…",
+              onPick: (t) => void save((tags) => [...tags, t]),
+            }),
+        },
+        icon("plus", 12),
+        "Tag",
+      );
+      tagsBox.replaceChildren(
+        el("div", { class: "ap-label" }, "Tags"),
+        el(
+          "div",
+          { class: "ap-tag-list" },
+          ...mine.map((t) =>
+            el("span", { class: "tag is-removable" }, `#${t}`, el("button", { type: "button", title: `Remove #${t}`, onclick: () => void save((tags) => tags.filter((m) => m !== t)) }, icon("close", 11))),
+          ),
+          add,
+        ),
+      );
+    };
+    drawTags();
     const embed = `![[${this.hooks.embedName(path)}]]`;
     const close = () => {
       overlay.remove();
@@ -334,6 +410,7 @@ export class Assets {
             "Archive",
           ),
         ),
+        tagsBox,
         usedIn,
         this.shown.length > 1 ? el("div", { class: "ap-nav" }, el("kbd", {}, "←"), el("kbd", {}, "→"), " to browse") : null,
       ),
