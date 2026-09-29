@@ -6,7 +6,7 @@ import { cleanPath, isHidden, kindOf, linkKey, QuireError, stemOf, type NoteKind
 import { extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
-import { decodeTarget, proseLines } from "./prose.ts";
+import { proseLines } from "./prose.ts";
 import { dueFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
 import { parseQuickAdd } from "./quickAdd.ts";
 import { formatQuery, parseQuery, queryProblem, type NoteQuery } from "./query.ts";
@@ -169,6 +169,12 @@ export interface QuireOptions {
   now?: () => number;
 }
 
+/**
+ * The one core every surface (web UI, MCP server, CLI, Cloudflare workspace) talks to.
+ * `files` is the source of truth (a folder locally, a table in the cloud); the rest of the
+ * SQLite database is a rebuildable index plus the change log and each person's favorites.
+ */
+
 /** One section of the Today view: a heading and its tasks. */
 export interface TodaySection {
   id: "overdue" | "due" | "starting";
@@ -195,11 +201,6 @@ function findTask(lines: string[], line: number, text: string, notePath: string)
   return near[0];
 }
 
-/**
- * The one core every surface (web UI, MCP server, CLI, Cloudflare workspace) talks to.
- * `files` is the source of truth (a folder locally, a table in the cloud); the rest of the
- * SQLite database is a rebuildable index plus the change log and each person's favorites.
- */
 export class Quire {
   private now: () => number;
 
@@ -1362,7 +1363,7 @@ export class Quire {
           oldKeys.has(linkKey(t)) && this.resolve(t, src) === null ? `${bang}[[${wikiTarget}${hash}${alias}]]` : m,
         )
         .replace(/(!?\[[^\]\n]*\]\()([^)\s]+)(\))/g, (m, pre, t, post) =>
-          oldKeys.has(linkKey(decodeTarget(t))) ? `${pre}${encodeURI(dest)}${post}` : m,
+          oldKeys.has(linkKey(decodeURIComponent(t))) ? `${pre}${encodeURI(dest)}${post}` : m,
         );
       if (after !== before) {
         const r = this.commit(src, before, after, source, "edit");

@@ -8,7 +8,6 @@ import { currentScheme } from "./dom.ts";
 import { isEmbeddable } from "./embeds/providers.ts";
 import { boardsIn } from "../../src/core/kanban.ts";
 import { SANDBOX_PATH } from "../../src/core/sandbox.ts";
-import { decodeTarget } from "../../src/core/prose.ts";
 
 export { currentScheme };
 
@@ -67,7 +66,7 @@ export function renderMarkdown(md: string, from: string, opts: { boards?: boolea
       return `[↳ ${target}](quire:${encodeURIComponent(target)})`;
     })
     .replace(/\[\[([^\]|]+?)(?:\|([^\]]*))?\]\]/g, (_m, target: string, alias?: string) => `[${alias ?? target.replace(/#/, " › ")}](quire:${encodeURIComponent(target)})`)
-    .replace(/!\[([^\]]*)\]\((?!https?:|\/)([^)\s]+)\)/g, (_m, alt, src) => `![${alt}](${assetUrl(decodeTarget(src), from)})`);
+    .replace(/!\[([^\]]*)\]\((?!https?:|\/)([^)\s]+)\)/g, (_m, alt, src) => `![${alt}](${assetUrl(decodeURIComponent(src), from)})`);
   const html = marked.parse(pre, { async: false, gfm: true }) as string;
   return DOMPurify.sanitize(html, { ALLOWED_URI_REGEXP: SAFE_URI, FORBID_TAGS: ["style", "form"], FORBID_ATTR: ["style"] });
 }

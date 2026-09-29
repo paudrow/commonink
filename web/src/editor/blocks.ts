@@ -15,7 +15,6 @@ import type { NoteMeta, TagCount } from "../api.ts";
 import { touches } from "./livePreview.ts";
 import { dataEmbed, hydrateDataEmbeds } from "../textPreview.ts";
 import { scanTags } from "../../../src/core/tags.ts";
-import { decodeTarget } from "../../../src/core/prose.ts";
 import { boardsIn, setBoardArgs } from "../../../src/core/kanban.ts";
 import { hydrateBoards, mountBoard, type BoardHost } from "../kanban.ts";
 import { kanbanBlock } from "../widgets/kanban.ts";
@@ -689,7 +688,7 @@ function buildBlocks(state: EditorState): DecorationSet {
           const img = wiki ? null : line.text.match(IMAGE_LINE);
           const bare = wiki || img ? null : line.text.match(BARE_URL);
           if (!wiki && !img && !bare) continue;
-          const target = wiki ? wiki[1].split("|")[0].trim() : img ? decodeTarget(img[2]) : bare![1];
+          const target = wiki ? wiki[1].split("|")[0].trim() : img ? decodeURIComponent(img[2]) : bare![1];
           const kind = wiki ? embedKindOf(target) : img ? (embedKindOf(target) === "note" ? "image" : embedKindOf(target)) : embedKindOf(target, true);
           place(new EmbedWidget(target, kind, from, embedRev));
         }

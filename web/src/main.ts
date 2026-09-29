@@ -4,7 +4,7 @@ import type { EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
 import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type Scope, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
 import { normalizeTag } from "../../src/core/tags.ts";
-import { decodeTarget, proseLines } from "../../src/core/prose.ts";
+import { proseLines } from "../../src/core/prose.ts";
 import { $, avatar, displayName, el, hueFor, hydrateIcons, icon, isSelf, NOTE_DRAG, setSelfName, timeAgo } from "./dom.ts";
 import { createState, linkTargetAt, remote, vimSlot } from "./editor/setup.ts";
 import { bumpEmbeds, editorContext } from "./editor/blocks.ts";
@@ -1779,7 +1779,7 @@ function followLinkAtCursor() {
   if (!link) return;
   if (link.target) openTarget(link.target, active.session?.path);
   else if (link.href && /^https?:/i.test(link.href)) window.open(link.href, "_blank", "noopener");
-  else if (link.href) openTarget(decodeTarget(link.href), active.session?.path);
+  else if (link.href) openTarget(decodeURIComponent(link.href), active.session?.path);
 }
 
 window.addEventListener(
@@ -1946,7 +1946,7 @@ let viewer = false;
 async function route() {
   const hash = location.hash;
   if (hash.startsWith("#/") || /^#(feed|tasks|assets|history)\b/.test(hash)) {
-    const legacy = hash.startsWith("#/") ? decodeTarget(hash.slice(2)) : "";
+    const legacy = hash.startsWith("#/") ? decodeURIComponent(hash.slice(2)) : "";
     const meta = legacy ? notes.find((n) => n.path === legacy) : undefined;
     const [page, query = ""] = hash.slice(1).split("?");
     const note = new URLSearchParams(query).get("note");
