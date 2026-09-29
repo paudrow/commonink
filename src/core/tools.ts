@@ -7,6 +7,7 @@ import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtRead, fm
 import { parseQuery } from "./query.ts";
 import { TRASH_DAYS, type Quire } from "./quire.ts";
 import { parseAuthorFilter } from "./actor.ts";
+import { AGENTS_NOTE } from "./noteRoles.ts";
 
 export interface ToolHost {
   quire: Quire;
@@ -78,7 +79,7 @@ const writes = { readOnlyHint: false, destructiveHint: false, openWorldHint: fal
 export function createMcpServer(host: ToolHost): McpServer {
   const { quire, user } = host;
   const canEditShared = host.canEditShared ?? true;
-  const agentsMd = quire.files.read("AGENTS.md") ?? "";
+  const agentsMd = quire.files.read(AGENTS_NOTE) ?? "";
   const mcp = new McpServer(
     { name: "quire", version: "0.1.0" },
     {

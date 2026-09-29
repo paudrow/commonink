@@ -126,7 +126,7 @@ async function starSome(): Promise<boolean> {
   const r = await call("GET", `${api}/favorites`);
   if (r.status === 404) return false;
   const starred = new Set((r.data as Array<{ path: string }>).map((n) => n.path));
-  for (const p of ["Projects/Q4 plan.md", "Projects/Quire roadmap.md", "Welcome.md"]) {
+  for (const p of ["Projects/Q4 plan.md", "Projects/Common Ink roadmap.md", "Tips.md"]) {
     if (!starred.has(p)) await must("POST", `${api}/favorites/star`, { path: p });
   }
   return true;
@@ -139,6 +139,9 @@ async function tryThisPr(favorites: boolean) {
   const body = (process.env.PR_BODY ?? "").replace(/^🤖 Generated with.*$/m, "").trim();
   const sha = process.env.PR_SHA?.slice(0, 7);
   const lines = [
+    "---",
+    "tags: [start]", // leads Notes, ahead of the Welcome note (the newest start note goes first)
+    "---",
     `# Try this PR${n ? ` (#${n})` : ""}`,
     "",
     `**${title}**${process.env.PR_URL ? ` · [open the pull request](${process.env.PR_URL})` : ""}${sha ? ` · deployed from \`${sha}\`` : ""}`,
@@ -148,10 +151,10 @@ async function tryThisPr(favorites: boolean) {
     ...sectionsMarkdown(SECTIONS, Number(n) || null),
     "## Set up for you",
     "",
-    "- The sample notes: [[Welcome]], [[Quire roadmap]], [[Outside-in agents]], the [[Overview]] dashboard, and [[Checklist]] in a nested folder (`Projects/Launch`).",
+    "- The sample notes: [[Getting started]] (its checklist ticks itself as you try things), [[Tips]], [[Common Ink roadmap]], [[Outside-in agents]], the [[Overview]] dashboard, and [[Checklist]] in a nested folder (`Projects/Launch`).",
     "- [[Q4 plan]] started as *Draft plan*, was edited three times, renamed, then edited again. Open it and press the History button in the top bar to see its changes.",
     favorites
-      ? "- Favorites: [[Q4 plan]], [[Quire roadmap]], [[Welcome]] and this note are starred. Star from a note's top bar, press `s` on a card in Notes, or drag in the sidebar to reorder."
+      ? "- Favorites: [[Q4 plan]], [[Common Ink roadmap]], [[Tips]] and this note are starred. Star from a note's top bar, press `s` on a card in Notes, or drag in the sidebar to reorder."
       : "- This branch doesn't have favorites.",
     "",
     ...(body ? ["## About this PR", "", body, ""] : []),
