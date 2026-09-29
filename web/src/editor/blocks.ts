@@ -514,10 +514,12 @@ class CodeWidget extends WidgetType {
     return true;
   }
   toDOM(view: EditorView) {
-    let dom: HTMLElement;
+    // Spacing is the wrapper's padding, never a margin: CodeMirror measures a block widget without
+    // its margins, and heights it gets wrong send the cursor past blocks when it moves up or down.
+    const dom = el("div", { class: "cm-code-widget" });
     /** The opening fence's line, wherever the block is now. */
     const fence = () => view.state.doc.lineAt(view.posAtDOM(dom));
-    dom = renderCodeBlock(this.code, this.info, {
+    const block = renderCodeBlock(this.code, this.info, {
       setInfo: view.state.readOnly
         ? undefined
         : (info) => {
@@ -532,7 +534,7 @@ class CodeWidget extends WidgetType {
         view.focus();
       },
     });
-    dom.classList.add("cm-code-widget");
+    dom.append(block);
     requestAnimationFrame(() => {
       if (dom.isConnected) heights.set(`c|${this.info}|${this.code}`, dom.offsetHeight);
     });

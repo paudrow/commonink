@@ -577,7 +577,8 @@ body.is-resizing iframe { pointer-events: none; }
 
 /* A code block outside the source view (code.ts): in the editor, embeds and Notes cards alike. */
 .cb { position: relative; margin: 0.4em 0 0.8em; border-radius: 10px; background: var(--code-bg); font-size: 0.84em; }
-.cm-code-widget { margin: 0.2em 0 0.4em; cursor: text; }
+.cm-code-widget { padding: 0.2em 0 0.5em; white-space: normal; cursor: text; }
+.cm-code-widget > .cb { margin: 0; } /* padding on the wrapper instead: see CodeWidget */
 /* The header is its own row, so the label and tools never sit over the first line of code. */
 .cb-head { display: flex; align-items: center; gap: 2px; min-height: 26px; padding: 5px 8px 0 1.45em; font: 650 10px/1 var(--ui); letter-spacing: 0.08em; color: var(--faint); }
 .cb-head .spacer { flex: 1; }
