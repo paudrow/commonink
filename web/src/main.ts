@@ -827,6 +827,29 @@ function replaceText(s: Session, text: string) {
   s.pane.view.dispatch({ changes: editsBetween(s.pane.view.state.doc.toString(), text).changes });
 }
 
+/**
+ * Undo someone else's edit. In an open note it comes out of the editor, and what's been typed since
+ * stays; a note that isn't open is put back only if nothing has changed it since.
+ */
+async function undoChange(c: Change, after: string | null) {
+  const name = displayName(c.path);
+  const history = { actionLabel: "History", action: () => void showHistory({ note: c.path }) };
+  const d = await api.diff(c.id).catch(() => null);
+  const s = panes.find((p) => p.session?.path === c.path)?.session;
+  if (s && s.kind !== "asset" && d?.before != null && after !== null) {
+    const undone = merge3(after, s.pane.view.state.doc.toString(), d.before);
+    if (!undone.ok) return toast({ text: `${name} changed there since, so that edit can't be undone`, ...history });
+    replaceText(s, undone.text);
+    return toast({ icon: "reset", text: `Undid the edit to ${name}` });
+  }
+  try {
+    const r = await api.restore(c.id, c.version ?? undefined);
+    toast({ icon: "reset", text: `Undid the edit to ${displayName(r.path)}`, actionLabel: "Open", action: () => void openNote(r.path) });
+  } catch (e) {
+    toast({ text: e instanceof ApiError && e.status === 409 ? `${name} changed since, so that edit wasn't undone` : `Couldn't undo the edit to ${name}`, ...history });
+  }
+}
+
 // ------------------------------------------------------------------ live updates
 
 function onMessage(m: ServerMsg) {
@@ -844,11 +867,15 @@ function onMessage(m: ServerMsg) {
       const open = panes.some((p) => p.session?.path === m.path);
       if (open) applyRemote(m);
       if (!isSelf(m.source) && m.change) {
+        const c = m.change;
+        const undo = c.op === "edit";
         toast({
-          by: m.change,
-          text: `${verb(m.change)} ${displayName(m.path)}`,
-          detail: m.change.summary ?? undefined,
-          action: open ? undefined : () => openNote(m.path),
+          by: c,
+          text: `${verb(c)} ${displayName(m.path)}`,
+          detail: c.summary ?? undefined,
+          actionLabel: undo ? "Undo" : undefined,
+          action: undo ? () => void undoChange(c, m.content) : open ? undefined : () => openNote(m.path),
+          open: undo && !open ? () => void openNote(m.path) : undefined,
         });
       }
       refreshNotesSoon();

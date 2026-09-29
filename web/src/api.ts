@@ -266,7 +266,10 @@ export const api = {
   changeAgents: () => j<string[]>(`${BASE}/changes/agents`),
   /** What a set of changes did, note by note. `ids` is ranges like "12-18,20". */
   diffs: (ids: string) => j<DiffFile[]>(`${BASE}/diffs?ids=${ids}`),
-  restore: (id: number) => j<{ path: string; version: string; change: number | null }>(`${BASE}/restore`, send("POST", { id })),
+  /** A note's text before and after change #id. */
+  diff: (id: number) => j<{ path: string; before: string | null; after: string | null }>(`${BASE}/diff?from=${id}`),
+  /** Put a note back the way it was before change #id; with `version`, only if the note is still at that version. */
+  restore: (id: number, version?: string) => j<{ path: string; version: string; change: number | null }>(`${BASE}/restore`, send("POST", { id, version })),
   changes: () => j<Change[]>(`${BASE}/changes?limit=40`),
   /** `origin` (this tab's clientId) marks a save the tab's editor already shows, so the live update skips it there. */
   save: (path: string, content: string, baseVersion?: string, allowEmpty = false, origin?: string) =>
