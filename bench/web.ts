@@ -305,12 +305,15 @@ try {
   await waitFor(p, "#palette", { state: "visible" });
   await p.keyboard.type("Big log 0");
   await p.waitForTimeout(500);
-  record("Split view (two 1 MB notes)", "side pane drawn", [
-    await elapsed(p, async () => {
-      await p.click("#palette .palette-item >> nth=0");
-      await p.waitForFunction(() => document.querySelector("#side-host .cm-content")?.textContent?.includes("Big log 0"), undefined, { timeout: 60_000 });
-    }),
-  ]);
+  const sideDrawn = () => p.waitForFunction(() => document.querySelector("#side-host .cm-content")?.textContent?.includes("Big log 0"), undefined, { timeout: 60_000 });
+  const opened = [await elapsed(p, async () => (await p.click("#palette .palette-item >> nth=0"), await sideDrawn()))];
+  // Closed and opened again, the split button brings the same note back beside it.
+  for (let i = 0; i < 4; i++) {
+    await p.click("#split-btn");
+    await p.waitForFunction(`!(${SIDE_SHOWS})()`);
+    opened.push(await elapsed(p, async () => (await p.click("#split-btn"), await sideDrawn())));
+  }
+  record("Split view (two 1 MB notes)", "side pane drawn", opened);
 
   // Listeners and nodes left behind: open and close the side pane, the palette and a chip's editor
   // 20 times each (after one round each, so first-use setup doesn't count).
