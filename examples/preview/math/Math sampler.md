@@ -20,23 +20,6 @@ And the bracket form:
 \sum_{k=1}^{n} k = \frac{n(n+1)}{2}
 \]
 
-Three blocks in a row, to step through with ↑ and ↓:
-
-$$
-a^2 + b^2 = c^2
-$$
-$$
-e^{i\pi} + 1 = 0
-$$
-$$
-\nabla \cdot \mathbf{E} = \frac{\rho}{\varepsilon_0}
-$$
-
-A block straight under a line of text:
-$$
-\binom{n}{k} = \frac{n!}{k!(n-k)!}
-$$
-
 Dollar signs that aren't math stay text: it costs $5 and $10, and \$20 is escaped.
 
 This formula has a mistake, so it shows its source in red; hover it for why: $\frac{1}{$.
