@@ -1,5 +1,5 @@
 // Typing helpers: `@` mentions, `[[` links, `#` tags, `/` tools, and smart link pasting.
-import { autocompletion, startCompletion, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
+import { autocompletion, startCompletion, type Completion, type CompletionContext, type CompletionResult, type CompletionSource } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
 import type { EditorState, Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
@@ -10,6 +10,7 @@ import { fuzzyScore } from "../fuzzy.ts";
 import { newId, serializeDirective } from "../widgets/args.ts";
 import { pendingConfig, WIDGETS } from "../widgets/index.ts";
 import { editorContext } from "./blocks.ts";
+import { NEW_BOARD } from "../../../src/core/kanban.ts";
 import { taskPeople } from "../taskChipEditors.ts";
 import { taskTokenSource } from "./taskComplete.ts";
 import { inTaskText } from "./taskEdit.ts";
@@ -227,10 +228,10 @@ function insert(view: EditorView, from: number, to: number, text: string, opts: 
 
 const soon = (view: EditorView) => setTimeout(() => startCompletion(view), 0);
 
-function widgetTool(name: string, keywords: string): Tool {
+function widgetTool(name: string, keywords: string, title?: string): Tool {
   const spec = WIDGETS[name];
   return {
-    title: spec.title,
+    title: title ?? spec.title,
     hint: spec.hint,
     icon: spec.icon,
     keywords,
@@ -265,6 +266,8 @@ const TOOLS: Tool[] = [
   widgetTool("calendar", "calendar journal daily month diary"),
   widgetTool("timer", "timer countdown pomodoro alarm"),
   widgetTool("stopwatch", "stopwatch count up laps"),
+  { title: "Kanban board", hint: "Columns of cards", icon: "kanban", keywords: "kanban board columns cards pipeline trello", section: "Widgets", run: (v, f, t) => insert(v, f, t, NEW_BOARD, { own: true }) },
+  widgetTool("kanban", "kanban board embed another note", "Kanban from another note"),
   {
     title: "Diagram",
     hint: "Mermaid: flowcharts, sequences, timelines",
@@ -394,30 +397,33 @@ const pasteFiles = EditorView.domEventHandlers({
 // ------------------------------------------------------------------ extension
 
 export function typingHelpers(): Extension {
-  return [
-    autocompletion({
-      override: [toolSource, taskTokenSource, mentionSource, linkSource, tagSource, frontmatterTagSource],
-      icons: false,
-      closeOnBlur: true,
-      maxRenderedOptions: 40,
-      optionClass: () => "q-option",
-      addToOptions: [
-        {
-          position: 20,
-          render: (c) => {
-            const o = c as Option;
-            if (!o.thumb) return icon(o.icon ?? "file", 15);
-            const img = document.createElement("img");
-            img.className = "q-thumb";
-            img.src = o.thumb;
-            img.alt = "";
-            img.loading = "lazy";
-            return img;
-          },
+  return [completions([toolSource, taskTokenSource, mentionSource, linkSource, tagSource, frontmatterTagSource]), pasteLinks, pasteFiles];
+}
+
+/** `[[` note names and `#` tags, for a field outside the note editor (a board's card). */
+export const fieldCompletions = (): Extension => completions([linkSource, tagSource]);
+
+function completions(override: CompletionSource[]): Extension {
+  return autocompletion({
+    override,
+    icons: false,
+    closeOnBlur: true,
+    maxRenderedOptions: 40,
+    optionClass: () => "q-option",
+    addToOptions: [
+      {
+        position: 20,
+        render: (c) => {
+          const o = c as Option;
+          if (!o.thumb) return icon(o.icon ?? "file", 15);
+          const img = document.createElement("img");
+          img.className = "q-thumb";
+          img.src = o.thumb;
+          img.alt = "";
+          img.loading = "lazy";
+          return img;
         },
-      ],
-    }),
-    pasteLinks,
-    pasteFiles,
-  ];
+      },
+    ],
+  });
 }

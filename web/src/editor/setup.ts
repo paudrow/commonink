@@ -71,6 +71,8 @@ export function createState(opts: {
   doc: string;
   kind: "md" | "html";
   vim: boolean;
+  /** A viewer's workspace: the note shows, and boards and chips don't change it. */
+  readOnly?: boolean;
   context: EditorContext;
   onUpdate: (docChanged: boolean, fromRemote: boolean, state: EditorState) => void;
 }): EditorState {
@@ -83,6 +85,7 @@ export function createState(opts: {
     extensions: [
       vimSlot.of(opts.vim ? vim() : []), // must precede other keymaps
       editorContext.of(opts.context),
+      EditorState.readOnly.of(!!opts.readOnly),
       history(),
       drawSelection(),
       dropCursor(),

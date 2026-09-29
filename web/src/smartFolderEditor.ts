@@ -5,7 +5,8 @@ import { api } from "./api.ts";
 import { el, icon } from "./dom.ts";
 import { fieldRows, fieldValues, type Field, type FieldSources } from "./widgets/core.ts";
 import { QUERY_FIELDS } from "./widgets/query.ts";
-import { formatAttrs, parseAttrs, queryProblem, toQuery } from "../../src/core/query.ts";
+import { parseAttrs, serializeAttrs } from "../../src/core/directive.ts";
+import { queryProblem, toQuery } from "../../src/core/query.ts";
 
 export interface SmartFolderDraft {
   id?: string;
@@ -23,7 +24,7 @@ export function smartFolderEditor(
 ) {
   document.querySelector(".sf-editor")?.remove();
   const values: Record<string, string> = { ...parseAttrs(draft.query), name: draft.name };
-  const query = () => formatAttrs(fieldValues(QUERY_FIELDS, values));
+  const query = () => serializeAttrs(fieldValues(QUERY_FIELDS, values));
   const count = el("div", { class: "sf-count", "aria-live": "polite" });
   let timer = 0;
   let seq = 0;

@@ -22,6 +22,7 @@ import { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
 import { groupChanges } from "../../src/core/format.ts";
+import { headingName } from "../../src/core/prose.ts";
 import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
 import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
@@ -169,6 +170,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
         doc: note.content,
         kind: note.kind === "html" ? "html" : "md",
         vim: prefs.vim,
+        readOnly: viewer,
         context: { path: note.path, openTarget, createNote, notes: () => notes, upload: (files) => uploadFiles(files), tags: () => tags, folders: () => allFolders(), openTag, openPerson: (assignee) => void showTasks({ assignee }), saveSmartFolder },
         onUpdate: (docChanged, fromRemote, state) => onUpdate(next, docChanged, fromRemote, state),
       }),
@@ -493,7 +495,7 @@ function headingLine(heading: string): number | undefined {
   const doc = view.state.doc;
   for (let i = 1; i <= doc.lines; i++) {
     const m = doc.line(i).text.match(/^#{1,6}\s+(.*?)\s*#*$/);
-    if (m && m[1].toLowerCase() === want) return i;
+    if (m && headingName(m[1]).toLowerCase() === want) return i;
   }
 }
 
@@ -1403,7 +1405,7 @@ function renderOutline() {
       const t = doc.line(i).text;
       if (/^\s*(```|~~~)/.test(t)) fence = !fence;
       const m = !fence && t.match(/^(#{1,6})\s+(.+?)\s*#*$/);
-      if (m) outlineHeadings.push({ level: m[1].length, text: m[2].replace(/[*_`~]|\[\[|\]\]/g, ""), line: i });
+      if (m) outlineHeadings.push({ level: m[1].length, text: headingName(m[2]).replace(/[*_`~]|\[\[|\]\]/g, ""), line: i });
     }
   }
   const min = Math.min(...outlineHeadings.map((h) => h.level));

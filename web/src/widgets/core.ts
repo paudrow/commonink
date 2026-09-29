@@ -5,6 +5,7 @@ import type { TagCount, Task } from "../api.ts";
 import { el, icon } from "../dom.ts";
 import { tagPicker } from "../tagPicker.ts";
 import { formatDuration, parseDuration, serializeDirective } from "./args.ts";
+import type { EditorContext } from "../editor/blocks.ts";
 
 export interface Field {
   key: string;
@@ -47,6 +48,10 @@ export interface WidgetEnv {
   sources: FieldSources;
   /** Show a person's tasks. */
   openPerson(name: string): void;
+  /** The note editor the widget is in (none on the Tasks page): its note names and tags, for suggestions. */
+  editor?: EditorContext;
+  /** The person can read this workspace but not change it. */
+  readOnly?: boolean;
   /** Tasks a list leaves out (the Tasks page: the ones its Today section already shows). */
   skip?(task: Task): boolean;
 }
@@ -73,7 +78,7 @@ export function renderWidget(spec: WidgetSpec, env: WidgetEnv): { dom: HTMLEleme
     el("span", { class: "qw-kind" }, icon(spec.icon, 13), spec.title),
     env.args.label ? el("span", { class: "qw-label" }, env.args.label) : null,
     el("span", { class: "spacer" }),
-    gear,
+    env.readOnly ? null : gear,
   );
   const body = el("div", { class: "qw-body" });
   const root = el("div", { class: `qw qw-${spec.name}` }, head, body);
@@ -88,7 +93,9 @@ export function renderWidget(spec: WidgetSpec, env: WidgetEnv): { dom: HTMLEleme
   const open = () => {
     if (form) return close();
     form = configForm(spec, env, {
+      // Save closes the form itself: a save that leaves the line as it was doesn't redraw the widget.
       save: (args) => {
+        close();
         env.update(args);
         env.focusEditor();
       },
