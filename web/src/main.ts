@@ -4,7 +4,7 @@ import type { EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
 import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type Scope, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
 import { normalizeTag } from "../../src/core/tags.ts";
-import { decodeTarget } from "../../src/core/prose.ts";
+import { decodeTarget, proseLines } from "../../src/core/prose.ts";
 import { $, avatar, displayName, el, hueFor, hydrateIcons, icon, isSelf, NOTE_DRAG, setSelfName, timeAgo } from "./dom.ts";
 import { createState, linkTargetAt, remote, vimSlot } from "./editor/setup.ts";
 import { bumpEmbeds, editorContext } from "./editor/blocks.ts";
@@ -1577,12 +1577,8 @@ function renderOutline() {
   const box = $("#outline");
   outlineHeadings = [];
   if (active.session?.kind === "md") {
-    let fence = false;
-    const doc = active.view.state.doc;
-    for (let i = 1; i <= doc.lines; i++) {
-      const t = doc.line(i).text;
-      if (/^\s*(```|~~~)/.test(t)) fence = !fence;
-      const m = !fence && t.match(/^(#{1,6})\s+(.+?)\s*#*$/);
+    for (const [i, t] of proseLines(active.view.state.doc.toString())) {
+      const m = t.match(/^(#{1,6})\s+(.+?)\s*#*$/);
       if (m) outlineHeadings.push({ level: m[1].length, text: m[2].replace(/[*_`~]|\[\[|\]\]/g, ""), line: i });
     }
   }
