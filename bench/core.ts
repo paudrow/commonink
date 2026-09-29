@@ -13,6 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { openVault } from "../src/core/local.ts";
+import { agentSource } from "../src/core/actor.ts";
 import { Quire } from "../src/core/quire.ts";
 import { migrate, type Content, type SqlDb } from "../src/core/store.ts";
 import { DoDb, SqlContent } from "../cloud/src/do-store.ts";
@@ -197,7 +198,7 @@ function scenarios(size: number, v: GeneratedVault, b: Backend) {
   // Setup, untimed: some history (three changes a note), and stars and smart folders someone might have.
   b.quire.db.tx(() => {
     for (const [i, n] of notes.entries()) {
-      for (const source of ["you", "Claude", i % 2 ? "external" : "you"]) b.quire.recordChange({ path: n.path, op: "edit", source, version: n.version, summary: "+1 −0", from_path: null });
+      for (const source of ["you", agentSource(i % 3 ? "Claude" : "Cursor", "you"), i % 2 ? "external" : "you"]) b.quire.recordChange({ path: n.path, op: "edit", source, version: n.version, summary: "+1 −0", from_path: null });
     }
   });
   for (const n of notes.slice(0, 20)) b.quire.star(USER, n.path);
@@ -225,6 +226,9 @@ function scenarios(size: number, v: GeneratedVault, b: Backend) {
   measure(size, "today", b, Math.min(reps, 10), (q) => q.today(TODAY));
   measure(size, "smart folders (8)", b, reps, (q) => q.smartFolders(USER));
   measure(size, "favorites (20 notes, 5 tags)", b, reps, (q) => q.favorites(USER));
+  measure(size, "history: 50 changes", b, reps, (q) => q.changes({ limit: 50 }));
+  measure(size, "history: by one agent", b, reps, (q) => q.changes({ limit: 50, by: { agent: "Cursor" } }));
+  measure(size, "history: people only, one note", b, reps, (q) => q.changes({ limit: 50, path: hub, by: "people" }));
   measure(size, "backlinks: hub", b, reps, (q) => q.backlinks(hub));
   measure(size, "backlinks: typical", b, reps, (q, i) => q.backlinks(notes[(Math.abs(i) * 7) % notes.length].path));
   measure(size, "save (index one write)", b, reps, (q, i) => {
