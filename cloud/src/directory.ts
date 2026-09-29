@@ -38,6 +38,10 @@ export async function hasUser(db: D1Database, sub: string) {
   return !!(await db.prepare("SELECT 1 FROM users WHERE google_sub = ?").bind(sub).first());
 }
 
+export function getUser(db: D1Database, id: string) {
+  return db.prepare("SELECT id, email, name, picture FROM users WHERE id = ?").bind(id).first<User>();
+}
+
 export async function workspacesOf(db: D1Database, userId: string): Promise<WorkspaceRef[]> {
   const { results } = await db
     .prepare(

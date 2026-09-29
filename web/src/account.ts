@@ -1,4 +1,5 @@
-// Online-only UI: the sign-in screen, and the account menu (workspaces, invites, sign out).
+// Online-only UI: the sign-in screen, and the account menu (workspaces, invites, connected agents, sign out).
+import { showAgents } from "./agentsPage.ts";
 import { api, type Me } from "./api.ts";
 import { $, el, icon } from "./dom.ts";
 
@@ -90,10 +91,11 @@ export function renderAccount(me: Me, current: Me["workspaces"][number], toast: 
           }),
         ]
       : []),
+    item("Connected agents…", "bot", () => void showAgents()),
     el("div", { class: "acct-sep" }),
     item("Sign out", "open", () => (location.href = "/auth/logout")),
     item("Sign out everywhere…", "open", async () => {
-      if (!confirm("Sign out of Common Ink on every device and browser, including this one?")) return;
+      if (!confirm("Sign out of Common Ink on every device and browser, including this one, and disconnect your agents?")) return;
       await api.signOutEverywhere();
       location.href = "/";
     }),

@@ -21,6 +21,7 @@ export const WORKSPACE_ROUTES = {
   "GET /feed": "viewer",
   "GET /backlinks": "viewer",
   "GET /changes": "viewer",
+  "GET /changes/agents": "viewer",
   "GET /diffs": "viewer",
   "GET /diff": "viewer",
   "GET /tasks": "viewer",
@@ -62,6 +63,8 @@ export const ACCOUNT_ROUTES = [
   "GET /api/unfurl",
   "GET /api/note-ids/*",
   "POST /api/sign-out-everywhere",
+  "GET /api/agents",
+  "POST /api/agents/revoke",
 ] as const;
 export type AccountRoute = (typeof ACCOUNT_ROUTES)[number];
 

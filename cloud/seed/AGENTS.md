@@ -11,6 +11,7 @@ These notes belong to people. You are a guest editor.
 - Tasks are `- [ ] …` lines. Put their details at the end of the line as tokens, all optional: `due:2026-10-01` (or `due:2026-10-01T09:30`), `start:2026-09-28` (hidden until then), `rec:…` (how it repeats), `#tag`, `@person`, `!high` or `!low`. Ticking a task adds `done:` with the date.
   - `rec:` repeats from the due date: `daily` `weekly` `monthly` `yearly`, `3d` `2w`, `mon,thu`, `2w-mon,thu`, `6th`, `last-day`, `1st-tue,3rd-tue`, `last-fri`, `mar-1`, `1st-mon-mar`, `day-50`, or `RRULE:FREQ=…`. `after-1m` / `after-10d` repeat a gap after it's done. Ticking a repeating task adds the next one on the line below, with the new `due:`; don't add it yourself.
   - To add a task someone asks for, `add_task` takes it in words ("call the bank tomorrow", "every month on the 1st") and files it under `## Tasks` in today's daily note, or in `→ [[Note]]`.
+- Your changes show in History as yours, "<your name> for <person>", for whoever connected you. If you use the `quire` CLI, set `QUIRE_AGENT=<your name>` (or pass `--agent <your name>`) so they do.
 - Widgets are single lines. Leave any `id=` value as it is.
   - `::tasks{folder=Projects}` (or `tag=work`, `assignee=jane`, `due<=today`) collects checkbox tasks from those notes.
   - `::query{folder=Projects tag=meeting limit=5}` is a live list of matching notes.

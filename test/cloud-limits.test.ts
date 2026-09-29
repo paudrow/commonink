@@ -43,3 +43,13 @@ test("invites, uploads and link previews are limited per person", async () => {
   const builder = await cloud.signIn("builder");
   assert.equal(await statuses(11, (i) => cloud.request(builder, "POST", "/api/workspaces", { name: `Team ${i}` })), "200×10, 429×1");
 });
+
+test("OAuth client registrations are limited per network address", async () => {
+  const register = () =>
+    cloud.server.fetch(new URL("/oauth/register", cloud.origin), {
+      method: "POST",
+      headers: { "content-type": "application/json", "CF-Connecting-IP": "203.0.113.50" },
+      body: JSON.stringify({ client_name: "Spam", redirect_uris: ["http://127.0.0.1:9/cb"], token_endpoint_auth_method: "none" }),
+    });
+  assert.equal(await statuses(21, register), "201×20, 429×1");
+});

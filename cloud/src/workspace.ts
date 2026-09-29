@@ -3,11 +3,13 @@
 // Only the Worker can reach it, and the Worker has already checked who's asking and their role; it
 // checks the role again against the same table, so a slip in the Worker can't open a route.
 import { DurableObject } from "cloudflare:workers";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { Quire } from "../../src/core/quire.ts";
 import { migrate } from "../../src/core/store.ts";
 import { errorResponse, handleApi, json, type ApiHost } from "../../src/core/api.ts";
 import { cleanPath, fileSecurityHeaders, kindOf, MAX_UPLOAD, mimeOf } from "../../src/core/paths.ts";
 import type { Change } from "../../src/core/quire.ts";
+import { createMcpServer } from "../../src/core/tools.ts";
 import { access, asRole } from "./access.ts";
 import { DoDb, SqlContent } from "./do-store.ts";
 import { SEED_FILES, SEED_NOTES } from "./seed.ts";
@@ -37,12 +39,16 @@ export class Workspace extends DurableObject<Env> {
   async fetch(req: Request): Promise<Response> {
     const wsId = req.headers.get("x-ci-workspace")!;
     const res = await this.handle(req, wsId);
-    // Claim any new note IDs once the request has done its work (the first request also backfills).
+    this.claimIds(wsId);
+    return res;
+  }
+
+  /** Claim any new note IDs once a request has done its work (the first request also backfills). */
+  private claimIds(wsId: string) {
     this.registering ??= this.registerIds(wsId)
       .catch((e) => console.error("Couldn't register note IDs", e))
       .finally(() => (this.registering = null));
     this.ctx.waitUntil(this.registering);
-    return res;
   }
 
   /**
@@ -180,6 +186,38 @@ export class Workspace extends DurableObject<Env> {
       try {
         ws.send(data);
       } catch {}
+    }
+  }
+
+  /**
+   * One MCP request from a connected agent (the Worker has checked its token and membership). Tools
+   * are offered by `role`, and writes are attributed to `actor`, e.g. "Claude (via Audrow)". Open
+   * tabs hear about the agent's changes like any other.
+   */
+  async mcp(req: Request, who: { workspace: string; user: string; actor: string; role: string }): Promise<Response> {
+    const role = asRole(who.role);
+    const server = createMcpServer({
+      quire: this.quire,
+      user: who.user,
+      source: () => who.actor,
+      may: (route) => access(role, ...(route.split(" ") as [string, string])) === "allowed",
+      canEditShared: role === "owner" || role === "editor",
+    });
+    const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+    await server.connect(transport);
+    const last = this.quire.changes({ limit: 1 })[0]?.id ?? 0;
+    try {
+      return await transport.handleRequest(req);
+    } finally {
+      await server.close();
+      const made = this.quire.changes({ since: last, limit: 500 }).reverse();
+      for (const c of made) {
+        if (c.from_path && c.from_path !== c.path) this.broadcast({ type: "removed", path: c.from_path });
+        const content = kindOf(c.path) === "asset" ? null : this.files.read(c.path);
+        this.announce(c.path, content, c.version ?? "", c);
+      }
+      if (made.length) this.broadcast({ type: "tree" });
+      this.claimIds(who.workspace);
     }
   }
 

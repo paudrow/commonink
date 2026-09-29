@@ -4,7 +4,7 @@ import type { EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
 import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type Scope, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
 import { normalizeTag } from "../../src/core/tags.ts";
-import { $, avatar, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setSelfName, timeAgo, type LinkDrag } from "./dom.ts";
+import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setSelfName, timeAgo, type LinkDrag } from "./dom.ts";
 import { createState, openLinkToSide, remote, vimSlot } from "./editor/setup.ts";
 import { linkTargetAt } from "./editor/linkAt.ts";
 import { bumpEmbeds, editorContext } from "./editor/blocks.ts";
@@ -735,7 +735,13 @@ async function flushSave(...only: Pane[]) {
 
 let flashTimer = 0;
 /** A new version arrived from disk. Apply it as a diff (keeps cursor, undo, vim state); 3-way merge if we have unsaved typing. */
-function applyRemote(m: { path: string; content: string | null; version: string; source: string }) {
+/** Who a live change is by, from its message: its change if it has one, else just its source. */
+const byOf = (m: { source: string; change?: Change | null }) => m.change ?? { source: m.source, person: null, agent: null };
+/** The editor highlight for lines someone else changed, labelled with who. */
+const flashOf = (ranges: Array<{ from: number; to: number }>, m: { source: string; change?: Change | null }) =>
+  flashChanges.of({ ranges, source: m.source, label: authorName(byOf(m)), agent: !!byOf(m).agent });
+
+function applyRemote(m: { path: string; content: string | null; version: string; source: string; change?: Change | null }) {
   const s = panes.find((p) => p.session?.path === m.path)?.session;
   if (!s || m.content === null || s.kind === "asset") return;
   if (m.version === s.baseVersion) return;
@@ -753,7 +759,7 @@ function applyRemote(m: { path: string; content: string | null; version: string;
     target = merged.text;
   }
   const { changes: edits, touched } = editsBetween(doc, target);
-  view.dispatch({ changes: edits, annotations: remote.of(true), effects: flashChanges.of({ ranges: touched, source: m.source }) });
+  view.dispatch({ changes: edits, annotations: remote.of(true), effects: flashOf(touched, m) });
   s.base = m.content;
   s.baseVersion = m.version;
   if (target !== m.content) scheduleSave(s, 250);
@@ -763,8 +769,8 @@ function applyRemote(m: { path: string; content: string | null; version: string;
   flashTimer = window.setTimeout(() => view.dispatch({ effects: clearFlash.of(null) }), 6000);
 }
 
-function showConflict(s: Session, m: { path: string; content: string | null; version: string; source: string }) {
-  const who = m.source === "you" ? "Another window" : m.source === "external" ? "Another program" : m.source;
+function showConflict(s: Session, m: { path: string; content: string | null; version: string; source: string; change?: Change | null }) {
+  const who = m.source === "you" ? "Another window" : m.source === "external" ? "Another program" : authorName(byOf(m));
   clearTimeout(s.timer);
   status(s, "error");
   showBanner(
@@ -783,7 +789,7 @@ function showConflict(s: Session, m: { path: string; content: string | null; ver
       () => {
         const view = s.pane.view;
         const { changes: edits, touched } = editsBetween(view.state.doc.toString(), m.content!);
-        view.dispatch({ changes: edits, annotations: remote.of(true), effects: flashChanges.of({ ranges: touched, source: m.source }) });
+        view.dispatch({ changes: edits, annotations: remote.of(true), effects: flashOf(touched, m) });
         s.base = m.content!;
         s.baseVersion = m.version;
         hideBanner();
@@ -808,7 +814,7 @@ function onMessage(m: ServerMsg) {
       for (const p of panes) if (p.session?.kind === "md" && p.session.path !== m.path && embedsPath(p, m.path)) bumpEmbeds(p.view);
       if (!isSelf(m.source) && m.change) {
         toast({
-          source: m.source,
+          by: m.change,
           text: `${verb(m.change)} ${displayName(m.path)}`,
           detail: m.change.summary ?? undefined,
           action: open ? undefined : () => openNote(m.path),
@@ -1507,7 +1513,7 @@ function startRename(label: HTMLElement) {
         const r = await api.move(s.path, /\.[a-z]+$/i.test(to) ? to : to + (ext === ".md" ? "" : ext));
         await refreshNotes();
         await openNote(r.path, { push: false });
-        if (r.updated.length) toast({ source: "you", text: `Renamed · updated links in ${r.updated.length} note${r.updated.length > 1 ? "s" : ""}` });
+        if (r.updated.length) toast({ by: { source: "you", person: "you", agent: null }, text: `Renamed · updated links in ${r.updated.length} note${r.updated.length > 1 ? "s" : ""}` });
         return;
       } catch (e) {
         toast({ text: e instanceof Error ? e.message : "Rename failed" });
@@ -1653,14 +1659,14 @@ function renderActivity() {
               onclick: () => void showHistory({ select: c.id }),
               onkeydown: (e: KeyboardEvent) => e.key === "Enter" && void showHistory({ select: c.id }),
             },
-            avatar(c.source, 22),
+            authorAvatar(c, 22),
             el(
               "div",
               { class: "act-body" },
               el(
                 "div",
                 { class: "act-line" },
-                el("b", {}, c.source),
+                el("b", {}, authorName(c)),
                 ` ${verb(c)} `,
                 el("a", { onclick: (e: Event) => (e.stopPropagation(), openNote(c.path)) }, displayName(c.path)),
               ),
@@ -1681,9 +1687,11 @@ function renderActivity() {
 
 function renderPresence() {
   const since = Date.now() - 15 * 60_000;
-  const active = [...new Set(changes.filter((c) => c.ts > since && !isSelf(c.source)).map((c) => c.source))].slice(0, 4);
-  $("#agents").replaceChildren(...active.map((a) => avatar(a, 22)));
-  $("#agents").title = active.length ? `Active in the last 15 min: ${active.join(", ")}` : "";
+  const bySource = new Map<string, Change>();
+  for (const c of changes) if (c.ts > since && !isSelf(c.source) && !bySource.has(c.source)) bySource.set(c.source, c);
+  const active = [...bySource.values()].slice(0, 4);
+  $("#agents").replaceChildren(...active.map((c) => authorAvatar(c, 22)));
+  $("#agents").title = active.length ? `Active in the last 15 min: ${active.map(authorName).join(", ")}` : "";
 }
 
 // ------------------------------------------------------------------ html notes
@@ -1719,7 +1727,7 @@ function showBanner(text: string, ...actions: Array<[string, () => void]>) {
   b.hidden = false;
   b.className = "";
   b.replaceChildren(
-    icon("spark", 15),
+    icon("info", 15),
     el("span", { class: "banner-text" }, text),
     ...actions.map(([label, fn]) => el("button", { class: "banner-btn", type: "button", onclick: fn }, label)),
     el("button", { class: "banner-x", type: "button", title: "Dismiss", onclick: hideBanner }, "×"),
@@ -1729,7 +1737,7 @@ function hideBanner() {
   $("#banner").hidden = true;
 }
 
-function toast(t: { text: string; source?: string; icon?: string; detail?: string; action?: () => void; actionLabel?: string; sticky?: boolean }) {
+function toast(t: { text: string; by?: { source: string; person: string | null; agent: string | null }; icon?: string; detail?: string; action?: () => void; actionLabel?: string; sticky?: boolean }) {
   const button = t.action && t.actionLabel ? el("button", { class: "toast-action", type: "button" }, t.actionLabel) : null;
   const node = el(
     "div",
@@ -1740,8 +1748,8 @@ function toast(t: { text: string; source?: string; icon?: string; detail?: strin
         node.remove();
       },
     },
-    t.source ? avatar(t.source, 22) : el("span", { class: "toast-icon" }, icon(t.icon ?? "spark", 16)),
-    el("div", { class: "toast-body" }, el("div", { class: "toast-text" }, t.source ? el("b", {}, t.source) : null, t.source ? ` ${t.text}` : t.text), t.detail ? el("div", { class: "toast-detail" }, t.detail) : null),
+    t.by ? authorAvatar(t.by, 22) : el("span", { class: "toast-icon" }, icon(t.icon ?? "info", 16)),
+    el("div", { class: "toast-body" }, el("div", { class: "toast-text" }, t.by ? el("b", {}, authorName(t.by)) : null, t.by ? ` ${t.text}` : t.text), t.detail ? el("div", { class: "toast-detail" }, t.detail) : null),
     button,
   );
   button?.addEventListener("click", (e) => {

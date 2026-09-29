@@ -1,4 +1,5 @@
 // Tiny DOM helpers + an icon set (lucide-style strokes) so the UI needs no framework.
+import { authorLabel } from "../../src/core/actor.ts";
 
 type Child = Node | string | null | undefined | false;
 
@@ -28,6 +29,8 @@ export function el<K extends keyof HTMLElementTagNameMap>(
 export const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
 
 const ICONS: Record<string, string> = {
+  bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
+  info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/>',
@@ -141,6 +144,22 @@ export function avatar(source: string, size = 20): HTMLElement {
     "span",
     { class: `avatar${isSelf(source) ? " is-you" : ""}`, title: source, style: { "--hue": String(hueFor(source)), width: `${size}px`, height: `${size}px` } },
     isSelf(source) ? "" : initials || "?",
+  );
+}
+
+/** Who made a change, as it reads everywhere: "Claude for Audrow" (or "for you") for an agent, "You", or the person. */
+export function authorName(c: { source: string; person?: string | null; agent?: string | null }): string {
+  if (c.agent) return authorLabel(c, selfName);
+  return isSelf(c.source) ? "You" : c.source;
+}
+
+/** Who made a change, as a picture: a bot for an agent's change, the person's initials otherwise. */
+export function authorAvatar(c: { source: string; person?: string | null; agent?: string | null }, size = 20): HTMLElement {
+  if (!c.agent) return avatar(c.source, size);
+  return el(
+    "span",
+    { class: "avatar is-agent", title: authorName(c), style: { "--hue": String(hueFor(c.agent)), width: `${size}px`, height: `${size}px` } },
+    icon("bot", Math.max(10, Math.round(size * 0.62))),
   );
 }
 

@@ -1,3 +1,4 @@
+import { actorOf, authorWhere, type Actor, type AuthorFilter } from "./actor.ts";
 import path from "node:path";
 import crypto from "node:crypto";
 import { diffLines } from "diff";
@@ -44,6 +45,10 @@ export interface Change {
   from_path: string | null;
   /** The note's stable ID, so its history holds together across renames. Null if the log can't tell. */
   note_id: string | null;
+  /** Who it was by or for (see actor.ts); `source` is the same as display text. */
+  person: string | null;
+  /** The agent that made it, or null for a person's own change. */
+  agent: string | null;
 }
 /** A tag in someone's favorites: what it's called now, and how many active notes carry it (or a tag under it). */
 export interface TagFavorite {
@@ -109,6 +114,8 @@ export interface FeedItem {
   tags: string[];
   lines: Array<{ line: number; text: string }>;
   lastSource: string | null;
+  /** Who made the last change: a person, or an agent for one. */
+  lastBy: Actor | null;
 }
 
 export interface Task {
@@ -160,7 +167,7 @@ export const ASSET_TAGS = "assets/.tags.json";
 export const versionOf = (content: string) =>
   crypto.createHash("sha256").update(content).digest("hex").slice(0, 12);
 
-const CHANGE_COLS = "id, ts, path, op, source, version, summary, from_path, note_id";
+const CHANGE_COLS = "id, ts, path, op, source, version, summary, from_path, note_id, person, agent";
 const META_COLS = "id, path, kind, title, version, mtime, size";
 /** How long a deleted file's ID waits for the same file to reappear under a new name. */
 const RENAME_WINDOW_MS = 60_000;
@@ -503,8 +510,10 @@ export class Quire {
     const home = (p: string) => (isArchived(p) ? p.slice(ARCHIVE.length) : p);
     const counts = { active: rows.filter((r) => !isArchived(r.path)).length, archived: rows.filter((r) => isArchived(r.path)).length };
     rows = rows.filter((r) => inScope(r.path, scope));
-    const lastSource = new Map(
-      this.db.all("SELECT path, source FROM changes WHERE id IN (SELECT max(id) FROM changes GROUP BY path)").map((r) => [r.path, r.source]),
+    const last = new Map(
+      this.db
+        .all<{ path: string } & Actor & { source: string }>("SELECT path, source, person, agent FROM changes WHERE id IN (SELECT max(id) FROM changes GROUP BY path)")
+        .map((r) => [r.path, r]),
     );
     const offset = opts.offset ?? 0;
     const items: FeedItem[] = rows.slice(offset, offset + (opts.limit ?? 30)).map((r) => {
@@ -526,7 +535,8 @@ export class Quire {
           )
           .map((t) => t.display),
         lines: terms.length ? this.matchingLines(r.path, terms) : [],
-        lastSource: lastSource.get(r.path) ?? null,
+        lastSource: last.get(r.path)?.source ?? null,
+        lastBy: last.has(r.path) ? { person: last.get(r.path)!.person, agent: last.get(r.path)!.agent } : null,
       };
     });
     return { items, total: rows.length, counts, folders: [...new Set(this.list(undefined, "all").filter((n) => n.kind !== "asset").map((n) => home(n.path)).filter((p) => p.includes("/")).map((p) => p.split("/")[0]))].sort() };
@@ -580,11 +590,12 @@ export class Quire {
    * that still exists brings its whole history, under earlier names too; a gone one, what happened at
    * that exact path.
    */
-  changes(opts: { since?: string | number; before?: number; limit?: number; path?: string } = {}): Change[] {
+  changes(opts: { since?: string | number; before?: number; limit?: number; path?: string; by?: AuthorFilter } = {}): Change[] {
     const limit = opts.limit ?? 50;
     const noteId = opts.path ? this.idOf(opts.path) : null;
     const p = opts.path ?? null;
-    const [where, args] = noteId ? ["note_id = ?", [noteId]] : ["(? IS NULL OR path = ?)", [p, p]];
+    const [byWhere, byArgs] = authorWhere(opts.by);
+    const [where, args] = noteId ? [`note_id = ? AND ${byWhere}`, [noteId, ...byArgs]] : [`(? IS NULL OR path = ?) AND ${byWhere}`, [p, p, ...byArgs]];
     if (opts.before) {
       return this.db.all(`SELECT ${CHANGE_COLS} FROM changes WHERE id < ? AND ${where} ORDER BY id DESC LIMIT ?`, opts.before, ...args, limit);
     }
@@ -614,15 +625,24 @@ export class Quire {
     );
   }
 
-  /** `before` is the note's previous text, kept so any change can be undone with restore(). */
-  recordChange(c: Omit<Change, "id" | "ts" | "note_id">, before: string | null = null): Change {
+  /** The agents that appear in the change log, by name, for filtering History by one. */
+  agents(): string[] {
+    return this.db.all<{ agent: string }>("SELECT DISTINCT agent FROM changes WHERE agent IS NOT NULL ORDER BY agent").map((r) => r.agent);
+  }
+
+  /**
+   * `before` is the note's previous text, kept so any change can be undone with restore(). The
+   * `source` says who (see actorOf): an agent's carries its person too.
+   */
+  recordChange(c: Omit<Change, "id" | "ts" | "note_id" | "person" | "agent">, before: string | null = null): Change {
     const ts = this.now();
     const noteId = this.meta(c.path)?.id ?? null;
+    const { source, person, agent } = actorOf(c.source);
     const r = this.db.run(
-      "INSERT INTO changes(ts, path, op, source, version, summary, from_path, before, note_id) VALUES (?,?,?,?,?,?,?,?,?)",
-      ts, c.path, c.op, c.source, c.version, c.summary, c.from_path, before, noteId,
+      "INSERT INTO changes(ts, path, op, source, version, summary, from_path, before, note_id, person, agent) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+      ts, c.path, c.op, source, c.version, c.summary, c.from_path, before, noteId, person, agent,
     );
-    return { ...c, id: r.lastId, ts, note_id: noteId };
+    return { ...c, source, id: r.lastId, ts, note_id: noteId, person, agent };
   }
 
   /**

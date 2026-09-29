@@ -27,6 +27,9 @@ export interface Change {
   summary: string | null;
   from_path: string | null;
   note_id: string | null;
+  /** Who it was by or for; `agent` is set when an agent made it (see authorLabel). */
+  person: string | null;
+  agent: string | null;
 }
 export interface DiffRun {
   from: number;
@@ -73,6 +76,8 @@ export interface FeedItem {
   tags: string[];
   lines: Array<{ line: number; text: string }>;
   lastSource: string | null;
+  /** Who made the last change (see authorName). */
+  lastBy: { person: string | null; agent: string | null } | null;
 }
 export interface FeedPage {
   items: FeedItem[];
@@ -166,6 +171,17 @@ export interface Me {
   user: { id: string; name: string; email: string; picture: string | null };
   workspaces: Array<{ id: string; name: string; kind: "personal" | "team"; role: "owner" | "editor" | "viewer" }>;
 }
+export interface ConnectedAgent {
+  id: string;
+  client: string;
+  /** How its changes are attributed in the change log, e.g. "Claude (via Audrow)". */
+  actor: string;
+  /** The person it works for, and its name in the change log (`person`, `agent` there). */
+  person: string;
+  workspace: { id: string; name: string; role: "owner" | "editor" | "viewer" } | null;
+  connectedAt: number;
+  usedAt: number | null;
+}
 /** Online: who's signed in (null if nobody). Locally the endpoint doesn't exist: undefined. */
 export async function whoAmI(): Promise<{ me: Me | null; devLogin: boolean } | undefined> {
   const r = await fetch("/api/me").catch(() => null);
@@ -195,6 +211,11 @@ export const api = {
   locate: (id: string) => j<{ workspace: { id: string; name: string } }>(`/api/note-ids/${id}`),
   createWorkspace: (name: string) => j<{ id: string }>("/api/workspaces", send("POST", { name })),
   signOutEverywhere: () => j<{ ok: true }>("/api/sign-out-everywhere", send("POST", {})),
+  /** Online: the agents you've connected over MCP, most recently used first. */
+  agents: () => j<ConnectedAgent[]>("/api/agents"),
+  revokeAgent: (id: string) => j<{ ok: true }>("/api/agents/revoke", send("POST", { id })),
+  /** A page of a workspace's change log, whichever workspace is open. */
+  changesIn: (workspace: string) => j<Change[]>(`/api/w/${workspace}/changes?limit=200`),
   invite: (role: "editor" | "viewer") => j<{ url: string }>(`${BASE}/invites`, send("POST", { role })),
   notes: () => j<NoteMeta[]>(`${BASE}/notes`),
   note: (path: string) => j<Note>(`${BASE}/note?path=${enc(path)}`),
@@ -238,8 +259,10 @@ export const api = {
   unarchive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/unarchive`, send("POST", { paths })),
   backlinks: (path: string) => j<Backlink[]>(`${BASE}/backlinks?path=${enc(path)}`),
   /** A page of the change log, newest first; `before` pages further back. */
-  history: (p: { limit?: number; before?: number; path?: string }) =>
+  history: (p: { limit?: number; before?: number; path?: string; by?: string }) =>
     j<Change[]>(`${BASE}/changes?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
+  /** The agents in the change log, for filtering History by one. */
+  changeAgents: () => j<string[]>(`${BASE}/changes/agents`),
   /** What a set of changes did, note by note. `ids` is ranges like "12-18,20". */
   diffs: (ids: string) => j<DiffFile[]>(`${BASE}/diffs?ids=${ids}`),
   restore: (id: number) => j<{ path: string; version: string; change: number | null }>(`${BASE}/restore`, send("POST", { id })),

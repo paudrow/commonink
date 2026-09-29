@@ -245,11 +245,11 @@ export async function seedWorkspace(env: Env, id: string) {
   await env.WORKSPACE.get(env.WORKSPACE.idFromName(id)).seed(id);
 }
 
-const text = (status: number, body: string) => new Response(body, { status, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+export const text = (status: number, body: string) => new Response(body, { status, headers: { "Content-Type": "text/plain; charset=utf-8" } });
 
-const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+export const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-function page(status: number, body: string, cookies: string[] = []) {
+export function page(status: number, body: string, cookies: string[] = []) {
   const headers = new Headers({ "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
   for (const c of cookies) headers.append("Set-Cookie", c);
   return new Response(
