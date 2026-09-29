@@ -55,6 +55,20 @@ test("repeats in words map onto the rec: grammar, due on the first time it comes
   for (const [input, want] of table) assert.equal(line(input), want, input);
 });
 
+test("a repeat's end in words: until a date, for a stretch, or a number of times", () => {
+  const table: Array<[string, string]> = [
+    ["Standup every week until dec 1", "- [ ] Standup due:2026-09-28 rec:weekly until:2026-12-01"],
+    ["Rent every month for 6 months", "- [ ] Rent due:2026-09-28 rec:monthly times:6"],
+    ["Stretch daily 10 times", "- [ ] Stretch due:2026-09-28 rec:daily times:10"],
+    ["Class every mon and thu for 3 weeks", "- [ ] Class due:2026-09-28 rec:mon,thu until:2026-10-18"],
+    ["Pay the loan on the 1st of every month 12 times #bills", "- [ ] Pay the loan due:2026-10-01 rec:1st times:12 #bills"],
+  ];
+  for (const [input, want] of table) assert.equal(line(input), want, input);
+  // Without a repeat, "until" and "N times" are just words.
+  assert.equal(line("Wait until dec 1"), "- [ ] Wait until due:2026-12-01");
+  assert.equal(line("Knock 3 times"), "- [ ] Knock 3 times");
+});
+
 test("tokens typed as tokens pass through where they are, and a phrase doesn't override one", () => {
   assert.equal(line("Ship it due:2026-10-05 !high @jane #work"), "- [ ] Ship it due:2026-10-05 !high @jane #work");
   assert.equal(line("Ask @sam about #launch tomorrow"), "- [ ] Ask @sam about due:2026-09-29 #launch"); // a new token joins the run of tokens at the end, in its place

@@ -100,6 +100,14 @@ test("a card moved into the done column is ticked with today's date, and moved o
   assert.equal(moveCard(shipped, 3, { board: 0, column: 1 }, 0, TODAY), `Intro\n:::kanban{done=Shipped}\n## Done-ish\n## Shipped\n- [x] a done:${TODAY}\n:::\n`);
 });
 
+test("a card repeating a set number of times counts down on the board, and the last one moved into Done makes no next card", () => {
+  const md = ":::kanban\n## To do\n## Doing\n- [ ] Lesson due:2026-10-06 rec:weekly times:2\n## Done\n:::\n";
+  const once = moveCard(md, 3, { board: 0, column: 2 }, 0, TODAY);
+  assert.equal(once, `:::kanban\n## To do\n- [ ] Lesson due:2026-10-13 rec:weekly times:1\n## Doing\n## Done\n- [x] Lesson due:2026-10-06 rec:weekly times:2 done:${TODAY}\n:::\n`);
+  const last = moveCard(once, 2, { board: 0, column: 2 }, 0, TODAY);
+  assert.equal(last, `:::kanban\n## To do\n## Doing\n## Done\n- [x] Lesson due:2026-10-13 rec:weekly times:1 done:${TODAY}\n- [x] Lesson due:2026-10-06 rec:weekly times:2 done:${TODAY}\n:::\n`);
+});
+
 test("a repeating card repeats once, ticked where it is or moved into Done: its next one goes to the top of the first column", () => {
   const md = ":::kanban\r\n## To do\r\n- [ ] Other\r\n## Doing\r\n- [ ] Pay rent due:2026-10-01 rec:monthly\r\n  From savings.\r\n## Done\r\n:::\r\n";
   const next = "- [ ] Pay rent due:2026-11-01 rec:monthly\r\n";
