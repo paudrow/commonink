@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 81
 title: A quieter editor
 ---
 1. Open [[Quiet blocks]]. The timer, image, video and link card show without their markdown lines. Press ↓ (or `j` with vim on) from the top: the cursor stops on each block's line, and the line shows above the block until the cursor moves on.
