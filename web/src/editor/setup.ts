@@ -32,7 +32,7 @@ const theme = EditorView.theme({
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--accent)", borderLeftWidth: "2px" },
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": { backgroundColor: "var(--selection) !important" },
   ".cm-selectionMatch": { backgroundColor: "var(--accent-soft)" },
-  ".cm-placeholder": { color: "var(--faint)", fontStyle: "italic" },
+  ".cm-placeholder": { color: "var(--muted)", fontStyle: "italic" },
   ".cm-panels": { backgroundColor: "var(--bg-elev)", color: "var(--ink)", borderTop: "1px solid var(--line)" },
 });
 

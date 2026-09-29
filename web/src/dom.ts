@@ -23,10 +23,31 @@ export function el<K extends keyof HTMLElementTagNameMap>(
     else node.setAttribute(k, v === true ? "" : String(v));
   }
   for (const c of children) if (c !== null && c !== undefined && c !== false) node.append(c);
+  // An icon-only button's tooltip is its name for screen readers too.
+  if (tag === "button" && attrs.title && !attrs["aria-label"] && !node.textContent?.trim()) node.setAttribute("aria-label", attrs.title);
   return node;
 }
 
+/** Name a button: its tooltip and what screen readers say. */
+export function setLabel(node: Element, text: string) {
+  node.setAttribute("title", text);
+  node.setAttribute("aria-label", text);
+}
+
 export const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
+
+/** A toggle's state, shown (`is-on`) and told to screen readers (aria-pressed) together. */
+export function setPressed(node: Element, on: boolean) {
+  node.classList.toggle("is-on", on);
+  node.setAttribute("aria-pressed", String(on));
+}
+
+/** The sidebar entry for what the main view shows, shown (`is-active`) and told to screen readers (aria-current). */
+export function setCurrent(node: Element, on: boolean, cls = "is-active") {
+  node.classList.toggle(cls, on);
+  if (on) node.setAttribute("aria-current", "page");
+  else node.removeAttribute("aria-current");
+}
 
 const ICONS: Record<string, string> = {
   bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
