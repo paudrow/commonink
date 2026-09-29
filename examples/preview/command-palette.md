@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 80
 title: Commands in ⌘K and a shortcut sheet
 ---
 1. Press ⌘K (Ctrl+K off a Mac) and type `theme`: a **Commands** section offers **Toggle theme**. Press ↵ and the theme flips. Try `vim`, `archive` or `tasks` too.
