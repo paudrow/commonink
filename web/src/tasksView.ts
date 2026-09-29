@@ -35,7 +35,7 @@ export function mountTasks(
 }
 
 /** The page, narrowed to `tag` (and the tags under it) and to one person's tasks, if given. */
-export function renderTasksPage(root: HTMLElement, hooks: { open: Open; tags(): TagCount[] }, filter: { tag?: string; assignee?: string } = {}): () => void {
+export function renderTasksPage(root: HTMLElement, hooks: { open: Open; tags(): TagCount[]; vim?: boolean }, filter: { tag?: string; assignee?: string } = {}): () => void {
   const host = el("div");
   const filters = el("div", { class: "feed-filters page-filters" });
   let unmount = () => {};
@@ -60,7 +60,7 @@ export function renderTasksPage(root: HTMLElement, hooks: { open: Open; tags(): 
       "div",
       { class: "page" },
       el("header", { class: "page-head" }, el("h1", {}, "Tasks"), el("p", { class: "page-sub" }, "Every checkbox across your notes. Tick one here and it's ticked in its note.")),
-      quickAddBar({ added: () => {}, open: hooks.open }).root, // the list below reloads when the note changes
+      quickAddBar({ added: () => {}, open: hooks.open, vim: hooks.vim }).root, // the list below reloads when the note changes
       filters,
       host,
     ),

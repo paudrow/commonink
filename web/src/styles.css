@@ -1682,6 +1682,15 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .qa-link:hover { text-decoration: underline; }
 .qa-error { color: var(--bad); }
 .qa-suggest { position: absolute; z-index: 5; left: 34px; top: 44px; width: 260px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg-elev); box-shadow: var(--shadow-lg); }
+.qa-cm .cm-editor { height: 40px; font: 15px var(--ui); }
+.qa-cm .cm-editor.cm-focused { outline: none; }
+.qa-cm .cm-scroller { overflow: hidden; line-height: 40px; font: inherit; }
+.qa-cm .cm-content { padding: 0; line-height: 40px; caret-color: var(--ink-strong); color: var(--ink-strong); }
+.qa-cm .cm-line { padding: 0; line-height: 40px; }
+.qa-cm .qa-hl { color: inherit; }
+.qa-cm .cm-fat-cursor { background: var(--accent-soft) !important; }
+.qa-target { flex: none; display: inline-flex; align-items: center; gap: 5px; max-width: 40%; padding: 3px 8px; border-radius: 999px; background: var(--hover); font-size: 12px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qa-target:hover { color: var(--ink-strong); }
 .qa-float { position: fixed; z-index: 70; top: 18vh; left: 50%; width: min(620px, calc(100vw - 32px)); transform: translateX(-50%); padding: 14px 14px 0; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--bg); box-shadow: var(--shadow-lg); }
 
 /* every task chip is one height and sits on the same line, whatever it holds (icon, avatar, text) */
