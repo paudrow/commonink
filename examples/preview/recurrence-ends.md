@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 70
 title: Repeats that end
 ---
 1. In [[Loan and lessons]], the loan's repeat chip reads "6th · 3 left". Tick it: the next one is due on the 6th with 2 left. Tick that and the next: the last one makes no new task.
