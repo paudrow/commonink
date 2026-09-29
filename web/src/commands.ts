@@ -68,7 +68,7 @@ export function appCommands(app: App): Command[] {
   return [
     { id: "new-note", title: "New note", keywords: "create add page", icon: "plus", run: app.newNote },
     { id: "new-folder", title: "New folder", keywords: "create add directory", icon: "folderPlus", run: app.newFolder },
-    { id: "quick-add", title: "Add a task", keywords: "quick add todo new task", icon: "task", keys: ["Mod-Shift-.", "q"], area: "Tasks", run: app.quickAdd },
+    { id: "quick-add", title: "Add a task", keywords: "quick add todo new task", icon: "task", keys: ["Mod-Shift-."], area: "Tasks", run: app.quickAdd },
     go("notes", "Notes", "feed", "home all"),
     { id: "filter-notes", title: "Filter notes", keywords: "search find notes page", icon: "search", keys: ["Mod-Shift-f"], run: app.filterNotes },
     go("tasks", "Tasks", "task", "todo checklist"),
@@ -105,8 +105,9 @@ export function appCommands(app: App): Command[] {
 
 /** Shortcuts that belong to no command: moving around a page, the editor, vim. */
 export const STATIC_SHORTCUTS: Shortcut[] = [
-  { keys: ["Mod-k", "Mod-p"], label: "Search notes and commands", area: "Global" },
-  { keys: [">"], label: "In search, show only commands", area: "Global" },
+  { keys: ["Mod-p", "Mod-k"], label: "Quick open: find a note", area: "Global" },
+  { keys: ["Mod-Shift-p"], label: "Commands", area: "Global" },
+  { keys: [">"], label: "In quick open, switch to commands", area: "Global" },
   { keys: ["Mod-s"], label: "Save now", area: "Global" },
   { keys: ["j", "k"], label: "Next / previous note", area: "Notes page" },
   { keys: ["g", "G"], label: "First / last note", area: "Notes page" },
@@ -127,8 +128,7 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: ["gd", "gf"], label: "Follow the link under the cursor", area: "Vim" },
   { keys: ["gs"], label: "Open the link to the side", area: "Vim" },
   { keys: [":w"], label: "Save", area: "Vim" },
-  { keys: [":e name"], label: "Open a note (:e alone opens search)", area: "Vim" },
-  { keys: [":task words"], label: "Add a task to today's note", area: "Vim" },
+  { keys: [":e name"], label: "Open a note (:e alone opens quick open)", area: "Vim" },
   { keys: [":star"], label: "Star or unstar the note", area: "Vim" },
   { keys: [":archive"], label: "Archive the note", area: "Vim" },
   { keys: [":notes"], label: "Go to Notes", area: "Vim" },
@@ -139,11 +139,11 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: ["Space", "Enter"], label: "Tick the focused task", area: "Tasks" },
   { keys: ["Enter", "Escape"], label: "Save / cancel a task you're editing", area: "Tasks" },
   { keys: ["Mod-Alt-[", "Mod-Alt-]"], label: "Focus the left / right pane", area: "Split view" },
-  { keys: ["Mod-Enter"], label: "In search, open the pick to the side", area: "Split view" },
+  { keys: ["Mod-Enter"], label: "In quick open, open the note to the side", area: "Split view" },
   { keys: ["Mod-click"], label: "Open a link, card or task to the side", area: "Split view" },
 ];
 
-/** The shortcut sheet: the fixed shortcuts (⌘K leads), then the commands', by area. */
+/** The shortcut sheet: the fixed shortcuts (quick open leads), then the commands', by area. */
 export function shortcutSheet(commands: Command[]): Array<{ area: Area; shortcuts: Shortcut[] }> {
   const all = [...STATIC_SHORTCUTS, ...commands.filter((c) => c.keys).map((c): Shortcut => ({ keys: c.keys!, label: c.title, area: c.area ?? "Global" }))];
   return AREAS.map((area) => ({ area, shortcuts: all.filter((s) => s.area === area) })).filter((s) => s.shortcuts.length);
@@ -164,34 +164,40 @@ export function formatKeys(keys: string, mac = IS_MAC): string {
   return mac ? mods.map((m) => MAC_MOD[m]).join("") + name : [...mods.map((m) => PC_MOD[m]), name].join("+");
 }
 
-export interface CommandMatch {
-  command: Command;
-  score: number;
-  /** The query is one of its words, whole ("theme", "archive"). */
-  exact: boolean;
+/** The commands on offer that a query (what follows `>`) finds, best first; all of them, in order, for none. */
+export function matchCommands(query: string, commands: Command[]): Command[] {
+  const q = query.trim();
+  const offered = commands.filter((c) => c.available !== false);
+  if (!q) return offered;
+  return offered
+    .map((command) => ({ command, score: Math.max(fuzzyScore(q, command.title), fuzzyScore(q, command.keywords ?? "") - 300) }))
+    .filter((m) => m.score >= 0)
+    .sort((a, b) => b.score - a.score)
+    .map((m) => m.command);
 }
 
+/** What each physical key types in this keyboard layout, unshifted (Chrome and Edge can tell; see learnLayout). */
+let layout: ReadonlyMap<string, string> | null = null;
+
+/** Learn the keyboard layout, so a shortcut with ⇧ or ⌥ still finds the key its character is on. */
+export async function learnLayout(keyboard: { getLayoutMap(): Promise<ReadonlyMap<string, string>> } | undefined = (navigator as any).keyboard) {
+  layout = (await keyboard?.getLayoutMap().catch(() => null)) ?? null;
+}
+
+/** Where a browser that can't tell the layout finds keys that ⌥ turns into other characters on a Mac. */
+const US_CODES: Record<string, string> = { BracketLeft: "[", BracketRight: "]", Backslash: "\\", Period: ".", Slash: "/" };
+
 /**
- * The commands a palette query finds. Mixed in with notes, a command needs a word that starts
- * with the query, so note names don't pull in stray commands; after `>`, any fuzzy match counts.
+ * Whether a key press is the shortcut `keys` ("Mod-Shift-p"). It goes by the character typed, not
+ * the key's place, so it works on any layout (Dvorak too). Mod is ⌘ on a Mac and Ctrl elsewhere.
  */
-export function matchCommands(query: string, commands: Command[], onlyCommands = false): CommandMatch[] {
-  const q = query.trim().toLowerCase();
-  const offered = commands.filter((c) => c.available !== false);
-  if (!q) return onlyCommands ? offered.map((command) => ({ command, score: 0, exact: false })) : [];
-  if (!onlyCommands && q.length < 2) return [];
-  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const wordStart = new RegExp(`(^|[\\s/(-])${escaped}`);
-  const wholeWord = new RegExp(`(^|[\\s/(-])${escaped}($|[\\s/)…-])`);
-  return offered
-    .map((command) => {
-      const title = command.title.toLowerCase();
-      const words = `${title} ${command.keywords ?? ""}`.toLowerCase();
-      const score = Math.max(fuzzyScore(q, title), fuzzyScore(q, command.keywords ?? "") - 300);
-      const found = onlyCommands ? score >= 0 : wordStart.test(words);
-      return { command, score, exact: wholeWord.test(title) || title === q, found };
-    })
-    .filter((m) => m.found)
-    .sort((a, b) => Number(b.exact) - Number(a.exact) || b.score - a.score)
-    .map(({ command, score, exact }) => ({ command, score, exact }));
+export function matchKeys(e: Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">, keys: string, mac = IS_MAC): boolean {
+  const parts = keys.split(/-(?=.)/);
+  const want = parts.pop()!.toLowerCase();
+  const has = (m: string) => parts.includes(m);
+  if ((mac ? e.metaKey : e.ctrlKey) !== has("Mod") || (mac && e.ctrlKey) !== has("Ctrl") || e.altKey !== has("Alt") || e.shiftKey !== has("Shift")) return false;
+  if (e.key.toLowerCase() === want) return true;
+  // ⇧ and ⌥ change the character (⌥[ types “ on a Mac): ask the layout what the key types without them.
+  if (!e.altKey && !e.shiftKey) return false;
+  return (layout ? layout.get(e.code) : US_CODES[e.code]) === want;
 }

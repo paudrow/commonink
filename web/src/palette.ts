@@ -1,5 +1,5 @@
-// ⌘K: fuzzy jump by name + full-text search (SQLite FTS5 on the server), and the app's commands,
-// in one list. A leading `>` lists only commands.
+// Quick open (⌘P, or ⌘K): fuzzy jump by name + full-text search (SQLite FTS5 on the server), in one
+// list. A leading `>` (or ⌘⇧P, which types it) lists the app's commands instead.
 import { api, isArchived, type NoteMeta, type SearchHit } from "./api.ts";
 import { formatKeys, matchCommands, type Command } from "./commands.ts";
 import { $, displayName, el, escapeHtml, icon } from "./dom.ts";
@@ -36,6 +36,7 @@ export class Palette {
     private commands: () => Command[],
   ) {
     this.root.querySelector(".palette-side")!.textContent = MOD_ENTER;
+    document.querySelectorAll<HTMLElement>("kbd[data-keys]").forEach((k) => (k.textContent = formatKeys(k.dataset.keys!)));
     this.input.addEventListener("input", () => this.query());
     this.input.addEventListener("keydown", (e) => this.key(e));
     this.root.addEventListener("mousedown", (e) => {
@@ -52,8 +53,15 @@ export class Palette {
     this.root.hidden = false;
     this.input.value = initial;
     this.input.focus();
-    this.input.select();
+    this.input.setSelectionRange(initial.length, initial.length); // after a `>`, typing adds to it
     this.query();
+  }
+
+  /** ⌘P / ⌘K (`initial` ""), ⌘⇧P (">"): open it that way, switch to it, or close it if it's already that way. */
+  toggle(initial: "" | ">") {
+    const commands = this.input.value.trim().startsWith(">");
+    if (this.isOpen && commands === (initial === ">")) this.close();
+    else this.open(initial);
   }
 
   close() {
@@ -70,7 +78,7 @@ export class Palette {
     clearTimeout(this.timer);
     if (q.startsWith(">")) {
       return this.render(
-        matchCommands(q.slice(1), this.commands(), true).map((m) => ({ type: "command", command: m.command })),
+        matchCommands(q.slice(1), this.commands()).map((command) => ({ type: "command", command })),
         q,
       );
     }
@@ -91,21 +99,16 @@ export class Palette {
       .sort((a, b) => b.score - a.score)
       .slice(0, q ? 6 : 9)
       .map((x) => ({ type: "note" as const, note: x.note }));
-    const found = matchCommands(q, this.commands()).slice(0, 4);
-    const commands = found.map((m): Item => ({ type: "command", command: m.command }));
-    // A query that is one of a command's words ("theme", "archive") leads with Commands, unless a note's name starts with it.
-    const lead = !!found[0]?.exact && !names.some((n) => n.note.title.toLowerCase().startsWith(q.toLowerCase()));
     const exact = this.notes().some((n) => displayName(n.path).toLowerCase() === q.toLowerCase() || n.title.toLowerCase() === q.toLowerCase());
     const create: Item[] = q && !exact ? [{ type: "create", name: q }] : [];
-    const arrange = (content: Item[]): Item[] => (lead ? [...commands, ...names, ...content, ...archived, ...create] : [...names, ...commands, ...content, ...archived, ...create]);
-    this.render(arrange([]), q);
+    this.render([...names, ...archived, ...create], q);
     if (q.length < 2) return;
     this.timer = window.setTimeout(async () => {
       const hits = await api.search(q).catch(() => []);
       if (seq !== this.seq) return;
       const shown = new Set(names.map((n) => n.note.path));
       const content = hits.filter((h) => !shown.has(h.path) || h.lines.length).slice(0, 10).map((hit) => ({ type: "hit" as const, hit }));
-      this.render(arrange(content), q);
+      this.render([...names, ...content, ...archived, ...create], q);
     }, 70);
   }
 

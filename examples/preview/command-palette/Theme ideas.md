@@ -1,6 +1,6 @@
 # Theme ideas
 
-A note whose name starts with "theme", so typing `theme` in ⌘K keeps Notes first and puts **Toggle theme** under it.
+A note for quick open to find: ⌘P `theme` shows it. ⌘⇧P `theme` finds the **Toggle theme** command instead.
 
 - Warmer paper colour for light mode
 - A softer accent in dark mode

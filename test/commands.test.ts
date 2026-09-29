@@ -1,7 +1,7 @@
 import "./dom.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appCommands, formatKeys, matchCommands, shortcutSheet, type App } from "../web/src/commands.ts";
+import { appCommands, formatKeys, learnLayout, matchCommands, matchKeys, shortcutSheet, type App } from "../web/src/commands.ts";
 import { Palette } from "../web/src/palette.ts";
 import { toggleShortcuts } from "../web/src/shortcuts.ts";
 import type { NoteMeta } from "../web/src/api.ts";
@@ -37,7 +37,31 @@ const app = (over: Partial<App> = {}): App => {
     ...over,
   };
 };
-const titles = (q: string, a: App, only = false) => matchCommands(q, appCommands(a), only).map((m) => m.command.title);
+const titles = (q: string, a: App) => matchCommands(q, appCommands(a)).map((c) => c.title);
+const press = (key: string, code: string, mods: { meta?: boolean; ctrl?: boolean; alt?: boolean; shift?: boolean } = {}) => ({
+  key,
+  code,
+  metaKey: !!mods.meta,
+  ctrlKey: !!mods.ctrl,
+  altKey: !!mods.alt,
+  shiftKey: !!mods.shift,
+});
+
+test("shortcuts match the character typed, with Mod as ⌘ on a Mac and Ctrl elsewhere", async () => {
+  assert.equal(matchKeys(press("p", "KeyP", { meta: true }), "Mod-p", true), true);
+  assert.equal(matchKeys(press("p", "KeyP", { ctrl: true }), "Mod-p", true), false, "Ctrl isn't Mod on a Mac");
+  assert.equal(matchKeys(press("p", "KeyP", { ctrl: true }), "Mod-p", false), true);
+  assert.equal(matchKeys(press("P", "KeyP", { meta: true, shift: true }), "Mod-Shift-p", true), true);
+  assert.equal(matchKeys(press("P", "KeyP", { meta: true, shift: true }), "Mod-p", true), false, "⌘⇧P isn't ⌘P");
+  // Dvorak: P is on the physical R key, and [ on the physical minus key.
+  assert.equal(matchKeys(press("p", "KeyR", { meta: true }), "Mod-p", true), true);
+  assert.equal(matchKeys(press("r", "KeyP", { meta: true }), "Mod-p", true), false);
+  await learnLayout({ getLayoutMap: async () => new Map([["Minus", "["], ["BracketLeft", "/"]]) });
+  assert.equal(matchKeys(press("“", "Minus", { meta: true, alt: true }), "Mod-Alt-[", true), true, "⌥ changed the character; the layout knows the key");
+  assert.equal(matchKeys(press("“", "BracketLeft", { meta: true, alt: true }), "Mod-Alt-[", true), false);
+  await learnLayout(undefined);
+  assert.equal(matchKeys(press("“", "BracketLeft", { meta: true, alt: true }), "Mod-Alt-[", true), true, "no layout map: the US key");
+});
 
 test("shortcuts read ⌘⇧E on a Mac and Ctrl+Shift+E elsewhere; keys typed as they are stay as they are", () => {
   const keys = ["Mod-Shift-e", "Mod-Alt-\\", "Mod-Enter", "Shift-Tab", "Mod-click", "q", "G", "gd", ":w", "?"];
@@ -51,20 +75,12 @@ test("shortcuts read ⌘⇧E on a Mac and Ctrl+Shift+E elsewhere; keys typed as 
   );
 });
 
-test("a word finds its commands, whole words first; letters inside a word or a single letter find none", () => {
-  assert.deepEqual(titles("theme", app()), ["Toggle theme"]);
-  assert.deepEqual(titles("arch", app()), ["Go to Archive"]);
-  assert.deepEqual(titles("archive", app({ note: { kind: "md", starred: false, archived: false } })), ["Archive note", "Go to Archive"]);
+test("commands match fuzzily, by name or by what they're about, and none alone lists every command on offer", () => {
+  assert.deepEqual(titles("tgthm", app()), ["Toggle theme"]);
   assert.deepEqual(titles("dark", app()), ["Toggle theme"]);
-  assert.deepEqual(titles("heme", app()), []);
-  assert.deepEqual(titles("t", app()), []);
-  assert.equal(matchCommands("theme", appCommands(app()))[0].exact, true);
-  assert.equal(matchCommands("them", appCommands(app()))[0].exact, false);
-});
-
-test("after >, commands match fuzzily, and > alone lists every command on offer", () => {
-  assert.deepEqual(titles("tgthm", app(), true), ["Toggle theme"]);
-  const all = titles("", app(), true);
+  assert.deepEqual(titles("archive", app({ note: { kind: "md", starred: false, archived: false } })).slice(0, 2), ["Archive note", "Go to Archive"]);
+  assert.deepEqual(titles("zzz", app()), []);
+  const all = titles("", app());
   assert.equal(all[0], "New note");
   assert.ok(all.includes("Keyboard shortcuts"));
   assert.ok(!all.includes("Star note"), "no note is open");
@@ -83,14 +99,14 @@ test("commands follow the app: vim's state, the open note, Getting started, and 
     { label: "Acme", icon: "feed", run: () => {}, workspace: true },
     { label: "Connected agents…", icon: "bot", run: () => {} },
   ];
-  assert.deepEqual(titles("", app({ account }), true).slice(-2), ["Switch to Acme", "Connected agents…"]);
+  assert.deepEqual(titles("", app({ account })).slice(-2), ["Switch to Acme", "Connected agents…"]);
 });
 
 test("the sheet lists each area's shortcuts, the commands' included, whether or not they're on offer now", () => {
   const sheet = shortcutSheet(appCommands(app()));
   assert.deepEqual(sheet.map((s) => s.area), ["Global", "Notes page", "Editor", "Vim", "Tasks", "Split view"]);
   const global = sheet.find((s) => s.area === "Global")!.shortcuts;
-  assert.deepEqual(global[0], { keys: ["Mod-k", "Mod-p"], label: "Search notes and commands", area: "Global" });
+  assert.deepEqual(global.slice(0, 2).map((s) => s.keys), [["Mod-p", "Mod-k"], ["Mod-Shift-p"]]);
   assert.deepEqual(global.find((s) => s.label === "Archive note")?.keys, ["Mod-Shift-e"]);
   assert.deepEqual(sheet.find((s) => s.area === "Split view")!.shortcuts.find((s) => s.label === "Open to the side")?.keys, ["Mod-Alt-\\"]);
 });
@@ -121,16 +137,21 @@ function page(notes: NoteMeta[], onCreate: (name: string) => void = () => {}) {
   return { palette, input, type, press, options, sections, opened };
 }
 
-test("in ⌘K, a command's word leads with Commands; a note named like it keeps Notes first", () => {
-  const plain = page([note("Groceries")]);
-  plain.type("theme");
-  assert.deepEqual(plain.sections(), ["Commands"]);
-  assert.deepEqual(plain.options(), ["Toggle theme", "Create “theme”⇧↵"]);
-  const named = page([note("Theme ideas")]);
-  named.type("theme");
-  assert.deepEqual(named.sections(), ["Notes", "Commands"]);
-  assert.equal(named.options()[0], "Theme ideasTheme ideas.md");
-  named.palette.close();
+test("quick open finds only notes; > (what ⌘⇧P types) switches to commands, and each toggles itself closed", () => {
+  const p = page([note("Theme ideas")]);
+  p.type("theme");
+  assert.deepEqual(p.sections(), ["Notes"]);
+  assert.deepEqual(p.options(), ["Theme ideasTheme ideas.md", "Create “theme”⇧↵"]);
+  p.palette.toggle(">");
+  assert.equal(p.input.value, ">");
+  assert.equal(p.input.selectionStart, 1, "typing goes after the >");
+  assert.deepEqual(p.sections(), ["Commands"]);
+  p.type(">theme");
+  assert.deepEqual(p.options(), ["Toggle theme"]);
+  p.palette.toggle("");
+  assert.equal(p.input.value, "", "⌘P switches back to notes");
+  p.palette.toggle("");
+  assert.equal(p.palette.isOpen, false);
 });
 
 test("⌘K is a labelled listbox whose active option the field points at; Enter runs a command and focus goes back", () => {

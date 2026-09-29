@@ -21,7 +21,7 @@ import { isQuickAddKey, openQuickAdd } from "./quickAdd.ts";
 import { runTaskCommand } from "./taskCommand.ts";
 import type { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./account.ts";
-import { appCommands } from "./commands.ts";
+import { appCommands, learnLayout, matchKeys } from "./commands.ts";
 import { toggleShortcuts } from "./shortcuts.ts";
 import { vaultEvents } from "./events.ts";
 import { groupChanges } from "../../src/core/format.ts";
@@ -1871,9 +1871,11 @@ window.addEventListener(
   "keydown",
   (e) => {
     const mod = e.metaKey || e.ctrlKey;
-    if (mod && (e.key === "k" || e.key === "p")) {
+    const quickOpen = matchKeys(e, "Mod-p") || matchKeys(e, "Mod-k");
+    if (quickOpen || matchKeys(e, "Mod-Shift-p")) {
       e.preventDefault();
-      palette.isOpen ? palette.close() : openPalette();
+      paletteToSide = false;
+      palette.toggle(quickOpen ? "" : ">");
     } else if (mod && !e.altKey && e.key === "\\") {
       e.preventDefault();
       togglePanel();
@@ -1889,12 +1891,12 @@ window.addEventListener(
     } else if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
       e.preventDefault();
       void showNotes({ filter: true });
-    } else if (mod && e.altKey && (e.code === "Backslash" || e.key === "\\")) {
+    } else if (matchKeys(e, "Mod-Alt-\\")) {
       e.preventDefault();
       void (split ? closePane(active) : openSplit());
-    } else if (mod && e.altKey && (e.code === "BracketLeft" || e.code === "BracketRight") && split) {
+    } else if ((matchKeys(e, "Mod-Alt-[") || matchKeys(e, "Mod-Alt-]")) && split) {
       e.preventDefault();
-      const p = panes[e.code === "BracketLeft" ? 0 : 1];
+      const p = panes[matchKeys(e, "Mod-Alt-[") ? 0 : 1];
       focusPane(p);
       if (p.session && p.session.kind !== "asset") p.view.focus();
     } else if (isQuickAddKey(e) || (e.key === "q" && !mod && !e.altKey && !typingIn(e.target))) {
@@ -2122,6 +2124,8 @@ async function boot() {
   }
 
   hydrateIcons();
+  void learnLayout();
+  window.addEventListener("focus", () => void learnLayout()); // the layout may have changed while away
   togglePanel(prefs.panel);
   $("#search-btn").addEventListener("click", () => openPalette());
   // A new note goes at the top level, unless Notes is showing a folder: then it goes there.
