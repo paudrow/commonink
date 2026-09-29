@@ -98,17 +98,21 @@ export function fmtWrite(r: { path: string; version: string; change?: Change | n
 }
 
 /** A note's boards, column by column: each card as its markdown line with its line number, and the lines nested under it. */
-export function fmtBoards(path: string, boards: Board[]): string {
-  if (!boards.length) return `${path} has no board.`;
-  return boards
-    .map((b, i) => {
-      const columns = b.columns.map((c) =>
-        [
-          `${"#".repeat(b.level)} ${c.title}${c.done ? " (done column)" : ""}`,
-          ...c.cards.flatMap((k) => [`- ${k.checked === null ? "" : `[${k.checked ? "x" : " "}] `}${k.text} — L${k.from + 1}`, ...k.details.map((d) => (d ? `    ${d}` : ""))]),
-        ].join("\n"),
-      );
-      return [`Board ${i + 1} of ${boards.length} in ${path}`, ...columns].join("\n\n");
-    })
-    .join("\n\n");
+export function fmtBoards(path: string, boards: Board[], unclosed: number | null = null): string {
+  const open = unclosed === null ? "" : `\n\nProblem: the :::kanban on line ${unclosed + 1} has no closing ::: line, so it shows as text.`;
+  if (!boards.length) return `${path} has no board.${open}`;
+  return (
+    boards
+      .map((b, i) => {
+        const columns = b.columns.map((c) =>
+          [
+            `## ${c.title}${c.done ? " (done column)" : ""}${c.color ? ` {color=${c.color}}` : ""}`,
+            ...c.cards.flatMap((k) => [`- ${k.checked === null ? "" : `[${k.checked ? "x" : " "}] `}${k.text} — L${k.from + 1}`, ...k.details.map((d) => (d ? `    ${d}` : ""))]),
+          ].join("\n"),
+        );
+        const problems = b.problems.map((p) => `- ${p.message} (${p.kind}, L${p.from + 1}${p.to - p.from > 1 ? `–${p.to}` : ""})`);
+        return [`Board ${i + 1} of ${boards.length} in ${path}`, ...(problems.length ? [`Problems (the lines stay as they are until fixed):\n${problems.join("\n")}`] : []), ...columns].join("\n\n");
+      })
+      .join("\n\n") + open
+  );
 }
