@@ -1051,7 +1051,10 @@ body.is-resizing iframe { pointer-events: none; }
 .feed-card.is-selected .fc-check { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .fc-main { flex: 1; min-width: 0; }
 .fc-head { display: flex; align-items: center; gap: 8px; }
-.fc-title { font-weight: 650; font-size: 15.5px; color: var(--ink-strong); letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fc-title { font-weight: 650; font-size: 15.5px; color: var(--ink-strong); letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; padding: 1px 0; }
+.fc-title:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-strong); }
+.fc-expand svg { transition: transform 0.12s; }
+.feed-card.is-expanded .fc-expand svg { transform: rotate(90deg); }
 .fc-badge { font: 650 10px/1 var(--ui); letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 6px; border-radius: 5px; background: var(--hover); color: var(--muted); }
 .fc-action { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 7px; color: var(--muted); opacity: 0; transition: opacity 0.12s; }
 .feed-card:hover .fc-action, .feed-card.is-focused .fc-action { opacity: 1; }
