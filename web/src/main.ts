@@ -23,7 +23,8 @@ import type { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
 import { groupChanges } from "../../src/core/format.ts";
-import { clampSide, forget, newLayout, parseLayout, SIDE_CLICK, sideClick, step, visit, type PaneTrail } from "./panes.ts";
+import { clampSide, forget, historyStep, IS_MAC, newLayout, pageEntry, pageOf, parseLayout, rememberPlace, SIDE_CLICK, sideClick, step, visit, type PaneTrail, type Place } from "./panes.ts";
+import { isShortcut } from "./typedKey.ts";
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
 import { smartFolderEditor } from "./smartFolderEditor.ts";
@@ -193,7 +194,15 @@ function openPalette(side = false) {
 
 // ------------------------------------------------------------------ opening notes
 
-const cursors = new Map<string, number>();
+/** Where you were in each note (by ID): the cursor and the scroll, so going back puts you there. Kept in this browser. */
+let places: Record<string, Place> = store.get("places", {});
+/** Remember where a pane is in its note, before it shows something else. */
+function keepPlace(p: Pane) {
+  const s = p.session;
+  if (!s || s.kind === "asset") return;
+  places = rememberPlace(places, s.id, { pos: p.view.state.selection.main.head, top: p.view.scrollDOM.scrollTop });
+  store.set("places", places);
+}
 
 /**
  * Open a note in a pane (the focused one by default). A note shows in one pane at a time: if the
@@ -211,7 +220,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   const ticket = ++pane.opens;
   await flushSave(pane);
   if (pane.session) await nameUntitled(pane.session);
-  if (pane.session && pane.session.kind !== "asset") cursors.set(pane.session.path, pane.view.state.selection.main.head);
+  keepPlace(pane);
   const meta = notes.find((n) => n.path === path);
   if (meta?.kind === "asset") return showAssets({ open: meta.path, push: opts.push });
 
@@ -281,9 +290,12 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   else {
     // Start below the frontmatter so it renders as properties rather than raw YAML.
     const fm = note.kind === "md" ? note.content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/) : null;
-    const pos = Math.min(cursors.get(note.path) ?? (fm ? fm[0].length : 0), pane.view.state.doc.length);
+    // Back where you were in it, if you've been here; else the top.
+    const place = places[note.id];
+    const pos = Math.min(place?.pos ?? (fm ? fm[0].length : 0), pane.view.state.doc.length);
     pane.view.dispatch({ selection: { anchor: pos } });
     pane.view.scrollDOM.scrollTop = 0;
+    if (place) requestAnimationFrame(() => (pane.view.scrollDOM.scrollTop = place.top));
   }
   // Following a link or a click adds to history; back/forward, renames and old links just fix the URL up.
   if (opts.focus !== false) focusPane(pane, opts.push === false || opts.trail === false ? "replace" : "push");
@@ -335,7 +347,7 @@ async function closePane(p: Pane) {
   const side = panes[1];
   await flushSave();
   const moving = p.index === 0 ? side.session : null;
-  if (side.session) cursors.set(side.session.path, side.view.state.selection.main.head);
+  keepPlace(side);
   setSplit(false);
   if (moving) await openNote(moving.path, { pane: panes[0], push: false });
   else focusPane(panes[0]);
@@ -376,24 +388,55 @@ function renderPaneBars() {
   }
 }
 
-/** Go back or forward in one pane, past notes that are gone or open in the other pane. */
-async function stepPane(p: Pane, dir: "back" | "forward") {
+/**
+ * Go back or forward in one pane (⌘[ ⌘], vim's Ctrl-O Ctrl-I, the browser's buttons), past notes
+ * that are gone or open in the other pane. The main pane's trail has the pages you went to, too.
+ * False if there was nowhere to go.
+ */
+async function stepPane(p: Pane, dir: "back" | "forward"): Promise<boolean> {
   let from = p.trail;
   for (let to = step(from, dir); to; to = step(from, dir)) {
-    const path = notes.find((n) => n.id === to!.note)?.path;
+    const page = pageOf(to.note!);
+    if (page !== null && p.index === 0) {
+      p.trail = to;
+      saveLayout();
+      history.replaceState({ i: historyAt }, "", page);
+      await route();
+      return true;
+    }
+    const path = page === null ? notes.find((n) => n.id === to!.note)?.path : undefined;
     if (path && path !== other(p).session?.path) {
       p.trail = to;
-      return openNote(path, { pane: p, trail: false });
+      await openNote(path, { pane: p, trail: false });
+      return true;
     }
     from = { ...forget(from, to.note!), note: from.note };
   }
+  return false;
+}
+
+/** The app's place in the browser's history: each entry it pushes is numbered (see historyStep). */
+let historyAt = typeof history.state?.i === "number" ? history.state.i : 0;
+history.replaceState({ ...(history.state ?? {}), i: historyAt }, "");
+
+/**
+ * The browser's back and forward (its buttons, a mouse's side buttons, a swipe) step the focused
+ * pane the same way the keys do. An entry the app didn't number shows what its address says.
+ */
+async function onPopState(e: PopStateEvent) {
+  const move = historyStep(historyAt, e.state?.i);
+  if (typeof e.state?.i === "number") historyAt = e.state.i;
+  if (!move) return route();
+  let moved = false;
+  for (let n = 0; n < move.steps; n++) if (await stepPane(active, move.dir)) moved = true;
+  if (!moved) await route();
 }
 
 /** Point the address bar at `url` (path + query) unless it's already there. */
 function setUrl(url: string, how: "push" | "replace" = "push") {
   if (location.pathname + location.search === url) return;
-  if (how === "push") history.pushState(null, "", url);
-  else history.replaceState(null, "", url);
+  if (how === "push") history.pushState({ i: ++historyAt }, "", url);
+  else history.replaceState({ i: historyAt }, "", url);
 }
 
 let unmountTasks: (() => void) | null = null;
@@ -412,13 +455,24 @@ function showStage(which: "editor" | "html" | "notes" | "tasks" | "history" | "a
   }
 }
 
+/**
+ * A page you went to (Notes, Tasks…): its address, and a place in the main pane's trail, so back
+ * comes to it. A page shown for you (at start, or after its note went away) isn't a place you went.
+ */
+function wentTo(url: string) {
+  setUrl(url);
+  panes[0].trail = visit(panes[0].trail, pageEntry(url));
+  saveLayout();
+  renderPaneBars();
+}
+
 /** Put the open note away (saved, named, cursor remembered) before showing a page that isn't a note. Pages show in the main pane, which then has the focus. */
 async function leaveNote() {
   const main = panes[0];
   main.opens++; // a note still loading into it doesn't come back over the page
   await flushSave(main);
   if (main.session) await nameUntitled(main.session);
-  if (main.session && main.session.kind !== "asset") cursors.set(main.session.path, main.view.state.selection.main.head);
+  keepPlace(main);
   main.session = null;
   active = main;
   renderPaneBars();
@@ -433,7 +487,7 @@ async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: strin
   await leaveNote();
   showStage("notes");
   notesPage.show(opts);
-  if (opts.push !== false) setUrl("/notes");
+  if (opts.push !== false) wentTo("/notes");
   document.title = "Notes · Common Ink";
   renderChrome();
   renderTree();
@@ -445,7 +499,7 @@ async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean
   showStage("tasks");
   unmountTasks = renderTasksPage($("#tasks-view"), { open: (path, line, side) => void openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }), tags: () => tags, vim: prefs.vim }, { tag: opts.tag, assignee: opts.assignee });
   $("#tasks-view").focus({ preventScroll: true });
-  if (opts.push !== false) setUrl("/tasks");
+  if (opts.push !== false) wentTo("/tasks");
   document.title = "Tasks · Common Ink";
   renderChrome();
   renderTree();
@@ -458,7 +512,7 @@ async function showHistory(opts: { note?: string | null; select?: number; push?:
   showStage("history");
   await (await loadHistory()).show({ note: opts.note ?? null, select: opts.select });
   const id = opts.note ? notes.find((n) => n.path === opts.note)?.id : undefined;
-  if (opts.push !== false) setUrl(id ? `/history?note=${id}` : "/history");
+  if (opts.push !== false) wentTo(id ? `/history?note=${id}` : "/history");
   document.title = `${opts.note ? `${displayName(opts.note)} · ` : ""}History · Common Ink`;
   renderChrome();
   renderTree();
@@ -470,7 +524,7 @@ async function showTags(opts: { push?: boolean } = {}) {
   showStage("tags");
   (await loadTags()).show();
   refreshTagsSoon();
-  if (opts.push !== false) setUrl("/tags");
+  if (opts.push !== false) wentTo("/tags");
   document.title = "Tags · Common Ink";
   renderChrome();
   renderTree();
@@ -487,7 +541,7 @@ async function showAssets(opts: { open?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("assets");
   (await loadAssets()).show({ open: opts.open });
-  if (opts.push !== false) setUrl("/assets");
+  if (opts.push !== false) wentTo("/assets");
   document.title = "Assets · Common Ink";
   renderChrome();
   renderTree();
@@ -1815,6 +1869,12 @@ Vim.mapCommand("gd", "action", "quireFollowLink", {}, { context: "normal" });
 Vim.mapCommand("gf", "action", "quireFollowLink", {}, { context: "normal" });
 Vim.defineAction("quireOpenSide", () => openLinkToSide(active.view));
 Vim.mapCommand("gs", "action", "quireOpenSide", {}, { context: "normal" });
+Vim.mapCommand("gD", "action", "quireOpenSide", {}, { context: "normal" });
+// Ctrl-O and Ctrl-I: back and forward through the notes this pane has shown, like vim's jumps across files.
+Vim.defineAction("quireBack", () => void stepPane(active, "back"));
+Vim.defineAction("quireForward", () => void stepPane(active, "forward"));
+Vim.mapCommand("<C-o>", "action", "quireBack", {}, { context: "normal" });
+Vim.mapCommand("<C-i>", "action", "quireForward", {}, { context: "normal" });
 
 function followLinkAtCursor() {
   const link = linkTargetAt(active.view.state, active.view.state.selection.main.head);
@@ -1828,7 +1888,16 @@ window.addEventListener(
   "keydown",
   (e) => {
     const mod = e.metaKey || e.ctrlKey;
-    if (mod && (e.key === "k" || e.key === "p")) {
+    // Off a Mac, Alt+← and Alt+→ are the platform's back and forward (key names, the same on any layout).
+    const altArrow = !IS_MAC && e.altKey && !mod && !e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight") ? e.key : null;
+    const back = isShortcut(e, "Mod-[") || altArrow === "ArrowLeft";
+    if (back || isShortcut(e, "Mod-]") || altArrow === "ArrowRight") {
+      // Back and forward through the notes (and pages) this pane has shown. Matched by the character
+      // typed, so ⌘[ is the key that types [ on any layout. TODO: matchShortcut (#72) once merged.
+      e.preventDefault();
+      e.stopPropagation();
+      void stepPane(active, back ? "back" : "forward");
+    } else if (mod && (e.key === "k" || e.key === "p")) {
       e.preventDefault();
       palette.isOpen ? palette.close() : openPalette();
     } else if (mod && !e.altKey && e.key === "\\") {
@@ -2089,7 +2158,7 @@ async function boot() {
   });
   const isDark = document.documentElement.dataset.theme === "dark" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
   $("#theme-toggle").replaceChildren(icon(isDark ? "sun" : "moon", 15));
-  window.addEventListener("popstate", () => void route());
+  window.addEventListener("popstate", (e) => void onPopState(e));
   $("#notes-btn").addEventListener("click", () => void showNotes({ scope: "active", query: {} }));
   $("#tasks-btn").addEventListener("click", () => void showTasks());
   $("#history-btn").addEventListener("click", () => void showHistory());
