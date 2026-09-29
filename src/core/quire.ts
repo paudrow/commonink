@@ -611,12 +611,26 @@ export class Quire {
       ...keys, rel,
     );
     const cache = new Map<string, string[]>();
+    const resolve = this.resolver();
     return rows
       .filter((r) => {
         const t = this.linkTargetAt(r.path, r.line, keys, cache);
-        return t !== null && this.resolve(t, r.path) === rel;
+        return t !== null && resolve(t, r.path) === rel;
       })
       .map((r) => ({ ...r, text: (cache.get(r.path)?.[r.line - 1] ?? "").trim().slice(0, 200) }));
+  }
+
+  /**
+   * resolve(), remembering each answer, for reading many links while no note comes or goes. What a
+   * link resolves to depends only on its text and the folder it's in.
+   */
+  private resolver() {
+    const seen = new Map<string, string | null>();
+    return (target: string, from: string) => {
+      const key = `${path.posix.dirname(from)}\n${target}`;
+      if (!seen.has(key)) seen.set(key, this.resolve(target, from));
+      return seen.get(key)!;
+    };
   }
 
   /** Find the raw link target on a line whose key matches (so ambiguous names resolve correctly). */
@@ -1434,11 +1448,12 @@ export class Quire {
     const wikiTarget = newStemUnique ? path.posix.basename(dest).replace(/\.(md|markdown)$/i, "") : dest.replace(/\.(md|markdown)$/i, "");
     const updated: string[] = [];
     const edits: Array<{ path: string; content: string; version: string; change: Change }> = [];
+    const resolve = this.resolver(); // rewriting links changes no note's path
     for (const src of referrers) {
       const before = this.files.read(src) ?? "";
       const after = before
         .replace(/(!?)\[\[([^\]|#\n]+)(#[^\]|\n]*)?(\|[^\]\n]*)?\]\]/g, (m, bang, t, hash = "", alias = "") =>
-          oldKeys.has(linkKey(t)) && this.resolve(t, src) === null ? `${bang}[[${wikiTarget}${hash}${alias}]]` : m,
+          oldKeys.has(linkKey(t)) && resolve(t, src) === null ? `${bang}[[${wikiTarget}${hash}${alias}]]` : m,
         )
         .replace(/(!?\[[^\]\n]*\]\()([^)\s]+)(\))/g, (m, pre, t, post) =>
           oldKeys.has(linkKey(decodeURIComponent(t))) ? `${pre}${encodeURI(dest)}${post}` : m,

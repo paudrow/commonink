@@ -103,6 +103,18 @@ test("a long Notes page still gives every note its tags, in the order written, a
   assert.deepEqual([byPath.get("N0.md")!.lastSource, byPath.get("N7.md")!.lastSource, byPath.get("N119.md")!.lastSource], ["you", "Jane", "Claude"]);
 });
 
+test("the same [[name]] in different folders links to each folder's own note", () => {
+  const { quire } = openTempVault({
+    "a/Plan.md": "# Plan A\n",
+    "b/Plan.md": "# Plan B\n",
+    "a/Uses.md": "# Uses A\n\nSee [[Plan]].\n",
+    "a/More.md": "# More A\n\n[[Plan]] again.\n",
+    "b/Uses.md": "# Uses B\n\nSee [[Plan]].\n",
+  });
+  assert.deepEqual(quire.backlinks("a/Plan.md").map((b) => b.path).sort(), ["a/More.md", "a/Uses.md"]);
+  assert.deepEqual(quire.backlinks("b/Plan.md").map((b) => b.path), ["b/Uses.md"]);
+});
+
 test("an index from before tasks were indexed learns them on the next start", () => {
   const { dir, quire } = openTempVault(TASKY);
   quire.db.exec("DROP TABLE tasks");
