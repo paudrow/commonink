@@ -8,8 +8,10 @@ export interface ApiHost {
   quire: Quire;
   /** Who changes made through this request are attributed to ("you" locally, a person's name online). */
   actor: string;
-  /** Whose favorites this request reads and changes (the vault's one person locally, a user ID online). */
+  /** Whose favorites and personal smart folders this request reads and changes (the vault's one person locally, a user ID online). */
   user: string;
+  /** May this person change what the whole workspace shares, like shared smart folders? Everyone locally; not viewers online. */
+  canEditShared: boolean;
   info(): Record<string, unknown>;
   /** A note's text changed through the API: tell connected clients. */
   written(rel: string, content: string | null, version: string, change: Change | null, origin?: string): void;
@@ -24,7 +26,7 @@ export const json = (data: unknown, status = 200) =>
 
 export function errorResponse(e: unknown): Response {
   if (e instanceof QuireError) {
-    const status = { not_found: 404, conflict: 409, exists: 409, invalid: 400 }[e.code];
+    const status = { not_found: 404, conflict: 409, exists: 409, invalid: 400, forbidden: 403 }[e.code];
     return json({ error: e.message, code: e.code, ...e.data }, status);
   }
   console.error(e);
@@ -163,6 +165,8 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json(quire.diffSet(parseIdRanges(q("ids"))));
     case "GET /favorites":
       return json(quire.favorites(host.user));
+    case "GET /smart-folders":
+      return json(quire.smartFolders(host.user));
     case "GET /tasks":
       return json(
         quire.tasks({
@@ -259,6 +263,16 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json(favorited(optStr("tag") !== undefined ? quire.unstarTag(host.user, str("tag")) : quire.unstar(host.user, str("path"))));
     case "PUT /favorites":
       return json(favorited(quire.orderFavorites(host.user, paths("paths"))));
+    case "POST /smart-folders": {
+      const f = quire.saveSmartFolder(host.user, { id: optStr("id"), name: str("name"), query: text("query"), shared: flag("shared") }, host.canEditShared, true);
+      host.tree();
+      return json(f);
+    }
+    case "POST /smart-folders/delete": {
+      const list = quire.deleteSmartFolder(host.user, str("id"), host.canEditShared, true);
+      host.tree();
+      return json(list);
+    }
     case "POST /archive":
       return moveAll(paths("paths"), (p) => quire.archive(p, actor));
     case "POST /unarchive":

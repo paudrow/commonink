@@ -86,6 +86,14 @@ test("task add writes a task from words, and task move moves one", () => {
   assert.equal(quire(vault, ["task", "add"]).stderr, "Say what the task is: quire task add \"Call mom tomorrow\"\n");
 });
 
+test("smart-save, smart and smart-rm keep saved note queries", () => {
+  const vault = tempVault();
+  assert.match(quire(vault, ["smart-save", "Planning", "tag=plan", "--just-me"]).stdout, /^- Planning \(1 note, just you\): tag=plan \[[a-z2-9]{8}\]\n$/);
+  assert.equal(quire(vault, ["smart", "planning"]).stdout, "- Projects/Roadmap.md — Roadmap\n");
+  assert.equal(quire(vault, ["smart-save", "Bad", "colour=red"]).stderr, 'Unknown query key "colour": use q, folder, tag, sort or limit\n');
+  assert.equal(quire(vault, ["smart-rm", "Planning"]).stdout, "No smart folders.\n");
+});
+
 test("star and unstar take #tags as well as notes", () => {
   const vault = tempVault();
   assert.equal(quire(vault, ["star", "Welcome", "#plan"]).stdout, "Favorites:\n- Welcome.md — Welcome\n- #plan (1 note)\n");

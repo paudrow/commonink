@@ -152,6 +152,7 @@ const host: ApiHost = {
   quire,
   actor: "you",
   user: LOCAL_USER,
+  canEditShared: true,
   info: () => ({ mode: "local", name: path.basename(files.root), vault: files.root, projectRoot: PROJECT_ROOT }),
   written(rel, content, version, change, origin) {
     seen.set(rel, version);

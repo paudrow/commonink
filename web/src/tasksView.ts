@@ -28,6 +28,8 @@ export function mountTasks(
       remeasure() {},
       open: (target, line) => opts.open(target, line),
       openTag: opts.openTag,
+      saveSmartFolder() {},
+      sources: { tags: () => [], folders: () => [] }, // the Tasks page has no settings form
       openPerson: opts.openPerson,
     },
     card,
