@@ -2,6 +2,7 @@
 import { api, isArchived, type NoteMeta, type SearchHit } from "./api.ts";
 import { $, displayName, el, escapeHtml, icon } from "./dom.ts";
 import { fuzzyScore } from "./fuzzy.ts";
+import { MOD_ENTER, paletteEnter } from "./panes.ts";
 
 type Item =
   | { type: "note"; note: NoteMeta; archived?: boolean }
@@ -21,9 +22,11 @@ export class Palette {
 
   constructor(
     private notes: () => NoteMeta[],
-    private onOpen: (path: string, line?: number) => void,
+    /** `side`: open it to the side (⌘Enter). */
+    private onOpen: (path: string, line?: number, side?: boolean) => void,
     private onCreate: (name: string) => void,
   ) {
+    this.root.querySelector(".palette-side")!.textContent = MOD_ENTER;
     this.input.addEventListener("input", () => this.query());
     this.input.addEventListener("keydown", (e) => this.key(e));
     this.root.addEventListener("mousedown", (e) => {
@@ -111,7 +114,7 @@ export class Palette {
 
   private row(item: Item, q: string): HTMLElement {
     if (item.type === "create") {
-      return el("div", { class: "palette-item is-create", role: "option" }, icon("plus", 15), el("span", { class: "pi-title" }, `Create “${item.name}”`), el("kbd", {}, "⌘↵"));
+      return el("div", { class: "palette-item is-create", role: "option" }, icon("plus", 15), el("span", { class: "pi-title" }, `Create “${item.name}”`), el("kbd", {}, "⇧↵"));
     }
     if (item.type === "note") {
       const n = item.note;
@@ -149,14 +152,14 @@ export class Palette {
     this.list.querySelector(".is-active")?.scrollIntoView({ block: "nearest" });
   }
 
-  private choose(i: number, create = false) {
+  private choose(i: number, how: ReturnType<typeof paletteEnter> = "open") {
     const item = this.items[i];
     const q = this.input.value.trim();
     this.close();
-    if (create || item?.type === "create") return q && this.onCreate(q);
+    if (how === "create" || item?.type === "create") return q && this.onCreate(q);
     if (!item) return;
-    if (item.type === "note") this.onOpen(item.note.path);
-    else if (item.type === "hit") this.onOpen(item.hit.path, item.hit.lines[0]?.line);
+    if (item.type === "note") this.onOpen(item.note.path, undefined, how === "side");
+    else if (item.type === "hit") this.onOpen(item.hit.path, item.hit.lines[0]?.line, how === "side");
   }
 
   private key(e: KeyboardEvent) {
@@ -168,7 +171,7 @@ export class Palette {
       if (n) this.setActive((this.active + (down ? 1 : n - 1)) % n);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      this.choose(this.active, e.metaKey || e.ctrlKey);
+      this.choose(this.active, paletteEnter(e));
     } else if (e.key === "Escape") {
       e.preventDefault();
       this.close();

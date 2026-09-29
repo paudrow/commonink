@@ -92,6 +92,19 @@ const ICONS: Record<string, string> = {
 
 /** What a dragged note carries (its path), from a card in Notes or a favorite to a folder, Favorites or Archive. */
 export const NOTE_DRAG = "application/x-common-ink-path";
+/**
+ * A dragged link: in HTML drag and drop, data of this type is `{ target, from }` (the [[target]]
+ * and the note it's in, resolved where it lands); a link dragged in the editor sends window events
+ * of this name, with a LinkDrag each.
+ */
+export const LINK_DRAG = "application/x-common-ink-link";
+export interface LinkDrag {
+  phase: "move" | "drop";
+  x: number;
+  y: number;
+  target: string;
+  from: string;
+}
 
 export function icon(name: string, size = 16): SVGSVGElement {
   const wrap = document.createElement("span");
