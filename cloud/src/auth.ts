@@ -1,13 +1,25 @@
-// Sign-in: Google OAuth (authorization code + PKCE), and signed session cookies so checking who's
-// asking needs no database round trip. New accounts are gated: someone Google hasn't seen here before
-// needs the sign-up code (SIGNUP_CODE) or a valid invite link.
-import { createWorkspace, failedSignups, hasUser, inviteIsValid, recordFailedSignup, upsertUser, type User } from "./directory.ts";
+// Sign-in: Google OAuth (authorization code + PKCE), and sessions kept in D1 so they can be signed
+// out anywhere. New accounts are gated: someone Google hasn't seen here before needs the sign-up code
+// (SIGNUP_CODE) or a valid invite link.
+import {
+  createSession, createWorkspace, endSession, failedSignups, hasUser, inviteIsValid, recordFailedSignup,
+  sessionUser, touchSession, upsertUser, type User,
+} from "./directory.ts";
 import type { Env } from "./env.ts";
 
-const SESSION = "ci_session";
-const OAUTH = "ci_oauth";
-const SIGNUP = "ci_signup";
+// __Host- cookies must be Secure, for this exact host and path "/", so a sibling subdomain can't set
+// or overwrite them.
+const SESSION = "__Host-ci_session";
+const OAUTH = "__Host-ci_oauth";
+const SIGNUP = "__Host-ci_signup";
+/** Sessions from before they were kept in D1: cleared on sight, and their holder signs in again. */
+const LEGACY_SESSION = "ci_session";
+/** A session ends this long after sign-in, however much it's used. */
 const SESSION_DAYS = 30;
+/** A session also ends after this long unused. */
+const IDLE_DAYS = 14;
+/** How stale a session's last-seen time may get before a request refreshes it (saves a write per request). */
+const TOUCH_EVERY = 3600_000;
 /** Wrong sign-up codes a Google account may try in a day. */
 const SIGNUP_TRIES = 5;
 
@@ -54,14 +66,22 @@ function cookie(req: Request, name: string) {
 const setCookie = (name: string, value: string, maxAge: number) =>
   `${name}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
 
-export interface Session {
-  uid: string;
-  exp: number;
+const sha256 = async (s: string) => b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
+const idleSince = () => Date.now() - IDLE_DAYS * 86400_000;
+
+/** Who's signed in on this request, if anyone. */
+export async function readSession(req: Request, env: Env): Promise<User | null> {
+  const token = cookie(req, SESSION);
+  if (!token) return null;
+  const id = await sha256(token);
+  const row = await sessionUser(env.DB, id, idleSince());
+  if (!row) return null;
+  const { seenAt, ...user } = row;
+  if (Date.now() - seenAt > TOUCH_EVERY) await touchSession(env.DB, id);
+  return user;
 }
 
-export function readSession(req: Request, env: Env) {
-  return unseal<Session>(env.SESSION_SECRET, cookie(req, SESSION));
-}
+export const clearSessionCookies = () => [setCookie(SESSION, "", 0), setCookie(LEGACY_SESSION, "", 0)];
 
 // ------------------------------------------------------------------ routes
 
@@ -90,8 +110,11 @@ interface PendingSignup {
   exp: number;
 }
 
-/** Only same-site relative paths, so `next` can't bounce people to another site. */
-const safeNext = (next: string | null) => (next && next.startsWith("/") && !next.startsWith("//") ? next : "/");
+/**
+ * Only paths on this site, so `next` can't bounce people to another one. Browsers read `/\evil.com`
+ * as `//evil.com`, so backslashes are out too.
+ */
+const safeNext = (next: string | null) => (next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/");
 
 export async function handleAuth(req: Request, env: Env, onSignedIn: (user: User, isNew: boolean) => Promise<void>): Promise<Response> {
   const url = new URL(req.url);
@@ -102,8 +125,12 @@ export async function handleAuth(req: Request, env: Env, onSignedIn: (user: User
   };
   const startSession = async (user: User, isNew: boolean, next: string, extra: string[] = []) => {
     await onSignedIn(user, isNew);
-    const value = await seal(env.SESSION_SECRET, { uid: user.id, exp: Date.now() + SESSION_DAYS * 86400_000 });
-    return redirect(next, [...extra, setCookie(SESSION, value, SESSION_DAYS * 86400)]);
+    // A fresh token every sign-in, and the one this browser had (if any) stops working.
+    const old = cookie(req, SESSION);
+    if (old) await endSession(env.DB, await sha256(old));
+    const token = b64url(crypto.getRandomValues(new Uint8Array(32)));
+    await createSession(env.DB, await sha256(token), user.id, Date.now() + SESSION_DAYS * 86400_000, idleSince());
+    return redirect(next, [...extra, setCookie(LEGACY_SESSION, "", 0), setCookie(SESSION, token, SESSION_DAYS * 86400)]);
   };
 
   switch (url.pathname) {
@@ -197,8 +224,11 @@ export async function handleAuth(req: Request, env: Env, onSignedIn: (user: User
       return startSession(user, isNew, safeNext(url.searchParams.get("next")));
     }
 
-    case "/auth/logout":
-      return redirect("/", [setCookie(SESSION, "", 0), setCookie(SIGNUP, "", 0)]);
+    case "/auth/logout": {
+      const token = cookie(req, SESSION);
+      if (token) await endSession(env.DB, await sha256(token));
+      return redirect("/", [...clearSessionCookies(), setCookie(SIGNUP, "", 0)]);
+    }
   }
   return text(404, "Not found");
 }
@@ -212,9 +242,7 @@ export async function ensurePersonalWorkspace(env: Env, user: User) {
 }
 
 export async function seedWorkspace(env: Env, id: string) {
-  await env.WORKSPACE.get(env.WORKSPACE.idFromName(id)).fetch(
-    new Request("https://workspace/seed", { method: "POST", headers: { "x-ci-workspace": id } }),
-  );
+  await env.WORKSPACE.get(env.WORKSPACE.idFromName(id)).seed(id);
 }
 
 const text = (status: number, body: string) => new Response(body, { status, headers: { "Content-Type": "text/plain; charset=utf-8" } });

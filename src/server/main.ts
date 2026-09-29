@@ -9,6 +9,7 @@ import { ASSET_TAGS, diffstat, versionOf, type Change } from "../core/quire.ts";
 import { LOCAL_USER, openVault, PROJECT_ROOT } from "../core/local.ts";
 import { cleanPath, fileSecurityHeaders, isHidden, kindOf, mimeOf, MAX_UPLOAD, QuireError } from "../core/paths.ts";
 import { errorResponse, handleApi, json, type ApiHost } from "../core/api.ts";
+import { SANDBOX_PATH, sandboxPage } from "../core/sandbox.ts";
 import { unfurl } from "./unfurl.ts";
 
 // PORT=0 picks a free port (printed on start). QUIRE_NO_UI=1 serves only /api, skipping Vite.
@@ -166,6 +167,7 @@ const host: ApiHost = {
 async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
   if (!hostOk(req)) return send(res, json({ error: "Forbidden host" }, 403));
   const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+  if (url.pathname === SANDBOX_PATH) return send(res, sandboxPage());
   if (!url.pathname.startsWith("/api/")) return vite ? vite.middlewares(req, res) : send(res, json({ error: "Not found (QUIRE_NO_UI)" }, 404));
   if (!originOk(req)) return send(res, json({ error: "Cross-origin request refused" }, 403));
   const route = url.pathname.slice("/api".length);

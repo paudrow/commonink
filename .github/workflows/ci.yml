@@ -26,6 +26,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run cloud:typecheck
+      - run: npm test
       - run: npm run build:web
 
   # Every commit to main goes live at https://commonink.app: D1 migrations, then the Worker and web app.

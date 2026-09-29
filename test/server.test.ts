@@ -76,6 +76,13 @@ test("vault files are served sandboxed, and paths can't climb out", async () => 
   assert.equal((await request("GET", "/api/files/Welcome.md")).status, 404);
 });
 
+test("HTML notes' sandbox page has its own policy and an opaque origin", async () => {
+  const res = await request("GET", "/sandbox");
+  assert.equal(res.status, 200);
+  assert.equal(res.headers["content-security-policy"], "sandbox allow-scripts; frame-ancestors 'self'");
+  assert.match(res.body, /parent\.postMessage\(\{ quireSandbox: "ready" \}, "\*"\)/);
+});
+
 test("uploads land in assets/ under a free name; wrong types and oversized files are refused", async () => {
   const up = (name: string, body: string | Buffer) => request("POST", `/api/upload?name=${encodeURIComponent(name)}`, { headers: origin(), body });
   const first = await up("data.csv", "a,b\n1,2\n");

@@ -92,6 +92,11 @@ export function renderAccount(me: Me, current: Me["workspaces"][number], toast: 
       : []),
     el("div", { class: "acct-sep" }),
     item("Sign out", "open", () => (location.href = "/auth/logout")),
+    item("Sign out everywhere…", "open", async () => {
+      if (!confirm("Sign out of Common Ink on every device and browser, including this one?")) return;
+      await api.signOutEverywhere();
+      location.href = "/";
+    }),
   );
   button.addEventListener("click", (e) => {
     e.stopPropagation();
