@@ -500,14 +500,17 @@ export class Quire {
     const terms = searchTerms(query);
     const key = tag === undefined ? null : normalizeTag(tag);
     if (!terms.length || (tag !== undefined && !key)) return [];
+    // Ordered by rank, the full-text index hands hits over best first, so the query stops at `limit`
+    // and makes snippets only for the hits it returns (a 1 MB note's snippet can take 200 ms).
     const rows = this.db.all(
       `SELECT n.path, n.title, n.kind,
               snippet(notes_fts, 2, char(1), char(2), '…', 16) AS snippet,
-              bm25(notes_fts, 4.0, 8.0, 1.0) AS score
+              rank AS score
        FROM notes_fts JOIN notes n ON n.path = notes_fts.path
-       WHERE notes_fts MATCH ? AND (? = 'all' OR (n.path LIKE 'Archive/%') = (? = 'archived'))
+       WHERE notes_fts MATCH ? AND rank MATCH 'bm25(4.0, 8.0, 1.0)'
+         AND (? = 'all' OR (n.path LIKE 'Archive/%') = (? = 'archived'))
          AND (? IS NULL OR n.path IN (SELECT path FROM tags WHERE ${UNDER}))
-       ORDER BY score LIMIT ?`,
+       ORDER BY rank LIMIT ?`,
       ftsQuery(terms), scope, scope, key, ...under(key ?? ""), limit,
     );
     return rows.map((r) => ({ ...r, lines: this.matchingLines(r.path, terms) }));

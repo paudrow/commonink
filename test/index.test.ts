@@ -121,6 +121,14 @@ test("an index from before tasks were indexed learns them on the next start", ()
   assert.deepEqual(brief(openVault(dir), { note: "A" }), ["A.md:3   First [A] "]);
 });
 
+test("search ranks every hit and snippets the ones it returns, however large the notes that match", () => {
+  const big = Array.from({ length: 20_000 }, (_, i) => (i % 7000 ? "filler words here" : "the launch plan again")).join("\n");
+  const { quire } = openTempVault({ "Big.md": `# Big\n\n${big}\n`, "Launch.md": "# Launch plan\n\nThe launch plan for October.\n", "Other.md": "# Other\n\nNo match.\n" });
+  const hits = quire.search("launch plan", 1);
+  assert.deepEqual(hits.map((h) => [h.path, h.snippet]), [["Launch.md", "# \u0001Launch\u0002 \u0001plan\u0002\n\nThe \u0001launch\u0002 \u0001plan\u0002 for October.\n"]]);
+  assert.deepEqual(quire.search("launch plan").map((h) => h.path), ["Launch.md", "Big.md"]);
+});
+
 test("an index from before full-text rows were tracked keeps one entry per note after an edit", () => {
   const { dir, quire } = openTempVault();
   quire.db.exec("ALTER TABLE notes DROP COLUMN fts");
