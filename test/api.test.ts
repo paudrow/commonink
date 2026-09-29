@@ -37,6 +37,14 @@ test("a PUT then GET round-trips a note and announces the write", async () => {
   assert.deepEqual(events, ["written Ideas/New.md by tester", "tree"]);
 });
 
+test("a POST for a note that exists is a 409 naming it, so the app opens it instead of writing over it", async () => {
+  const { call } = setup();
+  assert.equal((await call("POST", "/note", { path: "Idea.md", content: "# Idea\n\nfirst\n" })).status, 200);
+  const again = await call("POST", "/note", { path: "Idea.md", content: "# Idea\n\nsecond\n" });
+  assert.deepEqual([again.status, again.body.code, again.body.path], [409, "exists", "Idea.md"]);
+  assert.equal((await call("GET", "/note?path=Idea.md")).body.content, "# Idea\n\nfirst\n");
+});
+
 test("a stale baseVersion is a 409 carrying the current text", async () => {
   const { call } = setup();
   const r = await call("PUT", "/note", { path: "Welcome.md", content: "# Mine\n", baseVersion: "000000000000" });
@@ -100,6 +108,33 @@ test("archive moves each listed note and reports where it went", async () => {
   const r = await call("POST", "/archive", { paths: ["Roadmap"] });
   assert.deepEqual(r.body, { moved: [{ from: "Projects/Roadmap.md", to: "Archive/Projects/Roadmap.md" }] });
   assert.deepEqual(events, ["moved Projects/Roadmap.md -> Archive/Projects/Roadmap.md", "tree"]);
+});
+
+test("tags are listed, asset tags set, and a rename reports what undoes it", async () => {
+  const { call, events } = setup();
+  assert.deepEqual((await call("PUT", "/asset-tags", { path: "chart.svg", tags: ["Plan/charts"] })).body, { tags: ["Plan/charts"] });
+  assert.deepEqual((await call("GET", "/asset-tags")).body, { "assets/chart.svg": ["Plan/charts"] });
+  assert.deepEqual(
+    (await call("GET", "/tags")).body.map((t: { tag: string; notes: number; assets: number }) => `${t.tag} ${t.notes}/${t.assets}`),
+    ["plan 1/1", "plan/charts 0/1", "q3 1/0"],
+  );
+  events.length = 0;
+  const r = await call("POST", "/tags/rename", { from: "plan", to: "roadmap" });
+  assert.equal(r.body.changes.length, 1);
+  assert.deepEqual(r.body.assets, { "assets/chart.svg": ["Plan/charts"] });
+  assert.deepEqual(events, ["written Projects/Roadmap.md by tester", "tree"]);
+  assert.match((await call("GET", "/note?path=Roadmap")).body.content, /^---\ntags: \[roadmap, q3\]\n---\n/);
+  assert.equal((await call("POST", "/tags/rename", { from: "q3", to: "not a tag" })).status, 400);
+  assert.equal((await call("PUT", "/asset-tags", { path: "Welcome", tags: ["x"] })).status, 400);
+  assert.equal((await call("PUT", "/asset-tags", { path: "chart.svg", tags: "x" })).status, 400);
+});
+
+test("a tag is starred and unstarred through the favorites routes a viewer can use", async () => {
+  const { call } = setup();
+  const starred = await call("POST", "/favorites/star", { tag: "plan" });
+  assert.deepEqual(starred.body, [{ tag: "plan", display: "plan", notes: 1 }]);
+  assert.equal((await call("POST", "/favorites/star", { tag: "27" })).status, 400);
+  assert.deepEqual((await call("POST", "/favorites/unstar", { tag: "#plan" })).body, []);
 });
 
 test("favorites are starred, ordered and unstarred per person, and tell the other tabs", async () => {

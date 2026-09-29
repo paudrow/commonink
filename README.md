@@ -32,7 +32,7 @@ Needs Node 22.13+ (uses the built-in `node:sqlite`). The vault defaults to `./va
 | Claude Desktop, Cursor, … | stdio server: command `/path/to/quire/bin/quire`, args `["mcp"]` |
 | Shell agents / scripts | `bin/quire --help`, and pass `--as <name>` so writes are attributed |
 
-Tools: `search_notes`, `read_note`, `list_notes`, `create_note`, `edit_note`, `append_to_note`, `move_note`, `archive_note`, `unarchive_note`, `star_note`, `unstar_note`, `backlinks`, `recent_changes`. The server sends `vault/AGENTS.md` as its instructions, so edit that file to change agent conventions.
+Tools: `search_notes`, `read_note`, `list_notes`, `list_tags`, `create_note`, `edit_note`, `append_to_note`, `move_note`, `archive_note`, `unarchive_note`, `star_note`, `unstar_note`, `star_tag`, `unstar_tag`, `backlinks`, `recent_changes`. The server sends `vault/AGENTS.md` as its instructions, so edit that file to change agent conventions.
 
 ## How edits from agents and you stay safe together
 
@@ -44,13 +44,13 @@ Tools: `search_notes`, `read_note`, `list_notes`, `create_note`, `edit_note`, `a
 
 CodeMirror 6 with vim mode (`@replit/codemirror-vim`), plus:
 
-- **Live preview.** Markup hides when your cursor leaves it. Checkboxes can be clicked, and tables and frontmatter render as cards.
+- **Live preview.** Markup hides when your cursor leaves it. Checkboxes can be clicked, `#tags` show as chips (click one to see its notes), and tables and frontmatter render as cards.
 - **Embeds.** `![[Note]]`, `![[Note#Heading]]`, `![[image.svg]]`, `![[page.html]]`, and YouTube links.
 - **HTML notes** render in a sandboxed iframe with an opaque origin, both full-page and embedded (`⌘E` toggles source).
 - **Search.** `⌘K` does fuzzy name matching plus FTS5 full-text search. `gd` follows the link under the cursor, `:w` saves, `:e name` opens a note.
 - **Typing helpers.** `/` opens tools (embeds, widgets, blocks, dates), `@` links a note (people plug into the same menu later), and `[[` completes note names.
 - **Widgets** are one markdown line (generic-directive syntax), so agents can write them too. The sliders button edits the args in place. See `Dashboards/Overview.md` for all of them together.
-  - `::tasks{folder=… note=…}` rolls up checkboxes from across the vault, grouped by note with a progress bar. Ticking one edits the note it lives in, and the list updates as notes change.
+  - `::tasks{folder=… note=… tag=…}` rolls up checkboxes from across the vault, grouped by note with a progress bar. Ticking one edits the note it lives in, and the list updates as notes change.
   - `::query{q=… folder=… tag=… limit=…}` is a live list of matching notes, good for dashboards.
   - `::calendar{folder=Journal}` shows a month of daily notes, shaded by how much you wrote, with your streak. Click a day to open it, or to start it.
   - `::timer{duration=25m label="Focus"}` and `::stopwatch{label="Run"}` keep their running state (time left, laps) in the browser, keyed by `id`, so they don't churn the file. Timers chime and notify even when their note isn't open.
@@ -66,8 +66,9 @@ Online, IDs are unique across all workspaces. Each workspace claims its notes' I
 ## Notes and archive
 
 - **Notes** (sidebar, `⌘⇧F`, or `:notes`) is home: it shows every note as a card, newest first, with a rendered preview. Type to filter (full-text), switch between Active, Archived and All, or narrow to a folder. It's keyboard-first: `j`/`k` to move, `↵` to open, `e` to archive, `x` to select several, `/` to filter.
-- **The sidebar** has the views (Notes, Tasks, Assets, History), then Favorites, then Folders. Folders start closed (the chevron shows subfolders) and list no notes: clicking one opens Notes narrowed to it. Drag a card from Notes onto a folder to move the note there, onto Favorites to star it, or onto Archive.
-- **Favorites** are the notes you reach for, at the top of the sidebar. Star a note from its top bar, from its card in Notes (`s`), with `:star` in vim, `quire star <note…>`, or the MCP `star_note` tool. Drag favorites to reorder them, or drag a card from Notes onto Favorites to star it. Stars point at the note's stable ID, so they follow it through renames, moves and archiving. They're each person's own: stored beside the index locally, and per person in each workspace online, never in a note.
+- **The sidebar** leads with tags: the views (Notes, Tasks, Assets, History), then Favorites, Folders and Tags, each of which folds away from its header (remembered in this browser; Folders starts folded, since folders are storage and tags are how you find things). Tags is the tag tree with counts: nested tags open from their chevron, and clicking one opens Notes narrowed to it. Its header button opens the Tags page, for renaming and merging. Folders list no notes either: clicking one opens Notes narrowed to it. Drag a card from Notes onto a folder to move the note there, onto Favorites to star it, or onto Archive. New note puts the note at the top level, or in the folder Notes is showing.
+- **Favorites** are the notes (and tags) you reach for, at the top of the sidebar. Star a tag with the same star notes have, on its row under Tags or beside the tag filter in Notes, or with `quire star '#work'` / MCP `star_tag`; clicking it opens Notes narrowed to that tag. A starred tag follows renames and merges, and drops out of sight while no note uses it. Star a note from its top bar, from its card in Notes (`s`), with `:star` in vim, `quire star <note…>`, or the MCP `star_note` tool. Drag favorites to reorder them, or drag a card from Notes onto Favorites to star it. Stars point at the note's stable ID, so they follow it through renames, moves and archiving. They're each person's own: stored beside the index locally, and per person in each workspace online, never in a note.
+- **Tags** are `#tag` in a note (a task's tags go on its line) or `tags: [a, b]` in its frontmatter, and nest with `/`: `#work` includes `#work/clients/acme`. Case doesn't matter, and a tag shows the way it was first written. A `#` in a heading, code or a URL isn't a tag, and neither is `#27`. Typing `#` suggests tags, most used first. Notes, Tasks and Assets each have a Tag filter, and clicking a tag anywhere filters by it. The **Tags** page shows the tree with counts; renaming a tag there rewrites it in every note and asset (renaming onto an existing tag merges them), with Undo. Assets are tagged from their preview, and their tags live in `assets/.tags.json`. The index keeps a `tags` table (tag, kind, path, line) current with every write, so filters never re-read the vault.
 - **Archive** moves a note to `Archive/<original path>`, which takes it out of the sidebar, search, `@` suggestions and agents' default listings. Links keep working. Archive from Notes (`e`, or in bulk), the top bar or `⌘⇧E` in a note, `:archive` in vim, `quire archive <note…>`, or the MCP `archive_note` tool. Every archive comes with Undo, and unarchiving puts the note back where it was.
 
 ## Undo and recovery
