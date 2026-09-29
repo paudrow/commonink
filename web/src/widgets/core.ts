@@ -1,7 +1,7 @@
 // Shared chrome for interactive widgets: the card, its header, and the settings form that
 // writes the widget's args back into the markdown line. Its fields (fieldRows) are shared with
 // the smart folder editor, so a query field added once shows up in both.
-import type { TagCount } from "../api.ts";
+import type { TagCount, Task } from "../api.ts";
 import { el, icon } from "../dom.ts";
 import { tagPicker } from "../tagPicker.ts";
 import { formatDuration, parseDuration, serializeDirective } from "./args.ts";
@@ -52,6 +52,8 @@ export interface WidgetEnv {
   editor?: EditorContext;
   /** The person can read this workspace but not change it. */
   readOnly?: boolean;
+  /** Tasks a list leaves out (the Tasks page: the ones its Today section already shows). */
+  skip?(task: Task): boolean;
 }
 
 export interface WidgetSpec {

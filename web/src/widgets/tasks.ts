@@ -91,7 +91,7 @@ export const tasks: WidgetSpec = {
       try {
         const t = await api.tasks({ folder: env.args.folder, note: env.args.note, tag: env.args.tag, assignee: env.args.assignee, due: env.args.due, today: today() });
         if (!alive) return;
-        [all, problem] = [t, ""];
+        [all, problem] = [env.skip ? t.filter((x) => !env.skip!(x)) : t, ""];
       } catch (e) {
         if (!alive) return;
         [all, problem] = [[], e instanceof Error ? e.message : "Couldn't load tasks"];

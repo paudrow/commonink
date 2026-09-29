@@ -6,7 +6,7 @@ import { cleanPath, isHidden, kindOf, linkKey, QuireError, stemOf, type NoteKind
 import { extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
-import { dueFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, skipPatch, TASK_LINE, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
+import { dueFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
 import { parseQuickAdd } from "./quickAdd.ts";
 import { formatQuery, parseQuery, queryProblem, type NoteQuery } from "./query.ts";
 import { addCard, boardsIn, checkCard, editCard, moveCard, type Board, type Place } from "./kanban.ts";
@@ -1225,11 +1225,10 @@ export class Quire {
    */
   today(date = localDate(this.now())): TodayView {
     if (!isDate(date)) throw new QuireError(`"today" must be a date like 2026-10-01, not "${date}"`);
-    const day = (d: string | null) => d?.slice(0, 10) ?? "";
     const open = this.tasks({ today: date }).filter((t) => !t.done);
-    const overdue = open.filter((t) => day(t.meta.due) && day(t.meta.due) < date).sort((a, b) => day(a.meta.due).localeCompare(day(b.meta.due)));
-    const due = open.filter((t) => day(t.meta.due) === date);
-    const starting = open.filter((t) => day(t.meta.start) === date && !(day(t.meta.due) && day(t.meta.due) <= date));
+    const into = (id: string) => open.filter((t) => todaySection(t.meta, date) === id);
+    const overdue = into("overdue").sort((a, b) => a.meta.due!.localeCompare(b.meta.due!));
+    const [due, starting] = [into("due"), into("starting")];
     const journal = `Journal/${date}.md`;
     return {
       date,
