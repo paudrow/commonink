@@ -16,7 +16,8 @@ import { touches } from "./livePreview.ts";
 import { dataEmbed, hydrateDataEmbeds } from "../textPreview.ts";
 import { scanTags } from "../../../src/core/tags.ts";
 import { boardsIn, setBoardArgs } from "../../../src/core/kanban.ts";
-import { hydrateBoards, mountBoard, type BoardHost } from "../kanban.ts";
+// Boards load with the first note that has one.
+import type { BoardHost, mountBoard } from "../kanban.ts";
 import { kanbanBlock } from "../widgets/kanban.ts";
 import { editsBetween } from "../merge.ts";
 import { redo, undo } from "@codemirror/commands";
@@ -208,7 +209,9 @@ class EmbedWidget extends WidgetType {
         body.innerHTML = renderMarkdown(md, path, { boards: !heading });
         hydrateDataEmbeds(body, path, settle);
         body.querySelectorAll("input").forEach((i) => (i.disabled = true));
-        (outer as any).stopBoards = hydrateBoards(body, path, { ctx, readOnly: view.state.readOnly, resized: settle });
+        if (body.querySelector(".kb-slot[data-board]")) {
+          void import("../kanban.ts").then((m) => ((outer as any).stopBoards = m.hydrateBoards(body, path, { ctx, readOnly: view.state.readOnly, resized: settle })));
+        }
         body.querySelectorAll("img").forEach((img) => img.addEventListener("load", settle));
         body.addEventListener("mousedown", (e) => {
           const a = (e.target as HTMLElement).closest("a");
@@ -422,9 +425,16 @@ class BoardWidget extends WidgetType {
     const spec = kanbanBlock((body, _env, card) => {
       const edit = el("button", { class: "qw-icon", type: "button", title: "Edit as text", "aria-label": "Edit as text", onclick: host.editText }, icon("code", 15));
       card.querySelector(".qw-head")!.insertBefore(edit, card.querySelector(".qw-head .qw-icon"));
-      const b = mountBoard(body, host, this.index);
-      (root as any).board = b;
-      return b.destroy;
+      let board: ReturnType<typeof mountBoard> | null = null;
+      let gone = false;
+      void import("../kanban.ts").then((m) => {
+        if (gone) return;
+        board = (root as any).board = m.mountBoard(body, host, at.index);
+      });
+      return () => {
+        gone = true;
+        board?.destroy();
+      };
     });
     const { dom, destroy } = renderWidget(spec, env);
     root.append(dom);

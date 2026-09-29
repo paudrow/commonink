@@ -13,11 +13,11 @@ import { sandboxFrame } from "./render.ts";
 import { Palette } from "./palette.ts";
 import { NotesPage } from "./notesPage.ts";
 import { folderPicker } from "./folderPicker.ts";
-import { History } from "./history.ts";
-import { Assets } from "./assets.ts";
+import type { History } from "./history.ts";
+import type { Assets } from "./assets.ts";
 import { renderTasksPage } from "./tasksView.ts";
 import { openQuickAdd } from "./quickAdd.ts";
-import { TagsPage } from "./tagsPage.ts";
+import type { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn } from "./account.ts";
 import { vaultEvents } from "./events.ts";
 import { groupChanges } from "../../src/core/format.ts";
@@ -137,27 +137,41 @@ const notesPage = new NotesPage({
     void refreshNotes();
   },
 });
-const historyPage = new History({
-  open: (path) => fromPage(path),
-  verb: (c) => verb(c),
-  toast: (t) => toast(t),
-});
-const assetsPage = new Assets({
-  notes: () => notes,
-  upload: (files) => uploadFiles(files),
-  open: (path) => fromPage(path),
-  archive: (path) => archivePath(path),
-  embedName: (path) => embedName(path),
-  tags: () => tags,
-  refreshTags: () => refreshNotes(),
-  toast: (t) => toast(t),
-});
-const tagsPage = new TagsPage($("#tags-view"), {
-  tags: () => tags,
-  refresh: () => refreshNotes(),
-  openTag: (tag, where) => openTag(tag, where),
-  toast: (t) => toast(t),
-});
+// History, Assets and Tags load the first time they're opened (each is null until then).
+let historyPage: History | null = null;
+let assetsPage: Assets | null = null;
+let tagsPage: TagsPage | null = null;
+const once = <T>(load: () => Promise<T>) => {
+  let loading: Promise<T> | null = null;
+  return () => (loading ??= load());
+};
+const loadHistory = once(async () =>
+  (historyPage = new (await import("./history.ts")).History({
+    open: (path) => fromPage(path),
+    verb: (c) => verb(c),
+    toast: (t) => toast(t),
+  })),
+);
+const loadAssets = once(async () =>
+  (assetsPage = new (await import("./assets.ts")).Assets({
+    notes: () => notes,
+    upload: (files) => uploadFiles(files),
+    open: (path) => fromPage(path),
+    archive: (path) => archivePath(path),
+    embedName: (path) => embedName(path),
+    tags: () => tags,
+    refreshTags: () => refreshNotes(),
+    toast: (t) => toast(t),
+  })),
+);
+const loadTags = once(async () =>
+  (tagsPage = new (await import("./tagsPage.ts")).TagsPage($("#tags-view"), {
+    tags: () => tags,
+    refresh: () => refreshNotes(),
+    openTag: (tag, where) => openTag(tag, where),
+    toast: (t) => toast(t),
+  })),
+);
 /** The palette's next pick opens to the side (⌘⌥\ with nothing to show there yet). */
 let paletteToSide = false;
 const palette = new Palette(
@@ -434,7 +448,7 @@ async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean
 async function showHistory(opts: { note?: string | null; select?: number; push?: boolean } = {}) {
   await leaveNote();
   showStage("history");
-  await historyPage.show({ note: opts.note ?? null, select: opts.select });
+  await (await loadHistory()).show({ note: opts.note ?? null, select: opts.select });
   const id = opts.note ? notes.find((n) => n.path === opts.note)?.id : undefined;
   if (opts.push !== false) setUrl(id ? `/history?note=${id}` : "/history");
   document.title = `${opts.note ? `${displayName(opts.note)} · ` : ""}History · Common Ink`;
@@ -446,7 +460,7 @@ async function showHistory(opts: { note?: string | null; select?: number; push?:
 async function showTags(opts: { push?: boolean } = {}) {
   await leaveNote();
   showStage("tags");
-  tagsPage.show();
+  (await loadTags()).show();
   refreshTagsSoon();
   if (opts.push !== false) setUrl("/tags");
   document.title = "Tags · Common Ink";
@@ -464,7 +478,7 @@ function openTag(tag: string, where: "notes" | "tasks" = "notes") {
 async function showAssets(opts: { open?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("assets");
-  assetsPage.show({ open: opts.open });
+  (await loadAssets()).show({ open: opts.open });
   if (opts.push !== false) setUrl("/assets");
   document.title = "Assets · Common Ink";
   renderChrome();
@@ -505,7 +519,7 @@ function pickFiles(): Promise<File[]> {
 }
 
 const onPage = () =>
-  notesPage.visible ? "notes" : !$("#tasks-view").hidden ? "tasks" : historyPage.visible ? "history" : assetsPage.visible ? "assets" : tagsPage.visible ? "tags" : null;
+  notesPage.visible ? "notes" : !$("#tasks-view").hidden ? "tasks" : historyPage?.visible ? "history" : assetsPage?.visible ? "assets" : tagsPage?.visible ? "tags" : null;
 
 // ------------------------------------------------------------------ focus mode
 
@@ -823,7 +837,7 @@ function onMessage(m: ServerMsg) {
         }
       }
       notesPage.refreshSoon();
-      historyPage.refreshSoon();
+      historyPage?.refreshSoon();
       renderActivity();
       renderPresence();
       renderTree();
@@ -859,13 +873,13 @@ async function refreshNotes() {
   const open = active.session && notes.find((n) => n.id === active.session!.id);
   if (open && parseNotePath(location.pathname)?.id === open.id) setUrl(notePath(open.title, open.id), "replace");
   renderTree();
-  assetsPage.refresh();
-  tagsPage.refresh();
+  assetsPage?.refresh();
+  tagsPage?.refresh();
 }
 const refreshNotesSoon = debounce(refreshNotes, 120);
 const refreshTagsSoon = debounce(async () => {
   tags = await api.tags().catch(() => tags);
-  tagsPage.refresh();
+  tagsPage?.refresh();
   renderTree();
 }, 400);
 
@@ -1164,7 +1178,7 @@ function renderTree() {
   const shownTag = showing === null ? "" : (parseQuery(showing).tag ?? "");
   renderTagTree(shownTag && showing === formatQuery({ tag: shownTag }) ? shownTag.toLowerCase() : ""); // a tag alone, like a folder alone
   $("#tasks-btn").classList.toggle("is-active", page === "tasks");
-  $("#history-btn").classList.toggle("is-active", page === "history" && !historyPage.noteFilter);
+  $("#history-btn").classList.toggle("is-active", page === "history" && !historyPage?.noteFilter);
   $("#assets-btn").classList.toggle("is-active", page === "assets");
   $("#tags-page-btn").classList.toggle("is-on", page === "tags");
 
@@ -1448,7 +1462,7 @@ function renderChrome() {
     for (const id of ["#vim-mode", "#cursor-pos", "#word-count"]) $(id).textContent = "";
     $("#vim-mode").dataset.mode = "";
     const label = { notes: "Notes", tasks: "Tasks", history: "History", assets: "Assets", tags: "Tags" };
-    const note = page === "history" ? historyPage.noteFilter : null;
+    const note = page === "history" ? (historyPage?.noteFilter ?? null) : null;
     return crumbs.replaceChildren(
       ...(page ? [el("span", { class: "crumb-file" }, label[page])] : []),
       ...(note ? [el("span", { class: "crumb-sep" }, "·"), el("span", { class: "crumb" }, displayName(note))] : []),
