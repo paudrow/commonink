@@ -9,4 +9,5 @@ Renaming or moving a note rewrites the links that pointed at it: all of them, an
 3. In [[Plan]], click its file name in the top bar and rename it to `Plan (2027)`. The toast says it updated links in 2 notes.
 4. Open [[Links to plan]]. "The budget" still lands on the Budget heading, and `[[Plan]]` became `[[Plan (2027)]]`. The `[[Plan]]` in the code span and in the code block are as typed.
 5. Open [[Standup]]. "The plan" still opens the renamed note, and "Our plan" still opens the team's note.
-6. On a Mac, running Common Ink locally: rename a note by changing only the case of its name, `plan` to `Plan`. It used to say the note already exists.
+6. In the renamed note, its link to its own Budget section now reads `[[Plan (2027)#Budget]]` and still works.
+7. On a Mac, running Common Ink locally: rename a note by changing only the case of its name, `plan` to `Plan`. It used to say the note already exists.
