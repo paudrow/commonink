@@ -8,6 +8,7 @@ import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
 import { assetIcon, assetType, extOf } from "./assetKinds.ts";
 import { changeVerb, groupChanges, isRename } from "../../src/core/format.ts";
 import { emptyState } from "./emptyState.ts";
+import { formatKeys } from "./keys.ts";
 import type { ToastSpec } from "./toast.ts";
 
 type Item = Change & { count: number; first: number };
@@ -66,7 +67,7 @@ export class History {
         el(
           "aside",
           { class: "hist-side" },
-          el("div", { class: "hist-head" }, el("h1", {}, "History"), el("p", {}, "Click to see a change · ⌘-click to add or skip · shift-click for a range")),
+          el("div", { class: "hist-head" }, el("h1", {}, "History"), el("p", {}, `Click to see a change · ${formatKeys("Mod-click")} to add or skip · shift-click for a range`)),
           this.filtersEl,
           this.listEl,
           this.moreEl,
@@ -282,7 +283,7 @@ export class History {
   private async loadDiff() {
     const picked = this.visibleItems().filter((it) => this.selected.has(it.id));
     if (!picked.length) {
-      this.filesEl.replaceChildren(el("div", { class: "hist-hint" }, "Select changes on the left to see what they did. Shift-click selects a range; ⌘-click adds or skips one."));
+      this.filesEl.replaceChildren(el("div", { class: "hist-hint" }, `Select changes on the left to see what they did. Shift-click selects a range; ${formatKeys("Mod-click")} adds or skips one.`));
       return;
     }
     const seq = ++this.diffSeq;

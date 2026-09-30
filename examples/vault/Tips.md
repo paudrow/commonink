@@ -59,6 +59,8 @@ for (const hit of hits) console.log(hit.path, hit.lines);
 
 ## Keys
 
+Off a Mac, read `⌘` as `Ctrl`. Press `?` for every shortcut.
+
 - `⌘K` search and jump between notes
 - `⌘Z` takes back the last change in a note, an agent's included
 - Vim keys: toggle them in the status bar
