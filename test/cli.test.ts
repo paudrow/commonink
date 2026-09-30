@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { groupChanges } from "../src/core/format.ts";
+import { openVault } from "../src/core/local.ts";
 import { tempVault } from "./helpers.ts";
 
 const BIN = path.resolve(import.meta.dirname, "../bin/quire");
@@ -29,6 +31,24 @@ test("create reads stdin, edits are attributed to --agent (or --as), and changes
   assert.match(quire(vault, ["changes", "--by", "people"]).stdout, /^#1 \S+ you: create Inbox\.md \(4 lines\)\n$/);
   assert.equal(quire(vault, ["changes", "--by", "ai"]).stdout.split("\n").filter(Boolean).length, 2);
   assert.match(quire(vault, ["changes", "--by", "Planner"]).stdout, /^#3 \S+ Planner for you: edit Inbox\.md \(\+2 −0\)\n$/);
+});
+
+test("changes counts a run of saves by its net change and says renamed, the same as History", () => {
+  const vault = tempVault();
+  quire(vault, ["create", "Churn", "-"], "# Churn\n\none\ntwo\n");
+  quire(vault, ["edit", "Churn", "--old", "two\n", "--new", "two\nthree\nfour\nfive\nsix\n"]);
+  quire(vault, ["edit", "Churn", "--old", "one\ntwo\nthree\nfour\nfive\nsix\n", "--new", "ONE\ntwo\nthree\n"]);
+  quire(vault, ["edit", "Churn", "--old", "three\n", "--new", "three\nfour\n"]);
+  quire(vault, ["mv", "Churn", "Churned"]);
+  const lines = quire(vault, ["changes"]).stdout.trimEnd().split("\n");
+  assert.deepEqual(
+    lines.map((l) => l.replace(/^#\d+ \S+ /, "")),
+    ["you: renamed Churn.md → Churned.md", "you: edited Churn.md (+3 −1, 3 saves)", "you: created Churn.md (5 lines)"],
+  );
+  // History's list and its diff count the run from the same change ids.
+  const q = openVault(vault);
+  const run = groupChanges(q.changes({}))[1];
+  assert.deepEqual(q.diffStats([[run.first, run.first + 1, run.id]]), [{ add: 3, del: 1 }]);
 });
 
 test("read prints numbered lines and honours --offset/--limit", () => {

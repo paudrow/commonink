@@ -95,6 +95,20 @@ test("writes are attributed to the connected client", async () => {
   assert.match((await call("recent_changes", { path: "Agent log.md", by: "test-agent" })).text, /test-agent for you: create Agent log\.md/);
 });
 
+test("recent_changes counts a run of saves by its net change and says renamed, as History does", async () => {
+  await call("create_note", { path: "Churn", content: "# Churn\n\none\ntwo\n" });
+  await call("edit_note", { path: "Churn", old_string: "two\n", new_string: "two\nthree\nfour\nfive\nsix\n" });
+  await call("edit_note", { path: "Churn", old_string: "one\ntwo\nthree\nfour\nfive\nsix\n", new_string: "ONE\ntwo\nthree\n" });
+  await call("edit_note", { path: "Churn", old_string: "three\n", new_string: "three\nfour\n" });
+  await call("move_note", { from: "Churn", to: "Churned" });
+  const lines = (await call("recent_changes", { path: "Churned.md" })).text.split("\n").map((l) => l.replace(/^#\d+ \S+ /, ""));
+  assert.deepEqual(lines, [
+    "test-agent for you: renamed Churn.md → Churned.md",
+    "test-agent for you: edited Churn.md (+3 −1, 3 saves)",
+    "test-agent for you: created Churn.md (5 lines)",
+  ]);
+});
+
 test("tool errors come back as isError with the core's message", async () => {
   assert.deepEqual(await call("read_note", { path: "../../etc/passwd" }), {
     text: 'No note matches "../../etc/passwd". Try search_notes to find it.',
