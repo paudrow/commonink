@@ -7,9 +7,11 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { Quire } from "../../src/core/quire.ts";
 import { migrate } from "../../src/core/store.ts";
 import { errorResponse, handleApi, json, type ApiHost } from "../../src/core/api.ts";
-import { cleanPath, fileSecurityHeaders, kindOf, MAX_UPLOAD, mimeOf } from "../../src/core/paths.ts";
+import { cleanPath, fileSecurityHeaders, kindOf, MAX_UPLOAD, mimeOf, QuireError } from "../../src/core/paths.ts";
 import type { Change } from "../../src/core/quire.ts";
 import { createMcpServer } from "../../src/core/tools.ts";
+import { COMMANDS, UsageError, type VaultBytes } from "../../src/core/commands/index.ts";
+import type { RunResponse } from "../../src/core/commands/wire.ts";
 import { access, asRole } from "./access.ts";
 import { DoDb, SqlContent } from "./do-store.ts";
 import { SEED_FILES, SEED_NOTES } from "./seed.ts";
@@ -153,21 +155,44 @@ export class Workspace extends DurableObject<Env> {
     try {
       const name = url.searchParams.get("name") ?? "";
       const folder = url.searchParams.get("folder") ?? "assets";
-      let rel = this.quire.uploadPath(name, folder);
       const body = await req.arrayBuffer();
       if (body.byteLength > MAX_UPLOAD) return json({ error: "That file is over 50 MB" }, 413);
-      const mime = mimeOf(rel)!;
-      const key = `ws/${wsId}/${crypto.randomUUID()}`;
-      await this.env.FILES.put(key, body, { httpMetadata: { contentType: mime } });
-      if (this.files.stat(rel)) rel = this.quire.uploadPath(name, folder); // taken while we were storing it
-      this.files.putBlob(rel, key, body.byteLength, mime);
-      const r = this.quire.recordUpload(rel, false, actor);
+      const { rel, r } = await this.storeFile(wsId, this.quire.uploadPath(name, folder), new Uint8Array(body), actor, () => this.quire.uploadPath(name, folder));
       this.announce(rel, null, r.version, r.change);
       this.broadcast({ type: "tree" });
       return json({ path: rel, version: r.version, size: r.size });
     } catch (e) {
       return errorResponse(e);
     }
+  }
+
+  /** A new file's bytes into R2, listed at `rel` (or `again()`, if that was taken while they were stored), and logged. */
+  private async storeFile(wsId: string, rel: string, bytes: Uint8Array, source: string, again = () => rel) {
+    const mime = mimeOf(rel)!;
+    const key = `ws/${wsId}/${crypto.randomUUID()}`;
+    await this.env.FILES.put(key, bytes, { httpMetadata: { contentType: mime } });
+    if (this.files.stat(rel)) rel = again();
+    this.files.putBlob(rel, key, bytes.byteLength, mime);
+    return { rel, r: this.quire.recordUpload(rel, false, source) };
+  }
+
+  /** Files' bytes for commands that move them (the CLI's upload and download): assets from R2, notes as text. */
+  private vaultBytes(wsId: string): VaultBytes {
+    return {
+      read: async (rel) => {
+        const blob = this.files.blob(rel)?.blob;
+        if (blob) {
+          const obj = await this.env.FILES.get(blob);
+          return obj ? new Uint8Array(await obj.arrayBuffer()) : null;
+        }
+        const text = this.files.read(rel);
+        return text === null ? null : new TextEncoder().encode(text);
+      },
+      add: async (rel, bytes, source) => {
+        if (bytes.byteLength > MAX_UPLOAD) throw new QuireError(`${rel} is over 50 MB`);
+        await this.storeFile(wsId, rel, bytes, source);
+      },
+    };
   }
 
   private async serveFile(raw: string): Promise<Response> {
@@ -219,20 +244,54 @@ export class Workspace extends DurableObject<Env> {
     });
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await server.connect(transport);
-    const last = this.quire.changes({ limit: 1 })[0]?.id ?? 0;
+    const last = this.lastChange();
     try {
       return await transport.handleRequest(req);
     } finally {
       await server.close();
-      const made = this.quire.changes({ since: last, limit: 500 }).reverse();
-      for (const c of made) {
-        if (c.from_path && c.from_path !== c.path) this.broadcast({ type: "removed", path: c.from_path });
-        const content = kindOf(c.path) === "asset" ? null : this.files.read(c.path);
-        this.announce(c.path, content, c.version ?? "", c);
-      }
-      if (made.length) this.broadcast({ type: "tree" });
+      this.announceSince(last);
       this.claimIds(who.workspace);
     }
+  }
+
+  /**
+   * One command from someone's CLI (`quire login`; see COMMANDS). The Worker has checked their token,
+   * that they're a member and that their role allows the command's route; the role is checked again
+   * here, as for every route. Open tabs hear about its changes like any other.
+   */
+  async runCommand(name: string, input: Record<string, unknown>, who: { workspace: string; user: string; actor: string; role: string }): Promise<RunResponse> {
+    const command = COMMANDS.find((c) => c.cli === name);
+    if (!command) return { ok: false, error: `No command "${name}": see quire help`, code: "usage" };
+    const role = asRole(who.role);
+    if (access(role, ...(command.route.split(" ") as [string, string])) !== "allowed") {
+      return { ok: false, error: role === "viewer" ? "You can view this workspace but not edit it" : "Only the workspace's owner can do that", code: "forbidden" };
+    }
+    const last = this.lastChange();
+    try {
+      if (command.readOnly) this.quire.sync();
+      const host = { quire: this.quire, user: who.user, source: who.actor, canEditShared: role === "owner" || role === "editor", bytes: this.vaultBytes(who.workspace) };
+      return { ok: true, ...(await command.run(host, input as never)) };
+    } catch (e) {
+      if (e instanceof QuireError) return { ok: false, error: e.message, code: e.code };
+      if (e instanceof UsageError) return { ok: false, error: e.message, code: "usage" };
+      throw e;
+    } finally {
+      this.announceSince(last);
+      this.claimIds(who.workspace);
+    }
+  }
+
+  private lastChange = () => this.quire.changes({ limit: 1 })[0]?.id ?? 0;
+
+  /** Tell open tabs about every change since change `last`: what an agent or a CLI did in one go. */
+  private announceSince(last: number) {
+    const made = this.quire.changes({ since: last, limit: 500 }).reverse();
+    for (const c of made) {
+      if (c.from_path && c.from_path !== c.path) this.broadcast({ type: "removed", path: c.from_path });
+      const content = kindOf(c.path) === "asset" ? null : this.files.read(c.path);
+      this.announce(c.path, content, c.version ?? "", c);
+    }
+    if (made.length) this.broadcast({ type: "tree" });
   }
 
   /** Close the live connections tagged `tag`: a person's (signed out everywhere) or one session's. Their tabs then ask them to sign in. */

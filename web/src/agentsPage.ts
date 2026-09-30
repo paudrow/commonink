@@ -47,7 +47,7 @@ function row(a: ConnectedAgent, refresh: () => Promise<void>) {
       await refresh();
     },
   }, "Revoke");
-  const where = a.workspace ? `${a.workspace.name} · as ${a.workspace.role}` : "A workspace you've left";
+  const where = a.allWorkspaces ? "All your workspaces" : a.workspace ? `${a.workspace.name} · as ${a.workspace.role}` : "A workspace you've left";
   const used = a.usedAt ? `last used ${timeAgo(a.usedAt)}` : "not used yet";
   if (a.workspace) {
     api.changesIn(a.workspace.id).then((all) => {

@@ -187,6 +187,8 @@ export interface ConnectedAgent {
   /** The person it works for, and its name in the change log (`person`, `agent` there). */
   person: string;
   workspace: { id: string; name: string; role: "owner" | "editor" | "viewer" } | null;
+  /** It may work in every workspace you're in (the quire CLI). */
+  allWorkspaces?: boolean;
   connectedAt: number;
   usedAt: number | null;
 }
