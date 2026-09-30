@@ -399,7 +399,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
     const place = keep ? null : places[note.id];
     const pos = Math.min(keep?.head ?? place?.pos ?? (fm ? fm[0].length : 0), pane.view.state.doc.length);
     const top = place ? placeScroll(pane.view, place) : EditorView.scrollIntoView(0, { y: "start", yMargin: 80 });
-    pane.view.dispatch({ selection: { anchor: pos }, effects: keep?.scroll ?? top });
+    pane.view.dispatch({ selection: { anchor: pos }, effects: keep?.scroll ?? top, userEvent: "select.jump" });
   }
   // Following a link or a click adds to history; back/forward, renames and old links just fix the URL up.
   if (opts.focus !== false) focusPane(pane, opts.push === false || opts.trail === false ? "replace" : "push");
@@ -909,7 +909,7 @@ function headingLine(pane: Pane, anchor: string): number | undefined {
 
 function goToLine(pane: Pane, line: number) {
   const l = pane.view.state.doc.line(Math.min(Math.max(1, line), pane.view.state.doc.lines));
-  pane.view.dispatch({ selection: { anchor: l.from }, effects: EditorView.scrollIntoView(l.from, { y: "start", yMargin: 80 }) });
+  pane.view.dispatch({ selection: { anchor: l.from }, effects: EditorView.scrollIntoView(l.from, { y: "start", yMargin: 80 }), userEvent: "select.jump" });
 }
 
 // ------------------------------------------------------------------ saving & merging agent edits
