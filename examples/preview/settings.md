@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 140
 title: Settings
 ---
 Off a Mac, read ⌘ as Ctrl.
