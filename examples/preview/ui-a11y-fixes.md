@@ -1,5 +1,5 @@
 ---
-pr: null
+pr: 100
 title: Small UI and accessibility fixes
 ---
 1. Open [[Tea timer]] with the window about 375px wide (or on a phone). The tasks list's Open / Done / All toggle sits whole on its own row, at the right, under Group and Sort. Before, it ran off the card. The Tasks page does the same. At full width, it's back on one line.
