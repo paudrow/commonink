@@ -1,6 +1,6 @@
 // Typing helpers: `@` mentions, `[[` links, `#` tags, `:` emoji, `/` tools, and smart link pasting.
 import { autocompletion, startCompletion, type Completion, type CompletionContext, type CompletionResult, type CompletionSource } from "@codemirror/autocomplete";
-import { syntaxTree } from "@codemirror/language";
+import { noteTree } from "./tree.ts";
 import type { EditorState, Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { fileUrl, type NoteMeta, type TagCount } from "../api.ts";
@@ -33,7 +33,7 @@ interface Option extends Completion {
 
 const NOT_PROSE = new Set(["FencedCode", "CodeBlock", "InlineCode", "CodeText", "Frontmatter", "FrontmatterContent", "HTMLBlock", "CommentBlock", "URL", "Autolink", "WikiLink", "Embed"]);
 function inProse(state: EditorState, pos: number): boolean {
-  for (let n: any = syntaxTree(state).resolveInner(pos, -1); n; n = n.parent) if (NOT_PROSE.has(n.name)) return false;
+  for (let n: any = noteTree(state).resolveInner(pos, -1); n; n = n.parent) if (NOT_PROSE.has(n.name)) return false;
   return true;
 }
 
@@ -212,7 +212,7 @@ function tagSource(ctx: CompletionContext): CompletionResult | null {
 /** The frontmatter `tags:` field: `tags: [a, b`, `tags: a, b`, or a `- item` under `tags:`. */
 function frontmatterTagSource(ctx: CompletionContext): CompletionResult | null {
   let inside = false;
-  for (let n: any = syntaxTree(ctx.state).resolveInner(ctx.pos, -1); n; n = n.parent) if (n.name === "Frontmatter") inside = true;
+  for (let n: any = noteTree(ctx.state).resolveInner(ctx.pos, -1); n; n = n.parent) if (n.name === "Frontmatter") inside = true;
   if (!inside) return null;
   const doc = ctx.state.doc;
   const line = doc.lineAt(ctx.pos);

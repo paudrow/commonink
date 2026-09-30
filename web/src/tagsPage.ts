@@ -140,9 +140,12 @@ export class TagsPage {
       text: `${into ? `Merged #${t.display} into` : `Renamed #${t.display} to`} #${into?.display ?? to}${n ? ` in ${n} place${n === 1 ? "" : "s"}` : ""}`,
       actionLabel: "Undo",
       action: async () => {
-        for (const id of [...r.changes].reverse()) await api.restore(id).catch(() => null);
+        // Only notes still as the rename left them: one edited since keeps its edit, and the new tag.
+        let kept = 0;
+        for (let i = r.changes.length - 1; i >= 0; i--) await api.restore(r.changes[i], r.versions[i]).catch(() => kept++);
         for (const [path, tags] of Object.entries(r.assets)) await api.setAssetTags(path, tags).catch(() => null);
         await this.hooks.refresh();
+        if (kept) this.hooks.toast({ text: `${kept} note${kept === 1 ? "" : "s"} changed since the rename, so ${kept === 1 ? "it keeps" : "they keep"} #${into?.display ?? to}` });
       },
     });
     return true;
