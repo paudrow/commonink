@@ -62,6 +62,7 @@ export interface App {
   /** A new note that holds a Kanban board. */
   newBoard(): void;
   newFolder(): void;
+  newTag(): void;
   go(page: Page): void;
   filterNotes(): void;
   quickAdd(): void;
@@ -101,6 +102,7 @@ export function appCommands(app: App): Command[] {
     { id: "new-note", title: "New note", keywords: "create add page", icon: "plus", run: app.newNote },
     { id: "new-board", title: "New board", keywords: "create add kanban columns cards trello project", icon: "kanban", run: app.newBoard },
     { id: "new-folder", title: "New folder", keywords: "create add directory", icon: "folderPlus", run: app.newFolder },
+    { id: "new-tag", title: "New tag", keywords: "create add label hashtag", icon: "hash", available: app.canDelete, run: app.newTag },
     { id: "quick-add", title: "Add a task", keywords: "quick add todo new task", icon: "task", keys: ["Mod-Shift-."], area: "Tasks", run: app.quickAdd },
     go("notes", "Notes", "feed", "home all"),
     { id: "filter-notes", title: "Filter notes", keywords: "search find notes page", icon: "search", keys: ["Mod-Shift-f"], run: app.filterNotes },

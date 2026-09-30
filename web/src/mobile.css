@@ -44,7 +44,8 @@
   #sidebar .search-pill, #sidebar .nav-item, #sidebar .ghost-btn, #sidebar .tree-row, .acct-btn, .acct-item { height: auto; min-height: 44px; }
   #sidebar .tree-head { margin-top: 0; }
   #sidebar .section-toggle { min-height: 44px; }
-  #sidebar .tree-row .chev { width: 32px; height: 44px; margin: 0 -8px 0 -10px; }
+  #sidebar :is(.tree-row, .tree-hint) .chev { width: 32px; margin: 0 -8px 0 -10px; }
+  #sidebar .tree-row .chev { height: 44px; }
 }
 
 @media (max-width: 760px), (pointer: coarse) and (max-width: 1100px) {

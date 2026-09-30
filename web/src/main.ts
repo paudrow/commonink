@@ -4,8 +4,8 @@ import "./mobile.css";
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, type EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
-import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type Scope, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
-import { normalizeTag } from "../../src/core/tags.ts";
+import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, unusedTag, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type Scope, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
+import { cleanTag, normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
 import { hideBanner, showBanner } from "./banner.ts";
@@ -50,6 +50,7 @@ import { deleteFolder, deletePaths, TrashPage, type DeleteHooks } from "./trash.
 import { CapturePage, registerWorker } from "./capture.ts";
 import { AGENTS_BLURB, isAgentsNote } from "./agentsNote.ts";
 import { closeDrawer, setupMobileNav } from "./mobileNav.ts";
+import { nameField, plusMark, sectionHint, sidebarTags } from "./sidebar.ts";
 import type { CalendarPage } from "./calendar/page.ts";
 import { calendarChanged, calendars, setCalendarContext } from "./calendar/data.ts";
 import { calendarTarget, OPEN_CALENDAR } from "./links.ts";
@@ -208,6 +209,8 @@ const loadTags = once(async () =>
     tags: () => tags,
     refresh: () => refreshNotes(),
     openTag: (tag, where) => openTag(tag, where),
+    deleteTag: (t) => deleteTag(t),
+    readOnly: () => viewer,
     toast: (t) => toast(t),
   })),
 );
@@ -256,6 +259,7 @@ function commands() {
     newNote: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
     newBoard: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : "", `\n${NEW_BOARD}\n`),
     newFolder: startNewFolder,
+    newTag: startNewTag,
     go: (page) => {
       if (page === "notes" || page === "archive") void showNotes({ scope: page === "notes" ? "active" : "archived", query: {} });
       else void { tasks: showTasks, calendar: showCalendar, tags: showTags, assets: showAssets, history: showHistory, trash: showTrash }[page]();
@@ -1420,8 +1424,7 @@ function renderSmartFolders(active: string | null) {
     );
   });
   // Empty: one quiet line pointing at the header's +, the one way to add one from here.
-  const hint = el("div", { class: "fav-hint" }, "Click ", el("span", { class: "hint-icon", "aria-label": "+" }, icon("plus", 11)), " to save a search here.");
-  $("#smart-folders").replaceChildren(...(rows.length ? rows : [hint]));
+  $("#smart-folders").replaceChildren(...(rows.length ? rows : [sectionHint("Click ", plusMark(), " to save a search here.")]));
 }
 
 const FAVORITE = "application/x-common-ink-favorite";
@@ -1494,7 +1497,7 @@ function renderFavorites() {
     favoriteDrop(row, "is-drop-before", f.path);
     return row;
   });
-  $("#favorites").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Star a note or a tag to keep it here. A note's star is in its top bar: ", icon("star", 12))]));
+  $("#favorites").replaceChildren(...(rows.length ? rows : [sectionHint("Star a note or a tag to keep it here. A note's star is in its top bar: ", icon("star", 12))]));
 }
 
 /** Let `node` take a favorite (to reorder) or a card from Notes (to star), marking it with `cls` while over it. */
@@ -1663,7 +1666,8 @@ function renderTree() {
         dropTarget(row, () => path);
         return [row, ...(open ? walk(path, depth + 1) : [])];
       });
-  $("#tree").replaceChildren(...walk("", 0));
+  const rows = walk("", 0);
+  $("#tree").replaceChildren(...(rows.length ? rows : [sectionHint("Click ", plusMark(), " to make a folder.")]));
 }
 
 /** Delete a folder: an empty one just goes; one with notes asks what happens to them. */
@@ -1681,7 +1685,7 @@ async function removeFolder(path: string) {
  * tags start closed; clicking a tag shows Notes narrowed to it, the way a folder does.
  */
 function renderTagTree(active: string) {
-  const shown = tags.filter((t) => t.notes > 0);
+  const shown = sidebarTags(tags);
   const parent = (t: string) => (t.includes("/") ? t.slice(0, t.lastIndexOf("/")) : "");
   const walk = (under: string, depth: number): HTMLElement[] =>
     shown
@@ -1697,7 +1701,7 @@ function renderTagTree(active: string) {
             "aria-current": t.tag === active && "page",
             style: { "--depth": String(depth) },
             "data-tag": t.tag,
-            title: `Notes tagged #${t.display}`,
+            title: unusedTag(t) ? `No note has #${t.display} yet` : `Notes tagged #${t.display}`,
             ...opens(() => openTag(t.display)),
           },
           subs
@@ -1722,13 +1726,78 @@ function renderTagTree(active: string) {
           icon("hash", 14),
           el("span", { class: "tree-name" }, t.display.split("/").pop()!),
           isTagStarred(t.display) ? el("span", { class: "fav-mark", title: "In Favorites" }, icon("starred", 11)) : null,
-          el("span", { class: "n" }, String(t.notes)),
-          el("span", { class: "row-actions" }, tagStarButton(t.display, "row")),
+          unusedTag(t) ? null : el("span", { class: "n" }, String(t.notes)),
+          el(
+            "span",
+            { class: "row-actions" },
+            // A tag nothing carries yet can't be a favorite (it would show no notes), but it can go again.
+            !unusedTag(t) ? tagStarButton(t.display, "row")
+            : viewer ? null
+            : el("button", { type: "button", class: "row-act", title: `Delete #${t.display}`, onclick: (e: Event) => (e.stopPropagation(), void deleteTag(t)) }, icon("trash", 14)),
+          ),
         );
         return [row, ...(open ? walk(t.tag, depth + 1) : [])];
       });
   const rows = walk("", 0);
-  $("#tag-tree").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Write #tag in a note to see it here.")]));
+  const hint = viewer ? sectionHint("Tags written in notes show here.") : sectionHint("Click ", plusMark(), " to add a tag, or write #tag in a note.");
+  $("#tag-tree").replaceChildren(...(rows.length ? rows : [hint]));
+}
+
+/** A name field at the top of Tags. The tag it names is there to pick before any note carries it. */
+function startNewTag() {
+  if (prefs.folded.tags) $('[aria-controls="tag-tree"]').click(); // unfold Tags, or the name field is hidden
+  nameField($("#tag-tree"), {
+    icon: "hash",
+    placeholder: "Tag, like work/clients",
+    label: "New tag",
+    done: (typed) => (typed?.trim() ? void addTag(typed) : renderTree()),
+  });
+}
+
+async function addTag(typed: string) {
+  const display = cleanTag(typed);
+  if (!display) {
+    renderTree();
+    return toast({ text: "A tag is letters, numbers, - and _, nested with /" });
+  }
+  const key = display.toLowerCase();
+  const had = tags.find((t) => t.tag === key);
+  if (!had) {
+    try {
+      tags = await api.addTag(display);
+    } catch (e) {
+      renderTree();
+      return toast({ text: e instanceof Error ? e.message : `Couldn't add #${display}` });
+    }
+  }
+  // Open its parents, so the tag shows where it went.
+  for (let at = key.lastIndexOf("/"); at > 0; at = key.lastIndexOf("/", at - 1)) prefs.tagsOpen.add(key.slice(0, at));
+  store.set("tagsOpen", [...prefs.tagsOpen]);
+  renderTree();
+  tagsPage?.refresh();
+  toast(had ? { icon: "hash", text: `#${had.display} is already a tag` } : { icon: "hash", text: `Added #${display}`, detail: "Type it in a note to use it." });
+}
+
+/** Take away a tag nothing carries yet, and the ones under it, with Undo. */
+async function deleteTag(t: TagCount) {
+  const leaves = tags.filter((x) => tagMatches(x.tag, t.tag) && !tags.some((c) => c.tag.startsWith(`${x.tag}/`)));
+  try {
+    tags = await api.deleteTag(t.tag);
+  } catch (e) {
+    return toast({ text: e instanceof Error ? e.message : `Couldn't delete #${t.display}` });
+  }
+  renderTree();
+  tagsPage?.refresh();
+  toast({
+    icon: "hash",
+    text: `Deleted #${t.display}`,
+    actionLabel: "Undo",
+    action: async () => {
+      for (const l of leaves) tags = await api.addTag(l.display).catch(() => tags);
+      renderTree();
+      tagsPage?.refresh();
+    },
+  });
 }
 
 /** Fold a sidebar section away from its header, or open it again. Remembered in this browser. */
@@ -1843,30 +1912,22 @@ async function archivePath(path: string) {
 /** An inline name field at the top of the tree; the folder appears (empty) when you press Enter. */
 function startNewFolder() {
   if (prefs.folded.folders) $('[aria-controls="tree"]').click(); // unfold Folders, or the name field is hidden
-  $("#tree").querySelector(".tree-row.is-input")?.remove();
-  const input = el("input", { class: "tree-input", placeholder: "Folder name", spellcheck: "false" });
-  const row = el("div", { class: "tree-row is-input", style: { "--depth": "0" } }, icon("folder", 14), input);
-  $("#tree").prepend(row);
-  input.focus();
-  let done = false;
-  const finish = (commit: boolean) => {
-    if (done) return;
-    done = true;
-    const name = input.value.trim().replace(/[\\:*?"<>|#^[\]]/g, "").replace(/\s*\/\s*/g, "/").replace(/^\/+|\/+$/g, "");
-    if (commit && name && !allFolders().some((f) => f.toLowerCase() === name.toLowerCase())) {
-      const empty = emptyFolders();
-      empty.add(name);
-      setEmptyFolders(empty);
-      if (parentOf(name)) setExpanded(parentOf(name), true); // show where the new folder went
-      toast({ icon: "folder", text: `Made ${name}`, detail: "Drag notes onto it, or use Move on a note." });
-    }
-    renderTree();
-  };
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") finish(true);
-    if (e.key === "Escape") finish(false);
+  nameField($("#tree"), {
+    icon: "folder",
+    placeholder: "Folder name",
+    label: "New folder",
+    done: (typed) => {
+      const name = (typed ?? "").trim().replace(/[\\:*?"<>|#^[\]]/g, "").replace(/\s*\/\s*/g, "/").replace(/^\/+|\/+$/g, "");
+      if (name && !allFolders().some((f) => f.toLowerCase() === name.toLowerCase())) {
+        const empty = emptyFolders();
+        empty.add(name);
+        setEmptyFolders(empty);
+        if (parentOf(name)) setExpanded(parentOf(name), true); // show where the new folder went
+        toast({ icon: "folder", text: `Made ${name}`, detail: "Drag notes onto it, or use Move on a note." });
+      }
+      renderTree();
+    },
   });
-  input.addEventListener("blur", () => finish(true));
 }
 
 // ------------------------------------------------------------------ chrome: crumbs, status, panel
@@ -2578,6 +2639,8 @@ async function boot() {
   $("#move-btn").addEventListener("click", () => openMovePicker($("#move-btn")));
   $("#focus-btn").addEventListener("click", () => void setFocusMode(!focusMode));
   $("#new-folder").addEventListener("click", () => startNewFolder());
+  $("#new-tag").addEventListener("click", () => startNewTag());
+  $("#new-tag").hidden = viewer;
   dropTarget($("#tree"), () => "");
   dropTarget($("#archive-nav"), () => "", (path) => void archivePath(path));
   favoriteDrop($("#favorites"), "is-drop");
