@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 142
 title: Month-end repeats
 ---
 1. In [[Month ends]], tick **Pay rent** (`rec:31st`) until the new one lands in a month without a 31st, such as November: it's due on that month's last day, not skipped.
