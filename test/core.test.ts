@@ -82,6 +82,13 @@ test("a file named in decomposed Unicode is the note a link or path in composed 
   assert.deepEqual(quire.backlinks(`${nfd}.md`).map((b) => b.path), ["A.md"]);
 });
 
+test("an index from before composed names learns them on open", () => {
+  const nfd = "Café".normalize("NFD");
+  const { dir, quire } = openTempVault({ [`Places/${nfd}.md`]: "# Café\n" });
+  quire.db.run("UPDATE notes SET stem = ?", nfd.toLowerCase());
+  assert.equal(openVault(dir).resolve("café"), `Places/${nfd}.md`);
+});
+
 test("creating a second top-level note with the same title leaves the first as it was", () => {
   const { dir, quire } = openTempVault({});
   quire.create("Idea", "# Idea\n\nThe first one.\n", "t");

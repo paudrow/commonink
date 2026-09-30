@@ -523,7 +523,7 @@ export class Quire {
       for (const p of kindOf(c) ? [c] : [`${c}.md`, c]) {
         try {
           const rel = cleanPath(p);
-          if (kindOf(rel) && this.files.stat(rel)) return rel;
+          if (kindOf(rel) && this.files.stat(rel)) return this.indexedPath(rel);
         } catch {}
       }
     }
@@ -539,6 +539,17 @@ export class Quire {
     const dir = from ? path.posix.dirname(from) : null;
     rows.sort((a, b) => Number(path.posix.dirname(b) === dir) - Number(path.posix.dirname(a) === dir) || a.length - b.length);
     return rows[0];
+  }
+
+  /**
+   * `rel` as the index spells it. A Mac's disk ignores case and Unicode form, so it finds
+   * "projects/café.md" for Projects/Café.md in either form; taken as typed, it would be indexed as a
+   * second note.
+   */
+  private indexedPath(rel: string): string {
+    if (this.meta(rel)) return rel;
+    const fold = (p: string) => p.normalize("NFC").toLowerCase();
+    return this.db.all<{ path: string }>("SELECT path FROM notes").find((r) => fold(r.path) === fold(rel))?.path ?? rel;
   }
 
   private mustResolve(target: string): string {
