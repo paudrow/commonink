@@ -36,13 +36,11 @@ export function readBefore(db: SqlDb, id: number, seen = new Map<number, string>
 }
 
 /**
- * Change #id was just written with its whole text: store the note's previous newest text as a
+ * Change #id was just written with its whole `text`: store the note's previous newest text as a
  * delta from it, unless that one is due to stay whole or the delta saves nothing.
  */
-export function chainBefore(db: SqlDb, id: number, noteId: string | null) {
-  if (!noteId) return;
-  const text = db.get<{ before: string | null }>("SELECT before FROM changes WHERE id = ?", id)?.before;
-  if (text == null) return;
+export function chainBefore(db: SqlDb, id: number, noteId: string | null, text: string | null) {
+  if (!noteId || text === null) return;
   const prev = db.get<{ id: number; before: string; base_id: number | null }>(
     "SELECT id, before, base_id FROM changes WHERE note_id = ? AND id < ? AND before IS NOT NULL ORDER BY id DESC LIMIT 1",
     noteId, id,

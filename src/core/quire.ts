@@ -796,7 +796,7 @@ export class Quire {
         this.db.run("UPDATE changes SET base_id = ? WHERE base_id = ?", next, opts.replaces);
         this.db.run("DELETE FROM changes WHERE id = ?", opts.replaces);
       }
-      chainBefore(this.db, next, noteId);
+      chainBefore(this.db, next, noteId, before);
       return next;
     });
     return { ...c, source, id, ts, note_id: noteId, person, agent };
