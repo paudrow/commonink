@@ -626,7 +626,7 @@ async function showShared(opts: { push?: boolean } = {}) {
       ? groups.map((g) =>
           el(
             "section",
-            { class: "ws-section" },
+            { class: "sh-section" },
             el("h3", {}, g.workspace.name),
             el(
               "div",
@@ -634,10 +634,10 @@ async function showShared(opts: { push?: boolean } = {}) {
               ...g.notes.map((n) =>
                 el(
                   "a",
-                  { class: "tr-row sh-row", href: `/shared/${g.workspace.id}/${n.id}` },
+                  { class: "tr-row sh-link", href: `/shared/${g.workspace.id}/${n.id}` },
                   el("span", { class: "tr-icon" }, icon(n.kind === "asset" ? "image" : n.kind === "html" ? "html" : "file", 16)),
                   el("div", { class: "tr-main" }, el("div", { class: "tr-name" }, n.title, el("span", { class: "tr-path" }, n.path))),
-                  el("span", { class: "ws-badge" }, n.role === "editor" ? "Can edit" : "View only"),
+                  el("span", { class: "sh-badge" }, n.role === "editor" ? "Can edit" : "View only"),
                 ),
               ),
             ),

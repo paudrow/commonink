@@ -72,6 +72,9 @@ export async function mountSharedView(where: Where) {
     if (note.kind === "html") return body.replaceChildren(sandboxFrame(note.content ?? "", { autoHeight: true, title: note.title }));
     if (note.kind === "asset") return body.replaceChildren(el("p", {}, note.path));
     body.innerHTML = renderMarkdown(withoutWidgets(note.content ?? ""), note.id);
+    // The note's own title heading is the page's title already.
+    const h1 = body.querySelector("h1");
+    if (h1 && h1 === body.firstElementChild && h1.textContent?.trim() === note.title) h1.remove();
     void hydrate(body);
   };
 

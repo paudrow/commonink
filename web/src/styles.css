@@ -2136,13 +2136,28 @@ body.is-link-dragging, body.is-link-dragging * { cursor: grabbing !important; us
 
 /* Sharing: the dialog, the "Shared" marks, and a shared note's own page */
 .sh-box { width: min(560px, 100%); }
-.sh-body { display: grid; gap: 4px; margin-top: 8px; }
-.sh-body > .ws-row { margin-bottom: 6px; }
+.sh-head { display: flex; align-items: center; gap: 9px; color: var(--muted); }
+.sh-head h2 { flex: 1; margin: 0; font-size: 16px; color: var(--ink-strong); }
+.sh-body { display: grid; gap: 4px; margin-top: 10px; }
+.sh-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.sh-body > .sh-row { margin-bottom: 6px; }
+.sh-input { flex: 1; min-width: 180px; height: 32px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg); color: var(--ink-strong); font: 14px var(--ui); }
+.sh-input:focus { outline: none; border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.sh-select { height: 32px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg); color: var(--ink-2); font: 13px var(--ui); }
+.sh-section { border-top: 1px solid var(--line); padding: 12px 0 4px; }
+.sh-section h3 { margin: 0 0 8px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.sh-list { display: grid; }
+.sh-person { display: flex; gap: 10px; align-items: center; padding: 8px 0; }
+.sh-person + .sh-person { border-top: 1px solid var(--line); }
+.sh-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sh-meta { font-size: 12.5px; color: var(--muted); }
+.sh-empty, .sh-how { margin: 4px 0; font-size: 13px; color: var(--muted); }
+.sh-badge { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .sh-note { margin: 6px 0 0; }
 .fc-badge.is-shared { display: inline-flex; align-items: center; gap: 3px; }
 #share-btn.is-shared { color: var(--accent-ink); }
-a.sh-row { color: inherit; text-decoration: none; }
-a.sh-row:hover { border-color: var(--accent-line); }
+a.sh-link { color: inherit; text-decoration: none; }
+a.sh-link:hover { border-color: var(--accent-line); }
 .sv { min-height: 100vh; background: var(--bg); color: var(--ink); }
 .sv-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; padding: 10px 20px; background: var(--bg); border-bottom: 1px solid var(--line); }
 .sv-brand { display: inline-flex; align-items: center; gap: 7px; font-weight: 650; color: var(--ink-strong); text-decoration: none; }
