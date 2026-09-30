@@ -805,6 +805,7 @@ Paragraph 399 of filler so the parser has plenty to read before the end.
 ```
 code above
 
+- [ ] a checkbox in code, not a task
 code below
 ```
 
