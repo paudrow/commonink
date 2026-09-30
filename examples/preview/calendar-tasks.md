@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 138
 title: Calendar tasks and widget calendars
 ---
 1. Open **Calendar**: [[Errands]] has tasks due today and tomorrow. Tick **Pick up the dry cleaning** from its checkbox. It stays on its day, struck through, and the toast has an **Undo**.
