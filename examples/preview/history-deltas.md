@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 143
 title: History keeps older versions as edits, not copies
 ---
 History kept a whole copy of a note for every change. Now it keeps the newest one whole and each older one as the edits from the version after it, with a whole copy every 64 changes. A 94 KB note saved 200 times grew the index by 18 MB before and by 0.6 MB now. What History shows, restores and undoes is the same text as before.
