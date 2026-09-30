@@ -276,5 +276,6 @@ test("an agent shares a note as its person, lists who it's shared with, and stop
   assert.doesNotMatch((await owner.call("list_shares", { path: "Plan to share" })).text, /guest@example\.com/);
   assert.equal((await owner.call("share_note", { path: "Plan to share", role: "viewer" })).isError, true, "an email or a link is needed");
   const viewer = await mcp((await connect(people.viewer, people.id)).access);
-  assert.match((await viewer.call("list_shares", { path: "Plan to share" })).text, /Anyone with the link/);
+  const seen = (await viewer.call("list_shares", { path: "Plan to share" })).text;
+  assert.deepEqual([/Anyone with the link — viewer/.test(seen), /\/s\//.test(seen)], [true, false], "a viewer sees that a link exists, not its URL");
 });

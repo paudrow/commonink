@@ -168,3 +168,55 @@ test("an address several accounts share (Previews' developer sign-ins) is shared
   assert.deepEqual(made.shares.filter((s: { email: string }) => s.email === "twin@localhost").map((s: { kind: string }) => s.kind), ["email"]);
   assert.deepEqual((await cloud.call(twin, "GET", "/api/shared"))[0].notes.map((n: { path: string }) => n.path), ["Shared.md"]);
 });
+
+/**
+ * Someone's shared live connection: what it hears, and whether it's still open. The server's close
+ * frame is enough to leave OPEN; the "close" event itself waits on a slow local handshake.
+ */
+async function listen(cookie: string) {
+  const socket = new WebSocket(`${cloud.origin.replace("http", "ws")}${t.base}/shared/live`, { headers: { cookie, origin: cloud.origin } });
+  const heard: string[] = [];
+  socket.on("message", (m) => heard.push(String(m)));
+  await new Promise((r) => socket.once("open", r));
+  const stillOpen = async () => {
+    await pause(300);
+    const open = socket.readyState === WebSocket.OPEN;
+    socket.terminate();
+    return open;
+  };
+  return { heard, stillOpen };
+}
+
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+test("stopping a share cuts off that person's open live connection at once", async () => {
+  const leaver = await cloud.signIn("leaver");
+  await cloud.call(t.owner, "POST", `${t.base}/note`, { path: "Going private.md", content: "# Going private\n" });
+  const made = await cloud.call(t.owner, "POST", `${t.base}/shares`, { path: "Going private.md", email: "leaver@localhost", role: "viewer" });
+  const live = await listen(leaver);
+  await cloud.call(t.owner, "POST", `${t.base}/shares/remove`, { id: made.shares[0].id });
+  await cloud.call(t.owner, "PUT", `${t.base}/note`, { path: "Going private.md", content: "# Going private\n\nWritten after the share was removed.\n" });
+  const open = await live.stillOpen();
+  assert.deepEqual([live.heard.filter((m) => m.includes("after the share was removed")), open], [[], false]);
+});
+
+test("a share that runs out cuts off its open live connection too", async () => {
+  const lapser = await cloud.signIn("lapser");
+  await cloud.call(t.owner, "POST", `${t.base}/note`, { path: "Short loan.md", content: "# Short loan\n" });
+  await cloud.call(t.owner, "POST", `${t.base}/shares`, { path: "Short loan.md", email: "lapser@localhost", role: "viewer", expiresAt: Date.now() + 1000 });
+  const live = await listen(lapser);
+  await pause(1100);
+  await cloud.call(t.owner, "PUT", `${t.base}/note`, { path: "Short loan.md", content: "# Short loan\n\nWritten after the share ran out.\n" });
+  const open = await live.stillOpen();
+  assert.deepEqual([live.heard.filter((m) => m.includes("after the share ran out")), open], [[], false]);
+});
+
+test("only those who can change sharing see a link's URL; workspace viewers see only that there is one", async () => {
+  await cloud.call(t.owner, "POST", `${t.base}/note`, { path: "Linked doc.md", content: "# Linked doc\n" });
+  await cloud.call(t.owner, "POST", `${t.base}/shares`, { path: "Linked doc.md", link: true, role: "editor" });
+  const links = async (who: string) =>
+    (await cloud.call(who, "GET", `${t.base}/shares?path=Linked%20doc.md`)).shares.map((s: { kind: string; url: string | null }) => `${s.kind}:${s.url === null ? "no url" : s.url.replace(/[a-f0-9]{64}/, "<token>")}`);
+  assert.deepEqual(await links(t.viewer), ["link:no url"]);
+  assert.deepEqual(await links(t.editor), ["link:/s/<token>"]);
+  assert.deepEqual(await links(t.owner), ["link:/s/<token>"]);
+});
