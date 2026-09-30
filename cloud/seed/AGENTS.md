@@ -22,4 +22,5 @@ These notes belong to people. You are a guest editor.
   - `::kanban{note="Launch"}` shows the Kanban board in another note.
 - Kanban boards are a block in a note, with ordinary text around it: a `:::kanban` line, `## Column` headings with `- [ ] card` lines under them, and a closing `:::`. Cards are tasks (same tokens), a card can be just a `[[Note]]` link, and lines indented under a card are its details. Moving a card into the column named `Done` ticks it. A column can have a colour after its name: `## Doing {color=blue}`. Use `read_board`, then `add_card`, `move_card` and `edit_card`.
 - Diagrams: a ```mermaid code block renders as a diagram.
+- Code blocks: put the language after the opening fence (```ts, ```py, ```sh, ```sql, ```diff…) for highlighting. After it, `nowrap` makes long lines scroll instead of wrapping, `title="server.ts"` names the block, `{3-5}` highlights lines and `showLineNumbers` numbers them: ```ts nowrap title="server.ts". Other apps ignore these.
 - Archive notes that are done when asked to tidy up; they move under `Archive/` and keep their links.
