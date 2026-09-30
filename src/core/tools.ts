@@ -8,6 +8,8 @@ import { parseQuery } from "./query.ts";
 import { TRASH_DAYS, type Quire } from "./quire.ts";
 import { parseAuthorFilter } from "./actor.ts";
 import { AGENTS_NOTE } from "./noteRoles.ts";
+import { dayRange, fmtEvent, fmtEvents, type Calendar } from "./calendar.ts";
+import { notePath } from "./ids.ts";
 
 export interface ToolHost {
   quire: Quire;
@@ -22,6 +24,10 @@ export interface ToolHost {
   may?(route: string): boolean;
   /** Whether the caller may make or change shared smart folders (online: editors and owners). Default yes. */
   canEditShared?: boolean;
+  /** The workspace's calendars; with them, the event tools are offered. */
+  calendar?: Calendar;
+  /** Where the app is, for a meeting note's link written back to Google. */
+  origin?: string;
 }
 
 /**
@@ -60,6 +66,9 @@ export const TOOL_ROUTES: Record<string, string> = {
   unstar_tag: "POST /favorites/unstar",
   save_smart_folder: "POST /smart-folders",
   delete_smart_folder: "POST /smart-folders/delete",
+  list_events: "GET /calendar/events",
+  get_event: "GET /calendar/event",
+  create_meeting_note: "POST /calendar/meeting-note",
 };
 
 type Result = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
@@ -620,5 +629,83 @@ export function createMcpServer(host: ToolHost): McpServer {
     ({ since, path, limit, by }) => run(() => fmtChanges(quire.changes({ since, path, limit: limit ?? 30, by: parseAuthorFilter(by) }), quire)),
   );
 
+  if (host.calendar) calendarTools(server, host.calendar, host, source);
   return mcp;
+}
+
+const ZONE = z.string().optional().describe("IANA time zone to write times in, e.g. America/Los_Angeles (default: this server's)");
+
+/** Calendar events: linked records from the workspace's calendar feeds (not notes). */
+function calendarTools(server: Pick<McpServer, "registerTool">, cal: Calendar, host: ToolHost, source: () => string) {
+  const viewer = { user: host.user, canEdit: host.canEditShared ?? true };
+  const zoneOf = (z?: string) => z || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
+  server.registerTool(
+    "list_events",
+    {
+      title: "List calendar events",
+      description:
+        "Events from the calendars this workspace subscribes to (and the user's own), soonest first, for a range of days. Each has an id " +
+        "for get_event and create_meeting_note, and the meeting note it's linked to, if any. Events are records, not notes.",
+      inputSchema: {
+        from: z.string().optional().describe("First day, YYYY-MM-DD (default: today)"),
+        days: z.number().int().min(1).max(90).optional().describe("How many days (default 7)"),
+        query: z.string().optional().describe("Only events whose title contains this"),
+        time_zone: ZONE,
+      },
+      annotations: readOnly,
+    },
+    async ({ from, days, query, time_zone }) =>
+      runAsync(async () => {
+        const zone = zoneOf(time_zone);
+        await cal.syncDue(); // anything that's come due since, so the list isn't stale
+        const range = dayRange(from, days ?? 7, zone);
+        return fmtEvents(cal.events(viewer, { ...range, zone, q: query }), cal.sources(viewer), zone, range);
+      }),
+  );
+
+  server.registerTool(
+    "get_event",
+    {
+      title: "Get calendar event",
+      description: "One event in full: time, place, organizer, attendees, description, and its meeting note if it has one.",
+      inputSchema: { id: z.string().describe("The event's id from list_events"), time_zone: ZONE },
+      annotations: readOnly,
+    },
+    ({ id, time_zone }) =>
+      run(() => {
+        const ev = cal.event(id, viewer);
+        if (!ev) throw new QuireError(`No event ${id}; list_events gives the ids`);
+        return fmtEvent(ev, cal.sources(viewer), zoneOf(time_zone));
+      }),
+  );
+
+  server.registerTool(
+    "create_meeting_note",
+    {
+      title: "Create meeting note",
+      description:
+        "The event's meeting note: a new note in Meetings/ (from Templates/Meeting note.md if there is one) with its time, place, " +
+        "attendees, agenda and a link back to the event, linked to the event. If the event already has one, returns that note instead.",
+      inputSchema: { id: z.string().describe("The event's id from list_events"), time_zone: ZONE },
+      annotations: writes,
+    },
+    async ({ id, time_zone }) =>
+      runAsync(async () => {
+        const r = cal.meetingNote(host.quire, id, viewer, { timeZone: zoneOf(time_zone), source: source() });
+        if (!r.created) return `The event already has a meeting note: ${r.path}`;
+        const linked = host.origin && r.noteId ? await cal.linkBack(id, viewer, `${host.origin}${notePath(host.quire.read(r.path).title, r.noteId)}`) : null;
+        const back = !linked ? "" : linked.ok ? "; its link was added to the event in Google Calendar" : `; the link couldn't be added in Google Calendar (${linked.error})`;
+        return `Created ${r.path}, linked to the event${back}`;
+      }),
+  );
+}
+
+async function runAsync(fn: () => Promise<string>): Promise<Result> {
+  try {
+    return { content: [{ type: "text", text: await fn() }] };
+  } catch (e) {
+    const msg = e instanceof QuireError ? e.message : `Unexpected error: ${(e as Error).message}`;
+    return { content: [{ type: "text", text: msg }], isError: true };
+  }
 }

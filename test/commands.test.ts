@@ -22,6 +22,8 @@ const app = (over: Partial<App> = {}): App => {
     canForward: false,
     onLink: false,
     canDelete: true,
+    canSubscribe: true,
+    canConnectGoogle: false,
     folds: 0,
     account: [],
     newNote: run("newNote"),
@@ -30,6 +32,9 @@ const app = (over: Partial<App> = {}): App => {
     go: (page) => void ran.push(`go:${page}`),
     filterNotes: run("filterNotes"),
     quickAdd: run("quickAdd"),
+    subscribeCalendar: run("subscribeCalendar"),
+    refreshCalendars: run("refreshCalendars"),
+    connectGoogle: run("connectGoogle"),
     toggleTheme: run("toggleTheme"),
     toggleVim: run("toggleVim"),
     toggleVimDisplayLines: run("toggleVimDisplayLines"),
@@ -73,8 +78,9 @@ test("commands follow the app: vim's state, the open note, Getting started, and 
   assert.deepEqual(titles("gj", app({ vim: false })), []);
   assert.deepEqual(titles("line numbers", app()).slice(0, 1), ["Show line numbers"]);
   assert.deepEqual(titles("line numbers", app({ lineNumbers: true })).slice(0, 1), ["Hide line numbers"]);
-  assert.deepEqual(titles("star", app()), []);
-  assert.deepEqual(titles("star", app({ note: { kind: "md", starred: true, archived: false } })), ["Unstar note"]);
+  // "Subscribe to a calendar…" spells s-t-a-r too, after any star command.
+  assert.deepEqual(titles("star", app()), ["Subscribe to a calendar…"], "no note to star");
+  assert.deepEqual(titles("star", app({ note: { kind: "md", starred: true, archived: false } })), ["Unstar note", "Subscribe to a calendar…"]);
   assert.deepEqual(titles("html", app({ note: { kind: "html", starred: false, archived: false }, htmlMode: "preview" })), ["Show HTML source"]);
   assert.deepEqual(titles("go back", app()), [], "nowhere to go back to");
   const moving = appCommands(app({ canBack: true, canForward: true, onLink: true, note: { kind: "md", starred: false, archived: false } })).filter((c) => ["back", "forward", "follow-link"].includes(c.id));
@@ -99,7 +105,7 @@ test("commands follow the app: vim's state, the open note, Getting started, and 
 
 test("the sheet lists each area's shortcuts, the commands' included, whether or not they're on offer now", () => {
   const sheet = shortcutSheet(appCommands(app()));
-  assert.deepEqual(sheet.map((s) => s.area), ["Global", "Notes page", "Editor", "Vim", "Tasks", "Split view"]);
+  assert.deepEqual(sheet.map((s) => s.area), ["Global", "Notes page", "Calendar", "Editor", "Vim", "Tasks", "Split view"]);
   const global = sheet.find((s) => s.area === "Global")!.shortcuts;
   assert.deepEqual(global.slice(0, 2).map((s) => s.keys), [["Mod-p", "Mod-k"], ["Mod-Shift-p"]]);
   assert.deepEqual(global.find((s) => s.label === "Archive note")?.keys, ["Mod-Shift-e"]);
@@ -223,4 +229,14 @@ test("Delete and Trash are commands for whoever can delete, not viewers", () => 
   assert.deepEqual(titles("trash", app({ note })).slice(0, 2), ["Go to Trash", "Delete note"]);
   assert.deepEqual(titles("trash", app({ note: null })), ["Go to Trash"]);
   assert.deepEqual(titles("trash", app({ note, canDelete: false })), []);
+});
+
+test("the calendar is a page to go to, a feed to subscribe to (not for viewers) and something to refresh; its keys are on the sheet", () => {
+  assert.deepEqual(titles("calendar", app()), ["Go to Calendar", "Refresh calendars", "Subscribe to a calendar…"]);
+  assert.deepEqual(titles("webcal", app({ canSubscribe: false })), []);
+  assert.deepEqual(titles("calendar", app({ canSubscribe: false })), ["Go to Calendar", "Refresh calendars"]);
+  for (const c of appCommands(app()).filter((c) => c.id.includes("calendar"))) c.run();
+  assert.deepEqual(ran.slice(-3), ["go:calendar", "subscribeCalendar", "refreshCalendars"]);
+  const keys = shortcutSheet(appCommands(app())).find((s) => s.area === "Calendar")!.shortcuts.map((s) => s.keys.join(" "));
+  assert.deepEqual(keys.slice(0, 4), ["t", "j n", "k p", "m w d a"]);
 });

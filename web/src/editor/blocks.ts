@@ -30,6 +30,7 @@ import { safeDecode } from "../../../src/core/uri.ts";
 import { foldDecorations, setFold } from "./details.ts";
 import { htmlImageBlock } from "./gfm.ts";
 import { followInPage } from "../gfm.ts";
+import { calendarTarget } from "../links.ts";
 
 export interface EditorContext {
   path: string;
@@ -234,6 +235,7 @@ class EmbedWidget extends WidgetType {
           const href = a.getAttribute("href") ?? "";
           if (href.startsWith("quire:")) ctx.openTarget(safeDecode(href.slice(6)), path);
           else if (/^https?:/i.test(href)) window.open(href, "_blank", "noopener");
+          else if (calendarTarget(href) !== null) ctx.openTarget(href, path);
           else followInPage(body, href); // a footnote, or a #heading in the embedded note
         });
         body.addEventListener("click", (e) => (e.target as HTMLElement).closest("a") && e.preventDefault()); // opened on mousedown

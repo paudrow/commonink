@@ -1,0 +1,217 @@
+// Connected accounts: a person connects Google Calendar once, and adds its calendars to any workspace
+// they're in, where only they see them. The grant lives in D1 (`connections`), its tokens sealed
+// under INTEGRATIONS_KEY (secrets.ts); only this Worker and its workspaces read them, and no response
+// carries one. Connecting asks Google for read access, and for editing events only when someone turns
+// write-back on (incremental consent). Where Google isn't configured, Previews and local development
+// get a stand-in (google-mock.ts); production says it isn't configured.
+import type { SqlDb } from "../../src/core/store.ts";
+import { b64url, cookie, page, readSession, seal, setCookie, text, unseal } from "./auth.ts";
+import type { Env } from "./env.ts";
+import { exchangeCode, GOOGLE, GoogleClient, GoogleError, googleMode, refreshGrant, revokeGrant, SCOPES, type GoogleApi, type Grant } from "./google.ts";
+import { MockGoogle } from "./google-mock.ts";
+import { decrypt, encrypt } from "./secrets.ts";
+
+export { googleMode };
+
+/** The sealing key: INTEGRATIONS_KEY, or for the stand-in's fake tokens one made from SESSION_SECRET. */
+async function keyOf(env: Env): Promise<string | undefined> {
+  if (googleMode(env) !== "mock") return env.INTEGRATIONS_KEY;
+  const raw = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`mock-integrations:${env.SESSION_SECRET}`));
+  return btoa(String.fromCharCode(...new Uint8Array(raw)));
+}
+
+const context = (user: string, which: "access" | "refresh") => `${user}:google:${which}`;
+
+interface Row {
+  account: string;
+  scopes: string;
+  access_enc: string;
+  refresh_enc: string | null;
+  expires_at: number;
+  created_at: number;
+}
+
+/** What the app may know about someone's connection: never a token. */
+export interface ConnectionInfo {
+  account: string;
+  /** May meeting notes' links be written to their events (the calendar.events scope)? */
+  canWrite: boolean;
+  connectedAt: number;
+}
+
+const row = (env: Env, user: string) =>
+  env.DB.prepare("SELECT account, scopes, access_enc, refresh_enc, expires_at, created_at FROM connections WHERE user_id = ? AND provider = 'google'").bind(user).first<Row>();
+
+export async function connectionInfo(env: Env, user: string): Promise<ConnectionInfo | null> {
+  const r = await row(env, user);
+  return r ? { account: r.account, canWrite: r.scopes.split(" ").includes(SCOPES.write), connectedAt: r.created_at } : null;
+}
+
+async function save(env: Env, user: string, g: Grant, account: string) {
+  const key = await keyOf(env);
+  const access = await encrypt(key, g.access, context(user, "access"));
+  const refresh = g.refresh ? await encrypt(key, g.refresh, context(user, "refresh")) : null;
+  await env.DB.prepare(
+    `INSERT INTO connections(user_id, provider, account, scopes, access_enc, refresh_enc, expires_at, created_at) VALUES (?, 'google', ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, provider) DO UPDATE SET account = excluded.account, scopes = excluded.scopes, access_enc = excluded.access_enc,
+       refresh_enc = COALESCE(excluded.refresh_enc, connections.refresh_enc), expires_at = excluded.expires_at`,
+  )
+    .bind(user, account, g.scopes.join(" "), access, refresh, g.expiresAt, Date.now())
+    .run();
+}
+
+const client = (env: Env, origin = "") => ({ id: env.GOOGLE_CLIENT_ID!, secret: env.GOOGLE_CLIENT_SECRET!, redirect: `${origin}/auth/google/calendar/callback` });
+
+/** A stand-in grant: fake tokens, the scopes asked for, an hour to live. */
+const mockGrant = (scopes: string[]): Grant => ({ access: `mock-${b64url(crypto.getRandomValues(new Uint8Array(12)))}`, refresh: `mock-r-${b64url(crypto.getRandomValues(new Uint8Array(12)))}`, expiresAt: Date.now() + 3600_000, scopes, email: null });
+
+/** A live access token for `user`, refreshed first if it's about to run out. */
+export async function accessToken(env: Env, user: string): Promise<string> {
+  const r = await row(env, user);
+  if (!r) throw new Error("feed:Google Calendar isn't connected any more. Connect it again from Calendars.");
+  const key = await keyOf(env);
+  if (r.expires_at - 60_000 > Date.now()) return decrypt(key, r.access_enc, context(user, "access"));
+  if (!r.refresh_enc) throw new Error("feed:Google Calendar needs connecting again");
+  const refresh = await decrypt(key, r.refresh_enc, context(user, "refresh"));
+  let g: Grant;
+  try {
+    g = googleMode(env) === "mock" ? { ...mockGrant(r.scopes.split(" ")), refresh } : await refreshGrant(client(env), refresh);
+  } catch (e) {
+    if (e instanceof GoogleError && (e.status === 400 || e.status === 401)) throw new Error("feed:Google Calendar access was taken back. Connect it again from Calendars.");
+    throw new Error("feed:Couldn't reach Google Calendar");
+  }
+  // Refreshing doesn't say which scopes it covers when they're unchanged.
+  await save(env, user, { ...g, scopes: g.scopes.length ? g.scopes : r.scopes.split(" ") }, r.account);
+  return g.access;
+}
+
+/** Google, as `user`: the real API, or the stand-in (which keeps what's written in `db`). */
+export function googleApi(env: Env, user: string, db?: SqlDb): GoogleApi {
+  const token = () => accessToken(env, user);
+  return googleMode(env) === "mock" ? new MockGoogle(token, db) : new GoogleClient(token, GOOGLE);
+}
+
+/** Forget the connection: Google revokes the grant, and the row goes. Returns whether there was one. */
+export async function disconnectGoogle(env: Env, user: string): Promise<boolean> {
+  const r = await row(env, user);
+  if (!r) return false;
+  if (googleMode(env) === "real") {
+    const key = await keyOf(env);
+    const token = await decrypt(key, r.refresh_enc ?? r.access_enc, context(user, r.refresh_enc ? "refresh" : "access")).catch(() => null);
+    if (token) await revokeGrant(token);
+  }
+  await env.DB.prepare("DELETE FROM connections WHERE user_id = ? AND provider = 'google'").bind(user).run();
+  return true;
+}
+
+// ------------------------------------------------------------------ connecting
+
+const PENDING = "__Host-ci_gcal";
+
+interface Pending {
+  state: string;
+  verifier: string;
+  user: string;
+  workspace: string;
+  write: boolean;
+  exp: number;
+}
+
+/** Where connecting ends: back on the Calendar, in the workspace it started from. */
+const back = (url: URL, workspace: string, outcome: string) => `${url.origin}/calendar?w=${encodeURIComponent(workspace)}&google=${outcome}`;
+
+const found = (to: string, cookies: string[] = []) => {
+  const headers = new Headers({ Location: to, "Cache-Control": "no-store" });
+  for (const c of cookies) headers.append("Set-Cookie", c);
+  return new Response(null, { status: 302, headers });
+};
+
+/**
+ * /auth/google/calendar (start), /callback (Google sends the person back), and on Previews /mock
+ * (the stand-in's consent page). Starting takes `w`, the workspace to come back to, and `write=1`
+ * to also ask to edit events.
+ */
+export async function googleAuth(req: Request, env: Env, url: URL): Promise<Response> {
+  const user = await readSession(req, env);
+  if (!user) return found(`${url.origin}/auth/${env.DEV_LOGIN === "1" ? "dev" : "google"}?next=${encodeURIComponent("/calendar")}`);
+  const mode = googleMode(env);
+  if (mode === "off") return notConfigured();
+
+  switch (url.pathname) {
+    case "/auth/google/calendar": {
+      const workspace = (url.searchParams.get("w") ?? "").replace(/[^a-z0-9]/g, "").slice(0, 40);
+      const write = url.searchParams.get("write") === "1";
+      const state = b64url(crypto.getRandomValues(new Uint8Array(24)));
+      const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
+      const pending = await seal(env.SESSION_SECRET, { state, verifier, user: user.id, workspace, write, exp: Date.now() + 10 * 60_000 } satisfies Pending);
+      const cookies = [setCookie(PENDING, pending, 600)];
+      if (mode === "mock") return found(`${url.origin}/auth/google/calendar/mock?state=${state}`, cookies);
+      const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
+      const auth = new URL(GOOGLE.auth);
+      auth.search = new URLSearchParams({
+        client_id: env.GOOGLE_CLIENT_ID!,
+        redirect_uri: client(env, url.origin).redirect,
+        response_type: "code",
+        scope: ["openid", "email", SCOPES.read, ...(write ? [SCOPES.write] : [])].join(" "),
+        access_type: "offline",
+        include_granted_scopes: "true",
+        prompt: "consent",
+        login_hint: user.email,
+        state,
+        code_challenge: challenge,
+        code_challenge_method: "S256",
+      }).toString();
+      return found(auth.toString(), cookies);
+    }
+
+    case "/auth/google/calendar/mock": {
+      if (mode !== "mock") return text(404, "Not found");
+      const pending = await unseal<Pending>(env.SESSION_SECRET, cookie(req, PENDING));
+      const state = url.searchParams.get("state") ?? "";
+      if (!pending || pending.state !== state || pending.user !== user.id) return text(400, "That connection expired. Start again from Calendars.");
+      if (req.method === "POST") {
+        if (req.headers.get("Origin") !== url.origin) return text(403, "Cross-origin request refused");
+        const allow = (await req.formData().catch(() => null))?.get("decision") === "allow";
+        return found(`${url.origin}/auth/google/calendar/callback?state=${state}&${allow ? "code=mock" : "error=access_denied"}`);
+      }
+      return page(
+        200,
+        `<h1>Stand-in for Google</h1>
+         <p class="muted">This server has no Google OAuth client, so this page plays Google's part. Nothing here reaches Google.</p>
+         <p>Common Ink would like to <b>see your calendars</b>${pending.write ? " and <b>add links to meeting notes to your events</b>" : ""}.</p>
+         <form method="post"><input type="hidden" name="decision" value="allow"><button type="submit">Allow</button></form>
+         <form method="post"><input type="hidden" name="decision" value="deny"><button type="submit" style="background:none;color:inherit;border:1px solid var(--line)">Cancel</button></form>`,
+      );
+    }
+
+    case "/auth/google/calendar/callback": {
+      const pending = await unseal<Pending>(env.SESSION_SECRET, cookie(req, PENDING));
+      const clear = [setCookie(PENDING, "", 0)];
+      if (!pending || pending.state !== url.searchParams.get("state") || pending.user !== user.id) return text(400, "That connection expired or was tampered with. Start again from Calendars.");
+      const code = url.searchParams.get("code");
+      if (!code) return found(back(url, pending.workspace, "denied"), clear);
+      let grant: Grant;
+      try {
+        grant = mode === "mock" ? mockGrant(["openid", "email", SCOPES.read, ...(pending.write ? [SCOPES.write] : [])]) : await exchangeCode(client(env, url.origin), code, pending.verifier);
+      } catch {
+        return found(back(url, pending.workspace, "failed"), clear);
+      }
+      if (!grant.scopes.includes(SCOPES.read) && !grant.scopes.includes(SCOPES.write)) return found(back(url, pending.workspace, "denied"), clear);
+      await save(env, user.id, grant, grant.email ?? user.email);
+      return found(back(url, pending.workspace, "connected"), clear);
+    }
+  }
+  return text(404, "Not found");
+}
+
+function notConfigured() {
+  return page(
+    503,
+    `<h1>Google isn't configured on this server</h1>
+     <p class="muted">Connecting Google Calendar needs a Google OAuth client and an encryption key for its tokens.
+     The person who runs this server sets <code>GOOGLE_CLIENT_ID</code>, <code>GOOGLE_CLIENT_SECRET</code> and
+     <code>INTEGRATIONS_KEY</code> with <code>wrangler secret put</code>.</p>
+     <p><a href="/calendar">Back to the Calendar</a></p>`,
+  );
+}
+

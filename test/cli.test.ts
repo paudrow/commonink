@@ -174,3 +174,12 @@ test("delete sends notes to Trash, trash lists them, and trash restore brings on
   assert.equal(quire(vault, ["trash"]).stdout, "Trash is empty.\n");
   assert.equal(quire(vault, ["trash", "empty"]).stderr, 'trash takes restore, not "empty"\n');
 });
+
+test("calendars: an empty vault says how to subscribe, and a private address is refused and not kept", () => {
+  const vault = tempVault();
+  assert.equal(quire(vault, ["events", "--from", "2026-10-05", "--tz", "UTC"]).stdout, "0 events, Mon, Oct 5 to Sun, Oct 11 (UTC). This workspace has no calendars yet: subscribe to an ICS feed from the Calendar page.\n");
+  const add = quire(vault, ["calendars", "add", "http://127.0.0.1:9/cal.ics"]);
+  assert.deepEqual([add.status, add.stderr], [1, "That address isn't on the public internet\n"]);
+  assert.equal(quire(vault, ["calendars"]).stdout, "No calendars. Subscribe to an ICS or webcal feed: quire calendars add <url>\n");
+  assert.equal(quire(vault, ["event", "nope"]).stderr, "No event nope; `quire events` lists them with their ids\n");
+});
