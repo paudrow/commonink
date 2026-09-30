@@ -116,6 +116,17 @@ test("malformed request bodies are 400s with a message, not 500s", async () => {
   }
 });
 
+test("a name too long for the disk is a 400 that says so, not an internal error", async () => {
+  const { call } = setup();
+  const r = await call("POST", "/note", { path: `${"x".repeat(300)}.md`, content: "# x\n" });
+  assert.deepEqual([r.status, r.body.error], [400, "That name is too long: a file or folder name can be up to 255 bytes"]);
+  assert.equal((await call("POST", "/move", { from: "Welcome.md", to: `${"y".repeat(300)}.md` })).status, 400);
+  assert.equal((await call("GET", "/note?path=Welcome.md")).status, 200);
+  const near = `${"z".repeat(250)}.md`;
+  assert.equal((await call("POST", "/note", { path: near, content: "# z\n" })).status, 200, "a name just under the limit");
+  assert.equal((await call("GET", `/note?path=${near}`)).body.content, "# z\n");
+});
+
 test("writes can't escape the vault or touch non-note files", async () => {
   const { call, dir } = setup();
   const svg = fs.readFileSync(path.join(dir, "assets/chart.svg"), "utf8");
