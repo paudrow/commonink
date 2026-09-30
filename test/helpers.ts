@@ -32,6 +32,33 @@ export function openTempVault(files?: Record<string, string>, opts?: Parameters<
   return { dir, quire: openVault(dir, opts) };
 }
 
+/** Random texts and edits from a seed, so a failure names a seed that reproduces it. */
+export function random(seed: number) {
+  let s = seed >>> 0 || 1;
+  const next = () => {
+    s ^= s << 13;
+    s ^= s >>> 17;
+    s ^= s << 5;
+    return (s >>> 0) / 2 ** 32;
+  };
+  const int = (n: number) => Math.floor(next() * n);
+  // Pieces that trip text handling up: line endings, accents, a character outside the BMP (two
+  // UTF-16 units, which an edit can split), and runs that repeat.
+  const PIECES = ["a", "b", " ", "\n", "\r\n", "é", "😀", "- [ ] task\n", "same line\n", "#", ""];
+  const text = (n: number) => Array.from({ length: n }, () => PIECES[int(PIECES.length)]).join("");
+  /** `t` with a few random insertions, deletions and replacements, some of them splitting a surrogate pair. */
+  const edit = (t: string) => {
+    let out = t;
+    for (let k = int(4); k >= 0; k--) {
+      const at = int(out.length + 1);
+      const cut = int(Math.min(12, out.length - at + 1));
+      out = out.slice(0, at) + (int(3) ? text(int(6)) : "") + out.slice(at + cut);
+    }
+    return out;
+  };
+  return { int, text, edit };
+}
+
 /**
  * The CPU time `run` took, in milliseconds. Time bounds in tests use it rather than the clock: on a
  * busy machine other processes stretch the clock time several times over, but not this.
