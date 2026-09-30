@@ -9,6 +9,9 @@ import { blockMathAt, inlineMathAt, MAX_TEX } from "../../src/core/math.ts";
 
 let katex: Promise<typeof import("./mathRender.ts")> | null = null;
 
+/** KaTeX's renderer, with its stylesheet and fonts loaded: for drawing formulas all at once (print, exports). */
+export const mathRenderer = () => (katex ??= import("katex/dist/katex.min.css").then(() => import("./mathRender.ts")));
+
 /**
  * Draw a formula into `node`: its source at first, then KaTeX's rendering, or, if the TeX doesn't
  * parse, the source in red with KaTeX's message on hover. Display math gets a copy-LaTeX button.
@@ -16,8 +19,7 @@ let katex: Promise<typeof import("./mathRender.ts")> | null = null;
 export function drawMath(node: HTMLElement, tex: string, display: boolean, onDrawn?: () => void) {
   node.classList.add("math", display ? "math-display" : "math-inline");
   node.textContent = display ? tex : `$${tex}$`;
-  katex ??= import("katex/dist/katex.min.css").then(() => import("./mathRender.ts"));
-  void katex.then(({ renderTex }) => {
+  void mathRenderer().then(({ renderTex }) => {
     const out = renderTex(tex, display);
     if ("html" in out) {
       node.innerHTML = out.html; // sanitized last, in renderTex

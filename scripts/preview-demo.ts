@@ -119,9 +119,16 @@ async function sampleVault() {
 
 /** Each section's demo notes and files the workspace doesn't have yet, with their dates filled in as of today. */
 async function demoFiles(sections: Section[]) {
-  for (const { to, from } of sections.flatMap((s) => s.files)) {
+  for (const { to, from, versions } of sections.flatMap((s) => s.files)) {
     if (has.has(to)) continue;
-    if (/\.(md|html)$/.test(to)) await must("POST", `${api}/note`, { path: to, content: fillDates(fs.readFileSync(from, "utf8"), TODAY) });
+    if (versions?.length) {
+      // Its earlier versions first, each saved and labeled with its name; then the note as it is now.
+      for (const [i, v] of versions.entries()) {
+        await must(i ? "PUT" : "POST", `${api}/note`, { path: to, content: fillDates(fs.readFileSync(v.from, "utf8"), TODAY) });
+        await must("POST", `${api}/labels`, { path: to, name: v.name });
+      }
+      await must("PUT", `${api}/note`, { path: to, content: fillDates(fs.readFileSync(from, "utf8"), TODAY) });
+    } else if (/\.(md|html)$/.test(to)) await must("POST", `${api}/note`, { path: to, content: fillDates(fs.readFileSync(from, "utf8"), TODAY) });
     else {
       const [folder, name] = [path.posix.dirname(to), path.posix.basename(to)];
       const type = to.endsWith(".svg") ? "image/svg+xml" : "application/octet-stream";

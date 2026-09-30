@@ -3,8 +3,9 @@
 import "./dom.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { askFor, pickTemplate } from "../web/src/templatePicker.ts";
+import { askFor, peopleOffers, pickTemplate } from "../web/src/templatePicker.ts";
 import type { TemplateInfo } from "../src/core/templates.ts";
+import { emptyContact } from "../src/core/contacts.ts";
 
 const t = (name: string, o: Partial<TemplateInfo> = {}): TemplateInfo => ({ path: `Templates/${name}.md`, name, title: null, folder: null, appliesTo: [], asks: [], clipboard: false, ...o });
 const ask = (label: string, o: Partial<TemplateInfo["asks"][number]> = {}) => ({ label, fallback: "", type: "text" as const, choices: [], ...o });
@@ -86,6 +87,31 @@ test("typed questions: a people picker (members, or someone new), a date picker,
     title: undefined,
     answers: { Due: "2026-10-05", Priority: "medium" },
     picks: { Attendees: [{ name: "Priya Shah", handle: "Priya" }, { name: "Sam Lee", handle: "Sam-Lee" }] },
+  });
+});
+
+test("a people question offers the people @ knows, with the handle a task uses and a link to a contact's note", async () => {
+  const contact = (name: string, o: { email?: string[]; aliases?: string[] } = {}) => ({ ...emptyContact(name), ...o, path: `People/${name}.md`, id: name, mentions: 0, lastContacted: null });
+  const member = (name: string, email: string) => ({ id: email, name, email });
+  const offers = peopleOffers([contact("Jane Doe", { email: ["jane@acme.com"] }), contact("Tom Wu", { aliases: ["TW"] })], [member("Jane D.", "JANE@acme.com"), member("Sam Dev", "sam@x.org")]);
+  // Jane is a member too (the same email): offered once, as her contact. Tom goes by his alias.
+  assert.deepEqual(offers, [
+    { name: "Jane Doe", handle: "Jane", link: "[[People/Jane Doe]]" },
+    { name: "Sam Dev", handle: "Sam" },
+    { name: "Tom Wu", handle: "TW", link: "[[People/Tom Wu]]" },
+  ]);
+  const asked = askFor(t("Call", { asks: [ask("Who", { type: "people" })] }), { title: false, people: offers });
+  type("tom");
+  assert.deepEqual([...document.querySelectorAll(".tpl-people-opt")].map((o) => o.textContent), ["Tom Wu@TW", "Add “tom”new"]);
+  key("Enter");
+  type("jane");
+  key("Enter");
+  (document.querySelector(".tpl-box .qw-btn.primary") as HTMLButtonElement).click();
+  assert.deepEqual((await asked)?.picks, {
+    Who: [
+      { name: "Tom Wu", handle: "TW", link: "[[People/Tom Wu]]" },
+      { name: "Jane Doe", handle: "Jane", link: "[[People/Jane Doe]]" },
+    ],
   });
 });
 

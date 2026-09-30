@@ -12,9 +12,11 @@ import type { Change } from "../../src/core/quire.ts";
 import { createMcpServer } from "../../src/core/tools.ts";
 import { COMMANDS, UsageError, type VaultBytes } from "../../src/core/commands/index.ts";
 import type { RunResponse } from "../../src/core/commands/wire.ts";
+import { coreExporter } from "../../src/core/export.ts";
 import { access, asRole } from "./access.ts";
 import { DoDb, SqlContent } from "./do-store.ts";
 import { SEED_FILES, SEED_NOTES } from "./seed.ts";
+import { membersOf } from "./admin.ts";
 import type { Env } from "./env.ts";
 import { safeDecode } from "../../src/core/uri.ts";
 import { Calendar } from "../../src/core/calendar.ts";
@@ -159,12 +161,15 @@ export class Workspace extends DurableObject<Env> {
         this.broadcast({ type: "change", change });
       },
       tree: () => this.broadcast({ type: "tree" }),
+      // Everyone in the workspace (the directory's, in D1): who "me" is on a task. (The Worker answers GET /members itself.)
+      members: async () => (await membersOf(this.env, wsId)).map((m) => ({ ...m, you: m.id === user })),
       calendar: this.calendar,
       origin: this.selfOrigin ?? undefined,
       calendarChanged: () => {
         this.broadcast({ type: "calendar" });
         this.ctx.waitUntil(this.schedule());
       },
+      fileBytes: (rel) => this.fileBytes(rel),
     };
     return (await handleApi(host, req, route)) ?? json({ error: `No route ${req.method} ${route}` }, 404);
   }
@@ -239,6 +244,13 @@ export class Workspace extends DurableObject<Env> {
     };
   }
 
+  /** An uploaded file's bytes, from R2. */
+  private async fileBytes(rel: string): Promise<Uint8Array | null> {
+    const key = this.files.blob(rel)?.blob;
+    const obj = key ? await this.env.FILES.get(key) : null;
+    return obj ? new Uint8Array(await obj.arrayBuffer()) : null;
+  }
+
   private async serveFile(raw: string): Promise<Response> {
     const rel = cleanPath(raw);
     const meta = this.files.blob(rel);
@@ -285,8 +297,11 @@ export class Workspace extends DurableObject<Env> {
       source: () => who.actor,
       may: (route) => access(role, ...(route.split(" ") as [string, string])) === "allowed",
       canEditShared: role === "owner" || role === "editor",
+      members: () => membersOf(this.env, who.workspace),
       calendar: this.calendar,
       origin: new URL(req.url).origin,
+      // Markdown and .zip; a web page and Word are drawn by the app (Share → Export as).
+      exporter: coreExporter({ quire: this.quire, bytes: (rel) => this.fileBytes(rel), origin: new URL(req.url).origin }),
     });
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await server.connect(transport);
@@ -326,6 +341,9 @@ export class Workspace extends DurableObject<Env> {
         bytes: this.vaultBytes(who.workspace),
         calendar: this.calendar,
         origin: who.origin,
+        members: () => membersOf(this.env, who.workspace),
+        // Markdown and .zip, as over MCP; a web page and Word are drawn by the app (Share → Export as).
+        exporter: who.origin ? coreExporter({ quire, bytes: (rel) => this.fileBytes(rel), origin: who.origin }) : undefined,
       };
       return { ok: true, ...(await command.run(host, input as never)) };
     } catch (e) {

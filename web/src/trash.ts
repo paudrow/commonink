@@ -12,8 +12,11 @@ export interface DeleteHooks {
   changed(): Promise<void>;
 }
 
-/** A small modal with a message and buttons. Resolves to the chosen button's value, or null on Escape or a click outside. */
-export function ask(o: { title: string; body: Array<string | HTMLElement>; actions: Array<{ label: string; value: string; kind?: "primary" | "danger" }> }): Promise<string | null> {
+/**
+ * A small modal with a message and buttons. Resolves to the chosen button's value, or null on
+ * Escape or a click outside. `focus` takes the keyboard first (a field in `body`); else the main button.
+ */
+export function ask(o: { title: string; body: Array<string | HTMLElement>; actions: Array<{ label: string; value: string; kind?: "primary" | "danger" }>; focus?: HTMLElement }): Promise<string | null> {
   return new Promise((resolve) => {
     const done = (v: string | null) => {
       overlay.remove();
@@ -40,7 +43,7 @@ export function ask(o: { title: string; body: Array<string | HTMLElement>; actio
     );
     document.body.append(overlay);
     document.addEventListener("keydown", onKey, true);
-    (buttons.find((b) => b.classList.contains("primary")) ?? buttons[0])?.focus();
+    (o.focus ?? buttons.find((b) => b.classList.contains("primary")) ?? buttons[0])?.focus();
   });
 }
 
@@ -216,7 +219,7 @@ export class TrashPage {
   private async purge(t: TrashItem) {
     const ok = await ask({
       title: `Delete ${displayName(t.path)} forever?`,
-      body: ["It can't be restored after this, and its earlier versions go from History too."],
+      body: [`It can't be restored after this, and its earlier versions go from History too${t.labels ? `, with its ${plural(t.labels, "label")}` : ""}.`],
       actions: [{ label: "Delete forever", value: "yes", kind: "danger" }],
     });
     if (!ok) return;
@@ -225,9 +228,10 @@ export class TrashPage {
   }
 
   private async empty() {
+    const labels = this.items.reduce((n, t) => n + (t.labels ?? 0), 0);
     const ok = await ask({
       title: `Empty Trash?`,
-      body: [`${plural(this.items.length, "item")} will be deleted for good. They can't be restored after this, and their earlier versions go from History too.`],
+      body: [`${plural(this.items.length, "item")} will be deleted for good. They can't be restored after this, and their earlier versions go from History too${labels ? `, with ${plural(labels, "label")}` : ""}.`],
       actions: [{ label: "Empty trash", value: "yes", kind: "danger" }],
     });
     if (!ok) return;
