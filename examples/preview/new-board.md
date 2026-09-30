@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 116
 title: New board from the command palette
 ---
 1. Press ⌘⇧P (Ctrl+Shift+P off a Mac) and type `board` or `kanban`. **New board** is the first command.
