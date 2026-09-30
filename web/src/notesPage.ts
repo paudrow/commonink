@@ -507,9 +507,20 @@ export class NotesPage {
       el("span", {}, `${n} selected`),
       el("span", { class: "spacer" }),
       el("button", { type: "button", class: "qw-btn primary", onclick: () => this.archive([...this.selected]) }, icon(allArchived ? "unarchive" : "archive", 14), allArchived ? "Unarchive" : "Archive"),
+      el("button", { type: "button", class: "qw-btn", title: "Download the selected notes and their files as a .zip", onclick: () => void this.exportSelected() }, icon("download", 14), "Export"),
       ...(this.hooks.readOnly() ? [] : [el("button", { type: "button", class: "qw-btn danger", onclick: () => void this.delete([...this.selected]) }, icon("trash", 14), "Delete")]),
       el("button", { type: "button", class: "qw-btn", onclick: () => (this.selected.clear(), this.render()) }, "Clear"),
     );
+  }
+
+  /** The selected notes as a .zip, with the files they use. */
+  private async exportSelected() {
+    try {
+      const name = await (await import("./export/files.ts")).exportZip({ paths: [...this.selected] });
+      this.hooks.toast({ icon: "check", text: `Exported ${name}` });
+    } catch (e) {
+      this.hooks.toast({ text: `Couldn't export: ${e instanceof Error ? e.message : String(e)}` });
+    }
   }
 
   private setFocus(i: number, scroll = true) {

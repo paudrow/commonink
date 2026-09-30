@@ -259,7 +259,7 @@ class Context {
       else if (e.classList.contains("math")) out.push(this.tex(e));
       else if (tag === "img") out.push(await this.image(e as HTMLImageElement));
       else if (tag === "svg") continue; // a chip's icon
-      else if (e.classList.contains("tk")) out.push(run(` ${e.textContent?.trim()} `, { ...look, size: 17, color: hex("muted") }));
+      else if (e.classList.contains("tk")) out.push(run(` ${chipText(e)} `, { ...look, size: 17, color: hex("muted") }));
       else if (tag === "a") {
         const href = e.getAttribute("href") ?? "";
         const outside = /^(https?|mailto):/i.test(href);
@@ -316,6 +316,13 @@ function run(text: string, look: Look): TextRun {
     ...(look.code ? { font: MONO, shading: { type: ShadingType.CLEAR, fill: hex("code-bg"), color: "auto" } } : {}),
   };
   return new TextRun(opts);
+}
+
+/** A task chip's words, without its icon or a person's avatar initial. */
+function chipText(chip: Element): string {
+  const c = chip.cloneNode(true) as Element;
+  c.querySelectorAll(".avatar, svg").forEach((n) => n.remove());
+  return (c.textContent ?? "").replace(/\s+/g, " ").trim();
 }
 
 const link = (href: string, children: ParagraphChild[]) => new ExternalHyperlink({ link: href, children: children as TextRun[] });

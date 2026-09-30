@@ -47,6 +47,7 @@ const app = (over: Partial<App> = {}): App => {
     share: run("share"),
     copyLink: run("copyLink"),
     exportAs: (how) => void ran.push(`export:${how}`),
+    exportWorkspace: run("exportWorkspace"),
     back: run("back"),
     forward: run("forward"),
     followLink: run("followLink"),

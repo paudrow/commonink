@@ -2,6 +2,7 @@ import { localDate, type TaskMeta, type TaskPatch } from "../../src/core/tasks.t
 import type { GuideAction, GuideState } from "../../src/core/guide.ts";
 import { did } from "./events.ts";
 import type { NoteRole } from "../../src/core/noteRoles.ts";
+import { safeDecode } from "../../src/core/uri.ts";
 
 /** The reader's day, which task writes and due filters go by (the server may be in another time zone). */
 const today = () => localDate(Date.now());
@@ -378,6 +379,21 @@ export const api = {
     return resolveCache.get(key)!;
   },
   clearResolveCache: () => resolveCache.clear(),
+  /** Notes as a .zip (core/export.ts): some notes by path (each with its files), a folder, or everything. */
+  async exportZip(q: { paths?: string[]; folder?: string; all?: boolean }): Promise<{ name: string; data: Blob }> {
+    const qs = new URLSearchParams();
+    for (const p of q.paths ?? []) qs.append("path", p);
+    if (q.folder) qs.set("folder", q.folder);
+    if (q.all) qs.set("all", "1");
+    const r = await fetch(`${BASE}/export?${qs}`);
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}));
+      throw new ApiError(data.error ?? r.statusText, r.status, data);
+    }
+    const disposition = r.headers.get("Content-Disposition") ?? "";
+    const name = safeDecode(disposition.match(/filename\*=UTF-8''([^;]+)/)?.[1] ?? "") || "Notes.zip";
+    return { name, data: await r.blob() };
+  },
 };
 
 export function assetUrl(target: string, from?: string): string {
