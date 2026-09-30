@@ -25,6 +25,7 @@ const app = (over: Partial<App> = {}): App => {
     folds: 0,
     account: [],
     newNote: run("newNote"),
+    newFromTemplate: run("newFromTemplate"),
     newFolder: run("newFolder"),
     go: (page) => void ran.push(`go:${page}`),
     filterNotes: run("filterNotes"),

@@ -1084,6 +1084,8 @@ body.is-resizing iframe { pointer-events: none; }
 .nav-item svg { color: var(--muted); }
 .nav-item .n { margin-left: auto; font-size: 11.5px; color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
 .sidebar-foot .nav-item { margin: 0 0 4px; }
+.new-note-row { display: flex; align-items: center; gap: 4px; }
+.new-note-row .ghost-btn { flex: 1; }
 
 #banner.is-info { background: color-mix(in srgb, var(--accent) 9%, var(--bg-elev)); border-color: var(--accent-line); }
 #banner.is-info svg { color: var(--accent); }
@@ -2247,3 +2249,18 @@ details.markdown-alert[open] > summary { margin-bottom: 0.3em; }
 .nav-arrow[aria-disabled="true"] { opacity: 0.4; cursor: default; }
 .nav-arrow[aria-disabled="true"]:hover { background: none; color: var(--muted); }
 .nav-trail .fp-item { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Templates (templatePicker.ts): the picker and the {{ask:…}} form. */
+.tpl-box > input, .tpl-form input { width: 100%; height: 36px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg); color: var(--ink-strong); font: 14px var(--ui); outline: none; box-sizing: border-box; }
+.tpl-box > input:focus, .tpl-form input:focus { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.tpl-list { display: grid; gap: 1px; margin-top: 8px; max-height: 320px; overflow: auto; }
+.tpl-item { display: grid; grid-template-columns: 16px auto minmax(0, 1fr); align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; text-align: left; font-size: 13.5px; color: var(--ink); }
+.tpl-item b { font-weight: 600; color: var(--ink-strong); }
+.tpl-item > svg { color: var(--muted); }
+.tpl-item:hover { background: var(--hover); }
+.tpl-item.is-active { background: var(--accent-soft); }
+.tpl-hint { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tpl-none { margin: 10px 2px 2px; color: var(--muted); font-size: 13.5px; }
+.tpl-form { display: grid; gap: 10px; }
+.tpl-form label { display: grid; gap: 4px; }
+.tpl-form label span { font-size: 12.5px; font-weight: 600; color: var(--ink-2); }

@@ -43,6 +43,8 @@ export interface TemplateInfo {
   appliesTo: string[];
   /** What it asks for, in order. */
   asks: Ask[];
+  /** Whether it uses {{clipboard}} (the app reads the clipboard only then). */
+  clipboard: boolean;
 }
 
 export interface FillOptions {
@@ -78,6 +80,7 @@ export function templateInfo(path: string, md: string): TemplateInfo {
     folder: scalarOf(get("folder")).replace(/^\/+|\/+$/g, "") || null,
     appliesTo: listOf(get("applies_to")).map((f) => f.replace(/^\/+|\/+$/g, "")).filter(Boolean),
     asks: asksIn(md),
+    clipboard: [...md.matchAll(PLACEHOLDER)].some((m) => !m[1] && m[2].trim() === "clipboard"),
   };
 }
 

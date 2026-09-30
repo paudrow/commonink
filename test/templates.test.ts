@@ -39,7 +39,9 @@ test("{{ask:…}} is asked once per label, with an optional default; answers fil
 test("a template's own frontmatter says how notes are made from it, and isn't copied into them", () => {
   const md = "---\ntitle: \"{{date}} {{ask:Client}} meeting\"\nfolder: Meetings\napplies_to: [Meetings/, Clients/]\ntags: [meeting]\n---\n# {{title}}\n";
   const info = templateInfo("Templates/Meeting.md", md);
-  assert.deepEqual(info, { path: "Templates/Meeting.md", name: "Meeting", title: "{{date}} {{ask:Client}} meeting", folder: "Meetings", appliesTo: ["Meetings", "Clients"], asks: [{ label: "Client", fallback: "" }] });
+  assert.deepEqual(info, { path: "Templates/Meeting.md", name: "Meeting", title: "{{date}} {{ask:Client}} meeting", folder: "Meetings", appliesTo: ["Meetings", "Clients"], asks: [{ label: "Client", fallback: "" }], clipboard: false });
+  assert.equal(templateInfo("Templates/Clip.md", "{{ clipboard }}").clipboard, true);
+  assert.equal(templateInfo("Templates/Clip.md", "\\{{clipboard}}").clipboard, false);
   // The body keeps the frontmatter that isn't the template's (tags).
   assert.equal(fillTemplate(md, { at: AT, title: "X" }).text, "---\ntags: [meeting]\n---\n# X\n");
 });
