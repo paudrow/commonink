@@ -62,7 +62,8 @@ function localHost(q: LocalVault, agent: string | undefined): CommandHost {
 function print(out: Output, input: Record<string, unknown>) {
   let data = out.data;
   if (out.save) {
-    const dest = typeof input.out === "string" ? input.out : out.save.name;
+    // The name comes from the vault (or a server): only ever a file here, never a path out of it.
+    const dest = typeof input.out === "string" ? input.out : path.basename(out.save.name.replaceAll("\\", "/")) || "download";
     if (dest === "-") return void process.stdout.write(out.save.bytes);
     fs.writeFileSync(dest, out.save.bytes);
     data = { ...(out.data as object), saved: dest };

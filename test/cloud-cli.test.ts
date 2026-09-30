@@ -141,6 +141,25 @@ test("files go up to R2 and come back down, byte for byte", async () => {
   assert.deepEqual([...fs.readFileSync(out)], [...bytes]);
 });
 
+test("contacts, labels, tasks --by me and export work in a hosted workspace too", async () => {
+  const c = cli();
+  await login(c, people.owner);
+  const team = ["--workspace", "Team"];
+  assert.equal(c.run(["contact", "add", "Rae Lin", "--email", "rae@x.org", ...team]).stdout, "Created People/Rae Lin.md. Link to them with [[People/Rae Lin]].\n");
+  assert.match(c.run(["contact", "Rae Lin", "--role", "CTO", ...team]).stdout, /^Updated People\/Rae Lin\.md/);
+  assert.match(c.run(["contacts", "--q", "rae", ...team]).stdout, /^People\/Rae Lin\.md — Rae Lin · CTO/);
+  assert.equal(c.run(["create", "Given", "- [ ] Ship it @rae\n", ...team]).status, 0);
+  assert.match(c.run(["tasks", "--by", "me", ...team]).stdout, /Ship it @rae/);
+  assert.match(c.run(["label", "Given", "v1", ...team]).stdout, /^Labeled Given\.md as "v1"/);
+  assert.equal(c.run(["append", "Given", "- [ ] More", ...team]).status, 0);
+  assert.match(c.run(["diff", "Given", "--from", "v1", ...team]).stdout, /^\+- \[ \] More$/m);
+  assert.match(c.run(["restore", "Given", "--to", "v1", ...team]).stdout, /^Restored to "v1": Given\.md/);
+  const here = fs.mkdtempSync(path.join(os.tmpdir(), "quire-export-"));
+  const md = path.join(here, "Given.md");
+  assert.equal(c.run(["export", "Given", "--format", "md", "--out", md, ...team]).status, 0);
+  assert.equal(fs.readFileSync(md, "utf8"), "- [ ] Ship it @rae\n");
+});
+
 test("a viewer's CLI reads but can't write, and a grant for one workspace stays in it", async () => {
   const viewer = cli();
   await login(viewer, people.viewer);
