@@ -211,7 +211,7 @@ if (cmd === "mcp") {
       }
       case "changes": {
         const cs = q.changes({ since: str("since"), path: str("path"), limit: num("limit") ?? 30, by: parseAuthorFilter(str("by")) });
-        out(fmtChanges(cs), cs);
+        out(fmtChanges(cs, q), cs);
         break;
       }
       case "archive":
