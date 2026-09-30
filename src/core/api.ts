@@ -24,6 +24,8 @@ export interface ApiHost {
   removed(rel: string, change: Change): void;
   /** The set of notes changed. */
   tree(): void;
+  /** Where the app is ("https://commonink.app"), for links in exports; the request's own address if unset. */
+  origin?: string;
   /** An uploaded file's bytes (for exports), or null if it's gone. */
   fileBytes?(rel: string): Promise<Uint8Array | null>;
 }
@@ -344,7 +346,7 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     case "GET /export": {
       // Notes as a .zip (core/export.ts): ?path=… (repeated), ?folder=…, or ?all=1 for the whole workspace.
       const what: ExportWhat = q("all") ? { all: true } : q("folder") ? { folder: q("folder") } : { paths: url.searchParams.getAll("path").slice(0, 2000) };
-      const out = await exportZip({ quire, bytes: host.fileBytes ?? (async () => null), origin: url.origin, name: String(host.info().name ?? "Workspace") }, what);
+      const out = await exportZip({ quire, bytes: host.fileBytes ?? (async () => null), origin: host.origin ?? url.origin, name: String(host.info().name ?? "Workspace") }, what);
       return new Response(out.zip as Uint8Array<ArrayBuffer>, { headers: { "Content-Type": "application/zip", "Content-Disposition": attachment(out.name), "Cache-Control": "no-store" } });
     }
     case "POST /trash/restore": {

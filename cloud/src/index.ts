@@ -169,6 +169,7 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
   headers.set("x-ci-role", ws.role);
   headers.set("x-ci-session", session.id);
   headers.set("x-ci-session-expires", String(session.expiresAt));
+  headers.set("x-ci-origin", url.origin); // the app's own address, for links in exports
   const inner = new Request(`https://workspace${route}${url.search}`, { method: req.method, headers, body: isWrite ? req.body : undefined, redirect: "manual" });
   return env.WORKSPACE.get(env.WORKSPACE.idFromName(ws.id)).fetch(inner);
 }

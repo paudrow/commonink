@@ -246,3 +246,13 @@ test("an upload deleted for good takes its bytes out of R2; one in Trash keeps t
   await new Promise((r) => setTimeout(r, 50)); // the delete runs after the response
   assert.equal(await keys(), before - 1);
 });
+
+test("online, an exported note's link to a note left out goes to the app's own address", async () => {
+  const { strFromU8, unzipSync } = await import("fflate");
+  const owner = await cloud.signIn("owner");
+  await cloud.request(owner, "POST", `${people.base}/note`, { path: "Out/Linker.md", content: "# Linker\n\nSee [[Getting started]].\n" });
+  const res = await cloud.request(owner, "GET", `${people.base}/export?folder=Out`);
+  assert.equal(res.headers.get("content-type"), "application/zip");
+  const note = strFromU8(unzipSync(new Uint8Array(await res.arrayBuffer()))["Out/Linker.md"]);
+  assert.match(note, new RegExp(`See \\[Getting started\\]\\(${cloud.origin.replace(/[.]/g, "\\.")}/notes/getting-started-[a-z2-9]{8}\\)\\.`), note);
+});

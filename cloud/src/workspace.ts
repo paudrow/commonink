@@ -123,6 +123,7 @@ export class Workspace extends DurableObject<Env> {
       user,
       canEditShared: ["owner", "editor"].includes(req.headers.get("x-ci-role") ?? ""), // an unknown or missing role can't
       info: () => ({ mode: "cloud", name: decodeURIComponent(req.headers.get("x-ci-workspace-name") ?? "Workspace") }),
+      origin: req.headers.get("x-ci-origin") ?? undefined, // this request came through the Worker at https://workspace
       written: (rel, content, version, change, origin) => this.announce(rel, content, version, change, origin),
       moved: (from, to, version, change) => {
         this.broadcast({ type: "removed", path: from });
