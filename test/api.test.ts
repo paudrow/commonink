@@ -66,6 +66,10 @@ test("a save that names the note's ID follows it to where it moved, rather than 
   assert.equal(fs.existsSync(path.join(dir, "Welcome.md")), false);
   const blank = await call("PUT", "/note", { path: "Welcome.md", id: before.id, content: "" });
   assert.deepEqual([blank.status, blank.body.code], [422, "empty"]);
+  await call("POST", "/note", { path: "Welcome.md", content: "# A new welcome\n" });
+  const again = await call("PUT", "/note", { path: "Welcome.md", id: before.id, content: "# Welcome\n\nmore still\n" });
+  assert.equal(again.body.path, "Hello.md");
+  assert.equal(fs.readFileSync(path.join(dir, "Welcome.md"), "utf8"), "# A new welcome\n");
 });
 
 test("undoing an agent's edit restores the note only while it's still at that edit's version", async () => {

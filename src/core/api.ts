@@ -202,7 +202,11 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json(quire.diff(qInt("from"), q("to") ? qInt("to") : qInt("from")));
 
     case "PUT /note": {
-      const rel = cleanPath(str("path"));
+      let rel = cleanPath(str("path"));
+      // The note moved while this save was on its way (its first title renamed it, an agent moved
+      // it): save it where it is now, not as a new note at the old path.
+      const id = optStr("id");
+      if (id) rel = quire.pathOf(id) ?? rel;
       const content = text("content");
       // Never let a client blank out a note by accident (e.g. a stale tab whose editor failed to load).
       if (!content.trim() && !flag("allowEmpty") && quire.files.read(rel)?.trim()) {
