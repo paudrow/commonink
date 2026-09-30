@@ -61,6 +61,47 @@ test("moving a note rewrites the links that point at it", () => {
   assert.deepEqual(quire.backlinks("Plan").map((b) => b.path), ["Welcome.md"]);
 });
 
+test("moving a note keeps a markdown link's #heading", () => {
+  const { quire } = openTempVault({ "A.md": "# A\n\nSee [plan](B.md#now) and [[B#Now]].\n", "B.md": "# B\n\n## Now\n" });
+  quire.move("B", "C.md", "t");
+  assert.equal(quire.read("A").content, "# A\n\nSee [plan](C.md#now) and [[C#Now]].\n");
+});
+
+test("moving a note leaves alone a link in the same note that points at another note with its name", () => {
+  const { quire } = openTempVault({ "Other/A.md": "# A\n\n[[Projects/B]] and [local](B.md)\n", "Other/B.md": "# other B\n", "Projects/B.md": "# proj B\n" });
+  quire.move("Projects/B.md", "Projects/C.md", "t");
+  assert.equal(quire.read("Other/A.md").content, "# A\n\n[[C]] and [local](B.md)\n");
+});
+
+test("moving a note rewrites a link that would otherwise fall through to another note with its old name", () => {
+  const { quire } = openTempVault({ "A.md": "# A\n\n[[B]]\n", "Projects/B.md": "# proj B\n", "Old/Deeper/B.md": "# old B\n" });
+  quire.move("Projects/B.md", "Projects/C.md", "t");
+  assert.equal(quire.read("A").content, "# A\n\n[[C]]\n");
+  assert.equal(quire.resolve("C", "A.md"), "Projects/C.md");
+});
+
+test("moving a note leaves links in code as written", () => {
+  const { quire } = openTempVault({ "A.md": "# A\n\n[[B]]\n\n```\nwrite [[B]] to link\n```\n\nInline `[[B]]` too\n", "B.md": "# B\n" });
+  quire.move("B", "C.md", "t");
+  assert.equal(quire.read("A").content, "# A\n\n[[C]]\n\n```\nwrite [[B]] to link\n```\n\nInline `[[B]]` too\n");
+});
+
+test("moving a note to a name with parentheses keeps its markdown links working", () => {
+  const { quire } = openTempVault({ "A.md": "# A\n\n[b](B.md)\n", "B.md": "# B\n" });
+  quire.move("B", "B (old).md", "t");
+  assert.equal(quire.read("A").content, "# A\n\n[b](B%20%28old%29.md)\n");
+  assert.deepEqual(quire.backlinks("B (old).md").map((b) => b.path), ["A.md"]);
+});
+
+test("renaming a note can change just the case of its name", () => {
+  const { dir, quire } = openTempVault({ "meeting notes.md": "# m\n", "A.md": "[[meeting notes]]\n" });
+  const r = quire.move("meeting notes.md", "Meeting Notes.md", "t");
+  assert.equal(r.path, "Meeting Notes.md");
+  assert.deepEqual(fs.readdirSync(dir).filter((f) => f.endsWith(".md")).sort(), ["A.md", "Meeting Notes.md"]);
+  assert.deepEqual(quire.list().map((n) => n.path), ["A.md", "Meeting Notes.md"]);
+  assert.deepEqual(quire.backlinks("Meeting Notes").map((b) => b.path), ["A.md"]);
+});
+
 test("creating a second top-level note with the same title leaves the first as it was", () => {
   const { dir, quire } = openTempVault({});
   quire.create("Idea", "# Idea\n\nThe first one.\n", "t");
