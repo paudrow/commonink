@@ -1003,6 +1003,11 @@ body.is-resizing iframe { pointer-events: none; }
 .qw-field.is-toggle { align-items: center; }
 .qw-field.is-toggle .qw-field-label { padding-top: 0; }
 .qw-field-control { display: grid; gap: 8px; min-width: 0; }
+/* The calendars a widget shows (widgets/core.ts calendarPicker): All, then each one with its color. */
+.qw-cals { display: grid; gap: 6px; max-height: 180px; overflow-y: auto; }
+.qw-cal { display: flex; align-items: center; gap: 8px; min-width: 0; cursor: pointer; }
+.qw-cal span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qw-cals-note { color: var(--muted); }
 .qw-field input[type="text"] {
   height: 32px;
   border: 1px solid var(--line-strong);
@@ -2330,6 +2335,17 @@ details.markdown-alert[open] > summary { margin-bottom: 0.3em; }
 .cal-chip.is-allday.is-after { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .cal-chip.is-task, .cal-chip.is-task.is-allday { background: none; box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--ink-2); font-weight: 500; }
 .cal-chip.is-task svg { flex: none; color: var(--muted); }
+/* A task on the calendar: its checkbox, then a button that opens its note, filling the rest. */
+.cal-chip.is-task { gap: 6px; padding-left: 5px; }
+.cal-check { flex: none; padding: 0; font-size: 12px; }
+.cal-check:focus-visible, .cal-chip-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cal-chip-open { display: flex; align-items: center; gap: 5px; flex: 1; min-width: 0; padding: 0; color: inherit; font: inherit; text-align: left; border-radius: 4px; }
+.cal-chip.is-task.is-done { color: var(--muted); }
+.cal-chip.is-task.is-done .cal-chip-title, .cal-chip.is-task.is-done .cal-arow-title { text-decoration: line-through; text-decoration-color: var(--faint); color: var(--muted); }
+.cal-chip.cal-arow.is-task { display: flex; align-items: flex-start; gap: 0; box-shadow: none; }
+.cal-chip.cal-arow.is-task .cal-check { width: 16px; height: 16px; margin: 2px 8px 0 0; }
+.cal-chip.cal-arow.is-task .cal-chip-open { display: grid; grid-template-columns: 54px 4px minmax(0, 1fr); align-items: start; gap: 10px; }
+.cal-chip.cal-arow.is-task .cal-arow-bar { background: var(--line-strong); }
 .cal-chip.is-tentative .cal-chip-title { font-style: italic; }
 
 /* Month: whole weeks, a few lines a day, then "+N more" */

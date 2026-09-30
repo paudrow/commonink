@@ -1,10 +1,11 @@
-//   ::agenda   ::agenda{days=7}
+//   ::agenda   ::agenda{days=7}   ::agenda{calendars="k3x9q2mfab,a2b3c4d5e6"}
 // The next few days of events from the workspace's calendars, by day, each with its time, its
-// calendar's color and its meeting note. Clicking an event opens it on the Calendar page.
+// calendar's color and its meeting note, from every calendar or the ones picked in its settings.
+// Clicking an event opens it on the Calendar page.
 import { el, icon } from "../dom.ts";
 import { onVaultChange } from "../events.ts";
 import type { WidgetSpec } from "./core.ts";
-import { calendars, eventItems, eventsOn, dayText, type Item } from "../calendar/data.ts";
+import { calendars, chosenCalendars, eventItems, eventsOn, dayText, type Item } from "../calendar/data.ts";
 import { addDays, bucket, dayKey, dayStart } from "../calendar/layout.ts";
 import { eventRow } from "../calendar/ui.ts";
 
@@ -20,10 +21,12 @@ export const agenda: WidgetSpec = {
   fields: [
     { key: "label", label: "Label", type: "text", placeholder: "Optional" },
     { key: "days", label: "Days", type: "select", options: [["3", "3 days"], ["1", "Today"], ["7", "A week"], ["14", "Two weeks"]] },
+    { key: "calendars", label: "Calendars", type: "calendars" },
   ],
 
   mount(body, env) {
     const count = Math.min(31, Math.max(1, Number(env.args.days) || 3));
+    const shows = chosenCalendars(env.args.calendars);
     const list = el("div", { class: "ag-list" });
     body.append(list);
     let alive = true;
@@ -36,7 +39,7 @@ export const agenda: WidgetSpec = {
       try {
         const sources = await calendars();
         if (sources.length) {
-          const items = eventItems(await eventsOn(days[0], days[days.length - 1]), sources);
+          const items = eventItems((await eventsOn(days[0], days[days.length - 1])).filter((e) => shows(e.source)), sources);
           groups = [...bucket(items, (i) => i.span, days)].map(([d, l]) => [d, l.filter((i): i is EventItem => i.kind === "event")]);
         }
       } catch (e) {
