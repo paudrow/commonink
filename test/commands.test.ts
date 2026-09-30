@@ -18,6 +18,9 @@ const app = (over: Partial<App> = {}): App => {
     focusMode: false,
     htmlMode: "preview",
     hasStart: false,
+    canBack: false,
+    canForward: false,
+    onLink: false,
     canDelete: true,
     folds: 0,
     account: [],
@@ -44,6 +47,9 @@ const app = (over: Partial<App> = {}): App => {
     share: run("share"),
     copyLink: run("copyLink"),
     exportAs: (how) => void ran.push(`export:${how}`),
+    back: run("back"),
+    forward: run("forward"),
+    followLink: run("followLink"),
     foldAll: (open) => void ran.push(`foldAll:${open}`),
     ...over,
   };
@@ -71,6 +77,11 @@ test("commands follow the app: vim's state, the open note, Getting started, and 
   assert.deepEqual(titles("star", app()), []);
   assert.deepEqual(titles("star", app({ note: { kind: "md", starred: true, archived: false } })), ["Unstar note"]);
   assert.deepEqual(titles("html", app({ note: { kind: "html", starred: false, archived: false }, htmlMode: "preview" })), ["Show HTML source", "Share…"]);
+  assert.deepEqual(titles("go back", app()), [], "nowhere to go back to");
+  const moving = appCommands(app({ canBack: true, canForward: true, onLink: true, note: { kind: "md", starred: false, archived: false } })).filter((c) => ["back", "forward", "follow-link"].includes(c.id));
+  assert.deepEqual(moving.map((c) => [c.title, c.keys?.[0]]), [["Go back", "Mod-["], ["Go forward", "Mod-]"], ["Follow link", undefined]]);
+  moving.forEach((c) => c.run());
+  assert.deepEqual(ran.slice(-3), ["back", "forward", "followLink"]);
   const md = { kind: "md" as const, starred: false, archived: false };
   assert.deepEqual(titles("fold all", app({ note: md })), [], "no sections: nothing to fold");
   const folding = appCommands(app({ note: md, folds: 2 })).filter((c) => c.id.endsWith("fold-all"));

@@ -122,21 +122,24 @@ export async function inviteInfo(db: D1Database, token: string) {
   return db
     .prepare(
       `SELECT i.workspace_id AS workspaceId, w.name AS workspaceName, i.role FROM invites i JOIN workspaces w ON w.id = i.workspace_id
-       WHERE i.token = ? AND i.expires_at >= ?`,
+       WHERE i.token = ? AND i.expires_at >= ? AND i.used_at IS NULL`,
     )
     .bind(await inviteKey(token), Date.now())
     .first<{ workspaceId: string; workspaceName: string; role: Role }>();
 }
 
 /**
- * Join a workspace from an invite link, which it uses up. Returns the workspace id, or null if the
+ * Join a workspace from an invite link, which it uses up (it stays listed, with who used it). Returns the workspace id, or null if the
  * link is bad, expired or used. Someone who's already a member keeps their role and the link.
  */
 export async function acceptInvite(db: D1Database, token: string, userId: string) {
   const inv = await inviteInfo(db, token);
   if (!inv) return null;
   if (await membership(db, userId, inv.workspaceId)) return inv.workspaceId;
-  const used = await db.prepare("DELETE FROM invites WHERE token = ? RETURNING workspace_id").bind(await inviteKey(token)).first();
+  const used = await db
+    .prepare("UPDATE invites SET used_by = ?, used_at = ? WHERE token = ? AND used_at IS NULL RETURNING workspace_id")
+    .bind(userId, Date.now(), await inviteKey(token))
+    .first();
   if (!used) return null; // someone else used it a moment ago
   await db.prepare("INSERT INTO members(workspace_id, user_id, role, created_at) VALUES (?,?,?,?) ON CONFLICT DO NOTHING").bind(inv.workspaceId, userId, inv.role, Date.now()).run();
   return inv.workspaceId;

@@ -77,6 +77,8 @@
 
   #menu-btn, #search-top { display: grid; }
   #back-btn, #split-btn { display: none; }
+  /* The top bar is full on a phone: → shows only when there's somewhere to go forward, like a phone browser's. */
+  #topbar .nav-arrow[data-dir="forward"][aria-disabled="true"] { display: none; }
   #topbar { padding-left: 4px; }
   #crumbs :is(.crumb, .crumb-sep) { display: none; }
   #crumbs .crumb-file { margin-left: 0; }

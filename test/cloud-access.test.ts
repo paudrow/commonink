@@ -25,6 +25,11 @@ const restoreIds = {} as Record<Who, number>;
 const folderIds = {} as Record<Who, string>;
 /** Trash items for each person to restore and to delete for good. */
 const trashIds = {} as Record<Who, { restore: string; purge: string }>;
+/** A member only the owner's requests change (their role, then removing them), and an invite link to revoke. */
+let spareId = "";
+let spareInvite = "";
+/** A second team with the same people in the same roles, for them to leave. */
+let leaveBase = "";
 
 /**
  * Every route online, what each kind of person gets back, and a request that works for anyone
@@ -85,6 +90,17 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /trash/empty", send: () => ["POST", "/trash/empty", {}], expect: OWN },
   { route: "POST /upload", send: (w) => ["POST", `/upload?name=up-${w}.txt`, new TextEncoder().encode("hi"), { "content-type": "text/plain" }], expect: EDIT },
   { route: "POST /invites", send: () => ["POST", "/invites", { role: "viewer" }], expect: OWN },
+  { route: "GET /members", send: () => ["GET", "/members"], expect: READ },
+  { route: "GET /invites", send: () => ["GET", "/invites"], expect: OWN },
+  { route: "POST /invites/revoke", send: () => ["POST", "/invites/revoke", { id: spareInvite }], expect: OWN },
+  { route: "GET /workspace/log", send: () => ["GET", "/workspace/log"], expect: OWN },
+  { route: "POST /workspace/rename", send: () => ["POST", "/workspace/rename", { name: "Team" }], expect: OWN },
+  { route: "POST /members/role", send: () => ["POST", "/members/role", { user: spareId, role: "viewer" }], expect: OWN },
+  { route: "POST /members/remove", send: () => ["POST", "/members/remove", { user: spareId }], expect: OWN },
+  // A wrong name deletes nothing: the owner gets past the role check to the 400.
+  { route: "POST /workspace/delete", send: () => ["POST", "/workspace/delete", { confirm: "not the name" }], expect: [401, 404, 403, 403, 400] },
+  // Leaving the second team keeps everyone in this one. Its only owner can't leave (409).
+  { route: "POST /leave", send: () => ["POST", `${leaveBase}/leave`, {}], expect: [401, 404, "ok", "ok", 409] },
   { route: "GET /api/me", send: () => ["GET", "/api/me"], expect: SIGNED_IN },
   { route: "POST /api/workspaces", send: (w) => ["POST", "/api/workspaces", { name: `${w}'s team` }], expect: SIGNED_IN },
   { route: "GET /api/unfurl", send: () => ["GET", "/api/unfurl?url=https://example.invalid/"], expect: SIGNED_IN },
@@ -125,6 +141,17 @@ before(async () => {
   for (const w of ["viewer", "editor", "owner"] as const) {
     folderIds[w] = (await cloud.call(people[w], "POST", `${base}/smart-folders`, { name: `Doomed ${w}`, query: "tag=plan" })).id;
   }
+  const spare = await cloud.signIn("spare");
+  const { url } = await cloud.call(owner, "POST", `${base}/invites`, { role: "editor" });
+  await cloud.request(spare, "POST", new URL(url).pathname);
+  spareId = (await cloud.call(owner, "GET", `${base}/members`)).find((m: { name: string }) => m.name === "Spare Dev").id;
+  await cloud.call(owner, "POST", `${base}/invites`, { role: "viewer" });
+  spareInvite = (await cloud.call(owner, "GET", `${base}/invites`)).find((i: { usedAt: number | null }) => i.usedAt === null).id;
+  leaveBase = `/api/w/${(await cloud.call(owner, "POST", "/api/workspaces", { name: "Leavers" })).id}`;
+  for (const w of ["editor", "viewer"] as const) {
+    const invite = await cloud.call(owner, "POST", `${leaveBase}/invites`, { role: w });
+    await cloud.request(people[w], "POST", new URL(invite.url).pathname);
+  }
   const notes: Array<{ path: string; id: string }> = await cloud.call(owner, "GET", `${base}/notes`);
   startId = notes.find((n) => n.path === "Getting started.md")!.id;
   // Note IDs reach the directory just after the request that made them.
@@ -139,6 +166,9 @@ test("every route online has a row in the access matrix, and every API route has
   const coreRoutes = [...api.matchAll(/case "((?:GET|POST|PUT|PATCH|DELETE) \/[^"]*)"/g)].map((m) => m[1]);
   assert.deepEqual(coreRoutes.filter((r) => !(r in WORKSPACE_ROUTES)), [], "core API routes with no role in cloud/src/access.ts");
   assert.deepEqual(Object.entries(TOOL_ROUTES).filter(([, r]) => !(r in WORKSPACE_ROUTES)), [], "MCP tools whose route has no role");
+  const admin = fs.readFileSync(path.resolve(import.meta.dirname, "../cloud/src/admin.ts"), "utf8");
+  const settings = [...admin.matchAll(/case "((?:GET|POST) \/[^"]*)"/g)].map((m) => m[1]);
+  assert.deepEqual(settings.filter((r) => !(r in WORKSPACE_ROUTES)), [], "settings routes with no role in cloud/src/access.ts");
 });
 
 test("each route answers each kind of person as the matrix says", async () => {
