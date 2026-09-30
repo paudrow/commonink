@@ -4,6 +4,7 @@ import { authorLabel } from "./actor.ts";
 import { createTwoFilesPatch } from "diff";
 import { isTagFavorite, type Backlink, type Change, type Favorite, type Label, type Note, type NoteMeta, type Quire, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView, type TrashItem } from "./quire.ts";
 import type { Board } from "./kanban.ts";
+import type { Contact, TimelineItem } from "./contacts.ts";
 import { localDate } from "./tasks.ts";
 
 export function fmtSearch(q: string, hits: SearchHit[]): string {
@@ -179,4 +180,27 @@ export function fmtTrash(items: TrashItem[]): string {
   return items
     .map((t) => `${t.id}  ${t.path} — deleted ${localDate(t.deletedAt)} ${new Date(t.deletedAt).toTimeString().slice(0, 5)}${t.by ? ` by ${authorLabel({ ...t.by })}` : ""}, gone for good ${localDate(t.expiresAt)}`)
     .join("\n");
+}
+
+/** One contact on a line: path, name, role and company, emails and tags, and when they were last mentioned. */
+export function fmtContactLine(c: Contact): string {
+  const tags = c.tags.map((t) => `#${t}`).join(" ");
+  const seen = c.lastContacted ? `last mentioned ${c.lastContacted} (${c.mentions} note${c.mentions === 1 ? "" : "s"})` : "not mentioned yet";
+  return `${c.path} — ${[c.name, [c.role, c.company].filter(Boolean).join(", "), [c.email.join(", "), tags].filter(Boolean).join(" "), seen].filter(Boolean).join(" · ")}`;
+}
+
+/** A contact's details, then the notes that mention them. */
+export function fmtContact({ contact: c, timeline }: { contact: Contact; timeline: TimelineItem[] }): string {
+  const fields: Array<[string, string]> = [
+    ["email", c.email.join(", ")],
+    ["phone", c.phone.join(", ")],
+    ["company", c.company],
+    ["role", c.role],
+    ["links", c.links.join(", ")],
+    ["aliases", c.aliases.join(", ")],
+    ["tags", c.tags.map((t) => `#${t}`).join(" ")],
+  ];
+  const head = [`# ${c.name} (${c.path})`, ...fields.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`)];
+  const seen = timeline.length ? ["Mentioned in:", ...timeline.map((t) => `- ${t.date} ${t.path}:${t.line} ${t.text}`)] : ["Not mentioned in any note yet."];
+  return [...head, "", ...seen].join("\n");
 }

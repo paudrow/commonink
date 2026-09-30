@@ -16,7 +16,7 @@ type Open = (path: string, line?: number, side?: boolean) => void;
 /** Mount a task list into `host`; returns its cleanup. Clicking a task's tag calls `openTag`, and "Show …'s tasks" `openPerson`. */
 export function mountTasks(
   host: HTMLElement,
-  opts: { limit: number; tag?: string; assignee?: string; open: Open; openTag(tag: string): void; openPerson(name: string): void; skip?(t: Task): boolean; empty?(): HTMLElement },
+  opts: { limit: number; tag?: string; assignee?: string; by?: "me"; group?: string; open: Open; openTag(tag: string): void; openPerson(name: string): void; skip?(t: Task): boolean; empty?(): HTMLElement },
 ): () => void {
   const body = el("div", { class: "qw-body" });
   const card = el("div", { class: "qw qw-tasks is-standalone" }, body);
@@ -24,7 +24,7 @@ export function mountTasks(
   return WIDGETS.tasks.mount(
     body,
     {
-      args: { limit: String(opts.limit), ...(opts.tag ? { tag: opts.tag } : {}), ...(opts.assignee ? { assignee: opts.assignee } : {}) },
+      args: { limit: String(opts.limit), ...(opts.tag ? { tag: opts.tag } : {}), ...(opts.assignee ? { assignee: opts.assignee } : {}), ...(opts.by ? { by: opts.by } : {}), ...(opts.group ? { group: opts.group } : {}) },
       note: "",
       openConfig: false,
       update() {},
@@ -66,8 +66,14 @@ function mountToday(host: HTMLElement, hooks: { open: Open; openTag(tag: string)
   );
 }
 
-/** The page, narrowed to `tag` (and the tags under it) and to one person's tasks, if given. */
-export function renderTasksPage(root: HTMLElement, hooks: { open: Open; tags(): TagCount[] }, filter: { tag?: string; assignee?: string } = {}): () => void {
+type Filter = { tag?: string; assignee?: string; by?: "me" };
+
+/**
+ * The page, narrowed to `tag` (and the tags under it) and to one person's tasks, if given. "Assigned
+ * to me" is `assignee: "me"`, the reader's tasks in anyone's notes; "Assigned by me" is `by: "me"`,
+ * what they gave others in their own notes. `me` says what "me" is here (online, your @name; locally @me).
+ */
+export function renderTasksPage(root: HTMLElement, hooks: { open: Open; tags(): TagCount[]; me: string }, filter: Filter = {}): () => void {
   const host = el("div");
   const todayHost = el("div", { class: "td-block" });
   const filters = el("div", { class: "feed-filters page-filters" });
@@ -80,18 +86,32 @@ export function renderTasksPage(root: HTMLElement, hooks: { open: Open; tags(): 
       action: { label: "Add a task", icon: "plus", run: () => bar.focus() },
     });
   let unmount = () => {};
-  const show = (next: { tag?: string; assignee?: string }) => {
+  const show = (next: Filter) => {
     unmount();
     // Today sits on top of the whole list; narrowed to a tag or a person, the list stands alone.
-    const whole = !next.tag && !next.assignee;
+    const whole = !next.tag && !next.assignee && !next.by;
+    const mode = next.assignee === "me" ? "to" : next.by ? "by" : "all";
+    const other = next.assignee === "me" ? "" : next.assignee;
+    const seg = el(
+      "div",
+      { class: "seg tk-whose", role: "group", "aria-label": "Whose tasks" },
+      ...([
+        ["all", "Everyone", "Every task", { ...next, assignee: other, by: undefined }],
+        ["to", "Assigned to me", `${hooks.me}, in anyone's notes`, { ...next, assignee: "me", by: undefined }],
+        ["by", "Assigned by me", "Tasks you gave someone else, in notes you made", { ...next, assignee: other, by: "me" }],
+      ] as const).map(([m, label, title, to]) =>
+        el("button", { type: "button", class: m === mode ? "is-on" : "", "aria-pressed": String(m === mode), title, onclick: () => show(to as Filter) }, label),
+      ),
+    );
     const links = { open: hooks.open, openTag: (tag: string) => show({ ...next, tag }), openPerson: (assignee: string) => show({ ...next, assignee }) };
     const unmountToday = whole ? mountToday(todayHost, links) : () => {};
     todayHost.hidden = !whole;
     // What Today shows isn't listed again below it.
     const skip = whole ? (t: Task) => !t.done && todaySection(t.meta, today()) !== null : undefined;
     filters.replaceChildren(
+      seg,
       tagFilter({ current: next.tag ?? "", tags: hooks.tags, count: (t) => t.tasks, onChange: (tag) => show({ ...next, tag }) }),
-      next.assignee
+      next.assignee && next.assignee !== "me"
         ? el(
             "span",
             { class: "chip tag-filter is-on" },
@@ -101,7 +121,8 @@ export function renderTasksPage(root: HTMLElement, hooks: { open: Open; tags(): 
           )
         : "",
     );
-    const unmountList = mountTasks(host, { limit: 500, ...next, ...links, skip, empty: whole ? empty : undefined });
+    // Assigned by me is about who: group it by person.
+    const unmountList = mountTasks(host, { limit: 500, ...next, ...(next.by ? { group: "person" } : {}), ...links, skip, empty: whole ? empty : undefined });
     unmount = () => (unmountToday(), unmountList());
   };
   root.replaceChildren(

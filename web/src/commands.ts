@@ -28,7 +28,7 @@ export interface Command {
   run: () => unknown;
 }
 
-export type Page = "notes" | "tasks" | "calendar" | "tags" | "assets" | "history" | "archive" | "trash";
+export type Page = "notes" | "tasks" | "calendar" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash";
 
 /** What the registry needs from the app: a snapshot of its state, and the actions to run. */
 export interface App {
@@ -130,6 +130,7 @@ export function appCommands(app: App): Command[] {
     { id: "new-event", title: "New event…", keywords: "calendar event meeting create add schedule appointment", icon: "plus", run: app.newEvent },
     { id: "connect-google", title: "Connect Google Calendar", keywords: "google calendar gcal account events", icon: "calendar", available: app.canConnectGoogle, run: app.connectGoogle },
     { id: "refresh-calendars", title: "Refresh calendars", keywords: "calendar sync reload events update", icon: "reset", run: app.refreshCalendars },
+    go("contacts", "Contacts", "user", "people crm person email company"),
     go("tags", "Tags", "hash", "rename merge"),
     go("assets", "Assets", "grid", "files images uploads attachments"),
     go("history", "History", "history", "changes activity versions"),

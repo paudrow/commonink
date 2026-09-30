@@ -12,8 +12,11 @@ export interface DeleteHooks {
   changed(): Promise<void>;
 }
 
-/** A small modal with a message and buttons. Resolves to the chosen button's value, or null on Escape or a click outside. */
-export function ask(o: { title: string; body: Array<string | HTMLElement>; actions: Array<{ label: string; value: string; kind?: "primary" | "danger" }> }): Promise<string | null> {
+/**
+ * A small modal with a message and buttons. Resolves to the chosen button's value, or null on
+ * Escape or a click outside. `focus` takes the keyboard first (a field in `body`); else the main button.
+ */
+export function ask(o: { title: string; body: Array<string | HTMLElement>; actions: Array<{ label: string; value: string; kind?: "primary" | "danger" }>; focus?: HTMLElement }): Promise<string | null> {
   return new Promise((resolve) => {
     const done = (v: string | null) => {
       overlay.remove();
@@ -40,7 +43,7 @@ export function ask(o: { title: string; body: Array<string | HTMLElement>; actio
     );
     document.body.append(overlay);
     document.addEventListener("keydown", onKey, true);
-    (buttons.find((b) => b.classList.contains("primary")) ?? buttons[0])?.focus();
+    (o.focus ?? buttons.find((b) => b.classList.contains("primary")) ?? buttons[0])?.focus();
   });
 }
 

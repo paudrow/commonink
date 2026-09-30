@@ -186,6 +186,7 @@ let capturePage: CapturePage | null = null;
 let historyPage: History | null = null;
 let assetsPage: Assets | null = null;
 let tagsPage: TagsPage | null = null;
+let contactsPage: import("./contactsPage.ts").ContactsPage | null = null;
 let calendarPage: CalendarPage | null = null;
 const once = <T>(load: () => Promise<T>) => {
   let loading: Promise<T> | null = null;
@@ -209,6 +210,17 @@ const loadAssets = once(async () =>
     embedName: (path) => embedName(path),
     tags: () => tags,
     refreshTags: () => refreshNotes(),
+    toast: (t) => toast(t),
+  })),
+);
+const loadContacts = once(async () =>
+  (contactsPage = new (await import("./contactsPage.ts")).ContactsPage($("#contacts-view"), {
+    open: (path, line, side) => fromPage(path, line, side),
+    openTag: (tag) => openTag(tag, "tasks"),
+    openPerson: (assignee) => void showTasks({ assignee }),
+    // A contact's page is drawn already: just the address bar and title. Back to the list shows it.
+    navigate: (c) => (c ? (setUrl(`/contacts?c=${c.id}`), (document.title = `${c.name} · Contacts · Common Ink`)) : void showContacts()),
+    canEdit: () => !viewer,
     toast: (t) => toast(t),
   })),
 );
@@ -271,7 +283,7 @@ function commands() {
     newTag: startNewTag,
     go: (page) => {
       if (page === "notes" || page === "archive" || page === "trash") void showNotes({ tab: page, query: {} });
-      else void { tasks: showTasks, calendar: showCalendar, tags: showTags, assets: showAssets, history: showHistory }[page]();
+      else void { tasks: showTasks, calendar: showCalendar, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory }[page]();
     },
     subscribeCalendar: () => void subscribeCalendar(),
     refreshCalendars: () => void refreshCalendars(),
@@ -628,7 +640,7 @@ function setUrl(url: string, how: "push" | "replace" = "push") {
 
 let unmountTasks: (() => void) | null = null;
 
-function showStage(which: "editor" | "html" | "notes" | "tasks" | "calendar" | "history" | "assets" | "tags" | "capture") {
+function showStage(which: "editor" | "html" | "notes" | "tasks" | "calendar" | "contacts" | "history" | "assets" | "tags" | "capture") {
   closeDrawer();
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
@@ -638,6 +650,7 @@ function showStage(which: "editor" | "html" | "notes" | "tasks" | "calendar" | "
   $("#calendar-view").hidden = which !== "calendar";
   $("#history-view").hidden = which !== "history";
   $("#tags-view").hidden = which !== "tags";
+  $("#contacts-view").hidden = which !== "contacts";
   $("#capture-view").hidden = which !== "capture";
   if (which !== "tasks") {
     unmountTasks?.();
@@ -695,7 +708,7 @@ async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean
   // Today's events open on the Calendar page (/calendar/<id>); everything else is a note.
   const open = (path: string, line?: number, side?: boolean) =>
     void (calendarTarget(path) !== null ? openTarget(path) : openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }));
-  unmountTasks = renderTasksPage($("#tasks-view"), { open, tags: () => tags }, { tag: opts.tag, assignee: opts.assignee });
+  unmountTasks = renderTasksPage($("#tasks-view"), { open, tags: () => tags, me: workspaceId ? "Tasks with your @name" : "Tasks with @me" }, { tag: opts.tag, assignee: opts.assignee });
   $("#tasks-view").focus({ preventScroll: true });
   if (opts.push !== false) wentTo("/tasks");
   document.title = "Tasks · Common Ink";
@@ -796,6 +809,20 @@ async function showTags(opts: { push?: boolean } = {}) {
   renderOutline();
 }
 
+/** Contacts: the people in the notes, or one person's page (`contact`: its note ID). */
+async function showContacts(opts: { contact?: string | null; push?: boolean } = {}) {
+  await leaveNote();
+  showStage("contacts");
+  const page = await loadContacts();
+  await page.show(opts.contact ?? null);
+  const name = opts.contact ? notes.find((n) => n.id === opts.contact)?.title : undefined;
+  if (opts.push !== false) setUrl(name ? `/contacts?c=${opts.contact}` : "/contacts");
+  document.title = `${name ? `${name} · ` : ""}Contacts · Common Ink`;
+  renderChrome();
+  renderTree();
+  renderOutline();
+}
+
 /** Show what carries a tag (and the tags under it): its notes, or its tasks. */
 function openTag(tag: string, where: "notes" | "tasks" = "notes") {
   if (where === "tasks") void showTasks({ tag });
@@ -874,13 +901,14 @@ function pickFiles(): Promise<File[]> {
   });
 }
 
-const PAGE_LABEL = { notes: "Notes", archive: "Archive", trash: "Trash", tasks: "Tasks", calendar: "Calendar", history: "History", assets: "Assets", tags: "Tags", capture: "Capture" } as const;
+const PAGE_LABEL = { notes: "Notes", archive: "Archive", trash: "Trash", tasks: "Tasks", calendar: "Calendar", contacts: "Contacts", history: "History", assets: "Assets", tags: "Tags", capture: "Capture" } as const;
 
 /** The page showing (the Notes page by its tab), or null while a note is. */
 const onPage = () =>
   notesPage.visible ? notesPage.tab
   : !$("#tasks-view").hidden ? "tasks"
   : calendarPage?.visible ? "calendar"
+  : contactsPage?.visible ? "contacts"
   : historyPage?.visible ? "history"
   : assetsPage?.visible ? "assets"
   : tagsPage?.visible ? "tags"
@@ -1709,6 +1737,7 @@ function renderTree() {
   renderTagTree(shownTag && showing === formatQuery({ tag: shownTag }) ? shownTag.toLowerCase() : ""); // a tag alone, like a folder alone
   setCurrent($("#tasks-btn"), page === "tasks");
   setCurrent($("#calendar-btn"), page === "calendar");
+  setCurrent($("#contacts-btn"), page === "contacts");
   setCurrent($("#history-btn"), page === "history" && !historyPage?.noteFilter);
   setCurrent($("#assets-btn"), page === "assets");
   setCurrent($("#tags-page-btn"), page === "tags", "is-on");
@@ -2649,7 +2678,7 @@ function setupPanes() {
   // Clicking or tabbing into a pane gives it the focus.
   // (Not from a pane bar's buttons: redrawing the bar on mousedown would swallow their click.)
   const follow = (p: Pane) => (e: Event) => p !== active && split && !(e.target as Element).closest?.(".pane-bar button") && focusPane(p);
-  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#tasks-view", "#calendar-view", "#history-view", "#assets-view", "#tags-view"]], [panes[1], ["#side-pane"]]] as const) {
+  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#tasks-view", "#calendar-view", "#contacts-view", "#history-view", "#assets-view", "#tags-view"]], [panes[1], ["#side-pane"]]] as const) {
     for (const sel of nodes) {
       $(sel).addEventListener("focusin", follow(p));
       $(sel).addEventListener("mousedown", follow(p));
@@ -2698,6 +2727,10 @@ async function route() {
     return showTasks({ push: false });
   }
   if (at === "/assets") return showAssets({ push: false });
+  if (at === "/contacts") {
+    const id = new URLSearchParams(location.search).get("c");
+    return showContacts({ contact: id && NOTE_ID.test(id) ? id : null, push: false });
+  }
   const event = calendarTarget(at);
   if (event !== null) return showCalendar({ event: event || undefined, push: false });
   if (at === "/capture") return showCapture();
@@ -2797,6 +2830,7 @@ async function boot() {
   $("#tasks-btn").addEventListener("click", () => void showTasks());
   $("#calendar-btn").addEventListener("click", () => void showCalendar());
   window.addEventListener(OPEN_CALENDAR, (e) => void showCalendar({ event: (e as CustomEvent<string>).detail || undefined }));
+  $("#contacts-btn").addEventListener("click", () => void showContacts());
   $("#history-btn").addEventListener("click", () => void showHistory());
   $("#assets-btn").addEventListener("click", () => void showAssets());
   $("#tags-page-btn").addEventListener("click", () => void showTags());

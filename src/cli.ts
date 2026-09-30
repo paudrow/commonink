@@ -2,7 +2,8 @@
 import fs from "node:fs";
 import { LOCAL_USER, openVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
-import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtLabels, fmtVersionDiff, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtTrash, fmtWrite } from "./core/format.ts";
+import { fmtBacklinks, fmtBoards, fmtChanges, fmtContact, fmtContactLine, fmtFavorites, fmtLabels, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtTrash, fmtVersionDiff, fmtWrite } from "./core/format.ts";
+import { matchContacts } from "./core/contacts.ts";
 import { parseQuery } from "./core/query.ts";
 import { fmtTemplate } from "./core/tools.ts";
 import { agentSource, parseAuthorFilter } from "./core/actor.ts";
@@ -20,8 +21,9 @@ Usage: quire <command> [args] [--agent <name>] [--json]
   ls [folder] [--tag T] [--recent N] [--archived|--all]
   tags                             every tag, nested, with what carries it
                                    (--tag work also matches #work/acme)
-  tasks [--tag T] [--assignee P] [--due '<=today'] [--done|--all]
-                                   open tasks (tokens: due: start: rec: #tag @person !high)
+  tasks [--tag T] [--assignee P|me] [--by me] [--due '<=today'] [--done|--all]
+                                   open tasks (tokens: due: start: rec: #tag @person !high);
+                                   --assignee me is @me here, --by me the tasks you gave out
   today [--date YYYY-MM-DD]        the day at a glance: overdue, due today, starting today,
                                    and today's journal note
   task add "<task>"                add a task in words: "Pay rent every month on the 1st #home",
@@ -35,6 +37,19 @@ Usage: quire <command> [args] [--agent <name>] [--json]
                                    --rec weekly, 6th, 1st-tue, after-1m (from done)…;
                                    --until and --times end a repeat (last day, times left);
                                    --skip moves a repeating task to its next date
+  contacts [--q words] [--tag T] [--company C]
+                                   people: notes in People/ with email, phone, company, role,
+                                   links, aliases and tags in their frontmatter
+  contact <name>                   one person, and the notes that mention them
+  contact add <name> [--email a,b] [--phone P,…] [--company C] [--role R]
+       [--link URL,…] [--alias A,…] [--tag T,…]
+  contact <name> [--email …] [--company …] …
+                                   change their details (a list flag replaces that list)
+  contacts import <file.vcf|file.csv> [--format vcard|csv]
+                                   add people from an export; ones already here (same email
+                                   or name) get what's new
+  contacts merge <keep> <drop>     one person with two notes: <drop>'s details and links move to
+                                   <keep>, and <drop> goes to Trash
   templates                        note templates: notes in Templates/ with {{placeholders}}
   new --template <name> [--title T] [--folder F] [--var Label=value …]
                                    a note from a template; --var answers its {{ask:Label}}s
@@ -113,6 +128,12 @@ const num = (k: string) => {
   if (!/^[1-9]\d*$/.test(v)) throw new QuireError(`--${k} must be a positive whole number, not "${v}"`);
   return Number(v);
 };
+/** A comma-separated list from `--k` ("none" or "" for an empty one), or undefined if the flag is absent. */
+const list = (k: string) => {
+  const v = str(k);
+  if (v === undefined) return undefined;
+  return v === "none" ? [] : v.split(",").map((s) => s.trim()).filter(Boolean);
+};
 /** The i-th positional argument, which the command can't do without. */
 const need = (i: number, name: string) => {
   if (args[i] === undefined) throw new QuireError(`${cmd} needs <${name}>`);
@@ -162,7 +183,9 @@ if (cmd === "mcp") {
         break;
       }
       case "tasks": {
-        const tasks = q.tasks({ tag: str("tag"), assignee: str("assignee"), due: str("due") }).filter((t) => flags.all || t.done === !!flags.done);
+        const by = str("by");
+        if (by !== undefined && by !== "me") throw new QuireError("--by can only be me");
+        const tasks = q.tasksFor({ user: LOCAL_USER, person: LOCAL_USER, members: [] }, { tag: str("tag"), assignee: str("assignee"), by, due: str("due") }).filter((t) => flags.all || t.done === !!flags.done);
         out(fmtTasks(tasks), tasks);
         break;
       }
@@ -195,6 +218,54 @@ if (cmd === "mcp") {
         );
         const r = flags.skip ? q.skipTask(note, line, task.text, source) : q.updateTask(note, line, task.text, patch, source);
         out(fmtWrite(r, r.change ? "Updated" : "No change to"), r);
+        break;
+      }
+      case "contacts": {
+        if (args[0] === "import") {
+          const file = need(1, "file");
+          const format = str("format") ?? (/\.vcf$/i.test(file) ? "vcard" : /\.csv$/i.test(file) ? "csv" : undefined);
+          if (format !== "vcard" && format !== "csv") throw new QuireError("--format must be vcard or csv");
+          const r = q.importContacts(fs.readFileSync(file, "utf8"), format, source);
+          const line = (label: string, paths: string[]) => (paths.length ? [`${label} ${paths.length}: ${paths.join(", ")}`] : []);
+          out([...line("Created", r.created), ...line("Updated", r.updated), ...line("Unchanged", r.unchanged)].join("\n") || "No contacts in that file.", r);
+          break;
+        }
+        if (args[0] === "merge") {
+          const r = q.mergeContacts(need(1, "keep"), need(2, "drop"), source);
+          out(`Merged ${r.trashed[0].path} into ${r.path} (it's in Trash). Links updated in ${r.updated.length} note${r.updated.length === 1 ? "" : "s"}.`, { path: r.path, updated: r.updated, trashed: r.trashed.map((t) => t.path) });
+          break;
+        }
+        if (args.length) throw new QuireError(`contacts takes import or merge, not "${args[0]}"`);
+        const list = matchContacts(q.contacts(), { q: str("q"), tag: str("tag"), company: str("company") });
+        out(list.length ? list.map(fmtContactLine).join("\n") : "No contacts match. People are notes in People/; `quire contact add <name>` makes one.", list);
+        break;
+      }
+      case "contact": {
+        const fields = {
+          email: list("email"),
+          phone: list("phone"),
+          company: str("company"),
+          role: str("role"),
+          links: list("link"),
+          aliases: list("alias"),
+          tags: list("tag"),
+        };
+        const given = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));
+        if (args[0] === "add") {
+          if (!args[1]) throw new QuireError("contact add needs <name>");
+          const r = q.createContact({ ...given, name: args.slice(1).join(" ") }, source);
+          out(`Created ${r.path}. Link to them with [[${r.path.replace(/\.md$/, "")}]].`, { path: r.path });
+          break;
+        }
+        const who = args.join(" ");
+        if (!who) throw new QuireError("contact needs <name>");
+        if (Object.keys(given).length) {
+          const r = q.updateContact(who, given, source);
+          out(r.change ? `Updated ${r.path} → version ${r.version}` : `${r.path} already says that`, { path: r.path, version: r.version });
+          break;
+        }
+        const c = q.contact(who);
+        out(fmtContact(c), c);
         break;
       }
       case "templates": {
