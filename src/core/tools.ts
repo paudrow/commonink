@@ -134,6 +134,7 @@ export function createMcpServer(host: ToolHost): McpServer {
       title: "List tags",
       description:
         "Every tag in the vault as a tree (tags nest with /), with how many notes, tasks and assets carry each one or a tag under it. " +
+        "Tags the user added by name before using them are listed too. " +
         "Use the names with the `tag` filter of search_notes and list_notes.",
       inputSchema: {},
       annotations: readOnly,
