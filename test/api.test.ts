@@ -56,6 +56,22 @@ test("a stale baseVersion is a 409 carrying the current text", async () => {
   assert.equal(r.body.content, "# Welcome\n\nStart with [[Roadmap]].\n\n![[chart.svg]]\n");
 });
 
+test("a save that names the note's ID follows it to where it moved, rather than making it again at the old path", async () => {
+  const { call, quire, dir } = setup();
+  const before = quire.read("Welcome.md");
+  await call("POST", "/move", { from: "Welcome.md", to: "Hello.md" });
+  const put = await call("PUT", "/note", { path: "Welcome.md", id: before.id, content: "# Welcome\n\nmore\n", baseVersion: before.version });
+  assert.deepEqual([put.status, put.body.path], [200, "Hello.md"]);
+  assert.equal(fs.readFileSync(path.join(dir, "Hello.md"), "utf8"), "# Welcome\n\nmore\n");
+  assert.equal(fs.existsSync(path.join(dir, "Welcome.md")), false);
+  const blank = await call("PUT", "/note", { path: "Welcome.md", id: before.id, content: "" });
+  assert.deepEqual([blank.status, blank.body.code], [422, "empty"]);
+  await call("POST", "/note", { path: "Welcome.md", content: "# A new welcome\n" });
+  const again = await call("PUT", "/note", { path: "Welcome.md", id: before.id, content: "# Welcome\n\nmore still\n" });
+  assert.equal(again.body.path, "Hello.md");
+  assert.equal(fs.readFileSync(path.join(dir, "Welcome.md"), "utf8"), "# A new welcome\n");
+});
+
 test("undoing an agent's edit restores the note only while it's still at that edit's version", async () => {
   const { call, quire } = setup();
   quire.save("Plan.md", "# Plan\n\nship it\n", { source: "you" });
@@ -98,6 +114,17 @@ test("malformed request bodies are 400s with a message, not 500s", async () => {
     assert.equal(r.status, 400, `${method} ${route} ${JSON.stringify(body)}`);
     assert.match(r.body.error, message);
   }
+});
+
+test("a name too long for the disk is a 400 that says so, not an internal error", async () => {
+  const { call } = setup();
+  const r = await call("POST", "/note", { path: `${"x".repeat(300)}.md`, content: "# x\n" });
+  assert.deepEqual([r.status, r.body.error], [400, "That name is too long: a file or folder name can be up to 255 bytes"]);
+  assert.equal((await call("POST", "/move", { from: "Welcome.md", to: `${"y".repeat(300)}.md` })).status, 400);
+  assert.equal((await call("GET", "/note?path=Welcome.md")).status, 200);
+  const near = `${"z".repeat(250)}.md`;
+  assert.equal((await call("POST", "/note", { path: near, content: "# z\n" })).status, 200, "a name just under the limit");
+  assert.equal((await call("GET", `/note?path=${near}`)).body.content, "# z\n");
 });
 
 test("writes can't escape the vault or touch non-note files", async () => {
@@ -156,6 +183,17 @@ test("a tag can be added before any note carries it, and taken away while none d
   assert.equal((await call("POST", "/tags/delete", { tag: "plan" })).status, 409);
   const gone = await call("POST", "/tags/delete", { tag: "areas" });
   assert.deepEqual(gone.body.map((t: { tag: string }) => t.tag), ["plan", "q3"]);
+});
+
+test("undoing a tag rename leaves alone a note that changed since", async () => {
+  const { call, quire } = setup({}, openTempVault({ "A.md": "# A\n\nAbout #plan\n", "B.md": "# B\n\nAbout #plan\n" }));
+  const r = await call("POST", "/tags/rename", { from: "plan", to: "roadmap" });
+  assert.equal(r.body.versions.length, 2);
+  quire.append("B.md", "Typed after the rename.", "tester");
+  const undo = await Promise.all(r.body.changes.map((id: number, i: number) => call("POST", "/restore", { id, version: r.body.versions[i] })));
+  assert.deepEqual(undo.map((u) => u.status).sort(), [200, 409]);
+  assert.equal(quire.read("A.md").content, "# A\n\nAbout #plan\n");
+  assert.equal(quire.read("B.md").content, "# B\n\nAbout #roadmap\n\nTyped after the rename.\n");
 });
 
 test("tasks filter by due date against the reader's today, and a task's tokens change in place", async () => {

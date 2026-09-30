@@ -132,6 +132,19 @@ test("uploads land in assets/ under a free name; wrong types and oversized files
   assert.equal(fs.existsSync(path.join(vault, "assets/big.png")), false);
 });
 
+test("a file the server can't read is a 404, and the server keeps running", { skip: process.getuid?.() === 0 && "root reads any file" }, async () => {
+  const locked = path.join(vault, "assets/locked.png");
+  fs.mkdirSync(path.dirname(locked), { recursive: true });
+  fs.writeFileSync(locked, "x");
+  fs.chmodSync(locked, 0o000);
+  try {
+    assert.equal((await request("GET", "/api/files/assets/locked.png")).status, 404);
+    assert.equal((await request("GET", "/api/notes")).status, 200);
+  } finally {
+    fs.chmodSync(locked, 0o644);
+  }
+});
+
 test("an oversized JSON body is a 413", async () => {
   const r = await jsonWrite("PUT", "/api/note", { path: "Big.md", content: "x".repeat(21 * 1024 * 1024) });
   assert.equal(r.status, 413);

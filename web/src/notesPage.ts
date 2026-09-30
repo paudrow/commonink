@@ -18,6 +18,7 @@ import { formatQuery, type NoteQuery } from "../../src/core/query.ts";
 import { hydrateTaskChips, withTaskChips } from "./taskChips.ts";
 import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
 import { linkClick, sideClick } from "./panes.ts";
+import { calendarTarget, openCalendarLink } from "./links.ts";
 import { safeDecode } from "../../src/core/uri.ts";
 import { emptyState } from "./emptyState.ts";
 import { AGENTS_BLURB, agentsBadge } from "./agentsNote.ts";
@@ -71,6 +72,7 @@ export class NotesPage {
   private tagBar: HTMLElement;
   private sortSel: HTMLSelectElement;
   private saveBtn: HTMLButtonElement;
+  private heading = el("h1", {}, "Notes");
   private bulk: HTMLElement;
   private more: HTMLElement;
   private search: HTMLElement;
@@ -126,7 +128,7 @@ export class NotesPage {
       ...[["j k", "move"], ["↵", "expand"], ["o", "open"], ["s", "star"], ["e", "archive"], ["⌫", "delete"], ["x", "select"], ["/", "filter"]].map(([k, t]) => el("span", {}, el("kbd", {}, k), t)),
     );
     this.root.append(
-      el("div", { class: "feed" }, el("header", { class: "feed-head" }, el("h1", {}, "Notes"), this.search, this.filters, this.about), this.bulk, this.list, this.elsewhere, this.more, this.trashHost, this.keys),
+      el("div", { class: "feed" }, el("header", { class: "feed-head" }, this.heading, this.search, this.filters, this.about), this.bulk, this.list, this.elsewhere, this.more, this.trashHost, this.keys),
     );
     this.input.addEventListener("input", () => {
       clearTimeout(this.timer);
@@ -150,6 +152,16 @@ export class NotesPage {
   get query(): NoteQuery {
     const q = this.input.value.trim();
     return { ...(q && { q }), ...(this.folder && { folder: this.folder }), ...(this.tag && { tag: this.tag }), ...(this.sort === "title" && { sort: "title" as const }) };
+  }
+
+  /**
+   * `name`: the smart folder whose query Notes shows exactly, or null. Its name heads the page, and
+   * there's nothing to save.
+   */
+  named(name: string | null) {
+    this.heading.textContent = name ?? "Notes";
+    this.saveBtn.hidden = !!name || !formatQuery(this.query);
+    if (this.visible) document.title = `${name ?? "Notes"} · Common Ink`;
   }
 
   /** Show the list where the reader left it: same scroll position, same cards open. */
@@ -446,6 +458,7 @@ export class NotesPage {
         const href = a.getAttribute("href") ?? "";
         if (/^https?:/i.test(href)) window.open(href, "_blank", "noopener");
         else if (href.startsWith("quire:")) void api.resolve(safeDecode(href.slice(6)), item.path).then((p) => p && this.hooks.open(p, undefined, side));
+        else if (calendarTarget(href) !== null) openCalendarLink(href);
         else followInPage(node, href); // a footnote, or a #heading in the note
         return;
       }
@@ -500,6 +513,12 @@ export class NotesPage {
     node.querySelectorAll<HTMLElement>(".tk-run").forEach((run) => {
       const task = tasks[+run.dataset.task!];
       if (task) run.dataset.text = task.text;
+    });
+    // A card's checkbox is named by its task, so a screen reader says what ticking it does.
+    node.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((box) => {
+      const own = [...(box.closest("li")?.childNodes ?? [])].filter((n) => !(n instanceof HTMLElement && /^[UO]L$/.test(n.tagName)));
+      const text = own.map((n) => n.textContent).join("").replace(/\s+/g, " ").trim();
+      if (text) box.setAttribute("aria-label", text);
     });
     return node;
   }

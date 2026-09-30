@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import WebSocket from "ws";
 import { startCloud, team, type Cloud } from "./cloud.ts";
 
 let cloud: Cloud;
@@ -76,11 +77,11 @@ async function mcp(token: string) {
 
 /** What a viewer's agent gets: reading, and what's each person's own (favorites, their smart folders). */
 const VIEWER_TOOLS = [
-  "backlinks", "delete_smart_folder", "get_today", "list_notes", "list_smart_folders", "list_tags", "list_tasks", "read_board",
+  "backlinks", "delete_smart_folder", "get_event", "get_today", "list_events", "list_notes", "list_smart_folders", "list_tags", "list_tasks", "read_board",
   "read_note", "recent_changes", "save_smart_folder", "search_notes", "star_note", "star_tag", "unstar_note", "unstar_tag",
 ];
 const ALL_TOOLS = [
-  ...VIEWER_TOOLS, "add_card", "add_task", "append_to_note", "archive_note", "create_note", "delete_note", "edit_card", "edit_note", "move_card",
+  ...VIEWER_TOOLS, "add_card", "add_task", "append_to_note", "archive_note", "create_meeting_note", "create_note", "delete_note", "edit_card", "edit_note", "move_card",
   "move_note", "move_task", "unarchive_note", "update_task",
 ].sort();
 
@@ -148,6 +149,33 @@ test("an agent acts as its person, with their role, and its writes say who", asy
   assert.equal(refused.isError, true);
   assert.equal((await viewer.call("read_note", { path: "From an agent" })).isError, false);
   await Promise.all([owner.client.close(), viewer.client.close()]);
+});
+
+test("an agent lists the workspace's events and makes a meeting note, linked to the event and attributed to it", async () => {
+  const cal = await cloud.call(people.owner, "POST", `${people.base}/calendar/sources`, { url: "https://demo.commonink.invalid/agents.ics" });
+  const agent = await mcp((await connect(people.editor, people.id)).access);
+  const list = await agent.call("list_events", { from: "2026-10-05", days: 1, time_zone: "America/Los_Angeles" });
+  const id = list.text.match(/^- Standup · .* · id ([a-z2-9]{12})$/m)?.[1];
+  assert.match(list.text, /^1 event, Mon, Oct 5 to Mon, Oct 5 \(America\/Los_Angeles\):\n- Standup · Mon, Oct 5, 2026, 9:30 AM to 9:45 AM PDT · Launch team \(demo\) · id [a-z2-9]{12}$/);
+  assert.deepEqual(await agent.call("create_meeting_note", { id, time_zone: "America/Los_Angeles" }), { text: "Created Meetings/2026-10-05 Standup.md, linked to the event", isError: false });
+  assert.match((await agent.call("get_event", { id })).text, /^meeting note: Meetings\/2026-10-05 Standup\.md$/m);
+  const [latest] = await cloud.call(people.owner, "GET", `${people.base}/changes?limit=1`);
+  assert.deepEqual([latest.path, latest.source], ["Meetings/2026-10-05 Standup.md", "Test Agent (via Editor Dev)"]);
+  await cloud.call(people.owner, "POST", `${people.base}/calendar/sources/remove`, { id: cal.id });
+  await agent.client.close();
+});
+
+test("an agent's delete tells open tabs the note is gone, as a delete in the app does", async () => {
+  const owner = await mcp((await connect(people.owner, people.id)).access);
+  await owner.call("create_note", { path: "Short lived", content: "# Short lived\n" });
+  const socket = new WebSocket(`${cloud.origin.replace("http", "ws")}${people.base}/live`, { headers: { cookie: people.owner, origin: cloud.origin } });
+  await new Promise((resolve, reject) => (socket.once("open", resolve), socket.once("error", reject)));
+  const removed = new Promise<string>((resolve) => socket.on("message", (d) => (JSON.parse(String(d)).type === "removed" ? resolve(JSON.parse(String(d)).path) : undefined)));
+  assert.equal((await owner.call("delete_note", { paths: ["Short lived"] })).isError, false);
+  const gone = await Promise.race([removed, new Promise((r) => setTimeout(() => r("no removed message"), 2000))]);
+  assert.equal(gone, "Short lived.md");
+  socket.close();
+  await owner.client.close();
 });
 
 test("an agent's recent_changes counts a run of saves as History's /diffstats does", async () => {

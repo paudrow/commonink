@@ -67,6 +67,20 @@ export const WORKSPACE_ROUTES = {
   "POST /trash/delete": "owner",
   "POST /trash/empty": "owner",
   "POST /upload": "editor",
+  // Calendars (src/core/calendar.ts). Everyone sees the workspace's calendars and may read them again
+  // (at most once a minute each); subscribing, changing and making meeting notes are editors'. A
+// person's own calendars are theirs to change whatever their role (checked in the calendar itself).
+  "GET /calendar/sources": "viewer",
+  "GET /calendar/events": "viewer",
+  "GET /calendar/event": "viewer",
+  "POST /calendar/refresh": "viewer",
+  // A person's own Google calendar, which only they see: anyone may add theirs (see connections.ts),
+  // and change or remove it. The calendar itself checks that a viewer only changes their own.
+  "POST /calendar/google": "viewer",
+  "POST /calendar/sources/update": "viewer",
+  "POST /calendar/sources/remove": "viewer",
+  "POST /calendar/sources": "editor",
+  "POST /calendar/meeting-note": "editor",
   // The workspace's settings (cloud/src/admin.ts). Everyone sees who's in it and may leave; the rest is the owner's.
   "GET /members": "viewer",
   "POST /leave": "viewer",
@@ -89,6 +103,9 @@ export const ACCOUNT_ROUTES = [
   "POST /api/sign-out-everywhere",
   "GET /api/agents",
   "POST /api/agents/revoke",
+  "GET /api/google",
+  "GET /api/google/calendars",
+  "POST /api/google/disconnect",
 ] as const;
 export type AccountRoute = (typeof ACCOUNT_ROUTES)[number];
 
