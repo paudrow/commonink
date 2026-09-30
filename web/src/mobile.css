@@ -113,7 +113,7 @@
   .feed-card:not(.is-focused, .is-expanded) .fc-action { display: none; }
 
   /* Split view: one pane at a time, the focused one. Its bar's close button brings back the other. */
-  body.is-split #stage > :is(#editor-host, #html-preview, #notes-view, #tasks-view, #history-view, #assets-view, #tags-view), #main-bar { right: 0; }
+  body.is-split #stage > :is(#editor-host, #html-preview, #notes-view, #tasks-view, #calendar-view, #history-view, #assets-view, #tags-view), #main-bar { right: 0; }
   #side-pane { left: 0; width: auto; border-left: 0; z-index: 6; }
   #pane-divider { display: none; }
   body:has(#main-bar.is-focused) #side-pane { display: none; }
@@ -125,4 +125,37 @@
 
 @media (prefers-reduced-motion: reduce) {
   #sidebar, body.drawer-open #sidebar { transition: none; }
+}
+
+/* The calendar on a phone: Agenda first (calendar/page.ts), the week scrolls sideways inside the
+   page, Month shows a day's events as dots, and an event's details rise from the bottom. */
+@media (max-width: 760px) {
+  .cal { padding: 10px 12px 0; }
+  .cal-head { gap: 8px; }
+  .cal-title { flex-basis: 100%; font-size: 19px; }
+  .cal-tools { width: 100%; gap: 8px; }
+  .cal-views { flex: 1; justify-content: space-between; }
+  .cal-views button { flex: 1; padding-inline: 4px; min-height: 36px; }
+  .cal-sources-btn span { display: none; }
+  .cal-sources-btn { width: 44px; justify-content: center; padding: 0; }
+  .cal-tg { min-width: 620px; }
+  #calendar-view[data-view="day"] .cal-tg { min-width: 0; }
+  .cal-month { grid-template-rows: auto repeat(var(--weeks), minmax(64px, 1fr)); }
+  .cal-cell { flex-direction: row; flex-wrap: wrap; align-content: flex-start; gap: 3px; padding: 3px; }
+  .cal-num { width: 100%; padding: 0; }
+  .cal-cell .cal-chip { width: 8px; height: 8px; padding: 0; border-radius: 999px; background: var(--c); box-shadow: none; overflow: hidden; }
+  .cal-cell .cal-chip > * { display: none; }
+  .cal-cell .cal-chip { pointer-events: none; }
+  .cal-cell .cal-chip.is-task { background: none; box-shadow: inset 0 0 0 1.5px var(--muted); }
+  .cal-more { width: 100%; padding: 0; font-size: 10.5px; }
+  .cal-aday { grid-template-columns: minmax(0, 1fr); }
+  .cal-chip.cal-arow { grid-template-columns: 64px 4px minmax(0, 1fr); gap: 8px; min-height: 44px; }
+  .cal-details-host { position: fixed; top: auto; left: 0; right: 0; bottom: 0; z-index: 30; width: auto; max-height: 78dvh; border: 0; border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; box-shadow: var(--shadow-lg); }
+  .cal-details { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+  .cal-src-inputs .qw-btn { width: 100%; justify-content: center; height: 44px; }
+  .cal-src-meta { white-space: normal; }
+}
+
+@media (pointer: coarse) {
+  .cal-src .icon-btn { width: 40px; height: 40px; }
 }

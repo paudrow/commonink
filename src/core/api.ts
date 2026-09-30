@@ -5,6 +5,7 @@ import type { ArchiveScope, Change, Quire } from "./quire.ts";
 import type { TaskPatch } from "./tasks.ts";
 import { agentSource, parseAuthorFilter } from "./actor.ts";
 import { findStartNote, GUIDE, parseGuideAction, runGuide } from "./guide.ts";
+import type { Calendar } from "./calendar.ts";
 
 export interface ApiHost {
   quire: Quire;
@@ -23,6 +24,10 @@ export interface ApiHost {
   removed(rel: string, change: Change): void;
   /** The set of notes changed. */
   tree(): void;
+  /** The workspace's calendars, where the host can sync them (both hosts today). */
+  calendar?: Calendar;
+  /** Calendars or their events changed: tell connected clients (and reschedule syncing). */
+  calendarChanged?(): void;
 }
 
 export const json = (data: unknown, status = 200) =>
@@ -349,6 +354,53 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json({ deleted: quire.emptyTrash(actor) });
     case "POST /unarchive":
       return moveAll(paths("paths"), (p) => quire.unarchive(p, actor));
+  }
+  if (route.startsWith("/calendar/") && host.calendar) return calendarRoute(host, host.calendar, `${req.method} ${route}`, inputs(raw, url));
+  return null;
+}
+
+/** An instant from the query: an ISO date or time. */
+function instant(s: string, name: string): number {
+  const t = Date.parse(s);
+  if (!s || Number.isNaN(t)) throw new QuireError(`"${name}" must be a date or time like 2026-10-01 or 2026-10-01T09:00:00Z`);
+  return t;
+}
+
+/** Calendars: the sources the workspace subscribes to, their events, and meeting notes made from them. */
+async function calendarRoute(host: ApiHost, cal: Calendar, key: string, { str, optStr, q, qCount }: ReturnType<typeof inputs>): Promise<Response | null> {
+  const viewer = { user: host.user, canEdit: host.canEditShared };
+  const changed = <T>(out: T) => (host.calendarChanged?.(), json(out));
+  switch (key) {
+    case "GET /calendar/sources":
+      return json(cal.sources(viewer));
+    case "POST /calendar/sources":
+      return changed(await cal.addIcs({ url: str("url"), name: optStr("name"), color: optStr("color") }, viewer, host.actor));
+    case "POST /calendar/sources/update":
+      return changed(cal.update(str("id"), { name: optStr("name"), color: optStr("color") }, viewer));
+    case "POST /calendar/sources/remove":
+      cal.remove(str("id"), viewer);
+      return changed({ ok: true });
+    case "POST /calendar/refresh":
+      return changed(await cal.refresh(viewer, optStr("id")));
+    case "GET /calendar/events": {
+      const from = instant(q("from"), "from");
+      const to = instant(q("to"), "to");
+      if (to <= from || to - from > 400 * 86_400_000) throw new QuireError(`"to" must be after "from", and at most 400 days later`);
+      return json(cal.events(viewer, { from, to, zone: q("tz") || undefined, q: q("q") || undefined, source: q("source") || undefined, limit: qCount("limit", 2000, 5000) }));
+    }
+    case "GET /calendar/event": {
+      const ev = cal.event(q("id"), viewer);
+      return ev ? json(ev) : json({ error: "That event doesn't exist, or you can't see it" }, 404);
+    }
+    case "POST /calendar/meeting-note": {
+      const r = cal.meetingNote(host.quire, str("id"), viewer, { timeZone: optStr("timeZone"), source: host.actor });
+      if (r.created) {
+        host.written(r.path, host.quire.files.read(r.path), r.version, r.change);
+        host.tree();
+        host.calendarChanged?.();
+      }
+      return json({ path: r.path, created: r.created });
+    }
   }
   return null;
 }
