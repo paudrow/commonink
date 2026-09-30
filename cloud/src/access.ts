@@ -32,6 +32,7 @@ export const WORKSPACE_ROUTES = {
   "GET /tags": "viewer",
   "GET /asset-tags": "viewer",
   "GET /today": "viewer",
+  "GET /export": "viewer",
   "GET /labels": "viewer",
   "GET /labels/compare": "viewer",
   "GET /guide": "viewer",

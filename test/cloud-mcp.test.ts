@@ -77,9 +77,9 @@ async function mcp(token: string) {
 
 /** What a viewer's agent gets: reading, and what's each person's own (favorites, their smart folders). */
 const VIEWER_TOOLS = [
-  "backlinks", "delete_smart_folder", "diff_versions", "get_event", "get_today", "list_events", "list_labels", "list_notes", "list_smart_folders", "list_tags",
-  "list_tasks", "list_templates", "read_board", "read_note", "recent_changes", "save_smart_folder", "search_notes", "star_note", "star_tag", "unstar_note",
-  "unstar_tag",
+  "backlinks", "delete_smart_folder", "diff_versions", "export_note", "get_event", "get_today", "list_events", "list_labels", "list_notes", "list_smart_folders",
+  "list_tags", "list_tasks", "list_templates", "read_board", "read_note", "recent_changes", "save_smart_folder", "search_notes", "star_note", "star_tag",
+  "unstar_note", "unstar_tag",
 ];
 const ALL_TOOLS = [
   ...VIEWER_TOOLS,
@@ -151,6 +151,22 @@ test("an agent acts as its person, with their role, and its writes say who", asy
   assert.equal(refused.isError, true);
   assert.equal((await viewer.call("read_note", { path: "From an agent" })).isError, false);
   await Promise.all([owner.client.close(), viewer.client.close()]);
+});
+
+test("online, an agent exports Markdown and a .zip; a web page and Word come from the app", async () => {
+  const viewer = await mcp((await connect(people.viewer, people.id)).access);
+  const raw = async (args: Record<string, unknown>) => (await viewer.client.callTool({ name: "export_note", arguments: args })) as { content: Array<{ text?: string; resource?: { mimeType: string; text?: string; blob?: string } }>; isError?: boolean };
+  const md = await raw({ target: "Getting started", format: "md" });
+  assert.equal(md.content[1].resource?.mimeType, "text/markdown");
+  assert.ok(md.content[1].resource?.text?.includes("# "), "the note's markdown");
+  const zip = await raw({ target: "/", format: "zip" });
+  const { unzipSync } = await import("fflate");
+  const files = Object.keys(unzipSync(new Uint8Array(Buffer.from(zip.content[1].resource!.blob!, "base64"))));
+  assert.ok(files.includes("Getting started.md") && files.includes("assets/margin.svg"), `the workspace, with its uploads from R2: ${files}`);
+  const word = await raw({ target: "Getting started", format: "docx" });
+  assert.equal(word.isError, true);
+  assert.match(word.content[0].text!, /drawn by the app: use Share → Export as/);
+  await viewer.client.close();
 });
 
 test("an agent lists the workspace's events and makes a meeting note, linked to the event and attributed to it", async () => {

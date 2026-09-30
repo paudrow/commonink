@@ -64,6 +64,7 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "GET /tags", send: () => ["GET", "/tags"], expect: READ },
   { route: "GET /asset-tags", send: () => ["GET", "/asset-tags"], expect: READ },
   { route: "GET /today", send: () => ["GET", "/today?today=2026-10-01"], expect: READ },
+  { route: "GET /export", send: () => ["GET", "/export?path=Getting%20started.md&path=assets/margin.svg"], expect: READ },
   { route: "GET /labels", send: (w) => ["GET", `/labels?path=labeled-${w}.md`], expect: READ },
   { route: "GET /labels/compare", send: (w) => ["GET", `/labels/compare?from=${labelIds[w] ?? "none"}&to=now`], expect: READ },
   { route: "GET /files/*", send: () => ["GET", "/files/assets/margin.svg"], expect: READ },
@@ -292,4 +293,14 @@ test("an upload deleted for good takes its bytes out of R2; one in Trash keeps t
   await cloud.request(owner, "POST", `${base}/trash/delete`, { ids: [trashed[0].id] });
   await new Promise((r) => setTimeout(r, 50)); // the delete runs after the response
   assert.equal(await keys(), before - 1);
+});
+
+test("online, an exported note's link to a note left out goes to the app's own address", async () => {
+  const { strFromU8, unzipSync } = await import("fflate");
+  const owner = await cloud.signIn("owner");
+  await cloud.request(owner, "POST", `${people.base}/note`, { path: "Out/Linker.md", content: "# Linker\n\nSee [[Getting started]].\n" });
+  const res = await cloud.request(owner, "GET", `${people.base}/export?folder=Out`);
+  assert.equal(res.headers.get("content-type"), "application/zip");
+  const note = strFromU8(unzipSync(new Uint8Array(await res.arrayBuffer()))["Out/Linker.md"]);
+  assert.match(note, new RegExp(`See \\[Getting started\\]\\(${cloud.origin.replace(/[.]/g, "\\.")}/notes/getting-started-[a-z2-9]{8}\\)\\.`), note);
 });

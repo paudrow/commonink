@@ -1,6 +1,6 @@
 // The Share menu: everything about getting a note out of the app, from the top bar's Share button,
 // ⌘⇧S (Ctrl+Shift+S off a Mac), "Share…" in ⌘K, :share in Vim, and More on a phone. Copy link, Print,
-// Export as Markdown, HTML or PDF, and places for what comes next: sharing with people (#12, which
+// Export as Markdown, a web page, Word or PDF, and places for what comes next: sharing with people (#12, which
 // fills its item in with setShareWithPeople) and Google Drive (#47). Printing and exporting load
 // only when picked (export/).
 import { el, icon, setLabel } from "./dom.ts";
@@ -65,7 +65,7 @@ export function toggleShareMenu(anchor: HTMLElement, note: ShareNote, toast: (te
     el("div", { class: "share-sep", role: "separator" }),
     md ? item("Print…", "printer", async () => (await import("./export/print.ts")).print(printable())) : null,
     el("div", { class: "share-section", role: "presentation" }, "Export as"),
-    md ? item("Markdown", "file", async () => (await import("./export/files.ts")).exportMarkdown(printable()), ".md") : null,
+    md ? item("Markdown", "file", async () => toast(`Exported ${await (await import("./export/files.ts")).exportMarkdown(printable())}`), ".md") : null,
     item(
       md ? "Web page" : "HTML file",
       "html",
@@ -76,6 +76,7 @@ export function toggleShareMenu(anchor: HTMLElement, note: ShareNote, toast: (te
       },
       ".html",
     ),
+    md ? item("Word", "file", async () => (await import("./export/files.ts")).exportDocx(printable()), ".docx") : null,
     md ? item("PDF", "pdf", async () => (await import("./export/print.ts")).print(printable(), { pdf: true }), "via Print") : null,
     el("div", { class: "share-sep", role: "separator" }),
     item("Save to Google Drive", "drive", null, "Coming soon"),
