@@ -6,6 +6,7 @@ import type { TaskPatch } from "./tasks.ts";
 import { agentSource, parseAuthorFilter } from "./actor.ts";
 import { findStartNote, GUIDE, parseGuideAction, runGuide } from "./guide.ts";
 import type { Calendar } from "./calendar.ts";
+import { notePath } from "./ids.ts";
 
 export interface ApiHost {
   quire: Quire;
@@ -28,6 +29,8 @@ export interface ApiHost {
   calendar?: Calendar;
   /** Calendars or their events changed: tell connected clients (and reschedule syncing). */
   calendarChanged?(): void;
+  /** Where the app is ("https://commonink.app"), for links that leave it (a meeting note's, written back to Google). */
+  origin?: string;
 }
 
 export const json = (data: unknown, status = 200) =>
@@ -92,6 +95,11 @@ function inputs(body: unknown, url: URL) {
     optStr: (k: string) => (b[k] === undefined || b[k] === null ? undefined : str(k)),
     text: (k: string) => (b[k] === undefined || b[k] === null ? "" : str(k)),
     flag: (k: string) => !!b[k],
+    optBool: (k: string) => {
+      if (b[k] === undefined || b[k] === null) return undefined;
+      if (typeof b[k] !== "boolean") throw new QuireError(`"${k}" must be true or false`);
+      return b[k] as boolean;
+    },
     patch: () => taskPatch(b.patch),
     paths: (k: string): string[] => {
       const v = b[k];
@@ -362,7 +370,7 @@ function instant(s: string, name: string): number {
 }
 
 /** Calendars: the sources the workspace subscribes to, their events, and meeting notes made from them. */
-async function calendarRoute(host: ApiHost, cal: Calendar, key: string, { str, optStr, q, qCount }: ReturnType<typeof inputs>): Promise<Response | null> {
+async function calendarRoute(host: ApiHost, cal: Calendar, key: string, { str, optStr, optBool, q, qCount }: ReturnType<typeof inputs>): Promise<Response | null> {
   const viewer = { user: host.user, canEdit: host.canEditShared };
   const changed = <T>(out: T) => (host.calendarChanged?.(), json(out));
   switch (key) {
@@ -370,8 +378,10 @@ async function calendarRoute(host: ApiHost, cal: Calendar, key: string, { str, o
       return json(cal.sources(viewer));
     case "POST /calendar/sources":
       return changed(await cal.addIcs({ url: str("url"), name: optStr("name"), color: optStr("color") }, viewer, host.actor));
+    case "POST /calendar/google":
+      return changed(await cal.addGoogle({ calendar: str("calendar"), name: optStr("name"), color: optStr("color"), writeBack: optBool("writeBack") }, viewer, host.actor));
     case "POST /calendar/sources/update":
-      return changed(cal.update(str("id"), { name: optStr("name"), color: optStr("color") }, viewer));
+      return changed(cal.update(str("id"), { name: optStr("name"), color: optStr("color"), writeBack: optBool("writeBack") }, viewer));
     case "POST /calendar/sources/remove":
       cal.remove(str("id"), viewer);
       return changed({ ok: true });
@@ -388,13 +398,15 @@ async function calendarRoute(host: ApiHost, cal: Calendar, key: string, { str, o
       return ev ? json(ev) : json({ error: "That event doesn't exist, or you can't see it" }, 404);
     }
     case "POST /calendar/meeting-note": {
-      const r = cal.meetingNote(host.quire, str("id"), viewer, { timeZone: optStr("timeZone"), source: host.actor });
-      if (r.created) {
-        host.written(r.path, host.quire.files.read(r.path), r.version, r.change);
-        host.tree();
-        host.calendarChanged?.();
-      }
-      return json({ path: r.path, created: r.created });
+      const id = str("id");
+      const r = cal.meetingNote(host.quire, id, viewer, { timeZone: optStr("timeZone"), source: host.actor });
+      if (!r.created) return json({ path: r.path, created: false });
+      host.written(r.path, host.quire.files.read(r.path), r.version, r.change);
+      host.tree();
+      host.calendarChanged?.();
+      const title = host.quire.read(r.path).title;
+      const linked = host.origin && r.noteId ? await cal.linkBack(id, viewer, `${host.origin}${notePath(title, r.noteId)}`) : null;
+      return json({ path: r.path, created: true, linkedBack: linked });
     }
   }
   return null;

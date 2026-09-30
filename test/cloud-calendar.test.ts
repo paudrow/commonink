@@ -53,7 +53,7 @@ test("a meeting note is made once per event, attributed to whoever made it, and 
   const cal = await cloud.call(owner, "POST", `${base}/calendar/sources`, { url: DEMO_FEED });
   const [standup] = await cloud.call(editor, "GET", `${base}/calendar/events?${WEEK}&q=standup`);
   const made = await cloud.call(editor, "POST", `${base}/calendar/meeting-note`, { id: standup.id, timeZone: "America/Los_Angeles" });
-  assert.deepEqual(made, { path: "Meetings/2026-10-05 Standup.md", created: true });
+  assert.deepEqual(made, { path: "Meetings/2026-10-05 Standup.md", created: true, linkedBack: null }); // feeds are read-only
   const note = await cloud.call(editor, "GET", `${base}/note?path=${encodeURIComponent(made.path)}`);
   assert.match(note.content, /\*\*When:\*\* Mon, Oct 5, 2026, 9:30 AM to 9:45 AM PDT/);
   assert.match(note.content, new RegExp(`\\*\\*Event:\\*\\* \\[Standup\\]\\(/calendar/${standup.id}\\)`));

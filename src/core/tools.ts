@@ -9,6 +9,7 @@ import { TRASH_DAYS, type Quire } from "./quire.ts";
 import { parseAuthorFilter } from "./actor.ts";
 import { AGENTS_NOTE } from "./noteRoles.ts";
 import { dayRange, fmtEvent, fmtEvents, type Calendar } from "./calendar.ts";
+import { notePath } from "./ids.ts";
 
 export interface ToolHost {
   quire: Quire;
@@ -25,6 +26,8 @@ export interface ToolHost {
   canEditShared?: boolean;
   /** The workspace's calendars; with them, the event tools are offered. */
   calendar?: Calendar;
+  /** Where the app is, for a meeting note's link written back to Google. */
+  origin?: string;
 }
 
 /**
@@ -687,10 +690,13 @@ function calendarTools(server: Pick<McpServer, "registerTool">, cal: Calendar, h
       inputSchema: { id: z.string().describe("The event's id from list_events"), time_zone: ZONE },
       annotations: writes,
     },
-    ({ id, time_zone }) =>
-      run(() => {
+    async ({ id, time_zone }) =>
+      runAsync(async () => {
         const r = cal.meetingNote(host.quire, id, viewer, { timeZone: zoneOf(time_zone), source: source() });
-        return r.created ? `Created ${r.path}, linked to the event` : `The event already has a meeting note: ${r.path}`;
+        if (!r.created) return `The event already has a meeting note: ${r.path}`;
+        const linked = host.origin && r.noteId ? await cal.linkBack(id, viewer, `${host.origin}${notePath(host.quire.read(r.path).title, r.noteId)}`) : null;
+        const back = !linked ? "" : linked.ok ? "; its link was added to the event in Google Calendar" : `; the link couldn't be added in Google Calendar (${linked.error})`;
+        return `Created ${r.path}, linked to the event${back}`;
       }),
   );
 }

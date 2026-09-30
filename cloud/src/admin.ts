@@ -55,11 +55,13 @@ export async function membersOf(env: Env, ws: string): Promise<Member[]> {
 const owners = async (env: Env, ws: string) =>
   (await env.DB.prepare("SELECT COUNT(*) AS n FROM members WHERE workspace_id = ? AND role = 'owner'").bind(ws).first<{ n: number }>())?.n ?? 0;
 
-/** Someone leaves (or is removed): their membership, their agents' access here, and their open tabs here all go. */
+/** Someone leaves (or is removed): their membership, their agents' access here, their open tabs and their own calendars here all go. */
 async function drop(env: Env, url: URL, ws: string, userId: string) {
   await env.DB.prepare("DELETE FROM members WHERE workspace_id = ? AND user_id = ?").bind(ws, userId).run();
   await revokeAgentsIn(env, url, userId, ws);
-  await env.WORKSPACE.get(env.WORKSPACE.idFromName(ws)).disconnect(userId);
+  const stub = env.WORKSPACE.get(env.WORKSPACE.idFromName(ws));
+  await stub.disconnect(userId);
+  await stub.dropCalendarsOf(userId); // their own calendars there (Google's) go with them
 }
 
 /** The settings routes, or null if `route` isn't one (it goes on to the workspace). */

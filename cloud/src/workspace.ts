@@ -18,6 +18,8 @@ import { safeDecode } from "../../src/core/uri.ts";
 import { Calendar } from "../../src/core/calendar.ts";
 import { assertPublicUrl } from "../../src/core/unfurl.ts";
 import { feedsFor } from "./demo-calendar.ts";
+import { googleMode } from "./connections.ts";
+import { googleReader } from "./google-reader.ts";
 
 export class Workspace extends DurableObject<Env> {
   private db: DoDb;
@@ -25,8 +27,8 @@ export class Workspace extends DurableObject<Env> {
   private quire: Quire;
   private registering: Promise<void> | null = null;
   private calendar: Calendar;
-  /** This app's own host name, from the last request: feeds may not point back at it. */
-  private selfHost: string | null = null;
+  /** Where this app is ("https://commonink.app"), from the last request: feeds may not point back at it, and links written to Google use it. */
+  private selfOrigin: string | null = null;
   private alarmChecked = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -47,8 +49,9 @@ export class Workspace extends DurableObject<Env> {
       db,
       feedsFor(env, (u) => {
         assertPublicUrl(u);
-        if (this.selfHost && u.hostname.replace(/\.$/, "") === this.selfHost) throw new Error("self");
+        if (this.selfOrigin && u.hostname.replace(/\.$/, "") === new URL(this.selfOrigin).hostname) throw new Error("self");
       }),
+      { readers: googleMode(env) === "off" ? {} : { google: googleReader(env, db) } },
     );
     // Keep-alives are answered without waking the object.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
@@ -56,7 +59,7 @@ export class Workspace extends DurableObject<Env> {
 
   async fetch(req: Request): Promise<Response> {
     const wsId = req.headers.get("x-ci-workspace")!;
-    this.selfHost = req.headers.get("x-ci-host") ?? this.selfHost;
+    this.selfOrigin = req.headers.get("x-ci-origin") ?? this.selfOrigin;
     if (!this.alarmChecked) {
       this.alarmChecked = true;
       await this.schedule();
@@ -153,6 +156,7 @@ export class Workspace extends DurableObject<Env> {
       },
       tree: () => this.broadcast({ type: "tree" }),
       calendar: this.calendar,
+      origin: this.selfOrigin ?? undefined,
       calendarChanged: () => {
         this.broadcast({ type: "calendar" });
         this.ctx.waitUntil(this.schedule());
@@ -255,6 +259,7 @@ export class Workspace extends DurableObject<Env> {
       may: (route) => access(role, ...(route.split(" ") as [string, string])) === "allowed",
       canEditShared: role === "owner" || role === "editor",
       calendar: this.calendar,
+      origin: new URL(req.url).origin,
     });
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await server.connect(transport);
@@ -278,6 +283,17 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /** Close the live connections tagged `tag`: a person's (signed out everywhere) or one session's. Their tabs then ask them to sign in. */
+  /**
+   * Remove a person's own calendars here (of one kind, or all): they disconnected Google, or left or
+   * were removed from the workspace.
+   */
+  async dropCalendarsOf(user: string, kind?: "google") {
+    if (this.calendar.dropOwner(user, kind)) {
+      this.broadcast({ type: "calendar" });
+      await this.schedule();
+    }
+  }
+
   disconnect(tag: string) {
     for (const ws of this.ctx.getWebSockets(tag)) ws.close(4001, "Signed out");
   }

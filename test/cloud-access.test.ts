@@ -99,6 +99,8 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /calendar/sources/update", send: (w) => ["POST", "/calendar/sources/update", { id: calendarIds[w].rename, name: `Renamed by ${w}` }], expect: EDIT },
   { route: "POST /calendar/sources/remove", send: (w) => ["POST", "/calendar/sources/remove", { id: calendarIds[w].remove }], expect: EDIT },
   { route: "POST /calendar/meeting-note", send: () => ["POST", "/calendar/meeting-note", { id: eventId, timeZone: "UTC" }], expect: EDIT },
+  // Anyone may add their own Google calendar; with no Google connection, it's refused as a bad request.
+  { route: "POST /calendar/google", send: () => ["POST", "/calendar/google", { calendar: "primary" }], expect: [401, 404, 400, 400, 400] },
   { route: "POST /upload", send: (w) => ["POST", `/upload?name=up-${w}.txt`, new TextEncoder().encode("hi"), { "content-type": "text/plain" }], expect: EDIT },
   { route: "POST /invites", send: () => ["POST", "/invites", { role: "viewer" }], expect: OWN },
   { route: "GET /members", send: () => ["GET", "/members"], expect: READ },
@@ -118,6 +120,10 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "GET /api/note-ids/*", send: () => ["GET", `/api/note-ids/${startId}`], expect: READ },
   { route: "GET /api/agents", send: () => ["GET", "/api/agents"], expect: SIGNED_IN },
   { route: "POST /api/agents/revoke", send: () => ["POST", "/api/agents/revoke", { id: "not-a-grant" }], expect: SIGNED_IN },
+  { route: "GET /api/google", send: () => ["GET", "/api/google"], expect: SIGNED_IN },
+  // No one here connected Google.
+  { route: "GET /api/google/calendars", send: () => ["GET", "/api/google/calendars"], expect: [401, 409, 409, 409, 409] },
+  { route: "POST /api/google/disconnect", send: () => ["POST", "/api/google/disconnect", {}], expect: SIGNED_IN },
   // Last: it ends everyone's sessions.
   { route: "POST /api/sign-out-everywhere", send: () => ["POST", "/api/sign-out-everywhere", {}], expect: SIGNED_IN },
 ];
