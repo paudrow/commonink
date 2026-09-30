@@ -66,7 +66,7 @@ export function guideNext(content: string, action: GuideAction): string {
   const lines = content.split("\n");
   if (isStep(action)) {
     const i = lines.findIndex((l) => TASK_LINE.test(l) && markerOf(l) === action);
-    if (i >= 0) lines[i] = lines[i].replace(TASK_LINE, (_m, a: string, _box: string, b: string, rest: string) => `${a}x${b}${rest}`);
+    if (i >= 0) lines[i] = lines[i].replace(TASK_LINE, (_m, a: string, _box: string, b: string, rest: string, cr: string) => `${a}x${b}${rest}${cr}`);
   }
   if (action === "demo" && !content.includes(mark("demo"))) {
     const task = lines.findIndex((l) => TASK_LINE.test(l) && markerOf(l) === "watch");
