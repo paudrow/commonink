@@ -13,6 +13,7 @@ import { errorResponse, handleApi, json, type ApiHost } from "../core/api.ts";
 import { SANDBOX_PATH, sandboxPage } from "../core/sandbox.ts";
 import { appPolicy } from "../core/csp.ts";
 import { unfurl } from "./unfurl.ts";
+import { watchTree } from "./watch.ts";
 
 // PORT=0 picks a free port (printed on start). QUIRE_NO_UI=1 serves only /api, skipping Vite.
 const PORT = Number(process.env.PORT ?? 4777);
@@ -101,9 +102,7 @@ function announce(rel: string, content: string | null, version: string, change: 
 // ------------------------------------------------------------------ file watcher
 
 const timers = new Map<string, NodeJS.Timeout>();
-fs.watch(files.root, { recursive: true }, (_event, filename) => {
-  if (!filename) return;
-  const rel = filename.split(path.sep).join("/");
+watchTree(files.root, (rel) => {
   if (isHidden(rel) && rel !== ASSET_TAGS) return;
   const key = kindOf(rel) ? rel : "*"; // directory events → full resync
   clearTimeout(timers.get(key));
