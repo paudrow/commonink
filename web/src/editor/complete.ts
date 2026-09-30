@@ -73,7 +73,8 @@ const noteMentions: MentionProvider = {
   search(query, state) {
     const ctx = state.facet(editorContext);
     const all = ctx.notes().filter((n) => n.kind !== "asset");
-    return rankNotes(all.filter((n) => n.path !== ctx.path), query)
+    // Contacts come first as people (peopleOptions), so not again here.
+    return rankNotes(all.filter((n) => n.path !== ctx.path && !n.path.startsWith(`${PEOPLE}/`)), query)
       .slice(0, 12)
       .map((n) => ({ label: n.title, detail: folderOf(n.path), icon: iconOf(n), insert: `[[${linkName(n, all)}]]` }));
   },

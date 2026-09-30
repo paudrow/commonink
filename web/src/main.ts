@@ -196,7 +196,8 @@ const loadAssets = once(async () =>
 const loadContacts = once(async () =>
   (contactsPage = new (await import("./contactsPage.ts")).ContactsPage($("#contacts-view"), {
     open: (path, line) => fromPage(path, line),
-    navigate: (c) => void showContacts({ contact: c?.id ?? null }),
+    // A contact's page is drawn already: just the address bar and title. Back to the list shows it.
+    navigate: (c) => (c ? (setUrl(`/contacts?c=${c.id}`), (document.title = `${c.name} · Contacts · Common Ink`)) : void showContacts()),
     canEdit: () => !viewer,
     toast: (t) => toast(t),
   })),
