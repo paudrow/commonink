@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 124
 title: Quick capture
 ---
 1. **Install it on a phone.** Open this Preview in Chrome on Android and choose *Add to Home screen* (or *Install app*) from the ⋮ menu. On an iPhone, use Safari's Share button, then *Add to Home Screen*. It opens on its own, without the browser around it, as Common Ink.
