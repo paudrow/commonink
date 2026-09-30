@@ -2,7 +2,7 @@
 // anchors, emoji shortcodes, and the HTML GitHub allows (`<kbd>`, `<sub>`, `<picture>`…). Each is
 // turned into plain HTML while marked parses, so DOMPurify still runs last over all of it (see
 // renderMarkdown); nothing here is added after sanitizing.
-import { Lexer, type MarkedExtension, type Tokens } from "marked";
+import { Lexer, type MarkedExtension, type Token, type Tokens } from "marked";
 import DOMPurify from "dompurify";
 import { escapeHtml } from "./dom.ts";
 import { assetUrl } from "./api.ts";
@@ -31,8 +31,43 @@ function assetPaths(html: string): string {
 
 type AlertToken = Tokens.Blockquote & { alert?: Alert };
 
+/** Every token, parent before children, as marked's walkTokens visits them. */
+function eachToken(tokens: Token[], fn: (t: Token) => void) {
+  for (const t of tokens) {
+    fn(t);
+    if (t.type === "table") {
+      for (const cell of (t as Tokens.Table).header) eachToken(cell.tokens, fn);
+      for (const row of (t as Tokens.Table).rows) for (const cell of row) eachToken(cell.tokens, fn);
+    } else if (t.type === "list") eachToken((t as Tokens.List).items, fn);
+    else if ("tokens" in t && t.tokens) eachToken(t.tokens, fn);
+  }
+}
+
+// Asset paths in HTML, and alerts: a blockquote whose first line is `[!TYPE]`, which becomes its title.
+function visit(token: Token) {
+  if (token.type === "html") token.text = assetPaths(token.text);
+  if (token.type !== "blockquote" || !token.tokens) return;
+  const first = token.tokens[0];
+  if (first?.type !== "paragraph") return;
+  const [line, ...rest] = first.raw.split("\n");
+  const alert = parseAlert(`> ${line}`);
+  if (!alert) return;
+  (token as AlertToken).alert = alert;
+  const body = rest.join("\n").trim();
+  if (body) {
+    first.raw = first.text = body;
+    first.tokens = Lexer.lexInline(body, { gfm: true });
+  } else token.tokens!.shift();
+}
+
 export const gfmMarked: MarkedExtension = {
   hooks: {
+    // Not `walkTokens`: marked collects its results with one array concat per token, which is
+    // quadratic in a paragraph of tens of thousands of tokens (a long run of `\(`).
+    processAllTokens(tokens) {
+      eachToken(tokens, visit);
+      return tokens;
+    },
     preprocess(md) {
       const f = footnotesIn(md);
       notes = { text: new Map([...f.defs].map(([id, d]) => [id, d.text])), number: new Map(), refs: new Map(), html: new Map() };
@@ -84,22 +119,6 @@ export const gfmMarked: MarkedExtension = {
       },
     },
   ],
-  // An alert is a blockquote whose first line is `[!TYPE]`: that line becomes its title.
-  walkTokens(token) {
-    if (token.type === "html") token.text = assetPaths(token.text);
-    if (token.type !== "blockquote" || !token.tokens) return;
-    const first = token.tokens[0];
-    if (first?.type !== "paragraph") return;
-    const [line, ...rest] = first.raw.split("\n");
-    const alert = parseAlert(`> ${line}`);
-    if (!alert) return;
-    (token as AlertToken).alert = alert;
-    const body = rest.join("\n").trim();
-    if (body) {
-      first.raw = first.text = body;
-      first.tokens = Lexer.lexInline(body, { gfm: true });
-    } else token.tokens!.shift();
-  },
   renderer: {
     // Emoji shortcodes, in text only (marked joins a run of text, so a shortcode is never split;
     // code spans and URLs aren't text).
