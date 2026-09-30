@@ -2,6 +2,8 @@
 
 Local-first markdown notes that any agent can work in: **outside-in**, with no model inside the app. Agents come to your notes through MCP, a CLI, or plain files, and every change they make shows up live in the editor, highlighted and attributed.
 
+Common Ink was formerly called Quire. What you set up under that name keeps working, with a notice to switch (the legacy names are in `src/legacy.ts`): `bin/quire` runs `bin/commonink`, `QUIRE_*` env vars stand in for `COMMONINK_*`, a vault's `.quire/` folder moves to `.commonink/` the first time it opens, `~/.config/quire` moves to `~/.config/commonink`, and the browser's `quire.*` settings move to `commonink.*`.
+
 ```
             vault/  (*.md, *.html, assets)   ← source of truth
                           │
