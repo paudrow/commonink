@@ -11,6 +11,7 @@ import { TRASH_DAYS, type Quire } from "./quire.ts";
 import { actorOf, parseAuthorFilter } from "./actor.ts";
 import type { MemberRef } from "./contacts.ts";
 import { AGENTS_NOTE } from "./noteRoles.ts";
+import { EXPORT_FORMATS, type Exporter } from "./export.ts";
 import { dayRange, fmtEvent, fmtEvents, type Calendar } from "./calendar.ts";
 import { notePath } from "./ids.ts";
 
@@ -29,6 +30,8 @@ export interface ToolHost {
   canEditShared?: boolean;
   /** The workspace's members (online), for who "me" and other people are on tasks. None locally. */
   members?(): Promise<MemberRef[]>;
+  /** export_note: notes as Markdown, a web page, Word or a .zip (core/export.ts). Without one, the tool isn't offered. */
+  exporter?: Exporter;
   /** The workspace's calendars; with them, the event tools are offered. */
   calendar?: Calendar;
   /** Where the app is, for a meeting note's link written back to Google. */
@@ -43,6 +46,7 @@ export interface ToolHost {
 export const TOOL_ROUTES: Record<string, string> = {
   search_notes: "GET /search",
   read_note: "GET /note",
+  export_note: "GET /export",
   list_notes: "GET /notes",
   list_tags: "GET /tags",
   list_tasks: "GET /tasks",
@@ -85,6 +89,15 @@ export const TOOL_ROUTES: Record<string, string> = {
 };
 
 type Result = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
+
+/** The largest file export_note sends back (it goes as base64 in the reply). */
+const MAX_MCP_EXPORT = 20 * 1024 * 1024;
+
+function base64(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
 function run(fn: () => string): Result {
   try {
     return { content: [{ type: "text", text: fn() }] };
@@ -184,6 +197,46 @@ export function createMcpServer(host: ToolHost): McpServer {
     },
     ({ path, offset, limit }) => run(() => fmtRead(quire.read(path), offset, limit)),
   );
+
+  if (host.exporter) {
+    const exporter = host.exporter;
+    server.registerTool(
+      "export_note",
+      {
+        title: "Export notes",
+        description:
+          "Export a note, a folder or the whole workspace as a file. `md`: the note's markdown as it is. `html`: one self-contained web page " +
+          "(the note as it looks in the app, widgets as a snapshot). `docx`: a Word document. `zip`: markdown files and the files they use, " +
+          "folders kept, links that work in Obsidian (links to notes left out go to their web address). A folder, or \"/\" for everything, exports as zip.",
+        inputSchema: {
+          target: z.string().describe('A note (path, name or ID), a folder, or "/" for the whole workspace'),
+          format: z.enum(EXPORT_FORMATS as [string, ...string[]]).describe("md, html, docx or zip"),
+        },
+        annotations: readOnly,
+      },
+      async ({ target, format }) => {
+        try {
+          quire.sync();
+          const file = await exporter(target, format as (typeof EXPORT_FORMATS)[number]);
+          if (file.data.byteLength > MAX_MCP_EXPORT) return { content: [{ type: "text" as const, text: `${file.name} is ${Math.round(file.data.byteLength / 1024 / 1024)} MB, too big to send here: export a folder at a time, or use the app's Share menu or \`quire export\`.` }], isError: true };
+          const uri = `quire-export:///${encodeURIComponent(file.name)}`;
+          const text = file.mime.startsWith("text/");
+          return {
+            content: [
+              { type: "text" as const, text: `${file.name} (${file.mime.split(";")[0]}, ${file.data.byteLength} bytes)` },
+              text
+                ? { type: "resource" as const, resource: { uri, mimeType: file.mime.split(";")[0], text: new TextDecoder().decode(file.data) } }
+                : { type: "resource" as const, resource: { uri, mimeType: file.mime, blob: base64(file.data) } },
+            ],
+          };
+        } catch (e) {
+          return run(() => {
+            throw e;
+          });
+        }
+      },
+    );
+  }
 
   server.registerTool(
     "list_notes",

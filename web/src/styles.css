@@ -382,7 +382,7 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 body.is-resizing iframe { pointer-events: none; }
 #side-drop { position: absolute; top: 12px; right: 12px; bottom: 12px; width: min(40%, 360px); z-index: 20; display: flex; align-items: center; justify-content: center; gap: 8px; border: 2px dashed var(--accent); border-radius: 14px; background: color-mix(in srgb, var(--accent) 10%, var(--bg)); color: var(--accent-ink); font-weight: 600; pointer-events: none; }
 #side-drop[hidden] { display: none; }
-#split-btn.is-on { color: var(--accent); }
+#split-btn.is-on, #share-btn.is-on { color: var(--accent); }
 
 #statusbar {
   height: 30px;
@@ -2693,3 +2693,33 @@ button.cal-src-color:hover { background: var(--hover); }
 .cal-f-check input { width: 16px; height: 16px; accent-color: var(--accent); }
 .cal-f select.ws-input { padding-right: 6px; }
 .cal-tg-body, .cal-month { user-select: none; -webkit-user-select: none; }
+
+/* ------------------------------------------------------------------ the Share menu (share.ts) */
+.share-menu { position: fixed; z-index: 60; min-width: 250px; padding: 6px; border-radius: 12px; background: var(--bg-elev); border: 1px solid var(--line); box-shadow: var(--shadow-lg); }
+.share-item { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 32px; padding: 0 9px; border-radius: 7px; font-size: 13px; color: var(--ink-2); text-align: left; }
+.share-item:not(:disabled):is(:hover, :focus-visible) { background: var(--hover); color: var(--ink-strong); outline: none; }
+.share-item svg { color: var(--muted); flex: none; }
+.share-item:disabled { color: var(--muted); cursor: default; }
+.share-hint { margin-left: auto; padding-left: 12px; font-size: 11.5px; color: var(--muted); }
+.share-section { font: 650 10.5px/1 var(--ui); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 9px 9px 6px; }
+.share-sep { height: 1px; background: var(--line); margin: 6px 2px; }
+@media (pointer: coarse) { .share-item { min-height: 44px; font-size: 14px; } }
+
+/* ------------------------------------------------------------------ print (export/print.ts) */
+.pr-dialog { padding: 0; border: 0; border-radius: 14px; background: var(--bg-elev); color: var(--ink); box-shadow: var(--shadow-lg); width: min(380px, calc(100vw - 32px)); }
+.pr-dialog::backdrop { background: rgba(20, 16, 10, 0.28); backdrop-filter: blur(3px); }
+.pr-box { display: flex; flex-direction: column; gap: 10px; padding: 18px 20px 16px; }
+.pr-box h2 { margin: 0; font-size: 16px; color: var(--ink-strong); }
+.pr-hint { margin: 0; font-size: 13px; color: var(--ink-2); }
+.pr-opt { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+.pr-opt input { accent-color: var(--accent); }
+.pr-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+.banner-btn.is-primary { display: inline-flex; align-items: center; gap: 6px; background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+#print-root { display: none; }
+@media print {
+  /* Print… renders the note into #print-root: only that shows, on white, in the light theme. */
+  :root:has(> body.is-printing) { height: auto; color-scheme: light !important; background: #fff !important; }
+  body.is-printing { height: auto; overflow: visible; background: #fff; }
+  body.is-printing > :not(#print-root) { display: none !important; }
+  body.is-printing #print-root { display: block; max-width: none; margin: 0; font-size: 11pt; }
+}

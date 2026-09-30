@@ -8,6 +8,7 @@ import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, unusedT
 import { cleanTag, normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
+import { paintShareButton, SHARE_KEYS, toggleShareMenu, type ShareNote } from "./share.ts";
 import { hideBanner, showBanner } from "./banner.ts";
 import { showConflict as conflictBanner } from "./conflict.ts";
 import { createState, lineNumbersFor, lineNumbersSlot, openLinkToSide, remote, setVimDisplayLines, vimSlot } from "./editor/setup.ts";
@@ -309,6 +310,10 @@ function commands() {
       if (start) void openNote(start.path);
     },
     shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
+    share: openShare,
+    copyLink: () => void copyLink(),
+    exportAs: (how) => void exportNote(how),
+    exportWorkspace: () => void exportZip({ all: true }),
     settings: openSettings,
     connectAgent,
     back: () => void stepPane(active, "back"),
@@ -954,6 +959,58 @@ async function archiveCurrent() {
 }
 
 /** Delete the open note (to Trash, with Undo) and go back to Notes. */
+// ------------------------------------------------------------------ share, print and export (share.ts, export/)
+
+/** The focused pane's note, for the Share menu: its link, and its content as it is now. */
+function shareNote(): ShareNote | null {
+  const s = active.session;
+  if (!s || s.kind === "asset") return null;
+  const view = active.view;
+  return { path: s.path, title: s.title, kind: s.kind, url: `${location.origin}${notePath(s.title, s.id)}`, content: () => view.state.doc.toString() };
+}
+
+/** The Share menu, under the Share button (or under More, where a phone keeps the button). */
+function openShare() {
+  const note = shareNote();
+  if (!note) return;
+  const button = $("#share-btn");
+  const anchor = button.offsetParent ? button : (document.querySelector<HTMLElement>("#more-btn") ?? button);
+  toggleShareMenu(anchor, note, (text) => toast({ text }));
+}
+
+async function copyLink() {
+  const note = shareNote();
+  if (!note) return;
+  await navigator.clipboard.writeText(note.url);
+  toast({ icon: "link", text: "Link copied" });
+}
+
+/** Notes as a .zip: a folder, some notes, or everything. */
+async function exportZip(what: { paths?: string[]; folder?: string; all?: boolean }) {
+  toast({ icon: "download", text: "Making the .zip…" });
+  try {
+    const name = await (await import("./export/files.ts")).exportZip(what);
+    toast({ icon: "check", text: `Exported ${name}` });
+  } catch (e) {
+    toast({ text: `Couldn't export: ${e instanceof Error ? e.message : String(e)}` });
+  }
+}
+
+/** Print the note, or export it: the same as the Share menu's items. */
+async function exportNote(how: "print" | "pdf" | "md" | "html" | "docx") {
+  const note = shareNote();
+  if (!note || note.kind !== "md") return;
+  const printable = { path: note.path, title: note.title, content: note.content() };
+  try {
+    if (how === "print" || how === "pdf") await (await import("./export/print.ts")).print(printable, { pdf: how === "pdf" });
+    else if (how === "md") toast({ icon: "check", text: `Exported ${await (await import("./export/files.ts")).exportMarkdown(printable)}` });
+    else if (how === "docx") await (await import("./export/files.ts")).exportDocx(printable);
+    else await (await import("./export/files.ts")).exportHtml(printable);
+  } catch (e) {
+    toast({ text: `Couldn't export: ${e instanceof Error ? e.message : String(e)}` });
+  }
+}
+
 async function deleteCurrent() {
   const s = active.session;
   if (!s || viewer) return;
@@ -1721,6 +1778,7 @@ function renderTree() {
             "span",
             { class: "row-actions" },
             action(`New note in ${path}`, "plus", () => void newNote(path)),
+            action(`Export ${path} as a .zip`, "download", () => void exportZip({ folder: path })),
             viewer ? null : action(`Delete ${path}`, "trash", () => void removeFolder(path)),
           ),
         );
@@ -2000,6 +2058,8 @@ function renderChrome() {
   $("#delete-btn").hidden = !s || viewer;
   $("#move-btn").hidden = !s;
   $("#star-btn").hidden = !s || s.kind === "asset";
+  $("#share-btn").hidden = !s || s.kind === "asset";
+  paintShareButton($("#share-btn"));
   $("#note-history-btn").hidden = !s || s.kind === "asset";
   $("#focus-btn").hidden = !s || s.kind === "asset";
   $("#split-btn").hidden = !split && (!s || s.kind === "asset");
@@ -2287,6 +2347,7 @@ Vim.defineEx("trash", "trash", () => void deleteCurrent());
 Vim.defineEx("notes", "note", () => void showNotes());
 Vim.defineEx("calendar", "cal", () => void showCalendar());
 Vim.defineEx("star", "star", () => active.session && void toggleStar(active.session.path));
+Vim.defineEx("share", "sha", () => openShare());
 Vim.defineEx("focus", "foc", () => void setFocusMode(!focusMode));
 Vim.defineEx("vsplit", "vs", (_cm: unknown, params: { args?: string[] }) => {
   const arg = params.args?.join(" ");
@@ -2374,6 +2435,9 @@ window.addEventListener(
     } else if (is("Mod-Shift-e")) {
       e.preventDefault();
       void archiveCurrent();
+    } else if (is(SHARE_KEYS) && shareNote()) {
+      e.preventDefault();
+      openShare();
     } else if (is("Mod-Shift-Enter")) {
       e.preventDefault();
       void setFocusMode(!focusMode);
@@ -2758,6 +2822,7 @@ async function boot() {
   $("#delete-btn").addEventListener("click", () => void deleteCurrent());
   $("#star-btn").addEventListener("click", () => active.session && void toggleStar(active.session.path));
   $("#move-btn").addEventListener("click", () => openMovePicker($("#move-btn")));
+  $("#share-btn").addEventListener("click", openShare);
   $("#focus-btn").addEventListener("click", () => void setFocusMode(!focusMode));
   $("#new-folder").addEventListener("click", () => startNewFolder());
   $("#new-tag").addEventListener("click", () => startNewTag());

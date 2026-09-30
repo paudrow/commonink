@@ -7,6 +7,7 @@ import { matchContacts } from "./core/contacts.ts";
 import { parseQuery } from "./core/query.ts";
 import { fmtTemplate } from "./core/tools.ts";
 import { agentSource, parseAuthorFilter } from "./core/actor.ts";
+import { EXPORT_FORMATS, type ExportFormat } from "./core/export.ts";
 import { Calendar, dayRange, fetchFeed, fmtEvent, fmtEvents, fmtSources } from "./core/calendar.ts";
 import { assertPublic } from "./server/unfurl.ts";
 
@@ -77,6 +78,10 @@ Usage: quire <command> [args] [--agent <name>] [--json]
                                    --path brings the note's history under earlier names too;
                                    --by shows only people's changes, any agent's, or one agent's
   restore <change-id>              put a note back the way it was before that change
+  export <note|folder|/> --format md|html|docx|zip [--out <file>|-]
+                                   a note as its markdown, one web page or a Word document, or
+                                   notes as a .zip with their files, folders kept and links that
+                                   work in Obsidian ("/" is every note); --out - writes to stdout
   events [--from YYYY-MM-DD] [--days N] [--query words] [--tz Zone]
                                    calendar events, soonest first (default: the next 7 days);
                                    feeds that are due are read first
@@ -141,6 +146,21 @@ if (cmd === "mcp") {
   try {
     const q = openVault();
     switch (cmd) {
+      case "export": {
+        const target = need(0, "note|folder");
+        const format = str("format") ?? "md";
+        if (!EXPORT_FORMATS.includes(format as ExportFormat)) throw new QuireError(`--format must be one of ${EXPORT_FORMATS.join(", ")}`);
+        const { localExporter } = await import("./server/export.ts");
+        const file = await localExporter(q)(target, format as ExportFormat);
+        const dest = str("out") ?? file.name;
+        if (dest === "-") {
+          process.stdout.write(file.data);
+          break;
+        }
+        fs.writeFileSync(dest, file.data);
+        out(`Wrote ${dest} (${file.data.byteLength} bytes)`, { path: dest, bytes: file.data.byteLength, mime: file.mime });
+        break;
+      }
       case "search": {
         const query = args.join(" ");
         const hits = q.search(query, num("limit") ?? 10, scope, str("tag"));

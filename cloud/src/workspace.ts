@@ -10,6 +10,7 @@ import { errorResponse, handleApi, json, type ApiHost } from "../../src/core/api
 import { cleanPath, fileSecurityHeaders, kindOf, MAX_UPLOAD, mimeOf } from "../../src/core/paths.ts";
 import type { Change } from "../../src/core/quire.ts";
 import { createMcpServer } from "../../src/core/tools.ts";
+import { coreExporter } from "../../src/core/export.ts";
 import { access, asRole } from "./access.ts";
 import { DoDb, SqlContent } from "./do-store.ts";
 import { SEED_FILES, SEED_NOTES } from "./seed.ts";
@@ -166,6 +167,7 @@ export class Workspace extends DurableObject<Env> {
         this.broadcast({ type: "calendar" });
         this.ctx.waitUntil(this.schedule());
       },
+      fileBytes: (rel) => this.fileBytes(rel),
     };
     return (await handleApi(host, req, route)) ?? json({ error: `No route ${req.method} ${route}` }, 404);
   }
@@ -217,6 +219,13 @@ export class Workspace extends DurableObject<Env> {
     }
   }
 
+  /** An uploaded file's bytes, from R2. */
+  private async fileBytes(rel: string): Promise<Uint8Array | null> {
+    const key = this.files.blob(rel)?.blob;
+    const obj = key ? await this.env.FILES.get(key) : null;
+    return obj ? new Uint8Array(await obj.arrayBuffer()) : null;
+  }
+
   private async serveFile(raw: string): Promise<Response> {
     const rel = cleanPath(raw);
     const meta = this.files.blob(rel);
@@ -266,6 +275,8 @@ export class Workspace extends DurableObject<Env> {
       members: () => membersOf(this.env, who.workspace),
       calendar: this.calendar,
       origin: new URL(req.url).origin,
+      // Markdown and .zip; a web page and Word are drawn by the app (Share → Export as).
+      exporter: coreExporter({ quire: this.quire, bytes: (rel) => this.fileBytes(rel), origin: new URL(req.url).origin }),
     });
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await server.connect(transport);
