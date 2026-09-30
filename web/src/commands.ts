@@ -72,6 +72,8 @@ export interface App {
   subscribeCalendar(): void;
   refreshCalendars(): void;
   connectGoogle(): void;
+  /** The Calendar page, with the new-event form open. */
+  newEvent(): void;
   toggleTheme(): void;
   toggleVim(): void;
   toggleVimDisplayLines(): void;
@@ -115,6 +117,7 @@ export function appCommands(app: App): Command[] {
     go("tasks", "Tasks", "task", "todo checklist"),
     go("calendar", "Calendar", "calendar", "events meetings schedule agenda month week day"),
     { id: "subscribe-calendar", title: "Subscribe to a calendar…", keywords: "calendar add ics webcal ical feed google outlook subscribe", icon: "calendar", available: app.canSubscribe, run: app.subscribeCalendar },
+    { id: "new-event", title: "New event…", keywords: "calendar event meeting create add schedule appointment", icon: "plus", run: app.newEvent },
     { id: "connect-google", title: "Connect Google Calendar", keywords: "google calendar gcal account events", icon: "calendar", available: app.canConnectGoogle, run: app.connectGoogle },
     { id: "refresh-calendars", title: "Refresh calendars", keywords: "calendar sync reload events update", icon: "reset", run: app.refreshCalendars },
     go("tags", "Tags", "hash", "rename merge"),

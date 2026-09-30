@@ -33,6 +33,9 @@ let leaveBase = "";
 /** Calendars for each person to rename and to remove, and an event to make a meeting note from. */
 const calendarIds = {} as Record<Who, { rename: string; remove: string }>;
 let eventId = "";
+/** Events in the workspace's own calendar for each person to move and to delete. */
+const ownEvents = {} as Record<Who, { move: string; remove: string }>;
+const EVENT = (title: string) => ({ source: "local", title, start: "2026-10-06T15:00:00Z", end: "2026-10-06T16:00:00Z" });
 const DEMO = (name: string) => `https://demo.commonink.invalid/${name}.ics`; // the Preview demo feed (cloud/src/demo-calendar.ts)
 
 /**
@@ -104,6 +107,10 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /calendar/sources/update", send: (w) => ["POST", "/calendar/sources/update", { id: calendarIds[w].rename, name: `Renamed by ${w}` }], expect: EDIT },
   { route: "POST /calendar/sources/remove", send: (w) => ["POST", "/calendar/sources/remove", { id: calendarIds[w].remove }], expect: EDIT },
   { route: "POST /calendar/meeting-note", send: () => ["POST", "/calendar/meeting-note", { id: eventId, timeZone: "UTC" }], expect: EDIT },
+  // The workspace's own calendar is editors'; a viewer's own Google calendars would be theirs (test/cloud-google.test.ts).
+  { route: "POST /calendar/events", send: (w) => ["POST", "/calendar/events", EVENT(`Made by ${w}`)], expect: EDIT },
+  { route: "POST /calendar/events/update", send: (w) => ["POST", "/calendar/events/update", { id: ownEvents[w].move, start: "2026-10-07T15:00:00Z", end: "2026-10-07T16:00:00Z" }], expect: EDIT },
+  { route: "POST /calendar/events/delete", send: (w) => ["POST", "/calendar/events/delete", { id: ownEvents[w].remove }], expect: EDIT },
   // Anyone may add their own Google calendar; with no Google connection, it's refused as a bad request.
   { route: "POST /calendar/google", send: () => ["POST", "/calendar/google", { calendar: "primary" }], expect: [401, 404, 400, 400, 400] },
   { route: "POST /upload", send: (w) => ["POST", `/upload?name=up-${w}.txt`, new TextEncoder().encode("hi"), { "content-type": "text/plain" }], expect: EDIT },
@@ -163,6 +170,8 @@ before(async () => {
     trashIds[w] = { restore, purge };
     const subscribe = async (name: string) => (await cloud.call(owner, "POST", `${base}/calendar/sources`, { url: DEMO(`${name}-${w}`) })).id;
     calendarIds[w] = { rename: await subscribe("rename"), remove: await subscribe("remove") };
+    const make = async (what: string) => (await cloud.call(owner, "POST", `${base}/calendar/events`, EVENT(`${what} ${w}`))).event.id;
+    ownEvents[w] = { move: await make("Move"), remove: await make("Remove") };
   }
   eventId = (await cloud.call(owner, "GET", `${base}/calendar/events?from=2026-10-01&to=2026-10-08`))[0].id;
   for (const w of ["viewer", "editor", "owner"] as const) {
