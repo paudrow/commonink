@@ -1663,7 +1663,8 @@ export class Quire {
   }
 
   /** `rel`, or "name 2.md", "name 3.md"… if it's taken. */
-  private freePath(rel: string): string {
+  /** `rel`, or "name 2.md" (3, 4…) if that's taken. */
+  freePath(rel: string): string {
     const ext = path.posix.extname(rel);
     const stem = rel.slice(0, rel.length - ext.length);
     let out = rel;

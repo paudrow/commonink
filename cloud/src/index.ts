@@ -158,6 +158,10 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
     const tooMany = await limit(env.DB, "upload", user.id);
     if (tooMany) return tooMany;
   }
+  if (req.method === "POST" && (route === "/calendar/sources" || route === "/calendar/refresh")) {
+    const tooMany = await limit(env.DB, "calendar", user.id);
+    if (tooMany) return tooMany;
+  }
 
   // Forward to the workspace. Only this Worker can reach it, so these headers can be trusted there;
   // any the client sent are dropped first.
@@ -169,6 +173,7 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
   headers.set("x-ci-role", ws.role);
   headers.set("x-ci-session", session.id);
   headers.set("x-ci-session-expires", String(session.expiresAt));
+  headers.set("x-ci-host", url.hostname);
   const inner = new Request(`https://workspace${route}${url.search}`, { method: req.method, headers, body: isWrite ? req.body : undefined, redirect: "manual" });
   return env.WORKSPACE.get(env.WORKSPACE.idFromName(ws.id)).fetch(inner);
 }
