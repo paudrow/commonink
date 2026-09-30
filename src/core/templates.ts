@@ -54,6 +54,8 @@ export interface FillOptions {
   /** Answers to {{ask:…}}, by label. */
   answers?: Record<string, string>;
   clipboard?: string;
+  /** Named values for {{name}}, checked first: a calendar event's when, where, attendees… (calendar.ts). */
+  vars?: Record<string, string>;
 }
 
 /** {{…}} with no `\` before it: its insides are group 2. */
@@ -137,6 +139,7 @@ export function fillTemplate(text: string, opts: FillOptions = {}): { text: stri
   const out = own.replace(PLACEHOLDER, (whole, escaped: string, inner: string) => {
     if (escaped) return whole.slice(1);
     const name = inner.trim();
+    if (opts.vars && Object.hasOwn(opts.vars, name)) return opts.vars[name];
     const date = name.match(/^(date|time)(?:([+-]\d+)([dw]))?(?::(.+))?$/);
     if (date) {
       const at = new Date(when);

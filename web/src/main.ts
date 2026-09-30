@@ -51,6 +51,10 @@ import { safeDecode } from "../../src/core/uri.ts";
 import { deleteFolder, deletePaths, TrashPage, type DeleteHooks } from "./trash.ts";
 import { AGENTS_BLURB, isAgentsNote } from "./agentsNote.ts";
 import { closeDrawer, setupMobileNav } from "./mobileNav.ts";
+import type { CalendarPage } from "./calendar/page.ts";
+import { calendarChanged, calendars, setCalendarContext } from "./calendar/data.ts";
+import { calendarTarget, OPEN_CALENDAR } from "./links.ts";
+import { connectUrl, googleChanged, googleKnown, googleOutcome, googleStatus, leave } from "./calendar/google.ts";
 
 // ------------------------------------------------------------------ state
 
@@ -174,6 +178,7 @@ let trashPage: TrashPage | null = null;
 let historyPage: History | null = null;
 let assetsPage: Assets | null = null;
 let tagsPage: TagsPage | null = null;
+let calendarPage: CalendarPage | null = null;
 const once = <T>(load: () => Promise<T>) => {
   let loading: Promise<T> | null = null;
   return () => (loading ??= load());
@@ -204,6 +209,12 @@ const loadTags = once(async () =>
     refresh: () => refreshNotes(),
     openTag: (tag, where) => openTag(tag, where),
     toast: (t) => toast(t),
+  })),
+);
+const loadCalendar = once(async () =>
+  (calendarPage = new (await import("./calendar/page.ts")).CalendarPage($("#calendar-view"), {
+    open: (path, line, side) => void openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }),
+    setUrl: (url) => setUrl(url, "replace"),
   })),
 );
 /** The palette's next pick opens to the side (⌘⌥\ with nothing to show there yet). */
@@ -238,6 +249,8 @@ function commands() {
     canForward: active.trail.forward.length > 0,
     onLink: s?.kind === "md" && !!linkTargetAt(active.view.state, active.view.state.selection.main.head),
     canDelete: !viewer,
+    canSubscribe: !viewer,
+    canConnectGoogle: !!googleKnown() && googleKnown()!.mode !== "off" && !googleKnown()!.connection,
     folds: s?.kind === "md" ? foldCount(active.view.state) : 0,
     account,
     newNote: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
@@ -246,8 +259,11 @@ function commands() {
     newFolder: startNewFolder,
     go: (page) => {
       if (page === "notes" || page === "archive") void showNotes({ scope: page === "notes" ? "active" : "archived", query: {} });
-      else void { tasks: showTasks, tags: showTags, assets: showAssets, history: showHistory, trash: showTrash }[page]();
+      else void { tasks: showTasks, calendar: showCalendar, tags: showTags, assets: showAssets, history: showHistory, trash: showTrash }[page]();
     },
+    subscribeCalendar: () => void subscribeCalendar(),
+    refreshCalendars: () => void refreshCalendars(),
+    connectGoogle: () => leave.to(connectUrl()),
     filterNotes: () => void showNotes({ filter: true }),
     quickAdd,
     toggleTheme,
@@ -588,13 +604,14 @@ function setUrl(url: string, how: "push" | "replace" = "push") {
 
 let unmountTasks: (() => void) | null = null;
 
-function showStage(which: "editor" | "html" | "notes" | "tasks" | "history" | "assets" | "tags" | "trash") {
+function showStage(which: "editor" | "html" | "notes" | "tasks" | "calendar" | "history" | "assets" | "tags" | "trash") {
   closeDrawer();
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
   $("#assets-view").hidden = which !== "assets";
   $("#notes-view").hidden = which !== "notes";
   $("#tasks-view").hidden = which !== "tasks";
+  $("#calendar-view").hidden = which !== "calendar";
   $("#history-view").hidden = which !== "history";
   $("#tags-view").hidden = which !== "tags";
   $("#trash-view").hidden = which !== "trash";
@@ -646,13 +663,68 @@ async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: strin
 async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("tasks");
-  unmountTasks = renderTasksPage($("#tasks-view"), { open: (path, line, side) => void openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }), tags: () => tags }, { tag: opts.tag, assignee: opts.assignee });
+  // Today's events open on the Calendar page (/calendar/<id>); everything else is a note.
+  const open = (path: string, line?: number, side?: boolean) =>
+    void (calendarTarget(path) !== null ? openTarget(path) : openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }));
+  unmountTasks = renderTasksPage($("#tasks-view"), { open, tags: () => tags }, { tag: opts.tag, assignee: opts.assignee });
   $("#tasks-view").focus({ preventScroll: true });
   if (opts.push !== false) wentTo("/tasks");
   document.title = "Tasks · Common Ink";
   renderChrome();
   renderTree();
   renderOutline();
+}
+
+/** The Calendar, on today, or on one event with its details open (/calendar/<event id>). */
+async function showCalendar(opts: { event?: string; push?: boolean } = {}) {
+  await leaveNote();
+  showStage("calendar");
+  const page = await loadCalendar();
+  if (opts.push !== false) wentTo(opts.event ? `/calendar/${opts.event}` : "/calendar");
+  document.title = "Calendar · Common Ink";
+  renderChrome();
+  renderTree();
+  renderOutline();
+  await page.show({ event: opts.event });
+}
+
+/** The Calendar page with the Calendars dialog open at its link field. */
+async function subscribeCalendar() {
+  await showCalendar();
+  calendarPage?.subscribe();
+}
+
+/**
+ * Back from connecting Google Calendar (/calendar?google=connected|denied|failed): say how it went,
+ * and show the Calendars dialog at its Google section, where the calendars are to add.
+ */
+async function backFromGoogle(outcome: string) {
+  const url = new URL(location.href);
+  url.searchParams.delete("google");
+  history.replaceState(history.state, "", url.pathname + url.search + url.hash);
+  const said = googleOutcome(outcome);
+  if (!said) return;
+  googleChanged();
+  toast({ icon: "calendar", text: said, alert: outcome !== "connected" });
+  await showCalendar({ push: false });
+  calendarPage?.openSources({ google: true });
+}
+
+/** Read every calendar again now (each at most once a minute). */
+async function refreshCalendars() {
+  if (!(await calendars().catch(() => [])).length) {
+    const text = "No calendars to refresh yet";
+    return toast(viewer ? { icon: "calendar", text } : { icon: "calendar", text, actionLabel: "Subscribe", action: () => void subscribeCalendar() });
+  }
+  try {
+    const list = await api.refreshCalendars();
+    calendarChanged();
+    await calendarPage?.refresh();
+    const broken = list.filter((s) => s.status === "error");
+    toast({ icon: "calendar", text: broken.length ? `Couldn't read ${broken.map((s) => s.name).join(", ")}` : "Calendars are up to date" });
+  } catch (e) {
+    toast({ text: e instanceof Error ? e.message : "Couldn't refresh the calendars" });
+  }
 }
 
 /** History, optionally for one note, with a change selected (e.g. from the activity list). */
@@ -744,11 +816,12 @@ function pickFiles(): Promise<File[]> {
   });
 }
 
-const PAGE_LABEL = { notes: "Notes", tasks: "Tasks", history: "History", assets: "Assets", tags: "Tags", trash: "Trash" } as const;
+const PAGE_LABEL = { notes: "Notes", tasks: "Tasks", calendar: "Calendar", history: "History", assets: "Assets", tags: "Tags", trash: "Trash" } as const;
 
 const onPage = () =>
   notesPage.visible ? "notes"
   : !$("#tasks-view").hidden ? "tasks"
+  : calendarPage?.visible ? "calendar"
   : historyPage?.visible ? "history"
   : assetsPage?.visible ? "assets"
   : tagsPage?.visible ? "tags"
@@ -827,6 +900,8 @@ async function deleteCurrent() {
 }
 
 async function openTarget(target: string, from?: string, pane = active) {
+  const event = calendarTarget(target);
+  if (event !== null) return showCalendar({ event: event || undefined });
   const [name, anchor] = target.split("#");
   const path = name ? await api.resolve(name, from) : from;
   const line = anchor?.match(/^L(\d+)$/)?.[1]; // Note#L12 → line 12 (used by widgets)
@@ -1179,6 +1254,10 @@ function onMessage(m: ServerMsg) {
       refreshNotesSoon();
       return;
     }
+    case "calendar":
+      calendarChanged();
+      void calendarPage?.refresh();
+      return;
     case "tree":
       notesPage.refreshSoon();
       api.clearResolveCache();
@@ -1521,6 +1600,7 @@ function renderTree() {
   const shownTag = showing === null ? "" : (parseQuery(showing).tag ?? "");
   renderTagTree(shownTag && showing === formatQuery({ tag: shownTag }) ? shownTag.toLowerCase() : ""); // a tag alone, like a folder alone
   setCurrent($("#tasks-btn"), page === "tasks");
+  setCurrent($("#calendar-btn"), page === "calendar");
   setCurrent($("#history-btn"), page === "history" && !historyPage?.noteFilter);
   setCurrent($("#assets-btn"), page === "assets");
   setCurrent($("#archive-nav"), page === "notes" && notesPage.scope === "archived");
@@ -2090,6 +2170,7 @@ Vim.defineEx("archive", "arch", () => void archiveCurrent());
 // Not :delete, which is Vim's own (:d deletes lines).
 Vim.defineEx("trash", "trash", () => void deleteCurrent());
 Vim.defineEx("notes", "note", () => void showNotes());
+Vim.defineEx("calendar", "cal", () => void showCalendar());
 Vim.defineEx("star", "star", () => active.session && void toggleStar(active.session.path));
 Vim.defineEx("focus", "foc", () => void setFocusMode(!focusMode));
 Vim.defineEx("vsplit", "vs", (_cm: unknown, params: { args?: string[] }) => {
@@ -2336,7 +2417,7 @@ function setupPanes() {
   // Clicking or tabbing into a pane gives it the focus.
   // (Not from a pane bar's buttons: redrawing the bar on mousedown would swallow their click.)
   const follow = (p: Pane) => (e: Event) => p !== active && split && !(e.target as Element).closest?.(".pane-bar button") && focusPane(p);
-  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#tasks-view", "#history-view", "#assets-view", "#tags-view", "#trash-view"]], [panes[1], ["#side-pane"]]] as const) {
+  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#tasks-view", "#calendar-view", "#history-view", "#assets-view", "#tags-view", "#trash-view"]], [panes[1], ["#side-pane"]]] as const) {
     for (const sel of nodes) {
       $(sel).addEventListener("focusin", follow(p));
       $(sel).addEventListener("mousedown", follow(p));
@@ -2363,8 +2444,8 @@ let viewer = false;
 let owner = true;
 
 /**
- * Show whatever the address bar points at: /notes/<title>-<id>, /tasks, /history, /assets, or the
- * notes list (/notes, /). Links from before paths (#/Projects/Plan.md, #tasks) still work and get rewritten.
+ * Show whatever the address bar points at: /notes/<title>-<id>, /tasks, /calendar (or one event,
+ * /calendar/<id>), /history, /assets, or the notes list (/notes, /). Links from before paths (#/Projects/Plan.md, #tasks) still work and get rewritten.
  */
 async function route() {
   const hash = location.hash;
@@ -2385,6 +2466,8 @@ async function route() {
     return showTasks({ push: false });
   }
   if (at === "/assets") return showAssets({ push: false });
+  const event = calendarTarget(at);
+  if (event !== null) return showCalendar({ event: event || undefined, push: false });
   if (at === "/trash") return showTrash({ push: false });
   if (at === "/tags") return showTags({ push: false });
   if (at === "/history") {
@@ -2423,6 +2506,8 @@ async function refreshTaskCount() {
 const refreshTaskCountSoon = debounce(refreshTaskCount, 400);
 
 async function boot() {
+  // Read before the workspace is picked: picking one tidies the address, this included.
+  const fromGoogle = new URLSearchParams(location.search).get("google");
   // Online, the note API is per workspace and needs a signed-in person; locally it's just /api.
   const who = await whoAmI();
   // Where developer sign-in is on (local `cloud:dev`, and Previews) there's nothing to choose: go straight in.
@@ -2433,6 +2518,8 @@ async function boot() {
     workspaceId = ws.id;
     local = false;
     viewer = ws.role === "viewer";
+    setCalendarContext({ canEdit: !viewer, workspace: ws.id });
+    void googleStatus().catch(() => null); // the palette's Connect Google Calendar
     owner = ws.role === "owner";
     useWorkspace(`/api/w/${ws.id}`, `/api/w/${ws.id}/live`);
     setSelfName(who.me.user.name);
@@ -2478,6 +2565,8 @@ async function boot() {
   window.addEventListener("popstate", (e) => void onPopState(e));
   $("#notes-btn").addEventListener("click", () => void showNotes({ scope: "active", query: {} }));
   $("#tasks-btn").addEventListener("click", () => void showTasks());
+  $("#calendar-btn").addEventListener("click", () => void showCalendar());
+  window.addEventListener(OPEN_CALENDAR, (e) => void showCalendar({ event: (e as CustomEvent<string>).detail || undefined }));
   $("#history-btn").addEventListener("click", () => void showHistory());
   $("#assets-btn").addEventListener("click", () => void showAssets());
   $("#tags-page-btn").addEventListener("click", () => void showTags());
@@ -2554,6 +2643,7 @@ async function boot() {
     focusPane(panes[1]);
     if (spot.line || spot.heading) await openNote(beside.path, { pane: panes[1], ...spot });
   } else await route();
+  if (fromGoogle) await backFromGoogle(fromGoogle);
 }
 
 boot();

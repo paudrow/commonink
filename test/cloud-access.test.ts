@@ -30,6 +30,10 @@ let spareId = "";
 let spareInvite = "";
 /** A second team with the same people in the same roles, for them to leave. */
 let leaveBase = "";
+/** Calendars for each person to rename and to remove, and an event to make a meeting note from. */
+const calendarIds = {} as Record<Who, { rename: string; remove: string }>;
+let eventId = "";
+const DEMO = (name: string) => `https://demo.commonink.invalid/${name}.ics`; // the Preview demo feed (cloud/src/demo-calendar.ts)
 
 /**
  * Every route online, what each kind of person gets back, and a request that works for anyone
@@ -90,6 +94,16 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /trash/restore", send: (w) => ["POST", "/trash/restore", { ids: [trashIds[w].restore] }], expect: EDIT },
   { route: "POST /trash/delete", send: (w) => ["POST", "/trash/delete", { ids: [trashIds[w].purge] }], expect: OWN },
   { route: "POST /trash/empty", send: () => ["POST", "/trash/empty", {}], expect: OWN },
+  { route: "GET /calendar/sources", send: () => ["GET", "/calendar/sources"], expect: READ },
+  { route: "GET /calendar/events", send: () => ["GET", "/calendar/events?from=2026-10-01&to=2026-10-08"], expect: READ },
+  { route: "GET /calendar/event", send: () => ["GET", `/calendar/event?id=${eventId}`], expect: READ },
+  { route: "POST /calendar/refresh", send: () => ["POST", "/calendar/refresh", {}], expect: READ },
+  { route: "POST /calendar/sources", send: (w) => ["POST", "/calendar/sources", { url: DEMO(`new-${w}`) }], expect: EDIT },
+  { route: "POST /calendar/sources/update", send: (w) => ["POST", "/calendar/sources/update", { id: calendarIds[w].rename, name: `Renamed by ${w}` }], expect: EDIT },
+  { route: "POST /calendar/sources/remove", send: (w) => ["POST", "/calendar/sources/remove", { id: calendarIds[w].remove }], expect: EDIT },
+  { route: "POST /calendar/meeting-note", send: () => ["POST", "/calendar/meeting-note", { id: eventId, timeZone: "UTC" }], expect: EDIT },
+  // Anyone may add their own Google calendar; with no Google connection, it's refused as a bad request.
+  { route: "POST /calendar/google", send: () => ["POST", "/calendar/google", { calendar: "primary" }], expect: [401, 404, 400, 400, 400] },
   { route: "POST /upload", send: (w) => ["POST", `/upload?name=up-${w}.txt`, new TextEncoder().encode("hi"), { "content-type": "text/plain" }], expect: EDIT },
   { route: "POST /invites", send: () => ["POST", "/invites", { role: "viewer" }], expect: OWN },
   { route: "GET /members", send: () => ["GET", "/members"], expect: READ },
@@ -109,6 +123,10 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "GET /api/note-ids/*", send: () => ["GET", `/api/note-ids/${startId}`], expect: READ },
   { route: "GET /api/agents", send: () => ["GET", "/api/agents"], expect: SIGNED_IN },
   { route: "POST /api/agents/revoke", send: () => ["POST", "/api/agents/revoke", { id: "not-a-grant" }], expect: SIGNED_IN },
+  { route: "GET /api/google", send: () => ["GET", "/api/google"], expect: SIGNED_IN },
+  // No one here connected Google.
+  { route: "GET /api/google/calendars", send: () => ["GET", "/api/google/calendars"], expect: [401, 409, 409, 409, 409] },
+  { route: "POST /api/google/disconnect", send: () => ["POST", "/api/google/disconnect", {}], expect: SIGNED_IN },
   // Last: it ends everyone's sessions.
   { route: "POST /api/sign-out-everywhere", send: () => ["POST", "/api/sign-out-everywhere", {}], expect: SIGNED_IN },
 ];
@@ -140,7 +158,10 @@ before(async () => {
     await note(`trash-purge-${w}.md`);
     const [restore, purge] = (await cloud.call(owner, "POST", `${base}/delete`, { paths: [`trash-restore-${w}.md`, `trash-purge-${w}.md`] })).trashed.map((t: { id: string }) => t.id);
     trashIds[w] = { restore, purge };
+    const subscribe = async (name: string) => (await cloud.call(owner, "POST", `${base}/calendar/sources`, { url: DEMO(`${name}-${w}`) })).id;
+    calendarIds[w] = { rename: await subscribe("rename"), remove: await subscribe("remove") };
   }
+  eventId = (await cloud.call(owner, "GET", `${base}/calendar/events?from=2026-10-01&to=2026-10-08`))[0].id;
   for (const w of ["viewer", "editor", "owner"] as const) {
     folderIds[w] = (await cloud.call(people[w], "POST", `${base}/smart-folders`, { name: `Doomed ${w}`, query: "tag=plan" })).id;
   }

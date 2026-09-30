@@ -3,6 +3,7 @@ import type { GuideAction, GuideState } from "../../src/core/guide.ts";
 import { did } from "./events.ts";
 import type { NoteRole } from "../../src/core/noteRoles.ts";
 import type { FillOptions, TemplateInfo } from "../../src/core/templates.ts";
+import type { CalendarEvent, Source as CalendarSource, SourceColor } from "../../src/core/calendar.ts";
 
 /** The reader's day, which task writes and due filters go by (the server may be in another time zone). */
 const today = () => localDate(Date.now());
@@ -149,7 +150,25 @@ export type ServerMsg =
   | { type: "note"; path: string; kind: Kind; version: string; content: string | null; source: string; change: Change | null; origin?: string }
   | { type: "change"; change: Change }
   | { type: "removed"; path: string }
-  | { type: "tree" };
+  | { type: "tree" }
+  /** Calendars or their events changed (a sync, a new subscription, a meeting note). */
+  | { type: "calendar" };
+
+export type { CalendarEvent, CalendarSource, SourceColor };
+
+/** Google Calendar on this server (cloud/src/connections.ts): "mock" is the Preview stand-in, "off" not set up. */
+export interface GoogleStatus {
+  mode: "real" | "mock" | "off";
+  connection: { account: string; canWrite: boolean; connectedAt: number } | null;
+}
+/** One of the person's Google calendars. */
+export interface GoogleCalendar {
+  id: string;
+  summary: string;
+  primary: boolean;
+  accessRole: string;
+  timeZone: string | null;
+}
 
 export class ApiError extends Error {
   constructor(
@@ -391,6 +410,31 @@ export const api = {
     return resolveCache.get(key)!;
   },
   clearResolveCache: () => resolveCache.clear(),
+  // Calendars (src/core/calendar.ts).
+  calendars: () => j<CalendarSource[]>(`${BASE}/calendar/sources`),
+  /** Subscribe to an ICS or webcal feed; it's read once before this answers. */
+  subscribe: (url: string, name?: string, color?: SourceColor) => j<CalendarSource>(`${BASE}/calendar/sources`, send("POST", { url, name, color })),
+  updateCalendar: (id: string, patch: { name?: string; color?: SourceColor; writeBack?: boolean }) => j<CalendarSource>(`${BASE}/calendar/sources/update`, send("POST", { id, ...patch })),
+  /** Add one of your Google calendars to this workspace, where only you see it. */
+  addGoogleCalendar: (calendar: string, name?: string) => j<CalendarSource>(`${BASE}/calendar/google`, send("POST", { calendar, name })),
+  /** Online: whether Google Calendar works on this server, and your connection to it (404 locally). */
+  google: () => j<GoogleStatus>("/api/google"),
+  googleCalendars: () => j<GoogleCalendar[]>("/api/google/calendars"),
+  /** Google forgets the grant, and your Google calendars leave every workspace. */
+  disconnectGoogle: () => j<{ ok: true }>("/api/google/disconnect", send("POST", {})),
+  unsubscribe: (id: string) => j<{ ok: true }>(`${BASE}/calendar/sources/remove`, send("POST", { id })),
+  /** Read one calendar again, or all of them (each at most once a minute). */
+  refreshCalendars: (id?: string) => j<CalendarSource[]>(`${BASE}/calendar/refresh`, send("POST", { id })),
+  /** Events overlapping [from, to), soonest first; `q` narrows by title. */
+  events: (from: Date, to: Date, q?: string) =>
+    j<CalendarEvent[]>(`${BASE}/calendar/events?from=${enc(from.toISOString())}&to=${enc(to.toISOString())}&tz=${enc(Intl.DateTimeFormat().resolvedOptions().timeZone)}${q ? `&q=${enc(q)}` : ""}`),
+  event: (id: string) => j<CalendarEvent>(`${BASE}/calendar/event?id=${enc(id)}`),
+  /**
+   * The event's meeting note, made (in Meetings/) and linked if it doesn't have one yet. `linkedBack`:
+   * for a Google event with write-back on, whether the note's link reached the event.
+   */
+  meetingNote: (id: string) =>
+    j<{ path: string; created: boolean; linkedBack?: { ok: true } | { ok: false; error: string } | null }>(`${BASE}/calendar/meeting-note`, send("POST", { id, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })),
 };
 
 export function assetUrl(target: string, from?: string): string {

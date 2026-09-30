@@ -26,6 +26,11 @@ test("title, clipboard, cursor, and escaped or unknown braces", () => {
   assert.deepEqual(fillTemplate("{{clipboard}}", { at: AT }).unfilled, ["clipboard"]);
 });
 
+test("named values (a calendar event's when, where, attendees…) fill their {{name}}, even when empty", () => {
+  const r = fillTemplate("{{when}} at {{where}}; {{attendees}} ({{title}}, {{date:dddd}})", { at: AT, title: "Standup", vars: { when: "9:30", where: "", attendees: "Sam" } });
+  assert.deepEqual([r.text, r.unfilled], ["9:30 at ; Sam (Standup, Tuesday)", []]);
+});
+
 test("{{ask:…}} is asked once per label, with an optional default; answers fill every copy", () => {
   const t = "Attendees: {{ask:Attendees}}\nClient: {{ask:Client|Acme}}\nAgain: {{ask:Attendees}}\n\\{{ask:Not this}}";
   assert.deepEqual(asksIn(t), [{ label: "Attendees", fallback: "" }, { label: "Client", fallback: "Acme" }]);
