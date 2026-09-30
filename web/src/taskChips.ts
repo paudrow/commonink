@@ -3,7 +3,7 @@
 // token it is (data-field, data-value), so a task list can open that token's editor.
 import { avatar, el, icon } from "./dom.ts";
 import { endsOf, localDate, parseTask, TASK_LINE, type ParsedTask, type TaskMeta } from "../../src/core/tasks.ts";
-import { endsLabel, nextDue, parseRule, ruleLabel } from "../../src/core/recurrence.ts";
+import { endsLabel, nextDue, nth, parseRule, pastThe28th, ruleLabel, type Rule } from "../../src/core/recurrence.ts";
 import { tagsInLine } from "../../src/core/tags.ts";
 
 export const today = () => localDate(Date.now());
@@ -25,6 +25,25 @@ export function dayLabel(value: string, now = today()): string {
     dayNames.names.set(day, name);
   }
   return value.length > 10 ? `${name} ${value.slice(11)}` : name;
+}
+
+/**
+ * A note under a monthly repeat that lands past the 28th (a day it names, or a plain monthly's due
+ * date): what shorter months do, and a button that switches to the last day of the month. Null for
+ * any other repeat. The button keeps focus where it is, so a field being typed in stays open.
+ */
+export function monthEndNote(rule: Rule | null, due: string | null, use: (lastDay: Rule) => void): HTMLElement | null {
+  const hint = rule && pastThe28th(rule, due);
+  if (!hint) return null;
+  const days = hint.days.map(nth);
+  const day = days.length < 2 ? days[0] : `${days.slice(0, -1).join(", ")} or ${days.at(-1)}`;
+  return el(
+    "div",
+    { class: "rec-note", role: "note" },
+    hint.skips ? `Months without a ${day} are skipped.` : `Shorter months have no ${day}, so it falls on their last day.`,
+    " ",
+    el("button", { type: "button", class: "rec-note-use", onmousedown: (e: MouseEvent) => e.preventDefault(), onclick: () => use(hint.lastDay) }, "Use the last day of the month instead"),
+  );
 }
 
 export type ChipField = keyof Omit<TaskMeta, "tags" | "assignees"> | "assignees" | "tags";
@@ -70,12 +89,12 @@ export function tokenChip(field: ChipField, value: string, opts: { done?: boolea
   }
 }
 
-/** The date after a repeating task's current due date, when the calendar says (not for `after-` rules, which wait for completion), and if it hasn't ended by then. */
-function nextOf(meta: TaskMeta): string | null {
+/** The date a repeating task moves to if it's done `now`, when the calendar says (not for `after-` rules, which wait for completion), and if it hasn't ended by then. */
+function nextOf(meta: TaskMeta, now: string): string | null {
   const rule = meta.rec ? parseRule(meta.rec) : null;
   if (!rule || rule.from !== "due" || !meta.due) return null;
   const ends = endsOf(meta, rule);
-  const next = ends.times === null || ends.times > 1 ? nextDue(rule, meta.due, meta.due) : null;
+  const next = ends.times === null || ends.times > 1 ? nextDue(rule, meta.due, meta.due, now) : null;
   return next && (!ends.until || next.slice(0, 10) <= ends.until) ? next : null;
 }
 
@@ -89,7 +108,7 @@ export function metaChips(meta: TaskMeta, done: boolean, tags: string[] = []): H
     meta.priority && tokenChip("priority", meta.priority),
     meta.due && tokenChip("due", meta.due, { done, now }),
     meta.start && meta.start.slice(0, 10) > now && tokenChip("start", meta.start, { now }),
-    meta.rec && tokenChip("rec", meta.rec, { next: done ? null : nextOf(meta), ends: meta }),
+    meta.rec && tokenChip("rec", meta.rec, { next: done ? null : nextOf(meta, now), ends: meta }),
     ...meta.assignees.map((a) => tokenChip("assignees", a)),
     ...[...tags].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })).map((t) => tokenChip("tags", t)),
     done && meta.done && tokenChip("done", meta.done, { now }),

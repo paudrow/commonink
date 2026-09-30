@@ -9,19 +9,14 @@ import { ask } from "../trash.ts";
 import { calendarChanged, calendars, canEditCalendars, COLORS, type CalendarSource, type SourceColor } from "./data.ts";
 import { dot } from "./ui.ts";
 import { googleSection } from "./google.ts";
-
-const FOCUSABLE = "button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex='-1'])";
-
-let closeOpen: (() => void) | null = null;
+import { modal } from "./modal.ts";
 
 /**
  * Open the dialog (closing one that's open). `subscribe` puts the cursor in the link field, `google`
  * on the Google section. `changed` runs after anything changes.
  */
 export function openCalendars(opts: { subscribe?: boolean; google?: boolean; changed(): void }) {
-  closeOpen?.();
   const canEdit = canEditCalendars();
-  const back = document.activeElement as HTMLElement | null;
   const list = el("div", { class: "cal-src-list", role: "list", "aria-label": "Calendars" }, el("p", { class: "agents-empty" }, "Loading…"));
   const failed = (e: unknown, what: string) => toast({ text: e instanceof Error ? e.message : what });
   const changed = async () => {
@@ -201,39 +196,14 @@ export function openCalendars(opts: { subscribe?: boolean; google?: boolean; cha
 
   // ---------------------------------------------------------------- the dialog
   const refreshAll = el("button", { type: "button", class: "qw-btn", hidden: true, onclick: () => void refresh() }, icon("reset", 14), "Refresh all");
-  const close = () => {
-    page.remove();
-    document.removeEventListener("keydown", onKey, true);
-    closeOpen = null;
-    if (back?.isConnected) back.focus({ preventScroll: true });
-  };
-  const onKey = (e: KeyboardEvent) => {
-    if (document.querySelector(".ask")) return; // the Remove question has the keys
-    if (e.key === "Escape" && !(e.target as Element).closest?.(".tag-rename")) {
-      e.preventDefault();
-      e.stopPropagation();
-      close();
-    } else if (e.key === "Tab") {
-      const stops = [...box.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((n) => !n.closest("[hidden]"));
-      const at = stops.indexOf(document.activeElement as HTMLElement);
-      const next = e.shiftKey ? (at <= 0 ? stops.length - 1 : at - 1) : at === stops.length - 1 ? 0 : at + 1;
-      e.preventDefault();
-      stops[next]?.focus();
-    }
-  };
-  const box = el(
-    "div",
-    { class: "agents-box cal-src-box", role: "dialog", "aria-modal": "true", "aria-labelledby": "cal-src-title", tabindex: "-1" },
-    el("div", { class: "agents-head" }, icon("calendar", 16), el("h2", { id: "cal-src-title" }, "Calendars"), el("button", { class: "icon-btn small", type: "button", title: "Close (Esc)", "aria-label": "Close", onclick: close }, icon("close", 15))),
-    canEdit ? form : null,
-    list,
-    el("div", { class: "cal-src-foot" }, refreshAll),
-    google.root,
-  );
-  const page = el("div", { id: "agents-page", class: "cal-src-page", onmousedown: (e: Event) => e.target === page && close() }, box);
-  document.addEventListener("keydown", onKey, true);
-  document.body.append(page);
-  closeOpen = close;
+  const { box } = modal({
+    titleId: "cal-src-title",
+    title: "Calendars",
+    icon: "calendar",
+    class: "cal-src-box",
+    content: [canEdit ? form : null, list, el("div", { class: "cal-src-foot" }, refreshAll), google.root],
+    ownsEscape: (t) => !!t.closest?.(".tag-rename"),
+  });
   (canEdit && opts.subscribe ? url : box).focus();
-  void render().then(() => opts.google && page.isConnected && google.focus());
+  void render().then(() => opts.google && box.isConnected && google.focus());
 }

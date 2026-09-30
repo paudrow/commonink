@@ -72,6 +72,8 @@ export interface App {
   subscribeCalendar(): void;
   refreshCalendars(): void;
   connectGoogle(): void;
+  /** The Calendar page, with the new-event form open. */
+  newEvent(): void;
   toggleTheme(): void;
   toggleVim(): void;
   toggleVimDisplayLines(): void;
@@ -87,6 +89,9 @@ export interface App {
   noteHistory(): void;
   gettingStarted(): void;
   shortcuts(): void;
+  settings(): void;
+  /** Online, the Connected agents dialog; locally, how to connect one to this vault. */
+  connectAgent(): void;
   /** Back or forward through what the focused pane has shown. */
   back(): void;
   forward(): void;
@@ -112,6 +117,7 @@ export function appCommands(app: App): Command[] {
     go("tasks", "Tasks", "task", "todo checklist"),
     go("calendar", "Calendar", "calendar", "events meetings schedule agenda month week day"),
     { id: "subscribe-calendar", title: "Subscribe to a calendar…", keywords: "calendar add ics webcal ical feed google outlook subscribe", icon: "calendar", available: app.canSubscribe, run: app.subscribeCalendar },
+    { id: "new-event", title: "New event…", keywords: "calendar event meeting create add schedule appointment", icon: "plus", run: app.newEvent },
     { id: "connect-google", title: "Connect Google Calendar", keywords: "google calendar gcal account events", icon: "calendar", available: app.canConnectGoogle, run: app.connectGoogle },
     { id: "refresh-calendars", title: "Refresh calendars", keywords: "calendar sync reload events update", icon: "reset", run: app.refreshCalendars },
     go("tags", "Tags", "hash", "rename merge"),
@@ -154,6 +160,8 @@ export function appCommands(app: App): Command[] {
       run: app.toggleHtml,
     },
     { id: "getting-started", title: "Open Getting started", keywords: "help start welcome guide tour", icon: "info", available: app.hasStart, run: app.gettingStarted },
+    { id: "settings", title: "Open settings", keywords: "preferences options configure", icon: "gear", keys: ["Mod-,"], run: app.settings },
+    { id: "connect-agent", title: "Connect an agent", keywords: "agent mcp claude cursor connected agents ai assistant", icon: "bot", run: app.connectAgent },
     { id: "shortcuts", title: "Keyboard shortcuts", keywords: "keys keybindings help hotkeys cheat sheet", icon: "keyboard", keys: ["?"], run: app.shortcuts },
     ...app.account
       .filter((a) => !a.current)
@@ -184,7 +192,7 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: ["[["], label: "Link a note", area: "Editor" },
   { keys: ["Mod-Alt-Enter"], label: "Open the linked note to the side", area: "Editor" },
   { keys: ["Mod-."], label: "Open the task's ⚙ menu", area: "Editor" },
-  { keys: ["Tab"], label: "Right after an underlined phrase on a task line (\"tomorrow\"), make it a token", area: "Editor" },
+  { keys: ["Tab"], label: "Right after an underlined date or repeat on a task line (\"tomorrow\"), make it a token now; typed at the end, it becomes one when you leave the line", area: "Editor" },
   { keys: ["Tab", "Shift-Tab"], label: "Indent / outdent", area: "Editor" },
   { keys: ["Mod-Alt-s"], label: "Wrap the selection in a collapsible section", area: "Editor" },
   { keys: ["Space"], label: "On a section's summary line: fold or unfold it", area: "Editor" },
