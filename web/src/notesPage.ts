@@ -452,6 +452,12 @@ export class NotesPage {
       const task = tasks[+run.dataset.task!];
       if (task) run.dataset.text = task.text;
     });
+    // A card's checkbox is named by its task, so a screen reader says what ticking it does.
+    node.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((box) => {
+      const own = [...(box.closest("li")?.childNodes ?? [])].filter((n) => !(n instanceof HTMLElement && /^[UO]L$/.test(n.tagName)));
+      const text = own.map((n) => n.textContent).join("").replace(/\s+/g, " ").trim();
+      if (text) box.setAttribute("aria-label", text);
+    });
     return node;
   }
 
