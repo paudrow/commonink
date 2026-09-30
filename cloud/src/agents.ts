@@ -6,7 +6,7 @@
 import { AuthorizationError, getOAuthApi, type ConsentDescription, type GrantSummary, type OAuthHelpers, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
 import { json } from "../../src/core/api.ts";
 import { escapeHtml, page, readSession, text } from "./auth.ts";
-import { getUser, membership, workspacesOf, type User, type WorkspaceRef } from "./directory.ts";
+import { getUser, membership, timeZoneFor, workspacesOf, type User, type WorkspaceRef } from "./directory.ts";
 import type { Env } from "./env.ts";
 import { D1Kv } from "./oauth-store.ts";
 import { agentSource, authorLabel } from "../../src/core/actor.ts";
@@ -54,7 +54,7 @@ const clientName = (name: string | undefined) => (name ?? "").replace(/[\x00-\x1
  */
 async function serveMcp(req: Request, env: OAuthEnv, ctx: ExecutionContext<AgentProps> & { auth: { token: string } }) {
   const { userId, workspaceId, client } = ctx.props;
-  const [user, ws] = await Promise.all([getUser(env.DB, userId), membership(env.DB, userId, workspaceId)]);
+  const [user, ws, timeZone] = await Promise.all([getUser(env.DB, userId), membership(env.DB, userId, workspaceId), timeZoneFor(env.DB, userId, workspaceId)]);
   if (!user || !ws) return json({ error: "The person who connected this agent is no longer in that workspace" }, 403);
   // Tokens are "<user>:<grant>:<secret>". Last use is kept to the minute, to save a write per call.
   const grantId = ctx.auth.token.split(":")[1];
@@ -65,7 +65,7 @@ async function serveMcp(req: Request, env: OAuthEnv, ctx: ExecutionContext<Agent
       .run(),
   );
   const stub = env.WORKSPACE.get(env.WORKSPACE.idFromName(ws.id));
-  return stub.mcp(req, { workspace: ws.id, user: user.id, actor: agentSource(client, user.name), role: ws.role });
+  return stub.mcp(req, { workspace: ws.id, user: user.id, actor: agentSource(client, user.name), role: ws.role, timeZone });
 }
 
 // ------------------------------------------------------------------ consent

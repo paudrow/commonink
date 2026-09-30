@@ -236,7 +236,7 @@ export function createMcpServer(host: ToolHost): McpServer {
       description:
         "The day at a glance: open tasks overdue, due today and starting today (repeating ones show their rec:), and whether today's " +
         "journal note (Journal/YYYY-MM-DD.md) exists. A good start for a morning brief.",
-      inputSchema: { today: z.string().optional().describe("The day to read, YYYY-MM-DD; default the machine's today") },
+      inputSchema: { today: z.string().optional().describe("The day to read, YYYY-MM-DD; default the user's today") },
       annotations: readOnly,
     },
     ({ today }) =>

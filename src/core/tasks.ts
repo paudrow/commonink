@@ -68,10 +68,20 @@ export const isDate = (s: string) => {
   return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3];
 };
 
-/** The day `ms` falls on here, as YYYY-MM-DD. */
-export function localDate(ms: number): string {
-  const d = new Date(ms);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+/** The day `ms` falls on in `timeZone` (an IANA name; this machine's zone by default), as YYYY-MM-DD. */
+export function localDate(ms: number, timeZone?: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(ms);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)!.value;
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+/** `name` as the IANA time zone it names ("asia/tokyo" → "Asia/Tokyo"), or null if it names none. */
+export function timeZoneNamed(name: string): string | null {
+  try {
+    return new Intl.DateTimeFormat("en-US", { timeZone: name }).resolvedOptions().timeZone;
+  } catch {
+    return null;
+  }
 }
 
 function tokensOf(text: string): Token[] {

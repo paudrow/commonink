@@ -11,12 +11,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fillDates, readSections, sectionsMarkdown, type Section } from "./preview-sections.ts";
+import { localDate } from "../src/core/tasks.ts";
 
 const origin = new URL(process.argv[2] ?? "").origin;
 const VAULT = path.resolve(import.meta.dirname, "../examples/vault");
 const TRY = "Try this PR.md";
 const SECTIONS = readSections(path.resolve(import.meta.dirname, "../examples/preview"));
-const TODAY = new Date().toISOString().slice(0, 10);
+const TODAY = localDate(Date.now());
 
 const cookie = await signIn();
 const me = (await whenReady("/api/me")) as { workspaces: Array<{ id: string; kind: string; name: string }> };

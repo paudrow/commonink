@@ -2608,6 +2608,7 @@ async function boot() {
     owner = ws.role === "owner";
     useWorkspace(`/api/w/${ws.id}`, `/api/w/${ws.id}/live`);
     setSelfName(who.me.user.name);
+    api.reportTimeZone().catch(() => {}); // unreported, agents use the owner's zone, or UTC
     account = renderAccount(who.me, ws, (t) => toast(t));
   }
 
