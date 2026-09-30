@@ -22,9 +22,6 @@ export const linkClick = (e: { metaKey: boolean; ctrlKey: boolean; shiftKey: boo
 /** How that click is written in hints. */
 export const SIDE_CLICK = IS_MAC ? "⌘-click" : "Ctrl-click";
 
-/** How Mod+Enter is written in hints: ⌘↵ on a Mac, Ctrl+↵ elsewhere. */
-export const MOD_ENTER = IS_MAC ? "⌘↵" : "Ctrl+↵";
-
 /**
  * What Enter does in the palette (⌘K): open the pick in place, open it to the side (⌘Enter on a
  * Mac, Ctrl+Enter elsewhere), or make a note of what's typed even if notes match (Shift+Enter).

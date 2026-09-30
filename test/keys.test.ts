@@ -2,7 +2,7 @@
 // that types "." whether that's US Period or Dvorak's E key. Mod is ⌘ on a Mac, Ctrl elsewhere.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { formatKeys, learnLayout, matchKeys, type KeyLike } from "../web/src/keys.ts";
+import { formatKeys, learnLayout, matchKeys, speakKeys, type KeyLike } from "../web/src/keys.ts";
 
 const press = (key: string, code: string, mods: Partial<KeyLike> = {}): KeyLike => ({ key, code, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...mods });
 const MAC = true;
@@ -80,5 +80,17 @@ test("shortcuts read ⌘⇧E on a Mac and Ctrl+Shift+E elsewhere; keys typed as 
   assert.deepEqual(
     keys.map((k) => formatKeys(k, false)),
     ["Ctrl+Shift+E", "Ctrl+Shift+.", "Ctrl+Alt+\\", "Ctrl+↵", "Shift+Tab", "Ctrl-click", "G", "gd", ":w", "?"],
+  );
+});
+
+test("shortcuts are spoken as words: Command Shift P on a Mac, Control Shift P elsewhere", () => {
+  const keys = ["Mod-Shift-p", "Mod-Shift-.", "Mod-Alt-[", "Mod-Enter", "Shift-Enter", "ArrowUp", "Escape", "Mod-click", "Ctrl-o", "G", "gd", ":w", "?"];
+  assert.deepEqual(
+    keys.map((k) => speakKeys(k, true)),
+    ["Command Shift P", "Command Shift Period", "Command Option Left Bracket", "Command Enter", "Shift Enter", "Up Arrow", "Escape", "Command click", "Control O", "G", "gd", ":w", "Question Mark"],
+  );
+  assert.deepEqual(
+    keys.map((k) => speakKeys(k, false)),
+    ["Control Shift P", "Control Shift Period", "Control Alt Left Bracket", "Control Enter", "Shift Enter", "Up Arrow", "Escape", "Control click", "Control O", "G", "gd", ":w", "Question Mark"],
   );
 });
