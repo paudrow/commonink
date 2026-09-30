@@ -13,6 +13,7 @@ import { createMcpServer } from "../../src/core/tools.ts";
 import { access, asRole } from "./access.ts";
 import { DoDb, SqlContent } from "./do-store.ts";
 import { SEED_FILES, SEED_NOTES } from "./seed.ts";
+import { membersOf } from "./admin.ts";
 import type { Env } from "./env.ts";
 import { safeDecode } from "../../src/core/uri.ts";
 
@@ -132,15 +133,8 @@ export class Workspace extends DurableObject<Env> {
         this.broadcast({ type: "change", change });
       },
       tree: () => this.broadcast({ type: "tree" }),
-      // Everyone in the workspace (the directory's, in D1), so a contact with their email can be linked to them.
-      members: async () => {
-        const { results } = await this.env.DB.prepare(
-          "SELECT u.id, u.name, u.email FROM members m JOIN users u ON u.id = m.user_id WHERE m.workspace_id = ? ORDER BY u.name COLLATE NOCASE",
-        )
-          .bind(wsId)
-          .all<{ id: string; name: string; email: string }>();
-        return results.map((m) => ({ ...m, you: m.id === user }));
-      },
+      // Everyone in the workspace (the directory's, in D1): who "me" is on a task. (The Worker answers GET /members itself.)
+      members: async () => (await membersOf(this.env, wsId)).map((m) => ({ ...m, you: m.id === user })),
     };
     return (await handleApi(host, req, route)) ?? json({ error: `No route ${req.method} ${route}` }, 404);
   }
@@ -247,6 +241,18 @@ export class Workspace extends DurableObject<Env> {
   /** Close the live connections tagged `tag`: a person's (signed out everywhere) or one session's. Their tabs then ask them to sign in. */
   disconnect(tag: string) {
     for (const ws of this.ctx.getWebSockets(tag)) ws.close(4001, "Signed out");
+  }
+
+  /** The workspace is being deleted: close every tab, delete its uploads from R2 and all its storage. */
+  async destroy(wsId: string) {
+    for (const ws of this.ctx.getWebSockets()) ws.close(4004, "This workspace was deleted");
+    for (let cursor: string | undefined, more = true; more; ) {
+      const page = await this.env.FILES.list({ prefix: `ws/${wsId}/`, cursor });
+      if (page.objects.length) await this.env.FILES.delete(page.objects.map((o) => o.key));
+      more = page.truncated;
+      cursor = page.truncated ? page.cursor : undefined;
+    }
+    await this.ctx.storage.deleteAll();
   }
 
   webSocketMessage() {}

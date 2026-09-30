@@ -92,3 +92,43 @@ export function parseLayout(raw: string | null): Layout {
   const split = v.split === true && !!panes[1].note;
   return { split, side: typeof v.side === "number" && Number.isFinite(v.side) ? clampSide(v.side) : out.side, focus: split && v.focus === 1 ? 1 : 0, panes };
 }
+
+// ------------------------------------------------------------------ pages, the browser's history, places
+
+/**
+ * A page (Notes, Tasks, History…) in a pane's trail, by its address. A page goes in only when you
+ * went to it, so back from a note you followed a link to is the note with the link.
+ */
+export const pageEntry = (url: string) => `page:${url}`;
+/** The page an entry in a trail is, by its address, or null for a note. */
+export const pageOf = (entry: string) => (entry.startsWith("page:") ? entry.slice(5) : null);
+
+/**
+ * Which way the browser moved, from the app's history entry `at` to `to` (each entry the app
+ * pushes is numbered): a step back or forward in the focused pane, as many as it moved. Null if it
+ * didn't move, or `to` isn't one of the app's entries.
+ */
+export function historyStep(at: number, to: unknown): { dir: "back" | "forward"; steps: number } | null {
+  if (typeof to !== "number" || to === at) return null;
+  return { dir: to < at ? "back" : "forward", steps: Math.abs(to - at) };
+}
+
+/** Where you were in a note: the cursor, and the view: the line at its top and how far into that line. */
+export interface Place {
+  pos: number;
+  top: number;
+  off: number;
+}
+/** Remember a note's place (by its ID, so renames keep it), keeping the latest `keep` notes. */
+export function rememberPlace(places: Record<string, Place>, id: string, place: Place, keep = 200): Record<string, Place> {
+  const rest = Object.entries(places).filter(([k]) => k !== id);
+  return Object.fromEntries([...rest.slice(Math.max(0, rest.length - keep + 1)), [id, place]]);
+}
+
+/**
+ * The entries that way in a pane's trail, nearest first, without the ones a step would skip (`ok`
+ * says which it wouldn't: a note that's gone, or one the other pane shows).
+ */
+export function trailAhead(p: PaneTrail, dir: "back" | "forward", ok: (entry: string) => boolean): string[] {
+  return [...(dir === "back" ? p.back : p.forward)].reverse().filter(ok);
+}

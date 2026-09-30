@@ -3,7 +3,6 @@ import type { GuideAction, GuideState } from "../../src/core/guide.ts";
 import { did } from "./events.ts";
 import type { NoteRole } from "../../src/core/noteRoles.ts";
 import type { Contact, ContactFields, TimelineItem } from "../../src/core/contacts.ts";
-import type { Member } from "../../src/core/api.ts";
 
 /** The reader's day, which task writes and due filters go by (the server may be in another time zone). */
 const today = () => localDate(Date.now());
@@ -203,6 +202,32 @@ export async function whoAmI(): Promise<{ me: Me | null; devLogin: boolean } | u
 }
 const enc = encodeURIComponent;
 
+export interface WorkspaceMember {
+  id: string;
+  name: string;
+  email: string;
+  role: "owner" | "editor" | "viewer";
+  joinedAt: number;
+  /** Whether it's you. */
+  you?: boolean;
+}
+export interface WorkspaceInvite {
+  id: string;
+  role: "editor" | "viewer";
+  createdBy: string | null;
+  createdAt: number;
+  expiresAt: number;
+  usedBy: string | null;
+  usedAt: number | null;
+}
+export interface WorkspaceLogEntry {
+  at: number;
+  actor: string | null;
+  action: "rename" | "role" | "remove" | "leave" | "invite" | "revoke-invite";
+  target: string | null;
+  detail: string | null;
+}
+
 /** A note or asset just sent to Trash, and the id that brings it back. */
 export interface Trashed {
   id: string;
@@ -250,6 +275,16 @@ export const api = {
   /** A page of a workspace's change log, whichever workspace is open. */
   changesIn: (workspace: string) => j<Change[]>(`/api/w/${workspace}/changes?limit=200`),
   invite: (role: "editor" | "viewer") => j<{ url: string }>(`${BASE}/invites`, send("POST", { role })),
+  // Online: the workspace's settings (cloud/src/admin.ts).
+  members: () => j<WorkspaceMember[]>(`${BASE}/members`),
+  setRole: (user: string, role: WorkspaceMember["role"]) => j<{ ok: true }>(`${BASE}/members/role`, send("POST", { user, role })),
+  removeMember: (user: string) => j<{ ok: true }>(`${BASE}/members/remove`, send("POST", { user })),
+  leave: () => j<{ ok: true }>(`${BASE}/leave`, send("POST", {})),
+  invites: () => j<WorkspaceInvite[]>(`${BASE}/invites`),
+  revokeInvite: (id: string) => j<{ ok: true }>(`${BASE}/invites/revoke`, send("POST", { id })),
+  workspaceLog: () => j<WorkspaceLogEntry[]>(`${BASE}/workspace/log`),
+  renameWorkspace: (name: string) => j<{ ok: true; name: string }>(`${BASE}/workspace/rename`, send("POST", { name })),
+  deleteWorkspace: (confirm: string) => j<{ ok: true }>(`${BASE}/workspace/delete`, send("POST", { confirm })),
   notes: () => j<NoteMeta[]>(`${BASE}/notes`),
   note: (path: string) => j<Note>(`${BASE}/note?path=${enc(path)}`),
   search: (q: string, scope: Scope = "active") => j<SearchHit[]>(`${BASE}/search?q=${enc(q)}&limit=20&scope=${scope}`),
@@ -311,8 +346,6 @@ export const api = {
   contacts: () => j<Contact[]>(`${BASE}/contacts`),
   /** One contact, and the notes that mention them, newest first. */
   contact: (path: string) => j<{ contact: Contact; timeline: TimelineItem[] }>(`${BASE}/contact?path=${enc(path)}`),
-  /** The workspace's members (online; none in a local vault). */
-  members: () => j<Member[]>(`${BASE}/members`),
   createContact: (c: Partial<ContactFields> & { name: string; notes?: string }) => j<{ path: string; version: string }>(`${BASE}/contacts`, send("POST", c)),
   updateContact: (path: string, patch: Partial<Omit<ContactFields, "name">>) => j<{ path: string; version: string }>(`${BASE}/contacts/update`, send("POST", { path, patch })),
   /** `keep` gains `drop`'s details and links; `drop` goes to Trash (`trashed` restores it). */

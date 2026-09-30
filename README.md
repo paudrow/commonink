@@ -115,6 +115,16 @@ The server binds to 127.0.0.1 and checks the `Host` header to block DNS rebindin
 
 Online, every route has a least role that the Worker checks and the workspace checks again, sessions are `__Host-` cookies that expire and can be signed out everywhere, and every page gets a strict CSP with a fresh nonce. [docs/security/threat-model.md](docs/security/threat-model.md) lists what's protected, from whom, and what's still to do.
 
+## Workspaces, members and invites
+
+Online, **Workspace settings…** in the account menu (**Members…** if you aren't the owner) manages a workspace:
+
+- Everyone sees who's in it, with their roles, and can **leave** a team workspace. The last owner can't leave until they make someone else an owner, and no one leaves their own workspace.
+- Owners **rename** it, change people's **roles** (never leaving it without an owner) and **remove** people. Either one also disconnects that person's agents in that workspace; a removed person's open tabs close too.
+- Owners make **invite links** for editors or viewers (each works once, for 7 days), see who used each one, and **revoke** one that hasn't been used.
+- Owners **delete** a team workspace by typing its name: its notes, files, members, invite links and agents' access all go. There's no export yet, so the dialog says to copy out anything worth keeping first.
+- Every one of these is logged in `workspace_log` in D1, and owners see it as **Activity**.
+
 ## Who can sign up
 
 Online, new accounts are invite-only. Anyone can sign in with Google, but someone new gets an account only after they enter the sign-up code, or when they arrive through a workspace invite link. People who already have an account sign in as usual. The code is a Worker secret. Case and extra spaces don't matter, so it can be a phrase you say out loud:
