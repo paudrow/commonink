@@ -5,6 +5,7 @@ import { QuireError } from "./core/paths.ts";
 import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtTrash, fmtWrite } from "./core/format.ts";
 import { parseQuery } from "./core/query.ts";
 import { agentSource, parseAuthorFilter } from "./core/actor.ts";
+import { EXPORT_FORMATS, type ExportFormat } from "./core/export.ts";
 
 const HELP = `quire — markdown notes for you and your agents
 
@@ -56,6 +57,10 @@ Usage: quire <command> [args] [--agent <name>] [--json]
                                    --path brings the note's history under earlier names too;
                                    --by shows only people's changes, any agent's, or one agent's
   restore <change-id>              put a note back the way it was before that change
+  export <note|folder|/> --format md|html|docx|zip [--out <file>|-]
+                                   a note as its markdown, one web page or a Word document, or
+                                   notes as a .zip with their files, folders kept and links that
+                                   work in Obsidian ("/" is every note); --out - writes to stdout
   mcp                              run the stdio MCP server
 
 <note> can be a path, a path without .md, a [[wikilink]] name, a note ID or a note URL.
@@ -103,6 +108,21 @@ if (cmd === "mcp") {
   try {
     const q = openVault();
     switch (cmd) {
+      case "export": {
+        const target = need(0, "note|folder");
+        const format = str("format") ?? "md";
+        if (!EXPORT_FORMATS.includes(format as ExportFormat)) throw new QuireError(`--format must be one of ${EXPORT_FORMATS.join(", ")}`);
+        const { localExporter } = await import("./server/export.ts");
+        const file = await localExporter(q)(target, format as ExportFormat);
+        const dest = str("out") ?? file.name;
+        if (dest === "-") {
+          process.stdout.write(file.data);
+          break;
+        }
+        fs.writeFileSync(dest, file.data);
+        out(`Wrote ${dest} (${file.data.byteLength} bytes)`, { path: dest, bytes: file.data.byteLength, mime: file.mime });
+        break;
+      }
       case "search": {
         const query = args.join(" ");
         const hits = q.search(query, num("limit") ?? 10, scope, str("tag"));

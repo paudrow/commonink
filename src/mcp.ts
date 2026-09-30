@@ -4,9 +4,12 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { LOCAL_USER, openVault } from "./core/local.ts";
 import { agentSource } from "./core/actor.ts";
 import { createMcpServer } from "./core/tools.ts";
+import { localExporter } from "./server/export.ts";
 
+const vault = openVault();
 const server = createMcpServer({
-  quire: openVault(),
+  quire: vault,
+  exporter: localExporter(vault),
   user: LOCAL_USER,
   // Every write is the connected agent's, for the vault's person: QUIRE_AGENT, or the name the
   // client gave when it connected ("Claude Code").

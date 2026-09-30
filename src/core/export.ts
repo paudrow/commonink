@@ -135,6 +135,47 @@ export async function exportZip(host: ExportHost, what: ExportWhat): Promise<Exp
   return { name: `${zipName(what, paths, host.name)}.zip`, zip, files: names.sort() };
 }
 
+export type ExportFormat = "md" | "html" | "docx" | "zip";
+export const EXPORT_FORMATS: ExportFormat[] = ["md", "html", "docx", "zip"];
+
+/** A file an export made. */
+export interface ExportFile {
+  name: string;
+  mime: string;
+  data: Uint8Array;
+}
+
+/** Exports for the CLI and MCP: `target` is a note, a folder, or "/" for the whole workspace. */
+export type Exporter = (target: string, format: ExportFormat) => Promise<ExportFile>;
+
+/**
+ * Markdown and .zip from the core. A web page and Word need the app's static render, which runs
+ * where there's a DOM to run it in (locally, under jsdom: server/export.ts); `render` does those.
+ */
+export function coreExporter(host: ExportHost, render?: (rel: string, format: "html" | "docx") => Promise<ExportFile>): Exporter {
+  const { quire } = host;
+  return async (target, format) => {
+    const t = target.trim();
+    const rel = t && t !== "/" ? quire.resolve(t) : null;
+    const note = rel && kindOf(rel) !== "asset" ? rel : null;
+    if (format === "zip") {
+      const out = await exportZip(host, !t || t === "/" ? { all: true } : note ? { paths: [note] } : { folder: t });
+      return { name: out.name, mime: "application/zip", data: out.zip };
+    }
+    if (!note) throw new QuireError(`No note matches "${target}". A folder, or "/" for everything, exports as a zip (format "zip").`, "not_found");
+    if (format === "md") {
+      if (kindOf(note) !== "md") throw new QuireError(`${note} isn't markdown: export it as "html"`);
+      return { name: note.split("/").pop()!, mime: "text/markdown; charset=utf-8", data: strToU8(quire.read(note).content) };
+    }
+    if (kindOf(note) === "html") {
+      if (format !== "html") throw new QuireError(`${note} is an HTML note: export it as "html" (the file itself)`);
+      return { name: note.split("/").pop()!, mime: "text/html; charset=utf-8", data: strToU8(quire.read(note).content) };
+    }
+    if (!render) throw new QuireError(`A web page and Word are drawn by the app: use Share → Export as, or \`quire export\` on the computer with the notes. Markdown and zip work here.`, "invalid");
+    return render(note, format);
+  };
+}
+
 function zipName(what: ExportWhat, paths: string[], workspace = "Workspace"): string {
   if ("all" in what) return workspace;
   if ("folder" in what) return cleanPath(what.folder).split("/").pop() || workspace;
