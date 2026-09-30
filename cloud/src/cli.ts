@@ -9,7 +9,7 @@ import { QuireError } from "../../src/core/paths.ts";
 import { CLI_ROUTE, fromWire, toWire, type RunRequest, type RunResponse } from "../../src/core/commands/wire.ts";
 import { access } from "./access.ts";
 import { adminRoute } from "./admin.ts";
-import { getUser, workspacesOf, type User, type WorkspaceRef } from "./directory.ts";
+import { getUser, timeZoneFor, workspacesOf, type User, type WorkspaceRef } from "./directory.ts";
 import { limit } from "./limits.ts";
 import type { AgentProps, OAuthEnv } from "./agents.ts";
 
@@ -57,7 +57,14 @@ export async function serveCli(req: Request, env: OAuthEnv, props: AgentProps): 
   const agent = typeof body.agent === "string" && body.agent.trim() ? body.agent.trim().slice(0, 40) : null;
   const actor = agent ? agentSource(agent, user.name) : user.name;
   const stub = env.WORKSPACE.get(env.WORKSPACE.idFromName(ws.id));
-  const out = await stub.runCommand(command.cli, fromWire(body.input) as Record<string, unknown>, { workspace: ws.id, user: user.id, actor, role: ws.role, origin: new URL(req.url).origin });
+  const out = await stub.runCommand(command.cli, fromWire(body.input) as Record<string, unknown>, {
+    workspace: ws.id,
+    user: user.id,
+    actor,
+    role: ws.role,
+    timeZone: await timeZoneFor(env.DB, user.id, ws.id),
+    origin: new URL(req.url).origin,
+  });
   return out.ok ? json(toWire(out)) : fail(out.error, out.code);
 }
 

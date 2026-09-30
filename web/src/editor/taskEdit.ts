@@ -3,10 +3,10 @@
 // does; ticking a repeating task adds its next occurrence below in the same transaction, so one undo
 // takes both back. No DOM here: the widgets that draw these live in taskTools.ts.
 import { noteTree } from "./tree.ts";
-import { StateField, type EditorState, type TransactionSpec } from "@codemirror/state";
+import { StateField, type EditorState, type Transaction, type TransactionSpec } from "@codemirror/state";
 import { Decoration, EditorView, type DecorationSet, type WidgetType } from "@codemirror/view";
 import { editTaskLines, localDate, parseTask, TASK_LINE, type TaskPatch } from "../../../src/core/tasks.ts";
-import { parseQuickAdd, type QuickKind } from "../../../src/core/quickAdd.ts";
+import { parseQuickAdd, type QuickKind, type QuickSpan } from "../../../src/core/quickAdd.ts";
 
 /**
  * The change that applies `patch` to the task on line `n`, or null if nothing would change. Throws
@@ -42,22 +42,25 @@ export const HINTS: Array<[string, HintField]> = [["due", "due"], ["repeat", "re
 
 /**
  * Where the task line's tools go: the end of the line the cursor is on, if it's a task (and the
- * editor takes edits). `missing` is the fields the task doesn't have yet, which the hint offers.
+ * editor takes edits). `missing` is the fields the task doesn't have yet, which the hint offers;
+ * `pending` is the tokens its phrases would become (what Tab does), in the line's order.
  */
-export function taskToolsAt(state: EditorState): { line: number; pos: number; missing: HintField[] } | null {
+export function taskToolsAt(state: EditorState, today = localDate(Date.now())): { line: number; pos: number; missing: HintField[]; pending: string[] } | null {
   const { head, anchor } = state.selection.main;
   const line = state.doc.lineAt(head);
   if (state.readOnly || state.doc.lineAt(anchor).number !== line.number || !inTaskText(state, line.to)) return null;
   const m = parseTask(line.text)!.meta;
-  const has: Record<HintField, boolean> = { due: !!m.due, rec: !!m.rec, assignees: m.assignees.length > 0, tags: m.tags.length > 0, priority: !!m.priority };
-  return { line: line.number, pos: line.to, missing: HINTS.map(([, f]) => f).filter((f) => !has[f]) };
+  const pending = phrasesAt(state, today)?.phrases.map((p) => p.token) ?? [];
+  const says = (key: string) => pending.some((t) => t.startsWith(`${key}:`));
+  const has: Record<HintField, boolean> = { due: !!m.due || says("due"), rec: !!m.rec || says("rec"), assignees: m.assignees.length > 0, tags: m.tags.length > 0, priority: !!m.priority };
+  return { line: line.number, pos: line.to, missing: HINTS.map(([, f]) => f).filter((f) => !has[f]), pending };
 }
 
 /** The task line's tools as a decoration at the end of the cursor's line: drawn, never part of the document. */
-export function taskTools(widget: (missing: HintField[]) => WidgetType) {
+export function taskTools(widget: (missing: HintField[], pending: string[]) => WidgetType, today = () => localDate(Date.now())) {
   const build = (state: EditorState): DecorationSet => {
-    const at = taskToolsAt(state);
-    return at ? Decoration.set([Decoration.widget({ widget: widget(at.missing), side: 1 }).range(at.pos)]) : Decoration.none;
+    const at = taskToolsAt(state, today());
+    return at ? Decoration.set([Decoration.widget({ widget: widget(at.missing, at.pending), side: 1 }).range(at.pos)]) : Decoration.none;
   };
   return StateField.define<DecorationSet>({
     create: build,
@@ -109,12 +112,69 @@ export function phraseTab(state: EditorState, today: string): TransactionSpec | 
  * transaction: the checkbox, its indent and the rest of the line stay. Null if there's nothing to turn.
  */
 export function convertPhrases(state: EditorState, n: number, today: string, only?: string): TransactionSpec | null {
+  return rewritePhrases(state, n, today, (spans, text) => (only === undefined ? spans : spans.filter((s) => text.slice(s.from, s.to).toLowerCase() === only.toLowerCase())));
+}
+
+/** Task line `n` with the phrases `pick` chooses (from the ones read in its text) turned into tokens; the rest stay words. */
+function rewritePhrases(state: EditorState, n: number, today: string, pick: (spans: QuickSpan[], text: string) => QuickSpan[]): TransactionSpec | null {
   const line = state.doc.line(n);
   const m = line.text.match(TASK_LINE);
   if (!m || !inTaskText(state, line.to)) return null;
   const read = parseQuickAdd(m[4], today, [], { targets: false });
-  const keep = only === undefined ? [] : read.spans.map((s) => m[4].slice(s.from, s.to)).filter((p) => p.toLowerCase() !== only.toLowerCase());
-  if (!read.spans.length || keep.length === read.spans.length) return null;
+  const chosen = pick(read.spans, m[4]);
+  if (!chosen.length) return null;
+  const keep = read.spans.filter((s) => !chosen.includes(s)).map((s) => m[4].slice(s.from, s.to));
   const text = parseQuickAdd(m[4], today, keep, { targets: false }).line.match(TASK_LINE)![4];
   return { changes: { from: line.to - m[4].length, to: line.to, insert: text }, userEvent: "input.task" };
+}
+
+/** The cursor's line, from when the cursor came to it: where the line starts, and the ranges typed on it since. */
+interface Visit {
+  from: number;
+  typed: Array<[number, number]>;
+}
+
+/** What's been typed on the cursor's line this visit, so leaving it can turn just those phrases into tokens. */
+export const lineVisit = StateField.define<Visit>({
+  create: (state) => ({ from: state.doc.lineAt(state.selection.main.head).from, typed: [] }),
+  update(visit, tr) {
+    if (!tr.docChanged && !tr.selection) return visit;
+    const line = tr.state.doc.lineAt(tr.state.selection.main.head);
+    const stayed = tr.state.doc.lineAt(tr.changes.mapPos(visit.from, -1)).from === line.from;
+    const typed = stayed ? mapRanges(visit.typed, tr) : [];
+    if (tr.isUserEvent("input") && !tr.isUserEvent("input.task")) {
+      tr.changes.iterChangedRanges((_a, _b, from, to) => void (to > from && from >= line.from && to <= line.to && typed.push([from, to])));
+    }
+    return { from: line.from, typed };
+  },
+});
+
+const mapRanges = (ranges: Visit["typed"], tr: Transaction): Visit["typed"] =>
+  ranges.map(([a, b]): [number, number] => [tr.changes.mapPos(a, 1), tr.changes.mapPos(b, -1)]).filter(([a, b]) => a < b);
+
+/**
+ * When `tr` takes the cursor off a task line: the change that turns the phrases typed there this
+ * visit into tokens, if they end the task's words ("Buy milk tomorrow"). One inside the sentence
+ * ("the Monday memo") or one already there stays words; Tab or a click still turns it. Else null.
+ */
+export function phrasesLeft(tr: Transaction, today: string): TransactionSpec | null {
+  const was = tr.startState.field(lineVisit, false);
+  if (!was?.typed.length) return null;
+  const left = tr.state.doc.lineAt(tr.changes.mapPos(was.from, -1));
+  if (left.from === tr.state.field(lineVisit).from) return null;
+  const typed = mapRanges(was.typed, tr);
+  const task = parseTask(left.text);
+  if (!task) return null;
+  const start = left.to - task.text.length;
+  return rewritePhrases(tr.state, left.number, today, (spans, text) => {
+    // The phrases that end the words: from the last one back, with only spaces between.
+    const ending: QuickSpan[] = [];
+    let end = task.summary.length;
+    for (const s of [...spans].reverse()) {
+      if (s.to > end || text.slice(s.to, end).trim()) break;
+      ending.push(s);
+      end = s.from;
+    }
+    return ending.filter((s) => typed.some(([a, b]) => start + s.from < b && start + s.to > a));
+  });
 }

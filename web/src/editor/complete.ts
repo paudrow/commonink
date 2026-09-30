@@ -482,7 +482,7 @@ async function embedUploads(view: EditorView, files: File[] | undefined, pos: nu
   view.focus();
 }
 
-const stamp = () => new Date().toISOString().slice(0, 19).replace("T", " ").replace(/:/g, ".");
+const stamp = () => `${today()} ${new Date().toTimeString().slice(0, 8).replace(/:/g, ".")}`;
 
 const pasteFiles = EditorView.domEventHandlers({
   paste(event, view) {

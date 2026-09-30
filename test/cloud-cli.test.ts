@@ -119,6 +119,15 @@ test("the workspace's calendar from the CLI: events, and a meeting note made and
   await cloud.call(people.owner, "POST", `${people.base}/calendar/sources/remove`, { id: cal.id });
 });
 
+test("a CLI's today is its person's day, in the time zone their browser reported", async () => {
+  const zone = "Pacific/Kiritimati"; // UTC+14: a day ahead of UTC for most of it
+  const c = cli();
+  await login(c, people.viewer);
+  await cloud.call(people.viewer, "POST", "/api/me/time-zone", { timeZone: zone });
+  const day = c.run(["today", "--workspace", "Team"]).stdout.match(/Journal\/(\d{4}-\d{2}-\d{2})\.md/)?.[1];
+  assert.equal(day, new Intl.DateTimeFormat("en-CA", { timeZone: zone }).format(Date.now()));
+});
+
 test("files go up to R2 and come back down, byte for byte", async () => {
   const c = cli();
   await login(c, people.owner);

@@ -28,7 +28,7 @@ export const TASK_FIELDS = {
     nullable: true,
     label: "rule",
     describe:
-      "How it repeats, from the due date: daily, weekly, monthly, yearly, 3d, 2w, mon,thu, 2w-mon,thu, 6th, last-day, 1st-tue,3rd-tue, last-fri, mar-1, 1st-mon-mar, day-50; " +
+      "How it repeats, from the due date: daily, weekly, monthly, yearly, 3d, 2w, mon,thu, 2w-mon,thu, 6th (a 31st falls on a shorter month's last day), last-day, last-day-2 (two days before the last day), 1st-tue,3rd-tue, last-fri, mar-1, 1st-mon-mar, day-50; " +
       "a gap after it's done: after-1m, after-10d; or RRULE:FREQ=…;BYDAY=… (COUNT and UNTIL too)",
   }),
   until: str({ nullable: true, label: "date", describe: "The repeat's last day, YYYY-MM-DD: no occurrence after it" }),
@@ -159,7 +159,7 @@ export const tasks = [
       "journal note (Journal/YYYY-MM-DD.md) exists. A good start for a morning brief.",
     examples: ["quire today", "quire today --date 2026-10-01 --json"],
     readOnly: true,
-    args: { today: str({ flag: "date", describe: "The day to read, YYYY-MM-DD; default the machine's today" }) },
+    args: { today: str({ flag: "date", describe: "The day to read, YYYY-MM-DD; default the user's today" }) },
     run: ({ quire }, a) => {
       const t = quire.today(a.today);
       return { text: fmtToday(t), data: t };
@@ -173,7 +173,7 @@ export const tasks = [
     summary: "Today's journal note, made from the daily template if it's missing",
     description: "Today's journal note (Journal/YYYY-MM-DD.md): its path, made from Templates/Daily note.md (or a plain one) if it doesn't exist yet.",
     examples: ["quire journal", "quire journal --date 2026-10-01"],
-    args: { today: str({ flag: "date", describe: "The day, YYYY-MM-DD; default the machine's today" }) },
+    args: { today: str({ flag: "date", describe: "The day, YYYY-MM-DD; default the user's today" }) },
     run: ({ quire, source }, a) => {
       const r = quire.dailyNote(a.today ?? quire.today().date, source);
       return { text: `${r.created ? "Started" : "Already there:"} ${r.path}`, data: { path: r.path, created: r.created } };

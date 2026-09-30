@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { localDate } from "../src/core/tasks.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const name = process.argv[2] ?? "claude-code";
@@ -39,7 +40,7 @@ await call("edit_note", {
   new_string: `> ${name}, ${time}: sketched the embedding index; see [[Outside-in agents]] for the constraints.\n\n## Later`,
 });
 await pause(1200);
-const today = new Date().toISOString().slice(0, 10);
+const today = localDate(Date.now());
 const log = `- ${time} — ${done ? "reopened" : "ticked off"} semantic search in [[Common Ink roadmap]]`;
 const appended = await call("append_to_note", { path: `Journal/${today}`, text: log });
 if (appended.startsWith("No note")) await call("create_note", { path: `Journal/${today}`, content: `# ${today}\n\n## Log\n\n${log}\n` });

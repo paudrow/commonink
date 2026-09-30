@@ -23,6 +23,9 @@ import { feedsFor } from "./demo-calendar.ts";
 import { googleMode } from "./connections.ts";
 import { googleReader } from "./google-reader.ts";
 
+/** A note and its previous text are each a SQLite row here, which holds at most 2 MB. */
+const MAX_NOTE_BYTES = 1_900_000;
+
 export class Workspace extends DurableObject<Env> {
   private db: DoDb;
   private files: SqlContent;
@@ -41,8 +44,7 @@ export class Workspace extends DurableObject<Env> {
     db.exec("CREATE TABLE IF NOT EXISTS registered_ids(id TEXT PRIMARY KEY)");
     // An upload's bytes go from R2 once it's deleted for good.
     this.files = new SqlContent(db, (key) => ctx.waitUntil(env.FILES.delete(key)));
-    // A note and its previous text are each a SQLite row here, which holds at most 2 MB.
-    this.quire = new Quire(db, this.files, { maxNoteBytes: 1_900_000 });
+    this.quire = new Quire(db, this.files, { maxNoteBytes: MAX_NOTE_BYTES });
     // Notes only change through the core here, so this finds nothing to do, except after an
     // upgrade that asks for notes to be indexed again (tags, say).
     this.quire.sync();
@@ -273,12 +275,12 @@ export class Workspace extends DurableObject<Env> {
   /**
    * One MCP request from a connected agent (the Worker has checked its token and membership). Tools
    * are offered by `role`, and writes are attributed to `actor`, e.g. "Claude (via Audrow)". Open
-   * tabs hear about the agent's changes like any other.
+   * tabs hear about the agent's changes like any other. Its "today" is a day in `who.timeZone`.
    */
-  async mcp(req: Request, who: { workspace: string; user: string; actor: string; role: string }): Promise<Response> {
+  async mcp(req: Request, who: { workspace: string; user: string; actor: string; role: string; timeZone: string }): Promise<Response> {
     const role = asRole(who.role);
     const server = createMcpServer({
-      quire: this.quire,
+      quire: new Quire(this.db, this.files, { maxNoteBytes: MAX_NOTE_BYTES, timeZone: who.timeZone }),
       user: who.user,
       source: () => who.actor,
       may: (route) => access(role, ...(route.split(" ") as [string, string])) === "allowed",
@@ -303,7 +305,7 @@ export class Workspace extends DurableObject<Env> {
    * that they're a member and that their role allows the command's route; the role is checked again
    * here, as for every route. Open tabs hear about its changes like any other.
    */
-  async runCommand(name: string, input: Record<string, unknown>, who: { workspace: string; user: string; actor: string; role: string; origin?: string }): Promise<RunResponse> {
+  async runCommand(name: string, input: Record<string, unknown>, who: { workspace: string; user: string; actor: string; role: string; timeZone: string; origin?: string }): Promise<RunResponse> {
     const command = COMMANDS.find((c) => c.cli === name);
     // The Worker runs settings commands itself (cloud/src/cli.ts): they aren't in a workspace's notes.
     if (!command || command.settings) return { ok: false, error: `No command "${name}" here: see quire help`, code: "usage" };
@@ -313,9 +315,11 @@ export class Workspace extends DurableObject<Env> {
     }
     const last = this.lastChange();
     try {
-      if (command.readOnly) this.quire.sync();
+      // Its "today" is a day in the person's time zone, as an agent's is.
+      const quire = new Quire(this.db, this.files, { maxNoteBytes: MAX_NOTE_BYTES, timeZone: who.timeZone });
+      if (command.readOnly) quire.sync();
       const host = {
-        quire: this.quire,
+        quire,
         user: who.user,
         source: who.actor,
         canEditShared: role === "owner" || role === "editor",
