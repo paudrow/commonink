@@ -52,6 +52,8 @@ const app = (over: Partial<App> = {}): App => {
     noteHistory: run("noteHistory"),
     gettingStarted: run("gettingStarted"),
     shortcuts: run("shortcuts"),
+    settings: run("settings"),
+    connectAgent: run("connectAgent"),
     back: run("back"),
     forward: run("forward"),
     followLink: run("followLink"),
@@ -66,6 +68,10 @@ test("commands match fuzzily, by name or by what they're about, and none alone l
   assert.deepEqual(titles("archive", app({ note: { kind: "md", starred: false, archived: false } })).slice(0, 2), ["Archive note", "Go to Archive"]);
   assert.deepEqual(titles("zzz", app()), []);
   assert.deepEqual(titles("kanban", app()), ["New board"]);
+  assert.deepEqual(titles("preferences", app()), ["Open settings"]);
+  assert.deepEqual(titles("settings", app()).slice(0, 1), ["Open settings"]);
+  assert.deepEqual(titles("connect", app()), ["Connect an agent"]);
+  assert.deepEqual(titles("mcp", app()), ["Connect an agent"]);
   const all = titles("", app());
   assert.equal(all[0], "New note");
   assert.ok(all.includes("Keyboard shortcuts"));

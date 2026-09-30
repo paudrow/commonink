@@ -551,6 +551,30 @@ body.is-resizing iframe { pointer-events: none; }
 .sc-list dd { margin: 0; color: var(--ink-2); font-size: 13px; }
 .sc-or { margin: 0 4px; color: var(--muted); }
 
+/* Settings (⌘,) */
+#settings { position: fixed; inset: 0; z-index: 50; background: rgba(20, 16, 10, 0.28); backdrop-filter: blur(3px); display: flex; justify-content: center; align-items: flex-start; padding-top: 8vh; animation: fade 0.12s ease-out; }
+.st-box { width: min(680px, calc(100vw - 32px)); height: min(640px, 84vh); display: flex; flex-direction: column; overflow: hidden; background: var(--bg-elev); border-radius: 14px; box-shadow: var(--shadow-lg); animation: pop 0.14s ease-out; outline: 0; }
+.st-head { display: flex; align-items: center; gap: 9px; padding: 16px 20px 0; color: var(--muted); }
+.st-head h2 { flex: 1; margin: 0; font-size: 16px; color: var(--ink-strong); }
+.st-keys { font: 11px var(--mono); }
+.st-bar { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+.st-search { flex: 1; min-width: 0; min-height: 32px; padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg); color: var(--ink); font: 14px var(--ui); }
+.st-search:focus { outline: 2px solid var(--accent-line); outline-offset: -1px; }
+.st-found { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.st-list { overflow: auto; padding: 0 20px 20px; }
+.st-section h3 { margin: 18px 0 2px; font: 650 10.5px/1.4 var(--ui); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.st-row { display: grid; gap: 4px; justify-items: start; padding: 10px 0; }
+.st-row + .st-row { border-top: 1px solid var(--line); }
+.st-title { margin: 0; font: 600 13.5px/1.4 var(--ui); color: var(--ink-strong); }
+.st-desc { display: block; margin: 0; font-size: 13px; color: var(--ink-2); }
+.st-inline { display: flex; align-items: flex-start; gap: 6px; min-height: 24px; cursor: pointer; }
+.st-check { flex: none; width: 18px; height: 18px; margin: 1px 3px; accent-color: var(--accent); cursor: pointer; }
+.st-select { min-height: 28px; min-width: 160px; padding: 3px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg); color: var(--ink); font: 13px var(--ui); }
+.st-row.is-disabled :is(.st-title, .st-desc) { opacity: 0.55; }
+.st-row.is-disabled :is(.st-check, .st-inline) { cursor: default; }
+.st-custom { width: 100%; margin-top: 4px; }
+.st-empty { padding: 20px 0 4px; text-align: center; color: var(--muted); }
+
 /* ------------------------------------------------------------------ toasts */
 #toasts { position: fixed; right: 18px; bottom: 44px; display: flex; flex-direction: column; gap: 8px; z-index: 80; } /* over dialogs, so what a dialog did (or why it couldn't) still shows */
 .toast {
@@ -1044,7 +1068,7 @@ body.is-resizing iframe { pointer-events: none; }
 .qw-guide-how[hidden] { display: none; }
 .qw-guide-how .qw-sub { margin: 0; }
 .qw-guide-how details { width: 100%; font-size: 13px; color: var(--ink-2); }
-.qw-guide-how summary { cursor: pointer; }
+.qw-guide-how summary { cursor: pointer; padding: 3px 0; }
 .qw-guide-how details > * + * { margin-top: 8px; }
 .qw-guide-code { display: flex; align-items: flex-start; gap: 8px; width: 100%; }
 .qw-guide-code code, .qw-guide-code pre { flex: 1; min-width: 0; margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--code-bg); font: 12px/1.5 var(--mono); color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
@@ -1910,7 +1934,7 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 
 /* Connected agents (account menu, online) */
 #agents-page { position: fixed; inset: 0; z-index: 50; background: rgba(20, 16, 10, 0.28); backdrop-filter: blur(3px); display: flex; justify-content: center; align-items: flex-start; padding-top: 10vh; animation: fade 0.12s ease-out; }
-.agents-box { width: min(620px, calc(100vw - 32px)); max-height: 76vh; overflow: auto; background: var(--bg-elev); border-radius: 14px; box-shadow: var(--shadow-lg); padding: 16px 18px 18px; animation: pop 0.14s ease-out; }
+.agents-box { width: min(620px, calc(100vw - 32px)); max-height: 76vh; overflow: auto; background: var(--bg-elev); border-radius: 14px; box-shadow: var(--shadow-lg); padding: 16px 18px 18px; animation: pop 0.14s ease-out; outline: 0; }
 .agents-head { display: flex; align-items: center; gap: 9px; color: var(--muted); }
 .agents-head h2 { flex: 1; margin: 0; font-size: 16px; color: var(--ink-strong); }
 .agents-how { margin: 8px 0 14px; font-size: 13px; color: var(--ink-2); }
