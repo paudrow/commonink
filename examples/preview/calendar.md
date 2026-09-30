@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 130
 title: Calendar and ICS subscriptions
 ---
 1. Open **Calendar** in the sidebar. This Preview subscribes to two calendars: **Launch team (demo)**, served by the Preview itself, and **US holidays**, a real public feed read from Google. Switch between Month, Week, Day and Agenda with `m`, `w`, `d` and `a`; `t` is today, `j` and `k` go forward and back.
