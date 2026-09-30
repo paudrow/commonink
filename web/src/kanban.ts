@@ -10,6 +10,8 @@ import { onVaultChange } from "./events.ts";
 import { IS_MAC, sideClick } from "./panes.ts";
 import { matchKeys } from "./keys.ts";
 import { renderMarkdown } from "./render.ts";
+import { hydrateCode } from "./code.ts";
+import { hydrateMath } from "./math.ts";
 import { endTags, metaChips, today } from "./taskChips.ts";
 import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
 import { inline } from "./taskRow.ts";
@@ -302,6 +304,10 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
     const chips = metaChips(task.meta, done, endTags(task.summary, task.meta.tags)); // tags mid-sentence stay there
     const details = card.details.some((d) => d.trim()) ? el("div", { class: "kb-details", html: renderMarkdown(card.details.join("\n"), host.path) }) : null;
     details?.querySelectorAll("input").forEach((b) => (b.disabled = true));
+    if (details) {
+      hydrateCode(details);
+      hydrateMath(details);
+    }
     const act = (name: string, label: string, run: () => void) =>
       el("button", { type: "button", class: "kb-icon", title: label, "aria-label": label, onclick: (e: Event) => (e.stopPropagation(), run()) }, icon(name, 13));
     const actions = host.readOnly

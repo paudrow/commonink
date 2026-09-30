@@ -320,6 +320,8 @@ const TOOLS: Tool[] = [
   { title: "Numbered list", hint: "1.", icon: "listOrdered", keywords: "list numbered ordered", section: "Blocks", run: (v, f, t) => insert(v, f, t, "1. ", { block: true }) },
   { title: "Quote", hint: ">", icon: "quote", keywords: "quote blockquote citation", section: "Blocks", run: (v, f, t) => insert(v, f, t, "> ", { block: true }) },
   { title: "Code block", hint: "```", icon: "braces", keywords: "code block snippet fence", section: "Blocks", run: (v, f, t) => insert(v, f, t, "```\n\n```", { cursor: 3, block: true }) },
+  { title: "Math (inline)", hint: "$x$", icon: "sigma", keywords: "math equation formula latex tex katex inline", section: "Blocks", run: (v, f, t) => insert(v, f, t, "$x$", { cursor: 1, select: 1 }) },
+  { title: "Math (block)", hint: "$$", icon: "sigma", keywords: "math equation formula latex tex katex block display", section: "Blocks", run: (v, f, t) => insert(v, f, t, "$$\nE = mc^2\n$$", { cursor: 3, select: 8, block: true }) },
   { title: "Table", hint: "2 × 2", icon: "table", keywords: "table grid columns", section: "Blocks", run: (v, f, t) => insert(v, f, t, "| Column | Column |\n| ------ | ------ |\n|        |        |", { cursor: 2, select: 6, block: true }) },
   { title: "Divider", hint: "---", icon: "divider", keywords: "divider rule separator hr line", section: "Blocks", run: (v, f, t) => insert(v, f, t, "---", { own: true }) },
   { title: "Today's date", hint: today(), icon: "calendar", keywords: "date today day", section: "Insert", run: (v, f, t) => insert(v, f, t, today()) },

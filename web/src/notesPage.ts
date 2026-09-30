@@ -1,9 +1,12 @@
 // Notes: every note as a stream of cards, newest first — the app's home. Click a card to read
 // the whole note in place; Edit opens it in the editor. Filter as you type, triage from the
-// keyboard (j/k, Enter to expand, o to open, e to archive, x to select), and archive in bulk.
+// keyboard (j/k, Enter to expand, o to open, e to archive, x to select, Delete to delete), and
+// archive or delete in bulk.
 import { api, type FeedItem, type FeedPage, type Scope, type TagCount, type Task } from "./api.ts";
 import { $, authorAvatar, authorName, displayName, el, escapeHtml, icon, NOTE_DRAG, timeAgo } from "./dom.ts";
 import { renderMarkdown, sandboxFrame } from "./render.ts";
+import { hydrateCode } from "./code.ts";
+import { hydrateMath } from "./math.ts";
 import { followInPage } from "./gfm.ts";
 import { hydrateDataEmbeds } from "./textPreview.ts";
 import { parseDirective } from "./widgets/args.ts";
@@ -34,6 +37,8 @@ interface Hooks {
   openPerson(name: string): void;
   /** You can only view this workspace: chips show, but don't open editors. */
   readOnly(): boolean;
+  /** Send notes to Trash (asking first if other notes link to them). Resolves to the paths that went. */
+  delete(paths: string[]): Promise<string[]>;
   toast(t: { text: string; icon?: string; actionLabel?: string; action?: () => void }): void;
   changed(): void;
   /** The sidebar's New note. */
@@ -93,7 +98,7 @@ export class NotesPage {
     this.keys = el(
       "footer",
       { class: "feed-keys" },
-      ...[["j k", "move"], ["↵", "expand"], ["o", "open"], ["s", "star"], ["e", "archive"], ["x", "select"], ["/", "filter"]].map(([k, t]) => el("span", {}, el("kbd", {}, k), t)),
+      ...[["j k", "move"], ["↵", "expand"], ["o", "open"], ["s", "star"], ["e", "archive"], ["⌫", "delete"], ["x", "select"], ["/", "filter"]].map(([k, t]) => el("span", {}, el("kbd", {}, k), t)),
     );
     this.root.append(
       el("div", { class: "feed" }, el("header", { class: "feed-head" }, el("h1", {}, "Notes"), this.search, this.filters), this.bulk, this.list, this.more, this.keys),
@@ -280,6 +285,11 @@ export class NotesPage {
       e.stopPropagation();
       void this.archive([item.path]);
     });
+    const deleteBtn = this.hooks.readOnly() ? null : el("button", { type: "button", class: "fc-action", title: "Delete (⌫)" }, icon("trash", 15));
+    deleteBtn?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void this.delete([item.path]);
+    });
     const starred = this.hooks.starred(item.id);
     const starBtn = el("button", { type: "button", class: `fc-action${starred ? " is-starred" : ""}`, title: starred ? "Unstar (s)" : "Star (s)" }, icon(starred ? "starred" : "star", 15));
     starBtn.addEventListener("click", (e) => {
@@ -338,7 +348,7 @@ export class NotesPage {
       el(
         "div",
         { class: "fc-main" },
-        el("div", { class: "fc-head" }, title, item.archived ? el("span", { class: "fc-badge" }, "Archived") : null, roleBadge(item), el("span", { class: "spacer" }), starBtn, editBtn, archiveBtn, expandBtn),
+        el("div", { class: "fc-head" }, title, item.archived ? el("span", { class: "fc-badge" }, "Archived") : null, roleBadge(item), el("span", { class: "spacer" }), starBtn, editBtn, archiveBtn, deleteBtn, expandBtn),
         el(
           "div",
           { class: "fc-meta" },
@@ -423,6 +433,8 @@ export class NotesPage {
     const { md: marked, tasks } = withTaskChips(md);
     const node = el("div", { class: `${cls}${this.hooks.readOnly() || item.archived ? " is-readonly" : ""}`, html: renderMarkdown(marked, item.path) });
     hydrateTaskChips(node, tasks);
+    hydrateCode(node);
+    hydrateMath(node);
     // A note can write its own <span class="tk-run">, so only the ones that name a real task count.
     node.querySelectorAll<HTMLElement>(".tk-run").forEach((run) => {
       const task = tasks[+run.dataset.task!];
@@ -495,6 +507,7 @@ export class NotesPage {
       el("span", {}, `${n} selected`),
       el("span", { class: "spacer" }),
       el("button", { type: "button", class: "qw-btn primary", onclick: () => this.archive([...this.selected]) }, icon(allArchived ? "unarchive" : "archive", 14), allArchived ? "Unarchive" : "Archive"),
+      ...(this.hooks.readOnly() ? [] : [el("button", { type: "button", class: "qw-btn danger", onclick: () => void this.delete([...this.selected]) }, icon("trash", 14), "Delete")]),
       el("button", { type: "button", class: "qw-btn", onclick: () => (this.selected.clear(), this.render()) }, "Clear"),
     );
   }
@@ -537,6 +550,14 @@ export class NotesPage {
     await this.reload();
   }
 
+  /** Send notes to Trash; Undo is in the toast. */
+  private async delete(paths: string[]) {
+    if (!paths.length || this.hooks.readOnly()) return;
+    const went = await this.hooks.delete(paths);
+    for (const p of went) this.selected.delete(p);
+    if (went.length) await this.reload();
+  }
+
   // ---------------------------------------------------------------- keyboard
 
   private key(e: KeyboardEvent) {
@@ -573,6 +594,8 @@ export class NotesPage {
       s: () => item && this.hooks.toggleStar(item.path),
       e: () => void this.archive(this.selected.size ? [...this.selected] : item ? [item.path] : []),
       x: () => item && this.toggle(item.path),
+      Delete: () => void this.delete(this.selected.size ? [...this.selected] : item ? [item.path] : []),
+      Backspace: () => void this.delete(this.selected.size ? [...this.selected] : item ? [item.path] : []),
       "/": () => this.input.focus(),
       Escape: () => {
         this.selected.clear();

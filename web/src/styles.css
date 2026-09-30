@@ -622,6 +622,71 @@ body.is-resizing iframe { pointer-events: none; }
 .cm-codeblock.is-last.is-fence { line-height: 0.3; }
 .cm-fence-label { font: 650 10px/1 var(--ui); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 
+/* A code block outside the source view (code.ts): in the editor, embeds and Notes cards alike. */
+.cb { position: relative; margin: 0.4em 0 0.8em; border-radius: 10px; background: var(--code-bg); font-size: 0.84em; }
+.cm-code-widget { padding: 0.2em 0 0.5em; white-space: normal; cursor: text; }
+.cm-code-widget > .cb { margin: 0; } /* padding on the wrapper instead: see CodeWidget */
+/* The header is its own row, so the label and tools never sit over the first line of code. */
+.cb-head { display: flex; align-items: center; gap: 2px; min-height: 26px; padding: 5px 8px 0 1.45em; font: 650 10px/1 var(--ui); letter-spacing: 0.08em; color: var(--muted); }
+.cb-head .spacer { flex: 1; }
+.cb-title { font: 600 11.5px/1.2 var(--mono); letter-spacing: 0; color: var(--muted); text-transform: none; }
+.cb-lang { text-transform: uppercase; padding: 3px 5px; }
+.cb-btn { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 5px; border: 0; border-radius: 6px; background: none; color: var(--muted); font: inherit; cursor: pointer; }
+.cb-btn:hover { background: var(--hover); color: var(--ink); }
+.cb-btn.cb-wrap.is-on { color: var(--ink); }
+.cb-copy.is-done { color: var(--ok); opacity: 1; }
+.cb-copy span { letter-spacing: 0; text-transform: none; font-weight: 600; }
+/* Copy, wrap and the picker come up on hover (and focus), so the label alone shows at rest. */
+.cb-copy, .cb-wrap { opacity: 0; transition: opacity 0.12s; }
+.cb:hover :is(.cb-copy, .cb-wrap), .cb-head :focus-visible, .cb-copy.is-done { opacity: 1; }
+.cb > .cb-pre { margin: 0; padding: 0.15em 1.2em 0.8em; border-radius: 0; background: none; font-family: var(--mono); font-size: 1em; line-height: 1.65; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; } /* over embeds' and cards' own pre styles */
+.cb-pre code { display: block; font: inherit; background: none; padding: 0; counter-reset: cb-line; }
+.cb.is-nowrap .cb-pre { white-space: pre; overflow-wrap: normal; overflow-x: auto; }
+.cb.is-nowrap .cb-pre code { min-width: max-content; }
+.cb-line { display: block; min-height: 1.65em; margin: 0 -1.2em; padding: 0 1.2em; }
+/* Marked lines get a bar, not a tint: any tint over --code-bg takes the syntax colors below 4.5:1. */
+.cb-line.is-marked { box-shadow: inset 3px 0 var(--accent-line); }
+/* Diff lines keep a light tint, with their text in the -ink colors, which stay at 4.5:1 over it. */
+.cb-line.is-add { background: color-mix(in srgb, var(--ok) 8%, transparent); box-shadow: inset 3px 0 var(--ok); }
+.cb-line.is-add, .cb-line.is-add * { color: var(--ok-ink) !important; }
+.cb-line.is-del { background: color-mix(in srgb, var(--bad) 8%, transparent); box-shadow: inset 3px 0 var(--bad); }
+.cb-line.is-del, .cb-line.is-del * { color: var(--bad-ink) !important; }
+.cb.has-numbers .cb-line::before { counter-increment: cb-line; content: counter(cb-line); display: inline-block; width: 2.6em; margin-left: -0.4em; padding-right: 1em; text-align: right; color: var(--muted); user-select: none; }
+/* Math (math.ts): inline in its line, display on its own, the source in red when it doesn't parse. */
+.math-inline { white-space: nowrap; }
+.math-display { position: relative; display: block; margin: 0.5em 0 0.8em; padding: 0.5em 2.5em; overflow-x: auto; overflow-y: hidden; text-align: center; }
+.math-display.is-preview { border-radius: 10px; background: var(--code-bg); }
+.cm-math-block { padding: 0.3em 0 0.6em; white-space: normal; }
+.cm-math-block > .math-display { margin: 0; } /* padding on the wrapper instead: see MathWidget */
+.math-error { color: var(--bad-ink); font-family: var(--mono); font-size: 0.85em; white-space: pre-wrap; text-decoration: underline wavy color-mix(in srgb, var(--bad) 45%, transparent); text-underline-offset: 3px; cursor: help; }
+.math-display.math-error { text-align: left; overflow: visible; } /* room for the message below */
+.math-error { position: relative; outline: none; }
+.math-error[data-error]:is(:hover, :focus-visible)::after {
+  content: attr(data-error);
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  width: max-content;
+  max-width: min(420px, 80vw);
+  padding: 6px 9px;
+  border-radius: 7px;
+  background: var(--ink-strong);
+  color: var(--bg);
+  font: 500 12px/1.4 var(--ui);
+  white-space: normal;
+  text-decoration: none;
+  pointer-events: none;
+  box-shadow: var(--shadow-sm);
+}
+.math-error:focus-visible { box-shadow: 0 0 0 2px var(--accent-line); border-radius: 3px; }
+.math-copy { position: absolute; top: 6px; right: 6px; opacity: 0; transition: opacity 0.12s; }
+.math-display:hover .math-copy, .math-copy:focus-visible, .math-copy.is-done { opacity: 1; }
+.cm-math-source { font-family: var(--mono); font-size: 0.88em; color: var(--ink-2); }
+.cm-math-block-source { font-family: var(--mono); font-size: 0.84em; color: var(--ink-2); }
+.cb-picker { position: fixed; z-index: 60; width: 240px; }
+.cb-picker-input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--ink); font: inherit; }
+
 .cm-frontmatter { font-family: var(--mono); font-size: 0.8em; color: var(--muted); background: var(--code-bg); padding: 0 1em !important; }
 .cm-frontmatter.is-first { border-radius: 8px 8px 0 0; padding-top: 0.3em !important; }
 .cm-frontmatter.is-last { border-radius: 0 0 8px 8px; padding-bottom: 0.3em !important; }
@@ -2037,6 +2102,37 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .cm-side-btn[hidden] { display: none; }
 body.is-link-dragging, body.is-link-dragging * { cursor: grabbing !important; user-select: none; }
 
+/* Deleting: the confirm dialog, selecting assets, and the Trash page */
+.ask { position: fixed; inset: 0; z-index: 60; background: rgba(20, 16, 10, 0.28); backdrop-filter: blur(3px); display: flex; justify-content: center; align-items: flex-start; padding: 16vh 16px 0; animation: fade 0.12s ease-out; }
+.ask-box { width: min(460px, 100%); background: var(--bg-elev); border-radius: 14px; box-shadow: var(--shadow-lg); padding: 18px 20px 16px; animation: pop 0.14s ease-out; }
+.ask-box h2 { margin: 0 0 8px; font-size: 16px; color: var(--ink-strong); }
+.ask-box p { margin: 0 0 10px; font-size: 13.5px; color: var(--ink-2); line-height: 1.5; }
+.ask-warn { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.ask-warn svg { flex: none; margin-top: 3px; color: var(--warn); }
+.ask-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.qw-btn.danger { color: var(--bad); }
+.qw-btn.danger:hover { background: color-mix(in srgb, var(--bad) 10%, transparent); }
+.as-card { position: relative; }
+.as-check { position: absolute; top: 8px; left: 8px; z-index: 1; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid var(--line-strong); background: var(--bg-elev); color: transparent; opacity: 0; transition: opacity 0.12s; }
+.as-card:hover .as-check, .as-card:focus-visible .as-check, .as-card.is-selected .as-check { opacity: 1; }
+.as-card.is-selected { border-color: var(--accent-line); box-shadow: 0 0 0 2px var(--accent-soft); }
+.as-card.is-selected .as-check { background: var(--accent); border-color: var(--accent); color: #fff; }
+.as-bulk { top: 12px; margin: 0 0 12px; }
+.trash { max-width: 820px; margin: 0 auto; padding: 32px 24px 64px; }
+.tr-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-bottom: 16px; }
+.tr-head p { flex-basis: 100%; order: 3; margin: 0; font-size: 13px; color: var(--muted); }
+.tr-title { display: flex; align-items: baseline; gap: 8px; flex: 1; }
+.tr-title h1 { margin: 0; font-size: 22px; letter-spacing: -0.02em; color: var(--heading); }
+.tr-list { display: grid; gap: 8px; }
+.tr-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-elev); }
+.tr-icon { flex: none; margin-top: 2px; color: var(--muted); }
+.tr-main { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.tr-name { display: flex; align-items: baseline; gap: 8px; font-weight: 600; color: var(--ink-strong); min-width: 0; }
+.tr-path { font-weight: 400; font-size: 12px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr-excerpt { font-size: 13px; color: var(--ink-2); white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tr-meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.tr-meta .avatar { box-shadow: none; }
+@media (max-width: 640px) { .tr-row { flex-wrap: wrap; } .tr-main { flex-basis: calc(100% - 40px); } }
 /* ------------------------------------------------------------------ collapsible sections (<details>) */
 .cm-line.cm-details-head:not(.is-raw) { font: 600 1em/1.72 var(--prose); color: var(--ink-strong); }
 .cm-line.cm-details-head { position: relative; }

@@ -16,6 +16,7 @@ const app = (over: Partial<App> = {}): App => {
     focusMode: false,
     htmlMode: "preview",
     hasStart: false,
+    canDelete: true,
     folds: 0,
     account: [],
     newNote: run("newNote"),
@@ -31,6 +32,7 @@ const app = (over: Partial<App> = {}): App => {
     toggleHtml: run("toggleHtml"),
     star: run("star"),
     archive: run("archive"),
+    delete: run("delete"),
     move: run("move"),
     noteHistory: run("noteHistory"),
     gettingStarted: run("gettingStarted"),
@@ -175,4 +177,11 @@ test("the shortcut sheet is a labelled modal dialog: Ctrl off a Mac, vim folded 
   document.activeElement!.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   assert.equal(document.querySelector("[role=dialog]"), null);
   assert.equal(document.activeElement?.id, "before");
+});
+
+test("Delete and Trash are commands for whoever can delete, not viewers", () => {
+  const note = { kind: "md" as const, starred: false, archived: false };
+  assert.deepEqual(titles("trash", app({ note })).slice(0, 2), ["Go to Trash", "Delete note"]);
+  assert.deepEqual(titles("trash", app({ note: null })), ["Go to Trash"]);
+  assert.deepEqual(titles("trash", app({ note, canDelete: false })), []);
 });

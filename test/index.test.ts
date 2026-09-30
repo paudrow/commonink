@@ -84,7 +84,7 @@ test("the task index reads lines and headings the way the note is shown: fences,
 
 test("the Tasks badge's count is the open tasks in active notes, without sending the tasks", async () => {
   const { quire } = openTempVault(TASKY);
-  const host = { quire, actor: "t", user: "t", canEditShared: true, info: () => ({}), written() {}, moved() {}, tree() {} };
+  const host = { quire, actor: "t", user: "t", canEditShared: true, info: () => ({}), written() {}, moved() {}, removed() {}, tree() {} };
   const count = async () => (await (await handleApi(host, new Request("http://localhost/api/tasks/count"), "/tasks/count"))!.json()).open;
   assert.equal(await count(), 3);
   quire.setTask("A", 3, "First", true, "t");

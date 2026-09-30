@@ -80,7 +80,7 @@ const VIEWER_TOOLS = [
   "read_note", "recent_changes", "save_smart_folder", "search_notes", "star_note", "star_tag", "unstar_note", "unstar_tag",
 ];
 const ALL_TOOLS = [
-  ...VIEWER_TOOLS, "add_card", "add_task", "append_to_note", "archive_note", "create_note", "edit_card", "edit_note", "move_card",
+  ...VIEWER_TOOLS, "add_card", "add_task", "append_to_note", "archive_note", "create_note", "delete_note", "edit_card", "edit_note", "move_card",
   "move_note", "move_task", "unarchive_note", "update_task",
 ].sort();
 

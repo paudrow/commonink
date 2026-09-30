@@ -1,7 +1,7 @@
 // Block-level live preview: whole-line embeds, tables and frontmatter render as widgets.
 // Block decorations must come from a StateField (they change vertical layout).
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
-import { EditorSelection, EditorState, Facet, Prec, StateEffect, StateField, type Range, type StateCommand, type Text } from "@codemirror/state";
+import { EditorSelection, EditorState, Facet, Prec, StateEffect, StateField, type Line, type Range, type StateCommand, type Text } from "@codemirror/state";
 import { Decoration, EditorView, keymap, WidgetType, type DecorationSet } from "@codemirror/view";
 import { api, assetUrl } from "../api.ts";
 import { el, icon } from "../dom.ts";
@@ -19,6 +19,10 @@ import { boardsIn, unclosedBoard } from "../../../src/core/kanban.ts";
 // Boards load with the first note that has one.
 import type { BoardHost, mountBoard } from "../kanban.ts";
 import { editsBetween } from "../merge.ts";
+import { codeWrapByDefault, copyCode, hydrateCode, renderCodeBlock } from "../code.ts";
+import { hydrateMath } from "../math.ts";
+import { blockTex, inlineTex, MathWidget } from "./mathWidgets.ts";
+import { matchKeys } from "../commands.ts";
 import { redo, undo } from "@codemirror/commands";
 import { safeDecode } from "../../../src/core/uri.ts";
 import { foldDecorations, setFold } from "./details.ts";
@@ -214,6 +218,8 @@ class EmbedWidget extends WidgetType {
         const md = heading ? sectionOf(note.content, heading) : note.content;
         body.innerHTML = renderMarkdown(md, path, { boards: !heading });
         hydrateDataEmbeds(body, path, settle);
+        hydrateCode(body);
+        hydrateMath(body);
         body.querySelectorAll("input").forEach((i) => (i.disabled = true));
         if (body.querySelector(".kb-slot[data-board]")) {
           void import("../kanban.ts").then((m) => ((outer as any).stopBoards = m.hydrateBoards(body, path, { ctx, readOnly: view.state.readOnly, resized: settle })));
@@ -496,6 +502,116 @@ class HintWidget extends WidgetType {
   }
 }
 
+/**
+ * Display math from `first` to `last`: drawn in their place, or, while the cursor is in them, drawn
+ * under them as a live preview (the way diagrams are).
+ */
+function mathBlock(state: EditorState, first: Line, last: Line, tex: string): Range<Decoration> {
+  if (!touches(state, first.from, last.to)) return Decoration.replace({ block: true, widget: new MathWidget(tex, true) }).range(first.from, last.to);
+  const widget = new MathWidget(tex, true, true);
+  return last.number < state.doc.lines
+    ? Decoration.widget({ block: true, side: -1, widget }).range(last.to + 1)
+    : Decoration.widget({ block: true, side: 1, widget }).range(last.to);
+}
+
+/**
+ * The code lines of the fenced block at `pos` (from the start of the first to the end of the last,
+ * without the fences), and how far the fence is indented; null if `pos` isn't in one.
+ */
+export function codeRange(state: EditorState, pos: number): { from: number; to: number; indent: number } | null {
+  for (let n: any = syntaxTree(state).resolveInner(pos, -1); n; n = n.parent) {
+    if (n.name !== "FencedCode") continue;
+    const doc = state.doc;
+    const first = doc.lineAt(n.from);
+    const last = lastLine(doc, n.from, n.to);
+    const closed = last.number > first.number && /^\s*(```|~~~)/.test(last.text);
+    const end = closed ? last.from - 1 : last.to;
+    return { from: Math.min(first.to + 1, end), to: Math.max(first.to, end), indent: first.text.match(/^\s*/)![0].length };
+  }
+  return null;
+}
+
+/** The code of the fenced block at `pos`, without its fences or their indent; null if `pos` isn't in one. */
+export function codeAt(state: EditorState, pos: number): string | null {
+  const r = codeRange(state, pos);
+  if (!r) return null;
+  if (r.to <= r.from) return "";
+  return state.doc.sliceString(r.from, r.to).split("\n").map((l) => l.slice(Math.min(r.indent, l.match(/^\s*/)![0].length))).join("\n");
+}
+
+/** Copy the code of the block the cursor is in (Mod-Shift-C). Only in a code block; elsewhere the key passes. */
+export const copyCodeCommand = (view: EditorView) => {
+  const code = codeAt(view.state, view.state.selection.main.head);
+  if (code === null) return false;
+  void copyCode(code);
+  return true;
+};
+
+/**
+ * ⌘⇧C (Ctrl+Shift+C off a Mac) by the character typed, so it's the key that types "c" on Dvorak
+ * too. A CodeMirror keymap can fall back to the key's US position when the browser reports one.
+ */
+export const copyCodeKey = Prec.highest(
+  EditorView.domEventHandlers({
+    keydown(e, view) {
+      if (!matchKeys(e, "Mod-Shift-c") || !copyCodeCommand(view)) return false;
+      e.preventDefault();
+      return true;
+    },
+  }),
+);
+
+/**
+ * A fenced code block while the cursor is elsewhere: drawn like rendered markdown's (code.ts), with
+ * copy, wrap and language on hover. A click in the code puts the cursor there.
+ */
+class CodeWidget extends WidgetType {
+  constructor(
+    readonly code: string,
+    readonly info: string,
+    readonly indent: number,
+    readonly wrapByDefault: boolean,
+  ) {
+    super();
+  }
+  eq(o: CodeWidget) {
+    return o.code === this.code && o.info === this.info && o.indent === this.indent && o.wrapByDefault === this.wrapByDefault;
+  }
+  get estimatedHeight() {
+    return heights.get(`c|${this.info}|${this.code}`) ?? 40 + this.code.split("\n").length * 22;
+  }
+  ignoreEvent() {
+    return true;
+  }
+  toDOM(view: EditorView) {
+    // Spacing is the wrapper's padding, never a margin: CodeMirror measures a block widget without
+    // its margins, and heights it gets wrong send the cursor past blocks when it moves up or down.
+    const dom = el("div", { class: "cm-code-widget" });
+    /** The opening fence's line, wherever the block is now. */
+    const fence = () => view.state.doc.lineAt(view.posAtDOM(dom));
+    const block = renderCodeBlock(this.code, this.info, {
+      setInfo: view.state.readOnly
+        ? undefined
+        : (info) => {
+            const line = fence();
+            const m = line.text.match(/^(\s*(?:`{3,}|~{3,})\s*)(.*)$/);
+            if (m) view.dispatch({ changes: { from: line.from + m[1].length, to: line.to, insert: info } });
+          },
+      edit: (n, column) => {
+        const doc = view.state.doc;
+        const line = doc.line(Math.min(fence().number + 1 + n, doc.lines));
+        view.dispatch({ selection: { anchor: Math.min(line.to, line.from + this.indent + column) } });
+        view.focus();
+      },
+    });
+    dom.append(block);
+    requestAnimationFrame(() => {
+      if (dom.isConnected) heights.set(`c|${this.info}|${this.code}`, dom.offsetHeight);
+    });
+    return dom;
+  }
+}
+
 let mermaid: Promise<(typeof import("mermaid"))["default"]> | null = null;
 let diagramSeq = 0;
 
@@ -702,11 +818,25 @@ function buildBlocks(state: EditorState): DecorationSet {
       }
       if (ref.name === "FencedCode") {
         const info = ref.node.getChild("CodeInfo");
-        if (!info || doc.sliceString(info.from, info.to).trim().toLowerCase() !== "mermaid") return false;
+        const infoText = info ? doc.sliceString(info.from, info.to).trim() : "";
         const first = doc.lineAt(ref.from);
         const last = lastLine(doc, ref.from, ref.to);
         if (last.number === first.number) return false;
         const closed = /^\s*(```|~~~)/.test(last.text);
+        if (/^math$/i.test(infoText) && closed) {
+          const tex = doc.sliceString(first.to + 1, Math.max(first.to + 1, last.from - 1)).trim();
+          if (tex) out.push(mathBlock(state, first, last, tex));
+          return false;
+        }
+        if (infoText.toLowerCase() !== "mermaid") {
+          // Any other closed block draws as a code block until the cursor goes in.
+          if (closed && !touches(state, first.from, last.to)) {
+            const indent = first.text.match(/^\s*/)![0].length;
+            const code = doc.sliceString(first.to + 1, Math.max(first.to + 1, last.from - 1)).split("\n").map((l) => l.slice(Math.min(indent, l.match(/^\s*/)![0].length))).join("\n");
+            out.push(Decoration.replace({ block: true, widget: new CodeWidget(code, infoText, indent, codeWrapByDefault()) }).range(first.from, last.to));
+          }
+          return false;
+        }
         const code = doc.sliceString(first.to + 1, closed ? Math.max(first.to + 1, last.from - 1) : last.to);
         const widget = new DiagramWidget(code, embedRev);
         if (touches(state, first.from, last.to)) {
@@ -721,6 +851,13 @@ function buildBlocks(state: EditorState): DecorationSet {
         }
         return false;
       }
+      if (ref.name === "BlockMath") {
+        const first = doc.lineAt(ref.from);
+        const last = lastLine(doc, ref.from, ref.to);
+        const tex = blockTex(doc.sliceString(first.from, last.to));
+        if (tex) out.push(mathBlock(state, first, last, tex));
+        return false;
+      }
       if (ref.name === "Table") {
         const first = doc.lineAt(ref.from);
         const last = lastLine(doc, ref.from, ref.to);
@@ -731,6 +868,13 @@ function buildBlocks(state: EditorState): DecorationSet {
         return false;
       }
       if (ref.name === "Paragraph") {
+        // Math across whole lines of a paragraph ($$ lines straight under text) draws as a block.
+        for (const m of ref.node.getChildren("InlineMath")) {
+          const source = doc.sliceString(m.from, m.to);
+          const [top, bottom] = [doc.lineAt(m.from), doc.lineAt(m.to)];
+          const math = source.includes("\n") ? inlineTex(source) : null;
+          if (math && !doc.sliceString(top.from, m.from).trim() && !doc.sliceString(m.to, bottom.to).trim()) out.push(mathBlock(state, top, bottom, math.tex));
+        }
         const first = doc.lineAt(ref.from).number;
         const last = lastLine(doc, ref.from, ref.to).number;
         for (let l = first; l <= last; l++) {

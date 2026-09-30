@@ -190,6 +190,12 @@ const host: ApiHost = {
     if (change) announce(rel, content, version, change, origin);
   },
   moved: () => resync(),
+  removed(rel, change) {
+    seen.delete(rel);
+    lastText.delete(rel);
+    broadcast({ type: "removed", path: rel });
+    broadcast({ type: "change", change });
+  },
   tree: () => broadcast({ type: "tree" }),
 };
 

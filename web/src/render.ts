@@ -4,7 +4,8 @@
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { assetUrl } from "./api.ts";
-import { currentScheme } from "./dom.ts";
+import { currentScheme, escapeHtml } from "./dom.ts";
+import { mathMarked, mathPlaceholder } from "./math.ts";
 import { isEmbeddable } from "./embeds/providers.ts";
 import { externalTitle, linkKind } from "./links.ts";
 import { boardsIn } from "../../src/core/kanban.ts";
@@ -26,6 +27,21 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   node.classList.add("is-external");
   node.setAttribute("title", externalTitle(href));
 });
+
+// A fenced code block keeps its whole info string (language, nowrap, title…) for hydrateCode (code.ts)
+// to draw it like the editor does. The code is escaped here and sanitized with the rest.
+marked.use({
+  renderer: {
+    code({ text, lang }) {
+      const info = (lang ?? "").trim();
+      const first = info.match(/^\S*/)![0];
+      if (first.toLowerCase() === "math") return mathPlaceholder(text.replace(/\n$/, ""), true, true);
+      return `<pre data-code-info="${escapeHtml(info)}"><code${first ? ` class="language-${escapeHtml(first)}"` : ""}>${escapeHtml(text.replace(/\n$/, ""))}\n</code></pre>\n`;
+    },
+  },
+});
+// $…$, $$…$$ and the rest render as math (math.ts): placeholders here, drawn by hydrateMath.
+marked.use(mathMarked);
 
 const IMAGE = /\.(png|jpe?g|gif|webp|avif|svg)$/i;
 const VIDEO = /\.(mp4|webm)$/i;

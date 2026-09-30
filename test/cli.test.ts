@@ -144,3 +144,13 @@ test("star, unstar and starred keep your favorites in order", () => {
   assert.deepEqual(JSON.parse(quire(vault, ["starred", "--json"]).stdout).map((n: { path: string }) => n.path), ["Projects/Roadmap.md"]);
   assert.equal(quire(vault, ["star"]).stderr, "star needs <note>\n");
 });
+
+test("delete sends notes to Trash, trash lists them, and trash restore brings one back", () => {
+  const vault = tempVault();
+  assert.match(quire(vault, ["delete", "Roadmap", "--agent", "Planner"]).stdout, /^Moved Projects\/Roadmap\.md to Trash \(\d+-\d+\)\n$/);
+  const listed = quire(vault, ["trash"]).stdout;
+  assert.match(listed, /^\d+-\d+  Projects\/Roadmap\.md — deleted \d{4}-\d{2}-\d{2} \d{2}:\d{2} by Planner for you, gone for good \d{4}-\d{2}-\d{2}\n$/);
+  assert.equal(quire(vault, ["trash", "restore", listed.split(" ")[0]]).stdout, "Restored Projects/Roadmap.md\n");
+  assert.equal(quire(vault, ["trash"]).stdout, "Trash is empty.\n");
+  assert.equal(quire(vault, ["trash", "empty"]).stderr, 'trash takes restore, not "empty"\n');
+});
