@@ -179,6 +179,40 @@ export interface Me {
   user: { id: string; name: string; email: string; picture: string | null };
   workspaces: Array<{ id: string; name: string; kind: "personal" | "team"; role: "owner" | "editor" | "viewer" }>;
 }
+/** Who a note or folder is shared with (online; see cloud/src/shares.ts). */
+export interface Share {
+  id: string;
+  note: string | null;
+  folder: string | null;
+  kind: "user" | "email" | "link";
+  name: string | null;
+  email: string | null;
+  role: "viewer" | "editor";
+  expiresAt: number | null;
+  createdBy: string | null;
+  createdAt: number;
+  /** A link's page, `/s/<token>`. */
+  url: string | null;
+}
+export interface ShareList {
+  target: { note?: string; folder?: string } | null;
+  path: string | null;
+  shares: Share[];
+  /** Folder shares that reach the note too. */
+  inherited: Share[];
+}
+/** A note someone can see through a share (or a link). */
+export interface SharedNote {
+  id: string;
+  path: string;
+  title: string;
+  kind: "md" | "html" | "asset";
+  version: string;
+  role: "viewer" | "editor";
+  content?: string | null;
+}
+export type ShareTarget = { path: string } | { folder: string };
+
 export interface ConnectedAgent {
   id: string;
   client: string;
@@ -243,6 +277,16 @@ export const api = {
   /** Online: the agents you've connected over MCP, most recently used first. */
   agents: () => j<ConnectedAgent[]>("/api/agents"),
   revokeAgent: (id: string) => j<{ ok: true }>("/api/agents/revoke", send("POST", { id })),
+  /** Online: notes other workspaces share with you. */
+  sharedWithMe: () => j<Array<{ workspace: { id: string; name: string }; notes: SharedNote[] }>>("/api/shared"),
+  /** This workspace's shares: of one note or folder, or all of them. */
+  shares: (target?: ShareTarget) =>
+    j<ShareList>(`${BASE}/shares${target ? ("folder" in target ? `?folder=${enc(target.folder)}` : `?path=${enc(target.path)}`) : ""}`),
+  sharePeople: () => j<Array<{ name: string; email: string }>>(`${BASE}/shares/people`),
+  share: (target: ShareTarget, o: { email?: string; link?: boolean; role: "viewer" | "editor"; expiresAt?: number | null }) =>
+    j<ShareList>(`${BASE}/shares`, send("POST", { ...target, ...o })),
+  updateShare: (id: string, o: { role?: "viewer" | "editor"; expiresAt?: number | null }) => j<{ ok: true }>(`${BASE}/shares/update`, send("POST", { id, ...o })),
+  unshare: (id: string) => j<{ ok: true }>(`${BASE}/shares/remove`, send("POST", { id })),
   /** A page of a workspace's change log, whichever workspace is open. */
   changesIn: (workspace: string) => j<Change[]>(`/api/w/${workspace}/changes?limit=200`),
   invite: (role: "editor" | "viewer") => j<{ url: string }>(`${BASE}/invites`, send("POST", { role })),

@@ -36,6 +36,8 @@ interface Hooks {
   openPerson(name: string): void;
   /** You can only view this workspace: chips show, but don't open editors. */
   readOnly(): boolean;
+  /** Shared outside the workspace (online): the card says so. */
+  shared?(item: FeedItem): boolean;
   /** Send notes to Trash (asking first if other notes link to them). Resolves to the paths that went. */
   delete(paths: string[]): Promise<string[]>;
   toast(t: { text: string; icon?: string; actionLabel?: string; action?: () => void }): void;
@@ -347,7 +349,7 @@ export class NotesPage {
       el(
         "div",
         { class: "fc-main" },
-        el("div", { class: "fc-head" }, title, item.archived ? el("span", { class: "fc-badge" }, "Archived") : null, roleBadge(item), el("span", { class: "spacer" }), starBtn, editBtn, archiveBtn, deleteBtn, expandBtn),
+        el("div", { class: "fc-head" }, title, item.archived ? el("span", { class: "fc-badge" }, "Archived") : null, roleBadge(item), this.hooks.shared?.(item) ? el("span", { class: "fc-badge is-shared", title: "Shared outside the workspace" }, icon("share", 11), "Shared") : null, el("span", { class: "spacer" }), starBtn, editBtn, archiveBtn, deleteBtn, expandBtn),
         el(
           "div",
           { class: "fc-meta" },

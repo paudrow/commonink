@@ -27,7 +27,7 @@ export interface Command {
   run: () => unknown;
 }
 
-export type Page = "notes" | "tasks" | "tags" | "assets" | "history" | "archive" | "trash";
+export type Page = "notes" | "tasks" | "tags" | "assets" | "history" | "archive" | "trash" | "shared";
 
 /** What the registry needs from the app: a snapshot of its state, and the actions to run. */
 export interface App {
@@ -44,6 +44,8 @@ export interface App {
   hasStart: boolean;
   /** Can delete notes (not a viewer online). */
   canDelete: boolean;
+  /** Online: notes can be shared, and there's a Shared with me. */
+  online: boolean;
   /** Online, the account menu's actions; locally, none. */
   account: Array<{ label: string; icon: string; run: () => unknown; workspace?: boolean; current?: boolean }>;
   newNote(): void;
@@ -62,6 +64,7 @@ export interface App {
   star(): void;
   archive(): void;
   delete(): void;
+  share(): void;
   move(): void;
   noteHistory(): void;
   gettingStarted(): void;
@@ -84,6 +87,7 @@ export function appCommands(app: App): Command[] {
     go("history", "History", "history", "changes activity versions"),
     go("archive", "Archive", "archive", "archived"),
     { ...go("trash", "Trash", "trash", "deleted restore bin recycle"), available: app.canDelete },
+    { ...go("shared", "Shared with me", "share", "shared others people"), available: app.online },
     { id: "theme", title: "Toggle theme", keywords: "dark light mode appearance colors", icon: "moon", run: app.toggleTheme },
     { id: "vim", title: app.vim ? "Turn vim keys off" : "Turn vim keys on", keywords: "vim keybindings modal editing toggle", icon: "code", run: app.toggleVim },
     {
@@ -100,6 +104,7 @@ export function appCommands(app: App): Command[] {
     { id: "split", title: app.split ? "Close this pane" : "Open to the side", keywords: "split view pane side by side", icon: "split", keys: ["Mod-Alt-\\"], area: "Split view", run: app.toggleSplit },
     { id: "star", title: note?.starred ? "Unstar note" : "Star note", keywords: "star favorite favourite", icon: note?.starred ? "starred" : "star", available: !!note, run: app.star },
     { id: "archive", title: note?.archived ? "Unarchive note" : "Archive note", keywords: "archive remove hide", icon: note?.archived ? "unarchive" : "archive", keys: ["Mod-Shift-e"], available: !!note, run: app.archive },
+    { id: "share", title: "Share…", keywords: "share people link invite collaborate public", icon: "share", available: !!note && app.online, run: app.share },
     { id: "delete", title: "Delete note", keywords: "delete remove trash bin", icon: "trash", available: !!note && app.canDelete, run: app.delete },
     { id: "move", title: "Move to folder…", keywords: "move note folder file", icon: "move", available: !!note, run: app.move },
     { id: "note-history", title: "History of this note", keywords: "versions changes diff restore", icon: "history", available: !!note, run: app.noteHistory },

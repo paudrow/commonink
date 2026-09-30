@@ -19,6 +19,7 @@ const app = (over: Partial<App> = {}): App => {
     htmlMode: "preview",
     hasStart: false,
     canDelete: true,
+    online: false,
     account: [],
     newNote: run("newNote"),
     newFolder: run("newFolder"),
@@ -36,6 +37,7 @@ const app = (over: Partial<App> = {}): App => {
     star: run("star"),
     archive: run("archive"),
     delete: run("delete"),
+    share: run("share"),
     move: run("move"),
     noteHistory: run("noteHistory"),
     gettingStarted: run("gettingStarted"),
@@ -185,4 +187,10 @@ test("Delete and Trash are commands for whoever can delete, not viewers", () => 
   assert.deepEqual(titles("trash", app({ note })).slice(0, 2), ["Go to Trash", "Delete note"]);
   assert.deepEqual(titles("trash", app({ note: null })), ["Go to Trash"]);
   assert.deepEqual(titles("trash", app({ note, canDelete: false })), []);
+});
+
+test("Share… and Shared with me are commands online only", () => {
+  const note = { kind: "md" as const, starred: false, archived: false };
+  assert.deepEqual(titles("share", app({ note, online: true })).slice(0, 2), ["Share…", "Go to Shared with me"]);
+  assert.deepEqual(titles("share", app({ note, online: false })).filter((t) => /Share/.test(t)), []);
 });

@@ -2133,3 +2133,28 @@ body.is-link-dragging, body.is-link-dragging * { cursor: grabbing !important; us
 .tr-meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .tr-meta .avatar { box-shadow: none; }
 @media (max-width: 640px) { .tr-row { flex-wrap: wrap; } .tr-main { flex-basis: calc(100% - 40px); } }
+
+/* Sharing: the dialog, the "Shared" marks, and a shared note's own page */
+.sh-box { width: min(560px, 100%); }
+.sh-body { display: grid; gap: 4px; margin-top: 8px; }
+.sh-body > .ws-row { margin-bottom: 6px; }
+.sh-note { margin: 6px 0 0; }
+.fc-badge.is-shared { display: inline-flex; align-items: center; gap: 3px; }
+#share-btn.is-shared { color: var(--accent-ink); }
+a.sh-row { color: inherit; text-decoration: none; }
+a.sh-row:hover { border-color: var(--accent-line); }
+.sv { min-height: 100vh; background: var(--bg); color: var(--ink); }
+.sv-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; padding: 10px 20px; background: var(--bg); border-bottom: 1px solid var(--line); }
+.sv-brand { display: inline-flex; align-items: center; gap: 7px; font-weight: 650; color: var(--ink-strong); text-decoration: none; }
+.sv-actions { display: flex; gap: 8px; }
+.sv-main { max-width: 760px; margin: 0 auto; padding: 32px 20px 80px; }
+.sv-meta { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--muted); }
+.sv-badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px; background: var(--hover); }
+.sv-title { margin: 10px 0 18px; font-size: 30px; letter-spacing: -0.02em; color: var(--heading); }
+.sv-body { font-size: 16px; line-height: 1.65; }
+.sv-body img { max-width: 100%; }
+.sv-body iframe { width: 100%; min-height: 60vh; border: 0; }
+.sv-noaccess { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border: 1px dashed var(--line-strong); border-radius: 8px; color: var(--muted); font-size: 13px; }
+.sv-dead { color: var(--muted); text-decoration: underline dotted; }
+.sv-editor { width: 100%; min-height: 60vh; padding: 14px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg-elev); color: var(--ink-strong); font: 14px/1.6 var(--mono); resize: vertical; }
+@media (max-width: 640px) { .sv-main { padding: 20px 16px 60px; } .sv-title { font-size: 24px; } }
