@@ -3,7 +3,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { QuireError } from "./paths.ts";
-import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtWrite } from "./format.ts";
+import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtMarks, fmtVersionDiff, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtWrite } from "./format.ts";
 import { parseQuery } from "./query.ts";
 import { TRASH_DAYS, type Quire } from "./quire.ts";
 import { parseAuthorFilter } from "./actor.ts";
@@ -38,6 +38,10 @@ export const TOOL_ROUTES: Record<string, string> = {
   get_today: "GET /today",
   backlinks: "GET /backlinks",
   recent_changes: "GET /changes",
+  list_marks: "GET /marks",
+  diff_versions: "GET /marks/compare",
+  mark_version: "POST /marks",
+  restore_mark: "POST /marks/restore",
   read_board: "GET /note",
   list_smart_folders: "GET /smart-folders",
   create_note: "POST /note",
@@ -160,6 +164,82 @@ export function createMcpServer(host: ToolHost): McpServer {
       annotations: readOnly,
     },
     ({ path, offset, limit }) => run(() => fmtRead(quire.read(path), offset, limit)),
+  );
+
+  server.registerTool(
+    "list_marks",
+    {
+      title: "List marked versions",
+      description:
+        "A note's marked versions (named versions like \"v1\" or \"Sent to Alex\", which people and agents mark to come back to), or every note's " +
+        "when `path` is left out. Newest first, each with its name, ID, who marked it and when.",
+      inputSchema: { path: z.string().optional().describe("A note (path, name or ID); leave out for every note's marks") },
+      annotations: readOnly,
+    },
+    ({ path }) => run(() => fmtMarks(quire.marks(path), path)),
+  );
+
+  server.registerTool(
+    "diff_versions",
+    {
+      title: "Compare versions",
+      description: "What changed between a marked version and the note now, or between two marked versions of it, as a unified diff.",
+      inputSchema: {
+        from: z.string().describe("A marked version: its ID, or its name on the note `path`"),
+        to: z.string().optional().describe('Another marked version of the same note, or "now" (the default)'),
+        path: z.string().optional().describe("The note, when `from` or `to` is a name"),
+      },
+      annotations: readOnly,
+    },
+    ({ from, to, path }) =>
+      run(() => {
+        const c = quire.compareMarks(from, to ?? "now", path);
+        return fmtVersionDiff(c.path, { label: c.from.mark.name, text: c.from.text }, { label: c.to.mark ? `"${c.to.mark.name}"` : "now", text: c.to.text });
+      }),
+  );
+
+  server.registerTool(
+    "mark_version",
+    {
+      title: "Mark a version",
+      description:
+        "Give the note's current version a name (\"v1\", \"Before the rewrite\"), so anyone can compare with it or go back to it later. " +
+        "With `at`, mark the version right after that change instead (a change ID from recent_changes). Mark before a large rewrite. " +
+        "Names are unique per note; the mark keeps that version's text.",
+      inputSchema: {
+        path: z.string(),
+        name: z.string().describe("Short, one line: \"v1\", \"Sent to Alex\""),
+        description: z.string().optional().describe("Why this version matters"),
+        at: z.number().int().min(1).optional().describe("A past change to this note: mark the version right after it"),
+      },
+      annotations: writes,
+    },
+    ({ path, name, description, at }) =>
+      run(() => {
+        const m = quire.mark(path, name, source(), { description, at });
+        return `Marked ${m.path} as "${m.name}" [${m.id}]${m.change_id ? `, after change #${m.change_id}` : ""}.`;
+      }),
+  );
+
+  server.registerTool(
+    "restore_mark",
+    {
+      title: "Restore a marked version",
+      description:
+        "Put a note back to a marked version. It's one change like any other: History shows it, and it can be undone. " +
+        "Pass base_version (from read_note) so it fails instead of overwriting edits you haven't seen.",
+      inputSchema: {
+        mark: z.string().describe("The marked version: its ID, or its name on the note `path`"),
+        path: z.string().optional().describe("The note, when `mark` is a name"),
+        base_version: z.string().optional(),
+      },
+      annotations: { ...writes, destructiveHint: true },
+    },
+    ({ mark, path, base_version }) =>
+      run(() => {
+        const r = quire.restoreMark(mark, source(), { target: path, baseVersion: base_version });
+        return r.change ? fmtWrite(r, `Restored to "${r.mark.name}":`) : `${r.path} is already at "${r.mark.name}".`;
+      }),
   );
 
   server.registerTool(
