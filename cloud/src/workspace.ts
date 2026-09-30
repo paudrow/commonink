@@ -18,7 +18,7 @@ import { safeDecode } from "../../src/core/uri.ts";
 import { QuireError } from "../../src/core/paths.ts";
 import { accessOn, type SharedAccess, type ShareRole } from "./grants.ts";
 import { limit } from "./limits.ts";
-import { addShare, linkToken, listShares, removeShare, ShareError, sharePeople, updateShare, type Share, type Target } from "./shares.ts";
+import { addShare, linkToken, listShares, removeShare, ShareError, updateShare, type Share, type Target } from "./shares.ts";
 
 export class Workspace extends DurableObject<Env> {
   private db: DoDb;
@@ -293,8 +293,6 @@ export class Workspace extends DurableObject<Env> {
         const target = this.shareTarget({ note: url.searchParams.get("note") ?? undefined, path: url.searchParams.get("path") ?? undefined, folder: url.searchParams.get("folder") ?? undefined }, true);
         return json(await this.describeShares(wsId, target));
       }
-      case "GET /shares/people":
-        return json(await sharePeople(this.env.DB, wsId));
       case "POST /shares": {
         const tooMany = await limit(this.env.DB, "share", user);
         if (tooMany) return tooMany;

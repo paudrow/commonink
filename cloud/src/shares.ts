@@ -87,20 +87,6 @@ export async function listShares(db: D1Database, workspaceId: string, target?: T
   return results;
 }
 
-/** People to suggest in the share dialog: the workspace's members and anyone it has shared with. */
-export async function sharePeople(db: D1Database, workspaceId: string) {
-  const { results } = await db
-    .prepare(
-      `SELECT DISTINCT u.name, u.email FROM users u WHERE u.id IN (
-         SELECT user_id FROM members WHERE workspace_id = ?1
-         UNION SELECT principal FROM shares WHERE workspace_id = ?1 AND principal_type = 'user')
-       ORDER BY u.name LIMIT 200`,
-    )
-    .bind(workspaceId)
-    .all<{ name: string; email: string }>();
-  return results;
-}
-
 /**
  * Share a note or folder with someone by email (a person, if they have an account; the address, if
  * not) or with anyone who has the link. Sharing again with the same person or link changes its role
