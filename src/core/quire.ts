@@ -1682,9 +1682,10 @@ export class Quire {
     // Which links point at the note, read before it moves: after, a name can lead to another note.
     const resolveBefore = this.resolver();
     const pointing = new Map<string, Set<string>>();
-    for (const src of new Set(this.backlinks(from).map((b) => b.path))) {
+    // The note's own links to itself ([[Guide#Setup]] in Guide) move with it.
+    for (const src of new Set([from, ...this.backlinks(from).map((b) => b.path)])) {
       const targets = extractLinks(this.files.read(src) ?? "").map((l) => l.target).filter((t) => resolveBefore(t, src) === from);
-      pointing.set(src, new Set(targets));
+      if (targets.length) pointing.set(src, new Set(targets));
     }
 
     const id = this.meta(from)?.id;
@@ -1706,7 +1707,8 @@ export class Quire {
     const resolve = this.resolver(); // rewriting links changes no note's path
     // Spaces and parentheses escaped too: a bare ")" would end the link.
     const href = encodeURI(dest).replace(/\(/g, "%28").replace(/\)/g, "%29");
-    for (const [src, targets] of pointing) {
+    for (const [was, targets] of pointing) {
+      const src = was === from ? dest : was;
       const before = this.files.read(src) ?? "";
       // A [[name]] that still finds the note stays as written; a markdown link gets the new path.
       const after = mapOutsideCode(before, (text) =>
@@ -1720,11 +1722,11 @@ export class Quire {
       );
       if (after !== before) {
         const r = this.commit(src, before, after, source, "edit");
-        updated.push(src);
+        if (src !== dest) updated.push(src);
         edits.push({ path: src, content: after, version: r.version, change: r.change });
       }
     }
-    return { path: dest, from, version: meta.version, change, updated, edits };
+    return { path: dest, from, version: edits.find((e) => e.path === dest)?.version ?? meta.version, change, updated, edits };
   }
 }
 
