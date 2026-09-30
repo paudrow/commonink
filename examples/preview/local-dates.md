@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 139
 title: Agents use your day
 ---
 1. Connect an agent to this Preview: `claude mcp add --transport http commonink-preview <this Preview's address>/mcp`, then `/mcp` in Claude Code to sign in. Pick your personal workspace.
