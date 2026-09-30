@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 99
 title: Footnotes inside alerts
 ---
 1. Open [[GitHub markdown sampler]]. The Note alert's text now has a footnote, a 💡 emoji and a key. In the editor, the footnote's number is raised, and hovering it shows the footnote.
