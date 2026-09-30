@@ -291,9 +291,13 @@ function inMonth(r: Rule, y: number, m: number, anchorDay: number): number[] {
 /** How many periods to look through before giving up (a rule like "every Feb 30" never happens). */
 const HORIZON: Record<Freq, number> = { day: 4000, week: 600, month: 1300, year: 420 };
 
+/** The most days a period can span, so a jump to the period before `after` never overshoots it. */
+const LONGEST: Record<Freq, number> = { day: 1, week: 7, month: 31, year: 366 };
+
 /** The first date the rule gives strictly after `after`, counting periods from `anchor`. Null if there's none in sight. */
 function nextAfter(r: Rule, anchor: number, after: number): number | null {
-  for (let k = 0; k < HORIZON[r.freq]; k++) {
+  const skip = Math.max(0, Math.floor((after - anchor) / (LONGEST[r.freq] * r.interval)) - 1);
+  for (let k = skip; k < skip + HORIZON[r.freq]; k++) {
     const hit = period(r, anchor, k).sort((x, y) => x - y).find((x) => x > after);
     if (hit !== undefined) return hit;
   }
@@ -303,23 +307,31 @@ function nextAfter(r: Rule, anchor: number, after: number): number | null {
 /**
  * The next due date for a task repeating by `r`: from its current due date (the next one strictly
  * after it) or, for `after-` rules, a gap after the day it was done. A task with no due date counts
- * from the day it was done. Keeps a due date's time of day. Null if the rule never happens again.
+ * from the day it was done. Never before `today`: dates the rule gave that have already gone by are
+ * stepped past, in the rule's own rhythm. Keeps a due date's time of day. Null if the rule never
+ * happens again.
  */
-export function nextDue(r: Rule, due: string | null, done: string): string | null {
+export function nextDue(r: Rule, due: string | null, done: string, today = done): string | null {
   const time = due && due.length > 10 ? due.slice(10) : "";
-  if (r.from === "done") return addGap(fromIso(done), r) + time;
+  const before = fromIso(today) - 1;
+  if (r.from === "done") {
+    const from = fromIso(done);
+    let k = 1;
+    while (addGap(from, r, k) <= before) k++;
+    return toIso(addGap(from, r, k)) + time;
+  }
   const anchor = fromIso(due ?? done);
-  const next = nextAfter(r, anchor, anchor);
+  const next = nextAfter(r, anchor, Math.max(anchor, before));
   return next === null ? null : toIso(next) + time;
 }
 
-/** A gap after a day. A month after the 31st is the next month's last day, if it's shorter. */
-function addGap(from: number, r: Rule): string {
-  if (r.freq === "day" || r.freq === "week") return toIso(from + r.interval * (r.freq === "week" ? 7 : 1));
+/** `k` gaps after a day. A month after the 31st is the next month's last day, if it's shorter. */
+function addGap(from: number, r: Rule, k: number): number {
+  if (r.freq === "day" || r.freq === "week") return from + k * r.interval * (r.freq === "week" ? 7 : 1);
   const { y, m, d } = partsOf(from);
-  const index = y * 12 + (m - 1) + r.interval * (r.freq === "year" ? 12 : 1);
+  const index = y * 12 + (m - 1) + k * r.interval * (r.freq === "year" ? 12 : 1);
   const [ny, nm] = [Math.floor(index / 12), (index % 12) + 1];
-  return toIso(dayNumber(ny, nm, Math.min(d, daysIn(ny, nm))));
+  return dayNumber(ny, nm, Math.min(d, daysIn(ny, nm)));
 }
 
 /** The next `count` dates after `from`, each one's successor from it (what the editor previews). */

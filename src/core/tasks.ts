@@ -266,15 +266,16 @@ export function endsOf(meta: Pick<TaskMeta, "until" | "times">, rule: Rule): { u
 
 /**
  * The next occurrence of a repeating task that's done (or skipped) with `after` as the day to count
- * from: its due date, and the patch that counts `times:` (or the rule's COUNT) down. Null if the
- * task doesn't repeat, or this was its last time.
+ * from: its due date, never before `today`, and the patch that counts `times:` (or the rule's
+ * COUNT) down by one, however many dates it passed. Null if the task doesn't repeat, or this was its
+ * last time.
  */
-function following(meta: TaskMeta, after: string): { due: string; patch: TaskPatch } | null {
+function following(meta: TaskMeta, after: string, today = after): { due: string; patch: TaskPatch } | null {
   const rule = meta.rec ? parseRule(meta.rec) : null;
   if (!rule) return null;
   const ends = endsOf(meta, rule);
   if (ends.times !== null && ends.times <= 1) return null;
-  const due = nextDue(rule, meta.due, after);
+  const due = nextDue(rule, meta.due, after, today);
   if (!due || (ends.until && due.slice(0, 10) > ends.until)) return null;
   const start = meta.start && shiftDate(meta.start, daysBetween(meta.due ?? after, due));
   const countdown: TaskPatch = meta.times !== null ? { times: meta.times - 1 } : rule.count ? { rec: formatRule({ ...rule, count: rule.count - 1 }) } : {};
@@ -283,8 +284,9 @@ function following(meta: TaskMeta, after: string): { due: string; patch: TaskPat
 
 /**
  * The task that follows a repeating one done on `done`: the same line, unticked, due on the rule's
- * next date, with its start moved by as many days and one fewer `times:` left. Null if it doesn't
- * repeat, or never again (its `until:` has passed, or that was its last time).
+ * next date on or after `done` (so a late tick doesn't leave the next one overdue too), with its
+ * start moved by as many days and one fewer `times:` left. Null if it doesn't repeat, or never
+ * again (its `until:` has passed, or that was its last time).
  */
 export function nextOccurrence(line: string, done: string): string | null {
   const task = parseTask(line);
@@ -295,11 +297,11 @@ export function nextOccurrence(line: string, done: string): string | null {
 /**
  * The patch that skips a repeating task's current occurrence: due (and start) move to the next
  * date without it being done, and a skipped time counts as one of its `times:`. A gap after
- * completion counts from the due date, as if done on time. Null if the task doesn't repeat, or has
- * no next time to skip to.
+ * completion counts from the due date, as if done on time. Either way it lands on or after `today`.
+ * Null if the task doesn't repeat, or has no next time to skip to.
  */
 export function skipPatch(meta: TaskMeta, today: string): TaskPatch | null {
-  return following(meta, meta.due?.slice(0, 10) ?? today)?.patch ?? null;
+  return following(meta, meta.due?.slice(0, 10) ?? today, today)?.patch ?? null;
 }
 
 /** Put a new token among the tokens at the end of the text, before the first that ranks after it (else last). */
