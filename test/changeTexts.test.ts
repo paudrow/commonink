@@ -82,6 +82,31 @@ test("a change log from before deltas is stored as deltas on the next start, and
   assert.ok(storedBytes(upgraded.db) < wholeBytes(texts) / 4, `${storedBytes(upgraded.db)} of ${wholeBytes(texts)} bytes`);
 });
 
+test("a vault on disk gives back the space the delta upgrade freed, once, and says how much", (t) => {
+  const r = random(7);
+  const { dir, quire } = openTempVault({ "Note.md": r.text(3000) });
+  edit(quire, 7, 100);
+  asBeforeDeltas(quire.db);
+  quire.db.exec("VACUUM");
+  const said = t.mock.method(console, "error", () => {});
+  const pages = (db: SqlDb) => db.get<{ n: number }>("SELECT page_count AS n FROM pragma_page_count()")!.n;
+  const was = pages(quire.db);
+
+  const upgraded = openVault(dir);
+  assert.ok(pages(upgraded.db) < was / 2, `${pages(upgraded.db)} of ${was} pages`);
+  openVault(dir);
+  assert.equal(said.mock.callCount(), 1);
+  assert.match(said.mock.calls[0].arguments[0], /^Stored History's older versions as edits: the index went from \d+\.\d MB to \d+\.\d MB\.$/);
+  assert.deepEqual(upgraded.db.all("SELECT name FROM upgrades ORDER BY name").map((u) => u.name), ["change deltas", "vacuum after deltas"]);
+});
+
+test("a vault with nothing to store as deltas isn't vacuumed", (t) => {
+  const said = t.mock.method(console, "error", () => {});
+  const { dir } = openTempVault();
+  openVault(dir);
+  assert.equal(said.mock.callCount(), 0);
+});
+
 test("a delta upgrade that fails partway keeps the notes it finished, and the next start does the rest", () => {
   const r = random(5);
   const { dir, quire } = openTempVault({ "A.md": r.text(3000), "B.md": r.text(3000) });
@@ -149,7 +174,7 @@ class DurableObjectLikeDb extends NodeDb {
   }
 }
 
-test("a workspace's change log online is upgraded the same way", () => {
+test("a workspace's change log online is upgraded the same way, without a VACUUM", () => {
   const r = random(6);
   const dir = tempVault({ "Note.md": r.text(3000) });
   const open = () => {
@@ -166,4 +191,5 @@ test("a workspace's change log online is upgraded the same way", () => {
   const upgraded = open();
   assertTexts(upgraded, texts, "online");
   assert.ok(storedBytes(upgraded.db) < wholeBytes(texts) / 4);
+  assert.deepEqual(upgraded.db.all("SELECT name FROM upgrades").map((u) => u.name), ["change deltas"]);
 });

@@ -78,8 +78,9 @@ export function dropBefores(db: SqlDb, where: string, ...args: unknown[]) {
  * change log from before deltas: each note in its own transaction, so an upgrade that stops
  * partway keeps what it finished, and the next run picks up the rest.
  */
-export function compactNote(db: SqlDb, noteId: string) {
-  db.tx(() => {
+export function compactNote(db: SqlDb, noteId: string): number {
+  return db.tx(() => {
+    let converted = 0;
     const rows = db.all<{ id: number; before: string; base_id: number | null }>(
       "SELECT id, before, base_id FROM changes WHERE note_id = ? AND before IS NOT NULL ORDER BY id DESC",
       noteId,
@@ -96,9 +97,11 @@ export function compactNote(db: SqlDb, noteId: string) {
         if (delta.length < text.length) {
           db.run("UPDATE changes SET before = ?, base_id = ? WHERE id = ?", delta, newer.id, r.id);
           behind++;
+          converted++;
         } else behind = 0;
       } else behind = 0;
       newer = { id: r.id, text };
     }
+    return converted;
   });
 }

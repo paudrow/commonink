@@ -155,12 +155,27 @@ export function migrate(db: SqlDb, opts: { local?: boolean } = {}) {
   } catch {}
   db.exec("CREATE INDEX IF NOT EXISTS changes_base ON changes(base_id) WHERE base_id IS NOT NULL");
   if (!db.get("SELECT 1 FROM upgrades WHERE name = 'change deltas'")) {
+    let converted = 0;
     for (const { note_id } of db.all<{ note_id: string }>("SELECT DISTINCT note_id FROM changes WHERE note_id IS NOT NULL AND before IS NOT NULL ORDER BY note_id")) {
-      compactNote(db, note_id);
+      converted += compactNote(db, note_id);
     }
     db.run("INSERT INTO upgrades(name) VALUES ('change deltas')");
+    // SQLite reuses the pages the deltas freed but never gives them back. A vault on disk gets them
+    // back once; a Durable Object can't VACUUM.
+    if (opts.local && converted && !db.get("SELECT 1 FROM upgrades WHERE name = 'vacuum after deltas'")) vacuum(db);
   }
 }
+
+/** Rebuild the database file without its free pages, once, saying how much that gave back. */
+function vacuum(db: SqlDb) {
+  const bytes = () => db.get<{ n: number }>("SELECT page_count * page_size AS n FROM pragma_page_count(), pragma_page_size()")!.n;
+  const was = bytes();
+  db.exec("VACUUM");
+  db.run("INSERT INTO upgrades(name) VALUES ('vacuum after deltas')");
+  console.error(`Stored History's older versions as edits: the index went from ${fmtMB(was)} to ${fmtMB(bytes())}.`);
+}
+
+const fmtMB = (n: number) => `${(n / 1024 / 1024).toFixed(1)} MB`;
 
 /**
  * Walk the log newest first from where each note is now: a move hands the ID (or nothing, if that
