@@ -101,6 +101,16 @@ test("typing a task's token offers its values, only in a task's text and never i
   assert.equal(labels("- [ ] Call mom!"), null);
 });
 
+test("a monthly day past the 28th typed after rec: offers the last day of the month, keeping what was typed first", () => {
+  const typed = complete("- [ ] Pay rent rec:31st", 1)!;
+  assert.equal(typed.from, "- [ ] Pay rent rec:".length);
+  assert.deepEqual(typed.options.map((o) => [o.label, o.detail, o.apply]), [
+    ["31st", "Shorter months use their last day", "31st"],
+    ["Last day of the month", "last-day", "last-day"],
+  ]);
+  assert.ok(complete("- [ ] Pay rent rec:28th", 1)!.options.every((o) => o.label !== "Last day of the month"));
+});
+
 test("the days offered after due: count from today: tomorrow, then the coming weekdays by name, then a week out", () => {
   assert.deepEqual(dayPicks("2026-09-28"), [ // a Monday
     { label: "Today", date: "2026-09-28" },
