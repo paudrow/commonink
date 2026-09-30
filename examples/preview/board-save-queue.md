@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 125
 title: A board shown in another note doesn't write over an agent's change
 ---
 A board shown outside its note (`::kanban{note=…}`, or the note embedded with `![[…]]`) saves each change one after another. When a save found the note changed underneath, the board reloaded, but the saves queued behind it still went out. They were made on the old text, so they wrote over the other change.
