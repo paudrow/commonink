@@ -69,6 +69,16 @@ test("creating a second top-level note with the same title leaves the first as i
   assert.deepEqual(quire.list().map((n) => n.path), ["Idea.md"]);
 });
 
+test("moving a note to a folder puts it in the folder under its own name, as mv does", () => {
+  for (const to of ["Projects/", "./Projects/", "Ideas/"]) {
+    const { quire } = openTempVault();
+    const r = quire.move("Welcome.md", to, "t");
+    const folder = to.replace(/^\.\//, "").replace(/\/$/, "");
+    assert.equal(r.path, `${folder}/Welcome.md`, to);
+    assert.equal(quire.read(`${folder}/Welcome`).content, "# Welcome\n\nStart with [[Roadmap]].\n\n![[chart.svg]]\n");
+  }
+});
+
 test("a note can't be moved to a different file type", () => {
   const { dir, quire } = openTempVault();
   assert.throws(() => quire.move("Welcome", "Welcome.png", "t"), /can't change .* from \.md to \.png/);
