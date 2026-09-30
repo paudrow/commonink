@@ -258,8 +258,8 @@ export interface TrashItem extends Trashed {
   expiresAt: number;
   by: { source: string; person: string | null; agent: string | null } | null;
   excerpt: string;
-  /** Its labels, which deleting it for good deletes too. */
-  labels: number;
+  /** How many labels it has, which deleting it for good deletes too (none if left out). */
+  labels?: number;
 }
 /** A label of a note (core Quire.label). */
 export interface Label {

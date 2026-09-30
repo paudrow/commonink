@@ -125,8 +125,8 @@ export interface TrashItem {
   expiresAt: number;
   /** Who deleted it, from the change log (null once the log no longer has it). */
   by: Actor & { source: string } | null;
-  /** Its labels, which deleting it for good deletes too. */
-  labels: number;
+  /** How many labels it has, which deleting it for good deletes too (none if left out). */
+  labels?: number;
   /** The start of a note's text; empty for an asset. */
   excerpt: string;
 }
