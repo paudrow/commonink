@@ -31,3 +31,14 @@ export function openTempVault(files?: Record<string, string>, opts?: Parameters<
   const dir = tempVault(files);
   return { dir, quire: openVault(dir, opts) };
 }
+
+/**
+ * The CPU time `run` took, in milliseconds. Time bounds in tests use it rather than the clock: on a
+ * busy machine other processes stretch the clock time several times over, but not this.
+ */
+export function cpuMs(run: () => unknown): number {
+  const start = process.cpuUsage();
+  run();
+  const { user, system } = process.cpuUsage(start);
+  return (user + system) / 1000;
+}

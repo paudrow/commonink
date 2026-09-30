@@ -60,6 +60,15 @@
   body.is-focus #topbar { opacity: 1; }
 }
 
+@media (hover: none) {
+  /* No hover to reveal them: a sidebar row's actions (a folder's New note and Delete, a favorite's
+     Open to the side and Unstar) always show, 44px to tap, as they would under the pointer. */
+  #sidebar .row-actions { display: flex; margin-right: -8px; }
+  #sidebar .row-act { width: 44px; height: 44px; }
+  #sidebar .tree-row .agent-dot, #sidebar .tree-row .fav-mark { display: none; }
+  .tags-row .row-act { visibility: visible; }
+}
+
 @media (max-width: 760px) {
   /* One column; the sidebar and panel float. dvh so the status bar clears a phone's browser bar. */
   #app { display: flex; height: 100dvh; }

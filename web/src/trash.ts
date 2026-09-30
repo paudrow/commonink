@@ -3,9 +3,10 @@
 // lists what's there to restore, and (for whoever may) to delete for good.
 import { api, ApiError, type TrashItem } from "./api.ts";
 import { $, authorAvatar, authorName, displayName, el, icon, timeAgo } from "./dom.ts";
+import type { ToastSpec } from "./toast.ts";
 
 export interface DeleteHooks {
-  toast(t: { text: string; icon?: string; actionLabel?: string; action?: () => void }): void;
+  toast(t: ToastSpec): void;
   /** Notes changed: fetch the list again (and anything showing it). */
   changed(): Promise<void>;
 }

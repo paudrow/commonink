@@ -151,6 +151,18 @@ test("an agent acts as its person, with their role, and its writes say who", asy
   await Promise.all([owner.client.close(), viewer.client.close()]);
 });
 
+test("an agent's recent_changes counts a run of saves as History's /diffstats does", async () => {
+  const agent = await mcp((await connect(people.owner, people.id)).access);
+  await agent.call("create_note", { path: "Churn", content: "# Churn\n\none\ntwo\n" });
+  await agent.call("edit_note", { path: "Churn", old_string: "two\n", new_string: "two\nthree\nfour\nfive\nsix\n" });
+  await agent.call("edit_note", { path: "Churn", old_string: "one\ntwo\nthree\nfour\nfive\nsix\n", new_string: "ONE\ntwo\nthree\n" });
+  await agent.call("edit_note", { path: "Churn", old_string: "three\n", new_string: "three\nfour\n" });
+  const [latest, , first] = await cloud.call(people.owner, "GET", `${people.base}/changes?path=Churn.md&limit=3`);
+  assert.deepEqual(await cloud.call(people.owner, "GET", `${people.base}/diffstats?sets=${first.id}-${latest.id}`), [{ add: 3, del: 1 }]);
+  assert.match((await agent.call("recent_changes", { path: "Churn.md", limit: 3 })).text, /^#\d+ \S+ Test Agent for Owner: edited Churn\.md \(\+3 −1, 3 saves\)$/);
+  await agent.client.close();
+});
+
 test("a role change applies to a connected agent on its next request", async () => {
   const editor = await mcp((await connect(people.editor, people.id)).access);
   assert.ok((await editor.tools()).includes("create_note"));

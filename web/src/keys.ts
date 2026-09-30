@@ -62,3 +62,47 @@ export function formatKeys(keys: string, mac = IS_MAC): string {
   if (key === "click") return mac ? `${mods.map((m) => MAC_MOD[m]).join("")}-click` : `${mods.map((m) => PC_MOD[m]).join("+")}-click`;
   return mac ? mods.map((m) => MAC_MOD[m]).join("") + name : [...mods.map((m) => PC_MOD[m]), name].join("+");
 }
+
+const MAC_MOD_SAID: Record<string, string> = { Mod: "Command", Ctrl: "Control", Alt: "Option", Shift: "Shift" };
+const PC_MOD_SAID: Record<string, string> = { Mod: "Control", Ctrl: "Control", Alt: "Alt", Shift: "Shift" };
+const KEY_SAID: Record<string, string> = {
+  ArrowUp: "Up Arrow",
+  ArrowDown: "Down Arrow",
+  ArrowLeft: "Left Arrow",
+  ArrowRight: "Right Arrow",
+  ".": "Period",
+  ",": "Comma",
+  "/": "Slash",
+  "\\": "Backslash",
+  "[": "Left Bracket",
+  "]": "Right Bracket",
+  "?": "Question Mark",
+  ">": "Greater Than",
+};
+
+/** How a screen reader should say a shortcut: "Mod-Shift-p" is "Command Shift P" on a Mac, "Control Shift P" elsewhere. */
+export function speakKeys(keys: string, mac = IS_MAC): string {
+  const parts = keys.length > 1 ? keys.split(/-(?=.)/) : [keys];
+  const key = parts.pop()!;
+  if (!parts.every((p) => p in MAC_MOD)) return keys;
+  const said = mac ? MAC_MOD_SAID : PC_MOD_SAID;
+  return [...parts.map((m) => said[m]), KEY_SAID[key] ?? (parts.length && key.length === 1 ? key.toUpperCase() : key)].join(" ");
+}
+
+/** A <kbd> with the shortcut the platform's way (⌘⇧P), and its spoken name for screen readers in place of the symbols. */
+export function kbd(keys: string, mac = IS_MAC): HTMLElement {
+  const k = document.createElement("kbd");
+  const [shown, said] = [formatKeys(keys, mac), speakKeys(keys, mac)];
+  if (shown === said) {
+    k.textContent = shown;
+    return k;
+  }
+  const glyphs = document.createElement("span");
+  glyphs.setAttribute("aria-hidden", "true");
+  glyphs.textContent = shown;
+  const words = document.createElement("span");
+  words.className = "sr-only";
+  words.textContent = said;
+  k.append(glyphs, words);
+  return k;
+}

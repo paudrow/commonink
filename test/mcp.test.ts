@@ -51,7 +51,7 @@ test("agents read a board and add, move and edit its cards, each change attribut
   await call("move_card", { path: "Launch", card: "pricing", to_column: "Done" });
   assert.match((await call("edit_card", { path: "Launch", card: "5", text: "Webhooks @sam due:2026-10-01\nRetry on 500s" })).text, /^Edited a card in Launch\.md/);
   assert.match((await call("read_board", { path: "Launch" })).text, /^Board 1 of 1 in Launch\.md\n\n## Backlog\n- \[ \] Webhooks @sam due:2026-10-01 — L5\n    Retry on 500s\n\n## Done \(done column\)\n- \[x\] Pricing page done:\d{4}-\d{2}-\d{2} — L9$/);
-  assert.match((await call("recent_changes", { path: "Launch.md", limit: 1 })).text, /test-agent for you: edit Launch\.md \(\+1 −1\)$/);
+  assert.match((await call("recent_changes", { path: "Launch.md", limit: 1 })).text, /test-agent for you: edited Launch\.md \(\+1 −1\)$/);
   assert.deepEqual(await call("move_card", { path: "Launch", card: "nope", to_column: "Done" }), { text: 'No card in Launch.md matches "nope"', isError: true });
 });
 
@@ -91,9 +91,23 @@ test("writes are attributed to the connected client", async () => {
   assert.equal((await call("create_note", { path: "Agent log", content: "# Agent log\n" })).isError, false);
   assert.equal(fs.readFileSync(path.join(vault, "Agent log.md"), "utf8"), "# Agent log\n");
   const changes = await call("recent_changes", { path: "Agent log.md" });
-  assert.match(changes.text, /^#\d+ \S+ test-agent for you: create Agent log\.md \(2 lines\)$/);
+  assert.match(changes.text, /^#\d+ \S+ test-agent for you: created Agent log\.md \(2 lines\)$/);
   assert.equal((await call("recent_changes", { path: "Agent log.md", by: "people" })).text, "No changes.");
-  assert.match((await call("recent_changes", { path: "Agent log.md", by: "test-agent" })).text, /test-agent for you: create Agent log\.md/);
+  assert.match((await call("recent_changes", { path: "Agent log.md", by: "test-agent" })).text, /test-agent for you: created Agent log\.md/);
+});
+
+test("recent_changes counts a run of saves by its net change and says renamed, as History does", async () => {
+  await call("create_note", { path: "Churn", content: "# Churn\n\none\ntwo\n" });
+  await call("edit_note", { path: "Churn", old_string: "two\n", new_string: "two\nthree\nfour\nfive\nsix\n" });
+  await call("edit_note", { path: "Churn", old_string: "one\ntwo\nthree\nfour\nfive\nsix\n", new_string: "ONE\ntwo\nthree\n" });
+  await call("edit_note", { path: "Churn", old_string: "three\n", new_string: "three\nfour\n" });
+  await call("move_note", { from: "Churn", to: "Churned" });
+  const lines = (await call("recent_changes", { path: "Churned.md" })).text.split("\n").map((l) => l.replace(/^#\d+ \S+ /, ""));
+  assert.deepEqual(lines, [
+    "test-agent for you: renamed Churn.md → Churned.md",
+    "test-agent for you: edited Churn.md (+3 −1, 3 saves)",
+    "test-agent for you: created Churn.md (5 lines)",
+  ]);
 });
 
 test("tool errors come back as isError with the core's message", async () => {
@@ -145,7 +159,7 @@ test("an agent's delete goes to Trash, attributed to it, and it has no way to de
   await call("create_note", { path: "Scratch", content: "# Scratch\n" });
   const deleted = await call("delete_note", { paths: ["Scratch"] });
   assert.match(deleted.text, /^Moved Scratch\.md to Trash \((\d+-\d+)\)$/);
-  assert.match((await call("recent_changes", { limit: 1 })).text, /test-agent for you: delete Scratch\.md/);
+  assert.match((await call("recent_changes", { limit: 1 })).text, /test-agent for you: deleted Scratch\.md/);
   assert.equal((await call("read_note", { path: "Scratch" })).isError, true);
   // It can see Trash and restore from it, and nothing deletes for good.
   const { tools } = await client.listTools();

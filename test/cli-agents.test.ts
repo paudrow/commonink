@@ -81,7 +81,7 @@ test("upload adds files under a free name, and download copies them back out (or
   fs.writeFileSync(path.join(here, "logo.png"), Buffer.from([137, 80, 78, 71, 1, 2, 3]));
   const up = json(vault, ["upload", path.join(here, "logo.png"), path.join(here, "logo.png"), "--folder", "brand", "--agent", "Designer"]);
   assert.deepEqual(up.data, [{ path: "brand/logo.png", size: 7 }, { path: "brand/logo 2.png", size: 7 }]);
-  assert.match(quire(vault, ["changes", "--limit", "1"]).stdout, /Designer for you: create brand\/logo 2\.png/);
+  assert.match(quire(vault, ["changes", "--limit", "1"]).stdout, /Designer for you: created brand\/logo 2\.png/);
   const out = path.join(here, "copy.png");
   assert.equal(quire(vault, ["download", "brand/logo.png", "--out", out]).stdout, `Downloaded brand/logo.png (7 B) → ${out}\n`);
   assert.deepEqual([...fs.readFileSync(out)], [137, 80, 78, 71, 1, 2, 3]);

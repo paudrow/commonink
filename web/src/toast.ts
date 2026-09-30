@@ -5,19 +5,19 @@ import { authorAvatar, authorName, el, icon, typingIn } from "./dom.ts";
 import { IS_MAC } from "./panes.ts";
 import { formatKeys, matchKeys } from "./keys.ts";
 
-export interface ToastSpec {
+export type ToastSpec = {
   text: string;
   by?: { source: string; person: string | null; agent: string | null };
   icon?: string;
   detail?: string;
-  /** With `actionLabel`, a button; without, clicking the toast runs it. A label of "Undo" is also ⌘Z. */
-  action?: () => void;
-  actionLabel?: string;
-  /** An Open button beside the action, for a toast about a note that isn't open. */
+  /** An Open button, for a toast about a note that isn't open. */
   open?: () => void;
   /** Something the person asked to hear about (a timer ending): read out at once, and it stays longer. */
   alert?: boolean;
-}
+} & ToastAction;
+
+/** A toast's action is always a labelled button, so a keyboard or screen reader can reach it. "Undo" is also ⌘Z. */
+type ToastAction = { action: () => void; actionLabel: string } | { action?: undefined; actionLabel?: undefined };
 
 /** How long a toast stays, counted only while nothing is on it. */
 export const LIFE = { plain: 5000, action: 10_000, alert: 12_000 };
@@ -49,13 +49,13 @@ const assertive = region("toast-alert", { class: "sr-only", role: "alert" });
 
 export function toast(t: ToastSpec): void {
   const undo = t.actionLabel === UNDO;
-  const button = t.action && t.actionLabel
+  const button = t.action
     ? el("button", { class: "toast-action", type: "button", title: undo ? `Undo (${UNDO_KEY})` : undefined, "aria-keyshortcuts": undo ? (IS_MAC ? "Meta+Z" : "Control+Z") : undefined }, t.actionLabel)
     : null;
   const open = t.open ? el("button", { class: "toast-action", type: "button" }, "Open") : null;
   const node = el(
     "div",
-    { class: `toast${t.action && !button ? " is-clickable" : ""}${t.alert ? " is-alert" : ""}` },
+    { class: `toast${t.alert ? " is-alert" : ""}` },
     t.by ? authorAvatar(t.by, 22) : el("span", { class: "toast-icon" }, icon(t.icon ?? "info", 16)),
     el("div", { class: "toast-body" }, el("div", { class: "toast-text" }, t.by ? el("b", {}, authorName(t.by)) : null, t.by ? ` ${t.text}` : t.text), t.detail ? el("div", { class: "toast-detail" }, t.detail) : null),
     open,
@@ -64,8 +64,8 @@ export function toast(t: ToastSpec): void {
   const me: Live = { spec: t, node, remaining: 0, since: 0, timer: undefined, holds: new Set(), back: null };
   node.addEventListener("click", (e) => {
     const b = (e.target as HTMLElement).closest("button");
-    if (b === open) t.open!();
-    else if (b === button || !button) t.action?.();
+    if (b && b === open) t.open!();
+    else if (b && b === button) t.action!();
     dismiss(me);
   });
   node.addEventListener("mouseenter", () => hold(me, "hover"));
@@ -85,7 +85,7 @@ export function toast(t: ToastSpec): void {
   });
   stack().append(node);
   live.push(me);
-  run(me, t.alert ? LIFE.alert : button ? LIFE.action : LIFE.plain);
+  run(me, t.alert ? LIFE.alert : button || open ? LIFE.action : LIFE.plain);
   const said = [t.by ? `${authorName(t.by)} ${t.text}` : t.text, t.detail, undo ? `Undo with ${IS_MAC ? "Command-Z" : "Control+Z"}` : null].filter(Boolean).join(". ");
   (t.alert ? assertive : polite).replaceChildren(el("div", {}, said));
 }
