@@ -5,6 +5,7 @@ import { z } from "zod";
 import { QuireError } from "./paths.ts";
 import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtWrite } from "./format.ts";
 import { parseQuery } from "./query.ts";
+import type { TemplateInfo } from "./templates.ts";
 import { TRASH_DAYS, type Quire } from "./quire.ts";
 import { parseAuthorFilter } from "./actor.ts";
 import { AGENTS_NOTE } from "./noteRoles.ts";
@@ -65,6 +66,8 @@ export const TOOL_ROUTES: Record<string, string> = {
   star_tag: "POST /favorites/star",
   unstar_tag: "POST /favorites/unstar",
   save_smart_folder: "POST /smart-folders",
+  list_templates: "GET /templates",
+  create_from_template: "POST /notes/from-template",
   delete_smart_folder: "POST /smart-folders/delete",
   list_events: "GET /calendar/events",
   get_event: "GET /calendar/event",
@@ -233,7 +236,7 @@ export function createMcpServer(host: ToolHost): McpServer {
       description:
         "The day at a glance: open tasks overdue, due today and starting today (repeating ones show their rec:), and whether today's " +
         "journal note (Journal/YYYY-MM-DD.md) exists. A good start for a morning brief.",
-      inputSchema: { today: z.string().optional().describe("The day to read, YYYY-MM-DD; default the machine's today") },
+      inputSchema: { today: z.string().optional().describe("The day to read, YYYY-MM-DD; default the user's today") },
       annotations: readOnly,
     },
     ({ today }) =>
@@ -630,6 +633,53 @@ export function createMcpServer(host: ToolHost): McpServer {
     ({ since, path, limit, by }) => run(() => fmtChanges(quire.changes({ since, path, limit: limit ?? 30, by: parseAuthorFilter(by) }), quire)),
   );
 
+  server.registerTool(
+    "list_templates",
+    {
+      title: "List templates",
+      description:
+        "The note templates: notes in Templates/ with {{placeholders}}. {{ask:Label}} is a question to fill in; applies_to says which " +
+        "folders' new notes start from it. Use create_from_template to make a note from one.",
+      inputSchema: {},
+      annotations: readOnly,
+    },
+    () =>
+      run(() => {
+        quire.sync();
+        const list = quire.templates();
+        return list.length ? list.map(fmtTemplate).join("\n") : "No templates yet. A template is any note in Templates/.";
+      }),
+  );
+
+  server.registerTool(
+    "create_from_template",
+    {
+      title: "Create a note from a template",
+      description:
+        "Make a new note from a template (a meeting note from Templates/Meeting…), with {{date}}, {{time}} and {{title}} filled in and " +
+        "`variables` answering its {{ask:Label}} questions by label. The note goes in the template's folder unless you give one. " +
+        "The reply says what's still unfilled, so you can ask the person or fill it in with edit_note.",
+      inputSchema: {
+        template: z.string().describe("Its name (Meeting) or path"),
+        title: z.string().optional(),
+        folder: z.string().optional(),
+        variables: z
+          .record(z.string(), z.string())
+          .optional()
+          .describe("Answers to its {{ask:Label}} questions, by label: a people question takes @handles on a task line or names, a date YYYY-MM-DD, a choice one of its options"),
+      },
+      annotations: writes,
+    },
+    ({ template, title, folder, variables }) =>
+      run(() => {
+        const r = quire.createFromTemplate(template, { title, folder, answers: variables }, source());
+        const tpl = quire.templates().find((t) => t.name.toLowerCase() === template.toLowerCase() || t.path === template)?.path ?? template;
+        const text = quire.files.read(r.path) ?? "";
+        const where = (u: string) => `{{${u}}} (line ${text.split("\n").findIndex((l) => l.includes(`{{${u}}}`)) + 1})`;
+        return `Created ${r.path} from ${tpl}.${r.unfilled.length ? ` Still to fill in: ${r.unfilled.map(where).join(", ")}.` : ""}`;
+      }),
+  );
+
   if (host.calendar) calendarTools(server, host.calendar, host, source);
   return mcp;
 }
@@ -709,4 +759,12 @@ async function runAsync(fn: () => Promise<string>): Promise<Result> {
     const msg = e instanceof QuireError ? e.message : `Unexpected error: ${(e as Error).message}`;
     return { content: [{ type: "text", text: msg }], isError: true };
   }
+}
+
+/** A template on a line: its path and name, what it asks, and the folders it's the default for. */
+export function fmtTemplate(t: TemplateInfo): string {
+  const kind = (a: TemplateInfo["asks"][number]) => (a.type === "choice" ? ` (one of ${a.choices.join(", ")})` : a.type === "text" ? "" : ` (${a.type})`);
+  const asks = t.asks.length ? ` · asks: ${t.asks.map((a) => a.label + kind(a)).join(", ")}` : "";
+  const where = t.appliesTo.length ? ` · new notes in ${t.appliesTo.map((f) => `${f}/`).join(", ")} start from it` : "";
+  return `${t.path} — ${t.name}${asks}${where}`;
 }

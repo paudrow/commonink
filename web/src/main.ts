@@ -24,11 +24,14 @@ import { folderPicker } from "./folderPicker.ts";
 import type { History } from "./history.ts";
 import type { Assets } from "./assets.ts";
 import { renderTasksPage } from "./tasksView.ts";
+import { askFor, pickTemplate, templatePeople } from "./templatePicker.ts";
+import { localNow, type TemplateInfo } from "../../src/core/templates.ts";
 import { openQuickAdd, QUICK_ADD } from "./quickAdd.ts";
 import { formatKeys, learnLayout, matchKeys } from "./keys.ts";
 import { navArrows, type Dir, type NavArrows } from "./navArrows.ts";
 import { taskInputPrefs } from "./taskInput.ts";
 import type { TagsPage } from "./tagsPage.ts";
+import type { Theme } from "./settings.ts";
 import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./account.ts";
 import { appCommands } from "./commands.ts";
 import { toggleShortcuts } from "./shortcuts.ts";
@@ -259,6 +262,7 @@ function commands() {
     folds: s?.kind === "md" ? foldCount(active.view.state) : 0,
     account,
     newNote: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
+    newFromTemplate: () => void newFromTemplate(undefined, onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
     newBoard: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : "", `\n${NEW_BOARD}\n`),
     newFolder: startNewFolder,
     newTag: startNewTag,
@@ -289,6 +293,8 @@ function commands() {
       if (start) void openNote(start.path);
     },
     shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
+    settings: openSettings,
+    connectAgent,
     back: () => void stepPane(active, "back"),
     forward: () => void stepPane(active, "forward"),
     followLink: () => followLinkAtCursor(),
@@ -955,8 +961,44 @@ async function createNote(name: string) {
   }
 }
 
-/** New note button: create "Untitled" right away (in `folder`, if given, with `body` under the title) and put the cursor in its title. */
+/**
+ * A new note from a template: pick one (unless given), answer its questions, and open the note with
+ * the cursor at its {{cursor}}. It goes in the template's folder, else `folder`.
+ */
+async function newFromTemplate(template?: TemplateInfo, folder = "") {
+  let t = template;
+  if (!t) {
+    const list = await api.templates().catch(() => []);
+    t = (await pickTemplate(list, "New note from template")) ?? undefined;
+  }
+  if (!t) return;
+  const asked = await askFor(t, { title: true, people: await templatePeople(t) });
+  if (!asked) return;
+  const clipboard = t.clipboard ? await navigator.clipboard?.readText().catch(() => undefined) : undefined;
+  try {
+    const r = await api.fromTemplate(t.path, { at: localNow(), title: asked.title, answers: asked.answers, picks: asked.picks, clipboard, folder: t.folder ? undefined : folder || undefined });
+    await refreshNotes();
+    await openNote(r.path);
+    const at = Math.min(r.cursor ?? active.view.state.doc.length, active.view.state.doc.length);
+    active.view.dispatch({ selection: { anchor: at }, scrollIntoView: true });
+    active.view.focus();
+    const cm = getCM(active.view);
+    if (cm && prefs.vim) Vim.handleKey(cm, "i", "user");
+    if (r.unfilled.length) toast({ icon: "file", text: `Still to fill in: ${r.unfilled.map((u) => `{{${u}}}`).join(", ")}` });
+  } catch (e) {
+    toast({ text: e instanceof ApiError ? e.message : `Couldn't make a note from ${t.name}` });
+  }
+}
+
+/**
+ * New note button: in a folder with a default template (its applies_to), that template; else
+ * "Untitled" (in `folder`, if given, with `body` under the title), cursor in its title.
+ */
 async function newNote(folder = "", body = "") {
+  if (folder && !body) {
+    const def = (await api.templates().catch(() => [])).find((t) => t.appliesTo.some((a) => folder === a || folder.startsWith(`${a}/`)));
+    if (def) return newFromTemplate(def, folder);
+  }
   const dir = folder ? `${folder}/` : "";
   const taken = new Set(notes.map((n) => n.path.toLowerCase()));
   let name = "Untitled";
@@ -1931,6 +1973,7 @@ function renderChrome() {
   setLabel($("#split-btn"), `${split ? "Close the side pane" : "Split view"} (${formatKeys("Mod-Alt-\\")})`);
   $("#split-btn").classList.toggle("is-on", split);
   $("#save-status").hidden = !s;
+  renderCodeWrap();
   renderPaneBars();
   if (!s) {
     $("#html-toggle").hidden = true;
@@ -2284,6 +2327,9 @@ window.addEventListener(
       paletteToSide = false;
       if (quickOpen && !palette.isOpen) did("search");
       palette.toggle(quickOpen ? "" : ">");
+    } else if (is("Mod-,")) {
+      e.preventDefault();
+      openSettings();
     } else if (is("Mod-\\")) {
       e.preventDefault();
       togglePanel();
@@ -2344,13 +2390,16 @@ function togglePanel(force?: boolean) {
   document.body.classList.toggle("panel-closed", !prefs.panel);
 }
 
-function toggleVim() {
-  prefs.vim = !prefs.vim;
-  store.set("vim", prefs.vim);
-  taskInputPrefs.vim = prefs.vim;
-  for (const p of panes) p.view.dispatch({ effects: vimSlot.reconfigure(prefs.vim ? vim() : []) });
+function setVim(on: boolean) {
+  prefs.vim = on;
+  store.set("vim", on);
+  taskInputPrefs.vim = on;
+  for (const p of panes) p.view.dispatch({ effects: vimSlot.reconfigure(on ? vim() : []) });
   attachVim();
   renderPaneBars(); // the arrows' labels say Ctrl-O / Ctrl-I with vim on
+}
+function toggleVim() {
+  setVim(!prefs.vim);
   active.view.focus();
 }
 
@@ -2368,22 +2417,75 @@ function setLineNumbers(on: boolean) {
 }
 const toggleLineNumbers = () => setLineNumbers(!prefs.lineNumbers);
 
-function toggleTheme() {
-  const dark = document.documentElement.dataset.theme
-    ? document.documentElement.dataset.theme === "dark"
-    : matchMedia("(prefers-color-scheme: dark)").matches;
-  const next = dark ? "light" : "dark";
-  document.documentElement.dataset.theme = next;
-  store.set("theme", next);
+const systemDark = matchMedia("(prefers-color-scheme: dark)");
+const theme = (): Theme => (document.documentElement.dataset.theme as "light" | "dark" | undefined) ?? "system";
+const isDark = () => (theme() === "system" ? systemDark.matches : theme() === "dark");
+const toggleTheme = () => setTheme(isDark() ? "light" : "dark");
+
+/** Light, dark, or the system's (index.html applies a stored choice before the page draws). */
+function setTheme(next: Theme) {
   try {
-    localStorage.setItem("quire.theme", next);
+    if (next === "system") localStorage.removeItem("quire.theme");
+    else localStorage.setItem("quire.theme", next);
   } catch {}
-  $("#theme-toggle").replaceChildren(icon(next === "dark" ? "sun" : "moon", 15));
+  if (next === "system") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = next;
+  renderTheme();
+}
+
+function renderTheme() {
+  $("#theme-toggle").replaceChildren(icon(isDark() ? "sun" : "moon", 15));
   for (const p of panes) {
     if (p.session?.kind === "html") renderHtmlPreview(p);
     if (p.session?.kind === "md") bumpEmbeds(p.view);
   }
 }
+
+/** Whether long lines in code blocks wrap, for blocks that don't say (```ts nowrap / wrap do). */
+function setCodeWrap(on: boolean) {
+  setCodeWrapByDefault(on);
+  renderCodeWrap();
+  for (const p of panes) bumpEmbeds(p.view);
+}
+
+/** The Wrap code chip: only where there's a note to have code in. mobile.css hides it on phones. */
+function renderCodeWrap() {
+  const on = codeWrapByDefault();
+  const chip = $("#codewrap-toggle");
+  chip.hidden = !panes.some((p) => p.session?.kind === "md");
+  setPressed(chip, on);
+  chip.textContent = `Wrap code: ${on ? "on" : "off"}`;
+  chip.title = on ? "Long lines in code blocks wrap. Click to scroll them instead." : "Long lines in code blocks scroll. Click to wrap them.";
+}
+
+/** Local vaults: where the vault and the `quire` command are, for connecting an agent. Online, null. */
+let localVault: { vault?: string; projectRoot?: string } | null = null;
+
+function openSettings() {
+  void import("./settings.ts").then((m) =>
+    m.openSettings(() =>
+      m.appSettings({
+        theme: theme(),
+        setTheme,
+        lineNumbers: prefs.lineNumbers,
+        setLineNumbers,
+        codeWrap: codeWrapByDefault(),
+        setCodeWrap,
+        htmlMode: prefs.htmlMode,
+        setHtmlMode,
+        vim: prefs.vim,
+        setVim,
+        vimDisplayLines: prefs.vimDisplayLines,
+        setVimDisplayLines: (on) => on !== prefs.vimDisplayLines && toggleVimDisplayLines(),
+        localVault,
+        shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
+        connectAgent,
+      }),
+    ),
+  );
+}
+
+const connectAgent = () => void import("./agentsPage.ts").then((m) => m.showAgents());
 
 // ------------------------------------------------------------------ split view
 
@@ -2569,6 +2671,7 @@ async function boot() {
     owner = ws.role === "owner";
     useWorkspace(`/api/w/${ws.id}`, `/api/w/${ws.id}/live`);
     setSelfName(who.me.user.name);
+    api.reportTimeZone().catch(() => {}); // unreported, agents use the owner's zone, or UTC
     account = renderAccount(who.me, ws, (t) => toast(t));
   }
 
@@ -2580,33 +2683,24 @@ async function boot() {
   $("#search-btn").addEventListener("click", () => openPalette());
   // A new note goes at the top level, unless Notes is showing a folder: then it goes there.
   $("#new-note").addEventListener("click", () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""));
+  $("#new-from-template").addEventListener("click", () => void newFromTemplate(undefined, onPage() === "notes" ? (notesPage.query.folder ?? "") : ""));
   $("#panel-btn").addEventListener("click", () => togglePanel());
   setLabel($("#panel-btn"), `Toggle side panel (${formatKeys("Mod-\\")})`);
   setupPanes();
   $("#stage").addEventListener("mousedown", () => document.body.classList.remove("panel-overlay"));
   $("#theme-toggle").addEventListener("click", toggleTheme);
-  // Whether long lines in code blocks wrap, for blocks that don't say (```ts nowrap / wrap do).
-  const codeWrapChip = () => {
-    const on = codeWrapByDefault();
-    const chip = $("#codewrap-toggle");
-    setPressed(chip, on);
-    chip.textContent = `Wrap code: ${on ? "on" : "off"}`;
-    chip.title = on ? "Long lines in code blocks wrap. Click to scroll them instead." : "Long lines in code blocks scroll. Click to wrap them.";
-  };
-  codeWrapChip();
-  $("#codewrap-toggle").addEventListener("click", () => {
-    setCodeWrapByDefault(!codeWrapByDefault());
-    codeWrapChip();
-    for (const p of panes) bumpEmbeds(p.view);
-  });
+  renderCodeWrap();
+  $("#codewrap-toggle").addEventListener("click", () => setCodeWrap(!codeWrapByDefault()));
   $("#vim-toggle").addEventListener("click", toggleVim);
+  $("#settings-btn").addEventListener("click", () => openSettings());
+  setLabel($("#settings-btn"), `Settings (${formatKeys("Mod-,")})`);
   attachVim(); // the toggle's label, before any note opens
   $("#html-toggle").addEventListener("click", (e) => {
     const mode = (e.target as HTMLElement).closest("button")?.dataset.mode as "preview" | "source" | undefined;
     if (mode) setHtmlMode(mode);
   });
-  const isDark = document.documentElement.dataset.theme === "dark" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
-  $("#theme-toggle").replaceChildren(icon(isDark ? "sun" : "moon", 15));
+  renderTheme();
+  systemDark.addEventListener("change", () => theme() === "system" && renderTheme());
   window.addEventListener("popstate", (e) => void onPopState(e));
   $("#notes-btn").addEventListener("click", () => void showNotes({ tab: "notes", query: {} }));
   $("#tasks-btn").addEventListener("click", () => void showTasks());
@@ -2653,6 +2747,7 @@ async function boot() {
 
   const [info, list, starred, recent, tagList, smart] = await Promise.all([api.info(), api.notes(), api.favorites(), api.changes(), api.tags(), api.smartFolders()]);
   $("#vault-name").textContent = info.name;
+  if (info.mode === "local") localVault = info;
   notes = list;
   favorites = starred;
   tags = tagList;

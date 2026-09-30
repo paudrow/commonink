@@ -38,6 +38,18 @@ test("from the due date: a bill due on the 6th and paid early is next due on the
   assert.equal(next("weekly", null, "2026-10-04"), "2026-10-11"); // no due date: from the day it was done
 });
 
+test("done late: the next date is the rule's first on or after the day it's done, keeping the rule's rhythm", () => {
+  assert.equal(next("weekly", "2026-01-15", "2026-03-01"), "2026-03-05"); // Thursdays stay Thursdays
+  assert.equal(next("daily", "2026-09-16", "2026-09-30"), "2026-09-30"); // yesterday's is done; today's still stands
+  assert.equal(next("daily", "2026-09-30", "2026-09-30"), "2026-10-01");
+  assert.equal(next("2w", "2026-01-01", "2026-03-01"), "2026-03-12"); // every other Thursday from Jan 1, not two weeks from today
+  assert.equal(next("6th", "2026-01-06", "2026-03-07"), "2026-04-06");
+  assert.equal(next("6th", "2026-01-06", "2026-03-06"), "2026-03-06");
+  assert.equal(next("mon,thu", "2026-09-07T08:00", "2026-09-30"), "2026-10-01T08:00");
+  assert.equal(next("daily", "2006-01-01", "2026-09-30"), "2026-09-30"); // twenty years behind still has a next one
+  assert.equal(next("after-1w", "2026-01-01", "2026-03-01"), "2026-03-08");
+});
+
 test("from completion: dog medicine given on the 8th is next due on the 8th of next month", () => {
   assert.equal(next("after-1m", "2026-10-01", "2026-10-08"), "2026-11-08");
   assert.equal(next("after-10d", "2026-10-01", "2026-10-08"), "2026-10-18");

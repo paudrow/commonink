@@ -76,6 +76,9 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /tasks/remove", send: (w) => ["POST", "/tasks/remove", { path: `task-rm-${w}.md`, line: 1, text: "Remove me" }], expect: EDIT },
   { route: "POST /tasks/move", send: (w) => ["POST", "/tasks/move", { path: `task-move-${w}.md`, line: 1, text: "Move me", to: "Getting started" }], expect: EDIT },
   { route: "GET /guide", send: () => ["GET", "/guide"], expect: READ },
+  { route: "GET /templates", send: () => ["GET", "/templates"], expect: READ },
+  { route: "POST /templates/render", send: () => ["POST", "/templates/render", { template: "Access template" }], expect: READ },
+  { route: "POST /notes/from-template", send: (w) => ["POST", "/notes/from-template", { template: "Access template", title: `From template ${w}` }], expect: EDIT },
   { route: "POST /guide", send: () => ["POST", "/guide", { action: "search" }], expect: EDIT },
   { route: "POST /today/journal", send: () => ["POST", "/today/journal", { today: "2026-10-01" }], expect: EDIT },
   { route: "POST /tags", send: (w) => ["POST", "/tags", { tag: `added-${w}` }], expect: EDIT },
@@ -117,6 +120,7 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   // Leaving the second team keeps everyone in this one. Its only owner can't leave (409).
   { route: "POST /leave", send: () => ["POST", `${leaveBase}/leave`, {}], expect: [401, 404, "ok", "ok", 409] },
   { route: "GET /api/me", send: () => ["GET", "/api/me"], expect: SIGNED_IN },
+  { route: "POST /api/me/time-zone", send: () => ["POST", "/api/me/time-zone", { timeZone: "America/Chicago" }], expect: SIGNED_IN },
   { route: "POST /api/workspaces", send: (w) => ["POST", "/api/workspaces", { name: `${w}'s team` }], expect: SIGNED_IN },
   { route: "GET /api/unfurl", send: () => ["GET", "/api/unfurl?url=https://example.invalid/"], expect: SIGNED_IN },
   { route: "GET /api/note-ids/*", send: () => ["GET", `/api/note-ids/${startId}`], expect: READ },
@@ -151,6 +155,7 @@ before(async () => {
     await cloud.call(owner, "PUT", `${base}/note`, { path: `restore-${w}.md`, content: "# Changed\n" });
     restoreIds[w] = (await cloud.call(owner, "GET", `${base}/changes?path=restore-${w}.md&limit=1`))[0].id;
     await note(`del-${w}.md`);
+    if (w === "signedOut") await note("Templates/Access template.md", "# {{title}}\n");
     await note(`folder-${w}/Inside.md`);
     await note(`trash-restore-${w}.md`);
     await note(`trash-purge-${w}.md`);

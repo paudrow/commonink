@@ -2,6 +2,7 @@ import { localDate, type TaskMeta, type TaskPatch } from "../../src/core/tasks.t
 import type { GuideAction, GuideState } from "../../src/core/guide.ts";
 import { did } from "./events.ts";
 import type { NoteRole } from "../../src/core/noteRoles.ts";
+import type { FillOptions, TemplateInfo } from "../../src/core/templates.ts";
 import type { CalendarEvent, Source as CalendarSource, SourceColor } from "../../src/core/calendar.ts";
 
 /** The reader's day, which task writes and due filters go by (the server may be in another time zone). */
@@ -285,6 +286,8 @@ export const api = {
   /** Online: which of your workspaces a note ID is in (404 if none you can open). */
   locate: (id: string) => j<{ workspace: { id: string; name: string } }>(`/api/note-ids/${id}`),
   createWorkspace: (name: string) => j<{ id: string }>("/api/workspaces", send("POST", { name })),
+  /** Online: tell the server this browser's time zone, so your agents' "today" is yours. */
+  reportTimeZone: () => j<{ timeZone: string }>("/api/me/time-zone", send("POST", { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })),
   signOutEverywhere: () => j<{ ok: true }>("/api/sign-out-everywhere", send("POST", {})),
   /** Online: the agents you've connected over MCP, most recently used first. */
   agents: () => j<ConnectedAgent[]>("/api/agents"),
@@ -362,6 +365,13 @@ export const api = {
   emptyTrash: () => j<{ deleted: string[] }>(`${BASE}/trash/empty`, send("POST", {})),
   unarchive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/unarchive`, send("POST", { paths })),
   backlinks: (path: string) => j<Backlink[]>(`${BASE}/backlinks?path=${enc(path)}`),
+  /** The note templates (notes in Templates/), by name. */
+  templates: () => j<TemplateInfo[]>(`${BASE}/templates`),
+  /** A template filled in, to insert: its text and where its {{cursor}} is. */
+  renderTemplate: (template: string, o: FillOptions) => j<{ path: string; text: string; cursor: number | null; unfilled: string[] }>(`${BASE}/templates/render`, send("POST", { template, ...o })),
+  /** A new note from a template; `cursor` is where its {{cursor}} is. */
+  fromTemplate: (template: string, o: FillOptions & { folder?: string }) =>
+    j<{ path: string; version: string; cursor: number | null; unfilled: string[] }>(`${BASE}/notes/from-template`, send("POST", { template, ...o })),
   /** A page of the change log, newest first; `before` pages further back. */
   history: (p: { limit?: number; before?: number; path?: string; by?: string }) =>
     j<Change[]>(`${BASE}/changes?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),

@@ -106,8 +106,7 @@ export function redrawRows(list: HTMLElement, draw: () => void) {
 
 /**
  * Tick or untick: shown at once, then the list reloads with what the note says now. The row stays a
- * moment first, so a list that hides done tasks doesn't whisk away the one you just ticked, and
- * ticking one done says so, with an Undo.
+ * moment first, so a list that hides done tasks doesn't whisk away the one you just ticked.
  */
 async function toggle(t: Task, row: HTMLElement, box: HTMLElement, env: RowEnv) {
   if (busy.has(t)) return;
@@ -115,28 +114,40 @@ async function toggle(t: Task, row: HTMLElement, box: HTMLElement, env: RowEnv) 
   const next = !t.done;
   show(row, box, next);
   linger(row, lingerFor());
-  try {
-    const r = await api.setTask(t, next);
-    Object.assign(t, { done: next, line: r.line, text: r.text }); // ticking adds done:, so the text changed too
-    if (next) toast({ icon: "check", text: `Done: ${clip(t.summary)}`, actionLabel: "Undo", action: () => void untick(t, row, box) });
-  } catch {
-    // The note changed underneath us: the reload shows what's there now.
-  }
+  await setDone(t, next, { undone: () => show(row, box, false) });
   busy.delete(t);
   env.reload();
 }
 
-async function untick(t: Task, row: HTMLElement, box: HTMLElement) {
-  if (!t.done || busy.has(t)) return;
-  show(row, box, false);
-  busy.add(t);
+/**
+ * Tick a task in its note, or reopen it: what every list of tasks (and the Calendar) does. Ticking
+ * says so, with an Undo that reopens it; a repeating task gets its next date in the note, by its own
+ * rule. `changed` runs once the note has changed (after the Undo too); `undone` as the Undo starts.
+ * A note that changed underneath fails quietly: reloading shows what's there now.
+ */
+export async function setDone(t: Task, done: boolean, on: { changed?: () => void; undone?: () => void } = {}): Promise<boolean> {
   try {
-    const r = await api.setTask(t, false);
-    Object.assign(t, { done: false, line: r.line, text: r.text });
+    const r = await api.setTask(t, done);
+    Object.assign(t, { done, line: r.line, text: r.text }); // ticking adds done:, so the text changed too
   } catch {
-    toast({ text: `Couldn't reopen “${clip(t.summary)}”. Open its note to change it.` });
+    if (!done) toast({ text: `Couldn't reopen “${clip(t.summary)}”. Open its note to change it.` });
+    on.changed?.();
+    return false;
   }
-  busy.delete(t); // the note changed, so every list of tasks reloads
+  if (done) {
+    toast({
+      icon: "check",
+      text: `Done: ${clip(t.summary)}`,
+      actionLabel: "Undo",
+      action: () => {
+        if (!t.done) return;
+        on.undone?.();
+        void setDone(t, false, { changed: on.changed });
+      },
+    });
+  }
+  on.changed?.();
+  return true;
 }
 
 function show(row: HTMLElement, box: HTMLElement, done: boolean) {

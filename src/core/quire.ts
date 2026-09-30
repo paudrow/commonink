@@ -14,6 +14,8 @@ import { formatQuery, parseQuery, queryProblem, type NoteQuery } from "./query.t
 import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
 import { safeDecode } from "./uri.ts";
 import { AGENTS_NOTE, START_TAG, type NoteRole } from "./noteRoles.ts";
+import { cleanTitle, DAILY_TEMPLATE, fillTemplate, localNow, TEMPLATES, templateInfo, type FillOptions, type TemplateInfo } from "./templates.ts";
+import { frontmatterEntries } from "./frontmatter.ts";
 
 export interface NoteMeta {
   /** Stable across renames, moves and archiving; see ids.ts. */
@@ -212,6 +214,8 @@ type IndexedRow = { id: string; kind: NoteKind; fts: number | null };
 const CHANGE_COLS = "id, ts, path, op, source, version, summary, from_path, note_id, person, agent";
 const META_COLS = "id, path, kind, title, version, mtime, size";
 const TRASH = ".trash";
+/** Notes whose tasks are tasks: not archived, and not templates (a template's `- [ ]` is for the notes made from it). */
+const TASK_NOTES = `substr(t.path, 1, 8) != 'Archive/' AND substr(t.path, 1, ${TEMPLATES.length + 1}) != '${TEMPLATES}/'`;
 /** How long Trash keeps what's deleted. */
 export const TRASH_DAYS = 30;
 const TRASH_ID = /^(\d{1,15})-(\d{1,15})$/;
@@ -225,10 +229,17 @@ export interface QuireOptions {
   now?: () => number;
   /** The largest note a write may leave behind, in bytes (UTF-8). Online, a SQLite row holds 2 MB. */
   maxNoteBytes?: number;
+  /** The IANA time zone whose calendar "today" means (an agent's person's, online). Default: this machine's. */
+  timeZone?: string;
 }
 
 /** The default largest note: enough for any note a person writes, not enough to exhaust memory. */
 export const MAX_NOTE_BYTES = 10 * 1024 * 1024;
+/**
+ * How long a person can stop typing and still be in the same sitting: their next autosave to the
+ * note joins the change the sitting started, so the log keeps one "before" per sitting, not per save.
+ */
+const SITTING_MS = 5 * 60_000;
 /** How much note text one GET /diffs may send back in all; runs past it come without their text. */
 const DIFF_TEXT_BUDGET = 16 * 1024 * 1024;
 
@@ -298,6 +309,7 @@ function tasksIn(text: string): Array<Pick<Task, "line" | "text" | "summary" | "
 export class Quire {
   private now: () => number;
   private maxNoteBytes: number;
+  private timeZone: string | undefined;
 
   constructor(
     readonly db: SqlDb,
@@ -306,6 +318,12 @@ export class Quire {
   ) {
     this.now = opts.now ?? Date.now;
     this.maxNoteBytes = opts.maxNoteBytes ?? MAX_NOTE_BYTES;
+    this.timeZone = opts.timeZone;
+  }
+
+  /** Today, as YYYY-MM-DD, in this core's time zone. */
+  private day(): string {
+    return localDate(this.now(), this.timeZone);
   }
 
   /** IDs of files that just left the index, by kind and content, so a rename seen as delete + add keeps its ID. */
@@ -789,15 +807,36 @@ export class Quire {
    * `before` is the note's previous text, kept so any change can be undone with restore(). The
    * `source` says who (see actorOf): an agent's carries its person too.
    */
-  recordChange(c: Omit<Change, "id" | "ts" | "note_id" | "person" | "agent">, before: string | null = null): Change {
+  recordChange(c: Omit<Change, "id" | "ts" | "note_id" | "person" | "agent">, before: string | null = null, opts: { autosave?: boolean; replaces?: number } = {}): Change {
     const ts = this.now();
     const noteId = this.meta(c.path)?.id ?? null;
     const { source, person, agent } = actorOf(c.source);
-    const r = this.db.run(
-      "INSERT INTO changes(ts, path, op, source, version, summary, from_path, before, note_id, person, agent) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-      ts, c.path, c.op, source, c.version, c.summary, c.from_path, before, noteId, person, agent,
-    );
-    return { ...c, source, id: r.lastId, ts, note_id: noteId, person, agent };
+    const insert = () =>
+      this.db.run(
+        "INSERT INTO changes(ts, path, op, source, version, summary, from_path, before, note_id, person, agent, autosave) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        ts, c.path, c.op, source, c.version, c.summary, c.from_path, before, noteId, person, agent, opts.autosave && !agent ? 1 : null,
+      ).lastId;
+    // A sitting's change moves to a new id as it grows, so catching up by id (recent_changes) sees it again.
+    const id = opts.replaces
+      ? this.db.tx(() => {
+          const next = insert();
+          this.db.run("DELETE FROM changes WHERE id = ?", opts.replaces);
+          return next;
+        })
+      : insert();
+    return { ...c, source, id, ts, note_id: noteId, person, agent };
+  }
+
+  /**
+   * The change a person's autosave continues: the note's latest change is their autosave from less
+   * than SITTING_MS ago, it left the note as this save found it, and they've changed nothing since.
+   */
+  private sittingOf(rel: string, source: string, current: string): { id: number; before: string | null } | null {
+    const noteId = this.meta(rel)?.id;
+    const last = noteId ? this.db.get("SELECT id, ts, source, autosave, version, before FROM changes WHERE note_id = ? ORDER BY id DESC LIMIT 1", noteId) : undefined;
+    if (!last?.autosave || last.source !== source || this.now() - last.ts > SITTING_MS || last.version !== versionOf(current)) return null;
+    if (this.db.get("SELECT 1 FROM changes WHERE id > ? AND source = ? LIMIT 1", last.id, source)) return null;
+    return last;
   }
 
   /**
@@ -1269,23 +1308,26 @@ export class Quire {
 
   // ---------------------------------------------------------------- writing
 
-  private commit(rel: string, before: string | null, after: string, source: string, op: Change["op"]) {
+  private commit(rel: string, before: string | null, after: string, source: string, op: Change["op"], autosave = false) {
     // Every write through the core lands here, so one limit covers the API, MCP, the CLI and online.
     if (after.length > this.maxNoteBytes / 4 && new TextEncoder().encode(after).length > this.maxNoteBytes) {
       throw new QuireError(`${rel} would be over ${Math.round(this.maxNoteBytes / 1024 / 1024)} MB, the most a note can hold`, "invalid");
     }
     this.files.write(rel, after);
+    const sitting = autosave && op === "edit" && before !== null ? this.sittingOf(rel, actorOf(source).source, before) : null;
     const meta = this.indexFile(rel, after)!;
+    const from = sitting ? sitting.before : before;
     const change = this.recordChange(
       {
         path: rel,
         op,
         source,
         version: meta.version,
-        summary: before === null ? `${after.split("\n").length} lines` : diffstat(before, after),
+        summary: from === null ? `${after.split("\n").length} lines` : diffstat(from, after),
         from_path: null,
       },
-      before,
+      from,
+      { autosave, replaces: sitting?.id },
     );
     return { ...meta, change };
   }
@@ -1299,8 +1341,8 @@ export class Quire {
     return this.commit(rel, null, content, source, "create");
   }
 
-  /** Whole-file save with optimistic concurrency (what the editor uses). */
-  save(target: string, content: string, opts: { baseVersion?: string; source: string }) {
+  /** Whole-file save with optimistic concurrency (what the editor uses). The editor's `autosave`s in one sitting are one change. */
+  save(target: string, content: string, opts: { baseVersion?: string; source: string; autosave?: boolean }) {
     const rel = cleanPath(target);
     const kind = kindOf(rel);
     if (kind !== "md" && kind !== "html") throw new QuireError(`${rel} isn't a note: only .md and .html files can be saved as text`);
@@ -1315,7 +1357,7 @@ export class Quire {
       });
     }
     if (current === content) return { ...(this.meta(rel) ?? this.indexFile(rel, content)!), change: null };
-    return this.commit(rel, current, content, opts.source, exists ? "edit" : "create");
+    return this.commit(rel, current, content, opts.source, exists ? "edit" : "create", opts.autosave);
   }
 
   /** Exact-string replacement, the edit primitive agents are best at. */
@@ -1364,7 +1406,7 @@ export class Quire {
     const prefix = opts.folder ? opts.folder.replace(/^\/+|\/+$/g, "") + "/" : "";
     const tagged = opts.tag === undefined ? null : new Set(this.tagged(opts.tag).filter((r) => r.kind === "task").map((r) => `${r.path}:${r.line}`));
     if (opts.today && !isDate(opts.today)) throw new QuireError(`"today" must be a date like 2026-10-01, not "${opts.today}"`);
-    const due = opts.due ? dueFilter(opts.due, opts.today ?? localDate(this.now())) : null;
+    const due = opts.due ? dueFilter(opts.due, opts.today ?? this.day()) : null;
     if (opts.due && !due) throw new QuireError(`Bad due filter "${opts.due}": use a date or today/tomorrow/yesterday, optionally after <, <=, > or >=`);
     const person = opts.assignee?.replace(/^@/, "").toLowerCase();
     // The query narrows to the note, or to notes with the tag on a task (the lines are checked below).
@@ -1382,14 +1424,14 @@ export class Quire {
 
   /** How many tasks are still open in active notes: what tasks() would list with `done` false. */
   openTaskCount(): number {
-    return this.db.get<{ n: number }>("SELECT count(*) AS n FROM tasks t JOIN notes n ON n.path = t.path WHERE substr(t.path, 1, 8) != 'Archive/' AND t.done = 0")!.n;
+    return this.db.get<{ n: number }>(`SELECT count(*) AS n FROM tasks t JOIN notes n ON n.path = t.path WHERE ${TASK_NOTES} AND t.done = 0`)!.n;
   }
 
   /** Tasks in active notes, from the index (see tasksIn), in note order: the ones `where` keeps. */
   private taskRows(where: string, ...args: unknown[]): TaskRow[] {
     return this.db.all<TaskRow>(
       `SELECT t.path, n.title, t.line, t.done, t.task FROM tasks t JOIN notes n ON n.path = t.path
-       WHERE substr(t.path, 1, 8) != 'Archive/' AND ${where} ORDER BY t.path COLLATE NOCASE, t.path, t.line`,
+       WHERE ${TASK_NOTES} AND ${where} ORDER BY t.path COLLATE NOCASE, t.path, t.line`,
       ...args,
     );
   }
@@ -1406,7 +1448,7 @@ export class Quire {
    * below (see editTaskLines). `text` guards against the note having
    * changed: if the line moved, the nearest line with the same task text is used.
    */
-  updateTask(target: string, line: number, text: string, patch: TaskPatch, source: string, today = localDate(this.now())) {
+  updateTask(target: string, line: number, text: string, patch: TaskPatch, source: string, today = this.day()) {
     const problem = patchProblem(patch) ?? (isDate(today) ? null : `"today" must be a date like 2026-10-01, not "${today}"`);
     if (problem) throw new QuireError(problem);
     const note = this.read(target);
@@ -1434,7 +1476,7 @@ export class Quire {
    * boards has it; `board` (from 1) picks one when several do. `position` (from 1) is where it
    * goes in the column; the default is last.
    */
-  addCard(target: string, column: string, text: string, source: string, opts: { board?: number; position?: number } = {}, today = localDate(this.now())) {
+  addCard(target: string, column: string, text: string, source: string, opts: { board?: number; position?: number } = {}, today = this.day()) {
     if (!text.trim()) throw new QuireError("A card needs some text");
     const { note, boards } = this.boards(target);
     const at = findColumn(boards, column, note.path, opts.board);
@@ -1442,7 +1484,7 @@ export class Quire {
   }
 
   /** Move a card (see findCard) to a column on its board, last or at `position` (from 1). Into the done column ticks it. */
-  moveCard(target: string, card: string, column: string, source: string, opts: { position?: number } = {}, today = localDate(this.now())) {
+  moveCard(target: string, card: string, column: string, source: string, opts: { position?: number } = {}, today = this.day()) {
     const { note, boards } = this.boards(target);
     const hit = findCard(boards, card, note.path);
     const to = findColumn(boards, column, note.path, hit.board + 1);
@@ -1450,7 +1492,7 @@ export class Quire {
   }
 
   /** Change a card's text (its first line, then any lines to nest under it) or tick it. */
-  editCard(target: string, card: string, patch: { text?: string; done?: boolean }, source: string, today = localDate(this.now())) {
+  editCard(target: string, card: string, patch: { text?: string; done?: boolean }, source: string, today = this.day()) {
     if (patch.text !== undefined && !patch.text.trim()) throw new QuireError("A card needs some text");
     const { note, boards } = this.boards(target);
     const { card: c } = findCard(boards, card, note.path);
@@ -1471,7 +1513,7 @@ export class Quire {
    * to use instead of the daily note (the one the bar was opened from), which `→ [[Note]]` overrides.
    */
   addTask(input: string, source: string, opts: { today?: string; ignore?: string[]; to?: string } = {}) {
-    const today = opts.today ?? localDate(this.now());
+    const today = opts.today ?? this.day();
     if (!isDate(today)) throw new QuireError(`"today" must be a date like 2026-10-01, not "${today}"`);
     const q = parseQuickAdd(input, today, opts.ignore);
     if (!q.words) throw new QuireError("Say what the task is: once its dates and repeats are taken out, there are no words left");
@@ -1490,7 +1532,7 @@ export class Quire {
    * order of urgency), and today's journal note. `date` is the reader's day. Sections are a list so
    * more (calendar, reviews, mail) can slot in beside these.
    */
-  today(date = localDate(this.now())): TodayView {
+  today(date = this.day()): TodayView {
     if (!isDate(date)) throw new QuireError(`"today" must be a date like 2026-10-01, not "${date}"`);
     // Open tasks that could be in a section: due by today, or starting today.
     const open = this.taskRows("t.done = 0 AND (substr(t.due, 1, 10) <= ? OR substr(t.start, 1, 10) = ?)", date, date).map(toTask);
@@ -1518,10 +1560,62 @@ export class Quire {
     return { path: rel, created: true, version: r.version, change: r.change };
   }
 
-  /** A new daily note: `Templates/Daily note.md` with {{date}} filled in, or a plain one with Tasks and Log. */
+  /** A new daily note: `Templates/Daily note.md`, filled in as of `date` (see templates.ts), or a plain one with Tasks and Log. */
   private dailyTemplate(date: string): string {
-    const template = this.files.read("Templates/Daily note.md");
-    return template !== null ? template.replaceAll("{{date}}", date) : `# ${date}\n\n## Tasks\n\n## Log\n`;
+    const template = this.files.read(DAILY_TEMPLATE);
+    return template !== null ? fillTemplate(template, { at: `${date}T${localNow(this.now()).split("T")[1]}`, title: date }).text : `# ${date}\n\n## Tasks\n\n## Log\n`;
+  }
+
+  // ---------------------------------------------------------------- templates
+
+  /** The templates (notes in Templates/), by name, with how notes are made from each. */
+  templates(): TemplateInfo[] {
+    return this.list(TEMPLATES)
+      .filter((n) => n.kind === "md")
+      .map((n) => templateInfo(n.path, this.files.read(n.path) ?? ""))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  }
+
+  /** The template a new note in `folder` starts from: the one whose applies_to names it (or a folder above it). */
+  defaultTemplate(folder: string): TemplateInfo | null {
+    const f = folder.replace(/^\/+|\/+$/g, "");
+    return this.templates().find((t) => t.appliesTo.some((a) => f === a || f.startsWith(`${a}/`))) ?? null;
+  }
+
+  /** The template `target` names: a note in Templates/ (its name, or its path). */
+  private templatePath(target: string): string {
+    const rel = this.resolve(target) ?? this.resolve(`${TEMPLATES}/${target}`);
+    if (!rel) throw new QuireError(`No template "${target}". Templates are notes in ${TEMPLATES}/.`, "not_found");
+    if (kindOf(rel) !== "md" || !rel.startsWith(`${TEMPLATES}/`)) throw new QuireError(`${rel} isn't a template: templates are notes in ${TEMPLATES}/`);
+    return rel;
+  }
+
+  /** A template's body filled in, to insert into a note: no frontmatter, and where its {{cursor}} is. */
+  renderTemplate(target: string, opts: FillOptions = {}) {
+    const rel = this.templatePath(target);
+    const { body } = frontmatterEntries(this.files.read(rel) ?? "");
+    return { path: rel, ...fillTemplate(body, { at: localNow(this.now()), ...opts }) };
+  }
+
+  /**
+   * A new note from a template: titled by `title`, else the template's title pattern, else its name;
+   * in `folder`, else the template's folder, else the top level (a taken name gets " 2"…). Returns
+   * where its {{cursor}} is and what's left unfilled, for whoever made it to fill in.
+   */
+  createFromTemplate(target: string, opts: FillOptions & { folder?: string } = {}, source: string) {
+    const rel = this.templatePath(target);
+    const md = this.files.read(rel) ?? "";
+    const info = templateInfo(rel, md);
+    const fill = { at: localNow(this.now()), ...opts };
+    const title = cleanTitle(opts.title ?? (info.title ? fillTemplate(info.title, fill).text : "")) || info.name;
+    const folderText = opts.folder ?? (info.folder ? fillTemplate(info.folder, fill).text : "");
+    const folder = folderText.split("/").map(cleanTitle).filter(Boolean).join("/");
+    const dir = folder ? `${folder}/` : "";
+    let path = cleanPath(`${dir}${title}.md`);
+    for (let i = 2; this.files.stat(path) || this.list(folder || undefined, "all").some((n) => n.path.toLowerCase() === path.toLowerCase()); i++) path = cleanPath(`${dir}${title} ${i}.md`);
+    const filled = fillTemplate(md, { ...fill, title });
+    const r = this.commit(path, null, filled.text, source, "create");
+    return { path, version: r.version, change: r.change, cursor: filled.cursor, unfilled: filled.unfilled };
   }
 
   /**
@@ -1554,7 +1648,7 @@ export class Quire {
   }
 
   /** Move a repeating task to its next date without ticking it ("Skip this one"). */
-  skipTask(target: string, line: number, text: string, source: string, today = localDate(this.now())) {
+  skipTask(target: string, line: number, text: string, source: string, today = this.day()) {
     const task = parseTask(`- [ ] ${text}`);
     const patch = task && skipPatch(task.meta, today);
     if (!patch) throw new QuireError("That task doesn't repeat, so there's nothing to skip");
