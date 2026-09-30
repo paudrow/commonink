@@ -1,12 +1,11 @@
 // Everything you can do from ⌘K, and every keyboard shortcut: one registry that the palette's
 // Commands section and the shortcut sheet (?) both read. main.ts supplies the state and the actions.
 import { fuzzyScore } from "./fuzzy.ts";
-import { IS_MAC } from "./panes.ts";
 
 export type Area = "Global" | "Notes page" | "Editor" | "Vim" | "Tasks" | "Split view";
 export const AREAS: Area[] = ["Global", "Notes page", "Editor", "Vim", "Tasks", "Split view"];
 
-/** Keys as CodeMirror writes them ("Mod-Shift-e", "Mod-Alt-\\"), or typed literally ("q", "gd", ":w"). */
+/** Keys as CodeMirror writes them ("Mod-Shift-e", "Mod-Alt-\\"), or typed literally ("?", "gd", ":w"). */
 export interface Shortcut {
   keys: string[];
   label: string;
@@ -124,6 +123,7 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: ["[["], label: "Link a note", area: "Editor" },
   { keys: ["Mod-Alt-Enter"], label: "Open the linked note to the side", area: "Editor" },
   { keys: ["Mod-."], label: "Open the task's ⚙ menu", area: "Editor" },
+  { keys: ["Tab"], label: "Right after an underlined phrase on a task line (\"tomorrow\"), make it a token", area: "Editor" },
   { keys: ["Tab", "Shift-Tab"], label: "Indent / outdent", area: "Editor" },
   { keys: ["gd", "gf"], label: "Follow the link under the cursor", area: "Vim" },
   { keys: ["gs"], label: "Open the link to the side", area: "Vim" },
@@ -149,21 +149,6 @@ export function shortcutSheet(commands: Command[]): Array<{ area: Area; shortcut
   return AREAS.map((area) => ({ area, shortcuts: all.filter((s) => s.area === area) })).filter((s) => s.shortcuts.length);
 }
 
-const MAC_MOD: Record<string, string> = { Mod: "⌘", Ctrl: "⌃", Alt: "⌥", Shift: "⇧" };
-const PC_MOD: Record<string, string> = { Mod: "Ctrl", Ctrl: "Ctrl", Alt: "Alt", Shift: "Shift" };
-const KEY_NAMES: Record<string, string> = { Enter: "↵", Escape: "Esc", ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→", click: "click" };
-
-/** "Mod-Shift-e" → ⌘⇧E on a Mac and Ctrl+Shift+E elsewhere; a key typed as is ("gd", "q") stays as it is. */
-export function formatKeys(keys: string, mac = IS_MAC): string {
-  const parts = keys.length > 1 ? keys.split(/-(?=.)/) : [keys];
-  const key = parts.pop()!;
-  const mods = parts.filter((p) => p in MAC_MOD);
-  if (mods.length !== parts.length) return keys;
-  const name = KEY_NAMES[key] ?? (mods.length && key.length === 1 ? key.toUpperCase() : key);
-  if (key === "click") return mac ? `${mods.map((m) => MAC_MOD[m]).join("")}-click` : `${mods.map((m) => PC_MOD[m]).join("+")}-click`;
-  return mac ? mods.map((m) => MAC_MOD[m]).join("") + name : [...mods.map((m) => PC_MOD[m]), name].join("+");
-}
-
 /** The commands on offer that a query (what follows `>`) finds, best first; all of them, in order, for none. */
 export function matchCommands(query: string, commands: Command[]): Command[] {
   const q = query.trim();
@@ -174,30 +159,4 @@ export function matchCommands(query: string, commands: Command[]): Command[] {
     .filter((m) => m.score >= 0)
     .sort((a, b) => b.score - a.score)
     .map((m) => m.command);
-}
-
-/** What each physical key types in this keyboard layout, unshifted (Chrome and Edge can tell; see learnLayout). */
-let layout: ReadonlyMap<string, string> | null = null;
-
-/** Learn the keyboard layout, so a shortcut with ⇧ or ⌥ still finds the key its character is on. */
-export async function learnLayout(keyboard: { getLayoutMap(): Promise<ReadonlyMap<string, string>> } | undefined = (navigator as any).keyboard) {
-  layout = (await keyboard?.getLayoutMap().catch(() => null)) ?? null;
-}
-
-/** Where a browser that can't tell the layout finds keys that ⌥ turns into other characters on a Mac. */
-const US_CODES: Record<string, string> = { BracketLeft: "[", BracketRight: "]", Backslash: "\\", Period: ".", Slash: "/" };
-
-/**
- * Whether a key press is the shortcut `keys` ("Mod-Shift-p"). It goes by the character typed, not
- * the key's place, so it works on any layout (Dvorak too). Mod is ⌘ on a Mac and Ctrl elsewhere.
- */
-export function matchKeys(e: Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">, keys: string, mac = IS_MAC): boolean {
-  const parts = keys.split(/-(?=.)/);
-  const want = parts.pop()!.toLowerCase();
-  const has = (m: string) => parts.includes(m);
-  if ((mac ? e.metaKey : e.ctrlKey) !== has("Mod") || (mac && e.ctrlKey) !== has("Ctrl") || e.altKey !== has("Alt") || e.shiftKey !== has("Shift")) return false;
-  if (e.key.toLowerCase() === want) return true;
-  // ⇧ and ⌥ change the character (⌥[ types “ on a Mac): ask the layout what the key types without them.
-  if (!e.altKey && !e.shiftKey) return false;
-  return (layout ? layout.get(e.code) : US_CODES[e.code]) === want;
 }
