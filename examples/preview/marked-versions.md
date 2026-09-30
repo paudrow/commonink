@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 120
 title: Marked versions
 ---
 1. Open [[Proposal]] and press **Marked versions** in the top bar (the bookmark). Its three marks are listed newest first: **Agreed**, **Sent to Alex** and **v1**.
