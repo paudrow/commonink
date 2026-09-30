@@ -4,9 +4,9 @@
 const LIST_ITEM = /^\s*([-*+]|\d+[.)])\s/;
 
 /**
- * Lines outside code, with their 1-based line numbers. Code is a fenced block (closed only by a
- * bare fence of the same kind, at least as long) or an indented one: indented four spaces after a
- * blank line, unless it continues a list item.
+ * Lines outside code, with their 1-based line numbers, each without the `\r` a Windows line ending
+ * leaves on it. Code is a fenced block (closed only by a bare fence of the same kind, at least as
+ * long) or an indented one: indented four spaces after a blank line, unless it continues a list item.
  */
 export function proseLines(md: string): Array<[number, string]> {
   const out: Array<[number, string]> = [];
@@ -14,7 +14,8 @@ export function proseLines(md: string): Array<[number, string]> {
   let indentedCode = false;
   let blankBefore = true;
   let lastProse = "";
-  md.split("\n").forEach((line, i) => {
+  md.split("\n").forEach((raw, i) => {
+    const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
     if (fence) {
       const close = line.match(/^\s*(`{3,}|~{3,})\s*$/);
       if (close && close[1][0] === fence.char && close[1].length >= fence.len) fence = null;

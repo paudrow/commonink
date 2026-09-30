@@ -299,7 +299,7 @@ export const api = {
   assetTags: () => j<Record<string, string[]>>(`${BASE}/asset-tags`),
   setAssetTags: (path: string, tags: string[]) => j<{ tags: string[] }>(`${BASE}/asset-tags`, send("PUT", { path, tags })),
   /** Rename (or merge) a tag everywhere. Restoring `changes` and setting `assets` back undoes it. */
-  renameTag: (from: string, to: string) => j<{ changes: number[]; assets: Record<string, string[]> }>(`${BASE}/tags/rename`, send("POST", { from, to })),
+  renameTag: (from: string, to: string) => j<{ changes: number[]; versions: string[]; assets: Record<string, string[]> }>(`${BASE}/tags/rename`, send("POST", { from, to })),
   setTask: (t: Task, done: boolean) => (done && did("tick"), j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/set`, send("POST", { path: t.path, line: t.line, text: t.text, done, today: today() }))),
   /** Change a task's tokens in its note; the rest of its line stays as written. */
   updateTask: (t: Task, patch: TaskPatch) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/update`, send("POST", { path: t.path, line: t.line, text: t.text, patch, today: today() })),
@@ -352,9 +352,13 @@ export const api = {
   /** Put a note back the way it was before change #id; with `version`, only if the note is still at that version. */
   restore: (id: number, version?: string) => j<{ path: string; version: string; change: number | null }>(`${BASE}/restore`, send("POST", { id, version })),
   changes: () => j<Change[]>(`${BASE}/changes?limit=40`),
-  /** `origin` (this tab's clientId) marks a save the tab's editor already shows, so the live update skips it there. */
-  save: (path: string, content: string, baseVersion?: string, allowEmpty = false, origin?: string) =>
-    j<{ path: string; version: string }>(`${BASE}/note`, send("PUT", { path, content, baseVersion, clientId: origin, allowEmpty })),
+  /**
+   * `origin` (this tab's clientId) marks a save the tab's editor already shows, so the live update
+   * skips it there. With the note's `id`, a note that moved meanwhile is saved where it is now; the
+   * answer's `path` says where.
+   */
+  save: (path: string, content: string, baseVersion?: string, allowEmpty = false, origin?: string, id?: string) =>
+    j<{ path: string; version: string }>(`${BASE}/note`, send("PUT", { path, content, baseVersion, clientId: origin, allowEmpty, id })),
   create: (path: string, content: string) => j<{ path: string; version: string }>(`${BASE}/note`, send("POST", { path, content })),
   move: (from: string, to: string) => j<{ path: string; updated: string[] }>(`${BASE}/move`, send("POST", { from, to })),
   /** Upload a file's bytes; the server picks a free name under `folder` (assets/ by default). */

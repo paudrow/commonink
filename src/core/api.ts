@@ -202,7 +202,11 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json(quire.diff(qInt("from"), q("to") ? qInt("to") : qInt("from")));
 
     case "PUT /note": {
-      const rel = cleanPath(str("path"));
+      let rel = cleanPath(str("path"));
+      // The note moved while this save was on its way (its first title renamed it, an agent moved
+      // it): save it where it is now, not as a new note at the old path.
+      const id = optStr("id");
+      if (id) rel = quire.pathOf(id) ?? rel;
       const content = text("content");
       // Never let a client blank out a note by accident (e.g. a stale tab whose editor failed to load).
       if (!content.trim() && !flag("allowEmpty") && quire.files.read(rel)?.trim()) {
@@ -274,8 +278,9 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       const r = quire.renameTag(str("from"), str("to"), actor);
       for (const e of r.edits) host.written(e.path, e.content, e.version, e.change);
       host.tree();
-      // Restoring each change, and setting these assets' tags back, undoes the rename.
-      return json({ changes: r.edits.map((e) => e.change.id), assets: r.assets });
+      // Restoring each change while its note is still at `versions` (the text the rename left), and
+      // setting these assets' tags back, undoes the rename without writing over a later edit.
+      return json({ changes: r.edits.map((e) => e.change.id), versions: r.edits.map((e) => e.version), assets: r.assets });
     }
     case "POST /restore": {
       const r = quire.restore(int("id"), actor, optStr("version"));

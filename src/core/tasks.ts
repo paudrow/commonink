@@ -6,7 +6,8 @@ import { findSection, withoutCodeOrLinks } from "./prose.ts";
 import { daysBetween, formatRule, nextDue, parseRule, ruleProblem, shiftDate, type Rule } from "./recurrence.ts";
 import { cleanTag, normalizeTag, tagsInLine } from "./tags.ts";
 
-export const TASK_LINE = /^(\s*[-*+]\s+\[)([ xX])(\]\s+)(.*)$/;
+/** A task line: its bullet and "[", its box, "] ", its text, and the `\r` of a Windows line ending if it has one. */
+export const TASK_LINE = /^(\s*[-*+]\s+\[)([ xX])(\]\s+)(.*?)(\r?)$/;
 
 export type Priority = "high" | "low";
 export interface TaskMeta {
@@ -219,7 +220,7 @@ export function editTask(line: string, patch: TaskPatch): string {
     for (const w of fresh.slice(swaps)) text = insertToken(text, field, write(field, w));
   }
   const box = patch.checked === undefined || patch.checked === (m[2] !== " ") ? m[2] : patch.checked ? "x" : " ";
-  return `${m[1]}${box}${m[3]}${text}`;
+  return `${m[1]}${box}${m[3]}${text}${m[5]}`;
 }
 
 /**
@@ -329,7 +330,11 @@ export function addDays(day: string, n: number): string {
  * level), or, without one, at the end of the note, under a new `## Tasks` heading if `heading`
  * (a daily note) or right after the last line otherwise. `line` is where the first one landed.
  */
-export function withTasksAdded(content: string, block: string[], heading: boolean): { content: string; line: number } {
+export function withTasksAdded(original: string, added: string[], heading: boolean): { content: string; line: number } {
+  // Worked out on "\n" lines, and put back with the note's own line endings.
+  const crlf = original.includes("\r\n");
+  const content = crlf ? original.replace(/\r\n/g, "\n") : original;
+  const block = added.map((l) => l.replace(/\r$/, ""));
   let last = content.length;
   while (last > 0 && content[last - 1] === "\n") last--; // a loop: /\n+$/ is quadratic on many blank lines
   const lines = content.slice(0, last).split("\n");
@@ -355,7 +360,8 @@ export function withTasksAdded(content: string, block: string[], heading: boolea
     at = lines.length;
     lines.push(...block);
   }
-  return { content: lines.join("\n") + "\n", line: at + 1 };
+  const out = lines.join("\n") + "\n";
+  return { content: crlf ? out.replace(/\n/g, "\r\n") : out, line: at + 1 };
 }
 
 /**
