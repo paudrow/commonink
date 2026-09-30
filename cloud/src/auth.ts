@@ -121,10 +121,20 @@ interface PendingSignup {
 }
 
 /**
- * Only paths on this site, so `next` can't bounce people to another one. Browsers read `/\evil.com`
- * as `//evil.com`, so backslashes are out too.
+ * Only paths on this site, so `next` can't bounce people to another one. It's read the way a
+ * browser reads a Location (which turns `\` into `/` and drops tabs and newlines, so `/<tab>/evil.com`
+ * is `//evil.com`), and what goes back out is that reading.
  */
-const safeNext = (next: string | null) => (next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/");
+function safeNext(next: string | null) {
+  const base = "https://next.invalid";
+  try {
+    const u = new URL(next ?? "", base);
+    const path = `${u.pathname}${u.search}${u.hash}`;
+    return next?.startsWith("/") && u.origin === base && !path.startsWith("//") ? path : "/";
+  } catch {
+    return "/";
+  }
+}
 
 export async function handleAuth(
   req: Request,

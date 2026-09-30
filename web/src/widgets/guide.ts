@@ -4,6 +4,7 @@
 //   ::guide{step=done}      how far along you are, then an offer to archive the note
 import { api, type GuideState } from "../api.ts";
 import { el } from "../dom.ts";
+import { formatKeys } from "../keys.ts";
 import { act, archiveNote, watchGuide } from "../onboarding.ts";
 import { guideState } from "../../../src/core/guide.ts";
 import { button, setButton, type WidgetEnv, type WidgetSpec } from "./core.ts";
@@ -29,7 +30,7 @@ const watch: View = (body, env) => {
     say.textContent = done
       ? "That's the deal: agents write, and you decide what stays."
       : s?.demo
-        ? "There it is, just below, with the guide's name on it. Press ⌘Z to take it back."
+        ? `There it is, just below, with the guide's name on it. Press ${formatKeys("Mod-z")} to take it back.`
         : "The guide will add a line to this note, the way an agent you connect would.";
     go.hidden = !live || !s || !!done || s.demo;
     if (!s?.demo) setButton(go, "Show me", "play");
