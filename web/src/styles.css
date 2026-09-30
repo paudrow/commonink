@@ -2173,6 +2173,19 @@ a.sh-link:hover { border-color: var(--accent-line); }
 .sv-dead { color: var(--muted); text-decoration: underline dotted; }
 .sv-editor { width: 100%; min-height: 60vh; padding: 14px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg-elev); color: var(--ink-strong); font: 14px/1.6 var(--mono); resize: vertical; }
 @media (max-width: 640px) { .sv-main { padding: 20px 16px 60px; } .sv-title { font-size: 24px; } }
+/* Workspace settings (account menu, online) */
+.ws-settings { display: grid; gap: 6px; }
+.ws-section { border-top: 1px solid var(--line); padding: 12px 0 4px; }
+.ws-section h3 { margin: 0 0 8px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.ws-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ws-input { flex: 1; min-width: 180px; height: 32px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg); color: var(--ink-strong); font: 14px var(--ui); }
+.ws-input:focus { outline: none; border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.ws-list { display: grid; }
+.ws-member { display: flex; gap: 10px; align-items: center; padding: 8px 0; }
+.ws-member + .ws-member { border-top: 1px solid var(--line); }
+.ws-role { height: 30px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg); color: var(--ink-2); font: 13px var(--ui); }
+.ws-badge { font-size: 12px; color: var(--muted); text-transform: capitalize; }
+.ws-log li { padding: 2px 0; }
 /* ------------------------------------------------------------------ collapsible sections (<details>) */
 .cm-line.cm-details-head:not(.is-raw) { font: 600 1em/1.72 var(--prose); color: var(--ink-strong); }
 .cm-line.cm-details-head { position: relative; }

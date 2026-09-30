@@ -1,5 +1,5 @@
-// Per-note sharing in D1: a note or folder shared with a person, an email address with no account
-// yet (it becomes theirs when they sign in with it), or anyone with the link. A link's token is
+// Per-note sharing in D1: a note or folder shared with a person, an email address (whoever signs in
+// with it: someone without an account yet, say), or anyone with the link. A link's token is
 // HMAC(SESSION_SECRET, share id): 256 bits no one can guess, which members can copy again later,
 // and only its SHA-256 is stored.
 import type { Grant, ShareRole } from "./grants.ts";
@@ -10,7 +10,7 @@ export interface Share {
   note: string | null;
   folder: string | null;
   kind: "user" | "email" | "link";
-  /** Who: a person's name and email, an email with no account yet, or null for a link. */
+  /** Who: a person's name and email, an email address (whoever signs in with it), or null for a link. */
   name: string | null;
   email: string | null;
   role: ShareRole;
@@ -32,11 +32,14 @@ export async function linkToken(secret: string, shareId: string) {
 
 const live = "(expires_at IS NULL OR expires_at > ?)";
 
+/** Shares made out to this person: by account, or by their (verified) email address. */
+const toPerson = "((s.principal_type = 'user' AND s.principal = ?) OR (s.principal_type = 'email' AND s.principal = ?))";
+
 /** Everything shared with this person in one workspace, as grants. */
-export async function grantsFor(db: D1Database, workspaceId: string, userId: string): Promise<Grant[]> {
+export async function grantsFor(db: D1Database, workspaceId: string, user: { id: string; email: string }): Promise<Grant[]> {
   const { results } = await db
-    .prepare(`SELECT note_id AS note, folder, role FROM shares WHERE workspace_id = ? AND principal_type = 'user' AND principal = ? AND ${live}`)
-    .bind(workspaceId, userId, Date.now())
+    .prepare(`SELECT s.note_id AS note, s.folder, s.role FROM shares s WHERE s.workspace_id = ? AND ${toPerson} AND ${live.replaceAll("expires_at", "s.expires_at")}`)
+    .bind(workspaceId, user.id, user.email.toLowerCase(), Date.now())
     .all<Grant>();
   return results;
 }
@@ -51,14 +54,14 @@ export async function linkShare(db: D1Database, token: string) {
 }
 
 /** Every workspace that shares something with this person, with its grants (for "Shared with me"). */
-export async function sharedWith(db: D1Database, userId: string) {
+export async function sharedWith(db: D1Database, user: { id: string; email: string }) {
   const { results } = await db
     .prepare(
       `SELECT s.workspace_id AS workspaceId, w.name AS workspaceName, s.note_id AS note, s.folder, s.role FROM shares s JOIN workspaces w ON w.id = s.workspace_id
-       WHERE s.principal_type = 'user' AND s.principal = ? AND ${live.replaceAll("expires_at", "s.expires_at")}
+       WHERE ${toPerson} AND ${live.replaceAll("expires_at", "s.expires_at")}
        AND NOT EXISTS (SELECT 1 FROM members m WHERE m.workspace_id = s.workspace_id AND m.user_id = ?)`,
     )
-    .bind(userId, Date.now(), userId)
+    .bind(user.id, user.email.toLowerCase(), Date.now(), user.id)
     .all<{ workspaceId: string; workspaceName: string } & Grant>();
   const by = new Map<string, { workspace: { id: string; name: string }; grants: Grant[] }>();
   for (const r of results) {
@@ -110,7 +113,9 @@ export async function addShare(
 ) {
   const email = o.email?.trim().toLowerCase();
   if (!o.link && !(email && /^[^\s@]+@[^\s@]+$/.test(email))) throw new ShareError("Give an email address, or share a link");
-  const user = email ? await db.prepare("SELECT id FROM users WHERE lower(email) = ? ORDER BY created_at LIMIT 1").bind(email).first<{ id: string }>() : null;
+  // One account with that address: theirs. None (or, on Previews, several dev accounts): the address's.
+  const found = email ? (await db.prepare("SELECT id FROM users WHERE lower(email) = ? LIMIT 2").bind(email).all<{ id: string }>()).results : [];
+  const user = found.length === 1 ? found[0] : null;
   const kind = o.link ? "link" : user ? "user" : "email";
   const principal = o.link ? null : (user?.id ?? email!);
   const targetCol = o.target.note ? "note_id" : "folder";
@@ -145,11 +150,6 @@ export async function updateShare(db: D1Database, workspaceId: string, id: strin
 export async function removeShare(db: D1Database, workspaceId: string, id: string) {
   const row = await db.prepare("DELETE FROM shares WHERE id = ? AND workspace_id = ? RETURNING id").bind(id, workspaceId).first();
   if (!row) throw new ShareError("That share isn't in this workspace", 404);
-}
-
-/** Someone signed in: shares made out to their email before they had an account become theirs. */
-export async function attachEmailShares(db: D1Database, user: { id: string; email: string }) {
-  await db.prepare("UPDATE shares SET principal_type = 'user', principal = ? WHERE principal_type = 'email' AND principal = ?").bind(user.id, user.email.toLowerCase()).run();
 }
 
 /** Whether someone new has been shared something by email: a member vouched for them, so they may sign up. */

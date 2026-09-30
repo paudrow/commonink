@@ -72,7 +72,7 @@ export async function showShareDialog(target: ShareTarget, opts: { canShare: boo
 
   function personRow(s: Share, inherited: boolean) {
     const who = s.name ? `${s.name}` : (s.email ?? "");
-    const meta = [s.name ? s.email : "No account yet: it's theirs when they sign in", s.expiresAt ? `until ${new Date(s.expiresAt).toLocaleDateString()}` : null, inherited && s.folder ? `through the folder ${s.folder}` : null].filter(Boolean).join(" · ");
+    const meta = [s.name ? s.email : "By email: whoever signs in with this address", s.expiresAt ? `until ${new Date(s.expiresAt).toLocaleDateString()}` : null, inherited && s.folder ? `through the folder ${s.folder}` : null].filter(Boolean).join(" · ");
     const role = inherited ? el("span", { class: "sh-badge" }, s.role) : roleSelect(s.role, (r) => void api.updateShare(s.id, { role: r }).then(reload, failed), `${who}'s role`);
     const remove =
       !inherited && opts.canShare
