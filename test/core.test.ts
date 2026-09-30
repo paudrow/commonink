@@ -61,6 +61,16 @@ test("moving a note rewrites the links that point at it", () => {
   assert.deepEqual(quire.backlinks("Plan").map((b) => b.path), ["Welcome.md"]);
 });
 
+test("a path typed in another case is the note's own path, not a second note", () => {
+  const { quire } = openTempVault();
+  assert.equal(quire.resolve("projects/roadmap"), "Projects/Roadmap.md");
+  assert.equal(quire.read("projects/roadmap.md").path, "Projects/Roadmap.md");
+  quire.edit("projects/roadmap", { oldString: "Ship the importer", newString: "Ship it" }, "t");
+  assert.deepEqual(quire.list(undefined, "all").map((n) => n.path), ["assets/chart.svg", "Dashboards/Stats.html", "Projects/Roadmap.md", "Welcome.md"]);
+  assert.deepEqual(quire.tasks().map((t) => `${t.path}:${t.text}`), ["Projects/Roadmap.md:Ship it", "Projects/Roadmap.md:Write the parser"]);
+  assert.deepEqual(quire.changes().map((c) => c.path), ["Projects/Roadmap.md"]);
+});
+
 test("creating a second top-level note with the same title leaves the first as it was", () => {
   const { dir, quire } = openTempVault({});
   quire.create("Idea", "# Idea\n\nThe first one.\n", "t");
