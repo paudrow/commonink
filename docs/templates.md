@@ -6,7 +6,7 @@ In a note under `Templates/`, type `{{` for a menu of placeholders.
 
 ## Dates and times
 
-| Placeholder | Becomes | |
+| Placeholder | Becomes | What it is |
 | --- | --- | --- |
 | `{{date}}` | `2026-09-29` | Today's date, YYYY-MM-DD. |
 | `{{date:dddd, MMMM D}}` | `Tuesday, September 29` | Today in a format. |
@@ -35,7 +35,7 @@ Words in square brackets stay as they are: `{{date:[Week of] MMM D}}` is "Week o
 
 ## The note itself
 
-| Placeholder | |
+| Placeholder | What it is |
 | --- | --- |
 | `{{title}}` | The new note's title. |
 | `{{cursor}}` | Where the cursor lands when the note opens (or after `/template`). |
@@ -88,7 +88,7 @@ Today's journal note (Tasks → Today), quick-add's journal, quick capture, and 
 
 **Create meeting note** on a calendar event uses `Templates/Meeting note.md`. There, `{{title}}` is the event's title, and `{{date}}` and `{{time}}` are when it starts, with formats as above. These are the event's too:
 
-| Placeholder | |
+| Placeholder | What it is |
 | --- | --- |
 | `{{when}}` | Its day and time: `Mon, Oct 5, 2026, 4:30 PM to 4:45 PM UTC`. |
 | `{{where}}` | Its location. |

@@ -11,9 +11,9 @@ export function showTemplateHelp() {
   const body = el("div", { class: "tpl-help-body cm-rendered", html: DOMPurify.sanitize(marked.parse(doc, { async: false }) as string, NOTE_HTML) });
   const close = () => {
     overlay.remove();
-    document.removeEventListener("keydown", onKey, true);
+    window.removeEventListener("keydown", onKey, true);
   };
-  const onKey = (e: KeyboardEvent) => e.key === "Escape" && (e.preventDefault(), e.stopPropagation(), close());
+  const onKey = (e: KeyboardEvent) => e.key === "Escape" && (e.preventDefault(), e.stopImmediatePropagation(), close());
   const overlay = el(
     "div",
     { class: "ask", onmousedown: (e: MouseEvent) => e.target === overlay && close() },
@@ -25,6 +25,7 @@ export function showTemplateHelp() {
     ),
   );
   document.body.append(overlay);
-  document.addEventListener("keydown", onKey, true);
+  // On the window, so Escape closes the help first and not the picker it was opened from.
+  window.addEventListener("keydown", onKey, true);
   overlay.querySelector<HTMLElement>(".tpl-help-box")!.focus();
 }
