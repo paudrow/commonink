@@ -61,6 +61,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260927.1",
+    "@lezer/javascript": "^1.5.5",
     "@types/jsdom": "^30.0.0",
     "@types/node": "^26.6.3",
     "@types/ws": "^8.18.1",
