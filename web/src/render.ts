@@ -91,7 +91,7 @@ export function sectionOf(md: string, heading: string): string {
   return lines.slice(start, end).join("\n");
 }
 
-const SAFE_URI = /^(?:(?:https?|mailto|commonink):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i;
+const SAFE_URI = /^(?:(?:https?|mailto|commonink|quire):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i; // quire: is the legacy scheme
 
 /**
  * What note content may be as HTML. No styles or forms. Its ids and names are prefixed, so a note

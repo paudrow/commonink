@@ -6,6 +6,7 @@ import { EditorSelection, EditorState, Facet, Prec, StateEffect, StateField, Tra
 import { Decoration, EditorView, keymap, WidgetType, type DecorationSet } from "@codemirror/view";
 import { api, assetUrl } from "../api.ts";
 import { el, icon } from "../dom.ts";
+import { noteTarget } from "../noteLinks.ts";
 import { currentScheme, embedKindOf, renderMarkdown, sandboxFrame, sectionOf, type EmbedKind } from "../render.ts";
 import { providerFrame, resolveEmbed } from "../embeds/providers.ts";
 import { newId, parseDirective, serializeDirective, type Directive } from "../widgets/args.ts";
@@ -233,7 +234,8 @@ class EmbedWidget extends WidgetType {
           if (!a) return;
           e.preventDefault();
           const href = a.getAttribute("href") ?? "";
-          if (href.startsWith("commonink:")) ctx.openTarget(safeDecode(href.slice(6)), path);
+          const target = noteTarget(href);
+          if (target !== null) ctx.openTarget(target, path);
           else if (/^https?:/i.test(href)) window.open(href, "_blank", "noopener");
           else if (calendarTarget(href) !== null) ctx.openTarget(href, path);
           else followInPage(body, href); // a footnote, or a #heading in the embedded note
