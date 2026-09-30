@@ -36,6 +36,9 @@ const app = (over: Partial<App> = {}): App => {
     noteHistory: run("noteHistory"),
     gettingStarted: run("gettingStarted"),
     shortcuts: run("shortcuts"),
+    share: run("share"),
+    copyLink: run("copyLink"),
+    exportAs: (how) => void ran.push(`export:${how}`),
     ...over,
   };
 };
@@ -56,7 +59,7 @@ test("commands follow the app: vim's state, the open note, Getting started, and 
   assert.deepEqual(titles("vim", app({ vim: false })), ["Turn vim keys on"]);
   assert.deepEqual(titles("star", app()), []);
   assert.deepEqual(titles("star", app({ note: { kind: "md", starred: true, archived: false } })), ["Unstar note"]);
-  assert.deepEqual(titles("html", app({ note: { kind: "html", starred: false, archived: false }, htmlMode: "preview" })), ["Show HTML source"]);
+  assert.deepEqual(titles("html", app({ note: { kind: "html", starred: false, archived: false }, htmlMode: "preview" })), ["Show HTML source", "Share…"]);
   assert.deepEqual(titles("getting", app()), []);
   assert.deepEqual(titles("getting", app({ hasStart: true })), ["Open Getting started"]);
   const account = [
