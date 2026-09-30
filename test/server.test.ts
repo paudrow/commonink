@@ -5,6 +5,7 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { MAX_UPLOAD } from "../src/core/paths.ts";
+import { whoAmI } from "../web/src/api.ts";
 import { tempVault } from "./helpers.ts";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
@@ -63,6 +64,19 @@ test("writes need our own Origin and a JSON body", async () => {
   assert.equal((await request("POST", "/api/note", { headers: { ...origin(), "Content-Type": "text/plain" }, body })).status, 415);
   assert.equal((await jsonWrite("POST", "/api/note", { path: "Origin test.md", content: "# Hi\n" })).status, 200);
   assert.equal(fs.readFileSync(path.join(vault, "Origin test.md"), "utf8"), "# Hi\n");
+});
+
+test("the web app's online-or-local probe, /api/me, gets a 200 saying it's local instead of a 404", async () => {
+  const me = await request("GET", "/api/me");
+  assert.equal(me.status, 200);
+  assert.deepEqual(JSON.parse(me.body), { local: true });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (url) => realFetch(`http://localhost:${port}${url}`);
+  try {
+    assert.equal(await whoAmI(), undefined);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
 
 test("vault files are served sandboxed, and paths can't climb out", async () => {
