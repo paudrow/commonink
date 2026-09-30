@@ -14,6 +14,8 @@ import { formatQuery, parseQuery, queryProblem, type NoteQuery } from "./query.t
 import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
 import { safeDecode } from "./uri.ts";
 import { AGENTS_NOTE, START_TAG, type NoteRole } from "./noteRoles.ts";
+import { cleanTitle, DAILY_TEMPLATE, fillTemplate, localNow, TEMPLATES, templateInfo, type FillOptions, type TemplateInfo } from "./templates.ts";
+import { frontmatterEntries } from "./frontmatter.ts";
 
 export interface NoteMeta {
   /** Stable across renames, moves and archiving; see ids.ts. */
@@ -209,6 +211,8 @@ type IndexedRow = { id: string; kind: NoteKind; fts: number | null };
 const CHANGE_COLS = "id, ts, path, op, source, version, summary, from_path, note_id, person, agent";
 const META_COLS = "id, path, kind, title, version, mtime, size";
 const TRASH = ".trash";
+/** Notes whose tasks are tasks: not archived, and not templates (a template's `- [ ]` is for the notes made from it). */
+const TASK_NOTES = `substr(t.path, 1, 8) != 'Archive/' AND substr(t.path, 1, ${TEMPLATES.length + 1}) != '${TEMPLATES}/'`;
 /** How long Trash keeps what's deleted. */
 export const TRASH_DAYS = 30;
 const TRASH_ID = /^(\d{1,15})-(\d{1,15})$/;
@@ -1318,14 +1322,14 @@ export class Quire {
 
   /** How many tasks are still open in active notes: what tasks() would list with `done` false. */
   openTaskCount(): number {
-    return this.db.get<{ n: number }>("SELECT count(*) AS n FROM tasks t JOIN notes n ON n.path = t.path WHERE substr(t.path, 1, 8) != 'Archive/' AND t.done = 0")!.n;
+    return this.db.get<{ n: number }>(`SELECT count(*) AS n FROM tasks t JOIN notes n ON n.path = t.path WHERE ${TASK_NOTES} AND t.done = 0`)!.n;
   }
 
   /** Tasks in active notes, from the index (see tasksIn), in note order: the ones `where` keeps. */
   private taskRows(where: string, ...args: unknown[]): TaskRow[] {
     return this.db.all<TaskRow>(
       `SELECT t.path, n.title, t.line, t.done, t.task FROM tasks t JOIN notes n ON n.path = t.path
-       WHERE substr(t.path, 1, 8) != 'Archive/' AND ${where} ORDER BY t.path COLLATE NOCASE, t.path, t.line`,
+       WHERE ${TASK_NOTES} AND ${where} ORDER BY t.path COLLATE NOCASE, t.path, t.line`,
       ...args,
     );
   }
@@ -1454,10 +1458,62 @@ export class Quire {
     return { path: rel, created: true, version: r.version, change: r.change };
   }
 
-  /** A new daily note: `Templates/Daily note.md` with {{date}} filled in, or a plain one with Tasks and Log. */
+  /** A new daily note: `Templates/Daily note.md`, filled in as of `date` (see templates.ts), or a plain one with Tasks and Log. */
   private dailyTemplate(date: string): string {
-    const template = this.files.read("Templates/Daily note.md");
-    return template !== null ? template.replaceAll("{{date}}", date) : `# ${date}\n\n## Tasks\n\n## Log\n`;
+    const template = this.files.read(DAILY_TEMPLATE);
+    return template !== null ? fillTemplate(template, { at: `${date}T${localNow(this.now()).split("T")[1]}`, title: date }).text : `# ${date}\n\n## Tasks\n\n## Log\n`;
+  }
+
+  // ---------------------------------------------------------------- templates
+
+  /** The templates (notes in Templates/), by name, with how notes are made from each. */
+  templates(): TemplateInfo[] {
+    return this.list(TEMPLATES)
+      .filter((n) => n.kind === "md")
+      .map((n) => templateInfo(n.path, this.files.read(n.path) ?? ""))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  }
+
+  /** The template a new note in `folder` starts from: the one whose applies_to names it (or a folder above it). */
+  defaultTemplate(folder: string): TemplateInfo | null {
+    const f = folder.replace(/^\/+|\/+$/g, "");
+    return this.templates().find((t) => t.appliesTo.some((a) => f === a || f.startsWith(`${a}/`))) ?? null;
+  }
+
+  /** The template `target` names: a note in Templates/ (its name, or its path). */
+  private templatePath(target: string): string {
+    const rel = this.resolve(target) ?? this.resolve(`${TEMPLATES}/${target}`);
+    if (!rel) throw new QuireError(`No template "${target}". Templates are notes in ${TEMPLATES}/.`, "not_found");
+    if (kindOf(rel) !== "md" || !rel.startsWith(`${TEMPLATES}/`)) throw new QuireError(`${rel} isn't a template: templates are notes in ${TEMPLATES}/`);
+    return rel;
+  }
+
+  /** A template's body filled in, to insert into a note: no frontmatter, and where its {{cursor}} is. */
+  renderTemplate(target: string, opts: FillOptions = {}) {
+    const rel = this.templatePath(target);
+    const { body } = frontmatterEntries(this.files.read(rel) ?? "");
+    return { path: rel, ...fillTemplate(body, { at: localNow(this.now()), ...opts }) };
+  }
+
+  /**
+   * A new note from a template: titled by `title`, else the template's title pattern, else its name;
+   * in `folder`, else the template's folder, else the top level (a taken name gets " 2"…). Returns
+   * where its {{cursor}} is and what's left unfilled, for whoever made it to fill in.
+   */
+  createFromTemplate(target: string, opts: FillOptions & { folder?: string } = {}, source: string) {
+    const rel = this.templatePath(target);
+    const md = this.files.read(rel) ?? "";
+    const info = templateInfo(rel, md);
+    const fill = { at: localNow(this.now()), ...opts };
+    const title = cleanTitle(opts.title ?? (info.title ? fillTemplate(info.title, fill).text : "")) || info.name;
+    const folderText = opts.folder ?? (info.folder ? fillTemplate(info.folder, fill).text : "");
+    const folder = folderText.split("/").map(cleanTitle).filter(Boolean).join("/");
+    const dir = folder ? `${folder}/` : "";
+    let path = cleanPath(`${dir}${title}.md`);
+    for (let i = 2; this.files.stat(path) || this.list(folder || undefined, "all").some((n) => n.path.toLowerCase() === path.toLowerCase()); i++) path = cleanPath(`${dir}${title} ${i}.md`);
+    const filled = fillTemplate(md, { ...fill, title });
+    const r = this.commit(path, null, filled.text, source, "create");
+    return { path, version: r.version, change: r.change, cursor: filled.cursor, unfilled: filled.unfilled };
   }
 
   /**
