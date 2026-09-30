@@ -952,9 +952,9 @@ async function save(s: Session) {
   status(s, "saving");
   try {
     const r = await api.save(s.path, content, s.baseVersion, content.trim() === "", clientId);
-    s.failed = false;
     s.base = content;
     s.baseVersion = r.version;
+    s.failed = false;
     if (s === s.pane.session && view.state.doc.lineAt(view.state.selection.main.head).number > 1) void nameUntitled(s);
     if (s === s.pane.session) status(s, view.state.doc.toString() === content ? "saved" : "editing");
   } catch (e) {
