@@ -26,9 +26,10 @@ Usage: quire <command> [args] [--agent <name>] [--json]
   task move <note> <line> --to <note>
                                    move a task (and what's nested under it) to another note
   task <note> <line> [--done|--undone] [--due D] [--start D] [--rec R]
-       [--priority high|low] [--assignee P,…] [--tag T,…] [--skip]
+       [--until D] [--times N] [--priority high|low] [--assignee P,…] [--tag T,…] [--skip]
                                    tick a task or change its tokens; "none" clears one.
                                    --rec weekly, 6th, 1st-tue, after-1m (from done)…;
+                                   --until and --times end a repeat (last day, times left);
                                    --skip moves a repeating task to its next date
   board <note>                     the note's Kanban boards (:::kanban blocks), cards with line numbers
   card add <note> <column> <text…> [--board N] [--position N]
@@ -140,7 +141,7 @@ if (cmd === "mcp") {
         const list = (k: string) => (str(k) === undefined ? undefined : str(k) === "none" ? [] : str(k)!.split(",").map((s) => s.trim().replace(/^[@#]/, "")));
         const checked = flags.done ? true : flags.undone ? false : undefined;
         const patch = Object.fromEntries(
-          Object.entries({ checked, due: one("due"), start: one("start"), rec: one("rec"), priority: one("priority"), assignees: list("assignee"), tags: list("tag") }).filter(([, v]) => v !== undefined),
+          Object.entries({ checked, due: one("due"), start: one("start"), rec: one("rec"), until: one("until"), times: str("times") === undefined ? undefined : str("times") === "none" ? null : Number(str("times")), priority: one("priority"), assignees: list("assignee"), tags: list("tag") }).filter(([, v]) => v !== undefined),
         );
         const r = flags.skip ? q.skipTask(note, line, task.text, source) : q.updateTask(note, line, task.text, patch, source);
         out(fmtWrite(r, r.change ? "Updated" : "No change to"), r);

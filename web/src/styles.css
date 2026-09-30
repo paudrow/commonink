@@ -1984,6 +1984,7 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .chip-rec-summary { font-size: 13.5px; color: var(--ink-strong); }
 .chip-rec-summary.is-error { color: var(--bad-ink); }
 .chip-rec-dates { font-size: 12.5px; color: var(--muted); }
+.chip-rec .chip-date-in { flex: 1; min-width: 0; height: 32px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-elev); color: var(--ink-strong); padding: 0 8px; font: 14px var(--ui); }
 .chip-rec-text { width: 100%; height: 32px; box-sizing: border-box; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-elev); color: var(--ink-strong); padding: 0 8px; font: 13px var(--mono); }
 .tk-next { color: var(--muted); font-weight: 400; }
 

@@ -7,7 +7,7 @@
 import { addDays, editTask, isDate, parseTask, type TaskMeta, type TaskPatch } from "./tasks.ts";
 import { isInterval, nextDue, nth, parseRule } from "./recurrence.ts";
 
-export type QuickKind = "due" | "start" | "rec" | "target";
+export type QuickKind = "due" | "start" | "rec" | "ends" | "target";
 export interface QuickSpan {
   kind: QuickKind;
   /** Where the phrase is in the input. */
@@ -60,6 +60,10 @@ const PREFIXED = `(?:${DATE}|${DAY_ANY})`;
 const re = (src: string) => new RegExp(`${B}(?:${src})${E}`, "giu");
 const DUE = re(`(?:on|by|due|before|for)\\s+${PREFIXED}|${DATE}`);
 const START = re(`(?:start(?:s|ing)?(?:\\s+on)?|from)\\s+${PREFIXED}`);
+// A repeat's end, read only when there's a repeat: "until dec 1", "for 6 months", "10 times".
+const UNTIL = re(`until\\s+${PREFIXED}`);
+const FOR = re(`for\\s+(${NUM})\\s+(${UNIT})`);
+const TIMES_PHRASE = re(`(${NUM})\\s+times`);
 const TARGET = /(?:→|->)\s*\[\[([^[\]\n]+)\]\]/gu;
 
 const count = (s: string) => NUMBERS[s.toLowerCase()] ?? parseInt(s, 10);
@@ -150,6 +154,13 @@ export function parseQuickAdd(input: string, today: string, ignore: string[] = [
   const target = take(TARGET, "target", (m) => `[[${m[1].trim()}]]`);
   let rec: string | null = null;
   if (!typed.rec) for (const [pattern, value] of REPEATS) if ((rec = take(pattern, "rec", (m) => (parseRule(value(m)) ? `rec:${value(m)}` : null)))) break;
+  // How the repeat ends: a last day, a stretch (worked out once the first due date is known), or a count.
+  const repeats = !!(rec || typed.rec);
+  const until = repeats && !typed.until ? take(UNTIL, "ends", (m) => { const d = dateOf(m[0].replace(/^until\s+/i, ""), today); return d ? `until:${d}` : null; }) : null;
+  let stretch: { n: number; unit: string } | null = null;
+  const times = repeats && typed.times === null
+    ? take(TIMES_PHRASE, "ends", (m) => `times:${count(m[1])}`) ?? take(FOR, "ends", (m) => ((stretch = { n: count(m[1]), unit: unitOf(m[2]) }), "for"))
+    : null;
   const start = typed.start ? null : take(START, "start", (m) => (dateOf(m[0], today) ? `start:${dateOf(m[0], today)}` : null));
   let due = typed.due ? null : take(DUE, "due", (m) => (dateOf(m[0], today) ? `due:${dateOf(m[0], today)}` : null));
 
@@ -163,6 +174,16 @@ export function parseQuickAdd(input: string, today: string, ignore: string[] = [
     const from = patch.start ?? today;
     patch.due = rule.from === "done" || isInterval(rule) ? from : (nextDue(rule, null, addDays(from, -1)) ?? from);
     due = `due:${patch.due}`;
+  }
+  if (until) patch.until = until.slice(6);
+  if (times && times !== "for") patch.times = Number(times.slice(6));
+  else if (stretch) {
+    // "for 6 months": six times, for a plain every-month repeat; otherwise up to the day before 6 months from the first due date.
+    const s: { n: number; unit: string } = stretch;
+    const rule = parseRule(patch.rec ?? typed.rec!)!;
+    const first = (patch.due ?? typed.due ?? today).slice(0, 10);
+    if (isInterval(rule) && rule.interval === 1 && rule.freq[0] === s.unit) patch.times = s.n;
+    else patch.until = addDays(s.unit === "d" ? addDays(first, s.n) : s.unit === "w" ? addDays(first, 7 * s.n) : addMonths(first, s.unit === "m" ? s.n : 12 * s.n), -1);
   }
 
   // The words: what's left once the phrases are cut, with the spacing around each cut closed up.
