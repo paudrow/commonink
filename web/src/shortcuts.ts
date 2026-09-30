@@ -3,8 +3,7 @@ import { shortcutSheet, type Command } from "./commands.ts";
 import { kbd } from "./keys.ts";
 import { el, icon } from "./dom.ts";
 import { IS_MAC } from "./panes.ts";
-
-const FOCUSABLE = "button, summary, [href], input, [tabindex]:not([tabindex='-1'])";
+import { trapKeys } from "./modal.ts";
 
 let closeOpen: (() => void) | null = null;
 
@@ -31,19 +30,7 @@ export function toggleShortcuts(commands: Command[], opts: { vim: boolean; mac?:
     el("div", { class: "sc-grid" }, ...sections),
   );
   const page = el("div", { id: "shortcuts", onmousedown: (e: Event) => e.target === page && close() }, box);
-  page.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      close();
-    } else if (e.key === "Tab") {
-      const stops = [...box.querySelectorAll<HTMLElement>(FOCUSABLE)];
-      const at = stops.indexOf(document.activeElement as HTMLElement);
-      const next = e.shiftKey ? (at <= 0 ? stops.length - 1 : at - 1) : at === stops.length - 1 ? 0 : at + 1;
-      e.preventDefault();
-      stops[next]?.focus();
-    }
-  });
+  trapKeys(page, box, close);
   document.body.append(page);
   box.focus();
   closeOpen = close;

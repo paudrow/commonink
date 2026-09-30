@@ -13,5 +13,5 @@
     "allowImportingTsExtensions": true,
     "isolatedModules": true
   },
-  "include": ["core.ts"]
+  "include": ["core.ts", "changelog.ts"]
 }

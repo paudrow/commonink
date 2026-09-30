@@ -236,7 +236,7 @@ export function createMcpServer(host: ToolHost): McpServer {
       description:
         "The day at a glance: open tasks overdue, due today and starting today (repeating ones show their rec:), and whether today's " +
         "journal note (Journal/YYYY-MM-DD.md) exists. A good start for a morning brief.",
-      inputSchema: { today: z.string().optional().describe("The day to read, YYYY-MM-DD; default the machine's today") },
+      inputSchema: { today: z.string().optional().describe("The day to read, YYYY-MM-DD; default the user's today") },
       annotations: readOnly,
     },
     ({ today }) =>
@@ -305,7 +305,7 @@ export function createMcpServer(host: ToolHost): McpServer {
           .nullable()
           .optional()
           .describe(
-            "How it repeats, from the due date: daily, weekly, monthly, yearly, 3d, 2w, mon,thu, 2w-mon,thu, 6th, last-day, 1st-tue,3rd-tue, last-fri, mar-1, 1st-mon-mar, day-50; " +
+            "How it repeats, from the due date: daily, weekly, monthly, yearly, 3d, 2w, mon,thu, 2w-mon,thu, 6th (a 31st falls on a shorter month's last day), last-day, last-day-2 (two days before the last day), 1st-tue,3rd-tue, last-fri, mar-1, 1st-mon-mar, day-50; " +
               "a gap after it's done: after-1m, after-10d; or RRULE:FREQ=…;BYDAY=… (COUNT and UNTIL too)",
           ),
         until: z.string().nullable().optional().describe("The repeat's last day, YYYY-MM-DD: no occurrence after it"),
@@ -663,7 +663,10 @@ export function createMcpServer(host: ToolHost): McpServer {
         template: z.string().describe("Its name (Meeting) or path"),
         title: z.string().optional(),
         folder: z.string().optional(),
-        variables: z.record(z.string(), z.string()).optional().describe("Answers to its {{ask:Label}} questions, by label"),
+        variables: z
+          .record(z.string(), z.string())
+          .optional()
+          .describe("Answers to its {{ask:Label}} questions, by label: a people question takes @handles on a task line or names, a date YYYY-MM-DD, a choice one of its options"),
       },
       annotations: writes,
     },
@@ -760,7 +763,8 @@ async function runAsync(fn: () => Promise<string>): Promise<Result> {
 
 /** A template on a line: its path and name, what it asks, and the folders it's the default for. */
 export function fmtTemplate(t: TemplateInfo): string {
-  const asks = t.asks.length ? ` · asks: ${t.asks.map((a) => a.label).join(", ")}` : "";
+  const kind = (a: TemplateInfo["asks"][number]) => (a.type === "choice" ? ` (one of ${a.choices.join(", ")})` : a.type === "text" ? "" : ` (${a.type})`);
+  const asks = t.asks.length ? ` · asks: ${t.asks.map((a) => a.label + kind(a)).join(", ")}` : "";
   const where = t.appliesTo.length ? ` · new notes in ${t.appliesTo.map((f) => `${f}/`).join(", ")} start from it` : "";
   return `${t.path} — ${t.name}${asks}${where}`;
 }
