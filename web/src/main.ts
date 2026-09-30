@@ -41,6 +41,7 @@ import { clampSide, forget, historyStep, IS_MAC, newLayout, pageEntry, pageOf, p
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { headingMatches } from "../../src/core/gfm.ts";
 import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
+import { NEW_BOARD } from "../../src/core/kanban.ts";
 import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
@@ -67,6 +68,8 @@ interface Session {
   timer: number;
   /** Set once the user edits this note. A session that was never edited never writes. */
   edited: boolean;
+  /** The last save didn't reach the server (offline, or it failed): it's tried again until it does. */
+  failed: boolean;
   /** The pane it's open in. */
   pane: Pane;
 }
@@ -247,6 +250,7 @@ function commands() {
     folds: s?.kind === "md" ? foldCount(active.view.state) : 0,
     account,
     newNote: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
+    newBoard: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : "", `\n${NEW_BOARD}\n`),
     newFolder: startNewFolder,
     go: (page) => {
       if (page === "notes" || page === "archive") void showNotes({ scope: page === "notes" ? "active" : "archived", query: {} });
@@ -352,6 +356,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
     baseVersion: note.version,
     saving: false,
     again: false,
+    failed: false,
     timer: 0,
     edited: false,
     pane,
@@ -903,14 +908,14 @@ async function createNote(name: string) {
   }
 }
 
-/** New note button: create "Untitled" right away (in `folder`, if given) and put the cursor in its title. */
-async function newNote(folder = "") {
+/** New note button: create "Untitled" right away (in `folder`, if given, with `body` under the title) and put the cursor in its title. */
+async function newNote(folder = "", body = "") {
   const dir = folder ? `${folder}/` : "";
   const taken = new Set(notes.map((n) => n.path.toLowerCase()));
   let name = "Untitled";
   for (let i = 2; taken.has(`${dir}${name}.md`.toLowerCase()); i++) name = `Untitled ${i}`;
   try {
-    const r = await api.create(`${dir}${name}.md`, "# \n");
+    const r = await api.create(`${dir}${name}.md`, `# \n${body}`);
     await refreshNotes();
     await openNote(r.path);
     active.view.dispatch({ selection: { anchor: active.view.state.doc.line(1).to } });
@@ -1004,9 +1009,15 @@ async function save(s: Session) {
   s.saving = true;
   status(s, "saving");
   try {
-    const r = await api.save(s.path, content, s.baseVersion, content.trim() === "", clientId);
+    const r = await api.save(s.path, content, s.baseVersion, content.trim() === "", clientId, s.id);
+    if (r.path !== s.path) {
+      // It was renamed while this save was on its way, and the save followed it.
+      view.state.facet(editorContext).path = r.path;
+      s.path = r.path;
+    }
     s.base = content;
     s.baseVersion = r.version;
+    s.failed = false;
     if (s === s.pane.session && view.state.doc.lineAt(view.state.selection.main.head).number > 1) void nameUntitled(s);
     if (s === s.pane.session) status(s, view.state.doc.toString() === content ? "saved" : "editing");
   } catch (e) {
@@ -1014,6 +1025,13 @@ async function save(s: Session) {
       applyRemote({ path: s.path, content: e.data.content, version: e.data.version, source: e.data.source ?? "external" });
     } else {
       status(s, "error");
+      // Offline or a server error: keep trying, so the text is saved once it can be. A refusal
+      // (an empty note, one too big) waits for the next edit instead.
+      if (!(e instanceof ApiError) || e.status >= 500) {
+        s.failed = true;
+        clearTimeout(s.timer);
+        s.timer = window.setTimeout(() => save(s), 5000);
+      }
     }
   } finally {
     s.saving = false;
@@ -1247,12 +1265,13 @@ const fieldSources = { tags: () => tags, folders: () => allFolders() };
 function saveSmartFolder(query: string, name: string, anchor: HTMLElement) {
   smartFolderEditor(anchor, { name: name || nameFor(query), query, shared: !viewer }, {
     canShare: !viewer,
+    alone: local,
     sources: fieldSources,
     save: async (f) => {
       const saved = await api.saveSmartFolder(f);
       smartFolders = await api.smartFolders();
       renderTree();
-      toast({ icon: "folderSearch", text: `Saved ${saved.name}`, detail: saved.shared ? "Everyone in the workspace sees it in their sidebar." : "Only you see it." });
+      toast({ icon: "folderSearch", text: `Saved ${saved.name}`, detail: local ? undefined : saved.shared ? "Everyone in the workspace sees it in their sidebar." : "Only you see it." });
     },
   });
 }
@@ -1261,6 +1280,7 @@ function saveSmartFolder(query: string, name: string, anchor: HTMLElement) {
 function newSmartFolder(anchor: HTMLElement) {
   smartFolderEditor(anchor, { name: "", query: "", shared: !viewer }, {
     canShare: !viewer,
+    alone: local,
     sources: fieldSources,
     save: async (f) => {
       const saved = await api.saveSmartFolder(f);
@@ -1315,6 +1335,7 @@ function renderSmartFolders(active: string | null) {
       e.stopPropagation();
       smartFolderEditor(edit, f, {
         canShare: !viewer,
+        alone: local,
         sources: fieldSources,
         save: async (next) => {
           await api.saveSmartFolder(next);
@@ -1322,7 +1343,7 @@ function renderSmartFolders(active: string | null) {
           renderTree();
         },
         remove: async () => {
-          if (!confirm(`Delete the smart folder ${f.name}${f.shared ? " for everyone in the workspace" : ""}? Its notes don't change.`)) return;
+          if (!confirm(`Delete the smart folder ${f.name}${f.shared && !local ? " for everyone in the workspace" : ""}? Its notes don't change.`)) return;
           smartFolders = await api.deleteSmartFolder(f.id);
           renderTree();
           toast({ icon: "folderSearch", text: `Deleted ${f.name}` });
@@ -1512,6 +1533,7 @@ function renderTree() {
   // What Notes is showing, as a query: the Notes view, a folder and a smart folder each match one.
   const showing = page === "notes" && notesPage.scope === "active" ? formatQuery(notesPage.query) : null;
   renderSmartFolders(showing);
+  notesPage.named((showing && smartFolders.find((f) => f.query === showing)?.name) || null);
   const archivedCount = notes.filter((n) => isArchived(n.path) && n.kind !== "asset").length;
   $("#archive-count").textContent = archivedCount ? String(archivedCount) : "";
   const assetCount = notes.filter((n) => n.kind === "asset" && !isArchived(n.path)).length;
@@ -2356,6 +2378,8 @@ function debounce<A extends unknown[]>(fn: (...a: A) => unknown, ms: number) {
 }
 
 let workspaceId = "";
+/** A local vault: just you, so there's no one to share a smart folder with. */
+let local = true;
 /** You can view this workspace but not edit it: you keep smart folders of your own but can't change shared ones. */
 let viewer = false;
 /** May delete for good (Trash's Delete forever and Empty trash): workspace owners online, and always locally. */
@@ -2432,6 +2456,7 @@ async function boot() {
   if (who?.me) {
     const ws = pickWorkspace(who.me);
     workspaceId = ws.id;
+    local = false;
     viewer = ws.role === "viewer";
     setCanEditCalendars(!viewer);
     owner = ws.role === "owner";
@@ -2501,7 +2526,11 @@ async function boot() {
   favoriteDrop($("#favorites"), "is-drop");
   document.addEventListener("dragend", endDrag); // a drag that lands nowhere still clears its highlights
   vaultEvents.addEventListener("change", () => refreshTaskCountSoon());
-  window.addEventListener("beforeunload", () => void flushSave());
+  window.addEventListener("beforeunload", (e) => {
+    void flushSave();
+    // A save that couldn't reach the server won't now either: ask before the text is lost.
+    if (panes.some((p) => p.session?.failed && p.view.state.doc.toString() !== p.session.base)) e.preventDefault();
+  });
   watchTimers((t) =>
     toast({
       icon: "timer",
@@ -2528,7 +2557,10 @@ async function boot() {
   connect(onMessage, (up) => {
     $("#conn").dataset.up = String(up);
     $("#conn").title = up ? "Live: watching the vault for agent edits" : "Reconnecting…";
-    if (up) refreshNotesSoon();
+    if (up) {
+      refreshNotesSoon();
+      void flushSave(); // what couldn't be saved while the connection was down
+    }
   });
   if (!viewer) void startGuide({ archive: (path) => void archivePath(path), flush: () => flushSave() });
 

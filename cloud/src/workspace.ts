@@ -266,6 +266,8 @@ export class Workspace extends DurableObject<Env> {
       const made = this.quire.changes({ since: last, limit: 500 }).reverse();
       for (const c of made) {
         if (c.from_path && c.from_path !== c.path) this.broadcast({ type: "removed", path: c.from_path });
+        // Sent to Trash: a tab with it open says so, as when it's deleted in the app.
+        if (c.op === "delete") this.broadcast({ type: "removed", path: c.path });
         const content = kindOf(c.path) === "asset" ? null : this.files.read(c.path);
         this.announce(c.path, content, c.version ?? "", c);
       }

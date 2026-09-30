@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import WebSocket from "ws";
 import { startCloud, team, type Cloud } from "./cloud.ts";
 
 let cloud: Cloud;
@@ -162,6 +163,19 @@ test("an agent lists the workspace's events and makes a meeting note, linked to 
   assert.deepEqual([latest.path, latest.source], ["Meetings/2026-10-05 Standup.md", "Test Agent (via Editor Dev)"]);
   await cloud.call(people.owner, "POST", `${people.base}/calendar/sources/remove`, { id: cal.id });
   await agent.client.close();
+});
+
+test("an agent's delete tells open tabs the note is gone, as a delete in the app does", async () => {
+  const owner = await mcp((await connect(people.owner, people.id)).access);
+  await owner.call("create_note", { path: "Short lived", content: "# Short lived\n" });
+  const socket = new WebSocket(`${cloud.origin.replace("http", "ws")}${people.base}/live`, { headers: { cookie: people.owner, origin: cloud.origin } });
+  await new Promise((resolve, reject) => (socket.once("open", resolve), socket.once("error", reject)));
+  const removed = new Promise<string>((resolve) => socket.on("message", (d) => (JSON.parse(String(d)).type === "removed" ? resolve(JSON.parse(String(d)).path) : undefined)));
+  assert.equal((await owner.call("delete_note", { paths: ["Short lived"] })).isError, false);
+  const gone = await Promise.race([removed, new Promise((r) => setTimeout(() => r("no removed message"), 2000))]);
+  assert.equal(gone, "Short lived.md");
+  socket.close();
+  await owner.client.close();
 });
 
 test("an agent's recent_changes counts a run of saves as History's /diffstats does", async () => {

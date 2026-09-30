@@ -57,6 +57,8 @@ export interface App {
   /** Online, the account menu's actions; locally, none. */
   account: Array<{ label: string; icon: string; run: () => unknown; workspace?: boolean; current?: boolean }>;
   newNote(): void;
+  /** A new note that holds a Kanban board. */
+  newBoard(): void;
   newFolder(): void;
   go(page: Page): void;
   filterNotes(): void;
@@ -94,6 +96,7 @@ export function appCommands(app: App): Command[] {
   const go = (page: Page, title: string, icon: string, keywords = ""): Command => ({ id: `go:${page}`, title: `Go to ${title}`, keywords: `open show page ${keywords}`, icon, run: () => app.go(page) });
   return [
     { id: "new-note", title: "New note", keywords: "create add page", icon: "plus", run: app.newNote },
+    { id: "new-board", title: "New board", keywords: "create add kanban columns cards trello project", icon: "kanban", run: app.newBoard },
     { id: "new-folder", title: "New folder", keywords: "create add directory", icon: "folderPlus", run: app.newFolder },
     { id: "quick-add", title: "Add a task", keywords: "quick add todo new task", icon: "task", keys: ["Mod-Shift-."], area: "Tasks", run: app.quickAdd },
     go("notes", "Notes", "feed", "home all"),

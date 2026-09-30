@@ -1,6 +1,7 @@
 // Block-level live preview: whole-line embeds, tables and frontmatter render as widgets.
 // Block decorations must come from a StateField (they change vertical layout).
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
+import { noteTree } from "./tree.ts";
 import { EditorSelection, EditorState, Facet, Prec, StateEffect, StateField, Transaction, type Line, type Range, type StateCommand, type Text } from "@codemirror/state";
 import { Decoration, EditorView, keymap, WidgetType, type DecorationSet } from "@codemirror/view";
 import { api, assetUrl } from "../api.ts";
@@ -522,7 +523,7 @@ function mathBlock(state: EditorState, first: Line, last: Line, tex: string): Ra
  * without the fences), and how far the fence is indented; null if `pos` isn't in one.
  */
 export function codeRange(state: EditorState, pos: number): { from: number; to: number; indent: number } | null {
-  for (let n: any = syntaxTree(state).resolveInner(pos, -1); n; n = n.parent) {
+  for (let n: any = noteTree(state).resolveInner(pos, -1); n; n = n.parent) {
     if (n.name !== "FencedCode") continue;
     const doc = state.doc;
     const first = doc.lineAt(n.from);

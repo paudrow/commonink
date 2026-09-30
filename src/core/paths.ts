@@ -72,13 +72,16 @@ export function isHidden(rel: string): boolean {
   return rel.split(/[\\/]/).some((seg) => seg.startsWith("."));
 }
 
-/** "Projects/Roadmap.md" -> "roadmap" */
+/**
+ * "Projects/Roadmap.md" -> "roadmap". In composed Unicode, like linkKey, so a file named in
+ * decomposed form (as older Macs wrote names) matches the links typed to it.
+ */
 export function stemOf(p: string): string {
   const base = path.posix.basename(p);
-  return (kindOf(p) === "md" ? base.replace(/\.(md|markdown)$/i, "") : base).toLowerCase();
+  return (kindOf(p) === "md" ? base.replace(/\.(md|markdown)$/i, "") : base).normalize("NFC").toLowerCase();
 }
 
-/** Lowercased link key for a wikilink / markdown link target. */
+/** Lowercased link key for a wikilink / markdown link target, in composed Unicode. */
 export function linkKey(target: string): string {
   return target
     .trim()
@@ -86,6 +89,7 @@ export function linkKey(target: string): string {
     .replace(/^\.?\/+/, "")
     .replace(/#.*$/, "")
     .replace(/\.(md|markdown)$/i, "")
+    .normalize("NFC")
     .toLowerCase();
 }
 

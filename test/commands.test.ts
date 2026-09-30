@@ -26,6 +26,7 @@ const app = (over: Partial<App> = {}): App => {
     folds: 0,
     account: [],
     newNote: run("newNote"),
+    newBoard: run("newBoard"),
     newFolder: run("newFolder"),
     go: (page) => void ran.push(`go:${page}`),
     filterNotes: run("filterNotes"),
@@ -60,6 +61,7 @@ test("commands match fuzzily, by name or by what they're about, and none alone l
   assert.deepEqual(titles("dark", app()), ["Toggle theme"]);
   assert.deepEqual(titles("archive", app({ note: { kind: "md", starred: false, archived: false } })).slice(0, 2), ["Archive note", "Go to Archive"]);
   assert.deepEqual(titles("zzz", app()), []);
+  assert.deepEqual(titles("kanban", app()), ["New board"]);
   const all = titles("", app());
   assert.equal(all[0], "New note");
   assert.ok(all.includes("Keyboard shortcuts"));

@@ -32,7 +32,7 @@ const MARKER = /<!--\s*guide:([a-z]+)\s*-->/;
 const mark = (name: string) => `<!-- guide:${name} -->`;
 const isStep = (s: string): s is GuideStep => (GUIDE_STEPS as readonly string[]).includes(s);
 
-export const DEMO_TEXT = `Hi, I'm the guide. I just wrote this line into your note, the way an agent you connect would: live, highlighted, with my name on it. Press ⌘Z to take it back. ${mark("demo")}`;
+export const DEMO_TEXT = `Hi, I'm the guide. I just wrote this line into your note, the way an agent you connect would: live, highlighted, with my name on it. Press ⌘Z (Ctrl+Z off a Mac) to take it back. ${mark("demo")}`;
 export const FINISHED_TEXT = `**You're set.** That's the tour. [[Tips]] has markup, embeds and keys, and [[Overview]] shows your workspace at a glance. This note has done its job, so archive it whenever you like. ${mark("finished")}`;
 
 /** A request's action, checked at the boundary. */
@@ -66,7 +66,7 @@ export function guideNext(content: string, action: GuideAction): string {
   const lines = content.split("\n");
   if (isStep(action)) {
     const i = lines.findIndex((l) => TASK_LINE.test(l) && markerOf(l) === action);
-    if (i >= 0) lines[i] = lines[i].replace(TASK_LINE, (_m, a: string, _box: string, b: string, rest: string) => `${a}x${b}${rest}`);
+    if (i >= 0) lines[i] = lines[i].replace(TASK_LINE, (_m, a: string, _box: string, b: string, rest: string, cr: string) => `${a}x${b}${rest}${cr}`);
   }
   if (action === "demo" && !content.includes(mark("demo"))) {
     const task = lines.findIndex((l) => TASK_LINE.test(l) && markerOf(l) === "watch");

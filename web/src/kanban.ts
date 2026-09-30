@@ -24,6 +24,7 @@ import {
 } from "../../src/core/kanban.ts";
 import { parseTask } from "../../src/core/tasks.ts";
 import { scanTags } from "../../src/core/tags.ts";
+import { saveChain } from "./saveChain.ts";
 
 export interface BoardHost {
   /** The editor the board is shown in: note names and tags for suggestions, and opening notes, tags and people. */
@@ -674,21 +675,19 @@ async function preview(target: string, from: string): Promise<Preview | null> {
 export function remoteBoard(root: HTMLElement, path: string, index: number, opts: { ctx: EditorContext; readOnly: boolean; resized(): void; onMissing(): void }) {
   let note: { content: string; version: string } | null = null;
   let board: ReturnType<typeof mountBoard> | null = null;
-  let pending = 0;
-  let queue = Promise.resolve();
   let alive = true;
   const past: string[] = [];
   const future: string[] = [];
+  const saves = saveChain(
+    async (text) => {
+      note!.version = (await api.save(path, text, note!.version)).version;
+    },
+    () => load(),
+  );
   const set = (next: string) => {
     note!.content = next;
-    pending++;
+    void saves.push(next);
     board?.update(index);
-    queue = queue
-      .then(async () => {
-        note!.version = (await api.save(path, next, note!.version)).version;
-      })
-      .catch(() => load())
-      .finally(() => pending--);
   };
   const host: BoardHost = {
     ctx: opts.ctx,
@@ -720,7 +719,7 @@ export function remoteBoard(root: HTMLElement, path: string, index: number, opts
     else board = mountBoard(root, host, index);
   }
   void load();
-  const off = onVaultChange(() => pending || void load(), 300);
+  const off = onVaultChange(() => saves.pending || void load(), 300);
   return () => {
     alive = false;
     off();
