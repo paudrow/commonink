@@ -8,7 +8,7 @@ import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, useWork
 import { normalizeTag } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
-import { SHARE_KEYS, shareLabel, toggleShareMenu, type ShareNote } from "./share.ts";
+import { paintShareButton, SHARE_KEYS, toggleShareMenu, type ShareNote } from "./share.ts";
 import { hideBanner, showBanner } from "./banner.ts";
 import { showConflict as conflictBanner } from "./conflict.ts";
 import { createState, lineNumbersFor, lineNumbersSlot, openLinkToSide, remote, setVimDisplayLines, vimSlot } from "./editor/setup.ts";
@@ -1796,7 +1796,7 @@ function renderChrome() {
   $("#move-btn").hidden = !s;
   $("#star-btn").hidden = !s || s.kind === "asset";
   $("#share-btn").hidden = !s || s.kind === "asset";
-  setLabel($("#share-btn"), shareLabel());
+  paintShareButton($("#share-btn"));
   $("#note-history-btn").hidden = !s || s.kind === "asset";
   $("#focus-btn").hidden = !s || s.kind === "asset";
   $("#split-btn").hidden = !split && (!s || s.kind === "asset");
