@@ -89,6 +89,21 @@ test("Escape on a focused toast closes it and gives the focus back", () => {
   before.remove();
 });
 
+test("a timer's toast opens its note from an Open button, and a click elsewhere on it only closes it", () => {
+  const opened: string[] = [];
+  toast({ icon: "timer", text: "Focus is done", detail: "Journal", open: () => opened.push("Journal"), alert: true });
+  const node = document.querySelector<HTMLElement>("#toasts .toast")!;
+  assert.deepEqual([...node.querySelectorAll("button")].map((b) => b.textContent), ["Open"]);
+  node.querySelector<HTMLElement>(".toast-text")!.click();
+  assert.equal(opened.length, 0);
+  assert.deepEqual(shown(), []);
+
+  toast({ icon: "timer", text: "Focus is done", detail: "Journal", open: () => opened.push("Journal"), alert: true });
+  document.querySelector<HTMLButtonElement>("#toasts .toast:not(.is-leaving) button")!.click();
+  assert.deepEqual(opened, ["Journal"]);
+  assert.deepEqual(shown(), []);
+});
+
 test("a task ticked off a list stays, struck through, then goes; its toast's Undo reopens it", async () => {
   const sent: Array<{ done: boolean; text: string }> = [];
   const realFetch = globalThis.fetch;

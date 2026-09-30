@@ -49,7 +49,7 @@ function htmlOf(src: string, path: string): string {
 }
 
 const jump = (view: EditorView, pos: number) => {
-  view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: "center" }) });
+  view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: "center" }), userEvent: "select.jump" });
   view.focus();
 };
 

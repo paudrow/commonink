@@ -399,7 +399,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
     const place = keep ? null : places[note.id];
     const pos = Math.min(keep?.head ?? place?.pos ?? (fm ? fm[0].length : 0), pane.view.state.doc.length);
     const top = place ? placeScroll(pane.view, place) : EditorView.scrollIntoView(0, { y: "start", yMargin: 80 });
-    pane.view.dispatch({ selection: { anchor: pos }, effects: keep?.scroll ?? top });
+    pane.view.dispatch({ selection: { anchor: pos }, effects: keep?.scroll ?? top, userEvent: "select.jump" });
   }
   // Following a link or a click adds to history; back/forward, renames and old links just fix the URL up.
   if (opts.focus !== false) focusPane(pane, opts.push === false || opts.trail === false ? "replace" : "push");
@@ -909,7 +909,7 @@ function headingLine(pane: Pane, anchor: string): number | undefined {
 
 function goToLine(pane: Pane, line: number) {
   const l = pane.view.state.doc.line(Math.min(Math.max(1, line), pane.view.state.doc.lines));
-  pane.view.dispatch({ selection: { anchor: l.from }, effects: EditorView.scrollIntoView(l.from, { y: "start", yMargin: 80 }) });
+  pane.view.dispatch({ selection: { anchor: l.from }, effects: EditorView.scrollIntoView(l.from, { y: "start", yMargin: 80 }), userEvent: "select.jump" });
 }
 
 // ------------------------------------------------------------------ saving & merging agent edits
@@ -1093,14 +1093,8 @@ function onMessage(m: ServerMsg) {
       if (!isSelf(m.source) && m.change) {
         const c = m.change;
         const undo = c.op === "edit";
-        toast({
-          by: c,
-          text: `${changeVerb(c)} ${displayName(m.path)}`,
-          detail: c.summary ?? undefined,
-          actionLabel: undo ? "Undo" : undefined,
-          action: undo ? () => void undoChange(c, m.content) : open ? undefined : () => openNote(m.path),
-          open: undo && !open ? () => void openNote(m.path) : undefined,
-        });
+        const said = { by: c, text: `${changeVerb(c)} ${displayName(m.path)}`, detail: c.summary ?? undefined, open: open ? undefined : () => void openNote(m.path) };
+        toast(undo ? { ...said, actionLabel: "Undo", action: () => void undoChange(c, m.content) } : said);
       }
       refreshNotesSoon();
       if (active.session && m.path !== active.session.path) refreshBacklinksSoon();
@@ -2446,7 +2440,7 @@ async function boot() {
       icon: "timer",
       text: `${t.label || "Timer"} is done`,
       detail: t.note ? displayName(t.note) : undefined,
-      action: t.note && t.note !== active.session?.path ? () => openNote(t.note!) : undefined,
+      open: t.note && t.note !== active.session?.path ? () => void openNote(t.note!) : undefined,
       alert: true,
     }),
   );

@@ -30,7 +30,7 @@ export const history = [
       // A note's name finds it too; a note that's gone is only found by the path it had.
       const path = a.path === undefined ? undefined : (quire.resolve(a.path) ?? a.path);
       const cs = quire.changes({ since: a.since, path, limit: a.limit ?? 30, by: parseAuthorFilter(a.by) });
-      return { text: fmtChanges(cs), data: cs };
+      return { text: fmtChanges(cs, quire), data: cs };
     },
   }),
   command({

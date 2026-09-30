@@ -192,11 +192,12 @@ export interface ConnectedAgent {
   connectedAt: number;
   usedAt: number | null;
 }
-/** Online: who's signed in (null if nobody). Locally the endpoint doesn't exist: undefined. */
+/** Online: who's signed in (null if nobody). Locally, where the server answers `{ local: true }`: undefined. */
 export async function whoAmI(): Promise<{ me: Me | null; devLogin: boolean } | undefined> {
   const r = await fetch("/api/me").catch(() => null);
-  if (!r || r.status === 404) return undefined;
+  if (!r) return undefined;
   const data = await r.json().catch(() => ({}));
+  if (data.local) return undefined;
   return r.ok ? { me: data as Me, devLogin: false } : { me: null, devLogin: !!data.devLogin };
 }
 const enc = encodeURIComponent;
