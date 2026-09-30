@@ -215,6 +215,11 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
   // Every path, the app's files included: another site (or another localhost port) gets nothing.
   if (!originOk(req)) return send(res, json({ error: "Cross-origin request refused" }, 403));
   if (url.pathname === SANDBOX_PATH) return send(res, sandboxPage());
+  // A share the service worker didn't catch (it wasn't set up yet): the capture screen says so.
+  if (url.pathname === "/share" && req.method === "POST") {
+    res.writeHead(303, { Location: "/capture?share=none" });
+    return res.end();
+  }
   if (!url.pathname.startsWith("/api/")) {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Content-Security-Policy", appPolicy(NONCE, url)); // also: no framing the app to click through it

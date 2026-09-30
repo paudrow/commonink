@@ -18,6 +18,7 @@ export async function startCloud(vars: Record<string, string> = {}) {
   fs.mkdirSync(path.join(assets, "assets"));
   fs.writeFileSync(path.join(assets, "assets/app.js"), "export {};\n");
   fs.copyFileSync(path.resolve(CLOUD, "../web/public/_headers"), path.join(assets, "_headers"));
+  fs.copyFileSync(path.resolve(CLOUD, "../web/public/sw.js"), path.join(assets, "sw.js"));
   const config = JSON.parse(fs.readFileSync(path.join(CLOUD, "wrangler.jsonc"), "utf8").replace(/^\s*\/\/.*$/gm, ""));
   const { $schema, routes, previews, ...rest } = config;
   const harness = createTestHarness({

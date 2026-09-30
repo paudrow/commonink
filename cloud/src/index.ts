@@ -53,6 +53,8 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
   }
   if (url.pathname.startsWith("/invite/")) return invite(req, env, url);
   if (url.pathname.startsWith("/api/")) return api(req, env, url);
+  // A share the service worker didn't catch (it wasn't set up yet): the capture screen says so.
+  if (url.pathname === "/share" && req.method === "POST") return Response.redirect(new URL("/capture?share=none", url).href, 303);
   return fetchAsset(env.ASSETS, req, url);
 }
 
