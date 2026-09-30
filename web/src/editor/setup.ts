@@ -1,11 +1,11 @@
 import { Annotation, Compartment, EditorState, type Extension } from "@codemirror/state";
-import { EditorView, drawSelection, dropCursor, keymap, placeholder, rectangularSelection } from "@codemirror/view";
+import { EditorView, drawSelection, dropCursor, keymap, lineNumbers, placeholder, rectangularSelection } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
 import { syntaxHighlighting, indentUnit } from "@codemirror/language";
 import { markdownKeymap } from "@codemirror/lang-markdown";
 import { html } from "@codemirror/lang-html";
-import { vim } from "@replit/codemirror-vim";
+import { vim, Vim } from "@replit/codemirror-vim";
 import { markdownWithFrontmatter, quireHighlight } from "./language.ts";
 import { livePreview } from "./livePreview.ts";
 import { blockKeys, blockWidgets, copyCodeKey, editorContext, stepIntoBlocks, type EditorContext } from "./blocks.ts";
@@ -17,12 +17,42 @@ import { linkKind } from "../links.ts";
 import { LINK_DRAG, type LinkDrag } from "../dom.ts";
 import { noteLinkAt } from "./linkAt.ts";
 import { linkSideButton } from "./sideButton.ts";
+import { details } from "./details.ts";
+import { gfmPreview } from "./gfm.ts";
 import { taskLineTools } from "./taskTools.ts";
 import { safeDecode } from "../../../src/core/uri.ts";
 
 /** Marks transactions that came from disk (agents), so they don't trigger a save of their own. */
 export const remote = Annotation.define<boolean>();
 export const vimSlot = new Compartment();
+export const lineNumbersSlot = new Compartment();
+
+/** The gutter's numbers, or nothing: what lineNumbersSlot holds for the line-numbers setting. */
+export const lineNumbersFor = (on: boolean): Extension => (on ? [lineNumbers(), gutterTheme] : []);
+
+// The text column is centred; the gutter rides along at its left edge instead of the window's.
+const gutterTheme = EditorView.theme({
+  ".cm-gutters": { marginLeft: "auto", backgroundColor: "transparent", color: "var(--faint)", border: "none", fontFamily: "var(--mono)", fontSize: "0.8em" },
+  ".cm-gutters + .cm-content": { marginLeft: "0", marginRight: "auto", paddingLeft: "24px" },
+  ".cm-lineNumbers .cm-gutterElement": { padding: "0 4px 0 12px" },
+});
+
+/**
+ * In vim, j and k move by the line you see (gj, gk) rather than to the next line of the file, which
+ * in a wrapped paragraph can be a screen away. Normal and visual mode only: an operator (dj, yk)
+ * still takes whole lines, as in Vim with `nnoremap j gj`. Vim's key maps are global, so this is too.
+ */
+let displayLineKeys = false;
+export function setVimDisplayLines(on: boolean) {
+  if (on === displayLineKeys) return;
+  displayLineKeys = on;
+  for (const ctx of ["normal", "visual"]) {
+    for (const [key, to] of [["j", "gj"], ["k", "gk"]]) {
+      if (on) Vim.noremap(key, to, ctx);
+      else Vim.unmap(key, ctx);
+    }
+  }
+}
 
 const theme = EditorView.theme({
   "&": { height: "100%", backgroundColor: "transparent", color: "var(--ink)" },
@@ -108,6 +138,7 @@ export function createState(opts: {
   doc: string;
   kind: "md" | "html";
   vim: boolean;
+  lineNumbers: boolean;
   /** A viewer's workspace: the note shows, and boards and chips don't change it. */
   readOnly?: boolean;
   context: EditorContext;
@@ -115,12 +146,13 @@ export function createState(opts: {
 }): EditorState {
   const lang: Extension =
     opts.kind === "md"
-      ? [markdownWithFrontmatter(), keymap.of(markdownKeymap), livePreview, linkSideButton, keymap.of([{ key: "Mod-Alt-Enter", run: openLinkToSide }]), taskLineTools, blockWidgets, stepIntoBlocks, blockKeys, lineHint, linkClicks, typingHelpers()]
+      ? [markdownWithFrontmatter(), keymap.of(markdownKeymap), gfmPreview, livePreview, linkSideButton, keymap.of([{ key: "Mod-Alt-Enter", run: openLinkToSide }]), details, taskLineTools, blockWidgets, stepIntoBlocks, blockKeys, lineHint, linkClicks, typingHelpers()]
       : [html(), indentUnit.of("  ")];
   return EditorState.create({
     doc: opts.doc,
     extensions: [
       vimSlot.of(opts.vim ? vim() : []), // must precede other keymaps
+      lineNumbersSlot.of(lineNumbersFor(opts.lineNumbers)),
       editorContext.of(opts.context),
       EditorState.readOnly.of(!!opts.readOnly),
       history(),

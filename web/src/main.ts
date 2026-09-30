@@ -11,10 +11,11 @@ import { toast } from "./toast.ts";
 import { SHARE_KEYS, shareLabel, toggleShareMenu, type ShareNote } from "./share.ts";
 import { hideBanner, showBanner } from "./banner.ts";
 import { showConflict as conflictBanner } from "./conflict.ts";
-import { createState, openLinkToSide, remote, vimSlot } from "./editor/setup.ts";
+import { createState, lineNumbersFor, lineNumbersSlot, openLinkToSide, remote, setVimDisplayLines, vimSlot } from "./editor/setup.ts";
 import { linkTargetAt } from "./editor/linkAt.ts";
 import { bumpEmbeds, codeRange, editorContext } from "./editor/blocks.ts";
 import { codeWrapByDefault, setCodeWrapByDefault } from "./code.ts";
+import { foldAll, foldAt, foldCount } from "./editor/details.ts";
 import { clearFlash, flashChanges } from "./editor/agentFlash.ts";
 import { editsBetween, merge3 } from "./merge.ts";
 import { sandboxFrame } from "./render.ts";
@@ -38,6 +39,7 @@ import { changeVerb, groupChanges } from "../../src/core/format.ts";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
 import { clampSide, forget, newLayout, parseLayout, SIDE_CLICK, sideClick, step, visit, type PaneTrail } from "./panes.ts";
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
+import { headingMatches } from "../../src/core/gfm.ts";
 import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
 import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
@@ -91,6 +93,9 @@ try {
 const prefs = {
   /** Off until you turn it on: in Vim, a stray Esc then `dd` deletes a line. */
   vim: store.get("vim", false),
+  /** In vim, j and k move by the line on screen (gj, gk), not the line in the file. */
+  vimDisplayLines: store.get("vimDisplayLines", false),
+  lineNumbers: store.get("lineNumbers", false),
   panel: store.get("panel", true),
   htmlMode: store.get<"preview" | "source">("htmlMode", "preview"),
   /** Folders whose subfolders are showing in the sidebar (they start closed). */
@@ -218,11 +223,14 @@ function commands() {
   return appCommands({
     note: s ? { kind: s.kind, starred: isStarred(s.id), archived: isArchived(s.path) } : null,
     vim: prefs.vim,
+    vimDisplayLines: prefs.vimDisplayLines,
+    lineNumbers: prefs.lineNumbers,
     split,
     focusMode,
     htmlMode: prefs.htmlMode,
     hasStart: tags.some((t) => t.tag === "start" && t.notes > 0),
     canDelete: !viewer,
+    folds: s?.kind === "md" ? foldCount(active.view.state) : 0,
     account,
     newNote: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
     newFolder: startNewFolder,
@@ -234,6 +242,8 @@ function commands() {
     quickAdd,
     toggleTheme,
     toggleVim,
+    toggleVimDisplayLines,
+    toggleLineNumbers,
     togglePanel: () => togglePanel(),
     toggleFocus: () => void setFocusMode(!focusMode),
     toggleSplit: () => void (split ? closePane(active) : openSplit()),
@@ -251,6 +261,7 @@ function commands() {
     share: openShare,
     copyLink: () => void copyLink(),
     exportAs: (how) => void exportNote(how),
+    foldAll: (open) => foldAll(open)(active.view),
   });
 }
 
@@ -270,6 +281,11 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
     const line = opts.line ?? (opts.heading ? headingLine(beside, opts.heading) : undefined);
     if (line) goToLine(beside, line);
     return beside.view.focus();
+  }
+  if (pane.session?.path === path && (opts.line || opts.heading)) {
+    const line = opts.line ?? headingLine(pane, opts.heading!);
+    if (line) goToLine(pane, line);
+    return pane.view.focus();
   }
   const ticket = ++pane.opens;
   await flushSave(pane);
@@ -309,6 +325,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
         doc: note.content,
         kind: note.kind === "html" ? "html" : "md",
         vim: prefs.vim,
+        lineNumbers: prefs.lineNumbers,
         readOnly: viewer,
         context: {
           path: note.path,
@@ -322,6 +339,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
           openTag,
           openPerson: (assignee) => void showTasks({ assignee }),
           saveSmartFolder,
+          noteUrl: () => notePath(next.title, next.id),
         },
         onUpdate: (docChanged, fromRemote, state) => onUpdate(next, docChanged, fromRemote, state),
       }),
@@ -814,12 +832,11 @@ async function nameUntitled(s: Session) {
   }
 }
 
-function headingLine(pane: Pane, heading: string): number | undefined {
-  const want = heading.trim().toLowerCase();
-  const doc = pane.view.state.doc;
-  for (let i = 1; i <= doc.lines; i++) {
-    const m = doc.line(i).text.match(/^#{1,6}[ \t]+(.*)$/);
-    if (m && headingName(headingText(m[1])).toLowerCase() === want) return i;
+/** The line of the heading `anchor` names (its words, or GitHub's slug of them), outside code. */
+function headingLine(pane: Pane, anchor: string): number | undefined {
+  for (const [n, text] of proseLines(pane.view.state.doc.toString())) {
+    const m = text.match(/^#{1,6}[ \t]+(.*)$/);
+    if (m && headingMatches(headingName(headingText(m[1])), anchor)) return n;
   }
 }
 
@@ -1981,6 +1998,19 @@ Vim.mapCommand("gd", "action", "quireFollowLink", {}, { context: "normal" });
 Vim.mapCommand("gf", "action", "quireFollowLink", {}, { context: "normal" });
 Vim.defineAction("quireOpenSide", () => openLinkToSide(active.view));
 Vim.mapCommand("gs", "action", "quireOpenSide", {}, { context: "normal" });
+// Collapsible sections: za toggles the one under the cursor, zo/zc open and close it, zR/zM all of them.
+for (const [keys, run] of [["za", foldAt("toggle")], ["zo", foldAt("open")], ["zc", foldAt("close")], ["zR", foldAll(true)], ["zM", foldAll(false)]] as const) {
+  Vim.defineAction(`quireFold${keys}`, () => run(active.view));
+  Vim.mapCommand(keys, "action", `quireFold${keys}`, {}, { context: "normal" });
+}
+setVimDisplayLines(prefs.vimDisplayLines);
+// :set number / :set nu / :set nonu / :set nu! / :set nu? — the same setting as ⌘K's, one for every pane.
+// Vim calls this once globally and once for the editor; the global call does the work, and asked
+// for the editor's own value it answers undefined, which falls back to the global one.
+Vim.defineOption("number", undefined, "boolean", ["nu"], (value?: boolean, cm?: unknown) => {
+  if (value === undefined) return cm ? undefined : prefs.lineNumbers;
+  if (!cm) setLineNumbers(value);
+});
 
 function followLinkAtCursor() {
   const link = linkTargetAt(active.view.state, active.view.state.selection.main.head);
@@ -2072,6 +2102,20 @@ function toggleVim() {
   attachVim();
   active.view.focus();
 }
+
+function toggleVimDisplayLines() {
+  prefs.vimDisplayLines = !prefs.vimDisplayLines;
+  store.set("vimDisplayLines", prefs.vimDisplayLines);
+  setVimDisplayLines(prefs.vimDisplayLines);
+}
+
+function setLineNumbers(on: boolean) {
+  if (on === prefs.lineNumbers) return;
+  prefs.lineNumbers = on;
+  store.set("lineNumbers", on);
+  for (const p of panes) p.view.dispatch({ effects: lineNumbersSlot.reconfigure(lineNumbersFor(on)) });
+}
+const toggleLineNumbers = () => setLineNumbers(!prefs.lineNumbers);
 
 function toggleTheme() {
   const dark = document.documentElement.dataset.theme
@@ -2191,7 +2235,8 @@ let owner = true;
  */
 async function route() {
   const hash = location.hash;
-  if (hash.startsWith("#/") || /^#(feed|tasks|assets|history)\b/.test(hash)) {
+  const onNote = !!parseNotePath(location.pathname);
+  if (!onNote && (hash.startsWith("#/") || /^#(feed|tasks|assets|history)\b/.test(hash))) {
     const legacy = hash.startsWith("#/") ? safeDecode(hash.slice(2)) : "";
     const meta = legacy ? notes.find((n) => n.path === legacy) : undefined;
     const [page, query = ""] = hash.slice(1).split("?");
@@ -2215,7 +2260,8 @@ async function route() {
   }
   const link = parseNotePath(at);
   const path = link ? (notes.find((n) => n.id === link.id)?.path ?? (await api.resolve(link.id).catch(() => null))) : undefined;
-  if (path) return path === active.session?.path ? undefined : openNote(path, { push: false });
+  const spot = onNote ? spotOf(hash) : {};
+  if (path) return path === active.session?.path && !spot.line && !spot.heading ? undefined : openNote(path, { push: false, ...spot });
   if (link && workspaceId) {
     // Online, the link may be to a note in another of your workspaces: switch to it (?w= picks it).
     const where = await api.locate(link.id).catch(() => null);
@@ -2224,6 +2270,15 @@ async function route() {
   if (link) toast({ text: workspaceId ? "That note doesn't exist, or you don't have access to it" : "That note doesn't exist any more" });
   setUrl("/notes", "replace");
   return showNotes({ push: false });
+}
+
+/**
+ * Where in a note its address's #anchor points (it opens there, in whichever pane has the note): a
+ * line (#L12), or a heading by its words or GitHub's slug of them (a copied heading link).
+ */
+function spotOf(hash: string): { line?: number; heading?: string } {
+  const anchor = hash.length > 1 ? safeDecode(hash.slice(1)) : "";
+  return /^L\d+$/.test(anchor) ? { line: Number(anchor.slice(1)) } : anchor ? { heading: anchor } : {};
 }
 
 /** The Tasks badge: how many checkboxes are still open across the workspace. */
@@ -2350,10 +2405,12 @@ async function boot() {
   if (beside) await openNote(beside.path, { pane: panes[1], focus: false, trail: false });
   if (beside && parseNotePath(location.pathname)?.id === beside.id) {
     // The address bar names the side pane's note: the main pane gets back what it had.
+    const spot = spotOf(location.hash);
     const main = notes.find((n) => n.id === layout.panes[0].note && n.kind !== "asset");
     if (main) await openNote(main.path, { pane: panes[0], focus: false, trail: false });
     else await showNotes({ push: false });
     focusPane(panes[1]);
+    if (spot.line || spot.heading) await openNote(beside.path, { pane: panes[1], ...spot });
   } else await route();
 }
 
