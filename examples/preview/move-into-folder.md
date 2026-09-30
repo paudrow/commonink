@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 127
 title: Moving a note to a folder path keeps its name
 ---
 An agent or the CLI moving a note to a folder path with a trailing slash, like `Archive 2025/`, used to fail with "can't change its file type from .md to" (and nothing after "to"). It now moves the note into that folder under its own name, as `mv` does. A path without the slash is still the note's new name.
