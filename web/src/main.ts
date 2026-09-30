@@ -1187,12 +1187,13 @@ const fieldSources = { tags: () => tags, folders: () => allFolders() };
 function saveSmartFolder(query: string, name: string, anchor: HTMLElement) {
   smartFolderEditor(anchor, { name: name || nameFor(query), query, shared: !viewer }, {
     canShare: !viewer,
+    alone: local,
     sources: fieldSources,
     save: async (f) => {
       const saved = await api.saveSmartFolder(f);
       smartFolders = await api.smartFolders();
       renderTree();
-      toast({ icon: "folderSearch", text: `Saved ${saved.name}`, detail: saved.shared ? "Everyone in the workspace sees it in their sidebar." : "Only you see it." });
+      toast({ icon: "folderSearch", text: `Saved ${saved.name}`, detail: local ? undefined : saved.shared ? "Everyone in the workspace sees it in their sidebar." : "Only you see it." });
     },
   });
 }
@@ -1201,6 +1202,7 @@ function saveSmartFolder(query: string, name: string, anchor: HTMLElement) {
 function newSmartFolder(anchor: HTMLElement) {
   smartFolderEditor(anchor, { name: "", query: "", shared: !viewer }, {
     canShare: !viewer,
+    alone: local,
     sources: fieldSources,
     save: async (f) => {
       const saved = await api.saveSmartFolder(f);
@@ -1255,6 +1257,7 @@ function renderSmartFolders(active: string | null) {
       e.stopPropagation();
       smartFolderEditor(edit, f, {
         canShare: !viewer,
+        alone: local,
         sources: fieldSources,
         save: async (next) => {
           await api.saveSmartFolder(next);
@@ -1262,7 +1265,7 @@ function renderSmartFolders(active: string | null) {
           renderTree();
         },
         remove: async () => {
-          if (!confirm(`Delete the smart folder ${f.name}${f.shared ? " for everyone in the workspace" : ""}? Its notes don't change.`)) return;
+          if (!confirm(`Delete the smart folder ${f.name}${f.shared && !local ? " for everyone in the workspace" : ""}? Its notes don't change.`)) return;
           smartFolders = await api.deleteSmartFolder(f.id);
           renderTree();
           toast({ icon: "folderSearch", text: `Deleted ${f.name}` });
@@ -2294,6 +2297,8 @@ function debounce<A extends unknown[]>(fn: (...a: A) => unknown, ms: number) {
 }
 
 let workspaceId = "";
+/** A local vault: just you, so there's no one to share a smart folder with. */
+let local = true;
 /** You can view this workspace but not edit it: you keep smart folders of your own but can't change shared ones. */
 let viewer = false;
 /** May delete for good (Trash's Delete forever and Empty trash): workspace owners online, and always locally. */
@@ -2368,6 +2373,7 @@ async function boot() {
   if (who?.me) {
     const ws = pickWorkspace(who.me);
     workspaceId = ws.id;
+    local = false;
     viewer = ws.role === "viewer";
     owner = ws.role === "owner";
     useWorkspace(`/api/w/${ws.id}`, `/api/w/${ws.id}/live`);
