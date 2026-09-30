@@ -9,6 +9,8 @@ export interface Grant {
   note: string | null;
   folder: string | null;
   role: ShareRole;
+  /** When the share runs out, if it does: an open live connection closes then. */
+  expiresAt?: number | null;
 }
 
 /**

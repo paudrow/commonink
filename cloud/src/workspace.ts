@@ -224,7 +224,9 @@ export class Workspace extends DurableObject<Env> {
       if (route === "/live") {
         if (req.headers.get("Upgrade") !== "websocket") return json({ error: "Expected a WebSocket" }, 426);
         const [client, server] = Object.values(new WebSocketPair());
-        this.ctx.acceptWebSocket(server, [user || "link", `s:${req.headers.get("x-ci-session") ?? ""}`]);
+        // Tagged "shared" when grants decide what it hears, so any change to sharing can close it.
+        const tags = [user || "link", `s:${req.headers.get("x-ci-session") ?? ""}`, ...("grants" in access ? ["shared"] : [])];
+        this.ctx.acceptWebSocket(server, tags);
         server.serializeAttachment({ expires: Number(req.headers.get("x-ci-session-expires")) || 0, share: access });
         return new Response(null, { status: 101, webSocket: client });
       }
@@ -291,7 +293,7 @@ export class Workspace extends DurableObject<Env> {
     switch (`${req.method} ${route}`) {
       case "GET /shares": {
         const target = this.shareTarget({ note: url.searchParams.get("note") ?? undefined, path: url.searchParams.get("path") ?? undefined, folder: url.searchParams.get("folder") ?? undefined }, true);
-        return json(await this.describeShares(wsId, target));
+        return json(await this.describeShares(wsId, target, ["owner", "editor"].includes(req.headers.get("x-ci-role") ?? "")));
       }
       case "POST /shares": {
         const tooMany = await limit(this.env.DB, "share", user);
@@ -301,16 +303,19 @@ export class Workspace extends DurableObject<Env> {
         if (!role) throw new ShareError('"role" must be "viewer" or "editor"');
         const expiresAt = typeof body.expiresAt === "number" ? body.expiresAt : null;
         await addShare(this.env.DB, this.env.SESSION_SECRET, { workspaceId: wsId, by: user, target, email: str("email"), link: body.link === true, role, expiresAt });
-        return json(await this.describeShares(wsId, target));
+        this.sharingChanged();
+        return json(await this.describeShares(wsId, target, true));
       }
       case "POST /shares/update": {
         const role = body.role === "editor" || body.role === "viewer" ? body.role : undefined;
         const expiresAt = body.expiresAt === null || typeof body.expiresAt === "number" ? (body.expiresAt as number | null) : undefined;
         await updateShare(this.env.DB, wsId, str("id") ?? "", { role, expiresAt });
+        this.sharingChanged();
         return json({ ok: true });
       }
       case "POST /shares/remove":
         await removeShare(this.env.DB, wsId, str("id") ?? "");
+        this.sharingChanged();
         return json({ ok: true });
     }
     return json({ error: `No route ${req.method} ${route}` }, 404);
@@ -330,12 +335,12 @@ export class Workspace extends DurableObject<Env> {
     return { note: id };
   }
 
-  /** The MCP sharing tools, for an agent working as `user` (its role already decided which it gets). */
-  private agentSharing(wsId: string, user: string, origin: string) {
+  /** The MCP sharing tools, for an agent working as `user` (its role already decided which it gets, and whether it sees links' URLs). */
+  private agentSharing(wsId: string, user: string, origin: string, canManage: boolean) {
     const line = (s: Share & { url: string | null }) =>
-      `- ${s.kind === "link" ? `Anyone with the link: ${origin}${s.url}` : `${s.name ? `${s.name} <${s.email}>` : `${s.email} (by email)`}`} — ${s.role}${s.expiresAt ? `, until ${new Date(s.expiresAt).toISOString().slice(0, 10)}` : ""} (id ${s.id})`;
+      `- ${s.kind === "link" ? `Anyone with the link${s.url ? `: ${origin}${s.url}` : ""}` : `${s.name ? `${s.name} <${s.email}>` : `${s.email} (by email)`}`} — ${s.role}${s.expiresAt ? `, until ${new Date(s.expiresAt).toISOString().slice(0, 10)}` : ""} (id ${s.id})`;
     const describe = async (target: Target | undefined) => {
-      const d = await this.describeShares(wsId, target);
+      const d = await this.describeShares(wsId, target, canManage);
       const what = d.path ?? (target?.folder ? `${target.folder}/` : "this workspace");
       if (!d.shares.length && !d.inherited.length) return `${what} isn't shared with anyone outside the workspace.`;
       return [`${what} is shared with:`, ...d.shares.map(line), ...(d.inherited.length ? ["Through its folders:", ...d.inherited.map(line)] : [])].join("\n");
@@ -355,21 +360,37 @@ export class Workspace extends DurableObject<Env> {
           role: o.role,
           expiresAt: o.expiresInDays ? Date.now() + o.expiresInDays * 86_400_000 : null,
         });
+        this.sharingChanged();
         return describe(target);
       },
-      unshare: async (id: string) => (await removeShare(this.env.DB, wsId, id), "Stopped sharing it."),
+      unshare: async (id: string) => {
+        await removeShare(this.env.DB, wsId, id);
+        this.sharingChanged();
+        return "Stopped sharing it.";
+      },
     };
   }
 
-  /** A note's (or folder's) shares, the folder shares it gets too, and each link's URL. */
-  private async describeShares(wsId: string, target: Target | undefined) {
+  /**
+   * A note's (or folder's) shares and the folder shares it gets too. Each link's URL is its token,
+   * which lets anyone join with the link's role, so only those who may change sharing get it.
+   */
+  private async describeShares(wsId: string, target: Target | undefined, withUrls: boolean) {
     const all = await listShares(this.env.DB, wsId);
     const path = target?.note ? this.quire.pathOf(target.note) : null;
     const direct = target ? all.filter((s) => (target.note ? s.note === target.note : s.folder === target.folder)) : all;
     const inherited = path ? all.filter((s) => s.folder && path.startsWith(`${s.folder}/`)) : [];
     const withLinks = async (list: Share[]) =>
-      Promise.all(list.map(async (s) => ({ ...s, url: s.kind === "link" ? `/s/${await linkToken(this.env.SESSION_SECRET, s.id)}` : null })));
+      Promise.all(list.map(async (s) => ({ ...s, url: withUrls && s.kind === "link" ? `/s/${await linkToken(this.env.SESSION_SECRET, s.id)}` : null })));
     return { target: target ?? null, path, shares: await withLinks(direct), inherited: await withLinks(inherited) };
+  }
+
+  /**
+   * Sharing changed, and an open shared connection still hears by the grants it opened with. Close
+   * them all; each reconnects with what's shared with it now, or is refused.
+   */
+  private sharingChanged() {
+    for (const ws of this.ctx.getWebSockets("shared")) ws.close(4003, "Sharing changed");
   }
 
   private announce(rel: string, content: string | null, version: string, change: Change | null, origin?: string) {
@@ -392,6 +413,7 @@ export class Workspace extends DurableObject<Env> {
       try {
         const { expires, share } = (ws.deserializeAttachment() ?? {}) as { expires?: number; share?: SharedAccess };
         if (expires && expires < now) ws.close(4001, "Session expired");
+        else if (share && "grants" in share && share.grants.some((g) => g.expiresAt && g.expiresAt < now)) ws.close(4003, "Sharing changed");
         else if (!share || this.mayHear(share, msg)) ws.send(data);
       } catch {}
     }
@@ -410,7 +432,7 @@ export class Workspace extends DurableObject<Env> {
       source: () => who.actor,
       may: (route) => access(role, ...(route.split(" ") as [string, string])) === "allowed",
       canEditShared: role === "owner" || role === "editor",
-      sharing: this.agentSharing(who.workspace, who.user, new URL(req.url).origin),
+      sharing: this.agentSharing(who.workspace, who.user, new URL(req.url).origin, role === "owner" || role === "editor"),
     });
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await server.connect(transport);
