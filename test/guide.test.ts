@@ -32,7 +32,7 @@ test("both starter checklists have every step, the guide's cards, and the start 
     assert.deepEqual(guideState(text), { open: [...GUIDE_STEPS], done: [], demo: false, finished: false }, rel);
     for (const card of ["watch", "connect", "done"]) assert.match(text, new RegExp(`^\\s*::guide\\{step=${card}\\}$`, "m"), `${rel} has the ${card} card`);
     assert.match(text, /^tags: \[start\]$/m, rel);
-    assert.doesNotMatch(text, /Common Ink/, rel);
+    assert.doesNotMatch(text, /quire/i, rel); // the legacy name
   }
 });
 

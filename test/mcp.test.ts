@@ -25,6 +25,10 @@ async function call(name: string, args: Record<string, unknown>) {
   return { text: r.content.map((c) => c.text).join("\n"), isError: !!r.isError };
 }
 
+test("the server calls itself commonink", () => {
+  assert.equal(client.getServerVersion()?.name, "commonink");
+});
+
 test("the server lists every tool", async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
