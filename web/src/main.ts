@@ -1452,6 +1452,7 @@ function renderTree() {
   // What Notes is showing, as a query: the Notes view, a folder and a smart folder each match one.
   const showing = page === "notes" && notesPage.scope === "active" ? formatQuery(notesPage.query) : null;
   renderSmartFolders(showing);
+  notesPage.named((showing && smartFolders.find((f) => f.query === showing)?.name) || null);
   const archivedCount = notes.filter((n) => isArchived(n.path) && n.kind !== "asset").length;
   $("#archive-count").textContent = archivedCount ? String(archivedCount) : "";
   const assetCount = notes.filter((n) => n.kind === "asset" && !isArchived(n.path)).length;

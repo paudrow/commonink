@@ -57,6 +57,7 @@ export class NotesPage {
   private tagBar: HTMLElement;
   private sortSel: HTMLSelectElement;
   private saveBtn: HTMLButtonElement;
+  private heading = el("h1", {}, "Notes");
   private bulk: HTMLElement;
   private more: HTMLElement;
   private search: HTMLElement;
@@ -102,7 +103,7 @@ export class NotesPage {
       ...[["j k", "move"], ["↵", "expand"], ["o", "open"], ["s", "star"], ["e", "archive"], ["⌫", "delete"], ["x", "select"], ["/", "filter"]].map(([k, t]) => el("span", {}, el("kbd", {}, k), t)),
     );
     this.root.append(
-      el("div", { class: "feed" }, el("header", { class: "feed-head" }, el("h1", {}, "Notes"), this.search, this.filters), this.bulk, this.list, this.more, this.keys),
+      el("div", { class: "feed" }, el("header", { class: "feed-head" }, this.heading, this.search, this.filters), this.bulk, this.list, this.more, this.keys),
     );
     this.input.addEventListener("input", () => {
       clearTimeout(this.timer);
@@ -122,6 +123,16 @@ export class NotesPage {
   get query(): NoteQuery {
     const q = this.input.value.trim();
     return { ...(q && { q }), ...(this.folder && { folder: this.folder }), ...(this.tag && { tag: this.tag }), ...(this.sort === "title" && { sort: "title" as const }) };
+  }
+
+  /**
+   * `name`: the smart folder whose query Notes shows exactly, or null. Its name heads the page, and
+   * there's nothing to save.
+   */
+  named(name: string | null) {
+    this.heading.textContent = name ?? "Notes";
+    this.saveBtn.hidden = !!name || !formatQuery(this.query);
+    if (this.visible) document.title = `${name ?? "Notes"} · Common Ink`;
   }
 
   /** Show the list where the reader left it: same scroll position, same cards open. */
