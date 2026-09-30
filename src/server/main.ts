@@ -12,7 +12,8 @@ import { cleanPath, fileSecurityHeaders, isHidden, kindOf, mimeOf, MAX_UPLOAD, Q
 import { errorResponse, handleApi, json, type ApiHost } from "../core/api.ts";
 import { SANDBOX_PATH, sandboxPage } from "../core/sandbox.ts";
 import { appPolicy } from "../core/csp.ts";
-import { unfurl } from "./unfurl.ts";
+import { assertPublic, unfurl } from "./unfurl.ts";
+import { Calendar, fetchFeed } from "../core/calendar.ts";
 import { watchTree } from "./watch.ts";
 
 // PORT=0 picks a free port (printed on start). QUIRE_NO_UI=1 serves only /api, skipping Vite.
@@ -196,7 +197,17 @@ const host: ApiHost = {
     broadcast({ type: "change", change });
   },
   tree: () => broadcast({ type: "tree" }),
+  // Calendar feeds are fetched from public hosts only, like link previews.
+  calendar: new Calendar(quire.db, (url, last) => fetchFeed(url, last, assertPublic)),
+  calendarChanged: () => broadcast({ type: "calendar" }),
 };
+
+/** Read calendar feeds as they come due (every half hour each), while the app is running. */
+async function syncCalendars() {
+  if (await host.calendar!.syncDue().catch((e) => (console.error("Calendar sync failed:", e), 0))) broadcast({ type: "calendar" });
+}
+setInterval(syncCalendars, 60_000).unref();
+void syncCalendars();
 
 async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
   if (!hostOk(req)) return send(res, json({ error: "Forbidden host" }, 403));
@@ -204,6 +215,11 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
   // Every path, the app's files included: another site (or another localhost port) gets nothing.
   if (!originOk(req)) return send(res, json({ error: "Cross-origin request refused" }, 403));
   if (url.pathname === SANDBOX_PATH) return send(res, sandboxPage());
+  // A share the service worker didn't catch (it wasn't set up yet): the capture screen says so.
+  if (url.pathname === "/share" && req.method === "POST") {
+    res.writeHead(303, { Location: "/capture?share=none" });
+    return res.end();
+  }
   if (!url.pathname.startsWith("/api/")) {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Content-Security-Policy", appPolicy(NONCE, url)); // also: no framing the app to click through it

@@ -3,6 +3,7 @@
 import { authorLabel } from "./actor.ts";
 import { isTagFavorite, type Backlink, type Change, type Favorite, type Note, type NoteMeta, type Quire, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView, type TrashItem } from "./quire.ts";
 import type { Board } from "./kanban.ts";
+import { localDate } from "./tasks.ts";
 
 export function fmtSearch(q: string, hits: SearchHit[]): string {
   if (!hits.length) return `No notes match "${q}".`;
@@ -58,7 +59,7 @@ export function fmtTags(tags: TagCount[]): string {
   return tags
     .map((t) => {
       const uses = [n(t.notes, "note"), n(t.tasks, "task"), n(t.assets, "asset")].filter(Boolean).join(", ");
-      return `${"  ".repeat(t.tag.split("/").length - 1)}- #${t.display} (${uses})`;
+      return `${"  ".repeat(t.tag.split("/").length - 1)}- #${t.display} (${uses || "added, not used yet"})`;
     })
     .join("\n");
 }
@@ -156,6 +157,6 @@ export function fmtBoards(path: string, boards: Board[], unclosed: number | null
 export function fmtTrash(items: TrashItem[]): string {
   if (!items.length) return "Trash is empty.";
   return items
-    .map((t) => `${t.id}  ${t.path} — deleted ${new Date(t.deletedAt).toISOString().slice(0, 16).replace("T", " ")}${t.by ? ` by ${authorLabel({ ...t.by })}` : ""}, gone for good ${new Date(t.expiresAt).toISOString().slice(0, 10)}`)
+    .map((t) => `${t.id}  ${t.path} — deleted ${localDate(t.deletedAt)} ${new Date(t.deletedAt).toTimeString().slice(0, 5)}${t.by ? ` by ${authorLabel({ ...t.by })}` : ""}, gone for good ${localDate(t.expiresAt)}`)
     .join("\n");
 }

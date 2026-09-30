@@ -10,10 +10,12 @@ import { access, isAccountRoute, routeKey, type AccountRoute } from "./access.ts
 import { authorize, listAgents, oauthOptions, revokeAgents, withOAuthStore, type OAuthEnv } from "./agents.ts";
 import { clearSessionCookies, ensurePersonalWorkspace, escapeHtml, handleAuth, page, readSession, readSessionOf, seedWorkspace, text } from "./auth.ts";
 import { adminRoute } from "./admin.ts";
-import { acceptInvite, inviteInfo, createWorkspace, endSessionsOf, locateNote, membership, workspacesOf, type User } from "./directory.ts";
+import { acceptInvite, inviteInfo, createWorkspace, endSessionsOf, locateNote, membership, setTimeZone, workspacesOf, type User } from "./directory.ts";
+import { timeZoneNamed } from "../../src/core/tasks.ts";
 import type { Env } from "./env.ts";
 import { fetchAsset, secure } from "./headers.ts";
 import { limit } from "./limits.ts";
+import { connectionInfo, disconnectGoogle, googleApi, googleAuth, googleMode } from "./connections.ts";
 
 export { Workspace } from "./workspace.ts";
 
@@ -44,6 +46,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
   }
   if (url.pathname === SANDBOX_PATH) return sandboxPage();
   if (url.pathname === "/authorize") return authorize(req, env, url);
+  if (url.pathname.startsWith("/auth/google/calendar")) return googleAuth(req, env, url);
   if (url.pathname.startsWith("/auth/")) {
     const ip = req.headers.get("CF-Connecting-IP") ?? "unknown";
     const tooMany = url.pathname !== "/auth/logout" && (await limit(env.DB, "signIn", ip, "text"));
@@ -51,6 +54,8 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
   }
   if (url.pathname.startsWith("/invite/")) return invite(req, env, url);
   if (url.pathname.startsWith("/api/")) return api(req, env, url);
+  // A share the service worker didn't catch (it wasn't set up yet): the capture screen says so.
+  if (url.pathname === "/share" && req.method === "POST") return Response.redirect(new URL("/capture?share=none", url).href, 303);
   return fetchAsset(env.ASSETS, req, url);
 }
 
@@ -70,6 +75,14 @@ interface Call {
 /** What someone signed in can do outside any one workspace. */
 const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
   "GET /api/me": async ({ env, user }) => json({ user, workspaces: await workspacesOf(env.DB, user.id) }),
+  // The app reports the browser's time zone on every load, so an agent's "today" is its person's.
+  "POST /api/me/time-zone": async ({ req, env, user }) => {
+    const { timeZone } = (await body(req)) as { timeZone?: unknown };
+    const zone = typeof timeZone === "string" && timeZone.length <= 64 ? timeZoneNamed(timeZone) : null;
+    if (!zone) return json({ error: '"timeZone" must be an IANA time zone, like America/Chicago' }, 400);
+    await setTimeZone(env.DB, user.id, zone);
+    return json({ timeZone: zone });
+  },
   "POST /api/workspaces": async ({ req, env, user }) => {
     const tooMany = await limit(env.DB, "workspace", user.id);
     if (tooMany) return tooMany;
@@ -99,6 +112,24 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
     return ws ? json({ workspace: ws }) : json({ error: "That note doesn't exist, or you don't have access to it" }, 404);
   },
   "GET /api/agents": async ({ env, url, user }) => json(await listAgents(env, url, user)),
+  // Google Calendar (connections.ts): whether it's on here, and the person's connection. Never a token.
+  "GET /api/google": async ({ env, user }) => json({ mode: googleMode(env), connection: await connectionInfo(env, user.id) }),
+  "GET /api/google/calendars": async ({ env, user }) => {
+    const tooMany = await limit(env.DB, "calendar", user.id);
+    if (tooMany) return tooMany;
+    if (!(await connectionInfo(env, user.id))) return json({ error: "Connect Google Calendar first" }, 409);
+    try {
+      return json(await googleApi(env, user.id).calendars());
+    } catch (e) {
+      return json({ error: e instanceof Error ? e.message.replace(/^feed:/, "") : "Couldn't reach Google Calendar" }, 502);
+    }
+  },
+  // Google forgets the grant, the connection goes, and so do this person's Google calendars in every workspace.
+  "POST /api/google/disconnect": async ({ env, user }) => {
+    await disconnectGoogle(env, user.id);
+    await Promise.all((await workspacesOf(env.DB, user.id)).map((w) => env.WORKSPACE.get(env.WORKSPACE.idFromName(w.id)).dropCalendarsOf(user.id, "google")));
+    return json({ ok: true });
+  },
   "POST /api/agents/revoke": async ({ req, env, url, user }) => {
     const { id } = (await body(req)) as { id?: unknown };
     if (typeof id !== "string") return json({ error: '"id" must be a string' }, 400);
@@ -158,6 +189,10 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
     const tooMany = await limit(env.DB, "upload", user.id);
     if (tooMany) return tooMany;
   }
+  if (req.method === "POST" && (route === "/calendar/sources" || route === "/calendar/refresh")) {
+    const tooMany = await limit(env.DB, "calendar", user.id);
+    if (tooMany) return tooMany;
+  }
 
   // Forward to the workspace. Only this Worker can reach it, so these headers can be trusted there;
   // any the client sent are dropped first.
@@ -169,6 +204,7 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
   headers.set("x-ci-role", ws.role);
   headers.set("x-ci-session", session.id);
   headers.set("x-ci-session-expires", String(session.expiresAt));
+  headers.set("x-ci-origin", url.origin);
   const inner = new Request(`https://workspace${route}${url.search}`, { method: req.method, headers, body: isWrite ? req.body : undefined, redirect: "manual" });
   return env.WORKSPACE.get(env.WORKSPACE.idFromName(ws.id)).fetch(inner);
 }

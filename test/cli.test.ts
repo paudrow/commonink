@@ -174,3 +174,25 @@ test("delete sends notes to Trash, trash lists them, and trash restore brings on
   assert.equal(quire(vault, ["trash"]).stdout, "Trash is empty.\n");
   assert.equal(quire(vault, ["trash", "empty"]).stderr, 'trash takes restore, not "empty"\n');
 });
+
+test("templates and new --template", () => {
+  const vault = tempVault();
+  fs.mkdirSync(path.join(vault, "Templates"));
+  fs.writeFileSync(path.join(vault, "Templates/Meeting.md"), "---\ntitle: \"{{date}} {{ask:Client}}\"\nfolder: Meetings\napplies_to: Meetings/\n---\n# {{title}}\n\n**Attendees:** {{ask:Attendees}}\n\n- {{cursor}}\n");
+  assert.match(quire(vault, ["templates"]).stdout, /Templates\/Meeting\.md — Meeting · asks: Client, Attendees/);
+  const r = quire(vault, ["new", "--template", "Meeting", "--var", "Client=Acme", "--var", "Attendees=Sam, Lee"]);
+  assert.match(r.stdout, /^Created Meetings\/\d{4}-\d\d-\d\d Acme\.md from Templates\/Meeting\.md\.\n$/);
+  const made = fs.readdirSync(path.join(vault, "Meetings"))[0];
+  assert.match(fs.readFileSync(path.join(vault, "Meetings", made), "utf8"), /\*\*Attendees:\*\* Sam, Lee/);
+  assert.equal(quire(vault, ["new", "--template", "Meeting", "--var", "oops"]).stderr, "--var takes Name=value, not \"oops\"\n");
+  assert.equal(quire(vault, ["new"]).stderr, "new needs --template <name>\n");
+});
+
+test("calendars: an empty vault says how to subscribe, and a private address is refused and not kept", () => {
+  const vault = tempVault();
+  assert.equal(quire(vault, ["events", "--from", "2026-10-05", "--tz", "UTC"]).stdout, "0 events, Mon, Oct 5 to Sun, Oct 11 (UTC). This workspace has no calendars yet: subscribe to an ICS feed from the Calendar page.\n");
+  const add = quire(vault, ["calendars", "add", "http://127.0.0.1:9/cal.ics"]);
+  assert.deepEqual([add.status, add.stderr], [1, "That address isn't on the public internet\n"]);
+  assert.equal(quire(vault, ["calendars"]).stdout, "No calendars. Subscribe to an ICS or webcal feed: quire calendars add <url>\n");
+  assert.equal(quire(vault, ["event", "nope"]).stderr, "No event nope; `quire events` lists them with their ids\n");
+});

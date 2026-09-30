@@ -11,12 +11,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fillDates, readSections, sectionsMarkdown, type Section } from "./preview-sections.ts";
+import { localDate } from "../src/core/tasks.ts";
 
 const origin = new URL(process.argv[2] ?? "").origin;
 const VAULT = path.resolve(import.meta.dirname, "../examples/vault");
 const TRY = "Try this PR.md";
 const SECTIONS = readSections(path.resolve(import.meta.dirname, "../examples/preview"));
-const TODAY = new Date().toISOString().slice(0, 10);
+const TODAY = localDate(Date.now());
 
 const cookie = await signIn();
 const me = (await whenReady("/api/me")) as { workspaces: Array<{ id: string; kind: string; name: string }> };
@@ -30,6 +31,7 @@ await renamedNote();
 const favorites = await starSome();
 await tryThisPr(favorites);
 await sharedTeam();
+await calendars();
 console.log(`Filled ${origin} (workspace ${ws.id})`);
 
 /**
@@ -205,4 +207,24 @@ async function sharedTeam() {
   const join = await fetch(origin + new URL(invite.url).pathname, { method: "POST", redirect: "manual", headers: { cookie: sam, origin } });
   if (join.status !== 302) throw new Error(`Sam couldn't join ${TEAM}: ${join.status}`);
   await must("POST", `${base}/invites`, { role: "viewer" });
+}
+
+/**
+ * Two calendars, if this branch has calendars: the Preview's own demo team calendar (served inside
+ * the Preview, cloud/src/demo-calendar.ts) and a real public feed of US holidays, read from Google.
+ * A holiday feed that can't be read is left out with a warning; the demo one always works.
+ */
+async function calendars() {
+  const r = await call("GET", `${api}/calendar/sources`);
+  if (r.status === 404) return;
+  const have = new Set((r.data as Array<{ url: string | null }>).map((s) => s.url));
+  const feeds = [
+    { url: "https://demo.commonink.invalid/team.ics", name: "Launch team (demo)", color: "blue" },
+    { url: "https://calendar.google.com/calendar/ical/en.usa%23holiday%40group.v.calendar.google.com/public/basic.ics", name: "US holidays", color: "green" },
+  ];
+  for (const f of feeds) {
+    if (have.has(f.url)) continue;
+    const added = await call("POST", `${api}/calendar/sources`, f);
+    if (added.status >= 400) console.warn(`Couldn't subscribe to ${f.name}: ${added.status} ${JSON.stringify(added.data)}`);
+  }
 }

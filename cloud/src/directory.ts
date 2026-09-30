@@ -42,6 +42,26 @@ export function getUser(db: D1Database, id: string) {
   return db.prepare("SELECT id, email, name, picture FROM users WHERE id = ?").bind(id).first<User>();
 }
 
+/** Record the time zone `userId`'s browser reports (already checked to be a real one). */
+export async function setTimeZone(db: D1Database, userId: string, timeZone: string) {
+  await db.prepare("UPDATE users SET time_zone = ? WHERE id = ? AND time_zone IS NOT ?").bind(timeZone, userId, timeZone).run();
+}
+
+/**
+ * The time zone whose day is "today" for someone's agent in a workspace: theirs if their browser
+ * has reported it, else the workspace owner's, else UTC.
+ */
+export async function timeZoneFor(db: D1Database, userId: string, workspaceId: string): Promise<string> {
+  const row = await db
+    .prepare(
+      `SELECT COALESCE((SELECT time_zone FROM users WHERE id = ?),
+                       (SELECT u.time_zone FROM workspaces w JOIN users u ON u.id = w.owner_id WHERE w.id = ?)) AS zone`,
+    )
+    .bind(userId, workspaceId)
+    .first<{ zone: string | null }>();
+  return row?.zone ?? "UTC";
+}
+
 export async function workspacesOf(db: D1Database, userId: string): Promise<WorkspaceRef[]> {
   const { results } = await db
     .prepare(

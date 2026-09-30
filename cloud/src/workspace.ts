@@ -15,12 +15,24 @@ import { DoDb, SqlContent } from "./do-store.ts";
 import { SEED_FILES, SEED_NOTES } from "./seed.ts";
 import type { Env } from "./env.ts";
 import { safeDecode } from "../../src/core/uri.ts";
+import { Calendar } from "../../src/core/calendar.ts";
+import { assertPublicUrl } from "../../src/core/unfurl.ts";
+import { feedsFor } from "./demo-calendar.ts";
+import { googleMode } from "./connections.ts";
+import { googleReader } from "./google-reader.ts";
+
+/** A note and its previous text are each a SQLite row here, which holds at most 2 MB. */
+const MAX_NOTE_BYTES = 1_900_000;
 
 export class Workspace extends DurableObject<Env> {
   private db: DoDb;
   private files: SqlContent;
   private quire: Quire;
   private registering: Promise<void> | null = null;
+  private calendar: Calendar;
+  /** Where this app is ("https://commonink.app"), from the last request: feeds may not point back at it, and links written to Google use it. */
+  private selfOrigin: string | null = null;
+  private alarmChecked = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -30,17 +42,30 @@ export class Workspace extends DurableObject<Env> {
     db.exec("CREATE TABLE IF NOT EXISTS registered_ids(id TEXT PRIMARY KEY)");
     // An upload's bytes go from R2 once it's deleted for good.
     this.files = new SqlContent(db, (key) => ctx.waitUntil(env.FILES.delete(key)));
-    // A note and its previous text are each a SQLite row here, which holds at most 2 MB.
-    this.quire = new Quire(db, this.files, { maxNoteBytes: 1_900_000 });
+    this.quire = new Quire(db, this.files, { maxNoteBytes: MAX_NOTE_BYTES });
     // Notes only change through the core here, so this finds nothing to do, except after an
     // upgrade that asks for notes to be indexed again (tags, say).
     this.quire.sync();
+    // Calendar feeds come from public hosts only, as link previews do.
+    this.calendar = new Calendar(
+      db,
+      feedsFor(env, (u) => {
+        assertPublicUrl(u);
+        if (this.selfOrigin && u.hostname.replace(/\.$/, "") === new URL(this.selfOrigin).hostname) throw new Error("self");
+      }),
+      { readers: googleMode(env) === "off" ? {} : { google: googleReader(env, db) } },
+    );
     // Keep-alives are answered without waking the object.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
 
   async fetch(req: Request): Promise<Response> {
     const wsId = req.headers.get("x-ci-workspace")!;
+    this.selfOrigin = req.headers.get("x-ci-origin") ?? this.selfOrigin;
+    if (!this.alarmChecked) {
+      this.alarmChecked = true;
+      await this.schedule();
+    }
     // Anything unexpected is a plain 500, with no stack or message from inside.
     const res = await this.handle(req, wsId).catch(errorResponse);
     this.claimIds(wsId);
@@ -132,8 +157,27 @@ export class Workspace extends DurableObject<Env> {
         this.broadcast({ type: "change", change });
       },
       tree: () => this.broadcast({ type: "tree" }),
+      calendar: this.calendar,
+      origin: this.selfOrigin ?? undefined,
+      calendarChanged: () => {
+        this.broadcast({ type: "calendar" });
+        this.ctx.waitUntil(this.schedule());
+      },
     };
     return (await handleApi(host, req, route)) ?? json({ error: `No route ${req.method} ${route}` }, 404);
+  }
+
+  /** Wake when the next calendar feed is due; with none, don't wake at all. */
+  private async schedule() {
+    const next = this.calendar.nextSync();
+    if (next === null) await this.ctx.storage.deleteAlarm();
+    else await this.ctx.storage.setAlarm(Math.max(next, Date.now() + 1000));
+  }
+
+  /** Read the calendar feeds that are due, tell open tabs, and sleep until the next one. */
+  async alarm() {
+    if (await this.calendar.syncDue()) this.broadcast({ type: "calendar" });
+    await this.schedule();
   }
 
   /** Fill a brand-new workspace with the starter notes (no-op if it has anything in it). */
@@ -206,16 +250,18 @@ export class Workspace extends DurableObject<Env> {
   /**
    * One MCP request from a connected agent (the Worker has checked its token and membership). Tools
    * are offered by `role`, and writes are attributed to `actor`, e.g. "Claude (via Audrow)". Open
-   * tabs hear about the agent's changes like any other.
+   * tabs hear about the agent's changes like any other. Its "today" is a day in `who.timeZone`.
    */
-  async mcp(req: Request, who: { workspace: string; user: string; actor: string; role: string }): Promise<Response> {
+  async mcp(req: Request, who: { workspace: string; user: string; actor: string; role: string; timeZone: string }): Promise<Response> {
     const role = asRole(who.role);
     const server = createMcpServer({
-      quire: this.quire,
+      quire: new Quire(this.db, this.files, { maxNoteBytes: MAX_NOTE_BYTES, timeZone: who.timeZone }),
       user: who.user,
       source: () => who.actor,
       may: (route) => access(role, ...(route.split(" ") as [string, string])) === "allowed",
       canEditShared: role === "owner" || role === "editor",
+      calendar: this.calendar,
+      origin: new URL(req.url).origin,
     });
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await server.connect(transport);
@@ -232,12 +278,26 @@ export class Workspace extends DurableObject<Env> {
         const content = kindOf(c.path) === "asset" ? null : this.files.read(c.path);
         this.announce(c.path, content, c.version ?? "", c);
       }
-      if (made.length) this.broadcast({ type: "tree" });
+      if (made.length) {
+        this.broadcast({ type: "tree" });
+        this.broadcast({ type: "calendar" }); // a meeting note an agent made is linked to its event
+      }
       this.claimIds(who.workspace);
     }
   }
 
   /** Close the live connections tagged `tag`: a person's (signed out everywhere) or one session's. Their tabs then ask them to sign in. */
+  /**
+   * Remove a person's own calendars here (of one kind, or all): they disconnected Google, or left or
+   * were removed from the workspace.
+   */
+  async dropCalendarsOf(user: string, kind?: "google") {
+    if (this.calendar.dropOwner(user, kind)) {
+      this.broadcast({ type: "calendar" });
+      await this.schedule();
+    }
+  }
+
   disconnect(tag: string) {
     for (const ws of this.ctx.getWebSockets(tag)) ws.close(4001, "Signed out");
   }
@@ -245,6 +305,7 @@ export class Workspace extends DurableObject<Env> {
   /** The workspace is being deleted: close every tab, delete its uploads from R2 and all its storage. */
   async destroy(wsId: string) {
     for (const ws of this.ctx.getWebSockets()) ws.close(4004, "This workspace was deleted");
+    await this.ctx.storage.deleteAlarm();
     for (let cursor: string | undefined, more = true; more; ) {
       const page = await this.env.FILES.list({ prefix: `ws/${wsId}/`, cursor });
       if (page.objects.length) await this.env.FILES.delete(page.objects.map((o) => o.key));
