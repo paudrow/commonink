@@ -120,6 +120,7 @@ async function finish(root: HTMLElement, path: string, src: StaticSources, opts:
     const tex = node.dataset.tex ?? "";
     const display = node.dataset.display !== undefined;
     node.removeAttribute("data-tex");
+    node.dataset.latex = tex; // for Word, which gets the formula's source (export/docx.ts)
     node.classList.add("math", display ? "math-display" : "math-inline");
     const out = math!.renderTex(tex, display);
     if ("html" in out) {

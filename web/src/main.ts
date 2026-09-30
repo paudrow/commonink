@@ -301,6 +301,7 @@ function commands() {
     share: openShare,
     copyLink: () => void copyLink(),
     exportAs: (how) => void exportNote(how),
+    exportWorkspace: () => void exportZip({ all: true }),
     settings: openSettings,
     connectAgent,
     back: () => void stepPane(active, "back"),
@@ -956,14 +957,26 @@ async function copyLink() {
   toast({ icon: "link", text: "Link copied" });
 }
 
+/** Notes as a .zip: a folder, some notes, or everything. */
+async function exportZip(what: { paths?: string[]; folder?: string; all?: boolean }) {
+  toast({ icon: "download", text: "Making the .zip…" });
+  try {
+    const name = await (await import("./export/files.ts")).exportZip(what);
+    toast({ icon: "check", text: `Exported ${name}` });
+  } catch (e) {
+    toast({ text: `Couldn't export: ${e instanceof Error ? e.message : String(e)}` });
+  }
+}
+
 /** Print the note, or export it: the same as the Share menu's items. */
-async function exportNote(how: "print" | "pdf" | "md" | "html") {
+async function exportNote(how: "print" | "pdf" | "md" | "html" | "docx") {
   const note = shareNote();
   if (!note || note.kind !== "md") return;
   const printable = { path: note.path, title: note.title, content: note.content() };
   try {
     if (how === "print" || how === "pdf") await (await import("./export/print.ts")).print(printable, { pdf: how === "pdf" });
-    else if (how === "md") (await import("./export/files.ts")).exportMarkdown(printable);
+    else if (how === "md") toast({ icon: "check", text: `Exported ${await (await import("./export/files.ts")).exportMarkdown(printable)}` });
+    else if (how === "docx") await (await import("./export/files.ts")).exportDocx(printable);
     else await (await import("./export/files.ts")).exportHtml(printable);
   } catch (e) {
     toast({ text: `Couldn't export: ${e instanceof Error ? e.message : String(e)}` });
@@ -1736,6 +1749,7 @@ function renderTree() {
             "span",
             { class: "row-actions" },
             action(`New note in ${path}`, "plus", () => void newNote(path)),
+            action(`Export ${path} as a .zip`, "download", () => void exportZip({ folder: path })),
             viewer ? null : action(`Delete ${path}`, "trash", () => void removeFolder(path)),
           ),
         );

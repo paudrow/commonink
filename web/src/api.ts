@@ -2,6 +2,7 @@ import { localDate, type TaskMeta, type TaskPatch } from "../../src/core/tasks.t
 import type { GuideAction, GuideState } from "../../src/core/guide.ts";
 import { did } from "./events.ts";
 import type { NoteRole } from "../../src/core/noteRoles.ts";
+import { safeDecode } from "../../src/core/uri.ts";
 import type { FillOptions, TemplateInfo } from "../../src/core/templates.ts";
 import type { CalendarEvent, EventDraft, Source as CalendarSource, SourceColor } from "../../src/core/calendar.ts";
 
@@ -419,6 +420,21 @@ export const api = {
     return resolveCache.get(key)!;
   },
   clearResolveCache: () => resolveCache.clear(),
+  /** Notes as a .zip (core/export.ts): some notes by path (each with its files), a folder, or everything. */
+  async exportZip(q: { paths?: string[]; folder?: string; all?: boolean }): Promise<{ name: string; data: Blob }> {
+    const qs = new URLSearchParams();
+    for (const p of q.paths ?? []) qs.append("path", p);
+    if (q.folder) qs.set("folder", q.folder);
+    if (q.all) qs.set("all", "1");
+    const r = await fetch(`${BASE}/export?${qs}`);
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}));
+      throw new ApiError(data.error ?? r.statusText, r.status, data);
+    }
+    const disposition = r.headers.get("Content-Disposition") ?? "";
+    const name = safeDecode(disposition.match(/filename\*=UTF-8''([^;]+)/)?.[1] ?? "") || "Notes.zip";
+    return { name, data: await r.blob() };
+  },
   // Calendars (src/core/calendar.ts).
   calendars: () => j<CalendarSource[]>(`${BASE}/calendar/sources`),
   /** Subscribe to an ICS or webcal feed; it's read once before this answers. */

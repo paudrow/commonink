@@ -32,6 +32,7 @@ export const WORKSPACE_ROUTES = {
   "GET /tags": "viewer",
   "GET /asset-tags": "viewer",
   "GET /today": "viewer",
+  "GET /export": "viewer",
   "GET /guide": "viewer",
   "GET /templates": "viewer",
   // Filling a template in only reads it; inserting the text is an edit to the note.
