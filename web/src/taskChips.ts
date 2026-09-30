@@ -70,12 +70,12 @@ export function tokenChip(field: ChipField, value: string, opts: { done?: boolea
   }
 }
 
-/** The date after a repeating task's current due date, when the calendar says (not for `after-` rules, which wait for completion), and if it hasn't ended by then. */
-function nextOf(meta: TaskMeta): string | null {
+/** The date a repeating task moves to if it's done `now`, when the calendar says (not for `after-` rules, which wait for completion), and if it hasn't ended by then. */
+function nextOf(meta: TaskMeta, now: string): string | null {
   const rule = meta.rec ? parseRule(meta.rec) : null;
   if (!rule || rule.from !== "due" || !meta.due) return null;
   const ends = endsOf(meta, rule);
-  const next = ends.times === null || ends.times > 1 ? nextDue(rule, meta.due, meta.due) : null;
+  const next = ends.times === null || ends.times > 1 ? nextDue(rule, meta.due, meta.due, now) : null;
   return next && (!ends.until || next.slice(0, 10) <= ends.until) ? next : null;
 }
 
@@ -89,7 +89,7 @@ export function metaChips(meta: TaskMeta, done: boolean, tags: string[] = []): H
     meta.priority && tokenChip("priority", meta.priority),
     meta.due && tokenChip("due", meta.due, { done, now }),
     meta.start && meta.start.slice(0, 10) > now && tokenChip("start", meta.start, { now }),
-    meta.rec && tokenChip("rec", meta.rec, { next: done ? null : nextOf(meta), ends: meta }),
+    meta.rec && tokenChip("rec", meta.rec, { next: done ? null : nextOf(meta, now), ends: meta }),
     ...meta.assignees.map((a) => tokenChip("assignees", a)),
     ...[...tags].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })).map((t) => tokenChip("tags", t)),
     done && meta.done && tokenChip("done", meta.done, { now }),
