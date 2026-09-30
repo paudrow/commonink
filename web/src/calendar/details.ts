@@ -11,7 +11,8 @@ const ATTENDEES_SHOWN = 12;
 
 const outLink = (href: string, text: string) => el("a", { href, target: "_blank", rel: "noopener noreferrer", class: "is-external" }, text);
 
-export function renderDetails(item: Extract<Item, { kind: "event" }>, hooks: { open(path: string): void; close(): void }): HTMLElement {
+/** `edit` and `delete` are there for an event in a calendar this person can write to. */
+export function renderDetails(item: Extract<Item, { kind: "event" }>, hooks: { open(path: string): void; close(): void; edit?(): void; delete?(): void }): HTMLElement {
   const ev = item.event;
   const titleId = `cal-d-${ev.id}`;
   const field = (ico: string, label: string, ...body: Array<Node | string | null>) =>
@@ -59,6 +60,8 @@ export function renderDetails(item: Extract<Item, { kind: "event" }>, hooks: { o
         ? el("button", { type: "button", class: "qw-btn primary", onclick: () => void openMeetingNote(ev, hooks.open) }, icon(ev.note ? "file" : "filePlus", 14), ev.note ? "Open meeting note" : "Create meeting note")
         : el("span", { class: "cal-d-hint" }, "No meeting note yet"),
       el("button", { type: "button", class: "qw-btn", onclick: () => void copy() }, icon("link", 14), "Copy link"),
+      hooks.edit ? el("button", { type: "button", class: "qw-btn", onclick: hooks.edit }, icon("edit", 14), "Edit") : null,
+      hooks.delete ? el("button", { type: "button", class: "qw-btn danger", onclick: hooks.delete }, icon("trash", 14), "Delete") : null,
     ),
   );
 }

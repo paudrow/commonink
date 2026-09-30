@@ -37,6 +37,7 @@ const app = (over: Partial<App> = {}): App => {
     subscribeCalendar: run("subscribeCalendar"),
     refreshCalendars: run("refreshCalendars"),
     connectGoogle: run("connectGoogle"),
+    newEvent: run("newEvent"),
     toggleTheme: run("toggleTheme"),
     toggleVim: run("toggleVim"),
     toggleVimDisplayLines: run("toggleVimDisplayLines"),
@@ -52,6 +53,8 @@ const app = (over: Partial<App> = {}): App => {
     noteHistory: run("noteHistory"),
     gettingStarted: run("gettingStarted"),
     shortcuts: run("shortcuts"),
+    settings: run("settings"),
+    connectAgent: run("connectAgent"),
     back: run("back"),
     forward: run("forward"),
     followLink: run("followLink"),
@@ -66,6 +69,10 @@ test("commands match fuzzily, by name or by what they're about, and none alone l
   assert.deepEqual(titles("archive", app({ note: { kind: "md", starred: false, archived: false } })).slice(0, 2), ["Archive note", "Go to Archive"]);
   assert.deepEqual(titles("zzz", app()), []);
   assert.deepEqual(titles("kanban", app()), ["New board"]);
+  assert.deepEqual(titles("preferences", app()), ["Open settings"]);
+  assert.deepEqual(titles("settings", app()).slice(0, 1), ["Open settings"]);
+  assert.deepEqual(titles("connect", app()), ["Connect an agent"]);
+  assert.deepEqual(titles("mcp", app()), ["Connect an agent"]);
   const all = titles("", app());
   assert.equal(all[0], "New note");
   assert.ok(all.includes("Keyboard shortcuts"));
@@ -234,9 +241,10 @@ test("Delete and Trash are commands for whoever can delete, not viewers", () => 
 });
 
 test("the calendar is a page to go to, a feed to subscribe to (not for viewers) and something to refresh; its keys are on the sheet", () => {
-  assert.deepEqual(titles("calendar", app()), ["Go to Calendar", "Refresh calendars", "Subscribe to a calendar…"]);
+  assert.deepEqual(titles("calendar", app()), ["Go to Calendar", "Refresh calendars", "Subscribe to a calendar…", "New event…"]);
   assert.deepEqual(titles("webcal", app({ canSubscribe: false })), []);
-  assert.deepEqual(titles("calendar", app({ canSubscribe: false })), ["Go to Calendar", "Refresh calendars"]);
+  assert.deepEqual(titles("calendar", app({ canSubscribe: false })), ["Go to Calendar", "Refresh calendars", "New event…"]);
+  assert.deepEqual(titles("new event", app()).slice(0, 1), ["New event…"]);
   for (const c of appCommands(app()).filter((c) => c.id.includes("calendar"))) c.run();
   assert.deepEqual(ran.slice(-3), ["go:calendar", "subscribeCalendar", "refreshCalendars"]);
   const keys = shortcutSheet(appCommands(app())).find((s) => s.area === "Calendar")!.shortcuts.map((s) => s.keys.join(" "));

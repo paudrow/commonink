@@ -3,7 +3,7 @@
 // most and dropped when the server says calendars changed (main.ts calls calendarChanged). Also
 // what an item on the page is (an event or a task due that day), and the words for its time.
 import { api, ApiError, type CalendarEvent, type CalendarSource, type SourceColor, type Task } from "../api.ts";
-import { addDays, dayKey, dayStart, spanOf, type Day, type Span } from "./layout.ts";
+import { addDays, dayKey, dayStart, spanOf, timesOf, type Day, type Span } from "./layout.ts";
 
 export type { CalendarEvent, CalendarSource, SourceColor };
 
@@ -180,3 +180,71 @@ export async function meetingNote(ev: CalendarEvent): Promise<{ path: string; li
   calendarChanged();
   return r;
 }
+
+// ------------------------------------------------------------------ making and changing events
+
+/** A calendar a new event can go in: `value` is a source's ID, or "local" for the workspace's own before its first event. */
+export interface Target {
+  value: string;
+  name: string;
+  color: SourceColor | null;
+}
+
+/** The workspace's own calendar's name (LOCAL_NAME on the server). */
+export const LOCAL_CALENDAR = "Common Ink";
+
+/** Where this person can add events: the workspace's own calendar (editors), then their writable Google calendars. */
+export function eventTargets(sources: CalendarSource[]): Target[] {
+  const writable = sources.filter((s) => s.writable).sort((a, b) => Number(b.kind === "local") - Number(a.kind === "local"));
+  const local = canEditCalendars() && !sources.some((s) => s.kind === "local") ? [{ value: "local", name: LOCAL_CALENDAR, color: null }] : [];
+  return [...local, ...writable.map((s) => ({ value: s.id, name: s.name, color: s.color }))];
+}
+
+/** Why an item can't be moved or changed here, or null when it can. */
+export function readOnlyReason(item: Item): string | null {
+  if (item.kind === "task") return "Change a task's due date in its note";
+  const s = item.source;
+  if (s?.writable) return null;
+  return s?.readOnly ?? "This event can't be changed here";
+}
+
+/** What the event form holds, before it's sent. */
+export interface EventForm {
+  source: string;
+  title: string;
+  start: Date;
+  end: Date;
+  allDay: boolean;
+  location: string;
+  description: string;
+  attendees: Array<{ name: string | null; email: string | null }>;
+  meetingNote: boolean;
+}
+
+/** The form as the server takes it: its times in the server's form, made in the reader's zone. */
+export function eventBody(f: EventForm) {
+  return {
+    source: f.source,
+    title: f.title.trim(),
+    ...timesOf(f.start, f.end, f.allDay),
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    location: f.location.trim() || null,
+    description: f.description.trim() || null,
+    attendees: f.attendees,
+    ...(f.meetingNote ? { meetingNote: true } : {}),
+  };
+}
+
+/** An event's own fields as a body, to put it back after a delete (a new ID, the same event). */
+export const eventAgain = (ev: CalendarEvent) => ({
+  source: ev.source,
+  title: ev.title,
+  start: ev.start,
+  end: ev.end,
+  allDay: ev.allDay,
+  timeZone: ev.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+  location: ev.location,
+  description: ev.description,
+  attendees: ev.attendees.map((a) => ({ name: a.name, email: a.email })),
+  note: ev.note?.id, // its meeting note, linked again
+});
