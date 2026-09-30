@@ -6,6 +6,7 @@ import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, typ
 import { scanTags, type TagSpan } from "../../../src/core/tags.ts";
 import { calendarTarget, externalTitle, linkKind } from "../links.ts";
 import { lineTokens, TASK_LINE } from "../../../src/core/tasks.ts";
+import { MAX_CONTAINERS } from "../../../src/core/depth.ts";
 import { today, tokenChip } from "../taskChips.ts";
 import { openChipEditor } from "../taskChipEditors.ts";
 import { taskLineEdit } from "./taskEdit.ts";
@@ -200,12 +201,25 @@ function build(view: EditorView): DecorationSet {
   }
 
   for (const { from, to } of view.visibleRanges) {
+    // How many lists and quotes the walk is inside, counted on the way in and out: a bullet's depth
+    // without climbing its parents (quadratic for thousands nested on one line). Past
+    // MAX_CONTAINERS their markers show as written, as rendered notes flatten them (src/core/depth.ts).
+    let lists = 0;
+    let quotes = 0;
     syntaxTree(state).iterate({
       from,
       to,
+      leave: (ref) => {
+        if (ref.name === "BulletList" || ref.name === "OrderedList") lists--;
+        else if (ref.name === "Blockquote") quotes--;
+      },
       enter: (ref) => {
         const node = ref.node;
         const name = ref.name;
+        if (name === "BulletList" || name === "OrderedList") lists++;
+        else if (name === "Blockquote") quotes++;
+        if ((name === "Blockquote" || name === "QuoteMark") && quotes > MAX_CONTAINERS) return;
+        if ((name === "ListMark" || name === "TaskMarker") && lists > MAX_CONTAINERS) return;
 
         if (name === "Frontmatter") {
           const first = doc.lineAt(ref.from).number;
@@ -322,9 +336,7 @@ function build(view: EditorView): DecorationSet {
                 const marker = task.getChild("TaskMarker");
                 if (marker && !touches(state, ref.from, marker.to)) out.push(hide.range(ref.from, marker.from));
               } else if (!touches(state, ref.from, ref.to)) {
-                let depth = 0;
-                for (let p = list.parent; p; p = p.parent) if (p.name === "BulletList" || p.name === "OrderedList") depth++;
-                out.push(Decoration.replace({ widget: new BulletWidget(depth) }).range(ref.from, ref.to));
+                out.push(Decoration.replace({ widget: new BulletWidget(lists - 1) }).range(ref.from, ref.to));
               }
             } else {
               out.push(Decoration.mark({ class: "cm-list-num" }).range(ref.from, ref.to));

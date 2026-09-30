@@ -11,6 +11,7 @@ import { inline } from "../taskRow.ts";
 import { renderMarkdown } from "../render.ts";
 import { alertsIn, footnotesIn, headingSlug, type AlertBlock, type Footnotes } from "../../../src/core/gfm.ts";
 import { emojiFor, SHORTCODE } from "../../../src/core/emoji.ts";
+import { clip } from "../../../src/core/depth.ts";
 import { headingName, headingText } from "../../../src/core/prose.ts";
 import { editorContext } from "./blocks.ts";
 import { alertOpen, setFold } from "./details.ts";
@@ -100,7 +101,10 @@ class FootnoteRefWidget extends WidgetType {
     return true;
   }
   toDOM(view: EditorView) {
-    const sup = el("sup", { class: "cm-fnref", "aria-label": `Footnote ${this.n}` }, String(this.n), el("span", { class: "cm-fn-pop", role: "tooltip", html: inline(this.text) }));
+    const pop = el("span", { class: "cm-fn-pop", role: "tooltip" });
+    const sup = el("sup", { class: "cm-fnref", "aria-label": `Footnote ${this.n}` }, String(this.n), pop);
+    // The footnote's text is rendered the first time it's hovered, not for every reference drawn.
+    sup.addEventListener("mouseenter", () => pop.childNodes.length || (pop.innerHTML = inline(this.text)), { once: true });
     sup.addEventListener("mousedown", (e) => {
       e.preventDefault();
       const line = view.state.doc.line(Math.min(this.defLine + 1, view.state.doc.lines));
@@ -219,7 +223,8 @@ class HeadingLinkWidget extends WidgetType {
 
 // ---------------------------------------------------------------- live preview
 
-const TAG = /<(kbd|sub|sup)>(.+?)<\/\1>|<br\s*\/?>|<img\b[^>]*>/gi;
+// Bounded, so a line of thousands of unclosed tags is one pass, not a scan to its end per tag.
+const TAG = /<(kbd|sub|sup)>([^<\n]{1,500})<\/\1>|<br\s*\/?>|<img\b[^<>\n]{0,2000}>/gi;
 const HEADING = /^#{1,6}[ \t]+(.+)$/;
 
 function build(view: EditorView): DecorationSet {
@@ -248,7 +253,7 @@ function build(view: EditorView): DecorationSet {
         const a = line.from + r.from;
         const b = line.from + r.to;
         if (!def || touches(state, a, b) || raw(state, a)) continue;
-        out.push(Decoration.replace({ widget: new FootnoteRefWidget(notes.number.get(r.id)!, def.text, def.line) }).range(a, b));
+        out.push(Decoration.replace({ widget: new FootnoteRefWidget(notes.number.get(r.id)!, clip(def.text), def.line) }).range(a, b));
       }
       const defId = defAt.get(n);
       if (defId !== undefined) {
