@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 132
 title: An agent's delete tells an open tab the note is gone
 ---
 Online, when a connected agent sent a note to Trash, a tab with that note open got no "was moved or deleted" banner. Typing there went on saving, which made the note again at its old path while the original sat in Trash. A delete from the app already told other tabs.
