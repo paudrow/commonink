@@ -24,6 +24,13 @@ test("after sign-in, `next` only ever leads somewhere on this site", async () =>
     [await next("/notes/a-b"), await next("//evil.com"), await next("/\\evil.com"), await next("https://evil.com")],
     ["/notes/a-b", "/", "/", "/"],
   );
+  // Browsers drop tabs and newlines from a Location before reading it, so "/<tab>/evil.com" is "//evil.com".
+  const sneaky = ["/\t/evil.com", "/\n/evil.com", "/\r/evil.com", "\t//evil.com", "/.//evil.com"];
+  for (const n of sneaky) {
+    const to = await next(n);
+    assert.equal(new URL(to ?? "", cloud.origin).origin, cloud.origin, `${JSON.stringify(n)} led to ${JSON.stringify(to)}`);
+  }
+  assert.equal(await next("/invite/abc?x=1#y"), "/invite/abc?x=1#y");
 });
 
 test("signing in again replaces the session, and the old one stops working", async () => {

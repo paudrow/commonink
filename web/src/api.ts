@@ -3,6 +3,8 @@ import type { GuideAction, GuideState } from "../../src/core/guide.ts";
 import { did } from "./events.ts";
 import type { NoteRole } from "../../src/core/noteRoles.ts";
 import type { Contact, ContactFields, TimelineItem } from "../../src/core/contacts.ts";
+import type { FillOptions, TemplateInfo } from "../../src/core/templates.ts";
+import type { CalendarEvent, Source as CalendarSource, SourceColor } from "../../src/core/calendar.ts";
 
 /** The reader's day, which task writes and due filters go by (the server may be in another time zone). */
 const today = () => localDate(Date.now());
@@ -118,7 +120,7 @@ export type Favorite = NoteMeta | TagFavorite;
 export const isTagFavorite = (f: Favorite): f is TagFavorite => "tag" in f;
 /** How a favorite is named in an order: a note's path, or "#" and the tag. */
 export const favoriteKey = (f: Favorite) => (isTagFavorite(f) ? `#${f.tag}` : f.path);
-/** A tag in use (parents included), and how many notes, tasks and assets carry it or a tag under it. */
+/** A tag (parents included), and how many notes, tasks and assets carry it or a tag under it. */
 export interface TagCount {
   tag: string;
   display: string;
@@ -126,6 +128,8 @@ export interface TagCount {
   tasks: number;
   assets: number;
 }
+/** A tag someone added by name that nothing carries yet. */
+export const unusedTag = (t: TagCount) => t.notes + t.tasks + t.assets === 0;
 /** The day at a glance (Quire.today): sections of tasks, and today's journal note. */
 export interface TodayView {
   date: string;
@@ -151,7 +155,25 @@ export type ServerMsg =
   | { type: "note"; path: string; kind: Kind; version: string; content: string | null; source: string; change: Change | null; origin?: string }
   | { type: "change"; change: Change }
   | { type: "removed"; path: string }
-  | { type: "tree" };
+  | { type: "tree" }
+  /** Calendars or their events changed (a sync, a new subscription, a meeting note). */
+  | { type: "calendar" };
+
+export type { CalendarEvent, CalendarSource, SourceColor };
+
+/** Google Calendar on this server (cloud/src/connections.ts): "mock" is the Preview stand-in, "off" not set up. */
+export interface GoogleStatus {
+  mode: "real" | "mock" | "off";
+  connection: { account: string; canWrite: boolean; connectedAt: number } | null;
+}
+/** One of the person's Google calendars. */
+export interface GoogleCalendar {
+  id: string;
+  summary: string;
+  primary: boolean;
+  accessRole: string;
+  timeZone: string | null;
+}
 
 export class ApiError extends Error {
   constructor(
@@ -193,11 +215,12 @@ export interface ConnectedAgent {
   connectedAt: number;
   usedAt: number | null;
 }
-/** Online: who's signed in (null if nobody). Locally the endpoint doesn't exist: undefined. */
+/** Online: who's signed in (null if nobody). Locally, where the server answers `{ local: true }`: undefined. */
 export async function whoAmI(): Promise<{ me: Me | null; devLogin: boolean } | undefined> {
   const r = await fetch("/api/me").catch(() => null);
-  if (!r || r.status === 404) return undefined;
+  if (!r) return undefined;
   const data = await r.json().catch(() => ({}));
+  if (data.local) return undefined;
   return r.ok ? { me: data as Me, devLogin: false } : { me: null, devLogin: !!data.devLogin };
 }
 const enc = encodeURIComponent;
@@ -302,8 +325,11 @@ export const api = {
   /** Each tagged asset's tags. */
   assetTags: () => j<Record<string, string[]>>(`${BASE}/asset-tags`),
   setAssetTags: (path: string, tags: string[]) => j<{ tags: string[] }>(`${BASE}/asset-tags`, send("PUT", { path, tags })),
+  /** Add a tag by name, before any note carries it; take one away while nothing does. Each returns every tag. */
+  addTag: (tag: string) => j<TagCount[]>(`${BASE}/tags`, send("POST", { tag })),
+  deleteTag: (tag: string) => j<TagCount[]>(`${BASE}/tags/delete`, send("POST", { tag })),
   /** Rename (or merge) a tag everywhere. Restoring `changes` and setting `assets` back undoes it. */
-  renameTag: (from: string, to: string) => j<{ changes: number[]; assets: Record<string, string[]> }>(`${BASE}/tags/rename`, send("POST", { from, to })),
+  renameTag: (from: string, to: string) => j<{ changes: number[]; versions: string[]; assets: Record<string, string[]> }>(`${BASE}/tags/rename`, send("POST", { from, to })),
   setTask: (t: Task, done: boolean) => (done && did("tick"), j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/set`, send("POST", { path: t.path, line: t.line, text: t.text, done, today: today() }))),
   /** Change a task's tokens in its note; the rest of its line stays as written. */
   updateTask: (t: Task, patch: TaskPatch) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/update`, send("POST", { path: t.path, line: t.line, text: t.text, patch, today: today() })),
@@ -351,6 +377,13 @@ export const api = {
   /** `keep` gains `drop`'s details and links; `drop` goes to Trash (`trashed` restores it). */
   mergeContacts: (keep: string, drop: string) => j<{ path: string; updated: string[]; trashed: Trashed[] }>(`${BASE}/contacts/merge`, send("POST", { keep, drop })),
   importContacts: (format: "vcard" | "csv", text: string) => j<{ created: string[]; updated: string[]; unchanged: string[] }>(`${BASE}/contacts/import`, send("POST", { format, text })),
+  /** The note templates (notes in Templates/), by name. */
+  templates: () => j<TemplateInfo[]>(`${BASE}/templates`),
+  /** A template filled in, to insert: its text and where its {{cursor}} is. */
+  renderTemplate: (template: string, o: FillOptions) => j<{ path: string; text: string; cursor: number | null; unfilled: string[] }>(`${BASE}/templates/render`, send("POST", { template, ...o })),
+  /** A new note from a template; `cursor` is where its {{cursor}} is. */
+  fromTemplate: (template: string, o: FillOptions & { folder?: string }) =>
+    j<{ path: string; version: string; cursor: number | null; unfilled: string[] }>(`${BASE}/notes/from-template`, send("POST", { template, ...o })),
   /** A page of the change log, newest first; `before` pages further back. */
   history: (p: { limit?: number; before?: number; path?: string; by?: string }) =>
     j<Change[]>(`${BASE}/changes?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
@@ -365,9 +398,13 @@ export const api = {
   /** Put a note back the way it was before change #id; with `version`, only if the note is still at that version. */
   restore: (id: number, version?: string) => j<{ path: string; version: string; change: number | null }>(`${BASE}/restore`, send("POST", { id, version })),
   changes: () => j<Change[]>(`${BASE}/changes?limit=40`),
-  /** `origin` (this tab's clientId) marks a save the tab's editor already shows, so the live update skips it there. */
-  save: (path: string, content: string, baseVersion?: string, allowEmpty = false, origin?: string) =>
-    j<{ path: string; version: string }>(`${BASE}/note`, send("PUT", { path, content, baseVersion, clientId: origin, allowEmpty })),
+  /**
+   * `origin` (this tab's clientId) marks a save the tab's editor already shows, so the live update
+   * skips it there. With the note's `id`, a note that moved meanwhile is saved where it is now; the
+   * answer's `path` says where.
+   */
+  save: (path: string, content: string, baseVersion?: string, allowEmpty = false, origin?: string, id?: string) =>
+    j<{ path: string; version: string }>(`${BASE}/note`, send("PUT", { path, content, baseVersion, clientId: origin, allowEmpty, id })),
   create: (path: string, content: string) => j<{ path: string; version: string }>(`${BASE}/note`, send("POST", { path, content })),
   move: (from: string, to: string) => j<{ path: string; updated: string[] }>(`${BASE}/move`, send("POST", { from, to })),
   /** Upload a file's bytes; the server picks a free name under `folder` (assets/ by default). */
@@ -392,6 +429,31 @@ export const api = {
     return resolveCache.get(key)!;
   },
   clearResolveCache: () => resolveCache.clear(),
+  // Calendars (src/core/calendar.ts).
+  calendars: () => j<CalendarSource[]>(`${BASE}/calendar/sources`),
+  /** Subscribe to an ICS or webcal feed; it's read once before this answers. */
+  subscribe: (url: string, name?: string, color?: SourceColor) => j<CalendarSource>(`${BASE}/calendar/sources`, send("POST", { url, name, color })),
+  updateCalendar: (id: string, patch: { name?: string; color?: SourceColor; writeBack?: boolean }) => j<CalendarSource>(`${BASE}/calendar/sources/update`, send("POST", { id, ...patch })),
+  /** Add one of your Google calendars to this workspace, where only you see it. */
+  addGoogleCalendar: (calendar: string, name?: string) => j<CalendarSource>(`${BASE}/calendar/google`, send("POST", { calendar, name })),
+  /** Online: whether Google Calendar works on this server, and your connection to it (404 locally). */
+  google: () => j<GoogleStatus>("/api/google"),
+  googleCalendars: () => j<GoogleCalendar[]>("/api/google/calendars"),
+  /** Google forgets the grant, and your Google calendars leave every workspace. */
+  disconnectGoogle: () => j<{ ok: true }>("/api/google/disconnect", send("POST", {})),
+  unsubscribe: (id: string) => j<{ ok: true }>(`${BASE}/calendar/sources/remove`, send("POST", { id })),
+  /** Read one calendar again, or all of them (each at most once a minute). */
+  refreshCalendars: (id?: string) => j<CalendarSource[]>(`${BASE}/calendar/refresh`, send("POST", { id })),
+  /** Events overlapping [from, to), soonest first; `q` narrows by title. */
+  events: (from: Date, to: Date, q?: string) =>
+    j<CalendarEvent[]>(`${BASE}/calendar/events?from=${enc(from.toISOString())}&to=${enc(to.toISOString())}&tz=${enc(Intl.DateTimeFormat().resolvedOptions().timeZone)}${q ? `&q=${enc(q)}` : ""}`),
+  event: (id: string) => j<CalendarEvent>(`${BASE}/calendar/event?id=${enc(id)}`),
+  /**
+   * The event's meeting note, made (in Meetings/) and linked if it doesn't have one yet. `linkedBack`:
+   * for a Google event with write-back on, whether the note's link reached the event.
+   */
+  meetingNote: (id: string) =>
+    j<{ path: string; created: boolean; linkedBack?: { ok: true } | { ok: false; error: string } | null }>(`${BASE}/calendar/meeting-note`, send("POST", { id, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })),
 };
 
 export function assetUrl(target: string, from?: string): string {

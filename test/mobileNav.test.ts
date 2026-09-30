@@ -29,7 +29,7 @@ test("the menu button opens the sidebar as a modal drawer, and Esc closes it bac
 test("Tab and Shift+Tab wrap inside the open drawer", () => {
   $("#menu-btn").click();
   key(document.activeElement!, "Tab", true);
-  assert.equal(focused(), "new-note");
+  assert.equal(focused(), "new-from-template"); // the last control in the sidebar
   key(document.activeElement!, "Tab");
   assert.equal(focused(), "search-btn");
   closeDrawer();

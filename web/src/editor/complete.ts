@@ -1,6 +1,6 @@
 // Typing helpers: `@` mentions, `[[` links, `#` tags, `:` emoji, `/` tools, and smart link pasting.
 import { autocompletion, startCompletion, type Completion, type CompletionContext, type CompletionResult, type CompletionSource } from "@codemirror/autocomplete";
-import { syntaxTree } from "@codemirror/language";
+import { noteTree } from "./tree.ts";
 import type { EditorState, Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { fileUrl, type NoteMeta, type TagCount } from "../api.ts";
@@ -10,6 +10,10 @@ import { fuzzyScore } from "../fuzzy.ts";
 import { newId, serializeDirective } from "../widgets/args.ts";
 import { pendingConfig, WIDGETS } from "../widgets/index.ts";
 import { editorContext } from "./blocks.ts";
+import { api } from "../api.ts";
+import { askFor, pickTemplate, templatePeople } from "../templatePicker.ts";
+import { placeholderSource } from "./templateComplete.ts";
+import { localNow } from "../../../src/core/templates.ts";
 import { NEW_BOARD } from "../../../src/core/kanban.ts";
 import { wrapInDetails } from "../../../src/core/details.ts";
 import { taskPeople } from "../taskChipEditors.ts";
@@ -22,6 +26,8 @@ import { contactLink, ensureContact, people, rankPeople } from "../people.ts";
 import { toast } from "../toast.ts";
 import { PEOPLE } from "../../../src/core/contacts.ts";
 import { formatKeys } from "../keys.ts";
+import { eventLink, linkableEvents, whenText, type CalendarEvent } from "../calendar/data.ts";
+import { spanOf } from "../calendar/layout.ts";
 
 interface Option extends Completion {
   icon?: string;
@@ -33,7 +39,7 @@ interface Option extends Completion {
 
 const NOT_PROSE = new Set(["FencedCode", "CodeBlock", "InlineCode", "CodeText", "Frontmatter", "FrontmatterContent", "HTMLBlock", "CommentBlock", "URL", "Autolink", "WikiLink", "Embed"]);
 function inProse(state: EditorState, pos: number): boolean {
-  for (let n: any = syntaxTree(state).resolveInner(pos, -1); n; n = n.parent) if (NOT_PROSE.has(n.name)) return false;
+  for (let n: any = noteTree(state).resolveInner(pos, -1); n; n = n.parent) if (NOT_PROSE.has(n.name)) return false;
   return true;
 }
 
@@ -60,11 +66,12 @@ function rankNotes(notes: NoteMeta[], query: string): NoteMeta[] {
 
 // ------------------------------------------------------------------ @ mentions
 
-/** A source of notes you can @-mention (people come first, from peopleOptions). */
+/** A source of things you can @-mention: notes and calendar events (people come first, from peopleOptions). */
+type Mention = { label: string; detail?: string; icon: string; insert: string };
 interface MentionProvider {
   section: string;
   rank: number;
-  search(query: string, state: EditorState): Array<{ label: string; detail?: string; icon: string; insert: string }>;
+  search(query: string, state: EditorState): Mention[] | Promise<Mention[]>;
 }
 
 const noteMentions: MentionProvider = {
@@ -80,7 +87,25 @@ const noteMentions: MentionProvider = {
   },
 };
 
-const MENTIONS: MentionProvider[] = [noteMentions];
+/** Calendar events from a week back to a month ahead, best match first (the soonest from today with nothing typed), as links to them. */
+async function eventMatches(query: string, limit: number): Promise<Array<CalendarEvent & { when: string }>> {
+  const now = Date.now();
+  const all = (await linkableEvents()).map((ev) => ({ ev, span: spanOf(ev) }));
+  const ranked = query
+    ? all.map((x) => ({ ...x, s: fuzzyScore(query, x.ev.title) })).filter((x) => x.s >= 0).sort((a, b) => b.s - a.s || Math.abs(a.span.start.getTime() - now) - Math.abs(b.span.start.getTime() - now))
+    : all.filter((x) => x.span.end.getTime() >= now);
+  return ranked.slice(0, limit).map((x) => ({ ...x.ev, when: whenText(x.span) }));
+}
+
+const eventMentions: MentionProvider = {
+  section: "Events",
+  rank: 1,
+  async search(query) {
+    return (await eventMatches(query, 8)).map((ev) => ({ label: ev.title || "Event", detail: ev.when, icon: "calendar", insert: eventLink(ev) }));
+  },
+};
+
+const MENTIONS: MentionProvider[] = [noteMentions, eventMentions];
 
 /** People already on tasks, for `@` on a task line; fetched at most every half minute. */
 let onTasks: { at: number; list: Promise<string[]> } | null = null;
@@ -107,9 +132,13 @@ async function mentionSource(ctx: CompletionContext): Promise<CompletionResult |
   });
   const typedName = /^[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*$/u.test(query) && !found.some((p) => p.toLowerCase() === query.toLowerCase());
   const options: Option[] = [...found.slice(0, 8).map(person), ...(onTask && typedName ? [person(query)] : [])];
-  if (!onTask) options.push(...(await peopleOptions(query, at)));
-  options.push(...MENTIONS.flatMap((p) =>
-    p.search(query, ctx.state).map((r) => ({
+  const [people, mentioned] = await Promise.all([
+    onTask ? [] : peopleOptions(query, at),
+    Promise.all(MENTIONS.map(async (p) => ({ p, results: await p.search(query, ctx.state) }))),
+  ]);
+  options.push(...people);
+  options.push(...mentioned.flatMap(({ p, results }) =>
+    results.map((r) => ({
       label: r.label,
       detail: r.detail,
       icon: r.icon,
@@ -165,7 +194,7 @@ async function peopleOptions(query: string, at: number): Promise<Option[]> {
 
 // ------------------------------------------------------------------ [[ links
 
-function linkSource(ctx: CompletionContext): CompletionResult | null {
+async function linkSource(ctx: CompletionContext): Promise<CompletionResult | null> {
   const m = ctx.matchBefore(/!?\[\[[^\]\n|#]*$/);
   if (!m) return null;
   const embed = m.text.startsWith("!");
@@ -190,6 +219,22 @@ function linkSource(ctx: CompletionContext): CompletionResult | null {
         },
       };
     });
+  // An event is a markdown link, not a [[link]]: it takes the place of the brackets too.
+  const events = embed ? [] : await eventMatches(query, 6);
+  if (ctx.aborted) return null;
+  for (const ev of events) {
+    const insert = eventLink(ev);
+    options.push({
+      label: ev.title || "Event",
+      detail: ev.when,
+      icon: "calendar",
+      section: { name: "Events", rank: 1 },
+      apply: (view: EditorView, _c: Completion, _from: number, to: number) => {
+        view.dispatch({ changes: { from: m.from, to: to + (closed ? 2 : 0), insert }, selection: { anchor: m.from + insert.length }, userEvent: "input.complete" });
+        did("link");
+      },
+    });
+  }
   return { from: start, options, filter: false };
 }
 
@@ -250,7 +295,7 @@ function tagSource(ctx: CompletionContext): CompletionResult | null {
 /** The frontmatter `tags:` field: `tags: [a, b`, `tags: a, b`, or a `- item` under `tags:`. */
 function frontmatterTagSource(ctx: CompletionContext): CompletionResult | null {
   let inside = false;
-  for (let n: any = syntaxTree(ctx.state).resolveInner(ctx.pos, -1); n; n = n.parent) if (n.name === "Frontmatter") inside = true;
+  for (let n: any = noteTree(ctx.state).resolveInner(ctx.pos, -1); n; n = n.parent) if (n.name === "Frontmatter") inside = true;
   if (!inside) return null;
   const doc = ctx.state.doc;
   const line = doc.lineAt(ctx.pos);
@@ -296,6 +341,26 @@ function insert(view: EditorView, from: number, to: number, text: string, opts: 
 
 const soon = (view: EditorView) => setTimeout(() => startCompletion(view), 0);
 
+/**
+ * `/template`: pick a template, answer its questions, and put its body (filled in, without its
+ * frontmatter) where the slash was, with the cursor at its {{cursor}}.
+ */
+async function insertTemplate(view: EditorView, from: number, to: number) {
+  view.dispatch({ changes: { from, to }, userEvent: "input.complete" }); // the "/template" typed
+  const list = await api.templates().catch(() => []);
+  const t = await pickTemplate(list, "Insert a template");
+  const asked = t && (await askFor(t, { title: false, people: await templatePeople(t) }));
+  if (!t || !asked) return view.focus();
+  const ctx = view.state.facet(editorContext);
+  const clipboard = t.clipboard ? await navigator.clipboard?.readText().catch(() => undefined) : undefined;
+  const r = await api.renderTemplate(t.path, { at: localNow(), title: displayName(ctx.path), answers: asked.answers, picks: asked.picks, clipboard }).catch(() => null);
+  if (!r) return view.focus();
+  const text = r.text.replace(/\n+$/, "");
+  const at = Math.min(from, view.state.doc.length);
+  insert(view, at, at, text, { block: true, cursor: r.cursor !== null && r.cursor <= text.length ? r.cursor : text.length });
+  view.focus();
+}
+
 function widgetTool(name: string, keywords: string, title?: string): Tool {
   const spec = WIDGETS[name];
   return {
@@ -331,7 +396,8 @@ const TOOLS: Tool[] = [
   { title: "Link embed", hint: "YouTube, X, Bluesky, Spotify… or any page", icon: "video", keywords: "embed link url youtube video tweet x twitter bluesky mastodon instagram tiktok spotify vimeo loom bookmark", section: "Embed", run: (v, f, t) => insert(v, f, t, "https://", { cursor: 0, select: 8, block: true }) },
   widgetTool("tasks", "tasks todo checklist rollup dashboard open"),
   widgetTool("query", "notes list query dashboard recent folder tag"),
-  widgetTool("calendar", "calendar journal daily month diary"),
+  widgetTool("calendar", "calendar journal daily month diary events"),
+  widgetTool("agenda", "agenda events calendar meetings schedule upcoming"),
   widgetTool("timer", "timer countdown pomodoro alarm"),
   widgetTool("stopwatch", "stopwatch count up laps"),
   {
@@ -365,6 +431,7 @@ const TOOLS: Tool[] = [
   { title: "Math (block)", hint: "$$", icon: "sigma", keywords: "math equation formula latex tex katex block display", section: "Blocks", run: (v, f, t) => insert(v, f, t, "$$\nE = mc^2\n$$", { cursor: 3, select: 8, block: true }) },
   { title: "Table", hint: "2 × 2", icon: "table", keywords: "table grid columns", section: "Blocks", run: (v, f, t) => insert(v, f, t, "| Column | Column |\n| ------ | ------ |\n|        |        |", { cursor: 2, select: 6, block: true }) },
   { title: "Divider", hint: "---", icon: "divider", keywords: "divider rule separator hr line", section: "Blocks", run: (v, f, t) => insert(v, f, t, "---", { own: true }) },
+  { title: "Template", hint: "Insert one of your templates", icon: "file", keywords: "template snippet boilerplate block", section: "Insert", run: (v, f, t) => void insertTemplate(v, f, t) },
   { title: "Today's date", hint: today(), icon: "calendar", keywords: "date today day", section: "Insert", run: (v, f, t) => insert(v, f, t, today()) },
   { title: "Current time", hint: "HH:MM", icon: "clock", keywords: "time now clock", section: "Insert", run: (v, f, t) => insert(v, f, t, new Date().toTimeString().slice(0, 5)) },
 ];
@@ -482,7 +549,7 @@ const pasteFiles = EditorView.domEventHandlers({
 // ------------------------------------------------------------------ extension
 
 export function typingHelpers(): Extension {
-  return [completions([toolSource, taskTokenSource, mentionSource, linkSource, tagSource, frontmatterTagSource, emojiSource]), pasteLinks, pasteFiles];
+  return [completions([toolSource, taskTokenSource, mentionSource, linkSource, tagSource, frontmatterTagSource, emojiSource, placeholderSource]), pasteLinks, pasteFiles];
 }
 
 function completions(override: CompletionSource[]): Extension {

@@ -1,12 +1,12 @@
 // The link under the cursor, for following it (gd, gf) or opening it to the side (⌘⌥Enter, gs).
 // Only needs the syntax tree, so it runs without a view.
-import { syntaxTree } from "@codemirror/language";
+import { noteTree } from "./tree.ts";
 import type { EditorState } from "@codemirror/state";
 import { linkKind } from "../links.ts";
 import { safeDecode } from "../../../src/core/uri.ts";
 
 export function linkTargetAt(state: EditorState, pos: number): { target?: string; href?: string } | null {
-  for (let node: any = syntaxTree(state).resolveInner(pos, 1); node; node = node.parent) {
+  for (let node: any = noteTree(state).resolveInner(pos, 1); node; node = node.parent) {
     if (node.name === "WikiLink" || node.name === "Embed") {
       const bang = node.name === "Embed" ? 1 : 0;
       return { target: state.sliceDoc(node.from + 2 + bang, node.to - 2).split("|")[0] };

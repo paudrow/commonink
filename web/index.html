@@ -33,6 +33,7 @@
         <button id="notes-btn" class="nav-item" type="button"><span class="ico" data-icon="feed"></span><span>Notes</span></button>
         <button id="tasks-btn" class="nav-item" type="button"><span class="ico" data-icon="task"></span><span>Tasks</span><span id="tasks-count" class="n"></span></button>
         <button id="contacts-btn" class="nav-item" type="button"><span class="ico" data-icon="user"></span><span>Contacts</span></button>
+        <button id="calendar-btn" class="nav-item" type="button"><span class="ico" data-icon="calendar"></span><span>Calendar</span></button>
         <button id="assets-btn" class="nav-item" type="button"><span class="ico" data-icon="grid"></span><span>Assets</span><span id="assets-count" class="n"></span></button>
         <button id="history-btn" class="nav-item" type="button"><span class="ico" data-icon="history"></span><span>History</span></button>
         <div class="sidebar-sections">
@@ -47,19 +48,23 @@
         <nav id="smart-folders" aria-label="Smart folders"></nav>
         <div class="tree-head" data-section="folders">
           <button class="section-toggle" type="button" aria-expanded="true" aria-controls="tree"><span class="ico" data-icon="chevron" data-size="12"></span><span>Folders</span></button>
-          <button id="new-folder" class="icon-btn small" type="button" title="New folder" aria-label="New folder"><span class="ico" data-icon="folderPlus" data-size="15"></span></button>
+          <button id="new-folder" class="icon-btn small" type="button" title="New folder" aria-label="New folder"><span class="ico" data-icon="plus" data-size="15"></span></button>
         </div>
         <nav id="tree" aria-label="Folders"></nav>
         <div class="tree-head" data-section="tags">
           <button class="section-toggle" type="button" aria-expanded="true" aria-controls="tag-tree"><span class="ico" data-icon="chevron" data-size="12"></span><span>Tags</span></button>
-          <button id="tags-page-btn" class="icon-btn small" type="button" title="Rename and merge tags" aria-label="Rename and merge tags"><span class="ico" data-icon="sliders" data-size="15"></span></button>
+          <span class="tree-head-actions">
+            <button id="tags-page-btn" class="icon-btn small" type="button" title="Rename and merge tags" aria-label="Rename and merge tags"><span class="ico" data-icon="sliders" data-size="15"></span></button>
+            <button id="new-tag" class="icon-btn small" type="button" title="New tag" aria-label="New tag"><span class="ico" data-icon="plus" data-size="15"></span></button>
+          </span>
         </div>
         <nav id="tag-tree" aria-label="Tags"></nav>
         </div>
         <div class="sidebar-foot">
-          <button id="archive-nav" class="nav-item" type="button"><span class="ico" data-icon="archive"></span><span>Archive</span><span id="archive-count" class="n"></span></button>
-          <button id="trash-nav" class="nav-item" type="button"><span class="ico" data-icon="trash"></span><span>Trash</span></button>
-          <button id="new-note" class="ghost-btn" type="button"><span class="ico" data-icon="plus"></span>New note</button>
+          <div class="new-note-row">
+            <button id="new-note" class="ghost-btn" type="button"><span class="ico" data-icon="plus"></span>New note</button>
+            <button id="new-from-template" class="icon-btn small" type="button" title="New note from template…" aria-label="New note from template…"><span class="ico" data-icon="file" data-size="15"></span></button>
+          </div>
         </div>
       </aside>
 
@@ -89,11 +94,12 @@
           <div id="html-preview" hidden></div>
           <div id="notes-view" hidden tabindex="-1"></div>
           <div id="tasks-view" hidden tabindex="-1"></div>
+          <div id="calendar-view" hidden tabindex="-1"></div>
           <div id="history-view" hidden tabindex="-1"></div>
           <div id="assets-view" hidden tabindex="-1"></div>
           <div id="tags-view" hidden tabindex="-1"></div>
-          <div id="trash-view" hidden tabindex="-1"></div>
           <div id="contacts-view" hidden tabindex="-1"></div>
+          <div id="capture-view" hidden tabindex="-1"></div>
           <div id="pane-divider" role="separator" aria-orientation="vertical" aria-label="Resize the panes" tabindex="0" hidden></div>
           <section id="side-pane" aria-label="Side pane" hidden>
             <div id="side-bar" class="pane-bar"></div>
@@ -134,7 +140,7 @@
       <div class="palette-box" role="dialog" aria-modal="true" aria-label="Search notes and commands">
         <div class="palette-input"><span class="ico" data-icon="search"></span><input id="palette-input" role="combobox" aria-label="Search notes and commands" aria-controls="palette-results" aria-expanded="true" aria-autocomplete="list" placeholder="Find a note, or type > for commands…" autocomplete="off" spellcheck="false" /></div>
         <div id="palette-results" role="listbox" aria-label="Results"></div>
-        <div class="palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd class="palette-side">⌘↵</kbd> open to the side</span><span><kbd>⇧↵</kbd> create</span><span><kbd data-keys="Mod-p">⌘P</kbd> notes</span><span><kbd data-keys="Mod-Shift-p">⌘⇧P</kbd> or <kbd>&gt;</kbd> commands</span><span><kbd>esc</kbd> close</span></div>
+        <div class="palette-foot"><span><kbd data-keys="ArrowUp">↑</kbd><kbd data-keys="ArrowDown">↓</kbd> move</span><span><kbd data-keys="Enter">↵</kbd> open</span><span><kbd data-keys="Mod-Enter">⌘↵</kbd> open to the side</span><span><kbd data-keys="Shift-Enter">⇧↵</kbd> create</span><span><kbd data-keys="Mod-p">⌘P</kbd> notes</span><span><kbd data-keys="Mod-Shift-p">⌘⇧P</kbd> or <kbd data-keys="&gt;">&gt;</kbd> commands</span><span><kbd data-keys="Escape">Esc</kbd> close</span></div>
       </div>
     </div>
     <div id="toasts" role="region" aria-label="Notifications"></div>

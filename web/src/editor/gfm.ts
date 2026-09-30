@@ -3,6 +3,7 @@
 // heading. Like the rest of live preview, markup shows as written while the cursor is on it.
 // Foldable alerts fold by the same state as collapsible sections (see details.ts).
 import { syntaxTree } from "@codemirror/language";
+import { noteTree } from "./tree.ts";
 import type { EditorState, Range, Text } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { el, icon } from "../dom.ts";
@@ -10,6 +11,7 @@ import { inline } from "../taskRow.ts";
 import { renderMarkdown } from "../render.ts";
 import { alertsIn, footnotesIn, headingSlug, type AlertBlock, type Footnotes } from "../../../src/core/gfm.ts";
 import { emojiFor, SHORTCODE } from "../../../src/core/emoji.ts";
+import { clip } from "../../../src/core/depth.ts";
 import { headingName, headingText } from "../../../src/core/prose.ts";
 import { editorContext } from "./blocks.ts";
 import { alertOpen, setFold } from "./details.ts";
@@ -32,7 +34,7 @@ function gfmOf(doc: Text) {
 /** Where markdown shows as written: code, URLs, links' targets, HTML blocks, frontmatter. */
 const RAW = new Set(["InlineCode", "FencedCode", "CodeBlock", "CodeText", "Frontmatter", "FrontmatterContent", "HTMLBlock", "CommentBlock", "URL", "Autolink", "WikiLink", "Embed"]);
 function raw(state: EditorState, pos: number): boolean {
-  for (let n: any = syntaxTree(state).resolveInner(pos, 1); n; n = n.parent) if (RAW.has(n.name)) return true;
+  for (let n: any = noteTree(state).resolveInner(pos, 1); n; n = n.parent) if (RAW.has(n.name)) return true;
   return false;
 }
 
@@ -49,7 +51,7 @@ function htmlOf(src: string, path: string): string {
 }
 
 const jump = (view: EditorView, pos: number) => {
-  view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: "center" }) });
+  view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: "center" }), userEvent: "select.jump" });
   view.focus();
 };
 
@@ -99,7 +101,10 @@ class FootnoteRefWidget extends WidgetType {
     return true;
   }
   toDOM(view: EditorView) {
-    const sup = el("sup", { class: "cm-fnref", "aria-label": `Footnote ${this.n}` }, String(this.n), el("span", { class: "cm-fn-pop", role: "tooltip", html: inline(this.text) }));
+    const pop = el("span", { class: "cm-fn-pop", role: "tooltip" });
+    const sup = el("sup", { class: "cm-fnref", "aria-label": `Footnote ${this.n}` }, String(this.n), pop);
+    // The footnote's text is rendered the first time it's hovered, not for every reference drawn.
+    sup.addEventListener("mouseenter", () => pop.childNodes.length || (pop.innerHTML = inline(this.text)), { once: true });
     sup.addEventListener("mousedown", (e) => {
       e.preventDefault();
       const line = view.state.doc.line(Math.min(this.defLine + 1, view.state.doc.lines));
@@ -218,7 +223,8 @@ class HeadingLinkWidget extends WidgetType {
 
 // ---------------------------------------------------------------- live preview
 
-const TAG = /<(kbd|sub|sup)>(.+?)<\/\1>|<br\s*\/?>|<img\b[^>]*>/gi;
+// Bounded, so a line of thousands of unclosed tags is one pass, not a scan to its end per tag.
+const TAG = /<(kbd|sub|sup)>([^<\n]{1,500})<\/\1>|<br\s*\/?>|<img\b[^<>\n]{0,2000}>/gi;
 const HEADING = /^#{1,6}[ \t]+(.+)$/;
 
 function build(view: EditorView): DecorationSet {
@@ -247,7 +253,7 @@ function build(view: EditorView): DecorationSet {
         const a = line.from + r.from;
         const b = line.from + r.to;
         if (!def || touches(state, a, b) || raw(state, a)) continue;
-        out.push(Decoration.replace({ widget: new FootnoteRefWidget(notes.number.get(r.id)!, def.text, def.line) }).range(a, b));
+        out.push(Decoration.replace({ widget: new FootnoteRefWidget(notes.number.get(r.id)!, clip(def.text), def.line) }).range(a, b));
       }
       const defId = defAt.get(n);
       if (defId !== undefined) {
