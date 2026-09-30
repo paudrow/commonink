@@ -186,6 +186,6 @@ async function shareSome(): Promise<string[]> {
   const token = link.split("/")[2];
   const page = ((await must("GET", `${api}/notes`)) as Array<{ path: string; id: string }>).find((n) => n.path === `${dir}/Public page.md`)!.id;
   return [
-    `- Sharing: [[Plan for Sam]] (editor), [[Read only for Sam]] (viewer) and \`${dir}/Shared folder\` (viewer) are shared with Sam Dev (sign in as Sam with \`/auth/dev?as=sam\`). [[Public page]] has a link: its page is ${origin}${link}, and its API ${origin}/api/s/${token}/note?id=${page}.`,
+    `- Sharing: [[Plan for Sam]] (editor), [[Read only for Sam]] (viewer) and \`${dir}/Shared folder\` (viewer) are shared with Sam Dev (sign in as Sam with \`/auth/dev?as=sam\`). [[Public page]] is shared with anyone who has the link: ${origin}${link} (its API: ${origin}/api/s/${token}/note?id=${page}).`,
   ];
 }
