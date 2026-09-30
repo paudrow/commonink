@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { groupChanges } from "../src/core/format.ts";
+import { openVault } from "../src/core/local.ts";
 import { tempVault } from "./helpers.ts";
 
 const BIN = path.resolve(import.meta.dirname, "../bin/quire");
@@ -26,9 +28,27 @@ test("create reads stdin, edits are attributed to --agent (or --as), and changes
     JSON.parse(changes.stdout).map((c: { op: string; path: string; person: string; agent: string | null }) => `${c.op} ${c.path} by ${c.agent ?? "-"} for ${c.person}`),
     ["edit Inbox.md by Planner for you", "edit Inbox.md by shopper for you", "create Inbox.md by - for you"],
   );
-  assert.match(quire(vault, ["changes", "--by", "people"]).stdout, /^#1 \S+ you: create Inbox\.md \(4 lines\)\n$/);
+  assert.match(quire(vault, ["changes", "--by", "people"]).stdout, /^#1 \S+ you: created Inbox\.md \(4 lines\)\n$/);
   assert.equal(quire(vault, ["changes", "--by", "ai"]).stdout.split("\n").filter(Boolean).length, 2);
-  assert.match(quire(vault, ["changes", "--by", "Planner"]).stdout, /^#3 \S+ Planner for you: edit Inbox\.md \(\+2 −0\)\n$/);
+  assert.match(quire(vault, ["changes", "--by", "Planner"]).stdout, /^#3 \S+ Planner for you: edited Inbox\.md \(\+2 −0\)\n$/);
+});
+
+test("changes counts a run of saves by its net change and says renamed, the same as History", () => {
+  const vault = tempVault();
+  quire(vault, ["create", "Churn", "-"], "# Churn\n\none\ntwo\n");
+  quire(vault, ["edit", "Churn", "--old", "two\n", "--new", "two\nthree\nfour\nfive\nsix\n"]);
+  quire(vault, ["edit", "Churn", "--old", "one\ntwo\nthree\nfour\nfive\nsix\n", "--new", "ONE\ntwo\nthree\n"]);
+  quire(vault, ["edit", "Churn", "--old", "three\n", "--new", "three\nfour\n"]);
+  quire(vault, ["mv", "Churn", "Churned"]);
+  const lines = quire(vault, ["changes"]).stdout.trimEnd().split("\n");
+  assert.deepEqual(
+    lines.map((l) => l.replace(/^#\d+ \S+ /, "")),
+    ["you: renamed Churn.md → Churned.md", "you: edited Churn.md (+3 −1, 3 saves)", "you: created Churn.md (5 lines)"],
+  );
+  // History's list and its diff count the run from the same change ids.
+  const q = openVault(vault);
+  const run = groupChanges(q.changes({}))[1];
+  assert.deepEqual(q.diffStats([[run.first, run.first + 1, run.id]]), [{ add: 3, del: 1 }]);
 });
 
 test("read prints numbered lines and honours --offset/--limit", () => {
@@ -181,4 +201,26 @@ test("tasks --assignee me and --by me", () => {
   quire(vault, ["create", "Given", "- [ ] Send the deck @priya\n"]);
   assert.match(quire(vault, ["tasks", "--by", "me"]).stdout, /Send the deck @priya/);
   assert.doesNotMatch(quire(vault, ["tasks", "--by", "me"]).stdout, /Call the bank/, "a file made outside the app has no author");
+});
+
+test("templates and new --template", () => {
+  const vault = tempVault();
+  fs.mkdirSync(path.join(vault, "Templates"));
+  fs.writeFileSync(path.join(vault, "Templates/Meeting.md"), "---\ntitle: \"{{date}} {{ask:Client}}\"\nfolder: Meetings\napplies_to: Meetings/\n---\n# {{title}}\n\n**Attendees:** {{ask:Attendees}}\n\n- {{cursor}}\n");
+  assert.match(quire(vault, ["templates"]).stdout, /Templates\/Meeting\.md — Meeting · asks: Client, Attendees/);
+  const r = quire(vault, ["new", "--template", "Meeting", "--var", "Client=Acme", "--var", "Attendees=Sam, Lee"]);
+  assert.match(r.stdout, /^Created Meetings\/\d{4}-\d\d-\d\d Acme\.md from Templates\/Meeting\.md\.\n$/);
+  const made = fs.readdirSync(path.join(vault, "Meetings"))[0];
+  assert.match(fs.readFileSync(path.join(vault, "Meetings", made), "utf8"), /\*\*Attendees:\*\* Sam, Lee/);
+  assert.equal(quire(vault, ["new", "--template", "Meeting", "--var", "oops"]).stderr, "--var takes Name=value, not \"oops\"\n");
+  assert.equal(quire(vault, ["new"]).stderr, "new needs --template <name>\n");
+});
+
+test("calendars: an empty vault says how to subscribe, and a private address is refused and not kept", () => {
+  const vault = tempVault();
+  assert.equal(quire(vault, ["events", "--from", "2026-10-05", "--tz", "UTC"]).stdout, "0 events, Mon, Oct 5 to Sun, Oct 11 (UTC). This workspace has no calendars yet: subscribe to an ICS feed from the Calendar page.\n");
+  const add = quire(vault, ["calendars", "add", "http://127.0.0.1:9/cal.ics"]);
+  assert.deepEqual([add.status, add.stderr], [1, "That address isn't on the public internet\n"]);
+  assert.equal(quire(vault, ["calendars"]).stdout, "No calendars. Subscribe to an ICS or webcal feed: quire calendars add <url>\n");
+  assert.equal(quire(vault, ["event", "nope"]).stderr, "No event nope; `quire events` lists them with their ids\n");
 });

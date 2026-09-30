@@ -1,5 +1,6 @@
-// Links that leave the app (a web page, an email) versus links to notes. External ones show a
-// small ↗ and their domain, open in the browser, and never open to the side. No DOM here.
+// Links that leave the app (a web page, an email) versus links to notes and calendar events.
+// External ones show a small ↗ and their domain, open in the browser, and never open to the side.
+// No DOM here beyond the event a clicked calendar link sends.
 
 import { safeDecode } from "../../src/core/uri.ts";
 
@@ -36,3 +37,16 @@ export const externalTitle = (href: string) => {
   const host = linkHost(href);
   return host ? `${host} · opens in your browser` : "Opens in your browser";
 };
+
+/**
+ * A link to the Calendar page or one of its events (`/calendar`, `/calendar/<event id>`): the event's
+ * ID ("" for the page itself), or null for any other link. Meeting notes link to their event this way.
+ */
+export function calendarTarget(href: string): string | null {
+  const m = href.trim().match(/^\/calendar(?:\/([a-z2-9]{12}))?\/?$/);
+  return m ? (m[1] ?? "") : null;
+}
+
+/** A calendar link clicked where no note editor handles it (a note card, an embed): main.ts goes there. */
+export const OPEN_CALENDAR = "quire-open-calendar";
+export const openCalendarLink = (href: string) => window.dispatchEvent(new CustomEvent(OPEN_CALENDAR, { detail: calendarTarget(href) ?? "" }));

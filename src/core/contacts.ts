@@ -17,6 +17,7 @@
 // CSV exports, and finds likely duplicates. No I/O here: Quire (quire.ts) does the reading and writing.
 // The web app uses it too (the Contacts page, @), so nothing here may need Node.
 import { parseCsv } from "./csv.ts";
+import { frontmatterEntries, frontmatterText, listOf, scalarOf, type Entry } from "./frontmatter.ts";
 import { headingText } from "./prose.ts";
 import { cleanTag } from "./tags.ts";
 
@@ -71,58 +72,11 @@ const KEYS = ["email", "phone", "company", "role", "links", "aliases", "tags"] a
 
 export const emptyContact = (name: string): ContactFields => ({ name, email: [], phone: [], company: "", role: "", links: [], aliases: [], tags: [] });
 
-const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
-
-/** A note's frontmatter as its entries, in order, each with its lines (a key and what's nested under it). */
-function entries(md: string): { entries: Array<{ key: string; lines: string[] }>; body: string } {
-  const m = md.match(FRONTMATTER);
-  if (!m) return { entries: [], body: md };
-  const out: Array<{ key: string; lines: string[] }> = [];
-  for (const line of m[1].split(/\r?\n/)) {
-    const key = line.match(/^([\w-]+):/)?.[1];
-    if (key) out.push({ key, lines: [line] });
-    else if (out.length) out.at(-1)!.lines.push(line); // a nested line, or a blank one
-  }
-  return { entries: out, body: md.slice(m[0].length) };
-}
-
-function unquote(s: string): string {
-  const t = s.trim();
-  if (/^".*"$/.test(t)) return t.slice(1, -1).replace(/\\(["\\])/g, "$1");
-  if (/^'.*'$/.test(t)) return t.slice(1, -1).replace(/''/g, "'");
-  return t;
-}
-
-/** An entry's values: `key: a`, `key: [a, b]`, `key: a, b`, or one `- a` per line under it. */
-function valuesOf(lines: string[]): string[] {
-  const inline = lines[0].replace(/^[\w-]+:/, "").trim();
-  if (inline) {
-    const list = inline.match(/^\[(.*)\]$/);
-    return splitItems(list ? list[1] : inline).map(unquote).filter(Boolean);
-  }
-  return lines.slice(1).flatMap((l) => l.match(/^\s*-\s+(.*)$/)?.[1] ?? []).map(unquote).filter(Boolean);
-}
-
-/** Split on commas that aren't inside quotes. */
-function splitItems(s: string): string[] {
-  const out: string[] = [];
-  let cur = "";
-  let q: string | null = null;
-  for (const ch of s) {
-    if (q) (cur += ch), ch === q && (q = null);
-    else if (ch === '"' || ch === "'") (cur += ch), (q = ch);
-    else if (ch === ",") out.push(cur), (cur = "");
-    else cur += ch;
-  }
-  out.push(cur);
-  return out.map((x) => x.trim());
-}
-
 /** A note's title as the index reads it (see titleOf in parse.ts): `title:`, else its first `# heading`, else its file name. */
 function titleIn(path: string, md: string): string {
-  const { entries: fm, body } = entries(md);
-  const title = fm.find((e) => e.key === "title");
-  if (title) return valuesOf(title.lines).join(", ");
+  const { entries: fm, body } = frontmatterEntries(md);
+  const title = scalarOf(fm.find((e) => e.key === "title"));
+  if (title) return title;
   const h1 = body.match(/^#[ \t]+(.+)$/m);
   return (h1 && headingText(h1[1])) || path.split("/").pop()!.replace(/\.(md|markdown)$/i, "");
 }
@@ -130,10 +84,9 @@ function titleIn(path: string, md: string): string {
 /** A contact from its note: the frontmatter fields, and its name (the note's title). */
 export function contactFromNote(path: string, md: string): ContactNote {
   const c: ContactNote = { path, ...emptyContact(titleIn(path, md)) };
-  for (const e of entries(md).entries) {
-    const values = valuesOf(e.lines);
-    if ((LISTS as readonly string[]).includes(e.key)) c[e.key as ListField] = values;
-    else if (e.key === "company" || e.key === "role") c[e.key] = values.join(", ");
+  for (const e of frontmatterEntries(md).entries) {
+    if ((LISTS as readonly string[]).includes(e.key)) c[e.key as ListField] = listOf(e);
+    else if (e.key === "company" || e.key === "role") c[e.key] = scalarOf(e);
   }
   return c;
 }
@@ -149,22 +102,24 @@ function yamlValue(v: string): string {
  * titled with the contact's name.
  */
 export function contactNote(c: ContactFields, existing?: string): string {
-  const { entries: had, body } = existing === undefined ? { entries: [], body: `# ${c.name}\n` } : entries(existing);
-  const lines: string[] = [];
+  const { entries: had, body } = existing === undefined ? { entries: [], body: `# ${c.name}\n` } : frontmatterEntries(existing);
+  const out: Entry[] = [];
   for (const key of KEYS) {
     const v = c[key];
     if (typeof v === "string") {
-      if (v.trim()) lines.push(`${key}: ${yamlValue(v.trim())}`);
+      if (v.trim()) out.push({ key, lines: [`${key}: ${yamlValue(v.trim())}`] });
     } else if (v.length) {
       const items = v.map((x) => x.trim()).filter(Boolean);
-      if (key === "links") lines.push("links:", ...items.map((x) => `  - ${yamlValue(x)}`));
-      else if (items.length === 1 && (key === "email" || key === "phone")) lines.push(`${key}: ${yamlValue(items[0])}`);
-      else lines.push(`${key}: [${items.map(yamlValue).join(", ")}]`);
+      if (key === "links") out.push({ key, lines: ["links:", ...items.map((x) => `  - ${yamlValue(x)}`)] });
+      else if (items.length === 1 && (key === "email" || key === "phone")) out.push({ key, lines: [`${key}: ${yamlValue(items[0])}`] });
+      else out.push({ key, lines: [`${key}: [${items.map(yamlValue).join(", ")}]`] });
     }
   }
-  for (const e of had) if (!(KEYS as readonly string[]).includes(e.key)) lines.push(...e.lines);
-  while (lines.length && !lines.at(-1)!.trim()) lines.pop();
-  return lines.length ? `---\n${lines.join("\n")}\n---\n${body}` : body;
+  out.push(...had.filter((e) => !(KEYS as readonly string[]).includes(e.key)));
+  // A blank line that ended the old frontmatter doesn't end the new one.
+  const last = out.at(-1)?.lines;
+  while (last && last.length > 1 && !last.at(-1)!.trim()) last.pop();
+  return frontmatterText(out) + body;
 }
 
 /**
@@ -316,8 +271,8 @@ export const preferredHandle = (p: Person) => p.handle;
 export function dayOfNote(path: string, md: string): string | null {
   const named = path.split("/").pop()!.match(/(?:^|\D)(\d{4}-\d{2}-\d{2})(?:\D|$)/)?.[1];
   if (named) return named;
-  const date = entries(md).entries.find((e) => e.key === "date");
-  return (date && valuesOf(date.lines)[0]?.match(/^\d{4}-\d{2}-\d{2}/)?.[0]) ?? null;
+  const date = frontmatterEntries(md).entries.find((e) => e.key === "date");
+  return listOf(date)[0]?.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? null;
 }
 
 // ---------------------------------------------------------------- import

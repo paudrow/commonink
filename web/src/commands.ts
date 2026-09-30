@@ -1,9 +1,10 @@
 // Everything you can do from ⌘K, and every keyboard shortcut: one registry that the palette's
 // Commands section and the shortcut sheet (?) both read. main.ts supplies the state and the actions.
 import { fuzzyScore } from "./fuzzy.ts";
+import { CALENDAR_KEYS } from "./calendar/keys.ts";
 
-export type Area = "Global" | "Notes page" | "Editor" | "Vim" | "Tasks" | "Split view";
-export const AREAS: Area[] = ["Global", "Notes page", "Editor", "Vim", "Tasks", "Split view"];
+export type Area = "Global" | "Notes page" | "Calendar" | "Editor" | "Vim" | "Tasks" | "Split view";
+export const AREAS: Area[] = ["Global", "Notes page", "Calendar", "Editor", "Vim", "Tasks", "Split view"];
 
 /** Keys as CodeMirror writes them ("Mod-Shift-e", "Mod-Alt-\\"), or typed literally ("?", "gd", ":w"). */
 export interface Shortcut {
@@ -27,7 +28,7 @@ export interface Command {
   run: () => unknown;
 }
 
-export type Page = "notes" | "tasks" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash";
+export type Page = "notes" | "tasks" | "calendar" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash";
 
 /** What the registry needs from the app: a snapshot of its state, and the actions to run. */
 export interface App {
@@ -49,15 +50,28 @@ export interface App {
   onLink: boolean;
   /** Can delete notes (not a viewer online). */
   canDelete: boolean;
+  /** Can add calendars (not a viewer online). */
+  canSubscribe: boolean;
+  /** Google Calendar works on this server and isn't connected yet. */
+  canConnectGoogle: boolean;
   /** How many collapsible sections the focused note has. */
   folds: number;
   /** Online, the account menu's actions; locally, none. */
   account: Array<{ label: string; icon: string; run: () => unknown; workspace?: boolean; current?: boolean }>;
   newNote(): void;
+  /** Pick a template, answer its questions, and open the new note. */
+  newFromTemplate(): void;
+  /** A new note that holds a Kanban board. */
+  newBoard(): void;
   newFolder(): void;
+  newTag(): void;
   go(page: Page): void;
   filterNotes(): void;
   quickAdd(): void;
+  /** The Calendar page, with the Calendars dialog open at its link field. */
+  subscribeCalendar(): void;
+  refreshCalendars(): void;
+  connectGoogle(): void;
   toggleTheme(): void;
   toggleVim(): void;
   toggleVimDisplayLines(): void;
@@ -88,11 +102,18 @@ export function appCommands(app: App): Command[] {
   const go = (page: Page, title: string, icon: string, keywords = ""): Command => ({ id: `go:${page}`, title: `Go to ${title}`, keywords: `open show page ${keywords}`, icon, run: () => app.go(page) });
   return [
     { id: "new-note", title: "New note", keywords: "create add page", icon: "plus", run: app.newNote },
+    { id: "new-from-template", title: "New note from template…", keywords: "template meeting create add from boilerplate", icon: "file", available: app.canDelete, run: app.newFromTemplate },
+    { id: "new-board", title: "New board", keywords: "create add kanban columns cards trello project", icon: "kanban", run: app.newBoard },
     { id: "new-folder", title: "New folder", keywords: "create add directory", icon: "folderPlus", run: app.newFolder },
+    { id: "new-tag", title: "New tag", keywords: "create add label hashtag", icon: "hash", available: app.canDelete, run: app.newTag },
     { id: "quick-add", title: "Add a task", keywords: "quick add todo new task", icon: "task", keys: ["Mod-Shift-."], area: "Tasks", run: app.quickAdd },
     go("notes", "Notes", "feed", "home all"),
     { id: "filter-notes", title: "Filter notes", keywords: "search find notes page", icon: "search", keys: ["Mod-Shift-f"], run: app.filterNotes },
     go("tasks", "Tasks", "task", "todo checklist"),
+    go("calendar", "Calendar", "calendar", "events meetings schedule agenda month week day"),
+    { id: "subscribe-calendar", title: "Subscribe to a calendar…", keywords: "calendar add ics webcal ical feed google outlook subscribe", icon: "calendar", available: app.canSubscribe, run: app.subscribeCalendar },
+    { id: "connect-google", title: "Connect Google Calendar", keywords: "google calendar gcal account events", icon: "calendar", available: app.canConnectGoogle, run: app.connectGoogle },
+    { id: "refresh-calendars", title: "Refresh calendars", keywords: "calendar sync reload events update", icon: "reset", run: app.refreshCalendars },
     go("contacts", "Contacts", "user", "people crm person email company"),
     go("tags", "Tags", "hash", "rename merge"),
     go("assets", "Assets", "grid", "files images uploads attachments"),
@@ -157,6 +178,7 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: ["Delete", "Backspace"], label: "Delete (the selected notes, or this one)", area: "Notes page" },
   { keys: ["/"], label: "Filter", area: "Notes page" },
   { keys: ["Escape"], label: "Clear the selection", area: "Notes page" },
+  ...CALENDAR_KEYS.map(({ keys, label }): Shortcut => ({ keys, label, area: "Calendar" })),
   { keys: ["Mod-z"], label: "Undo", area: "Editor" },
   { keys: ["Mod-Shift-z"], label: "Redo", area: "Editor" },
   { keys: ["Mod-f"], label: "Find in the note", area: "Editor" },
@@ -178,6 +200,7 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: [":archive"], label: "Archive the note", area: "Vim" },
   { keys: [":trash"], label: "Delete the note (to Trash)", area: "Vim" },
   { keys: [":notes"], label: "Go to Notes", area: "Vim" },
+  { keys: [":calendar"], label: "Go to Calendar", area: "Vim" },
   { keys: [":focus"], label: "Focus mode", area: "Vim" },
   { keys: [":set nu", ":set nonu"], label: "Show / hide line numbers", area: "Vim" },
   { keys: [":vs name"], label: "Open a note to the side", area: "Vim" },

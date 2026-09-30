@@ -1,7 +1,9 @@
 import "./dom.ts";
-import { test } from "node:test";
+import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { EditorState, type Transaction } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
+import { getCM, vim, Vim } from "@replit/codemirror-vim";
 import { markdownWithFrontmatter } from "../web/src/editor/language.ts";
 import { lineHintAt } from "../web/src/editor/lineHint.ts";
 import { blockWidgets, hiddenSource, selectSource, stepIntoBlocks } from "../web/src/editor/blocks.ts";
@@ -68,4 +70,57 @@ test("one arrow press past a hidden markdown line lands on it; a click lands whe
   assert.equal(line(move(1, 4)), 4, "a longer jump is left alone");
   assert.equal(line(at(NOTE, 0).update({ selection: { anchor: lineStart(NOTE, 3) } }).state), 2, "vim's j, which has no user event");
   assert.equal(line(move(1, 3, "select.pointer")), 3, "a click");
+});
+
+test("a jump lands where it aims, past a card or a table; one arrow press still steps onto them", () => {
+  const TABLE = "# Days\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\n## After";
+  const move = (doc: string, from: number, to: number, userEvent: string) => {
+    const s = at(doc, lineStart(doc, from)).update({ selection: { anchor: lineStart(doc, to) }, userEvent }).state;
+    return s.doc.lineAt(s.selection.main.head).number;
+  };
+  assert.equal(move(NOTE, 1, 3, "select.jump"), 3, "the Outline, a link to a heading, back and forward");
+  assert.equal(move(NOTE, 3, 1, "select.jump"), 1);
+  assert.equal(move(NOTE, 6, 8, "select.search"), 8, "a find");
+  assert.equal(move(TABLE, 2, 6, "select.jump"), 6);
+  assert.equal(move(TABLE, 2, 6, "select"), 3, "an arrow press steps into the table");
+  assert.equal(move(TABLE, 6, 2, "select"), 5);
+});
+
+// A timer card ticks on jsdom's window.setInterval, which node's clearInterval can't stop.
+after(() => window.close());
+
+/** A note in an editor with vim, the cursor at the start of `line`; `keys` types into vim. */
+function vimAt(doc: string, line: number) {
+  const view = new EditorView({ state: EditorState.create({ doc, selection: { anchor: lineStart(doc, line) }, extensions: [vim(), markdownWithFrontmatter(), blockWidgets, stepIntoBlocks] }), parent: document.body });
+  const cm = getCM(view) as Parameters<typeof Vim.handleEx>[0];
+  const keys = (typed: string) => {
+    for (const k of typed) Vim.handleKey(cm, k, "user");
+    return view.state.doc.toString();
+  };
+  return { view, cm, keys };
+}
+
+test("vim's J, gJ and :join stop at a card's or a code block's hidden lines, as at the end of the note", () => {
+  const CARD = "Some text\n::timer{duration=25m}\nNext";
+  const j = vimAt(CARD, 1);
+  assert.equal(j.keys("wJ"), CARD);
+  assert.equal(j.view.state.selection.main.head, 5, "the cursor stays put");
+  assert.equal(vimAt(CARD, 1).keys("gJ"), CARD);
+  const ex = vimAt(CARD, 1);
+  Vim.handleEx(ex.cm, "join");
+  assert.equal(ex.view.state.doc.toString(), CARD, ":join");
+  assert.equal(vimAt("a\nb\n::timer{duration=25m}\nc", 1).keys("3J"), "a b\n::timer{duration=25m}\nc", "a count joins up to the card");
+  assert.equal(vimAt("Text\n```js\nlet a\n```", 1).keys("J"), "Text\n```js\nlet a\n```", "a code block drawn as itself");
+  assert.equal(vimAt(CARD, 2).keys("J"), "Some text\n::timer{duration=25m} Next", "on the card's line, which shows, J works as usual");
+});
+
+test("vim's J and gJ join as usual away from cards", () => {
+  assert.equal(vimAt("a\n  b\nc", 1).keys("J"), "a b\nc");
+  assert.equal(vimAt("a\n  b\nc", 1).keys("gJ"), "a  b\nc");
+  assert.equal(vimAt("a\n  b\nc", 1).keys("3J"), "a b c");
+  assert.equal(vimAt("a\n\nc", 1).keys("J"), "a\nc", "an empty line adds no space");
+  const one = vimAt("ab\ncd", 1);
+  one.keys("J");
+  assert.equal(one.view.state.selection.main.head, 2, "the cursor on the joining space");
+  assert.equal(vimAt("only", 1).keys("J"), "only", "the last line joins nothing");
 });

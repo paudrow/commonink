@@ -2,7 +2,7 @@
 // rewritten by the one token writer, as a transaction, so it lands in the undo history like typing
 // does; ticking a repeating task adds its next occurrence below in the same transaction, so one undo
 // takes both back. No DOM here: the widgets that draw these live in taskTools.ts.
-import { syntaxTree } from "@codemirror/language";
+import { noteTree } from "./tree.ts";
 import { StateField, type EditorState, type TransactionSpec } from "@codemirror/state";
 import { Decoration, EditorView, type DecorationSet, type WidgetType } from "@codemirror/view";
 import { editTaskLines, localDate, parseTask, TASK_LINE, type TaskPatch } from "../../../src/core/tasks.ts";
@@ -25,7 +25,7 @@ export function taskLineEdit(state: EditorState, n: number, expected: string, pa
 
 const CODE = new Set(["FencedCode", "CodeBlock", "InlineCode", "CodeText", "HTMLBlock", "CommentBlock", "Frontmatter"]);
 const inCode = (state: EditorState, pos: number) => {
-  for (let n: { name: string; parent: unknown } | null = syntaxTree(state).resolveInner(pos, -1); n; n = n.parent as typeof n) if (CODE.has(n.name)) return true;
+  for (let n: { name: string; parent: unknown } | null = noteTree(state).resolveInner(pos, -1); n; n = n.parent as typeof n) if (CODE.has(n.name)) return true;
   return false;
 };
 

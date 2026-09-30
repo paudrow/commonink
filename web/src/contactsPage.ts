@@ -23,7 +23,7 @@ interface Hooks {
   navigate(contact: Contact | null): void;
   /** Whether this person may change contacts (not a viewer). */
   canEdit(): boolean;
-  toast(t: { text: string; icon?: string; actionLabel?: string; action?: () => void }): void;
+  toast(t: { text: string; icon?: string }): void;
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

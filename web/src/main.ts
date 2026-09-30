@@ -4,8 +4,8 @@ import "./mobile.css";
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, type EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
-import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type Scope, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
-import { normalizeTag } from "../../src/core/tags.ts";
+import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, unusedTag, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
+import { cleanTag, normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
 import { hideBanner, showBanner } from "./banner.ts";
@@ -19,11 +19,13 @@ import { clearFlash, flashChanges } from "./editor/agentFlash.ts";
 import { editsBetween, merge3 } from "./merge.ts";
 import { sandboxFrame } from "./render.ts";
 import { Palette } from "./palette.ts";
-import { NotesPage } from "./notesPage.ts";
+import { NotesPage, type NotesTab } from "./notesPage.ts";
 import { folderPicker } from "./folderPicker.ts";
 import type { History } from "./history.ts";
 import type { Assets } from "./assets.ts";
 import { renderTasksPage } from "./tasksView.ts";
+import { askFor, pickTemplate, templatePeople } from "./templatePicker.ts";
+import { localNow, type TemplateInfo } from "../../src/core/templates.ts";
 import { openQuickAdd, QUICK_ADD } from "./quickAdd.ts";
 import { formatKeys, learnLayout, matchKeys } from "./keys.ts";
 import { navArrows, type Dir, type NavArrows } from "./navArrows.ts";
@@ -41,13 +43,20 @@ import { clampSide, forget, historyStep, IS_MAC, newLayout, pageEntry, pageOf, p
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { headingMatches } from "../../src/core/gfm.ts";
 import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
+import { NEW_BOARD } from "../../src/core/kanban.ts";
 import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
 import { safeDecode } from "../../src/core/uri.ts";
 import { deleteFolder, deletePaths, TrashPage, type DeleteHooks } from "./trash.ts";
+import { CapturePage, registerWorker } from "./capture.ts";
 import { AGENTS_BLURB, isAgentsNote } from "./agentsNote.ts";
 import { closeDrawer, setupMobileNav } from "./mobileNav.ts";
+import { nameField, plusMark, sectionHint, sidebarTags } from "./sidebar.ts";
+import type { CalendarPage } from "./calendar/page.ts";
+import { calendarChanged, calendars, setCalendarContext } from "./calendar/data.ts";
+import { calendarTarget, OPEN_CALENDAR } from "./links.ts";
+import { connectUrl, googleChanged, googleKnown, googleOutcome, googleStatus, leave } from "./calendar/google.ts";
 
 // ------------------------------------------------------------------ state
 
@@ -64,6 +73,8 @@ interface Session {
   timer: number;
   /** Set once the user edits this note. A session that was never edited never writes. */
   edited: boolean;
+  /** The last save didn't reach the server (offline, or it failed): it's tried again until it does. */
+  failed: boolean;
   /** The pane it's open in. */
   pane: Pane;
 }
@@ -152,6 +163,8 @@ const notesPage = new NotesPage({
     void refreshNotes();
   },
   newNote: () => void newNote(),
+  goTab: (tab) => void showNotes({ tab }),
+  trash: () => (viewer ? null : (trashPage ??= new TrashPage({ ...deleteHooks, canPurge: () => owner, open: (path) => fromPage(path) }))),
 });
 /** What deleting (and restoring from Trash) needs: a toast, and everything that lists notes brought up to date. */
 const deleteHooks: DeleteHooks = {
@@ -165,11 +178,13 @@ const deleteHooks: DeleteHooks = {
   },
 };
 let trashPage: TrashPage | null = null;
+let capturePage: CapturePage | null = null;
 // History, Assets and Tags load the first time they're opened (each is null until then).
 let historyPage: History | null = null;
 let assetsPage: Assets | null = null;
 let tagsPage: TagsPage | null = null;
 let contactsPage: import("./contactsPage.ts").ContactsPage | null = null;
+let calendarPage: CalendarPage | null = null;
 const once = <T>(load: () => Promise<T>) => {
   let loading: Promise<T> | null = null;
   return () => (loading ??= load());
@@ -210,7 +225,15 @@ const loadTags = once(async () =>
     tags: () => tags,
     refresh: () => refreshNotes(),
     openTag: (tag, where) => openTag(tag, where),
+    deleteTag: (t) => deleteTag(t),
+    readOnly: () => viewer,
     toast: (t) => toast(t),
+  })),
+);
+const loadCalendar = once(async () =>
+  (calendarPage = new (await import("./calendar/page.ts")).CalendarPage($("#calendar-view"), {
+    open: (path, line, side) => void openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }),
+    setUrl: (url) => setUrl(url, "replace"),
   })),
 );
 /** The palette's next pick opens to the side (⌘⌥\ with nothing to show there yet). */
@@ -245,14 +268,22 @@ function commands() {
     canForward: active.trail.forward.length > 0,
     onLink: s?.kind === "md" && !!linkTargetAt(active.view.state, active.view.state.selection.main.head),
     canDelete: !viewer,
+    canSubscribe: !viewer,
+    canConnectGoogle: !!googleKnown() && googleKnown()!.mode !== "off" && !googleKnown()!.connection,
     folds: s?.kind === "md" ? foldCount(active.view.state) : 0,
     account,
     newNote: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
+    newFromTemplate: () => void newFromTemplate(undefined, onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
+    newBoard: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : "", `\n${NEW_BOARD}\n`),
     newFolder: startNewFolder,
+    newTag: startNewTag,
     go: (page) => {
-      if (page === "notes" || page === "archive") void showNotes({ scope: page === "notes" ? "active" : "archived", query: {} });
-      else void { tasks: showTasks, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory, trash: showTrash }[page]();
+      if (page === "notes" || page === "archive" || page === "trash") void showNotes({ tab: page, query: {} });
+      else void { tasks: showTasks, calendar: showCalendar, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory }[page]();
     },
+    subscribeCalendar: () => void subscribeCalendar(),
+    refreshCalendars: () => void refreshCalendars(),
+    connectGoogle: () => leave.to(connectUrl()),
     filterNotes: () => void showNotes({ filter: true }),
     quickAdd,
     toggleTheme,
@@ -351,6 +382,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
     baseVersion: note.version,
     saving: false,
     again: false,
+    failed: false,
     timer: 0,
     edited: false,
     pane,
@@ -411,7 +443,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
     const place = keep ? null : places[note.id];
     const pos = Math.min(keep?.head ?? place?.pos ?? (fm ? fm[0].length : 0), pane.view.state.doc.length);
     const top = place ? placeScroll(pane.view, place) : EditorView.scrollIntoView(0, { y: "start", yMargin: 80 });
-    pane.view.dispatch({ selection: { anchor: pos }, effects: keep?.scroll ?? top });
+    pane.view.dispatch({ selection: { anchor: pos }, effects: keep?.scroll ?? top, userEvent: "select.jump" });
   }
   // Following a link or a click adds to history; back/forward, renames and old links just fix the URL up.
   if (opts.focus !== false) focusPane(pane, opts.push === false || opts.trail === false ? "replace" : "push");
@@ -592,17 +624,18 @@ function setUrl(url: string, how: "push" | "replace" = "push") {
 
 let unmountTasks: (() => void) | null = null;
 
-function showStage(which: "editor" | "html" | "notes" | "tasks" | "contacts" | "history" | "assets" | "tags" | "trash") {
+function showStage(which: "editor" | "html" | "notes" | "tasks" | "calendar" | "contacts" | "history" | "assets" | "tags" | "capture") {
   closeDrawer();
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
   $("#assets-view").hidden = which !== "assets";
   $("#notes-view").hidden = which !== "notes";
   $("#tasks-view").hidden = which !== "tasks";
+  $("#calendar-view").hidden = which !== "calendar";
   $("#history-view").hidden = which !== "history";
   $("#tags-view").hidden = which !== "tags";
-  $("#trash-view").hidden = which !== "trash";
   $("#contacts-view").hidden = which !== "contacts";
+  $("#capture-view").hidden = which !== "capture";
   if (which !== "tasks") {
     unmountTasks?.();
     unmountTasks = null;
@@ -636,13 +669,18 @@ async function leaveNote() {
   $("#backlinks").replaceChildren(el("div", { class: "panel-empty" }, "—"));
 }
 
-/** Notes is home: every note, newest first. No note is open while it's showing. */
-async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: string; tag?: string; query?: NoteQuery; push?: boolean } = {}) {
+/**
+ * Notes is home: every note, newest first. Its tabs, Archive and Trash, are where notes go when
+ * they're put away or deleted. No note is open while it's showing.
+ */
+async function showNotes(opts: { tab?: NotesTab; filter?: boolean; folder?: string; tag?: string; query?: NoteQuery; push?: boolean } = {}) {
   await leaveNote();
   showStage("notes");
   notesPage.show(opts);
-  if (opts.push !== false) wentTo("/notes");
-  document.title = "Notes · Common Ink";
+  const tab = notesPage.tab; // a viewer asking for Trash gets Notes
+  if (opts.push !== false) wentTo(`/${tab}`);
+  else if (tab !== opts.tab && opts.tab) setUrl(`/${tab}`, "replace");
+  document.title = `${PAGE_LABEL[tab]} · Common Ink`;
   renderChrome();
   renderTree();
   renderOutline();
@@ -651,13 +689,68 @@ async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: strin
 async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("tasks");
-  unmountTasks = renderTasksPage($("#tasks-view"), { open: (path, line, side) => void openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }), tags: () => tags, me: workspaceId ? "Tasks with your @name" : "Tasks with @me" }, { tag: opts.tag, assignee: opts.assignee });
+  // Today's events open on the Calendar page (/calendar/<id>); everything else is a note.
+  const open = (path: string, line?: number, side?: boolean) =>
+    void (calendarTarget(path) !== null ? openTarget(path) : openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }));
+  unmountTasks = renderTasksPage($("#tasks-view"), { open, tags: () => tags, me: workspaceId ? "Tasks with your @name" : "Tasks with @me" }, { tag: opts.tag, assignee: opts.assignee });
   $("#tasks-view").focus({ preventScroll: true });
   if (opts.push !== false) wentTo("/tasks");
   document.title = "Tasks · Common Ink";
   renderChrome();
   renderTree();
   renderOutline();
+}
+
+/** The Calendar, on today, or on one event with its details open (/calendar/<event id>). */
+async function showCalendar(opts: { event?: string; push?: boolean } = {}) {
+  await leaveNote();
+  showStage("calendar");
+  const page = await loadCalendar();
+  if (opts.push !== false) wentTo(opts.event ? `/calendar/${opts.event}` : "/calendar");
+  document.title = "Calendar · Common Ink";
+  renderChrome();
+  renderTree();
+  renderOutline();
+  await page.show({ event: opts.event });
+}
+
+/** The Calendar page with the Calendars dialog open at its link field. */
+async function subscribeCalendar() {
+  await showCalendar();
+  calendarPage?.subscribe();
+}
+
+/**
+ * Back from connecting Google Calendar (/calendar?google=connected|denied|failed): say how it went,
+ * and show the Calendars dialog at its Google section, where the calendars are to add.
+ */
+async function backFromGoogle(outcome: string) {
+  const url = new URL(location.href);
+  url.searchParams.delete("google");
+  history.replaceState(history.state, "", url.pathname + url.search + url.hash);
+  const said = googleOutcome(outcome);
+  if (!said) return;
+  googleChanged();
+  toast({ icon: "calendar", text: said, alert: outcome !== "connected" });
+  await showCalendar({ push: false });
+  calendarPage?.openSources({ google: true });
+}
+
+/** Read every calendar again now (each at most once a minute). */
+async function refreshCalendars() {
+  if (!(await calendars().catch(() => [])).length) {
+    const text = "No calendars to refresh yet";
+    return toast(viewer ? { icon: "calendar", text } : { icon: "calendar", text, actionLabel: "Subscribe", action: () => void subscribeCalendar() });
+  }
+  try {
+    const list = await api.refreshCalendars();
+    calendarChanged();
+    await calendarPage?.refresh();
+    const broken = list.filter((s) => s.status === "error");
+    toast({ icon: "calendar", text: broken.length ? `Couldn't read ${broken.map((s) => s.name).join(", ")}` : "Calendars are up to date" });
+  } catch (e) {
+    toast({ text: e instanceof Error ? e.message : "Couldn't refresh the calendars" });
+  }
 }
 
 /** History, optionally for one note, with a change selected (e.g. from the activity list). */
@@ -702,22 +795,36 @@ async function showContacts(opts: { contact?: string | null; push?: boolean } = 
 /** Show what carries a tag (and the tags under it): its notes, or its tasks. */
 function openTag(tag: string, where: "notes" | "tasks" = "notes") {
   if (where === "tasks") void showTasks({ tag });
-  else void showNotes({ scope: "active", query: { tag } });
+  else void showNotes({ tab: "notes", query: { tag } });
 }
 
-/** Trash: what's been deleted, to restore (or, for owners and locally, to delete for good). */
-async function showTrash(opts: { push?: boolean } = {}) {
-  if (viewer) return showNotes({ push: opts.push }); // viewers have no Trash
+/**
+ * Quick capture: what another app shared (the phone's share sheet, through the service worker), or
+ * /capture?title=…&text=…&url=…, to check over and save into a note. It isn't a place in the back
+ * and forward trail: saving opens the note in its place.
+ */
+async function showCapture() {
   await leaveNote();
-  showStage("trash");
-  trashPage ??= new TrashPage({ ...deleteHooks, canPurge: () => owner, open: (path) => fromPage(path) });
-  const loading = trashPage.show(); // the page and its chrome show at once; the list fills in
-  if (opts.push !== false) setUrl("/trash");
-  document.title = "Trash · Common Ink";
+  showStage("capture");
+  capturePage ??= new CapturePage($("#capture-view"), {
+    readOnly: () => viewer,
+    notes: () => notes,
+    upload: (files) => uploadFiles(files),
+    saved: (path, line) => {
+      toast({ icon: "check", text: `Captured in ${displayName(path).replace(/\.md$/i, "")}` });
+      void refreshNotes().then(() => openNote(path, { line, push: false }));
+    },
+    discarded: () => {
+      setUrl("/notes", "replace");
+      void showNotes({ push: false });
+    },
+  });
+  const q = new URLSearchParams(location.search);
+  document.title = "Capture · Common Ink";
   renderChrome();
   renderTree();
   renderOutline();
-  await loading;
+  await capturePage.show({ share: q.get("share"), fields: { title: q.get("title") ?? "", text: q.get("text") ?? "", url: q.get("url") ?? "" } });
 }
 
 async function showAssets(opts: { open?: string; push?: boolean } = {}) {
@@ -763,16 +870,18 @@ function pickFiles(): Promise<File[]> {
   });
 }
 
-const PAGE_LABEL = { notes: "Notes", tasks: "Tasks", contacts: "Contacts", history: "History", assets: "Assets", tags: "Tags", trash: "Trash" } as const;
+const PAGE_LABEL = { notes: "Notes", archive: "Archive", trash: "Trash", tasks: "Tasks", calendar: "Calendar", contacts: "Contacts", history: "History", assets: "Assets", tags: "Tags", capture: "Capture" } as const;
 
+/** The page showing (the Notes page by its tab), or null while a note is. */
 const onPage = () =>
-  notesPage.visible ? "notes"
+  notesPage.visible ? notesPage.tab
   : !$("#tasks-view").hidden ? "tasks"
+  : calendarPage?.visible ? "calendar"
   : contactsPage?.visible ? "contacts"
   : historyPage?.visible ? "history"
   : assetsPage?.visible ? "assets"
   : tagsPage?.visible ? "tags"
-  : !$("#trash-view").hidden ? "trash"
+  : !$("#capture-view").hidden ? "capture"
   : null;
 
 // ------------------------------------------------------------------ focus mode
@@ -847,6 +956,8 @@ async function deleteCurrent() {
 }
 
 async function openTarget(target: string, from?: string, pane = active) {
+  const event = calendarTarget(target);
+  if (event !== null) return showCalendar({ event: event || undefined });
   const [name, anchor] = target.split("#");
   const path = name ? await api.resolve(name, from) : from;
   const line = anchor?.match(/^L(\d+)$/)?.[1]; // Note#L12 → line 12 (used by widgets)
@@ -875,14 +986,50 @@ async function createNote(name: string) {
   }
 }
 
-/** New note button: create "Untitled" right away (in `folder`, if given) and put the cursor in its title. */
-async function newNote(folder = "") {
+/**
+ * A new note from a template: pick one (unless given), answer its questions, and open the note with
+ * the cursor at its {{cursor}}. It goes in the template's folder, else `folder`.
+ */
+async function newFromTemplate(template?: TemplateInfo, folder = "") {
+  let t = template;
+  if (!t) {
+    const list = await api.templates().catch(() => []);
+    t = (await pickTemplate(list, "New note from template")) ?? undefined;
+  }
+  if (!t) return;
+  const asked = await askFor(t, { title: true, people: await templatePeople(t) });
+  if (!asked) return;
+  const clipboard = t.clipboard ? await navigator.clipboard?.readText().catch(() => undefined) : undefined;
+  try {
+    const r = await api.fromTemplate(t.path, { at: localNow(), title: asked.title, answers: asked.answers, picks: asked.picks, clipboard, folder: t.folder ? undefined : folder || undefined });
+    await refreshNotes();
+    await openNote(r.path);
+    const at = Math.min(r.cursor ?? active.view.state.doc.length, active.view.state.doc.length);
+    active.view.dispatch({ selection: { anchor: at }, scrollIntoView: true });
+    active.view.focus();
+    const cm = getCM(active.view);
+    if (cm && prefs.vim) Vim.handleKey(cm, "i", "user");
+    if (r.unfilled.length) toast({ icon: "file", text: `Still to fill in: ${r.unfilled.map((u) => `{{${u}}}`).join(", ")}` });
+  } catch (e) {
+    toast({ text: e instanceof ApiError ? e.message : `Couldn't make a note from ${t.name}` });
+  }
+}
+
+/**
+ * New note button: in a folder with a default template (its applies_to), that template; else
+ * "Untitled" (in `folder`, if given, with `body` under the title), cursor in its title.
+ */
+async function newNote(folder = "", body = "") {
+  if (folder && !body) {
+    const def = (await api.templates().catch(() => [])).find((t) => t.appliesTo.some((a) => folder === a || folder.startsWith(`${a}/`)));
+    if (def) return newFromTemplate(def, folder);
+  }
   const dir = folder ? `${folder}/` : "";
   const taken = new Set(notes.map((n) => n.path.toLowerCase()));
   let name = "Untitled";
   for (let i = 2; taken.has(`${dir}${name}.md`.toLowerCase()); i++) name = `Untitled ${i}`;
   try {
-    const r = await api.create(`${dir}${name}.md`, "# \n");
+    const r = await api.create(`${dir}${name}.md`, `# \n${body}`);
     await refreshNotes();
     await openNote(r.path);
     active.view.dispatch({ selection: { anchor: active.view.state.doc.line(1).to } });
@@ -937,7 +1084,7 @@ function headingLine(pane: Pane, anchor: string): number | undefined {
 
 function goToLine(pane: Pane, line: number) {
   const l = pane.view.state.doc.line(Math.min(Math.max(1, line), pane.view.state.doc.lines));
-  pane.view.dispatch({ selection: { anchor: l.from }, effects: EditorView.scrollIntoView(l.from, { y: "start", yMargin: 80 }) });
+  pane.view.dispatch({ selection: { anchor: l.from }, effects: EditorView.scrollIntoView(l.from, { y: "start", yMargin: 80 }), userEvent: "select.jump" });
 }
 
 // ------------------------------------------------------------------ saving & merging agent edits
@@ -976,9 +1123,15 @@ async function save(s: Session) {
   s.saving = true;
   status(s, "saving");
   try {
-    const r = await api.save(s.path, content, s.baseVersion, content.trim() === "", clientId);
+    const r = await api.save(s.path, content, s.baseVersion, content.trim() === "", clientId, s.id);
+    if (r.path !== s.path) {
+      // It was renamed while this save was on its way, and the save followed it.
+      view.state.facet(editorContext).path = r.path;
+      s.path = r.path;
+    }
     s.base = content;
     s.baseVersion = r.version;
+    s.failed = false;
     if (s === s.pane.session && view.state.doc.lineAt(view.state.selection.main.head).number > 1) void nameUntitled(s);
     if (s === s.pane.session) status(s, view.state.doc.toString() === content ? "saved" : "editing");
   } catch (e) {
@@ -986,6 +1139,13 @@ async function save(s: Session) {
       applyRemote({ path: s.path, content: e.data.content, version: e.data.version, source: e.data.source ?? "external" });
     } else {
       status(s, "error");
+      // Offline or a server error: keep trying, so the text is saved once it can be. A refusal
+      // (an empty note, one too big) waits for the next edit instead.
+      if (!(e instanceof ApiError) || e.status >= 500) {
+        s.failed = true;
+        clearTimeout(s.timer);
+        s.timer = window.setTimeout(() => save(s), 5000);
+      }
     }
   } finally {
     s.saving = false;
@@ -1121,14 +1281,8 @@ function onMessage(m: ServerMsg) {
       if (!isSelf(m.source) && m.change) {
         const c = m.change;
         const undo = c.op === "edit";
-        toast({
-          by: c,
-          text: `${changeVerb(c)} ${displayName(m.path)}`,
-          detail: c.summary ?? undefined,
-          actionLabel: undo ? "Undo" : undefined,
-          action: undo ? () => void undoChange(c, m.content) : open ? undefined : () => openNote(m.path),
-          open: undo && !open ? () => void openNote(m.path) : undefined,
-        });
+        const said = { by: c, text: `${changeVerb(c)} ${displayName(m.path)}`, detail: c.summary ?? undefined, open: open ? undefined : () => void openNote(m.path) };
+        toast(undo ? { ...said, actionLabel: "Undo", action: () => void undoChange(c, m.content) } : said);
       }
       refreshNotesSoon();
       if (active.session && m.path !== active.session.path) refreshBacklinksSoon();
@@ -1156,6 +1310,10 @@ function onMessage(m: ServerMsg) {
       refreshNotesSoon();
       return;
     }
+    case "calendar":
+      calendarChanged();
+      void calendarPage?.refresh();
+      return;
     case "tree":
       notesPage.refreshSoon();
       api.clearResolveCache();
@@ -1221,12 +1379,13 @@ const fieldSources = { tags: () => tags, folders: () => allFolders() };
 function saveSmartFolder(query: string, name: string, anchor: HTMLElement) {
   smartFolderEditor(anchor, { name: name || nameFor(query), query, shared: !viewer }, {
     canShare: !viewer,
+    alone: local,
     sources: fieldSources,
     save: async (f) => {
       const saved = await api.saveSmartFolder(f);
       smartFolders = await api.smartFolders();
       renderTree();
-      toast({ icon: "folderSearch", text: `Saved ${saved.name}`, detail: saved.shared ? "Everyone in the workspace sees it in their sidebar." : "Only you see it." });
+      toast({ icon: "folderSearch", text: `Saved ${saved.name}`, detail: local ? undefined : saved.shared ? "Everyone in the workspace sees it in their sidebar." : "Only you see it." });
     },
   });
 }
@@ -1235,11 +1394,12 @@ function saveSmartFolder(query: string, name: string, anchor: HTMLElement) {
 function newSmartFolder(anchor: HTMLElement) {
   smartFolderEditor(anchor, { name: "", query: "", shared: !viewer }, {
     canShare: !viewer,
+    alone: local,
     sources: fieldSources,
     save: async (f) => {
       const saved = await api.saveSmartFolder(f);
       smartFolders = await api.smartFolders();
-      await showNotes({ scope: "active", query: parseQuery(saved.query) });
+      await showNotes({ tab: "notes", query: parseQuery(saved.query) });
     },
   });
 }
@@ -1289,6 +1449,7 @@ function renderSmartFolders(active: string | null) {
       e.stopPropagation();
       smartFolderEditor(edit, f, {
         canShare: !viewer,
+        alone: local,
         sources: fieldSources,
         save: async (next) => {
           await api.saveSmartFolder(next);
@@ -1296,7 +1457,7 @@ function renderSmartFolders(active: string | null) {
           renderTree();
         },
         remove: async () => {
-          if (!confirm(`Delete the smart folder ${f.name}${f.shared ? " for everyone in the workspace" : ""}? Its notes don't change.`)) return;
+          if (!confirm(`Delete the smart folder ${f.name}${f.shared && !local ? " for everyone in the workspace" : ""}? Its notes don't change.`)) return;
           smartFolders = await api.deleteSmartFolder(f.id);
           renderTree();
           toast({ icon: "folderSearch", text: `Deleted ${f.name}` });
@@ -1310,7 +1471,7 @@ function renderSmartFolders(active: string | null) {
         "aria-current": f.query === active && "page",
         style: { "--depth": "0" },
         title: `${f.query || "Every note"}${f.shared ? "" : " (just you)"}`,
-        ...opens(() => void showNotes({ scope: "active", query: parseQuery(f.query) })),
+        ...opens(() => void showNotes({ tab: "notes", query: parseQuery(f.query) })),
       },
       el("span", { class: "chev is-leaf" }), // the chevron column Folders and Tags rows have, so icons and names line up
       icon("folderSearch", 14),
@@ -1321,8 +1482,7 @@ function renderSmartFolders(active: string | null) {
     );
   });
   // Empty: one quiet line pointing at the header's +, the one way to add one from here.
-  const hint = el("div", { class: "fav-hint" }, "Click ", el("span", { class: "hint-icon", "aria-label": "+" }, icon("plus", 11)), " to save a search here.");
-  $("#smart-folders").replaceChildren(...(rows.length ? rows : [hint]));
+  $("#smart-folders").replaceChildren(...(rows.length ? rows : [sectionHint("Click ", plusMark(), " to save a search here.")]));
 }
 
 const FAVORITE = "application/x-common-ink-favorite";
@@ -1355,7 +1515,7 @@ function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
 /** Starred notes and tags, in your order: drag one to reorder, or drag a card in from Notes to star it. */
 function renderFavorites() {
   // The tag Notes shows on its own (like a folder alone), which its favorite marks as open.
-  const q = onPage() === "notes" && notesPage.scope === "active" ? notesPage.query : null;
+  const q = onPage() === "notes" ? notesPage.query : null;
   const shownTag = q?.tag && formatQuery(q) === formatQuery({ tag: q.tag }) ? (normalizeTag(q.tag) ?? "") : "";
   const rows = favorites.map((f) => {
     if (isTagFavorite(f)) {
@@ -1376,7 +1536,7 @@ function renderFavorites() {
         ...opens((e) => void openNote(f.path, { pane: e && sideClick(e) ? sideOf(active) : active })),
         ondragstart: (e: DragEvent) => {
           e.dataTransfer!.setData(FAVORITE, f.path);
-          e.dataTransfer!.setData(NOTE_DRAG, f.path); // so it can go to a folder or Archive too
+          e.dataTransfer!.setData(NOTE_DRAG, f.path); // so it can go to a folder too
           document.body.classList.add("is-dragging");
           e.dataTransfer!.effectAllowed = "move";
         },
@@ -1395,7 +1555,7 @@ function renderFavorites() {
     favoriteDrop(row, "is-drop-before", f.path);
     return row;
   });
-  $("#favorites").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Star a note or a tag to keep it here. A note's star is in its top bar: ", icon("star", 12))]));
+  $("#favorites").replaceChildren(...(rows.length ? rows : [sectionHint("Star a note or a tag to keep it here. A note's star is in its top bar: ", icon("star", 12))]));
 }
 
 /** Let `node` take a favorite (to reorder) or a card from Notes (to star), marking it with `cls` while over it. */
@@ -1484,23 +1644,20 @@ function renderTree() {
   renderFavorites();
   const page = onPage();
   // What Notes is showing, as a query: the Notes view, a folder and a smart folder each match one.
-  const showing = page === "notes" && notesPage.scope === "active" ? formatQuery(notesPage.query) : null;
+  const showing = page === "notes" ? formatQuery(notesPage.query) : null;
   renderSmartFolders(showing);
-  const archivedCount = notes.filter((n) => isArchived(n.path) && n.kind !== "asset").length;
-  $("#archive-count").textContent = archivedCount ? String(archivedCount) : "";
+  notesPage.named((showing && smartFolders.find((f) => f.query === showing)?.name) || null);
   const assetCount = notes.filter((n) => n.kind === "asset" && !isArchived(n.path)).length;
   $("#assets-count").textContent = assetCount ? String(assetCount) : "";
-  setCurrent($("#notes-btn"), showing === "");
+  setCurrent($("#notes-btn"), showing === "" || page === "archive" || page === "trash"); // Archive and Trash are tabs of Notes
   const shownTag = showing === null ? "" : (parseQuery(showing).tag ?? "");
   renderTagTree(shownTag && showing === formatQuery({ tag: shownTag }) ? shownTag.toLowerCase() : ""); // a tag alone, like a folder alone
   setCurrent($("#tasks-btn"), page === "tasks");
+  setCurrent($("#calendar-btn"), page === "calendar");
   setCurrent($("#contacts-btn"), page === "contacts");
   setCurrent($("#history-btn"), page === "history" && !historyPage?.noteFilter);
   setCurrent($("#assets-btn"), page === "assets");
-  setCurrent($("#archive-nav"), page === "notes" && notesPage.scope === "archived");
   setCurrent($("#tags-page-btn"), page === "tags", "is-on");
-  setCurrent($("#trash-nav"), page === "trash");
-  $("#trash-nav").hidden = viewer;
 
   const empty = emptyFolders();
   for (const f of [...empty]) if (notes.some((n) => n.path.startsWith(`${f}/`))) empty.delete(f); // it has notes now: it's a real folder
@@ -1530,7 +1687,7 @@ function renderTree() {
             style: { "--depth": String(depth) },
             "data-folder": path,
             title: n ? `Show the notes in ${path}` : `${path} is empty. Drag notes here.`,
-            ...opens(() => void showNotes({ scope: "active", query: { folder: path } })),
+            ...opens(() => void showNotes({ tab: "notes", query: { folder: path } })),
           },
           subs
             ? el(
@@ -1563,7 +1720,8 @@ function renderTree() {
         dropTarget(row, () => path);
         return [row, ...(open ? walk(path, depth + 1) : [])];
       });
-  $("#tree").replaceChildren(...walk("", 0));
+  const rows = walk("", 0);
+  $("#tree").replaceChildren(...(rows.length ? rows : [sectionHint("Click ", plusMark(), " to make a folder.")]));
 }
 
 /** Delete a folder: an empty one just goes; one with notes asks what happens to them. */
@@ -1572,7 +1730,7 @@ async function removeFolder(path: string) {
   const empty = emptyFolders();
   for (const f of [...empty]) if (f === path || f.startsWith(`${path}/`)) empty.delete(f);
   setEmptyFolders(empty);
-  if (notesPage.query.folder === path || notesPage.query.folder?.startsWith(`${path}/`)) await showNotes({ scope: "active", query: {} });
+  if (notesPage.query.folder === path || notesPage.query.folder?.startsWith(`${path}/`)) await showNotes({ tab: "notes", query: {} });
   renderTree();
 }
 
@@ -1581,7 +1739,7 @@ async function removeFolder(path: string) {
  * tags start closed; clicking a tag shows Notes narrowed to it, the way a folder does.
  */
 function renderTagTree(active: string) {
-  const shown = tags.filter((t) => t.notes > 0);
+  const shown = sidebarTags(tags);
   const parent = (t: string) => (t.includes("/") ? t.slice(0, t.lastIndexOf("/")) : "");
   const walk = (under: string, depth: number): HTMLElement[] =>
     shown
@@ -1597,7 +1755,7 @@ function renderTagTree(active: string) {
             "aria-current": t.tag === active && "page",
             style: { "--depth": String(depth) },
             "data-tag": t.tag,
-            title: `Notes tagged #${t.display}`,
+            title: unusedTag(t) ? `No note has #${t.display} yet` : `Notes tagged #${t.display}`,
             ...opens(() => openTag(t.display)),
           },
           subs
@@ -1622,13 +1780,78 @@ function renderTagTree(active: string) {
           icon("hash", 14),
           el("span", { class: "tree-name" }, t.display.split("/").pop()!),
           isTagStarred(t.display) ? el("span", { class: "fav-mark", title: "In Favorites" }, icon("starred", 11)) : null,
-          el("span", { class: "n" }, String(t.notes)),
-          el("span", { class: "row-actions" }, tagStarButton(t.display, "row")),
+          unusedTag(t) ? null : el("span", { class: "n" }, String(t.notes)),
+          el(
+            "span",
+            { class: "row-actions" },
+            // A tag nothing carries yet can't be a favorite (it would show no notes), but it can go again.
+            !unusedTag(t) ? tagStarButton(t.display, "row")
+            : viewer ? null
+            : el("button", { type: "button", class: "row-act", title: `Delete #${t.display}`, onclick: (e: Event) => (e.stopPropagation(), void deleteTag(t)) }, icon("trash", 14)),
+          ),
         );
         return [row, ...(open ? walk(t.tag, depth + 1) : [])];
       });
   const rows = walk("", 0);
-  $("#tag-tree").replaceChildren(...(rows.length ? rows : [el("div", { class: "fav-hint" }, "Write #tag in a note to see it here.")]));
+  const hint = viewer ? sectionHint("Tags written in notes show here.") : sectionHint("Click ", plusMark(), " to add a tag, or write #tag in a note.");
+  $("#tag-tree").replaceChildren(...(rows.length ? rows : [hint]));
+}
+
+/** A name field at the top of Tags. The tag it names is there to pick before any note carries it. */
+function startNewTag() {
+  if (prefs.folded.tags) $('[aria-controls="tag-tree"]').click(); // unfold Tags, or the name field is hidden
+  nameField($("#tag-tree"), {
+    icon: "hash",
+    placeholder: "Tag, like work/clients",
+    label: "New tag",
+    done: (typed) => (typed?.trim() ? void addTag(typed) : renderTree()),
+  });
+}
+
+async function addTag(typed: string) {
+  const display = cleanTag(typed);
+  if (!display) {
+    renderTree();
+    return toast({ text: "A tag is letters, numbers, - and _, nested with /" });
+  }
+  const key = display.toLowerCase();
+  const had = tags.find((t) => t.tag === key);
+  if (!had) {
+    try {
+      tags = await api.addTag(display);
+    } catch (e) {
+      renderTree();
+      return toast({ text: e instanceof Error ? e.message : `Couldn't add #${display}` });
+    }
+  }
+  // Open its parents, so the tag shows where it went.
+  for (let at = key.lastIndexOf("/"); at > 0; at = key.lastIndexOf("/", at - 1)) prefs.tagsOpen.add(key.slice(0, at));
+  store.set("tagsOpen", [...prefs.tagsOpen]);
+  renderTree();
+  tagsPage?.refresh();
+  toast(had ? { icon: "hash", text: `#${had.display} is already a tag` } : { icon: "hash", text: `Added #${display}`, detail: "Type it in a note to use it." });
+}
+
+/** Take away a tag nothing carries yet, and the ones under it, with Undo. */
+async function deleteTag(t: TagCount) {
+  const leaves = tags.filter((x) => tagMatches(x.tag, t.tag) && !tags.some((c) => c.tag.startsWith(`${x.tag}/`)));
+  try {
+    tags = await api.deleteTag(t.tag);
+  } catch (e) {
+    return toast({ text: e instanceof Error ? e.message : `Couldn't delete #${t.display}` });
+  }
+  renderTree();
+  tagsPage?.refresh();
+  toast({
+    icon: "hash",
+    text: `Deleted #${t.display}`,
+    actionLabel: "Undo",
+    action: async () => {
+      for (const l of leaves) tags = await api.addTag(l.display).catch(() => tags);
+      renderTree();
+      tagsPage?.refresh();
+    },
+  });
 }
 
 /** Fold a sidebar section away from its header, or open it again. Remembered in this browser. */
@@ -1662,14 +1885,13 @@ function endDrag() {
   document.body.classList.remove("is-dragging");
   markDrop(null);
 }
-function dropTarget(node: HTMLElement, folder: () => string, onDrop?: (path: string) => void) {
+function dropTarget(node: HTMLElement, folder: () => string) {
   node.addEventListener("dragover", (e) => {
     if (!e.dataTransfer?.types.includes(NOTE_DRAG)) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = "move";
-    if (onDrop) node.classList.add("is-drop");
-    else markDrop(folder());
+    markDrop(folder());
   });
   node.addEventListener("dragleave", (e) => {
     if (!node.contains(e.relatedTarget as Node)) node.classList.remove("is-drop");
@@ -1680,8 +1902,7 @@ function dropTarget(node: HTMLElement, folder: () => string, onDrop?: (path: str
     e.preventDefault();
     e.stopPropagation();
     endDrag();
-    if (onDrop) onDrop(path);
-    else void moveToFolder(path, folder());
+    void moveToFolder(path, folder());
   });
 }
 
@@ -1721,7 +1942,7 @@ async function moveToFolder(path: string, folder: string, opts: { undo?: boolean
   }
 }
 
-/** Archive a note dropped on Archive. The open note stays open (marked archived), like ⌘⇧E. */
+/** Archive a note by its path (the guide's last card offers it). The open note stays open (marked archived), like ⌘⇧E. */
 async function archivePath(path: string) {
   if (active.session?.path === path) return archiveCurrent();
   const r = await api.archive([path]).catch(() => null);
@@ -1743,30 +1964,22 @@ async function archivePath(path: string) {
 /** An inline name field at the top of the tree; the folder appears (empty) when you press Enter. */
 function startNewFolder() {
   if (prefs.folded.folders) $('[aria-controls="tree"]').click(); // unfold Folders, or the name field is hidden
-  $("#tree").querySelector(".tree-row.is-input")?.remove();
-  const input = el("input", { class: "tree-input", placeholder: "Folder name", spellcheck: "false" });
-  const row = el("div", { class: "tree-row is-input", style: { "--depth": "0" } }, icon("folder", 14), input);
-  $("#tree").prepend(row);
-  input.focus();
-  let done = false;
-  const finish = (commit: boolean) => {
-    if (done) return;
-    done = true;
-    const name = input.value.trim().replace(/[\\:*?"<>|#^[\]]/g, "").replace(/\s*\/\s*/g, "/").replace(/^\/+|\/+$/g, "");
-    if (commit && name && !allFolders().some((f) => f.toLowerCase() === name.toLowerCase())) {
-      const empty = emptyFolders();
-      empty.add(name);
-      setEmptyFolders(empty);
-      if (parentOf(name)) setExpanded(parentOf(name), true); // show where the new folder went
-      toast({ icon: "folder", text: `Made ${name}`, detail: "Drag notes onto it, or use Move on a note." });
-    }
-    renderTree();
-  };
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") finish(true);
-    if (e.key === "Escape") finish(false);
+  nameField($("#tree"), {
+    icon: "folder",
+    placeholder: "Folder name",
+    label: "New folder",
+    done: (typed) => {
+      const name = (typed ?? "").trim().replace(/[\\:*?"<>|#^[\]]/g, "").replace(/\s*\/\s*/g, "/").replace(/^\/+|\/+$/g, "");
+      if (name && !allFolders().some((f) => f.toLowerCase() === name.toLowerCase())) {
+        const empty = emptyFolders();
+        empty.add(name);
+        setEmptyFolders(empty);
+        if (parentOf(name)) setExpanded(parentOf(name), true); // show where the new folder went
+        toast({ icon: "folder", text: `Made ${name}`, detail: "Drag notes onto it, or use Move on a note." });
+      }
+      renderTree();
+    },
   });
-  input.addEventListener("blur", () => finish(true));
 }
 
 // ------------------------------------------------------------------ chrome: crumbs, status, panel
@@ -1775,7 +1988,7 @@ function renderChrome() {
   const s = active.session;
   const crumbs = $("#crumbs");
   const page = onPage();
-  $("#back-btn").hidden = page === "notes";
+  $("#back-btn").hidden = notesPage.visible;
   $("#archive-btn").hidden = !s;
   $("#delete-btn").hidden = !s || viewer;
   $("#move-btn").hidden = !s;
@@ -2064,6 +2277,7 @@ Vim.defineEx("archive", "arch", () => void archiveCurrent());
 // Not :delete, which is Vim's own (:d deletes lines).
 Vim.defineEx("trash", "trash", () => void deleteCurrent());
 Vim.defineEx("notes", "note", () => void showNotes());
+Vim.defineEx("calendar", "cal", () => void showCalendar());
 Vim.defineEx("star", "star", () => active.session && void toggleStar(active.session.path));
 Vim.defineEx("focus", "foc", () => void setFocusMode(!focusMode));
 Vim.defineEx("vsplit", "vs", (_cm: unknown, params: { args?: string[] }) => {
@@ -2310,7 +2524,7 @@ function setupPanes() {
   // Clicking or tabbing into a pane gives it the focus.
   // (Not from a pane bar's buttons: redrawing the bar on mousedown would swallow their click.)
   const follow = (p: Pane) => (e: Event) => p !== active && split && !(e.target as Element).closest?.(".pane-bar button") && focusPane(p);
-  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#tasks-view", "#contacts-view", "#history-view", "#assets-view", "#tags-view", "#trash-view"]], [panes[1], ["#side-pane"]]] as const) {
+  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#tasks-view", "#calendar-view", "#contacts-view", "#history-view", "#assets-view", "#tags-view"]], [panes[1], ["#side-pane"]]] as const) {
     for (const sel of nodes) {
       $(sel).addEventListener("focusin", follow(p));
       $(sel).addEventListener("mousedown", follow(p));
@@ -2329,14 +2543,16 @@ function debounce<A extends unknown[]>(fn: (...a: A) => unknown, ms: number) {
 }
 
 let workspaceId = "";
+/** A local vault: just you, so there's no one to share a smart folder with. */
+let local = true;
 /** You can view this workspace but not edit it: you keep smart folders of your own but can't change shared ones. */
 let viewer = false;
 /** May delete for good (Trash's Delete forever and Empty trash): workspace owners online, and always locally. */
 let owner = true;
 
 /**
- * Show whatever the address bar points at: /notes/<title>-<id>, /tasks, /history, /assets, or the
- * notes list (/notes, /). Links from before paths (#/Projects/Plan.md, #tasks) still work and get rewritten.
+ * Show whatever the address bar points at: /notes/<title>-<id>, /tasks, /calendar (or one event,
+ * /calendar/<id>), /history, /assets, or the notes list (/notes, /). Links from before paths (#/Projects/Plan.md, #tasks) still work and get rewritten.
  */
 async function route() {
   const hash = location.hash;
@@ -2361,7 +2577,15 @@ async function route() {
     const id = new URLSearchParams(location.search).get("c");
     return showContacts({ contact: id && NOTE_ID.test(id) ? id : null, push: false });
   }
-  if (at === "/trash") return showTrash({ push: false });
+  const event = calendarTarget(at);
+  if (event !== null) return showCalendar({ event: event || undefined, push: false });
+  if (at === "/capture") return showCapture();
+  // Archive and Trash are tabs of Notes. `?scope=archived` is how an address could once ask Notes for its archived notes.
+  const tab = at === "/archive" || (at === "/notes" && new URLSearchParams(location.search).get("scope") === "archived") ? "archive" : at === "/trash" ? "trash" : null;
+  if (tab) {
+    if (at !== `/${tab}`) setUrl(`/${tab}`, "replace");
+    return showNotes({ tab, push: false });
+  }
   if (at === "/tags") return showTags({ push: false });
   if (at === "/history") {
     const id = new URLSearchParams(location.search).get("note");
@@ -2378,7 +2602,7 @@ async function route() {
   }
   if (link) toast({ text: workspaceId ? "That note doesn't exist, or you don't have access to it" : "That note doesn't exist any more" });
   setUrl("/notes", "replace");
-  return showNotes({ push: false });
+  return showNotes({ tab: "notes", push: false });
 }
 
 /**
@@ -2399,6 +2623,9 @@ async function refreshTaskCount() {
 const refreshTaskCountSoon = debounce(refreshTaskCount, 400);
 
 async function boot() {
+  registerWorker(); // installable, and the share target (web/public/sw.js)
+  // Read before the workspace is picked: picking one tidies the address, this included.
+  const fromGoogle = new URLSearchParams(location.search).get("google");
   // Online, the note API is per workspace and needs a signed-in person; locally it's just /api.
   const who = await whoAmI();
   // Where developer sign-in is on (local `cloud:dev`, and Previews) there's nothing to choose: go straight in.
@@ -2407,7 +2634,10 @@ async function boot() {
   if (who?.me) {
     const ws = pickWorkspace(who.me);
     workspaceId = ws.id;
+    local = false;
     viewer = ws.role === "viewer";
+    setCalendarContext({ canEdit: !viewer, workspace: ws.id });
+    void googleStatus().catch(() => null); // the palette's Connect Google Calendar
     owner = ws.role === "owner";
     useWorkspace(`/api/w/${ws.id}`, `/api/w/${ws.id}/live`);
     setSelfName(who.me.user.name);
@@ -2422,6 +2652,7 @@ async function boot() {
   $("#search-btn").addEventListener("click", () => openPalette());
   // A new note goes at the top level, unless Notes is showing a folder: then it goes there.
   $("#new-note").addEventListener("click", () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""));
+  $("#new-from-template").addEventListener("click", () => void newFromTemplate(undefined, onPage() === "notes" ? (notesPage.query.folder ?? "") : ""));
   $("#panel-btn").addEventListener("click", () => togglePanel());
   setLabel($("#panel-btn"), `Toggle side panel (${formatKeys("Mod-\\")})`);
   setupPanes();
@@ -2450,8 +2681,10 @@ async function boot() {
   const isDark = document.documentElement.dataset.theme === "dark" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
   $("#theme-toggle").replaceChildren(icon(isDark ? "sun" : "moon", 15));
   window.addEventListener("popstate", (e) => void onPopState(e));
-  $("#notes-btn").addEventListener("click", () => void showNotes({ scope: "active", query: {} }));
+  $("#notes-btn").addEventListener("click", () => void showNotes({ tab: "notes", query: {} }));
   $("#tasks-btn").addEventListener("click", () => void showTasks());
+  $("#calendar-btn").addEventListener("click", () => void showCalendar());
+  window.addEventListener(OPEN_CALENDAR, (e) => void showCalendar({ event: (e as CustomEvent<string>).detail || undefined }));
   $("#contacts-btn").addEventListener("click", () => void showContacts());
   $("#history-btn").addEventListener("click", () => void showHistory());
   $("#assets-btn").addEventListener("click", () => void showAssets());
@@ -2461,26 +2694,29 @@ async function boot() {
   $("#note-history-btn").addEventListener("click", () => active.session && void showHistory({ note: active.session.path }));
   $("#back-btn").addEventListener("click", () => void showNotes());
   $("#back-btn").before(topArrows.el);
-  $("#archive-nav").addEventListener("click", () => void showNotes({ scope: "archived", query: {} }));
   $("#archive-btn").addEventListener("click", () => void archiveCurrent());
   $("#delete-btn").addEventListener("click", () => void deleteCurrent());
-  $("#trash-nav").addEventListener("click", () => void showTrash());
   $("#star-btn").addEventListener("click", () => active.session && void toggleStar(active.session.path));
   $("#move-btn").addEventListener("click", () => openMovePicker($("#move-btn")));
   $("#focus-btn").addEventListener("click", () => void setFocusMode(!focusMode));
   $("#new-folder").addEventListener("click", () => startNewFolder());
+  $("#new-tag").addEventListener("click", () => startNewTag());
+  $("#new-tag").hidden = viewer;
   dropTarget($("#tree"), () => "");
-  dropTarget($("#archive-nav"), () => "", (path) => void archivePath(path));
   favoriteDrop($("#favorites"), "is-drop");
   document.addEventListener("dragend", endDrag); // a drag that lands nowhere still clears its highlights
   vaultEvents.addEventListener("change", () => refreshTaskCountSoon());
-  window.addEventListener("beforeunload", () => void flushSave());
+  window.addEventListener("beforeunload", (e) => {
+    void flushSave();
+    // A save that couldn't reach the server won't now either: ask before the text is lost.
+    if (panes.some((p) => p.session?.failed && p.view.state.doc.toString() !== p.session.base)) e.preventDefault();
+  });
   watchTimers((t) =>
     toast({
       icon: "timer",
       text: `${t.label || "Timer"} is done`,
       detail: t.note ? displayName(t.note) : undefined,
-      action: t.note && t.note !== active.session?.path ? () => openNote(t.note!) : undefined,
+      open: t.note && t.note !== active.session?.path ? () => void openNote(t.note!) : undefined,
       alert: true,
     }),
   );
@@ -2501,7 +2737,10 @@ async function boot() {
   connect(onMessage, (up) => {
     $("#conn").dataset.up = String(up);
     $("#conn").title = up ? "Live: watching the vault for agent edits" : "Reconnecting…";
-    if (up) refreshNotesSoon();
+    if (up) {
+      refreshNotesSoon();
+      void flushSave(); // what couldn't be saved while the connection was down
+    }
   });
   if (!viewer) void startGuide({ archive: (path) => void archivePath(path), flush: () => flushSave() });
 
@@ -2522,6 +2761,7 @@ async function boot() {
     focusPane(panes[1]);
     if (spot.line || spot.heading) await openNote(beside.path, { pane: panes[1], ...spot });
   } else await route();
+  if (fromGoogle) await backFromGoogle(fromGoogle);
 }
 
 boot();

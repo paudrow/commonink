@@ -56,6 +56,22 @@ test("a stale baseVersion is a 409 carrying the current text", async () => {
   assert.equal(r.body.content, "# Welcome\n\nStart with [[Roadmap]].\n\n![[chart.svg]]\n");
 });
 
+test("a save that names the note's ID follows it to where it moved, rather than making it again at the old path", async () => {
+  const { call, quire, dir } = setup();
+  const before = quire.read("Welcome.md");
+  await call("POST", "/move", { from: "Welcome.md", to: "Hello.md" });
+  const put = await call("PUT", "/note", { path: "Welcome.md", id: before.id, content: "# Welcome\n\nmore\n", baseVersion: before.version });
+  assert.deepEqual([put.status, put.body.path], [200, "Hello.md"]);
+  assert.equal(fs.readFileSync(path.join(dir, "Hello.md"), "utf8"), "# Welcome\n\nmore\n");
+  assert.equal(fs.existsSync(path.join(dir, "Welcome.md")), false);
+  const blank = await call("PUT", "/note", { path: "Welcome.md", id: before.id, content: "" });
+  assert.deepEqual([blank.status, blank.body.code], [422, "empty"]);
+  await call("POST", "/note", { path: "Welcome.md", content: "# A new welcome\n" });
+  const again = await call("PUT", "/note", { path: "Welcome.md", id: before.id, content: "# Welcome\n\nmore still\n" });
+  assert.equal(again.body.path, "Hello.md");
+  assert.equal(fs.readFileSync(path.join(dir, "Welcome.md"), "utf8"), "# A new welcome\n");
+});
+
 test("undoing an agent's edit restores the note only while it's still at that edit's version", async () => {
   const { call, quire } = setup();
   quire.save("Plan.md", "# Plan\n\nship it\n", { source: "you" });
@@ -98,6 +114,17 @@ test("malformed request bodies are 400s with a message, not 500s", async () => {
     assert.equal(r.status, 400, `${method} ${route} ${JSON.stringify(body)}`);
     assert.match(r.body.error, message);
   }
+});
+
+test("a name too long for the disk is a 400 that says so, not an internal error", async () => {
+  const { call } = setup();
+  const r = await call("POST", "/note", { path: `${"x".repeat(300)}.md`, content: "# x\n" });
+  assert.deepEqual([r.status, r.body.error], [400, "That name is too long: a file or folder name can be up to 255 bytes"]);
+  assert.equal((await call("POST", "/move", { from: "Welcome.md", to: `${"y".repeat(300)}.md` })).status, 400);
+  assert.equal((await call("GET", "/note?path=Welcome.md")).status, 200);
+  const near = `${"z".repeat(250)}.md`;
+  assert.equal((await call("POST", "/note", { path: near, content: "# z\n" })).status, 200, "a name just under the limit");
+  assert.equal((await call("GET", `/note?path=${near}`)).body.content, "# z\n");
 });
 
 test("writes can't escape the vault or touch non-note files", async () => {
@@ -145,6 +172,28 @@ test("tags are listed, asset tags set, and a rename reports what undoes it", asy
   assert.equal((await call("POST", "/tags/rename", { from: "q3", to: "not a tag" })).status, 400);
   assert.equal((await call("PUT", "/asset-tags", { path: "Welcome", tags: ["x"] })).status, 400);
   assert.equal((await call("PUT", "/asset-tags", { path: "chart.svg", tags: "x" })).status, 400);
+});
+
+test("a tag can be added before any note carries it, and taken away while none does", async () => {
+  const { call, events } = setup();
+  const added = await call("POST", "/tags", { tag: "#Areas/Home" });
+  assert.deepEqual(added.body.map((t: { display: string; notes: number }) => `${t.display} ${t.notes}`), ["Areas 0", "Areas/Home 0", "plan 1", "q3 1"]);
+  assert.deepEqual(events, ["tree"]);
+  assert.equal((await call("POST", "/tags", { tag: "not a tag" })).status, 400);
+  assert.equal((await call("POST", "/tags/delete", { tag: "plan" })).status, 409);
+  const gone = await call("POST", "/tags/delete", { tag: "areas" });
+  assert.deepEqual(gone.body.map((t: { tag: string }) => t.tag), ["plan", "q3"]);
+});
+
+test("undoing a tag rename leaves alone a note that changed since", async () => {
+  const { call, quire } = setup({}, openTempVault({ "A.md": "# A\n\nAbout #plan\n", "B.md": "# B\n\nAbout #plan\n" }));
+  const r = await call("POST", "/tags/rename", { from: "plan", to: "roadmap" });
+  assert.equal(r.body.versions.length, 2);
+  quire.append("B.md", "Typed after the rename.", "tester");
+  const undo = await Promise.all(r.body.changes.map((id: number, i: number) => call("POST", "/restore", { id, version: r.body.versions[i] })));
+  assert.deepEqual(undo.map((u) => u.status).sort(), [200, 409]);
+  assert.equal(quire.read("A.md").content, "# A\n\nAbout #plan\n");
+  assert.equal(quire.read("B.md").content, "# B\n\nAbout #roadmap\n\nTyped after the rename.\n");
 });
 
 test("tasks filter by due date against the reader's today, and a task's tokens change in place", async () => {
@@ -323,4 +372,30 @@ test("tasks assigned to me and by me: locally, me is @me and the notes I made", 
   assert.deepEqual(text(await call("GET", "/tasks?assignee=me")), ["Water plants @me"]);
   assert.deepEqual(text(await call("GET", "/tasks?by=me")), ["Call the bank @sam"]);
   assert.equal((await call("GET", "/tasks?by=someone")).status, 400);
+});
+
+test("templates: listed, rendered for inserting, and made into notes", async () => {
+  const { call, events } = setup();
+  await call("PUT", "/note", { path: "Templates/Meeting.md", content: "---\ntitle: \"{{date}} {{ask:Client}}\"\nfolder: Meetings\napplies_to: Meetings/\n---\n# {{title}}\n\n**Attendees:** {{ask:Attendees}}\n\n- {{cursor}}\n" });
+  await call("PUT", "/note", { path: "Templates/Decision.md", content: "## Decision: {{ask:What}}\n\n{{cursor}}\n" });
+  const list = (await call("GET", "/templates")).body;
+  assert.deepEqual(list.map((t: { name: string; appliesTo: string[] }) => [t.name, t.appliesTo]), [["Decision", []], ["Meeting", ["Meetings"]]]);
+  const r = (await call("POST", "/templates/render", { template: "Decision", at: "2026-09-29T09:00", answers: { What: "Ship it" } })).body;
+  assert.deepEqual(r, { path: "Templates/Decision.md", text: "## Decision: Ship it\n\n\n", cursor: 22, unfilled: [] });
+  events.length = 0;
+  const made = await call("POST", "/notes/from-template", { template: "Meeting", at: "2026-09-29T09:00", answers: { Client: "Acme", Attendees: "Sam" } });
+  assert.deepEqual([made.status, made.body.path, made.body.unfilled], [200, "Meetings/2026-09-29 Acme.md", []]);
+  assert.equal((await call("GET", "/note?path=Meetings/2026-09-29 Acme.md")).body.content.slice(made.body.cursor - 2, made.body.cursor), "- ");
+  assert.deepEqual(events, ["written Meetings/2026-09-29 Acme.md by tester", "tree"]);
+  assert.equal((await call("POST", "/notes/from-template", { template: "Nope" })).status, 404);
+  assert.equal((await call("POST", "/notes/from-template", { template: "Meeting", answers: { Client: 3 } })).status, 400);
+});
+
+test("a template's people picks become @handles on task lines and names elsewhere; bad picks are a 400", async () => {
+  const { call } = setup();
+  await call("PUT", "/note", { path: "Templates/Kickoff.md", content: "With {{ask:Who|people}}\n\n- [ ] Plan it {{ask:Who|people}}\n" });
+  const picks = { Who: [{ name: "Sam Dev", handle: "Sam" }, { name: "Lee Chang", handle: "Lee" }] };
+  const r = (await call("POST", "/templates/render", { template: "Kickoff", picks })).body;
+  assert.equal(r.text, "With Sam Dev, Lee Chang\n\n- [ ] Plan it @Sam @Lee\n");
+  assert.equal((await call("POST", "/templates/render", { template: "Kickoff", picks: { Who: [{ name: "Sam" }] } })).status, 400);
 });

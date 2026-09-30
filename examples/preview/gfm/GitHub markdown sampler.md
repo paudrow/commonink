@@ -7,7 +7,7 @@ Jump to [Alerts](#alerts), [Footnotes](#footnotes), [Emoji](#emoji), [HTML GitHu
 ## Alerts
 
 > [!NOTE]
-> Useful information that people should know, even when skimming.
+> Useful information that people should know, even when skimming.[^alert] Footnotes, :bulb: emoji and <kbd>keys</kbd> work in an alert too.
 
 > [!TIP]
 > Helpful advice for doing things better or more easily.
@@ -20,6 +20,8 @@ Jump to [Alerts](#alerts), [Footnotes](#footnotes), [Emoji](#emoji), [HTML GitHu
 
 > [!CAUTION]
 > Advice about risks or negative outcomes of certain actions.
+
+[^alert]: A footnote referenced from inside an alert.
 
 ## Footnotes
 
