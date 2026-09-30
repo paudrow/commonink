@@ -2,11 +2,15 @@ import { localDate, type TaskMeta, type TaskPatch } from "../../src/core/tasks.t
 import type { GuideAction, GuideState } from "../../src/core/guide.ts";
 import { did } from "./events.ts";
 import type { NoteRole } from "../../src/core/noteRoles.ts";
+import type { Contact, ContactFields, TimelineItem } from "../../src/core/contacts.ts";
+import type { Member } from "../../src/core/api.ts";
 
 /** The reader's day, which task writes and due filters go by (the server may be in another time zone). */
 const today = () => localDate(Date.now());
 
 export type { GuideState, TaskMeta, TaskPatch };
+export type { Contact, ContactFields, TimelineItem } from "../../src/core/contacts.ts";
+export type { Member } from "../../src/core/api.ts";
 export type Kind = "md" | "html" | "asset";
 export interface NoteMeta {
   id: string;
@@ -303,6 +307,17 @@ export const api = {
   emptyTrash: () => j<{ deleted: string[] }>(`${BASE}/trash/empty`, send("POST", {})),
   unarchive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/unarchive`, send("POST", { paths })),
   backlinks: (path: string) => j<Backlink[]>(`${BASE}/backlinks?path=${enc(path)}`),
+  /** The workspace's contacts (notes in People/), by name. */
+  contacts: () => j<Contact[]>(`${BASE}/contacts`),
+  /** One contact, and the notes that mention them, newest first. */
+  contact: (path: string) => j<{ contact: Contact; timeline: TimelineItem[] }>(`${BASE}/contact?path=${enc(path)}`),
+  /** The workspace's members (online; none in a local vault). */
+  members: () => j<Member[]>(`${BASE}/members`),
+  createContact: (c: Partial<ContactFields> & { name: string; notes?: string }) => j<{ path: string; version: string }>(`${BASE}/contacts`, send("POST", c)),
+  updateContact: (path: string, patch: Partial<Omit<ContactFields, "name">>) => j<{ path: string; version: string }>(`${BASE}/contacts/update`, send("POST", { path, patch })),
+  /** `keep` gains `drop`'s details and links; `drop` goes to Trash (`trashed` restores it). */
+  mergeContacts: (keep: string, drop: string) => j<{ path: string; updated: string[]; trashed: Trashed[] }>(`${BASE}/contacts/merge`, send("POST", { keep, drop })),
+  importContacts: (format: "vcard" | "csv", text: string) => j<{ created: string[]; updated: string[]; unchanged: string[] }>(`${BASE}/contacts/import`, send("POST", { format, text })),
   /** A page of the change log, newest first; `before` pages further back. */
   history: (p: { limit?: number; before?: number; path?: string; by?: string }) =>
     j<Change[]>(`${BASE}/changes?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
