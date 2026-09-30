@@ -6,4 +6,4 @@ Locally, a note name longer than the disk allows (255 bytes) got "Internal error
 
 1. Run Common Ink locally. In a terminal, try `quire create "$(printf 'x%.0s' {1..300})"`. It says the name is too long.
 2. Try a 245-character name the same way. It's created.
-3. Rename [[A note to rename]] to a 300-character name from the top bar. The toast says the name is too long, and the note keeps its name.
+3. In [[A note to rename]], paste a 300-character heading over its heading and click in the text below. The note takes the heading's first 120 characters as its name.
