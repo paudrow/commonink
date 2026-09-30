@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 110
 title: Templates
 ---
 Templates are notes in `Templates/`. Open [[Meeting]] to see one: `{{date:dddd, MMMM D}}`, `{{time:h:mm A}}` and `{{cursor}}` fill themselves in, and `{{ask:Client}}` and `{{ask:Attendees}}` are asked for. Its frontmatter names the new note (`title`), puts it in `Meetings/` (`folder`), and makes it the default there (`applies_to`).
