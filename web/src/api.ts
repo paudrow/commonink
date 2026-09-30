@@ -24,7 +24,7 @@ export interface Change {
   id: number;
   ts: number;
   path: string;
-  op: "create" | "edit" | "move" | "delete" | "archive" | "unarchive";
+  op: "create" | "edit" | "move" | "delete" | "archive" | "unarchive" | "restore" | "purge";
   source: string;
   version: string | null;
   summary: string | null;
@@ -199,6 +199,26 @@ export async function whoAmI(): Promise<{ me: Me | null; devLogin: boolean } | u
 }
 const enc = encodeURIComponent;
 
+/** A note or asset just sent to Trash, and the id that brings it back. */
+export interface Trashed {
+  id: string;
+  path: string;
+}
+export interface TrashItem extends Trashed {
+  kind: "md" | "html" | "asset";
+  size: number;
+  deletedAt: number;
+  expiresAt: number;
+  by: { source: string; person: string | null; agent: string | null } | null;
+  excerpt: string;
+}
+export interface DeleteCheck {
+  notes: number;
+  assets: number;
+  /** Notes (outside what's being deleted) that link to or embed it. */
+  linkedFrom: string[];
+}
+
 async function j<T>(url: string, init?: RequestInit): Promise<T> {
   const r = await fetch(url, init);
   const data = await r.json().catch(() => ({}));
@@ -270,6 +290,17 @@ export const api = {
   /** Have the guide tick a step, show its demo edit, or close the checklist. */
   guideDo: (action: GuideAction) => j<GuideState | null>(`${BASE}/guide`, send("POST", { action })),
   archive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/archive`, send("POST", { paths })),
+  /** What deleting these notes, or everything in a folder, would touch. */
+  deleteCheck: (o: { paths?: string[]; folder?: string }) =>
+    j<DeleteCheck>(`${BASE}/delete-check?${o.folder ? `folder=${enc(o.folder)}` : (o.paths ?? []).map((p) => `path=${enc(p)}`).join("&")}`),
+  /** Send notes and assets to Trash; `trashed` is what Undo restores. */
+  delete: (paths: string[]) => j<{ trashed: Trashed[] }>(`${BASE}/delete`, send("POST", { paths })),
+  deleteFolder: (folder: string, notes: "trash" | "lift") =>
+    j<{ trashed: Trashed[]; moved: Array<{ from: string; to: string }> }>(`${BASE}/delete-folder`, send("POST", { folder, notes })),
+  trash: () => j<TrashItem[]>(`${BASE}/trash`),
+  restoreTrash: (ids: string[]) => j<{ restored: string[] }>(`${BASE}/trash/restore`, send("POST", { ids })),
+  purgeTrash: (ids: string[]) => j<{ deleted: string[] }>(`${BASE}/trash/delete`, send("POST", { ids })),
+  emptyTrash: () => j<{ deleted: string[] }>(`${BASE}/trash/empty`, send("POST", {})),
   unarchive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/unarchive`, send("POST", { paths })),
   backlinks: (path: string) => j<Backlink[]>(`${BASE}/backlinks?path=${enc(path)}`),
   /** A page of the change log, newest first; `before` pages further back. */

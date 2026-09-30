@@ -57,6 +57,7 @@
         </div>
         <div class="sidebar-foot">
           <button id="archive-nav" class="nav-item" type="button"><span class="ico" data-icon="archive"></span><span>Archive</span><span id="archive-count" class="n"></span></button>
+          <button id="trash-nav" class="nav-item" type="button"><span class="ico" data-icon="trash"></span><span>Trash</span></button>
           <button id="new-note" class="ghost-btn" type="button"><span class="ico" data-icon="plus"></span>New note</button>
         </div>
       </aside>
@@ -75,6 +76,7 @@
           <button id="note-history-btn" class="icon-btn" type="button" title="History of this note" aria-label="History of this note"><span class="ico" data-icon="history"></span></button>
           <button id="move-btn" class="icon-btn" type="button" title="Move to folder" aria-label="Move to folder"><span class="ico" data-icon="move"></span></button>
           <button id="archive-btn" class="icon-btn" type="button" title="Archive note (⌘⇧E)" aria-label="Archive note (⌘⇧E)"><span class="ico" data-icon="archive"></span></button>
+          <button id="delete-btn" class="icon-btn" type="button" title="Delete note (to Trash)" aria-label="Delete note (to Trash)"><span class="ico" data-icon="trash"></span></button>
           <button id="split-btn" class="icon-btn" type="button" title="Split view (⌘⌥\)" aria-label="Split view (⌘⌥\)"><span class="ico" data-icon="split"></span></button>
           <button id="focus-btn" class="icon-btn" type="button" title="Focus mode (⌘⇧↵)" aria-label="Focus mode (⌘⇧↵)"><span class="ico" data-icon="focus"></span></button>
           <button id="panel-btn" class="icon-btn" type="button" title="Toggle side panel (⌘\)" aria-label="Toggle side panel (⌘\)"><span class="ico" data-icon="panel"></span></button>
@@ -89,6 +91,7 @@
           <div id="history-view" hidden tabindex="-1"></div>
           <div id="assets-view" hidden tabindex="-1"></div>
           <div id="tags-view" hidden tabindex="-1"></div>
+          <div id="trash-view" hidden tabindex="-1"></div>
           <div id="pane-divider" role="separator" aria-orientation="vertical" aria-label="Resize the panes" tabindex="0" hidden></div>
           <section id="side-pane" aria-label="Side pane" hidden>
             <div id="side-bar" class="pane-bar"></div>

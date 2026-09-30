@@ -29,3 +29,4 @@ These notes belong to a person. You are a guest editor.
 - Code blocks: put the language after the opening fence (```ts, ```py, ```sh, ```sql, ```diff…) for highlighting. After it, `nowrap` makes long lines scroll instead of wrapping, `title="server.ts"` names the block, `{3-5}` highlights lines and `showLineNumbers` numbers them: ```ts nowrap title="server.ts". Other apps ignore these.
 - A URL alone on its own line renders as an embed (YouTube, X, Bluesky, Spotify, …) or a link card.
 - Archiving (`archive_note` / `quire archive`) moves a note under `Archive/`, out of search and listings; its links keep working and `unarchive_note` brings it back. Archive when the user asks you to tidy up.
+- Delete (`delete_note` / `quire delete`) only when the user asks you to delete something. It goes to Trash, where they can restore it for 30 days; you can't delete anything for good.

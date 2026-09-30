@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import { LOCAL_USER, openVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
-import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtWrite } from "./core/format.ts";
+import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtTrash, fmtWrite } from "./core/format.ts";
 import { parseQuery } from "./core/query.ts";
 import { agentSource, parseAuthorFilter } from "./core/actor.ts";
 
@@ -38,6 +38,9 @@ Usage: quire <command> [args] [--agent <name>] [--json]
                                    <card> is a line number from \`board\`, or words only its text has
   archive <note…>                  move notes to Archive/ (links keep working)
   unarchive <note…>                move archived notes back
+  delete <note…>                   move notes or assets to Trash (restorable for 30 days)
+  trash                            what's in Trash, newest first, with ids
+  trash restore <id…>              put Trash items back where they were
   create <path> [content | -]      '-' or no content reads stdin
   edit <note> --old <s> --new <s> [--all] [--base <version>]
   append <note> [text | -]
@@ -218,6 +221,25 @@ if (cmd === "mcp") {
           return `${cmd === "archive" ? "Archived" : "Unarchived"} → ${r.path}`;
         });
         out(lines.join("\n"), lines);
+        break;
+      }
+      case "delete": {
+        if (!args.length) throw new QuireError("delete needs <note>");
+        const gone = q.delete(args, source);
+        out(gone.map((d) => `Moved ${d.path} to Trash (${d.id})`).join("\n"), gone.map(({ id, path }) => ({ id, path })));
+        break;
+      }
+      // Restoring only: deleting for good is for a person, in the app.
+      case "trash": {
+        if (args[0] === "restore") {
+          if (args.length < 2) throw new QuireError("trash restore needs <id>");
+          const back = q.untrash(args.slice(1), source);
+          out(back.map((b) => `Restored ${b.path}`).join("\n"), back.map((b) => b.path));
+          break;
+        }
+        if (args.length) throw new QuireError(`trash takes restore, not "${args[0]}"`);
+        const items = q.trash();
+        out(fmtTrash(items), items);
         break;
       }
       case "star":

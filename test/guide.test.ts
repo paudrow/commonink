@@ -93,6 +93,7 @@ function api(files: Record<string, string>, actor = "Audrow") {
     info: () => ({}),
     written: (rel, _c, _v, change) => written.push(`${rel} by ${change?.agent} for ${change?.person}`),
     moved: () => {},
+    removed: () => {},
     tree: () => {},
   };
   const call = async (method: string, body?: unknown) => {

@@ -27,7 +27,7 @@ export interface Command {
   run: () => unknown;
 }
 
-export type Page = "notes" | "tasks" | "tags" | "assets" | "history" | "archive";
+export type Page = "notes" | "tasks" | "tags" | "assets" | "history" | "archive" | "trash";
 
 /** What the registry needs from the app: a snapshot of its state, and the actions to run. */
 export interface App {
@@ -39,6 +39,8 @@ export interface App {
   htmlMode: "preview" | "source";
   /** A note tagged `start` exists. */
   hasStart: boolean;
+  /** Can delete notes (not a viewer online). */
+  canDelete: boolean;
   /** Online, the account menu's actions; locally, none. */
   account: Array<{ label: string; icon: string; run: () => unknown; workspace?: boolean; current?: boolean }>;
   newNote(): void;
@@ -54,6 +56,7 @@ export interface App {
   toggleHtml(): void;
   star(): void;
   archive(): void;
+  delete(): void;
   move(): void;
   noteHistory(): void;
   gettingStarted(): void;
@@ -75,6 +78,7 @@ export function appCommands(app: App): Command[] {
     go("assets", "Assets", "grid", "files images uploads attachments"),
     go("history", "History", "history", "changes activity versions"),
     go("archive", "Archive", "archive", "archived"),
+    { ...go("trash", "Trash", "trash", "deleted restore bin recycle"), available: app.canDelete },
     { id: "theme", title: "Toggle theme", keywords: "dark light mode appearance colors", icon: "moon", run: app.toggleTheme },
     { id: "vim", title: app.vim ? "Turn vim keys off" : "Turn vim keys on", keywords: "vim keybindings modal editing toggle", icon: "code", run: app.toggleVim },
     { id: "panel", title: "Toggle side panel", keywords: "outline backlinks activity sidebar", icon: "panel", keys: ["Mod-\\"], run: app.togglePanel },
@@ -82,6 +86,7 @@ export function appCommands(app: App): Command[] {
     { id: "split", title: app.split ? "Close this pane" : "Open to the side", keywords: "split view pane side by side", icon: "split", keys: ["Mod-Alt-\\"], area: "Split view", run: app.toggleSplit },
     { id: "star", title: note?.starred ? "Unstar note" : "Star note", keywords: "star favorite favourite", icon: note?.starred ? "starred" : "star", available: !!note, run: app.star },
     { id: "archive", title: note?.archived ? "Unarchive note" : "Archive note", keywords: "archive remove hide", icon: note?.archived ? "unarchive" : "archive", keys: ["Mod-Shift-e"], available: !!note, run: app.archive },
+    { id: "delete", title: "Delete note", keywords: "delete remove trash bin", icon: "trash", available: !!note && app.canDelete, run: app.delete },
     { id: "move", title: "Move to folder…", keywords: "move note folder file", icon: "move", available: !!note, run: app.move },
     { id: "note-history", title: "History of this note", keywords: "versions changes diff restore", icon: "history", available: !!note, run: app.noteHistory },
     {
@@ -115,6 +120,7 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: ["s"], label: "Star or unstar", area: "Notes page" },
   { keys: ["e"], label: "Archive (the selected notes, or this one)", area: "Notes page" },
   { keys: ["x"], label: "Select", area: "Notes page" },
+  { keys: ["Delete", "Backspace"], label: "Delete (the selected notes, or this one)", area: "Notes page" },
   { keys: ["/"], label: "Filter", area: "Notes page" },
   { keys: ["Escape"], label: "Clear the selection", area: "Notes page" },
   { keys: ["Mod-z"], label: "Undo", area: "Editor" },
@@ -131,6 +137,7 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: [":e name"], label: "Open a note (:e alone opens quick open)", area: "Vim" },
   { keys: [":star"], label: "Star or unstar the note", area: "Vim" },
   { keys: [":archive"], label: "Archive the note", area: "Vim" },
+  { keys: [":trash"], label: "Delete the note (to Trash)", area: "Vim" },
   { keys: [":notes"], label: "Go to Notes", area: "Vim" },
   { keys: [":focus"], label: "Focus mode", area: "Vim" },
   { keys: [":vs name"], label: "Open a note to the side", area: "Vim" },
