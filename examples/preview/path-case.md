@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 109
 title: One note per file, however its path is typed
 ---
 On a Mac, the disk ignores case and Unicode form. An agent that typed `try/…/case check` for [[Case check]] used to get a second copy of the note in Notes, Tasks and History until the next restart. This shows locally; online, paths were already exact.
