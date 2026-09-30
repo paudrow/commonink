@@ -272,6 +272,10 @@ test("the workspace's own calendar: made with its first event, which editors mov
 
   await cal.deleteEvent(made.id, ME, "you");
   assert.equal(cal.event(made.id, ME), null);
+  // Undo makes it again (a new ID) and links it to its meeting note again; a note that's gone isn't linked.
+  const again = await cal.createEvent("local", draft, ME, "you", quire.read(note.path).id);
+  assert.deepEqual([again.id === made.id, again.note?.path], [false, note.path]);
+  assert.equal((await cal.createEvent("local", draft, ME, "you", "nonote22")).note, null);
   await assert.rejects(cal.createEvent("local", { ...draft, title: "  " }, ME, "you"), /Give the event a title/);
   await assert.rejects(cal.createEvent("local", { ...draft, start: "2026-10-06T15:00:00" }, ME, "you"), /must be a time with its zone/);
 });

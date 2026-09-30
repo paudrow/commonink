@@ -39,6 +39,8 @@ export interface Source {
   calendar: string | null;
   /** Whether the viewer may add events to it and move or change them: the workspace's own calendar (editors), a Google one its owner can edit. Feeds never. */
   writable: boolean;
+  /** Why not, in words, when it isn't writable. */
+  readOnly: string | null;
   status: SyncStatus;
   error: string | null;
   syncedAt: number | null;
@@ -332,6 +334,7 @@ export class Calendar {
       writeBack: r.kind === "google" ? !!(config as { writeBack?: boolean }).writeBack : null,
       calendar: r.kind === "google" && r.owner === viewer.user ? String((config as { calendar?: string }).calendar) : null,
       writable: this.writable(r, viewer),
+      readOnly: this.writable(r, viewer) ? null : readOnlyReason(r),
       status: r.status,
       error: r.error,
       syncedAt: r.synced_at,
@@ -620,17 +623,23 @@ export class Calendar {
     return r;
   }
 
-  /** Add an event: to the workspace's own calendar, or to one of the viewer's Google calendars. */
-  async createEvent(source: string, draft: EventDraft, viewer: Viewer, by: string): Promise<CalendarEvent> {
+  /**
+   * Add an event: to the workspace's own calendar, or to one of the viewer's Google calendars.
+   * `note`: a meeting note to link it to, if it still exists (a deleted event made again by Undo).
+   */
+  async createEvent(source: string, draft: EventDraft, viewer: Viewer, by: string, note?: string): Promise<CalendarEvent> {
     const d = checkDraft(draft);
     const src = this.target(source, viewer, by);
+    let id: string;
     if (src.kind === "local") {
-      const id = randomId(12);
+      id = randomId(12);
       this.putLocal(src.id, id, d);
-      return this.event(id, viewer)!;
+    } else {
+      const { uid } = await atSource(() => this.readers[src.kind]!.createEvent!(this.ref(src), d));
+      id = (await this.afterWrite(src, uid, null, viewer)).id;
     }
-    const { uid } = await atSource(() => this.readers[src.kind]!.createEvent!(this.ref(src), d));
-    return this.afterWrite(src, uid, null, viewer);
+    if (note && this.db.get("SELECT 1 FROM notes WHERE id = ?", note)) this.db.run("UPDATE external_items SET note_id = ? WHERE id = ?", note, id);
+    return this.event(id, viewer)!;
   }
 
   /** Move an event, change its length, or change what it says. For one instance of a Google series, only that instance. */
@@ -792,6 +801,13 @@ export function fmtEvent(e: CalendarEvent, sources: Source[], zone: string): str
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/** Why a source takes no new or changed events, for someone who can't write to it. */
+function readOnlyReason(r: SourceRow): string {
+  if (r.kind === "ics") return `Events from ${r.name} (a subscribed feed) can't be changed here`;
+  if (r.kind === "local") return "Only editors can change this workspace's events";
+  return `You can only read ${r.name} in Google Calendar`;
 }
 
 /** A write at a source (Google), its failure in words for the person who made it. */

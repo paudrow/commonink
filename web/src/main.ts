@@ -272,6 +272,10 @@ function commands() {
     subscribeCalendar: () => void subscribeCalendar(),
     refreshCalendars: () => void refreshCalendars(),
     connectGoogle: () => leave.to(connectUrl()),
+    newEvent: async () => {
+      await showCalendar();
+      calendarPage?.newEvent();
+    },
     filterNotes: () => void showNotes({ filter: true }),
     quickAdd,
     toggleTheme,
@@ -2311,7 +2315,9 @@ window.addEventListener(
     const is = (keys: string) => matchKeys(e, keys);
     // Back and forward through the notes (and pages) this pane has shown: ⌘[ and ⌘] by the character
     // typed, and off a Mac also Alt+← and Alt+→, the platform's back and forward.
-    const altArrow = !IS_MAC && e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight") ? e.key : null;
+    // On a calendar event, Alt+← and Alt+→ move it a day instead (calendar/keys.ts).
+    const onEvent = !!(e.target as Element | null)?.closest?.("[data-event], .cal-details");
+    const altArrow = !IS_MAC && !onEvent && e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight") ? e.key : null;
     const back = is("Mod-[") || altArrow === "ArrowLeft";
     const quickOpen = is("Mod-p") || is("Mod-k");
     if (back || is("Mod-]") || altArrow === "ArrowRight") {

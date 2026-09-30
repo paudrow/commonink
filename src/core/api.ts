@@ -469,7 +469,7 @@ async function calendarRoute(host: ApiHost, cal: Calendar, key: string, input: R
     }
     // Events made and changed in the app: in the workspace's own calendar ("local"), or a Google one.
     case "POST /calendar/events": {
-      const ev = await cal.createEvent(str("source"), draftOf(input, true) as EventDraft, viewer, host.actor);
+      const ev = await cal.createEvent(str("source"), draftOf(input, true) as EventDraft, viewer, host.actor, optStr("note"));
       host.calendarChanged?.();
       if (!optBool("meetingNote")) return json({ event: ev, note: null });
       const r = cal.meetingNote(host.quire, ev.id, viewer, { timeZone: optStr("timeZone"), source: host.actor });

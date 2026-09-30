@@ -237,16 +237,17 @@ export class GoogleClient implements GoogleApi {
     return this.call<GoogleEvent>(`/calendars/${encodeURIComponent(calendar)}/events/${encodeURIComponent(eventId)}`);
   }
 
+  // Writes send no email to guests (sendUpdates=none): the person chose to change their calendar, not to notify anyone.
   async patch(calendar: string, eventId: string, fields: Partial<GoogleEvent>) {
-    await this.call(`/calendars/${encodeURIComponent(calendar)}/events/${encodeURIComponent(eventId)}`, { method: "PATCH", body: JSON.stringify(fields) });
+    await this.call(`/calendars/${encodeURIComponent(calendar)}/events/${encodeURIComponent(eventId)}?sendUpdates=none`, { method: "PATCH", body: JSON.stringify(fields) });
   }
 
   insert(calendar: string, event: Partial<GoogleEvent>) {
-    return this.call<GoogleEvent>(`/calendars/${encodeURIComponent(calendar)}/events`, { method: "POST", body: JSON.stringify(event) });
+    return this.call<GoogleEvent>(`/calendars/${encodeURIComponent(calendar)}/events?sendUpdates=none`, { method: "POST", body: JSON.stringify(event) });
   }
 
   async remove(calendar: string, eventId: string) {
-    await this.call(`/calendars/${encodeURIComponent(calendar)}/events/${encodeURIComponent(eventId)}`, { method: "DELETE" });
+    await this.call(`/calendars/${encodeURIComponent(calendar)}/events/${encodeURIComponent(eventId)}?sendUpdates=none`, { method: "DELETE" });
   }
 }
 

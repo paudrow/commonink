@@ -89,7 +89,7 @@ test("connected: your calendars each have Show here, which adds one here, marked
   assert.equal(show.getAttribute("aria-checked"), "false");
   show.click();
   await settle();
-  assert.deepEqual(requests.filter((r) => r.path === "/api/calendar/google").map((r) => r.body), [{ calendar: "dev@example.com", name: "Dev" }]);
+  assert.deepEqual(requests.filter((r) => r.path === "/api/calendar/google").map((r) => r.body), [{ calendar: "dev@example.com", name: "Dev", accessRole: "owner" }]);
   assert.equal(byLabel("Show Dev here", section())!.getAttribute("aria-checked"), "true");
   assert.equal(byLabel("Show Team here", section())!.getAttribute("aria-checked"), "false");
   const row = document.querySelector(".cal-src[data-id='g0'] .cal-src-meta")!;
