@@ -226,6 +226,11 @@ export interface QuireOptions {
 
 /** The default largest note: enough for any note a person writes, not enough to exhaust memory. */
 export const MAX_NOTE_BYTES = 10 * 1024 * 1024;
+/**
+ * How long a person can stop typing and still be in the same sitting: their next autosave to the
+ * note joins the change the sitting started, so the log keeps one "before" per sitting, not per save.
+ */
+const SITTING_MS = 5 * 60_000;
 /** How much note text one GET /diffs may send back in all; runs past it come without their text. */
 const DIFF_TEXT_BUDGET = 16 * 1024 * 1024;
 
@@ -774,15 +779,36 @@ export class Quire {
    * `before` is the note's previous text, kept so any change can be undone with restore(). The
    * `source` says who (see actorOf): an agent's carries its person too.
    */
-  recordChange(c: Omit<Change, "id" | "ts" | "note_id" | "person" | "agent">, before: string | null = null): Change {
+  recordChange(c: Omit<Change, "id" | "ts" | "note_id" | "person" | "agent">, before: string | null = null, opts: { autosave?: boolean; replaces?: number } = {}): Change {
     const ts = this.now();
     const noteId = this.meta(c.path)?.id ?? null;
     const { source, person, agent } = actorOf(c.source);
-    const r = this.db.run(
-      "INSERT INTO changes(ts, path, op, source, version, summary, from_path, before, note_id, person, agent) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-      ts, c.path, c.op, source, c.version, c.summary, c.from_path, before, noteId, person, agent,
-    );
-    return { ...c, source, id: r.lastId, ts, note_id: noteId, person, agent };
+    const insert = () =>
+      this.db.run(
+        "INSERT INTO changes(ts, path, op, source, version, summary, from_path, before, note_id, person, agent, autosave) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        ts, c.path, c.op, source, c.version, c.summary, c.from_path, before, noteId, person, agent, opts.autosave && !agent ? 1 : null,
+      ).lastId;
+    // A sitting's change moves to a new id as it grows, so catching up by id (recent_changes) sees it again.
+    const id = opts.replaces
+      ? this.db.tx(() => {
+          const next = insert();
+          this.db.run("DELETE FROM changes WHERE id = ?", opts.replaces);
+          return next;
+        })
+      : insert();
+    return { ...c, source, id, ts, note_id: noteId, person, agent };
+  }
+
+  /**
+   * The change a person's autosave continues: the note's latest change is their autosave from less
+   * than SITTING_MS ago, it left the note as this save found it, and they've changed nothing since.
+   */
+  private sittingOf(rel: string, source: string, current: string): { id: number; before: string | null } | null {
+    const noteId = this.meta(rel)?.id;
+    const last = noteId ? this.db.get("SELECT id, ts, source, autosave, version, before FROM changes WHERE note_id = ? ORDER BY id DESC LIMIT 1", noteId) : undefined;
+    if (!last?.autosave || last.source !== source || this.now() - last.ts > SITTING_MS || last.version !== versionOf(current)) return null;
+    if (this.db.get("SELECT 1 FROM changes WHERE id > ? AND source = ? LIMIT 1", last.id, source)) return null;
+    return last;
   }
 
   /**
@@ -1211,23 +1237,26 @@ export class Quire {
 
   // ---------------------------------------------------------------- writing
 
-  private commit(rel: string, before: string | null, after: string, source: string, op: Change["op"]) {
+  private commit(rel: string, before: string | null, after: string, source: string, op: Change["op"], autosave = false) {
     // Every write through the core lands here, so one limit covers the API, MCP, the CLI and online.
     if (after.length > this.maxNoteBytes / 4 && new TextEncoder().encode(after).length > this.maxNoteBytes) {
       throw new QuireError(`${rel} would be over ${Math.round(this.maxNoteBytes / 1024 / 1024)} MB, the most a note can hold`, "invalid");
     }
     this.files.write(rel, after);
+    const sitting = autosave && op === "edit" && before !== null ? this.sittingOf(rel, actorOf(source).source, before) : null;
     const meta = this.indexFile(rel, after)!;
+    const from = sitting ? sitting.before : before;
     const change = this.recordChange(
       {
         path: rel,
         op,
         source,
         version: meta.version,
-        summary: before === null ? `${after.split("\n").length} lines` : diffstat(before, after),
+        summary: from === null ? `${after.split("\n").length} lines` : diffstat(from, after),
         from_path: null,
       },
-      before,
+      from,
+      { autosave, replaces: sitting?.id },
     );
     return { ...meta, change };
   }
@@ -1241,8 +1270,8 @@ export class Quire {
     return this.commit(rel, null, content, source, "create");
   }
 
-  /** Whole-file save with optimistic concurrency (what the editor uses). */
-  save(target: string, content: string, opts: { baseVersion?: string; source: string }) {
+  /** Whole-file save with optimistic concurrency (what the editor uses). The editor's `autosave`s in one sitting are one change. */
+  save(target: string, content: string, opts: { baseVersion?: string; source: string; autosave?: boolean }) {
     const rel = cleanPath(target);
     const kind = kindOf(rel);
     if (kind !== "md" && kind !== "html") throw new QuireError(`${rel} isn't a note: only .md and .html files can be saved as text`);
@@ -1257,7 +1286,7 @@ export class Quire {
       });
     }
     if (current === content) return { ...(this.meta(rel) ?? this.indexFile(rel, content)!), change: null };
-    return this.commit(rel, current, content, opts.source, exists ? "edit" : "create");
+    return this.commit(rel, current, content, opts.source, exists ? "edit" : "create", opts.autosave);
   }
 
   /** Exact-string replacement, the edit primitive agents are best at. */

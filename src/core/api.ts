@@ -213,7 +213,7 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
         return json({ error: `Refusing to replace ${rel} with an empty note`, code: "empty" }, 422);
       }
       const isNew = !quire.files.stat(rel);
-      const r = quire.save(rel, content, { baseVersion: optStr("baseVersion"), source: actor });
+      const r = quire.save(rel, content, { baseVersion: optStr("baseVersion"), source: actor, autosave: true });
       host.written(rel, content, r.version, r.change, optStr("clientId"));
       if (isNew) host.tree();
       return json({ path: rel, version: r.version });

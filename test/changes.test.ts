@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { changeVerb, groupChanges } from "../src/core/format.ts";
 import { handleApi, type ApiHost } from "../src/core/api.ts";
 import { agentSource } from "../src/core/actor.ts";
+import { openVault } from "../src/core/local.ts";
 import { openTempVault } from "./helpers.ts";
 
 test("a run of autosaves counts its net change, the same as the diff of that run", () => {
@@ -49,7 +50,7 @@ test("a person's autosaves to one note in one sitting are one change, from the t
     wait(4 * 60_000);
     await save("Plan.md", text);
   }
-  assert.deepEqual(log(), ["edit ana +2 −0"]);
+  assert.deepEqual(log(), ["edit ana +3 −0"]);
   const [burst] = quire.changes({ path: "Plan.md" });
   assert.deepEqual(quire.diff(burst.id, burst.id), { path: "Plan.md", op: "edit", before: "# Plan\n", after: "# Plan\n\nONE\ntwo\n" });
   quire.restore(burst.id, "ana");
@@ -66,7 +67,7 @@ test("a pause, another note, or someone else's change starts a new change", asyn
   quire.append("Plan.md", "from Claude", agentSource("Claude", "ana"));
   await save("Plan.md", "# Plan\n\na\nb\nc\n\nfrom Claude\nd\n");
   await save("Plan.md", "# Plan\n\na\nb\nc\n\nfrom Claude\nd\ne\n", "bo");
-  assert.deepEqual(log(), ["edit bo +1 −0", "edit ana +1 −0", "edit Claude (via ana) +2 −0", "edit ana +1 −0", "edit ana +1 −0", "edit ana +1 −0"]);
+  assert.deepEqual(log(), ["edit bo +1 −0", "edit ana +1 −0", "edit Claude (via ana) +2 −0", "edit ana +1 −0", "edit ana +1 −0", "edit ana +2 −0"]);
   const agent = quire.changes({ path: "Plan.md" })[2];
   assert.deepEqual(quire.diff(agent.id, agent.id), { path: "Plan.md", op: "edit", before: "# Plan\n\na\nb\nc\n", after: "# Plan\n\na\nb\nc\n\nfrom Claude\n" });
 });
@@ -76,7 +77,7 @@ test("a change that continues a sitting comes back under a new id, so catching u
   await save("Plan.md", "# Plan\n\none\n");
   const seen = quire.changes({ limit: 1 })[0].id;
   await save("Plan.md", "# Plan\n\none\ntwo\n");
-  assert.deepEqual(quire.changes({ since: seen }).map((c) => `${c.op} ${c.path} ${c.summary}`), ["edit Plan.md +2 −0"]);
+  assert.deepEqual(quire.changes({ since: seen }).map((c) => `${c.op} ${c.path} ${c.summary}`), ["edit Plan.md +3 −0"]);
   assert.deepEqual(quire.changes({ path: "Plan.md" }).length, 1);
 });
 
@@ -92,4 +93,15 @@ test("an autosave after a History restore or a tag rename is a change of its own
   quire.restore(renamed.edits[0].change.id, "ana");
   assert.equal(quire.read("Plan.md").content, "# Plan\n\nagain #old\n");
   assert.ok(restored.change);
+});
+
+test("a change log from before sittings opens, keeps its changes, and new autosaves join into sittings", () => {
+  const { dir, quire } = openTempVault({ "Plan.md": "# Plan\n" });
+  quire.save("Plan.md", "# Plan\n\nold\n", { source: "ana" });
+  quire.db.exec("ALTER TABLE changes DROP COLUMN autosave");
+
+  const reopened = openVault(dir);
+  reopened.save("Plan.md", "# Plan\n\nold\nnew\n", { source: "ana", autosave: true });
+  reopened.save("Plan.md", "# Plan\n\nold\nnew\nnewer\n", { source: "ana", autosave: true });
+  assert.deepEqual(reopened.changes({ path: "Plan.md" }).map((c) => c.summary), ["+2 −0", "+2 −0"]);
 });
