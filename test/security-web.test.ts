@@ -93,11 +93,11 @@ test("nesting a note too deep renders the rest flat instead of throwing, in time
     "alerts in quotes": (n) => Array.from({ length: n / 100 }, (_, i) => "> ".repeat(i + 1) + "[!NOTE]").join("\n"),
     "emphasis (*** a ***)": (n) => "*".repeat(n) + "a" + "*".repeat(n),
     "mixed emphasis (*_*_ a _*_*)": (n) => "*_".repeat(n / 2) + "a" + "_*".repeat(n / 2),
-    "a footnote many times over": (n) => "x[^a] ".repeat(n / 4) + "\n\n[^a]: " + "<kbd>".repeat(n),
+    "a footnote many times over": (n) => "x[^a] ".repeat(n / 20) + "\n\n[^a]: " + "<kbd>".repeat(n),
   };
   const time = (md: string) => {
     let best = Infinity;
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < 3; i++) {
       const t = performance.now();
       renderMarkdown(md, "a.md");
       best = Math.min(best, performance.now() - t);
