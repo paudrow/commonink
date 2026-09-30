@@ -22,7 +22,7 @@ import { editsBetween } from "../merge.ts";
 import { codeWrapByDefault, copyCode, hydrateCode, renderCodeBlock } from "../code.ts";
 import { hydrateMath } from "../math.ts";
 import { blockTex, inlineTex, MathWidget } from "./mathWidgets.ts";
-import { matchKeys } from "../commands.ts";
+import { matchKeys } from "../keys.ts";
 import { redo, undo } from "@codemirror/commands";
 import { safeDecode } from "../../../src/core/uri.ts";
 
