@@ -2,7 +2,7 @@
 // the physical ; key, and its O the physical S key; on a Mac ⌥S types "ß".
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { learnLayout, matchKeys } from "../web/src/commands.ts";
+import { learnLayout, matchKeys } from "../web/src/keys.ts";
 
 const key = (key: string, code: string, mods: Partial<Record<"metaKey" | "ctrlKey" | "altKey" | "shiftKey", boolean>> = {}) => ({ key, code, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...mods });
 

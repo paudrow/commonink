@@ -7,7 +7,7 @@ import { EditorSelection, EditorState, Prec, StateEffect, StateField, type Range
 import { Decoration, EditorView, WidgetType, type Command } from "@codemirror/view";
 import { getCM } from "@replit/codemirror-vim";
 import { el, icon } from "../dom.ts";
-import { matchKeys } from "../commands.ts";
+import { matchKeys } from "../keys.ts";
 import { inline } from "../taskRow.ts";
 import { detailsIn, wrapInDetails, type Details } from "../../../src/core/details.ts";
 import { editorContext } from "./blocks.ts";
