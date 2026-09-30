@@ -315,3 +315,12 @@ test("members: the workspace's people, from the host (none in a local vault)", a
   const { call } = setup();
   assert.deepEqual((await call("GET", "/members")).body, []);
 });
+
+test("tasks assigned to me and by me: locally, me is @me and the notes I made", async () => {
+  const { call } = setup({ user: "you" });
+  await call("PUT", "/note", { path: "Mine.md", content: "- [ ] Water plants @me\n- [ ] Call the bank @sam\n- [ ] Just a task\n" });
+  const text = (r: { body: Array<{ text: string }> }) => r.body.map((t) => t.text);
+  assert.deepEqual(text(await call("GET", "/tasks?assignee=me")), ["Water plants @me"]);
+  assert.deepEqual(text(await call("GET", "/tasks?by=me")), ["Call the bank @sam"]);
+  assert.equal((await call("GET", "/tasks?by=someone")).status, 400);
+});

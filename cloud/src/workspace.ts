@@ -132,17 +132,19 @@ export class Workspace extends DurableObject<Env> {
         this.broadcast({ type: "change", change });
       },
       tree: () => this.broadcast({ type: "tree" }),
-      // Everyone in the workspace (the directory's, in D1), so a contact with their email can be linked to them.
-      members: async () => {
-        const { results } = await this.env.DB.prepare(
-          "SELECT u.id, u.name, u.email FROM members m JOIN users u ON u.id = m.user_id WHERE m.workspace_id = ? ORDER BY u.name COLLATE NOCASE",
-        )
-          .bind(wsId)
-          .all<{ id: string; name: string; email: string }>();
-        return results.map((m) => ({ ...m, you: m.id === user }));
-      },
+      members: async () => (await this.membersOf(wsId)).map((m) => ({ ...m, you: m.id === user })),
     };
     return (await handleApi(host, req, route)) ?? json({ error: `No route ${req.method} ${route}` }, 404);
+  }
+
+  /** Everyone in the workspace (the directory's, in D1): who a contact with their email is, and who "me" is on a task. */
+  private async membersOf(wsId: string) {
+    const { results } = await this.env.DB.prepare(
+      "SELECT u.id, u.name, u.email FROM members m JOIN users u ON u.id = m.user_id WHERE m.workspace_id = ? ORDER BY u.name COLLATE NOCASE",
+    )
+      .bind(wsId)
+      .all<{ id: string; name: string; email: string }>();
+    return results;
   }
 
   /** Fill a brand-new workspace with the starter notes (no-op if it has anything in it). */
@@ -225,6 +227,7 @@ export class Workspace extends DurableObject<Env> {
       source: () => who.actor,
       may: (route) => access(role, ...(route.split(" ") as [string, string])) === "allowed",
       canEditShared: role === "owner" || role === "editor",
+      members: () => this.membersOf(who.workspace),
     });
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await server.connect(transport);

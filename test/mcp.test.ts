@@ -165,3 +165,11 @@ test("agents keep contacts: create, list, read one with where they're mentioned,
   assert.equal(merged.text, "Merged People/Tom Wu.md into People/Priya Shah.md (it's in Trash). Links updated in 0 notes.");
   assert.equal((await call("read_contact", { contact: "Journal/2026-09-18" })).isError, true);
 });
+
+test("agents list the tasks assigned to their person, and the ones their person gave out", async () => {
+  await call("create_note", { path: "Assigned", content: "# Assigned\n\n- [ ] Pick up the keys @me\n- [ ] Book the venue @priya\n" });
+  assert.match((await call("list_tasks", { assignee: "me" })).text, /Pick up the keys @me/);
+  const by = (await call("list_tasks", { by: "me" })).text;
+  assert.match(by, /Book the venue @priya/);
+  assert.doesNotMatch(by, /Pick up the keys/);
+});

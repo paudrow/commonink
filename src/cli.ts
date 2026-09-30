@@ -17,8 +17,9 @@ Usage: quire <command> [args] [--agent <name>] [--json]
   ls [folder] [--tag T] [--recent N] [--archived|--all]
   tags                             every tag, nested, with what carries it
                                    (--tag work also matches #work/acme)
-  tasks [--tag T] [--assignee P] [--due '<=today'] [--done|--all]
-                                   open tasks (tokens: due: start: rec: #tag @person !high)
+  tasks [--tag T] [--assignee P|me] [--by me] [--due '<=today'] [--done|--all]
+                                   open tasks (tokens: due: start: rec: #tag @person !high);
+                                   --assignee me is @me here, --by me the tasks you gave out
   today [--date YYYY-MM-DD]        the day at a glance: overdue, due today, starting today,
                                    and today's journal note
   task add "<task>"                add a task in words: "Pay rent every month on the 1st #home",
@@ -135,7 +136,9 @@ if (cmd === "mcp") {
         break;
       }
       case "tasks": {
-        const tasks = q.tasks({ tag: str("tag"), assignee: str("assignee"), due: str("due") }).filter((t) => flags.all || t.done === !!flags.done);
+        const by = str("by");
+        if (by !== undefined && by !== "me") throw new QuireError("--by can only be me");
+        const tasks = q.tasksFor({ user: LOCAL_USER, person: LOCAL_USER, members: [] }, { tag: str("tag"), assignee: str("assignee"), by, due: str("due") }).filter((t) => flags.all || t.done === !!flags.done);
         out(fmtTasks(tasks), tasks);
         break;
       }

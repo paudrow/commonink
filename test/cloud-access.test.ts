@@ -182,6 +182,17 @@ test("online, a workspace's members are its people from the directory, and each 
   );
 });
 
+test("online, a task assigned to a member is in their Tasks, in someone else's note; and in the assigner's 'by me'", async () => {
+  const [owner, editor] = [await cloud.signIn("owner"), await cloud.signIn("editor")]; // the matrix signed everyone out
+  const { base } = people;
+  await cloud.call(owner, "POST", `${base}/note`, { path: "Handoff.md", content: "# Handoff\n\n- [ ] Review the launch post @Editor\n- [ ] Ship it @Owner-Dev\n" });
+  const text = (list: Array<{ text: string }>) => list.map((t) => t.text);
+  assert.deepEqual(text(await cloud.call(editor, "GET", `${base}/tasks?assignee=me`)), ["Review the launch post @Editor"]);
+  assert.deepEqual(text(await cloud.call(owner, "GET", `${base}/tasks?assignee=me`)), ["Ship it @Owner-Dev"]);
+  assert.deepEqual(text(await cloud.call(owner, "GET", `${base}/tasks?by=me`)), ["Review the launch post @Editor"]);
+  assert.deepEqual(text(await cloud.call(editor, "GET", `${base}/tasks?by=me`)), []);
+});
+
 test("online, a viewer keeps smart folders of their own but can't share one", async () => {
   const viewer = await cloud.signIn("viewer"); // the matrix ended with signing everyone out everywhere
   const shared = await cloud.request(viewer, "POST", `${people.base}/smart-folders`, { name: "For everyone", query: "tag=plan", shared: true });

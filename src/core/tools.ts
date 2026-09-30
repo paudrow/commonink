@@ -7,7 +7,8 @@ import { fmtBacklinks, fmtBoards, fmtChanges, fmtContact, fmtContactLine, fmtFav
 import { parseQuery } from "./query.ts";
 import { matchContacts } from "./contacts.ts";
 import { TRASH_DAYS, type Quire } from "./quire.ts";
-import { parseAuthorFilter } from "./actor.ts";
+import { actorOf, parseAuthorFilter } from "./actor.ts";
+import type { MemberRef } from "./contacts.ts";
 import { AGENTS_NOTE } from "./noteRoles.ts";
 
 export interface ToolHost {
@@ -23,6 +24,8 @@ export interface ToolHost {
   may?(route: string): boolean;
   /** Whether the caller may make or change shared smart folders (online: editors and owners). Default yes. */
   canEditShared?: boolean;
+  /** The workspace's members (online), for who "me" and other people are on tasks. None locally. */
+  members?(): Promise<MemberRef[]>;
 }
 
 /**
@@ -210,17 +213,21 @@ export function createMcpServer(host: ToolHost): McpServer {
         folder: z.string().optional(),
         note: z.string().optional().describe("Only this note's tasks"),
         tag: TAG,
-        assignee: z.string().optional().describe("Only tasks with this @person"),
+        assignee: z.string().optional().describe('Only tasks for this person (every @name that\'s theirs), or "me" for the tasks of the person you work for'),
+        by: z.enum(["me"]).optional().describe('"me": tasks your person gave someone else, in notes they made'),
         due: z.string().optional().describe("A due date filter: <=today (overdue or due today), tomorrow, >=2026-10-01…"),
       },
       annotations: readOnly,
     },
-    ({ status, ...filters }) =>
-      run(() => {
+    async ({ status, ...filters }) => {
+      const members = filters.assignee || filters.by ? ((await host.members?.()) ?? []) : [];
+      const person = actorOf(host.source(undefined)).person ?? user;
+      return run(() => {
         quire.sync();
         const want = status ?? "open";
-        return fmtTasks(quire.tasks(filters).filter((t) => want === "all" || t.done === (want === "done")));
-      }),
+        return fmtTasks(quire.tasksFor({ user, person, members }, filters).filter((t) => want === "all" || t.done === (want === "done")));
+      });
+    },
   );
 
   server.registerTool(
