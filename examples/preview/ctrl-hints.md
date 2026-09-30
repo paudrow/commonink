@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 111
 title: Ctrl in hints off a Mac
 ---
 Use Windows or Linux for steps 1 to 3. On a Mac, each hint should still show ⌘.
