@@ -70,3 +70,19 @@ test("uploaded files are sandboxed and only the app may frame them", async () =>
     "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; media-src 'self'; frame-ancestors 'self'",
   );
 });
+
+test("the service worker script may only fetch from Common Ink itself, and is always checked for a new version", async () => {
+  const sw = await page("/sw.js");
+  assert.equal(sw.status, 200);
+  assert.equal(sw.headers.get("Content-Security-Policy"), "default-src 'none'; connect-src 'self'; frame-ancestors 'none'");
+  assert.equal(sw.headers.get("Cache-Control"), "no-cache");
+  const other = await page("/favicon.svg");
+  assert.equal(other.headers.get("Content-Security-Policy"), "default-src 'none'; frame-ancestors 'none'", "every other file keeps the strict default");
+});
+
+test("a share that no service worker caught goes to the capture screen, which says so", async () => {
+  const res = await cloud.server.fetch(new URL("/share", cloud.origin), { method: "POST", redirect: "manual" });
+  assert.equal(res.status, 303);
+  const to = new URL(res.headers.get("Location")!, cloud.origin);
+  assert.equal(to.pathname + to.search, "/capture?share=none");
+});

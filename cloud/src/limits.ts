@@ -14,6 +14,8 @@ export const LIMITS = {
   unfurl: { max: 120, per: MINUTE, message: "Too many link previews at once." },
   workspace: { max: 10, per: 60 * MINUTE, message: "That's a lot of new workspaces for one hour." },
   register: { max: 20, per: 60 * MINUTE, message: "Too many apps registered from your network." },
+  // Each subscription or refresh fetches a feed from somewhere else on the internet.
+  calendar: { max: 60, per: 60 * MINUTE, message: "That's a lot of calendar subscribing and refreshing for one hour." },
 } as const;
 
 /**

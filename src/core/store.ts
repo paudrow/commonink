@@ -73,6 +73,9 @@ const SCHEMA = [
   // workspace; a user ID makes it just that person's.
   `CREATE TABLE IF NOT EXISTS smart_folders(
      id TEXT PRIMARY KEY, name TEXT NOT NULL, query TEXT NOT NULL, owner TEXT, pos INTEGER NOT NULL)`,
+  // Tags someone added by name before anything carried them, shared with the whole workspace. One
+  // stays until a note, task or asset uses it (or a tag under it); then it's an ordinary tag.
+  `CREATE TABLE IF NOT EXISTS added_tags(tag TEXT PRIMARY KEY)`,
 ];
 
 /**

@@ -59,7 +59,7 @@ export function fmtTags(tags: TagCount[]): string {
   return tags
     .map((t) => {
       const uses = [n(t.notes, "note"), n(t.tasks, "task"), n(t.assets, "asset")].filter(Boolean).join(", ");
-      return `${"  ".repeat(t.tag.split("/").length - 1)}- #${t.display} (${uses})`;
+      return `${"  ".repeat(t.tag.split("/").length - 1)}- #${t.display} (${uses || "added, not used yet"})`;
     })
     .join("\n");
 }

@@ -174,6 +174,17 @@ test("tags are listed, asset tags set, and a rename reports what undoes it", asy
   assert.equal((await call("PUT", "/asset-tags", { path: "chart.svg", tags: "x" })).status, 400);
 });
 
+test("a tag can be added before any note carries it, and taken away while none does", async () => {
+  const { call, events } = setup();
+  const added = await call("POST", "/tags", { tag: "#Areas/Home" });
+  assert.deepEqual(added.body.map((t: { display: string; notes: number }) => `${t.display} ${t.notes}`), ["Areas 0", "Areas/Home 0", "plan 1", "q3 1"]);
+  assert.deepEqual(events, ["tree"]);
+  assert.equal((await call("POST", "/tags", { tag: "not a tag" })).status, 400);
+  assert.equal((await call("POST", "/tags/delete", { tag: "plan" })).status, 409);
+  const gone = await call("POST", "/tags/delete", { tag: "areas" });
+  assert.deepEqual(gone.body.map((t: { tag: string }) => t.tag), ["plan", "q3"]);
+});
+
 test("undoing a tag rename leaves alone a note that changed since", async () => {
   const { call, quire } = setup({}, openTempVault({ "A.md": "# A\n\nAbout #plan\n", "B.md": "# B\n\nAbout #plan\n" }));
   const r = await call("POST", "/tags/rename", { from: "plan", to: "roadmap" });
