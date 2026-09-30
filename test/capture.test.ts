@@ -81,7 +81,7 @@ test("a share from the phone is kept for the app, then the capture screen opens"
   assert.equal(to.pathname, "/capture");
   const id = to.searchParams.get("share")!;
   assert.match(id, /^[a-z0-9]+$/);
-  const kept = w.stores.get("common-ink-shares")!;
+  const kept = w.stores.get("commonink-shares")!;
   assert.deepEqual(await kept.get(`https://commonink.app/shares/${id}`)!.clone().json(), { title: "A page", text: "Read later", url: "https://example.com/p", files: [{ name: "shot.png", type: "image/png" }] });
   assert.equal(await kept.get(`https://commonink.app/shares/${id}/0`)!.clone().text(), "png bytes");
 });
@@ -95,7 +95,7 @@ test("the worker keeps only the app's built files: never pages, notes or API ans
   await w.dispatch(new Request("https://commonink.app/assets/index-abc123.js"));
   await w.dispatch(new Request("https://commonink.app/assets/index-abc123.js"));
   assert.deepEqual(w.fetched, ["https://commonink.app/assets/index-abc123.js"], "a built file is fetched once, then kept");
-  assert.deepEqual([...w.stores.keys()], ["common-ink-assets-v1"]);
+  assert.deepEqual([...w.stores.keys()], ["commonink-assets-v1"]);
 });
 
 test("the manifest offers Common Ink in the share sheet: links, text and images, posted to /share", () => {

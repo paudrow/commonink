@@ -5,8 +5,8 @@
 //   app has read it, and open the capture screen.
 // It never keeps pages, notes or API answers: those always come from the network (offline notes
 // are #35). Served with a policy that lets it fetch only from Common Ink (cloud/src/headers.ts).
-const ASSETS = "common-ink-assets-v1";
-const SHARES = "common-ink-shares";
+const ASSETS = "commonink-assets-v1";
+const SHARES = "commonink-shares";
 /** Built files kept at most; the oldest go first (each deploy adds new names). */
 const KEEP_ASSETS = 300;
 /** A share the app never read goes after a week. */

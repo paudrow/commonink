@@ -10,10 +10,10 @@ import { today } from "./taskChips.ts";
 import { captureBlock, withCaptured, type Shared } from "../../src/core/capture.ts";
 
 /** Where the service worker keeps shares (see web/public/sw.js). */
-const SHARES = "common-ink-shares";
+const SHARES = "commonink-shares";
 const INBOX = "Inbox.md";
 /** The last place picked, kept per browser: today's note unless you chose otherwise. */
-const WHERE = "common-ink.capture";
+const WHERE = "commonink.capture";
 
 export type Where = { kind: "today" } | { kind: "inbox" } | { kind: "note"; name: string };
 
