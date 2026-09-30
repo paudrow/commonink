@@ -20,7 +20,8 @@ const NAME: Field = { key: "name", label: "Name", type: "text", placeholder: "Cl
 export function smartFolderEditor(
   anchor: HTMLElement,
   draft: SmartFolderDraft,
-  opts: { canShare: boolean; sources: FieldSources; save(f: SmartFolderDraft): Promise<void>; remove?(): Promise<void> },
+  /** `alone`: a local vault, where "Just me" has no one to leave out, so it isn't asked. */
+  opts: { canShare: boolean; alone?: boolean; sources: FieldSources; save(f: SmartFolderDraft): Promise<void>; remove?(): Promise<void> },
 ) {
   document.querySelector(".sf-editor")?.remove();
   const values: Record<string, string> = { ...parseAttrs(draft.query), name: draft.name };
@@ -50,7 +51,7 @@ export function smartFolderEditor(
     el("div", { class: "sf-pop-title" }, icon("folderSearch", 14), draft.id ? "Smart folder" : draft.query ? "Save as smart folder" : "New smart folder"),
     ...fieldRows([NAME, ...QUERY_FIELDS], values, recount, opts.sources),
     count,
-    el(
+    opts.alone ? null : el(
       "label",
       { class: "sf-just-me", title: opts.canShare ? "" : "Viewers can keep smart folders of their own" },
       justMe,

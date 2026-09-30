@@ -8,6 +8,7 @@ import { escapeHtml } from "./dom.ts";
 import { assetUrl } from "./api.ts";
 import { footnotesIn, headingSlug, parseAlert, type Alert } from "../../src/core/gfm.ts";
 import { emojiFor, SHORTCODE } from "../../src/core/emoji.ts";
+import { clip } from "../../src/core/depth.ts";
 
 /** The note being rendered, for relative image paths in its HTML. Set by renderMarkdown. */
 let from = "";
@@ -115,7 +116,7 @@ export const gfmMarked: MarkedExtension = {
         const k = (notes.refs.get(id) ?? 0) + 1;
         notes.refs.set(id, k);
         const at = k === 1 ? `fnref-${escapeHtml(id)}` : `fnref-${escapeHtml(id)}-${k}`;
-        return `<sup class="footnote-ref"><a href="#user-content-fn-${escapeHtml(id)}" id="${at}" title="${escapeHtml(notes.text.get(id)!)}">${n}</a></sup>`;
+        return `<sup class="footnote-ref"><a href="#user-content-fn-${escapeHtml(id)}" id="${at}" title="${escapeHtml(clip(notes.text.get(id)!))}">${n}</a></sup>`;
       },
     },
   ],

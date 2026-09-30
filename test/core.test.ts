@@ -42,6 +42,34 @@ test("resolve accepts paths, extensionless paths and wikilink names", () => {
   assert.equal(quire.resolve("../../etc/passwd"), null);
 });
 
+test("a path typed in another case is the note's own path, not a second note", () => {
+  const { quire } = openTempVault();
+  assert.equal(quire.resolve("projects/roadmap"), "Projects/Roadmap.md");
+  assert.equal(quire.read("projects/roadmap.md").path, "Projects/Roadmap.md");
+  quire.edit("projects/roadmap", { oldString: "Ship the importer", newString: "Ship it" }, "t");
+  assert.deepEqual(quire.list(undefined, "all").map((n) => n.path), ["assets/chart.svg", "Dashboards/Stats.html", "Projects/Roadmap.md", "Welcome.md"]);
+  assert.deepEqual(quire.tasks().map((t) => `${t.path}:${t.text}`), ["Projects/Roadmap.md:Ship it", "Projects/Roadmap.md:Write the parser"]);
+  assert.deepEqual(quire.changes().map((c) => c.path), ["Projects/Roadmap.md"]);
+});
+
+test("a file named in decomposed Unicode is the note a link or path in composed Unicode means", () => {
+  const nfd = "Café".normalize("NFD");
+  const { quire } = openTempVault({ [`${nfd}.md`]: "# Café\n\n- [ ] one\n", "A.md": "See [[Café]]\n" });
+  assert.equal(quire.resolve("Café"), `${nfd}.md`);
+  assert.equal(quire.resolve("Café.md"), `${nfd}.md`);
+  quire.edit("Café", { oldString: "one", newString: "two" }, "t");
+  assert.deepEqual(quire.list().map((n) => n.path), ["A.md", `${nfd}.md`]);
+  assert.deepEqual(quire.tasks().map((t) => `${t.path}:${t.text}`), [`${nfd}.md:two`]);
+  assert.deepEqual(quire.backlinks(`${nfd}.md`).map((b) => b.path), ["A.md"]);
+});
+
+test("an index from before composed names learns them on open", () => {
+  const nfd = "Café".normalize("NFD");
+  const { dir, quire } = openTempVault({ [`Places/${nfd}.md`]: "# Café\n" });
+  quire.db.run("UPDATE notes SET stem = ?", nfd.toLowerCase());
+  assert.equal(openVault(dir).resolve("café"), `Places/${nfd}.md`);
+});
+
 test("edit replaces one exact string and refuses ambiguous or stale edits", () => {
   const { dir, quire } = openTempVault();
   const before = quire.read("Roadmap");
@@ -61,12 +89,89 @@ test("moving a note rewrites the links that point at it", () => {
   assert.deepEqual(quire.backlinks("Plan").map((b) => b.path), ["Welcome.md"]);
 });
 
+test("moving a note keeps a markdown link's #heading", () => {
+  const { quire } = openTempVault({ "A.md": "# A\n\nSee [plan](B.md#now) and [[B#Now]].\n", "B.md": "# B\n\n## Now\n" });
+  quire.move("B", "C.md", "t");
+  assert.equal(quire.read("A").content, "# A\n\nSee [plan](C.md#now) and [[C#Now]].\n");
+});
+
+test("moving a note leaves alone a link in the same note that points at another note with its name", () => {
+  const { quire } = openTempVault({ "Other/A.md": "# A\n\n[[Projects/B]] and [local](B.md)\n", "Other/B.md": "# other B\n", "Projects/B.md": "# proj B\n" });
+  quire.move("Projects/B.md", "Projects/C.md", "t");
+  assert.equal(quire.read("Other/A.md").content, "# A\n\n[[C]] and [local](B.md)\n");
+});
+
+test("moving a note rewrites a markdown link that reaches it through ../", () => {
+  const { quire } = openTempVault({ "Team/Standup.md": "# Standup\n\n[the plan](../Plan.md)\n", "Plan.md": "# Plan\n" });
+  quire.move("Plan.md", "Plan 2027.md", "t");
+  assert.equal(quire.read("Team/Standup").content, "# Standup\n\n[the plan](Plan%202027.md)\n");
+  assert.deepEqual(quire.backlinks("Plan 2027").map((b) => b.path), ["Team/Standup.md"]);
+});
+
+test("backlinks include markdown links relative to the linking note's folder, in an older index too", () => {
+  const files = { "Team/Standup.md": "[up](../Plan.md)\n\n[down](Sub/Plan.md)\n", "Plan.md": "# Plan\n", "Team/Sub/Plan.md": "# Sub plan\n" };
+  const { dir, quire } = openTempVault(files);
+  assert.deepEqual(quire.backlinks("Plan.md").map((b) => b.text), ["[up](../Plan.md)"]);
+  assert.deepEqual(quire.backlinks("Team/Sub/Plan.md").map((b) => b.text), ["[down](Sub/Plan.md)"]);
+  quire.db.run("UPDATE links SET key = CASE line WHEN 1 THEN '../plan' ELSE 'sub/plan' END");
+  const reopened = openVault(dir);
+  assert.deepEqual(reopened.backlinks("Plan.md").map((b) => b.text), ["[up](../Plan.md)"]);
+  assert.deepEqual(reopened.backlinks("Team/Sub/Plan.md").map((b) => b.text), ["[down](Sub/Plan.md)"]);
+});
+
+test("moving a note rewrites a link that would otherwise fall through to another note with its old name", () => {
+  const { quire } = openTempVault({ "A.md": "# A\n\n[[B]]\n", "Projects/B.md": "# proj B\n", "Old/Deeper/B.md": "# old B\n" });
+  quire.move("Projects/B.md", "Projects/C.md", "t");
+  assert.equal(quire.read("A").content, "# A\n\n[[C]]\n");
+  assert.equal(quire.resolve("C", "A.md"), "Projects/C.md");
+});
+
+test("renaming a note rewrites its own links to itself", () => {
+  const { quire } = openTempVault({ "Guide.md": "# Guide\n\nJump to [[Guide#Setup]] or [setup](Guide.md#setup).\n\n## Setup\n", "Other.md": "[[Guide]]\n" });
+  const r = quire.move("Guide.md", "Handbook.md", "t");
+  assert.equal(quire.read("Handbook").content, "# Guide\n\nJump to [[Handbook#Setup]] or [setup](Handbook.md#setup).\n\n## Setup\n");
+  assert.deepEqual(r.updated, ["Other.md"]);
+  assert.equal(r.version, quire.read("Handbook").version);
+});
+
+test("moving a note leaves links in code as written", () => {
+  const { quire } = openTempVault({ "A.md": "# A\n\n[[B]]\n\n```\nwrite [[B]] to link\n```\n\nInline `[[B]]` too\n", "B.md": "# B\n" });
+  quire.move("B", "C.md", "t");
+  assert.equal(quire.read("A").content, "# A\n\n[[C]]\n\n```\nwrite [[B]] to link\n```\n\nInline `[[B]]` too\n");
+});
+
+test("moving a note to a name with parentheses keeps its markdown links working", () => {
+  const { quire } = openTempVault({ "A.md": "# A\n\n[b](B.md)\n", "B.md": "# B\n" });
+  quire.move("B", "B (old).md", "t");
+  assert.equal(quire.read("A").content, "# A\n\n[b](B%20%28old%29.md)\n");
+  assert.deepEqual(quire.backlinks("B (old).md").map((b) => b.path), ["A.md"]);
+});
+
+test("renaming a note can change just the case of its name", () => {
+  const { dir, quire } = openTempVault({ "meeting notes.md": "# m\n", "A.md": "[[meeting notes]]\n" });
+  const r = quire.move("meeting notes.md", "Meeting Notes.md", "t");
+  assert.equal(r.path, "Meeting Notes.md");
+  assert.deepEqual(fs.readdirSync(dir).filter((f) => f.endsWith(".md")).sort(), ["A.md", "Meeting Notes.md"]);
+  assert.deepEqual(quire.list().map((n) => n.path), ["A.md", "Meeting Notes.md"]);
+  assert.deepEqual(quire.backlinks("Meeting Notes").map((b) => b.path), ["A.md"]);
+});
+
 test("creating a second top-level note with the same title leaves the first as it was", () => {
   const { dir, quire } = openTempVault({});
   quire.create("Idea", "# Idea\n\nThe first one.\n", "t");
   assert.throws(() => quire.create("Idea", "# Idea\n\nThe second one.\n", "t"), /Idea\.md already exists; use edit_note instead/);
   assert.equal(fs.readFileSync(path.join(dir, "Idea.md"), "utf8"), "# Idea\n\nThe first one.\n");
   assert.deepEqual(quire.list().map((n) => n.path), ["Idea.md"]);
+});
+
+test("moving a note to a folder puts it in the folder under its own name, as mv does", () => {
+  for (const to of ["Projects/", "./Projects/", "Ideas/"]) {
+    const { quire } = openTempVault();
+    const r = quire.move("Welcome.md", to, "t");
+    const folder = to.replace(/^\.\//, "").replace(/\/$/, "");
+    assert.equal(r.path, `${folder}/Welcome.md`, to);
+    assert.equal(quire.read(`${folder}/Welcome`).content, "# Welcome\n\nStart with [[Roadmap]].\n\n![[chart.svg]]\n");
+  }
 });
 
 test("a note can't be moved to a different file type", () => {
