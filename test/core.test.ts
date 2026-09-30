@@ -98,6 +98,14 @@ test("moving a note rewrites a link that would otherwise fall through to another
   assert.equal(quire.resolve("C", "A.md"), "Projects/C.md");
 });
 
+test("renaming a note rewrites its own links to itself", () => {
+  const { quire } = openTempVault({ "Guide.md": "# Guide\n\nJump to [[Guide#Setup]] or [setup](Guide.md#setup).\n\n## Setup\n", "Other.md": "[[Guide]]\n" });
+  const r = quire.move("Guide.md", "Handbook.md", "t");
+  assert.equal(quire.read("Handbook").content, "# Guide\n\nJump to [[Handbook#Setup]] or [setup](Handbook.md#setup).\n\n## Setup\n");
+  assert.deepEqual(r.updated, ["Other.md"]);
+  assert.equal(r.version, quire.read("Handbook").version);
+});
+
 test("moving a note leaves links in code as written", () => {
   const { quire } = openTempVault({ "A.md": "# A\n\n[[B]]\n\n```\nwrite [[B]] to link\n```\n\nInline `[[B]]` too\n", "B.md": "# B\n" });
   quire.move("B", "C.md", "t");
