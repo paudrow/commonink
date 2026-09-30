@@ -60,6 +60,15 @@ export function calendarChanged() {
   eventCache.clear();
 }
 
+/**
+ * Which calendars a widget shows, from its `calendars` attribute: source IDs separated by commas, or
+ * none for every calendar (new ones included).
+ */
+export function chosenCalendars(arg: string | undefined): (source: string) => boolean {
+  const ids = (arg ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  return (source) => !ids.length || ids.includes(source);
+}
+
 /** The events on a range of days. */
 export const eventsOn = (first: Day, last: Day) => events(dayStart(first), dayStart(addDays(last, 1)));
 
@@ -71,7 +80,7 @@ export function linkableEvents(): Promise<CalendarEvent[]> {
 
 // ------------------------------------------------------------------ items
 
-/** Something the calendar shows: an event, or an open task due that day (all day, in no calendar). */
+/** Something the calendar shows: an event, or a task due that day, open or done (all day, in no calendar). */
 export type Item =
   | { kind: "event"; key: string; title: string; span: Span; color: SourceColor; event: CalendarEvent; source: CalendarSource | null }
   | { kind: "task"; key: string; title: string; span: Span; task: Task };
@@ -87,13 +96,13 @@ export function eventItems(list: CalendarEvent[], sources: CalendarSource[]): It
 export function taskItems(tasks: Task[], first: Day, last: Day): Item[] {
   return tasks.flatMap((task): Item[] => {
     const due = task.meta.due?.slice(0, 10);
-    if (task.done || !due || due < first || due > last) return [];
+    if (!due || due < first || due > last) return [];
     const span = { start: dayStart(due), end: dayStart(addDays(due, 1)), allDay: true };
     return [{ kind: "task", key: `task:${task.path}:${task.line}`, title: task.summary || task.text, span, task }];
   });
 }
 
-/** Open tasks due on the days from `first` to `last`. */
+/** Tasks due on the days from `first` to `last`: open ones, and ones ticked, so they can be reopened. */
 export async function dueTasks(first: Day, last: Day): Promise<Item[]> {
   const tasks = await api.tasks({ due: `>=${first}`, today: dayKey(new Date()) }).catch(() => []);
   return taskItems(tasks, first, last);

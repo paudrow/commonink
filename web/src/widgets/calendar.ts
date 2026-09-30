@@ -1,12 +1,13 @@
-//   ::calendar{folder=Journal}   ::calendar{events=off}
+//   ::calendar{folder=Journal}   ::calendar{events=off}   ::calendar{calendars="k3x9q2mfab"}
 // A month of daily notes (Journal/YYYY-MM-DD.md), shaded by how much you wrote, with a dot for each
-// of the day's events (in its calendar's color; their titles in the day's tooltip). Click a day to
+// of the day's events (in its calendar's color; their titles in the day's tooltip), from every
+// calendar or the ones picked in its settings. Click a day to
 // open it, or to start it if it doesn't exist yet.
 import { api, type NoteMeta } from "../api.ts";
 import { el, icon } from "../dom.ts";
 import { onVaultChange } from "../events.ts";
 import type { WidgetSpec } from "./core.ts";
-import { calendars, eventItems, eventsOn, timeOnDay, type Item } from "../calendar/data.ts";
+import { calendars, chosenCalendars, eventItems, eventsOn, timeOnDay, type Item } from "../calendar/data.ts";
 import { bucket } from "../calendar/layout.ts";
 import { dot } from "../calendar/ui.ts";
 
@@ -26,6 +27,7 @@ export const calendar: WidgetSpec = {
     { key: "label", label: "Label", type: "text", placeholder: "Optional" },
     { key: "folder", label: "Folder", type: "text", placeholder: "Journal" },
     { key: "events", label: "Show events", type: "toggle", off: "off" },
+    { key: "calendars", label: "Calendars", type: "calendars" },
   ],
 
   mount(body, env) {
@@ -36,6 +38,7 @@ export const calendar: WidgetSpec = {
     /** Each day's events this month; empty with events off or no calendars. */
     let events = new Map<string, Item[]>();
     const showEvents = env.args.events !== "off";
+    const shows = chosenCalendars(env.args.calendars);
     let alive = true;
 
     const title = el("div", { class: "qc-title" });
@@ -77,7 +80,7 @@ export const calendar: WidgetSpec = {
       const shown = month;
       const monthDays = Array.from({ length: new Date(shown.getFullYear(), shown.getMonth() + 1, 0).getDate() }, (_, i) => iso(new Date(shown.getFullYear(), shown.getMonth(), i + 1)));
       const sources = await calendars().catch(() => []);
-      const list = sources.length ? await eventsOn(monthDays[0], monthDays[monthDays.length - 1]).catch(() => []) : [];
+      const list = sources.length ? (await eventsOn(monthDays[0], monthDays[monthDays.length - 1]).catch(() => [])).filter((e) => shows(e.source)) : [];
       if (!alive || shown !== month) return;
       events = bucket(eventItems(list, sources), (i) => i.span, monthDays);
       render();

@@ -13,6 +13,7 @@ import { addDays, bars, bucket, dayKey, dayStart, daysRange, inAllDayRow, monthW
 import { openCalendars } from "./sources.ts";
 import { googleStatus } from "./google.ts";
 import { dot } from "./ui.ts";
+import { setDone } from "../taskRow.ts";
 
 export interface CalendarHooks {
   /** Open a note, at a line (a task's), or to the side. */
@@ -61,6 +62,8 @@ export class CalendarPage {
   day: Day = dayKey(new Date());
   private cursor: Cursor = { day: this.day, key: "" };
   private items: Item[] = [];
+  /** Tasks being ticked or reopened, so a second click waits for the first. */
+  private ticking = new Set<string>();
   private sources: CalendarSource[] = [];
   /** Whether this server has Google Calendar, which anyone may add their own calendars from. */
   private google = false;
@@ -264,6 +267,12 @@ export class CalendarPage {
       return this.goDay(this.cursor.day);
     }
     if ((e.key === "Enter" || e.key === " ") && t.closest("button, a")) return; // the button's own
+    const task = t.closest<HTMLElement>("[data-task]")?.dataset.task;
+    if (task && matchKeys(e, "x")) {
+      const item = this.items.find((i): i is Extract<Item, { kind: "task" }> => i.kind === "task" && i.key === task);
+      e.preventDefault();
+      return item && void this.tick(item);
+    }
     const view = (Object.keys(VIEW_KEYS) as Array<keyof typeof VIEW_KEYS>).find((k) => matchKeys(e, k));
     const action = view ? VIEW_KEYS[view] : CALENDAR_KEYS.find((k) => k.action && k.keys.some((key) => matchKeys(e, key)))?.action;
     if (!action) return;
@@ -356,31 +365,86 @@ export class CalendarPage {
     );
   }
 
-  /** An item as a button: an event (opens its details) or a task due that day (opens its note at the task). */
-  private chip(item: Item, day: Day, how: { bar?: Bar<Item>; timed?: boolean } = {}): HTMLButtonElement {
+  /**
+   * An item: an event as a button that opens its details, or a task due that day as its checkbox
+   * (tick it here, as in Tasks) and a button that opens its note at the task.
+   */
+  private chip(item: Item, day: Day, how: { bar?: Bar<Item>; timed?: boolean } = {}): HTMLElement {
+    if (item.kind === "task") return this.taskChip(item, day, how);
     const time = item.span.allDay || how.bar ? null : el("span", { class: "cal-chip-time" }, timeOnDay(item.span, day));
     const title = el("span", { class: "cal-chip-title" }, item.title);
-    const lead = item.kind === "task" ? icon("task", 12) : how.timed || how.bar || item.span.allDay ? null : dot(item.color);
-    const label = item.kind === "event" ? [item.title, whenText(item.span), placeText(item.event.location), item.source?.name].filter(Boolean).join(", ") : `${item.title}, task due ${longDay(day)}, in ${item.task.title}`;
+    const lead = how.timed || how.bar || item.span.allDay ? null : dot(item.color);
+    const label = [item.title, whenText(item.span), placeText(item.event.location), item.source?.name].filter(Boolean).join(", ");
     return el(
       "button",
       {
         type: "button",
-        class: `cal-chip is-${item.kind}${how.bar || item.span.allDay ? " is-allday" : ""}${how.bar?.before ? " is-before" : ""}${how.bar?.after ? " is-after" : ""}${item.kind === "event" && item.event.status === "tentative" ? " is-tentative" : ""}`,
+        class: `cal-chip is-event${how.bar || item.span.allDay ? " is-allday" : ""}${how.bar?.before ? " is-before" : ""}${how.bar?.after ? " is-after" : ""}${item.event.status === "tentative" ? " is-tentative" : ""}`,
         "data-nav": `${day}|${item.key}`,
-        "data-event": item.kind === "event" ? item.key : undefined,
+        "data-event": item.key,
         tabindex: "-1",
         title: label,
         "aria-label": label,
-        style: { "--c": item.kind === "event" ? colorVar(item.color) : "var(--muted)" },
-        onclick: (e: MouseEvent) => {
+        style: { "--c": colorVar(item.color) },
+        onclick: () => {
           this.cursor = { day, key: item.key };
-          if (item.kind === "event") this.select(item.key);
-          else this.hooks.open(item.task.path, item.task.line, e.metaKey || e.ctrlKey);
+          this.select(item.key);
         },
       },
       ...(how.timed ? [title, time] : [lead, time, title]),
     );
+  }
+
+  private taskChip(item: Extract<Item, { kind: "task" }>, day: Day, how: { bar?: Bar<Item> }): HTMLElement {
+    const t = item.task;
+    const state = t.done ? "done" : "due";
+    const label = `${item.title}, task ${state} ${longDay(day)}, in ${t.title}`;
+    const box = el("button", {
+      type: "button",
+      class: `cm-checkbox cal-check${t.done ? " is-checked" : ""}`,
+      role: "checkbox",
+      tabindex: "-1",
+      "aria-checked": String(t.done),
+      "aria-label": `${item.title}: ${t.done ? "done" : "not done"}`,
+      title: t.done ? "Mark open (x)" : "Mark done (x)",
+      onclick: () => void this.tick(item),
+    });
+    const open = el(
+      "button",
+      {
+        type: "button",
+        class: "cal-chip-open",
+        "data-nav": `${day}|${item.key}`,
+        tabindex: "-1",
+        title: label,
+        "aria-label": label,
+        onclick: (e: MouseEvent) => {
+          this.cursor = { day, key: item.key };
+          this.hooks.open(t.path, t.line, e.metaKey || e.ctrlKey);
+        },
+      },
+      el("span", { class: "cal-chip-title" }, item.title),
+    );
+    return el("div", { class: `cal-chip is-task is-allday${t.done ? " is-done" : ""}${how.bar?.before ? " is-before" : ""}${how.bar?.after ? " is-after" : ""}`, "data-task": item.key, style: { "--c": "var(--muted)" } }, box, open);
+  }
+
+  /**
+   * Tick a task due on the calendar, or reopen it, the way Tasks does (setDone): Undo, and a repeating
+   * task's next date, come with it. It shows at once, then the calendar reads the notes again.
+   */
+  private async tick(item: Extract<Item, { kind: "task" }>) {
+    const t = item.task;
+    if (this.ticking.has(item.key)) return;
+    this.ticking.add(item.key);
+    const done = !t.done;
+    for (const n of [...this.body.querySelectorAll<HTMLElement>("[data-task]")].filter((n) => n.dataset.task === item.key)) {
+      n.classList.toggle("is-done", done);
+      const box = n.querySelector<HTMLElement>(".cal-check")!;
+      box.classList.toggle("is-checked", done);
+      box.setAttribute("aria-checked", String(done));
+    }
+    await setDone(t, done, { changed: () => void this.refresh() });
+    this.ticking.delete(item.key);
   }
 
   private month(): HTMLElement {
@@ -481,19 +545,21 @@ export class CalendarPage {
     const today = dayKey(new Date());
     const shown = days.filter((d) => byDay.get(d)!.length || d === today);
     const row = (item: Item, d: Day) => {
-      const b = this.chip(item, d);
-      b.classList.add("cal-arow");
+      const chip = this.chip(item, d);
+      chip.classList.add("cal-arow");
+      // A task's row keeps its checkbox; the rest of the row opens it, as an event's whole row does.
+      const b = item.kind === "task" ? chip.querySelector<HTMLElement>(".cal-chip-open")! : chip;
       b.replaceChildren(
-        el("span", { class: "cal-arow-time" }, item.kind === "task" ? "Due" : timeOnDay(item.span, d)),
+        el("span", { class: "cal-arow-time" }, item.kind === "task" ? (item.task.done ? "Done" : "Due") : timeOnDay(item.span, d)),
         el("span", { class: "cal-arow-bar", "aria-hidden": "true" }),
         el(
           "span",
           { class: "cal-arow-main" },
-          el("span", { class: "cal-arow-title" }, item.kind === "task" ? icon("task", 13) : null, item.title),
+          el("span", { class: "cal-arow-title" }, item.title),
           el("span", { class: "cal-arow-meta" }, item.kind === "event" ? [placeText(item.event.location), item.source?.name].filter(Boolean).join(" · ") : item.task.title),
         ),
       );
-      return b;
+      return chip;
     };
     const next = el("button", { type: "button", class: "qw-btn cal-agenda-next", onclick: () => void this.run("next") }, "Next two weeks", icon("chevron", 14));
     return el(
