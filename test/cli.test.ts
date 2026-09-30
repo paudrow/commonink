@@ -123,6 +123,14 @@ test("smart-save, smart and smart-rm keep saved note queries", () => {
   assert.equal(quire(vault, ["smart-rm", "Planning"]).stdout, "No smart folders.\n");
 });
 
+test("task --until and --times end a repeat, and ticking counts it down", () => {
+  const vault = tempVault();
+  quire(vault, ["task", "Roadmap", "8", "--due", "2026-10-01", "--rec", "weekly", "--times", "2", "--until", "2027-01-01"]);
+  quire(vault, ["task", "Roadmap", "8", "--done"]);
+  assert.match(fs.readFileSync(path.join(vault, "Projects/Roadmap.md"), "utf8"), /\n- \[ \] Ship the importer due:2026-10-08 rec:weekly until:2027-01-01 times:1\n/);
+  assert.equal(quire(vault, ["task", "Roadmap", "8", "--times", "0"]).stderr, '"times" must be a whole number of repeats left, 1 or more\n');
+});
+
 test("star and unstar take #tags as well as notes", () => {
   const vault = tempVault();
   assert.equal(quire(vault, ["star", "Welcome", "#plan"]).stdout, "Favorites:\n- Welcome.md — Welcome\n- #plan (1 note)\n");

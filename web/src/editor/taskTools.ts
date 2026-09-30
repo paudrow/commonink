@@ -2,12 +2,18 @@
 // the task's field menu (the same one task lists have, and ⌘. opens it from the keyboard), and a
 // faint hint of the fields it doesn't have yet (`due · repeat · @ · # · !`), each word opening that
 // field's editor. Every change goes through taskLineEdit, so undo takes it back.
-import { keymap, WidgetType, type EditorView } from "@codemirror/view";
-import { parseTask } from "../../../src/core/tasks.ts";
+//
+// Phrases quick-add would read ("tomorrow", "every week") get a dotted underline on the cursor's
+// task line. Nothing changes until you say so: Tab right after one, or a click on one, turns it
+// into tokens, as one change that one undo takes back.
+import { completionStatus } from "@codemirror/autocomplete";
+import { Prec } from "@codemirror/state";
+import { EditorView, keymap, WidgetType } from "@codemirror/view";
+import { localDate, parseTask } from "../../../src/core/tasks.ts";
 import { el, icon } from "../dom.ts";
 import { openFieldEditor, openTaskMenu, taskPeople, type ChipContext, type MenuField } from "../taskChipEditors.ts";
 import { editorContext } from "./blocks.ts";
-import { HINTS, taskLineEdit, taskTools, taskToolsAt, type HintField } from "./taskEdit.ts";
+import { convertPhrases, HINTS, phrasesAt, phraseTab, taskLineEdit, taskPhrases, taskTools, taskToolsAt, type HintField } from "./taskEdit.ts";
 
 /** A task on line `n` as the chip editors take it, saving through a transaction on that line. */
 export function lineTaskContext(view: EditorView, n: number): ChipContext | null {
@@ -88,5 +94,44 @@ const openMenuKey = keymap.of([
   },
 ]);
 
-/** The editor extension: the tools on the cursor's task line, and ⌘. to open its menu. */
-export const taskLineTools = [taskTools((missing) => new ToolsWidget(missing)), openMenuKey];
+const today = () => localDate(Date.now());
+
+/** Tab right after a phrase on a task line makes the line's phrases tokens (not while a suggestion list is open). */
+const phraseKey = Prec.high(
+  keymap.of([
+    {
+      key: "Tab",
+      run: (view) => {
+        if (completionStatus(view.state) === "active") return false;
+        const spec = phraseTab(view.state, today());
+        return !!spec && (view.dispatch(spec), true);
+      },
+    },
+  ]),
+);
+
+/** The phrase a press started on, if it was underlined then: the click that follows turns just that one. */
+let pressed: { line: number; text: string } | null = null;
+const phraseClick = EditorView.domEventHandlers({
+  mousedown(e, view) {
+    pressed = null;
+    const mark = (e.target as HTMLElement).closest?.(".cm-phrase");
+    if (!mark || e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return false;
+    const pos = view.posAtDOM(mark);
+    const at = phrasesAt(view.state, today());
+    const p = at?.phrases.find((x) => pos >= x.from && pos < x.to);
+    if (at && p) pressed = { line: at.line, text: view.state.sliceDoc(p.from, p.to) };
+    return false;
+  },
+  click(_e, view) {
+    const p = pressed;
+    pressed = null;
+    if (!p || !view.state.selection.main.empty) return false; // a drag across it selects; it doesn't turn it
+    const spec = convertPhrases(view.state, p.line, today(), p.text);
+    if (spec) view.dispatch(spec);
+    return false;
+  },
+});
+
+/** The editor extension: the tools on the cursor's task line, ⌘. to open its menu, and its phrases underlined. */
+export const taskLineTools = [taskTools((missing) => new ToolsWidget(missing)), openMenuKey, taskPhrases(today), phraseKey, phraseClick];

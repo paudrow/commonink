@@ -1,5 +1,6 @@
 // The shortcut sheet (? or "Keyboard shortcuts" in ⌘K): every shortcut, by where it works.
-import { formatKeys, shortcutSheet, type Command } from "./commands.ts";
+import { shortcutSheet, type Command } from "./commands.ts";
+import { formatKeys } from "./keys.ts";
 import { el, icon } from "./dom.ts";
 import { IS_MAC } from "./panes.ts";
 
