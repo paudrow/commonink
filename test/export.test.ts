@@ -10,7 +10,7 @@ const { ALERT_ICONS, LIGHT_TOKENS } = await import("../web/src/export/staticCss.
 
 const NOTES: Record<string, string> = {
   "Launch.md": "# Launch\n\nThe plan in short.\n\n## Risks\n\n- Slipping dates\n\n## Later\n\nNot this.",
-  "Board.md": ":::kanban\n## Doing\n- [ ] Write copy due:2026-10-02\n\n## Done\n- [x] Pick a name\n:::",
+  "Board.md": ":::kanban\n## Doing\n- [ ] Write copy due:2040-10-02\n\n## Done\n- [x] Pick a name\n:::",
 };
 
 const sources = (over: Partial<StaticSources> = {}): StaticSources => ({
@@ -20,7 +20,7 @@ const sources = (over: Partial<StaticSources> = {}): StaticSources => ({
   },
   url: async (target) => (NOTES[`${target.replace(/\.md$/, "")}.md`] ? `https://ink.test/notes/${target.toLowerCase()}-abcd2345` : null),
   tasks: async () => [
-    { path: "Launch.md", title: "Launch", line: 3, text: "Ship it due:2026-10-01 !high", summary: "Ship it", done: false, heading: null, meta: { priority: "high", due: "2026-10-01", start: null, rec: null, done: null, until: null, times: null, assignees: [], tags: [] } as never },
+    { path: "Launch.md", title: "Launch", line: 3, text: "Ship it due:2040-10-01 !high", summary: "Ship it", done: false, heading: null, meta: { priority: "high", due: "2040-10-01", start: null, rec: null, done: null, until: null, times: null, assignees: [], tags: [] } as never },
     { path: "Launch.md", title: "Launch", line: 4, text: "Done already", summary: "Done already", done: true, heading: null, meta: { priority: null, due: null, start: null, rec: null, done: null, until: null, times: null, assignees: [], tags: [] } as never },
   ],
   feed: async () => [{ id: "abcd2345", path: "Launch.md", kind: "md", title: "Launch", mtime: 0, archived: false, excerpt: "The plan in short.", tags: [], lines: [], lastSource: null, lastBy: null, role: null }],
@@ -38,7 +38,7 @@ owner: Audrow
 
 Some **bold** text and a link to [[Launch]], and one to [[Nowhere]].
 
-- [ ] Call the printer due:2026-10-01 @sam
+- [ ] Call the printer due:2040-10-01 @sam
 - [x] Book the room
 
 \`\`\`ts
@@ -110,16 +110,16 @@ test("a note renders as static HTML: markup hidden, widgets and embeds as snapsh
   assert.deepEqual(outline(html), [
     "h1: Demo",
     "p: Some bold text and a link to Launch , and one to",
-    "ul: Call the printer Oct 1 S sam Book the room",
+    "ul: Call the printer Oct 1, 2040 S sam Book the room",
     "div.cb: ts const answer : number = 42 ;",
     "figure.st-diagram: 22 chars",
     "p: Inline math ⟨math⟩ and a block:",
     "div.math: ⟨math⟩",
-    "div.st-widget: Tasks Launch Ship it High Oct 1",
+    "div.st-widget: Tasks Launch Ship it High Oct 1, 2040",
     "div.st-widget: Notes · Active Launch — The plan in short.",
     "div.st-widget: Timer · Focus 25m timer",
     "section.st-embed: Launch › Risks Risks Slipping dates",
-    "section.st-embed: Board Doing 1 Write copy Oct 2 Done 1 Pick a nam",
+    "section.st-embed: Board Doing 1 Write copy Oct 2, 2040 Done 1 Pick",
     "div.st-card: YouTube youtube.com https://www.youtube.com/watc",
     "details: More Hidden until opened.",
   ]);
