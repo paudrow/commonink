@@ -3,11 +3,14 @@
 // UTC (a date never moves with a time zone or a daylight-saving change). No Node imports: the
 // editor uses this too.
 //
-//   rec:weekly  rec:2w  rec:mon,thu  rec:2w-mon,thu  rec:6th  rec:last-day  rec:1st-tue,3rd-tue
-//   rec:last-fri  rec:mar-1  rec:1st-mon-mar  rec:day-50  rec:after-1m  rec:RRULE:FREQ=…;BYDAY=…
+//   rec:weekly  rec:2w  rec:mon,thu  rec:2w-mon,thu  rec:6th  rec:last-day  rec:last-day-2
+//   rec:1st-tue,3rd-tue  rec:last-fri  rec:mar-1  rec:1st-mon-mar  rec:day-50  rec:after-1m
+//   rec:RRULE:FREQ=…;BYDAY=…
 //
 // By default the next date follows the calendar from the current due date (a bill due on the 6th is
 // next due on the 6th, however early it's paid); `after-` counts from the day it was done instead.
+// One break from RFC 5545: a day of the month that a month doesn't have (the 31st in April) falls on
+// that month's last day rather than skipping the month.
 
 export type Freq = "day" | "week" | "month" | "year";
 
@@ -63,9 +66,10 @@ export function parseRule(raw: string): Rule | null {
     return { ...blank("week", weekly[1] ? +weekly[1] : 1), byDay: unique(weekly[2].split(",").map((d) => ({ n: 0, day: DAYS.indexOf(d) }))) };
   }
   const items = s.split(",");
-  if (items.every((x) => x === "last-day" || /^\d{1,2}(st|nd|rd|th)$/.test(x))) {
-    const days = items.map((x) => (x === "last-day" ? -1 : parseInt(x, 10)));
-    return days.every((d) => d === -1 || (d >= 1 && d <= 31)) ? { ...blank("month"), byMonthDay: [...new Set(days)] } : null;
+  if (items.every((x) => /^last-day(-[1-9]\d?)?$/.test(x) || /^\d{1,2}(st|nd|rd|th)$/.test(x))) {
+    // last-day is -1, and last-day-N the Nth day before it.
+    const days = items.map((x) => (x.startsWith("last-day") ? -1 - (+x.slice(9) || 0) : parseInt(x, 10)));
+    return days.every((d) => d >= -31 && d !== 0 && d <= 31) ? { ...blank("month"), byMonthDay: [...new Set(days)] } : null;
   }
   const ords = items.map((x) => x.split("-"));
   if (ords.every((p) => p.length === 2 && ORDINAL.test(p[0]) && DAYS.includes(p[1]))) {
@@ -132,6 +136,20 @@ function unique(days: Rule["byDay"]): Rule["byDay"] {
   return days.filter((d, i) => days.findIndex((o) => o.n === d.n && o.day === d.day) === i);
 }
 
+/**
+ * The days past the 28th a monthly rule lands on, which shorter months don't have, and the same rule
+ * on the last day of the month instead. A day of the rule's own falls on a shorter month's last day;
+ * a plain monthly takes its day from `due` and `skips` the months without it. Null for none.
+ */
+export function pastThe28th(r: Rule, due: string | null = null): { days: number[]; skips: boolean; lastDay: Rule } | null {
+  if (r.freq !== "month" || r.from !== "due" || r.byDay.length || r.byMonth.length || r.byYearDay.length) return null;
+  const skips = !r.byMonthDay.length;
+  const dueDay = due ? +due.slice(8, 10) : 0;
+  const days = skips ? (dueDay > 28 ? [dueDay] : []) : r.byMonthDay.filter((d) => d > 28);
+  if (!days.length) return null;
+  return { days, skips, lastDay: { ...r, byMonthDay: skips ? [-1] : [...new Set(r.byMonthDay.map((d) => (d > 28 ? -1 : d)))] } };
+}
+
 /** What's wrong with a `rec:` value, or null if it's a rule. */
 export function ruleProblem(raw: string): string | null {
   if (parseRule(raw)) return null;
@@ -154,7 +172,7 @@ export function formatRule(r: Rule): string {
     return r.interval === 1 ? days : `${r.interval}w-${days}`;
   }
   if (r.interval === 1 && r.freq === "month") {
-    if (only("byMonthDay") && r.byMonthDay.every((d) => d > 0 || d === -1)) return r.byMonthDay.map((d) => (d === -1 ? "last-day" : nth(d))).join(",");
+    if (only("byMonthDay")) return r.byMonthDay.map((d) => (d > 0 ? nth(d) : d === -1 ? "last-day" : `last-day-${-d - 1}`)).join(",");
     if (only("byDay") && r.byDay.every((d) => (d.n >= 1 && d.n <= 5) || d.n === -1)) return r.byDay.map(day).join(",");
   }
   if (r.interval === 1 && r.freq === "year") {
@@ -204,7 +222,9 @@ export function ruleLabel(r: Rule, long = false): string {
     if (byDay) return `${(full ? andList : ampList)(r.byDay.map((d) => nth(d.n)))} ${name(r.byDay[0].day)}`;
     return (full ? andList : ampList)(r.byDay.map((d) => `${nth(d.n)} ${name(d.day)}`));
   };
-  const monthDays = (full: boolean) => (full ? andList : ampList)(r.byMonthDay.map((d) => (d === -1 ? (full ? "last day" : "Last day") : d < 0 ? `${nth(-d)} from last` : nth(d))));
+  /** The `n`th day before the last day (0: the last day itself). */
+  const fromEnd = (n: number, full: boolean) => (!full ? (n ? `Last day − ${n}` : "Last day") : n === 0 ? "last day" : n === 1 ? "day before the last day" : `${nth(n)} day before the last day`);
+  const monthDays = (full: boolean) => (full ? andList : ampList)(r.byMonthDay.map((d) => (d < 0 ? fromEnd(-d - 1, full) : nth(d))));
   const months = (full: boolean) => andList(r.byMonth.map((m) => (full ? MONTH_NAMES[m - 1] : MONTH_NAMES[m - 1].slice(0, 3))));
   const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
   if (!long) {
@@ -279,8 +299,10 @@ function period(r: Rule, anchor: number, k: number): number[] {
 function inMonth(r: Rule, y: number, m: number, anchorDay: number): number[] {
   const first = dayNumber(y, m, 1);
   const last = first + daysIn(y, m) - 1;
-  const byMonthDay = r.byMonthDay.map((d) => (d > 0 ? valid(y, m, d) : daysIn(y, m) + d + 1 >= 1 ? last + d + 1 : null)).filter((x): x is number => x !== null);
   const byDay = r.byDay.flatMap((d) => weekdaysBetween(first, last, d.n, d.day));
+  // A day on its own that the month doesn't have (the 31st in April) is its last day; with weekdays too (Friday the 31st), it's none.
+  const day = (d: number) => (d < 0 ? (last + d + 1 >= first ? last + d + 1 : null) : first + d - 1 <= last ? first + d - 1 : r.byDay.length ? null : last);
+  const byMonthDay = [...new Set(r.byMonthDay.map(day).filter((x): x is number => x !== null))];
   if (r.byMonthDay.length && r.byDay.length) return byMonthDay.filter((x) => byDay.includes(x));
   if (r.byMonthDay.length) return byMonthDay;
   if (r.byDay.length) return byDay;

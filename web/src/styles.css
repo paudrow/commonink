@@ -2080,6 +2080,11 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .chip-rec-seg button + button { border-left: 1px solid var(--line-strong); }
 .chip-rec-seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-ink); font-weight: 500; }
 .chip-rec-seg button:disabled { opacity: 0.45; cursor: default; }
+.rec-note { flex-basis: 100%; margin-top: 2px; font-size: 12.5px; color: var(--muted); }
+.rec-note-use { padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: var(--accent-ink); cursor: pointer; }
+.rec-note-use:hover, .rec-note-use:focus-visible { text-decoration: underline; }
+.chip-rec-note:empty { display: none; }
+.chip-rec-note .rec-note { margin: 0 0 8px; }
 .chip-rec-hint { margin-top: -4px; text-align: right; font-size: 12px; color: var(--muted); }
 .chip-rec-about { display: grid; gap: 2px; padding: 8px 10px; border-radius: 8px; background: var(--hover); }
 .chip-rec-summary { font-size: 13.5px; color: var(--ink-strong); }

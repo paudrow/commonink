@@ -4,6 +4,7 @@
 import type { Completion, CompletionContext, CompletionResult } from "@codemirror/autocomplete";
 import type { EditorView } from "@codemirror/view";
 import { addDays, localDate } from "../../../src/core/tasks.ts";
+import { formatRule, parseRule, pastThe28th } from "../../../src/core/recurrence.ts";
 import { REPEAT_PICKS, type MenuField } from "../taskChipEditors.ts";
 import { inTaskText } from "./taskEdit.ts";
 
@@ -30,6 +31,12 @@ const openEditor = (field: MenuField, tokenFrom: number, opts?: { more?: boolean
   void import("./taskTools.ts").then((m) => m.openFieldAt(view, field, cut, opts));
 };
 
+/** A typed `rec:` value's days past the 28th, if it's a monthly rule with any. */
+const monthEnd = (value: string) => {
+  const rule = parseRule(value);
+  return rule && pastThe28th(rule);
+};
+
 /** An option with the icon the completion list draws beside it. */
 const pick = (c: Completion, icon: string): Completion => ({ ...c, icon }) as Completion;
 
@@ -42,9 +49,24 @@ export function taskTokenSource(ctx: CompletionContext): CompletionResult | null
   }
   const from = typed.from + key.length + 1;
   if (key === "rec") {
+    // A day past the 28th: keep it (first, so Enter changes nothing), or take the last day of the month.
+    const value = typed.text.slice(from - typed.from);
+    const hint = monthEnd(value);
+    if (hint) {
+      const lastDay = formatRule(hint.lastDay);
+      return {
+        from,
+        filter: false,
+        options: [
+          pick({ label: value, detail: "Shorter months use their last day", apply: value }, "reset"),
+          pick({ label: "Last day of the month", detail: lastDay, apply: lastDay }, "reset"),
+        ],
+      };
+    }
     return {
       from,
-      validFor: /^\S*$/,
+      // Asked again once the value becomes a day past the 28th, for the choice above.
+      validFor: (text: string) => /^\S*$/.test(text) && !monthEnd(text),
       options: [
         ...REPEAT_PICKS.map(([label, rec], i) => pick({ label, detail: rec, apply: rec, boost: -i }, "reset")),
         pick({ label: "More options…", apply: openEditor("rec", typed.from, { more: true }), boost: -99 }, "sliders"),

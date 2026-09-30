@@ -78,6 +78,7 @@ const REPEATS: Array<[RegExp, (m: RegExpExecArray) => string]> = [
   [re(`(?:every\\s+(?:(${NUM})\\s+)?|(${NUM})\\s+)(${UNIT})\\s+${DONE}`), (m) => `after-${count(m[1] ?? m[2] ?? "1")}${unitOf(m[3])}`],
   [re(`every\\s+weekday`), () => "mon,tue,wed,thu,fri"],
   [re(`every\\s+weekend`), () => "sat,sun"],
+  [re(`(?:every\\s+month\\s+|monthly\\s+)?(?:on\\s+)?(?:the\\s+day|(${NUM})\\s+days?)\\s+before\\s+the\\s+(?:end|last\\s+day)\\s+of\\s+(?:the|every|each)\\s+month`), (m) => `last-day-${m[1] ? count(m[1]) : 1}`],
   [re(`(?:every\\s+month\\s+on\\s+|monthly\\s+on\\s+|on\\s+)?the\\s+last\\s+day\\s+of\\s+(?:the|every|each)\\s+month|every\\s+last\\s+day(?:\\s+of\\s+the\\s+month)?`), () => "last-day"],
   [re(`(?:every\\s+)?(?:the\\s+)?(${ORD})\\s+(${DAY_ANY})\\s+of\\s+(?:the|every|each)\\s+month|every\\s+(${ORD})\\s+(${DAY_ANY})`), (m) => `${nth(ORDINALS[(m[1] ?? m[3]).toLowerCase()])}-${DAYS[dayOf(m[2] ?? m[4])]}`],
   [re(`(?:every\\s+month|monthly)\\s+on\\s+the\\s+(\\d{1,2})(?:st|nd|rd|th)?|on\\s+the\\s+(\\d{1,2})(?:st|nd|rd|th)?\\s+of\\s+(?:every|each)\\s+month|every\\s+(\\d{1,2})(?:st|nd|rd|th)`), (m) => nth(+(m[1] ?? m[2] ?? m[3]))],

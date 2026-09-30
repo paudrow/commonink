@@ -92,6 +92,7 @@ test("a monthly day past the 28th gets a note offering the last day of the month
 });
 
 test("the repeat form notes a day past the 28th, and switches it to the last day in one click", async () => {
+  Object.assign(globalThis, { innerWidth: window.innerWidth, innerHeight: window.innerHeight }); // where the popover sits
   const saved: TaskPatch[] = [];
   const anchor = el("button");
   document.body.replaceChildren(anchor);
