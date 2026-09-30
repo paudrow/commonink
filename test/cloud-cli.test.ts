@@ -158,6 +158,17 @@ test("only an app that asks for every workspace can be given every workspace", a
   assert.match(await answer.text(), /Pick one of your workspaces/);
 });
 
+test("Revoke in Connected agents cuts the CLI off at its next command", async () => {
+  const c = cli();
+  await login(c, people.editor);
+  assert.equal(c.run(["ls", "--workspace", "Team"]).status, 0);
+  const [agent] = await cloud.call(people.editor, "GET", "/api/agents");
+  await cloud.call(people.editor, "POST", "/api/agents/revoke", { id: agent.id });
+  const r = c.run(["ls", "--workspace", "Team"]);
+  assert.equal(r.status, 7);
+  assert.match(r.stderr, /^Your sign-in to http:\/\/\S+ has ended\. Run quire login\.\n$/);
+});
+
 test("logout ends the sign-in on the server too; then commands say to log in, or use the local vault", async () => {
   const c = cli();
   await login(c, people.owner);
