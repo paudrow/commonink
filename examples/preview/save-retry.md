@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 118
 title: Saves that fail are tried again
 ---
 A save that couldn't reach the server used to stay "Not saved" until you typed again, even after the connection came back. Closing the tab then lost the text without a word.
