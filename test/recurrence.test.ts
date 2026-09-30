@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { endsLabel, formatRule, nextDue, occurrences, parseRule, ruleLabel, ruleProblem } from "../src/core/recurrence.ts";
+import { endsLabel, formatRule, nextDue, occurrences, parseRule, pastThe28th, ruleLabel, ruleProblem } from "../src/core/recurrence.ts";
 
 const next = (token: string, due: string | null, done = "2026-01-01") => nextDue(parseRule(token)!, due, done);
 const three = (token: string, from: string) => occurrences(parseRule(token)!, from, 3);
@@ -69,12 +69,45 @@ test("the nth weekday of the month, and a 5th Tuesday that some months don't hav
   assert.deepEqual(three("RRULE:FREQ=MONTHLY;BYDAY=5TU", "2026-09-29"), ["2026-12-29", "2027-03-30", "2027-06-29"]);
 });
 
-test("month ends and Feb 29 skip the months and years that don't have the day (RFC 5545)", () => {
-  assert.deepEqual(three("monthly", "2026-01-31"), ["2026-03-31", "2026-05-31", "2026-07-31"]);
+test("a day a shorter month doesn't have falls on its last day; a plain monthly or yearly from one skips it", () => {
+  assert.deepEqual(three("31st", "2026-01-31"), ["2026-02-28", "2026-03-31", "2026-04-30"]);
+  assert.deepEqual(three("30th", "2026-01-30"), ["2026-02-28", "2026-03-30", "2026-04-30"]);
+  assert.deepEqual(three("29th", "2028-01-29"), ["2028-02-29", "2028-03-29", "2028-04-29"]); // a leap year has one
+  assert.deepEqual(three("RRULE:FREQ=MONTHLY;BYMONTHDAY=31", "2026-01-31"), ["2026-02-28", "2026-03-31", "2026-04-30"]);
+  assert.deepEqual(three("feb-29", "2096-02-29"), ["2097-02-28", "2098-02-28", "2099-02-28"]);
   assert.deepEqual(three("last-day", "2026-01-31"), ["2026-02-28", "2026-03-31", "2026-04-30"]);
-  assert.deepEqual(three("31st", "2026-01-31"), ["2026-03-31", "2026-05-31", "2026-07-31"]);
+  // Only a day on its own falls back: a Friday the 31st still needs a Friday that's the 31st.
+  assert.deepEqual(three("RRULE:FREQ=MONTHLY;BYDAY=FR;BYMONTHDAY=31", "2026-01-01"), ["2026-07-31", "2027-12-31", "2028-03-31"]);
+  // With no day of its own, the rule follows the due date's day and skips months without it (RFC 5545).
+  assert.deepEqual(three("monthly", "2026-01-31"), ["2026-03-31", "2026-05-31", "2026-07-31"]);
   assert.deepEqual(three("yearly", "2024-02-29"), ["2028-02-29", "2032-02-29", "2036-02-29"]);
-  assert.deepEqual(three("feb-29", "2096-02-29"), ["2104-02-29", "2108-02-29", "2112-02-29"]); // 2100 isn't a leap year
+});
+
+test("days counted from the end of the month: last-day, and last-day-N for N days before it", () => {
+  assert.deepEqual(three("last-day-1", "2026-01-30"), ["2026-02-27", "2026-03-30", "2026-04-29"]);
+  assert.deepEqual(three("last-day-2", "2026-02-01"), ["2026-02-26", "2026-03-29", "2026-04-28"]);
+  for (const t of ["last-day-1", "last-day-30", "15th,last-day-1"]) assert.equal(formatRule(parseRule(t)!), t, t);
+  assert.equal(formatRule(parseRule("RRULE:FREQ=MONTHLY;BYMONTHDAY=-2")!), "last-day-1");
+  assert.deepEqual(["last-day-0", "last-day-31", "last-day-x"].map(parseRule), [null, null, null]);
+  const both = (t: string) => [ruleLabel(parseRule(t)!), ruleLabel(parseRule(t)!, true)];
+  assert.deepEqual(both("last-day"), ["Last day", "Every month on the last day"]);
+  assert.deepEqual(both("last-day-1"), ["Last day − 1", "Every month on the day before the last day"]);
+  assert.deepEqual(both("last-day-2"), ["Last day − 2", "Every month on the 2nd day before the last day"]);
+});
+
+test("a monthly day past the 28th offers the last day of the month instead", () => {
+  const offer = (t: string, due: string | null = null) => {
+    const hint = pastThe28th(parseRule(t)!, due);
+    return hint && { days: hint.days, skips: hint.skips, instead: formatRule(hint.lastDay) };
+  };
+  assert.deepEqual(offer("31st"), { days: [31], skips: false, instead: "last-day" });
+  assert.deepEqual(offer("29th"), { days: [29], skips: false, instead: "last-day" });
+  assert.deepEqual(offer("15th,30th"), { days: [30], skips: false, instead: "15th,last-day" });
+  assert.deepEqual(offer("RRULE:FREQ=MONTHLY;INTERVAL=2;BYMONTHDAY=31"), { days: [31], skips: false, instead: "RRULE:FREQ=MONTHLY;INTERVAL=2;BYMONTHDAY=-1" });
+  // A plain monthly takes its day from the due date, and skips the months without it.
+  assert.deepEqual(offer("monthly", "2026-10-31"), { days: [31], skips: true, instead: "last-day" });
+  assert.deepEqual(offer("2m", "2026-10-30T09:00"), { days: [30], skips: true, instead: "RRULE:FREQ=MONTHLY;INTERVAL=2;BYMONTHDAY=-1" });
+  assert.deepEqual([offer("28th"), offer("last-day"), offer("last-fri"), offer("monthly"), offer("monthly", "2026-10-28"), offer("mar-31"), offer("after-1m", "2026-10-31")], [null, null, null, null, null, null, null]);
 });
 
 test("yearly on a date, on the nth weekday of a month, and on a day of the year", () => {
