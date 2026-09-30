@@ -3,19 +3,37 @@
 // uses the editor's own Lezer grammars and colors, each language loaded the first time a block
 // needs it. The info string's settings (nowrap, title, lines to highlight) are in core/fence.ts.
 import type { Language, LanguageDescription } from "@codemirror/language";
-import { highlightTree } from "@lezer/highlight";
+import { highlightTree, tagHighlighter, tags as t, type Highlighter } from "@lezer/highlight";
 import { el, icon } from "./dom.ts";
 import { quireHighlight } from "./editor/language.ts";
 import { codeLanguage, languageNames, shortName } from "./codeLanguage.ts";
-import { diffLine, parseFence, setFenceLang, toggleWrap, wraps } from "../../src/core/fence.ts";
+import { diffLine, parseFence, setFenceLang, toggleWrap, wraps, type Fence } from "../../src/core/fence.ts";
 
 /** One line of highlighted code: runs of text, each with its highlight classes ("" for none). */
 export type CodeLine = Array<[text: string, cls: string]>;
 
 const loading = new Map<LanguageDescription, Promise<Language>>();
 
+/**
+ * Highlighting for paper and files (print, exports): the editor's colors as stable class names
+ * (`c-keyword`…), which the export stylesheet colors, since the editor's generated classes only
+ * exist in the app.
+ */
+export const staticHighlight = tagHighlighter([
+  { tag: [t.keyword, t.moduleKeyword, t.controlKeyword, t.tagName, t.angleBracket], class: "c-keyword" },
+  { tag: [t.string, t.special(t.string), t.regexp], class: "c-string" },
+  { tag: [t.comment, t.lineComment, t.blockComment], class: "c-comment" },
+  { tag: [t.number, t.bool, t.null], class: "c-number" },
+  { tag: [t.function(t.variableName), t.function(t.propertyName), t.definition(t.function(t.variableName)), t.definition(t.variableName)], class: "c-fn" },
+  { tag: [t.typeName, t.className, t.namespace], class: "c-type" },
+  { tag: [t.propertyName, t.attributeName, t.definition(t.propertyName)], class: "c-prop" },
+  { tag: [t.operator, t.punctuation, t.separator, t.bracket], class: "c-punct" },
+  { tag: [t.heading, t.strong], class: "c-strong" },
+  { tag: t.emphasis, class: "c-em" },
+]);
+
 /** The code in lines of highlighted runs, in `lang`'s grammar; plain lines when there's none. */
-export async function highlight(code: string, lang: string): Promise<CodeLine[]> {
+export async function highlight(code: string, lang: string, style: Highlighter = quireHighlight): Promise<CodeLine[]> {
   const desc = codeLanguage(lang);
   if (!desc) return plainLines(code);
   let pending = loading.get(desc);
@@ -23,7 +41,7 @@ export async function highlight(code: string, lang: string): Promise<CodeLine[]>
   const language = await pending.catch(() => null);
   if (!language) return plainLines(code);
   const runs: Array<[number, number, string]> = [];
-  highlightTree(language.parser.parse(code), quireHighlight, (from, to, cls) => runs.push([from, to, cls]));
+  highlightTree(language.parser.parse(code), style, (from, to, cls) => runs.push([from, to, cls]));
   const lines: CodeLine[] = [[]];
   let at = 0;
   const push = (to: number, cls: string) => {
@@ -80,23 +98,7 @@ export function renderCodeBlock(code: string, info: string, actions?: CodeAction
     el("div", { class: "cb-head" }, fence.title ? el("span", { class: "cb-title" }, fence.title) : null, el("span", { class: "spacer" }), ...tools(code, info, fence.lang, wrap, actions)),
     pre,
   );
-  const draw = (lines: CodeLine[]) => {
-    const isDiff = codeLanguage(fence.lang)?.name === "diff";
-    const src = code.split("\n");
-    pre.replaceChildren(
-      el(
-        "code",
-        {},
-        ...lines.map((runs, i) => {
-          const kind = isDiff ? diffLine(src[i] ?? "") : null;
-          const cls = `cb-line${kind ? ` is-${kind}` : ""}${fence.highlight.has(i + 1) ? " is-marked" : ""}`;
-          const line = el("span", { class: cls, "data-line": String(i) }, ...runs.map(([text, c]) => (c ? el("span", { class: c }, text) : text)));
-          if (!runs.length) line.append("\n"); // an empty line keeps its height
-          return line;
-        }),
-      ),
-    );
-  };
+  const draw = (lines: CodeLine[]) => pre.replaceChildren(codeLines(code, fence, lines));
   draw(plainLines(code));
   if (codeLanguage(fence.lang)) void highlight(code, fence.lang).then(draw);
   if (actions) {
@@ -108,6 +110,38 @@ export function renderCodeBlock(code: string, info: string, actions?: CodeAction
     });
   }
   return box;
+}
+
+/** The `<code>` of a block: a span per line, marked as a diff's added or removed line or as one to highlight. */
+function codeLines(code: string, fence: Fence, lines: CodeLine[]): HTMLElement {
+  const isDiff = codeLanguage(fence.lang)?.name === "diff";
+  const src = code.split("\n");
+  return el(
+    "code",
+    {},
+    ...lines.map((runs, i) => {
+      const kind = isDiff ? diffLine(src[i] ?? "") : null;
+      const cls = `cb-line${kind ? ` is-${kind}` : ""}${fence.highlight.has(i + 1) ? " is-marked" : ""}`;
+      const line = el("span", { class: cls, "data-line": String(i) }, ...runs.map(([text, c]) => (c ? el("span", { class: c }, text) : text)));
+      if (!runs.length) line.append("\n"); // an empty line keeps its height
+      return line;
+    }),
+  );
+}
+
+/**
+ * A block for paper and files: its title and language, its lines highlighted with staticHighlight's
+ * classes, and no buttons. Long lines always wrap, since paper can't scroll.
+ */
+export async function staticCodeBlock(code: string, info: string): Promise<HTMLElement> {
+  const fence = parseFence(info);
+  const lines = codeLanguage(fence.lang) ? await highlight(code, fence.lang, staticHighlight) : plainLines(code);
+  return el(
+    "div",
+    { class: `cb${fence.lineNumbers ? " has-numbers" : ""}`, "data-lang": fence.lang.toLowerCase() },
+    el("div", { class: "cb-head" }, fence.title ? el("span", { class: "cb-title" }, fence.title) : null, el("span", { class: "spacer" }), el("span", { class: "cb-lang" }, fence.lang || "code")),
+    el("pre", { class: "cb-pre" }, codeLines(code, fence, lines)),
+  );
 }
 
 function tools(code: string, info: string, lang: string, wrap: boolean, actions?: CodeActions): HTMLElement[] {
