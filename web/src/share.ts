@@ -3,7 +3,7 @@
 // Export as Markdown, a web page, Word or PDF, and places for what comes next: sharing with people (#12, which
 // fills its item in with setShareWithPeople) and Google Drive (#47). Printing and exporting load
 // only when picked (export/).
-import { el, icon } from "./dom.ts";
+import { el, icon, setLabel } from "./dom.ts";
 import { formatKeys } from "./keys.ts";
 
 export interface ShareNote {
@@ -116,9 +116,25 @@ export function toggleShareMenu(anchor: HTMLElement, note: ShareNote, toast: (te
 function place(menu: HTMLElement, anchor: HTMLElement) {
   const r = anchor.getBoundingClientRect();
   const w = menu.offsetWidth;
-  menu.style.top = `${Math.min(r.bottom + 6, innerHeight - menu.offsetHeight - 8)}px`;
-  menu.style.left = `${Math.max(8, Math.min(r.right - w, innerWidth - w - 8))}px`;
+  menu.style.top = `${Math.min(r.bottom + 6, window.innerHeight - menu.offsetHeight - 8)}px`;
+  menu.style.left = `${Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8))}px`;
 }
 
-/** The Share button's tooltip, with its shortcut. */
-export const shareLabel = () => `Share, print or export (${formatKeys(SHARE_KEYS)})`;
+/** Whether the open note is shared with people or by link (#12 says so, with setShareState). */
+let shared = false;
+
+/**
+ * Light the Share button when the open note is shared (per-note sharing, #12, calls this whenever
+ * the open note or its sharing changes; false for a note that isn't shared).
+ */
+export function setShareState(isShared: boolean) {
+  shared = isShared;
+  const button = document.getElementById("share-btn");
+  if (button) paintShareButton(button);
+}
+
+/** The Share button's look and name: lit when the note is shared, and its shortcut in the tooltip. */
+export function paintShareButton(button: HTMLElement) {
+  button.classList.toggle("is-on", shared);
+  setLabel(button, `${shared ? "Shared. " : ""}Share, print or export (${formatKeys(SHARE_KEYS)})`);
+}
