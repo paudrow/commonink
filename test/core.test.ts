@@ -73,6 +73,24 @@ test("moving a note leaves alone a link in the same note that points at another 
   assert.equal(quire.read("Other/A.md").content, "# A\n\n[[C]] and [local](B.md)\n");
 });
 
+test("moving a note rewrites a markdown link that reaches it through ../", () => {
+  const { quire } = openTempVault({ "Team/Standup.md": "# Standup\n\n[the plan](../Plan.md)\n", "Plan.md": "# Plan\n" });
+  quire.move("Plan.md", "Plan 2027.md", "t");
+  assert.equal(quire.read("Team/Standup").content, "# Standup\n\n[the plan](Plan%202027.md)\n");
+  assert.deepEqual(quire.backlinks("Plan 2027").map((b) => b.path), ["Team/Standup.md"]);
+});
+
+test("backlinks include markdown links relative to the linking note's folder, in an older index too", () => {
+  const files = { "Team/Standup.md": "[up](../Plan.md)\n\n[down](Sub/Plan.md)\n", "Plan.md": "# Plan\n", "Team/Sub/Plan.md": "# Sub plan\n" };
+  const { dir, quire } = openTempVault(files);
+  assert.deepEqual(quire.backlinks("Plan.md").map((b) => b.text), ["[up](../Plan.md)"]);
+  assert.deepEqual(quire.backlinks("Team/Sub/Plan.md").map((b) => b.text), ["[down](Sub/Plan.md)"]);
+  quire.db.run("UPDATE links SET key = CASE line WHEN 1 THEN '../plan' ELSE 'sub/plan' END");
+  const reopened = openVault(dir);
+  assert.deepEqual(reopened.backlinks("Plan.md").map((b) => b.text), ["[up](../Plan.md)"]);
+  assert.deepEqual(reopened.backlinks("Team/Sub/Plan.md").map((b) => b.text), ["[down](Sub/Plan.md)"]);
+});
+
 test("moving a note rewrites a link that would otherwise fall through to another note with its old name", () => {
   const { quire } = openTempVault({ "A.md": "# A\n\n[[B]]\n", "Projects/B.md": "# proj B\n", "Old/Deeper/B.md": "# old B\n" });
   quire.move("Projects/B.md", "Projects/C.md", "t");
