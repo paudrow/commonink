@@ -266,6 +266,26 @@ export interface TrashItem extends Trashed {
   expiresAt: number;
   by: { source: string; person: string | null; agent: string | null } | null;
   excerpt: string;
+  /** How many labels it has, which deleting it for good deletes too (none if left out). */
+  labels?: number;
+}
+/** A label of a note (core Quire.label). */
+export interface Label {
+  id: string;
+  note_id: string;
+  /** Where the note is now; null while it's in Trash. */
+  path: string | null;
+  /** The change right before this version, or null. */
+  change_id: number | null;
+  name: string;
+  description: string | null;
+  version: string;
+  ts: number;
+  source: string;
+  person: string | null;
+  agent: string | null;
+  /** The note is at this version now. */
+  current: boolean;
 }
 export interface DeleteCheck {
   notes: number;
@@ -402,6 +422,15 @@ export const api = {
   /** The net lines added and removed by each set of changes (ranges as for diffs), at most 50 sets. */
   diffStats: (sets: string[]) => j<Array<LineStat | null>>(`${BASE}/diffstats?sets=${sets.join(";")}`),
   /** Put a note back the way it was before change #id; with `version`, only if the note is still at that version. */
+  /** A note's labels, or every note's. */
+  labels: (path?: string) => j<Label[]>(`${BASE}/labels${path ? `?path=${enc(path)}` : ""}`),
+  label: (path: string, name: string, opts: { description?: string; at?: number } = {}) => j<Label>(`${BASE}/labels`, send("POST", { path, name, ...opts })),
+  renameLabel: (id: string, name: string, description: string | null) => j<Label>(`${BASE}/labels/rename`, send("POST", { id, name, description })),
+  deleteLabel: (id: string) => j<Label>(`${BASE}/labels/delete`, send("POST", { id })),
+  /** A label's text beside another label's, or the note's now (`to` = "now"). */
+  compareLabels: (from: string, to = "now") =>
+    j<{ path: string; from: Label & { text: string }; to: (Label & { text: string }) | { now: true; text: string } }>(`${BASE}/labels/compare?from=${enc(from)}&to=${enc(to)}`),
+  restoreLabel: (id: string, version?: string) => j<{ path: string; version: string; change: number | null }>(`${BASE}/labels/restore`, send("POST", { id, version })),
   restore: (id: number, version?: string) => j<{ path: string; version: string; change: number | null }>(`${BASE}/restore`, send("POST", { id, version })),
   changes: () => j<Change[]>(`${BASE}/changes?limit=40`),
   /**

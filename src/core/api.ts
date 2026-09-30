@@ -430,6 +430,29 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       // setting these assets' tags back, undoes the rename without writing over a later edit.
       return json({ changes: r.edits.map((e) => e.change.id), versions: r.edits.map((e) => e.version), assets: r.assets });
     }
+    // Labels (Quire.label): a name on a version of a note, to compare with or go back to.
+    case "GET /labels":
+      return json(quire.labels(q("path") || undefined));
+    case "GET /labels/compare": {
+      // Two versions' text: a label and another label (?to=<id>), or the note now (?to=now, the default).
+      const c = quire.compareLabels(q("from"), q("to") || "now");
+      return json({ path: c.path, from: { ...c.from.label, text: c.from.text }, to: c.to.label ? { ...c.to.label, text: c.to.text } : { now: true, text: c.to.text } });
+    }
+    case "POST /labels": {
+      const at = (raw as { at?: unknown }).at == null ? undefined : int("at"); // a past change to label the version after; now if absent
+      return json(quire.label(str("path"), str("name"), actor, { description: optStr("description"), at }));
+    }
+    case "POST /labels/rename": {
+      const description = (raw as { description?: unknown }).description;
+      return json(quire.renameLabel(str("id"), str("name"), { description: description === undefined ? undefined : description === null ? null : str("description") }));
+    }
+    case "POST /labels/delete":
+      return json(quire.deleteLabel(str("id")));
+    case "POST /labels/restore": {
+      const r = quire.restoreLabel(str("id"), actor, { baseVersion: optStr("version") });
+      if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
+      return json({ path: r.path, version: r.version, change: r.change?.id ?? null }); // restoring `change` undoes this
+    }
     case "POST /restore": {
       const r = quire.restore(int("id"), actor, optStr("version"));
       if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);

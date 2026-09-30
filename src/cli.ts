@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import { LOCAL_USER, openVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
-import { fmtBacklinks, fmtBoards, fmtChanges, fmtContact, fmtContactLine, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtTrash, fmtWrite } from "./core/format.ts";
+import { fmtBacklinks, fmtBoards, fmtChanges, fmtContact, fmtContactLine, fmtFavorites, fmtLabels, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtTrash, fmtVersionDiff, fmtWrite } from "./core/format.ts";
 import { matchContacts } from "./core/contacts.ts";
 import { parseQuery } from "./core/query.ts";
 import { fmtTemplate } from "./core/tools.ts";
@@ -82,6 +82,16 @@ Usage: quire <command> [args] [--agent <name>] [--json]
                                    a note as its markdown, one web page or a Word document, or
                                    notes as a .zip with their files, folders kept and links that
                                    work in Obsidian ("/" is every note); --out - writes to stdout
+  label <note> <name…> [--at <change-id>] [--description D]
+                                   name the note's version ("v1", "Sent to Alex"), now or right
+                                   after a change, to compare with or go back to later
+  labels [note]                    a note's labels (or every note's), with their IDs
+  label-rename <label> <name…> [--note N] [--description D]
+  label-rm <label> [--note N]      take a name off a version (the note stays as it is)
+  diff <note> --from <label> [--to <label>]
+                                   what changed since a label (or between two)
+  restore <note> --to <label>      put the note back to a label (undoable)
+                                   <label> is a label's ID, or its name on the note
   events [--from YYYY-MM-DD] [--days N] [--query words] [--tz Zone]
                                    calendar events, soonest first (default: the next 7 days);
                                    feeds that are due are read first
@@ -408,7 +418,46 @@ if (cmd === "mcp") {
         out(fmtFavorites(list), list);
         break;
       }
+      case "label": {
+        const note = need(0, "note");
+        if (!args[1]) throw new QuireError('Name the version: quire label <note> "v1"');
+        const at = num("at");
+        const m = q.label(note, args.slice(1).join(" "), source, { description: str("description"), at });
+        out(`Labeled ${m.path} as "${m.name}" [${m.id}]${m.change_id ? `, after change #${m.change_id}` : ""}`, m);
+        break;
+      }
+      case "labels": {
+        const labels = q.labels(args[0]);
+        out(fmtLabels(labels, args[0]), labels);
+        break;
+      }
+      case "label-rename": {
+        const ref = need(0, "label");
+        if (!args[1]) throw new QuireError("label-rename needs the new name");
+        const m = q.renameLabel(ref, args.slice(1).join(" "), { target: str("note"), description: str("description") });
+        out(`Renamed the label to "${m.name}" [${m.id}]`, m);
+        break;
+      }
+      case "label-rm": {
+        const m = q.deleteLabel(need(0, "label"), str("note"));
+        out(`Deleted the label "${m.name}" from ${m.path ?? "a note in Trash"}; the note is as it was`, m);
+        break;
+      }
+      case "diff": {
+        const note = need(0, "note");
+        const from = str("from");
+        if (!from) throw new QuireError("diff needs --from <label>");
+        const c = q.compareLabels(from, str("to") ?? "now", note);
+        const text = fmtVersionDiff(c.path, { label: c.from.label.name, text: c.from.text }, { label: c.to.label ? `"${c.to.label.name}"` : "now", text: c.to.text });
+        out(text, { path: c.path, from: c.from.label, to: c.to.label, diff: text });
+        break;
+      }
       case "restore": {
+        if (str("to")) {
+          const r = q.restoreLabel(str("to")!, source, { target: need(0, "note") });
+          out(r.change ? fmtWrite(r, `Restored to "${r.label.name}":`) : `${r.path} is already at "${r.label.name}"`, r);
+          break;
+        }
         const id = need(0, "change-id");
         if (!/^\d+$/.test(id)) throw new QuireError(`<change-id> must be a whole number, not "${id}"`);
         const r = q.restore(Number(id), source);

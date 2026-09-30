@@ -5,6 +5,9 @@
 //   examples/preview/<slug>/**      that section's demo notes and files, made under Try/<title>/ in
 //                                   the Preview (a `_root/` folder in it goes to the vault's root
 //                                   instead, for things like Templates/)
+//   <Note>.versions/<n> <name>.md    earlier versions of the demo note <Note>.md, oldest first: each is
+//                                   saved in turn and labeled with its name (a label), and
+//                                   then the note itself is saved on top
 //
 // Demo notes can say `{{date}}`, `{{date:+3d}}`, `{{date:-2d}}` or `{{date:+1w}}`, filled in with ISO
 // dates on the day it's seeded, so due dates make sense whenever the Preview deploys. `{{!date}}`
@@ -18,8 +21,8 @@ export interface Section {
   title: string;
   /** The steps, as markdown. */
   body: string;
-  /** Demo files: where each goes in the workspace, and where it is here. */
-  files: Array<{ to: string; from: string }>;
+  /** Demo files: where each goes in the workspace, and where it is here, with any labels to save first. */
+  files: Array<{ to: string; from: string; versions?: Array<{ name: string; from: string }> }>;
 }
 
 /** The day `n` days after `day` (both YYYY-MM-DD). */
@@ -53,8 +56,16 @@ export function readSections(dir: string): Section[] {
       const walk = (rel: string) => {
         for (const ent of fs.readdirSync(path.join(dir, slug, rel), { withFileTypes: true })) {
           const r = rel ? `${rel}/${ent.name}` : ent.name;
+          if (ent.isDirectory() && ent.name.endsWith(".versions")) continue; // a note's earlier versions: read with the note
           if (ent.isDirectory()) walk(r);
-          else files.push({ to: r.startsWith("_root/") ? r.slice(6) : `Try/${title}/${r}`, from: path.join(dir, slug, r) });
+          else {
+            const from = path.join(dir, slug, r);
+            const versionsDir = from.replace(/\.md$/, ".versions");
+            const versions = r.endsWith(".md") && fs.existsSync(versionsDir)
+              ? fs.readdirSync(versionsDir).filter((v) => v.endsWith(".md")).sort().map((v) => ({ name: v.replace(/^\d+\s+/, "").replace(/\.md$/, ""), from: path.join(versionsDir, v) }))
+              : undefined;
+            files.push({ to: r.startsWith("_root/") ? r.slice(6) : `Try/${title}/${r}`, from, ...(versions ? { versions } : {}) });
+          }
         }
       };
       if (fs.existsSync(path.join(dir, slug))) walk("");

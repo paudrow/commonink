@@ -1,7 +1,8 @@
 // Plain-text renderings of core results, shared by the MCP server and the CLI.
 // Agents read markdown far more cheaply than JSON, so this is the default output.
 import { authorLabel } from "./actor.ts";
-import { isTagFavorite, type Backlink, type Change, type Favorite, type Note, type NoteMeta, type Quire, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView, type TrashItem } from "./quire.ts";
+import { createTwoFilesPatch } from "diff";
+import { isTagFavorite, type Backlink, type Change, type Favorite, type Label, type Note, type NoteMeta, type Quire, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView, type TrashItem } from "./quire.ts";
 import type { Board } from "./kanban.ts";
 import type { Contact, TimelineItem } from "./contacts.ts";
 import { localDate } from "./tasks.ts";
@@ -121,6 +122,25 @@ export function fmtChanges(changes: Change[], quire: Pick<Quire, "diffStats">): 
       return `#${c.id} ${when} ${authorLabel(c)}: ${what}${stat && !moved ? ` (${stat})` : ""}`;
     })
     .join("\n");
+}
+
+/** Labels, newest first: each one's name and ID, its note, who labeled it and when. */
+export function fmtLabels(labels: Label[], note?: string): string {
+  if (!labels.length) return note ? `${note} has no labels yet. Label one with label_version.` : "No labels yet.";
+  return labels
+    .map((m) => {
+      const when = new Date(m.ts).toISOString().replace(/\.\d+Z$/, "Z");
+      const at = m.change_id ? `after change #${m.change_id}` : "";
+      const where = m.path ?? "(in Trash)";
+      return `- "${m.name}" [${m.id}] ${where}, labeled ${when} by ${authorLabel(m)}${at ? `, ${at}` : ""}${m.current ? " (the note is at this version now)" : ""}${m.description ? `\n    ${m.description}` : ""}`;
+    })
+    .join("\n");
+}
+
+/** What changed between two versions, as a unified diff (context of 3 lines). */
+export function fmtVersionDiff(path: string, from: { label: string; text: string }, to: { label: string; text: string }): string {
+  if (from.text === to.text) return `${path}: "${from.label}" and ${to.label} are the same.`;
+  return createTwoFilesPatch(`${path} (${from.label})`, `${path} (${to.label})`, from.text, to.text, "", "", { context: 3 }).replace(/^=+\n/, "").trimEnd();
 }
 
 export function fmtWrite(r: { path: string; version: string; change?: Change | null }, verb: string): string {

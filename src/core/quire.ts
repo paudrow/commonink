@@ -92,6 +92,33 @@ export type ArchiveScope = "active" | "archived" | "all";
  * A deleted note or asset, waiting in Trash. Its file sits at `.trash/<id>/<path>`, where the id is
  * "<ms deleted>-<change id>": hidden, so no listing, search, index or /files route ever sees it.
  */
+/** A label of a note: a name on one version, to compare with or go back to. */
+export interface Label {
+  id: string;
+  note_id: string;
+  /** Where the note is now; null while it's in Trash. */
+  path: string | null;
+  /** The change right before this version (its place in History), or null if the log has none. */
+  change_id: number | null;
+  name: string;
+  description: string | null;
+  version: string;
+  /** When it was labeled, and who labeled it. */
+  ts: number;
+  source: string;
+  person: string | null;
+  agent: string | null;
+  /** The note is at this version now. */
+  current: boolean;
+}
+
+/** A label's name: short, one line. */
+export const LABEL_NAME_MAX = 80;
+const LABEL_DESCRIPTION_MAX = 500;
+/** The most labels one note keeps. */
+export const LABELS_PER_NOTE = 200;
+const LABEL_COLS = "m.id, m.note_id, n.path, m.change_id, m.name, m.description, m.version, m.ts, m.source, m.person, m.agent, n.version AS now";
+
 export interface TrashItem {
   id: string;
   /** Where it was. */
@@ -103,6 +130,8 @@ export interface TrashItem {
   expiresAt: number;
   /** Who deleted it, from the change log (null once the log no longer has it). */
   by: Actor & { source: string } | null;
+  /** How many labels it has, which deleting it for good deletes too (none if left out). */
+  labels?: number;
   /** The start of a note's text; empty for an asset. */
   excerpt: string;
 }
@@ -1014,6 +1043,110 @@ export class Quire {
     return { ...this.save(at, before, { source, baseVersion }), path: at };
   }
 
+  // ---------------------------------------------------------------- labels
+
+  /**
+   * Label a version of a note with a name ("Sent to Alex", "v1"): the note as it is now, or, with
+   * `at`, as it was right after that change. The label keeps the version's text.
+   */
+  label(target: string, name: string, source: string, opts: { description?: string; at?: number } = {}): Label {
+    const rel = this.mustResolve(target);
+    if (kindOf(rel) === "asset") throw new QuireError(`${rel} is a file, not a note: only notes have labels`);
+    const noteId = this.meta(rel)!.id;
+    const named = labelName(name);
+    const description = opts.description?.trim().slice(0, LABEL_DESCRIPTION_MAX) || null;
+    let text: string;
+    let changeId: number | null;
+    if (opts.at !== undefined) {
+      const c = this.db.get(`SELECT ${CHANGE_COLS} FROM changes WHERE id = ?`, opts.at) as Change | undefined;
+      if (!c || c.note_id !== noteId) throw new QuireError(`Change #${opts.at} isn't a change to ${rel}`, "not_found");
+      if (c.op === "delete" || c.op === "purge") throw new QuireError(`Change #${opts.at} deleted ${c.path}: there's no version after it to label`);
+      const after = this.textAfter(c);
+      if (after === null) throw new QuireError(`The text right after change #${opts.at} isn't in the change log any more`);
+      [text, changeId] = [after, c.id];
+    } else {
+      text = this.files.read(rel) ?? "";
+      const at = this.db.get("SELECT id FROM changes WHERE note_id = ? AND version = ? ORDER BY id DESC LIMIT 1", noteId, versionOf(text));
+      changeId = at?.id ?? null;
+    }
+    const id = newNoteId();
+    this.db.tx(() => {
+      if (this.db.get("SELECT 1 FROM labels WHERE note_id = ? AND lower(name) = lower(?)", noteId, named)) {
+        throw new QuireError(`${rel} already has a version labeled "${named}"`, "exists");
+      }
+      if ((this.db.get("SELECT count(*) AS n FROM labels WHERE note_id = ?", noteId)?.n ?? 0) >= LABELS_PER_NOTE) {
+        throw new QuireError(`${rel} has ${LABELS_PER_NOTE} labels already: delete one first`, "invalid");
+      }
+      const who = actorOf(source);
+      this.db.run(
+        "INSERT INTO labels(id, note_id, change_id, name, description, version, text, ts, source, person, agent) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        id, noteId, changeId, named, description, versionOf(text), text, this.now(), who.source, who.person, who.agent,
+      );
+    });
+    return this.findLabel(id);
+  }
+
+  /** A note's labels, or every note's (for History), newest first. */
+  labels(target?: string, limit = 500): Label[] {
+    const noteId = target ? this.meta(this.mustResolve(target))?.id : null;
+    return this.db
+      .all<Label & { now: string | null }>(`SELECT ${LABEL_COLS} FROM labels m LEFT JOIN notes n ON n.id = m.note_id WHERE (? IS NULL OR m.note_id = ?) ORDER BY m.ts DESC, m.rowid DESC LIMIT ?`, noteId, noteId, limit)
+      .map(toLabel);
+  }
+
+  /** A label by its ID, or by its name on the note `target`. */
+  findLabel(ref: string, target?: string): Label {
+    const r = ref.trim();
+    let row = this.db.get<Label & { now: string | null }>(`SELECT ${LABEL_COLS} FROM labels m LEFT JOIN notes n ON n.id = m.note_id WHERE m.id = ?`, r);
+    if (!row && target) {
+      const noteId = this.meta(this.mustResolve(target))?.id;
+      row = this.db.get(`SELECT ${LABEL_COLS} FROM labels m LEFT JOIN notes n ON n.id = m.note_id WHERE m.note_id = ? AND lower(m.name) = lower(?)`, noteId, r);
+    }
+    if (!row) throw new QuireError(`No label "${ref}"${target ? ` on ${target}` : ""}. List them with list_labels.`, "not_found");
+    return toLabel(row);
+  }
+
+  /** A label's text. */
+  labelText(ref: string, target?: string): { label: Label; text: string } {
+    const label = this.findLabel(ref, target);
+    return { label, text: this.db.get("SELECT text FROM labels WHERE id = ?", label.id).text as string };
+  }
+
+  renameLabel(ref: string, name: string, opts: { description?: string | null; target?: string } = {}): Label {
+    const label = this.findLabel(ref, opts.target);
+    const named = labelName(name);
+    if (this.db.get("SELECT 1 FROM labels WHERE note_id = ? AND lower(name) = lower(?) AND id != ?", label.note_id, named, label.id)) {
+      throw new QuireError(`This note already has a version labeled "${named}"`, "exists");
+    }
+    const description = opts.description === undefined ? label.description : opts.description?.trim().slice(0, LABEL_DESCRIPTION_MAX) || null;
+    this.db.run("UPDATE labels SET name = ?, description = ? WHERE id = ?", named, description, label.id);
+    return this.findLabel(label.id);
+  }
+
+  /** Take the name off a version. Only the label goes: the note and its history stay as they are. */
+  deleteLabel(ref: string, target?: string): Label {
+    const label = this.findLabel(ref, target);
+    this.db.run("DELETE FROM labels WHERE id = ?", label.id);
+    return label;
+  }
+
+  /** Two versions of a note to compare: a label against another label, or against the note now (`to` = "now"). */
+  compareLabels(from: string, to = "now", target?: string): { path: string; from: { label: Label; text: string }; to: { label: Label | null; text: string } } {
+    const a = this.labelText(from, target);
+    const b = to === "now" ? null : this.labelText(to, target ?? a.label.path ?? undefined);
+    if (b && b.label.note_id !== a.label.note_id) throw new QuireError(`"${a.label.name}" and "${b.label.name}" are labels on different notes`);
+    const path = a.label.path;
+    if (!path) throw new QuireError(`The note labeled "${a.label.name}" is in Trash: restore it to compare its versions`, "not_found");
+    return { path, from: a, to: b ?? { label: null, text: this.files.read(path) ?? "" } };
+  }
+
+  /** Put a note back to a label: one change like any other, so it's in History and can be undone. */
+  restoreLabel(ref: string, source: string, opts: { baseVersion?: string; target?: string } = {}) {
+    const { label, text } = this.labelText(ref, opts.target);
+    if (!label.path) throw new QuireError(`The note labeled "${label.name}" is in Trash: restore it from Trash first`, "not_found");
+    return { ...this.save(label.path, text, { source, baseVersion: opts.baseVersion }), path: label.path, label };
+  }
+
   // ---------------------------------------------------------------- favorites
 
   /**
@@ -1848,7 +1981,9 @@ export class Quire {
       const c = this.db.get("SELECT source, person, agent FROM changes WHERE id = ? AND op = 'delete'", changeId);
       const kind = kindOf(f.path) ?? "asset";
       const text = kind === "asset" ? "" : (this.files.read(f.at) ?? "");
-      return [{ id, path: f.path, kind, size: f.size, deletedAt: ms, expiresAt: ms + TRASH_DAYS * 86_400_000, by: c ?? null, excerpt: kind === "md" ? excerptOf(splitFrontmatter(text).body, titleOf(text, kind, f.path), 240) : "" }];
+      const noteId = this.db.get("SELECT note_id FROM changes WHERE id = ?", changeId)?.note_id;
+      const labels = noteId ? (this.db.get("SELECT count(*) AS n FROM labels WHERE note_id = ?", noteId)?.n ?? 0) : 0;
+      return [{ id, path: f.path, kind, size: f.size, deletedAt: ms, expiresAt: ms + TRASH_DAYS * 86_400_000, by: c ?? null, labels, excerpt: kind === "md" ? excerptOf(splitFrontmatter(text).body, titleOf(text, kind, f.path), 240) : "" }];
     });
   }
 
@@ -1884,8 +2019,10 @@ export class Quire {
       for (const x of this.files.listUnder(`${TRASH}/${id}`)) this.files.remove(x.path);
       const changeId = Number(id.split("-")[1]);
       const noteId = this.db.get("SELECT note_id FROM changes WHERE id = ?", changeId)?.note_id;
-      if (noteId) dropBefores(this.db, "note_id = ?", noteId);
-      else dropBefores(this.db, "id = ?", changeId);
+      if (noteId) {
+        dropBefores(this.db, "note_id = ?", noteId);
+        this.db.run("DELETE FROM labels WHERE note_id = ?", noteId); // its labels keep its text: they go too
+      } else dropBefores(this.db, "id = ?", changeId);
       if (source) this.recordChange({ path: f.path, op: "purge", source, version: null, summary: "deleted forever", from_path: null });
       return [f.path];
     });
@@ -2240,4 +2377,16 @@ function lineCountStat(before: string, after: string): LineStat {
   let del = 0;
   for (const n of count.values()) del += n;
   return { add, del };
+}
+
+/** A label's name, checked: one line, 1 to LABEL_NAME_MAX characters. */
+function labelName(name: string): string {
+  const named = name.replace(/\s+/g, " ").trim();
+  if (!named) throw new QuireError("A label needs a name, like \"v1\" or \"Sent to Alex\"");
+  if (named.length > LABEL_NAME_MAX) throw new QuireError(`A label's name is at most ${LABEL_NAME_MAX} characters`);
+  return named;
+}
+
+function toLabel({ now, ...m }: Label & { now: string | null }): Label {
+  return { ...m, current: now === m.version };
 }

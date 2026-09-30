@@ -9,6 +9,7 @@ import { cleanTag, normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
 import { paintShareButton, SHARE_KEYS, toggleShareMenu, type ShareNote } from "./share.ts";
+import type { Label } from "./api.ts";
 import { hideBanner, showBanner } from "./banner.ts";
 import { showConflict as conflictBanner } from "./conflict.ts";
 import { createState, lineNumbersFor, lineNumbersSlot, openLinkToSide, remote, setVimDisplayLines, vimSlot } from "./editor/setup.ts";
@@ -196,6 +197,7 @@ const loadHistory = once(async () =>
     open: (path) => fromPage(path),
     toast: (t) => toast(t),
     newNote: viewer ? undefined : () => void newNote(),
+    readOnly: viewer,
   })),
 );
 const loadAssets = once(async () =>
@@ -305,6 +307,8 @@ function commands() {
     delete: () => void deleteCurrent(),
     move: () => openMovePicker($("#move-btn")),
     noteHistory: () => s && void showHistory({ note: s.path }),
+    labelVersion: () => void labelCurrent(),
+    noteLabels: () => s && void showHistory({ note: s.path }),
     gettingStarted: async () => {
       const start = (await api.feed({ tag: "start", limit: 1 }).catch(() => null))?.items[0];
       if (start) void openNote(start.path);
@@ -766,16 +770,31 @@ async function refreshCalendars() {
 }
 
 /** History, optionally for one note, with a change selected (e.g. from the activity list). */
-async function showHistory(opts: { note?: string | null; select?: number; push?: boolean } = {}) {
+async function showHistory(opts: { note?: string | null; select?: number; label?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("history");
-  await (await loadHistory()).show({ note: opts.note ?? null, select: opts.select });
+  await (await loadHistory()).show({ note: opts.note ?? null, select: opts.select, label: opts.label });
   const id = opts.note ? notes.find((n) => n.path === opts.note)?.id : undefined;
   if (opts.push !== false) wentTo(id ? `/history?note=${id}` : "/history");
   document.title = `${opts.note ? `${displayName(opts.note)} · ` : ""}History · Common Ink`;
   renderChrome();
   renderTree();
   renderOutline();
+}
+
+// ------------------------------------------------------------------ labels (labels.ts)
+
+/** A label, in its note's History: compared with now, ready to restore. */
+const showLabel = (m: Label) => void showHistory({ note: m.path, label: m.id });
+
+/** Label the focused note's version as it is now: saved first, so the label is what's on screen. */
+async function labelCurrent(name?: string) {
+  const s = active.session;
+  if (!s || s.kind === "asset" || viewer) return;
+  await flushSave();
+  if (!name) return void (await import("./labels.ts")).labelVersion(s.path, { toast, show: showLabel });
+  const label = await api.label(s.path, name).catch((e: Error) => (toast({ text: e.message }), null));
+  if (label) toast({ icon: "label", text: `Labeled this version “${label.name}”`, actionLabel: "Show", action: () => showLabel(label) });
 }
 
 async function showTags(opts: { push?: boolean } = {}) {
@@ -2348,6 +2367,8 @@ Vim.defineEx("notes", "note", () => void showNotes());
 Vim.defineEx("calendar", "cal", () => void showCalendar());
 Vim.defineEx("star", "star", () => active.session && void toggleStar(active.session.path));
 Vim.defineEx("share", "sha", () => openShare());
+// :label names the note's version as it is now (:label v1); with no name, it asks for one.
+Vim.defineEx("label", "label", (_cm: unknown, params: { args?: string[] }) => void labelCurrent(params.args?.join(" ").trim() || undefined));
 Vim.defineEx("focus", "foc", () => void setFocusMode(!focusMode));
 Vim.defineEx("vsplit", "vs", (_cm: unknown, params: { args?: string[] }) => {
   const arg = params.args?.join(" ");
