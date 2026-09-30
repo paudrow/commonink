@@ -4,10 +4,12 @@
 // in, and the person's role there, are read fresh on every request.
 import { json } from "../../src/core/api.ts";
 import { agentSource } from "../../src/core/actor.ts";
-import { COMMANDS } from "../../src/core/commands/index.ts";
+import { COMMANDS, UsageError, type WorkspaceSettings } from "../../src/core/commands/index.ts";
+import { QuireError } from "../../src/core/paths.ts";
 import { CLI_ROUTE, fromWire, toWire, type RunRequest, type RunResponse } from "../../src/core/commands/wire.ts";
 import { access } from "./access.ts";
-import { getUser, workspacesOf, type WorkspaceRef } from "./directory.ts";
+import { adminRoute } from "./admin.ts";
+import { getUser, workspacesOf, type User, type WorkspaceRef } from "./directory.ts";
 import { limit } from "./limits.ts";
 import type { AgentProps, OAuthEnv } from "./agents.ts";
 
@@ -15,6 +17,7 @@ import type { AgentProps, OAuthEnv } from "./agents.ts";
 export const ALL_WORKSPACES = "*";
 
 const HTTP: Record<string, number> = { usage: 400, invalid: 400, not_found: 404, conflict: 409, exists: 409, forbidden: 403 };
+const CODE: Record<number, QuireError["code"]> = { 403: "forbidden", 404: "not_found", 409: "conflict" };
 const fail = (error: string, code: string) => json({ ok: false, error, code } satisfies RunResponse, HTTP[code] ?? 400);
 
 /** `GET /mcp/cli/workspaces` and `POST /mcp/cli/run`, for a request with a valid token. */
@@ -40,11 +43,41 @@ export async function serveCli(req: Request, env: OAuthEnv, props: AgentProps): 
     const tooMany = await limit(env.DB, "upload", user.id);
     if (tooMany) return tooMany;
   }
+  if (command.settings) {
+    // Settings live in the directory, not the workspace's notes: the Worker runs these itself, as it does the app's.
+    try {
+      return json(toWire({ ok: true, ...(await command.run({ settings: settingsOf(req, env, user, ws), user: user.id }, fromWire(body.input) as never)) } satisfies RunResponse));
+    } catch (e) {
+      if (e instanceof Response) return e;
+      if (e instanceof QuireError) return fail(e.message, e.code);
+      if (e instanceof UsageError) return fail(e.message, "usage");
+      throw e;
+    }
+  }
   const agent = typeof body.agent === "string" && body.agent.trim() ? body.agent.trim().slice(0, 40) : null;
   const actor = agent ? agentSource(agent, user.name) : user.name;
   const stub = env.WORKSPACE.get(env.WORKSPACE.idFromName(ws.id));
   const out = await stub.runCommand(command.cli, fromWire(body.input) as Record<string, unknown>, { workspace: ws.id, user: user.id, actor, role: ws.role });
   return out.ok ? json(toWire(out)) : fail(out.error, out.code);
+}
+
+/**
+ * A workspace's settings for a settings command: each call goes through the same handler as the
+ * app's Settings (admin.ts). A refusal throws a QuireError; being rate-limited throws the 429 as is.
+ */
+function settingsOf(req: Request, env: OAuthEnv, user: User, ws: WorkspaceRef): WorkspaceSettings {
+  const url = new URL(req.url);
+  return {
+    name: ws.name,
+    async call(route, body = {}) {
+      const [method, path] = route.split(" ");
+      const res = (await adminRoute(new Request(url, { method }), env, url, user, ws, path, async () => body))!;
+      if (res.status === 429) throw res;
+      const out = (await res.json()) as { error?: string };
+      if (!res.ok) throw new QuireError(out.error ?? `${route} failed (${res.status})`, CODE[res.status] ?? "invalid");
+      return out;
+    },
+  };
 }
 
 /** The workspace a command names (by ID or name, any case), or why there isn't one. */

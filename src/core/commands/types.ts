@@ -81,7 +81,25 @@ export interface CommandHost {
   bytes?: VaultBytes;
 }
 
-export interface Command<A extends Args = Args> {
+/**
+ * A hosted workspace's own settings: its members, invite links and name. They live in the
+ * directory beside its notes, so a local vault has none.
+ */
+export interface WorkspaceSettings {
+  /** The workspace's name. */
+  name: string;
+  /** One of the settings routes (a command's `route`) with its body, and what it answers. Throws a QuireError when refused. */
+  call(route: string, body?: Record<string, unknown>): Promise<unknown>;
+}
+
+/** Where a settings command runs: the workspace's settings, and who's asking. */
+export interface SettingsHost {
+  settings: WorkspaceSettings;
+  /** The person's ID. */
+  user: string;
+}
+
+interface CommandInfo<A extends Args> {
   /** The CLI command's words: "task add". */
   cli: string;
   /** The MCP tool's name, or null with the reason it has none. */
@@ -99,11 +117,26 @@ export interface Command<A extends Args = Args> {
   /** It takes things away (to Trash): MCP clients may ask before running it. */
   destructive?: boolean;
   args: A;
+}
+
+/** A command on a vault's notes and files. */
+export interface VaultCommand<A extends Args = Args> extends CommandInfo<A> {
+  settings?: false;
   run(host: CommandHost, input: InputOf<A>): Output | Promise<Output>;
 }
 
+/** A command on a hosted workspace's settings (see WorkspaceSettings). */
+export interface SettingsCommand<A extends Args = Args> extends CommandInfo<A> {
+  settings: true;
+  run(host: SettingsHost, input: InputOf<A>): Output | Promise<Output>;
+}
+
+export type Command<A extends Args = Args> = VaultCommand<A> | SettingsCommand<A>;
+
 /** Declare a command; the argument types flow into `run`. */
-export const command = <A extends Args>(c: Command<A>): Command => c as unknown as Command;
+export const command = <A extends Args>(c: VaultCommand<A>): Command => c as unknown as Command;
+/** Declare a command on a hosted workspace's settings. */
+export const settingsCommand = <A extends Args>(c: Omit<SettingsCommand<A>, "settings">): Command => ({ ...c, settings: true }) as unknown as Command;
 
 // Argument builders. Their options keep literal types (`required: true`), so `run`'s input is exact.
 type Opts<K extends ArgKind> = Omit<ArgSpec<K>, "kind">;

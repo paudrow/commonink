@@ -10,5 +10,6 @@ The `quire` CLI can now sign in to a hosted workspace and run every command ther
 4. **Your own line.** Run `bin/quire append "CLI inbox" "- written from my terminal"`. The line shows up in the note (live, if it's open), and History has it as yours, not Claude's.
 5. **The same filters.** Run `bin/quire changes --path "CLI inbox" --by ai`: only Claude's change. Add `--json` to get it as data.
 6. **A file up and back.** Run `bin/quire upload <any .png on your computer>`, then open **Assets**: it's there. `bin/quire download assets/<its name> --out /tmp/back.png` brings it back.
-7. **Revoke it.** In the account menu, open **Connected agents…**. It lists "quire CLI" on "All your workspaces". Click **Revoke**. Then `bin/quire ls` in the terminal says your sign-in has ended and to run `quire login` (exit code 7).
-8. **Sign out.** Run `bin/quire logout`, which forgets the sign-in on your computer.
+7. **Who's in it.** Run `bin/quire members`: you, with your role. In a team workspace you own (make one in the app if you like), `bin/quire invite --role viewer` prints an invite link, `bin/quire invites` lists it as active, and `bin/quire invites revoke <the start of its ID>` takes it back. In the account menu, **Workspace settings…** shows the same, and its log has both.
+8. **Revoke it.** In the account menu, open **Connected agents…**. It lists "quire CLI" on "All your workspaces". Click **Revoke**. Then `bin/quire ls` in the terminal says your sign-in has ended and to run `quire login` (exit code 7).
+9. **Sign out.** Run `bin/quire logout`, which forgets the sign-in on your computer.

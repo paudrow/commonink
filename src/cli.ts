@@ -160,6 +160,11 @@ async function main() {
   const agent = globals.agent ?? process.env.QUIRE_AGENT;
   const at = where(globals.workspace);
   if ("creds" in at) return print(await runRemote(at.creds, { command: command.cli, input, workspace: at.workspace, agent }), input);
+  if (command.settings) {
+    throw loadCredentials()
+      ? new UsageError(`${command.cli} is for a hosted workspace, not this computer's vault: name one with --workspace`)
+      : new CliError(`${command.cli} is for a hosted workspace: run quire login first`, "auth", EXIT.auth);
+  }
   const q = openVault();
   if (command.readOnly) q.sync();
   print(await command.run(localHost(q, agent), input as never), input);

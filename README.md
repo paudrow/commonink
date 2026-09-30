@@ -66,6 +66,7 @@ The client opens Common Ink in your browser: sign in, pick the workspace it may 
 - `quire login [--server https://pr-<number>-commonink.<subdomain>.workers.dev]`: the default server is `https://commonink.app`. `--no-browser` prints the address to open elsewhere, and takes the address you land on pasted back (for a machine with no browser, say over SSH).
 - `quire workspaces` lists yours with your role, and `quire workspaces use <name>` picks the one commands go to. `--workspace <name>` (or `$QUIRE_WORKSPACE`) picks one for one command, and `--workspace local` (or setting `$QUIRE_VAULT`) uses this computer's vault.
 - Every command works the same: the Worker runs it with the same command table and core as a local vault (`POST /mcp/cli/run`). Writes are yours, or "<agent> for <you>" with `--agent` or `$QUIRE_AGENT`.
+- A workspace's settings work from the CLI too, with the same checks as the app's Settings: `quire members`, `quire member role <person> <role>`, `quire member remove <person>`, `quire leave`, `quire invite [--role viewer]`, `quire invites` and `quire invites revoke <id>`, `quire workspace rename <name>` and `quire workspace log`. Deleting a workspace is only in the app. They're not MCP tools: an agent's MCP access is to one workspace's notes.
 - `quire logout` ends the sign-in on the server too. The CLI shows in **Connected agents** as "quire CLI", on all your workspaces, and **Revoke** cuts it off.
 
 ## How edits from agents and you stay safe together

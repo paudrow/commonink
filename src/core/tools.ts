@@ -69,7 +69,7 @@ export function createMcpServer(host: ToolHost): McpServer {
   for (const c of COMMANDS) {
     const name = toolName(c);
     // Only the tools this caller's role allows.
-    if (!name || (host.may && !host.may(c.route))) continue;
+    if (!name || c.settings || (host.may && !host.may(c.route))) continue;
     (mcp.registerTool as (n: string, config: unknown, cb: (input: Record<string, unknown>) => Promise<Result>) => unknown)(
       name,
       { title: c.title, description: c.description ?? c.summary, inputSchema: inputSchema(c), annotations: annotations(c) },

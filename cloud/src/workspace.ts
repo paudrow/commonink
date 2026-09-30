@@ -261,7 +261,8 @@ export class Workspace extends DurableObject<Env> {
    */
   async runCommand(name: string, input: Record<string, unknown>, who: { workspace: string; user: string; actor: string; role: string }): Promise<RunResponse> {
     const command = COMMANDS.find((c) => c.cli === name);
-    if (!command) return { ok: false, error: `No command "${name}": see quire help`, code: "usage" };
+    // The Worker runs settings commands itself (cloud/src/cli.ts): they aren't in a workspace's notes.
+    if (!command || command.settings) return { ok: false, error: `No command "${name}" here: see quire help`, code: "usage" };
     const role = asRole(who.role);
     if (access(role, ...(command.route.split(" ") as [string, string])) !== "allowed") {
       return { ok: false, error: role === "viewer" ? "You can view this workspace but not edit it" : "Only the workspace's owner can do that", code: "forbidden" };

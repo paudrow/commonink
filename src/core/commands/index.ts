@@ -9,6 +9,7 @@
 import { files, history, trash } from "./history.ts";
 import { notes } from "./notes.ts";
 import { boards, favorites, folders, smartFolders, tags } from "./organize.ts";
+import { settings } from "./settings.ts";
 import { tasks } from "./tasks.ts";
 import type { Command } from "./types.ts";
 
@@ -21,6 +22,7 @@ export const GROUPS: ReadonlyArray<{ title: string; commands: Command[] }> = [
   { title: "Smart folders", commands: smartFolders },
   { title: "Favorites", commands: favorites },
   { title: "History and Trash", commands: [...history, ...trash] },
+  { title: "Workspace settings (hosted)", commands: settings },
 ];
 
 export const COMMANDS: readonly Command[] = GROUPS.flatMap((g) => g.commands);
@@ -47,17 +49,7 @@ export const APP_ONLY: Readonly<Record<string, string>> = {
   "GET /delete-check": "the app's confirm before a delete",
   "POST /trash/delete": "deleting for good is only in the app: a command can't tell a person from an agent (#74)",
   "POST /trash/empty": "deleting for good is only in the app: a command can't tell a person from an agent (#74)",
-  "POST /invites": "sharing a workspace is in the app, for now",
-  // Running a hosted workspace: its members, invites, name and log live in the directory, not in its notes.
-  "GET /invites": "workspace settings are in the app, for now",
-  "POST /invites/revoke": "workspace settings are in the app, for now",
-  "GET /members": "workspace settings are in the app, for now",
-  "POST /members/role": "workspace settings are in the app, for now",
-  "POST /members/remove": "workspace settings are in the app, for now",
-  "POST /leave": "workspace settings are in the app, for now",
-  "GET /workspace/log": "workspace settings are in the app, for now",
-  "POST /workspace/rename": "workspace settings are in the app, for now",
-  "POST /workspace/delete": "workspace settings are in the app, for now",
+  "POST /workspace/delete": "deleting a whole workspace for good is only in the app, where you type its name to confirm",
 };
 
 /** The MCP tool's name, or null if the command isn't a tool. */

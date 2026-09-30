@@ -158,6 +158,53 @@ test("only an app that asks for every workspace can be given every workspace", a
   assert.match(await answer.text(), /Pick one of your workspaces/);
 });
 
+test("a workspace's settings from the CLI: invite links, members and roles, a new name, leaving", async () => {
+  await cloud.call(people.owner, "POST", "/api/workspaces", { name: "Crew" });
+  const owner = cli();
+  await login(owner, people.owner);
+  const crew = ["--workspace", "Crew"];
+  const join = async (url: string) => assert.equal((await cloud.request(people.stranger, "POST", new URL(url).pathname)).status, 302);
+  // An invite link, and someone joining with it.
+  const invite = owner.json(["invite", "--role", "viewer", ...crew]);
+  assert.equal(invite.role, "viewer");
+  await join(invite.url);
+  const roles = () => owner.json(["members", ...crew]).map((m: { name: string; role: string }) => `${m.name}: ${m.role}`);
+  assert.deepEqual(roles(), ["Owner Dev: owner", "Stranger Dev: viewer"]);
+  // A viewer sees who's in it, and can't invite anyone.
+  const stranger = cli();
+  await login(stranger, people.stranger);
+  assert.match(stranger.run(["members", ...crew]).stdout, /^- Owner Dev <\S+> \(owner\)\n- Stranger Dev <\S+> \(viewer\)\n$/);
+  assert.equal(stranger.run(["invite", ...crew]).status, 6);
+  // Roles, by name in any case. The last owner can't step down.
+  assert.equal(owner.run(["member", "role", "stranger dev", "editor", ...crew]).stdout, "Stranger Dev is an editor of Crew now.\n");
+  assert.deepEqual(roles(), ["Owner Dev: owner", "Stranger Dev: editor"]);
+  const last = owner.run(["member", "role", "Owner Dev", "viewer", ...crew]);
+  assert.equal(last.status, 4);
+  assert.match(last.stderr, /A workspace needs an owner/);
+  // An open link, revoked by the start of its ID.
+  owner.run(["invite", ...crew]);
+  const open = owner.json(["invites", ...crew]).find((i: { usedAt: number | null }) => !i.usedAt);
+  assert.match(owner.run(["invites", ...crew]).stdout, new RegExp(`^- ${open.id.slice(0, 12)} editor, made by Owner Dev on \\S+: active until`, "m"));
+  assert.equal(owner.run(["invites", "revoke", open.id.slice(0, 8), ...crew]).stdout, `Revoked the editor invite link ${open.id.slice(0, 12)}.\n`);
+  assert.equal(owner.run(["invites", "revoke", open.id.slice(0, 8), ...crew]).status, 3);
+  // A new name, for everyone, in the log.
+  assert.equal(owner.run(["workspace", "rename", "Crew", "two", ...crew]).stdout, "Renamed Crew to Crew two.\n");
+  const two = ["--workspace", "Crew two"];
+  assert.match(owner.run(["workspace", "log", ...two]).stdout, /^- \S+ \S+ Owner Dev: rename \(Crew → Crew two\)\n/);
+  // Leaving, and being removed.
+  assert.equal(stranger.run(["leave", ...two]).stdout, "You left Crew two.\n");
+  assert.equal(stranger.run(["ls", ...two]).status, 3);
+  await join(owner.json(["invite", ...two]).url);
+  assert.equal(owner.run(["member", "remove", "Stranger Dev", ...two]).stdout, "Removed Stranger Dev from Crew two.\n");
+  assert.deepEqual(owner.json(["members", ...two]).map((m: { name: string }) => m.name), ["Owner Dev"]);
+  assert.equal(owner.run(["member", "remove", "Stranger Dev", ...two]).status, 3);
+  // A local vault has no settings.
+  const signedOut = cli();
+  assert.match(signedOut.run(["members"]).stderr, /^members is for a hosted workspace: run quire login first\n$/);
+  assert.equal(signedOut.run(["members"]).status, 7);
+  assert.equal(owner.run(["members", "--workspace", "local"]).status, 2);
+});
+
 test("Revoke in Connected agents cuts the CLI off at its next command", async () => {
   const c = cli();
   await login(c, people.editor);
