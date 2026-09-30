@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 95
 title: Sharing notes, in the app
 ---
 This Preview shares [[Plan for Sam]] (editor), [[Read only for Sam]] (viewer) and the folder **Shared folder** with a second person, Sam Dev, and [[Public page]] with anyone who has the link. [[Secret numbers]] isn't shared.
