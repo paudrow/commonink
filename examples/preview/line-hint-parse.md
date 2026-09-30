@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 122
 title: The empty-line hint reads the whole note
 ---
 The "Type / for tools" hint on an empty line decided whether the line was code from however much of the note the parser had read so far. On a busy machine that could stop short, so the hint showed inside a code block or a list. It also made a test fail now and then in CI.
