@@ -222,6 +222,8 @@ export interface QuireOptions {
   now?: () => number;
   /** The largest note a write may leave behind, in bytes (UTF-8). Online, a SQLite row holds 2 MB. */
   maxNoteBytes?: number;
+  /** The IANA time zone whose calendar "today" means (an agent's person's, online). Default: this machine's. */
+  timeZone?: string;
 }
 
 /** The default largest note: enough for any note a person writes, not enough to exhaust memory. */
@@ -295,6 +297,7 @@ function tasksIn(text: string): Array<Pick<Task, "line" | "text" | "summary" | "
 export class Quire {
   private now: () => number;
   private maxNoteBytes: number;
+  private timeZone: string | undefined;
 
   constructor(
     readonly db: SqlDb,
@@ -303,6 +306,12 @@ export class Quire {
   ) {
     this.now = opts.now ?? Date.now;
     this.maxNoteBytes = opts.maxNoteBytes ?? MAX_NOTE_BYTES;
+    this.timeZone = opts.timeZone;
+  }
+
+  /** Today, as YYYY-MM-DD, in this core's time zone. */
+  private day(): string {
+    return localDate(this.now(), this.timeZone);
   }
 
   /** IDs of files that just left the index, by kind and content, so a rename seen as delete + add keeps its ID. */
@@ -1306,7 +1315,7 @@ export class Quire {
     const prefix = opts.folder ? opts.folder.replace(/^\/+|\/+$/g, "") + "/" : "";
     const tagged = opts.tag === undefined ? null : new Set(this.tagged(opts.tag).filter((r) => r.kind === "task").map((r) => `${r.path}:${r.line}`));
     if (opts.today && !isDate(opts.today)) throw new QuireError(`"today" must be a date like 2026-10-01, not "${opts.today}"`);
-    const due = opts.due ? dueFilter(opts.due, opts.today ?? localDate(this.now())) : null;
+    const due = opts.due ? dueFilter(opts.due, opts.today ?? this.day()) : null;
     if (opts.due && !due) throw new QuireError(`Bad due filter "${opts.due}": use a date or today/tomorrow/yesterday, optionally after <, <=, > or >=`);
     const person = opts.assignee?.replace(/^@/, "").toLowerCase();
     // The query narrows to the note, or to notes with the tag on a task (the lines are checked below).
@@ -1348,7 +1357,7 @@ export class Quire {
    * below (see editTaskLines). `text` guards against the note having
    * changed: if the line moved, the nearest line with the same task text is used.
    */
-  updateTask(target: string, line: number, text: string, patch: TaskPatch, source: string, today = localDate(this.now())) {
+  updateTask(target: string, line: number, text: string, patch: TaskPatch, source: string, today = this.day()) {
     const problem = patchProblem(patch) ?? (isDate(today) ? null : `"today" must be a date like 2026-10-01, not "${today}"`);
     if (problem) throw new QuireError(problem);
     const note = this.read(target);
@@ -1376,7 +1385,7 @@ export class Quire {
    * boards has it; `board` (from 1) picks one when several do. `position` (from 1) is where it
    * goes in the column; the default is last.
    */
-  addCard(target: string, column: string, text: string, source: string, opts: { board?: number; position?: number } = {}, today = localDate(this.now())) {
+  addCard(target: string, column: string, text: string, source: string, opts: { board?: number; position?: number } = {}, today = this.day()) {
     if (!text.trim()) throw new QuireError("A card needs some text");
     const { note, boards } = this.boards(target);
     const at = findColumn(boards, column, note.path, opts.board);
@@ -1384,7 +1393,7 @@ export class Quire {
   }
 
   /** Move a card (see findCard) to a column on its board, last or at `position` (from 1). Into the done column ticks it. */
-  moveCard(target: string, card: string, column: string, source: string, opts: { position?: number } = {}, today = localDate(this.now())) {
+  moveCard(target: string, card: string, column: string, source: string, opts: { position?: number } = {}, today = this.day()) {
     const { note, boards } = this.boards(target);
     const hit = findCard(boards, card, note.path);
     const to = findColumn(boards, column, note.path, hit.board + 1);
@@ -1392,7 +1401,7 @@ export class Quire {
   }
 
   /** Change a card's text (its first line, then any lines to nest under it) or tick it. */
-  editCard(target: string, card: string, patch: { text?: string; done?: boolean }, source: string, today = localDate(this.now())) {
+  editCard(target: string, card: string, patch: { text?: string; done?: boolean }, source: string, today = this.day()) {
     if (patch.text !== undefined && !patch.text.trim()) throw new QuireError("A card needs some text");
     const { note, boards } = this.boards(target);
     const { card: c } = findCard(boards, card, note.path);
@@ -1413,7 +1422,7 @@ export class Quire {
    * to use instead of the daily note (the one the bar was opened from), which `→ [[Note]]` overrides.
    */
   addTask(input: string, source: string, opts: { today?: string; ignore?: string[]; to?: string } = {}) {
-    const today = opts.today ?? localDate(this.now());
+    const today = opts.today ?? this.day();
     if (!isDate(today)) throw new QuireError(`"today" must be a date like 2026-10-01, not "${today}"`);
     const q = parseQuickAdd(input, today, opts.ignore);
     if (!q.words) throw new QuireError("Say what the task is: once its dates and repeats are taken out, there are no words left");
@@ -1432,7 +1441,7 @@ export class Quire {
    * order of urgency), and today's journal note. `date` is the reader's day. Sections are a list so
    * more (calendar, reviews, mail) can slot in beside these.
    */
-  today(date = localDate(this.now())): TodayView {
+  today(date = this.day()): TodayView {
     if (!isDate(date)) throw new QuireError(`"today" must be a date like 2026-10-01, not "${date}"`);
     // Open tasks that could be in a section: due by today, or starting today.
     const open = this.taskRows("t.done = 0 AND (substr(t.due, 1, 10) <= ? OR substr(t.start, 1, 10) = ?)", date, date).map(toTask);
@@ -1496,7 +1505,7 @@ export class Quire {
   }
 
   /** Move a repeating task to its next date without ticking it ("Skip this one"). */
-  skipTask(target: string, line: number, text: string, source: string, today = localDate(this.now())) {
+  skipTask(target: string, line: number, text: string, source: string, today = this.day()) {
     const task = parseTask(`- [ ] ${text}`);
     const patch = task && skipPatch(task.meta, today);
     if (!patch) throw new QuireError("That task doesn't repeat, so there's nothing to skip");

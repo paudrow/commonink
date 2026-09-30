@@ -81,6 +81,7 @@ export const WORKSPACE_ROUTES = {
 /** Routes for whoever is signed in, whatever workspace they're in. */
 export const ACCOUNT_ROUTES = [
   "GET /api/me",
+  "POST /api/me/time-zone",
   "POST /api/workspaces",
   "GET /api/unfurl",
   "GET /api/note-ids/*",
