@@ -123,3 +123,24 @@ export function headingText(rest: string): string {
   while (i > 0 && s[i - 1] === "#") i--;
   return i < s.length && (i === 0 || s[i - 1] === " " || s[i - 1] === "\t") ? s.slice(0, i).trimEnd() : s;
 }
+
+/**
+ * The section under the first heading called `name` (any level, any case, outside code): its
+ * heading's line, and the line the next heading at its level or above starts (or the end). -1 for
+ * the heading if there isn't one.
+ */
+export function findSection(lines: string[], name: string): { section: number; level: number; end: number } {
+  const want = name.toLowerCase();
+  let fence: string | null = null;
+  let section = -1;
+  let level = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const f = lines[i].match(/^\s{0,3}(`{3,}|~{3,})/)?.[1];
+    if (f && (!fence || (f[0] === fence[0] && f.length >= fence.length))) fence = fence ? null : f;
+    const h = !fence && !f ? lines[i].match(/^(#{1,6})\s+(.*)$/) : null;
+    if (!h) continue;
+    if (section < 0 && headingText(h[2]).toLowerCase() === want) [section, level] = [i, h[1].length];
+    else if (section >= 0 && h[1].length <= level) return { section, level, end: i };
+  }
+  return { section, level, end: lines.length };
+}

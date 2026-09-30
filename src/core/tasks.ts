@@ -2,7 +2,7 @@
 //   - [ ] Send invoice to Acme due:2026-10-01 rec:monthly #work/clients @jane !high
 // The line stays the source of truth. This reads the tokens and rewrites one at a time in place, so
 // an edit never touches the rest of the line. No Node imports: the editor uses this too.
-import { headingText, withoutCodeOrLinks } from "./prose.ts";
+import { findSection, withoutCodeOrLinks } from "./prose.ts";
 import { daysBetween, formatRule, nextDue, parseRule, ruleProblem, shiftDate, type Rule } from "./recurrence.ts";
 import { cleanTag, normalizeTag, tagsInLine } from "./tags.ts";
 
@@ -334,21 +334,7 @@ export function withTasksAdded(content: string, block: string[], heading: boolea
   while (last > 0 && content[last - 1] === "\n") last--; // a loop: /\n+$/ is quadratic on many blank lines
   const lines = content.slice(0, last).split("\n");
   if (lines.length === 1 && lines[0] === "") lines.pop();
-  let fence: string | null = null;
-  let section = -1;
-  let level = 0;
-  let end = lines.length;
-  for (let i = 0; i < lines.length; i++) {
-    const f = lines[i].match(/^\s{0,3}(`{3,}|~{3,})/)?.[1];
-    if (f && (!fence || (f[0] === fence[0] && f.length >= fence.length))) fence = fence ? null : f;
-    const h = !fence && !f ? lines[i].match(/^(#{1,6})\s+(.*)$/) : null;
-    if (!h) continue;
-    if (section < 0 && headingText(h[2]).toLowerCase() === "tasks") [section, level] = [i, h[1].length];
-    else if (section >= 0 && h[1].length <= level) {
-      end = i;
-      break;
-    }
-  }
+  const { section, end } = findSection(lines, "Tasks");
   let at: number;
   if (section >= 0) {
     // After the section's last line with anything on it; a section with nothing yet gets a blank line first.
