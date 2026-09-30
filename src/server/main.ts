@@ -13,6 +13,7 @@ import { errorResponse, handleApi, json, type ApiHost } from "../core/api.ts";
 import { SANDBOX_PATH, sandboxPage } from "../core/sandbox.ts";
 import { appPolicy } from "../core/csp.ts";
 import { unfurl } from "./unfurl.ts";
+import { watchTree } from "./watch.ts";
 
 // PORT=0 picks a free port (printed on start). QUIRE_NO_UI=1 serves only /api, skipping Vite.
 const PORT = Number(process.env.PORT ?? 4777);
@@ -101,9 +102,7 @@ function announce(rel: string, content: string | null, version: string, change: 
 // ------------------------------------------------------------------ file watcher
 
 const timers = new Map<string, NodeJS.Timeout>();
-fs.watch(files.root, { recursive: true }, (_event, filename) => {
-  if (!filename) return;
-  const rel = filename.split(path.sep).join("/");
+watchTree(files.root, (rel) => {
   if (isHidden(rel) && rel !== ASSET_TAGS) return;
   const key = kindOf(rel) ? rel : "*"; // directory events → full resync
   clearTimeout(timers.get(key));
@@ -248,8 +247,16 @@ function asset(res: http.ServerResponse, raw: string) {
   const rel = cleanPath(raw);
   const mime = mimeOf(rel);
   if (!mime || !files.stat(rel)) return send(res, json({ error: "Not found" }, 404));
-  res.writeHead(200, { "Content-Type": mime, "Content-Length": String(files.stat(rel)!.size), ...fileSecurityHeaders(mime), "Cache-Control": "no-cache" });
-  fs.createReadStream(files.abs(rel)).pipe(res);
+  // Opened before answering: a file that can't be read (its permissions, or deleted just now) is a
+  // 404, not an error on a stream with no listener, which would stop the server.
+  let fd: number;
+  try {
+    fd = fs.openSync(files.abs(rel), "r");
+  } catch {
+    return send(res, json({ error: "Not found" }, 404));
+  }
+  res.writeHead(200, { "Content-Type": mime, "Content-Length": String(fs.fstatSync(fd).size), ...fileSecurityHeaders(mime), "Cache-Control": "no-cache" });
+  fs.createReadStream("", { fd }).on("error", () => res.destroy()).pipe(res);
 }
 
 /** Save an uploaded file into the vault (assets/ by default), under a free name. */
