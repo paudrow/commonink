@@ -71,6 +71,17 @@ test("a path typed in another case is the note's own path, not a second note", (
   assert.deepEqual(quire.changes().map((c) => c.path), ["Projects/Roadmap.md"]);
 });
 
+test("a file named in decomposed Unicode is the note a link or path in composed Unicode means", () => {
+  const nfd = "Café".normalize("NFD");
+  const { quire } = openTempVault({ [`${nfd}.md`]: "# Café\n\n- [ ] one\n", "A.md": "See [[Café]]\n" });
+  assert.equal(quire.resolve("Café"), `${nfd}.md`);
+  assert.equal(quire.resolve("Café.md"), `${nfd}.md`);
+  quire.edit("Café", { oldString: "one", newString: "two" }, "t");
+  assert.deepEqual(quire.list().map((n) => n.path), ["A.md", `${nfd}.md`]);
+  assert.deepEqual(quire.tasks().map((t) => `${t.path}:${t.text}`), [`${nfd}.md:two`]);
+  assert.deepEqual(quire.backlinks(`${nfd}.md`).map((b) => b.path), ["A.md"]);
+});
+
 test("creating a second top-level note with the same title leaves the first as it was", () => {
   const { dir, quire } = openTempVault({});
   quire.create("Idea", "# Idea\n\nThe first one.\n", "t");
