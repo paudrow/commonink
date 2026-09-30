@@ -110,12 +110,40 @@ export const WORKSPACE_ROUTES = {
   "POST /members/role": "owner",
   "POST /members/remove": "owner",
   "POST /invites": "owner",
+  // Sharing a note or folder with people outside the workspace, or by link (cloud/src/shares.ts).
+  // Anyone in the workspace sees who it's shared with; editors and owners change that, and only
+  // they see a link's URL, since the URL lets anyone in with the link's role.
+  "GET /shares": "viewer",
+  "POST /shares": "editor",
+  "POST /shares/update": "editor",
+  "POST /shares/remove": "editor",
   "GET /invites": "owner",
   "POST /invites/revoke": "owner",
   "GET /workspace/log": "owner",
+  // Whether agents may share by link or with editors: anyone sees it, only owners change it.
+  "GET /workspace/settings": "viewer",
+  "POST /workspace/settings": "owner",
   "POST /workspace/rename": "owner",
   "POST /workspace/delete": "owner",
 } as const satisfies Record<string, Role>;
+
+/**
+ * What's shared, note by note (`/api/w/<id>/shared/…`): open to members and to anyone something in
+ * the workspace is shared with. The workspace checks each note against their grants; nothing else of
+ * the workspace (search, tasks, History…) is reachable this way.
+ */
+export const SHARED_ROUTES = [
+  "GET /shared/list",
+  "GET /shared/note",
+  "PUT /shared/note",
+  "GET /shared/resolve",
+  "GET /shared/file-resolve",
+  "GET /shared/files/*",
+  "GET /shared/live",
+] as const;
+
+/** What a shared link (`/api/s/<token>/…`) reaches, signed in or not: reading only. `POST /join` keeps it. */
+export const LINK_ROUTES = ["GET /list", "GET /note", "GET /resolve", "GET /file-resolve", "GET /files/*"] as const;
 
 /** Routes for whoever is signed in, whatever workspace they're in. */
 export const ACCOUNT_ROUTES = [
@@ -127,6 +155,7 @@ export const ACCOUNT_ROUTES = [
   "POST /api/sign-out-everywhere",
   "GET /api/agents",
   "POST /api/agents/revoke",
+  "GET /api/shared",
   "GET /api/google",
   "GET /api/google/calendars",
   "POST /api/google/disconnect",
@@ -137,6 +166,7 @@ export type AccountRoute = (typeof ACCOUNT_ROUTES)[number];
 export function routeKey(method: string, path: string): string {
   const m = method === "HEAD" ? "GET" : method;
   if (path.startsWith("/files/")) return `${m} /files/*`;
+  if (path.startsWith("/shared/files/")) return `${m} /shared/files/*`;
   if (path.startsWith("/api/note-ids/")) return `${m} /api/note-ids/*`;
   return `${m} ${path}`;
 }

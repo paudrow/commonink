@@ -95,6 +95,18 @@ export interface CommandHost {
   members?(): Promise<MemberRef[]>;
   /** Notes as Markdown, a web page, Word or a .zip (core/export.ts), for export. */
   exporter?: Exporter;
+  /** Online: sharing notes and folders outside the workspace (see Sharing). Unset locally. */
+  sharing?: Sharing;
+}
+
+/**
+ * Sharing a note or folder with people outside the workspace, or by link. Only hosted workspaces
+ * have it: locally there's no one else to share with.
+ */
+export interface Sharing {
+  list(target: { path?: string; folder?: string }): Promise<string>;
+  share(o: { path?: string; folder?: string; email?: string; link?: boolean; role: "viewer" | "editor"; expiresInDays?: number }): Promise<string>;
+  unshare(id: string): Promise<string>;
 }
 
 /**
@@ -133,7 +145,9 @@ interface CommandInfo<A extends Args> {
   /** It takes things away (to Trash): MCP clients may ask before running it. */
   destructive?: boolean;
   /** What the host must have for it: over MCP, it's offered only then. */
-  needs?: "calendar" | "exporter";
+  needs?: "calendar" | "exporter" | "sharing";
+  /** It reaches people outside the workspace (sharing): MCP clients may ask before running it. */
+  openWorld?: boolean;
   args: A;
 }
 

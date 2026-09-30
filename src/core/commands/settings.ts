@@ -28,7 +28,7 @@ export interface InviteRow {
 export interface LogEntry {
   at: number;
   actor: string | null;
-  action: "rename" | "role" | "remove" | "leave" | "invite" | "revoke-invite";
+  action: "rename" | "role" | "remove" | "leave" | "invite" | "revoke-invite" | "settings";
   target: string | null;
   detail: string | null;
 }

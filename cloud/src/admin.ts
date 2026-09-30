@@ -8,6 +8,7 @@ import { revokeAgentsIn } from "./agents.ts";
 import { createInvite, type User, type WorkspaceRef } from "./directory.ts";
 import type { Env } from "./env.ts";
 import { limit } from "./limits.ts";
+import { agentLinksAllowed } from "./shares.ts";
 
 const ROLES: Role[] = ["owner", "editor", "viewer"];
 const fail = (error: string, status = 400) => json({ error }, status);
@@ -127,6 +128,17 @@ export async function adminRoute(req: Request, env: Env, url: URL, user: User, w
       await env.DB.prepare("UPDATE workspaces SET name = ? WHERE id = ?").bind(name, ws.id).run();
       await log(env, ws.id, user.id, "rename", null, `${ws.name} → ${name}`);
       return json({ ok: true, name });
+    }
+
+    case "GET /workspace/settings":
+      return json({ agentLinks: await agentLinksAllowed(env.DB, ws.id) });
+
+    case "POST /workspace/settings": {
+      const { agentLinks } = await body();
+      if (typeof agentLinks !== "boolean") return fail('"agentLinks" must be true or false');
+      await env.DB.prepare("UPDATE workspaces SET agent_links = ? WHERE id = ?").bind(agentLinks ? 1 : 0, ws.id).run();
+      await log(env, ws.id, user.id, "settings", null, `agentLinks: ${agentLinks ? "on" : "off"}`);
+      return json({ agentLinks });
     }
 
     case "POST /workspace/delete": {

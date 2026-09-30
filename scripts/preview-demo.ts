@@ -29,7 +29,8 @@ await sampleVault();
 await demoFiles(SECTIONS);
 await renamedNote();
 const favorites = await starSome();
-await tryThisPr(favorites);
+const shared = await shareSome();
+await tryThisPr(favorites, shared);
 await sharedTeam();
 await calendars();
 console.log(`Filled ${origin} (workspace ${ws.id})`);
@@ -164,7 +165,7 @@ async function starSome(): Promise<boolean> {
 }
 
 /** The note at the top of Notes: what this PR is, what's here to try, and the PR's own description. */
-async function tryThisPr(favorites: boolean) {
+async function tryThisPr(favorites: boolean, shared: string[]) {
   const n = process.env.PR_NUMBER;
   const title = process.env.PR_TITLE || "this branch";
   const body = (process.env.PR_BODY ?? "").replace(/^🤖 Generated with.*$/m, "").trim();
@@ -187,6 +188,7 @@ async function tryThisPr(favorites: boolean) {
     favorites
       ? "- Favorites: [[Q4 plan]], [[Common Ink roadmap]], [[Tips]] and this note are starred. Star from a note's top bar, press `s` on a card in Notes, or drag in the sidebar to reorder."
       : "- This branch doesn't have favorites.",
+    ...shared,
     "",
     ...(body ? ["## About this PR", "", body, ""] : []),
   ];
@@ -196,6 +198,28 @@ async function tryThisPr(favorites: boolean) {
     const order = ((await must("GET", `${api}/favorites`)) as Array<{ path: string }>).map((f) => f.path);
     await must("PUT", `${api}/favorites`, { paths: [TRY, ...order.filter((p) => p !== TRY)] });
   }
+}
+
+/**
+ * If this branch can share notes: share the sharing demo notes with a second person, Sam (a
+ * developer sign-in, which only Previews have; signing in first makes the shares his), and one
+ * with anyone who has the link. Returns lines for "Set up for you". Sharing again only updates.
+ */
+async function shareSome(): Promise<string[]> {
+  if ((await call("GET", `${api}/shares`)).status === 404) return [];
+  const dir = SECTIONS.find((s) => s.slug === "sharing") ? "Try/Sharing notes" : null;
+  if (!dir) return [];
+  await signIn("sam");
+  const share = async (o: Record<string, unknown>) => (await must("POST", `${api}/shares`, o)) as { shares: Array<{ kind: string; url: string | null }> };
+  await share({ path: `${dir}/Plan for Sam.md`, email: "sam@localhost", role: "editor" });
+  await share({ path: `${dir}/Read only for Sam.md`, email: "sam@localhost", role: "viewer" });
+  await share({ folder: `${dir}/Shared folder`, email: "sam@localhost", role: "viewer" });
+  const link = (await share({ path: `${dir}/Public page.md`, link: true, role: "viewer" })).shares.find((s) => s.kind === "link")!.url!;
+  const token = link.split("/")[2];
+  const page = ((await must("GET", `${api}/notes`)) as Array<{ path: string; id: string }>).find((n) => n.path === `${dir}/Public page.md`)!.id;
+  return [
+    `- Sharing: [[Plan for Sam]] (editor), [[Read only for Sam]] (viewer) and \`${dir}/Shared folder\` (viewer) are shared with Sam Dev (sign in as Sam with \`/auth/dev?as=sam\`). [[Public page]] has a link: its page is ${origin}${link}, and its API ${origin}/api/s/${token}/note?id=${page}.`,
+  ];
 }
 
 /**

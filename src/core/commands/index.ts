@@ -11,6 +11,7 @@ import { contacts } from "./contacts.ts";
 import { notes } from "./notes.ts";
 import { boards, favorites, folders, smartFolders, tags } from "./organize.ts";
 import { settings } from "./settings.ts";
+import { sharing } from "./sharing.ts";
 import { tasks } from "./tasks.ts";
 import { templates } from "./templates.ts";
 import { calendar } from "./calendar.ts";
@@ -29,6 +30,7 @@ export const GROUPS: ReadonlyArray<{ title: string; commands: Command[] }> = [
   { title: "History and Trash", commands: [...history, ...trash] },
   { title: "Labels", commands: labels },
   { title: "Calendar", commands: calendar },
+  { title: "Sharing (hosted)", commands: sharing },
   { title: "Workspace settings (hosted)", commands: settings },
 ];
 
@@ -64,6 +66,10 @@ export const APP_ONLY: Readonly<Record<string, string>> = {
   "GET /delete-check": "the app's confirm before a delete",
   "POST /trash/delete": "deleting for good is only in the app: a command can't tell a person from an agent (#74)",
   "POST /trash/empty": "deleting for good is only in the app: a command can't tell a person from an agent (#74)",
+  "POST /shares/update": "changing a share's role or expiry is the share dialog's; unshare and share again",
+  // Whether agents may share by link or with editors: an agent (or a command, which can't tell a person from one) can't widen its own reach.
+  "GET /workspace/settings": "whether agents may share by link is the owner's call, in the app's workspace settings",
+  "POST /workspace/settings": "whether agents may share by link is the owner's call, in the app's workspace settings",
   "POST /workspace/delete": "deleting a whole workspace for good is only in the app, where you type its name to confirm",
 };
 

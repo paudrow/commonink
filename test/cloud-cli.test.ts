@@ -176,6 +176,26 @@ test("a viewer's CLI reads but can't write, and a grant for one workspace stays 
   assert.equal(one.run(["ls", team, "Editor's notes"]).status, 3);
 });
 
+test("sharing from the CLI: by email, listed, stopped; links wait for the owner's setting, as an agent's do, and a viewer only lists", async () => {
+  const editor = cli();
+  await login(editor, people.editor);
+  const team = ["--workspace", "Team"];
+  assert.equal(editor.run(["create", "Shared from the CLI", "-", ...team], "# Shared from the CLI\n").status, 0);
+  const shared = editor.run(["share", "Shared from the CLI", "--email", "cli-guest@example.com", "--role", "viewer", ...team]);
+  assert.equal(shared.status, 0, shared.stderr);
+  const id = shared.stdout.match(/- cli-guest@example\.com \(by email\) — viewer \(id (\w+)\)/)![1];
+  // A command can't tell a person from an agent, so the workspace's setting for agents holds.
+  const link = editor.run(["share", "Shared from the CLI", "--link", "--role", "viewer", ...team]);
+  assert.equal(link.status, 6);
+  assert.match(link.stderr, /^Agents can't share by link or for editing in this workspace\./);
+  const viewer = cli();
+  await login(viewer, people.viewer);
+  assert.match(viewer.run(["shares", "Shared from the CLI", ...team]).stdout, /cli-guest@example\.com/);
+  assert.equal(viewer.run(["unshare", id, ...team]).status, 6);
+  assert.equal(editor.run(["unshare", id, ...team]).stdout, "Stopped sharing it.\n");
+  assert.equal(editor.run(["shares", "Shared from the CLI", ...team]).stdout, "Shared from the CLI.md isn't shared with anyone outside the workspace.\n");
+});
+
 test("only an app that asks for every workspace can be given every workspace", async () => {
   // An MCP client asks for no scope: an answer of "all of them" (a forged form) is refused.
   const reg = await cloud.server.fetch(new URL("/oauth/register", cloud.origin), {

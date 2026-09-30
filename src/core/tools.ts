@@ -9,7 +9,7 @@ import type { Calendar } from "./calendar.ts";
 import type { MemberRef } from "./contacts.ts";
 import type { Exporter } from "./export.ts";
 import { AGENTS_NOTE } from "./noteRoles.ts";
-import { COMMANDS, toolName, type ArgSpec, type Command } from "./commands/index.ts";
+import { COMMANDS, toolName, type ArgSpec, type Command, type Sharing } from "./commands/index.ts";
 
 export interface ToolHost {
   quire: Quire;
@@ -32,6 +32,8 @@ export interface ToolHost {
   calendar?: Calendar;
   /** Where the app is, for a meeting note's link written back to Google. */
   origin?: string;
+  /** Online: sharing notes and folders outside the workspace. Unset locally, and then the sharing tools aren't offered. */
+  sharing?: Sharing;
 }
 
 /**
@@ -57,7 +59,7 @@ function schemaOf(a: ArgSpec): z.ZodTypeAny {
 const inputSchema = (c: Command) => Object.fromEntries(Object.entries(c.args).flatMap(([name, a]) => (a.only === "cli" ? [] : [[name, schemaOf(a)]])));
 
 const annotations = (c: Command) =>
-  c.readOnly ? { readOnlyHint: true, openWorldHint: false } : { readOnlyHint: false, destructiveHint: !!c.destructive, openWorldHint: false };
+  c.readOnly ? { readOnlyHint: true, openWorldHint: false } : { readOnlyHint: false, destructiveHint: !!c.destructive, openWorldHint: !!c.openWorld };
 
 type Content = { type: "text"; text: string } | { type: "resource"; resource: { uri: string; mimeType: string; text: string } | { uri: string; mimeType: string; blob: string } };
 type Result = { content: Content[]; isError?: boolean };
@@ -110,7 +112,7 @@ export function createMcpServer(host: ToolHost): McpServer {
   for (const c of COMMANDS) {
     const name = toolName(c);
     // Only the tools this caller's role allows.
-    if (!name || c.settings || (host.may && !host.may(c.route)) || (c.needs === "calendar" && !host.calendar) || (c.needs === "exporter" && !host.exporter)) continue;
+    if (!name || c.settings || (host.may && !host.may(c.route)) || (c.needs === "calendar" && !host.calendar) || (c.needs === "exporter" && !host.exporter) || (c.needs === "sharing" && !host.sharing)) continue;
     (mcp.registerTool as (n: string, config: unknown, cb: (input: Record<string, unknown>) => Promise<Result>) => unknown)(
       name,
       { title: c.title, description: c.description ?? c.summary, inputSchema: inputSchema(c), annotations: annotations(c) },
@@ -120,7 +122,7 @@ export function createMcpServer(host: ToolHost): McpServer {
           // Every write is attributed to the connected client, so the app can show who changed what.
           const source = host.source(mcp.server.getClientVersion()?.name);
           const out = await c.run(
-            { quire, user, source, canEditShared: host.canEditShared ?? true, calendar: host.calendar, origin: host.origin, members: host.members, exporter: host.exporter },
+            { quire, user, source, canEditShared: host.canEditShared ?? true, calendar: host.calendar, origin: host.origin, members: host.members, exporter: host.exporter, sharing: host.sharing },
             input as never,
           );
           if (out.save) return fileResult(out.save);

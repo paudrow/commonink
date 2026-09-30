@@ -2,11 +2,12 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { ACCOUNT_ROUTES, WORKSPACE_ROUTES } from "../cloud/src/access.ts";
+import { ACCOUNT_ROUTES, SHARED_ROUTES, WORKSPACE_ROUTES } from "../cloud/src/access.ts";
 import { TOOL_ROUTES } from "../src/core/tools.ts";
 import { startCloud, team, type Cloud } from "./cloud.ts";
 
-const WHO = ["signedOut", "stranger", "viewer", "editor", "owner"] as const;
+/** The workspace's members, and two people outside it that a note is shared with (as viewer, as editor). */
+const WHO = ["signedOut", "stranger", "viewer", "editor", "owner", "sharedViewer", "sharedEditor"] as const;
 type Who = (typeof WHO)[number];
 /** "ok" is any success (2xx, a redirect, or a WebSocket's 101); a number is that exact status. */
 type Expect = "ok" | number;
@@ -16,6 +17,12 @@ const READ: Expect[] = [401, 404, "ok", "ok", "ok"];
 const EDIT: Expect[] = [401, 404, 403, "ok", "ok"];
 const OWN: Expect[] = [401, 404, 403, 403, "ok"];
 const SIGNED_IN: Expect[] = [401, "ok", "ok", "ok", "ok"];
+/** What's shared, note by note: members, and the people it's shared with. */
+const SHARED_READ: Expect[] = [401, 404, "ok", "ok", "ok", "ok", "ok"];
+const SHARED_EDIT: Expect[] = [401, 404, 403, "ok", "ok", 403, "ok"];
+const MEMBERS_ONLY: Expect[] = [401, 404, "ok", "ok", "ok", 404, 404];
+/** Someone a note is shared with gets nothing else of the workspace, like a stranger (unless a row says otherwise). */
+const wide = (e: Expect[]) => (e.length === WHO.length ? e : [...e, e[1], e[1]]);
 
 let cloud: Cloud;
 let people: Awaited<ReturnType<typeof team>>;
@@ -27,6 +34,10 @@ const labelIds = {} as Record<Who, string>;
 const folderIds = {} as Record<Who, string>;
 /** Trash items for each person to restore and to delete for good. */
 const trashIds = {} as Record<Who, { restore: string; purge: string }>;
+/** The note shared with the two people outside, and a share for each person to change and to remove. */
+let sharedId = "";
+const shareIds = {} as Record<Who, { update: string; remove: string }>;
+const outside = {} as Record<"sharedViewer" | "sharedEditor", string>;
 /** A member only the owner's requests change (their role, then removing them), and an invite link to revoke. */
 let spareId = "";
 let spareInvite = "";
@@ -114,6 +125,18 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /trash/restore", send: (w) => ["POST", "/trash/restore", { ids: [trashIds[w].restore] }], expect: EDIT },
   { route: "POST /trash/delete", send: (w) => ["POST", "/trash/delete", { ids: [trashIds[w].purge] }], expect: OWN },
   { route: "POST /trash/empty", send: () => ["POST", "/trash/empty", {}], expect: OWN },
+  { route: "GET /shares", send: () => ["GET", "/shares?path=Shared%20note.md"], expect: READ },
+  { route: "POST /shares", send: (w) => ["POST", "/shares", { path: `tasks-${w}.md`, link: true, role: "viewer" }], expect: EDIT },
+  { route: "POST /shares/update", send: (w) => ["POST", "/shares/update", { id: shareIds[w].update, role: "editor" }], expect: EDIT },
+  { route: "POST /shares/remove", send: (w) => ["POST", "/shares/remove", { id: shareIds[w].remove }], expect: EDIT },
+  { route: "GET /shared/list", send: () => ["GET", "/shared/list"], expect: SHARED_READ },
+  { route: "GET /shared/note", send: () => ["GET", `/shared/note?id=${sharedId}`], expect: SHARED_READ },
+  { route: "PUT /shared/note", send: (w) => ["PUT", "/shared/note", { id: sharedId, content: `# Shared note\n\nEdited by ${w}\n` }], expect: SHARED_EDIT },
+  { route: "GET /shared/resolve", send: () => ["GET", `/shared/resolve?target=Getting%20started&from=${sharedId}`], expect: SHARED_READ },
+  { route: "GET /shared/file-resolve", send: () => ["GET", `/shared/file-resolve?target=margin.svg&from=${sharedId}`], expect: MEMBERS_ONLY },
+  { route: "GET /shared/files/*", send: () => ["GET", "/shared/files/assets/margin.svg"], expect: MEMBERS_ONLY },
+  { route: "GET /shared/live", send: () => ["GET", "/shared/live", undefined, liveHeaders()], expect: SHARED_READ },
+  { route: "GET /api/shared", send: () => ["GET", "/api/shared"], expect: SIGNED_IN },
   { route: "GET /calendar/sources", send: () => ["GET", "/calendar/sources"], expect: READ },
   { route: "GET /calendar/events", send: () => ["GET", "/calendar/events?from=2026-10-01&to=2026-10-08"], expect: READ },
   { route: "GET /calendar/event", send: () => ["GET", `/calendar/event?id=${eventId}`], expect: READ },
@@ -135,6 +158,8 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /invites/revoke", send: () => ["POST", "/invites/revoke", { id: spareInvite }], expect: OWN },
   { route: "GET /workspace/log", send: () => ["GET", "/workspace/log"], expect: OWN },
   { route: "POST /workspace/rename", send: () => ["POST", "/workspace/rename", { name: "Team" }], expect: OWN },
+  { route: "GET /workspace/settings", send: () => ["GET", "/workspace/settings"], expect: READ },
+  { route: "POST /workspace/settings", send: () => ["POST", "/workspace/settings", { agentLinks: false }], expect: OWN },
   { route: "POST /members/role", send: () => ["POST", "/members/role", { user: spareId, role: "viewer" }], expect: OWN },
   { route: "POST /members/remove", send: () => ["POST", "/members/remove", { user: spareId }], expect: OWN },
   // A wrong name deletes nothing: the owner gets past the role check to the 400.
@@ -198,6 +223,15 @@ before(async () => {
   for (const w of ["viewer", "editor", "owner"] as const) {
     folderIds[w] = (await cloud.call(people[w], "POST", `${base}/smart-folders`, { name: `Doomed ${w}`, query: "tag=plan" })).id;
   }
+  for (const w of ["sharedViewer", "sharedEditor"] as const) outside[w] = await cloud.signIn(w.toLowerCase());
+  sharedId = (await cloud.call(owner, "POST", `${base}/note`, { path: "Shared note.md", content: "# Shared note\n" })).id ?? "";
+  await cloud.call(owner, "POST", `${base}/shares`, { path: "Shared note.md", email: "sharedviewer@localhost", role: "viewer" });
+  await cloud.call(owner, "POST", `${base}/shares`, { path: "Shared note.md", email: "sharededitor@localhost", role: "editor" });
+  for (const w of WHO) {
+    await cloud.call(owner, "POST", `${base}/note`, { path: `share-${w}.md`, content: "# Share\n" });
+    const made = async (email: string) => (await cloud.call(owner, "POST", `${base}/shares`, { path: `share-${w}.md`, email, role: "viewer" })).shares.find((s: { email: string }) => s.email === email).id;
+    shareIds[w] = { update: await made(`update-${w.toLowerCase()}@example.com`), remove: await made(`remove-${w.toLowerCase()}@example.com`) };
+  }
   await cloud.call(owner, "POST", `${base}/note`, { path: "People/Shared Person.md", content: "# Shared Person\n" });
   const spare = await cloud.signIn("spare");
   const { url } = await cloud.call(owner, "POST", `${base}/invites`, { role: "editor" });
@@ -211,6 +245,7 @@ before(async () => {
     await cloud.request(people[w], "POST", new URL(invite.url).pathname);
   }
   const notes: Array<{ path: string; id: string }> = await cloud.call(owner, "GET", `${base}/notes`);
+  sharedId = notes.find((n) => n.path === "Shared note.md")!.id;
   startId = notes.find((n) => n.path === "Getting started.md")!.id;
   // Note IDs reach the directory just after the request that made them.
   for (let i = 0; i < 50 && (await cloud.request(owner, "GET", `/api/note-ids/${startId}`)).status !== 200; i++) await new Promise((r) => setTimeout(r, 50));
@@ -219,7 +254,10 @@ before(async () => {
 after(() => cloud.close());
 
 test("every route online has a row in the access matrix, and every API route has a role", () => {
-  assert.deepEqual(MATRIX.map((r) => r.route).sort(), [...Object.keys(WORKSPACE_ROUTES), ...ACCOUNT_ROUTES].sort());
+  assert.deepEqual(MATRIX.map((r) => r.route).sort(), [...Object.keys(WORKSPACE_ROUTES), ...ACCOUNT_ROUTES, ...SHARED_ROUTES].sort());
+  const workspace = fs.readFileSync(path.resolve(import.meta.dirname, "../cloud/src/workspace.ts"), "utf8");
+  const shareRoutes = [...workspace.matchAll(/case "((?:GET|POST) \/shares[^"]*)"/g)].map((m) => m[1]);
+  assert.deepEqual(shareRoutes.filter((r) => !(r in WORKSPACE_ROUTES)), [], "share routes with no role in cloud/src/access.ts");
   const api = fs.readFileSync(path.resolve(import.meta.dirname, "../src/core/api.ts"), "utf8");
   const coreRoutes = [...api.matchAll(/case "((?:GET|POST|PUT|PATCH|DELETE) \/[^"]*)"/g)].map((m) => m[1]);
   assert.deepEqual(coreRoutes.filter((r) => !(r in WORKSPACE_ROUTES)), [], "core API routes with no role in cloud/src/access.ts");
@@ -230,20 +268,21 @@ test("every route online has a row in the access matrix, and every API route has
 });
 
 test("each route answers each kind of person as the matrix says", async () => {
-  const cookie = (w: Who) => (w === "signedOut" ? null : people[w]);
+  const cookie = (w: Who) => (w === "signedOut" ? null : w === "sharedViewer" || w === "sharedEditor" ? outside[w] : people[w]);
   const actual: Record<string, Expect[]> = {};
   const expected: Record<string, Expect[]> = {};
   for (const row of MATRIX) {
-    expected[row.route] = row.expect;
+    expected[row.route] = wide(row.expect);
     actual[row.route] = [];
     for (const [i, w] of WHO.entries()) {
       const [method, p, body, headers] = row.send(w);
       const res = await cloud.request(cookie(w), method, p.startsWith("/api/") ? p : `${people.base}${p}`, body, headers);
       await res.body?.cancel();
-      actual[row.route].push(row.expect[i] === "ok" && res.status < 400 ? "ok" : res.status);
+      actual[row.route].push(expected[row.route][i] === "ok" && res.status < 400 ? "ok" : res.status);
     }
   }
-  assert.deepEqual(actual, expected);
+  const off = Object.keys(expected).filter((r) => JSON.stringify(actual[r]) !== JSON.stringify(expected[r]));
+  assert.deepEqual(actual, expected, off.map((r) => `${r}: ${JSON.stringify(actual[r])}`).join("; "));
 });
 
 test("online, each member sees which of the workspace's members is them (a contact with their email is them)", async () => {

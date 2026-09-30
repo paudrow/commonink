@@ -33,6 +33,13 @@ async function register(name = "Test Agent") {
 }
 
 /**
+ * One client for the tests that connect several people: registrations are rate-limited per address
+ * (20 an hour), and this file would pass that with a client per test.
+ */
+let reused: string | undefined;
+const reusedClient = async () => (reused ??= await register());
+
+/**
  * The browser side of connecting an agent: sign-in cookie, consent page, Allow with a workspace,
  * and the code at the redirect.
  */
@@ -55,9 +62,9 @@ async function authorizeCode(cookie: string, workspace: string, client: string) 
 const exchange = (client: string, code: string, verifier: string) =>
   post("/oauth/token", form({ grant_type: "authorization_code", code, redirect_uri: REDIRECT, client_id: client, code_verifier: verifier, resource: `${cloud.origin}/mcp` }));
 
-/** Connect an agent from start to finish: registration, consent, and the code for tokens with PKCE. */
-async function connect(cookie: string, workspace: string) {
-  const client = await register();
+/** Connect an agent from start to finish: registration (unless it reuses `client`), consent, and the code for tokens with PKCE. */
+async function connect(cookie: string, workspace: string, client?: string) {
+  client ??= await register();
   const { html, code, verifier } = await authorizeCode(cookie, workspace, client);
   const tokens = await exchange(client, code, verifier);
   assert.equal(tokens.status, 200);
@@ -78,14 +85,14 @@ async function mcp(token: string) {
 /** What a viewer's agent gets: reading, and what's each person's own (favorites, their smart folders). */
 const VIEWER_TOOLS = [
   "backlinks", "delete_smart_folder", "diff_versions", "export_note", "get_event", "get_today", "list_contacts", "list_events", "list_folders",
-  "list_labels", "list_notes", "list_smart_folders", "list_tags", "list_tasks", "list_templates", "order_favorites", "read_board", "read_contact",
+  "list_labels", "list_notes", "list_shares", "list_smart_folders", "list_tags", "list_tasks", "list_templates", "order_favorites", "read_board", "read_contact",
   "read_note", "recent_changes", "save_smart_folder", "search_notes", "show_change", "star_note", "star_tag", "unstar_note", "unstar_tag",
 ];
 const ALL_TOOLS = [
   ...VIEWER_TOOLS,
   "add_card", "add_task", "append_to_note", "archive_note", "create_contact", "create_from_template", "create_meeting_note", "create_note", "delete_folder",
   "delete_note", "edit_card", "edit_note", "import_contacts", "label_version", "list_trash", "merge_contacts", "move_card", "move_note",
-  "move_task", "open_journal", "remove_task", "rename_tag", "restore_change", "restore_from_trash", "restore_label", "set_asset_tags", "unarchive_note",
+  "move_task", "open_journal", "remove_task", "rename_tag", "restore_change", "restore_from_trash", "restore_label", "set_asset_tags", "share_note", "unarchive_note", "unshare_note",
   "update_contact", "update_task", "write_note",
 ].sort();
 
@@ -324,12 +331,40 @@ test("a client can revoke its own token (RFC 7009)", async () => {
   assert.equal(res.status, 401);
 });
 
+test("an agent shares a note as its person, lists who it's shared with, and stops sharing; a viewer's agent can only list", async () => {
+  const first = await connect(people.owner, people.id, await reusedClient());
+  const owner = await mcp(first.access);
+  await owner.call("create_note", { path: "Plan to share", content: "# Plan to share\n" });
+  // Until an owner allows it, agents (whatever their role) can't make links, public or editor, or invite an editor by email.
+  const REFUSED = { text: "Agents can't share by link or for editing in this workspace. An owner can allow it in the workspace's settings.", isError: true };
+  for (const share of [{ link: true, role: "viewer" }, { link: true, role: "editor" }, { email: "guest@example.com", role: "editor" }]) {
+    assert.deepEqual(await owner.call("share_note", { path: "Plan to share", ...share }), REFUSED, JSON.stringify(share));
+  }
+  assert.equal((await owner.call("list_shares", { path: "Plan to share" })).text, "Plan to share.md isn't shared with anyone outside the workspace.");
+  const viewing = await owner.call("share_note", { path: "Plan to share", email: "reader@example.com", role: "viewer" });
+  assert.match(viewing.text, /- reader@example\.com \(by email\) — viewer/, "a viewer by email needs no setting");
+  assert.deepEqual(await cloud.call(people.owner, "GET", `${people.base}/workspace/settings`), { agentLinks: false });
+  assert.deepEqual(await cloud.call(people.owner, "POST", `${people.base}/workspace/settings`, { agentLinks: true }), { agentLinks: true });
+  const [logged] = await cloud.call(people.owner, "GET", `${people.base}/workspace/log`);
+  assert.deepEqual([logged.action, logged.detail], ["settings", "agentLinks: on"]);
+  const shared = await owner.call("share_note", { path: "Plan to share", email: "guest@example.com", role: "editor", expires_in_days: 7 });
+  assert.match(shared.text, /- guest@example\.com \(by email\) — editor, until \d{4}-\d{2}-\d{2} \(id (\w+)\)/);
+  const id = shared.text.match(/guest@example\.com .*\(id (\w+)\)/)![1];
+  const linked = await owner.call("share_note", { path: "Plan to share", link: true, role: "viewer" });
+  assert.match(linked.text, new RegExp(`- Anyone with the link: ${cloud.origin}/s/[a-f0-9]{64} — viewer`));
+  assert.deepEqual(await owner.call("unshare_note", { id }), { text: "Stopped sharing it.", isError: false });
+  assert.doesNotMatch((await owner.call("list_shares", { path: "Plan to share" })).text, /guest@example\.com/);
+  assert.equal((await owner.call("share_note", { path: "Plan to share", role: "viewer" })).isError, true, "an email or a link is needed");
+  const viewer = await mcp((await connect(people.viewer, people.id, first.client)).access);
+  const seen = (await viewer.call("list_shares", { path: "Plan to share" })).text;
+  assert.deepEqual([/Anyone with the link — viewer/.test(seen), /\/s\//.test(seen)], [true, false], "a viewer sees that a link exists, not its URL");
+});
+
 test("an agent's today is its person's day in the time zone their browser reported, else the workspace owner's, else UTC", async () => {
   // UTC+14 and UTC-11 are 25 hours apart, so they're never on the same day.
   const [AHEAD, BEHIND] = ["Pacific/Kiritimati", "Pacific/Pago_Pago"];
   const dayIn = (timeZone: string) => new Intl.DateTimeFormat("en-CA", { timeZone }).format(Date.now());
-  // One registered client for everyone: registrations are rate-limited per address.
-  const client = await register();
+  const client = await reusedClient();
   const agentOf = async (cookie: string, workspace: string) => {
     const { code, verifier } = await authorizeCode(cookie, workspace, client);
     const { access_token } = (await (await exchange(client, code, verifier)).json()) as { access_token: string };

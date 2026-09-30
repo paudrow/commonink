@@ -6,6 +6,7 @@ import {
   sessionUser, touchSession, upsertUser, type User,
 } from "./directory.ts";
 import type { Env } from "./env.ts";
+import { hasPendingShare } from "./shares.ts";
 
 // __Host- cookies must be Secure, for this exact host and path "/", so a sibling subdomain can't set
 // or overwrite them.
@@ -207,7 +208,8 @@ export async function handleAuth(
       }
       const sub = `google:${claims.sub}`;
       const profile = { email: claims.email, name: claims.name ?? claims.email.split("@")[0], picture: claims.picture };
-      if (!(await hasUser(env.DB, sub)) && !(await arrivingByInvite(env, pending.next))) {
+      // Someone new may sign up on an invite link, or when a note was shared with their (verified) email.
+      if (!(await hasUser(env.DB, sub)) && !(await arrivingByInvite(env, pending.next)) && !(await hasPendingShare(env.DB, profile.email))) {
         // Hold on to who they are (signed, for 15 minutes) and ask for the sign-up code before making the account.
         const ticket = await seal(env.SESSION_SECRET, { sub, profile, next: pending.next, exp: Date.now() + 15 * 60_000 } satisfies PendingSignup);
         return redirect("/auth/signup", [setCookie(OAUTH, "", 0), setCookie(SIGNUP, ticket, 15 * 60)]);

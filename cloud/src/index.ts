@@ -6,7 +6,9 @@ import { json } from "../../src/core/api.ts";
 import { assertPublicUrl, unfurl } from "../../src/core/unfurl.ts";
 import { MAX_UPLOAD } from "../../src/core/paths.ts";
 import { SANDBOX_PATH, sandboxPage } from "../../src/core/sandbox.ts";
-import { access, isAccountRoute, routeKey, type AccountRoute } from "./access.ts";
+import { access, isAccountRoute, LINK_ROUTES, routeKey, SHARED_ROUTES, type AccountRoute } from "./access.ts";
+import { memberShareRole, type SharedAccess } from "./grants.ts";
+import { grantsFor, joinLink, linkShare, sharedWith } from "./shares.ts";
 import { authorize, listAgents, oauthOptions, revokeAgents, withOAuthStore, type OAuthEnv } from "./agents.ts";
 import { clearSessionCookies, ensurePersonalWorkspace, escapeHtml, handleAuth, page, readSession, readSessionOf, seedWorkspace, text } from "./auth.ts";
 import { adminRoute } from "./admin.ts";
@@ -50,9 +52,10 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
   if (url.pathname.startsWith("/auth/")) {
     const ip = req.headers.get("CF-Connecting-IP") ?? "unknown";
     const tooMany = url.pathname !== "/auth/logout" && (await limit(env.DB, "signIn", ip, "text"));
-    return tooMany || handleAuth(req, env, (user) => ensurePersonalWorkspace(env, user), (s) => disconnect(env, s.user.id, `s:${s.id}`));
+    return tooMany || handleAuth(req, env, (user) => ensurePersonalWorkspace(env, user), (s) => disconnect(env, s.user, `s:${s.id}`));
   }
   if (url.pathname.startsWith("/invite/")) return invite(req, env, url);
+  if (url.pathname.startsWith("/api/s/")) return shareLink(req, env, url);
   if (url.pathname.startsWith("/api/")) return api(req, env, url);
   // A share the service worker didn't catch (it wasn't set up yet): the capture screen says so.
   if (url.pathname === "/share" && req.method === "POST") return Response.redirect(new URL("/capture?share=none", url).href, 303);
@@ -112,6 +115,16 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
     return ws ? json({ workspace: ws }) : json({ error: "That note doesn't exist, or you don't have access to it" }, 404);
   },
   "GET /api/agents": async ({ env, url, user }) => json(await listAgents(env, url, user)),
+  // "Shared with me": notes other workspaces share with you, each workspace's by title.
+  "GET /api/shared": async ({ env, user }) =>
+    json(
+      await Promise.all(
+        (await sharedWith(env.DB, user)).map(async ({ workspace, grants }) => ({
+          workspace,
+          notes: await env.WORKSPACE.get(env.WORKSPACE.idFromName(workspace.id)).sharedList({ grants, write: true }),
+        })),
+      ),
+    ),
   // Google Calendar (connections.ts): whether it's on here, and the person's connection. Never a token.
   "GET /api/google": async ({ env, user }) => json({ mode: googleMode(env), connection: await connectionInfo(env, user.id) }),
   "GET /api/google/calendars": async ({ env, user }) => {
@@ -141,16 +154,17 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
   "POST /api/sign-out-everywhere": async ({ env, url, user }) => {
     await endSessionsOf(env.DB, user.id);
     await revokeAgents(env, url, user, "all");
-    await disconnect(env, user.id, user.id);
+    await disconnect(env, user, user.id);
     const res = json({ ok: true });
     for (const c of clearSessionCookies()) res.headers.append("Set-Cookie", c);
     return res;
   },
 };
 
-/** Close live connections tagged `tag` (a person, or one of their sessions) in each of their workspaces. */
-async function disconnect(env: Env, userId: string, tag: string) {
-  await Promise.all((await workspacesOf(env.DB, userId)).map((w) => env.WORKSPACE.get(env.WORKSPACE.idFromName(w.id)).disconnect(tag)));
+/** Close live connections tagged `tag` (a person, or one of their sessions) in each workspace they're in or that shares with them. */
+async function disconnect(env: Env, user: User, tag: string) {
+  const ids = new Set([...(await workspacesOf(env.DB, user.id)).map((w) => w.id), ...(await sharedWith(env.DB, user)).map((s) => s.workspace.id)]);
+  await Promise.all([...ids].map((id) => env.WORKSPACE.get(env.WORKSPACE.idFromName(id)).disconnect(tag)));
 }
 
 async function api(req: Request, env: Env, url: URL): Promise<Response> {
@@ -173,6 +187,7 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
   const m = url.pathname.match(/^\/api\/w\/([a-z0-9]+)(\/.*)$/);
   if (!m) return json({ error: "Not found" }, 404);
   const [, wsId, route] = m;
+  if (route.startsWith("/shared/")) return shared(req, env, url, user, session, wsId, route);
   const ws = await membership(env.DB, user.id, wsId);
   if (!ws) return json({ error: "Not found" }, 404);
   const allowed = access(ws.role, req.method, route);
@@ -207,6 +222,65 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
   headers.set("x-ci-origin", url.origin);
   const inner = new Request(`https://workspace${route}${url.search}`, { method: req.method, headers, body: isWrite ? req.body : undefined, redirect: "manual" });
   return env.WORKSPACE.get(env.WORKSPACE.idFromName(ws.id)).fetch(inner);
+}
+
+/** What a signed-in person may see of a workspace through what's shared: everything, for a member. */
+async function shared(req: Request, env: Env, url: URL, user: User, session: { id: string; expiresAt: number }, wsId: string, route: string) {
+  if (!SHARED_ROUTES.includes(routeKey(req.method, route) as (typeof SHARED_ROUTES)[number])) return json({ error: "Not found" }, 404);
+  const ws = await membership(env.DB, user.id, wsId);
+  const grants = ws ? [] : await grantsFor(env.DB, wsId, user);
+  if (!ws && !grants.length) return json({ error: "Not found" }, 404);
+  const access: SharedAccess = ws ? { member: memberShareRole(ws.role) } : { grants, write: true };
+  const headers = forwardHeaders(req, wsId, access, `/api/w/${wsId}/shared`);
+  headers.set("x-ci-actor", encodeURIComponent(user.name));
+  headers.set("x-ci-user", user.id);
+  headers.set("x-ci-session", session.id);
+  headers.set("x-ci-session-expires", String(session.expiresAt));
+  return toWorkspace(env, req, wsId, route, url, headers);
+}
+
+/**
+ * A shared link, `/api/s/<token>/…`: no sign-in needed to read what it shares, and nothing else of
+ * its workspace. Lookups are limited per address, so tokens can't be guessed by volume (they're 256
+ * bits anyway). Signed in, `join` keeps it in your Shared with me, with the link's role.
+ */
+async function shareLink(req: Request, env: Env, url: URL): Promise<Response> {
+  const [, , , token = "", ...rest] = url.pathname.split("/");
+  const route = `/${rest.join("/")}`;
+  const tooMany = await limit(env.DB, "shareLink", req.headers.get("CF-Connecting-IP") ?? "unknown");
+  if (tooMany) return tooMany;
+  const share = await linkShare(env.DB, token);
+  const gone = () => json({ error: "This link doesn't work any more, or never did" }, 404);
+  if (!share) return gone();
+  if (route === "/join" && req.method === "POST") {
+    const session = await readSessionOf(req, env);
+    if (!session) return json({ error: "Sign in first", devLogin: env.DEV_LOGIN === "1" }, 401);
+    if (req.headers.get("Origin") !== url.origin) return json({ error: "Cross-origin request refused" }, 403);
+    await joinLink(env.DB, share, session.user.id);
+    return json({ workspace: share.workspaceId, note: share.note, folder: share.folder });
+  }
+  if (!LINK_ROUTES.includes(routeKey(req.method, route) as (typeof LINK_ROUTES)[number])) return json({ error: "Not found" }, 404);
+  const headers = forwardHeaders(req, share.workspaceId, { grants: [share], write: false }, `/api/s/${token}`);
+  const res = await toWorkspace(env, req, share.workspaceId, `/shared${route}`, url, headers);
+  const out = new Response(res.body, res);
+  out.headers.set("X-Robots-Tag", "noindex, nofollow");
+  out.headers.set("Referrer-Policy", "no-referrer"); // the token is in the URL
+  return out;
+}
+
+/** Headers for a request into a workspace's shared routes; any the client sent are dropped first. */
+function forwardHeaders(req: Request, wsId: string, access: SharedAccess, base: string) {
+  const headers = new Headers([...req.headers].filter(([k]) => !k.toLowerCase().startsWith("x-ci-")));
+  headers.set("x-ci-workspace", wsId);
+  headers.set("x-ci-share", JSON.stringify(access));
+  headers.set("x-ci-base", base);
+  return headers;
+}
+
+function toWorkspace(env: Env, req: Request, wsId: string, route: string, url: URL, headers: Headers) {
+  const isWrite = req.method !== "GET" && req.method !== "HEAD";
+  const inner = new Request(`https://workspace${route.startsWith("/shared/") ? route : `/shared${route}`}${url.search}`, { method: req.method, headers, body: isWrite ? req.body : undefined, redirect: "manual" });
+  return env.WORKSPACE.get(env.WORKSPACE.idFromName(wsId)).fetch(inner);
 }
 
 /**
