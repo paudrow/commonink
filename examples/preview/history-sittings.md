@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 137
 title: One History entry per sitting, not per autosave
 ---
 The editor autosaves about every second while you type, and each save kept a full copy of the note in History, forever. Now a stretch of typing in one note is one change. It starts with the note as it was before you began and ends with your last save. A pause of more than 5 minutes, a save to another note, or anyone else's change to the note starts a new one.
