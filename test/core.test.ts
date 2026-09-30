@@ -42,25 +42,6 @@ test("resolve accepts paths, extensionless paths and wikilink names", () => {
   assert.equal(quire.resolve("../../etc/passwd"), null);
 });
 
-test("edit replaces one exact string and refuses ambiguous or stale edits", () => {
-  const { dir, quire } = openTempVault();
-  const before = quire.read("Roadmap");
-  const r = quire.edit("Roadmap", { oldString: "Ship the importer", newString: "Ship the exporter" }, "tester");
-  assert.equal(fs.readFileSync(path.join(dir, "Projects/Roadmap.md"), "utf8").includes("- [ ] Ship the exporter\n"), true);
-  assert.equal(r.change.source, "tester");
-  assert.equal(r.change.summary, "+1 −1");
-  assert.throws(() => quire.edit("Roadmap", { oldString: "- [", newString: "* [" }, "t"), /occurs 2 times/);
-  assert.throws(() => quire.edit("Roadmap", { oldString: "Ship", newString: "x", baseVersion: before.version }, "t"), /Re-read it and retry/);
-});
-
-test("moving a note rewrites the links that point at it", () => {
-  const { dir, quire } = openTempVault();
-  const r = quire.move("Roadmap", "Projects/Plan.md", "tester");
-  assert.deepEqual(r.updated, ["Welcome.md"]);
-  assert.equal(fs.readFileSync(path.join(dir, "Welcome.md"), "utf8"), "# Welcome\n\nStart with [[Plan]].\n\n![[chart.svg]]\n");
-  assert.deepEqual(quire.backlinks("Plan").map((b) => b.path), ["Welcome.md"]);
-});
-
 test("a path typed in another case is the note's own path, not a second note", () => {
   const { quire } = openTempVault();
   assert.equal(quire.resolve("projects/roadmap"), "Projects/Roadmap.md");
@@ -87,6 +68,25 @@ test("an index from before composed names learns them on open", () => {
   const { dir, quire } = openTempVault({ [`Places/${nfd}.md`]: "# Café\n" });
   quire.db.run("UPDATE notes SET stem = ?", nfd.toLowerCase());
   assert.equal(openVault(dir).resolve("café"), `Places/${nfd}.md`);
+});
+
+test("edit replaces one exact string and refuses ambiguous or stale edits", () => {
+  const { dir, quire } = openTempVault();
+  const before = quire.read("Roadmap");
+  const r = quire.edit("Roadmap", { oldString: "Ship the importer", newString: "Ship the exporter" }, "tester");
+  assert.equal(fs.readFileSync(path.join(dir, "Projects/Roadmap.md"), "utf8").includes("- [ ] Ship the exporter\n"), true);
+  assert.equal(r.change.source, "tester");
+  assert.equal(r.change.summary, "+1 −1");
+  assert.throws(() => quire.edit("Roadmap", { oldString: "- [", newString: "* [" }, "t"), /occurs 2 times/);
+  assert.throws(() => quire.edit("Roadmap", { oldString: "Ship", newString: "x", baseVersion: before.version }, "t"), /Re-read it and retry/);
+});
+
+test("moving a note rewrites the links that point at it", () => {
+  const { dir, quire } = openTempVault();
+  const r = quire.move("Roadmap", "Projects/Plan.md", "tester");
+  assert.deepEqual(r.updated, ["Welcome.md"]);
+  assert.equal(fs.readFileSync(path.join(dir, "Welcome.md"), "utf8"), "# Welcome\n\nStart with [[Plan]].\n\n![[chart.svg]]\n");
+  assert.deepEqual(quire.backlinks("Plan").map((b) => b.path), ["Welcome.md"]);
 });
 
 test("creating a second top-level note with the same title leaves the first as it was", () => {
