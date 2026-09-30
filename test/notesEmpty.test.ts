@@ -28,17 +28,19 @@ const page = new NotesPage({
   toast() {},
   changed() {},
   newNote: () => created++,
+  goTab: (tab) => page.show({ tab }),
+  trash: () => null,
 });
 const root = document.getElementById("notes-view")!;
 const settle = () => new Promise((r) => setTimeout(r, 20));
 const shown = (sel: string) => !root.querySelector<HTMLElement>(sel)!.hidden;
 const button = (label: string) => [...root.querySelectorAll("button")].find((b) => b.textContent === label)!;
 
-test("an empty vault offers a new note and hides the filters and keys it can't use", async () => {
+test("an empty vault offers a new note and hides the filters and keys it can't use, but not the tabs", async () => {
   page.show();
   await settle();
   assert.equal(root.querySelector(".empty-state b")!.textContent, "No notes yet");
-  assert.deepEqual([shown(".feed-search"), shown(".feed-filters"), shown(".feed-keys")], [false, false, false]);
+  assert.deepEqual([shown(".feed-search"), shown(".feed-sort"), shown(".feed-keys"), shown(".feed-scope")], [false, false, false, true]);
   button("New note").click();
   assert.equal(created, 1);
 });
@@ -46,7 +48,7 @@ test("an empty vault offers a new note and hides the filters and keys it can't u
 test("a filter with no matches says so and clears in one click", async () => {
   page.show({ query: { q: "zebra", folder: "Projects" } });
   await settle();
-  assert.equal(root.querySelector(".empty-state b")!.textContent, "No active notes in Projects match “zebra”");
+  assert.equal(root.querySelector(".empty-state b")!.textContent, "No notes in Projects match “zebra”");
   assert.equal(shown(".feed-search"), true);
   requests.length = 0;
   button("Clear filters").click();
@@ -55,12 +57,12 @@ test("a filter with no matches says so and clears in one click", async () => {
   assert.equal(root.querySelector(".empty-state b")!.textContent, "No notes yet");
 });
 
-test("Archived with nothing in it explains archiving and goes back to active notes", async () => {
-  page.show({ scope: "archived" });
+test("Archive with nothing in it says how to archive and goes back to Notes", async () => {
+  page.show({ tab: "archive" });
   await settle();
   assert.equal(root.querySelector(".empty-state b")!.textContent, "Nothing archived");
-  button("Show active notes").click();
+  button("Show notes").click();
   await settle();
-  assert.equal(page.scope, "active");
+  assert.equal(page.tab, "notes");
   assert.equal(root.querySelector(".empty-state b")!.textContent, "No notes yet");
 });

@@ -57,7 +57,7 @@ export async function serveCli(req: Request, env: OAuthEnv, props: AgentProps): 
   const agent = typeof body.agent === "string" && body.agent.trim() ? body.agent.trim().slice(0, 40) : null;
   const actor = agent ? agentSource(agent, user.name) : user.name;
   const stub = env.WORKSPACE.get(env.WORKSPACE.idFromName(ws.id));
-  const out = await stub.runCommand(command.cli, fromWire(body.input) as Record<string, unknown>, { workspace: ws.id, user: user.id, actor, role: ws.role });
+  const out = await stub.runCommand(command.cli, fromWire(body.input) as Record<string, unknown>, { workspace: ws.id, user: user.id, actor, role: ws.role, origin: new URL(req.url).origin });
   return out.ok ? json(toWire(out)) : fail(out.error, out.code);
 }
 

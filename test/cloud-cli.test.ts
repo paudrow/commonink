@@ -105,6 +105,20 @@ test("commands run in the workspace you name, attributed to you or to the agent 
   assert.equal(c.run(["edit", "Hello", "--old", "by hand", "--new", "x", "--base", "000000000000"]).status, 4);
 });
 
+test("the workspace's calendar from the CLI: events, and a meeting note made and linked", async () => {
+  const cal = await cloud.call(people.owner, "POST", `${people.base}/calendar/sources`, { url: "https://demo.commonink.invalid/agents.ics" });
+  const c = cli();
+  await login(c, people.editor);
+  const team = ["--workspace", "Team", "--tz", "America/Los_Angeles"];
+  const list = c.run(["events", "--from", "2026-10-05", "--days", "1", ...team]);
+  assert.match(list.stdout, /^1 event, Mon, Oct 5 to Mon, Oct 5 \(America\/Los_Angeles\):\n- Standup · .* · id ([a-z2-9]{12})\n$/);
+  const id = list.stdout.match(/id ([a-z2-9]{12})$/m)![1];
+  assert.equal(c.run(["meeting-note", id, ...team]).stdout, "Created Meetings/2026-10-05 Standup.md, linked to the event\n");
+  assert.match(c.run(["event", id, ...team]).stdout, /^meeting note: Meetings\/2026-10-05 Standup\.md$/m);
+  assert.equal(c.run(["event", "nope", ...team]).status, 3);
+  await cloud.call(people.owner, "POST", `${people.base}/calendar/sources/remove`, { id: cal.id });
+});
+
 test("files go up to R2 and come back down, byte for byte", async () => {
   const c = cli();
   await login(c, people.owner);

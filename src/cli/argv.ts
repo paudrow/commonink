@@ -109,6 +109,11 @@ function convert(name: string, a: ArgSpec, raw: string, where: "flag" | "pos", i
   }
   if (a.kind === "strings") return raw === "none" ? [] : raw.split(",").map((s) => s.trim()).filter(Boolean);
   if (a.kind === "files") return [io.readFile(raw)];
+  if (a.kind === "pairs") {
+    const [key, ...value] = raw.split("=");
+    if (!value.length || !key.trim()) throw new UsageError(`${shown} takes Name=value, not "${raw}"`);
+    return { [key.trim()]: value.join("=") };
+  }
   if (a.stdin && raw === "-") {
     const input = io.stdin();
     if (input === null) throw new UsageError(`${shown} is "-", but nothing was piped in`);
@@ -156,6 +161,7 @@ export function parse(argv: string[], io: Io): Parsed | { help: string[] } | nul
     if (preset) input[preset[0]] = preset[1].presets![flag];
     else if (!hit) throw new UsageError(`${command.cli} has no --${flag}: see quire help ${command.cli}`);
     else if (hit[1].kind === "boolean") input[hit[0]] = true;
+    else if (hit[1].kind === "pairs") input[hit[0]] = { ...(input[hit[0]] as object), ...(convert(hit[0], hit[1], String(value), "flag", io) as object) };
     else input[hit[0]] = convert(hit[0], hit[1], String(value), "flag", io);
   }
   if (globals.help) return { help: command.cli.split(" ") };

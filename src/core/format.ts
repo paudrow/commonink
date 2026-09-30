@@ -3,6 +3,7 @@
 import { authorLabel } from "./actor.ts";
 import { isTagFavorite, type Backlink, type Change, type Favorite, type Note, type NoteMeta, type Quire, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView, type TrashItem } from "./quire.ts";
 import type { Board } from "./kanban.ts";
+import type { TemplateInfo } from "./templates.ts";
 
 export function fmtSearch(q: string, hits: SearchHit[]): string {
   if (!hits.length) return `No notes match "${q}".`;
@@ -58,7 +59,7 @@ export function fmtTags(tags: TagCount[]): string {
   return tags
     .map((t) => {
       const uses = [n(t.notes, "note"), n(t.tasks, "task"), n(t.assets, "asset")].filter(Boolean).join(", ");
-      return `${"  ".repeat(t.tag.split("/").length - 1)}- #${t.display} (${uses})`;
+      return `${"  ".repeat(t.tag.split("/").length - 1)}- #${t.display} (${uses || "added, not used yet"})`;
     })
     .join("\n");
 }
@@ -158,4 +159,12 @@ export function fmtTrash(items: TrashItem[]): string {
   return items
     .map((t) => `${t.id}  ${t.path} — deleted ${new Date(t.deletedAt).toISOString().slice(0, 16).replace("T", " ")}${t.by ? ` by ${authorLabel({ ...t.by })}` : ""}, gone for good ${new Date(t.expiresAt).toISOString().slice(0, 10)}`)
     .join("\n");
+}
+
+/** A template on a line: its path and name, what it asks, and the folders it's the default for. */
+export function fmtTemplate(t: TemplateInfo): string {
+  const kind = (a: TemplateInfo["asks"][number]) => (a.type === "choice" ? ` (one of ${a.choices.join(", ")})` : a.type === "text" ? "" : ` (${a.type})`);
+  const asks = t.asks.length ? ` · asks: ${t.asks.map((a) => a.label + kind(a)).join(", ")}` : "";
+  const where = t.appliesTo.length ? ` · new notes in ${t.appliesTo.map((f) => `${f}/`).join(", ")} start from it` : "";
+  return `${t.path} — ${t.name}${asks}${where}`;
 }

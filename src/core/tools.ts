@@ -5,6 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { QuireError } from "./paths.ts";
 import type { Quire } from "./quire.ts";
+import type { Calendar } from "./calendar.ts";
 import { AGENTS_NOTE } from "./noteRoles.ts";
 import { COMMANDS, toolName, type ArgSpec, type Command } from "./commands/index.ts";
 
@@ -21,6 +22,10 @@ export interface ToolHost {
   may?(route: string): boolean;
   /** Whether the caller may make or change shared smart folders (online: editors and owners). Default yes. */
   canEditShared?: boolean;
+  /** The workspace's calendars; with them, the event tools are offered. */
+  calendar?: Calendar;
+  /** Where the app is, for a meeting note's link written back to Google. */
+  origin?: string;
 }
 
 /**
@@ -36,6 +41,7 @@ function schemaOf(a: ArgSpec): z.ZodTypeAny {
   else if (a.kind === "boolean") t = z.boolean();
   else if (a.kind === "strings") t = a.required && !a.allowEmpty ? z.array(z.string()).min(1) : z.array(z.string());
   else if (a.kind === "string") t = a.enum ? z.enum(a.enum as [string, ...string[]]) : z.string();
+  else if (a.kind === "pairs") t = z.record(z.string(), z.string());
   else throw new Error(`An MCP tool can't take a ${a.kind} argument`);
   if (a.nullable) t = t.nullable();
   if (!a.required && !a.mcpRequired) t = t.optional();
@@ -69,7 +75,7 @@ export function createMcpServer(host: ToolHost): McpServer {
   for (const c of COMMANDS) {
     const name = toolName(c);
     // Only the tools this caller's role allows.
-    if (!name || c.settings || (host.may && !host.may(c.route))) continue;
+    if (!name || c.settings || (host.may && !host.may(c.route)) || (c.needs === "calendar" && !host.calendar)) continue;
     (mcp.registerTool as (n: string, config: unknown, cb: (input: Record<string, unknown>) => Promise<Result>) => unknown)(
       name,
       { title: c.title, description: c.description ?? c.summary, inputSchema: inputSchema(c), annotations: annotations(c) },
@@ -78,7 +84,7 @@ export function createMcpServer(host: ToolHost): McpServer {
           if (c.readOnly) quire.sync(); // files written straight to disk count too
           // Every write is attributed to the connected client, so the app can show who changed what.
           const source = host.source(mcp.server.getClientVersion()?.name);
-          const out = await c.run({ quire, user, source, canEditShared: host.canEditShared ?? true }, input as never);
+          const out = await c.run({ quire, user, source, canEditShared: host.canEditShared ?? true, calendar: host.calendar, origin: host.origin }, input as never);
           return { content: [{ type: "text", text: out.text }] };
         } catch (e) {
           const text = e instanceof QuireError ? e.message : `Unexpected error: ${(e as Error).message}`;
