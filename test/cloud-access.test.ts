@@ -50,6 +50,7 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "GET /tags", send: () => ["GET", "/tags"], expect: READ },
   { route: "GET /asset-tags", send: () => ["GET", "/asset-tags"], expect: READ },
   { route: "GET /today", send: () => ["GET", "/today?today=2026-10-01"], expect: READ },
+  { route: "GET /export", send: () => ["GET", "/export?path=Getting%20started.md&path=assets/margin.svg"], expect: READ },
   { route: "GET /files/*", send: () => ["GET", "/files/assets/margin.svg"], expect: READ },
   { route: "GET /file-resolve", send: () => ["GET", "/file-resolve?target=margin.svg"], expect: READ },
   { route: "GET /live", send: () => ["GET", "/live", undefined, liveHeaders()], expect: READ },

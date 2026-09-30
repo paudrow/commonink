@@ -132,6 +132,11 @@ export class Workspace extends DurableObject<Env> {
         this.broadcast({ type: "change", change });
       },
       tree: () => this.broadcast({ type: "tree" }),
+      fileBytes: async (rel) => {
+        const key = this.files.blob(rel)?.blob;
+        const obj = key ? await this.env.FILES.get(key) : null;
+        return obj ? new Uint8Array(await obj.arrayBuffer()) : null;
+      },
     };
     return (await handleApi(host, req, route)) ?? json({ error: `No route ${req.method} ${route}` }, 404);
   }

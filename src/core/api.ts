@@ -5,6 +5,7 @@ import type { ArchiveScope, Change, Quire } from "./quire.ts";
 import type { TaskPatch } from "./tasks.ts";
 import { agentSource, parseAuthorFilter } from "./actor.ts";
 import { findStartNote, GUIDE, parseGuideAction, runGuide } from "./guide.ts";
+import { exportZip, type ExportWhat } from "./export.ts";
 
 export interface ApiHost {
   quire: Quire;
@@ -23,10 +24,18 @@ export interface ApiHost {
   removed(rel: string, change: Change): void;
   /** The set of notes changed. */
   tree(): void;
+  /** An uploaded file's bytes (for exports), or null if it's gone. */
+  fileBytes?(rel: string): Promise<Uint8Array | null>;
 }
 
 export const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+
+/** `attachment; filename=…` for a download, the name in ASCII and in full. */
+export function attachment(name: string): string {
+  const ascii = name.replace(/[^\x20-\x7e]|["\\]/g, "_");
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+}
 
 export function errorResponse(e: unknown): Response {
   if (e instanceof QuireError) {
@@ -332,6 +341,12 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     }
     case "GET /trash":
       return json(quire.trash());
+    case "GET /export": {
+      // Notes as a .zip (core/export.ts): ?path=… (repeated), ?folder=…, or ?all=1 for the whole workspace.
+      const what: ExportWhat = q("all") ? { all: true } : q("folder") ? { folder: q("folder") } : { paths: url.searchParams.getAll("path").slice(0, 2000) };
+      const out = await exportZip({ quire, bytes: host.fileBytes ?? (async () => null), origin: url.origin, name: String(host.info().name ?? "Workspace") }, what);
+      return new Response(out.zip as Uint8Array<ArrayBuffer>, { headers: { "Content-Type": "application/zip", "Content-Disposition": attachment(out.name), "Cache-Control": "no-store" } });
+    }
     case "POST /trash/restore": {
       const back = quire.untrash(paths("ids"), actor);
       for (const b of back) host.written(b.path, quire.files.read(b.path), b.version, b.change);
