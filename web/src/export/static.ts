@@ -21,6 +21,7 @@ import { splitFrontmatter } from "../../../src/core/parse.ts";
 import { toQuery, type NoteQuery } from "../../../src/core/query.ts";
 import { parseTask } from "../../../src/core/tasks.ts";
 import { safeDecode } from "../../../src/core/uri.ts";
+import { NOTE_LINKS, noteTarget } from "../noteLinks.ts";
 
 /** A note found for a link or an embed: where it is, its markdown, and its web address (null if it has none). */
 export interface StaticNote {
@@ -98,7 +99,7 @@ async function build(path: string, md: string, src: StaticSources, opts: StaticO
       const d = widgets[Number(slot.dataset.slot)];
       slot.replaceWith(d ? await snapshot(d, path, src) : el("div"));
     }),
-    ...[...root.querySelectorAll<HTMLAnchorElement>('a[href^="commonink:"]')].filter(isEmbed).map((a) => embed(a, path, src, opts, depth, seen)),
+    ...[...root.querySelectorAll<HTMLAnchorElement>(NOTE_LINKS)].filter(isEmbed).map((a) => embed(a, path, src, opts, depth, seen)),
   ]);
   if (opts.frontmatter && Object.keys(data).length) root.prepend(properties(data));
   return root;
@@ -142,8 +143,8 @@ async function finish(root: HTMLElement, path: string, src: StaticSources, opts:
       }
       pre.replaceWith(await staticCodeBlock(code, info));
     }),
-    ...[...root.querySelectorAll<HTMLAnchorElement>('a[href^="commonink:"]')].map(async (a) => {
-      const url = await src.url(safeDecode(a.getAttribute("href")!.slice(6)), path).catch(() => null);
+    ...[...root.querySelectorAll<HTMLAnchorElement>(NOTE_LINKS)].map(async (a) => {
+      const url = await src.url(noteTarget(a.getAttribute("href")!)!, path).catch(() => null);
       if (url) a.setAttribute("href", url);
       else a.replaceWith(el("span", { class: "st-link" }, ...a.childNodes));
     }),
@@ -288,7 +289,7 @@ const isEmbed = (a: HTMLAnchorElement) => !!a.textContent?.startsWith("↳ ");
 
 /** An embedded note drawn in place (to MAX_DEPTH, and never inside itself); any other embed as a card. */
 async function embed(a: HTMLAnchorElement, from: string, src: StaticSources, opts: StaticOptions, depth: number, seen: Set<string>) {
-  const target = safeDecode(a.getAttribute("href")!.slice(6));
+  const target = noteTarget(a.getAttribute("href")!)!;
   const [name, heading] = target.split("#");
   const kind = embedKindOf(name);
   const p = a.parentElement;
