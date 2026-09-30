@@ -351,3 +351,12 @@ test("templates: listed, rendered for inserting, and made into notes", async () 
   assert.equal((await call("POST", "/notes/from-template", { template: "Nope" })).status, 404);
   assert.equal((await call("POST", "/notes/from-template", { template: "Meeting", answers: { Client: 3 } })).status, 400);
 });
+
+test("a template's people picks become @handles on task lines and names elsewhere; bad picks are a 400", async () => {
+  const { call } = setup();
+  await call("PUT", "/note", { path: "Templates/Kickoff.md", content: "With {{ask:Who|people}}\n\n- [ ] Plan it {{ask:Who|people}}\n" });
+  const picks = { Who: [{ name: "Sam Dev", handle: "Sam" }, { name: "Lee Chang", handle: "Lee" }] };
+  const r = (await call("POST", "/templates/render", { template: "Kickoff", picks })).body;
+  assert.equal(r.text, "With Sam Dev, Lee Chang\n\n- [ ] Plan it @Sam @Lee\n");
+  assert.equal((await call("POST", "/templates/render", { template: "Kickoff", picks: { Who: [{ name: "Sam" }] } })).status, 400);
+});
