@@ -236,6 +236,26 @@ export interface TrashItem extends Trashed {
   expiresAt: number;
   by: { source: string; person: string | null; agent: string | null } | null;
   excerpt: string;
+  /** Its marked versions, which deleting it for good deletes too. */
+  marks: number;
+}
+/** A marked version of a note (core Quire.mark). */
+export interface Mark {
+  id: string;
+  note_id: string;
+  /** Where the note is now; null while it's in Trash. */
+  path: string | null;
+  /** The change right before this version, or null. */
+  change_id: number | null;
+  name: string;
+  description: string | null;
+  version: string;
+  ts: number;
+  source: string;
+  person: string | null;
+  agent: string | null;
+  /** The note is at this version now. */
+  current: boolean;
 }
 export interface DeleteCheck {
   notes: number;
@@ -350,6 +370,15 @@ export const api = {
   /** The net lines added and removed by each set of changes (ranges as for diffs), at most 50 sets. */
   diffStats: (sets: string[]) => j<Array<LineStat | null>>(`${BASE}/diffstats?sets=${sets.join(";")}`),
   /** Put a note back the way it was before change #id; with `version`, only if the note is still at that version. */
+  /** A note's marked versions, or every note's. */
+  marks: (path?: string) => j<Mark[]>(`${BASE}/marks${path ? `?path=${enc(path)}` : ""}`),
+  mark: (path: string, name: string, opts: { description?: string; at?: number } = {}) => j<Mark>(`${BASE}/marks`, send("POST", { path, name, ...opts })),
+  renameMark: (id: string, name: string, description: string | null) => j<Mark>(`${BASE}/marks/rename`, send("POST", { id, name, description })),
+  deleteMark: (id: string) => j<Mark>(`${BASE}/marks/delete`, send("POST", { id })),
+  /** A mark's text beside another mark's, or the note's now (`to` = "now"). */
+  compareMarks: (from: string, to = "now") =>
+    j<{ path: string; from: Mark & { text: string }; to: (Mark & { text: string }) | { now: true; text: string } }>(`${BASE}/marks/compare?from=${enc(from)}&to=${enc(to)}`),
+  restoreMark: (id: string, version?: string) => j<{ path: string; version: string; change: number | null }>(`${BASE}/marks/restore`, send("POST", { id, version })),
   restore: (id: number, version?: string) => j<{ path: string; version: string; change: number | null }>(`${BASE}/restore`, send("POST", { id, version })),
   changes: () => j<Change[]>(`${BASE}/changes?limit=40`),
   /** `origin` (this tab's clientId) marks a save the tab's editor already shows, so the live update skips it there. */

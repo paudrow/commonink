@@ -71,6 +71,8 @@ export interface App {
   delete(): void;
   move(): void;
   noteHistory(): void;
+  /** Name the focused note's version as it is now (marks.ts). */
+  markVersion(): void;
   gettingStarted(): void;
   shortcuts(): void;
   /** Back or forward through what the focused pane has shown. */
@@ -121,6 +123,7 @@ export function appCommands(app: App): Command[] {
     { id: "follow-link", title: "Follow link", keywords: "open link under the cursor gd go to", icon: "link", area: "Editor", available: app.onLink, run: app.followLink },
     { id: "fold-all", title: "Fold all sections", keywords: "collapse close details collapsible zM", icon: "chevron", available: text && app.folds > 0, run: () => app.foldAll(false) },
     { id: "unfold-all", title: "Unfold all sections", keywords: "expand open details collapsible zR", icon: "chevron", available: text && app.folds > 0, run: () => app.foldAll(true) },
+    { id: "mark-version", title: "Mark this version…", keywords: "name version milestone snapshot tag save point v1 checkpoint", icon: "bookmark", available: text && app.canDelete, run: app.markVersion },
     { id: "note-history", title: "History of this note", keywords: "versions changes diff restore", icon: "history", available: !!note, run: app.noteHistory },
     {
       id: "html-mode",

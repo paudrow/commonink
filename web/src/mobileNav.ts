@@ -9,7 +9,7 @@ const PHONE = "(max-width: 760px)";
  * The top-bar buttons that More holds, in menu order. mobile.css hides exactly these where More
  * shows. An item presses the button itself, so labels, icons and handlers stay the button's own.
  */
-const OVERFLOW = ["#note-history-btn", "#move-btn", "#archive-btn", "#delete-btn", "#focus-btn", "#panel-btn", '#html-toggle [data-mode="preview"]', '#html-toggle [data-mode="source"]'];
+const OVERFLOW = ["#note-history-btn", "#versions-btn", "#move-btn", "#archive-btn", "#delete-btn", "#focus-btn", "#panel-btn", '#html-toggle [data-mode="preview"]', '#html-toggle [data-mode="source"]'];
 
 let drawerOpen = false;
 

@@ -8,6 +8,8 @@ import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, useWork
 import { normalizeTag } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
+import { markVersion, versionsMenu } from "./marks.ts";
+import type { Mark } from "./api.ts";
 import { hideBanner, showBanner } from "./banner.ts";
 import { showConflict as conflictBanner } from "./conflict.ts";
 import { createState, lineNumbersFor, lineNumbersSlot, openLinkToSide, remote, setVimDisplayLines, vimSlot } from "./editor/setup.ts";
@@ -178,6 +180,7 @@ const loadHistory = once(async () =>
     open: (path) => fromPage(path),
     toast: (t) => toast(t),
     newNote: viewer ? undefined : () => void newNote(),
+    readOnly: viewer,
   })),
 );
 const loadAssets = once(async () =>
@@ -256,6 +259,7 @@ function commands() {
     delete: () => void deleteCurrent(),
     move: () => openMovePicker($("#move-btn")),
     noteHistory: () => s && void showHistory({ note: s.path }),
+    markVersion: () => void markCurrent(),
     gettingStarted: async () => {
       const start = (await api.feed({ tag: "start", limit: 1 }).catch(() => null))?.items[0];
       if (start) void openNote(start.path);
@@ -648,16 +652,31 @@ async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean
 }
 
 /** History, optionally for one note, with a change selected (e.g. from the activity list). */
-async function showHistory(opts: { note?: string | null; select?: number; push?: boolean } = {}) {
+async function showHistory(opts: { note?: string | null; select?: number; mark?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("history");
-  await (await loadHistory()).show({ note: opts.note ?? null, select: opts.select });
+  await (await loadHistory()).show({ note: opts.note ?? null, select: opts.select, mark: opts.mark });
   const id = opts.note ? notes.find((n) => n.path === opts.note)?.id : undefined;
   if (opts.push !== false) wentTo(id ? `/history?note=${id}` : "/history");
   document.title = `${opts.note ? `${displayName(opts.note)} · ` : ""}History · Common Ink`;
   renderChrome();
   renderTree();
   renderOutline();
+}
+
+// ------------------------------------------------------------------ marked versions (marks.ts)
+
+/** A mark, in its note's History: compared with now, ready to restore. */
+const showMark = (m: Mark) => void showHistory({ note: m.path, mark: m.id });
+
+/** Mark the focused note's version as it is now: saved first, so the mark is what's on screen. */
+async function markCurrent(name?: string) {
+  const s = active.session;
+  if (!s || s.kind === "asset" || viewer) return;
+  await flushSave();
+  if (!name) return void markVersion(s.path, { toast, show: showMark });
+  const mark = await api.mark(s.path, name).catch((e: Error) => (toast({ text: e.message }), null));
+  if (mark) toast({ icon: "bookmark", text: `Marked this version “${mark.name}”`, actionLabel: "Show", action: () => showMark(mark) });
 }
 
 async function showTags(opts: { push?: boolean } = {}) {
@@ -1744,6 +1763,7 @@ function renderChrome() {
   $("#archive-btn").hidden = !s;
   $("#delete-btn").hidden = !s || viewer;
   $("#move-btn").hidden = !s;
+  $("#versions-btn").hidden = !s || s.kind === "asset";
   $("#star-btn").hidden = !s || s.kind === "asset";
   $("#note-history-btn").hidden = !s || s.kind === "asset";
   $("#focus-btn").hidden = !s || s.kind === "asset";
@@ -2030,6 +2050,8 @@ Vim.defineEx("archive", "arch", () => void archiveCurrent());
 Vim.defineEx("trash", "trash", () => void deleteCurrent());
 Vim.defineEx("notes", "note", () => void showNotes());
 Vim.defineEx("star", "star", () => active.session && void toggleStar(active.session.path));
+// :mark names the note's version as it is now (:mark v1); with no name, it asks for one.
+Vim.defineEx("mark", "mark", (_cm: unknown, params: { args?: string[] }) => void markCurrent(params.args?.join(" ").trim() || undefined));
 Vim.defineEx("focus", "foc", () => void setFocusMode(!focusMode));
 Vim.defineEx("vsplit", "vs", (_cm: unknown, params: { args?: string[] }) => {
   const arg = params.args?.join(" ");
@@ -2427,6 +2449,12 @@ async function boot() {
   $("#trash-nav").addEventListener("click", () => void showTrash());
   $("#star-btn").addEventListener("click", () => active.session && void toggleStar(active.session.path));
   $("#move-btn").addEventListener("click", () => openMovePicker($("#move-btn")));
+  $("#versions-btn").addEventListener("click", async () => {
+    const s = active.session;
+    if (!s) return;
+    await flushSave();
+    versionsMenu($("#versions-btn"), s.path, { toast, show: showMark, readOnly: viewer });
+  });
   $("#focus-btn").addEventListener("click", () => void setFocusMode(!focusMode));
   $("#new-folder").addEventListener("click", () => startNewFolder());
   dropTarget($("#tree"), () => "");

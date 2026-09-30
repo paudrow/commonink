@@ -42,6 +42,7 @@ const app = (over: Partial<App> = {}): App => {
     delete: run("delete"),
     move: run("move"),
     noteHistory: run("noteHistory"),
+    markVersion: run("markVersion"),
     gettingStarted: run("gettingStarted"),
     shortcuts: run("shortcuts"),
     back: run("back"),
