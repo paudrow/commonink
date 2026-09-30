@@ -16,13 +16,12 @@ import { placeholderSource } from "./templateComplete.ts";
 import { localNow } from "../../../src/core/templates.ts";
 import { NEW_BOARD } from "../../../src/core/kanban.ts";
 import { wrapInDetails } from "../../../src/core/details.ts";
-import { taskPeople } from "../taskChipEditors.ts";
 import { taskTokenSource } from "./taskComplete.ts";
 import { inTaskText } from "./taskEdit.ts";
 import { emojiMatches } from "../../../src/core/emoji.ts";
 import { did } from "../events.ts";
 import { slashUsed } from "./lineHint.ts";
-import { contactLink, ensureContact, people, rankPeople } from "../people.ts";
+import { assigneeOptions, assignees, contactLink, ensureContact, people, rankPeople } from "../people.ts";
 import { toast } from "../toast.ts";
 import { PEOPLE } from "../../../src/core/contacts.ts";
 import { formatKeys } from "../keys.ts";
@@ -107,10 +106,10 @@ const eventMentions: MentionProvider = {
 
 const MENTIONS: MentionProvider[] = [noteMentions, eventMentions];
 
-/** People already on tasks, for `@` on a task line; fetched at most every half minute. */
-let onTasks: { at: number; list: Promise<string[]> } | null = null;
-const peopleOnTasks = () => {
-  if (!onTasks || Date.now() - onTasks.at > 30_000) onTasks = { at: Date.now(), list: taskPeople() };
+/** Who `@` on a task line can name (contacts, members, names already on tasks); fetched at most every half minute. */
+let onTasks: { at: number; list: ReturnType<typeof assignees> } | null = null;
+const peopleForTasks = () => {
+  if (!onTasks || Date.now() - onTasks.at > 30_000) onTasks = { at: Date.now(), list: assignees() };
   return onTasks.list;
 };
 
@@ -120,23 +119,25 @@ async function mentionSource(ctx: CompletionContext): Promise<CompletionResult |
   const at = m.from + m.text.indexOf("@");
   if (!inProse(ctx.state, at)) return null;
   const query = ctx.state.sliceDoc(at + 1, ctx.pos);
-  // On a task line, @ is first a person to put on it: someone already on a task, or a new name.
+  // On a task line, @ is first a person to put on it: a contact, a member, someone already on a
+  // task, or a new name. It writes their @handle (see peopleDirectory).
   const onTask = inTaskText(ctx.state, at);
-  const found = onTask ? (await peopleOnTasks().catch(() => [])).filter((p) => p.toLowerCase().includes(query.toLowerCase())) : [];
-  const person = (name: string): Option => ({
-    label: `@${name}`,
+  const found = onTask ? await peopleForTasks().then((p) => assigneeOptions(query, p.directory, p.onTasks)).catch(() => []) : [];
+  const person = (name: string, handle: string, detail?: string): Option => ({
+    label: name === handle ? `@${handle}` : name,
+    detail: name === handle ? detail : `@${handle}`,
     icon: "at",
     section: { name: "People", rank: -1 },
     apply: (view: EditorView, _c: Completion, _from: number, to: number) =>
-      view.dispatch({ changes: { from: at, to, insert: `@${name}` }, selection: { anchor: at + name.length + 1 }, userEvent: "input.complete" }),
+      view.dispatch({ changes: { from: at, to, insert: `@${handle}` }, selection: { anchor: at + handle.length + 1 }, userEvent: "input.complete" }),
   });
-  const typedName = /^[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*$/u.test(query) && !found.some((p) => p.toLowerCase() === query.toLowerCase());
-  const options: Option[] = [...found.slice(0, 8).map(person), ...(onTask && typedName ? [person(query)] : [])];
-  const [people, mentioned] = await Promise.all([
+  const typedName = /^[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*$/u.test(query) && !found.some((p) => p.handle.toLowerCase() === query.toLowerCase() || p.name.toLowerCase() === query.toLowerCase());
+  const options: Option[] = [...found.slice(0, 8).map((p) => person(p.name, p.handle, p.detail)), ...(onTask && typedName ? [person(query, query)] : [])];
+  const [linkable, mentioned] = await Promise.all([
     onTask ? [] : peopleOptions(query, at),
     Promise.all(MENTIONS.map(async (p) => ({ p, results: await p.search(query, ctx.state) }))),
   ]);
-  options.push(...people);
+  options.push(...linkable);
   options.push(...mentioned.flatMap(({ p, results }) =>
     results.map((r) => ({
       label: r.label,

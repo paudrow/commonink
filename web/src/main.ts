@@ -213,7 +213,9 @@ const loadAssets = once(async () =>
 );
 const loadContacts = once(async () =>
   (contactsPage = new (await import("./contactsPage.ts")).ContactsPage($("#contacts-view"), {
-    open: (path, line) => fromPage(path, line),
+    open: (path, line, side) => fromPage(path, line, side),
+    openTag: (tag) => openTag(tag, "tasks"),
+    openPerson: (assignee) => void showTasks({ assignee }),
     // A contact's page is drawn already: just the address bar and title. Back to the list shows it.
     navigate: (c) => (c ? (setUrl(`/contacts?c=${c.id}`), (document.title = `${c.name} · Contacts · Common Ink`)) : void showContacts()),
     canEdit: () => !viewer,
@@ -702,7 +704,7 @@ async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean
   // Today's events open on the Calendar page (/calendar/<id>); everything else is a note.
   const open = (path: string, line?: number, side?: boolean) =>
     void (calendarTarget(path) !== null ? openTarget(path) : openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }));
-  unmountTasks = renderTasksPage($("#tasks-view"), { open, tags: () => tags }, { tag: opts.tag, assignee: opts.assignee });
+  unmountTasks = renderTasksPage($("#tasks-view"), { open, tags: () => tags, me: workspaceId ? "Tasks with your @name" : "Tasks with @me" }, { tag: opts.tag, assignee: opts.assignee });
   $("#tasks-view").focus({ preventScroll: true });
   if (opts.push !== false) wentTo("/tasks");
   document.title = "Tasks · Common Ink";

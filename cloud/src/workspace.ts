@@ -272,6 +272,7 @@ export class Workspace extends DurableObject<Env> {
       source: () => who.actor,
       may: (route) => access(role, ...(route.split(" ") as [string, string])) === "allowed",
       canEditShared: role === "owner" || role === "editor",
+      members: () => membersOf(this.env, who.workspace),
       calendar: this.calendar,
       origin: new URL(req.url).origin,
       // Markdown and .zip; a web page and Word are drawn by the app (Share → Export as).

@@ -47,7 +47,7 @@ A question is asked in a small form before the note is made. One answer fills ev
 
 - `{{ask:Question}}`: text.
 - `{{ask:Question|Default}}`: text, with a default if left blank.
-- `{{ask:Attendees|people}}`: people, picked from the contacts and the workspace's members, or someone new. On a task line (`- [ ] …`) they're written as @handles, which assign the task to them (`@Sam @Priya-Shah`); anywhere else as links to their contact notes (`[[People/Priya Shah]]`), or names for someone with no contact (`Sam Dev`).
+- `{{ask:Attendees|people}}`: people, picked from the contacts and the workspace's members, or someone new. On a task line (`- [ ] …`) they're written as their @handles (the ones `@` on a task line gives them), which assign the task to them (`@Sam @Priya-Shah`); anywhere else as links to their contact notes (`[[People/Priya Shah]]`), or names for someone with no contact (`Sam Dev`).
 - `{{ask:Due|date}}`: a date, from a date picker, written YYYY-MM-DD.
 - `{{ask:Priority|choice:low,medium,high}}`: one of a list, from a menu.
 

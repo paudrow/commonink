@@ -192,6 +192,17 @@ test("contacts: add, list with filters, read, change, import a file and merge", 
   assert.equal(quire(vault, ["contact", "add"]).stderr, "contact add needs <name>\n");
 });
 
+test("tasks --assignee me and --by me", () => {
+  const vault = tempVault();
+  fs.writeFileSync(path.join(vault, "Mine.md"), "- [ ] Water plants @me\n- [ ] Call the bank @sam\n");
+  quire(vault, ["read", "Mine"]); // indexed; the file came from outside, so no one made it
+  assert.match(quire(vault, ["tasks", "--assignee", "me"]).stdout, /Water plants @me/);
+  assert.doesNotMatch(quire(vault, ["tasks", "--assignee", "me"]).stdout, /Call the bank/);
+  quire(vault, ["create", "Given", "- [ ] Send the deck @priya\n"]);
+  assert.match(quire(vault, ["tasks", "--by", "me"]).stdout, /Send the deck @priya/);
+  assert.doesNotMatch(quire(vault, ["tasks", "--by", "me"]).stdout, /Call the bank/, "a file made outside the app has no author");
+});
+
 test("templates and new --template", () => {
   const vault = tempVault();
   fs.mkdirSync(path.join(vault, "Templates"));

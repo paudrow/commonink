@@ -5,6 +5,8 @@
 import { api, type Contact, type Member } from "./api.ts";
 import { onVaultChange } from "./events.ts";
 import { fuzzyScore } from "./fuzzy.ts";
+import { peopleDirectory, type Person as Someone } from "../../src/core/contacts.ts";
+import { taskPeople } from "./taskChipEditors.ts";
 
 /** Someone `@` can offer: a contact, or a member who has no contact yet. */
 export interface Person {
@@ -51,6 +53,41 @@ export function rankPeople(query: string, contacts: Contact[], members: Member[]
     ...scored.slice(0, limit.contacts).map(({ c }): Person => ({ kind: "contact", name: c.name, detail: detailOf(c), contact: c })),
     ...others.slice(0, limit.members).map(({ m }): Person => ({ kind: "member", name: m.name, detail: m.email, member: m })),
   ];
+}
+
+/** Someone `@` on a task can name, and what it writes for them. */
+export interface Assignee {
+  name: string;
+  /** What `@` writes: see preferredHandle. */
+  handle: string;
+  /** Contact, member, or both; or "on tasks" for a name that's only ever been written on one. */
+  detail: string;
+}
+
+/**
+ * Who `@` on a task offers for `query`, best first: people (contacts and members, as one person
+ * when their emails match) by name or by any `@name` that's theirs, then names already on tasks
+ * that are no one's.
+ */
+export function assigneeOptions(query: string, directory: Someone[], onTasks: string[]): Assignee[] {
+  const q = query.trim().replace(/^@/, "");
+  const score = (p: Someone) => (q ? Math.max(fuzzyScore(q, p.name), ...p.handles.map((h) => (h.toLowerCase().startsWith(q.toLowerCase()) ? 1000 : fuzzyScore(q, h) - 10))) : 0);
+  const people = directory
+    .map((p) => ({ p, s: score(p) }))
+    .filter((x) => x.s >= 0)
+    .sort((a, b) => b.s - a.s || a.p.name.localeCompare(b.p.name))
+    .map(({ p }): Assignee => ({ name: p.name, handle: p.handle, detail: p.contact && p.member ? "contact · member" : p.member ? "member" : "contact" }));
+  const claimed = new Set(directory.flatMap((p) => p.handles.map((h) => h.toLowerCase())));
+  const others = onTasks
+    .filter((n) => !claimed.has(n.toLowerCase()) && (!q || n.toLowerCase().includes(q.toLowerCase())))
+    .map((n): Assignee => ({ name: n, handle: n, detail: "on tasks" }));
+  return [...people, ...others];
+}
+
+/** Everyone @ on a task can name, and the names already on tasks: fetched with people(). */
+export async function assignees(): Promise<{ directory: Someone[]; onTasks: string[] }> {
+  const [{ contacts, members }, onTasks] = await Promise.all([people(), taskPeople().catch(() => [])]);
+  return { directory: peopleDirectory(contacts, members), onTasks };
 }
 
 /** How a note links to a contact: its path without .md, which always resolves. */

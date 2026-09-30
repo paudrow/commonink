@@ -365,6 +365,15 @@ test("members: the workspace's people, from the host (none in a local vault)", a
   assert.deepEqual((await call("GET", "/members")).body, []);
 });
 
+test("tasks assigned to me and by me: locally, me is @me and the notes I made", async () => {
+  const { call } = setup({ user: "you" });
+  await call("PUT", "/note", { path: "Mine.md", content: "- [ ] Water plants @me\n- [ ] Call the bank @sam\n- [ ] Just a task\n" });
+  const text = (r: { body: Array<{ text: string }> }) => r.body.map((t) => t.text);
+  assert.deepEqual(text(await call("GET", "/tasks?assignee=me")), ["Water plants @me"]);
+  assert.deepEqual(text(await call("GET", "/tasks?by=me")), ["Call the bank @sam"]);
+  assert.equal((await call("GET", "/tasks?by=someone")).status, 400);
+});
+
 test("templates: listed, rendered for inserting, and made into notes", async () => {
   const { call, events } = setup();
   await call("PUT", "/note", { path: "Templates/Meeting.md", content: "---\ntitle: \"{{date}} {{ask:Client}}\"\nfolder: Meetings\napplies_to: Meetings/\n---\n# {{title}}\n\n**Attendees:** {{ask:Attendees}}\n\n- {{cursor}}\n" });

@@ -90,17 +90,29 @@ test("typed questions: a people picker (members, or someone new), a date picker,
   });
 });
 
-test("a people question offers contacts, as links to their notes, then members with no contact", async () => {
-  const contact = (name: string, email: string[] = []) => ({ ...emptyContact(name), email, path: `People/${name}.md`, id: name, mentions: 0, lastContacted: null });
+test("a people question offers the people @ knows, with the handle a task uses and a link to a contact's note", async () => {
+  const contact = (name: string, o: { email?: string[]; aliases?: string[] } = {}) => ({ ...emptyContact(name), ...o, path: `People/${name}.md`, id: name, mentions: 0, lastContacted: null });
   const member = (name: string, email: string) => ({ id: email, name, email });
-  const offers = peopleOffers([contact("Jane Doe", ["jane@acme.com"]), contact("Tom Wu")], [member("Jane D.", "JANE@acme.com"), member("Sam Dev", "sam@x.org")]);
-  // Jane is a member too (the same email): offered once, as her contact.
-  assert.deepEqual(offers, [{ name: "Jane Doe", link: "[[People/Jane Doe]]" }, { name: "Tom Wu", link: "[[People/Tom Wu]]" }, { name: "Sam Dev" }]);
+  const offers = peopleOffers([contact("Jane Doe", { email: ["jane@acme.com"] }), contact("Tom Wu", { aliases: ["TW"] })], [member("Jane D.", "JANE@acme.com"), member("Sam Dev", "sam@x.org")]);
+  // Jane is a member too (the same email): offered once, as her contact. Tom goes by his alias.
+  assert.deepEqual(offers, [
+    { name: "Jane Doe", handle: "Jane", link: "[[People/Jane Doe]]" },
+    { name: "Sam Dev", handle: "Sam" },
+    { name: "Tom Wu", handle: "TW", link: "[[People/Tom Wu]]" },
+  ]);
   const asked = askFor(t("Call", { asks: [ask("Who", { type: "people" })] }), { title: false, people: offers });
+  type("tom");
+  assert.deepEqual([...document.querySelectorAll(".tpl-people-opt")].map((o) => o.textContent), ["Tom Wu@TW", "Add “tom”new"]);
+  key("Enter");
   type("jane");
   key("Enter");
   (document.querySelector(".tpl-box .qw-btn.primary") as HTMLButtonElement).click();
-  assert.deepEqual((await asked)?.picks, { Who: [{ name: "Jane Doe", handle: "Jane", link: "[[People/Jane Doe]]" }] });
+  assert.deepEqual((await asked)?.picks, {
+    Who: [
+      { name: "Tom Wu", handle: "TW", link: "[[People/Tom Wu]]" },
+      { name: "Jane Doe", handle: "Jane", link: "[[People/Jane Doe]]" },
+    ],
+  });
 });
 
 test("the picker's ? opens the help on every template option", async () => {

@@ -2221,6 +2221,10 @@ body.is-link-dragging, body.is-link-dragging * { cursor: grabbing !important; us
 .ct-members { margin-top: 28px; }
 .ct-members h2, .ct-timeline h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 12px; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 .ct-timeline h2 .n { font-weight: 500; color: var(--faint); letter-spacing: 0; }
+.ct-timeline + .ct-timeline { margin-top: 26px; }
+.ct-handle { font: 500 12px var(--mono); letter-spacing: 0; text-transform: none; color: var(--faint); }
+.ct-tasks .qw { margin: 0; }
+.tk-whose { margin-right: 4px; }
 .ct-member { display: grid; grid-template-columns: 24px auto minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 40px; padding: 4px 10px; }
 .ct-back { display: inline-flex; align-items: center; gap: 6px; margin: -10px 0 18px -6px; padding: 4px 8px; border-radius: 7px; font-size: 13px; color: var(--muted); }
 .ct-back:hover { background: var(--hover); color: var(--ink-strong); }

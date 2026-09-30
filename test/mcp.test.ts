@@ -182,6 +182,14 @@ test("agents keep contacts: create, list, read one with where they're mentioned,
   assert.equal((await call("read_contact", { contact: "Journal/2026-09-18" })).isError, true);
 });
 
+test("agents list the tasks assigned to their person, and the ones their person gave out", async () => {
+  await call("create_note", { path: "Assigned", content: "# Assigned\n\n- [ ] Pick up the keys @me\n- [ ] Book the venue @priya\n" });
+  assert.match((await call("list_tasks", { assignee: "me" })).text, /Pick up the keys @me/);
+  const by = (await call("list_tasks", { by: "me" })).text;
+  assert.match(by, /Book the venue @priya/);
+  assert.doesNotMatch(by, /Pick up the keys/);
+});
+
 test("agents list templates and make notes from them, told what's left to fill in", async () => {
   await call("create_note", { path: "Templates/Meeting", content: "---\ntitle: \"{{date}} {{ask:Client}}\"\nfolder: Meetings\napplies_to: Meetings/\n---\n# {{title}}\n\n**Attendees:** {{ask:Attendees}}\n\n- {{cursor}}\n" });
   assert.match((await call("list_templates", {})).text, /^Templates\/Meeting\.md — Meeting · asks: Client, Attendees · new notes in Meetings\/ start from it$/m);

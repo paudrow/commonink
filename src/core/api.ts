@@ -264,17 +264,25 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json(quire.favorites(host.user));
     case "GET /smart-folders":
       return json(quire.smartFolders(host.user));
-    case "GET /tasks":
+    case "GET /tasks": {
+      // `assignee` is someone's name (every @name that's theirs) or "me"; `by=me` keeps the tasks
+      // the reader gave someone else in their own notes. Only those need the workspace's members.
+      const assignee = q("assignee") || undefined;
+      const by = q("by") || undefined;
+      if (by !== undefined && by !== "me") throw new QuireError(`"by" can only be "me"`);
+      const members = assignee || by ? ((await host.members?.()) ?? []) : [];
       return json(
-        quire.tasks({
+        quire.tasksFor({ user: host.user, person: actor, members }, {
           folder: q("folder") || undefined,
           note: q("note") || undefined,
           tag: q("tag") || undefined,
-          assignee: q("assignee") || undefined,
+          assignee,
+          by,
           due: q("due") || undefined,
           today: q("today") || undefined, // the browser's day, so "today" means the reader's today
         }),
       );
+    }
     case "GET /tasks/count":
       return json({ open: quire.openTaskCount() });
     case "GET /tags":

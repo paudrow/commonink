@@ -195,6 +195,75 @@ export function handlesOf(c: Pick<ContactFields, "name" | "aliases">): string[] 
   return [own, ...c.aliases.map((a) => a.trim())].filter((h, i, all) => h && HANDLE.test(h) && all.findIndex((x) => x.toLowerCase() === h.toLowerCase()) === i);
 }
 
+// ---------------------------------------------------------------- people, for @ on tasks
+
+/** A member of the workspace, as the directory knows them (online). */
+export interface MemberRef {
+  id: string;
+  name: string;
+  email: string;
+}
+
+/** Someone `@name` on a task can mean: a contact, a member, or both when their emails match. */
+export interface Person {
+  name: string;
+  email: string[];
+  /** Their contact's note, if they have one. */
+  contact: string | null;
+  /** Their account's ID, if they're a member. */
+  member: string | null;
+  /** Every `@name` that means them (any case). */
+  handles: string[];
+  /** The one `@` writes for them: a one-word alias, else a first name only they have, else their name with dashes. */
+  handle: string;
+}
+
+const HANDLE_OK = (h: string) => HANDLE.test(h);
+
+/**
+ * Everyone `@` on a task can name: each contact, each member (a member with a contact's email is
+ * that contact), by name. Handles are a contact's (see handlesOf), a member's name with dashes, and
+ * a first name that no one else has.
+ */
+export function peopleDirectory(contacts: ContactNote[], members: MemberRef[]): Person[] {
+  const people = contacts.map((c) => ({
+    name: c.name,
+    email: [...c.email],
+    contact: c.path as string | null,
+    member: null as string | null,
+    handles: handlesOf(c),
+    alias: c.aliases.find((a) => HANDLE_OK(a.trim()))?.trim(),
+  }));
+  for (const m of members) {
+    const own = handlesOf({ name: m.name, aliases: [] });
+    const p = people.find((x) => x.email.some((e) => e.toLowerCase() === m.email.toLowerCase()));
+    if (p) (p.member = m.id), (p.handles = unionOf(p.handles, own));
+    else people.push({ name: m.name, email: [m.email], contact: null, member: m.id, handles: own, alias: undefined });
+  }
+  const first = (name: string) => name.trim().split(/\s+/)[0];
+  const count = new Map<string, number>();
+  for (const p of people) count.set(first(p.name).toLowerCase(), (count.get(first(p.name).toLowerCase()) ?? 0) + 1);
+  const claimed = new Set(people.flatMap((p) => p.handles.map((h) => h.toLowerCase())));
+  return people
+    .map(({ alias, ...p }) => {
+      const f = first(p.name);
+      const unique = p.name.trim().includes(" ") && count.get(f.toLowerCase()) === 1 && HANDLE_OK(f) && !claimed.has(f.toLowerCase());
+      const handles = unique ? [...p.handles, f] : p.handles;
+      return { ...p, handles, handle: alias ?? (unique ? f : handles[0] ?? p.name) };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+}
+
+/** The one person `@token` names (any case, with or without the @), or null for no one or more than one. */
+export function personFor(token: string, people: Person[]): Person | null {
+  const t = token.trim().replace(/^@/, "").toLowerCase();
+  const hits = people.filter((p) => p.handles.some((h) => h.toLowerCase() === t));
+  return hits.length === 1 ? hits[0] : null;
+}
+
+/** What `@` writes for someone. */
+export const preferredHandle = (p: Person) => p.handle;
+
 /**
  * The day a note is about: one in its file name (Journal/2026-09-20.md, "2026-08-15 Review.md"),
  * else its frontmatter `date:`, else null (the caller uses when it last changed).
