@@ -46,6 +46,7 @@ import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
 import { safeDecode } from "../../src/core/uri.ts";
 import { deleteFolder, deletePaths, TrashPage, type DeleteHooks } from "./trash.ts";
+import { CapturePage, registerWorker } from "./capture.ts";
 import { AGENTS_BLURB, isAgentsNote } from "./agentsNote.ts";
 import { closeDrawer, setupMobileNav } from "./mobileNav.ts";
 
@@ -165,6 +166,7 @@ const deleteHooks: DeleteHooks = {
   },
 };
 let trashPage: TrashPage | null = null;
+let capturePage: CapturePage | null = null;
 // History, Assets and Tags load the first time they're opened (each is null until then).
 let historyPage: History | null = null;
 let assetsPage: Assets | null = null;
@@ -580,7 +582,7 @@ function setUrl(url: string, how: "push" | "replace" = "push") {
 
 let unmountTasks: (() => void) | null = null;
 
-function showStage(which: "editor" | "html" | "notes" | "tasks" | "history" | "assets" | "tags" | "trash") {
+function showStage(which: "editor" | "html" | "notes" | "tasks" | "history" | "assets" | "tags" | "trash" | "capture") {
   closeDrawer();
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
@@ -590,6 +592,7 @@ function showStage(which: "editor" | "html" | "notes" | "tasks" | "history" | "a
   $("#history-view").hidden = which !== "history";
   $("#tags-view").hidden = which !== "tags";
   $("#trash-view").hidden = which !== "trash";
+  $("#capture-view").hidden = which !== "capture";
   if (which !== "tasks") {
     unmountTasks?.();
     unmountTasks = null;
@@ -693,6 +696,35 @@ async function showTrash(opts: { push?: boolean } = {}) {
   await loading;
 }
 
+/**
+ * Quick capture: what another app shared (the phone's share sheet, through the service worker), or
+ * /capture?title=…&text=…&url=…, to check over and save into a note. It isn't a place in the back
+ * and forward trail: saving opens the note in its place.
+ */
+async function showCapture() {
+  await leaveNote();
+  showStage("capture");
+  capturePage ??= new CapturePage($("#capture-view"), {
+    readOnly: () => viewer,
+    notes: () => notes,
+    upload: (files) => uploadFiles(files),
+    saved: (path, line) => {
+      toast({ icon: "check", text: `Captured in ${displayName(path).replace(/\.md$/i, "")}` });
+      void refreshNotes().then(() => openNote(path, { line, push: false }));
+    },
+    discarded: () => {
+      setUrl("/notes", "replace");
+      void showNotes({ push: false });
+    },
+  });
+  const q = new URLSearchParams(location.search);
+  document.title = "Capture · Common Ink";
+  renderChrome();
+  renderTree();
+  renderOutline();
+  await capturePage.show({ share: q.get("share"), fields: { title: q.get("title") ?? "", text: q.get("text") ?? "", url: q.get("url") ?? "" } });
+}
+
 async function showAssets(opts: { open?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("assets");
@@ -736,7 +768,7 @@ function pickFiles(): Promise<File[]> {
   });
 }
 
-const PAGE_LABEL = { notes: "Notes", tasks: "Tasks", history: "History", assets: "Assets", tags: "Tags", trash: "Trash" } as const;
+const PAGE_LABEL = { notes: "Notes", tasks: "Tasks", history: "History", assets: "Assets", tags: "Tags", trash: "Trash", capture: "Capture" } as const;
 
 const onPage = () =>
   notesPage.visible ? "notes"
@@ -745,6 +777,7 @@ const onPage = () =>
   : assetsPage?.visible ? "assets"
   : tagsPage?.visible ? "tags"
   : !$("#trash-view").hidden ? "trash"
+  : !$("#capture-view").hidden ? "capture"
   : null;
 
 // ------------------------------------------------------------------ focus mode
@@ -2323,6 +2356,7 @@ async function route() {
   }
   if (at === "/assets") return showAssets({ push: false });
   if (at === "/trash") return showTrash({ push: false });
+  if (at === "/capture") return showCapture();
   if (at === "/tags") return showTags({ push: false });
   if (at === "/history") {
     const id = new URLSearchParams(location.search).get("note");
@@ -2360,6 +2394,7 @@ async function refreshTaskCount() {
 const refreshTaskCountSoon = debounce(refreshTaskCount, 400);
 
 async function boot() {
+  registerWorker(); // installable, and the share target (web/public/sw.js)
   // Online, the note API is per workspace and needs a signed-in person; locally it's just /api.
   const who = await whoAmI();
   // Where developer sign-in is on (local `cloud:dev`, and Previews) there's nothing to choose: go straight in.
