@@ -4,6 +4,7 @@ node_modules/
 /vault/
 .wrangler/
 dist/
+cli/dist/
 
 # local Worker secrets
 cloud/.dev.vars
