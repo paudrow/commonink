@@ -2,6 +2,7 @@
 // On Cloudflare: a Durable Object's embedded SQLite for both.
 import { legacyActor } from "./actor.ts";
 import { newNoteId } from "./ids.ts";
+import { compactNote } from "./changeTexts.ts";
 
 /** A synchronous SQLite connection (node:sqlite locally, ctx.storage.sql in a Durable Object). */
 export interface SqlDb {
@@ -55,7 +56,9 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS changes(
      id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, path TEXT NOT NULL, op TEXT NOT NULL,
      source TEXT NOT NULL, version TEXT, summary TEXT, from_path TEXT, before TEXT, note_id TEXT, person TEXT, agent TEXT,
-     autosave INTEGER)`,
+     autosave INTEGER, base_id INTEGER)`,
+  // One-off upgrades to stored data that have finished, by name.
+  `CREATE TABLE IF NOT EXISTS upgrades(name TEXT PRIMARY KEY)`,
   `CREATE INDEX IF NOT EXISTS changes_path ON changes(path, version)`,
   // Labels: a name on one version of a note ("Sent to Alex", "v1"), after the change
   // `change_id` (null if the log has no change at that version). A label keeps the version's `text`
@@ -147,21 +150,43 @@ export function migrate(db: SqlDb, opts: { local?: boolean } = {}) {
     }
   });
   db.exec("CREATE INDEX IF NOT EXISTS changes_agent ON changes(agent, id)");
+  // Older local indexes predate the `before` column.
+  try {
+    db.exec("ALTER TABLE changes ADD COLUMN before TEXT");
+  } catch {}
   // Which changes are a person's editor autosaves, that a later one in the same sitting may join.
   // Older rows stay unmarked: nothing joins them.
   try {
     db.exec("ALTER TABLE changes ADD COLUMN autosave INTEGER");
   } catch {}
-  // Older local indexes predate the `before` column. (Durable Objects may refuse pragmas; their
-  // databases are always created with the current schema, so there's nothing to upgrade.)
-  let cols: string[];
+  // Older texts are deltas from newer ones (see changeTexts.ts). A log from before that keeps every
+  // text whole until this pass stores them as deltas, note by note (see compactNote).
   try {
-    cols = db.all<{ name: string }>("SELECT name FROM pragma_table_info('changes')").map((c) => c.name);
-  } catch {
-    return;
+    db.exec("ALTER TABLE changes ADD COLUMN base_id INTEGER");
+  } catch {}
+  db.exec("CREATE INDEX IF NOT EXISTS changes_base ON changes(base_id) WHERE base_id IS NOT NULL");
+  if (!db.get("SELECT 1 FROM upgrades WHERE name = 'change deltas'")) {
+    let converted = 0;
+    for (const { note_id } of db.all<{ note_id: string }>("SELECT DISTINCT note_id FROM changes WHERE note_id IS NOT NULL AND before IS NOT NULL ORDER BY note_id")) {
+      converted += compactNote(db, note_id);
+    }
+    db.run("INSERT INTO upgrades(name) VALUES ('change deltas')");
+    // SQLite reuses the pages the deltas freed but never gives them back. A vault on disk gets them
+    // back once; a Durable Object can't VACUUM.
+    if (opts.local && converted && !db.get("SELECT 1 FROM upgrades WHERE name = 'vacuum after deltas'")) vacuum(db);
   }
-  if (!cols.includes("before")) db.exec("ALTER TABLE changes ADD COLUMN before TEXT");
 }
+
+/** Rebuild the database file without its free pages, once, saying how much that gave back. */
+function vacuum(db: SqlDb) {
+  const bytes = () => db.get<{ n: number }>("SELECT page_count * page_size AS n FROM pragma_page_count(), pragma_page_size()")!.n;
+  const was = bytes();
+  db.exec("VACUUM");
+  db.run("INSERT INTO upgrades(name) VALUES ('vacuum after deltas')");
+  console.error(`Stored History's older versions as edits: the index went from ${fmtMB(was)} to ${fmtMB(bytes())}.`);
+}
+
+const fmtMB = (n: number) => `${(n / 1024 / 1024).toFixed(1)} MB`;
 
 /**
  * Walk the log newest first from where each note is now: a move hands the ID (or nothing, if that

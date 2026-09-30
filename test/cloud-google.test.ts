@@ -114,6 +114,36 @@ test("write-back adds only the meeting note's link, once the owner allowed editi
   assert.equal(after.note.path, made.path);
 });
 
+test("events made in the app: in a Google calendar once editing is allowed, moved and deleted there; never in one only readable", async () => {
+  const { base, editor, owner } = people;
+  const sources: Array<{ id: string; calendar: string | null; writable: boolean }> = await cloud.call(editor, "GET", `${base}/calendar/sources`);
+  const mine = sources.find((s) => s.calendar === "primary")!;
+  assert.equal(mine.writable, true);
+  const draft = { source: mine.id, title: "Pairing", start: "2026-10-07T17:00:00Z", end: "2026-10-07T18:00:00Z", timeZone: "America/Chicago", attendees: [{ name: "Ana", email: "ana@example.com" }] };
+  // Editing was granted in the write-back test; the stand-in keeps what's written in the workspace.
+  const made = await cloud.call(editor, "POST", `${base}/calendar/events`, { ...draft, meetingNote: true });
+  assert.deepEqual([made.event.title, made.event.start, made.event.source, made.note.path], ["Pairing", "2026-10-07T17:00:00Z", mine.id, "Meetings/2026-10-07 Pairing.md"]);
+  const moved = await cloud.call(editor, "POST", `${base}/calendar/events/update`, { id: made.event.id, start: "2026-10-08T19:00:00Z", end: "2026-10-08T20:30:00Z" });
+  assert.deepEqual([moved.id, moved.start, moved.end, moved.note?.path], [made.event.id, "2026-10-08T19:00:00Z", "2026-10-08T20:30:00Z", "Meetings/2026-10-07 Pairing.md"]);
+
+  // One instance of a series moves alone; the rest stay.
+  const series: Array<{ id: string; start: string }> = await cloud.call(editor, "GET", `${base}/calendar/events?from=2026-10-12T00:00:00Z&to=2026-10-17T00:00:00Z&q=product`);
+  await cloud.call(editor, "POST", `${base}/calendar/events/update`, { id: series[0].id, start: "2026-10-13T22:00:00Z", end: "2026-10-13T22:30:00Z" });
+  const after: Array<{ id: string; start: string }> = await cloud.call(editor, "GET", `${base}/calendar/events?from=2026-10-12T00:00:00Z&to=2026-10-17T00:00:00Z&q=product`);
+  assert.deepEqual(after.map((e) => [e.id, e.start]), [[series[0].id, "2026-10-13T22:00:00Z"], [series[1].id, series[1].start]]);
+
+  // Nobody else can touch it, and a calendar only readable takes nothing.
+  assert.equal((await cloud.request(owner, "POST", `${base}/calendar/events/update`, { id: made.event.id, title: "Mine" })).status, 404);
+  const readOnly = await cloud.call(editor, "POST", `${base}/calendar/google`, { calendar: "holidays@demo", accessRole: "reader" });
+  assert.equal(readOnly.writable, false);
+  const refused = await cloud.request(editor, "POST", `${base}/calendar/events`, { ...draft, source: readOnly.id });
+  assert.deepEqual([refused.status, (await refused.json()).error], [403, "You can't add events to that calendar"]);
+  await cloud.call(editor, "POST", `${base}/calendar/sources/remove`, { id: readOnly.id });
+
+  await cloud.call(editor, "POST", `${base}/calendar/events/delete`, { id: made.event.id });
+  assert.equal((await cloud.request(editor, "GET", `${base}/calendar/event?id=${made.event.id}`)).status, 404);
+});
+
 test("disconnecting forgets the grant and takes the person's Google calendars out of every workspace", async () => {
   const { editor } = people;
   const me = await cloud.call(editor, "GET", "/api/me");

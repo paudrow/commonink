@@ -8,6 +8,7 @@ import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, unusedT
 import { cleanTag, normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
+import { paintShareButton, SHARE_KEYS, toggleShareMenu, type ShareNote } from "./share.ts";
 import type { Label } from "./api.ts";
 import { hideBanner, showBanner } from "./banner.ts";
 import { showConflict as conflictBanner } from "./conflict.ts";
@@ -275,6 +276,10 @@ function commands() {
     subscribeCalendar: () => void subscribeCalendar(),
     refreshCalendars: () => void refreshCalendars(),
     connectGoogle: () => leave.to(connectUrl()),
+    newEvent: async () => {
+      await showCalendar();
+      calendarPage?.newEvent();
+    },
     filterNotes: () => void showNotes({ filter: true }),
     quickAdd,
     toggleTheme,
@@ -297,6 +302,9 @@ function commands() {
       if (start) void openNote(start.path);
     },
     shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
+    share: openShare,
+    copyLink: () => void copyLink(),
+    exportAs: (how) => void exportNote(how),
     settings: openSettings,
     connectAgent,
     back: () => void stepPane(active, "back"),
@@ -941,6 +949,46 @@ async function archiveCurrent() {
 }
 
 /** Delete the open note (to Trash, with Undo) and go back to Notes. */
+// ------------------------------------------------------------------ share, print and export (share.ts, export/)
+
+/** The focused pane's note, for the Share menu: its link, and its content as it is now. */
+function shareNote(): ShareNote | null {
+  const s = active.session;
+  if (!s || s.kind === "asset") return null;
+  const view = active.view;
+  return { path: s.path, title: s.title, kind: s.kind, url: `${location.origin}${notePath(s.title, s.id)}`, content: () => view.state.doc.toString() };
+}
+
+/** The Share menu, under the Share button (or under More, where a phone keeps the button). */
+function openShare() {
+  const note = shareNote();
+  if (!note) return;
+  const button = $("#share-btn");
+  const anchor = button.offsetParent ? button : (document.querySelector<HTMLElement>("#more-btn") ?? button);
+  toggleShareMenu(anchor, note, (text) => toast({ text }));
+}
+
+async function copyLink() {
+  const note = shareNote();
+  if (!note) return;
+  await navigator.clipboard.writeText(note.url);
+  toast({ icon: "link", text: "Link copied" });
+}
+
+/** Print the note, or export it: the same as the Share menu's items. */
+async function exportNote(how: "print" | "pdf" | "md" | "html") {
+  const note = shareNote();
+  if (!note || note.kind !== "md") return;
+  const printable = { path: note.path, title: note.title, content: note.content() };
+  try {
+    if (how === "print" || how === "pdf") await (await import("./export/print.ts")).print(printable, { pdf: how === "pdf" });
+    else if (how === "md") (await import("./export/files.ts")).exportMarkdown(printable);
+    else await (await import("./export/files.ts")).exportHtml(printable);
+  } catch (e) {
+    toast({ text: `Couldn't export: ${e instanceof Error ? e.message : String(e)}` });
+  }
+}
+
 async function deleteCurrent() {
   const s = active.session;
   if (!s || viewer) return;
@@ -1986,6 +2034,8 @@ function renderChrome() {
   $("#delete-btn").hidden = !s || viewer;
   $("#move-btn").hidden = !s;
   $("#star-btn").hidden = !s || s.kind === "asset";
+  $("#share-btn").hidden = !s || s.kind === "asset";
+  paintShareButton($("#share-btn"));
   $("#note-history-btn").hidden = !s || s.kind === "asset";
   $("#focus-btn").hidden = !s || s.kind === "asset";
   $("#split-btn").hidden = !split && (!s || s.kind === "asset");
@@ -2273,6 +2323,7 @@ Vim.defineEx("trash", "trash", () => void deleteCurrent());
 Vim.defineEx("notes", "note", () => void showNotes());
 Vim.defineEx("calendar", "cal", () => void showCalendar());
 Vim.defineEx("star", "star", () => active.session && void toggleStar(active.session.path));
+Vim.defineEx("share", "sha", () => openShare());
 // :label names the note's version as it is now (:label v1); with no name, it asks for one.
 Vim.defineEx("label", "label", (_cm: unknown, params: { args?: string[] }) => void labelCurrent(params.args?.join(" ").trim() || undefined));
 Vim.defineEx("focus", "foc", () => void setFocusMode(!focusMode));
@@ -2336,7 +2387,9 @@ window.addEventListener(
     const is = (keys: string) => matchKeys(e, keys);
     // Back and forward through the notes (and pages) this pane has shown: ⌘[ and ⌘] by the character
     // typed, and off a Mac also Alt+← and Alt+→, the platform's back and forward.
-    const altArrow = !IS_MAC && e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight") ? e.key : null;
+    // On a calendar event, Alt+← and Alt+→ move it a day instead (calendar/keys.ts).
+    const onEvent = !!(e.target as Element | null)?.closest?.("[data-event], .cal-details");
+    const altArrow = !IS_MAC && !onEvent && e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight") ? e.key : null;
     const back = is("Mod-[") || altArrow === "ArrowLeft";
     const quickOpen = is("Mod-p") || is("Mod-k");
     if (back || is("Mod-]") || altArrow === "ArrowRight") {
@@ -2360,6 +2413,9 @@ window.addEventListener(
     } else if (is("Mod-Shift-e")) {
       e.preventDefault();
       void archiveCurrent();
+    } else if (is(SHARE_KEYS) && shareNote()) {
+      e.preventDefault();
+      openShare();
     } else if (is("Mod-Shift-Enter")) {
       e.preventDefault();
       void setFocusMode(!focusMode);
@@ -2739,6 +2795,7 @@ async function boot() {
   $("#delete-btn").addEventListener("click", () => void deleteCurrent());
   $("#star-btn").addEventListener("click", () => active.session && void toggleStar(active.session.path));
   $("#move-btn").addEventListener("click", () => openMovePicker($("#move-btn")));
+  $("#share-btn").addEventListener("click", openShare);
   $("#focus-btn").addEventListener("click", () => void setFocusMode(!focusMode));
   $("#new-folder").addEventListener("click", () => startNewFolder());
   $("#new-tag").addEventListener("click", () => startNewTag());
