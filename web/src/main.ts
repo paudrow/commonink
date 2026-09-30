@@ -950,7 +950,12 @@ async function save(s: Session) {
   s.saving = true;
   status(s, "saving");
   try {
-    const r = await api.save(s.path, content, s.baseVersion, content.trim() === "", clientId);
+    const r = await api.save(s.path, content, s.baseVersion, content.trim() === "", clientId, s.id);
+    if (r.path !== s.path) {
+      // It was renamed while this save was on its way, and the save followed it.
+      view.state.facet(editorContext).path = r.path;
+      s.path = r.path;
+    }
     s.base = content;
     s.baseVersion = r.version;
     if (s === s.pane.session && view.state.doc.lineAt(view.state.selection.main.head).number > 1) void nameUntitled(s);

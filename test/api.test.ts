@@ -56,6 +56,22 @@ test("a stale baseVersion is a 409 carrying the current text", async () => {
   assert.equal(r.body.content, "# Welcome\n\nStart with [[Roadmap]].\n\n![[chart.svg]]\n");
 });
 
+test("a save that names the note's ID follows it to where it moved, rather than making it again at the old path", async () => {
+  const { call, quire, dir } = setup();
+  const before = quire.read("Welcome.md");
+  await call("POST", "/move", { from: "Welcome.md", to: "Hello.md" });
+  const put = await call("PUT", "/note", { path: "Welcome.md", id: before.id, content: "# Welcome\n\nmore\n", baseVersion: before.version });
+  assert.deepEqual([put.status, put.body.path], [200, "Hello.md"]);
+  assert.equal(fs.readFileSync(path.join(dir, "Hello.md"), "utf8"), "# Welcome\n\nmore\n");
+  assert.equal(fs.existsSync(path.join(dir, "Welcome.md")), false);
+  const blank = await call("PUT", "/note", { path: "Welcome.md", id: before.id, content: "" });
+  assert.deepEqual([blank.status, blank.body.code], [422, "empty"]);
+  await call("POST", "/note", { path: "Welcome.md", content: "# A new welcome\n" });
+  const again = await call("PUT", "/note", { path: "Welcome.md", id: before.id, content: "# Welcome\n\nmore still\n" });
+  assert.equal(again.body.path, "Hello.md");
+  assert.equal(fs.readFileSync(path.join(dir, "Welcome.md"), "utf8"), "# A new welcome\n");
+});
+
 test("undoing an agent's edit restores the note only while it's still at that edit's version", async () => {
   const { call, quire } = setup();
   quire.save("Plan.md", "# Plan\n\nship it\n", { source: "you" });

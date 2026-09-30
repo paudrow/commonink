@@ -352,9 +352,13 @@ export const api = {
   /** Put a note back the way it was before change #id; with `version`, only if the note is still at that version. */
   restore: (id: number, version?: string) => j<{ path: string; version: string; change: number | null }>(`${BASE}/restore`, send("POST", { id, version })),
   changes: () => j<Change[]>(`${BASE}/changes?limit=40`),
-  /** `origin` (this tab's clientId) marks a save the tab's editor already shows, so the live update skips it there. */
-  save: (path: string, content: string, baseVersion?: string, allowEmpty = false, origin?: string) =>
-    j<{ path: string; version: string }>(`${BASE}/note`, send("PUT", { path, content, baseVersion, clientId: origin, allowEmpty })),
+  /**
+   * `origin` (this tab's clientId) marks a save the tab's editor already shows, so the live update
+   * skips it there. With the note's `id`, a note that moved meanwhile is saved where it is now; the
+   * answer's `path` says where.
+   */
+  save: (path: string, content: string, baseVersion?: string, allowEmpty = false, origin?: string, id?: string) =>
+    j<{ path: string; version: string }>(`${BASE}/note`, send("PUT", { path, content, baseVersion, clientId: origin, allowEmpty, id })),
   create: (path: string, content: string) => j<{ path: string; version: string }>(`${BASE}/note`, send("POST", { path, content })),
   move: (from: string, to: string) => j<{ path: string; updated: string[] }>(`${BASE}/move`, send("POST", { from, to })),
   /** Upload a file's bytes; the server picks a free name under `folder` (assets/ by default). */
