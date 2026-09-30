@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 145
 title: Template docs, suggestions and typed questions
 ---
 1. Press ⌘⇧P (Ctrl+Shift+P off a Mac), choose **New note from template…**, and click **?** in the picker: the help lists every template option, with examples. It's the same page as `docs/templates.md` in the repo.
