@@ -38,22 +38,24 @@ test("read prints numbered lines and honours --offset/--limit", () => {
   assert.equal(r.stdout.split("\n").slice(2).join("\n"), "\n4│# Roadmap\n5│\n6│## Now\n");
 });
 
-test("missing or malformed arguments are one-line errors, not stack traces", () => {
+test("missing or malformed arguments are one-line errors with exit code 2, not stack traces", () => {
   const vault = tempVault();
-  const cases: Array<[string[], RegExp]> = [
-    [["read"], /^read needs <note>\n$/],
-    [["mv", "Roadmap"], /^mv needs <new-path>\n$/],
-    [["backlinks"], /^backlinks needs <note>\n$/],
-    [["restore"], /^restore needs <change-id>\n$/],
-    [["restore", "abc"], /^<change-id> must be a whole number, not "abc"\n$/],
-    [["search", "roadmap", "--limit", "abc"], /^--limit must be a positive whole number, not "abc"\n$/],
-    [["read", "Roadmap", "--offset", "0"], /^--offset must be a positive whole number, not "0"\n$/],
-    [["ls", "--recent", "x"], /^--recent must be a positive whole number, not "x"\n$/],
-    [["read", "../../etc/passwd"], /^No note matches/],
+  const cases: Array<[string[], RegExp, number]> = [
+    [["read"], /^read needs <note>\n$/, 2],
+    [["mv", "Roadmap"], /^mv needs <new-path>\n$/, 2],
+    [["backlinks"], /^backlinks needs <note>\n$/, 2],
+    [["restore"], /^restore needs <change-id>\n$/, 2],
+    [["restore", "abc"], /^<change-id> must be a whole number, not "abc"\n$/, 2],
+    [["search", "roadmap", "--limit", "abc"], /^--limit must be a positive whole number from 1 to 50, not "abc"\n$/, 2],
+    [["read", "Roadmap", "--offset", "0"], /^--offset must be a positive whole number, not "0"\n$/, 2],
+    [["ls", "--recent", "x"], /^--recent must be a positive whole number from 1 to 100, not "x"\n$/, 2],
+    [["ls", "--colour", "red"], /^ls has no --colour: see quire help ls\n$/, 2],
+    [["task", "Roadmap", "8", "--priority", "urgent"], /^--priority must be high or low, not "urgent"\n$/, 2],
+    [["read", "../../etc/passwd"], /^No note matches/, 3],
   ];
-  for (const [args, stderr] of cases) {
+  for (const [args, stderr, status] of cases) {
     const r = quire(vault, args);
-    assert.equal(r.status, 1, args.join(" "));
+    assert.equal(r.status, status, args.join(" "));
     assert.match(r.stderr, stderr, args.join(" "));
   }
 });
@@ -83,7 +85,7 @@ test("tasks lists open tasks, and task changes one's tokens or ticks it", () => 
 
 test("board shows a note's boards, and card adds, moves and edits cards", () => {
   const vault = tempVault({ "Launch.md": "# Launch\n\n:::kanban\n## To do\n- [ ] Tiers\n\n## Done\n:::\n" });
-  assert.match(quire(vault, ["card", "add", "Launch", "to do", "Pick", "a", "logo"]).stdout, /^Changed a card in Launch\.md/);
+  assert.match(quire(vault, ["card", "add", "Launch", "to do", "Pick", "a", "logo"]).stdout, /^Added a card to Launch\.md/);
   quire(vault, ["card", "move", "Launch", "tiers", "Done"]);
   quire(vault, ["card", "edit", "Launch", "logo", "--text", "Pick a logo @ana"]);
   assert.match(quire(vault, ["board", "Launch"]).stdout, /^Board 1 of 1 in Launch\.md\n\n## To do\n- \[ \] Pick a logo @ana — L5\n\n## Done \(done column\)\n- \[x\] Tiers done:\d{4}-\d{2}-\d{2} — L8\n$/);
@@ -128,7 +130,7 @@ test("task --until and --times end a repeat, and ticking counts it down", () => 
   quire(vault, ["task", "Roadmap", "8", "--due", "2026-10-01", "--rec", "weekly", "--times", "2", "--until", "2027-01-01"]);
   quire(vault, ["task", "Roadmap", "8", "--done"]);
   assert.match(fs.readFileSync(path.join(vault, "Projects/Roadmap.md"), "utf8"), /\n- \[ \] Ship the importer due:2026-10-08 rec:weekly until:2027-01-01 times:1\n/);
-  assert.equal(quire(vault, ["task", "Roadmap", "8", "--times", "0"]).stderr, '"times" must be a whole number of repeats left, 1 or more\n');
+  assert.equal(quire(vault, ["task", "Roadmap", "8", "--times", "0"]).stderr, '--times must be a positive whole number, not "0"\n');
 });
 
 test("star and unstar take #tags as well as notes", () => {
