@@ -33,6 +33,9 @@ export const WORKSPACE_ROUTES = {
   "GET /asset-tags": "viewer",
   "GET /today": "viewer",
   "GET /guide": "viewer",
+  "GET /templates": "viewer",
+  // Filling a template in only reads it; inserting the text is an edit to the note.
+  "POST /templates/render": "viewer",
   "GET /files/*": "viewer",
   "GET /file-resolve": "viewer",
   "GET /live": "viewer",
@@ -54,6 +57,7 @@ export const WORKSPACE_ROUTES = {
   "POST /move": "editor",
   "POST /restore": "editor",
   "POST /guide": "editor",
+  "POST /notes/from-template": "editor",
   "POST /archive": "editor",
   "POST /unarchive": "editor",
   // Trash: editors delete and restore, and only they see what's in it; deleting for good is the owner's.

@@ -27,8 +27,8 @@ async function call(name: string, args: Record<string, unknown>) {
 test("the server lists every tool", async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
-    "add_card", "add_task", "append_to_note", "archive_note", "backlinks", "create_note", "delete_note", "delete_smart_folder",
-    "edit_card", "edit_note", "get_today", "list_notes", "list_smart_folders", "list_tags", "list_tasks",
+    "add_card", "add_task", "append_to_note", "archive_note", "backlinks", "create_from_template", "create_note", "delete_note", "delete_smart_folder",
+    "edit_card", "edit_note", "get_today", "list_notes", "list_smart_folders", "list_tags", "list_tasks", "list_templates",
     "move_card", "move_note", "move_task", "read_board", "read_note", "recent_changes", "save_smart_folder",
     "search_notes", "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag", "update_task",
   ]);
@@ -161,4 +161,11 @@ test("an agent's delete goes to Trash, attributed to it, and it has no way to de
   assert.equal((await call("read_note", { path: "Scratch" })).isError, true);
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).filter((n) => /trash|purge|forever/.test(n)), []);
+});
+
+test("agents list templates and make notes from them, told what's left to fill in", async () => {
+  await call("create_note", { path: "Templates/Meeting", content: "---\ntitle: \"{{date}} {{ask:Client}}\"\nfolder: Meetings\napplies_to: Meetings/\n---\n# {{title}}\n\n**Attendees:** {{ask:Attendees}}\n\n- {{cursor}}\n" });
+  assert.match((await call("list_templates", {})).text, /^Templates\/Meeting\.md — Meeting · asks: Client, Attendees · new notes in Meetings\/ start from it$/m);
+  const made = await call("create_from_template", { template: "Meeting", variables: { Client: "Initech" } });
+  assert.match(made.text, /^Created Meetings\/\d{4}-\d\d-\d\d Initech\.md from Templates\/Meeting\.md\. Still to fill in: \{\{ask:Attendees\}\} \(line 3\)\.$/);
 });

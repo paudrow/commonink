@@ -285,3 +285,20 @@ test("deleting a folder moves its notes up a level, or sends them all to Trash",
   assert.deepEqual(gone.trashed.map((t: { path: string }) => t.path), ["Projects/Plan.md", "Projects/Roadmap.md"]);
   assert.equal((await call("POST", "/delete-folder", { folder: "Projects", notes: "shred" })).status, 400);
 });
+
+test("templates: listed, rendered for inserting, and made into notes", async () => {
+  const { call, events } = setup();
+  await call("PUT", "/note", { path: "Templates/Meeting.md", content: "---\ntitle: \"{{date}} {{ask:Client}}\"\nfolder: Meetings\napplies_to: Meetings/\n---\n# {{title}}\n\n**Attendees:** {{ask:Attendees}}\n\n- {{cursor}}\n" });
+  await call("PUT", "/note", { path: "Templates/Decision.md", content: "## Decision: {{ask:What}}\n\n{{cursor}}\n" });
+  const list = (await call("GET", "/templates")).body;
+  assert.deepEqual(list.map((t: { name: string; appliesTo: string[] }) => [t.name, t.appliesTo]), [["Decision", []], ["Meeting", ["Meetings"]]]);
+  const r = (await call("POST", "/templates/render", { template: "Decision", at: "2026-09-29T09:00", answers: { What: "Ship it" } })).body;
+  assert.deepEqual(r, { path: "Templates/Decision.md", text: "## Decision: Ship it\n\n\n", cursor: 22, unfilled: [] });
+  events.length = 0;
+  const made = await call("POST", "/notes/from-template", { template: "Meeting", at: "2026-09-29T09:00", answers: { Client: "Acme", Attendees: "Sam" } });
+  assert.deepEqual([made.status, made.body.path, made.body.unfilled], [200, "Meetings/2026-09-29 Acme.md", []]);
+  assert.equal((await call("GET", "/note?path=Meetings/2026-09-29 Acme.md")).body.content.slice(made.body.cursor - 2, made.body.cursor), "- ");
+  assert.deepEqual(events, ["written Meetings/2026-09-29 Acme.md by tester", "tree"]);
+  assert.equal((await call("POST", "/notes/from-template", { template: "Nope" })).status, 404);
+  assert.equal((await call("POST", "/notes/from-template", { template: "Meeting", answers: { Client: 3 } })).status, 400);
+});

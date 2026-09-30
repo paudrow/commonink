@@ -3,6 +3,7 @@
 import { cleanPath, QuireError } from "./paths.ts";
 import type { ArchiveScope, Change, Quire } from "./quire.ts";
 import type { TaskPatch } from "./tasks.ts";
+import type { FillOptions } from "./templates.ts";
 import { agentSource, parseAuthorFilter } from "./actor.ts";
 import { findStartNote, GUIDE, parseGuideAction, runGuide } from "./guide.ts";
 
@@ -66,6 +67,25 @@ function taskPatch(v: unknown): TaskPatch {
     out[k] = x;
   }
   return out as TaskPatch;
+}
+
+/** How to fill a template, from a request: `at` (the person's own clock), `title`, `answers`, `clipboard`. */
+function fillOptions(raw: unknown): FillOptions {
+  const b = raw as Record<string, unknown>;
+  const out: FillOptions = {};
+  for (const k of ["at", "title", "clipboard"] as const) {
+    if (b[k] === undefined || b[k] === null) continue;
+    if (typeof b[k] !== "string") throw new QuireError(`"${k}" must be a string`);
+    out[k] = b[k] as string;
+  }
+  if (out.at !== undefined && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(out.at)) throw new QuireError(`"at" must look like 2026-10-01T09:30`);
+  if (b.answers !== undefined && b.answers !== null) {
+    if (typeof b.answers !== "object" || Array.isArray(b.answers) || !Object.values(b.answers).every((v) => typeof v === "string")) {
+      throw new QuireError(`"answers" must be an object of strings`);
+    }
+    out.answers = b.answers as Record<string, string>;
+  }
+  return out;
 }
 
 /** Typed reads of a request's JSON body and query string. Anything malformed is a 400 naming the field. */
@@ -200,6 +220,17 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json(quire.assetTags());
     case "GET /diff":
       return json(quire.diff(qInt("from"), q("to") ? qInt("to") : qInt("from")));
+    case "GET /templates":
+      return json(quire.templates());
+    // A template filled in, to insert at the cursor (the editor writes it, so this only reads).
+    case "POST /templates/render":
+      return json(quire.renderTemplate(str("template"), fillOptions(raw)));
+    case "POST /notes/from-template": {
+      const r = quire.createFromTemplate(str("template"), { ...fillOptions(raw), folder: optStr("folder") }, actor);
+      host.written(r.path, quire.files.read(r.path), r.version, r.change);
+      host.tree();
+      return json({ path: r.path, version: r.version, cursor: r.cursor, unfilled: r.unfilled });
+    }
 
     case "PUT /note": {
       const rel = cleanPath(str("path"));

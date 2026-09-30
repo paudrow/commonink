@@ -4,6 +4,7 @@ import { LOCAL_USER, openVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
 import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtTrash, fmtWrite } from "./core/format.ts";
 import { parseQuery } from "./core/query.ts";
+import { fmtTemplate } from "./core/tools.ts";
 import { agentSource, parseAuthorFilter } from "./core/actor.ts";
 
 const HELP = `quire — markdown notes for you and your agents
@@ -31,6 +32,9 @@ Usage: quire <command> [args] [--agent <name>] [--json]
                                    --rec weekly, 6th, 1st-tue, after-1m (from done)…;
                                    --until and --times end a repeat (last day, times left);
                                    --skip moves a repeating task to its next date
+  templates                        note templates: notes in Templates/ with {{placeholders}}
+  new --template <name> [--title T] [--folder F] [--var Label=value …]
+                                   a note from a template; --var answers its {{ask:Label}}s
   board <note>                     the note's Kanban boards (:::kanban blocks), cards with line numbers
   card add <note> <column> <text…> [--board N] [--position N]
   card move <note> <card> <column> [--position N]
@@ -148,6 +152,27 @@ if (cmd === "mcp") {
         );
         const r = flags.skip ? q.skipTask(note, line, task.text, source) : q.updateTask(note, line, task.text, patch, source);
         out(fmtWrite(r, r.change ? "Updated" : "No change to"), r);
+        break;
+      }
+      case "templates": {
+        const list = q.templates();
+        out(list.length ? list.map(fmtTemplate).join("\n") : "No templates yet. A template is any note in Templates/.", list);
+        break;
+      }
+      case "new": {
+        const template = str("template");
+        if (!template) throw new QuireError("new needs --template <name>");
+        // --var can be given more than once, so it's read from the arguments themselves.
+        const answers: Record<string, string> = {};
+        argv.forEach((a, i) => {
+          if (a !== "--var" || argv[i + 1] === undefined) return;
+          const [label, ...rest] = argv[i + 1].split("=");
+          if (!rest.length || !label.trim()) throw new QuireError(`--var takes Name=value, not "${argv[i + 1]}"`);
+          answers[label.trim()] = rest.join("=");
+        });
+        const r = q.createFromTemplate(template, { title: str("title"), folder: str("folder"), answers }, source);
+        const from = q.templates().find((t) => t.name.toLowerCase() === template.toLowerCase() || t.path === template)?.path ?? template;
+        out(`Created ${r.path} from ${from}.${r.unfilled.length ? ` Still to fill in: ${r.unfilled.map((u) => `{{${u}}}`).join(", ")}.` : ""}`, r);
         break;
       }
       case "board": {
