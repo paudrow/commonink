@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 146
 title: Make and move events on the Calendar
 ---
 1. Open **Calendar** in Week (`w`). Drag down tomorrow's column from 2 PM to 3:30 PM: the form opens on that time. Call it **Planning poker**, keep **Common Ink** as the calendar, tick **Also make a meeting note**, and save. The event shows, and the toast opens its note.
