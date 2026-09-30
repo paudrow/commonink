@@ -84,7 +84,7 @@ export function migrate(db: SqlDb, opts: { local?: boolean } = {}) {
   for (const stmt of SCHEMA) db.exec(stmt);
   // An index from before tags (or tasks): have the next sync read every note again to find them.
   if (stale) db.run("UPDATE notes SET mtime = -1");
-  // Links are kept by the name they end in, without folders (see Quire.backlinks). An index from
+  // Links are kept by the name they end in, without folders (see backlinks in the core). An index from
   // before that has keys with folders in them: the next sync reads every note again to replace them.
   if (db.get("SELECT 1 FROM links WHERE key LIKE '%/%' LIMIT 1")) db.run("UPDATE notes SET mtime = -1");
   // Indexes from before stable IDs lack the column. (ALTER, not a pragma: Durable Objects allow it.)
