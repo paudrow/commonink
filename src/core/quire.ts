@@ -1671,10 +1671,19 @@ export class Quire {
     return out;
   }
 
+  /**
+   * Where a move to `to` puts `from`: a folder, written with a trailing slash ("Projects/"), gets
+   * the note under its own name, as `mv` does; anything else is the new path. ("Projects" stays a
+   * note named Projects, which can sit beside a folder of that name.)
+   */
+  private intoFolder(to: string, from: string): string {
+    return /\/\s*$/.test(to) ? `${cleanPath(to).replace(/\/+$/, "")}/${path.posix.basename(from)}` : to;
+  }
+
   /** Rename a note and rewrite every [[link]] / ![[embed]] / [md](link) that pointed at it. */
   move(target: string, to: string, source: string, op: "move" | "archive" | "unarchive" = "move") {
     const from = this.mustResolve(target);
-    let dest = cleanPath(to);
+    let dest = cleanPath(this.intoFolder(to, from));
     if (!kindOf(dest)) dest += path.posix.extname(from);
     const [extFrom, extTo] = [from, dest].map((p) => path.posix.extname(p).toLowerCase());
     if (kindOf(dest) !== kindOf(from) || (kindOf(from) === "asset" && extFrom !== extTo)) {
