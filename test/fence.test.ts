@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { diffLine, parseFence, setFenceLang, setFenceWrap, toggleWrap, wraps } from "../src/core/fence.ts";
+import { cpuMs } from "./helpers.ts";
 
 const plain = (info: string) => {
   const f = parseFence(info);
@@ -45,9 +46,9 @@ test("diff lines are added, removed, or neither, with file headers neither", () 
 });
 
 test("a hostile info string parses in linear time and bounded space", () => {
-  const t = performance.now();
-  const f = parseFence(`ts ${'title="'.repeat(20_000)} {1-99999999} ${"{".repeat(50_000)}`);
-  assert.ok(performance.now() - t < 200, "fast");
+  const info = `ts ${'title="'.repeat(20_000)} {1-99999999} ${"{".repeat(50_000)}`;
+  assert.ok(cpuMs(() => parseFence(info)) < 200, "fast");
+  const f = parseFence(info);
   assert.equal(f.highlight.size, 0, "settings past the first 500 characters are ignored");
   assert.equal(parseFence("ts {1-99999999}").highlight.size, 5000);
 });

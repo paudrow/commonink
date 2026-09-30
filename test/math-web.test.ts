@@ -2,6 +2,7 @@
 import "./dom.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { cpuMs } from "./helpers.ts";
 
 const { renderMarkdown } = await import("../web/src/render.ts");
 const { renderTex } = await import("../web/src/mathRender.ts");
@@ -27,20 +28,16 @@ test("rendered markdown marks each formula for drawing, with its source showing 
 
 test("a $$ block right under a line of text is still display math, and reading math stays linear", () => {
   assert.equal(renderMarkdown("Text above\n$$\na + b\n$$\nand after", "n.md"), '<p>Text above\n<span class="math" data-tex="a + b" data-display="">a + b</span>\nand after</p>\n');
-  // Twice the input takes about twice as long; a scan from every position would take four times.
-  // Timed by growth, not a fixed bound, which a slow CI machine can cross.
-  const time = (src: string) => {
-    let best = Infinity;
+  // Four times the input takes about four times as long; a scan from every position would take sixteen.
+  // Timed by growth, not a fixed bound, which a slow CI machine can cross, and alternating the two
+  // sizes so a slow patch lands on both.
+  for (const [unit, n] of [["[", 25_000], ["![[", 8_000], ["$a ", 8_000], ["\\(", 12_500], ["para\n\n", 5_000]] as const) {
+    let [once, fourTimes] = [Infinity, Infinity];
     for (let i = 0; i < 3; i++) {
-      const t = performance.now();
-      renderMarkdown(src, "n.md");
-      best = Math.min(best, performance.now() - t);
+      once = Math.min(once, cpuMs(() => renderMarkdown(unit.repeat(n), "n.md")));
+      fourTimes = Math.min(fourTimes, cpuMs(() => renderMarkdown(unit.repeat(4 * n), "n.md")));
     }
-    return best;
-  };
-  for (const [unit, n] of [["[", 50_000], ["![[", 16_000], ["$a ", 16_000], ["\\(", 25_000], ["para\n\n", 10_000]] as const) {
-    const [once, twice] = [time(unit.repeat(n)), time(unit.repeat(2 * n))];
-    assert.ok(twice < 3 * once + 20, `${JSON.stringify(unit)} grows faster than its input: ${Math.round(once)} ms, then ${Math.round(twice)} ms`);
+    assert.ok(fourTimes < 8 * once + 20, `${JSON.stringify(unit)} grows faster than its input: ${Math.round(once)} ms, then ${Math.round(fourTimes)} ms at four times the size`);
   }
 });
 
@@ -82,15 +79,16 @@ test("KaTeX can't link, name, class, embed or restyle anything outside the formu
 });
 
 test("macros that expand forever, huge sizes and long input are refused, not drawn", () => {
-  const t = performance.now();
-  const bomb = renderTex("\\def\\a{\\a\\a}\\a", false);
-  assert.ok("error" in bomb, "expansion is capped");
-  const huge = renderTex("\\rule{100000em}{100000em}", false);
-  assert.ok("html" in huge);
-  const drawn = parse(huge.html).querySelector(".katex-html")!.innerHTML;
-  assert.ok(drawn.includes("30em") && !drawn.includes("100000em"), `sizes are capped: ${drawn}`);
-  assert.ok("error" in renderTex("x".repeat(5000), false));
-  assert.ok(performance.now() - t < 2000);
+  const ms = cpuMs(() => {
+    const bomb = renderTex("\\def\\a{\\a\\a}\\a", false);
+    assert.ok("error" in bomb, "expansion is capped");
+    const huge = renderTex("\\rule{100000em}{100000em}", false);
+    assert.ok("html" in huge);
+    const drawn = parse(huge.html).querySelector(".katex-html")!.innerHTML;
+    assert.ok(drawn.includes("30em") && !drawn.includes("100000em"), `sizes are capped: ${drawn}`);
+    assert.ok("error" in renderTex("x".repeat(5000), false));
+  });
+  assert.ok(ms < 2000, `took ${Math.round(ms)} ms`);
 });
 
 test("the editor reads math with the same rules: inline, one-line and multi-line blocks, and not prices", async () => {

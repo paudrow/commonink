@@ -1,10 +1,9 @@
 // The shortcut sheet (? or "Keyboard shortcuts" in ⌘K): every shortcut, by where it works.
 import { shortcutSheet, type Command } from "./commands.ts";
-import { formatKeys } from "./keys.ts";
+import { kbd } from "./keys.ts";
 import { el, icon } from "./dom.ts";
 import { IS_MAC } from "./panes.ts";
-
-const FOCUSABLE = "button, summary, [href], input, [tabindex]:not([tabindex='-1'])";
+import { trapKeys } from "./modal.ts";
 
 let closeOpen: (() => void) | null = null;
 
@@ -13,7 +12,7 @@ export function toggleShortcuts(commands: Command[], opts: { vim: boolean; mac?:
   if (closeOpen) return closeOpen();
   const mac = opts.mac ?? IS_MAC;
   const back = document.activeElement as HTMLElement | null;
-  const keys = (list: string[]) => list.flatMap((k, i) => [i ? el("span", { class: "sc-or" }, "/") : null, el("kbd", {}, formatKeys(k, mac))]);
+  const keys = (list: string[]) => list.flatMap((k, i) => [i ? el("span", { class: "sc-or" }, "/") : null, kbd(k, mac)]);
   const sections = shortcutSheet(commands).map(({ area, shortcuts }) => {
     const rows = el("dl", { class: "sc-list" }, ...shortcuts.flatMap((s) => [el("dt", {}, ...keys(s.keys)), el("dd", {}, s.label)]));
     if (area !== "Vim") return el("section", { class: "sc-area" }, el("h3", {}, area), rows);
@@ -31,19 +30,7 @@ export function toggleShortcuts(commands: Command[], opts: { vim: boolean; mac?:
     el("div", { class: "sc-grid" }, ...sections),
   );
   const page = el("div", { id: "shortcuts", onmousedown: (e: Event) => e.target === page && close() }, box);
-  page.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      close();
-    } else if (e.key === "Tab") {
-      const stops = [...box.querySelectorAll<HTMLElement>(FOCUSABLE)];
-      const at = stops.indexOf(document.activeElement as HTMLElement);
-      const next = e.shiftKey ? (at <= 0 ? stops.length - 1 : at - 1) : at === stops.length - 1 ? 0 : at + 1;
-      e.preventDefault();
-      stops[next]?.focus();
-    }
-  });
+  trapKeys(page, box, close);
   document.body.append(page);
   box.focus();
   closeOpen = close;

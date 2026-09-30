@@ -54,7 +54,8 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS tasks_path ON tasks(path)`,
   `CREATE TABLE IF NOT EXISTS changes(
      id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, path TEXT NOT NULL, op TEXT NOT NULL,
-     source TEXT NOT NULL, version TEXT, summary TEXT, from_path TEXT, before TEXT, note_id TEXT, person TEXT, agent TEXT)`,
+     source TEXT NOT NULL, version TEXT, summary TEXT, from_path TEXT, before TEXT, note_id TEXT, person TEXT, agent TEXT,
+     autosave INTEGER)`,
   `CREATE INDEX IF NOT EXISTS changes_path ON changes(path, version)`,
   // Each person's starred notes, in their order. `path` is where the note was last seen, so a star
   // can find its note again if the note comes back under a new ID (deleted, then restored).
@@ -65,6 +66,9 @@ const SCHEMA = [
   // workspace; a user ID makes it just that person's.
   `CREATE TABLE IF NOT EXISTS smart_folders(
      id TEXT PRIMARY KEY, name TEXT NOT NULL, query TEXT NOT NULL, owner TEXT, pos INTEGER NOT NULL)`,
+  // Tags someone added by name before anything carried them, shared with the whole workspace. One
+  // stays until a note, task or asset uses it (or a tag under it); then it's an ordinary tag.
+  `CREATE TABLE IF NOT EXISTS added_tags(tag TEXT PRIMARY KEY)`,
 ];
 
 /**
@@ -84,6 +88,9 @@ export function migrate(db: SqlDb, opts: { local?: boolean } = {}) {
   for (const stmt of SCHEMA) db.exec(stmt);
   // An index from before tags (or tasks): have the next sync read every note again to find them.
   if (stale) db.run("UPDATE notes SET mtime = -1");
+  // Links are kept by the name they end in, without folders (see backlinks in the core). An index from
+  // before that has keys with folders in them: the next sync reads every note again to replace them.
+  if (db.get("SELECT 1 FROM links WHERE key LIKE '%/%' LIMIT 1")) db.run("UPDATE notes SET mtime = -1");
   // Indexes from before stable IDs lack the column. (ALTER, not a pragma: Durable Objects allow it.)
   try {
     db.exec("ALTER TABLE notes ADD COLUMN id TEXT");
@@ -91,6 +98,10 @@ export function migrate(db: SqlDb, opts: { local?: boolean } = {}) {
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS notes_id ON notes(id)");
   for (const { path } of db.all<{ path: string }>("SELECT path FROM notes WHERE id IS NULL")) {
     db.run("UPDATE notes SET id = ? WHERE path = ?", newNoteId(), path);
+  }
+  // Names are indexed in composed Unicode (see stemOf): the next sync reads again any note indexed before that.
+  for (const { path, stem } of db.all<{ path: string; stem: string }>("SELECT path, stem FROM notes")) {
+    if (stem !== stem.normalize("NFC")) db.run("UPDATE notes SET mtime = -1 WHERE path = ?", path);
   }
   // Each note's row in the full-text index (`fts`), so reindexing a note replaces its row directly:
   // FTS5 can only find a row by path by reading every row. Older indexes learn theirs in one pass.
@@ -128,6 +139,11 @@ export function migrate(db: SqlDb, opts: { local?: boolean } = {}) {
     }
   });
   db.exec("CREATE INDEX IF NOT EXISTS changes_agent ON changes(agent, id)");
+  // Which changes are a person's editor autosaves, that a later one in the same sitting may join.
+  // Older rows stay unmarked: nothing joins them.
+  try {
+    db.exec("ALTER TABLE changes ADD COLUMN autosave INTEGER");
+  } catch {}
   // Older local indexes predate the `before` column. (Durable Objects may refuse pragmas; their
   // databases are always created with the current schema, so there's nothing to upgrade.)
   let cols: string[];

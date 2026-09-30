@@ -1,11 +1,13 @@
 // Deleting, and Trash. Everything deleted waits in Trash for 30 days: deleting comes with Undo, and
-// asks first only when other notes link to what's going, or when it's a whole folder. The Trash page
-// lists what's there to restore, and (for whoever may) to delete for good.
+// asks first only when other notes link to what's going, or when it's a whole folder. Trash, a tab
+// of the Notes page, lists what's there to restore, and (for whoever may) to delete for good.
 import { api, ApiError, type TrashItem } from "./api.ts";
-import { $, authorAvatar, authorName, displayName, el, icon, timeAgo } from "./dom.ts";
+import { authorAvatar, authorName, displayName, el, icon, timeAgo } from "./dom.ts";
+import type { ToastSpec } from "./toast.ts";
+import { emptyState } from "./emptyState.ts";
 
 export interface DeleteHooks {
-  toast(t: { text: string; icon?: string; actionLabel?: string; action?: () => void }): void;
+  toast(t: ToastSpec): void;
   /** Notes changed: fetch the list again (and anything showing it). */
   changed(): Promise<void>;
 }
@@ -120,28 +122,42 @@ export async function deleteFolder(folder: string, hooks: DeleteHooks): Promise<
   return true;
 }
 
-/** The Trash page: what's been deleted, newest first, to restore or (for whoever may) delete for good. */
+/** Does a Trash item have every word of `q` in its path or its opening lines? Trash isn't in the search index, so this is what finds it. */
+export function trashMatches(t: TrashItem, q: string): boolean {
+  const text = `${t.path} ${t.excerpt ?? ""}`.toLowerCase();
+  return q.toLowerCase().split(/\s+/).every((w) => text.includes(w));
+}
+
+/** Trash, the Notes page's third tab: what's been deleted, newest first, to restore or (for whoever may) delete for good. */
 export class TrashPage {
-  readonly root = $("#trash-view");
+  readonly root = el("div", { class: "trash" });
   private list = el("div", { class: "tr-list" });
   private head = el("div", { class: "tr-head" });
   private items: TrashItem[] = [];
   private loaded = false;
+  /** The words Trash is narrowed to (the Notes page's filter). */
+  private q = "";
 
   constructor(private hooks: DeleteHooks & { canPurge(): boolean; open(path: string): void }) {
-    this.root.append(el("div", { class: "trash" }, this.head, this.list));
+    this.root.append(this.head, this.list);
   }
 
-  async show() {
-    this.root.hidden = false;
+  /** List what's in Trash with every word of `q`. */
+  async show(q = "") {
+    this.q = q;
     this.render();
-    this.root.focus({ preventScroll: true });
     await this.load();
+  }
+
+  /** How many things in Trash have every word of `q`. */
+  async count(q: string): Promise<number> {
+    const items = await api.trash().catch(() => []);
+    return items.filter((t) => trashMatches(t, q)).length;
   }
 
   /** Something may have been deleted or restored elsewhere. */
   async refresh() {
-    if (!this.root.hidden) await this.load();
+    if (this.root.isConnected && !this.root.closest("[hidden]")) await this.load();
   }
 
   private async load() {
@@ -152,17 +168,16 @@ export class TrashPage {
 
   private render() {
     const purge = this.hooks.canPurge();
-    this.head.replaceChildren(
-      el("div", { class: "tr-title" }, el("h1", {}, "Trash"), el("span", { class: "as-count" }, this.items.length ? String(this.items.length) : "")),
-      el("p", {}, "Deleted notes and assets stay here for 30 days, then they're gone for good."),
-      ...(purge && this.items.length ? [el("button", { type: "button", class: "qw-btn danger", onclick: () => void this.empty() }, icon("trash", 14), "Empty trash")] : []),
-    );
+    const shown = this.items.filter((t) => trashMatches(t, this.q));
+    this.head.replaceChildren(...(purge && this.items.length ? [el("button", { type: "button", class: "qw-btn danger", onclick: () => void this.empty() }, icon("trash", 14), "Empty trash")] : []));
     this.list.replaceChildren(
-      ...(this.items.length
-        ? this.items.map((t) => this.row(t, purge))
+      ...(shown.length
+        ? shown.map((t) => this.row(t, purge))
         : !this.loaded
           ? []
-          : [el("div", { class: "as-empty" }, icon("trash", 26), el("b", {}, "Trash is empty"), el("span", {}, "Delete a note from its top bar, from Notes with the Delete key, or with :trash in vim."))]),
+          : this.items.length
+            ? [emptyState({ icon: "search", title: `Nothing in Trash matches “${this.q}”`, text: ["Trash finds a note by its name, its folder or its first lines."] })]
+            : [emptyState({ icon: "trash", title: "Trash is empty", text: ["Delete a note from its top bar, from Notes with the Delete key, or with :trash in vim."] })]),
     );
   }
 

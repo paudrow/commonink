@@ -4,7 +4,9 @@
 //   ::guide{step=done}      how far along you are, then an offer to archive the note
 import { api, type GuideState } from "../api.ts";
 import { el } from "../dom.ts";
+import { formatKeys } from "../keys.ts";
 import { act, archiveNote, watchGuide } from "../onboarding.ts";
+import { localSteps } from "../connectAgent.ts";
 import { guideState } from "../../../src/core/guide.ts";
 import { button, setButton, type WidgetEnv, type WidgetSpec } from "./core.ts";
 
@@ -29,20 +31,12 @@ const watch: View = (body, env) => {
     say.textContent = done
       ? "That's the deal: agents write, and you decide what stays."
       : s?.demo
-        ? "There it is, just below, with the guide's name on it. Press ⌘Z to take it back."
+        ? `There it is, just below, with the guide's name on it. Press ${formatKeys("Mod-z")} to take it back.`
         : "The guide will add a line to this note, the way an agent you connect would.";
     go.hidden = !live || !s || !!done || s.demo;
     if (!s?.demo) setButton(go, "Show me", "play");
   };
 };
-
-/** `s` quoted for a shell, if it needs it. */
-const sh = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replaceAll("'", `'\\''`)}'`);
-
-function copyable(code: string, block = false): HTMLElement {
-  const copy = button("Copy", "copy", () => void navigator.clipboard.writeText(code).then(() => setButton(copy, "Copied", "check")));
-  return el("div", { class: `qw-guide-code${block ? " is-block" : ""}` }, el(block ? "pre" : "code", {}, code), copy);
-}
 
 const connect: View = (body, env) => {
   const say = text();
@@ -53,15 +47,7 @@ const connect: View = (body, env) => {
       how.append(button("Connect an agent", "link", () => void import("../agentsPage.ts").then((m) => m.showAgents()), "primary"));
       return;
     }
-    const bin = `${info.projectRoot}/bin/quire`;
-    // The MCP server opens the default vault unless it's told which: say so when this isn't that one.
-    const vault = info.vault && info.vault !== `${info.projectRoot}/vault` ? info.vault : null;
-    const json = JSON.stringify({ mcpServers: { quire: { command: bin, args: ["mcp"], ...(vault ? { env: { QUIRE_VAULT: vault } } : {}) } } }, null, 2);
-    how.append(
-      el("p", { class: "qw-sub" }, "Claude Code: run this in a terminal."),
-      copyable(`claude mcp add quire ${vault ? `-e QUIRE_VAULT=${sh(vault)} ` : ""}-- ${sh(bin)} mcp`),
-      el("details", {}, el("summary", {}, "Claude Desktop, Cursor and other MCP clients"), el("p", { class: "qw-sub" }, "Add this server to the app's MCP settings (claude_desktop_config.json, .cursor/mcp.json…), then restart it."), copyable(json, true)),
-    );
+    how.append(...localSteps(info));
   }, () => {});
   return (s) => {
     const done = s?.done.includes("connect");

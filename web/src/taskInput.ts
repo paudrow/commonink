@@ -12,7 +12,8 @@ import { getCM, vim, Vim } from "@replit/codemirror-vim";
 import { api } from "./api.ts";
 import { displayName, el } from "./dom.ts";
 import { parseQuickAdd, type QuickAdd, type QuickSpan } from "../../src/core/quickAdd.ts";
-import { endTags, metaChips, today } from "./taskChips.ts";
+import { formatRule, parseRule, type Rule } from "../../src/core/recurrence.ts";
+import { endTags, metaChips, monthEndNote, today } from "./taskChips.ts";
 import { taskPeople } from "./taskChipEditors.ts";
 
 /** The same words wherever a task is typed. */
@@ -124,12 +125,25 @@ export function taskInput(opts: TaskInputOptions): TaskInput {
     }
     const where = opts.where?.(parsed) ?? null;
     const chips = metaChips(parsed.meta, false, endTags(parsed.words, parsed.meta.tags));
+    const note = monthEndNote(parsed.meta.rec ? parseRule(parsed.meta.rec) : null, parsed.meta.due, useLastDay);
     preview.hidden = !!opts.compact && !chips.length && !where;
     preview.replaceChildren(
       el("span", { class: "qa-words" }, parsed.words || el("em", {}, "Say what the task is")),
       ...chips,
       where ? el("span", { class: "qa-where" }, "→ ", where) : "",
+      note ?? "",
     );
+  };
+  /** The month-end note's switch: the repeat's phrase, or its `rec:` token, rewritten to say the last day. */
+  const useLastDay = (lastDay: Rule) => {
+    const rec = formatRule(lastDay);
+    const span = parsed?.spans.find((s) => s.kind === "rec");
+    const token = firstLine().match(/(?<!\S)rec:\S+/);
+    const [from, to, insert] = span
+      ? [span.from, span.to, rec === "last-day" ? "on the last day of every month" : `rec:${rec}`]
+      : [token!.index!, token!.index! + token![0].length, `rec:${rec}`];
+    view.dispatch({ changes: { from, to, insert }, userEvent: "input" });
+    view.focus();
   };
 
   const view = new EditorView({
