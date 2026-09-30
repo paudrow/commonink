@@ -70,6 +70,20 @@ test("compare a label with now or with another label, and restore to one as one 
   assert.throws(() => quire.restoreLabel("v1", "you", { target: "Plan", baseVersion: "stale" }), /changed on disk/);
 });
 
+test("labeling an old change rebuilds its text from the log's deltas, and the label then keeps that text whole", () => {
+  const { quire, edit } = setup();
+  const versions = Array.from({ length: 80 }, (_, i) => `# Plan\n\n${Array.from({ length: 30 }, (_, l) => `Line ${l}${l === i % 30 ? ` edited ${i}` : ""}`).join("\n")}\n`);
+  const changes = versions.map((v) => edit(v));
+  const deltas = quire.db.get("SELECT count(*) AS n FROM changes WHERE base_id IS NOT NULL").n as number;
+  assert.ok(deltas > 60, `the log keeps most older texts as deltas (${deltas})`);
+  const early = quire.label("Plan", "Early", "you", { at: changes[4].id });
+  assert.equal(quire.labelText(early.id).text, versions[4], "the version right after that change, rebuilt through the deltas");
+  const row = quire.db.get("SELECT text FROM labels WHERE id = ?", early.id).text as string;
+  assert.equal(row, versions[4], "stored whole, not as a delta");
+  quire.db.run("UPDATE changes SET before = NULL, base_id = NULL"); // however the log's text goes
+  assert.equal(quire.compareLabels(early.id).from.text, versions[4]);
+});
+
 test("a label follows its note through a rename, and keeps its text when the change log loses it", () => {
   const { quire, edit } = setup();
   const first = edit("# Plan\n\nDraft two.\n");
