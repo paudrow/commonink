@@ -65,6 +65,8 @@ interface Session {
   timer: number;
   /** Set once the user edits this note. A session that was never edited never writes. */
   edited: boolean;
+  /** The last save didn't reach the server (offline, or it failed): it's tried again until it does. */
+  failed: boolean;
   /** The pane it's open in. */
   pane: Pane;
 }
@@ -341,6 +343,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
     baseVersion: note.version,
     saving: false,
     again: false,
+    failed: false,
     timer: 0,
     edited: false,
     pane,
@@ -958,6 +961,7 @@ async function save(s: Session) {
     }
     s.base = content;
     s.baseVersion = r.version;
+    s.failed = false;
     if (s === s.pane.session && view.state.doc.lineAt(view.state.selection.main.head).number > 1) void nameUntitled(s);
     if (s === s.pane.session) status(s, view.state.doc.toString() === content ? "saved" : "editing");
   } catch (e) {
@@ -965,6 +969,13 @@ async function save(s: Session) {
       applyRemote({ path: s.path, content: e.data.content, version: e.data.version, source: e.data.source ?? "external" });
     } else {
       status(s, "error");
+      // Offline or a server error: keep trying, so the text is saved once it can be. A refusal
+      // (an empty note, one too big) waits for the next edit instead.
+      if (!(e instanceof ApiError) || e.status >= 500) {
+        s.failed = true;
+        clearTimeout(s.timer);
+        s.timer = window.setTimeout(() => save(s), 5000);
+      }
     }
   } finally {
     s.saving = false;
@@ -2448,7 +2459,11 @@ async function boot() {
   favoriteDrop($("#favorites"), "is-drop");
   document.addEventListener("dragend", endDrag); // a drag that lands nowhere still clears its highlights
   vaultEvents.addEventListener("change", () => refreshTaskCountSoon());
-  window.addEventListener("beforeunload", () => void flushSave());
+  window.addEventListener("beforeunload", (e) => {
+    void flushSave();
+    // A save that couldn't reach the server won't now either: ask before the text is lost.
+    if (panes.some((p) => p.session?.failed && p.view.state.doc.toString() !== p.session.base)) e.preventDefault();
+  });
   watchTimers((t) =>
     toast({
       icon: "timer",
@@ -2475,7 +2490,10 @@ async function boot() {
   connect(onMessage, (up) => {
     $("#conn").dataset.up = String(up);
     $("#conn").title = up ? "Live: watching the vault for agent edits" : "Reconnecting…";
-    if (up) refreshNotesSoon();
+    if (up) {
+      refreshNotesSoon();
+      void flushSave(); // what couldn't be saved while the connection was down
+    }
   });
   if (!viewer) void startGuide({ archive: (path) => void archivePath(path), flush: () => flushSave() });
 
