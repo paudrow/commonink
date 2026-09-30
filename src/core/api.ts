@@ -278,8 +278,9 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       const r = quire.renameTag(str("from"), str("to"), actor);
       for (const e of r.edits) host.written(e.path, e.content, e.version, e.change);
       host.tree();
-      // Restoring each change, and setting these assets' tags back, undoes the rename.
-      return json({ changes: r.edits.map((e) => e.change.id), assets: r.assets });
+      // Restoring each change while its note is still at `versions` (the text the rename left), and
+      // setting these assets' tags back, undoes the rename without writing over a later edit.
+      return json({ changes: r.edits.map((e) => e.change.id), versions: r.edits.map((e) => e.version), assets: r.assets });
     }
     case "POST /restore": {
       const r = quire.restore(int("id"), actor, optStr("version"));

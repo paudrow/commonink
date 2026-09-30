@@ -340,7 +340,9 @@ export class History {
       if (!res) return this.hooks.toast({ text: "Couldn't restore that version" });
       const said = { icon: "reset", text: `Restored ${displayName(res.path)}` };
       const change = res.change;
-      this.hooks.toast(change ? { ...said, actionLabel: "Undo", action: () => void api.restore(change) } : said);
+      // Undo only while the note is as the restore left it: an edit made since stays.
+      const undo = () => api.restore(change!, res.version).catch(() => this.hooks.toast({ text: `${displayName(res.path)} changed since, so the restore stays` }));
+      this.hooks.toast(change ? { ...said, actionLabel: "Undo", action: () => void undo() } : said);
     });
     return el(
       "div",

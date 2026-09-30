@@ -163,6 +163,17 @@ test("tags are listed, asset tags set, and a rename reports what undoes it", asy
   assert.equal((await call("PUT", "/asset-tags", { path: "chart.svg", tags: "x" })).status, 400);
 });
 
+test("undoing a tag rename leaves alone a note that changed since", async () => {
+  const { call, quire } = setup({}, openTempVault({ "A.md": "# A\n\nAbout #plan\n", "B.md": "# B\n\nAbout #plan\n" }));
+  const r = await call("POST", "/tags/rename", { from: "plan", to: "roadmap" });
+  assert.equal(r.body.versions.length, 2);
+  quire.append("B.md", "Typed after the rename.", "tester");
+  const undo = await Promise.all(r.body.changes.map((id: number, i: number) => call("POST", "/restore", { id, version: r.body.versions[i] })));
+  assert.deepEqual(undo.map((u) => u.status).sort(), [200, 409]);
+  assert.equal(quire.read("A.md").content, "# A\n\nAbout #plan\n");
+  assert.equal(quire.read("B.md").content, "# B\n\nAbout #roadmap\n\nTyped after the rename.\n");
+});
+
 test("tasks filter by due date against the reader's today, and a task's tokens change in place", async () => {
   const { call, events } = setup();
   await call("POST", "/tasks/update", { path: "Roadmap", line: 8, text: "Ship the importer", patch: { due: "2026-10-01", assignees: ["jane"] } });
