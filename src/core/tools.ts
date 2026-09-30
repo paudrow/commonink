@@ -6,6 +6,8 @@ import { z } from "zod";
 import { QuireError } from "./paths.ts";
 import type { Quire } from "./quire.ts";
 import type { Calendar } from "./calendar.ts";
+import type { MemberRef } from "./contacts.ts";
+import type { Exporter } from "./export.ts";
 import { AGENTS_NOTE } from "./noteRoles.ts";
 import { COMMANDS, toolName, type ArgSpec, type Command } from "./commands/index.ts";
 
@@ -22,6 +24,10 @@ export interface ToolHost {
   may?(route: string): boolean;
   /** Whether the caller may make or change shared smart folders (online: editors and owners). Default yes. */
   canEditShared?: boolean;
+  /** The workspace's members (online), for who "me" and other people are on tasks. None locally. */
+  members?(): Promise<MemberRef[]>;
+  /** export_note: notes as Markdown, a web page, Word or a .zip (core/export.ts). Without one, the tool isn't offered. */
+  exporter?: Exporter;
   /** The workspace's calendars; with them, the event tools are offered. */
   calendar?: Calendar;
   /** Where the app is, for a meeting note's link written back to Google. */
@@ -53,7 +59,36 @@ const inputSchema = (c: Command) => Object.fromEntries(Object.entries(c.args).fl
 const annotations = (c: Command) =>
   c.readOnly ? { readOnlyHint: true, openWorldHint: false } : { readOnlyHint: false, destructiveHint: !!c.destructive, openWorldHint: false };
 
-type Result = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
+type Content = { type: "text"; text: string } | { type: "resource"; resource: { uri: string; mimeType: string; text: string } | { uri: string; mimeType: string; blob: string } };
+type Result = { content: Content[]; isError?: boolean };
+
+/** The largest file a tool sends back (export_note: it goes as base64 in the reply). */
+const MAX_MCP_FILE = 20 * 1024 * 1024;
+
+function base64(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+/** A file a command hands back, as MCP carries it: a line saying what it is, then the file as a resource. */
+function fileResult(file: { name: string; bytes: Uint8Array; mime?: string }): Result {
+  const mime = file.mime ?? "application/octet-stream";
+  const bare = mime.split(";")[0];
+  if (file.bytes.byteLength > MAX_MCP_FILE) {
+    const mb = Math.round(file.bytes.byteLength / 1024 / 1024);
+    return { content: [{ type: "text", text: `${file.name} is ${mb} MB, too big to send here: export a folder at a time, or use the app's Share menu or \`quire export\`.` }], isError: true };
+  }
+  const uri = `quire-export:///${encodeURIComponent(file.name)}`;
+  return {
+    content: [
+      { type: "text", text: `${file.name} (${bare}, ${file.bytes.byteLength} bytes)` },
+      mime.startsWith("text/")
+        ? { type: "resource", resource: { uri, mimeType: bare, text: new TextDecoder().decode(file.bytes) } }
+        : { type: "resource", resource: { uri, mimeType: mime, blob: base64(file.bytes) } },
+    ],
+  };
+}
 
 export function createMcpServer(host: ToolHost): McpServer {
   const { quire, user } = host;
@@ -75,7 +110,7 @@ export function createMcpServer(host: ToolHost): McpServer {
   for (const c of COMMANDS) {
     const name = toolName(c);
     // Only the tools this caller's role allows.
-    if (!name || (host.may && !host.may(c.route)) || (c.needs === "calendar" && !host.calendar)) continue;
+    if (!name || (host.may && !host.may(c.route)) || (c.needs === "calendar" && !host.calendar) || (c.needs === "exporter" && !host.exporter)) continue;
     (mcp.registerTool as (n: string, config: unknown, cb: (input: Record<string, unknown>) => Promise<Result>) => unknown)(
       name,
       { title: c.title, description: c.description ?? c.summary, inputSchema: inputSchema(c), annotations: annotations(c) },
@@ -84,7 +119,11 @@ export function createMcpServer(host: ToolHost): McpServer {
           if (c.readOnly) quire.sync(); // files written straight to disk count too
           // Every write is attributed to the connected client, so the app can show who changed what.
           const source = host.source(mcp.server.getClientVersion()?.name);
-          const out = await c.run({ quire, user, source, canEditShared: host.canEditShared ?? true, calendar: host.calendar, origin: host.origin }, input as never);
+          const out = await c.run(
+            { quire, user, source, canEditShared: host.canEditShared ?? true, calendar: host.calendar, origin: host.origin, members: host.members, exporter: host.exporter },
+            input as never,
+          );
+          if (out.save) return fileResult(out.save);
           return { content: [{ type: "text", text: out.text }] };
         } catch (e) {
           const text = e instanceof QuireError ? e.message : `Unexpected error: ${(e as Error).message}`;

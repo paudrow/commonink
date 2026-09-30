@@ -2,11 +2,12 @@
 // (src/core/tools.ts) are both made from this list, so a feature is reachable from both or it says
 // why not (`mcp: { none }`); test/parity.test.ts fails otherwise.
 //
-// A feature adds its commands as a group of its own (like `tasks` below) and one line here. For
-// contacts, `quire person …` and `list_people`; for export, `quire export` (a file to save, see
-// Output.save). Fields a task can carry are in TASK_FIELDS (tasks.ts), so assigning people to tasks
-// adds its field there.
+// A feature adds its commands as a group of its own (like `contacts` below) and one line here. A
+// command that hands back a file (export) returns it as Output.save. Fields a task can carry are in
+// TASK_FIELDS (tasks.ts).
 import { files, history, trash } from "./history.ts";
+import { labels } from "./labels.ts";
+import { contacts } from "./contacts.ts";
 import { notes } from "./notes.ts";
 import { boards, favorites, folders, smartFolders, tags } from "./organize.ts";
 import { tasks } from "./tasks.ts";
@@ -19,11 +20,13 @@ export const GROUPS: ReadonlyArray<{ title: string; commands: Command[] }> = [
   { title: "Templates", commands: templates },
   { title: "Folders and files", commands: [...folders, ...files] },
   { title: "Tasks and today", commands: tasks },
+  { title: "Contacts", commands: contacts },
   { title: "Boards", commands: boards },
   { title: "Tags", commands: tags },
   { title: "Smart folders", commands: smartFolders },
   { title: "Favorites", commands: favorites },
   { title: "History and Trash", commands: [...history, ...trash] },
+  { title: "Labels", commands: labels },
   { title: "Calendar", commands: calendar },
 ];
 

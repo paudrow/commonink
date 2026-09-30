@@ -17,6 +17,12 @@ export const ALIASES: Record<string, { to: string; set: Record<string, unknown> 
 };
 /** A group's words followed by something that isn't one of its commands: `quire task Roadmap 8 --done`. */
 export const GROUP_DEFAULTS: Record<string, string> = { task: "task update" };
+/**
+ * A command that stands for another when it's given one of that one's own flags:
+ * `contact Jane --role CTO` is `contact update`, `diff Spec --from v1` is `label-diff`, and
+ * `restore Spec --to v1` is `label-restore`.
+ */
+export const WITH_FLAGS: Record<string, string> = { contact: "contact update", diff: "label-diff", restore: "label-restore" };
 
 export const kebab = (name: string) => name.replaceAll("_", "-");
 export const flagOf = (name: string, a: ArgSpec) => a.flag ?? kebab(name);
@@ -118,7 +124,7 @@ function convert(name: string, a: ArgSpec, raw: string, where: "flag" | "pos", i
     if (input === null) throw new UsageError(`${shown} is "-", but nothing was piped in`);
     return input;
   }
-  if (a.enum && !a.enum.includes(raw)) throw new UsageError(`${shown} must be ${a.enum.slice(0, -1).join(", ")} or ${a.enum.at(-1)}, not "${raw}"`);
+  if (a.enum && !a.enum.includes(raw)) throw new UsageError(`${shown} ${a.enum.length === 1 ? "can only be" : "must be"} ${orList([...a.enum])}, not "${raw}"`);
   return raw;
 }
 
@@ -135,7 +141,11 @@ export function parse(argv: string[], io: Io): Parsed | { help: string[] } | nul
   const pre = tokenize(argv, (f) => (valueFlags.has(f) ? true : COMMANDS.some((c) => valueFlags.has(`${c.cli}\u0000${f}`))));
   const found = findCommand(pre.words);
   if (!found) return null;
-  const { command, set } = found;
+  const { set } = found;
+  let { command } = found;
+  const has = (c: Command, f: string) => cliArgs(c).some(([name, a]) => flagOf(name, a) === f || a.aliases?.includes(f) || (a.presets && f in a.presets));
+  const alt = WITH_FLAGS[command.cli] ? BY_WORDS.get(WITH_FLAGS[command.cli]) : undefined;
+  if (alt && pre.flags.some(([f]) => !has(command, f) && has(alt, f))) command = alt;
   const own = (f: string) => valueFlags.has(`${command.cli}\u0000${f}`) || valueFlags.has(f);
   const { flags, words } = tokenize(argv, own);
   const rest = findCommand(words)!.rest;

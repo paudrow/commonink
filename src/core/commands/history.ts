@@ -4,6 +4,7 @@ import { QuireError } from "../paths.ts";
 import { fmtChanges, fmtTrash, fmtWrite } from "../format.ts";
 import { TRASH_DAYS } from "../quire.ts";
 import { parseAuthorFilter } from "../actor.ts";
+import { EXPORT_FORMATS, type ExportFormat } from "../export.ts";
 import { command, list, localFiles, num, str } from "./types.ts";
 
 export const history = [
@@ -155,6 +156,34 @@ export const files = [
       const got = rel ? await bytes.read(rel) : null;
       if (!rel || !got) throw new QuireError(`No file matches "${a.path}"`, "not_found");
       return { text: `Downloaded ${rel} (${kb(got.length)})`, data: { path: rel, size: got.length }, save: { name: rel.split("/").pop()!, bytes: got } };
+    },
+  }),
+  command({
+    cli: "export",
+    mcp: "export_note",
+    route: "GET /export",
+    title: "Export notes",
+    summary: "A note, a folder or everything as a file: its markdown, one web page, Word, or a .zip that opens in Obsidian",
+    description:
+      "Export a note, a folder or the whole workspace as a file. `md`: the note's markdown as it is. `html`: one self-contained web page " +
+      "(the note as it looks in the app, widgets as a snapshot). `docx`: a Word document. `zip`: markdown files and the files they use, " +
+      "folders kept, links that work in Obsidian (links to notes left out go to their web address). A folder, or \"/\" for everything, exports as zip.",
+    examples: ["quire export Welcome --format html", "quire export Projects --format zip --out projects.zip", "quire export / --format zip", "quire export Welcome --out - | wc -l"],
+    readOnly: true,
+    needs: "exporter",
+    args: {
+      target: str({ required: true, pos: 0, label: "note|folder|/", describe: 'A note (path, name or ID), a folder, or "/" for the whole workspace' }),
+      format: str({ enum: EXPORT_FORMATS, mcpRequired: true, describe: "md, html, docx or zip (default md on the CLI)" }),
+      out: str({ only: "cli", describe: "Where to save it (default: its name, here); - for stdout" }),
+    },
+    run: async ({ exporter }, a) => {
+      if (!exporter) throw new QuireError("Exporting needs the CLI or the app");
+      const file = await exporter(a.target, (a.format ?? "md") as ExportFormat);
+      return {
+        text: `Exported ${file.name} (${file.data.byteLength} bytes)`,
+        data: { name: file.name, bytes: file.data.byteLength, mime: file.mime },
+        save: { name: file.name, bytes: file.data, mime: file.mime },
+      };
     },
   }),
 ];

@@ -18,7 +18,7 @@ test("every command is an MCP tool, or says why not; names are unique on both si
   assert.deepEqual(COMMANDS.filter((c) => !toolName(c) && !(c.mcp as { none: string }).none?.trim()).map((c) => c.cli), [], "CLI-only commands need a reason");
   assert.deepEqual(
     COMMANDS.filter((c) => !toolName(c)).map((c) => c.cli),
-    ["upload", "download", "calendars", "calendars add", "calendars refresh", "calendars remove"],
+    ["upload", "download", "label-rename", "label-rm", "calendars", "calendars add", "calendars refresh", "calendars remove"],
     "the CLI-only commands changed: if that's meant, update this list",
   );
 });
@@ -26,7 +26,7 @@ test("every command is an MCP tool, or says why not; names are unique on both si
 test("the MCP server offers exactly the table's tools", async () => {
   const { quire } = openTempVault();
   const calendar = new Calendar(quire.db, async () => ({ status: "unchanged" }));
-  const server = createMcpServer({ quire, user: "you", source: () => "t", calendar }) as unknown as { _registeredTools: Record<string, unknown> };
+  const server = createMcpServer({ quire, user: "you", source: () => "t", calendar, exporter: async () => ({ name: "x.md", mime: "text/markdown", data: new Uint8Array() }) }) as unknown as { _registeredTools: Record<string, unknown> };
   assert.deepEqual(Object.keys(server._registeredTools).sort(), COMMANDS.flatMap((c) => (toolName(c) ? [toolName(c)!] : [])).sort());
 });
 

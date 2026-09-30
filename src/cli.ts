@@ -39,6 +39,8 @@ function localHost(q: LocalVault, agent: string | undefined): CommandHost {
     canEditShared: true,
     // Feeds come from public addresses only, as link previews do.
     calendar: new Calendar(q.db, (url, last) => fetchFeed(url, last, assertPublic)),
+    // Loaded when it's used: the web page and Word renderers are big.
+    exporter: async (target, format) => (await import("./server/export.ts")).localExporter(q)(target, format),
     bytes: {
       read: async (rel) => {
         try {

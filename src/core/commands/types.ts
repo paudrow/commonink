@@ -3,6 +3,8 @@
 // argument says how it's spelled in both. No Node imports: hosted workspaces run these too.
 import type { Calendar } from "../calendar.ts";
 import type { Quire } from "../quire.ts";
+import type { MemberRef } from "../contacts.ts";
+import type { Exporter } from "../export.ts";
 
 export type ArgKind = "string" | "number" | "boolean" | "strings" | "files" | "pairs";
 
@@ -64,7 +66,7 @@ export interface Output {
   text: string;
   data: unknown;
   /** A file for the caller to keep (a download): the CLI saves it where --out says. */
-  save?: { name: string; bytes: Uint8Array };
+  save?: { name: string; bytes: Uint8Array; mime?: string };
 }
 
 /** The bytes of files in the vault, for the commands that move whole files in and out. */
@@ -89,6 +91,10 @@ export interface CommandHost {
   calendar?: Calendar;
   /** Where the app is, for links written back to a calendar (online). */
   origin?: string;
+  /** The workspace's members (online), for who "me" and other people are on tasks. None locally. */
+  members?(): Promise<MemberRef[]>;
+  /** Notes as Markdown, a web page, Word or a .zip (core/export.ts), for export. */
+  exporter?: Exporter;
 }
 
 export interface Command<A extends Args = Args> {
@@ -109,7 +115,7 @@ export interface Command<A extends Args = Args> {
   /** It takes things away (to Trash): MCP clients may ask before running it. */
   destructive?: boolean;
   /** What the host must have for it: over MCP, it's offered only then. */
-  needs?: "calendar";
+  needs?: "calendar" | "exporter";
   args: A;
   run(host: CommandHost, input: InputOf<A>): Output | Promise<Output>;
 }

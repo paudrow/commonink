@@ -3,6 +3,7 @@ import { QuireError } from "../paths.ts";
 import { fmtTasks, fmtToday, fmtWrite } from "../format.ts";
 import type { Quire } from "../quire.ts";
 import type { TaskPatch } from "../tasks.ts";
+import { actorOf } from "../actor.ts";
 import { bool, command, list, num, str } from "./types.ts";
 
 const LINE = "The task's line, as list_tasks showed it (path:line)";
@@ -48,19 +49,22 @@ export const tasks = [
     description:
       "Checkbox tasks across the vault (not archived notes), as their markdown lines with path:line. A task's metadata is tokens in " +
       "its text: due:YYYY-MM-DD, start:YYYY-MM-DD, rec:… (how it repeats), #tag, @person, !high or !low, and done:YYYY-MM-DD once ticked.",
-    examples: ["quire tasks", "quire tasks --tag work --due '<=today'", "quire tasks --assignee jane --all --json"],
+    examples: ["quire tasks", "quire tasks --tag work --due '<=today'", "quire tasks --assignee jane --all --json", "quire tasks --assignee me", "quire tasks --by me"],
     readOnly: true,
     args: {
       status: str({ enum: ["open", "done", "all"], presets: { done: "done", all: "all" }, describe: "Default open" }),
       folder: str(),
       note: str({ describe: "Only this note's tasks" }),
       tag: str({ describe: "Only tasks with this tag or a tag under it" }),
-      assignee: str({ describe: "Only tasks with this @person" }),
+      assignee: str({ describe: 'Only tasks for this person (every @name that\'s theirs), or "me" for the tasks of the person you work for (@me locally)' }),
+      by: str({ enum: ["me"], describe: '"me": tasks your person gave someone else, in notes they made' }),
       due: str({ describe: "A due date filter: <=today (overdue or due today), tomorrow, >=2026-10-01…" }),
     },
-    run: ({ quire }, { status, ...filters }) => {
+    run: async ({ quire, user, source, members }, { status, by, ...filters }) => {
       const want = status ?? "open";
-      const found = quire.tasks(filters).filter((t) => want === "all" || t.done === (want === "done"));
+      const people = filters.assignee || by ? ((await members?.()) ?? []) : [];
+      const person = actorOf(source).person ?? user;
+      const found = quire.tasksFor({ user, person, members: people }, { ...filters, by: by as "me" | undefined }).filter((t) => want === "all" || t.done === (want === "done"));
       return { text: fmtTasks(found), data: found };
     },
   }),
