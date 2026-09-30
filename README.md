@@ -30,9 +30,21 @@ Needs Node 22.13+ (uses the built-in `node:sqlite`). The vault defaults to `./va
 | Claude Code (in this folder) | `.mcp.json` registers the server, and `.claude/skills/quire` teaches the CLI |
 | Claude Code (anywhere) | `claude mcp add quire -- /path/to/quire/bin/quire mcp` |
 | Claude Desktop, Cursor, … | stdio server: command `/path/to/quire/bin/quire`, args `["mcp"]` |
-| Shell agents / scripts | `bin/quire --help`, and pass `--as <name>` so writes are attributed |
+| Shell agents / scripts | `bin/quire help` (or `npx commonink help` once it's published), and set `QUIRE_AGENT=<name>` so writes are attributed |
 
-Tools: `search_notes`, `read_note`, `list_notes`, `list_tags`, `list_tasks`, `get_today`, `add_task`, `update_task`, `move_task`, `read_board`, `add_card`, `move_card`, `edit_card`, `create_note`, `edit_note`, `append_to_note`, `move_note`, `archive_note`, `unarchive_note`, `delete_note`, `star_note`, `unstar_note`, `star_tag`, `unstar_tag`, `list_smart_folders`, `save_smart_folder`, `delete_smart_folder`, `backlinks`, `recent_changes`, `export_note`, `label_version`, `list_labels`, `diff_versions`, `restore_label`. The server sends `vault/AGENTS.md` as its instructions, so edit that file to change agent conventions.
+Tools: `search_notes`, `read_note`, `list_notes`, `backlinks`, `create_note`, `edit_note`, `append_to_note`, `write_note`, `list_templates`, `create_from_template`, `move_note`, `archive_note`, `unarchive_note`, `delete_note`, `list_folders`, `delete_folder`, `list_tasks`, `add_task`, `update_task`, `move_task`, `remove_task`, `get_today`, `open_journal`, `read_board`, `add_card`, `move_card`, `edit_card`, `list_tags`, `rename_tag`, `set_asset_tags`, `list_smart_folders`, `save_smart_folder`, `delete_smart_folder`, `star_note`, `unstar_note`, `star_tag`, `unstar_tag`, `order_favorites`, `recent_changes`, `show_change`, `restore_change`, `list_trash`, `restore_from_trash`, `list_events`, `get_event`, `create_meeting_note` (those three where the vault has calendars), `export_note`, `list_labels`, `label_version`, `diff_versions`, `restore_label`, `list_contacts`, `read_contact`, `create_contact`, `update_contact`, `merge_contacts`, `import_contacts`. Each is also a CLI command, from one table (`src/core/commands`): `quire help` lists them, and `quire help <command>` names its tool. The server sends `vault/AGENTS.md` as its instructions, so edit that file to change agent conventions.
+
+### The `quire` CLI
+
+Everything the MCP tools do, from a shell, for scripts, agents and you: `bin/quire help` lists the commands by area (notes, folders and files, tasks, boards, tags, smart folders, favorites, history and Trash), and `bin/quire help <command>` shows one command's options and examples.
+
+- `--json` on any command prints its result as data, and an error as `{"error", "code", "exit"}`.
+- Exit codes are stable: 0 ok, 1 error, 2 usage (see the command's help), 3 not found, 4 conflict (the note changed since you read it: read it again), 5 exists, 6 forbidden, 7 auth, 8 unavailable.
+- Content comes from stdin with `-`, or piped in. `--base <version>` (from `quire read`) makes `edit`, `append`, `write` and `restore` refuse a note that changed since.
+- `QUIRE_AGENT=<name>` (or `--agent`) attributes writes to that agent, "<agent> for you" in History.
+- `quire upload` and `quire download` move files in and out; they're CLI-only, since MCP tools carry text.
+- `quire completion bash|zsh|fish` prints a completion script: `source <(quire completion zsh)`.
+- Packaged for npm as `commonink` (`npx commonink …`, or `npm i -g commonink` for `quire`), built into one file by `npm run build:cli`. Installed that way, the vault is `$QUIRE_VAULT` or `~/Quire`.
 
 ### Connect an agent to a hosted workspace
 

@@ -4,6 +4,7 @@ import { authorLabel } from "./actor.ts";
 import { createTwoFilesPatch } from "diff";
 import { isTagFavorite, type Backlink, type Change, type Favorite, type Label, type Note, type NoteMeta, type Quire, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView, type TrashItem } from "./quire.ts";
 import type { Board } from "./kanban.ts";
+import type { TemplateInfo } from "./templates.ts";
 import type { Contact, TimelineItem } from "./contacts.ts";
 import { localDate } from "./tasks.ts";
 
@@ -180,6 +181,14 @@ export function fmtTrash(items: TrashItem[]): string {
   return items
     .map((t) => `${t.id}  ${t.path} — deleted ${localDate(t.deletedAt)} ${new Date(t.deletedAt).toTimeString().slice(0, 5)}${t.by ? ` by ${authorLabel({ ...t.by })}` : ""}, gone for good ${localDate(t.expiresAt)}`)
     .join("\n");
+}
+
+/** A template on a line: its path and name, what it asks, and the folders it's the default for. */
+export function fmtTemplate(t: TemplateInfo): string {
+  const kind = (a: TemplateInfo["asks"][number]) => (a.type === "choice" ? ` (one of ${a.choices.join(", ")})` : a.type === "text" ? "" : ` (${a.type})`);
+  const asks = t.asks.length ? ` · asks: ${t.asks.map((a) => a.label + kind(a)).join(", ")}` : "";
+  const where = t.appliesTo.length ? ` · new notes in ${t.appliesTo.map((f) => `${f}/`).join(", ")} start from it` : "";
+  return `${t.path} — ${t.name}${asks}${where}`;
 }
 
 /** One contact on a line: path, name, role and company, emails and tags, and when they were last mentioned. */
