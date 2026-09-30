@@ -211,6 +211,17 @@ test("a share that runs out cuts off its open live connection too", async () => 
   assert.deepEqual([live.heard.filter((m) => m.includes("after the share ran out")), open], [[], false]);
 });
 
+test("signing out closes live connections opened through a share, in workspaces you aren't a member of", async () => {
+  const guest = await cloud.signIn("guest");
+  await cloud.call(t.owner, "POST", `${t.base}/note`, { path: "Guest note.md", content: "# Guest note\n" });
+  await cloud.call(t.owner, "POST", `${t.base}/shares`, { path: "Guest note.md", email: "guest@localhost", role: "viewer" });
+  const live = await listen(guest);
+  await cloud.request(guest, "POST", "/auth/logout");
+  await cloud.call(t.owner, "PUT", `${t.base}/note`, { path: "Guest note.md", content: "# Guest note\n\nWritten after they signed out.\n" });
+  const open = await live.stillOpen();
+  assert.deepEqual([live.heard.filter((m) => m.includes("after they signed out")), open], [[], false]);
+});
+
 test("only those who can change sharing see a link's URL; workspace viewers see only that there is one", async () => {
   await cloud.call(t.owner, "POST", `${t.base}/note`, { path: "Linked doc.md", content: "# Linked doc\n" });
   await cloud.call(t.owner, "POST", `${t.base}/shares`, { path: "Linked doc.md", link: true, role: "editor" });
