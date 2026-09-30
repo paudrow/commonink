@@ -318,6 +318,17 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       host.tree();
       return json({ tags });
     }
+    // A tag added by name, before any note carries it, and taking one away again. Both return every tag.
+    case "POST /tags": {
+      const tags = quire.addTag(str("tag"));
+      host.tree();
+      return json(tags);
+    }
+    case "POST /tags/delete": {
+      const tags = quire.removeTag(str("tag"));
+      host.tree();
+      return json(tags);
+    }
     case "POST /tags/rename": {
       const r = quire.renameTag(str("from"), str("to"), actor);
       for (const e of r.edits) host.written(e.path, e.content, e.version, e.change);

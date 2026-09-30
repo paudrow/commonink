@@ -30,6 +30,7 @@ const app = (over: Partial<App> = {}): App => {
     newFromTemplate: run("newFromTemplate"),
     newBoard: run("newBoard"),
     newFolder: run("newFolder"),
+    newTag: run("newTag"),
     go: (page) => void ran.push(`go:${page}`),
     filterNotes: run("filterNotes"),
     quickAdd: run("quickAdd"),

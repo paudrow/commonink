@@ -239,9 +239,12 @@ body.panel-closed #panel { opacity: 0; pointer-events: none; }
 .tree-row.is-active { background: var(--active); color: var(--ink-strong); font-weight: 550; }
 .tree-row.is-active svg { color: var(--accent); }
 .tree-row:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
-.tree-row .chev { display: inline-grid; place-items: center; width: 16px; height: 16px; margin: 0 -3px 0 -4px; border-radius: 4px; color: var(--muted); transition: transform 0.15s; transform: rotate(90deg); }
+/* A section's empty line keeps the rows' chevron column, so it starts where their icons do. */
+.tree-hint { display: flex; gap: 7px; padding: 4px 8px 6px; font-size: 12px; color: var(--muted); }
+.tree-hint svg { vertical-align: -2px; }
+:is(.tree-row, .tree-hint) .chev { display: inline-grid; place-items: center; flex: none; width: 16px; height: 16px; margin: 0 -3px 0 -4px; border-radius: 4px; color: var(--muted); transition: transform 0.15s; transform: rotate(90deg); }
 .tree-row .chev:hover { background: var(--active); color: var(--ink-strong); }
-.tree-row .chev.is-leaf { visibility: hidden; }
+:is(.tree-row, .tree-hint) .chev.is-leaf { visibility: hidden; }
 .tree-row .n { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .tree-row:hover .n, .tree-row:focus-within .n { display: none; }
 .tree-row.is-collapsed .chev { transform: rotate(0); }
@@ -1540,8 +1543,6 @@ body.is-dragging #archive-nav { outline: 1.5px dashed var(--line-strong); outlin
 #favorites { flex: none; max-height: 40%; overflow: auto; padding: 4px 8px 4px; }
 #favorites.is-drop { background: color-mix(in srgb, var(--accent) 5%, transparent); box-shadow: inset 0 0 0 1.5px var(--accent-line); border-radius: 8px; }
 #favorites .tree-row.is-drop-before { box-shadow: inset 0 2px 0 var(--accent); }
-.fav-hint { padding: 4px 8px 6px; font-size: 12px; color: var(--muted); }
-.fav-hint svg { vertical-align: -2px; }
 #favorites .tree-row.is-archived:not(.is-active) { color: var(--muted); }
 #star-btn.is-on, .fc-action.is-starred, #favorites .fav-star { color: var(--warn); }
 .fc-action.is-starred { opacity: 1; }
@@ -2104,6 +2105,7 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 #tag-tree .tree-row > svg { color: var(--muted); }
 #tag-tree .tree-row.is-active > svg { color: var(--accent); }
 #tags-page-btn.is-on { color: var(--accent); }
+.tree-head-actions { display: flex; align-items: center; gap: 2px; }
 
 /* a tag's star: in Favorites it's filled, like a note's */
 .star-btn.is-starred { color: var(--warn); }

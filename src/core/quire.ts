@@ -171,7 +171,10 @@ export interface Task {
   meta: TaskMeta;
 }
 
-/** A tag in use, parents included: how it's shown, and how many notes, tasks and assets carry it or a tag under it. */
+/**
+ * A tag, parents included: how it's shown, and how many notes, tasks and assets carry it or a tag
+ * under it. All three are 0 for a tag someone added by name that nothing carries yet.
+ */
 export interface TagCount {
   tag: string;
   display: string;
@@ -393,6 +396,7 @@ export class Quire {
         const tags = scanTags(content);
         insertRows(this.db, "INSERT INTO tags(tag, kind, path, line)", tags.map((t) => [t.tag, !t.frontmatter && TASK_LINE.test(lines[t.line - 1]) ? "task" : "note", rel, t.line]));
         for (const display of new Set(tags.map((t) => t.display))) this.nameTag(display);
+        if (!isArchived(rel)) this.claimAddedTags(tags.map((t) => t.tag));
       }
       return { id: noteId, path: rel, kind, title, version, mtime: st.mtime, size: st.size };
     });
@@ -425,7 +429,18 @@ export class Quire {
           this.nameTag(t);
         }
       }
+      this.claimAddedTags(Object.entries(map).flatMap(([rel, tags]) => (isArchived(rel) ? [] : tags.map((t) => t.toLowerCase()))));
     });
+  }
+
+  /** Tags added by name that a note, task or asset now carries (`tags`, or a tag under one) are ordinary tags from here on. */
+  private claimAddedTags(tags: string[]) {
+    const keys = [...new Set(tags.flatMap(withParents))];
+    if (!keys.length || !this.db.get("SELECT 1 FROM added_tags LIMIT 1")) return;
+    for (let i = 0; i < keys.length; i += 100) {
+      const chunk = keys.slice(i, i + 100);
+      this.db.run(`DELETE FROM added_tags WHERE tag IN (${chunk.map(() => "?").join(",")})`, ...chunk);
+    }
   }
 
   /**
@@ -1092,26 +1107,62 @@ export class Quire {
 
   // ---------------------------------------------------------------- tags
 
-  /** Every tag in active notes, tasks and assets, parents included, by tag. */
+  /** Every tag in active notes, tasks and assets, and every tag added by name, parents included, by tag. */
   tags(): TagCount[] {
     const shown = new Map(this.db.all<{ tag: string; display: string }>("SELECT tag, display FROM tag_names").map((r) => [r.tag, r.display]));
     const uses = new Map<string, { notes: Set<string>; tasks: Set<string>; assets: Set<string> }>();
+    const use = (tag: string) => {
+      let u = uses.get(tag);
+      if (!u) uses.set(tag, (u = { notes: new Set(), tasks: new Set(), assets: new Set() }));
+      return u;
+    };
     const rows = this.db.all<TagUse & { tag: string }>(
       "SELECT t.tag, t.kind, t.path, t.line FROM tags t JOIN notes n ON n.path = t.path WHERE substr(t.path, 1, 8) != 'Archive/'",
     );
     for (const r of rows) {
-      const parts = r.tag.split("/");
-      for (let i = 1; i <= parts.length; i++) {
-        const tag = parts.slice(0, i).join("/");
-        let u = uses.get(tag);
-        if (!u) uses.set(tag, (u = { notes: new Set(), tasks: new Set(), assets: new Set() }));
+      for (const tag of withParents(r.tag)) {
+        const u = use(tag);
         (r.kind === "asset" ? u.assets : u.notes).add(r.path);
         if (r.kind === "task") u.tasks.add(`${r.path}:${r.line}`);
       }
     }
+    for (const { tag } of this.db.all<{ tag: string }>("SELECT tag FROM added_tags")) withParents(tag).forEach(use);
     return [...uses]
       .sort(([a], [b]) => (a < b ? -1 : 1))
       .map(([tag, u]) => ({ tag, display: shown.get(tag) ?? tag, notes: u.notes.size, tasks: u.tasks.size, assets: u.assets.size }));
+  }
+
+  /**
+   * Add a tag by name ("#work/clients" or "work/clients"), so it's there to pick before any note
+   * carries it. Adding one again, or one already in use, changes nothing. Returns every tag.
+   */
+  addTag(raw: string): TagCount[] {
+    const display = cleanTag(raw);
+    if (!display) throw new QuireError(`"${raw}" isn't a tag: use letters, numbers, - and _, nested with /`);
+    if (this.db.get<{ n: number }>("SELECT count(*) AS n FROM added_tags")!.n >= 500) {
+      throw new QuireError("That's 500 tags waiting for a note already. Use some, or delete one.");
+    }
+    this.addUnused(display.toLowerCase());
+    this.nameTag(display);
+    return this.tags();
+  }
+
+  private addUnused(tag: string) {
+    const used = this.db.get(`SELECT 1 FROM tags t JOIN notes n ON n.path = t.path WHERE ${UNDER} AND substr(t.path, 1, 8) != 'Archive/' LIMIT 1`, ...under(tag));
+    if (!used) this.db.run("INSERT OR IGNORE INTO added_tags(tag) VALUES (?)", tag);
+  }
+
+  /**
+   * Take away a tag that was added by name, with the added tags under it. Nothing in the notes
+   * changes, so a tag something carries can't go this way: rename it, or take it out of its notes.
+   */
+  removeTag(raw: string): TagCount[] {
+    const tag = normalizeTag(raw);
+    if (!tag) throw new QuireError(`"${raw}" isn't a tag`);
+    const t = this.tags().find((x) => x.tag === tag);
+    if (t && t.notes + t.tasks + t.assets) throw new QuireError(`#${t.display} is in use. Rename it, or take it out of what carries it.`, "conflict");
+    this.db.run(`DELETE FROM added_tags WHERE ${UNDER}`, ...under(tag));
+    return this.tags();
   }
 
   /** One tag's entry in tags(), counting only notes; null if no active note has it (or a tag under it). */
@@ -1196,8 +1247,15 @@ export class Quire {
       map[rel] = uniqueTags(tags.map((t) => (tagMatches(t.toLowerCase(), old) ? next + t.slice(old.length) : t)), false);
     }
     if (Object.keys(assets).length) this.writeAssetTags(map);
-    // A starred tag (or one under it) follows the rename; a merge onto one someone had starred keeps theirs.
     const key = next.toLowerCase();
+    // Tags added by name that nothing carries yet move with it, keeping how they were written.
+    for (const { tag } of this.db.all<{ tag: string }>(`SELECT tag FROM added_tags WHERE ${UNDER}`, ...under(old))) {
+      const written = this.db.get<{ display: string }>("SELECT display FROM tag_names WHERE tag = ?", tag)?.display ?? tag;
+      this.db.run("DELETE FROM added_tags WHERE tag = ?", tag);
+      this.addUnused(key + tag.slice(old.length));
+      this.nameTag(next + (written.length === tag.length ? written : tag).slice(old.length));
+    }
+    // A starred tag (or one under it) follows the rename; a merge onto one someone had starred keeps theirs.
     if (key !== old) {
       for (const r of this.db.all<{ user: string; note_id: string }>(
         "SELECT user, note_id FROM favorites WHERE note_id = ? OR (note_id >= ? AND note_id < ?)", tagKey(old), tagKey(`${old}/`), tagKey(`${old}0`),
@@ -1831,6 +1889,9 @@ const linkStem = (key: string) => key.slice(key.lastIndexOf("/") + 1);
 /** `tags.tag` is the tag or under it: a range, so it uses the index and needs no character counting. */
 const UNDER = "(tag = ? OR (tag >= ? AND tag < ?))";
 const under = (key: string) => [key, `${key}/`, `${key}0`]; // "0" sorts right after "/"
+
+/** "a/b/c" → ["a", "a/b", "a/b/c"]. */
+const withParents = (tag: string) => tag.split("/").map((_, i, parts) => parts.slice(0, i + 1).join("/"));
 
 /** Tags tidied and each kept once (the first way it's written). `strict` throws on one that isn't a tag; otherwise it's dropped. */
 function uniqueTags(tags: string[], strict: boolean): string[] {

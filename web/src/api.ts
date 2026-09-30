@@ -117,7 +117,7 @@ export type Favorite = NoteMeta | TagFavorite;
 export const isTagFavorite = (f: Favorite): f is TagFavorite => "tag" in f;
 /** How a favorite is named in an order: a note's path, or "#" and the tag. */
 export const favoriteKey = (f: Favorite) => (isTagFavorite(f) ? `#${f.tag}` : f.path);
-/** A tag in use (parents included), and how many notes, tasks and assets carry it or a tag under it. */
+/** A tag (parents included), and how many notes, tasks and assets carry it or a tag under it. */
 export interface TagCount {
   tag: string;
   display: string;
@@ -125,6 +125,8 @@ export interface TagCount {
   tasks: number;
   assets: number;
 }
+/** A tag someone added by name that nothing carries yet. */
+export const unusedTag = (t: TagCount) => t.notes + t.tasks + t.assets === 0;
 /** The day at a glance (Quire.today): sections of tasks, and today's journal note. */
 export interface TodayView {
   date: string;
@@ -318,6 +320,9 @@ export const api = {
   /** Each tagged asset's tags. */
   assetTags: () => j<Record<string, string[]>>(`${BASE}/asset-tags`),
   setAssetTags: (path: string, tags: string[]) => j<{ tags: string[] }>(`${BASE}/asset-tags`, send("PUT", { path, tags })),
+  /** Add a tag by name, before any note carries it; take one away while nothing does. Each returns every tag. */
+  addTag: (tag: string) => j<TagCount[]>(`${BASE}/tags`, send("POST", { tag })),
+  deleteTag: (tag: string) => j<TagCount[]>(`${BASE}/tags/delete`, send("POST", { tag })),
   /** Rename (or merge) a tag everywhere. Restoring `changes` and setting `assets` back undoes it. */
   renameTag: (from: string, to: string) => j<{ changes: number[]; versions: string[]; assets: Record<string, string[]> }>(`${BASE}/tags/rename`, send("POST", { from, to })),
   setTask: (t: Task, done: boolean) => (done && did("tick"), j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/set`, send("POST", { path: t.path, line: t.line, text: t.text, done, today: today() }))),
