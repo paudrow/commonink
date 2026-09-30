@@ -82,7 +82,9 @@ https://www.youtube.com/watch?v=aqz-KE-bpKQ
 ## GitHub markdown
 
 > [!TIP]
-> Alerts print in their colors. Jump back to [the tasks](#tasks), or read the footnote.[^paper] :printer:
+> Alerts print in their colors. Jump back to [the tasks](#tasks). :printer:
+
+Footnotes gather at the end.[^paper]
 
 > [!WARNING]-
 > A collapsed alert: it prints open too.
@@ -94,4 +96,4 @@ This prints open, unless you ask to keep collapsed sections closed.
 
 </details>
 
-[^paper]: Footnotes gather at the end, as on GitHub, each with a link back.
+[^paper]: As on GitHub, each with a link back to where it was used.
