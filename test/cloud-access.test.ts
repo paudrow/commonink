@@ -143,6 +143,8 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /invites/revoke", send: () => ["POST", "/invites/revoke", { id: spareInvite }], expect: OWN },
   { route: "GET /workspace/log", send: () => ["GET", "/workspace/log"], expect: OWN },
   { route: "POST /workspace/rename", send: () => ["POST", "/workspace/rename", { name: "Team" }], expect: OWN },
+  { route: "GET /workspace/settings", send: () => ["GET", "/workspace/settings"], expect: READ },
+  { route: "POST /workspace/settings", send: () => ["POST", "/workspace/settings", { agentLinks: false }], expect: OWN },
   { route: "POST /members/role", send: () => ["POST", "/members/role", { user: spareId, role: "viewer" }], expect: OWN },
   { route: "POST /members/remove", send: () => ["POST", "/members/remove", { user: spareId }], expect: OWN },
   // A wrong name deletes nothing: the owner gets past the role check to the 400.

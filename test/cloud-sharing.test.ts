@@ -231,3 +231,16 @@ test("only those who can change sharing see a link's URL; workspace viewers see 
   assert.deepEqual(await links(t.editor), ["link:/s/<token>"]);
   assert.deepEqual(await links(t.owner), ["link:/s/<token>"]);
 });
+
+test("AGENTS.md can't be shared for editing, by email, by link or by raising a viewer's share: every connected agent follows it", async () => {
+  await cloud.request(t.owner, "POST", `${t.base}/note`, { path: "AGENTS.md", content: "# Agent instructions\n" });
+  const refused = { error: "AGENTS.md can't be shared for editing: every connected agent follows it. Share it as a viewer." };
+  for (const share of [{ email: "helper@localhost", role: "editor" }, { link: true, role: "editor" }]) {
+    const res = await cloud.request(t.owner, "POST", `${t.base}/shares`, { path: "AGENTS.md", ...share });
+    assert.deepEqual([res.status, await res.json()], [400, refused], JSON.stringify(share));
+  }
+  const made = await cloud.call(t.owner, "POST", `${t.base}/shares`, { path: "AGENTS.md", email: "helper@localhost", role: "viewer" });
+  assert.equal(made.shares[0].role, "viewer", "as a viewer it can be shared");
+  const raised = await cloud.request(t.owner, "POST", `${t.base}/shares/update`, { id: made.shares[0].id, role: "editor" });
+  assert.deepEqual([raised.status, await raised.json()], [400, refused]);
+});
