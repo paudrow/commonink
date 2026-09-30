@@ -68,6 +68,9 @@ class CheckboxWidget extends WidgetType {
     box.className = `cm-checkbox${this.checked ? " is-checked" : ""}`;
     box.setAttribute("role", "checkbox");
     box.setAttribute("aria-checked", String(this.checked));
+    // The task's words are the line itself, which a screen reader reads next; the box says what it is.
+    box.setAttribute("aria-label", "Done");
+    box.title = this.checked ? "Mark open" : "Mark done";
     box.addEventListener("mousedown", (e) => {
       e.preventDefault();
       const line = view.state.doc.lineAt(this.pos);
