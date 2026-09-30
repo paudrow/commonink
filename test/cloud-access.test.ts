@@ -67,6 +67,13 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /tasks/remove", send: (w) => ["POST", "/tasks/remove", { path: `task-rm-${w}.md`, line: 1, text: "Remove me" }], expect: EDIT },
   { route: "POST /tasks/move", send: (w) => ["POST", "/tasks/move", { path: `task-move-${w}.md`, line: 1, text: "Move me", to: "Getting started" }], expect: EDIT },
   { route: "GET /guide", send: () => ["GET", "/guide"], expect: READ },
+  { route: "GET /contacts", send: () => ["GET", "/contacts"], expect: READ },
+  { route: "GET /contact", send: () => ["GET", "/contact?path=People/Shared%20Person.md"], expect: READ },
+  { route: "GET /members", send: () => ["GET", "/members"], expect: READ },
+  { route: "POST /contacts", send: (w) => ["POST", "/contacts", { name: `Contact ${w}` }], expect: EDIT },
+  { route: "POST /contacts/update", send: (w) => ["POST", "/contacts/update", { path: `People/Update ${w}.md`, patch: { role: "Tester" } }], expect: EDIT },
+  { route: "POST /contacts/merge", send: (w) => ["POST", "/contacts/merge", { keep: `People/Keep ${w}.md`, drop: `People/Drop ${w}.md` }], expect: EDIT },
+  { route: "POST /contacts/import", send: (w) => ["POST", "/contacts/import", { format: "csv", text: `Name\nImported ${w}\n` }], expect: EDIT },
   { route: "POST /guide", send: () => ["POST", "/guide", { action: "search" }], expect: EDIT },
   { route: "POST /today/journal", send: () => ["POST", "/today/journal", { today: "2026-10-01" }], expect: EDIT },
   { route: "POST /tags/rename", send: (w) => ["POST", "/tags/rename", { from: `old-${w}`, to: `new-${w}` }], expect: EDIT },
@@ -115,6 +122,9 @@ before(async () => {
     await cloud.call(owner, "PUT", `${base}/note`, { path: `restore-${w}.md`, content: "# Changed\n" });
     restoreIds[w] = (await cloud.call(owner, "GET", `${base}/changes?path=restore-${w}.md&limit=1`))[0].id;
     await note(`del-${w}.md`);
+    await note(`People/Update ${w}.md`, `# Update ${w}\n`);
+    await note(`People/Keep ${w}.md`, `# Keep ${w}\n`);
+    await note(`People/Drop ${w}.md`, `# Drop ${w}\n`);
     await note(`folder-${w}/Inside.md`);
     await note(`trash-restore-${w}.md`);
     await note(`trash-purge-${w}.md`);
@@ -124,6 +134,7 @@ before(async () => {
   for (const w of ["viewer", "editor", "owner"] as const) {
     folderIds[w] = (await cloud.call(people[w], "POST", `${base}/smart-folders`, { name: `Doomed ${w}`, query: "tag=plan" })).id;
   }
+  await cloud.call(owner, "POST", `${base}/note`, { path: "People/Shared Person.md", content: "# Shared Person\n" });
   const notes: Array<{ path: string; id: string }> = await cloud.call(owner, "GET", `${base}/notes`);
   startId = notes.find((n) => n.path === "Getting started.md")!.id;
   // Note IDs reach the directory just after the request that made them.
@@ -155,6 +166,20 @@ test("each route answers each kind of person as the matrix says", async () => {
     }
   }
   assert.deepEqual(actual, expected);
+});
+
+test("online, a workspace's members are its people from the directory, and each sees which one is them", async () => {
+  const viewer = await cloud.signIn("viewer"); // the matrix ended with signing everyone out everywhere
+  const { base } = people;
+  const list: Array<{ name: string; email: string; you: boolean }> = await cloud.call(viewer, "GET", `${base}/members`);
+  assert.deepEqual(
+    list.map((m) => [m.name, m.email, m.you]),
+    [
+      ["Editor Dev", "editor@localhost", false],
+      ["Owner Dev", "owner@localhost", false],
+      ["Viewer Dev", "viewer@localhost", true],
+    ],
+  );
 });
 
 test("online, a viewer keeps smart folders of their own but can't share one", async () => {

@@ -33,6 +33,9 @@ export const WORKSPACE_ROUTES = {
   "GET /asset-tags": "viewer",
   "GET /today": "viewer",
   "GET /guide": "viewer",
+  "GET /contacts": "viewer",
+  "GET /contact": "viewer",
+  "GET /members": "viewer",
   "GET /files/*": "viewer",
   "GET /file-resolve": "viewer",
   "GET /live": "viewer",
@@ -54,6 +57,11 @@ export const WORKSPACE_ROUTES = {
   "POST /move": "editor",
   "POST /restore": "editor",
   "POST /guide": "editor",
+  // Contacts are notes in People/: shared with the workspace, so changing them is an editor's.
+  "POST /contacts": "editor",
+  "POST /contacts/update": "editor",
+  "POST /contacts/merge": "editor",
+  "POST /contacts/import": "editor",
   "POST /archive": "editor",
   "POST /unarchive": "editor",
   // Trash: editors delete and restore, and only they see what's in it; deleting for good is the owner's.
