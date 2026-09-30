@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 126
 title: Tasks in notes with Windows line endings
 ---
 A note saved with Windows line endings (CRLF) had no tasks as far as Tasks, Today, task widgets and agents could tell: every task line ended in an invisible `\r` the task pattern refused. Its outline was empty too.
