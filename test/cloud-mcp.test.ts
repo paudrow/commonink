@@ -76,12 +76,12 @@ async function mcp(token: string) {
 
 /** What a viewer's agent gets: reading, and what's each person's own (favorites, their smart folders). */
 const VIEWER_TOOLS = [
-  "backlinks", "delete_smart_folder", "get_today", "list_notes", "list_smart_folders", "list_tags", "list_tasks", "read_board",
+  "backlinks", "delete_smart_folder", "get_today", "list_notes", "list_shares", "list_smart_folders", "list_tags", "list_tasks", "read_board",
   "read_note", "recent_changes", "save_smart_folder", "search_notes", "star_note", "star_tag", "unstar_note", "unstar_tag",
 ];
 const ALL_TOOLS = [
   ...VIEWER_TOOLS, "add_card", "add_task", "append_to_note", "archive_note", "create_note", "delete_note", "edit_card", "edit_note", "move_card",
-  "move_note", "move_task", "unarchive_note", "update_task",
+  "move_note", "move_task", "share_note", "unarchive_note", "unshare_note", "update_task",
 ].sort();
 
 test("an agent discovers where to sign in from /mcp", async () => {
@@ -248,4 +248,19 @@ test("a client can revoke its own token (RFC 7009)", async () => {
   assert.equal((await post("/oauth/token", form({ token: access, client_id: client }))).status, 200);
   const res = await cloud.server.fetch(new URL("/mcp", cloud.origin), { method: "POST", headers: { authorization: `Bearer ${access}` } });
   assert.equal(res.status, 401);
+});
+
+test("an agent shares a note as its person, lists who it's shared with, and stops sharing; a viewer's agent can only list", async () => {
+  const owner = await mcp((await connect(people.owner, people.id)).access);
+  await owner.call("create_note", { path: "Plan to share", content: "# Plan to share\n" });
+  const shared = await owner.call("share_note", { path: "Plan to share", email: "guest@example.com", role: "editor", expires_in_days: 7 });
+  assert.match(shared.text, /^Plan to share\.md is shared with:\n- guest@example\.com \(no account yet\) — editor, until \d{4}-\d{2}-\d{2} \(id (\w+)\)$/);
+  const id = shared.text.match(/\(id (\w+)\)/)![1];
+  const linked = await owner.call("share_note", { path: "Plan to share", link: true, role: "viewer" });
+  assert.match(linked.text, new RegExp(`- Anyone with the link: ${cloud.origin}/s/[a-f0-9]{64} — viewer`));
+  assert.deepEqual(await owner.call("unshare_note", { id }), { text: "Stopped sharing it.", isError: false });
+  assert.doesNotMatch((await owner.call("list_shares", { path: "Plan to share" })).text, /guest@example\.com/);
+  assert.equal((await owner.call("share_note", { path: "Plan to share", role: "viewer" })).isError, true, "an email or a link is needed");
+  const viewer = await mcp((await connect(people.viewer, people.id)).access);
+  assert.match((await viewer.call("list_shares", { path: "Plan to share" })).text, /Anyone with the link/);
 });

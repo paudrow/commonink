@@ -22,6 +22,15 @@ export interface ToolHost {
   may?(route: string): boolean;
   /** Whether the caller may make or change shared smart folders (online: editors and owners). Default yes. */
   canEditShared?: boolean;
+  /**
+   * Online: sharing notes and folders with people outside the workspace, or by link. Unset locally,
+   * where there's no one else to share with, and then the sharing tools aren't offered.
+   */
+  sharing?: {
+    list(target: { path?: string; folder?: string }): Promise<string>;
+    share(o: { path?: string; folder?: string; email?: string; link?: boolean; role: "viewer" | "editor"; expiresInDays?: number }): Promise<string>;
+    unshare(id: string): Promise<string>;
+  };
 }
 
 /**
@@ -60,6 +69,9 @@ export const TOOL_ROUTES: Record<string, string> = {
   unstar_tag: "POST /favorites/unstar",
   save_smart_folder: "POST /smart-folders",
   delete_smart_folder: "POST /smart-folders/delete",
+  list_shares: "GET /shares",
+  share_note: "POST /shares",
+  unshare_note: "POST /shares/remove",
 };
 
 type Result = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
@@ -69,6 +81,14 @@ function run(fn: () => string): Result {
   } catch (e) {
     const msg = e instanceof QuireError ? e.message : `Unexpected error: ${(e as Error).message}`;
     return { content: [{ type: "text", text: msg }], isError: true };
+  }
+}
+
+async function runAsync(fn: () => Promise<string>): Promise<Result> {
+  try {
+    return { content: [{ type: "text", text: await fn() }] };
+  } catch (e) {
+    return { content: [{ type: "text", text: (e as Error).message }], isError: true };
   }
 }
 
@@ -475,6 +495,52 @@ export function createMcpServer(host: ToolHost): McpServer {
     },
     ({ paths }) => run(() => quire.delete(paths, source()).map((d) => `Moved ${d.path} to Trash`).join("\n")),
   );
+
+  const sharing = host.sharing;
+  if (sharing) {
+    const TARGET = {
+      path: z.string().optional().describe("The note (path, name or ID)"),
+      folder: z.string().optional().describe("Or a folder: the share covers everything in it"),
+    };
+    server.registerTool(
+      "list_shares",
+      {
+        title: "List shares",
+        description: "Who a note or folder is shared with outside the workspace (people and links, with roles and expiry), or everything the workspace shares.",
+        inputSchema: TARGET,
+        annotations: readOnly,
+      },
+      ({ path, folder }) => runAsync(() => sharing.list({ path, folder })),
+    );
+    server.registerTool(
+      "share_note",
+      {
+        title: "Share note",
+        description:
+          "Share a note or folder with someone outside the workspace by email (people without an account get it when they sign in " +
+          "with that email), or with anyone who has the link. Only share what the user asked to share, with whom they said.",
+        inputSchema: {
+          ...TARGET,
+          email: z.string().optional().describe("The person's email address"),
+          link: z.boolean().optional().describe("Share with anyone who has the link instead"),
+          role: z.enum(["viewer", "editor"]),
+          expires_in_days: z.number().int().min(1).max(365).optional().describe("Stop sharing after this many days"),
+        },
+        annotations: { ...writes, openWorldHint: true },
+      },
+      ({ path, folder, email, link, role, expires_in_days }) => runAsync(() => sharing.share({ path, folder, email, link, role, expiresInDays: expires_in_days })),
+    );
+    server.registerTool(
+      "unshare_note",
+      {
+        title: "Stop sharing",
+        description: "Stop one share (its id from list_shares): that person, or the link, loses access at once.",
+        inputSchema: { id: z.string() },
+        annotations: { ...writes, destructiveHint: true },
+      },
+      ({ id }) => runAsync(() => sharing.unshare(id)),
+    );
+  }
 
   server.registerTool(
     "star_note",

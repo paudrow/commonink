@@ -66,7 +66,32 @@ export const WORKSPACE_ROUTES = {
   "POST /trash/empty": "owner",
   "POST /upload": "editor",
   "POST /invites": "owner",
+  // Sharing a note or folder with people outside the workspace, or by link (cloud/src/shares.ts).
+  // Anyone in the workspace sees who it's shared with; editors and owners change that.
+  "GET /shares": "viewer",
+  "GET /shares/people": "editor",
+  "POST /shares": "editor",
+  "POST /shares/update": "editor",
+  "POST /shares/remove": "editor",
 } as const satisfies Record<string, Role>;
+
+/**
+ * What's shared, note by note (`/api/w/<id>/shared/…`): open to members and to anyone something in
+ * the workspace is shared with. The workspace checks each note against their grants; nothing else of
+ * the workspace (search, tasks, History…) is reachable this way.
+ */
+export const SHARED_ROUTES = [
+  "GET /shared/list",
+  "GET /shared/note",
+  "PUT /shared/note",
+  "GET /shared/resolve",
+  "GET /shared/file-resolve",
+  "GET /shared/files/*",
+  "GET /shared/live",
+] as const;
+
+/** What a shared link (`/api/s/<token>/…`) reaches, signed in or not: reading only. `POST /join` keeps it. */
+export const LINK_ROUTES = ["GET /list", "GET /note", "GET /resolve", "GET /file-resolve", "GET /files/*"] as const;
 
 /** Routes for whoever is signed in, whatever workspace they're in. */
 export const ACCOUNT_ROUTES = [
@@ -77,6 +102,7 @@ export const ACCOUNT_ROUTES = [
   "POST /api/sign-out-everywhere",
   "GET /api/agents",
   "POST /api/agents/revoke",
+  "GET /api/shared",
 ] as const;
 export type AccountRoute = (typeof ACCOUNT_ROUTES)[number];
 
@@ -84,6 +110,7 @@ export type AccountRoute = (typeof ACCOUNT_ROUTES)[number];
 export function routeKey(method: string, path: string): string {
   const m = method === "HEAD" ? "GET" : method;
   if (path.startsWith("/files/")) return `${m} /files/*`;
+  if (path.startsWith("/shared/files/")) return `${m} /shared/files/*`;
   if (path.startsWith("/api/note-ids/")) return `${m} /api/note-ids/*`;
   return `${m} ${path}`;
 }

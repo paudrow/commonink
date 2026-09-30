@@ -15,6 +15,10 @@ import { DoDb, SqlContent } from "./do-store.ts";
 import { SEED_FILES, SEED_NOTES } from "./seed.ts";
 import type { Env } from "./env.ts";
 import { safeDecode } from "../../src/core/uri.ts";
+import { QuireError } from "../../src/core/paths.ts";
+import { accessOn, type SharedAccess, type ShareRole } from "./grants.ts";
+import { limit } from "./limits.ts";
+import { addShare, linkToken, listShares, removeShare, ShareError, sharePeople, updateShare, type Share, type Target } from "./shares.ts";
 
 export class Workspace extends DurableObject<Env> {
   private db: DoDb;
@@ -93,6 +97,9 @@ export class Workspace extends DurableObject<Env> {
     const base = `/api/w/${wsId}`;
     const user = req.headers.get("x-ci-user") ?? "";
 
+    // What's shared with people outside the workspace (and link visitors): checked note by note.
+    if (route.startsWith("/shared/")) return this.shared(req, url, route.slice("/shared".length), user);
+
     const allowed = access(asRole(req.headers.get("x-ci-role")), req.method, route);
     if (allowed === "unknown") return json({ error: `No route ${req.method} ${route}` }, 404);
     if (allowed === "forbidden") return json({ error: "You can view this workspace but not edit it" }, 403);
@@ -107,6 +114,7 @@ export class Workspace extends DurableObject<Env> {
       return new Response(null, { status: 101, webSocket: client });
     }
     if (route.startsWith("/files/")) return this.serveFile(safeDecode(route.slice("/files/".length)));
+    if (route === "/shares" || route.startsWith("/shares/")) return this.manageShares(req, url, route, wsId, user).catch(shareErrorResponse);
     if (route === "/upload" && req.method === "POST") {
       return this.upload(req, url, wsId, decodeURIComponent(req.headers.get("x-ci-actor") ?? "someone"));
     }
@@ -186,9 +194,197 @@ export class Workspace extends DurableObject<Env> {
     });
   }
 
+  // ---------------------------------------------------------------- sharing
+
+  /** Who a shared-route request is, as the Worker worked out: a member, or the grants that reach them. */
+  private sharedAccess(req: Request): SharedAccess {
+    return JSON.parse(req.headers.get("x-ci-share") ?? '{"grants":[],"write":false}') as SharedAccess;
+  }
+
+  /** A note's meta and the role this request has on it; null for no note and for no access alike. */
+  private visibleNote(access: SharedAccess, id: string | null | undefined) {
+    const path = id ? this.quire.pathOf(id) : null;
+    const meta = path ? this.quire.meta(path) : null;
+    const role = meta ? accessOn(access, meta) : null;
+    return meta && role ? { meta, role } : null;
+  }
+
+  /**
+   * The routes for what's shared: a note by its ID, what it links or embeds (only if that's visible
+   * too, and never its title otherwise), its files, and live updates for it. Nothing else of the
+   * workspace is reachable this way: search, tasks, History and the rest stay members-only.
+   */
+  private async shared(req: Request, url: URL, route: string, user: string): Promise<Response> {
+    const access = this.sharedAccess(req);
+    const base = req.headers.get("x-ci-base") ?? "";
+    const q = (k: string) => url.searchParams.get(k) ?? "";
+    const notFound = () => json({ error: "That note doesn't exist, or it isn't shared with you" }, 404);
+    const entry = (meta: { id: string; path: string; title: string; kind: string; version: string }, role: ShareRole) => ({ id: meta.id, path: meta.path, title: meta.title, kind: meta.kind, version: meta.version, role });
+    try {
+      if (route === "/live") {
+        if (req.headers.get("Upgrade") !== "websocket") return json({ error: "Expected a WebSocket" }, 426);
+        const [client, server] = Object.values(new WebSocketPair());
+        this.ctx.acceptWebSocket(server, [user || "link", `s:${req.headers.get("x-ci-session") ?? ""}`]);
+        server.serializeAttachment({ expires: Number(req.headers.get("x-ci-session-expires")) || 0, share: access });
+        return new Response(null, { status: 101, webSocket: client });
+      }
+      if (route.startsWith("/files/") && req.method === "GET") {
+        const rel = cleanPath(safeDecode(route.slice("/files/".length)));
+        const meta = this.quire.meta(rel);
+        return meta && accessOn(access, meta) ? this.serveFile(rel) : notFound();
+      }
+      switch (`${req.method} ${route}`) {
+        case "GET /list":
+          return json(this.sharedList(access));
+        case "GET /note": {
+          const hit = this.visibleNote(access, q("id"));
+          if (!hit) return notFound();
+          return json({ ...entry(hit.meta, hit.role), content: hit.meta.kind === "asset" ? null : this.files.read(hit.meta.path) });
+        }
+        case "PUT /note": {
+          const b = (await req.json().catch(() => ({}))) as { id?: unknown; content?: unknown; baseVersion?: unknown };
+          const hit = this.visibleNote(access, typeof b.id === "string" ? b.id : null);
+          if (!hit) return notFound();
+          if (hit.role !== "editor") return json({ error: "You can view this note but not edit it" }, 403);
+          if (typeof b.content !== "string") return json({ error: '"content" must be a string' }, 400);
+          const actor = decodeURIComponent(req.headers.get("x-ci-actor") ?? "someone");
+          const r = this.quire.save(hit.meta.path, b.content, { baseVersion: typeof b.baseVersion === "string" ? b.baseVersion : undefined, source: actor });
+          if (r.change) this.announce(hit.meta.path, b.content, r.version, r.change);
+          return json({ version: r.version });
+        }
+        // What a shared note links or embeds: its details if that's visible too, else only that it isn't.
+        case "GET /resolve":
+        case "GET /file-resolve": {
+          const from = this.visibleNote(access, q("from"));
+          if (!from) return notFound();
+          const rel = this.quire.resolve(q("target"), from.meta.path);
+          const meta = rel ? this.quire.meta(rel) : null;
+          const role = meta ? accessOn(access, meta) : null;
+          if (route === "/file-resolve") {
+            if (!meta || !role || meta.kind !== "asset") return notFound();
+            return new Response(null, { status: 302, headers: { Location: `${base}/files/${meta.path.split("/").map(encodeURIComponent).join("/")}` } });
+          }
+          return json(meta && role ? entry(meta, role) : { noAccess: true });
+        }
+      }
+      return json({ error: `No route ${req.method} ${route}` }, 404);
+    } catch (e) {
+      return errorResponse(e);
+    }
+  }
+
+  /** Every note these grants reach (or everything, for a member), by title. */
+  sharedList(access: SharedAccess) {
+    return this.quire
+      .list(undefined, "all")
+      .flatMap((m) => {
+        const role = accessOn(access, m);
+        return role ? [{ id: m.id, path: m.path, title: m.title, kind: m.kind, version: m.version, role }] : [];
+      })
+      .sort((a, b) => a.title.localeCompare(b.title));
+  }
+
+  /** Members sharing a note or folder, and seeing what's shared (`/shares…`, roles in access.ts). */
+  private async manageShares(req: Request, url: URL, route: string, wsId: string, user: string): Promise<Response> {
+    const body = req.method === "GET" ? {} : ((await req.json().catch(() => ({}))) as Record<string, unknown>);
+    const str = (k: string) => (typeof body[k] === "string" ? (body[k] as string) : undefined);
+    switch (`${req.method} ${route}`) {
+      case "GET /shares": {
+        const target = this.shareTarget({ note: url.searchParams.get("note") ?? undefined, path: url.searchParams.get("path") ?? undefined, folder: url.searchParams.get("folder") ?? undefined }, true);
+        return json(await this.describeShares(wsId, target));
+      }
+      case "GET /shares/people":
+        return json(await sharePeople(this.env.DB, wsId));
+      case "POST /shares": {
+        const tooMany = await limit(this.env.DB, "share", user);
+        if (tooMany) return tooMany;
+        const target = this.shareTarget({ note: str("note"), path: str("path"), folder: str("folder") })!;
+        const role = body.role === "editor" ? "editor" : body.role === "viewer" ? "viewer" : null;
+        if (!role) throw new ShareError('"role" must be "viewer" or "editor"');
+        const expiresAt = typeof body.expiresAt === "number" ? body.expiresAt : null;
+        await addShare(this.env.DB, this.env.SESSION_SECRET, { workspaceId: wsId, by: user, target, email: str("email"), link: body.link === true, role, expiresAt });
+        return json(await this.describeShares(wsId, target));
+      }
+      case "POST /shares/update": {
+        const role = body.role === "editor" || body.role === "viewer" ? body.role : undefined;
+        const expiresAt = body.expiresAt === null || typeof body.expiresAt === "number" ? (body.expiresAt as number | null) : undefined;
+        await updateShare(this.env.DB, wsId, str("id") ?? "", { role, expiresAt });
+        return json({ ok: true });
+      }
+      case "POST /shares/remove":
+        await removeShare(this.env.DB, wsId, str("id") ?? "");
+        return json({ ok: true });
+    }
+    return json({ error: `No route ${req.method} ${route}` }, 404);
+  }
+
+  /** The note (by ID or path) or folder a share request is about; none for a GET of everything. */
+  private shareTarget(o: { note?: string; path?: string; folder?: string }, optional = false): Target | undefined {
+    if (o.folder) return { folder: cleanPath(o.folder) };
+    const target = o.note ?? o.path;
+    if (!target) {
+      if (optional) return undefined;
+      throw new ShareError("Say which note (or folder) to share");
+    }
+    const rel = this.quire.pathOf(target) ?? this.quire.resolve(target);
+    const id = rel ? this.quire.meta(rel)?.id : null;
+    if (!id) throw new ShareError(`No note matches "${target}"`, 404);
+    return { note: id };
+  }
+
+  /** The MCP sharing tools, for an agent working as `user` (its role already decided which it gets). */
+  private agentSharing(wsId: string, user: string, origin: string) {
+    const line = (s: Share & { url: string | null }) =>
+      `- ${s.kind === "link" ? `Anyone with the link: ${origin}${s.url}` : `${s.name ? `${s.name} <${s.email}>` : `${s.email} (no account yet)`}`} — ${s.role}${s.expiresAt ? `, until ${new Date(s.expiresAt).toISOString().slice(0, 10)}` : ""} (id ${s.id})`;
+    const describe = async (target: Target | undefined) => {
+      const d = await this.describeShares(wsId, target);
+      const what = d.path ?? (target?.folder ? `${target.folder}/` : "this workspace");
+      if (!d.shares.length && !d.inherited.length) return `${what} isn't shared with anyone outside the workspace.`;
+      return [`${what} is shared with:`, ...d.shares.map(line), ...(d.inherited.length ? ["Through its folders:", ...d.inherited.map(line)] : [])].join("\n");
+    };
+    return {
+      list: async (o: { path?: string; folder?: string }) => describe(this.shareTarget({ path: o.path, folder: o.folder }, true)),
+      share: async (o: { path?: string; folder?: string; email?: string; link?: boolean; role: ShareRole; expiresInDays?: number }) => {
+        const tooMany = await limit(this.env.DB, "share", user);
+        if (tooMany) throw new Error(((await tooMany.json()) as { error: string }).error);
+        const target = this.shareTarget({ path: o.path, folder: o.folder })!;
+        await addShare(this.env.DB, this.env.SESSION_SECRET, {
+          workspaceId: wsId,
+          by: user,
+          target,
+          email: o.email,
+          link: o.link === true,
+          role: o.role,
+          expiresAt: o.expiresInDays ? Date.now() + o.expiresInDays * 86_400_000 : null,
+        });
+        return describe(target);
+      },
+      unshare: async (id: string) => (await removeShare(this.env.DB, wsId, id), "Stopped sharing it."),
+    };
+  }
+
+  /** A note's (or folder's) shares, the folder shares it gets too, and each link's URL. */
+  private async describeShares(wsId: string, target: Target | undefined) {
+    const all = await listShares(this.env.DB, wsId);
+    const path = target?.note ? this.quire.pathOf(target.note) : null;
+    const direct = target ? all.filter((s) => (target.note ? s.note === target.note : s.folder === target.folder)) : all;
+    const inherited = path ? all.filter((s) => s.folder && path.startsWith(`${s.folder}/`)) : [];
+    const withLinks = async (list: Share[]) =>
+      Promise.all(list.map(async (s) => ({ ...s, url: s.kind === "link" ? `/s/${await linkToken(this.env.SESSION_SECRET, s.id)}` : null })));
+    return { target: target ?? null, path, shares: await withLinks(direct), inherited: await withLinks(inherited) };
+  }
+
   private announce(rel: string, content: string | null, version: string, change: Change | null, origin?: string) {
     this.broadcast({ type: "note", path: rel, kind: kindOf(rel), version, content, source: change?.source ?? "external", change, origin });
     if (change) this.broadcast({ type: "change", change });
+  }
+
+  /** Whether a connection opened through a share may hear this: only about notes it can see. */
+  private mayHear(share: SharedAccess, msg: Record<string, unknown>) {
+    if (msg.type === "tree") return true; // says only that something changed
+    const path = (msg.type === "change" ? (msg.change as Change | undefined)?.path : msg.path) as string | undefined;
+    const meta = path ? this.quire.meta(path) : null;
+    return !!meta && !!accessOn(share, meta);
   }
 
   private broadcast(msg: Record<string, unknown>) {
@@ -196,9 +392,9 @@ export class Workspace extends DurableObject<Env> {
     const now = Date.now();
     for (const ws of this.ctx.getWebSockets()) {
       try {
-        const { expires } = (ws.deserializeAttachment() ?? {}) as { expires?: number };
+        const { expires, share } = (ws.deserializeAttachment() ?? {}) as { expires?: number; share?: SharedAccess };
         if (expires && expires < now) ws.close(4001, "Session expired");
-        else ws.send(data);
+        else if (!share || this.mayHear(share, msg)) ws.send(data);
       } catch {}
     }
   }
@@ -216,6 +412,7 @@ export class Workspace extends DurableObject<Env> {
       source: () => who.actor,
       may: (route) => access(role, ...(route.split(" ") as [string, string])) === "allowed",
       canEditShared: role === "owner" || role === "editor",
+      sharing: this.agentSharing(who.workspace, who.user, new URL(req.url).origin),
     });
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await server.connect(transport);
@@ -244,4 +441,12 @@ export class Workspace extends DurableObject<Env> {
   webSocketClose(ws: WebSocket, code: number, reason: string) {
     ws.close(code, reason);
   }
+}
+
+/** A share request's error as a response: ShareError has its own status; anything else is a plain 500. */
+function shareErrorResponse(e: unknown): Response {
+  if (e instanceof ShareError) return json({ error: e.message }, e.status);
+  if (e instanceof QuireError) return errorResponse(e);
+  console.error(e);
+  return json({ error: "Internal error" }, 500);
 }

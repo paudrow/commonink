@@ -14,6 +14,8 @@ export const LIMITS = {
   unfurl: { max: 120, per: MINUTE, message: "Too many link previews at once." },
   workspace: { max: 10, per: 60 * MINUTE, message: "That's a lot of new workspaces for one hour." },
   register: { max: 20, per: 60 * MINUTE, message: "Too many apps registered from your network." },
+  shareLink: { max: 300, per: 10 * MINUTE, message: "Too many shared-link requests from your network." },
+  share: { max: 200, per: 60 * MINUTE, message: "That's a lot of sharing for one hour." },
 } as const;
 
 /**
