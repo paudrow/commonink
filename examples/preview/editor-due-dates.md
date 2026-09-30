@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 144
 title: Dates typed in the editor
 ---
 1. Open [[Weekend errands]] and click the empty task at the bottom. Type `Buy milk tomorrow`. "tomorrow" gets a dotted underline, and beside the ⚙ a dashed box shows the chip it will become ("Tomorrow") with a **Tab** key.
