@@ -1954,9 +1954,9 @@ function renderChrome() {
   const name = el("span", { class: "crumb-file", title: "Click to rename" }, file.replace(/\.(md|markdown)$/i, ""));
   name.addEventListener("click", () => startRename(name));
   const folderCrumbs = parts.flatMap((p, i) => {
-    const crumb = el("button", { type: "button", class: "crumb", title: "Move to another folder" }, p);
+    const crumb = el("button", { type: "button", class: "crumb", title: `${p}: move to another folder` }, p);
     crumb.addEventListener("click", () => openMovePicker(crumb));
-    return i === 0 && p === "Archive" ? [el("span", { class: "crumb" }, p), el("span", { class: "crumb-sep" }, "/")] : [crumb, el("span", { class: "crumb-sep" }, "/")];
+    return i === 0 && p === "Archive" ? [el("span", { class: "crumb", title: p }, p), el("span", { class: "crumb-sep" }, "/")] : [crumb, el("span", { class: "crumb-sep" }, "/")];
   });
   crumbs.replaceChildren(...folderCrumbs, name);
   $("#html-toggle").hidden = s.kind !== "html";

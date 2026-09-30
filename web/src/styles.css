@@ -295,6 +295,12 @@ body.panel-closed #panel { opacity: 0; pointer-events: none; }
 }
 .crumb + .crumb-sep + .crumb-file { margin-left: 0; }
 .crumb-file:hover { background: var(--hover); }
+/* A long path gives way before the top bar's buttons: folders shrink first, then the note's name. */
+#topbar > :not(#crumbs, .spacer) { flex-shrink: 0; }
+#crumbs { flex: 0 1 auto; overflow: hidden; }
+#crumbs > * { flex: none; }
+#crumbs > .crumb { flex: 0 20 auto; min-width: 2.2em; overflow: hidden; text-overflow: ellipsis; }
+#crumbs > .crumb-file { flex: 0 1 auto; min-width: 3.5em; }
 .rename-input {
   font: 550 13px var(--ui);
   color: var(--ink-strong);
