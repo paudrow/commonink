@@ -25,7 +25,7 @@ import { folderPicker } from "./folderPicker.ts";
 import type { History } from "./history.ts";
 import type { Assets } from "./assets.ts";
 import { renderTasksPage } from "./tasksView.ts";
-import { askFor, pickTemplate } from "./templatePicker.ts";
+import { askFor, pickTemplate, templatePeople } from "./templatePicker.ts";
 import { localNow, type TemplateInfo } from "../../src/core/templates.ts";
 import { openQuickAdd, QUICK_ADD } from "./quickAdd.ts";
 import { formatKeys, learnLayout, matchKeys } from "./keys.ts";
@@ -988,11 +988,11 @@ async function newFromTemplate(template?: TemplateInfo, folder = "") {
     t = (await pickTemplate(list, "New note from template")) ?? undefined;
   }
   if (!t) return;
-  const asked = await askFor(t, { title: true });
+  const asked = await askFor(t, { title: true, people: await templatePeople(t) });
   if (!asked) return;
   const clipboard = t.clipboard ? await navigator.clipboard?.readText().catch(() => undefined) : undefined;
   try {
-    const r = await api.fromTemplate(t.path, { at: localNow(), title: asked.title, answers: asked.answers, clipboard, folder: t.folder ? undefined : folder || undefined });
+    const r = await api.fromTemplate(t.path, { at: localNow(), title: asked.title, answers: asked.answers, picks: asked.picks, clipboard, folder: t.folder ? undefined : folder || undefined });
     await refreshNotes();
     await openNote(r.path);
     const at = Math.min(r.cursor ?? active.view.state.doc.length, active.view.state.doc.length);

@@ -11,7 +11,8 @@ import { newId, serializeDirective } from "../widgets/args.ts";
 import { pendingConfig, WIDGETS } from "../widgets/index.ts";
 import { editorContext } from "./blocks.ts";
 import { api } from "../api.ts";
-import { askFor, pickTemplate } from "../templatePicker.ts";
+import { askFor, pickTemplate, templatePeople } from "../templatePicker.ts";
+import { placeholderSource } from "./templateComplete.ts";
 import { localNow } from "../../../src/core/templates.ts";
 import { NEW_BOARD } from "../../../src/core/kanban.ts";
 import { wrapInDetails } from "../../../src/core/details.ts";
@@ -304,11 +305,11 @@ async function insertTemplate(view: EditorView, from: number, to: number) {
   view.dispatch({ changes: { from, to }, userEvent: "input.complete" }); // the "/template" typed
   const list = await api.templates().catch(() => []);
   const t = await pickTemplate(list, "Insert a template");
-  const asked = t && (await askFor(t, { title: false }));
+  const asked = t && (await askFor(t, { title: false, people: await templatePeople(t) }));
   if (!t || !asked) return view.focus();
   const ctx = view.state.facet(editorContext);
   const clipboard = t.clipboard ? await navigator.clipboard?.readText().catch(() => undefined) : undefined;
-  const r = await api.renderTemplate(t.path, { at: localNow(), title: displayName(ctx.path), answers: asked.answers, clipboard }).catch(() => null);
+  const r = await api.renderTemplate(t.path, { at: localNow(), title: displayName(ctx.path), answers: asked.answers, picks: asked.picks, clipboard }).catch(() => null);
   if (!r) return view.focus();
   const text = r.text.replace(/\n+$/, "");
   const at = Math.min(from, view.state.doc.length);
@@ -504,7 +505,7 @@ const pasteFiles = EditorView.domEventHandlers({
 // ------------------------------------------------------------------ extension
 
 export function typingHelpers(): Extension {
-  return [completions([toolSource, taskTokenSource, mentionSource, linkSource, tagSource, frontmatterTagSource, emojiSource]), pasteLinks, pasteFiles];
+  return [completions([toolSource, taskTokenSource, mentionSource, linkSource, tagSource, frontmatterTagSource, emojiSource, placeholderSource]), pasteLinks, pasteFiles];
 }
 
 function completions(override: CompletionSource[]): Extension {

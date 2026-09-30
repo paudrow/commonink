@@ -743,7 +743,10 @@ export function createMcpServer(host: ToolHost): McpServer {
         template: z.string().describe("Its name (Meeting) or path"),
         title: z.string().optional(),
         folder: z.string().optional(),
-        variables: z.record(z.string(), z.string()).optional().describe("Answers to its {{ask:Label}} questions, by label"),
+        variables: z
+          .record(z.string(), z.string())
+          .optional()
+          .describe("Answers to its {{ask:Label}} questions, by label: a people question takes @handles on a task line or names, a date YYYY-MM-DD, a choice one of its options"),
       },
       annotations: writes,
     },
@@ -840,7 +843,8 @@ async function runAsync(fn: () => Promise<string>): Promise<Result> {
 
 /** A template on a line: its path and name, what it asks, and the folders it's the default for. */
 export function fmtTemplate(t: TemplateInfo): string {
-  const asks = t.asks.length ? ` · asks: ${t.asks.map((a) => a.label).join(", ")}` : "";
+  const kind = (a: TemplateInfo["asks"][number]) => (a.type === "choice" ? ` (one of ${a.choices.join(", ")})` : a.type === "text" ? "" : ` (${a.type})`);
+  const asks = t.asks.length ? ` · asks: ${t.asks.map((a) => a.label + kind(a)).join(", ")}` : "";
   const where = t.appliesTo.length ? ` · new notes in ${t.appliesTo.map((f) => `${f}/`).join(", ")} start from it` : "";
   return `${t.path} — ${t.name}${asks}${where}`;
 }

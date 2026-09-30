@@ -7,7 +7,8 @@ import { askFor, pickTemplate } from "../web/src/templatePicker.ts";
 import type { TemplateInfo } from "../src/core/templates.ts";
 
 const t = (name: string, o: Partial<TemplateInfo> = {}): TemplateInfo => ({ path: `Templates/${name}.md`, name, title: null, folder: null, appliesTo: [], asks: [], clipboard: false, ...o });
-const LIST = [t("Daily note"), t("Decision", { asks: [{ label: "What", fallback: "" }] }), t("Meeting", { title: "{{date}} {{ask:Client}}", asks: [{ label: "Client", fallback: "" }, { label: "Attendees", fallback: "Sam" }] })];
+const ask = (label: string, o: Partial<TemplateInfo["asks"][number]> = {}) => ({ label, fallback: "", type: "text" as const, choices: [], ...o });
+const LIST = [t("Daily note"), t("Decision", { asks: [ask("What")] }), t("Meeting", { title: "{{date}} {{ask:Client}}", asks: [ask("Client"), ask("Attendees", { fallback: "Sam" })] })];
 const key = (k: string) => document.activeElement!.dispatchEvent(new window.KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
 const type = (s: string) => {
   const input = document.activeElement as HTMLInputElement;
@@ -41,11 +42,59 @@ test("the form asks the title (when making a note) and each question; blank answ
   assert.equal(document.activeElement?.getAttribute("name"), "Client", "the first question has the keyboard (the title can come from the template)");
   type("Acme");
   key("Enter");
-  assert.deepEqual(await asked, { title: undefined, answers: { Client: "Acme" } });
+  assert.deepEqual(await asked, { title: undefined, answers: { Client: "Acme" }, picks: {} });
   // Inserting asks only the questions; a template with none isn't asked about at all.
   asked = askFor(LIST[1], { title: false });
   assert.deepEqual([...document.querySelectorAll(".tpl-form label span")].map((s) => s.textContent), ["What"]);
   key("Escape");
   assert.equal(await asked, null);
-  assert.deepEqual(await askFor(LIST[0], { title: false }), { title: undefined, answers: {} });
+  assert.deepEqual(await askFor(LIST[0], { title: false }), { title: undefined, answers: {}, picks: {} });
+});
+
+test("typed questions: a people picker (members, or someone new), a date picker, and a choice menu", async () => {
+  const typed = t("Kickoff", {
+    asks: [
+      ask("Attendees", { type: "people" }),
+      ask("Due", { type: "date" }),
+      ask("Priority", { type: "choice", choices: ["low", "medium", "high"], fallback: "medium" }),
+    ],
+  });
+  const people = [{ name: "Sam Dev" }, { name: "Priya Shah" }, { name: "Sam Lee" }];
+  const asked = askFor(typed, { title: false, people });
+  // People: type to find someone, Enter picks them; a name no one has is someone new.
+  assert.equal(document.activeElement?.getAttribute("aria-label"), "Attendees");
+  type("pri");
+  assert.deepEqual([...document.querySelectorAll(".tpl-people-opt")].map((o) => o.textContent), ["Priya Shah@Priya", "Add “pri”new"]);
+  key("Enter");
+  type("Lee Chang");
+  assert.deepEqual([...document.querySelectorAll(".tpl-people-opt")].map((o) => o.textContent), ["Add “Lee Chang”new"]);
+  key("Enter");
+  assert.deepEqual([...document.querySelectorAll(".tpl-chip")].map((c) => c.textContent?.replace("×", "")), ["Priya Shah", "Lee Chang"]);
+  key("Backspace"); // on an empty field: the last one goes
+  assert.deepEqual([...document.querySelectorAll(".tpl-chip")].map((c) => c.textContent?.replace("×", "")), ["Priya Shah"]);
+  type("sam");
+  key("ArrowDown");
+  key("Enter"); // the second Sam
+  const due = document.querySelector('.tpl-form input[name="Due"]') as HTMLInputElement;
+  assert.equal(due.type, "date");
+  due.value = "2026-10-05";
+  const pick = document.querySelector('.tpl-form select[name="Priority"]') as HTMLSelectElement;
+  assert.deepEqual([...pick.options].map((o) => o.value), ["", "low", "medium", "high"], "blank, to leave it unanswered");
+  assert.equal(pick.value, "medium", "the default is chosen");
+  (document.querySelector(".tpl-box .qw-btn.primary") as HTMLButtonElement).click();
+  assert.deepEqual(await asked, {
+    title: undefined,
+    answers: { Due: "2026-10-05", Priority: "medium" },
+    picks: { Attendees: [{ name: "Priya Shah", handle: "Priya" }, { name: "Sam Lee", handle: "Sam-Lee" }] },
+  });
+});
+
+test("the picker's ? opens the help on every template option", async () => {
+  let opened = 0;
+  const picked = pickTemplate(LIST, "New note from template", { help: () => opened++ });
+  (document.querySelector(".tpl-help") as HTMLButtonElement).click();
+  assert.equal(opened, 1);
+  assert.equal((document.querySelector(".tpl-help") as HTMLElement).title, "Every template option: placeholders, questions, frontmatter");
+  key("Escape");
+  await picked;
 });
