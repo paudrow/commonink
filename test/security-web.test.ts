@@ -2,6 +2,7 @@
 import "./dom.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { cpuMs } from "./helpers.ts";
 
 const { inline } = await import("../web/src/taskRow.ts");
 const { renderMarkdown } = await import("../web/src/render.ts");
@@ -66,9 +67,7 @@ test("hostile markdown renders in linear time, and deep quotes don't overflow th
     ["a CSV cell of 100k digits", () => toNumber(`${"1".repeat(100_000)}x`)],
   ];
   const slow = cases.flatMap(([name, run]) => {
-    const t = performance.now();
-    run();
-    const ms = performance.now() - t;
+    const ms = cpuMs(run);
     return ms > 1500 ? [`${name}: ${Math.round(ms)} ms`] : [];
   });
   assert.deepEqual(slow, []);

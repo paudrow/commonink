@@ -1,5 +1,6 @@
 // Inline live preview: markup hides itself unless the selection touches it (Obsidian-style).
 import { syntaxTree } from "@codemirror/language";
+import { noteTree } from "./tree.ts";
 import type { EditorState, Range, Text } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { scanTags, type TagSpan } from "../../../src/core/tags.ts";
@@ -69,6 +70,9 @@ class CheckboxWidget extends WidgetType {
     box.className = `cm-checkbox${this.checked ? " is-checked" : ""}`;
     box.setAttribute("role", "checkbox");
     box.setAttribute("aria-checked", String(this.checked));
+    // The task's words are the line itself, which a screen reader reads next; the box says what it is.
+    box.setAttribute("aria-label", "Done");
+    box.title = this.checked ? "Mark open" : "Mark done";
     box.addEventListener("mousedown", (e) => {
       e.preventDefault();
       const line = view.state.doc.lineAt(this.pos);
@@ -172,7 +176,7 @@ function build(view: EditorView): DecorationSet {
   const first = doc.lineAt(view.viewport.from).number;
   const last = doc.lineAt(view.viewport.to).number;
   const inCode = (pos: number) => {
-    for (let n: any = syntaxTree(state).resolveInner(pos, 1); n; n = n.parent) if (CODE.has(n.name)) return true;
+    for (let n: any = noteTree(state).resolveInner(pos, 1); n; n = n.parent) if (CODE.has(n.name)) return true;
     return false;
   };
   for (const t of tagsIn(doc)) {

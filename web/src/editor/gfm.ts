@@ -3,6 +3,7 @@
 // heading. Like the rest of live preview, markup shows as written while the cursor is on it.
 // Foldable alerts fold by the same state as collapsible sections (see details.ts).
 import { syntaxTree } from "@codemirror/language";
+import { noteTree } from "./tree.ts";
 import type { EditorState, Range, Text } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { el, icon } from "../dom.ts";
@@ -33,7 +34,7 @@ function gfmOf(doc: Text) {
 /** Where markdown shows as written: code, URLs, links' targets, HTML blocks, frontmatter. */
 const RAW = new Set(["InlineCode", "FencedCode", "CodeBlock", "CodeText", "Frontmatter", "FrontmatterContent", "HTMLBlock", "CommentBlock", "URL", "Autolink", "WikiLink", "Embed"]);
 function raw(state: EditorState, pos: number): boolean {
-  for (let n: any = syntaxTree(state).resolveInner(pos, 1); n; n = n.parent) if (RAW.has(n.name)) return true;
+  for (let n: any = noteTree(state).resolveInner(pos, 1); n; n = n.parent) if (RAW.has(n.name)) return true;
   return false;
 }
 
@@ -50,7 +51,7 @@ function htmlOf(src: string, path: string): string {
 }
 
 const jump = (view: EditorView, pos: number) => {
-  view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: "center" }) });
+  view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: "center" }), userEvent: "select.jump" });
   view.focus();
 };
 

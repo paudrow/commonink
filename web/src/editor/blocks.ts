@@ -1,7 +1,8 @@
 // Block-level live preview: whole-line embeds, tables and frontmatter render as widgets.
 // Block decorations must come from a StateField (they change vertical layout).
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
-import { EditorSelection, EditorState, Facet, Prec, StateEffect, StateField, type Line, type Range, type StateCommand, type Text } from "@codemirror/state";
+import { noteTree } from "./tree.ts";
+import { EditorSelection, EditorState, Facet, Prec, StateEffect, StateField, Transaction, type Line, type Range, type StateCommand, type Text } from "@codemirror/state";
 import { Decoration, EditorView, keymap, WidgetType, type DecorationSet } from "@codemirror/view";
 import { api, assetUrl } from "../api.ts";
 import { el, icon } from "../dom.ts";
@@ -24,6 +25,7 @@ import { hydrateMath } from "../math.ts";
 import { blockTex, inlineTex, MathWidget } from "./mathWidgets.ts";
 import { matchKeys } from "../keys.ts";
 import { redo, undo } from "@codemirror/commands";
+import { Vim, type ActionFn } from "@replit/codemirror-vim";
 import { safeDecode } from "../../../src/core/uri.ts";
 import { foldDecorations, setFold } from "./details.ts";
 import { htmlImageBlock } from "./gfm.ts";
@@ -519,7 +521,7 @@ function mathBlock(state: EditorState, first: Line, last: Line, tex: string): Ra
  * without the fences), and how far the fence is indented; null if `pos` isn't in one.
  */
 export function codeRange(state: EditorState, pos: number): { from: number; to: number; indent: number } | null {
-  for (let n: any = syntaxTree(state).resolveInner(pos, -1); n; n = n.parent) {
+  for (let n: any = noteTree(state).resolveInner(pos, -1); n; n = n.parent) {
     if (n.name !== "FencedCode") continue;
     const doc = state.doc;
     const first = doc.lineAt(n.from);
@@ -932,11 +934,14 @@ export const blockWidgets = StateField.define<DecorationSet>({
 /**
  * Tables, frontmatter and the markdown lines of embeds and widgets collapse into rendered cards,
  * and vertical cursor motion (j/k, arrows) would step straight over them. When a one-step move
- * jumps a collapsed block, land inside it instead, which expands it for editing. A click lands
- * where it was clicked. (Vim's j/k carry no user event, so this can't wait for a "select".)
+ * jumps a collapsed block, land inside it instead, which expands it for editing. A move that names
+ * its place lands there: a click ("select.pointer"), a find ("select.search"), and the app's jumps
+ * to a line ("select.jump": the Outline, a link to a heading, back and forward). Vim's j/k carry
+ * no user event and the arrows a plain "select", so those two are what step.
  */
 export const stepIntoBlocks = EditorState.transactionFilter.of((tr) => {
-  if (!tr.selection || tr.docChanged || tr.selection.ranges.length > 1 || tr.isUserEvent("select.pointer")) return tr;
+  const event = tr.annotation(Transaction.userEvent);
+  if (!tr.selection || tr.docChanged || tr.selection.ranges.length > 1 || (event && event !== "select")) return tr;
   const start = tr.startState;
   const deco = start.field(blockWidgets, false);
   if (!deco) return tr;
@@ -988,6 +993,51 @@ export const selectSource =
     dispatch(state.update({ selection: { anchor: src.from, head: src.to }, scrollIntoView: true }));
     return true;
   };
+
+/** Whether line `n` is out of sight in a block: a card's markdown, a table or code drawn as itself, a closed section. */
+function inBlock(state: EditorState, n: number) {
+  const line = state.doc.line(n);
+  let hidden = false;
+  state.field(blockWidgets, false)?.between(line.from, line.to, (from, to, d) => {
+    if (d.spec.block && from < to && from <= line.from && to >= line.to) hidden = true;
+  });
+  return hidden;
+}
+
+/**
+ * Vim's J, gJ and :join, as vim-core has them, except that joining stops at a line hidden in a
+ * block as it stops at the end of the note: joined onto the line above, a card's markdown or a
+ * table's first row would break it. So J right above a card joins nothing, and 3J joins what's above it.
+ */
+const joinLines: ActionFn = (cm, args, vim) => {
+  const state = cm.cm6.state;
+  let start: number;
+  let end: number;
+  if (vim.visualMode) {
+    const [anchor, head] = [cm.getCursor("anchor").line, cm.getCursor("head").line];
+    [start, end] = anchor < head ? [anchor, head] : [head, anchor];
+  } else {
+    start = cm.getCursor().line;
+    end = Math.min(start + Math.max(args.repeat, 2) - 1, cm.lastLine());
+    for (let n = start + 1; n <= end; n++) {
+      if (inBlock(state, n + 1)) {
+        end = n - 1;
+        break;
+      }
+    }
+    if (end === start) return; // as in Vim, a J with nothing to join leaves the cursor be
+  }
+  let ch = 0;
+  for (let i = start; i < end; i++) {
+    ch = cm.getLine(start).length;
+    const next = cm.getLine(start + 1);
+    const indent = args.keepSpaces ? 0 : next.search(/\S/);
+    cm.replaceRange(args.keepSpaces || indent < 0 ? "" : " ", { line: start, ch }, { line: start + 1, ch: indent < 0 ? next.length : indent });
+  }
+  if (vim.visualMode) Vim.exitVisualMode(cm, false);
+  cm.setCursor({ line: start, ch: Math.max(0, Math.min(ch, cm.getLine(start).length - 1)) });
+};
+Vim.defineAction("joinLines", joinLines);
 
 export const blockKeys = Prec.high(
   keymap.of([

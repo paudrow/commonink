@@ -25,6 +25,7 @@ const app = (over: Partial<App> = {}): App => {
     folds: 0,
     account: [],
     newNote: run("newNote"),
+    newBoard: run("newBoard"),
     newFolder: run("newFolder"),
     go: (page) => void ran.push(`go:${page}`),
     filterNotes: run("filterNotes"),
@@ -57,6 +58,7 @@ test("commands match fuzzily, by name or by what they're about, and none alone l
   assert.deepEqual(titles("dark", app()), ["Toggle theme"]);
   assert.deepEqual(titles("archive", app({ note: { kind: "md", starred: false, archived: false } })).slice(0, 2), ["Archive note", "Go to Archive"]);
   assert.deepEqual(titles("zzz", app()), []);
+  assert.deepEqual(titles("kanban", app()), ["New board"]);
   const all = titles("", app());
   assert.equal(all[0], "New note");
   assert.ok(all.includes("Keyboard shortcuts"));
@@ -106,6 +108,12 @@ test("the sheet lists each area's shortcuts, the commands' included, whether or 
 
 // ------------------------------------------------------------------ the palette and the sheet, in a page
 
+/** What a screen reader reads out: the text, less anything aria-hidden. */
+const readOut = (n: Element) => {
+  const copy = n.cloneNode(true) as Element;
+  copy.querySelectorAll("[aria-hidden=true]").forEach((h) => h.remove());
+  return copy.textContent;
+};
 const note = (title: string): NoteMeta => ({ id: title, path: `${title}.md`, kind: "md", title, version: "1", mtime: 1, size: 1 });
 
 function page(notes: NoteMeta[], onCreate: (name: string) => void = () => {}) {
@@ -123,7 +131,7 @@ function page(notes: NoteMeta[], onCreate: (name: string) => void = () => {}) {
     input.dispatchEvent(new window.Event("input"));
   };
   const press = (key: string) => input.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true }));
-  const options = () => [...document.querySelectorAll<HTMLElement>("#palette-results [role=option]")].map((o) => o.textContent);
+  const options = () => [...document.querySelectorAll<HTMLElement>("#palette-results [role=option]")].map(readOut);
   const sections = () => [...document.querySelectorAll("#palette-results [role=group] > .palette-section")].map((s) => s.textContent);
   document.querySelector<HTMLElement>("#before")!.focus();
   palette.open();
@@ -134,7 +142,7 @@ test("quick open finds only notes; > (what ⌘⇧P types) switches to commands, 
   const p = page([note("Theme ideas")]);
   p.type("theme");
   assert.deepEqual(p.sections(), ["Notes"]);
-  assert.deepEqual(p.options(), ["Theme ideasTheme ideas.md", "Create “theme”⇧↵"]);
+  assert.deepEqual(p.options(), ["Theme ideasTheme ideas.md", "Create “theme”Shift Enter"]);
   p.palette.toggle(">");
   assert.equal(p.input.value, ">");
   assert.equal(p.input.selectionStart, 1, "typing goes after the >");
@@ -154,7 +162,7 @@ test("⌘K is a labelled listbox whose active option the field points at; Enter 
   const option = document.querySelector<HTMLElement>("#palette-results [role=option]")!;
   assert.equal(option.getAttribute("aria-selected"), "true");
   assert.equal(p.input.getAttribute("aria-activedescendant"), option.id);
-  assert.equal(option.textContent, "Keyboard shortcuts?");
+  assert.equal(readOut(option), "Keyboard shortcutsQuestion Mark");
   p.press("Enter");
   assert.deepEqual(ran, ["shortcuts"]);
   assert.equal(p.palette.isOpen, false);
@@ -197,6 +205,17 @@ test("the shortcut sheet is a labelled modal dialog: Ctrl off a Mac, vim folded 
   document.activeElement!.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   assert.equal(document.querySelector("[role=dialog]"), null);
   assert.equal(document.activeElement?.id, "before");
+});
+
+test("the sheet's keys are read out as words, not symbols: ⌘⇧P is Command Shift P", () => {
+  toggleShortcuts(appCommands(app()), { vim: false, mac: true });
+  const keys = [...document.querySelectorAll("#shortcuts kbd")];
+  const said = keys.map(readOut);
+  assert.ok(said.includes("Command Shift P"));
+  assert.ok(said.includes("Command Option Backslash"));
+  assert.deepEqual(said.filter((s) => /[⌘⌥⇧⌃↵↑↓←→]/.test(s!)), []);
+  assert.ok(keys.some((k) => k.textContent === "⌘⇧PCommand Shift P"), "the symbols still show");
+  document.activeElement!.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
 });
 
 test("Delete and Trash are commands for whoever can delete, not viewers", () => {

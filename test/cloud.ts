@@ -20,7 +20,7 @@ export async function startCloud(vars: Record<string, string> = {}) {
   fs.copyFileSync(path.resolve(CLOUD, "../web/public/_headers"), path.join(assets, "_headers"));
   const config = JSON.parse(fs.readFileSync(path.join(CLOUD, "wrangler.jsonc"), "utf8").replace(/^\s*\/\/.*$/gm, ""));
   const { $schema, routes, previews, ...rest } = config;
-  const server = createTestHarness({
+  const harness = createTestHarness({
     root: CLOUD,
     workers: [
       {
@@ -34,6 +34,17 @@ export async function startCloud(vars: Record<string, string> = {}) {
       },
     ],
   });
+  // Miniflare answers with a copy of undici's Response on the same body and drops the original.
+  // When the original is garbage collected, undici cancels that body if nothing has read it, and a
+  // later read fails with "Body has already been read". So each body is read as soon as it arrives.
+  const server = {
+    ...harness,
+    fetch: async (...args: Parameters<typeof harness.fetch>) => {
+      const res = await harness.fetch(...args);
+      if (!res.body) return res;
+      return new Response(await res.arrayBuffer(), { status: res.status, statusText: res.statusText, headers: [...res.headers] });
+    },
+  };
   const { url } = await server.listen();
   await server.getWorker().applyD1Migrations("DB");
   const origin = url.origin;

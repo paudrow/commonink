@@ -617,7 +617,7 @@ export function createMcpServer(host: ToolHost): McpServer {
       },
       annotations: readOnly,
     },
-    ({ since, path, limit, by }) => run(() => fmtChanges(quire.changes({ since, path, limit: limit ?? 30, by: parseAuthorFilter(by) }))),
+    ({ since, path, limit, by }) => run(() => fmtChanges(quire.changes({ since, path, limit: limit ?? 30, by: parseAuthorFilter(by) }), quire)),
   );
 
   return mcp;

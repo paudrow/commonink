@@ -13,7 +13,7 @@ import { boardsIn } from "../src/core/kanban.ts";
 import { capHtmlDepth, clip, tameMarkdown } from "../src/core/depth.ts";
 import { parseQuickAdd } from "../src/core/quickAdd.ts";
 import { diffstat } from "../src/core/quire.ts";
-import { openTempVault } from "./helpers.ts";
+import { cpuMs, openTempVault } from "./helpers.ts";
 
 test("headings keep their words and lose their closing #s", () => {
   assert.deepEqual(
@@ -59,9 +59,7 @@ test("hostile note text parses in linear time", () => {
     ["a diffstat of a 10k-line rewrite", () => diffstat(Array.from({ length: 10_000 }, (_, i) => `old ${i}`).join("\n"), Array.from({ length: 10_000 }, (_, i) => `new ${i}`).join("\n"))],
   ];
   const slow = cases.flatMap(([name, run]) => {
-    const t = performance.now();
-    run();
-    const ms = performance.now() - t;
+    const ms = cpuMs(run);
     return ms > 1000 ? [`${name}: ${Math.round(ms)} ms`] : [];
   });
   assert.deepEqual(slow, []);
