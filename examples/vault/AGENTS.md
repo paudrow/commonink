@@ -37,3 +37,4 @@ These notes belong to a person. You are a guest editor.
 - A URL alone on its own line renders as an embed (YouTube, X, Bluesky, Spotify, …) or a link card.
 - Archiving (`archive_note` / `quire archive`) moves a note under `Archive/`, out of search and listings; its links keep working and `unarchive_note` brings it back. Archive when the user asks you to tidy up.
 - Delete (`delete_note` / `quire delete`) only when the user asks you to delete something. It goes to Trash, where they can restore it for 30 days; you can't delete anything for good.
+- Export (`export_note` / `quire export`) when the user wants a file to take elsewhere: a note as `md`, `html` (one web page) or `docx`, or notes as a `zip` (a folder, or `/` for everything) that opens in Obsidian. Within the vault, link to a note instead.
