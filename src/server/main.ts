@@ -271,30 +271,25 @@ async function upload(req: http.IncomingMessage, res: http.ServerResponse, url: 
 }
 
 /**
- * A request body, or null if it's over `limit` bytes. An oversized body is left unread rather than
- * destroyed, so the 413 (sent with `tooLarge`) reaches the client before the connection closes.
+ * A request body, or null if it's over `limit` bytes. An oversized body is still read to its end and
+ * dropped, so the client has sent all of it when the 413 comes back. Closing the connection on a
+ * client that's still sending resets it, which can lose the 413.
  */
 function readBody(req: http.IncomingMessage, limit: number): Promise<Uint8Array<ArrayBuffer> | null> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
-    const onData = (c: Buffer) => {
+    req.on("data", (c: Buffer) => {
       size += c.length;
-      if (size <= limit) return void chunks.push(c);
-      req.off("data", onData);
-      req.pause();
-      resolve(null);
-    };
-    req.on("data", onData);
-    req.on("end", () => resolve(Uint8Array.from(Buffer.concat(chunks))));
+      if (size <= limit) chunks.push(c);
+      else chunks.length = 0;
+    });
+    req.on("end", () => resolve(size <= limit ? Uint8Array.from(Buffer.concat(chunks)) : null));
     req.on("error", reject);
   });
 }
 
-const tooLarge = (res: http.ServerResponse, error: string) => {
-  res.setHeader("Connection", "close");
-  return send(res, json({ error }, 413));
-};
+const tooLarge = (res: http.ServerResponse, error: string) => send(res, json({ error }, 413));
 
 /** The web-standard Request for the shared API, or null if the body is too big. */
 async function toRequest(req: http.IncomingMessage, url: URL): Promise<Request | null> {
