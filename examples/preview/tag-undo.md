@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 131
 title: Undoing a tag rename keeps edits made since
 ---
 Undo on a tag rename put every renamed note back as it was before the rename, even one that someone edited in the seconds after. Their edit was gone. Now Undo restores only the notes still as the rename left them. The others keep their edit, and the new tag, and a toast says so.
