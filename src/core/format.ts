@@ -4,6 +4,7 @@ import { authorLabel } from "./actor.ts";
 import { createTwoFilesPatch } from "diff";
 import { isTagFavorite, type Backlink, type Change, type Favorite, type Label, type Note, type NoteMeta, type Quire, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView, type TrashItem } from "./quire.ts";
 import type { Board } from "./kanban.ts";
+import { localDate } from "./tasks.ts";
 
 export function fmtSearch(q: string, hits: SearchHit[]): string {
   if (!hits.length) return `No notes match "${q}".`;
@@ -176,6 +177,6 @@ export function fmtBoards(path: string, boards: Board[], unclosed: number | null
 export function fmtTrash(items: TrashItem[]): string {
   if (!items.length) return "Trash is empty.";
   return items
-    .map((t) => `${t.id}  ${t.path} — deleted ${new Date(t.deletedAt).toISOString().slice(0, 16).replace("T", " ")}${t.by ? ` by ${authorLabel({ ...t.by })}` : ""}, gone for good ${new Date(t.expiresAt).toISOString().slice(0, 10)}`)
+    .map((t) => `${t.id}  ${t.path} — deleted ${localDate(t.deletedAt)} ${new Date(t.deletedAt).toTimeString().slice(0, 5)}${t.by ? ` by ${authorLabel({ ...t.by })}` : ""}, gone for good ${localDate(t.expiresAt)}`)
     .join("\n");
 }

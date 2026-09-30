@@ -9,6 +9,7 @@ export const CALENDAR_KEYS: Array<{ keys: string[]; label: string; action?: Cale
   { keys: ["m", "w", "d", "a"], label: "Month, week, day or agenda view" },
   { keys: ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"], label: "Move between days and events" },
   { keys: ["Enter"], label: "Open the event (on a day in Month: that day)" },
+  { keys: ["x"], label: "Tick the task, or reopen it" },
   { keys: ["Escape"], label: "Close the event" },
 ];
 

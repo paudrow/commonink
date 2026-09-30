@@ -128,6 +128,7 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   // Leaving the second team keeps everyone in this one. Its only owner can't leave (409).
   { route: "POST /leave", send: () => ["POST", `${leaveBase}/leave`, {}], expect: [401, 404, "ok", "ok", 409] },
   { route: "GET /api/me", send: () => ["GET", "/api/me"], expect: SIGNED_IN },
+  { route: "POST /api/me/time-zone", send: () => ["POST", "/api/me/time-zone", { timeZone: "America/Chicago" }], expect: SIGNED_IN },
   { route: "POST /api/workspaces", send: (w) => ["POST", "/api/workspaces", { name: `${w}'s team` }], expect: SIGNED_IN },
   { route: "GET /api/unfurl", send: () => ["GET", "/api/unfurl?url=https://example.invalid/"], expect: SIGNED_IN },
   { route: "GET /api/note-ids/*", send: () => ["GET", `/api/note-ids/${startId}`], expect: READ },

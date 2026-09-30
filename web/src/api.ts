@@ -306,6 +306,8 @@ export const api = {
   /** Online: which of your workspaces a note ID is in (404 if none you can open). */
   locate: (id: string) => j<{ workspace: { id: string; name: string } }>(`/api/note-ids/${id}`),
   createWorkspace: (name: string) => j<{ id: string }>("/api/workspaces", send("POST", { name })),
+  /** Online: tell the server this browser's time zone, so your agents' "today" is yours. */
+  reportTimeZone: () => j<{ timeZone: string }>("/api/me/time-zone", send("POST", { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })),
   signOutEverywhere: () => j<{ ok: true }>("/api/sign-out-everywhere", send("POST", {})),
   /** Online: the agents you've connected over MCP, most recently used first. */
   agents: () => j<ConnectedAgent[]>("/api/agents"),

@@ -91,6 +91,9 @@ export interface App {
   noteLabels(): void;
   gettingStarted(): void;
   shortcuts(): void;
+  settings(): void;
+  /** Online, the Connected agents dialog; locally, how to connect one to this vault. */
+  connectAgent(): void;
   /** Back or forward through what the focused pane has shown. */
   back(): void;
   forward(): void;
@@ -160,6 +163,8 @@ export function appCommands(app: App): Command[] {
       run: app.toggleHtml,
     },
     { id: "getting-started", title: "Open Getting started", keywords: "help start welcome guide tour", icon: "info", available: app.hasStart, run: app.gettingStarted },
+    { id: "settings", title: "Open settings", keywords: "preferences options configure", icon: "gear", keys: ["Mod-,"], run: app.settings },
+    { id: "connect-agent", title: "Connect an agent", keywords: "agent mcp claude cursor connected agents ai assistant", icon: "bot", run: app.connectAgent },
     { id: "shortcuts", title: "Keyboard shortcuts", keywords: "keys keybindings help hotkeys cheat sheet", icon: "keyboard", keys: ["?"], run: app.shortcuts },
     ...app.account
       .filter((a) => !a.current)
