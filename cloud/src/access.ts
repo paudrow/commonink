@@ -34,6 +34,8 @@ export const WORKSPACE_ROUTES = {
   "GET /today": "viewer",
   "GET /export": "viewer",
   "GET /guide": "viewer",
+  "GET /contacts": "viewer",
+  "GET /contact": "viewer",
   "GET /templates": "viewer",
   // Filling a template in only reads it; inserting the text is an edit to the note.
   "POST /templates/render": "viewer",
@@ -60,6 +62,11 @@ export const WORKSPACE_ROUTES = {
   "POST /move": "editor",
   "POST /restore": "editor",
   "POST /guide": "editor",
+  // Contacts are notes in People/: shared with the workspace, so changing them is an editor's.
+  "POST /contacts": "editor",
+  "POST /contacts/update": "editor",
+  "POST /contacts/merge": "editor",
+  "POST /contacts/import": "editor",
   "POST /notes/from-template": "editor",
   "POST /archive": "editor",
   "POST /unarchive": "editor",

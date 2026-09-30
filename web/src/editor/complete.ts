@@ -22,6 +22,9 @@ import { inTaskText } from "./taskEdit.ts";
 import { emojiMatches } from "../../../src/core/emoji.ts";
 import { did } from "../events.ts";
 import { slashUsed } from "./lineHint.ts";
+import { contactLink, ensureContact, people, rankPeople } from "../people.ts";
+import { toast } from "../toast.ts";
+import { PEOPLE } from "../../../src/core/contacts.ts";
 import { formatKeys } from "../keys.ts";
 import { eventLink, linkableEvents, whenText, type CalendarEvent } from "../calendar/data.ts";
 import { spanOf } from "../calendar/layout.ts";
@@ -63,10 +66,7 @@ function rankNotes(notes: NoteMeta[], query: string): NoteMeta[] {
 
 // ------------------------------------------------------------------ @ mentions
 
-/**
- * A source of things you can @-mention: notes and calendar events today; people plug in here later
- * (e.g. { section: "People", search: (q) => members matching q, insert: (m) => `@${m.handle}` }).
- */
+/** A source of things you can @-mention: notes and calendar events (people come first, from peopleOptions). */
 type Mention = { label: string; detail?: string; icon: string; insert: string };
 interface MentionProvider {
   section: string;
@@ -80,7 +80,8 @@ const noteMentions: MentionProvider = {
   search(query, state) {
     const ctx = state.facet(editorContext);
     const all = ctx.notes().filter((n) => n.kind !== "asset");
-    return rankNotes(all.filter((n) => n.path !== ctx.path), query)
+    // Contacts come first as people (peopleOptions), so not again here.
+    return rankNotes(all.filter((n) => n.path !== ctx.path && !n.path.startsWith(`${PEOPLE}/`)), query)
       .slice(0, 12)
       .map((n) => ({ label: n.title, detail: folderOf(n.path), icon: iconOf(n), insert: `[[${linkName(n, all)}]]` }));
   },
@@ -107,10 +108,10 @@ const eventMentions: MentionProvider = {
 const MENTIONS: MentionProvider[] = [noteMentions, eventMentions];
 
 /** People already on tasks, for `@` on a task line; fetched at most every half minute. */
-let people: { at: number; list: Promise<string[]> } | null = null;
+let onTasks: { at: number; list: Promise<string[]> } | null = null;
 const peopleOnTasks = () => {
-  if (!people || Date.now() - people.at > 30_000) people = { at: Date.now(), list: taskPeople() };
-  return people.list;
+  if (!onTasks || Date.now() - onTasks.at > 30_000) onTasks = { at: Date.now(), list: taskPeople() };
+  return onTasks.list;
 };
 
 async function mentionSource(ctx: CompletionContext): Promise<CompletionResult | null> {
@@ -131,7 +132,11 @@ async function mentionSource(ctx: CompletionContext): Promise<CompletionResult |
   });
   const typedName = /^[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*$/u.test(query) && !found.some((p) => p.toLowerCase() === query.toLowerCase());
   const options: Option[] = [...found.slice(0, 8).map(person), ...(onTask && typedName ? [person(query)] : [])];
-  const mentioned = await Promise.all(MENTIONS.map(async (p) => ({ p, results: await p.search(query, ctx.state) })));
+  const [people, mentioned] = await Promise.all([
+    onTask ? [] : peopleOptions(query, at),
+    Promise.all(MENTIONS.map(async (p) => ({ p, results: await p.search(query, ctx.state) }))),
+  ]);
+  options.push(...people);
   options.push(...mentioned.flatMap(({ p, results }) =>
     results.map((r) => ({
       label: r.label,
@@ -146,6 +151,45 @@ async function mentionSource(ctx: CompletionContext): Promise<CompletionResult |
   ));
   if (!options.length && /\s/.test(query)) return null; // "@ " in ordinary prose: get out of the way
   return { from: at + 1, options, filter: false };
+}
+
+/**
+ * In prose, `@` offers people first: contacts (a link to their note in People/), then workspace
+ * members who have no contact (picking one makes their contact), then "Create contact" for a name
+ * no one has. The link goes in at once; a new contact's note is made just after.
+ */
+async function peopleOptions(query: string, at: number): Promise<Option[]> {
+  const { contacts, members } = await people().catch(() => ({ contacts: [], members: [] }));
+  const ranked = rankPeople(query, contacts, members);
+  const section = { name: "People", rank: -1 };
+  const insert = (view: EditorView, to: number, link: string) => {
+    view.dispatch({ changes: { from: at, to, insert: link }, selection: { anchor: at + link.length }, userEvent: "input.complete" });
+    did("link");
+  };
+  /** Link to the contact `name` will have, and make it (for a member, with their email). */
+  const makeAndLink = (view: EditorView, to: number, name: string, email?: string) => {
+    insert(view, to, contactLink(`${PEOPLE}/${name}.md`));
+    void ensureContact(name, email).catch((e) => toast({ text: e instanceof Error ? e.message : `Couldn't make a contact for ${name}` }));
+  };
+  const out: Option[] = ranked.map((p) => ({
+    label: p.name,
+    detail: p.kind === "member" ? `member · ${p.detail}` : p.detail,
+    icon: p.kind === "contact" ? "user" : "at",
+    section,
+    apply: (view: EditorView, _c: Completion, _from: number, to: number) =>
+      p.contact ? insert(view, to, contactLink(p.contact.path)) : makeAndLink(view, to, p.name, p.member!.email),
+  }));
+  const name = query.trim().replace(/\s+/g, " ");
+  // Not when someone's name (or a word in it) starts with what's typed: "@pri" means Priya Shah, not a new "pri".
+  const known = [...contacts.flatMap((c) => [c.name, ...c.aliases]), ...members.map((m) => m.name)].some((n) =>
+    [n, ...n.split(/\s+/)].some((w) => w.toLowerCase().startsWith(name.toLowerCase())),
+  );
+  // Something that reads as a name: from a letter, at most four words, nothing a link can't hold ("@ 5pm" isn't one).
+  const looksLikeName = /^\p{L}/u.test(query) && name.split(" ").length <= 4 && /^[^[\]#|/\\^:]+$/.test(name);
+  if (name.length >= 2 && !known && looksLikeName) {
+    out.push({ label: `Create contact “${name}”`, detail: `${PEOPLE}/${name}`, icon: "plus", section, apply: (view: EditorView, _c: Completion, _from: number, to: number) => makeAndLink(view, to, name) });
+  }
+  return out;
 }
 
 // ------------------------------------------------------------------ [[ links

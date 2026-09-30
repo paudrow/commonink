@@ -15,6 +15,10 @@ import { formatQuery, parseQuery, queryProblem, type NoteQuery } from "./query.t
 import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
 import { safeDecode } from "./uri.ts";
 import { AGENTS_NOTE, START_TAG, type NoteRole } from "./noteRoles.ts";
+import {
+  contactFromNote, contactNote, dayOfNote, emptyContact, fillContact, parseContactsCsv, parseVCards, PEOPLE, sameFields, samePerson,
+  type Contact, type ContactFields, type ContactInput, type ContactNote, type TimelineItem,
+} from "./contacts.ts";
 import { cleanTitle, DAILY_TEMPLATE, fillTemplate, localNow, TEMPLATES, templateInfo, type FillOptions, type TemplateInfo } from "./templates.ts";
 import { frontmatterEntries } from "./frontmatter.ts";
 
@@ -1858,14 +1862,9 @@ export class Quire {
     // On a case-insensitive disk, "notes.md" is there when renaming "Notes.md" to it: the same file.
     const caseOnly = dest.toLowerCase() === from.toLowerCase() && !this.meta(dest);
     if (!caseOnly && this.files.stat(dest)) throw new QuireError(`${dest} already exists`, "exists");
-    // Which links point at the note, read before it moves: after, a name can lead to another note.
-    const resolveBefore = this.resolver();
-    const pointing = new Map<string, Set<string>>();
-    // The note's own links to itself ([[Guide#Setup]] in Guide) move with it.
-    for (const src of new Set([from, ...this.backlinks(from).map((b) => b.path)])) {
-      const targets = extractLinks(this.files.read(src) ?? "").map((l) => l.target).filter((t) => resolveBefore(t, src) === from);
-      if (targets.length) pointing.set(src, new Set(targets));
-    }
+    // Read before it moves: after, a name can lead to another note. Its own links to itself
+    // ([[Guide#Setup]] in Guide) move with it.
+    const pointing = this.linksTo(from, [from, ...this.backlinks(from).map((b) => b.path)]);
 
     const id = this.meta(from)?.id;
     this.files.rename(from, dest);
@@ -1881,6 +1880,27 @@ export class Quire {
 
     const newStemUnique = this.db.get("SELECT count(*) AS n FROM notes WHERE stem = ?", stemOf(dest)).n === 1;
     const wikiTarget = newStemUnique ? path.posix.basename(dest).replace(/\.(md|markdown)$/i, "") : dest.replace(/\.(md|markdown)$/i, "");
+    const { updated, edits } = this.relink(pointing, from, dest, wikiTarget, source);
+    // Its own links to itself rewritten make a newer version of it.
+    return { path: dest, from, version: edits.find((e) => e.path === dest)?.version ?? meta.version, change, updated, edits };
+  }
+
+  /** The link targets in each of `notes` that lead to `rel`, by note (those with none left out). */
+  private linksTo(rel: string, notes: Iterable<string>): Map<string, Set<string>> {
+    const resolve = this.resolver();
+    const pointing = new Map<string, Set<string>>();
+    for (const src of new Set(notes)) {
+      const targets = extractLinks(this.files.read(src) ?? "").map((l) => l.target).filter((t) => resolve(t, src) === rel);
+      if (targets.length) pointing.set(src, new Set(targets));
+    }
+    return pointing;
+  }
+
+  /**
+   * Point the links in `pointing` (see linksTo) that went to `from`, now moved or gone, at `dest`:
+   * `[[wikiTarget]]`, or its path in a markdown link. A note that was `from` is now `dest`.
+   */
+  private relink(pointing: Map<string, Set<string>>, from: string, dest: string, wikiTarget: string, source: string) {
     const updated: string[] = [];
     const edits: Array<{ path: string; content: string; version: string; change: Change }> = [];
     const resolve = this.resolver(); // rewriting links changes no note's path
@@ -1905,7 +1925,129 @@ export class Quire {
         edits.push({ path: src, content: after, version: r.version, change: r.change });
       }
     }
-    return { path: dest, from, version: edits.find((e) => e.path === dest)?.version ?? meta.version, change, updated, edits };
+    return { updated, edits };
+  }
+
+  // ---------------------------------------------------------------- contacts
+
+  /** Every contact (a note in People/, not archived), by name, with how often and when last other notes mention them. */
+  contacts(): Contact[] {
+    return this.list(PEOPLE)
+      .filter((n) => n.kind === "md")
+      .map((n) => {
+        const mentions = this.mentionsOf(n.path);
+        return { ...contactFromNote(n.path, this.files.read(n.path) ?? ""), id: n.id, mentions: mentions.length, lastContacted: mentions[0]?.date ?? null };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  }
+
+  /** One contact and its timeline: the notes that mention them, newest first. */
+  contact(target: string): { contact: Contact; timeline: TimelineItem[] } {
+    const rel = this.contactPath(target);
+    const meta = this.meta(rel)!;
+    const timeline = this.mentionsOf(rel);
+    const contact = { ...contactFromNote(rel, this.files.read(rel) ?? ""), id: meta.id, mentions: timeline.length, lastContacted: timeline[0]?.date ?? null };
+    return { contact, timeline };
+  }
+
+  /** The note `target` names, if it's a contact (a note in People/). */
+  private contactPath(target: string): string {
+    const rel = this.mustResolve(target);
+    if (kindOf(rel) !== "md" || !rel.startsWith(`${PEOPLE}/`)) throw new QuireError(`${rel} isn't a contact: contacts are notes in ${PEOPLE}/`);
+    return rel;
+  }
+
+  /** The notes that link to `rel`, one entry each (the first line that does), newest first. */
+  private mentionsOf(rel: string): TimelineItem[] {
+    const seen = new Set<string>();
+    const out: TimelineItem[] = [];
+    for (const b of this.backlinks(rel)) {
+      if (seen.has(b.path)) continue;
+      seen.add(b.path);
+      const date = dayOfNote(b.path, this.files.read(b.path) ?? "") ?? localDate(this.meta(b.path)?.mtime ?? this.now());
+      out.push({ kind: "note", path: b.path, title: b.title, date, line: b.line, text: b.text });
+    }
+    return out.sort((a, b) => b.date.localeCompare(a.date) || a.path.localeCompare(b.path));
+  }
+
+  /** A new contact: `People/<name>.md`, its fields in the frontmatter and `notes` under its title. */
+  createContact(input: Partial<ContactFields> & { name: string; notes?: string }, source: string) {
+    const name = input.name.trim().replace(/\s+/g, " ");
+    if (!name) throw new QuireError("A contact needs a name");
+    if (/[/\\\x00-\x1f]/.test(name) || name.startsWith(".")) throw new QuireError(`A contact's name can't have / or \\ in it, or start with a dot: "${name}"`);
+    const rel = cleanPath(`${PEOPLE}/${name}.md`);
+    const taken = this.list(PEOPLE, "all").find((n) => n.path.toLowerCase() === rel.toLowerCase()) ?? (this.files.stat(rel) ? { path: rel } : null);
+    if (taken) throw new QuireError(`${taken.path} already exists`, "exists", { path: taken.path });
+    const fields = { ...emptyContact(name), ...input, name };
+    const notes = input.notes?.trim();
+    return this.commit(rel, null, contactNote(fields) + (notes ? `\n${notes}\n` : ""), source, "create");
+  }
+
+  /** Change a contact's fields (any of them but its name, which is its note's). Its words and other frontmatter stay. */
+  updateContact(target: string, patch: Partial<Omit<ContactFields, "name">>, source: string) {
+    const rel = this.contactPath(target);
+    const before = this.files.read(rel) ?? "";
+    const after = contactNote({ ...contactFromNote(rel, before), ...patch }, before);
+    return after === before ? { ...this.meta(rel)!, change: null } : this.commit(rel, before, after, source, "edit");
+  }
+
+  /**
+   * Make two contacts one: `keep` gains what `drop` knows that it doesn't (see fillContact) and
+   * `drop`'s notes under "## From <name>"; links to `drop` then point at `keep`, and `drop` goes to Trash.
+   */
+  mergeContacts(keepTarget: string, dropTarget: string, source: string) {
+    const keep = this.contactPath(keepTarget);
+    const drop = this.contactPath(dropTarget);
+    if (keep === drop) throw new QuireError("Can't merge a contact with itself");
+    const [keepText, dropText] = [keep, drop].map((p) => this.files.read(p) ?? "");
+    const fields = fillContact(contactFromNote(keep, keepText), contactFromNote(drop, dropText));
+    const dropName = contactFromNote(drop, dropText).name;
+    const words = splitFrontmatter(dropText).body.replace(/^\s*#[ \t]+.*\n?/, "").trim();
+    let merged = contactNote(fields, keepText);
+    if (words) merged = `${merged.replace(/\n*$/, "\n")}\n## From ${dropName}\n\n${words}\n`;
+    const pointing = this.linksTo(drop, this.backlinks(drop).map((b) => b.path).filter((p) => p !== keep));
+    const r = this.commit(keep, keepText, merged, source, "edit");
+    const trashed = this.delete([drop], source);
+    const relinked = this.relink(pointing, drop, keep, keep.replace(/\.(md|markdown)$/i, ""), source);
+    return { path: keep, version: r.version, change: r.change, content: merged, trashed, ...relinked };
+  }
+
+  /**
+   * Contacts from a vCard or CSV export. Each person already here (an email or a name in common)
+   * gains what the import knows that they didn't; everyone else becomes a new contact. Several rows
+   * for one person count once.
+   */
+  importContacts(text: string, format: "vcard" | "csv", source: string) {
+    let inputs: ContactInput[];
+    try {
+      inputs = format === "vcard" ? parseVCards(text) : parseContactsCsv(text);
+    } catch (e) {
+      throw new QuireError(e instanceof Error ? e.message : String(e));
+    }
+    const known: ContactNote[] = this.contacts();
+    const created: string[] = [];
+    const updated: string[] = [];
+    const unchanged: string[] = [];
+    for (const input of inputs) {
+      const match = known.find((c) => samePerson(c, input));
+      if (!match) {
+        const r = this.createContact(input, source);
+        known.push(contactFromNote(r.path, this.files.read(r.path) ?? ""));
+        created.push(r.path);
+        continue;
+      }
+      const filled = fillContact(match, input);
+      if (sameFields(filled, match)) {
+        if (![...created, ...updated, ...unchanged].includes(match.path)) unchanged.push(match.path);
+        continue;
+      }
+      this.updateContact(match.path, filled, source);
+      Object.assign(match, filled);
+      if (!created.includes(match.path) && !updated.includes(match.path)) updated.push(match.path);
+      const at = unchanged.indexOf(match.path);
+      if (at >= 0) unchanged.splice(at, 1);
+    }
+    return { created, updated, unchanged };
   }
 }
 

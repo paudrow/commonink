@@ -14,6 +14,7 @@ import { coreExporter } from "../../src/core/export.ts";
 import { access, asRole } from "./access.ts";
 import { DoDb, SqlContent } from "./do-store.ts";
 import { SEED_FILES, SEED_NOTES } from "./seed.ts";
+import { membersOf } from "./admin.ts";
 import type { Env } from "./env.ts";
 import { safeDecode } from "../../src/core/uri.ts";
 import { Calendar } from "../../src/core/calendar.ts";
@@ -158,6 +159,8 @@ export class Workspace extends DurableObject<Env> {
         this.broadcast({ type: "change", change });
       },
       tree: () => this.broadcast({ type: "tree" }),
+      // Everyone in the workspace (the directory's, in D1): who "me" is on a task. (The Worker answers GET /members itself.)
+      members: async () => (await membersOf(this.env, wsId)).map((m) => ({ ...m, you: m.id === user })),
       calendar: this.calendar,
       origin: this.selfOrigin ?? undefined,
       calendarChanged: () => {

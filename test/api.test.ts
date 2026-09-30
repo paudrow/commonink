@@ -335,6 +335,36 @@ test("deleting a folder moves its notes up a level, or sends them all to Trash",
   assert.equal((await call("POST", "/delete-folder", { folder: "Projects", notes: "shred" })).status, 400);
 });
 
+test("contacts: list, read one with its timeline, create, change, merge and import", async () => {
+  const { call, events } = setup();
+  assert.deepEqual((await call("GET", "/contacts")).body, []);
+  const made = await call("POST", "/contacts", { name: "Jane Doe", email: ["jane@acme.com"], company: "Acme" });
+  assert.equal(made.body.path, "People/Jane Doe.md");
+  assert.equal((await call("POST", "/contacts", { name: "Jane Doe" })).status, 409);
+  assert.equal((await call("POST", "/contacts", { name: "X", email: "not-a-list" })).status, 400);
+  await call("PUT", "/note", { path: "Journal/2026-09-20.md", content: "# Sep 20\n\nCalled [[People/Jane Doe]].\n" });
+  const [jane] = (await call("GET", "/contacts")).body;
+  assert.deepEqual([jane.name, jane.company, jane.mentions, jane.lastContacted], ["Jane Doe", "Acme", 1, "2026-09-20"]);
+  const one = (await call("GET", "/contact?path=People/Jane Doe")).body;
+  assert.deepEqual(one.timeline.map((t: { path: string }) => t.path), ["Journal/2026-09-20.md"]);
+  await call("POST", "/contacts/update", { path: "People/Jane Doe.md", patch: { role: "CTO" } });
+  assert.equal((await call("GET", "/contacts")).body[0].role, "CTO");
+  assert.equal((await call("POST", "/contacts/update", { path: "People/Jane Doe.md", patch: { name: "Janet" } })).status, 400);
+  const imported = await call("POST", "/contacts/import", { format: "csv", text: "Name,Email\nJ. Doe,jane@acme.com\nSam Lee,sam@x.org\n" });
+  assert.deepEqual(imported.body, { created: ["People/Sam Lee.md"], updated: ["People/Jane Doe.md"], unchanged: [] });
+  assert.equal((await call("POST", "/contacts/import", { format: "xlsx", text: "" })).status, 400);
+  events.length = 0;
+  const merged = await call("POST", "/contacts/merge", { keep: "People/Jane Doe.md", drop: "People/Sam Lee.md" });
+  assert.equal(merged.body.path, "People/Jane Doe.md");
+  assert.deepEqual(events, ["written People/Jane Doe.md by tester", "removed People/Sam Lee.md by tester", "tree"]);
+  assert.deepEqual((await call("GET", "/contacts")).body.map((c: { name: string }) => c.name), ["Jane Doe"]);
+});
+
+test("members: the workspace's people, from the host (none in a local vault)", async () => {
+  const { call } = setup();
+  assert.deepEqual((await call("GET", "/members")).body, []);
+});
+
 test("templates: listed, rendered for inserting, and made into notes", async () => {
   const { call, events } = setup();
   await call("PUT", "/note", { path: "Templates/Meeting.md", content: "---\ntitle: \"{{date}} {{ask:Client}}\"\nfolder: Meetings\napplies_to: Meetings/\n---\n# {{title}}\n\n**Attendees:** {{ask:Attendees}}\n\n- {{cursor}}\n" });

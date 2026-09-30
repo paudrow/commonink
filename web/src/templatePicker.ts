@@ -2,7 +2,8 @@
 // and ? for the help on every template option) and the {{ask:…}} form, whose fields follow each
 // question's type: text, a people picker, a date picker, or a menu of choices. Making the note or
 // inserting the text is the caller's (see main.ts and editor/complete.ts).
-import { api } from "./api.ts";
+import type { Contact, Member } from "./api.ts";
+import { contactLink, membersWithoutContact, people } from "./people.ts";
 import { el, icon } from "./dom.ts";
 import { fuzzyScore } from "./fuzzy.ts";
 import { fillTemplate, handlesFor, localNow, type Ask, type PersonPick, type TemplateInfo } from "../../src/core/templates.ts";
@@ -151,14 +152,16 @@ function peopleField(a: Ask, people: Offer[]) {
   return { field, input, value };
 }
 
-/**
- * Who a template's people questions offer: the workspace's members (online; a local vault has none,
- * so only "add someone new"). Contacts join them once they're in the app (#93).
- */
+/** The workspace's contacts, each with the link to their note, then the members who have no contact. */
+export function peopleOffers(contacts: Contact[], members: Member[]): Offer[] {
+  return [...contacts.map((c) => ({ name: c.name, link: contactLink(c.path) })), ...membersWithoutContact(contacts, members).map((m) => ({ name: m.name }))];
+}
+
+/** Who a template's people questions offer: contacts, and online the workspace's members (see peopleOffers). */
 export async function templatePeople(t: TemplateInfo): Promise<Offer[]> {
   if (!t.asks.some((a) => a.type === "people")) return [];
-  const members = await api.members().catch(() => []);
-  return members.map((m) => ({ name: m.name }));
+  const { contacts, members } = await people();
+  return peopleOffers(contacts, members);
 }
 
 /** The form's answers: text answers by label, and the people picked for `people` questions. */
