@@ -23,11 +23,12 @@ import { folderPicker } from "./folderPicker.ts";
 import type { History } from "./history.ts";
 import type { Assets } from "./assets.ts";
 import { renderTasksPage } from "./tasksView.ts";
-import { isQuickAddKey, openQuickAdd } from "./quickAdd.ts";
-import { runTaskCommand } from "./taskCommand.ts";
+import { openQuickAdd, QUICK_ADD } from "./quickAdd.ts";
+import { formatKeys, learnLayout, matchKeys } from "./keys.ts";
+import { taskInputPrefs } from "./taskInput.ts";
 import type { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./account.ts";
-import { appCommands, learnLayout, matchKeys } from "./commands.ts";
+import { appCommands } from "./commands.ts";
 import { toggleShortcuts } from "./shortcuts.ts";
 import { did, vaultEvents } from "./events.ts";
 import { guideMessage, startGuide } from "./onboarding.ts";
@@ -98,6 +99,7 @@ const prefs = {
   /** Sidebar sections folded away from their header. Folders start folded: the sidebar leads with tags. */
   folded: { favorites: false, smart: false, folders: true, tags: false, ...store.get<Record<string, boolean>>("folded", {}) } as Record<string, boolean>,
 };
+taskInputPrefs.vim = prefs.vim; // every task input (quick-add, inline edit, a card) types with the editor's keys
 
 let notes: NoteMeta[] = [];
 /** Your starred notes, in your order (archived ones too; the sidebar leaves those out). */
@@ -425,7 +427,7 @@ function renderPaneBars() {
       el("span", { class: "pane-title" }, s ? s.title : p.index === 0 && page ? label[page] : ""),
       el("span", { class: "spacer" }),
       ...(s && s.kind !== "asset" ? [btn(starred ? "starred" : "star", starred ? "Unstar" : "Star", () => void toggleStar(s.path), starred ? "is-on" : "")] : []),
-      btn("close", "Close this pane (⌘⌥\\)", () => void closePane(p)),
+      btn("close", `Close this pane (${formatKeys("Mod-Alt-\\")})`, () => void closePane(p)),
     );
     p.bar.classList.toggle("is-focused", p === active);
   }
@@ -499,7 +501,7 @@ async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: strin
 async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("tasks");
-  unmountTasks = renderTasksPage($("#tasks-view"), { open: (path, line, side) => void openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }), tags: () => tags, vim: prefs.vim }, { tag: opts.tag, assignee: opts.assignee });
+  unmountTasks = renderTasksPage($("#tasks-view"), { open: (path, line, side) => void openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }), tags: () => tags }, { tag: opts.tag, assignee: opts.assignee });
   $("#tasks-view").focus({ preventScroll: true });
   if (opts.push !== false) setUrl("/tasks");
   document.title = "Tasks · Common Ink";
@@ -599,7 +601,7 @@ async function setFocusMode(on: boolean) {
   focusMode = on;
   document.body.classList.toggle("is-focus", on);
   $("#focus-btn").replaceChildren(icon(on ? "unfocus" : "focus", 16));
-  setLabel($("#focus-btn"), on ? "Leave focus mode (⌘⇧↵)" : "Focus mode (⌘⇧↵)");
+  setLabel($("#focus-btn"), `${on ? "Leave focus mode" : "Focus mode"} (${formatKeys("Mod-Shift-Enter")})`);
   const keyboard = (navigator as any).keyboard;
   try {
     if (on && !document.fullscreenElement) {
@@ -1570,7 +1572,7 @@ function renderChrome() {
   $("#note-history-btn").hidden = !s || s.kind === "asset";
   $("#focus-btn").hidden = !s || s.kind === "asset";
   $("#split-btn").hidden = !split && (!s || s.kind === "asset");
-  setLabel($("#split-btn"), split ? "Close the side pane (⌘⌥\\)" : "Split view (⌘⌥\\)");
+  setLabel($("#split-btn"), `${split ? "Close the side pane" : "Split view"} (${formatKeys("Mod-Alt-\\")})`);
   $("#split-btn").classList.toggle("is-on", split);
   $("#save-status").hidden = !s;
   renderPaneBars();
@@ -1590,7 +1592,7 @@ function renderChrome() {
   setLabel($("#star-btn"), starred ? "Unstar (take out of Favorites)" : "Star (add to Favorites)");
   $("#star-btn").replaceChildren(icon(starred ? "starred" : "star", 16));
   const archived = isArchived(s.path);
-  setLabel($("#archive-btn"), archived ? "Unarchive note (⌘⇧E)" : "Archive note (⌘⇧E)");
+  setLabel($("#archive-btn"), `${archived ? "Unarchive note" : "Archive note"} (${formatKeys("Mod-Shift-e")})`);
   $("#archive-btn").replaceChildren(icon(archived ? "unarchive" : "archive", 16));
   const parts = s.path.split("/");
   const file = parts.pop()!;
@@ -1851,15 +1853,6 @@ Vim.defineEx("edit", "e", (_cm: unknown, params: { args?: string[] }) => {
 Vim.defineEx("archive", "arch", () => void archiveCurrent());
 Vim.defineEx("notes", "note", () => void showNotes());
 Vim.defineEx("star", "star", () => active.session && void toggleStar(active.session.path));
-// :task <words> adds a task (as quick-add reads it) to today's daily note, with an Undo; :task alone opens the bar.
-Vim.defineEx("task", "task", (_cm: unknown, params: { argString?: string }) =>
-  void runTaskCommand(params.argString ?? "", {
-    add: (text) => api.addTask(text),
-    remove: async (r) => void (await api.removeTask(r)),
-    openBar: quickAdd,
-    toast: (t) => toast({ icon: "check", ...t }),
-  }).catch((err) => toast({ text: err instanceof Error ? err.message : "Couldn't add the task" })),
-);
 Vim.defineEx("focus", "foc", () => void setFocusMode(!focusMode));
 Vim.defineEx("vsplit", "vs", (_cm: unknown, params: { args?: string[] }) => {
   const arg = params.args?.join(" ");
@@ -1890,45 +1883,47 @@ function followLinkAtCursor() {
 window.addEventListener(
   "keydown",
   (e) => {
-    const mod = e.metaKey || e.ctrlKey;
-    const quickOpen = matchKeys(e, "Mod-p") || matchKeys(e, "Mod-k");
-    if (quickOpen || matchKeys(e, "Mod-Shift-p")) {
+    // Matched by the character typed, so they work on any keyboard layout (keys.ts).
+    const is = (keys: string) => matchKeys(e, keys);
+    const quickOpen = is("Mod-p") || is("Mod-k");
+    if (quickOpen || is("Mod-Shift-p")) {
       e.preventDefault();
       paletteToSide = false;
       if (quickOpen && !palette.isOpen) did("search");
       palette.toggle(quickOpen ? "" : ">");
-    } else if (mod && !e.altKey && e.key === "\\") {
+    } else if (is("Mod-\\")) {
       e.preventDefault();
       togglePanel();
-    } else if (mod && !e.altKey && e.key === "s") {
+    } else if (is("Mod-s")) {
       e.preventDefault();
       flushSave();
-    } else if (mod && e.shiftKey && e.key.toLowerCase() === "e") {
+    } else if (is("Mod-Shift-e")) {
       e.preventDefault();
       void archiveCurrent();
-    } else if (mod && e.shiftKey && e.key === "Enter") {
+    } else if (is("Mod-Shift-Enter")) {
       e.preventDefault();
       void setFocusMode(!focusMode);
-    } else if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
+    } else if (is("Mod-Shift-f")) {
       e.preventDefault();
       void showNotes({ filter: true });
-    } else if (matchKeys(e, "Mod-Alt-\\")) {
+    } else if (is("Mod-Alt-\\")) {
       e.preventDefault();
       void (split ? closePane(active) : openSplit());
-    } else if ((matchKeys(e, "Mod-Alt-[") || matchKeys(e, "Mod-Alt-]")) && split) {
+    } else if ((is("Mod-Alt-[") || is("Mod-Alt-]")) && split) {
       e.preventDefault();
-      const p = panes[matchKeys(e, "Mod-Alt-[") ? 0 : 1];
+      const p = panes[is("Mod-Alt-[") ? 0 : 1];
       focusPane(p);
       if (p.session && p.session.kind !== "asset") p.view.focus();
-    } else if (isQuickAddKey(e) || (e.key === "q" && !mod && !e.altKey && !typingIn(e.target))) {
-      // ⌘⇧. anywhere (the editor in any Vim mode too), or q where you aren't typing: the quick-add bar.
+    } else if (is(QUICK_ADD)) {
+      // ⌘⇧. anywhere, the editor in any Vim mode too: the quick-add bar.
       e.preventDefault();
       e.stopPropagation(); // not the editor's (or Vim's) key as well
       quickAdd();
-    } else if (e.key === "?" && !mod && !e.altKey && !typingIn(e.target)) {
+    } else if (e.key === "?" && !e.metaKey && !e.ctrlKey && !e.altKey && !typingIn(e.target)) {
+      // ? where you aren't typing: the shortcut sheet (a character, whichever key types it).
       e.preventDefault();
       toggleShortcuts(commands(), { vim: prefs.vim });
-    } else if (mod && e.key === "e" && active.session?.kind === "html") {
+    } else if (is("Mod-e") && active.session?.kind === "html") {
       e.preventDefault();
       setHtmlMode(prefs.htmlMode === "preview" ? "source" : "preview");
     }
@@ -1941,7 +1936,6 @@ function quickAdd() {
   openQuickAdd({
     added: (r) => toast({ icon: "check", text: `Added to ${r.path.replace(/\.md$/, "")}`, actionLabel: "Open", action: () => void openNote(r.path, { line: r.line }) }),
     open: (path, line) => void openNote(path, { line }),
-    vim: prefs.vim,
     note: active.session?.kind === "md" ? active.session.path : undefined,
   });
 }
@@ -1960,6 +1954,7 @@ function togglePanel(force?: boolean) {
 function toggleVim() {
   prefs.vim = !prefs.vim;
   store.set("vim", prefs.vim);
+  taskInputPrefs.vim = prefs.vim;
   for (const p of panes) p.view.dispatch({ effects: vimSlot.reconfigure(prefs.vim ? vim() : []) });
   attachVim();
   active.view.focus();
@@ -2158,6 +2153,7 @@ async function boot() {
   // A new note goes at the top level, unless Notes is showing a folder: then it goes there.
   $("#new-note").addEventListener("click", () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""));
   $("#panel-btn").addEventListener("click", () => togglePanel());
+  setLabel($("#panel-btn"), `Toggle side panel (${formatKeys("Mod-\\")})`);
   setupPanes();
   $("#stage").addEventListener("mousedown", () => document.body.classList.remove("panel-overlay"));
   $("#theme-toggle").addEventListener("click", toggleTheme);

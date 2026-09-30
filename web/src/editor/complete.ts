@@ -18,7 +18,7 @@ import { inTaskText } from "./taskEdit.ts";
 import { emojiMatches } from "../../../src/core/emoji.ts";
 import { did } from "../events.ts";
 import { slashUsed } from "./lineHint.ts";
-import { formatKeys } from "../commands.ts";
+import { formatKeys } from "../keys.ts";
 
 interface Option extends Completion {
   icon?: string;
@@ -441,9 +441,6 @@ const pasteFiles = EditorView.domEventHandlers({
 export function typingHelpers(): Extension {
   return [completions([toolSource, taskTokenSource, mentionSource, linkSource, tagSource, frontmatterTagSource, emojiSource]), pasteLinks, pasteFiles];
 }
-
-/** `[[` note names and `#` tags, for a field outside the note editor (a board's card). */
-export const fieldCompletions = (): Extension => completions([linkSource, tagSource]);
 
 function completions(override: CompletionSource[]): Extension {
   return autocompletion({

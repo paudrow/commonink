@@ -3,7 +3,7 @@
 // The line stays the source of truth. This reads the tokens and rewrites one at a time in place, so
 // an edit never touches the rest of the line. No Node imports: the editor uses this too.
 import { headingText, withoutCodeOrLinks } from "./prose.ts";
-import { daysBetween, nextDue, parseRule, ruleProblem, shiftDate } from "./recurrence.ts";
+import { daysBetween, formatRule, nextDue, parseRule, ruleProblem, shiftDate, type Rule } from "./recurrence.ts";
 import { cleanTag, normalizeTag, tagsInLine } from "./tags.ts";
 
 export const TASK_LINE = /^(\s*[-*+]\s+\[)([ xX])(\]\s+)(.*)$/;
@@ -18,6 +18,10 @@ export interface TaskMeta {
   done: string | null;
   /** How it repeats, as written (`rec:monthly`, `rec:1st-tue`): see recurrence.ts. */
   rec: string | null;
+  /** A repeat's last day (`until:`): no occurrence after it. */
+  until: string | null;
+  /** How many times it's left to happen, this one included (`times:`); each tick counts one down. */
+  times: number | null;
   priority: Priority | null;
   assignees: string[];
   tags: string[];
@@ -36,7 +40,7 @@ export interface ParsedTask {
  */
 export type TaskPatch = Partial<TaskMeta> & { checked?: boolean; summary?: string };
 
-type Field = "due" | "start" | "done" | "rec" | "priority" | "assignees" | "tags";
+type Field = "due" | "start" | "done" | "rec" | "until" | "times" | "priority" | "assignees" | "tags";
 /** One token in a task's text; `from`/`to` are its columns there. `key` is how it's written (`scheduled` for a start). */
 interface Token {
   field: Field;
@@ -48,8 +52,12 @@ interface Token {
 
 const PERSON = "[\\p{L}\\p{N}_-]+(?:\\.[\\p{L}\\p{N}_-]+)*";
 /** A person ends where the word does, so `@jane,` and `@jane.` count and `@jane's` doesn't. */
-const WORD = new RegExp(`(?<!\\S)(due|start|scheduled|done|rec):(\\S+)|(?<!\\S)!(high|low)(?!\\S)|(?<!\\S)@(${PERSON})(?=$|[\\s,.;:!?)\\]])`, "giu");
+const WORD = new RegExp(`(?<!\\S)(due|start|scheduled|done|rec|until|times):(\\S+)|(?<!\\S)!(high|low)(?!\\S)|(?<!\\S)@(${PERSON})(?=$|[\\s,.;:!?)\\]])`, "giu");
 const DATE = /^(\d{4})-(\d{2})-(\d{2})(?:T([01]\d|2[0-3]):[0-5]\d)?$/;
+
+const TIMES = /^[1-9]\d{0,3}$/;
+/** A real calendar day with no time (for `until:`). */
+const isDay = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && isDate(s);
 
 /** A real calendar day (2026-04-31 isn't), optionally with a time. */
 export const isDate = (s: string) => {
@@ -72,7 +80,7 @@ function tokensOf(text: string): Token[] {
     if (m[1]) {
       const key = m[1].toLowerCase();
       const value = m[2];
-      if (key === "rec" ? !parseRule(value) : !isDate(value)) continue;
+      if (!(key === "rec" ? parseRule(value) : key === "times" ? TIMES.test(value) : key === "until" ? isDay(value) : isDate(value))) continue;
       out.push({ field: key === "scheduled" ? "start" : (key as Field), key, value, ...at });
     } else if (m[3]) out.push({ field: "priority", key: "!", value: m[3].toLowerCase(), ...at });
     else out.push({ field: "assignees", key: "@", value: m[4], ...at });
@@ -105,7 +113,7 @@ export function parseTask(line: string): ParsedTask | null {
     done: m[2] !== " ",
     text,
     summary: text.slice(0, end).trimEnd(),
-    meta: { due: first("due"), start: first("start"), done: first("done"), rec: first("rec"), priority: first("priority") as Priority | null, assignees: all("assignees"), tags: all("tags") },
+    meta: { due: first("due"), start: first("start"), done: first("done"), rec: first("rec"), until: first("until"), times: first("times") === null ? null : Number(first("times")), priority: first("priority") as Priority | null, assignees: all("assignees"), tags: all("tags") },
   };
 }
 
@@ -121,8 +129,8 @@ function trailing(text: string, tokens: Token[]): Token[] {
   return run;
 }
 
-/** The order tokens are shown in, and the place a new one goes: priority, due, start, repeat, people, tags, done. */
-const RANK: Record<Field, number> = { priority: 0, due: 1, start: 2, rec: 3, assignees: 4, tags: 5, done: 6 };
+/** The order tokens are shown in, and the place a new one goes: priority, due, start, repeat (and its ends), people, tags, done. */
+const RANK: Record<Field, number> = { priority: 0, due: 1, start: 2, rec: 3, until: 4, times: 5, assignees: 6, tags: 7, done: 8 };
 
 /** What's wrong with a patch that couldn't be written back as tokens, or null if nothing is. */
 export function patchProblem(patch: TaskPatch): string | null {
@@ -133,6 +141,8 @@ export function patchProblem(patch: TaskPatch): string | null {
   }
   const rec = patch.rec ? ruleProblem(patch.rec) : null;
   if (rec) return rec;
+  if (patch.until !== undefined && patch.until !== null && !isDay(patch.until)) return `"until" must be a date like 2026-10-01, not "${patch.until}"`;
+  if (patch.times !== undefined && patch.times !== null && !TIMES.test(String(patch.times))) return `"times" must be a whole number of repeats left, 1 or more`;
   if (patch.priority !== undefined && patch.priority !== null && patch.priority !== "high" && patch.priority !== "low") return `"priority" must be high or low`;
   const person = (patch.assignees ?? []).find((a) => !new RegExp(`^@?${PERSON}$`, "u").test(a.trim()));
   if (person !== undefined) return `"${person}" isn't a person: use a name like jane or jane.doe, without the @`;
@@ -179,7 +189,7 @@ export function editTask(line: string, patch: TaskPatch): string {
   for (const field of Object.keys(RANK) as Field[]) {
     if (!(field in patch)) continue;
     const v = patch[field];
-    const want = tidy(field, Array.isArray(v) ? v : v ? [v] : []);
+    const want = tidy(field, Array.isArray(v) ? v : v !== null && v !== undefined && v !== "" ? [String(v)] : []);
     const have = tokensOf(text).filter((t) => t.field === field);
     // A single value changed in place keeps its spot in the sentence (and `scheduled:` stays `scheduled:`).
     if (!Array.isArray(v) && want.length && have.length) {
@@ -235,28 +245,50 @@ export function editTaskLines(lines: string[], i: number, patch: TaskPatch, toda
 }
 
 /**
+ * Where a repeat ends: the earlier of its `until:` and its rule's UNTIL, and its `times:` (else the
+ * rule's COUNT), the occurrences left with this one included. Null for no end.
+ */
+export function endsOf(meta: Pick<TaskMeta, "until" | "times">, rule: Rule): { until: string | null; times: number | null } {
+  const untils = [meta.until, rule.until].filter((u): u is string => !!u).sort();
+  return { until: untils[0] ?? null, times: meta.times ?? rule.count ?? null };
+}
+
+/**
+ * The next occurrence of a repeating task that's done (or skipped) with `after` as the day to count
+ * from: its due date, and the patch that counts `times:` (or the rule's COUNT) down. Null if the
+ * task doesn't repeat, or this was its last time.
+ */
+function following(meta: TaskMeta, after: string): { due: string; patch: TaskPatch } | null {
+  const rule = meta.rec ? parseRule(meta.rec) : null;
+  if (!rule) return null;
+  const ends = endsOf(meta, rule);
+  if (ends.times !== null && ends.times <= 1) return null;
+  const due = nextDue(rule, meta.due, after);
+  if (!due || (ends.until && due.slice(0, 10) > ends.until)) return null;
+  const start = meta.start && shiftDate(meta.start, daysBetween(meta.due ?? after, due));
+  const countdown: TaskPatch = meta.times !== null ? { times: meta.times - 1 } : rule.count ? { rec: formatRule({ ...rule, count: rule.count - 1 }) } : {};
+  return { due, patch: { due, ...(start ? { start } : {}), ...countdown } };
+}
+
+/**
  * The task that follows a repeating one done on `done`: the same line, unticked, due on the rule's
- * next date, with its start moved by as many days. Null if it doesn't repeat (or never again).
+ * next date, with its start moved by as many days and one fewer `times:` left. Null if it doesn't
+ * repeat, or never again (its `until:` has passed, or that was its last time).
  */
 export function nextOccurrence(line: string, done: string): string | null {
   const task = parseTask(line);
-  const rule = task?.meta.rec ? parseRule(task.meta.rec) : null;
-  const due = rule && nextDue(rule, task!.meta.due, done);
-  if (!task || !due) return null;
-  const start = task.meta.start && shiftDate(task.meta.start, daysBetween(task.meta.due ?? done, due));
-  return editTask(line, { checked: false, done: null, due, ...(start ? { start } : {}) });
+  const next = task && following(task.meta, done);
+  return next ? editTask(line, { checked: false, done: null, ...next.patch }) : null;
 }
 
 /**
  * The patch that skips a repeating task's current occurrence: due (and start) move to the next
- * date without it being done. A gap after completion counts from the due date, as if done on time.
- * Null if the task doesn't repeat.
+ * date without it being done, and a skipped time counts as one of its `times:`. A gap after
+ * completion counts from the due date, as if done on time. Null if the task doesn't repeat, or has
+ * no next time to skip to.
  */
-export function skipPatch(meta: TaskMeta, today: string): Pick<TaskPatch, "due" | "start"> | null {
-  const rule = meta.rec ? parseRule(meta.rec) : null;
-  const due = rule && nextDue(rule, meta.due, meta.due?.slice(0, 10) ?? today);
-  if (!due) return null;
-  return meta.start ? { due, start: shiftDate(meta.start, daysBetween(meta.due ?? today, due)) } : { due };
+export function skipPatch(meta: TaskMeta, today: string): TaskPatch | null {
+  return following(meta, meta.due?.slice(0, 10) ?? today)?.patch ?? null;
 }
 
 /** Put a new token among the tokens at the end of the text, before the first that ranks after it (else last). */

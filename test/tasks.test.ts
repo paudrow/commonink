@@ -10,17 +10,17 @@ test("a task line's tokens become its metadata, and its text without the trailin
     done: false,
     text: "Send invoice to Acme due:2026-10-01 rec:monthly #work/clients @jane !high",
     summary: "Send invoice to Acme",
-    meta: { due: "2026-10-01", start: null, done: null, rec: "monthly", priority: "high", assignees: ["jane"], tags: ["work/clients"] },
+    meta: { due: "2026-10-01", start: null, done: null, rec: "monthly", until: null, times: null, priority: "high", assignees: ["jane"], tags: ["work/clients"] },
   });
   assert.deepEqual(parseTask("  * [x] Renew passport done:2026-09-20 scheduled:2026-09-01T09:30")?.meta, {
-    due: null, start: "2026-09-01T09:30", done: "2026-09-20", rec: null, priority: null, assignees: [], tags: [],
+    due: null, start: "2026-09-01T09:30", done: "2026-09-20", rec: null, until: null, times: null, priority: null, assignees: [], tags: [],
   });
   assert.equal(parseTask("Not a task due:2026-10-01"), null);
 });
 
 test("words that only look like tokens stay text", () => {
   const t = parseTask("- [ ] Email me@example.com about `due:2026-01-01` and !highlight, due:tomorrow, due:2026-13-40 #27")!;
-  assert.deepEqual(t.meta, { due: null, start: null, done: null, rec: null, priority: null, assignees: [], tags: [] });
+  assert.deepEqual(t.meta, { due: null, start: null, done: null, rec: null, until: null, times: null, priority: null, assignees: [], tags: [] });
   assert.equal(t.summary, t.text);
 });
 
@@ -168,6 +168,66 @@ test("a task is in one Today section at most: overdue, then due today, then star
     ["- [ ] a due:2026-09-27", "- [ ] a due:2026-09-28T09:00", "- [ ] a start:2026-09-28", "- [ ] a start:2026-09-28 due:2026-09-20", "- [ ] a start:2026-09-28 due:2026-10-01", "- [ ] a due:2026-09-29", "- [ ] a"].map(at),
     ["overdue", "due", "starting", "overdue", "starting", null, null],
   );
+});
+
+test("until: and times: are tokens next to rec:, and anything else that looks like them stays text", () => {
+  const t = parseTask("- [ ] Pay the loan due:2026-10-06 rec:6th times:3 until:2027-06-30 #bills")!;
+  assert.deepEqual([t.meta.times, t.meta.until, t.summary], [3, "2027-06-30", "Pay the loan"]);
+  assert.deepEqual([parseTask("- [ ] a times:0 until:someday")!.meta.times, parseTask("- [ ] a times:0 until:someday")!.meta.until], [null, null]);
+  // They go in right after the repeat, and come out like any token.
+  assert.equal(editTask("- [ ] Pay due:2026-10-06 rec:6th #bills", { times: 3 }), "- [ ] Pay due:2026-10-06 rec:6th times:3 #bills");
+  assert.equal(editTask("- [ ] Pay due:2026-10-06 rec:6th #bills", { until: "2027-06-30", times: 3 }), "- [ ] Pay due:2026-10-06 rec:6th until:2027-06-30 times:3 #bills");
+  assert.equal(editTask("- [ ] Pay rec:6th times:3 until:2027-06-30", { times: null, until: null }), "- [ ] Pay rec:6th");
+  assert.equal(patchProblem({ times: 0 }), '"times" must be a whole number of repeats left, 1 or more');
+  assert.equal(patchProblem({ until: "June" }), '"until" must be a date like 2026-10-01, not "June"');
+});
+
+test("times: counts down on every tick, and the last one makes no next occurrence", () => {
+  let lines = ["- [ ] Pay the loan due:2026-10-06 rec:6th times:3"];
+  const tick = (i: number, day: string) => (lines = editTaskLines(lines, i, { checked: true }, day));
+  tick(0, "2026-10-06");
+  assert.equal(lines[1], "- [ ] Pay the loan due:2026-11-06 rec:6th times:2");
+  tick(1, "2026-11-06");
+  assert.equal(lines[2], "- [ ] Pay the loan due:2026-12-06 rec:6th times:1");
+  tick(2, "2026-12-06");
+  assert.deepEqual(lines, [
+    "- [x] Pay the loan due:2026-10-06 rec:6th times:3 done:2026-10-06",
+    "- [x] Pay the loan due:2026-11-06 rec:6th times:2 done:2026-11-06",
+    "- [x] Pay the loan due:2026-12-06 rec:6th times:1 done:2026-12-06", // the last: it stays as it was, ticked
+  ]);
+  // Unticking straight after still takes the next one back.
+  const one = editTaskLines(["- [ ] a due:2026-10-06 rec:weekly times:2"], 0, { checked: true }, "2026-10-06");
+  assert.deepEqual(editTaskLines(one, 0, { checked: false }, "2026-10-06"), ["- [ ] a due:2026-10-06 rec:weekly times:2"]);
+});
+
+test("until: keeps an occurrence on that day and none after it; with times: too, whichever ends first wins", () => {
+  const next = (line: string, day = "2026-10-06") => editTaskLines([line], 0, { checked: true }, day)[1] ?? null;
+  assert.equal(next("- [ ] Class due:2026-10-06 rec:6th until:2026-11-06"), "- [ ] Class due:2026-11-06 rec:6th until:2026-11-06");
+  assert.equal(next("- [ ] Class due:2026-11-06 rec:6th until:2026-11-06", "2026-11-06"), null);
+  assert.equal(next("- [ ] Class due:2026-10-06 rec:6th until:2026-11-05"), null);
+  assert.equal(next("- [ ] Class due:2026-10-06 rec:6th times:5 until:2026-11-06"), "- [ ] Class due:2026-11-06 rec:6th times:4 until:2026-11-06");
+  assert.equal(next("- [ ] Class due:2026-10-06 rec:6th times:1 until:2027-01-01"), null);
+  // Month ends: monthly from Jan 31 skips February, and Mar 31 is still in.
+  assert.equal(next("- [ ] Rent due:2026-01-31 rec:monthly until:2026-03-31", "2026-01-31"), "- [ ] Rent due:2026-03-31 rec:monthly until:2026-03-31");
+  // after- repeats end too.
+  assert.equal(next("- [ ] Pill due:2026-10-06 rec:after-1m until:2026-11-01", "2026-10-06"), null);
+});
+
+test("an RRULE's COUNT and UNTIL end it the same way; COUNT counts down in the rule", () => {
+  const next = (line: string, day: string) => editTaskLines([line], 0, { checked: true }, day)[1] ?? null;
+  assert.equal(next("- [ ] Sync due:2026-10-01 rec:RRULE:FREQ=WEEKLY;COUNT=2", "2026-10-01"), "- [ ] Sync due:2026-10-08 rec:RRULE:FREQ=WEEKLY;COUNT=1");
+  assert.equal(next("- [ ] Sync due:2026-10-08 rec:RRULE:FREQ=WEEKLY;COUNT=1", "2026-10-08"), null);
+  assert.equal(next("- [ ] Sync due:2026-10-08 rec:RRULE:FREQ=WEEKLY;UNTIL=20261015", "2026-10-08"), "- [ ] Sync due:2026-10-15 rec:RRULE:FREQ=WEEKLY;UNTIL=20261015");
+  assert.equal(next("- [ ] Sync due:2026-10-15 rec:RRULE:FREQ=WEEKLY;UNTIL=20261015T235959Z", "2026-10-15"), null);
+});
+
+test("skipping a counted repeat uses one up; the last one, or one past until:, can't be skipped", () => {
+  const skip = (line: string) => skipPatch(parseTask(line)!.meta, "2026-10-01");
+  assert.deepEqual(skip("- [ ] a due:2026-10-06 rec:6th times:3"), { due: "2026-11-06", times: 2 });
+  assert.equal(skip("- [ ] a due:2026-10-06 rec:6th times:1"), null);
+  assert.equal(skip("- [ ] a due:2026-10-06 rec:6th until:2026-11-01"), null);
+  assert.deepEqual(skip("- [ ] a due:2026-10-06 rec:6th until:2026-11-06"), { due: "2026-11-06" });
+  assert.deepEqual(skip("- [ ] a due:2026-10-06 rec:RRULE:FREQ=MONTHLY;BYMONTHDAY=6;COUNT=3"), { due: "2026-11-06", rec: "RRULE:FREQ=MONTHLY;BYMONTHDAY=6;COUNT=2" });
 });
 
 test("a due filter compares dates, with today, tomorrow and yesterday relative to the day given", () => {

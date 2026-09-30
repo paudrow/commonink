@@ -57,7 +57,8 @@ function taskPatch(v: unknown): TaskPatch {
       k === "checked" ? typeof x === "boolean"
       : k === "summary" ? typeof x === "string"
       : k === "assignees" || k === "tags" ? Array.isArray(x) && x.every((s) => typeof s === "string")
-      : ["due", "start", "done", "rec", "priority"].includes(k) ? x === null || typeof x === "string"
+      : ["due", "start", "done", "rec", "until", "priority"].includes(k) ? x === null || typeof x === "string"
+      : k === "times" ? x === null || typeof x === "number"
       : false;
     if (!ok) throw new QuireError(`"patch.${k}" isn't a task field or has the wrong type`);
     out[k] = x;

@@ -581,6 +581,9 @@ body.is-resizing iframe { pointer-events: none; }
 .cm-task-gear { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 5px; color: var(--muted); }
 .cm-task-gear:hover { background: var(--hover); color: var(--ink-strong); }
 .cm-task-hint { font: 12px var(--ui); color: var(--muted); }
+/* A phrase on the cursor's task line that Tab or a click would make a token: marked, never changed on its own. */
+.cm-phrase { text-decoration: underline dotted var(--accent-line); text-decoration-thickness: 1.5px; text-underline-offset: 3px; cursor: pointer; }
+.cm-phrase.is-rec, .cm-phrase.is-ends { text-decoration-color: color-mix(in srgb, var(--ok) 70%, transparent); }
 .cm-hint-word { padding: 0 2px; border-radius: 4px; font: inherit; color: inherit; cursor: pointer; }
 .cm-hint-word:hover, .cm-hint-word:focus-visible { color: var(--ink-2); background: var(--hover); }
 .cm-checkbox {
@@ -1523,7 +1526,9 @@ button.crumb:hover { background: var(--hover); color: var(--ink-strong); }
 /* Today: today's journal note, then sections of task rows (the top of Tasks, and ::today) */
 .td-block { margin-bottom: 18px; }
 .td-title { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; font-size: 13px; font-weight: 600; color: var(--ink-strong); }
-.td-title svg { color: var(--warn); }
+.td-title svg { flex: none; color: var(--warn); }
+/* On Tasks the title is the card's own: inset like the body under it (Journal, Overdue), its icon centred on the title's line. */
+.qw-today.is-standalone > .td-title { margin: 0; padding: 14px 14px 4px; line-height: 16px; }
 .td-section + .td-section { margin-top: 10px; }
 .td-section.is-overdue .qt-note { color: var(--bad-ink); }
 .td-none { padding: 2px 0 4px; font-size: 13px; color: var(--muted); }
@@ -1881,22 +1886,21 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .qt-act + .qt-act { margin-left: -8px; }
 .qt-act:hover { background: var(--active); color: var(--ink-strong); }
 .qt-words { cursor: text; }
-.qt-input { width: min(100%, 420px); margin-right: 4px; padding: 1px 6px; border: 1px solid var(--accent-line); border-radius: 6px; background: var(--bg-elev); color: var(--ink-strong); font: inherit; outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+.qt-edit { display: inline-block; width: min(100%, 420px); margin-right: 4px; vertical-align: top; }
+.qt-edit .qa-box { padding: 0 6px; border: 1px solid var(--accent-line); border-radius: 6px; background: var(--bg-elev); box-shadow: 0 0 0 3px var(--accent-soft); }
+.qt-edit .qa-preview { padding-top: 5px; }
 .task-menu-item .task-menu-value { flex: none; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--ink-2); }
 .task-menu-item .task-menu-value.is-empty { color: var(--muted); }
 .fp-sep { height: 1px; margin: 4px 2px; background: var(--line); }
 
-/* quick-add: the bar on Tasks and floating on q. The mirror sits under a transparent input and
-   draws the highlights for phrases read as dates and repeats. */
+/* the task input (taskInput.ts): the quick-add bar on Tasks and floating on ⌘⇧., the inline edit,
+   a Kanban card. Phrases read as dates and repeats are lit in place. */
 .qa { position: relative; margin: 0 0 18px; }
 .qa-field { display: flex; align-items: center; gap: 10px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg-elev); color: var(--muted); }
 .qa-field:focus-within { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
 .qa-box { position: relative; flex: 1; min-width: 0; }
-.qa-input, .qa-mirror { box-sizing: border-box; width: 100%; height: 40px; padding: 0; border: 0; font: 15px var(--ui); letter-spacing: normal; white-space: pre; }
-.qa-input { position: relative; z-index: 1; background: transparent; color: var(--ink-strong); outline: none; }
-.qa-mirror { position: absolute; inset: 0; overflow: hidden; line-height: 40px; color: transparent; pointer-events: none; }
-.qa-hl { color: transparent; border-radius: 4px; background: var(--accent-soft); box-shadow: 0 0 0 2px var(--accent-soft); }
-.qa-hl.is-rec { background: color-mix(in srgb, var(--ok) 18%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 18%, transparent); }
+.qa-hl { border-radius: 4px; background: var(--accent-soft); box-shadow: 0 0 0 2px var(--accent-soft); }
+.qa-hl.is-rec, .qa-hl.is-ends { background: color-mix(in srgb, var(--ok) 18%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 18%, transparent); }
 .qa-hl.is-target { background: var(--hover); box-shadow: 0 0 0 2px var(--hover); }
 .qa-preview { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 2px; min-height: 22px; padding: 8px 2px 0; font-size: 13px; color: var(--ink-2); }
 .qa-words { margin-right: 6px; }
@@ -1907,14 +1911,19 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .qa-link { color: var(--accent-ink); }
 .qa-link:hover { text-decoration: underline; }
 .qa-error { color: var(--bad-ink); }
-.qa-suggest { position: absolute; z-index: 5; left: 34px; top: 44px; width: 260px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg-elev); box-shadow: var(--shadow-lg); }
 .qa-cm .cm-editor { height: 40px; font: 15px var(--ui); }
 .qa-cm .cm-editor.cm-focused { outline: none; }
 .qa-cm .cm-scroller { overflow: hidden; line-height: 40px; font: inherit; }
 .qa-cm .cm-content { padding: 0; line-height: 40px; caret-color: var(--ink-strong); color: var(--ink-strong); }
 .qa-cm .cm-line { padding: 0; line-height: 40px; }
-.qa-cm .qa-hl { color: inherit; }
 .qa-cm .cm-fat-cursor { background: var(--accent-soft) !important; }
+.qa-cm .cm-placeholder { color: var(--faint); }
+/* In a row or a card: the text's own size, as tall as its lines. */
+.qa-compact .cm-editor { height: auto; font: inherit; }
+.qa-compact .cm-scroller, .qa-compact .cm-content, .qa-compact .cm-line { line-height: 1.5; }
+.qa-compact .cm-content { padding: 1px 0; }
+/* A card field on a board in a note: the card's size, not the note's. */
+:is(#editor-host, #side-host) .qa-compact .cm-editor { font-size: inherit; }
 .qa-target { flex: none; display: inline-flex; align-items: center; gap: 5px; max-width: 40%; padding: 3px 8px; border-radius: 999px; background: var(--hover); font-size: 12px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qa-target:hover { color: var(--ink-strong); }
 .qa-float { position: fixed; z-index: 70; top: 18vh; left: 50%; width: min(620px, calc(100vw - 32px)); transform: translateX(-50%); padding: 14px 14px 0; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--bg); box-shadow: var(--shadow-lg); }
@@ -1984,6 +1993,7 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .chip-rec-summary { font-size: 13.5px; color: var(--ink-strong); }
 .chip-rec-summary.is-error { color: var(--bad-ink); }
 .chip-rec-dates { font-size: 12.5px; color: var(--muted); }
+.chip-rec .chip-date-in { flex: 1; min-width: 0; height: 32px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-elev); color: var(--ink-strong); padding: 0 8px; font: 14px var(--ui); }
 .chip-rec-text { width: 100%; height: 32px; box-sizing: border-box; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-elev); color: var(--ink-strong); padding: 0 8px; font: 13px var(--mono); }
 .tk-next { color: var(--muted); font-weight: 400; }
 
