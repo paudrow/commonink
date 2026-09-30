@@ -289,3 +289,32 @@ test("a client can revoke its own token (RFC 7009)", async () => {
   const res = await cloud.server.fetch(new URL("/mcp", cloud.origin), { method: "POST", headers: { authorization: `Bearer ${access}` } });
   assert.equal(res.status, 401);
 });
+
+test("an agent's today is its person's day in the time zone their browser reported, else the workspace owner's, else UTC", async () => {
+  // UTC+14 and UTC-11 are 25 hours apart, so they're never on the same day.
+  const [AHEAD, BEHIND] = ["Pacific/Kiritimati", "Pacific/Pago_Pago"];
+  const dayIn = (timeZone: string) => new Intl.DateTimeFormat("en-CA", { timeZone }).format(Date.now());
+  // One registered client for everyone: registrations are rate-limited per address.
+  const client = await register();
+  const agentOf = async (cookie: string, workspace: string) => {
+    const { code, verifier } = await authorizeCode(cookie, workspace, client);
+    const { access_token } = (await (await exchange(client, code, verifier)).json()) as { access_token: string };
+    const agent = await mcp(access_token);
+    return async () => (await agent.call("get_today", {})).text.match(/Journal: Journal\/(\d{4}-\d{2}-\d{2})\.md/)?.[1];
+  };
+
+  const loner = await cloud.signIn("loner");
+  const { workspaces } = await cloud.call(loner, "GET", "/api/me");
+  assert.equal(await (await agentOf(loner, workspaces[0].id))(), dayIn("UTC"));
+
+  const [owner, editor, viewer] = await Promise.all([people.owner, people.editor, people.viewer].map((p) => agentOf(p, people.id)));
+  assert.deepEqual(await cloud.call(people.owner, "POST", "/api/me/time-zone", { timeZone: AHEAD }), { timeZone: AHEAD });
+  assert.deepEqual(await cloud.call(people.editor, "POST", "/api/me/time-zone", { timeZone: BEHIND }), { timeZone: BEHIND });
+  assert.equal(await owner(), dayIn(AHEAD));
+  assert.equal(await editor(), dayIn(BEHIND));
+  assert.equal(await viewer(), dayIn(AHEAD), "no zone of their own: the owner's");
+
+  const bad = await cloud.request(people.editor, "POST", "/api/me/time-zone", { timeZone: "Mars/Olympus_Mons" });
+  assert.equal(bad.status, 400);
+  assert.equal(await editor(), dayIn(BEHIND), "a bad zone leaves the last good one");
+});
