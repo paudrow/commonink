@@ -1,6 +1,7 @@
 // The local backend: a folder of markdown files, indexed in <vault>/.quire/index.db with node:sqlite.
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Quire, type QuireOptions } from "./quire.ts";
@@ -8,7 +9,9 @@ import { kindOf, QuireError } from "./paths.ts";
 import { migrate, type Content, type FileStat, type SqlDb } from "./store.ts";
 
 export const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-export const DEFAULT_VAULT = process.env.QUIRE_VAULT ? path.resolve(process.env.QUIRE_VAULT) : path.join(PROJECT_ROOT, "vault");
+/** Installed from npm (one bundled file, see cli/), the CLI has no project folder: its vault is ~/Quire. */
+const HOME_VAULT = process.env.QUIRE_BUNDLED === "1" ? path.join(os.homedir(), "Quire") : path.join(PROJECT_ROOT, "vault");
+export const DEFAULT_VAULT = process.env.QUIRE_VAULT ? path.resolve(process.env.QUIRE_VAULT) : HOME_VAULT;
 
 export class NodeDb implements SqlDb {
   private stmts = new Map<string, StatementSync>();

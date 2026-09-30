@@ -30,9 +30,21 @@ Needs Node 22.13+ (uses the built-in `node:sqlite`). The vault defaults to `./va
 | Claude Code (in this folder) | `.mcp.json` registers the server, and `.claude/skills/quire` teaches the CLI |
 | Claude Code (anywhere) | `claude mcp add quire -- /path/to/quire/bin/quire mcp` |
 | Claude Desktop, Cursor, … | stdio server: command `/path/to/quire/bin/quire`, args `["mcp"]` |
-| Shell agents / scripts | `bin/quire --help`, and pass `--as <name>` so writes are attributed |
+| Shell agents / scripts | `bin/quire help` (or `npx commonink help` once it's published), and set `QUIRE_AGENT=<name>` so writes are attributed |
 
-Tools: `search_notes`, `read_note`, `list_notes`, `list_tags`, `list_tasks`, `get_today`, `add_task`, `update_task`, `move_task`, `read_board`, `add_card`, `move_card`, `edit_card`, `create_note`, `edit_note`, `append_to_note`, `move_note`, `archive_note`, `unarchive_note`, `delete_note`, `star_note`, `unstar_note`, `star_tag`, `unstar_tag`, `list_smart_folders`, `save_smart_folder`, `delete_smart_folder`, `backlinks`, `recent_changes`, `export_note`, `label_version`, `list_labels`, `diff_versions`, `restore_label`. The server sends `vault/AGENTS.md` as its instructions, so edit that file to change agent conventions.
+Tools: `search_notes`, `read_note`, `list_notes`, `backlinks`, `create_note`, `edit_note`, `append_to_note`, `write_note`, `list_templates`, `create_from_template`, `move_note`, `archive_note`, `unarchive_note`, `delete_note`, `list_folders`, `delete_folder`, `list_tasks`, `add_task`, `update_task`, `move_task`, `remove_task`, `get_today`, `open_journal`, `read_board`, `add_card`, `move_card`, `edit_card`, `list_tags`, `rename_tag`, `set_asset_tags`, `list_smart_folders`, `save_smart_folder`, `delete_smart_folder`, `star_note`, `unstar_note`, `star_tag`, `unstar_tag`, `order_favorites`, `recent_changes`, `show_change`, `restore_change`, `list_trash`, `restore_from_trash`, `list_events`, `get_event`, `create_meeting_note` (those three where the vault has calendars), `export_note`, `list_labels`, `label_version`, `diff_versions`, `restore_label`, `list_contacts`, `read_contact`, `create_contact`, `update_contact`, `merge_contacts`, `import_contacts`, `list_shares`, `share_note`, `unshare_note` (those three in hosted workspaces). Each is also a CLI command, from one table (`src/core/commands`): `quire help` lists them, and `quire help <command>` names its tool. The server sends `vault/AGENTS.md` as its instructions, so edit that file to change agent conventions.
+
+### The `quire` CLI
+
+Everything the MCP tools do, from a shell, for scripts, agents and you: `bin/quire help` lists the commands by area (notes, folders and files, tasks, boards, tags, smart folders, favorites, history and Trash), and `bin/quire help <command>` shows one command's options and examples.
+
+- `--json` on any command prints its result as data, and an error as `{"error", "code", "exit"}`.
+- Exit codes are stable: 0 ok, 1 error, 2 usage (see the command's help), 3 not found, 4 conflict (the note changed since you read it: read it again), 5 exists, 6 forbidden, 7 auth, 8 unavailable.
+- Content comes from stdin with `-`, or piped in. `--base <version>` (from `quire read`) makes `edit`, `append`, `write` and `restore` refuse a note that changed since.
+- `QUIRE_AGENT=<name>` (or `--agent`) attributes writes to that agent, "<agent> for you" in History.
+- `quire upload` and `quire download` move files in and out; they're CLI-only, since MCP tools carry text.
+- `quire completion bash|zsh|fish` prints a completion script: `source <(quire completion zsh)`.
+- Packaged for npm as `commonink` (`npx commonink …`, or `npm i -g commonink` for `quire`), built into one file by `npm run build:cli`. Installed that way, the vault is `$QUIRE_VAULT` or `~/Quire`.
 
 ### Connect an agent to a hosted workspace
 
@@ -46,6 +58,16 @@ Online, agents connect over MCP's Streamable HTTP at `https://commonink.app/mcp`
 | Anything else | Point an MCP client that supports OAuth at the URL. It registers itself (dynamic client registration) and signs in with PKCE. |
 
 The client opens Common Ink in your browser: sign in, pick the workspace it may use, and **Allow**. From then on it acts as you, with your role in that workspace at the time of each request: a viewer's agent only gets the read tools and starring. Its changes show in History as "Claude (via Audrow)". The same tools serve both kinds of connection (`src/core/tools.ts`). **Connected agents** in the account menu lists your agents, when each was last used and what it changed lately, and **Revoke** cuts one off at its next request.
+
+#### The CLI in a hosted workspace
+
+`quire login` signs the CLI in the same way (OAuth 2.1 with PKCE, redirected to a port on 127.0.0.1), and asks for **All your workspaces**: each command says which one it runs in, with your role there at the time. The tokens are kept in `~/.config/quire/credentials.json` (or `$XDG_CONFIG_HOME/quire`), readable only by you. Then:
+
+- `quire login [--server https://pr-<number>-commonink.<subdomain>.workers.dev]`: the default server is `https://commonink.app`. `--no-browser` prints the address to open elsewhere, and takes the address you land on pasted back (for a machine with no browser, say over SSH).
+- `quire workspaces` lists yours with your role, and `quire workspaces use <name>` picks the one commands go to. `--workspace <name>` (or `$QUIRE_WORKSPACE`) picks one for one command, and `--workspace local` (or setting `$QUIRE_VAULT`) uses this computer's vault.
+- Every command works the same: the Worker runs it with the same command table and core as a local vault (`POST /mcp/cli/run`). Writes are yours, or "<agent> for <you>" with `--agent` or `$QUIRE_AGENT`.
+- A workspace's settings work from the CLI too, with the same checks as the app's Settings: `quire members`, `quire member role <person> <role>`, `quire member remove <person>`, `quire leave`, `quire invite [--role viewer]`, `quire invites` and `quire invites revoke <id>`, `quire workspace rename <name>` and `quire workspace log`. Deleting a workspace is only in the app. They're not MCP tools: an agent's MCP access is to one workspace's notes.
+- `quire logout` ends the sign-in on the server too. The CLI shows in **Connected agents** as "quire CLI", on all your workspaces, and **Revoke** cuts it off.
 
 ## How edits from agents and you stay safe together
 
@@ -67,6 +89,7 @@ CodeMirror 6, with vim mode (`@replit/codemirror-vim`) behind the status bar's *
 - **Today** sits at the top of Tasks, under the quick-add bar: today's journal note (open it, or start it from `Templates/Daily note.md`, where `{{date}}` becomes the day), then open tasks overdue, due today and starting today (repeating ones show their rule), with empty sections left out. Those tasks aren't listed again below. Narrowed to a tag or a person, Tasks shows just the list. The same view is a `::today` widget for dashboards, MCP `get_today` and `quire today`, all from one core function (`Quire.today`).
 - **Kanban boards** (`src/core/kanban.ts`) are a block in any note, with text above and below: a `:::kanban` line, `## Column` headings with cards (list items, tasks or not) under them, and a closing `:::`. Drag cards and columns, or move a focused card with Alt+arrows; every change is one edit of the markdown, so it autosaves and Cmd-Z undoes it. A card moved into the column named `Done` (or the one `done=` names) is ticked. A card that is a `[[link]]` shows the note's title and progress, and "Open as note" turns a card into one. `/Kanban board` inserts one, and `::kanban{note="Launch"}` or `![[Launch]]` shows another note's board live. Agents use MCP `read_board`, `add_card`, `move_card` and `edit_card`, or `quire board` and `quire card`.
 - **Split view.** Two notes side by side, each pane with its own back and forward. ⌘-click (Ctrl-click off a Mac) a link, card, task, backlink or starred note to open it to the side, drag a note to the right edge, or press `⌘⌥\`. The focused pane leads the top bar, the side panel and the address bar, and a note shows in one pane at a time. The layout is kept per workspace in this browser.
+- **A note's name is its heading.** Change the `# heading` on a note's first line (after any frontmatter) and the file is renamed to match when you pause off that line, leave the editor or open something else. Links to it are rewritten, and a toast says when that changed other notes. Only your own typing renames: an agent changing a heading on disk doesn't rename from the browser. A note without a heading keeps its name, and so do HTML notes, notes with a frontmatter `title:`, `AGENTS.md`, templates and daily notes. ⌘K **Rename note…** (`:rename` in vim) selects the heading, adding one with the note's name if it has none; for the notes a heading doesn't name, it asks for the name. The top bar's Move button says which folder the note is in (`web/src/noteName.ts`).
 - **Embeds.** `![[Note]]`, `![[Note#Heading]]`, `![[image.svg]]`, `![[page.html]]`, and YouTube links.
 - **HTML notes** render in a sandboxed iframe with an opaque origin, both full-page and embedded (`⌘E` toggles source).
 - **Search.** `⌘P` (or `⌘K`) is quick open: fuzzy name matching plus FTS5 full-text search. `⌘⇧P`, or `>` in quick open, lists commands (new note, go to Tasks, toggle theme, archive this note…), as in VS Code. Off a Mac, ⌘ is Ctrl. `?` (outside the editor) shows every keyboard shortcut. Both read one registry, `web/src/commands.ts`. `gd` follows the link under the cursor, `:w` saves, `:e name` opens a note.

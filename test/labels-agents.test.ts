@@ -20,7 +20,7 @@ function quire(vault: string, args: string[]) {
 
 test("quire label, labels, diff, restore --to, label-rename and label-rm", () => {
   const vault = tempVault(VAULT);
-  assert.match(quire(vault, ["label", "Spec", "v1", "--description", "As agreed"]).stdout, /^Labeled Spec\.md as "v1" \[[a-z2-9]{8}\]\n$/);
+  assert.match(quire(vault, ["label", "Spec", "v1", "--description", "As agreed"]).stdout, /^Labeled Spec\.md as "v1" \[[a-z2-9]{8}\]\.\n$/);
   quire(vault, ["edit", "Spec", "--old", "Version one.", "--new", "Version two.", "--as", "Writer"]);
   const list = quire(vault, ["labels", "Spec"]).stdout;
   assert.match(list, /^- "v1" \[[a-z2-9]{8}\] Spec\.md, labeled \S+ by you\n    As agreed\n$/);
@@ -31,7 +31,7 @@ test("quire label, labels, diff, restore --to, label-rename and label-rm", () =>
   assert.match(quire(vault, ["label-rm", "Agreed v1", "--note", "Spec"]).stdout, /^Deleted the label "Agreed v1" from Spec\.md; the note is as it was\n$/);
   assert.equal(quire(vault, ["labels"]).stdout, "No labels yet.\n");
   const bad = quire(vault, ["diff", "Spec", "--from", "nope"]);
-  assert.equal(bad.status, 1);
+  assert.equal(bad.status, 3, "not found");
   assert.match(bad.stderr, /No label "nope" on Spec/);
 });
 

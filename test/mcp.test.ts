@@ -29,10 +29,12 @@ test("the server lists every tool", async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
     "add_card", "add_task", "append_to_note", "archive_note", "backlinks", "create_contact", "create_from_template", "create_meeting_note", "create_note",
-    "delete_note", "delete_smart_folder", "diff_versions", "edit_card", "edit_note", "export_note", "get_event", "get_today", "import_contacts",
-    "label_version", "list_contacts", "list_events", "list_labels", "list_notes", "list_smart_folders", "list_tags", "list_tasks", "list_templates",
-    "merge_contacts", "move_card", "move_note", "move_task", "read_board", "read_contact", "read_note", "recent_changes", "restore_label",
-    "save_smart_folder", "search_notes", "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag", "update_contact", "update_task",
+    "delete_folder", "delete_note", "delete_smart_folder", "diff_versions", "edit_card", "edit_note", "export_note", "get_event", "get_today",
+    "import_contacts", "label_version", "list_contacts", "list_events", "list_folders", "list_labels", "list_notes", "list_smart_folders", "list_tags",
+    "list_tasks", "list_templates", "list_trash", "merge_contacts", "move_card", "move_note", "move_task", "open_journal", "order_favorites",
+    "read_board", "read_contact", "read_note", "recent_changes", "remove_task", "rename_tag", "restore_change", "restore_from_trash", "restore_label",
+    "save_smart_folder", "search_notes", "set_asset_tags", "show_change", "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag",
+    "update_contact", "update_task", "write_note",
   ]);
 });
 
@@ -159,11 +161,17 @@ test("agents star and unstar notes for the vault's person", async () => {
 
 test("an agent's delete goes to Trash, attributed to it, and it has no way to delete for good", async () => {
   await call("create_note", { path: "Scratch", content: "# Scratch\n" });
-  assert.deepEqual(await call("delete_note", { paths: ["Scratch"] }), { text: "Moved Scratch.md to Trash", isError: false });
+  const deleted = await call("delete_note", { paths: ["Scratch"] });
+  assert.match(deleted.text, /^Moved Scratch\.md to Trash \((\d+-\d+)\)$/);
   assert.match((await call("recent_changes", { limit: 1 })).text, /test-agent for you: deleted Scratch\.md/);
   assert.equal((await call("read_note", { path: "Scratch" })).isError, true);
+  // It can see Trash and restore from it, and nothing deletes for good.
   const { tools } = await client.listTools();
-  assert.deepEqual(tools.map((t) => t.name).filter((n) => /trash|purge|forever/.test(n)), []);
+  assert.deepEqual(tools.map((t) => t.name).filter((n) => /trash|purge|forever|empty/.test(n)), ["list_trash", "restore_from_trash"]);
+  const id = deleted.text.match(/\((\d+-\d+)\)/)![1];
+  assert.match((await call("list_trash", {})).text, new RegExp(`^${id}  Scratch\\.md — deleted .* by test-agent for you`));
+  assert.equal((await call("restore_from_trash", { ids: [id] })).text, "Restored Scratch.md");
+  assert.equal((await call("read_note", { path: "Scratch" })).isError, false);
 });
 
 test("agents keep contacts: create, list, read one with where they're mentioned, update, import and merge", async () => {

@@ -33,7 +33,7 @@ test("quire export writes a note as markdown, a web page or Word, and notes as a
   assert.equal(md.stdout.toString(), VAULT["Welcome.md"], "markdown is the file as it is");
 
   const html = path.join(out, "Welcome.html");
-  assert.match(quire(vault, ["export", "Welcome", "--format", "html", "--out", html]).stdout.toString(), /^Wrote .*Welcome\.html \(\d+ bytes\)\n$/);
+  assert.match(quire(vault, ["export", "Welcome", "--format", "html", "--out", html]).stdout.toString(), /^Exported Welcome\.html \(\d+ bytes\) → .*Welcome\.html\n$/);
   const page = fs.readFileSync(html, "utf8");
   assert.ok(page.startsWith("<!doctype html>") && page.includes("<title>Welcome</title>"));
   assert.ok(page.includes('src="data:image/svg+xml;base64,'), "the picture is inside the page");
@@ -54,9 +54,9 @@ test("quire export writes a note as markdown, a web page or Word, and notes as a
   assert.match(strFromU8(files["Projects/Roadmap.md"]), /Back to \[Welcome\]\(https:\/\/ink\.test\/notes\/welcome-[a-z2-9]{8}\)\./);
 
   const bad = quire(vault, ["export", "Projects", "--format", "md"]);
-  assert.equal(bad.status, 1);
+  assert.equal(bad.status, 3, "not found");
   assert.match(bad.stderr, /No note matches "Projects"\. A folder, or "\/" for everything, exports as a zip/);
-  assert.match(quire(vault, ["export", "Welcome", "--format", "pdf"]).stderr, /--format must be one of md, html, docx, zip/);
+  assert.match(quire(vault, ["export", "Welcome", "--format", "pdf"]).stderr, /--format must be md, html, docx or zip, not "pdf"/);
 });
 
 let client: Client;

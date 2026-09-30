@@ -85,7 +85,7 @@ test("arrow keys, Home and End move through More's items, wrapping; Esc closes i
   const menu = $("#more-menu");
   const walk = (k: string) => (key(document.activeElement!, k), focused());
   assert.deepEqual([walk("ArrowDown"), walk("End"), walk("ArrowDown"), walk("ArrowUp"), walk("Home")], [
-    "Move to folder",
+    "Move to another folder",
     "Toggle side panel",
     "History of this note",
     "Toggle side panel",

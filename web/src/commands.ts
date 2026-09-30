@@ -86,6 +86,8 @@ export interface App {
   archive(): void;
   delete(): void;
   move(): void;
+  /** Put the cursor on what names the note (its heading), or ask for a name. */
+  rename(): void;
   noteHistory(): void;
   /** Name the focused note's version as it is now (labels.ts). */
   labelVersion(): void;
@@ -154,6 +156,7 @@ export function appCommands(app: App): Command[] {
     { id: "archive", title: note?.archived ? "Unarchive note" : "Archive note", keywords: "archive remove hide", icon: note?.archived ? "unarchive" : "archive", keys: ["Mod-Shift-e"], available: !!note, run: app.archive },
     { id: "delete", title: "Delete note", keywords: "delete remove trash bin", icon: "trash", available: !!note && app.canDelete, run: app.delete },
     { id: "move", title: "Move to folder…", keywords: "move note folder file", icon: "move", available: !!note, run: app.move },
+    { id: "rename", title: "Rename note…", keywords: "rename name title heading file", icon: "edit", available: !!note && app.canDelete, run: app.rename },
     { id: "share", title: "Share…", keywords: "share link copy print export download pdf markdown html word send", icon: "share", keys: ["Mod-Shift-s"], available: text, run: app.share },
     { id: "copy-link", title: "Copy link to this note", keywords: "share url address copy", icon: "link", available: text, run: app.copyLink },
     { id: "print", title: "Print…", keywords: "print paper pdf", icon: "printer", available: note?.kind === "md", run: () => app.exportAs("print") },
@@ -225,6 +228,7 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: [":w"], label: "Save", area: "Vim" },
   { keys: [":e name"], label: "Open a note (:e alone opens quick open)", area: "Vim" },
   { keys: [":star"], label: "Star or unstar the note", area: "Vim" },
+  { keys: [":rename"], label: "Rename the note (selects its heading)", area: "Vim" },
   { keys: [":archive"], label: "Archive the note", area: "Vim" },
   { keys: [":trash"], label: "Delete the note (to Trash)", area: "Vim" },
   { keys: [":notes"], label: "Go to Notes", area: "Vim" },
