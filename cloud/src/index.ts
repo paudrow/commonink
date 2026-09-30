@@ -49,7 +49,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
   if (url.pathname.startsWith("/auth/")) {
     const ip = req.headers.get("CF-Connecting-IP") ?? "unknown";
     const tooMany = url.pathname !== "/auth/logout" && (await limit(env.DB, "signIn", ip, "text"));
-    return tooMany || handleAuth(req, env, (user) => ensurePersonalWorkspace(env, user), (s) => disconnect(env, s.user.id, `s:${s.id}`));
+    return tooMany || handleAuth(req, env, (user) => ensurePersonalWorkspace(env, user), (s) => disconnect(env, s.user, `s:${s.id}`));
   }
   if (url.pathname.startsWith("/invite/")) return invite(req, env, url);
   if (url.pathname.startsWith("/api/s/")) return shareLink(req, env, url);
@@ -123,16 +123,17 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
   "POST /api/sign-out-everywhere": async ({ env, url, user }) => {
     await endSessionsOf(env.DB, user.id);
     await revokeAgents(env, url, user, "all");
-    await disconnect(env, user.id, user.id);
+    await disconnect(env, user, user.id);
     const res = json({ ok: true });
     for (const c of clearSessionCookies()) res.headers.append("Set-Cookie", c);
     return res;
   },
 };
 
-/** Close live connections tagged `tag` (a person, or one of their sessions) in each of their workspaces. */
-async function disconnect(env: Env, userId: string, tag: string) {
-  await Promise.all((await workspacesOf(env.DB, userId)).map((w) => env.WORKSPACE.get(env.WORKSPACE.idFromName(w.id)).disconnect(tag)));
+/** Close live connections tagged `tag` (a person, or one of their sessions) in each workspace they're in or that shares with them. */
+async function disconnect(env: Env, user: User, tag: string) {
+  const ids = new Set([...(await workspacesOf(env.DB, user.id)).map((w) => w.id), ...(await sharedWith(env.DB, user)).map((s) => s.workspace.id)]);
+  await Promise.all([...ids].map((id) => env.WORKSPACE.get(env.WORKSPACE.idFromName(id)).disconnect(tag)));
 }
 
 async function api(req: Request, env: Env, url: URL): Promise<Response> {
