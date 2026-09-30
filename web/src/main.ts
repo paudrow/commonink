@@ -1877,6 +1877,13 @@ Vim.mapCommand("gf", "action", "quireFollowLink", {}, { context: "normal" });
 Vim.defineAction("quireOpenSide", () => openLinkToSide(active.view));
 Vim.mapCommand("gs", "action", "quireOpenSide", {}, { context: "normal" });
 setVimDisplayLines(prefs.vimDisplayLines);
+// :set number / :set nu / :set nonu / :set nu! / :set nu? — the same setting as ⌘K's, one for every pane.
+// Vim calls this once globally and once for the editor; the global call does the work, and asked
+// for the editor's own value it answers undefined, which falls back to the global one.
+Vim.defineOption("number", undefined, "boolean", ["nu"], (value?: boolean, cm?: unknown) => {
+  if (value === undefined) return cm ? undefined : prefs.lineNumbers;
+  if (!cm) setLineNumbers(value);
+});
 
 function followLinkAtCursor() {
   const link = linkTargetAt(active.view.state, active.view.state.selection.main.head);
@@ -1973,13 +1980,22 @@ function toggleVimDisplayLines() {
   prefs.vimDisplayLines = !prefs.vimDisplayLines;
   store.set("vimDisplayLines", prefs.vimDisplayLines);
   setVimDisplayLines(prefs.vimDisplayLines);
+// :set number / :set nu / :set nonu / :set nu! / :set nu? — the same setting as ⌘K's, one for every pane.
+// Vim calls this once globally and once for the editor; the global call does the work, and asked
+// for the editor's own value it answers undefined, which falls back to the global one.
+Vim.defineOption("number", undefined, "boolean", ["nu"], (value?: boolean, cm?: unknown) => {
+  if (value === undefined) return cm ? undefined : prefs.lineNumbers;
+  if (!cm) setLineNumbers(value);
+});
 }
 
-function toggleLineNumbers() {
-  prefs.lineNumbers = !prefs.lineNumbers;
-  store.set("lineNumbers", prefs.lineNumbers);
-  for (const p of panes) p.view.dispatch({ effects: lineNumbersSlot.reconfigure(lineNumbersFor(prefs.lineNumbers)) });
+function setLineNumbers(on: boolean) {
+  if (on === prefs.lineNumbers) return;
+  prefs.lineNumbers = on;
+  store.set("lineNumbers", on);
+  for (const p of panes) p.view.dispatch({ effects: lineNumbersSlot.reconfigure(lineNumbersFor(on)) });
 }
+const toggleLineNumbers = () => setLineNumbers(!prefs.lineNumbers);
 
 function toggleTheme() {
   const dark = document.documentElement.dataset.theme

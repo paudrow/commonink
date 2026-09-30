@@ -147,6 +147,7 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: [":archive"], label: "Archive the note", area: "Vim" },
   { keys: [":notes"], label: "Go to Notes", area: "Vim" },
   { keys: [":focus"], label: "Focus mode", area: "Vim" },
+  { keys: [":set nu", ":set nonu"], label: "Show / hide line numbers", area: "Vim" },
   { keys: [":vs name"], label: "Open a note to the side", area: "Vim" },
   { keys: [":only", ":close"], label: "Close the other pane / this pane", area: "Vim" },
   { keys: ["Tab"], label: "In quick-add, send it to the open note", area: "Tasks" },
