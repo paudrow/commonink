@@ -36,7 +36,7 @@ function assertTexts(quire: Quire, texts: Texts, label: string) {
   for (const [id, t] of texts) assert.deepEqual(quire.diff(id, id), { path: t.path, op: "edit", before: t.before, after: t.after }, `${label}: change #${id}`);
 }
 
-const storedBytes = (db: SqlDb) => db.get<{ n: number }>("SELECT sum(length(before)) AS n FROM changes")!.n;
+const storedBytes = (db: SqlDb) => db.all<{ before: string }>("SELECT before FROM changes WHERE before IS NOT NULL").reduce((n, r) => n + r.before.length, 0);
 const wholeBytes = (texts: Texts) => [...texts.values()].reduce((n, t) => n + t.before.length, 0);
 
 test("any version of a note comes back exactly from whole texts plus deltas", () => {
@@ -100,6 +100,19 @@ test("a delta upgrade that fails partway keeps the notes it finished, and the ne
   for (const [id, d] of texts) assert.deepEqual(upgraded.diff(id, id), d, `change #${id}`);
 });
 
+test("an index from before change texts opens, and new changes keep theirs", () => {
+  const { dir, quire } = openTempVault({ "Note.md": "# Note\n" });
+  const old = quire.save("Note.md", "# Note\n\nold\n", { source: "ana" }).change!.id;
+  quire.db.exec("DROP INDEX changes_base");
+  quire.db.exec("ALTER TABLE changes DROP COLUMN base_id");
+  quire.db.exec("ALTER TABLE changes DROP COLUMN before");
+  quire.db.exec("DROP TABLE upgrades");
+
+  const reopened = openVault(dir);
+  const next = reopened.save("Note.md", "# Note\n\nold\nnew\n", { source: "ana" }).change!.id;
+  assert.deepEqual([reopened.diff(old, old).before, reopened.diff(next, next).before], [null, "# Note\n\nold\n"]);
+});
+
 /** A Durable Object's SQLite as the core sees it: nested transactions are savepoints, and pragmas are refused. */
 class DurableObjectLikeDb extends NodeDb {
   private depth = 0;
@@ -115,6 +128,9 @@ class DurableObjectLikeDb extends NodeDb {
   }
   all<T = any>(sql: string, ...params: unknown[]): T[] {
     return super.all<T>(this.checked(sql), ...params);
+  }
+  get<T = any>(sql: string, ...params: unknown[]): T | undefined {
+    return super.get<T>(this.checked(sql), ...params);
   }
   tx<T>(fn: () => T): T {
     const name = `sp${this.depth++}`;

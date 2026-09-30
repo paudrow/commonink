@@ -7,7 +7,7 @@ import { applyDelta, makeDelta } from "./delta.ts";
 import type { SqlDb } from "./store.ts";
 
 /** At most this many rows in a row read through one whole text. Measured in bench/changelog.ts. */
-export const KEYFRAME_EVERY = 32;
+export const KEYFRAME_EVERY = 64;
 
 /** The text change #id kept from before it, or null. `seen` shares rebuilt texts between reads of one note's rows. */
 export function readBefore(db: SqlDb, id: number, seen = new Map<number, string>()): string | null {
@@ -63,14 +63,16 @@ function runBehind(db: SqlDb, noteId: string, id: number): number {
 
 /** Forget the texts of the rows `where` picks. A row outside them whose delta reads through one keeps its text whole. */
 export function dropBefores(db: SqlDb, where: string, ...args: unknown[]) {
-  const gone = new Set(db.all<{ id: number }>(`SELECT id FROM changes WHERE ${where}`, ...args).map((r) => r.id));
-  const seen = new Map<number, string>();
-  for (const id of gone) {
-    for (const r of db.all<{ id: number }>("SELECT id FROM changes WHERE base_id = ?", id)) {
-      if (!gone.has(r.id)) db.run("UPDATE changes SET before = ?, base_id = NULL WHERE id = ?", readBefore(db, r.id, seen), r.id);
+  db.tx(() => {
+    const gone = new Set(db.all<{ id: number }>(`SELECT id FROM changes WHERE ${where}`, ...args).map((r) => r.id));
+    const seen = new Map<number, string>();
+    for (const id of gone) {
+      for (const r of db.all<{ id: number }>("SELECT id FROM changes WHERE base_id = ?", id)) {
+        if (!gone.has(r.id)) db.run("UPDATE changes SET before = ?, base_id = NULL WHERE id = ?", readBefore(db, r.id, seen), r.id);
+      }
     }
-  }
-  for (const id of gone) db.run("UPDATE changes SET before = NULL, base_id = NULL WHERE id = ?", id);
+    for (const id of gone) db.run("UPDATE changes SET before = NULL, base_id = NULL WHERE id = ?", id);
+  });
 }
 
 /**
