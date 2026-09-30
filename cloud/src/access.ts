@@ -106,6 +106,9 @@ export const WORKSPACE_ROUTES = {
   "GET /invites": "owner",
   "POST /invites/revoke": "owner",
   "GET /workspace/log": "owner",
+  // Whether agents may share by link or with editors: anyone sees it, only owners change it.
+  "GET /workspace/settings": "viewer",
+  "POST /workspace/settings": "owner",
   "POST /workspace/rename": "owner",
   "POST /workspace/delete": "owner",
 } as const satisfies Record<string, Role>;

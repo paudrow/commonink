@@ -15,6 +15,7 @@ import { DoDb, SqlContent } from "./do-store.ts";
 import { SEED_FILES, SEED_NOTES } from "./seed.ts";
 import type { Env } from "./env.ts";
 import { safeDecode } from "../../src/core/uri.ts";
+import { AGENTS_NOTE } from "../../src/core/noteRoles.ts";
 import { QuireError } from "../../src/core/paths.ts";
 import { accessOn, type SharedAccess, type ShareRole } from "./grants.ts";
 import { limit } from "./limits.ts";
@@ -345,14 +346,17 @@ export class Workspace extends DurableObject<Env> {
         const target = this.shareTarget({ note: str("note"), path: str("path"), folder: str("folder") })!;
         const role = body.role === "editor" ? "editor" : body.role === "viewer" ? "viewer" : null;
         if (!role) throw new ShareError('"role" must be "viewer" or "editor"');
+        this.refuseEditingAgentsNote(target, role);
         const expiresAt = typeof body.expiresAt === "number" ? body.expiresAt : null;
-        await addShare(this.env.DB, this.env.SESSION_SECRET, { workspaceId: wsId, by: user, target, email: str("email"), link: body.link === true, role, expiresAt });
+        await addShare(this.env.DB, this.env.SESSION_SECRET, { workspaceId: wsId, by: user, target, email: str("email"), link: body.link === true, role, expiresAt, viaAgent: false });
         this.sharingChanged();
         return json(await this.describeShares(wsId, target, true));
       }
       case "POST /shares/update": {
         const role = body.role === "editor" || body.role === "viewer" ? body.role : undefined;
         const expiresAt = body.expiresAt === null || typeof body.expiresAt === "number" ? (body.expiresAt as number | null) : undefined;
+        const share = role === "editor" ? (await listShares(this.env.DB, wsId)).find((s) => s.id === str("id")) : undefined;
+        if (share?.note) this.refuseEditingAgentsNote({ note: share.note }, role);
         await updateShare(this.env.DB, wsId, str("id") ?? "", { role, expiresAt });
         this.sharingChanged();
         return json({ ok: true });
@@ -363,6 +367,13 @@ export class Workspace extends DurableObject<Env> {
         return json({ ok: true });
     }
     return json({ error: `No route ${req.method} ${route}` }, 404);
+  }
+
+  /** Every member's agent follows AGENTS.md, so no one outside the workspace may edit it. */
+  private refuseEditingAgentsNote(target: Target, role: ShareRole | undefined) {
+    if (role === "editor" && target.note && this.quire.pathOf(target.note) === AGENTS_NOTE) {
+      throw new ShareError(`${AGENTS_NOTE} can't be shared for editing: every connected agent follows it. Share it as a viewer.`);
+    }
   }
 
   /** The note (by ID or path) or folder a share request is about; none for a GET of everything. */
@@ -395,6 +406,7 @@ export class Workspace extends DurableObject<Env> {
         const tooMany = await limit(this.env.DB, "share", user);
         if (tooMany) throw new Error(((await tooMany.json()) as { error: string }).error);
         const target = this.shareTarget({ path: o.path, folder: o.folder })!;
+        this.refuseEditingAgentsNote(target, o.role);
         await addShare(this.env.DB, this.env.SESSION_SECRET, {
           workspaceId: wsId,
           by: user,
@@ -403,6 +415,7 @@ export class Workspace extends DurableObject<Env> {
           link: o.link === true,
           role: o.role,
           expiresAt: o.expiresInDays ? Date.now() + o.expiresInDays * 86_400_000 : null,
+          viaAgent: true,
         });
         this.sharingChanged();
         return describe(target);

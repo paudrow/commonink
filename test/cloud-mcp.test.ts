@@ -55,9 +55,9 @@ async function authorizeCode(cookie: string, workspace: string, client: string) 
 const exchange = (client: string, code: string, verifier: string) =>
   post("/oauth/token", form({ grant_type: "authorization_code", code, redirect_uri: REDIRECT, client_id: client, code_verifier: verifier, resource: `${cloud.origin}/mcp` }));
 
-/** Connect an agent from start to finish: registration, consent, and the code for tokens with PKCE. */
-async function connect(cookie: string, workspace: string) {
-  const client = await register();
+/** Connect an agent from start to finish: registration (unless it reuses `client`), consent, and the code for tokens with PKCE. */
+async function connect(cookie: string, workspace: string, client?: string) {
+  client ??= await register();
   const { html, code, verifier } = await authorizeCode(cookie, workspace, client);
   const tokens = await exchange(client, code, verifier);
   assert.equal(tokens.status, 200);
@@ -306,7 +306,9 @@ test("a client can revoke its own token (RFC 7009)", async () => {
 });
 
 test("an agent shares a note as its person, lists who it's shared with, and stops sharing; a viewer's agent can only list", async () => {
-  const owner = await mcp((await connect(people.owner, people.id)).access);
+  // One registered client for both people: registrations are rate-limited per address.
+  const first = await connect(people.owner, people.id);
+  const owner = await mcp(first.access);
   await owner.call("create_note", { path: "Plan to share", content: "# Plan to share\n" });
   // Until an owner allows it, agents (whatever their role) can't make links, public or editor, or invite an editor by email.
   const REFUSED = { text: "Agents can't share by link or for editing in this workspace. An owner can allow it in the workspace's settings.", isError: true };
@@ -328,7 +330,7 @@ test("an agent shares a note as its person, lists who it's shared with, and stop
   assert.deepEqual(await owner.call("unshare_note", { id }), { text: "Stopped sharing it.", isError: false });
   assert.doesNotMatch((await owner.call("list_shares", { path: "Plan to share" })).text, /guest@example\.com/);
   assert.equal((await owner.call("share_note", { path: "Plan to share", role: "viewer" })).isError, true, "an email or a link is needed");
-  const viewer = await mcp((await connect(people.viewer, people.id)).access);
+  const viewer = await mcp((await connect(people.viewer, people.id, first.client)).access);
   const seen = (await viewer.call("list_shares", { path: "Plan to share" })).text;
   assert.deepEqual([/Anyone with the link — viewer/.test(seen), /\/s\//.test(seen)], [true, false], "a viewer sees that a link exists, not its URL");
 });

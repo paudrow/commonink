@@ -87,6 +87,11 @@ export async function listShares(db: D1Database, workspaceId: string, target?: T
   return results;
 }
 
+/** Whether an owner lets agents share this workspace's notes by link or with editors (off by default). */
+export async function agentLinksAllowed(db: D1Database, ws: string): Promise<boolean> {
+  return (await db.prepare("SELECT agent_links FROM workspaces WHERE id = ?").bind(ws).first<{ agent_links: number }>())?.agent_links === 1;
+}
+
 /**
  * Share a note or folder with someone by email (a person, if they have an account; the address, if
  * not) or with anyone who has the link. Sharing again with the same person or link changes its role
@@ -95,10 +100,15 @@ export async function listShares(db: D1Database, workspaceId: string, target?: T
 export async function addShare(
   db: D1Database,
   secret: string,
-  o: { workspaceId: string; by: string; target: Target; email?: string; link?: boolean; role: ShareRole; expiresAt?: number | null },
+  o: { workspaceId: string; by: string; target: Target; email?: string; link?: boolean; role: ShareRole; expiresAt?: number | null; viaAgent: boolean },
 ) {
   const email = o.email?.trim().toLowerCase();
   if (!o.link && !(email && /^[^\s@]+@[^\s@]+$/.test(email))) throw new ShareError("Give an email address, or share a link");
+  // An agent can be steered by what it reads (AGENTS.md, a shared note), so it can't widen who sees or
+  // changes notes (a link anyone can use, or another editor) unless an owner has allowed it.
+  if (o.viaAgent && (o.link || o.role === "editor") && !(await agentLinksAllowed(db, o.workspaceId))) {
+    throw new ShareError("Agents can't share by link or for editing in this workspace. An owner can allow it in the workspace's settings.", 403);
+  }
   // One account with that address: theirs. None (or, on Previews, several dev accounts): the address's.
   const found = email ? (await db.prepare("SELECT id FROM users WHERE lower(email) = ? LIMIT 2").bind(email).all<{ id: string }>()).results : [];
   const user = found.length === 1 ? found[0] : null;
