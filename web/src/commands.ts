@@ -184,7 +184,7 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: ["[["], label: "Link a note", area: "Editor" },
   { keys: ["Mod-Alt-Enter"], label: "Open the linked note to the side", area: "Editor" },
   { keys: ["Mod-."], label: "Open the task's ⚙ menu", area: "Editor" },
-  { keys: ["Tab"], label: "Right after an underlined phrase on a task line (\"tomorrow\"), make it a token", area: "Editor" },
+  { keys: ["Tab"], label: "Right after an underlined date or repeat on a task line (\"tomorrow\"), make it a token now; typed at the end, it becomes one when you leave the line", area: "Editor" },
   { keys: ["Tab", "Shift-Tab"], label: "Indent / outdent", area: "Editor" },
   { keys: ["Mod-Alt-s"], label: "Wrap the selection in a collapsible section", area: "Editor" },
   { keys: ["Space"], label: "On a section's summary line: fold or unfold it", area: "Editor" },
