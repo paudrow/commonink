@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 112
 title: A smart folder's name heads Notes
 ---
 1. Click the **+** on the Smart folders header. Name it "Errands", pick Tag `errand`, and Save. Notes opens with **Errands** as its heading, not "Notes", and the browser tab says "Errands · Common Ink". [[Errand list]] is listed.
