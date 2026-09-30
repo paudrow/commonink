@@ -48,6 +48,16 @@ export const APP_ONLY: Readonly<Record<string, string>> = {
   "POST /trash/delete": "deleting for good is only in the app: a command can't tell a person from an agent (#74)",
   "POST /trash/empty": "deleting for good is only in the app: a command can't tell a person from an agent (#74)",
   "POST /invites": "sharing a workspace is in the app, for now",
+  // Running a hosted workspace: its members, invites, name and log live in the directory, not in its notes.
+  "GET /invites": "workspace settings are in the app, for now",
+  "POST /invites/revoke": "workspace settings are in the app, for now",
+  "GET /members": "workspace settings are in the app, for now",
+  "POST /members/role": "workspace settings are in the app, for now",
+  "POST /members/remove": "workspace settings are in the app, for now",
+  "POST /leave": "workspace settings are in the app, for now",
+  "GET /workspace/log": "workspace settings are in the app, for now",
+  "POST /workspace/rename": "workspace settings are in the app, for now",
+  "POST /workspace/delete": "workspace settings are in the app, for now",
 };
 
 /** The MCP tool's name, or null if the command isn't a tool. */

@@ -161,6 +161,20 @@ test("a role change applies to a connected agent on its next request", async () 
   await env.DB.prepare("UPDATE members SET role = 'editor' WHERE workspace_id = ? AND user_id = (SELECT id FROM users WHERE email = 'editor@localhost')").bind(people.id).run();
 });
 
+test("an owner changing someone's role or removing them disconnects that person's agents there, and only there", async () => {
+  const t = await team(cloud);
+  const mine = (await cloud.call(t.editor, "GET", "/api/me")).workspaces.find((w: { kind: string }) => w.kind === "personal");
+  const here = await connect(t.editor, t.id);
+  const elsewhere = await connect(t.editor, mine.id);
+  const editorId = (await cloud.call(t.owner, "GET", `${t.base}/members`)).find((m: { name: string }) => m.name === "Editor Dev").id;
+  await cloud.call(t.owner, "POST", `${t.base}/members/role`, { user: editorId, role: "viewer" });
+  const status = async (token: string) => (await cloud.server.fetch(new URL("/mcp", cloud.origin), { method: "POST", headers: { Authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json, text/event-stream" }, body: "{}" })).status;
+  assert.deepEqual([await status(here.access), await status(elsewhere.access) !== 401], [401, true]);
+  const again = await connect(t.editor, t.id);
+  await cloud.call(t.owner, "POST", `${t.base}/members/remove`, { user: editorId });
+  assert.equal(await status(again.access), 401);
+});
+
 test("refresh tokens rotate, and tokens are stored only as hashes", async () => {
   const { client, refresh, access } = await connect(people.owner, people.id);
   const res = await post("/oauth/token", form({ grant_type: "refresh_token", refresh_token: refresh, client_id: client }));
