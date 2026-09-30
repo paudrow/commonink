@@ -240,10 +240,10 @@ function scenarios(size: number, v: GeneratedVault, b: Backend) {
     const big = "Logs/Big log 0.md";
     q.save(big, `${q.read(big).content}\n- [ ] one more ${i}`, { source: "bench" });
   });
-  // Marked versions keep their text: marking, listing and comparing a 1 MB note.
-  measure(size, "mark: 1 MB note", b, Math.min(reps, 10), (q, i) => q.mark("Logs/Big log 0.md", `bench ${i}`, "bench"));
-  measure(size, "marks: list a note's", b, reps, (q) => q.marks("Logs/Big log 0.md"));
-  measure(size, "marks: compare 1 MB with now", b, Math.min(reps, 10), (q) => q.compareMarks("bench 0", "now", "Logs/Big log 0.md"));
+  // Labels keep their text: labeling, listing and comparing a 1 MB note.
+  measure(size, "label: 1 MB note", b, Math.min(reps, 10), (q, i) => q.label("Logs/Big log 0.md", `bench ${i}`, "bench"));
+  measure(size, "labels: list a note's", b, reps, (q) => q.labels("Logs/Big log 0.md"));
+  measure(size, "labels: compare 1 MB with now", b, Math.min(reps, 10), (q) => q.compareLabels("bench 0", "now", "Logs/Big log 0.md"));
   measure(size, "star + unstar", b, reps, (q, i) => {
     const n = notes[(Math.abs(i) * 17 + 40) % notes.length];
     q.star(USER, n.path);

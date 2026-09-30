@@ -1,9 +1,9 @@
 // History: every change, newest first, and what any selection of them did. Click one to see it,
 // ⌘-click to add or skip changes, shift-click to take a whole range. The diff on the right is
 // note by note; a change left out on the same note splits that note into separate diffs.
-// Marked versions (marks.ts) stand among the changes as pins: click one to compare it with now or
-// with another mark, and to restore to it.
-import { api, fileUrl, type Change, type DiffFile, type DiffRun, type Mark } from "./api.ts";
+// Labels (labels.ts) stand among the changes as pins: click one to compare it with now or
+// with another label, and to restore to it.
+import { api, fileUrl, type Change, type DiffFile, type DiffRun, type Label } from "./api.ts";
 import { $, authorAvatar, authorName, displayName, el, icon, isSelf } from "./dom.ts";
 import { renderDiff } from "./diff.ts";
 import { diffLines } from "diff";
@@ -13,7 +13,7 @@ import { changeVerb, groupChanges, isRename } from "../../src/core/format.ts";
 import { emptyState } from "./emptyState.ts";
 import { formatKeys } from "./keys.ts";
 import type { ToastSpec } from "./toast.ts";
-import { deleteMark, markedBy, markVersion, renameMark } from "./marks.ts";
+import { deleteLabel, labeledBy, labelVersion, renameLabel } from "./labels.ts";
 
 type Item = Change & { count: number; first: number };
 
@@ -22,7 +22,7 @@ interface Hooks {
   toast(t: ToastSpec): void;
   /** The sidebar's New note (none for a viewer). */
   newNote?(): void;
-  /** The person can read this workspace but not change it: no marking or restoring. */
+  /** The person can read this workspace but not change it: no labeling or restoring. */
   readOnly?: boolean;
 }
 
@@ -46,11 +46,11 @@ export class History {
   private summaryEl: HTMLElement;
   private filesEl: HTMLElement;
   private raw: Change[] = [];
-  /** The marked versions shown: this note's, or every note's. */
-  private marks: Mark[] = [];
-  /** A mark picked in the list: the right side compares it instead of showing changes. */
-  private mark: Mark | null = null;
-  /** What the picked mark is compared with: "now", or another mark's ID. */
+  /** The labels shown: this note's, or every note's. */
+  private labels: Label[] = [];
+  /** A label picked in the list: the right side compares it instead of showing changes. */
+  private label: Label | null = null;
+  /** What the picked label is compared with: "now", or another label's ID. */
   private compareTo = "now";
   private items: Item[] = [];
   private note: string | null = null;
@@ -98,20 +98,20 @@ export class History {
   }
 
   /** Open the page, optionally for one note and with a change (by id) selected. */
-  async show(opts: { note?: string | null; select?: number; mark?: string } = {}) {
+  async show(opts: { note?: string | null; select?: number; label?: string } = {}) {
     this.root.hidden = false;
     const note = opts.note ?? null;
     if (note !== this.note || !this.raw.length) {
       this.note = note;
       this.selected.clear();
-      this.mark = null;
+      this.label = null;
       await this.load();
     } else {
       await this.refresh(); // pick up anything that happened while the page was closed
     }
-    const picked = opts.mark ? this.marks.find((m) => m.id === opts.mark) : undefined;
+    const picked = opts.label ? this.labels.find((m) => m.id === opts.label) : undefined;
     const at = opts.select ? this.visibleItems().findIndex((it) => it.first <= opts.select! && opts.select! <= it.id) : -1;
-    if (picked) this.pickMark(picked);
+    if (picked) this.pickLabel(picked);
     else if (at >= 0) this.selectOnly(at);
     else if (!this.selected.size && this.visibleItems().length) this.selectOnly(0);
     else this.render();
@@ -123,8 +123,8 @@ export class History {
   refreshSoon = debounce(() => this.visible && void this.refresh().then(() => this.renderList()), 400);
 
   private async refresh() {
-    const [fresh, marks] = await Promise.all([api.history({ limit: PAGE, path: this.note ?? undefined, by: this.by || undefined }).catch(() => null), api.marks(this.note ?? undefined).catch(() => null)]);
-    if (marks) this.setMarks(marks);
+    const [fresh, labels] = await Promise.all([api.history({ limit: PAGE, path: this.note ?? undefined, by: this.by || undefined }).catch(() => null), api.labels(this.note ?? undefined).catch(() => null)]);
+    if (labels) this.setLabels(labels);
     if (!fresh) return;
     const older = this.raw.filter((c) => c.id < (fresh.at(-1)?.id ?? 0));
     this.raw = [...fresh, ...older];
@@ -134,11 +134,11 @@ export class History {
   private async load(older = false) {
     const seq = ++this.seq;
     const before = older ? this.raw.at(-1)?.id : undefined;
-    const [page, marks] = await Promise.all([
+    const [page, labels] = await Promise.all([
       api.history({ limit: PAGE, before, path: this.note ?? undefined, by: this.by || undefined }).catch(() => null),
-      older ? null : api.marks(this.note ?? undefined).catch(() => null),
+      older ? null : api.labels(this.note ?? undefined).catch(() => null),
     ]);
-    if (marks) this.setMarks(marks);
+    if (labels) this.setLabels(labels);
     if (!older) void api.changeAgents().then((a) => ((this.agentNames = a), this.renderList()), () => {});
     if (!page || seq !== this.seq) return;
     this.raw = older ? [...this.raw, ...page] : page;
@@ -171,18 +171,18 @@ export class History {
     else this.render();
   }
 
-  /** New marks from the server; a picked mark that's gone (deleted elsewhere) is let go. */
-  private setMarks(marks: Mark[]) {
-    this.marks = marks;
-    if (this.mark) this.mark = marks.find((m) => m.id === this.mark!.id) ?? null;
-    if (this.compareTo !== "now" && !marks.some((m) => m.id === this.compareTo)) this.compareTo = "now";
+  /** New labels from the server; a picked label that's gone (deleted elsewhere) is let go. */
+  private setLabels(labels: Label[]) {
+    this.labels = labels;
+    if (this.label) this.label = labels.find((m) => m.id === this.label!.id) ?? null;
+    if (this.compareTo !== "now" && !labels.some((m) => m.id === this.compareTo)) this.compareTo = "now";
   }
 
   // ---------------------------------------------------------------- selection
 
-  /** Pick a marked version: the right side compares it (with now, to start with). */
-  private pickMark(m: Mark) {
-    this.mark = m;
+  /** Pick a label: the right side compares it (with now, to start with). */
+  private pickLabel(m: Label) {
+    this.label = m;
     this.compareTo = "now";
     this.selected.clear();
     this.render();
@@ -191,7 +191,7 @@ export class History {
   private selectOnly(i: number) {
     const it = this.visibleItems()[i];
     if (!it) return;
-    this.mark = null;
+    this.label = null;
     this.selected = new Set([it.id]);
     this.anchor = this.focus = i;
     this.render();
@@ -200,7 +200,7 @@ export class History {
   private toggle(i: number) {
     const it = this.visibleItems()[i];
     if (!it) return;
-    this.mark = null;
+    this.label = null;
     if (this.selected.has(it.id)) this.selected.delete(it.id);
     else this.selected.add(it.id);
     this.anchor = this.focus = i;
@@ -240,17 +240,21 @@ export class History {
       el("option", { value: "", disabled: true, selected: !this.agentNames.includes(this.by) }, "One agent…"),
       ...this.agentNames.map((a) => el("option", { value: a, selected: a === this.by }, a)),
     );
+    const note = this.note;
     this.filtersEl.replaceChildren(
-      ...(this.note
-        ? [el("span", { class: "chip is-on hist-note-chip" }, icon("file", 12), displayName(this.note), el("button", { type: "button", title: "Show every note", onclick: () => void this.show({ note: null }) }, icon("close", 12)))]
+      ...(note
+        ? [el("span", { class: "chip is-on hist-note-chip" }, icon("file", 12), displayName(note), el("button", { type: "button", title: "Show every note", onclick: () => void this.show({ note: null }) }, icon("close", 12)))]
+        : []),
+      ...(note && !this.hooks.readOnly
+        ? [el("button", { type: "button", class: "chip hist-label-btn", title: "Name the note as it is now, to compare with or go back to later", onclick: () => void labelVersion(note, { toast: this.hooks.toast }).then((l) => l && this.afterLabel(l)) }, icon("label", 12), "Label this version…")]
         : []),
       el("span", { class: "hist-by", role: "group", "aria-label": "Whose changes" }, chip("", "Everyone"), chip("people", "People", "user"), chip("ai", "AI", "bot")),
       ...(this.agentNames.length > 1 ? [agentPick] : []),
     );
     let day = "";
     const rows: HTMLElement[] = [];
-    // Marks stand just above the change they mark the version after (or by time, if the log has none).
-    const pins = [...this.marks].sort((a, b) => (b.change_id ?? 0) - (a.change_id ?? 0) || b.ts - a.ts);
+    // Labels stand just above the change they label the version after (or by time, if the log has none).
+    const pins = [...this.labels].sort((a, b) => (b.change_id ?? 0) - (a.change_id ?? 0) || b.ts - a.ts);
     let pin = 0;
     const pinsBefore = (it: Item | null) => {
       while (pin < pins.length) {
@@ -288,7 +292,7 @@ export class History {
       row.addEventListener("click", (e) => this.click(i, e));
       rows.push(row);
     });
-    if (!this.more) pinsBefore(null); // marks older than every change shown (or with no changes to show)
+    if (!this.more) pinsBefore(null); // labels older than every change shown (or with no changes to show)
     this.listEl.replaceChildren(...(rows.length ? rows : [this.empty()]));
     void loadStats(items.filter((it) => it.count > 1).map((it) => toRanges(this.idsOf(it)))).then((fresh) => fresh && this.renderList());
     this.moreEl.replaceChildren(
@@ -296,19 +300,19 @@ export class History {
     );
   }
 
-  /** A marked version, as a pin among the changes. */
-  private pinRow(m: Mark): HTMLElement {
-    const on = this.mark?.id === m.id;
+  /** A label, as a pin among the changes. */
+  private pinRow(m: Label): HTMLElement {
+    const on = this.label?.id === m.id;
     return el(
       "button",
-      { type: "button", class: `hist-mark${on ? " is-selected" : ""}`, "aria-pressed": String(on), title: `Compare “${m.name}” with now, or restore to it`, onclick: () => this.pickMark(m) },
-      icon("bookmark", 14),
+      { type: "button", class: `hist-label${on ? " is-selected" : ""}`, "aria-pressed": String(on), title: `Compare “${m.name}” with now, or restore to it`, onclick: () => this.pickLabel(m) },
+      icon("label", 14),
       el(
         "span",
-        { class: "hist-mark-body" },
-        el("span", { class: "hist-mark-line" }, el("b", {}, m.name), m.current ? el("span", { class: "hist-mark-now" }, "now") : null, this.note ? null : el("span", { class: "hist-note" }, m.path ? displayName(m.path) : "in Trash")),
-        el("span", { class: "hist-meta" }, `Marked ${markedBy(m)}`),
-        m.description ? el("span", { class: "hist-mark-desc" }, m.description) : null,
+        { class: "hist-label-body" },
+        el("span", { class: "hist-label-line" }, el("b", {}, m.name), m.current ? el("span", { class: "hist-label-now" }, "now") : null, this.note ? null : el("span", { class: "hist-note" }, m.path ? displayName(m.path) : "in Trash")),
+        el("span", { class: "hist-meta" }, `Labeled ${labeledBy(m)}`),
+        m.description ? el("span", { class: "hist-label-desc" }, m.description) : null,
       ),
     );
   }
@@ -327,7 +331,7 @@ export class History {
   }
 
   private renderSummary(files: DiffFile[] | null) {
-    if (this.mark) return this.renderMarkSummary(this.mark);
+    if (this.label) return this.renderLabelSummary(this.label);
     const picked = this.visibleItems().filter((it) => this.selected.has(it.id));
     const saves = picked.reduce((n, it) => n + it.count, 0);
     const who = [...new Map(picked.map((it) => [it.source, it])).values()];
@@ -348,9 +352,9 @@ export class History {
     );
   }
 
-  /** The picked mark: its name, note and who marked it, and what to do with it. */
-  private renderMarkSummary(m: Mark) {
-    const others = this.marks.filter((x) => x.note_id === m.note_id && x.id !== m.id);
+  /** The picked label: its name, note and who labeled it, and what to do with it. */
+  private renderLabelSummary(m: Label) {
+    const others = this.labels.filter((x) => x.note_id === m.note_id && x.id !== m.id);
     const compare = el(
       "select",
       { class: "hist-compare", "aria-label": "Compare with", onchange: (e: Event) => ((this.compareTo = (e.target as HTMLSelectElement).value), void this.loadDiff()) },
@@ -358,32 +362,32 @@ export class History {
       ...others.map((x) => el("option", { value: x.id, selected: this.compareTo === x.id }, `“${x.name}”`)),
     );
     const canEdit = !this.hooks.readOnly && !!m.path;
-    const restore = canEdit && !m.current ? el("button", { type: "button", class: "qw-btn primary", onclick: () => void this.restoreMark(m) }, icon("reset", 13), "Restore to this version") : null;
+    const restore = canEdit && !m.current ? el("button", { type: "button", class: "qw-btn primary", onclick: () => void this.restoreLabel(m) }, icon("reset", 13), "Restore to this version") : null;
     const parts = [
       el(
         "div",
-        { class: "hist-sum-text hist-mark-sum" },
-        icon("bookmark", 15),
+        { class: "hist-sum-text hist-label-sum" },
+        icon("label", 15),
         el("b", {}, m.name),
         m.path ? el("button", { type: "button", class: "link-btn", title: "Open this note", onclick: () => this.hooks.open(m.path!) }, displayName(m.path)) : el("span", {}, "in Trash"),
-        el("span", {}, `Marked ${markedBy(m)}`),
+        el("span", {}, `Labeled ${labeledBy(m)}`),
       ),
       el("span", { class: "spacer" }),
       el("label", { class: "hist-compare-label" }, "Compare with ", compare),
       restore,
-      canEdit ? el("button", { type: "button", class: "icon-btn small", title: "Rename", "aria-label": "Rename this marked version", onclick: () => void this.renameMark(m) }, icon("edit", 14)) : null,
-      canEdit ? el("button", { type: "button", class: "icon-btn small", title: "Delete this mark", "aria-label": "Delete this mark", onclick: () => void this.deleteMark(m) }, icon("trash", 14)) : null,
+      canEdit ? el("button", { type: "button", class: "icon-btn small", title: "Rename", "aria-label": "Rename this label", onclick: () => void this.renameLabel(m) }, icon("edit", 14)) : null,
+      canEdit ? el("button", { type: "button", class: "icon-btn small", title: "Delete this label", "aria-label": "Delete this label", onclick: () => void this.deleteLabel(m) }, icon("trash", 14)) : null,
     ].filter((n): n is HTMLElement => !!n);
     this.summaryEl.replaceChildren(...parts);
   }
 
-  /** The picked mark beside the note now or another mark, as the usual diff: the older version first, so it reads forward in time. */
-  private async loadMarkDiff(m: Mark) {
+  /** The picked label beside the note now or another label, as the usual diff: the older version first, so it reads forward in time. */
+  private async loadLabelDiff(m: Label) {
     const seq = ++this.diffSeq;
     this.filesEl.classList.add("is-loading");
-    const other = this.marks.find((x) => x.id === this.compareTo);
+    const other = this.labels.find((x) => x.id === this.compareTo);
     const older = other && ((other.change_id ?? 0) - (m.change_id ?? 0) || other.ts - m.ts) < 0;
-    const c = await (older ? api.compareMarks(other.id, m.id) : api.compareMarks(m.id, this.compareTo)).catch(() => null);
+    const c = await (older ? api.compareLabels(other.id, m.id) : api.compareLabels(m.id, this.compareTo)).catch(() => null);
     if (seq !== this.diffSeq) return;
     this.filesEl.classList.remove("is-loading");
     if (!c) return this.filesEl.replaceChildren(el("div", { class: "hist-hint" }, "Couldn't load this version."));
@@ -393,14 +397,14 @@ export class History {
         "section",
         { class: "hist-file" },
         el("header", { class: "hist-file-head" }, icon("file", 14), el("span", { class: "hist-file-name" }, c.path), statEl(lineTotals(c.from.text, c.to.text)), el("span", { class: "spacer" }), el("span", { class: "hist-compare-what" }, `“${c.from.name}” → ${to}`)),
-        m.description ? el("p", { class: "hist-mark-note" }, m.description) : null,
+        m.description ? el("p", { class: "hist-label-note" }, m.description) : null,
         c.from.text === c.to.text ? el("div", { class: "cv-note" }, `No differences: the note ${to === "now" ? "is at this version now" : `is the same at “${c.from.name}” and ${to}`}.`) : renderDiff(c.from.text, c.to.text),
       ),
     );
   }
 
-  private async restoreMark(m: Mark) {
-    const r = await api.restoreMark(m.id).catch(() => null);
+  private async restoreLabel(m: Label) {
+    const r = await api.restoreLabel(m.id).catch(() => null);
     if (!r) return this.hooks.toast({ text: `Couldn't restore “${m.name}”` });
     const change = r.change;
     const said = { icon: "reset", text: `Restored ${displayName(r.path)} to “${m.name}”` };
@@ -409,24 +413,24 @@ export class History {
     this.render();
   }
 
-  private async renameMark(m: Mark) {
-    const next = await renameMark(m, this.hooks.toast);
+  private async renameLabel(m: Label) {
+    const next = await renameLabel(m, this.hooks.toast);
     if (!next) return;
-    this.marks = this.marks.map((x) => (x.id === next.id ? next : x));
-    this.mark = next;
+    this.labels = this.labels.map((x) => (x.id === next.id ? next : x));
+    this.label = next;
     this.render();
   }
 
-  private async deleteMark(m: Mark) {
-    if (!(await deleteMark(m, this.hooks.toast))) return;
-    this.marks = this.marks.filter((x) => x.id !== m.id);
-    this.mark = null;
+  private async deleteLabel(m: Label) {
+    if (!(await deleteLabel(m, this.hooks.toast))) return;
+    this.labels = this.labels.filter((x) => x.id !== m.id);
+    this.label = null;
     if (this.visibleItems().length) this.selectOnly(0);
     else this.render();
   }
 
   private async loadDiff() {
-    if (this.mark) return this.loadMarkDiff(this.mark);
+    if (this.label) return this.loadLabelDiff(this.label);
     const picked = this.visibleItems().filter((it) => this.selected.has(it.id));
     if (!picked.length) {
       this.filesEl.replaceChildren(el("div", { class: "hist-hint" }, `Select changes on the left to see what they did. Shift-click selects a range; ${formatKeys("Mod-click")} adds or skips one.`));
@@ -482,8 +486,8 @@ export class History {
       ? el("button", { type: "button", class: "hist-restore", title: "Put the note back the way it was before these changes (later changes to it are undone too)" }, icon("reset", 13), "Restore to before")
       : null;
     // Name the version these changes left the note at ("that one was the good one").
-    const mark = r.after !== null && r.op !== "delete" && !isAsset(f.path) && !this.hooks.readOnly
-      ? el("button", { type: "button", class: "hist-restore", title: "Give the version right after these changes a name, to come back to", onclick: () => void markVersion(f.path, { toast: this.hooks.toast, show: (m) => this.afterMark(m) }, r.to) }, icon("bookmark", 13), "Mark this version…")
+    const label = r.after !== null && r.op !== "delete" && !isAsset(f.path) && !this.hooks.readOnly
+      ? el("button", { type: "button", class: "hist-restore", title: "Give the version right after these changes a name, to come back to", onclick: () => void labelVersion(f.path, { toast: this.hooks.toast }, r.to).then((l) => l && this.afterLabel(l)) }, icon("label", 13), "Label this version…")
       : null;
     restore?.addEventListener("click", async () => {
       const res = await api.restore(r.from).catch(() => null);
@@ -497,14 +501,14 @@ export class History {
     return el(
       "div",
       { class: "hist-run" },
-      split || r.skipped || restore || mark
+      split || r.skipped || restore || label
         ? el(
             "div",
             { class: "hist-run-head" },
             r.skipped ? el("span", { class: "hist-skip", title: "Changes to this note you left out of the selection" }, `${r.skipped} save${r.skipped > 1 ? "s" : ""} skipped`) : null,
             split ? el("span", {}, `${r.count} save${r.count > 1 ? "s" : ""} · ${clock(r.tsFrom)}${r.tsTo !== r.tsFrom ? `–${clock(r.tsTo)}` : ""}`) : null,
             el("span", { class: "spacer" }),
-            mark,
+            label,
             restore,
           )
         : null,
@@ -518,11 +522,11 @@ export class History {
     );
   }
 
-  /** A version was just marked (from a change's run, or elsewhere): show its pin, picked. */
-  async afterMark(m: Mark) {
-    const marks = await api.marks(this.note ?? undefined).catch(() => null);
-    if (marks) this.setMarks(marks);
-    this.pickMark(this.marks.find((x) => x.id === m.id) ?? m);
+  /** A version was just labeled (from a change's run, or elsewhere): show its pin, picked. */
+  async afterLabel(m: Label) {
+    const labels = await api.labels(this.note ?? undefined).catch(() => null);
+    if (labels) this.setLabels(labels);
+    this.pickLabel(this.labels.find((x) => x.id === m.id) ?? m);
   }
 
   // ---------------------------------------------------------------- keyboard
@@ -597,7 +601,7 @@ function debounce(fn: () => unknown, ms: number) {
   };
 }
 
-/** Lines added and removed between two texts, for a mark's comparison. */
+/** Lines added and removed between two texts, for a label's comparison. */
 function lineTotals(before: string, after: string): { add: number; del: number } {
   let add = 0;
   let del = 0;

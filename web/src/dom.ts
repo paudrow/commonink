@@ -76,7 +76,7 @@ const ICONS: Record<string, string> = {
   pause: '<path d="M8 5v14M16 5v14" stroke-width="3"/>',
   reset: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
   flag: '<path d="M4 22V4M4 4h13l-2 4 2 4H4"/>',
-  bookmark: '<path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4.5L5 21V4a1 1 0 0 1 1-1z"/>',
+  label: '<path d="M3 4.5v6.3c0 .5.2 1 .6 1.4l8.2 8.2a2 2 0 0 0 2.8 0l5.9-5.9a2 2 0 0 0 0-2.8L12.3 3.5a2 2 0 0 0-1.4-.5H4.5A1.5 1.5 0 0 0 3 4.5z"/><circle cx="7.8" cy="7.8" r="1.6"/>',
   sliders: '<path d="M20 7h-9M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/>',
   heading: '<path d="M6 4v16M18 4v16M6 12h12"/>',
   list: '<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/>',

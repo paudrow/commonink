@@ -2,7 +2,7 @@
 // Agents read markdown far more cheaply than JSON, so this is the default output.
 import { authorLabel } from "./actor.ts";
 import { createTwoFilesPatch } from "diff";
-import { isTagFavorite, type Backlink, type Change, type Favorite, type Mark, type Note, type NoteMeta, type Quire, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView, type TrashItem } from "./quire.ts";
+import { isTagFavorite, type Backlink, type Change, type Favorite, type Label, type Note, type NoteMeta, type Quire, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView, type TrashItem } from "./quire.ts";
 import type { Board } from "./kanban.ts";
 
 export function fmtSearch(q: string, hits: SearchHit[]): string {
@@ -122,15 +122,15 @@ export function fmtChanges(changes: Change[], quire: Pick<Quire, "diffStats">): 
     .join("\n");
 }
 
-/** Marked versions, newest first: each one's name and ID, its note, who marked it and when. */
-export function fmtMarks(marks: Mark[], note?: string): string {
-  if (!marks.length) return note ? `${note} has no marked versions yet. Mark one with mark_version.` : "No marked versions yet.";
-  return marks
+/** Labels, newest first: each one's name and ID, its note, who labeled it and when. */
+export function fmtLabels(labels: Label[], note?: string): string {
+  if (!labels.length) return note ? `${note} has no labels yet. Label one with label_version.` : "No labels yet.";
+  return labels
     .map((m) => {
       const when = new Date(m.ts).toISOString().replace(/\.\d+Z$/, "Z");
       const at = m.change_id ? `after change #${m.change_id}` : "";
       const where = m.path ?? "(in Trash)";
-      return `- "${m.name}" [${m.id}] ${where}, marked ${when} by ${authorLabel(m)}${at ? `, ${at}` : ""}${m.current ? " (the note is at this version now)" : ""}${m.description ? `\n    ${m.description}` : ""}`;
+      return `- "${m.name}" [${m.id}] ${where}, labeled ${when} by ${authorLabel(m)}${at ? `, ${at}` : ""}${m.current ? " (the note is at this version now)" : ""}${m.description ? `\n    ${m.description}` : ""}`;
     })
     .join("\n");
 }

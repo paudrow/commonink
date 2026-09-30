@@ -120,10 +120,10 @@ async function demoFiles(sections: Section[]) {
   for (const { to, from, versions } of sections.flatMap((s) => s.files)) {
     if (has.has(to)) continue;
     if (versions?.length) {
-      // Its earlier versions first, each saved and marked with its name; then the note as it is now.
+      // Its earlier versions first, each saved and labeled with its name; then the note as it is now.
       for (const [i, v] of versions.entries()) {
         await must(i ? "PUT" : "POST", `${api}/note`, { path: to, content: fillDates(fs.readFileSync(v.from, "utf8"), TODAY) });
-        await must("POST", `${api}/marks`, { path: to, name: v.name });
+        await must("POST", `${api}/labels`, { path: to, name: v.name });
       }
       await must("PUT", `${api}/note`, { path: to, content: fillDates(fs.readFileSync(from, "utf8"), TODAY) });
     } else if (/\.(md|html)$/.test(to)) await must("POST", `${api}/note`, { path: to, content: fillDates(fs.readFileSync(from, "utf8"), TODAY) });

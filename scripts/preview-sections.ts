@@ -6,7 +6,7 @@
 //                                   the Preview (a `_root/` folder in it goes to the vault's root
 //                                   instead, for things like Templates/)
 //   <Note>.versions/<n> <name>.md    earlier versions of the demo note <Note>.md, oldest first: each is
-//                                   saved in turn and marked with its name (a marked version), and
+//                                   saved in turn and labeled with its name (a label), and
 //                                   then the note itself is saved on top
 //
 // Demo notes can say `{{date}}`, `{{date:+3d}}`, `{{date:-2d}}` or `{{date:+1w}}`, filled in with ISO
@@ -21,7 +21,7 @@ export interface Section {
   title: string;
   /** The steps, as markdown. */
   body: string;
-  /** Demo files: where each goes in the workspace, and where it is here, with any marked versions to save first. */
+  /** Demo files: where each goes in the workspace, and where it is here, with any labels to save first. */
   files: Array<{ to: string; from: string; versions?: Array<{ name: string; from: string }> }>;
 }
 

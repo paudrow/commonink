@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import { LOCAL_USER, openVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
-import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtMarks, fmtVersionDiff, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtTrash, fmtWrite } from "./core/format.ts";
+import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtLabels, fmtVersionDiff, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtTrash, fmtWrite } from "./core/format.ts";
 import { parseQuery } from "./core/query.ts";
 import { agentSource, parseAuthorFilter } from "./core/actor.ts";
 
@@ -56,16 +56,16 @@ Usage: quire <command> [args] [--agent <name>] [--json]
                                    --path brings the note's history under earlier names too;
                                    --by shows only people's changes, any agent's, or one agent's
   restore <change-id>              put a note back the way it was before that change
-  mark <note> <name…> [--at <change-id>] [--description D]
+  label <note> <name…> [--at <change-id>] [--description D]
                                    name the note's version ("v1", "Sent to Alex"), now or right
                                    after a change, to compare with or go back to later
-  marks [note]                     a note's marked versions (or every note's), with their IDs
-  mark-rename <mark> <name…> [--note N] [--description D]
-  mark-rm <mark> [--note N]        take a name off a version (the note stays as it is)
-  diff <note> --from <mark> [--to <mark>]
-                                   what changed since a marked version (or between two)
-  restore <note> --to <mark>       put the note back to a marked version (undoable)
-                                   <mark> is a mark's ID, or its name on the note
+  labels [note]                    a note's labels (or every note's), with their IDs
+  label-rename <label> <name…> [--note N] [--description D]
+  label-rm <label> [--note N]      take a name off a version (the note stays as it is)
+  diff <note> --from <label> [--to <label>]
+                                   what changed since a label (or between two)
+  restore <note> --to <label>      put the note back to a label (undoable)
+                                   <label> is a label's ID, or its name on the note
   mcp                              run the stdio MCP server
 
 <note> can be a path, a path without .md, a [[wikilink]] name, a note ID or a note URL.
@@ -289,44 +289,44 @@ if (cmd === "mcp") {
         out(fmtFavorites(list), list);
         break;
       }
-      case "mark": {
+      case "label": {
         const note = need(0, "note");
-        if (!args[1]) throw new QuireError('Name the version: quire mark <note> "v1"');
+        if (!args[1]) throw new QuireError('Name the version: quire label <note> "v1"');
         const at = num("at");
-        const m = q.mark(note, args.slice(1).join(" "), source, { description: str("description"), at });
-        out(`Marked ${m.path} as "${m.name}" [${m.id}]${m.change_id ? `, after change #${m.change_id}` : ""}`, m);
+        const m = q.label(note, args.slice(1).join(" "), source, { description: str("description"), at });
+        out(`Labeled ${m.path} as "${m.name}" [${m.id}]${m.change_id ? `, after change #${m.change_id}` : ""}`, m);
         break;
       }
-      case "marks": {
-        const marks = q.marks(args[0]);
-        out(fmtMarks(marks, args[0]), marks);
+      case "labels": {
+        const labels = q.labels(args[0]);
+        out(fmtLabels(labels, args[0]), labels);
         break;
       }
-      case "mark-rename": {
-        const ref = need(0, "mark");
-        if (!args[1]) throw new QuireError("mark-rename needs the new name");
-        const m = q.renameMark(ref, args.slice(1).join(" "), { target: str("note"), description: str("description") });
-        out(`Renamed the mark to "${m.name}" [${m.id}]`, m);
+      case "label-rename": {
+        const ref = need(0, "label");
+        if (!args[1]) throw new QuireError("label-rename needs the new name");
+        const m = q.renameLabel(ref, args.slice(1).join(" "), { target: str("note"), description: str("description") });
+        out(`Renamed the label to "${m.name}" [${m.id}]`, m);
         break;
       }
-      case "mark-rm": {
-        const m = q.deleteMark(need(0, "mark"), str("note"));
-        out(`Deleted the mark "${m.name}" from ${m.path ?? "a note in Trash"}; the note is as it was`, m);
+      case "label-rm": {
+        const m = q.deleteLabel(need(0, "label"), str("note"));
+        out(`Deleted the label "${m.name}" from ${m.path ?? "a note in Trash"}; the note is as it was`, m);
         break;
       }
       case "diff": {
         const note = need(0, "note");
         const from = str("from");
-        if (!from) throw new QuireError("diff needs --from <mark>");
-        const c = q.compareMarks(from, str("to") ?? "now", note);
-        const text = fmtVersionDiff(c.path, { label: c.from.mark.name, text: c.from.text }, { label: c.to.mark ? `"${c.to.mark.name}"` : "now", text: c.to.text });
-        out(text, { path: c.path, from: c.from.mark, to: c.to.mark, diff: text });
+        if (!from) throw new QuireError("diff needs --from <label>");
+        const c = q.compareLabels(from, str("to") ?? "now", note);
+        const text = fmtVersionDiff(c.path, { label: c.from.label.name, text: c.from.text }, { label: c.to.label ? `"${c.to.label.name}"` : "now", text: c.to.text });
+        out(text, { path: c.path, from: c.from.label, to: c.to.label, diff: text });
         break;
       }
       case "restore": {
         if (str("to")) {
-          const r = q.restoreMark(str("to")!, source, { target: need(0, "note") });
-          out(r.change ? fmtWrite(r, `Restored to "${r.mark.name}":`) : `${r.path} is already at "${r.mark.name}"`, r);
+          const r = q.restoreLabel(str("to")!, source, { target: need(0, "note") });
+          out(r.change ? fmtWrite(r, `Restored to "${r.label.name}":`) : `${r.path} is already at "${r.label.name}"`, r);
           break;
         }
         const id = need(0, "change-id");

@@ -56,14 +56,14 @@ const SCHEMA = [
      id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, path TEXT NOT NULL, op TEXT NOT NULL,
      source TEXT NOT NULL, version TEXT, summary TEXT, from_path TEXT, before TEXT, note_id TEXT, person TEXT, agent TEXT)`,
   `CREATE INDEX IF NOT EXISTS changes_path ON changes(path, version)`,
-  // Marked versions: a name on one version of a note ("Sent to Alex", "v1"), after the change
-  // `change_id` (null if the log has no change at that version). A mark keeps the version's `text`
-  // itself, so it stays whatever becomes of the change log, until the mark is deleted or its note is
+  // Labels: a name on one version of a note ("Sent to Alex", "v1"), after the change
+  // `change_id` (null if the log has no change at that version). A label keeps the version's `text`
+  // itself, so it stays whatever becomes of the change log, until the label is deleted or its note is
   // deleted forever.
-  `CREATE TABLE IF NOT EXISTS marks(
+  `CREATE TABLE IF NOT EXISTS labels(
      id TEXT PRIMARY KEY, note_id TEXT NOT NULL, change_id INTEGER, name TEXT NOT NULL, description TEXT,
      version TEXT NOT NULL, text TEXT NOT NULL, ts INTEGER NOT NULL, source TEXT NOT NULL, person TEXT, agent TEXT)`,
-  `CREATE INDEX IF NOT EXISTS marks_note ON marks(note_id, change_id)`,
+  `CREATE INDEX IF NOT EXISTS labels_note ON labels(note_id, change_id)`,
   // Each person's starred notes, in their order. `path` is where the note was last seen, so a star
   // can find its note again if the note comes back under a new ID (deleted, then restored).
   `CREATE TABLE IF NOT EXISTS favorites(

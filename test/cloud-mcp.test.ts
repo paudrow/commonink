@@ -77,12 +77,12 @@ async function mcp(token: string) {
 
 /** What a viewer's agent gets: reading, and what's each person's own (favorites, their smart folders). */
 const VIEWER_TOOLS = [
-  "backlinks", "delete_smart_folder", "diff_versions", "get_today", "list_marks", "list_notes", "list_smart_folders", "list_tags", "list_tasks", "read_board",
+  "backlinks", "delete_smart_folder", "diff_versions", "get_today", "list_labels", "list_notes", "list_smart_folders", "list_tags", "list_tasks", "read_board",
   "read_note", "recent_changes", "save_smart_folder", "search_notes", "star_note", "star_tag", "unstar_note", "unstar_tag",
 ];
 const ALL_TOOLS = [
   ...VIEWER_TOOLS, "add_card", "add_task", "append_to_note", "archive_note", "create_note", "delete_note", "edit_card", "edit_note", "move_card",
-  "mark_version", "move_note", "move_task", "restore_mark", "unarchive_note", "update_task",
+  "label_version", "move_note", "move_task", "restore_label", "unarchive_note", "update_task",
 ].sort();
 
 test("an agent discovers where to sign in from /mcp", async () => {

@@ -28,8 +28,8 @@ test("the server lists every tool", async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
     "add_card", "add_task", "append_to_note", "archive_note", "backlinks", "create_note", "delete_note", "delete_smart_folder",
-    "diff_versions", "edit_card", "edit_note", "get_today", "list_marks", "list_notes", "list_smart_folders", "list_tags", "list_tasks", "mark_version",
-    "move_card", "move_note", "move_task", "read_board", "read_note", "recent_changes", "restore_mark", "save_smart_folder",
+    "diff_versions", "edit_card", "edit_note", "get_today", "label_version", "list_labels", "list_notes", "list_smart_folders", "list_tags", "list_tasks",
+    "move_card", "move_note", "move_task", "read_board", "read_note", "recent_changes", "restore_label", "save_smart_folder",
     "search_notes", "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag", "update_task",
   ]);
 });

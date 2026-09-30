@@ -21,8 +21,8 @@ let cloud: Cloud;
 let people: Awaited<ReturnType<typeof team>>;
 let startId: string;
 const restoreIds = {} as Record<Who, number>;
-/** A marked version of each person's own note, to compare, rename, restore to and delete. */
-const markIds = {} as Record<Who, string>;
+/** A label of each person's own note, to compare, rename, restore to and delete. */
+const labelIds = {} as Record<Who, string>;
 /** A smart folder of each person's own, for them to delete. */
 const folderIds = {} as Record<Who, string>;
 /** Trash items for each person to restore and to delete for good. */
@@ -57,8 +57,8 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "GET /tags", send: () => ["GET", "/tags"], expect: READ },
   { route: "GET /asset-tags", send: () => ["GET", "/asset-tags"], expect: READ },
   { route: "GET /today", send: () => ["GET", "/today?today=2026-10-01"], expect: READ },
-  { route: "GET /marks", send: (w) => ["GET", `/marks?path=marked-${w}.md`], expect: READ },
-  { route: "GET /marks/compare", send: (w) => ["GET", `/marks/compare?from=${markIds[w] ?? "none"}&to=now`], expect: READ },
+  { route: "GET /labels", send: (w) => ["GET", `/labels?path=labeled-${w}.md`], expect: READ },
+  { route: "GET /labels/compare", send: (w) => ["GET", `/labels/compare?from=${labelIds[w] ?? "none"}&to=now`], expect: READ },
   { route: "GET /files/*", send: () => ["GET", "/files/assets/margin.svg"], expect: READ },
   { route: "GET /file-resolve", send: () => ["GET", "/file-resolve?target=margin.svg"], expect: READ },
   { route: "GET /live", send: () => ["GET", "/live", undefined, liveHeaders()], expect: READ },
@@ -82,10 +82,10 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "PUT /asset-tags", send: (w) => ["PUT", "/asset-tags", { path: "assets/margin.svg", tags: [`asset-${w}`] }], expect: EDIT },
   { route: "POST /move", send: (w) => ["POST", "/move", { from: `move-${w}.md`, to: `moved-${w}.md` }], expect: EDIT },
   { route: "POST /restore", send: (w) => ["POST", "/restore", { id: restoreIds[w] ?? 1 }], expect: EDIT },
-  { route: "POST /marks", send: (w) => ["POST", "/marks", { path: `marked-${w}.md`, name: `Mine ${w}` }], expect: EDIT },
-  { route: "POST /marks/rename", send: (w) => ["POST", "/marks/rename", { id: markIds[w] ?? "none", name: `v1 ${w}` }], expect: EDIT },
-  { route: "POST /marks/restore", send: (w) => ["POST", "/marks/restore", { id: markIds[w] ?? "none" }], expect: EDIT },
-  { route: "POST /marks/delete", send: (w) => ["POST", "/marks/delete", { id: markIds[w] ?? "none" }], expect: EDIT },
+  { route: "POST /labels", send: (w) => ["POST", "/labels", { path: `labeled-${w}.md`, name: `Mine ${w}` }], expect: EDIT },
+  { route: "POST /labels/rename", send: (w) => ["POST", "/labels/rename", { id: labelIds[w] ?? "none", name: `v1 ${w}` }], expect: EDIT },
+  { route: "POST /labels/restore", send: (w) => ["POST", "/labels/restore", { id: labelIds[w] ?? "none" }], expect: EDIT },
+  { route: "POST /labels/delete", send: (w) => ["POST", "/labels/delete", { id: labelIds[w] ?? "none" }], expect: EDIT },
   { route: "POST /archive", send: (w) => ["POST", "/archive", { paths: [`arch-${w}.md`] }], expect: EDIT },
   { route: "POST /unarchive", send: (w) => ["POST", "/unarchive", { paths: [`Archive/unarch-${w}.md`] }], expect: EDIT },
   { route: "GET /delete-check", send: (w) => ["GET", `/delete-check?path=tasks-${w}.md`], expect: EDIT },
@@ -138,9 +138,9 @@ before(async () => {
     await note(`restore-${w}.md`);
     await cloud.call(owner, "PUT", `${base}/note`, { path: `restore-${w}.md`, content: "# Changed\n" });
     restoreIds[w] = (await cloud.call(owner, "GET", `${base}/changes?path=restore-${w}.md&limit=1`))[0].id;
-    await note(`marked-${w}.md`);
-    markIds[w] = (await cloud.call(owner, "POST", `${base}/marks`, { path: `marked-${w}.md`, name: "v1" })).id;
-    await cloud.call(owner, "PUT", `${base}/note`, { path: `marked-${w}.md`, content: "# Since v1\n" });
+    await note(`labeled-${w}.md`);
+    labelIds[w] = (await cloud.call(owner, "POST", `${base}/labels`, { path: `labeled-${w}.md`, name: "v1" })).id;
+    await cloud.call(owner, "PUT", `${base}/note`, { path: `labeled-${w}.md`, content: "# Since v1\n" });
     await note(`del-${w}.md`);
     await note(`folder-${w}/Inside.md`);
     await note(`trash-restore-${w}.md`);

@@ -73,8 +73,10 @@ export interface App {
   delete(): void;
   move(): void;
   noteHistory(): void;
-  /** Name the focused note's version as it is now (marks.ts). */
-  markVersion(): void;
+  /** Name the focused note's version as it is now (labels.ts). */
+  labelVersion(): void;
+  /** The focused note's labels, in its History. */
+  noteLabels(): void;
   gettingStarted(): void;
   shortcuts(): void;
   /** Back or forward through what the focused pane has shown. */
@@ -126,7 +128,8 @@ export function appCommands(app: App): Command[] {
     { id: "follow-link", title: "Follow link", keywords: "open link under the cursor gd go to", icon: "link", area: "Editor", available: app.onLink, run: app.followLink },
     { id: "fold-all", title: "Fold all sections", keywords: "collapse close details collapsible zM", icon: "chevron", available: text && app.folds > 0, run: () => app.foldAll(false) },
     { id: "unfold-all", title: "Unfold all sections", keywords: "expand open details collapsible zR", icon: "chevron", available: text && app.folds > 0, run: () => app.foldAll(true) },
-    { id: "mark-version", title: "Mark this version…", keywords: "name version milestone snapshot tag save point v1 checkpoint", icon: "bookmark", available: text && app.canDelete, run: app.markVersion },
+    { id: "label-version", title: "Label this version…", keywords: "name version milestone snapshot tag save point v1 checkpoint", icon: "label", available: text && app.canDelete, run: app.labelVersion },
+    { id: "note-labels", title: "Labels of this note", keywords: "versions compare restore label tag release history", icon: "label", available: text, run: app.noteLabels },
     { id: "note-history", title: "History of this note", keywords: "versions changes diff restore", icon: "history", available: !!note, run: app.noteHistory },
     {
       id: "html-mode",

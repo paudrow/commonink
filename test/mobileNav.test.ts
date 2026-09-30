@@ -60,11 +60,11 @@ test("More lists the showing overflow buttons by their titles, and an item press
   $("#move-btn").hidden = true;
   $("#more-btn").click();
   const items = [...document.querySelectorAll("#more-menu [role=menuitem]")].map((n) => n.textContent);
-  assert.deepEqual(items, ["History of this note", "Marked versions", "Archive note", "Delete note", "Focus mode", "Toggle side panel"]);
+  assert.deepEqual(items, ["History of this note", "Archive note", "Delete note", "Focus mode", "Toggle side panel"]);
   assert.deepEqual([$("#more-btn").getAttribute("aria-expanded"), focused()], ["true", "History of this note"]);
   let pressed = "";
   $("#archive-btn").addEventListener("click", () => (pressed = "archive"), { once: true });
-  (document.querySelectorAll("#more-menu [role=menuitem]")[2] as HTMLElement).click();
+  (document.querySelectorAll("#more-menu [role=menuitem]")[1] as HTMLElement).click();
   assert.deepEqual([pressed, $("#more-menu").hidden, $("#more-btn").getAttribute("aria-expanded")], ["archive", true, "false"]);
   $("#move-btn").hidden = false;
 });
@@ -85,7 +85,7 @@ test("arrow keys, Home and End move through More's items, wrapping; Esc closes i
   const menu = $("#more-menu");
   const walk = (k: string) => (key(document.activeElement!, k), focused());
   assert.deepEqual([walk("ArrowDown"), walk("End"), walk("ArrowDown"), walk("ArrowUp"), walk("Home")], [
-    "Marked versions",
+    "Move to folder",
     "Toggle side panel",
     "History of this note",
     "Toggle side panel",
