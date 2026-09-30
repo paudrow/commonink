@@ -9,7 +9,7 @@ Common Ink is a shared notebook for you, your team, and your agents. Try each th
 
 - [ ] Type `/` on a new line and add a timer or a task <!-- guide:slash -->
 - [ ] Type `@` or `[[` and pick a note to link to it <!-- guide:link -->
-- [ ] Press `⌘K` to search your notes and jump to one <!-- guide:search -->
+- [ ] Press `⌘K` (`Ctrl+K` off a Mac) to search your notes and jump to one <!-- guide:search -->
 - [ ] Star this note (☆ at the top), so it stays in your sidebar <!-- guide:star -->
 - [ ] Tick a task. Any checkbox will do, even this one <!-- guide:tick -->
 - [ ] Watch an agent edit this note, then take the edit back <!-- guide:watch -->
