@@ -5,8 +5,9 @@
 //   burst     200 autosaves from the editor, 600 ms apart: one sitting
 //   sessions  the same 200 autosaves in 50 sittings of 4, half an hour apart
 //
-// Each prints how much the database file grew, and how long reading back the oldest and newest
-// change's text takes (Quire.diff, what History, restore and Undo read).
+// Each prints how much the database file grew, the time one save took on average, and how long
+// reading back a change's text takes (Quire.diff, what History, restore and Undo read): the newest
+// change, and the slowest of all of them.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -63,6 +64,7 @@ async function measure(backend: "local" | "do", scenario: string) {
   let text = LONG;
   let version = quire.read("Long").version;
   const steps = SCENARIOS[scenario];
+  const began = performance.now();
   for (let i = 0; i < 200; i++) {
     text += `typed ${i}\n`;
     if (!steps.length) {
@@ -73,12 +75,21 @@ async function measure(backend: "local" | "do", scenario: string) {
     const req = new Request("http://localhost/api/note", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: "Long.md", content: text, baseVersion: version }) });
     version = ((await (await handleApi(host, req, "/note"))!.json()) as { version: string }).version;
   }
+  const saveMs = (performance.now() - began) / 200;
   checkpoint();
   const log = quire.changes({ path: "Long.md", limit: 500 });
   const oldest = log[log.length - 1].id;
   const newest = log[0].id;
   if (quire.diff(oldest, newest).before !== LONG || quire.diff(oldest, newest).after !== text) throw new Error("History lost text");
-  const row = { backend, scenario, changes: log.length, grewMB: +((size() - start) / 1024 / 1024).toFixed(2), readOldestMs: +ms(() => quire.diff(oldest, oldest)).toFixed(2), readNewestMs: +ms(() => quire.diff(newest, newest)).toFixed(2) };
+  const row = {
+    backend,
+    scenario,
+    changes: log.length,
+    grewMB: +((size() - start) / 1024 / 1024).toFixed(2),
+    saveMs: +saveMs.toFixed(2),
+    readNewestMs: +ms(() => quire.diff(newest, newest)).toFixed(2),
+    readSlowestMs: +Math.max(...log.map((c) => ms(() => quire.diff(c.id, c.id)))).toFixed(2),
+  };
   fs.rmSync(dir, { recursive: true, force: true });
   return row;
 }

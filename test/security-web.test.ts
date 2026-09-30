@@ -2,7 +2,7 @@
 import "./dom.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cpuMs } from "./helpers.ts";
+import { cpuMs, superlinear } from "./helpers.ts";
 
 const { inline } = await import("../web/src/taskRow.ts");
 const { renderMarkdown } = await import("../web/src/render.ts");
@@ -76,7 +76,7 @@ test("hostile markdown renders in linear time, and deep quotes don't overflow th
 });
 
 test("nesting a note too deep renders the rest flat instead of throwing, in time that grows with the note", () => {
-  // Each shape once at n and once at 2n: no throw, and twice the input takes about twice as long.
+  // Each shape at n and at four times n: no throw, and the time grows with the input.
   const shapes: Record<string, (n: number) => string> = {
     "unclosed <kbd>": (n) => "<kbd>".repeat(n),
     "unclosed <span>": (n) => "<span>".repeat(n),
@@ -94,27 +94,14 @@ test("nesting a note too deep renders the rest flat instead of throwing, in time
     "mixed emphasis (*_*_ a _*_*)": (n) => "*_".repeat(n / 2) + "a" + "_*".repeat(n / 2),
     "a footnote many times over": (n) => "x[^a] ".repeat(n / 20) + "\n\n[^a]: " + "<kbd>".repeat(n),
   };
-  const time = (md: string) => {
-    let best = Infinity;
-    for (let i = 0; i < 3; i++) {
-      const t = performance.now();
-      renderMarkdown(md, "a.md");
-      best = Math.min(best, performance.now() - t);
-    }
-    return best;
-  };
-  const slow: string[] = [];
-  for (const [name, make] of Object.entries(shapes)) {
-    let once = 0;
-    let twice = 0;
+  const slow = Object.entries(shapes).flatMap(([name, make]) => {
     try {
-      [once, twice] = [time(make(10_000)), time(make(20_000))];
+      const slower = superlinear((md: string) => renderMarkdown(md, "a.md"), make, 8_000);
+      return slower ? [`${name}: ${slower}`] : [];
     } catch (e) {
-      slow.push(`${name}: ${String(e)}`);
-      continue;
+      return [`${name}: ${String(e)}`];
     }
-    if (twice > 3 * once + 40) slow.push(`${name}: ${Math.round(once)} ms, then ${Math.round(twice)} ms`);
-  }
+  });
   assert.deepEqual(slow, []);
   // What's past the cap still reads: as text, or at the deepest level.
   const box = document.createElement("div");

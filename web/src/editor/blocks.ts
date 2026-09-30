@@ -7,7 +7,6 @@ import { Decoration, EditorView, keymap, WidgetType, type DecorationSet } from "
 import { api, assetUrl } from "../api.ts";
 import { el, icon } from "../dom.ts";
 import { currentScheme, embedKindOf, renderMarkdown, sandboxFrame, sectionOf, type EmbedKind } from "../render.ts";
-import DOMPurify from "dompurify";
 import { providerFrame, resolveEmbed } from "../embeds/providers.ts";
 import { newId, parseDirective, serializeDirective, type Directive } from "../widgets/args.ts";
 import { renderWidget, type WidgetEnv } from "../widgets/core.ts";
@@ -22,6 +21,7 @@ import type { BoardHost, mountBoard } from "../kanban.ts";
 import { editsBetween } from "../merge.ts";
 import { codeWrapByDefault, copyCode, hydrateCode, renderCodeBlock } from "../code.ts";
 import { hydrateMath } from "../math.ts";
+import { drawDiagram, lookOf } from "../diagram.ts";
 import { blockTex, inlineTex, MathWidget } from "./mathWidgets.ts";
 import { matchKeys } from "../keys.ts";
 import { redo, undo } from "@codemirror/commands";
@@ -616,9 +616,6 @@ class CodeWidget extends WidgetType {
   }
 }
 
-let mermaid: Promise<(typeof import("mermaid"))["default"]> | null = null;
-let diagramSeq = 0;
-
 /** ```mermaid code blocks render as diagrams (loaded on first use; strict mode, no HTML labels). */
 class DiagramWidget extends WidgetType {
   constructor(
@@ -650,43 +647,9 @@ class DiagramWidget extends WidgetType {
       view.dispatch({ selection: { anchor: target.to } });
       view.focus();
     });
-    mermaid ??= import("mermaid").then((m) => m.default);
-    mermaid
-      .then(async (m) => {
-        const css = getComputedStyle(document.documentElement);
-        const v = (name: string) => css.getPropertyValue(name).trim();
-        m.initialize({
-          startOnLoad: false,
-          securityLevel: "strict",
-          htmlLabels: false,
-          flowchart: { htmlLabels: false, curve: "basis" },
-          // Drawn in the app's own palette, so diagrams look native in light and dark.
-          theme: "base",
-          darkMode: currentScheme() === "dark",
-          fontFamily: getComputedStyle(document.body).fontFamily,
-          themeVariables: {
-            fontSize: "14px",
-            background: v("--bg-elev"),
-            primaryColor: v("--bg"),
-            primaryBorderColor: v("--accent"),
-            primaryTextColor: v("--ink-strong"),
-            secondaryColor: v("--code-bg"),
-            tertiaryColor: v("--bg-side"),
-            lineColor: v("--muted"),
-            textColor: v("--ink-2"),
-            edgeLabelBackground: v("--bg-elev"),
-            clusterBkg: v("--bg-side"),
-            clusterBorder: v("--line-strong"),
-            noteBkgColor: v("--code-bg"),
-            noteTextColor: v("--ink"),
-            actorBkg: v("--bg"),
-            actorBorder: v("--accent"),
-            actorTextColor: v("--ink-strong"),
-            signalColor: v("--ink-2"),
-          },
-        });
-        const { svg } = await m.render(`qd-${++diagramSeq}`, this.code);
-        card.innerHTML = DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } });
+    drawDiagram(this.code, lookOf(document.body, currentScheme() === "dark"))
+      .then((svg) => {
+        card.innerHTML = svg; // sanitized last, in drawDiagram
       })
       .catch((err) => {
         card.replaceChildren(el("div", { class: "cm-diagram-error" }, `Diagram error: ${String(err?.message ?? err).split("\n")[0]}`));

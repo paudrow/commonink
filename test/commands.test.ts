@@ -54,6 +54,10 @@ const app = (over: Partial<App> = {}): App => {
     noteHistory: run("noteHistory"),
     gettingStarted: run("gettingStarted"),
     shortcuts: run("shortcuts"),
+    share: run("share"),
+    copyLink: run("copyLink"),
+    exportAs: (how) => void ran.push(`export:${how}`),
+    exportWorkspace: run("exportWorkspace"),
     settings: run("settings"),
     connectAgent: run("connectAgent"),
     back: run("back"),
@@ -91,7 +95,7 @@ test("commands follow the app: vim's state, the open note, Getting started, and 
   // "Subscribe to a calendar…" spells s-t-a-r too, after any star command.
   assert.deepEqual(titles("star", app()), ["Subscribe to a calendar…"], "no note to star");
   assert.deepEqual(titles("star", app({ note: { kind: "md", starred: true, archived: false } })), ["Unstar note", "Subscribe to a calendar…"]);
-  assert.deepEqual(titles("html", app({ note: { kind: "html", starred: false, archived: false }, htmlMode: "preview" })), ["Show HTML source"]);
+  assert.deepEqual(titles("html", app({ note: { kind: "html", starred: false, archived: false }, htmlMode: "preview" })), ["Show HTML source", "Share…"]);
   assert.deepEqual(titles("go back", app()), [], "nowhere to go back to");
   assert.deepEqual(titles("rename", app()), ["Go to Tags"], "no note to rename");
   assert.deepEqual(titles("rename", app({ note: { kind: "md", starred: false, archived: false }, canDelete: false })), ["Go to Tags"], "a viewer can't rename");
