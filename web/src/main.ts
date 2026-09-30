@@ -41,6 +41,7 @@ import { clampSide, forget, historyStep, IS_MAC, newLayout, pageEntry, pageOf, p
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { headingMatches } from "../../src/core/gfm.ts";
 import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
+import { NEW_BOARD } from "../../src/core/kanban.ts";
 import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
@@ -236,6 +237,7 @@ function commands() {
     folds: s?.kind === "md" ? foldCount(active.view.state) : 0,
     account,
     newNote: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
+    newBoard: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : "", `\n${NEW_BOARD}\n`),
     newFolder: startNewFolder,
     go: (page) => {
       if (page === "notes" || page === "archive") void showNotes({ scope: page === "notes" ? "active" : "archived", query: {} });
@@ -847,14 +849,14 @@ async function createNote(name: string) {
   }
 }
 
-/** New note button: create "Untitled" right away (in `folder`, if given) and put the cursor in its title. */
-async function newNote(folder = "") {
+/** New note button: create "Untitled" right away (in `folder`, if given, with `body` under the title) and put the cursor in its title. */
+async function newNote(folder = "", body = "") {
   const dir = folder ? `${folder}/` : "";
   const taken = new Set(notes.map((n) => n.path.toLowerCase()));
   let name = "Untitled";
   for (let i = 2; taken.has(`${dir}${name}.md`.toLowerCase()); i++) name = `Untitled ${i}`;
   try {
-    const r = await api.create(`${dir}${name}.md`, "# \n");
+    const r = await api.create(`${dir}${name}.md`, `# \n${body}`);
     await refreshNotes();
     await openNote(r.path);
     active.view.dispatch({ selection: { anchor: active.view.state.doc.line(1).to } });
