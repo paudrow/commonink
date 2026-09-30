@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 104
 title: Deeply nested notes
 ---
 1. Open [[Too deep]]. Every part renders. Lists and quotes nested past 20 levels sit at level 20, tags nested past 100 are dropped with their text kept, and the rest of the note renders as usual, and a run of 80 stars is stars. A line of only stars is still a divider.
