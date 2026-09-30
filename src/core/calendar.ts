@@ -29,6 +29,8 @@ export interface Source {
   url: string | null;
   /** Where the feed comes from, for everyone. */
   host: string | null;
+  /** Whether the viewer may rename, recolor or remove it. */
+  editable: boolean;
   status: SyncStatus;
   error: string | null;
   syncedAt: number | null;
@@ -249,6 +251,7 @@ export class Calendar {
       owner: r.owner,
       url: mayEdit ? (config.url ?? null) : null,
       host,
+      editable: mayEdit,
       status: r.status,
       error: r.error,
       syncedAt: r.synced_at,

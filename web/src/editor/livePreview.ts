@@ -3,7 +3,7 @@ import { syntaxTree } from "@codemirror/language";
 import type { EditorState, Range, Text } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { scanTags, type TagSpan } from "../../../src/core/tags.ts";
-import { externalTitle, linkKind } from "../links.ts";
+import { calendarTarget, externalTitle, linkKind } from "../links.ts";
 import { lineTokens, TASK_LINE } from "../../../src/core/tasks.ts";
 import { today, tokenChip } from "../taskChips.ts";
 import { openChipEditor } from "../taskChipEditors.ts";
@@ -253,7 +253,7 @@ function build(view: EditorView): DecorationSet {
               const href = url ? doc.sliceString(url.from, url.to) : "";
               const active = touches(state, ref.from, ref.to);
               out.push(
-                Decoration.mark({ class: `cm-md-link${active ? " is-raw" : ""}${linkKind(href) === "external" ? " is-external" : ""}`, attributes: linkAttrs(href) }).range(marks[0].to, marks[1].from),
+                Decoration.mark({ class: `cm-md-link${active ? " is-raw" : ""}${linkKind(href) === "external" ? " is-external" : calendarTarget(href) !== null ? " is-event" : ""}`, attributes: linkAttrs(href) }).range(marks[0].to, marks[1].from),
               );
               if (!active) {
                 out.push(hide.range(marks[0].from, marks[0].to));

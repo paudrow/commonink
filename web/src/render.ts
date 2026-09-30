@@ -7,7 +7,7 @@ import { assetUrl } from "./api.ts";
 import { currentScheme, escapeHtml } from "./dom.ts";
 import { mathMarked, mathPlaceholder } from "./math.ts";
 import { isEmbeddable } from "./embeds/providers.ts";
-import { externalTitle, linkKind } from "./links.ts";
+import { calendarTarget, externalTitle, linkKind } from "./links.ts";
 import { boardsIn } from "../../src/core/kanban.ts";
 import { SANDBOX_PATH } from "../../src/core/sandbox.ts";
 import { safeDecode } from "../../src/core/uri.ts";
@@ -23,6 +23,7 @@ export { currentScheme };
 // and it only adds a class and a title built from a parsed domain (test/security-web.test.ts).
 DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   const href = node.tagName === "A" ? node.getAttribute("href") : null;
+  if (href && calendarTarget(href) !== null) node.classList.add("is-event"); // a meeting note's link to its event
   if (!href || linkKind(href) !== "external") return;
   node.classList.add("is-external");
   node.setAttribute("title", externalTitle(href));
