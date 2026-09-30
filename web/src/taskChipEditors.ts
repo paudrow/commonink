@@ -4,8 +4,8 @@
 import { api, type Task, type TaskPatch } from "./api.ts";
 import { cleanTag, normalizeTag } from "../../src/core/tags.ts";
 import { avatar, el, icon } from "./dom.ts";
-import { addDays, skipPatch } from "../../src/core/tasks.ts";
-import { DAY_NAMES, formatRule, isInterval, MONTH_NAMES, nth, occurrences, parseRule, recLabel, ruleLabel, ruleProblem, type Freq, type Rule } from "../../src/core/recurrence.ts";
+import { addDays, endsOf, skipPatch } from "../../src/core/tasks.ts";
+import { DAY_NAMES, endsLabel, formatRule, isInterval, MONTH_NAMES, nth, occurrences, parseRule, recLabel, ruleLabel, ruleProblem, type Freq, type Rule } from "../../src/core/recurrence.ts";
 import { dayLabel, today, type ChipField } from "./taskChips.ts";
 
 export interface ChipContext {
@@ -156,6 +156,7 @@ const blankRule = (freq: Freq, interval: number, from: Rule["from"]): Rule => ({
 
 /** Whether the form can show a rule; anything else (a hand-written RRULE) is edited as text. */
 function formFits(r: Rule): boolean {
+  if (r.count || r.until) return false; // an RRULE's own COUNT or UNTIL: edited as text
   const none = (...keys: Array<"byDay" | "byMonthDay" | "byMonth" | "byYearDay">) => keys.every((k) => !r[k].length);
   const ordinal = (d: Rule["byDay"][number]) => ORDINALS.includes(d.n);
   switch (r.freq) {
@@ -191,6 +192,8 @@ function ruleForm(start: Rule, value: string, ctx: ChipContext, close: () => voi
   let r: Rule = structuredClone(start);
   let asText = !formFits(r);
   const due = ctx.task.meta.due;
+  // How it ends (`until:` / `times:`, next to the rule): never, on a day, or after a number of times.
+  let ends: { until: string | null; times: number | null } = { until: ctx.task.meta.until, times: ctx.task.meta.times };
   // Defaults for a new calendar part come from the due date: its weekday, day and month.
   const at = new Date(`${(due ?? today()).slice(0, 10)}T12:00:00Z`);
   const dueDay = (at.getUTCDay() + 6) % 7;
@@ -216,9 +219,12 @@ function ruleForm(start: Rule, value: string, ctx: ChipContext, close: () => voi
       dates.textContent = "";
       return;
     }
-    summary.textContent = ruleLabel(now, true);
+    const end = endsOf(asText ? { until: null, times: null } : ends, now);
+    summary.textContent = ruleLabel(now, true) + endsLabel(end, true);
     const from = now.from === "done" || !due ? today() : due;
-    const next = occurrences(now, from, 3).map((d) => dayLabel(d));
+    // The next dates stop where it ends: after its last time, or past its last day.
+    const left = end.times === null ? 3 : Math.min(3, end.times - 1);
+    const next = occurrences(now, from, 3).filter((d, i) => i < left && (!end.until || d.slice(0, 10) <= end.until)).map((d) => dayLabel(d));
     const lead = now.from === "done" ? "If done today:" : due ? "After this one:" : "Next:";
     dates.textContent = next.length ? `${lead} ${next.join(", ")}` : "No more dates";
   };
@@ -321,9 +327,33 @@ function ruleForm(start: Rule, value: string, ctx: ChipContext, close: () => voi
     out.push(
       el("div", { class: "chip-rec-row" }, el("span", {}, "Repeat from"), el("div", { class: "chip-rec-seg", role: "group", "aria-label": "Repeat from" }, from("due", "Due date"), from("done", "Completion"))),
       ...(gap ? [] : [el("div", { class: "chip-rec-hint" }, "A calendar rule repeats from the due date.")]),
+      endsRow(),
     );
     return out;
   };
+
+  /** Ends: Never · On [date] · After [N] times. */
+  function endsRow(): HTMLElement {
+    const mode = ends.times !== null ? "times" : ends.until ? "until" : "never";
+    const pick = select([["never", "Never"], ["until", "On"], ["times", "After"]], mode, (m) => {
+      ends = m === "until" ? { until: ends.until ?? addDays(due?.slice(0, 10) ?? today(), 90), times: null } : m === "times" ? { until: null, times: ends.times ?? 5 } : { until: null, times: null };
+      change(r);
+    }, "Ends");
+    const extra: HTMLElement[] = [];
+    if (mode === "until") {
+      const day = el("input", { type: "date", class: "chip-date-in", value: ends.until ?? "", "aria-label": "Last day" });
+      day.addEventListener("change", () => day.value && ((ends = { ...ends, until: day.value }), refresh()));
+      extra.push(day);
+    } else if (mode === "times") {
+      const n = el("input", { type: "number", class: "chip-n", min: "1", max: "9999", value: String(ends.times ?? 5), "aria-label": "How many times, this one included" });
+      n.addEventListener("input", () => {
+        const v = Math.round(Number(n.value));
+        if (v >= 1 && v <= 9999) (ends = { ...ends, times: v }), refresh();
+      });
+      extra.push(n, el("span", {}, "times"));
+    }
+    return el("div", { class: "chip-rec-row" }, el("span", {}, "Ends"), pick, ...extra);
+  }
 
   const draw = () => {
     body.replaceChildren(...(asText ? [text] : rows()));
@@ -351,8 +381,11 @@ function ruleForm(start: Rule, value: string, ctx: ChipContext, close: () => voi
     if (typeof now === "string") return;
     // As text, keep what was typed (a spelling of the same rule stays as written); from the form, the shortest token.
     const rec = asText ? text.value.trim() : formatRule(now);
-    if (rec === value) close();
-    else void saving(close, ctx, { rec })();
+    // From the form, the ends go with it (`until:` / `times:`, or cleared); as text, an RRULE says its own.
+    const patch: TaskPatch = asText ? { rec } : { rec, until: ends.until, times: ends.times };
+    const same = rec === value && (asText || (ends.until === ctx.task.meta.until && ends.times === ctx.task.meta.times));
+    if (same) close();
+    else void saving(close, ctx, patch)();
   });
   draw();
   return form;
@@ -436,7 +469,10 @@ const EDITORS: Partial<Record<ChipField, Editor>> = { priority, due: date("due")
 
 /** Open the editor for the chip that was clicked; false if that chip has none. */
 export function openChipEditor(chip: HTMLElement, ctx: ChipContext): boolean {
-  const editor = EDITORS[chip.dataset.field as ChipField];
+  const field = chip.dataset.field as ChipField;
+  // A repeat's ends (`until:`, `times:`) are set in the repeat's own editor.
+  if (field === "until" || field === "times") return repeat(chip, ctx.task.meta.rec ?? "", ctx, { more: true }), true;
+  const editor = EDITORS[field];
   if (!editor) return false;
   editor(chip, chip.dataset.value ?? "", ctx);
   return true;
@@ -454,7 +490,7 @@ const FIELDS: Array<{ field: MenuField; label: string; icon: string; now(m: Task
   { field: "priority", label: "Priority", icon: "flag", now: (m) => (m.priority === "high" ? "High" : m.priority === "low" ? "Low" : "") },
   { field: "due", label: "Due", icon: "calendar", now: (m) => (m.due ? dayLabel(m.due) : "") },
   { field: "start", label: "Start", icon: "clock", now: (m) => (m.start ? dayLabel(m.start) : "") },
-  { field: "rec", label: "Repeat", icon: "reset", now: (m) => (m.rec ? recLabel(m.rec) : "") },
+  { field: "rec", label: "Repeat", icon: "reset", now: (m) => { const r = m.rec ? parseRule(m.rec) : null; return m.rec ? recLabel(m.rec) + (r && endsLabel(endsOf(m, r)) ? ` · ${endsLabel(endsOf(m, r))}` : "") : ""; } },
   { field: "assignees", label: "Person", icon: "at", now: (m) => m.assignees.map((a) => `@${a}`).join(", ") },
   { field: "tags", label: "Tags", icon: "hash", now: (m) => m.tags.map((t) => `#${t}`).join(" ") },
 ];

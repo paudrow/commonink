@@ -3,6 +3,7 @@
 // the newest Undo while you aren't typing somewhere with an undo of its own.
 import { authorAvatar, authorName, el, icon, typingIn } from "./dom.ts";
 import { IS_MAC } from "./panes.ts";
+import { formatKeys, matchKeys } from "./keys.ts";
 
 export interface ToastSpec {
   text: string;
@@ -23,7 +24,7 @@ export const LIFE = { plain: 5000, action: 10_000, alert: 12_000 };
 /** Left with less than this after a hover or focus, a toast gets this much again. */
 const AGAIN = 2000;
 const UNDO = "Undo";
-const UNDO_KEY = IS_MAC ? "⌘Z" : "Ctrl+Z";
+const UNDO_KEY = formatKeys("Mod-z");
 
 interface Live {
   spec: ToastSpec;
@@ -131,7 +132,7 @@ function dismiss(t: Live) {
 window.addEventListener(
   "keydown",
   (e) => {
-    if (e.key.toLowerCase() !== "z" || !(IS_MAC ? e.metaKey : e.ctrlKey) || e.shiftKey || e.altKey || typingIn(e.target)) return;
+    if (!matchKeys(e, "Mod-z") || typingIn(e.target)) return;
     if (undoLatest()) e.preventDefault();
   },
   true,

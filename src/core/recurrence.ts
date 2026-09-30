@@ -24,6 +24,10 @@ export interface Rule {
   byMonth: number[];
   /** Days of the year; negative counts from the end. */
   byYearDay: number[];
+  /** An RRULE's COUNT: how many times it's left to happen (read like a task's `times:`). */
+  count?: number;
+  /** An RRULE's UNTIL, as a day: no occurrence after it. */
+  until?: string;
 }
 
 const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
@@ -82,7 +86,7 @@ export function parseRule(raw: string): Rule | null {
   return null;
 }
 
-/** An RRULE's parts (FREQ, INTERVAL, BYDAY, BYMONTHDAY, BYMONTH, BYYEARDAY), or null if it has anything else. */
+/** An RRULE's parts (FREQ, INTERVAL, BYDAY, BYMONTHDAY, BYMONTH, BYYEARDAY, COUNT, UNTIL), or null if it has anything else. */
 function parseRRule(src: string): Rule | null {
   const parts = new Map<string, string>();
   for (const p of src.split(";")) {
@@ -102,6 +106,14 @@ function parseRRule(src: string): Rule | null {
     if (k === "INTERVAL") {
       if (!/^[1-9]\d{0,2}$/.test(v)) return null;
       rule.interval = +v;
+    } else if (k === "COUNT") {
+      if (!/^[1-9]\d{0,3}$/.test(v)) return null;
+      rule.count = +v;
+    } else if (k === "UNTIL") {
+      // A day, or a day and a time (the day is what counts for tasks).
+      const m = v.match(/^(\d{4})(\d{2})(\d{2})(?:T\d{6}Z?)?$/);
+      if (!m || valid(+m[1], +m[2], +m[3]) === null) return null;
+      rule.until = `${m[1]}-${m[2]}-${m[3]}`;
     } else if (k === "BYDAY") {
       const days = v.split(",").map((x) => x.match(/^([+-]?[1-5])?(MO|TU|WE|TH|FR|SA|SU)$/));
       if (days.some((m) => !m)) return null;
@@ -129,6 +141,7 @@ export function ruleProblem(raw: string): string | null {
 
 /** A rule as the shortest `rec:` value that says it. */
 export function formatRule(r: Rule): string {
+  if (r.count || r.until) return toRRule(r); // only an RRULE says how it ends
   if (isInterval(r)) {
     const gap = `${r.interval}${r.freq[0]}`;
     return r.from === "done" ? `after-${gap}` : r.interval === 1 ? WORDS[r.freq] : gap;
@@ -162,6 +175,8 @@ export function toRRule(r: Rule): string {
   if (r.byMonthDay.length) parts.push(`BYMONTHDAY=${r.byMonthDay.join(",")}`);
   if (r.byMonth.length) parts.push(`BYMONTH=${r.byMonth.join(",")}`);
   if (r.byYearDay.length) parts.push(`BYYEARDAY=${r.byYearDay.join(",")}`);
+  if (r.count) parts.push(`COUNT=${r.count}`);
+  if (r.until) parts.push(`UNTIL=${r.until.replace(/-/g, "")}`);
   return `RRULE:${parts.join(";")}`;
 }
 
@@ -329,4 +344,18 @@ export const shiftDate = (date: string, days: number) => toIso(fromIso(date) + d
 export function recLabel(value: string): string {
   const r = parseRule(value);
   return r ? ruleLabel(r) : value;
+}
+
+/** How a repeat ends, for its chip ("5 left", "until Jun 30, 2027") or the editor's summary (", 5 more times"). "" for no end. */
+export function endsLabel(ends: { until: string | null; times: number | null }, long = false): string {
+  // The chip's is short ("Jun 30"); the summary's says the year too ("June 30, 2027").
+  const day = (d: string, month: "short" | "long") => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-US", { month, day: "numeric", ...(month === "long" ? { year: "numeric" } : {}), timeZone: "UTC" });
+  if (long) {
+    const parts = [
+      ends.times === null ? "" : ends.times === 1 ? "this is the last time" : `${ends.times} more times`,
+      ends.until ? `until ${day(ends.until, "long")}` : "",
+    ].filter(Boolean);
+    return parts.length ? `, ${parts.join(", ")}` : "";
+  }
+  return [ends.times === null ? "" : `${ends.times} left`, ends.until ? `until ${day(ends.until, "short")}` : ""].filter(Boolean).join(" · ");
 }

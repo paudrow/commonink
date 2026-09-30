@@ -1,4 +1,4 @@
-// Typing helpers: `@` mentions, `[[` links, `#` tags, `/` tools, and smart link pasting.
+// Typing helpers: `@` mentions, `[[` links, `#` tags, `:` emoji, `/` tools, and smart link pasting.
 import { autocompletion, startCompletion, type Completion, type CompletionContext, type CompletionResult, type CompletionSource } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
 import type { EditorState, Extension } from "@codemirror/state";
@@ -11,16 +11,21 @@ import { newId, serializeDirective } from "../widgets/args.ts";
 import { pendingConfig, WIDGETS } from "../widgets/index.ts";
 import { editorContext } from "./blocks.ts";
 import { NEW_BOARD } from "../../../src/core/kanban.ts";
+import { wrapInDetails } from "../../../src/core/details.ts";
 import { taskPeople } from "../taskChipEditors.ts";
 import { taskTokenSource } from "./taskComplete.ts";
 import { inTaskText } from "./taskEdit.ts";
+import { emojiMatches } from "../../../src/core/emoji.ts";
 import { did } from "../events.ts";
 import { slashUsed } from "./lineHint.ts";
+import { formatKeys } from "../keys.ts";
 
 interface Option extends Completion {
   icon?: string;
   /** An image to show instead of the icon (for image assets). */
   thumb?: string;
+  /** An emoji to show instead of the icon. */
+  emoji?: string;
 }
 
 const NOT_PROSE = new Set(["FencedCode", "CodeBlock", "InlineCode", "CodeText", "Frontmatter", "FrontmatterContent", "HTMLBlock", "CommentBlock", "URL", "Autolink", "WikiLink", "Embed"]);
@@ -147,6 +152,23 @@ function linkSource(ctx: CompletionContext): CompletionResult | null {
   return { from: start, options, filter: false };
 }
 
+// ------------------------------------------------------------------ : emoji
+
+/**
+ * `:` and two letters where a word starts, in prose: emoji shortcodes (GitHub's names). Not in a
+ * time (10:30), a URL, or code. The shortcode goes in, so the note reads the same on GitHub.
+ */
+function emojiSource(ctx: CompletionContext): CompletionResult | null {
+  const m = ctx.matchBefore(/(?<![\w:/]):[a-z0-9_+-]{2,}$/);
+  if (!m || !inProse(ctx.state, m.from)) return null;
+  // An inline code span still being typed (its closing backtick not there yet) is code too.
+  const before = ctx.state.sliceDoc(ctx.state.doc.lineAt(m.from).from, m.from);
+  if ((before.match(/`/g)?.length ?? 0) % 2) return null;
+  const found = emojiMatches(m.text.slice(1));
+  if (!found.length) return null;
+  return { from: m.from, filter: false, options: found.map(([name, emoji], i): Option => ({ label: `:${name}:`, emoji, boost: -i, apply: `:${name}:` })) };
+}
+
 // ------------------------------------------------------------------ # tags
 
 const uses = (t: TagCount) => t.notes + t.tasks + t.assets;
@@ -271,6 +293,14 @@ const TOOLS: Tool[] = [
   widgetTool("calendar", "calendar journal daily month diary"),
   widgetTool("timer", "timer countdown pomodoro alarm"),
   widgetTool("stopwatch", "stopwatch count up laps"),
+  {
+    title: "Collapsible section",
+    hint: `<details> · ${formatKeys("Mod-Alt-s")} wraps a selection`,
+    icon: "chevron",
+    keywords: "collapsible section details summary fold spoiler toggle accordion",
+    section: "Blocks",
+    run: (v, f, t) => insert(v, f, t, wrapInDetails(""), { cursor: "<details>\n<summary>".length, select: "Details".length, block: true }),
+  },
   { title: "Kanban board", hint: "Columns of cards", icon: "kanban", keywords: "kanban board columns cards pipeline trello", section: "Widgets", run: (v, f, t) => insert(v, f, t, NEW_BOARD, { own: true }) },
   widgetTool("kanban", "kanban board embed another note", "Kanban from another note"),
   {
@@ -409,11 +439,8 @@ const pasteFiles = EditorView.domEventHandlers({
 // ------------------------------------------------------------------ extension
 
 export function typingHelpers(): Extension {
-  return [completions([toolSource, taskTokenSource, mentionSource, linkSource, tagSource, frontmatterTagSource]), pasteLinks, pasteFiles];
+  return [completions([toolSource, taskTokenSource, mentionSource, linkSource, tagSource, frontmatterTagSource, emojiSource]), pasteLinks, pasteFiles];
 }
-
-/** `[[` note names and `#` tags, for a field outside the note editor (a board's card). */
-export const fieldCompletions = (): Extension => completions([linkSource, tagSource]);
 
 function completions(override: CompletionSource[]): Extension {
   return autocompletion({
@@ -427,6 +454,7 @@ function completions(override: CompletionSource[]): Extension {
         position: 20,
         render: (c) => {
           const o = c as Option;
+          if (o.emoji) return Object.assign(document.createElement("span"), { className: "q-emoji", textContent: o.emoji });
           if (!o.thumb) return icon(o.icon ?? "file", 15);
           const img = document.createElement("img");
           img.className = "q-thumb";

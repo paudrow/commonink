@@ -4,10 +4,11 @@
 // where they are. Every phrase it takes is reported as a span of the input, so the app can show it
 // highlighted in place, and a phrase the person clicks away (`ignore`) stays words.
 // No Node imports: the app runs this as you type, and the server runs it again to write the task.
-import { addDays, editTask, isDate, parseTask, type TaskMeta, type TaskPatch } from "./tasks.ts";
+import { addDays, editTask, isDate, parseTask, TASK_LINE, type TaskMeta, type TaskPatch } from "./tasks.ts";
 import { isInterval, nextDue, nth, parseRule } from "./recurrence.ts";
+import { tagsInLine } from "./tags.ts";
 
-export type QuickKind = "due" | "start" | "rec" | "target";
+export type QuickKind = "due" | "start" | "rec" | "ends" | "target";
 export interface QuickSpan {
   kind: QuickKind;
   /** Where the phrase is in the input. */
@@ -60,6 +61,10 @@ const PREFIXED = `(?:${DATE}|${DAY_ANY})`;
 const re = (src: string) => new RegExp(`${B}(?:${src})${E}`, "giu");
 const DUE = re(`(?:on|by|due|before|for)\\s+${PREFIXED}|${DATE}`);
 const START = re(`(?:start(?:s|ing)?(?:\\s+on)?|from)\\s+${PREFIXED}`);
+// A repeat's end, read only when there's a repeat: "until dec 1", "for 6 months", "10 times".
+const UNTIL = re(`until\\s+${PREFIXED}`);
+const FOR = re(`for\\s+(${NUM})\\s+(${UNIT})`);
+const TIMES_PHRASE = re(`(${NUM})\\s+times`);
 const TARGET = /(?:→|->)\s*\[\[([^[\]\n]+)\]\]/gu;
 
 const count = (s: string) => NUMBERS[s.toLowerCase()] ?? parseInt(s, 10);
@@ -129,8 +134,11 @@ export function dateOf(phrase: string, today: string): string | null {
  * clicked away, which stay words. A kind of token the line already has (`due:…`) isn't read from
  * words too.
  */
-export function parseQuickAdd(input: string, today: string, ignore: string[] = []): QuickAdd {
+export function parseQuickAdd(input: string, today: string, ignore: string[] = [], opts: { targets?: boolean } = {}): QuickAdd {
   const skip = new Set(ignore.map((p) => p.toLowerCase().replace(/\s+/g, " ").trim()));
+  // Where a phrase kept as words sits: nothing shorter inside it is read either ("every month" in "every month on the 1st").
+  const lower = input.toLowerCase().replace(/\s/g, " ");
+  const kept = [...skip].filter(Boolean).flatMap((p) => [...lower.matchAll(new RegExp(p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"), "g"))].map((m) => [m.index, m.index + m[0].length]));
   const typed = parseTask(`- [ ] ${input}`)!.meta;
   const spans: QuickSpan[] = [];
   const free = (from: number, to: number) => spans.every((s) => to <= s.from || from >= s.to);
@@ -138,7 +146,7 @@ export function parseQuickAdd(input: string, today: string, ignore: string[] = [
     pattern.lastIndex = 0;
     for (let m = pattern.exec(input); m; m = pattern.exec(input)) {
       const [from, to] = [m.index, m.index + m[0].length];
-      if (!free(from, to) || skip.has(m[0].toLowerCase().replace(/\s+/g, " "))) continue;
+      if (!free(from, to) || skip.has(m[0].toLowerCase().replace(/\s+/g, " ")) || kept.some(([f, t]) => from < t && to > f)) continue;
       const t = token(m);
       if (t === null) continue;
       spans.push({ kind, from, to, token: t });
@@ -147,9 +155,17 @@ export function parseQuickAdd(input: string, today: string, ignore: string[] = [
     return null;
   };
 
-  const target = take(TARGET, "target", (m) => `[[${m[1].trim()}]]`);
+  // `→ [[Note]]` says where the quick-add bar files it; anywhere else a task is typed, it's just words.
+  const target = opts.targets === false ? null : take(TARGET, "target", (m) => `[[${m[1].trim()}]]`);
   let rec: string | null = null;
   if (!typed.rec) for (const [pattern, value] of REPEATS) if ((rec = take(pattern, "rec", (m) => (parseRule(value(m)) ? `rec:${value(m)}` : null)))) break;
+  // How the repeat ends: a last day, a stretch (worked out once the first due date is known), or a count.
+  const repeats = !!(rec || typed.rec);
+  const until = repeats && !typed.until ? take(UNTIL, "ends", (m) => { const d = dateOf(m[0].replace(/^until\s+/i, ""), today); return d ? `until:${d}` : null; }) : null;
+  let stretch: { n: number; unit: string } | null = null;
+  const times = repeats && typed.times === null
+    ? take(TIMES_PHRASE, "ends", (m) => `times:${count(m[1])}`) ?? take(FOR, "ends", (m) => ((stretch = { n: count(m[1]), unit: unitOf(m[2]) }), "for"))
+    : null;
   const start = typed.start ? null : take(START, "start", (m) => (dateOf(m[0], today) ? `start:${dateOf(m[0], today)}` : null));
   let due = typed.due ? null : take(DUE, "due", (m) => (dateOf(m[0], today) ? `due:${dateOf(m[0], today)}` : null));
 
@@ -163,6 +179,16 @@ export function parseQuickAdd(input: string, today: string, ignore: string[] = [
     const from = patch.start ?? today;
     patch.due = rule.from === "done" || isInterval(rule) ? from : (nextDue(rule, null, addDays(from, -1)) ?? from);
     due = `due:${patch.due}`;
+  }
+  if (until) patch.until = until.slice(6);
+  if (times && times !== "for") patch.times = Number(times.slice(6));
+  else if (stretch) {
+    // "for 6 months": six times, for a plain every-month repeat; otherwise up to the day before 6 months from the first due date.
+    const s: { n: number; unit: string } = stretch;
+    const rule = parseRule(patch.rec ?? typed.rec!)!;
+    const first = (patch.due ?? typed.due ?? today).slice(0, 10);
+    if (isInterval(rule) && rule.interval === 1 && rule.freq[0] === s.unit) patch.times = s.n;
+    else patch.until = addDays(s.unit === "d" ? addDays(first, s.n) : s.unit === "w" ? addDays(first, 7 * s.n) : addMonths(first, s.unit === "m" ? s.n : 12 * s.n), -1);
   }
 
   // The words: what's left once the phrases are cut, with the spacing around each cut closed up.
@@ -182,4 +208,37 @@ export function parseQuickAdd(input: string, today: string, ignore: string[] = [
     meta: parseTask(line)!.meta,
     spans: spans.sort((a, b) => a.from - b.from),
   };
+}
+
+/** A task's text (after its checkbox) as typed somewhere other than the quick-add bar (a card): phrases read into tokens, no `→ [[Note]]` target. */
+export function typedTask(text: string, today: string, ignore: string[] = []): string {
+  return parseQuickAdd(text, today, ignore, { targets: false }).line.match(TASK_LINE)![4];
+}
+
+/**
+ * The patch for a task's words retyped in place (the Tasks page's inline edit): the new words, and
+ * a token for each phrase read from them or token typed after them, next to the tokens the task
+ * already has. A date, repeat or priority replaces its own; tags and people join the ones it has.
+ * A repeat with no due date anywhere also gets its first one.
+ */
+export function retypeTask(line: string, words: string, today: string, ignore: string[] = []): TaskPatch {
+  const q = parseQuickAdd(words, today, ignore, { targets: false });
+  const had = parseTask(line)?.meta;
+  const typed = parseTask(`- [ ] ${q.words}`)!; // the words, and any tokens typed at their end
+  const read = new Set<string>(q.spans.map((s) => s.kind));
+  const said = (field: "due" | "start" | "rec" | "until" | "times", kind: QuickKind) => read.has(kind) || typed.meta[field] !== null;
+  const patch: TaskPatch = { summary: typed.summary };
+  if (said("due", "due") || (read.has("rec") && !had?.due && q.meta.due)) patch.due = q.meta.due;
+  if (said("start", "start")) patch.start = q.meta.start;
+  if (said("rec", "rec")) patch.rec = q.meta.rec;
+  if (said("until", "ends") && q.meta.until) patch.until = q.meta.until;
+  if (said("times", "ends") && q.meta.times !== null) patch.times = q.meta.times;
+  if (typed.meta.priority) patch.priority = typed.meta.priority;
+  const inWords = new Set(tagsInLine(typed.summary).map((h) => h.tag.toLowerCase()));
+  const join = (old: string[], more: string[]) => (more.some((m) => !old.includes(m)) ? [...new Set([...old, ...more])] : null);
+  const tags = join(had?.tags ?? [], typed.meta.tags.filter((t) => !inWords.has(t.toLowerCase())));
+  const people = join(had?.assignees ?? [], typed.meta.assignees.filter((p) => !typed.summary.includes(`@${p}`)));
+  if (tags) patch.tags = tags;
+  if (people) patch.assignees = people;
+  return patch;
 }
