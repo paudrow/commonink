@@ -34,6 +34,9 @@ export interface App {
   /** The note in the focused pane. */
   note: { kind: "md" | "html" | "asset"; starred: boolean; archived: boolean } | null;
   vim: boolean;
+  /** In vim, j and k move by the line on screen. */
+  vimDisplayLines: boolean;
+  lineNumbers: boolean;
   split: boolean;
   focusMode: boolean;
   htmlMode: "preview" | "source";
@@ -41,6 +44,8 @@ export interface App {
   hasStart: boolean;
   /** Can delete notes (not a viewer online). */
   canDelete: boolean;
+  /** How many collapsible sections the focused note has. */
+  folds: number;
   /** Online, the account menu's actions; locally, none. */
   account: Array<{ label: string; icon: string; run: () => unknown; workspace?: boolean; current?: boolean }>;
   newNote(): void;
@@ -50,6 +55,8 @@ export interface App {
   quickAdd(): void;
   toggleTheme(): void;
   toggleVim(): void;
+  toggleVimDisplayLines(): void;
+  toggleLineNumbers(): void;
   togglePanel(): void;
   toggleFocus(): void;
   toggleSplit(): void;
@@ -61,6 +68,8 @@ export interface App {
   noteHistory(): void;
   gettingStarted(): void;
   shortcuts(): void;
+  /** Open or close every collapsible section in the focused note. */
+  foldAll(open: boolean): void;
 }
 
 export function appCommands(app: App): Command[] {
@@ -82,6 +91,15 @@ export function appCommands(app: App): Command[] {
     { ...go("trash", "Trash", "trash", "deleted restore bin recycle"), available: app.canDelete },
     { id: "theme", title: "Toggle theme", keywords: "dark light mode appearance colors", icon: "moon", run: app.toggleTheme },
     { id: "vim", title: app.vim ? "Turn vim keys off" : "Turn vim keys on", keywords: "vim keybindings modal editing toggle", icon: "code", run: app.toggleVim },
+    {
+      id: "vim-display-lines",
+      title: app.vimDisplayLines ? "Vim: j and k move by line in the file" : "Vim: j and k move by line on screen (gj, gk)",
+      keywords: "vim gj gk wrap wrapped visual display screen lines jk movement",
+      icon: "code",
+      available: app.vim,
+      run: app.toggleVimDisplayLines,
+    },
+    { id: "line-numbers", title: app.lineNumbers ? "Hide line numbers" : "Show line numbers", keywords: "line numbers gutter nu number", icon: "list", run: app.toggleLineNumbers },
     { id: "panel", title: "Toggle side panel", keywords: "outline backlinks activity sidebar", icon: "panel", keys: ["Mod-\\"], run: app.togglePanel },
     { id: "focus", title: app.focusMode ? "Leave focus mode" : "Focus mode", keywords: "zen full screen distraction", icon: app.focusMode ? "unfocus" : "focus", keys: ["Mod-Shift-Enter"], available: text || app.focusMode, run: app.toggleFocus },
     { id: "split", title: app.split ? "Close this pane" : "Open to the side", keywords: "split view pane side by side", icon: "split", keys: ["Mod-Alt-\\"], area: "Split view", run: app.toggleSplit },
@@ -89,6 +107,8 @@ export function appCommands(app: App): Command[] {
     { id: "archive", title: note?.archived ? "Unarchive note" : "Archive note", keywords: "archive remove hide", icon: note?.archived ? "unarchive" : "archive", keys: ["Mod-Shift-e"], available: !!note, run: app.archive },
     { id: "delete", title: "Delete note", keywords: "delete remove trash bin", icon: "trash", available: !!note && app.canDelete, run: app.delete },
     { id: "move", title: "Move to folder…", keywords: "move note folder file", icon: "move", available: !!note, run: app.move },
+    { id: "fold-all", title: "Fold all sections", keywords: "collapse close details collapsible zM", icon: "chevron", available: text && app.folds > 0, run: () => app.foldAll(false) },
+    { id: "unfold-all", title: "Unfold all sections", keywords: "expand open details collapsible zR", icon: "chevron", available: text && app.folds > 0, run: () => app.foldAll(true) },
     { id: "note-history", title: "History of this note", keywords: "versions changes diff restore", icon: "history", available: !!note, run: app.noteHistory },
     {
       id: "html-mode",
@@ -132,8 +152,12 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: ["Mod-."], label: "Open the task's ⚙ menu", area: "Editor" },
   { keys: ["Tab"], label: "Right after an underlined phrase on a task line (\"tomorrow\"), make it a token", area: "Editor" },
   { keys: ["Tab", "Shift-Tab"], label: "Indent / outdent", area: "Editor" },
+  { keys: ["Mod-Alt-s"], label: "Wrap the selection in a collapsible section", area: "Editor" },
+  { keys: ["Space"], label: "On a section's summary line: fold or unfold it", area: "Editor" },
   { keys: ["gd", "gf"], label: "Follow the link under the cursor", area: "Vim" },
   { keys: ["gs"], label: "Open the link to the side", area: "Vim" },
+  { keys: ["za", "zo", "zc"], label: "Toggle / open / close the section under the cursor", area: "Vim" },
+  { keys: ["zM", "zR"], label: "Fold / unfold every section", area: "Vim" },
   { keys: [":w"], label: "Save", area: "Vim" },
   { keys: [":e name"], label: "Open a note (:e alone opens quick open)", area: "Vim" },
   { keys: [":star"], label: "Star or unstar the note", area: "Vim" },
@@ -141,6 +165,7 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: [":trash"], label: "Delete the note (to Trash)", area: "Vim" },
   { keys: [":notes"], label: "Go to Notes", area: "Vim" },
   { keys: [":focus"], label: "Focus mode", area: "Vim" },
+  { keys: [":set nu", ":set nonu"], label: "Show / hide line numbers", area: "Vim" },
   { keys: [":vs name"], label: "Open a note to the side", area: "Vim" },
   { keys: [":only", ":close"], label: "Close the other pane / this pane", area: "Vim" },
   { keys: ["Tab"], label: "In quick-add, send it to the open note", area: "Tasks" },
