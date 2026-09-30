@@ -335,7 +335,7 @@ export class Workspace extends DurableObject<Env> {
   /** The MCP sharing tools, for an agent working as `user` (its role already decided which it gets). */
   private agentSharing(wsId: string, user: string, origin: string) {
     const line = (s: Share & { url: string | null }) =>
-      `- ${s.kind === "link" ? `Anyone with the link: ${origin}${s.url}` : `${s.name ? `${s.name} <${s.email}>` : `${s.email} (no account yet)`}`} — ${s.role}${s.expiresAt ? `, until ${new Date(s.expiresAt).toISOString().slice(0, 10)}` : ""} (id ${s.id})`;
+      `- ${s.kind === "link" ? `Anyone with the link: ${origin}${s.url}` : `${s.name ? `${s.name} <${s.email}>` : `${s.email} (by email)`}`} — ${s.role}${s.expiresAt ? `, until ${new Date(s.expiresAt).toISOString().slice(0, 10)}` : ""} (id ${s.id})`;
     const describe = async (target: Target | undefined) => {
       const d = await this.describeShares(wsId, target);
       const what = d.path ?? (target?.folder ? `${target.folder}/` : "this workspace");
@@ -435,6 +435,18 @@ export class Workspace extends DurableObject<Env> {
   /** Close the live connections tagged `tag`: a person's (signed out everywhere) or one session's. Their tabs then ask them to sign in. */
   disconnect(tag: string) {
     for (const ws of this.ctx.getWebSockets(tag)) ws.close(4001, "Signed out");
+  }
+
+  /** The workspace is being deleted: close every tab, delete its uploads from R2 and all its storage. */
+  async destroy(wsId: string) {
+    for (const ws of this.ctx.getWebSockets()) ws.close(4004, "This workspace was deleted");
+    for (let cursor: string | undefined, more = true; more; ) {
+      const page = await this.env.FILES.list({ prefix: `ws/${wsId}/`, cursor });
+      if (page.objects.length) await this.env.FILES.delete(page.objects.map((o) => o.key));
+      more = page.truncated;
+      cursor = page.truncated ? page.cursor : undefined;
+    }
+    await this.ctx.storage.deleteAll();
   }
 
   webSocketMessage() {}

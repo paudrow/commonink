@@ -159,3 +159,12 @@ test("signed in with a link, you can keep it: it joins Shared with me with the l
   assert.deepEqual(shared[0].notes.map((n: { path: string; role: string }) => `${n.path}:${n.role}`), ["Shared.md:viewer"]);
   assert.equal((await cloud.request(null, "POST", `/api/s/${link}/join`, {})).status, 401);
 });
+
+test("an address several accounts share (Previews' developer sign-ins) is shared by address, and reaches whoever signs in with it", async () => {
+  const twin = await cloud.signIn("twin");
+  const env = await cloud.server.getWorker().getEnv();
+  await env.DB.prepare("INSERT INTO users(id, google_sub, email, name, picture, created_at) VALUES ('oldtwin0000000000', 'dev:elsewhere:twin', 'twin@localhost', 'Old Twin', NULL, 0)").run();
+  const made = await cloud.call(t.owner, "POST", `${t.base}/shares`, { path: "Shared.md", email: "twin@localhost", role: "viewer" });
+  assert.deepEqual(made.shares.filter((s: { email: string }) => s.email === "twin@localhost").map((s: { kind: string }) => s.kind), ["email"]);
+  assert.deepEqual((await cloud.call(twin, "GET", "/api/shared"))[0].notes.map((n: { path: string }) => n.path), ["Shared.md"]);
+});

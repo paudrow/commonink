@@ -19,7 +19,7 @@ const SECTIONS = readSections(path.resolve(import.meta.dirname, "../examples/pre
 const TODAY = new Date().toISOString().slice(0, 10);
 
 const cookie = await signIn();
-const me = (await call("GET", "/api/me")).data as { workspaces: Array<{ id: string; kind: string }> };
+const me = (await call("GET", "/api/me")).data as { workspaces: Array<{ id: string; kind: string; name: string }> };
 const ws = me.workspaces.find((w) => w.kind === "personal") ?? me.workspaces[0];
 const api = `/api/w/${ws.id}`;
 const has = new Set(((await call("GET", `${api}/notes`)).data as Array<{ path: string }>).map((n) => n.path));
@@ -30,6 +30,7 @@ await renamedNote();
 const favorites = await starSome();
 const shared = await shareSome();
 await tryThisPr(favorites, shared);
+await sharedTeam();
 console.log(`Filled ${origin} (workspace ${ws.id})`);
 
 /**
@@ -188,4 +189,22 @@ async function shareSome(): Promise<string[]> {
   return [
     `- Sharing: [[Plan for Sam]] (editor), [[Read only for Sam]] (viewer) and \`${dir}/Shared folder\` (viewer) are shared with Sam Dev (sign in as Sam with \`/auth/dev?as=sam\`). [[Public page]] has a link: its page is ${origin}${link}, and its API ${origin}/api/s/${token}/note?id=${page}.`,
   ];
+}
+
+/**
+ * A team workspace the developer owns with a second person in it, Sam (a developer sign-in, which
+ * only Previews have), plus an invite link Sam used and one that's still open: something to try
+ * members, roles, invites, leaving and deleting on. Made again if it's been left or deleted.
+ */
+async function sharedTeam() {
+  const TEAM = "Launch team";
+  if (me.workspaces.some((w) => w.kind === "team" && w.name === TEAM)) return;
+  const made = await call("POST", "/api/workspaces", { name: TEAM });
+  if (made.status >= 400) throw new Error(`Couldn't make ${TEAM}: ${made.status}`);
+  const base = `/api/w/${(made.data as { id: string }).id}`;
+  const invite = (await must("POST", `${base}/invites`, { role: "editor" })) as { url: string };
+  const sam = await signIn("sam");
+  const join = await fetch(origin + new URL(invite.url).pathname, { method: "POST", redirect: "manual", headers: { cookie: sam, origin } });
+  if (join.status !== 302) throw new Error(`Sam couldn't join ${TEAM}: ${join.status}`);
+  await must("POST", `${base}/invites`, { role: "viewer" });
 }

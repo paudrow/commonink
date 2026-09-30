@@ -119,6 +119,15 @@ Online, every route has a least role that the Worker checks and the workspace ch
 Online, a note (or a folder, and everything in it) can be shared with people outside its workspace, by email, or with anyone who has the link. Each share is a viewer or an editor, and can run out on a date. People without an account get it when they sign in with that email, and may sign up for it. A note share follows the note through renames and moves (it's keyed by the note's ID); a folder share covers whatever is under the folder's path. Workspace members keep their workspace role.
 
 Someone a note is shared with sees that note and nothing else of the workspace: not search, tasks, tags, History or other notes. What it links or embeds shows as no access unless that's shared too. Agents share with MCP `share_note`, `list_shares` and `unshare_note`, as their person; viewers' agents can only list. Sharing lives in D1 (`shares`, see `cloud/src/shares.ts`); locally there's no one else to share with.
+## Workspaces, members and invites
+
+Online, **Workspace settings…** in the account menu (**Members…** if you aren't the owner) manages a workspace:
+
+- Everyone sees who's in it, with their roles, and can **leave** a team workspace. The last owner can't leave until they make someone else an owner, and no one leaves their own workspace.
+- Owners **rename** it, change people's **roles** (never leaving it without an owner) and **remove** people. Either one also disconnects that person's agents in that workspace; a removed person's open tabs close too.
+- Owners make **invite links** for editors or viewers (each works once, for 7 days), see who used each one, and **revoke** one that hasn't been used.
+- Owners **delete** a team workspace by typing its name: its notes, files, members, invite links and agents' access all go. There's no export yet, so the dialog says to copy out anything worth keeping first.
+- Every one of these is logged in `workspace_log` in D1, and owners see it as **Activity**.
 
 ## Who can sign up
 

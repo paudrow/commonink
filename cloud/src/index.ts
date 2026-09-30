@@ -8,10 +8,11 @@ import { MAX_UPLOAD } from "../../src/core/paths.ts";
 import { SANDBOX_PATH, sandboxPage } from "../../src/core/sandbox.ts";
 import { access, isAccountRoute, LINK_ROUTES, routeKey, SHARED_ROUTES, type AccountRoute } from "./access.ts";
 import { memberShareRole, type SharedAccess } from "./grants.ts";
-import { attachEmailShares, grantsFor, joinLink, linkShare, sharedWith } from "./shares.ts";
+import { grantsFor, joinLink, linkShare, sharedWith } from "./shares.ts";
 import { authorize, listAgents, oauthOptions, revokeAgents, withOAuthStore, type OAuthEnv } from "./agents.ts";
 import { clearSessionCookies, ensurePersonalWorkspace, escapeHtml, handleAuth, page, readSession, readSessionOf, seedWorkspace, text } from "./auth.ts";
-import { acceptInvite, createInvite, inviteInfo, createWorkspace, endSessionsOf, locateNote, membership, workspacesOf, type User } from "./directory.ts";
+import { adminRoute } from "./admin.ts";
+import { acceptInvite, inviteInfo, createWorkspace, endSessionsOf, locateNote, membership, workspacesOf, type User } from "./directory.ts";
 import type { Env } from "./env.ts";
 import { fetchAsset, secure } from "./headers.ts";
 import { limit } from "./limits.ts";
@@ -48,11 +49,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
   if (url.pathname.startsWith("/auth/")) {
     const ip = req.headers.get("CF-Connecting-IP") ?? "unknown";
     const tooMany = url.pathname !== "/auth/logout" && (await limit(env.DB, "signIn", ip, "text"));
-    const signedIn = async (user: User) => {
-      await ensurePersonalWorkspace(env, user);
-      await attachEmailShares(env.DB, user); // what was shared with their email before they had an account
-    };
-    return tooMany || handleAuth(req, env, signedIn, (s) => disconnect(env, s.user.id, `s:${s.id}`));
+    return tooMany || handleAuth(req, env, (user) => ensurePersonalWorkspace(env, user), (s) => disconnect(env, s.user.id, `s:${s.id}`));
   }
   if (url.pathname.startsWith("/invite/")) return invite(req, env, url);
   if (url.pathname.startsWith("/api/s/")) return shareLink(req, env, url);
@@ -109,7 +106,7 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
   "GET /api/shared": async ({ env, user }) =>
     json(
       await Promise.all(
-        (await sharedWith(env.DB, user.id)).map(async ({ workspace, grants }) => ({
+        (await sharedWith(env.DB, user)).map(async ({ workspace, grants }) => ({
           workspace,
           notes: await env.WORKSPACE.get(env.WORKSPACE.idFromName(workspace.id)).sharedList({ grants, write: true }),
         })),
@@ -167,14 +164,9 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
     return json({ error: ws.role === "viewer" ? "You can view this workspace but not edit it" : "Only the workspace's owner can do that" }, 403);
   }
 
-  if (route === "/invites" && req.method === "POST") {
-    if (ws.kind !== "team") return json({ error: "Only a team's owner can invite people" }, 403);
-    const { role } = (await body(req)) as { role?: unknown };
-    const tooMany = await limit(env.DB, "invite", user.id);
-    if (tooMany) return tooMany;
-    const token = await createInvite(env.DB, ws.id, user.id, role === "viewer" ? "viewer" : "editor");
-    return json({ url: `${url.origin}/invite/${token}` });
-  }
+  // The workspace's own settings (members, invites, name) live in D1, so they're answered here.
+  const settings = await adminRoute(req, env, url, user, ws, route, () => body(req));
+  if (settings) return settings;
 
   if (isUpload) {
     const tooMany = await limit(env.DB, "upload", user.id);
@@ -199,7 +191,7 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
 async function shared(req: Request, env: Env, url: URL, user: User, session: { id: string; expiresAt: number }, wsId: string, route: string) {
   if (!SHARED_ROUTES.includes(routeKey(req.method, route) as (typeof SHARED_ROUTES)[number])) return json({ error: "Not found" }, 404);
   const ws = await membership(env.DB, user.id, wsId);
-  const grants = ws ? [] : await grantsFor(env.DB, wsId, user.id);
+  const grants = ws ? [] : await grantsFor(env.DB, wsId, user);
   if (!ws && !grants.length) return json({ error: "Not found" }, 404);
   const access: SharedAccess = ws ? { member: memberShareRole(ws.role) } : { grants, write: true };
   const headers = forwardHeaders(req, wsId, access, `/api/w/${wsId}/shared`);
