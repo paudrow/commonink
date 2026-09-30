@@ -4,6 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { APP_ONLY, COMMANDS, toolName } from "../src/core/commands/index.ts";
 import { createMcpServer } from "../src/core/tools.ts";
+import { Calendar } from "../src/core/calendar.ts";
 import { openTempVault } from "./helpers.ts";
 import { WORKSPACE_ROUTES } from "../cloud/src/access.ts";
 import { parse } from "../src/cli/argv.ts";
@@ -17,14 +18,15 @@ test("every command is an MCP tool, or says why not; names are unique on both si
   assert.deepEqual(COMMANDS.filter((c) => !toolName(c) && !(c.mcp as { none: string }).none?.trim()).map((c) => c.cli), [], "CLI-only commands need a reason");
   assert.deepEqual(
     COMMANDS.filter((c) => !toolName(c)).map((c) => c.cli),
-    ["upload", "download"],
+    ["upload", "download", "calendars", "calendars add", "calendars refresh", "calendars remove"],
     "the CLI-only commands changed: if that's meant, update this list",
   );
 });
 
 test("the MCP server offers exactly the table's tools", async () => {
   const { quire } = openTempVault();
-  const server = createMcpServer({ quire, user: "you", source: () => "t" }) as unknown as { _registeredTools: Record<string, unknown> };
+  const calendar = new Calendar(quire.db, async () => ({ status: "unchanged" }));
+  const server = createMcpServer({ quire, user: "you", source: () => "t", calendar }) as unknown as { _registeredTools: Record<string, unknown> };
   assert.deepEqual(Object.keys(server._registeredTools).sort(), COMMANDS.flatMap((c) => (toolName(c) ? [toolName(c)!] : [])).sort());
 });
 

@@ -1,9 +1,10 @@
 // What a command is: one operation on a vault, defined once and offered twice, as a `quire` CLI
 // command and as an MCP tool (src/core/tools.ts), locally and in a hosted workspace alike. Each
 // argument says how it's spelled in both. No Node imports: hosted workspaces run these too.
+import type { Calendar } from "../calendar.ts";
 import type { Quire } from "../quire.ts";
 
-export type ArgKind = "string" | "number" | "boolean" | "strings" | "files";
+export type ArgKind = "string" | "number" | "boolean" | "strings" | "files" | "pairs";
 
 /** A file from the caller's computer: the CLI reads it before the command runs, wherever it runs. */
 export interface LocalFile {
@@ -45,7 +46,12 @@ export interface ArgSpec<K extends ArgKind = ArgKind> {
   missing?: string;
 }
 
-type ValueOf<K extends ArgKind> = K extends "string" ? string : K extends "number" ? number : K extends "boolean" ? boolean : K extends "files" ? LocalFile[] : string[];
+type ValueOf<K extends ArgKind> = K extends "string" ? string
+  : K extends "number" ? number
+  : K extends "boolean" ? boolean
+  : K extends "files" ? LocalFile[]
+  : K extends "pairs" ? Record<string, string>
+  : string[];
 export type Args = Record<string, ArgSpec>;
 type Value<S> = S extends { kind: infer K extends ArgKind } ? ValueOf<K> : never;
 /** What `run` gets: each argument's value, `undefined` unless it's required, `null` if it's nullable. */
@@ -79,6 +85,10 @@ export interface CommandHost {
   canEditShared: boolean;
   /** The bytes of vault files. Unset where a command can't move files (MCP, which carries text). */
   bytes?: VaultBytes;
+  /** The workspace's calendars, for the calendar commands. */
+  calendar?: Calendar;
+  /** Where the app is, for links written back to a calendar (online). */
+  origin?: string;
 }
 
 export interface Command<A extends Args = Args> {
@@ -98,6 +108,8 @@ export interface Command<A extends Args = Args> {
   readOnly?: boolean;
   /** It takes things away (to Trash): MCP clients may ask before running it. */
   destructive?: boolean;
+  /** What the host must have for it: over MCP, it's offered only then. */
+  needs?: "calendar";
   args: A;
   run(host: CommandHost, input: InputOf<A>): Output | Promise<Output>;
 }
@@ -111,6 +123,8 @@ export const str = <const O extends Opts<"string">>(o: O = {} as O) => ({ kind: 
 export const num = <const O extends Opts<"number">>(o: O = {} as O) => ({ kind: "number" as const, ...o });
 export const bool = <const O extends Omit<Opts<"boolean">, "required" | "nullable">>(o: O = {} as O) => ({ kind: "boolean" as const, ...o });
 export const list = <const O extends Omit<Opts<"strings">, "nullable">>(o: O = {} as O) => ({ kind: "strings" as const, ...o });
+/** Named values: an object over MCP, `--flag Name=value` (again for each) on the CLI. */
+export const pairs = <const O extends Omit<Opts<"pairs">, "nullable" | "pos" | "stdin">>(o: O = {} as O) => ({ kind: "pairs" as const, ...o });
 export const localFiles = <const O extends Omit<Opts<"files">, "nullable" | "only">>(o: O = {} as O) => ({ kind: "files" as const, only: "cli" as const, ...o });
 
 /**

@@ -66,6 +66,7 @@ export function commandHelp(c: Command): string {
       a.enum && `one of ${a.enum.join(", ")}`,
       a.nullable && '"none" clears it',
       a.kind === "strings" && a.pos === undefined && "comma-separated",
+      a.kind === "pairs" && "Name=value, once for each",
       a.stdin && "- reads stdin",
       ...(a.presets ? Object.entries(a.presets).map(([f, v]) => `--${f} is ${v === false ? "false" : v}`) : []),
       ...(a.aliases ?? []).map((f) => `also --${f}`),

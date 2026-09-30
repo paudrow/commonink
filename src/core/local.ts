@@ -46,6 +46,16 @@ export class NodeDb implements SqlDb {
   }
 }
 
+/** Run a file operation, turning a name the disk won't take into a message rather than an internal error. */
+function onDisk<T>(fn: () => T): T {
+  try {
+    return fn();
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENAMETOOLONG") throw new QuireError("That name is too long: a file or folder name can be up to 255 bytes");
+    throw e;
+  }
+}
+
 /** Notes as files in a folder. Writes are atomic (temp file + rename) so watchers never see half a note. */
 export class FsContent implements Content {
   constructor(readonly root: string) {}
@@ -80,10 +90,13 @@ export class FsContent implements Content {
   }
   write(rel: string, text: string | Uint8Array): FileStat {
     const abs = this.abs(rel);
-    fs.mkdirSync(path.dirname(abs), { recursive: true });
-    const tmp = path.join(path.dirname(abs), `.${path.basename(abs)}.${process.pid}.tmp`);
-    fs.writeFileSync(tmp, text);
-    fs.renameSync(tmp, abs);
+    // Named by the process alone, so a name near the disk's limit still has room for its temp file.
+    const tmp = path.join(path.dirname(abs), `.${process.pid}.tmp`);
+    onDisk(() => {
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
+      fs.writeFileSync(tmp, text);
+      fs.renameSync(tmp, abs);
+    });
     return this.stat(rel)!;
   }
   remove(rel: string) {
@@ -91,8 +104,10 @@ export class FsContent implements Content {
     this.pruneTrash(rel);
   }
   rename(from: string, to: string) {
-    fs.mkdirSync(path.dirname(this.abs(to)), { recursive: true });
-    fs.renameSync(this.abs(from), this.abs(to));
+    onDisk(() => {
+      fs.mkdirSync(path.dirname(this.abs(to)), { recursive: true });
+      fs.renameSync(this.abs(from), this.abs(to));
+    });
     this.pruneTrash(from);
   }
   /** Take away the folders a file leaving Trash emptied, up to Trash itself. */

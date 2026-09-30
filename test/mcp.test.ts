@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { openVault } from "../src/core/local.ts";
 import { tempVault } from "./helpers.ts";
 
 const BIN = path.resolve(import.meta.dirname, "../bin/quire");
@@ -27,11 +28,12 @@ async function call(name: string, args: Record<string, unknown>) {
 test("the server lists every tool", async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
-    "add_card", "add_task", "append_to_note", "archive_note", "backlinks", "create_note", "delete_folder", "delete_note", "delete_smart_folder",
-    "edit_card", "edit_note", "get_today", "list_folders", "list_notes", "list_smart_folders", "list_tags", "list_tasks", "list_trash",
-    "move_card", "move_note", "move_task", "open_journal", "order_favorites", "read_board", "read_note", "recent_changes", "remove_task",
-    "rename_tag", "restore_change", "restore_from_trash", "save_smart_folder", "search_notes", "set_asset_tags", "show_change",
-    "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag", "update_task", "write_note",
+    "add_card", "add_task", "append_to_note", "archive_note", "backlinks", "create_from_template", "create_meeting_note", "create_note", "delete_folder",
+    "delete_note", "delete_smart_folder", "edit_card", "edit_note", "get_event", "get_today", "list_events", "list_folders", "list_notes",
+    "list_smart_folders", "list_tags", "list_tasks", "list_templates", "list_trash", "move_card", "move_note", "move_task", "open_journal",
+    "order_favorites", "read_board", "read_note", "recent_changes", "remove_task", "rename_tag", "restore_change", "restore_from_trash",
+    "save_smart_folder", "search_notes", "set_asset_tags", "show_change", "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag",
+    "update_task", "write_note",
   ]);
 });
 
@@ -82,7 +84,8 @@ test("agents end a repeat with until and times", async () => {
 
 test("agents list tags as a tree and filter notes by a tag and the tags under it", async () => {
   await call("create_note", { path: "Ideas/Plan B", content: "# Plan B\n\nA backup #plan/b for the importer.\n" });
-  assert.equal((await call("list_tags", {})).text, "- #plan (2 notes)\n  - #plan/b (1 note)\n- #q3 (1 note)");
+  openVault(vault).addTag("Plan/c"); // added in the app, before any note carries it
+  assert.equal((await call("list_tags", {})).text, "- #plan (2 notes)\n  - #plan/b (1 note)\n  - #plan/c (added, not used yet)\n- #q3 (1 note)");
   assert.equal((await call("list_notes", { tag: "plan" })).text, "- Ideas/Plan B.md — Plan B\n- Projects/Roadmap.md — Roadmap");
   assert.equal((await call("search_notes", { query: "importer", tag: "plan/b" })).text, "- Ideas/Plan B.md — Plan B\n    L3: A backup #plan/b for the importer.");
 });
@@ -168,4 +171,16 @@ test("an agent's delete goes to Trash, attributed to it, and it has no way to de
   assert.match((await call("list_trash", {})).text, new RegExp(`^${id}  Scratch\\.md — deleted .* by test-agent for you`));
   assert.equal((await call("restore_from_trash", { ids: [id] })).text, "Restored Scratch.md");
   assert.equal((await call("read_note", { path: "Scratch" })).isError, false);
+});
+
+test("agents list templates and make notes from them, told what's left to fill in", async () => {
+  await call("create_note", { path: "Templates/Meeting", content: "---\ntitle: \"{{date}} {{ask:Client}}\"\nfolder: Meetings\napplies_to: Meetings/\n---\n# {{title}}\n\n**Attendees:** {{ask:Attendees}}\n\n- {{cursor}}\n" });
+  assert.match((await call("list_templates", {})).text, /^Templates\/Meeting\.md — Meeting · asks: Client, Attendees · new notes in Meetings\/ start from it$/m);
+  const made = await call("create_from_template", { template: "Meeting", variables: { Client: "Initech" } });
+  assert.match(made.text, /^Created Meetings\/\d{4}-\d\d-\d\d Initech\.md from Templates\/Meeting\.md\. Still to fill in: \{\{ask:Attendees\}\} \(line 3\)\.$/);
+});
+
+test("list_templates says what kind of answer each question takes", async () => {
+  await call("create_note", { path: "Templates/Typed", content: "{{ask:Who|people}} {{ask:Due|date}} {{ask:Size|choice:S,M,L}} {{ask:Note}}\n" });
+  assert.match((await call("list_templates", {})).text, /^Templates\/Typed\.md — Typed · asks: Who \(people\), Due \(date\), Size \(one of S, M, L\), Note$/m);
 });

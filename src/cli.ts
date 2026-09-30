@@ -5,6 +5,8 @@ import path from "node:path";
 import { LOCAL_USER, openVault, type LocalVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
 import { agentSource } from "./core/actor.ts";
+import { Calendar, fetchFeed } from "./core/calendar.ts";
+import { assertPublic } from "./server/unfurl.ts";
 import { EXIT, UsageError, type CommandHost, type Output } from "./core/commands/index.ts";
 import { findCommand, noSuchSubcommand, parse, type Io } from "./cli/argv.ts";
 import { commandHelp, overview } from "./cli/help.ts";
@@ -35,6 +37,8 @@ function localHost(q: LocalVault, agent: string | undefined): CommandHost {
     user: LOCAL_USER,
     source: agent ? agentSource(agent, LOCAL_USER) : LOCAL_USER,
     canEditShared: true,
+    // Feeds come from public addresses only, as link previews do.
+    calendar: new Calendar(q.db, (url, last) => fetchFeed(url, last, assertPublic)),
     bytes: {
       read: async (rel) => {
         try {
