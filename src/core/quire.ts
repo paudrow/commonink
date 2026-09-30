@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import { diffLines } from "diff";
 import type { Content, SqlDb } from "./store.ts";
 import { cleanPath, isHidden, kindOf, linkKey, QuireError, stemOf, type NoteKind } from "./paths.ts";
-import { headingName, headingText, proseLines } from "./prose.ts";
+import { headingName, headingText, mapOutsideCode, proseLines } from "./prose.ts";
 import { extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
@@ -384,7 +384,7 @@ export class Quire {
       if (kind === "md" && content) {
         const tasks = tasksIn(content).map(({ line, done, ...task }) => [rel, line, done ? 1 : 0, task.meta.due, task.meta.start, JSON.stringify(task)]);
         insertRows(this.db, "INSERT INTO tasks(path, line, done, due, start, task)", tasks);
-        insertRows(this.db, "INSERT INTO links(src, key, kind, line)", extractLinks(content).map((l) => [rel, l.key, l.kind, l.line]));
+        insertRows(this.db, "INSERT INTO links(src, key, kind, line)", extractLinks(content).map((l) => [rel, linkStem(l.key), l.kind, l.line]));
         const lines = content.split("\n");
         const tags = scanTags(content);
         insertRows(this.db, "INSERT INTO tags(tag, kind, path, line)", tags.map((t) => [t.tag, !t.frontmatter && TASK_LINE.test(lines[t.line - 1]) ? "task" : "note", rel, t.line]));
@@ -682,19 +682,16 @@ export class Quire {
 
   backlinks(target: string): Backlink[] {
     const rel = this.mustResolve(target);
-    const keys = [stemOf(rel), linkKey(rel), rel.toLowerCase()];
+    const stem = stemOf(rel);
     const rows = this.db.all(
       `SELECT DISTINCT l.src AS path, n.title, l.kind, l.line FROM links l JOIN notes n ON n.path = l.src
-       WHERE l.key IN (?,?,?) AND l.src != ? ORDER BY n.mtime DESC, l.line`,
-      ...keys, rel,
+       WHERE l.key = ? AND l.src != ? ORDER BY n.mtime DESC, l.line`,
+      stem, rel,
     );
     const cache = new Map<string, string[]>();
     const resolve = this.resolver();
     return rows
-      .filter((r) => {
-        const t = this.linkTargetAt(r.path, r.line, keys, cache);
-        return t !== null && resolve(t, r.path) === rel;
-      })
+      .filter((r) => this.linksAt(r.path, r.line, cache).some((l) => linkStem(l.key) === stem && resolve(l.target, r.path) === rel))
       .map((r) => ({ ...r, text: (cache.get(r.path)?.[r.line - 1] ?? "").trim().slice(0, 200) }));
   }
 
@@ -711,12 +708,10 @@ export class Quire {
     };
   }
 
-  /** Find the raw link target on a line whose key matches (so ambiguous names resolve correctly). */
-  private linkTargetAt(src: string, line: number, keys: string[], cache: Map<string, string[]>): string | null {
+  /** The links on one line of a note. */
+  private linksAt(src: string, line: number, cache: Map<string, string[]>) {
     if (!cache.has(src)) cache.set(src, (this.files.read(src) ?? "").split("\n"));
-    const text = cache.get(src)![line - 1] ?? "";
-    for (const l of extractLinks(text)) if (keys.includes(l.key)) return l.target;
-    return null;
+    return extractLinks(cache.get(src)![line - 1] ?? "");
   }
 
   /**
@@ -1681,9 +1676,17 @@ export class Quire {
       throw new QuireError(`Moving ${from} can't change its file type from ${extFrom} to ${extTo}`);
     }
     if (dest === from) return { path: dest, from, version: this.meta(from)?.version ?? "", change: null, updated: [] as string[], edits: [] };
-    if (this.files.stat(dest)) throw new QuireError(`${dest} already exists`, "exists");
-    const referrers = [...new Set(this.backlinks(from).map((b) => b.path))];
-    const oldKeys = new Set([stemOf(from), linkKey(from), from.toLowerCase()]);
+    // On a case-insensitive disk, "notes.md" is there when renaming "Notes.md" to it: the same file.
+    const caseOnly = dest.toLowerCase() === from.toLowerCase() && !this.meta(dest);
+    if (!caseOnly && this.files.stat(dest)) throw new QuireError(`${dest} already exists`, "exists");
+    // Which links point at the note, read before it moves: after, a name can lead to another note.
+    const resolveBefore = this.resolver();
+    const pointing = new Map<string, Set<string>>();
+    // The note's own links to itself ([[Guide#Setup]] in Guide) move with it.
+    for (const src of new Set([from, ...this.backlinks(from).map((b) => b.path)])) {
+      const targets = extractLinks(this.files.read(src) ?? "").map((l) => l.target).filter((t) => resolveBefore(t, src) === from);
+      if (targets.length) pointing.set(src, new Set(targets));
+    }
 
     const id = this.meta(from)?.id;
     this.files.rename(from, dest);
@@ -1702,22 +1705,28 @@ export class Quire {
     const updated: string[] = [];
     const edits: Array<{ path: string; content: string; version: string; change: Change }> = [];
     const resolve = this.resolver(); // rewriting links changes no note's path
-    for (const src of referrers) {
+    // Spaces and parentheses escaped too: a bare ")" would end the link.
+    const href = encodeURI(dest).replace(/\(/g, "%28").replace(/\)/g, "%29");
+    for (const [was, targets] of pointing) {
+      const src = was === from ? dest : was;
       const before = this.files.read(src) ?? "";
-      const after = before
-        .replace(/(!?)\[\[([^\]|#\n]+)(#[^\]|\n]*)?(\|[^\]\n]*)?\]\]/g, (m, bang, t, hash = "", alias = "") =>
-          oldKeys.has(linkKey(t)) && resolve(t, src) === null ? `${bang}[[${wikiTarget}${hash}${alias}]]` : m,
-        )
-        .replace(/(!?\[[^\]\n]*\]\()([^)\s]+)(\))/g, (m, pre, t, post) =>
-          oldKeys.has(linkKey(safeDecode(t))) ? `${pre}${encodeURI(dest)}${post}` : m,
-        );
+      // A [[name]] that still finds the note stays as written; a markdown link gets the new path.
+      const after = mapOutsideCode(before, (text) =>
+        text
+          .replace(/(!?)\[\[([^[\]|#\n]+)(#[^[\]|\n]*)?(\|[^[\]\n]*)?\]\]/g, (m, bang, t, hash = "", alias = "") =>
+            targets.has(t.trim()) && resolve(t, src) !== dest ? `${bang}[[${wikiTarget}${hash}${alias}]]` : m,
+          )
+          .replace(/(!?\[[^[\]\n]*\]\()([^()\s]+)((?:\s+"[^"\n]*")?\))/g, (m, pre, t, post) =>
+            targets.has(safeDecode(t)) ? `${pre}${href}${t.includes("#") ? t.slice(t.indexOf("#")) : ""}${post}` : m,
+          ),
+      );
       if (after !== before) {
         const r = this.commit(src, before, after, source, "edit");
-        updated.push(src);
+        if (src !== dest) updated.push(src);
         edits.push({ path: src, content: after, version: r.version, change: r.change });
       }
     }
-    return { path: dest, from, version: meta.version, change, updated, edits };
+    return { path: dest, from, version: edits.find((e) => e.path === dest)?.version ?? meta.version, change, updated, edits };
   }
 }
 
@@ -1735,6 +1744,12 @@ function insertRows(db: SqlDb, insert: string, rows: unknown[][]) {
     db.run(`${insert} VALUES ${Array(chunk.length).fill(tuple).join(",")}`, ...chunk.flat());
   }
 }
+
+/**
+ * The name a link's key ends in, which is what the links table keeps: "../plan" and "projects/plan"
+ * both reach a note named Plan, and which one they reach is resolve()'s to say.
+ */
+const linkStem = (key: string) => key.slice(key.lastIndexOf("/") + 1);
 
 /** `tags.tag` is the tag or under it: a range, so it uses the index and needs no character counting. */
 const UNDER = "(tag = ? OR (tag >= ? AND tag < ?))";
