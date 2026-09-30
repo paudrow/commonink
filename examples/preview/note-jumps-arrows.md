@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 90
 title: Back and forward arrows
 ---
 1. Open [[Trip plan]] and follow [[Flights]], then [[Airport transfer]]. The ← and → at the left of the top bar go back and forward, like a browser's. They work the same as ⌘[ and ⌘] (Ctrl-O and Ctrl-I in vim). Hover one to see its shortcut.
