@@ -306,7 +306,6 @@ export const api = {
   /** This workspace's shares: of one note or folder, or all of them. */
   shares: (target?: ShareTarget) =>
     j<ShareList>(`${BASE}/shares${target ? ("folder" in target ? `?folder=${enc(target.folder)}` : `?path=${enc(target.path)}`) : ""}`),
-  sharePeople: () => j<Array<{ name: string; email: string }>>(`${BASE}/shares/people`),
   share: (target: ShareTarget, o: { email?: string; link?: boolean; role: "viewer" | "editor"; expiresAt?: number | null }) =>
     j<ShareList>(`${BASE}/shares`, send("POST", { ...target, ...o })),
   updateShare: (id: string, o: { role?: "viewer" | "editor"; expiresAt?: number | null }) => j<{ ok: true }>(`${BASE}/shares/update`, send("POST", { id, ...o })),

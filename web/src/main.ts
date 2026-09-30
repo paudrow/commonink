@@ -715,7 +715,12 @@ async function refreshShares() {
 
 /** The share dialog for a note or folder. */
 function openShare(target: { path: string } | { folder: string }) {
-  void showShareDialog(target, { canShare: !viewer, toast: (t) => toast(t), changed: () => void refreshShares() });
+  void showShareDialog(target, {
+    canShare: !viewer,
+    toast: (t) => toast(t),
+    changed: () => void refreshShares(),
+    workspaceSettings: () => void account.find((a) => /^(Workspace settings|Members)…$/.test(a.label))?.run(),
+  });
 }
 
 /** Shared with me: notes other workspaces share with you, each opening on its own page. */
