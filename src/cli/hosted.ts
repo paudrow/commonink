@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
-import os from "node:os";
+import { configFolder } from "../legacy.ts";
 import path from "node:path";
 import readline from "node:readline";
 import { EXIT, type Output } from "../core/commands/index.ts";
@@ -42,7 +42,7 @@ export interface Credentials {
 }
 
 /** ~/.config/commonink, or $XDG_CONFIG_HOME/commonink, or $COMMONINK_CONFIG_DIR. */
-export const configDir = () => process.env.COMMONINK_CONFIG_DIR ?? path.join(process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), ".config"), "commonink");
+export const configDir = () => configFolder();
 const credentialsFile = () => path.join(configDir(), "credentials.json");
 
 export function loadCredentials(): Credentials | null {
