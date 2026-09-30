@@ -25,6 +25,9 @@ import { feedsFor } from "./demo-calendar.ts";
 import { googleMode } from "./connections.ts";
 import { googleReader } from "./google-reader.ts";
 
+/** A note and its previous text are each a SQLite row here, which holds at most 2 MB. */
+const MAX_NOTE_BYTES = 1_900_000;
+
 export class Workspace extends DurableObject<Env> {
   private db: DoDb;
   private files: SqlContent;
@@ -43,8 +46,7 @@ export class Workspace extends DurableObject<Env> {
     db.exec("CREATE TABLE IF NOT EXISTS registered_ids(id TEXT PRIMARY KEY)");
     // An upload's bytes go from R2 once it's deleted for good.
     this.files = new SqlContent(db, (key) => ctx.waitUntil(env.FILES.delete(key)));
-    // A note and its previous text are each a SQLite row here, which holds at most 2 MB.
-    this.quire = new Quire(db, this.files, { maxNoteBytes: 1_900_000 });
+    this.quire = new Quire(db, this.files, { maxNoteBytes: MAX_NOTE_BYTES });
     // Notes only change through the core here, so this finds nothing to do, except after an
     // upgrade that asks for notes to be indexed again (tags, say).
     this.quire.sync();
@@ -464,12 +466,12 @@ export class Workspace extends DurableObject<Env> {
   /**
    * One MCP request from a connected agent (the Worker has checked its token and membership). Tools
    * are offered by `role`, and writes are attributed to `actor`, e.g. "Claude (via Audrow)". Open
-   * tabs hear about the agent's changes like any other.
+   * tabs hear about the agent's changes like any other. Its "today" is a day in `who.timeZone`.
    */
-  async mcp(req: Request, who: { workspace: string; user: string; actor: string; role: string }): Promise<Response> {
+  async mcp(req: Request, who: { workspace: string; user: string; actor: string; role: string; timeZone: string }): Promise<Response> {
     const role = asRole(who.role);
     const server = createMcpServer({
-      quire: this.quire,
+      quire: new Quire(this.db, this.files, { maxNoteBytes: MAX_NOTE_BYTES, timeZone: who.timeZone }),
       user: who.user,
       source: () => who.actor,
       may: (route) => access(role, ...(route.split(" ") as [string, string])) === "allowed",

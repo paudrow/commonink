@@ -1,5 +1,6 @@
 // The calendar's date math, in the reader's time zone: which days a view shows, which day an event
-// falls on, where it sits in a day's time grid, and how overlapping ones share the width. No DOM.
+// falls on, where it sits in a day's time grid, how overlapping ones share the width, and where a
+// drag or a key moves one (in 15-minute steps, back in the server's form). No DOM.
 //
 // Event times come in three shapes (see CalendarEvent in src/core/calendar.ts): an instant in UTC
 // ("…Z"), a floating wall time ("2026-09-29T09:00:00", the same clock time wherever you are) and an
@@ -188,3 +189,69 @@ export function bars<T>(items: T[], span: (t: T) => Span, days: Day[]): Bar<T>[]
 
 /** Where the now line sits in today's grid, in minutes from midnight. */
 export const nowMinutes = (now: Date) => clockMinutes(now);
+
+// ------------------------------------------------------------------ changing times (drags, keys, the form)
+
+/** Times as the server takes them: instants in UTC ("…Z"), or days ("YYYY-MM-DD", end exclusive) all day. */
+export interface Times {
+  start: string;
+  end: string;
+  allDay: boolean;
+}
+
+/** The step drags and keys move by, in minutes. */
+export const SNAP = 15;
+const MINUTE_MS = 60_000;
+
+export const snap = (minutes: number) => Math.round(minutes / SNAP) * SNAP;
+
+/** The local time `minutes` after a day's midnight, by the clock (so 9:00 is 9:00 on a day the clocks change). */
+export function atMinutes(day: Day, minutes: number): Date {
+  const d = dayStart(day);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, minutes);
+}
+
+const iso = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
+export const timesOf = (start: Date, end: Date, allDay: boolean): Times => (allDay ? { start: dayKey(start), end: dayKey(end), allDay } : { start: iso(start), end: iso(end), allDay });
+
+/** Where a new event starts, half an hour long: the next half hour today, or 9 in the morning on another day. */
+export function defaultSlot(now: Date, day?: Day): { start: Date; end: Date } {
+  const today = dayKey(now);
+  const start = !day || day === today ? atMinutes(today, Math.floor(clockMinutes(now) / 30) * 30 + 30) : atMinutes(day, 9 * 60);
+  return { start, end: new Date(start.getTime() + 30 * MINUTE_MS) };
+}
+
+/** The slot a drag down a day's column covers, between two points in minutes from midnight: widened to the grid, one step at least. */
+export function dragSlot(day: Day, a: number, b: number): { start: Date; end: Date } {
+  const lo = Math.max(0, Math.floor(Math.min(a, b) / SNAP) * SNAP);
+  const hi = Math.min(DAY_MINUTES, Math.max(lo + SNAP, Math.ceil(Math.max(a, b) / SNAP) * SNAP));
+  return { start: atMinutes(day, Math.min(lo, DAY_MINUTES - SNAP)), end: atMinutes(day, hi) };
+}
+
+const shift = (d: Date, days: number, minutes: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + days, d.getHours(), d.getMinutes() + minutes, d.getSeconds());
+
+/** A span moved by whole days and clock minutes, the same length; all day, by days only. */
+export function moved(s: Span, by: { days?: number; minutes?: number }): Times {
+  const days = by.days ?? 0;
+  if (s.allDay) return timesOf(shift(s.start, days, 0), shift(s.end, days, 0), true);
+  const start = shift(s.start, days, by.minutes ?? 0);
+  return timesOf(start, new Date(start.getTime() + s.end.getTime() - s.start.getTime()), false);
+}
+
+/** A timed span dropped on a day at `minutes` from its midnight (snapped to the grid), the same length. */
+export function movedTo(s: Span, day: Day, minutes: number): Times {
+  const start = atMinutes(day, Math.max(0, Math.min(DAY_MINUTES - SNAP, snap(minutes))));
+  return timesOf(start, new Date(start.getTime() + s.end.getTime() - s.start.getTime()), false);
+}
+
+/** A timed span whose end moves by `minutes`, one step long at least. */
+export function resizedBy(s: Span, minutes: number): Times {
+  const end = Math.max(s.start.getTime() + SNAP * MINUTE_MS, shift(s.end, 0, minutes).getTime());
+  return timesOf(s.start, new Date(end), false);
+}
+
+/** A timed span whose end is dragged to `minutes` from the midnight of `day` (snapped to the grid), one step long at least. */
+export function endAt(s: Span, day: Day, minutes: number): Times {
+  const end = Math.max(s.start.getTime() + SNAP * MINUTE_MS, atMinutes(day, Math.min(DAY_MINUTES, snap(minutes))).getTime());
+  return timesOf(s.start, new Date(end), false);
+}

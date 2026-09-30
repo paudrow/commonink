@@ -1,0 +1,86 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { localDate } from "../src/core/tasks.ts";
+import { fmtTrash } from "../src/core/format.ts";
+import { openTempVault } from "./helpers.ts";
+
+// 21:00 CDT on Tuesday 2026-09-29 is 02:00 UTC on the 30th, as a Worker's clock has it.
+const CHICAGO_EVENING = Date.parse("2026-09-30T02:00:00Z");
+// 07:30 JST on Wednesday 2026-09-30 is 22:30 UTC on the 29th.
+const TOKYO_MORNING = Date.parse("2026-09-29T22:30:00Z");
+
+const VAULT = {
+  "Inbox.md": "# Inbox\n\n- [ ] Pay rent due:2026-09-29\n- [ ] Renew passport due:2026-09-30\n",
+  "Board.md": "# Board\n\n:::kanban\n## Doing\n\n- [ ] Draft the post\n\n## Done\n\n:::\n",
+};
+
+test("localDate gives the calendar day in a time zone", () => {
+  assert.equal(localDate(CHICAGO_EVENING, "America/Chicago"), "2026-09-29");
+  assert.equal(localDate(CHICAGO_EVENING, "UTC"), "2026-09-30");
+  assert.equal(localDate(TOKYO_MORNING, "Asia/Tokyo"), "2026-09-30");
+  assert.equal(localDate(TOKYO_MORNING, "UTC"), "2026-09-29");
+});
+
+test("at 9pm in Chicago, an agent's today, tomorrow and done dates are still Chicago's, whatever the server's clock zone", () => {
+  const { quire } = openTempVault(VAULT, { now: () => CHICAGO_EVENING, timeZone: "America/Chicago" });
+
+  const added = quire.addTask("call mom tomorrow", "agent");
+  assert.equal(added.path, "Journal/2026-09-29.md");
+  assert.equal(added.text, "call mom due:2026-09-30");
+
+  const today = quire.today();
+  assert.equal(today.date, "2026-09-29");
+  assert.equal(today.journal.path, "Journal/2026-09-29.md");
+  assert.deepEqual(
+    today.sections.map((s) => [s.id, s.tasks.map((t) => t.text)]),
+    [
+      ["overdue", []],
+      ["due", ["Pay rent due:2026-09-29"]],
+      ["starting", []],
+    ],
+  );
+  assert.deepEqual(quire.tasks({ due: "tomorrow" }).map((t) => t.text), ["Renew passport due:2026-09-30", "call mom due:2026-09-30"]);
+
+  const ticked = quire.updateTask("Inbox", 3, "Pay rent due:2026-09-29", { checked: true }, "agent");
+  assert.equal(ticked.text, "Pay rent due:2026-09-29 done:2026-09-29");
+
+  quire.editCard("Board", "Draft the post", { done: true }, "agent");
+  assert.match(quire.read("Board").content, /- \[x\] Draft the post done:2026-09-29/);
+});
+
+test("at 7:30am in Tokyo, an agent's today is already Tokyo's new day while UTC is still on yesterday", () => {
+  const { quire } = openTempVault(VAULT, { now: () => TOKYO_MORNING, timeZone: "Asia/Tokyo" });
+
+  const added = quire.addTask("call mom tomorrow", "agent");
+  assert.equal(added.path, "Journal/2026-09-30.md");
+  assert.equal(added.text, "call mom due:2026-10-01");
+
+  const ticked = quire.updateTask("Inbox", 4, "Renew passport due:2026-09-30", { checked: true }, "agent");
+  assert.equal(ticked.text, "Renew passport due:2026-09-30 done:2026-09-30");
+
+  assert.equal(quire.today().date, "2026-09-30");
+  assert.deepEqual(quire.tasks({ due: "<today" }).map((t) => t.text), ["Pay rent due:2026-09-29"]);
+});
+
+/** Run `fn` with this process's clock zone set to `zone`, as on a machine there. */
+function onMachineIn<T>(zone: string, fn: () => T): T {
+  const was = process.env.TZ;
+  process.env.TZ = zone;
+  try {
+    return fn();
+  } finally {
+    if (was === undefined) delete process.env.TZ;
+    else process.env.TZ = was;
+  }
+}
+
+test("locally, with no zone given, today is the machine's day", () => {
+  const { quire } = openTempVault(VAULT, { now: () => CHICAGO_EVENING });
+  assert.equal(onMachineIn("America/Chicago", () => quire.today().date), "2026-09-29");
+  assert.equal(onMachineIn("Asia/Tokyo", () => quire.addTask("call mom tomorrow", "cli").text), "call mom due:2026-10-01");
+});
+
+test("Trash says when an item went and when it goes for good in the machine's time", () => {
+  const item = { id: "1-1", path: "Old.md", kind: "md" as const, size: 1, deletedAt: CHICAGO_EVENING, expiresAt: CHICAGO_EVENING + 30 * 86_400_000, by: null, excerpt: "" };
+  assert.equal(onMachineIn("America/Chicago", () => fmtTrash([item])), "1-1  Old.md — deleted 2026-09-29 21:00, gone for good 2026-10-29");
+});

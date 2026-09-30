@@ -1,16 +1,18 @@
-// Calendars: sources of outside items (ICS feeds now; Google and others plug in as more kinds) and
-// the items they bring in, kept in the workspace's own SQLite next to its notes. Events are linked
+// Calendars: sources of outside items (ICS feeds, Google, and the workspace's own "Common Ink"
+// calendar of events made in the app) and the items they bring in, kept in the workspace's own SQLite
+// next to its notes. Events are linked
 // records, not notes: a meeting note is made from one on request and linked to it. A source is the
 // whole workspace's (owner null) or one person's, and a person only ever sees their own and the
 // workspace's. Syncing is async (it fetches), so it runs outside the note core: on a timer or alarm
 // the host sets, and when someone asks. No Node imports: the Worker runs this too.
 import { looksLikeIcs, readIcs, type Occurrence, type Person } from "./ics.ts";
 import { QuireError } from "./paths.ts";
+import { fillTemplate } from "./templates.ts";
 import type { Quire } from "./quire.ts";
 import type { SqlDb } from "./store.ts";
 import { fetchGuarded, readCapped, type UrlGuard } from "./unfurl.ts";
 
-export type SourceKind = "ics" | "google";
+export type SourceKind = "ics" | "google" | "local";
 export type SyncStatus = "pending" | "ok" | "error";
 
 /** Colors a source can have; the app maps each to a theme color. */
@@ -35,6 +37,10 @@ export interface Source {
   writeBack: boolean | null;
   /** Google calendars: which of its owner's calendars it is (only for its owner). Null for feeds. */
   calendar: string | null;
+  /** Whether the viewer may add events to it and move or change them: the workspace's own calendar (editors), a Google one its owner can edit. Feeds never. */
+  writable: boolean;
+  /** Why not, in words, when it isn't writable. */
+  readOnly: string | null;
   status: SyncStatus;
   error: string | null;
   syncedAt: number | null;
@@ -63,6 +69,22 @@ export interface CalendarEvent {
   recurring: boolean;
   /** The meeting note made from it, if it still exists. */
   note: { id: string; path: string; title: string } | null;
+}
+
+/**
+ * An event as made or changed in the app. Times are as in CalendarEvent: "2026-10-05T16:30:00Z", or
+ * "2026-10-05" (and the day after the last, for the end) all day.
+ */
+export interface EventDraft {
+  title: string;
+  start: string;
+  end: string;
+  allDay: boolean;
+  /** The zone it was made in, for Google's own display of it. */
+  timeZone: string | null;
+  location: string | null;
+  description: string | null;
+  attendees: Person[];
 }
 
 /** What a fetch of a feed found. `unchanged`: the server said it's the same as last time (304). */
@@ -94,7 +116,23 @@ export interface SourceReader {
   linkNote?(src: SourceRef, item: { uid: string; instance: string | null }, url: string): Promise<void>;
   /** How often it's read again; SYNC_EVERY if unset. */
   every?: number;
+  /** Whether events can be added and changed there (its owner's access to it). */
+  writable?(src: SourceRef): boolean;
+  /** Add an event there; returns its UID there, which the next read brings in. */
+  createEvent?(src: SourceRef, draft: EventDraft): Promise<{ uid: string }>;
+  /** Change one event, or one instance of a series, there. */
+  updateEvent?(src: SourceRef, item: { uid: string; instance: string | null }, patch: Partial<EventDraft>): Promise<void>;
+  deleteEvent?(src: SourceRef, item: { uid: string; instance: string | null }): Promise<void>;
 }
+
+/** The workspace's own calendar: its events are the items themselves, so there's nothing to read. */
+const localReader: SourceReader = {
+  read: async () => ({ status: "unchanged" }),
+  every: 365 * 86_400_000,
+};
+
+/** The workspace's own calendar's name. */
+export const LOCAL_NAME = "Common Ink";
 
 const icsReader = (fetcher: FeedFetcher): SourceReader => ({
   async read({ config, state, fresh }) {
@@ -258,10 +296,10 @@ export class Calendar {
   constructor(
     private db: SqlDb,
     fetcher: FeedFetcher,
-    opts: { now?: () => number; readers?: Partial<Record<Exclude<SourceKind, "ics">, SourceReader>> } = {},
+    opts: { now?: () => number; readers?: Partial<Record<Exclude<SourceKind, "ics" | "local">, SourceReader>> } = {},
   ) {
     this.now = opts.now ?? Date.now;
-    this.readers = { ics: icsReader(fetcher), ...opts.readers };
+    this.readers = { ics: icsReader(fetcher), local: localReader, ...opts.readers };
     for (const stmt of SCHEMA) db.exec(stmt);
   }
 
@@ -295,6 +333,8 @@ export class Calendar {
       editable: mayEdit,
       writeBack: r.kind === "google" ? !!(config as { writeBack?: boolean }).writeBack : null,
       calendar: r.kind === "google" && r.owner === viewer.user ? String((config as { calendar?: string }).calendar) : null,
+      writable: this.writable(r, viewer),
+      readOnly: this.writable(r, viewer) ? null : readOnlyReason(r),
       status: r.status,
       error: r.error,
       syncedAt: r.synced_at,
@@ -321,7 +361,7 @@ export class Calendar {
   }
 
   /** Add one of the viewer's Google calendars, for them alone, and read it once. */
-  async addGoogle(input: { calendar: string; name?: string; color?: string; writeBack?: boolean }, viewer: Viewer, by: string): Promise<Source> {
+  async addGoogle(input: { calendar: string; name?: string; color?: string; writeBack?: boolean; accessRole?: string }, viewer: Viewer, by: string): Promise<Source> {
     if (!this.readers.google) throw new QuireError("Google Calendar isn't set up on this server");
     const calendar = input.calendar.trim();
     if (!calendar || calendar.length > 500) throw new QuireError('"calendar" must be a Google calendar ID');
@@ -329,7 +369,8 @@ export class Calendar {
       .all<SourceRow>("SELECT * FROM sources WHERE kind = 'google' AND owner = ?", viewer.user)
       .find((s) => (JSON.parse(s.config) as { calendar?: string }).calendar === calendar);
     if (same) throw new QuireError(`That calendar is already here, as "${same.name}"`, "exists", { id: same.id });
-    return this.add("google", viewer.user, { calendar, writeBack: !!input.writeBack }, "Google Calendar", input, viewer, by);
+    const accessRole = ["owner", "writer", "reader", "freeBusyReader"].includes(input.accessRole ?? "") ? input.accessRole : undefined;
+    return this.add("google", viewer.user, { calendar, writeBack: !!input.writeBack, accessRole }, "Google Calendar", input, viewer, by);
   }
 
   private async add(kind: SourceKind, owner: string | null, config: Record<string, unknown>, fallbackName: string, input: { name?: string; color?: string }, viewer: Viewer, by: string) {
@@ -402,6 +443,12 @@ export class Calendar {
     const rows = this.db.all<SourceRow>("SELECT * FROM sources WHERE owner = ? AND (? IS NULL OR kind = ?)", user, kind ?? null, kind ?? null);
     for (const r of rows) this.drop(r);
     return rows.length;
+  }
+
+  private writable(r: SourceRow, viewer: Viewer): boolean {
+    if (r.kind === "local") return viewer.canEdit;
+    const reader = this.readers[r.kind];
+    return r.owner === viewer.user && !!reader?.createEvent && (reader.writable?.(this.ref(r)) ?? true);
   }
 
   private mayChange(r: SourceRow, viewer: Viewer) {
@@ -552,6 +599,101 @@ export class Calendar {
     return r ? this.event_(r) : null;
   }
 
+  // ---------------------------------------------------------------- making and changing events
+
+  /** The workspace's own calendar, made the first time an event is added to it. */
+  private local(by: string): SourceRow {
+    const had = this.db.get<SourceRow>("SELECT * FROM sources WHERE kind = 'local'");
+    if (had) return had;
+    const all = this.db.all<SourceRow>("SELECT * FROM sources");
+    const id = randomId(10);
+    this.db.run(
+      "INSERT INTO sources(id, kind, owner, name, color, config, status, synced_at, next_sync, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+      id, "local", null, LOCAL_NAME, this.pickColor(undefined, all), "{}", "ok", this.now(), this.now() + localReader.every!, by, this.now(),
+    );
+    return this.db.get<SourceRow>("SELECT * FROM sources WHERE id = ?", id)!;
+  }
+
+  /** The source an event goes in: one the viewer can write to ("local" is the workspace's own calendar). */
+  private target(source: string, viewer: Viewer, by: string): SourceRow {
+    const r = source === "local" ? (viewer.canEdit ? this.local(by) : null) : this.row(source, viewer);
+    if (!r || !this.writable(r, viewer)) {
+      throw new QuireError(r?.kind === "ics" ? "Events from a subscribed feed can't be changed here: change them where the feed comes from" : "You can't add events to that calendar", "forbidden");
+    }
+    return r;
+  }
+
+  /**
+   * Add an event: to the workspace's own calendar, or to one of the viewer's Google calendars.
+   * `note`: a meeting note to link it to, if it still exists (a deleted event made again by Undo).
+   */
+  async createEvent(source: string, draft: EventDraft, viewer: Viewer, by: string, note?: string): Promise<CalendarEvent> {
+    const d = checkDraft(draft);
+    const src = this.target(source, viewer, by);
+    let id: string;
+    if (src.kind === "local") {
+      id = randomId(12);
+      this.putLocal(src.id, id, d);
+    } else {
+      const { uid } = await atSource(() => this.readers[src.kind]!.createEvent!(this.ref(src), d));
+      id = (await this.afterWrite(src, uid, null, viewer)).id;
+    }
+    if (note && this.db.get("SELECT 1 FROM notes WHERE id = ?", note)) this.db.run("UPDATE external_items SET note_id = ? WHERE id = ?", note, id);
+    return this.event(id, viewer)!;
+  }
+
+  /** Move an event, change its length, or change what it says. For one instance of a Google series, only that instance. */
+  async updateEvent(id: string, patch: Partial<EventDraft>, viewer: Viewer, by: string): Promise<CalendarEvent> {
+    const { src, ev, uid, instance } = this.editable(id, viewer, by);
+    const d = checkDraft({ ...ev, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) } as EventDraft);
+    if (src.kind === "local") {
+      this.putLocal(src.id, id, d);
+      return this.event(id, viewer)!;
+    }
+    const changed = Object.fromEntries((Object.keys(patch) as Array<keyof EventDraft>).filter((k) => patch[k] !== undefined).map((k) => [k, d[k]]));
+    if (changed.start !== undefined || changed.end !== undefined) Object.assign(changed, { start: d.start, end: d.end, allDay: d.allDay, timeZone: d.timeZone });
+    await atSource(() => this.readers[src.kind]!.updateEvent!(this.ref(src), { uid, instance }, changed));
+    return this.afterWrite(src, uid, instance, viewer);
+  }
+
+  async deleteEvent(id: string, viewer: Viewer, by: string) {
+    const { src, uid, instance } = this.editable(id, viewer, by);
+    if (src.kind !== "local") {
+      await atSource(() => this.readers[src.kind]!.deleteEvent!(this.ref(src), { uid, instance }));
+      await this.sync(src.id);
+    }
+    this.db.run("DELETE FROM external_items WHERE id = ?", id);
+  }
+
+  private editable(id: string, viewer: Viewer, by: string) {
+    const ev = this.event(id, viewer);
+    if (!ev) throw new QuireError("That event doesn't exist, or you can't see it", "not_found");
+    const src = this.target(ev.source, viewer, by);
+    const { uid, instance } = JSON.parse(this.db.get<{ data: string }>("SELECT data FROM external_items WHERE id = ?", id)!.data) as { uid?: string; instance?: string | null };
+    return { src, ev, uid: uid ?? id, instance: instance ?? null };
+  }
+
+  /** Read the source again so a write there shows here, and return the event it made or changed. */
+  private async afterWrite(src: SourceRow, uid: string, instance: string | null, viewer: Viewer): Promise<CalendarEvent> {
+    await this.sync(src.id);
+    const found = this.event(await itemId(src.id, uid, instance), viewer);
+    if (!found) throw new QuireError("The calendar took the change, but it hasn't come back yet: refresh in a moment");
+    return found;
+  }
+
+  private putLocal(source: string, id: string, d: EventDraft) {
+    const data = JSON.stringify({
+      allDay: d.allDay, timeZone: d.timeZone, location: d.location, description: d.description, url: null,
+      organizer: null, attendees: d.attendees, status: "confirmed", recurring: false, uid: id, instance: null,
+    });
+    this.db.run(
+      `INSERT INTO external_items(id, source, kind, title, start, end, start_ms, end_ms, abs, data, hash) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(id) DO UPDATE SET title = excluded.title, start = excluded.start, end = excluded.end, start_ms = excluded.start_ms,
+         end_ms = excluded.end_ms, abs = excluded.abs, data = excluded.data, hash = excluded.hash`,
+      id, source, "event", d.title, d.start, d.end, msOf(d.start), msOf(d.end), d.allDay ? 0 : 1, data, "",
+    );
+  }
+
   /**
    * The event's meeting note: the one it's linked to if that still exists, or a new one in Meetings/
    * from `Templates/Meeting note.md` (or a plain one), linked to the event. `timeZone` is the
@@ -661,6 +803,49 @@ export function fmtEvent(e: CalendarEvent, sources: Source[], zone: string): str
     .join("\n");
 }
 
+/** Why a source takes no new or changed events, for someone who can't write to it. */
+function readOnlyReason(r: SourceRow): string {
+  if (r.kind === "ics") return `Events from ${r.name} (a subscribed feed) can't be changed here`;
+  if (r.kind === "local") return "Only editors can change this workspace's events";
+  return `You can only read ${r.name} in Google Calendar`;
+}
+
+/** A write at a source (Google), its failure in words for the person who made it. */
+async function atSource<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    throw e instanceof QuireError ? e : new QuireError(feedProblem(e));
+  }
+}
+
+/** A draft as it's kept: times in one of the two shapes, the end after the start, text trimmed and capped. */
+function checkDraft(d: EventDraft): EventDraft {
+  const title = (d.title ?? "").replace(/[\x00-\x1f\x7f]/g, " ").trim().slice(0, 500);
+  if (!title) throw new QuireError("Give the event a title");
+  const day = /^\d{4}-\d{2}-\d{2}$/;
+  const time = (t: string, name: string) => {
+    if (d.allDay) {
+      if (!day.test(t) || Number.isNaN(Date.parse(t))) throw new QuireError(`"${name}" must be a day like 2026-10-05 for an all-day event`);
+      return t;
+    }
+    const ms = Date.parse(t);
+    if (!/^\d{4}-\d{2}-\d{2}T/.test(t) || Number.isNaN(ms) || !/(Z|[+-]\d{2}:?\d{2})$/.test(t)) throw new QuireError(`"${name}" must be a time with its zone, like 2026-10-05T16:30:00Z`);
+    return new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
+  };
+  const start = time(d.start, "start");
+  const end = time(d.end, "end");
+  if (msOf(end) <= msOf(start)) throw new QuireError("An event has to end after it starts");
+  if (msOf(end) - msOf(start) > 366 * DAY) throw new QuireError("An event can last a year at most");
+  const text = (s: string | null | undefined, cap: number) => (s ?? "").trim().slice(0, cap) || null;
+  const attendees = (d.attendees ?? []).slice(0, 100).flatMap((a) => {
+    const email = typeof a?.email === "string" && /^[^\s@]+@[^\s@]+$/.test(a.email.trim()) ? a.email.trim().toLowerCase() : null;
+    const name = typeof a?.name === "string" ? a.name.trim().slice(0, 200) || null : null;
+    return email || name ? [{ name, email, status: null }] : [];
+  });
+  return { title, start, end, allDay: !!d.allDay, timeZone: d.timeZone ? validZone(d.timeZone) : null, location: text(d.location, 1000), description: text(d.description, 10_000), attendees };
+}
+
 const hex = (b: Uint8Array) => [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
 
 function cleanName(s: string | undefined | null): string | null {
@@ -689,11 +874,13 @@ export function describeWhen(ev: Pick<CalendarEvent, "start" | "end" | "allDay">
   const time = (d: Date, zoneName = false) => new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit", ...(zoneName && abs ? { timeZoneName: "short" as const } : {}) }).format(d);
   if (ev.allDay) {
     const last = new Date(end.getTime() - DAY);
-    return { date, text: last.getTime() > start.getTime() ? `${day(start)} to ${day(last)}, all day` : `${day(start)}, all day` };
+    return { date, start: "00:00", text: last.getTime() > start.getTime() ? `${day(start)} to ${day(last)}, all day` : `${day(start)}, all day` };
   }
+  /** Its start, HH:mm, for a template's {{time}}. */
+  const startsAt = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(start);
   const sameDay = day(start) === day(end) || end.getTime() === start.getTime();
   const text = sameDay ? `${day(start)}, ${time(start)} to ${time(end, true)}` : `${day(start)}, ${time(start, true)} to ${day(end)}, ${time(end, true)}`;
-  return { date, text: text.replace(/ /g, " ") }; // newer ICU puts a narrow space before AM/PM
+  return { date, start: startsAt, text: text.replace(/ /g, " ") }; // newer ICU puts a narrow space before AM/PM
 }
 
 /** What starts the block a meeting note's link is written back in (Google's write-back). */
@@ -714,7 +901,7 @@ function plain(s: string): string {
 const who = (p: Person) => plain(p.name ?? p.email ?? "");
 
 /** A new meeting note: the template's {{placeholders}} filled in, or the default layout. */
-function meetingTemplate(template: string | null, ev: CalendarEvent, when: { date: string; text: string }): string {
+function meetingTemplate(template: string | null, ev: CalendarEvent, when: { date: string; start: string; text: string }): string {
   const people = ev.attendees.map(who).filter(Boolean).join(", ");
   const link = `[${plain(ev.title)}](/calendar/${ev.id})`;
   const fields: Record<string, string> = {
@@ -726,7 +913,11 @@ function meetingTemplate(template: string | null, ev: CalendarEvent, when: { dat
     event: link,
     agenda: ev.description ? plain(withoutNoteLink(ev.description)) : "",
   };
-  if (template !== null) return template.replace(/\{\{(\w+)\}\}/g, (m, k: string) => fields[k] ?? m);
+  // The one template engine (templates.ts): {{title}} and {{date…}}/{{time…}} are the event's, the rest named here.
+  if (template !== null) {
+    const { title, date, ...vars } = fields;
+    return fillTemplate(template, { at: `${date}T${when.start}`, title, vars }).text;
+  }
   return [
     "---",
     `event: ${ev.id}`,

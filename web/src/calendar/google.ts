@@ -118,7 +118,7 @@ export function googleSection(hooks: { changed(): Promise<void> }) {
       el(
         "div",
         { class: "cal-g-switches" },
-        toggle("Show here", !!source, () => void busy(source ? "Couldn't take it off" : "Couldn't add it", () => (source ? api.unsubscribe(source.id) : api.addGoogleCalendar(cal.id, name))), { "aria-label": `Show ${name} here` }),
+        toggle("Show here", !!source, () => void busy(source ? "Couldn't take it off" : "Couldn't add it", () => (source ? api.unsubscribe(source.id) : api.addGoogleCalendar(cal.id, name, cal.accessRole))), { "aria-label": `Show ${name} here` }),
         source ? toggle("Link meeting notes", !!source.writeBack, () => void writeBack(source, !source.writeBack, canWrite), { "aria-label": `Link meeting notes to ${name}'s events` }) : null,
       ),
       source?.writeBack && !canWrite

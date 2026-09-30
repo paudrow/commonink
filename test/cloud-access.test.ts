@@ -44,6 +44,9 @@ let leaveBase = "";
 /** Calendars for each person to rename and to remove, and an event to make a meeting note from. */
 const calendarIds = {} as Record<Who, { rename: string; remove: string }>;
 let eventId = "";
+/** Events in the workspace's own calendar for each person to move and to delete. */
+const ownEvents = {} as Record<Who, { move: string; remove: string }>;
+const EVENT = (title: string) => ({ source: "local", title, start: "2026-10-06T15:00:00Z", end: "2026-10-06T16:00:00Z" });
 const DEMO = (name: string) => `https://demo.commonink.invalid/${name}.ics`; // the Preview demo feed (cloud/src/demo-calendar.ts)
 
 /**
@@ -87,6 +90,9 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /tasks/remove", send: (w) => ["POST", "/tasks/remove", { path: `task-rm-${w}.md`, line: 1, text: "Remove me" }], expect: EDIT },
   { route: "POST /tasks/move", send: (w) => ["POST", "/tasks/move", { path: `task-move-${w}.md`, line: 1, text: "Move me", to: "Getting started" }], expect: EDIT },
   { route: "GET /guide", send: () => ["GET", "/guide"], expect: READ },
+  { route: "GET /templates", send: () => ["GET", "/templates"], expect: READ },
+  { route: "POST /templates/render", send: () => ["POST", "/templates/render", { template: "Access template" }], expect: READ },
+  { route: "POST /notes/from-template", send: (w) => ["POST", "/notes/from-template", { template: "Access template", title: `From template ${w}` }], expect: EDIT },
   { route: "POST /guide", send: () => ["POST", "/guide", { action: "search" }], expect: EDIT },
   { route: "POST /today/journal", send: () => ["POST", "/today/journal", { today: "2026-10-01" }], expect: EDIT },
   { route: "POST /tags", send: (w) => ["POST", "/tags", { tag: `added-${w}` }], expect: EDIT },
@@ -124,6 +130,10 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /calendar/sources/update", send: (w) => ["POST", "/calendar/sources/update", { id: calendarIds[w].rename, name: `Renamed by ${w}` }], expect: EDIT },
   { route: "POST /calendar/sources/remove", send: (w) => ["POST", "/calendar/sources/remove", { id: calendarIds[w].remove }], expect: EDIT },
   { route: "POST /calendar/meeting-note", send: () => ["POST", "/calendar/meeting-note", { id: eventId, timeZone: "UTC" }], expect: EDIT },
+  // The workspace's own calendar is editors'; a viewer's own Google calendars would be theirs (test/cloud-google.test.ts).
+  { route: "POST /calendar/events", send: (w) => ["POST", "/calendar/events", EVENT(`Made by ${w}`)], expect: EDIT },
+  { route: "POST /calendar/events/update", send: (w) => ["POST", "/calendar/events/update", { id: ownEvents[w].move, start: "2026-10-07T15:00:00Z", end: "2026-10-07T16:00:00Z" }], expect: EDIT },
+  { route: "POST /calendar/events/delete", send: (w) => ["POST", "/calendar/events/delete", { id: ownEvents[w].remove }], expect: EDIT },
   // Anyone may add their own Google calendar; with no Google connection, it's refused as a bad request.
   { route: "POST /calendar/google", send: () => ["POST", "/calendar/google", { calendar: "primary" }], expect: [401, 404, 400, 400, 400] },
   { route: "POST /upload", send: (w) => ["POST", `/upload?name=up-${w}.txt`, new TextEncoder().encode("hi"), { "content-type": "text/plain" }], expect: EDIT },
@@ -140,6 +150,7 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   // Leaving the second team keeps everyone in this one. Its only owner can't leave (409).
   { route: "POST /leave", send: () => ["POST", `${leaveBase}/leave`, {}], expect: [401, 404, "ok", "ok", 409] },
   { route: "GET /api/me", send: () => ["GET", "/api/me"], expect: SIGNED_IN },
+  { route: "POST /api/me/time-zone", send: () => ["POST", "/api/me/time-zone", { timeZone: "America/Chicago" }], expect: SIGNED_IN },
   { route: "POST /api/workspaces", send: (w) => ["POST", "/api/workspaces", { name: `${w}'s team` }], expect: SIGNED_IN },
   { route: "GET /api/unfurl", send: () => ["GET", "/api/unfurl?url=https://example.invalid/"], expect: SIGNED_IN },
   { route: "GET /api/note-ids/*", send: () => ["GET", `/api/note-ids/${startId}`], expect: READ },
@@ -174,6 +185,7 @@ before(async () => {
     await cloud.call(owner, "PUT", `${base}/note`, { path: `restore-${w}.md`, content: "# Changed\n" });
     restoreIds[w] = (await cloud.call(owner, "GET", `${base}/changes?path=restore-${w}.md&limit=1`))[0].id;
     await note(`del-${w}.md`);
+    if (w === "signedOut") await note("Templates/Access template.md", "# {{title}}\n");
     await note(`folder-${w}/Inside.md`);
     await note(`trash-restore-${w}.md`);
     await note(`trash-purge-${w}.md`);
@@ -181,6 +193,8 @@ before(async () => {
     trashIds[w] = { restore, purge };
     const subscribe = async (name: string) => (await cloud.call(owner, "POST", `${base}/calendar/sources`, { url: DEMO(`${name}-${w}`) })).id;
     calendarIds[w] = { rename: await subscribe("rename"), remove: await subscribe("remove") };
+    const make = async (what: string) => (await cloud.call(owner, "POST", `${base}/calendar/events`, EVENT(`${what} ${w}`))).event.id;
+    ownEvents[w] = { move: await make("Move"), remove: await make("Remove") };
   }
   eventId = (await cloud.call(owner, "GET", `${base}/calendar/events?from=2026-10-01&to=2026-10-08`))[0].id;
   for (const w of ["viewer", "editor", "owner"] as const) {

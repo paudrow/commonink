@@ -153,6 +153,21 @@ test("skipping moves a repeating task to its next date without completing it", (
   assert.equal(skipPatch(parseTask("- [ ] Once due:2026-10-06")!.meta, "2026-10-01"), null);
 });
 
+test("ticking a repeating task late puts the next one on or after today, not in the past", () => {
+  const tick = (line: string, day: string) => editTaskLines([line], 0, { checked: true }, day)[1] ?? null;
+  assert.equal(tick("- [ ] a due:2026-01-15 rec:weekly", "2026-03-01"), "- [ ] a due:2026-03-05 rec:weekly");
+  assert.equal(tick("- [ ] Stretch due:2026-09-16 start:2026-09-15 rec:daily", "2026-09-30"), "- [ ] Stretch due:2026-09-30 start:2026-09-29 rec:daily");
+  // One tick uses one of times:, however many dates it passed; until: still ends it.
+  assert.equal(tick("- [ ] a due:2026-01-15 rec:weekly times:3", "2026-03-01"), "- [ ] a due:2026-03-05 rec:weekly times:2");
+  assert.equal(tick("- [ ] a due:2026-01-15 rec:weekly until:2026-02-28", "2026-03-01"), null);
+  // Unticking straight after still takes it back.
+  const lines = editTaskLines(["- [ ] a due:2026-01-15 rec:weekly"], 0, { checked: true }, "2026-03-01");
+  assert.deepEqual(editTaskLines(lines, 0, { checked: false }, "2026-03-01"), ["- [ ] a due:2026-01-15 rec:weekly"]);
+  // Skipping an overdue one lands on or after today too.
+  assert.deepEqual(skipPatch(parseTask("- [ ] a due:2026-01-15 rec:weekly")!.meta, "2026-03-01"), { due: "2026-03-05" });
+  assert.deepEqual(skipPatch(parseTask("- [ ] Pills due:2026-01-01 rec:after-1w")!.meta, "2026-03-01"), { due: "2026-03-05" });
+});
+
 test("editing a task's text rewrites only the words before its tokens, never the tokens", () => {
   const line = "  - [ ] Send invoice to Acme due:2026-10-01 rec:monthly #work/clients @jane !high";
   assert.equal(editTask(line, { summary: "Send the Q4 invoice" }), "  - [ ] Send the Q4 invoice due:2026-10-01 rec:monthly #work/clients @jane !high");

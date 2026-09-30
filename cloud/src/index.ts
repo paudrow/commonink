@@ -12,7 +12,8 @@ import { grantsFor, joinLink, linkShare, sharedWith } from "./shares.ts";
 import { authorize, listAgents, oauthOptions, revokeAgents, withOAuthStore, type OAuthEnv } from "./agents.ts";
 import { clearSessionCookies, ensurePersonalWorkspace, escapeHtml, handleAuth, page, readSession, readSessionOf, seedWorkspace, text } from "./auth.ts";
 import { adminRoute } from "./admin.ts";
-import { acceptInvite, inviteInfo, createWorkspace, endSessionsOf, locateNote, membership, workspacesOf, type User } from "./directory.ts";
+import { acceptInvite, inviteInfo, createWorkspace, endSessionsOf, locateNote, membership, setTimeZone, workspacesOf, type User } from "./directory.ts";
+import { timeZoneNamed } from "../../src/core/tasks.ts";
 import type { Env } from "./env.ts";
 import { fetchAsset, secure } from "./headers.ts";
 import { limit } from "./limits.ts";
@@ -77,6 +78,14 @@ interface Call {
 /** What someone signed in can do outside any one workspace. */
 const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
   "GET /api/me": async ({ env, user }) => json({ user, workspaces: await workspacesOf(env.DB, user.id) }),
+  // The app reports the browser's time zone on every load, so an agent's "today" is its person's.
+  "POST /api/me/time-zone": async ({ req, env, user }) => {
+    const { timeZone } = (await body(req)) as { timeZone?: unknown };
+    const zone = typeof timeZone === "string" && timeZone.length <= 64 ? timeZoneNamed(timeZone) : null;
+    if (!zone) return json({ error: '"timeZone" must be an IANA time zone, like America/Chicago' }, 400);
+    await setTimeZone(env.DB, user.id, zone);
+    return json({ timeZone: zone });
+  },
   "POST /api/workspaces": async ({ req, env, user }) => {
     const tooMany = await limit(env.DB, "workspace", user.id);
     if (tooMany) return tooMany;

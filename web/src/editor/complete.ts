@@ -10,6 +10,10 @@ import { fuzzyScore } from "../fuzzy.ts";
 import { newId, serializeDirective } from "../widgets/args.ts";
 import { pendingConfig, WIDGETS } from "../widgets/index.ts";
 import { editorContext } from "./blocks.ts";
+import { api } from "../api.ts";
+import { askFor, pickTemplate, templatePeople } from "../templatePicker.ts";
+import { placeholderSource } from "./templateComplete.ts";
+import { localNow } from "../../../src/core/templates.ts";
 import { NEW_BOARD } from "../../../src/core/kanban.ts";
 import { wrapInDetails } from "../../../src/core/details.ts";
 import { taskPeople } from "../taskChipEditors.ts";
@@ -293,6 +297,26 @@ function insert(view: EditorView, from: number, to: number, text: string, opts: 
 
 const soon = (view: EditorView) => setTimeout(() => startCompletion(view), 0);
 
+/**
+ * `/template`: pick a template, answer its questions, and put its body (filled in, without its
+ * frontmatter) where the slash was, with the cursor at its {{cursor}}.
+ */
+async function insertTemplate(view: EditorView, from: number, to: number) {
+  view.dispatch({ changes: { from, to }, userEvent: "input.complete" }); // the "/template" typed
+  const list = await api.templates().catch(() => []);
+  const t = await pickTemplate(list, "Insert a template");
+  const asked = t && (await askFor(t, { title: false, people: await templatePeople(t) }));
+  if (!t || !asked) return view.focus();
+  const ctx = view.state.facet(editorContext);
+  const clipboard = t.clipboard ? await navigator.clipboard?.readText().catch(() => undefined) : undefined;
+  const r = await api.renderTemplate(t.path, { at: localNow(), title: displayName(ctx.path), answers: asked.answers, picks: asked.picks, clipboard }).catch(() => null);
+  if (!r) return view.focus();
+  const text = r.text.replace(/\n+$/, "");
+  const at = Math.min(from, view.state.doc.length);
+  insert(view, at, at, text, { block: true, cursor: r.cursor !== null && r.cursor <= text.length ? r.cursor : text.length });
+  view.focus();
+}
+
 function widgetTool(name: string, keywords: string, title?: string): Tool {
   const spec = WIDGETS[name];
   return {
@@ -363,6 +387,7 @@ const TOOLS: Tool[] = [
   { title: "Math (block)", hint: "$$", icon: "sigma", keywords: "math equation formula latex tex katex block display", section: "Blocks", run: (v, f, t) => insert(v, f, t, "$$\nE = mc^2\n$$", { cursor: 3, select: 8, block: true }) },
   { title: "Table", hint: "2 × 2", icon: "table", keywords: "table grid columns", section: "Blocks", run: (v, f, t) => insert(v, f, t, "| Column | Column |\n| ------ | ------ |\n|        |        |", { cursor: 2, select: 6, block: true }) },
   { title: "Divider", hint: "---", icon: "divider", keywords: "divider rule separator hr line", section: "Blocks", run: (v, f, t) => insert(v, f, t, "---", { own: true }) },
+  { title: "Template", hint: "Insert one of your templates", icon: "file", keywords: "template snippet boilerplate block", section: "Insert", run: (v, f, t) => void insertTemplate(v, f, t) },
   { title: "Today's date", hint: today(), icon: "calendar", keywords: "date today day", section: "Insert", run: (v, f, t) => insert(v, f, t, today()) },
   { title: "Current time", hint: "HH:MM", icon: "clock", keywords: "time now clock", section: "Insert", run: (v, f, t) => insert(v, f, t, new Date().toTimeString().slice(0, 5)) },
 ];
@@ -457,7 +482,7 @@ async function embedUploads(view: EditorView, files: File[] | undefined, pos: nu
   view.focus();
 }
 
-const stamp = () => new Date().toISOString().slice(0, 19).replace("T", " ").replace(/:/g, ".");
+const stamp = () => `${today()} ${new Date().toTimeString().slice(0, 8).replace(/:/g, ".")}`;
 
 const pasteFiles = EditorView.domEventHandlers({
   paste(event, view) {
@@ -480,7 +505,7 @@ const pasteFiles = EditorView.domEventHandlers({
 // ------------------------------------------------------------------ extension
 
 export function typingHelpers(): Extension {
-  return [completions([toolSource, taskTokenSource, mentionSource, linkSource, tagSource, frontmatterTagSource, emojiSource]), pasteLinks, pasteFiles];
+  return [completions([toolSource, taskTokenSource, mentionSource, linkSource, tagSource, frontmatterTagSource, emojiSource, placeholderSource]), pasteLinks, pasteFiles];
 }
 
 function completions(override: CompletionSource[]): Extension {
