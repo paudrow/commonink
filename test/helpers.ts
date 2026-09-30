@@ -42,3 +42,20 @@ export function cpuMs(run: () => unknown): number {
   const { user, system } = process.cpuUsage(start);
   return (user + system) / 1000;
 }
+
+/**
+ * Whether `run` takes more than linear time on `make(n)`: said how, or null if it's linear. It times
+ * the input at n and at four times n, by CPU time, best of three, alternating the two so a slow
+ * patch lands on both. Linear work takes about four times as long at four times the size; work that
+ * rescans from every position takes sixteen, so eight times (plus noise) is the bound. Pick n so the
+ * smaller run takes a few tens of milliseconds, well above timer noise.
+ */
+export function superlinear<T>(run: (input: T) => unknown, make: (n: number) => T, n: number): string | null {
+  const [small, big] = [make(n), make(4 * n)];
+  let [once, fourTimes] = [Infinity, Infinity];
+  for (let i = 0; i < 3; i++) {
+    once = Math.min(once, cpuMs(() => run(small)));
+    fourTimes = Math.min(fourTimes, cpuMs(() => run(big)));
+  }
+  return fourTimes < 8 * once + 20 ? null : `${Math.round(once)} ms, then ${Math.round(fourTimes)} ms at four times the size`;
+}
