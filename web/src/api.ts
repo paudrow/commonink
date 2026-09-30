@@ -2,6 +2,7 @@ import { localDate, type TaskMeta, type TaskPatch } from "../../src/core/tasks.t
 import type { GuideAction, GuideState } from "../../src/core/guide.ts";
 import { did } from "./events.ts";
 import type { NoteRole } from "../../src/core/noteRoles.ts";
+import type { FillOptions, TemplateInfo } from "../../src/core/templates.ts";
 import type { CalendarEvent, Source as CalendarSource, SourceColor } from "../../src/core/calendar.ts";
 
 /** The reader's day, which task writes and due filters go by (the server may be in another time zone). */
@@ -116,7 +117,7 @@ export type Favorite = NoteMeta | TagFavorite;
 export const isTagFavorite = (f: Favorite): f is TagFavorite => "tag" in f;
 /** How a favorite is named in an order: a note's path, or "#" and the tag. */
 export const favoriteKey = (f: Favorite) => (isTagFavorite(f) ? `#${f.tag}` : f.path);
-/** A tag in use (parents included), and how many notes, tasks and assets carry it or a tag under it. */
+/** A tag (parents included), and how many notes, tasks and assets carry it or a tag under it. */
 export interface TagCount {
   tag: string;
   display: string;
@@ -124,6 +125,8 @@ export interface TagCount {
   tasks: number;
   assets: number;
 }
+/** A tag someone added by name that nothing carries yet. */
+export const unusedTag = (t: TagCount) => t.notes + t.tasks + t.assets === 0;
 /** The day at a glance (Quire.today): sections of tasks, and today's journal note. */
 export interface TodayView {
   date: string;
@@ -317,6 +320,9 @@ export const api = {
   /** Each tagged asset's tags. */
   assetTags: () => j<Record<string, string[]>>(`${BASE}/asset-tags`),
   setAssetTags: (path: string, tags: string[]) => j<{ tags: string[] }>(`${BASE}/asset-tags`, send("PUT", { path, tags })),
+  /** Add a tag by name, before any note carries it; take one away while nothing does. Each returns every tag. */
+  addTag: (tag: string) => j<TagCount[]>(`${BASE}/tags`, send("POST", { tag })),
+  deleteTag: (tag: string) => j<TagCount[]>(`${BASE}/tags/delete`, send("POST", { tag })),
   /** Rename (or merge) a tag everywhere. Restoring `changes` and setting `assets` back undoes it. */
   renameTag: (from: string, to: string) => j<{ changes: number[]; versions: string[]; assets: Record<string, string[]> }>(`${BASE}/tags/rename`, send("POST", { from, to })),
   setTask: (t: Task, done: boolean) => (done && did("tick"), j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/set`, send("POST", { path: t.path, line: t.line, text: t.text, done, today: today() }))),
@@ -357,6 +363,13 @@ export const api = {
   emptyTrash: () => j<{ deleted: string[] }>(`${BASE}/trash/empty`, send("POST", {})),
   unarchive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/unarchive`, send("POST", { paths })),
   backlinks: (path: string) => j<Backlink[]>(`${BASE}/backlinks?path=${enc(path)}`),
+  /** The note templates (notes in Templates/), by name. */
+  templates: () => j<TemplateInfo[]>(`${BASE}/templates`),
+  /** A template filled in, to insert: its text and where its {{cursor}} is. */
+  renderTemplate: (template: string, o: FillOptions) => j<{ path: string; text: string; cursor: number | null; unfilled: string[] }>(`${BASE}/templates/render`, send("POST", { template, ...o })),
+  /** A new note from a template; `cursor` is where its {{cursor}} is. */
+  fromTemplate: (template: string, o: FillOptions & { folder?: string }) =>
+    j<{ path: string; version: string; cursor: number | null; unfilled: string[] }>(`${BASE}/notes/from-template`, send("POST", { template, ...o })),
   /** A page of the change log, newest first; `before` pages further back. */
   history: (p: { limit?: number; before?: number; path?: string; by?: string }) =>
     j<Change[]>(`${BASE}/changes?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),

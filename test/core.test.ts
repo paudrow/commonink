@@ -485,6 +485,37 @@ test("the index follows edits, and the Notes feed, search, lists and tasks filte
   assert.equal(quire.tags().some((t) => t.tag === "billing"), false);
 });
 
+test("a tag added by name is listed, parents included, until something carries it", () => {
+  const { dir, quire } = openTempVault({ "A.md": "# A\n\n#home\n" });
+  const listed = () => quire.tags().map((t) => `${t.display} ${t.notes}/${t.tasks}/${t.assets}`);
+  quire.addTag("#Work/Clients");
+  quire.addTag("work/clients"); // again, any case: nothing changes
+  quire.addTag("Home"); // already in use: an ordinary tag
+  assert.deepEqual(listed(), ["home 1/0/0", "Work 0/0/0", "Work/Clients 0/0/0"]);
+  assert.throws(() => quire.addTag("two words"), /isn't a tag/);
+
+  quire.create("B", "# B\n\n#work/clients/acme\n", "t");
+  assert.deepEqual(listed(), ["home 1/0/0", "Work 1/0/0", "Work/Clients 1/0/0", "Work/Clients/acme 1/0/0"]);
+  quire.delete(["B"], "t");
+  assert.deepEqual(listed(), ["home 1/0/0"], "once used, it's an ordinary tag: it goes when its last note does");
+
+  quire.addTag("later");
+  assert.deepEqual(openVault(dir).tags().map((t) => t.tag), ["home", "later"], "kept beside the index");
+});
+
+test("a tag added by name can be renamed or taken away, but a tag in use can't be taken away", () => {
+  const { quire } = openTempVault({ "A.md": "# A\n\n#home #work/old\n" });
+  quire.addTag("Work/Clients/Acme");
+  quire.addTag("work/new");
+  const r = quire.renameTag("work", "Job", "t");
+  assert.deepEqual(r.edits.map((e) => e.path), ["A.md"]);
+  assert.deepEqual(quire.tags().map((t) => t.display), ["home", "Job", "Job/Clients", "Job/Clients/Acme", "Job/new", "Job/old"]);
+
+  assert.throws(() => quire.removeTag("job"), /#Job is in use/);
+  assert.deepEqual(quire.removeTag("#job/clients").map((t) => t.tag), ["home", "job", "job/new", "job/old"]);
+  assert.deepEqual(quire.removeTag("job/clients").map((t) => t.tag), ["home", "job", "job/new", "job/old"], "taking it away again changes nothing");
+});
+
 test("renaming a tag rewrites it in every note and asset, and each note's change can be undone", () => {
   const { quire } = openTempVault(TAGGED);
   quire.setAssetTags("assets/logo.svg", ["work/brand"]);

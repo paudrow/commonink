@@ -126,7 +126,8 @@ export const calendar: WidgetSpec = {
 
     async function openDay(date: string) {
       const path = `${folder}/${date}.md`;
-      if (!days.has(date)) await api.create(path, `# ${date}\n\n## Log\n\n`).catch(() => {});
+      // A journal day is made from the daily template (Templates/Daily note.md), as Today and quick-add make it.
+      if (!days.has(date)) await (folder === "Journal" ? api.dailyNote(date) : api.create(path, `# ${date}\n\n## Log\n\n`)).catch(() => {});
       env.open(path);
     }
 
