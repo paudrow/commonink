@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 133
 title: Long note names get a clear answer
 ---
 Locally, a note name longer than the disk allows (255 bytes) got "Internal error". A name a little under the limit failed too, because the temporary file used for the save had a longer name still. Now the long one says the name is too long, and the one under the limit saves. Online there's no such limit, so nothing changes there.
