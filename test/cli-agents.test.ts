@@ -103,6 +103,7 @@ test("folders, folder delete, tag rename, tag asset, journal, diff, restore and 
   assert.equal(quire(vault, ["journal", "--date", "2026-10-01"]).stdout, "Already there: Journal/2026-10-01.md\n");
   quire(vault, ["edit", "Welcome", "--old", "Welcome", "--new", "Hello"]);
   const id = json(vault, ["changes", "--limit", "1"]).data[0].id;
+  assert.deepEqual(json(vault, ["changes", "--path", "Welcome"]).data.map((c: { id: number }) => c.id)[0], id, "--path takes a note's name");
   assert.equal(quire(vault, ["diff", String(id)]).stdout, "--- Welcome.md\tbefore #" + id + "\n+++ Welcome.md\tafter #" + id + "\n@@ -1,1 +1,1 @@\n-# Welcome\n+# Hello\n");
   assert.match(quire(vault, ["restore", String(id)]).stdout, /^Restored Welcome\.md/);
   assert.equal(fs.readFileSync(path.join(vault, "Welcome.md"), "utf8"), "# Welcome\n");

@@ -16,18 +16,20 @@ export const history = [
     description:
       "What changed in the vault and who changed it (you, the user, or other agents). " +
       "`since` is an ISO timestamp or a change id from a previous call — use it to catch up. " +
-      "`path` (a path, ID or note URL) narrows it to one note, including its history under earlier names. " +
+      "`path` (a note's name, path, ID or URL) narrows it to one note, including its history under earlier names. " +
       "`by` narrows it to people's own changes (`people`), any agent's (`ai`), or one agent's (its name).",
     examples: ["quire changes --since 120", "quire changes --path Roadmap --by ai", "quire changes --by Claude --json"],
     readOnly: true,
     args: {
       since: str({ describe: "An ISO time, or a change id from before: only what came after" }),
-      path: str({ describe: "One note (a path, ID or note URL), under earlier names too" }),
+      path: str({ describe: "One note (its name, path, ID or note URL), under earlier names too" }),
       limit: num({ min: 1, max: 200, describe: "At most this many (default 30)" }),
       by: str({ describe: '"people", "ai", or an agent\'s name' }),
     },
     run: ({ quire }, a) => {
-      const cs = quire.changes({ since: a.since, path: a.path, limit: a.limit ?? 30, by: parseAuthorFilter(a.by) });
+      // A note's name finds it too; a note that's gone is only found by the path it had.
+      const path = a.path === undefined ? undefined : (quire.resolve(a.path) ?? a.path);
+      const cs = quire.changes({ since: a.since, path, limit: a.limit ?? 30, by: parseAuthorFilter(a.by) });
       return { text: fmtChanges(cs), data: cs };
     },
   }),
