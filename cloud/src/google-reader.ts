@@ -6,7 +6,7 @@ import type { SourceReader } from "../../src/core/calendar.ts";
 import type { SqlDb } from "../../src/core/store.ts";
 import { connectionInfo, googleApi } from "./connections.ts";
 import type { Env } from "./env.ts";
-import { eventsToIcs, GoogleError, instanceId, withNoteLink, type GoogleEvent } from "./google.ts";
+import { eventsToIcs, GoogleError, instanceId, toGoogle, withNoteLink, type GoogleEvent } from "./google.ts";
 
 /** Google syncs cheaply (only changes come back), so it's read more often than a feed. */
 const EVERY = 10 * 60_000;
@@ -16,6 +16,10 @@ const problem = (e: unknown) =>
   e instanceof Error && e.message.startsWith("feed:") ? e : new Error(`feed:Google Calendar: ${e instanceof GoogleError ? e.message : "couldn't be reached"}`);
 
 export function googleReader(env: Env, db: SqlDb): SourceReader {
+  /** Adding and changing events needs Google's edit scope, asked for the first time it's needed (as write-back asks). */
+  const mayWrite = async (user: string) => {
+    if (!(await connectionInfo(env, user))?.canWrite) throw new Error("feed:Allow Common Ink to edit your Google events first, then try again");
+  };
   db.exec("CREATE TABLE IF NOT EXISTS google_events(source TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(source, id))");
   const kept = (source: string) => db.all<{ data: string }>("SELECT data FROM google_events WHERE source = ? ORDER BY id", source).map((r) => JSON.parse(r.data) as GoogleEvent);
 
@@ -47,6 +51,40 @@ export function googleReader(env: Env, db: SqlDb): SourceReader {
       return { status: "ok", text: eventsToIcs(kept(src.id), zone, got.name), state: { syncToken: got.syncToken, zone } };
     },
 
+    writable: (src) => src.config.accessRole === undefined || src.config.accessRole === "owner" || src.config.accessRole === "writer",
+
+    async createEvent(src, draft) {
+      await mayWrite(src.owner!);
+      try {
+        const made = await googleApi(env, src.owner!, db).insert(String(src.config.calendar), toGoogle(draft));
+        return { uid: made.iCalUID ?? made.id };
+      } catch (e) {
+        throw problem(e);
+      }
+    },
+
+    async updateEvent(src, item, patch) {
+      await mayWrite(src.owner!);
+      const id = instanceId(kept(src.id), item.uid, item.instance);
+      if (!id) throw new Error("feed:Google Calendar: that event isn't there any more");
+      try {
+        await googleApi(env, src.owner!, db).patch(String(src.config.calendar), id, toGoogle(patch));
+      } catch (e) {
+        throw problem(e);
+      }
+    },
+
+    async deleteEvent(src, item) {
+      await mayWrite(src.owner!);
+      const id = instanceId(kept(src.id), item.uid, item.instance);
+      if (!id) return;
+      try {
+        await googleApi(env, src.owner!, db).remove(String(src.config.calendar), id);
+      } catch (e) {
+        throw problem(e);
+      }
+    },
+
     removed(src) {
       db.run("DELETE FROM google_events WHERE source = ?", src.id);
     },
@@ -59,7 +97,7 @@ export function googleReader(env: Env, db: SqlDb): SourceReader {
       const api = googleApi(env, src.owner!, db);
       try {
         const ev = await api.event(calendar, id);
-        await api.describe(calendar, id, withNoteLink(ev.description, url));
+        await api.patch(calendar, id, { description: withNoteLink(ev.description, url) });
       } catch (e) {
         throw problem(e);
       }

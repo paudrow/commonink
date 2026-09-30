@@ -121,7 +121,19 @@
 }
 
 @media (max-width: 760px) and (pointer: coarse) {
-  #vim-toggle:not(.is-on) { display: none; }
+  #vim-toggle:not(.is-on), #codewrap-toggle { display: none; }
+}
+
+/* Settings: the whole screen on a phone, and 44px controls on touch. */
+@media (max-width: 760px) {
+  #settings { padding-top: 0; }
+  .st-box { width: 100%; height: 100%; border-radius: 0; }
+  .st-keys { display: none; }
+}
+@media (pointer: coarse) {
+  .st-search, .st-select, .st-row .qw-btn { min-height: 44px; }
+  .st-head .icon-btn { width: 44px; height: 44px; }
+  .st-check { width: 24px; height: 24px; margin: 0 2px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -138,6 +150,10 @@
   .cal-views { flex: 1; justify-content: space-between; }
   .cal-views button { flex: 1; padding-inline: 4px; min-height: 36px; }
   .cal-sources-btn span { display: none; }
+  .cal-new span { display: none; }
+  .cal-new { width: 44px; justify-content: center; padding: 0; }
+  .cal-f-field { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .cal-f-label { padding-top: 0; }
   .cal-sources-btn { width: 44px; justify-content: center; padding: 0; }
   .cal-tg { min-width: 620px; }
   #calendar-view[data-view="day"] .cal-tg { min-width: 0; }

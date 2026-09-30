@@ -72,6 +72,8 @@ export interface App {
   subscribeCalendar(): void;
   refreshCalendars(): void;
   connectGoogle(): void;
+  /** The Calendar page, with the new-event form open. */
+  newEvent(): void;
   toggleTheme(): void;
   toggleVim(): void;
   toggleVimDisplayLines(): void;
@@ -91,6 +93,9 @@ export interface App {
   share(): void;
   copyLink(): void;
   exportAs(how: "print" | "pdf" | "md" | "html"): void;
+  settings(): void;
+  /** Online, the Connected agents dialog; locally, how to connect one to this vault. */
+  connectAgent(): void;
   /** Back or forward through what the focused pane has shown. */
   back(): void;
   forward(): void;
@@ -116,6 +121,7 @@ export function appCommands(app: App): Command[] {
     go("tasks", "Tasks", "task", "todo checklist"),
     go("calendar", "Calendar", "calendar", "events meetings schedule agenda month week day"),
     { id: "subscribe-calendar", title: "Subscribe to a calendar…", keywords: "calendar add ics webcal ical feed google outlook subscribe", icon: "calendar", available: app.canSubscribe, run: app.subscribeCalendar },
+    { id: "new-event", title: "New event…", keywords: "calendar event meeting create add schedule appointment", icon: "plus", run: app.newEvent },
     { id: "connect-google", title: "Connect Google Calendar", keywords: "google calendar gcal account events", icon: "calendar", available: app.canConnectGoogle, run: app.connectGoogle },
     { id: "refresh-calendars", title: "Refresh calendars", keywords: "calendar sync reload events update", icon: "reset", run: app.refreshCalendars },
     go("tags", "Tags", "hash", "rename merge"),
@@ -164,6 +170,8 @@ export function appCommands(app: App): Command[] {
       run: app.toggleHtml,
     },
     { id: "getting-started", title: "Open Getting started", keywords: "help start welcome guide tour", icon: "info", available: app.hasStart, run: app.gettingStarted },
+    { id: "settings", title: "Open settings", keywords: "preferences options configure", icon: "gear", keys: ["Mod-,"], run: app.settings },
+    { id: "connect-agent", title: "Connect an agent", keywords: "agent mcp claude cursor connected agents ai assistant", icon: "bot", run: app.connectAgent },
     { id: "shortcuts", title: "Keyboard shortcuts", keywords: "keys keybindings help hotkeys cheat sheet", icon: "keyboard", keys: ["?"], run: app.shortcuts },
     ...app.account
       .filter((a) => !a.current)

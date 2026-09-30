@@ -32,6 +32,7 @@ import { formatKeys, learnLayout, matchKeys } from "./keys.ts";
 import { navArrows, type Dir, type NavArrows } from "./navArrows.ts";
 import { taskInputPrefs } from "./taskInput.ts";
 import type { TagsPage } from "./tagsPage.ts";
+import type { Theme } from "./settings.ts";
 import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./account.ts";
 import { appCommands } from "./commands.ts";
 import { toggleShortcuts } from "./shortcuts.ts";
@@ -273,6 +274,10 @@ function commands() {
     subscribeCalendar: () => void subscribeCalendar(),
     refreshCalendars: () => void refreshCalendars(),
     connectGoogle: () => leave.to(connectUrl()),
+    newEvent: async () => {
+      await showCalendar();
+      calendarPage?.newEvent();
+    },
     filterNotes: () => void showNotes({ filter: true }),
     quickAdd,
     toggleTheme,
@@ -296,6 +301,8 @@ function commands() {
     share: openShare,
     copyLink: () => void copyLink(),
     exportAs: (how) => void exportNote(how),
+    settings: openSettings,
+    connectAgent,
     back: () => void stepPane(active, "back"),
     forward: () => void stepPane(active, "forward"),
     followLink: () => followLinkAtCursor(),
@@ -2016,6 +2023,7 @@ function renderChrome() {
   setLabel($("#split-btn"), `${split ? "Close the side pane" : "Split view"} (${formatKeys("Mod-Alt-\\")})`);
   $("#split-btn").classList.toggle("is-on", split);
   $("#save-status").hidden = !s;
+  renderCodeWrap();
   renderPaneBars();
   if (!s) {
     $("#html-toggle").hidden = true;
@@ -2358,7 +2366,9 @@ window.addEventListener(
     const is = (keys: string) => matchKeys(e, keys);
     // Back and forward through the notes (and pages) this pane has shown: ⌘[ and ⌘] by the character
     // typed, and off a Mac also Alt+← and Alt+→, the platform's back and forward.
-    const altArrow = !IS_MAC && e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight") ? e.key : null;
+    // On a calendar event, Alt+← and Alt+→ move it a day instead (calendar/keys.ts).
+    const onEvent = !!(e.target as Element | null)?.closest?.("[data-event], .cal-details");
+    const altArrow = !IS_MAC && !onEvent && e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight") ? e.key : null;
     const back = is("Mod-[") || altArrow === "ArrowLeft";
     const quickOpen = is("Mod-p") || is("Mod-k");
     if (back || is("Mod-]") || altArrow === "ArrowRight") {
@@ -2370,6 +2380,9 @@ window.addEventListener(
       paletteToSide = false;
       if (quickOpen && !palette.isOpen) did("search");
       palette.toggle(quickOpen ? "" : ">");
+    } else if (is("Mod-,")) {
+      e.preventDefault();
+      openSettings();
     } else if (is("Mod-\\")) {
       e.preventDefault();
       togglePanel();
@@ -2433,13 +2446,16 @@ function togglePanel(force?: boolean) {
   document.body.classList.toggle("panel-closed", !prefs.panel);
 }
 
-function toggleVim() {
-  prefs.vim = !prefs.vim;
-  store.set("vim", prefs.vim);
-  taskInputPrefs.vim = prefs.vim;
-  for (const p of panes) p.view.dispatch({ effects: vimSlot.reconfigure(prefs.vim ? vim() : []) });
+function setVim(on: boolean) {
+  prefs.vim = on;
+  store.set("vim", on);
+  taskInputPrefs.vim = on;
+  for (const p of panes) p.view.dispatch({ effects: vimSlot.reconfigure(on ? vim() : []) });
   attachVim();
   renderPaneBars(); // the arrows' labels say Ctrl-O / Ctrl-I with vim on
+}
+function toggleVim() {
+  setVim(!prefs.vim);
   active.view.focus();
 }
 
@@ -2457,22 +2473,75 @@ function setLineNumbers(on: boolean) {
 }
 const toggleLineNumbers = () => setLineNumbers(!prefs.lineNumbers);
 
-function toggleTheme() {
-  const dark = document.documentElement.dataset.theme
-    ? document.documentElement.dataset.theme === "dark"
-    : matchMedia("(prefers-color-scheme: dark)").matches;
-  const next = dark ? "light" : "dark";
-  document.documentElement.dataset.theme = next;
-  store.set("theme", next);
+const systemDark = matchMedia("(prefers-color-scheme: dark)");
+const theme = (): Theme => (document.documentElement.dataset.theme as "light" | "dark" | undefined) ?? "system";
+const isDark = () => (theme() === "system" ? systemDark.matches : theme() === "dark");
+const toggleTheme = () => setTheme(isDark() ? "light" : "dark");
+
+/** Light, dark, or the system's (index.html applies a stored choice before the page draws). */
+function setTheme(next: Theme) {
   try {
-    localStorage.setItem("quire.theme", next);
+    if (next === "system") localStorage.removeItem("quire.theme");
+    else localStorage.setItem("quire.theme", next);
   } catch {}
-  $("#theme-toggle").replaceChildren(icon(next === "dark" ? "sun" : "moon", 15));
+  if (next === "system") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = next;
+  renderTheme();
+}
+
+function renderTheme() {
+  $("#theme-toggle").replaceChildren(icon(isDark() ? "sun" : "moon", 15));
   for (const p of panes) {
     if (p.session?.kind === "html") renderHtmlPreview(p);
     if (p.session?.kind === "md") bumpEmbeds(p.view);
   }
 }
+
+/** Whether long lines in code blocks wrap, for blocks that don't say (```ts nowrap / wrap do). */
+function setCodeWrap(on: boolean) {
+  setCodeWrapByDefault(on);
+  renderCodeWrap();
+  for (const p of panes) bumpEmbeds(p.view);
+}
+
+/** The Wrap code chip: only where there's a note to have code in. mobile.css hides it on phones. */
+function renderCodeWrap() {
+  const on = codeWrapByDefault();
+  const chip = $("#codewrap-toggle");
+  chip.hidden = !panes.some((p) => p.session?.kind === "md");
+  setPressed(chip, on);
+  chip.textContent = `Wrap code: ${on ? "on" : "off"}`;
+  chip.title = on ? "Long lines in code blocks wrap. Click to scroll them instead." : "Long lines in code blocks scroll. Click to wrap them.";
+}
+
+/** Local vaults: where the vault and the `quire` command are, for connecting an agent. Online, null. */
+let localVault: { vault?: string; projectRoot?: string } | null = null;
+
+function openSettings() {
+  void import("./settings.ts").then((m) =>
+    m.openSettings(() =>
+      m.appSettings({
+        theme: theme(),
+        setTheme,
+        lineNumbers: prefs.lineNumbers,
+        setLineNumbers,
+        codeWrap: codeWrapByDefault(),
+        setCodeWrap,
+        htmlMode: prefs.htmlMode,
+        setHtmlMode,
+        vim: prefs.vim,
+        setVim,
+        vimDisplayLines: prefs.vimDisplayLines,
+        setVimDisplayLines: (on) => on !== prefs.vimDisplayLines && toggleVimDisplayLines(),
+        localVault,
+        shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
+        connectAgent,
+      }),
+    ),
+  );
+}
+
+const connectAgent = () => void import("./agentsPage.ts").then((m) => m.showAgents());
 
 // ------------------------------------------------------------------ split view
 
@@ -2658,6 +2727,7 @@ async function boot() {
     owner = ws.role === "owner";
     useWorkspace(`/api/w/${ws.id}`, `/api/w/${ws.id}/live`);
     setSelfName(who.me.user.name);
+    api.reportTimeZone().catch(() => {}); // unreported, agents use the owner's zone, or UTC
     account = renderAccount(who.me, ws, (t) => toast(t));
   }
 
@@ -2675,28 +2745,18 @@ async function boot() {
   setupPanes();
   $("#stage").addEventListener("mousedown", () => document.body.classList.remove("panel-overlay"));
   $("#theme-toggle").addEventListener("click", toggleTheme);
-  // Whether long lines in code blocks wrap, for blocks that don't say (```ts nowrap / wrap do).
-  const codeWrapChip = () => {
-    const on = codeWrapByDefault();
-    const chip = $("#codewrap-toggle");
-    setPressed(chip, on);
-    chip.textContent = `Wrap code: ${on ? "on" : "off"}`;
-    chip.title = on ? "Long lines in code blocks wrap. Click to scroll them instead." : "Long lines in code blocks scroll. Click to wrap them.";
-  };
-  codeWrapChip();
-  $("#codewrap-toggle").addEventListener("click", () => {
-    setCodeWrapByDefault(!codeWrapByDefault());
-    codeWrapChip();
-    for (const p of panes) bumpEmbeds(p.view);
-  });
+  renderCodeWrap();
+  $("#codewrap-toggle").addEventListener("click", () => setCodeWrap(!codeWrapByDefault()));
   $("#vim-toggle").addEventListener("click", toggleVim);
+  $("#settings-btn").addEventListener("click", () => openSettings());
+  setLabel($("#settings-btn"), `Settings (${formatKeys("Mod-,")})`);
   attachVim(); // the toggle's label, before any note opens
   $("#html-toggle").addEventListener("click", (e) => {
     const mode = (e.target as HTMLElement).closest("button")?.dataset.mode as "preview" | "source" | undefined;
     if (mode) setHtmlMode(mode);
   });
-  const isDark = document.documentElement.dataset.theme === "dark" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
-  $("#theme-toggle").replaceChildren(icon(isDark ? "sun" : "moon", 15));
+  renderTheme();
+  systemDark.addEventListener("change", () => theme() === "system" && renderTheme());
   window.addEventListener("popstate", (e) => void onPopState(e));
   $("#notes-btn").addEventListener("click", () => void showNotes({ tab: "notes", query: {} }));
   $("#tasks-btn").addEventListener("click", () => void showTasks());
@@ -2744,6 +2804,7 @@ async function boot() {
 
   const [info, list, starred, recent, tagList, smart] = await Promise.all([api.info(), api.notes(), api.favorites(), api.changes(), api.tags(), api.smartFolders()]);
   $("#vault-name").textContent = info.name;
+  if (info.mode === "local") localVault = info;
   notes = list;
   favorites = starred;
   tags = tagList;
