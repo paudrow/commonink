@@ -114,6 +114,12 @@ The server binds to 127.0.0.1 and checks the `Host` header to block DNS rebindin
 
 Online, every route has a least role that the Worker checks and the workspace checks again, sessions are `__Host-` cookies that expire and can be signed out everywhere, and every page gets a strict CSP with a fresh nonce. [docs/security/threat-model.md](docs/security/threat-model.md) lists what's protected, from whom, and what's still to do.
 
+## Sharing a note
+
+Online, a note (or a folder, and everything in it) can be shared with people outside its workspace, by email, or with anyone who has the link. Each share is a viewer or an editor, and can run out on a date. People without an account get it when they sign in with that email, and may sign up for it. A note share follows the note through renames and moves (it's keyed by the note's ID); a folder share covers whatever is under the folder's path. Workspace members keep their workspace role.
+
+Someone a note is shared with sees that note and nothing else of the workspace: not search, tasks, tags, History or other notes. What it links or embeds shows as no access unless that's shared too. Agents share with MCP `share_note`, `list_shares` and `unshare_note`, as their person; viewers' agents can only list. Sharing lives in D1 (`shares`, see `cloud/src/shares.ts`); locally there's no one else to share with.
+
 ## Who can sign up
 
 Online, new accounts are invite-only. Anyone can sign in with Google, but someone new gets an account only after they enter the sign-up code, or when they arrive through a workspace invite link. People who already have an account sign in as usual. The code is a Worker secret. Case and extra spaces don't matter, so it can be a phrase you say out loud:
