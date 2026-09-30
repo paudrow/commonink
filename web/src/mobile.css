@@ -67,6 +67,10 @@
   #sidebar .row-act { width: 44px; height: 44px; }
   #sidebar .tree-row .agent-dot, #sidebar .tree-row .fav-mark { display: none; }
   .tags-row .row-act { visibility: visible; }
+  /* A task row's buttons show too, rather than waiting invisibly under a finger. A Notes card's
+     show on the card you're on; on the others they're out of reach, not just out of sight. */
+  .qt-act { opacity: 1; }
+  .feed-card:not(.is-focused, .is-expanded) .fc-action { visibility: hidden; }
 }
 
 @media (max-width: 760px) {
@@ -94,6 +98,10 @@
   #save-status { flex: none; }
   #save-status:not([data-state="error"]) { font-size: 0; min-width: 0; gap: 0; }
   #agents .avatar:nth-child(n + 2) { display: none; }
+  /* Tasks, Tags and the other pages get the phone's width, as Notes does. A phone shows one pane,
+     so a task's "Open to the side" (its last button) has no side to open. */
+  .page { padding: 24px 16px 96px; }
+  .qt-row > .qt-act:last-child { display: none; }
   body:has(#notes-view:not([hidden])) #fab-new { display: grid; }
   .feed { padding-bottom: 96px; }
 
