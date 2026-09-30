@@ -100,3 +100,26 @@ for (const [name, t] of Object.entries(themes)) {
     assert.doesNotMatch(css, /\.cb-line\.is-marked \{[^}]*background/, "marked lines have no tint");
   });
 }
+
+// Calendar events (web/src/calendar/) write their text over a tint of their calendar's color, up to
+// the hover tint; the colors themselves are dots and bars, which need 3:1 against the page.
+const CALENDAR_COLORS = [...css.slice(0, css.indexOf("}")).matchAll(/--cal-([a-z]+):/g)].map((m) => m[1]);
+for (const [name, t] of Object.entries(themes)) {
+  test(`${name} calendar colors: event text at 4.5:1 on their tints, dots and bars at 3:1 on the page`, () => {
+    const tints = [/\.cal-ev \{[^}]*background: color-mix\(in srgb, var\(--c\) (\d+)%, var\(--bg-elev\)\)/, /\.cal-ev:hover \{[^}]*background: color-mix\(in srgb, var\(--c\) (\d+)%, var\(--bg-elev\)\)/].map((re) => {
+      const m = css.match(re);
+      assert.ok(m, `styles.css tints events with color-mix: ${re}`);
+      return Number(m[1]) / 100;
+    });
+    assert.equal(CALENDAR_COLORS.length, 8);
+    const failures = CALENDAR_COLORS.flatMap((color) => {
+      const [r, g, b] = parse(t[`cal-${color}`]);
+      const text = tints.flatMap((alpha) =>
+        ["ink-strong", "ink-2"].map((ink) => [`--${ink} on ${color} at ${alpha * 100}%`, contrast(parse(t[ink]), over([r, g, b, alpha], parse(t["bg-elev"]))), 4.5] as const),
+      );
+      const mark = ["bg", "bg-elev"].map((s) => [`--cal-${color} on ${s}`, contrast([r, g, b, 1], parse(t[s])), 3] as const);
+      return [...text, ...mark].filter(([, ratio, min]) => ratio < min).map(([what, ratio]) => `${what}: ${ratio.toFixed(2)}`);
+    });
+    assert.deepEqual(failures, []);
+  });
+}

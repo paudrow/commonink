@@ -5,6 +5,7 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { MAX_UPLOAD } from "../src/core/paths.ts";
+import { whoAmI } from "../web/src/api.ts";
 import { tempVault } from "./helpers.ts";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
@@ -65,6 +66,19 @@ test("writes need our own Origin and a JSON body", async () => {
   assert.equal(fs.readFileSync(path.join(vault, "Origin test.md"), "utf8"), "# Hi\n");
 });
 
+test("the web app's online-or-local probe, /api/me, gets a 200 saying it's local instead of a 404", async () => {
+  const me = await request("GET", "/api/me");
+  assert.equal(me.status, 200);
+  assert.deepEqual(JSON.parse(me.body), { local: true });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (url) => realFetch(`http://localhost:${port}${url}`);
+  try {
+    assert.equal(await whoAmI(), undefined);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test("vault files are served sandboxed, and paths can't climb out", async () => {
   const svg = await request("GET", "/api/files/assets/chart.svg");
   assert.equal(svg.status, 200);
@@ -116,6 +130,19 @@ test("uploads land in assets/ under a free name; wrong types and oversized files
   const big = await up("big.png", Buffer.alloc(MAX_UPLOAD + 1));
   assert.equal(big.status, 413);
   assert.equal(fs.existsSync(path.join(vault, "assets/big.png")), false);
+});
+
+test("a file the server can't read is a 404, and the server keeps running", { skip: process.getuid?.() === 0 && "root reads any file" }, async () => {
+  const locked = path.join(vault, "assets/locked.png");
+  fs.mkdirSync(path.dirname(locked), { recursive: true });
+  fs.writeFileSync(locked, "x");
+  fs.chmodSync(locked, 0o000);
+  try {
+    assert.equal((await request("GET", "/api/files/assets/locked.png")).status, 404);
+    assert.equal((await request("GET", "/api/notes")).status, 200);
+  } finally {
+    fs.chmodSync(locked, 0o644);
+  }
 });
 
 test("an oversized JSON body is a 413", async () => {

@@ -44,12 +44,13 @@
   #sidebar .search-pill, #sidebar .nav-item, #sidebar .ghost-btn, #sidebar .tree-row, .acct-btn, .acct-item { height: auto; min-height: 44px; }
   #sidebar .tree-head { margin-top: 0; }
   #sidebar .section-toggle { min-height: 44px; }
-  #sidebar .tree-row .chev { width: 32px; height: 44px; margin: 0 -8px 0 -10px; }
+  #sidebar :is(.tree-row, .tree-hint) .chev { width: 32px; margin: 0 -8px 0 -10px; }
+  #sidebar .tree-row .chev { height: 44px; }
 }
 
 @media (max-width: 760px), (pointer: coarse) and (max-width: 1100px) {
   .more-wrap { display: block; }
-  #note-history-btn, #move-btn, #archive-btn, #focus-btn, #panel-btn, #html-toggle { display: none; }
+  #note-history-btn, #move-btn, #archive-btn, #delete-btn, #focus-btn, #panel-btn, #html-toggle { display: none; }
   #topbar { gap: 4px; padding-right: 4px; }
   /* A long name ends in … instead of running under the presence avatars. */
   #crumbs { overflow: hidden; padding-block: 4px; }
@@ -58,6 +59,19 @@
 @media (pointer: coarse) {
   /* No hover to reveal it: in focus mode the top bar stays visible, not tappable while invisible. */
   body.is-focus #topbar { opacity: 1; }
+}
+
+@media (hover: none) {
+  /* No hover to reveal them: a sidebar row's actions (a folder's New note and Delete, a favorite's
+     Open to the side and Unstar) always show, 44px to tap, as they would under the pointer. */
+  #sidebar .row-actions { display: flex; margin-right: -8px; }
+  #sidebar .row-act { width: 44px; height: 44px; }
+  #sidebar .tree-row .agent-dot, #sidebar .tree-row .fav-mark { display: none; }
+  .tags-row .row-act { visibility: visible; }
+  /* A task row's buttons show too, rather than waiting invisibly under a finger. A Notes card's
+     show on the card you're on; on the others they're out of reach, not just out of sight. */
+  .qt-act { opacity: 1; }
+  .feed-card:not(.is-focused, .is-expanded) .fc-action { visibility: hidden; }
 }
 
 @media (max-width: 760px) {
@@ -85,11 +99,22 @@
   #save-status { flex: none; }
   #save-status:not([data-state="error"]) { font-size: 0; min-width: 0; gap: 0; }
   #agents .avatar:nth-child(n + 2) { display: none; }
+  /* Tasks, Tags and the other pages get the phone's width, as Notes does. A phone shows one pane,
+     so a task's "Open to the side" (its last button) has no side to open. */
+  .page { padding: 24px 16px 96px; }
+  .qt-row > .qt-act:last-child { display: none; }
   body:has(#notes-view:not([hidden])) #fab-new { display: grid; }
   .feed { padding-bottom: 96px; }
+  /* A note's title gets the card's width: it wraps instead of ending in "Gett…". The actions take a
+     row of their own below it, and only on the card you're on. */
+  .fc-head { flex-wrap: wrap; row-gap: 2px; }
+  .fc-title { white-space: normal; overflow-wrap: anywhere; }
+  .fc-head > .spacer { flex-basis: 100%; }
+  .fc-head > .spacer + .fc-action { margin-left: -7px; }
+  .feed-card:not(.is-focused, .is-expanded) .fc-action { display: none; }
 
   /* Split view: one pane at a time, the focused one. Its bar's close button brings back the other. */
-  body.is-split #stage > :is(#editor-host, #html-preview, #notes-view, #tasks-view, #history-view, #assets-view, #tags-view), #main-bar { right: 0; }
+  body.is-split #stage > :is(#editor-host, #html-preview, #notes-view, #tasks-view, #calendar-view, #history-view, #assets-view, #tags-view), #main-bar { right: 0; }
   #side-pane { left: 0; width: auto; border-left: 0; z-index: 6; }
   #pane-divider { display: none; }
   body:has(#main-bar.is-focused) #side-pane { display: none; }
@@ -101,4 +126,38 @@
 
 @media (prefers-reduced-motion: reduce) {
   #sidebar, body.drawer-open #sidebar { transition: none; }
+}
+
+/* The calendar on a phone: Agenda first (calendar/page.ts), the week scrolls sideways inside the
+   page, Month shows a day's events as dots, and an event's details rise from the bottom. */
+@media (max-width: 760px) {
+  .cal { padding: 10px 12px 0; }
+  .cal-head { gap: 8px; }
+  .cal-title { flex-basis: 100%; font-size: 19px; }
+  .cal-tools { width: 100%; gap: 8px; }
+  .cal-views { flex: 1; justify-content: space-between; }
+  .cal-views button { flex: 1; padding-inline: 4px; min-height: 36px; }
+  .cal-sources-btn span { display: none; }
+  .cal-sources-btn { width: 44px; justify-content: center; padding: 0; }
+  .cal-tg { min-width: 620px; }
+  #calendar-view[data-view="day"] .cal-tg { min-width: 0; }
+  .cal-month { grid-template-rows: auto repeat(var(--weeks), minmax(64px, 1fr)); }
+  .cal-cell { flex-direction: row; flex-wrap: wrap; align-content: flex-start; gap: 3px; padding: 3px; }
+  .cal-num { width: 100%; padding: 0; }
+  .cal-cell .cal-chip { width: 8px; height: 8px; padding: 0; border-radius: 999px; background: var(--c); box-shadow: none; overflow: hidden; }
+  .cal-cell .cal-chip > * { display: none; }
+  .cal-cell .cal-chip { pointer-events: none; }
+  .cal-cell .cal-chip.is-task { background: none; box-shadow: inset 0 0 0 1.5px var(--muted); }
+  .cal-more { width: 100%; padding: 0; font-size: 10.5px; }
+  .cal-aday { grid-template-columns: minmax(0, 1fr); }
+  .cal-chip.cal-arow { grid-template-columns: 64px 4px minmax(0, 1fr); gap: 8px; min-height: 44px; }
+  .cal-details-host { position: fixed; top: auto; left: 0; right: 0; bottom: 0; z-index: 30; width: auto; max-height: 78dvh; border: 0; border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; box-shadow: var(--shadow-lg); }
+  .cal-details { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+  .cal-src-inputs .qw-btn { width: 100%; justify-content: center; height: 44px; }
+  .cal-src-meta { white-space: normal; }
+}
+
+@media (pointer: coarse) {
+  .cal-src .icon-btn { width: 40px; height: 40px; }
+  .cal-switch { min-height: 44px; }
 }

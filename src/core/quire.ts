@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import { diffLines } from "diff";
 import type { Content, SqlDb } from "./store.ts";
 import { cleanPath, isHidden, kindOf, linkKey, QuireError, stemOf, type NoteKind } from "./paths.ts";
-import { headingName, headingText, proseLines } from "./prose.ts";
+import { headingName, headingText, mapOutsideCode, proseLines } from "./prose.ts";
 import { extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
@@ -169,7 +169,10 @@ export interface Task {
   meta: TaskMeta;
 }
 
-/** A tag in use, parents included: how it's shown, and how many notes, tasks and assets carry it or a tag under it. */
+/**
+ * A tag, parents included: how it's shown, and how many notes, tasks and assets carry it or a tag
+ * under it. All three are 0 for a tag someone added by name that nothing carries yet.
+ */
 export interface TagCount {
   tag: string;
   display: string;
@@ -384,11 +387,12 @@ export class Quire {
       if (kind === "md" && content) {
         const tasks = tasksIn(content).map(({ line, done, ...task }) => [rel, line, done ? 1 : 0, task.meta.due, task.meta.start, JSON.stringify(task)]);
         insertRows(this.db, "INSERT INTO tasks(path, line, done, due, start, task)", tasks);
-        insertRows(this.db, "INSERT INTO links(src, key, kind, line)", extractLinks(content).map((l) => [rel, l.key, l.kind, l.line]));
+        insertRows(this.db, "INSERT INTO links(src, key, kind, line)", extractLinks(content).map((l) => [rel, linkStem(l.key), l.kind, l.line]));
         const lines = content.split("\n");
         const tags = scanTags(content);
         insertRows(this.db, "INSERT INTO tags(tag, kind, path, line)", tags.map((t) => [t.tag, !t.frontmatter && TASK_LINE.test(lines[t.line - 1]) ? "task" : "note", rel, t.line]));
         for (const display of new Set(tags.map((t) => t.display))) this.nameTag(display);
+        if (!isArchived(rel)) this.claimAddedTags(tags.map((t) => t.tag));
       }
       return { id: noteId, path: rel, kind, title, version, mtime: st.mtime, size: st.size };
     });
@@ -421,7 +425,18 @@ export class Quire {
           this.nameTag(t);
         }
       }
+      this.claimAddedTags(Object.entries(map).flatMap(([rel, tags]) => (isArchived(rel) ? [] : tags.map((t) => t.toLowerCase()))));
     });
+  }
+
+  /** Tags added by name that a note, task or asset now carries (`tags`, or a tag under one) are ordinary tags from here on. */
+  private claimAddedTags(tags: string[]) {
+    const keys = [...new Set(tags.flatMap(withParents))];
+    if (!keys.length || !this.db.get("SELECT 1 FROM added_tags LIMIT 1")) return;
+    for (let i = 0; i < keys.length; i += 100) {
+      const chunk = keys.slice(i, i + 100);
+      this.db.run(`DELETE FROM added_tags WHERE tag IN (${chunk.map(() => "?").join(",")})`, ...chunk);
+    }
   }
 
   /**
@@ -523,7 +538,7 @@ export class Quire {
       for (const p of kindOf(c) ? [c] : [`${c}.md`, c]) {
         try {
           const rel = cleanPath(p);
-          if (kindOf(rel) && this.files.stat(rel)) return rel;
+          if (kindOf(rel) && this.files.stat(rel)) return this.indexedPath(rel);
         } catch {}
       }
     }
@@ -539,6 +554,17 @@ export class Quire {
     const dir = from ? path.posix.dirname(from) : null;
     rows.sort((a, b) => Number(path.posix.dirname(b) === dir) - Number(path.posix.dirname(a) === dir) || a.length - b.length);
     return rows[0];
+  }
+
+  /**
+   * `rel` as the index spells it. A Mac's disk ignores case and Unicode form, so it finds
+   * "projects/café.md" for Projects/Café.md in either form; taken as typed, it would be indexed as a
+   * second note.
+   */
+  private indexedPath(rel: string): string {
+    if (this.meta(rel)) return rel;
+    const fold = (p: string) => p.normalize("NFC").toLowerCase();
+    return this.db.all<{ path: string }>("SELECT path FROM notes").find((r) => fold(r.path) === fold(rel))?.path ?? rel;
   }
 
   private mustResolve(target: string): string {
@@ -682,19 +708,16 @@ export class Quire {
 
   backlinks(target: string): Backlink[] {
     const rel = this.mustResolve(target);
-    const keys = [stemOf(rel), linkKey(rel), rel.toLowerCase()];
+    const stem = stemOf(rel);
     const rows = this.db.all(
       `SELECT DISTINCT l.src AS path, n.title, l.kind, l.line FROM links l JOIN notes n ON n.path = l.src
-       WHERE l.key IN (?,?,?) AND l.src != ? ORDER BY n.mtime DESC, l.line`,
-      ...keys, rel,
+       WHERE l.key = ? AND l.src != ? ORDER BY n.mtime DESC, l.line`,
+      stem, rel,
     );
     const cache = new Map<string, string[]>();
     const resolve = this.resolver();
     return rows
-      .filter((r) => {
-        const t = this.linkTargetAt(r.path, r.line, keys, cache);
-        return t !== null && resolve(t, r.path) === rel;
-      })
+      .filter((r) => this.linksAt(r.path, r.line, cache).some((l) => linkStem(l.key) === stem && resolve(l.target, r.path) === rel))
       .map((r) => ({ ...r, text: (cache.get(r.path)?.[r.line - 1] ?? "").trim().slice(0, 200) }));
   }
 
@@ -711,12 +734,10 @@ export class Quire {
     };
   }
 
-  /** Find the raw link target on a line whose key matches (so ambiguous names resolve correctly). */
-  private linkTargetAt(src: string, line: number, keys: string[], cache: Map<string, string[]>): string | null {
+  /** The links on one line of a note. */
+  private linksAt(src: string, line: number, cache: Map<string, string[]>) {
     if (!cache.has(src)) cache.set(src, (this.files.read(src) ?? "").split("\n"));
-    const text = cache.get(src)![line - 1] ?? "";
-    for (const l of extractLinks(text)) if (keys.includes(l.key)) return l.target;
-    return null;
+    return extractLinks(cache.get(src)![line - 1] ?? "");
   }
 
   /**
@@ -1082,26 +1103,62 @@ export class Quire {
 
   // ---------------------------------------------------------------- tags
 
-  /** Every tag in active notes, tasks and assets, parents included, by tag. */
+  /** Every tag in active notes, tasks and assets, and every tag added by name, parents included, by tag. */
   tags(): TagCount[] {
     const shown = new Map(this.db.all<{ tag: string; display: string }>("SELECT tag, display FROM tag_names").map((r) => [r.tag, r.display]));
     const uses = new Map<string, { notes: Set<string>; tasks: Set<string>; assets: Set<string> }>();
+    const use = (tag: string) => {
+      let u = uses.get(tag);
+      if (!u) uses.set(tag, (u = { notes: new Set(), tasks: new Set(), assets: new Set() }));
+      return u;
+    };
     const rows = this.db.all<TagUse & { tag: string }>(
       "SELECT t.tag, t.kind, t.path, t.line FROM tags t JOIN notes n ON n.path = t.path WHERE substr(t.path, 1, 8) != 'Archive/'",
     );
     for (const r of rows) {
-      const parts = r.tag.split("/");
-      for (let i = 1; i <= parts.length; i++) {
-        const tag = parts.slice(0, i).join("/");
-        let u = uses.get(tag);
-        if (!u) uses.set(tag, (u = { notes: new Set(), tasks: new Set(), assets: new Set() }));
+      for (const tag of withParents(r.tag)) {
+        const u = use(tag);
         (r.kind === "asset" ? u.assets : u.notes).add(r.path);
         if (r.kind === "task") u.tasks.add(`${r.path}:${r.line}`);
       }
     }
+    for (const { tag } of this.db.all<{ tag: string }>("SELECT tag FROM added_tags")) withParents(tag).forEach(use);
     return [...uses]
       .sort(([a], [b]) => (a < b ? -1 : 1))
       .map(([tag, u]) => ({ tag, display: shown.get(tag) ?? tag, notes: u.notes.size, tasks: u.tasks.size, assets: u.assets.size }));
+  }
+
+  /**
+   * Add a tag by name ("#work/clients" or "work/clients"), so it's there to pick before any note
+   * carries it. Adding one again, or one already in use, changes nothing. Returns every tag.
+   */
+  addTag(raw: string): TagCount[] {
+    const display = cleanTag(raw);
+    if (!display) throw new QuireError(`"${raw}" isn't a tag: use letters, numbers, - and _, nested with /`);
+    if (this.db.get<{ n: number }>("SELECT count(*) AS n FROM added_tags")!.n >= 500) {
+      throw new QuireError("That's 500 tags waiting for a note already. Use some, or delete one.");
+    }
+    this.addUnused(display.toLowerCase());
+    this.nameTag(display);
+    return this.tags();
+  }
+
+  private addUnused(tag: string) {
+    const used = this.db.get(`SELECT 1 FROM tags t JOIN notes n ON n.path = t.path WHERE ${UNDER} AND substr(t.path, 1, 8) != 'Archive/' LIMIT 1`, ...under(tag));
+    if (!used) this.db.run("INSERT OR IGNORE INTO added_tags(tag) VALUES (?)", tag);
+  }
+
+  /**
+   * Take away a tag that was added by name, with the added tags under it. Nothing in the notes
+   * changes, so a tag something carries can't go this way: rename it, or take it out of its notes.
+   */
+  removeTag(raw: string): TagCount[] {
+    const tag = normalizeTag(raw);
+    if (!tag) throw new QuireError(`"${raw}" isn't a tag`);
+    const t = this.tags().find((x) => x.tag === tag);
+    if (t && t.notes + t.tasks + t.assets) throw new QuireError(`#${t.display} is in use. Rename it, or take it out of what carries it.`, "conflict");
+    this.db.run(`DELETE FROM added_tags WHERE ${UNDER}`, ...under(tag));
+    return this.tags();
   }
 
   /** One tag's entry in tags(), counting only notes; null if no active note has it (or a tag under it). */
@@ -1186,8 +1243,15 @@ export class Quire {
       map[rel] = uniqueTags(tags.map((t) => (tagMatches(t.toLowerCase(), old) ? next + t.slice(old.length) : t)), false);
     }
     if (Object.keys(assets).length) this.writeAssetTags(map);
-    // A starred tag (or one under it) follows the rename; a merge onto one someone had starred keeps theirs.
     const key = next.toLowerCase();
+    // Tags added by name that nothing carries yet move with it, keeping how they were written.
+    for (const { tag } of this.db.all<{ tag: string }>(`SELECT tag FROM added_tags WHERE ${UNDER}`, ...under(old))) {
+      const written = this.db.get<{ display: string }>("SELECT display FROM tag_names WHERE tag = ?", tag)?.display ?? tag;
+      this.db.run("DELETE FROM added_tags WHERE tag = ?", tag);
+      this.addUnused(key + tag.slice(old.length));
+      this.nameTag(next + (written.length === tag.length ? written : tag).slice(old.length));
+    }
+    // A starred tag (or one under it) follows the rename; a merge onto one someone had starred keeps theirs.
     if (key !== old) {
       for (const r of this.db.all<{ user: string; note_id: string }>(
         "SELECT user, note_id FROM favorites WHERE note_id = ? OR (note_id >= ? AND note_id < ?)", tagKey(old), tagKey(`${old}/`), tagKey(`${old}0`),
@@ -1663,7 +1727,8 @@ export class Quire {
   }
 
   /** `rel`, or "name 2.md", "name 3.md"… if it's taken. */
-  private freePath(rel: string): string {
+  /** `rel`, or "name 2.md" (3, 4…) if that's taken. */
+  freePath(rel: string): string {
     const ext = path.posix.extname(rel);
     const stem = rel.slice(0, rel.length - ext.length);
     let out = rel;
@@ -1671,19 +1736,36 @@ export class Quire {
     return out;
   }
 
+  /**
+   * Where a move to `to` puts `from`: a folder, written with a trailing slash ("Projects/"), gets
+   * the note under its own name, as `mv` does; anything else is the new path. ("Projects" stays a
+   * note named Projects, which can sit beside a folder of that name.)
+   */
+  private intoFolder(to: string, from: string): string {
+    return /\/\s*$/.test(to) ? `${cleanPath(to).replace(/\/+$/, "")}/${path.posix.basename(from)}` : to;
+  }
+
   /** Rename a note and rewrite every [[link]] / ![[embed]] / [md](link) that pointed at it. */
   move(target: string, to: string, source: string, op: "move" | "archive" | "unarchive" = "move") {
     const from = this.mustResolve(target);
-    let dest = cleanPath(to);
+    let dest = cleanPath(this.intoFolder(to, from));
     if (!kindOf(dest)) dest += path.posix.extname(from);
     const [extFrom, extTo] = [from, dest].map((p) => path.posix.extname(p).toLowerCase());
     if (kindOf(dest) !== kindOf(from) || (kindOf(from) === "asset" && extFrom !== extTo)) {
       throw new QuireError(`Moving ${from} can't change its file type from ${extFrom} to ${extTo}`);
     }
     if (dest === from) return { path: dest, from, version: this.meta(from)?.version ?? "", change: null, updated: [] as string[], edits: [] };
-    if (this.files.stat(dest)) throw new QuireError(`${dest} already exists`, "exists");
-    const referrers = [...new Set(this.backlinks(from).map((b) => b.path))];
-    const oldKeys = new Set([stemOf(from), linkKey(from), from.toLowerCase()]);
+    // On a case-insensitive disk, "notes.md" is there when renaming "Notes.md" to it: the same file.
+    const caseOnly = dest.toLowerCase() === from.toLowerCase() && !this.meta(dest);
+    if (!caseOnly && this.files.stat(dest)) throw new QuireError(`${dest} already exists`, "exists");
+    // Which links point at the note, read before it moves: after, a name can lead to another note.
+    const resolveBefore = this.resolver();
+    const pointing = new Map<string, Set<string>>();
+    // The note's own links to itself ([[Guide#Setup]] in Guide) move with it.
+    for (const src of new Set([from, ...this.backlinks(from).map((b) => b.path)])) {
+      const targets = extractLinks(this.files.read(src) ?? "").map((l) => l.target).filter((t) => resolveBefore(t, src) === from);
+      if (targets.length) pointing.set(src, new Set(targets));
+    }
 
     const id = this.meta(from)?.id;
     this.files.rename(from, dest);
@@ -1702,22 +1784,28 @@ export class Quire {
     const updated: string[] = [];
     const edits: Array<{ path: string; content: string; version: string; change: Change }> = [];
     const resolve = this.resolver(); // rewriting links changes no note's path
-    for (const src of referrers) {
+    // Spaces and parentheses escaped too: a bare ")" would end the link.
+    const href = encodeURI(dest).replace(/\(/g, "%28").replace(/\)/g, "%29");
+    for (const [was, targets] of pointing) {
+      const src = was === from ? dest : was;
       const before = this.files.read(src) ?? "";
-      const after = before
-        .replace(/(!?)\[\[([^\]|#\n]+)(#[^\]|\n]*)?(\|[^\]\n]*)?\]\]/g, (m, bang, t, hash = "", alias = "") =>
-          oldKeys.has(linkKey(t)) && resolve(t, src) === null ? `${bang}[[${wikiTarget}${hash}${alias}]]` : m,
-        )
-        .replace(/(!?\[[^\]\n]*\]\()([^)\s]+)(\))/g, (m, pre, t, post) =>
-          oldKeys.has(linkKey(safeDecode(t))) ? `${pre}${encodeURI(dest)}${post}` : m,
-        );
+      // A [[name]] that still finds the note stays as written; a markdown link gets the new path.
+      const after = mapOutsideCode(before, (text) =>
+        text
+          .replace(/(!?)\[\[([^[\]|#\n]+)(#[^[\]|\n]*)?(\|[^[\]\n]*)?\]\]/g, (m, bang, t, hash = "", alias = "") =>
+            targets.has(t.trim()) && resolve(t, src) !== dest ? `${bang}[[${wikiTarget}${hash}${alias}]]` : m,
+          )
+          .replace(/(!?\[[^[\]\n]*\]\()([^()\s]+)((?:\s+"[^"\n]*")?\))/g, (m, pre, t, post) =>
+            targets.has(safeDecode(t)) ? `${pre}${href}${t.includes("#") ? t.slice(t.indexOf("#")) : ""}${post}` : m,
+          ),
+      );
       if (after !== before) {
         const r = this.commit(src, before, after, source, "edit");
-        updated.push(src);
+        if (src !== dest) updated.push(src);
         edits.push({ path: src, content: after, version: r.version, change: r.change });
       }
     }
-    return { path: dest, from, version: meta.version, change, updated, edits };
+    return { path: dest, from, version: edits.find((e) => e.path === dest)?.version ?? meta.version, change, updated, edits };
   }
 }
 
@@ -1736,9 +1824,18 @@ function insertRows(db: SqlDb, insert: string, rows: unknown[][]) {
   }
 }
 
+/**
+ * The name a link's key ends in, which is what the links table keeps: "../plan" and "projects/plan"
+ * both reach a note named Plan, and which one they reach is resolve()'s to say.
+ */
+const linkStem = (key: string) => key.slice(key.lastIndexOf("/") + 1);
+
 /** `tags.tag` is the tag or under it: a range, so it uses the index and needs no character counting. */
 const UNDER = "(tag = ? OR (tag >= ? AND tag < ?))";
 const under = (key: string) => [key, `${key}/`, `${key}0`]; // "0" sorts right after "/"
+
+/** "a/b/c" → ["a", "a/b", "a/b/c"]. */
+const withParents = (tag: string) => tag.split("/").map((_, i, parts) => parts.slice(0, i + 1).join("/"));
 
 /** Tags tidied and each kept once (the first way it's written). `strict` throws on one that isn't a tag; otherwise it's dropped. */
 function uniqueTags(tags: string[], strict: boolean): string[] {

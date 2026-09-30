@@ -4,6 +4,12 @@ import { appPolicy } from "../../src/core/csp.ts";
 /** Anything else we send that has no policy of its own (JSON, redirects, icons). */
 const NOTHING = "default-src 'none'; frame-ancestors 'none'";
 
+/**
+ * The service worker (web/public/sw.js) runs under the policy its script comes with: it may fetch
+ * the app's built files and nothing else, from nowhere else.
+ */
+const SERVICE_WORKER = "default-src 'none'; connect-src 'self'; frame-ancestors 'none'";
+
 /** Pages the Worker writes itself (sign-up, errors): styles and our icon, never a script. */
 const WORKER_PAGE = "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
 
@@ -24,6 +30,10 @@ export function secure(res: Response, url: URL): Response {
   if (url.pathname === "/authorize" || url.pathname.startsWith("/auth/")) h.set("Cross-Origin-Opener-Policy", "unsafe-none");
   for (const [k, v] of Object.entries(COMMON)) if (!h.has(k)) h.set(k, v);
   if (url.protocol === "https:") h.set("Strict-Transport-Security", "max-age=31536000");
+  if (url.pathname === "/sw.js" && res.ok) {
+    h.set("Content-Security-Policy", SERVICE_WORKER);
+    h.set("Cache-Control", "no-cache"); // a new deploy's worker is picked up on the next visit
+  }
   if (!h.has("Content-Security-Policy")) h.set("Content-Security-Policy", String(h.get("Content-Type")).startsWith("text/html") ? WORKER_PAGE : NOTHING);
   return out;
 }

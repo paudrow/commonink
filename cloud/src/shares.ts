@@ -38,7 +38,7 @@ const toPerson = "((s.principal_type = 'user' AND s.principal = ?) OR (s.princip
 /** Everything shared with this person in one workspace, as grants. */
 export async function grantsFor(db: D1Database, workspaceId: string, user: { id: string; email: string }): Promise<Grant[]> {
   const { results } = await db
-    .prepare(`SELECT s.note_id AS note, s.folder, s.role FROM shares s WHERE s.workspace_id = ? AND ${toPerson} AND ${live.replaceAll("expires_at", "s.expires_at")}`)
+    .prepare(`SELECT s.note_id AS note, s.folder, s.role, s.expires_at AS expiresAt FROM shares s WHERE s.workspace_id = ? AND ${toPerson} AND ${live.replaceAll("expires_at", "s.expires_at")}`)
     .bind(workspaceId, user.id, user.email.toLowerCase(), Date.now())
     .all<Grant>();
   return results;

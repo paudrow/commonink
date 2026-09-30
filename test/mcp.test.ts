@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { openVault } from "../src/core/local.ts";
 import { tempVault } from "./helpers.ts";
 
 const BIN = path.resolve(import.meta.dirname, "../bin/quire");
@@ -27,8 +28,8 @@ async function call(name: string, args: Record<string, unknown>) {
 test("the server lists every tool", async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
-    "add_card", "add_task", "append_to_note", "archive_note", "backlinks", "create_note", "delete_note", "delete_smart_folder",
-    "edit_card", "edit_note", "get_today", "list_notes", "list_smart_folders", "list_tags", "list_tasks",
+    "add_card", "add_task", "append_to_note", "archive_note", "backlinks", "create_meeting_note", "create_note", "delete_note", "delete_smart_folder",
+    "edit_card", "edit_note", "get_event", "get_today", "list_events", "list_notes", "list_smart_folders", "list_tags", "list_tasks",
     "move_card", "move_note", "move_task", "read_board", "read_note", "recent_changes", "save_smart_folder",
     "search_notes", "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag", "update_task",
   ]);
@@ -50,7 +51,7 @@ test("agents read a board and add, move and edit its cards, each change attribut
   await call("move_card", { path: "Launch", card: "pricing", to_column: "Done" });
   assert.match((await call("edit_card", { path: "Launch", card: "5", text: "Webhooks @sam due:2026-10-01\nRetry on 500s" })).text, /^Edited a card in Launch\.md/);
   assert.match((await call("read_board", { path: "Launch" })).text, /^Board 1 of 1 in Launch\.md\n\n## Backlog\n- \[ \] Webhooks @sam due:2026-10-01 — L5\n    Retry on 500s\n\n## Done \(done column\)\n- \[x\] Pricing page done:\d{4}-\d{2}-\d{2} — L9$/);
-  assert.match((await call("recent_changes", { path: "Launch.md", limit: 1 })).text, /test-agent for you: edit Launch\.md \(\+1 −1\)$/);
+  assert.match((await call("recent_changes", { path: "Launch.md", limit: 1 })).text, /test-agent for you: edited Launch\.md \(\+1 −1\)$/);
   assert.deepEqual(await call("move_card", { path: "Launch", card: "nope", to_column: "Done" }), { text: 'No card in Launch.md matches "nope"', isError: true });
 });
 
@@ -81,7 +82,8 @@ test("agents end a repeat with until and times", async () => {
 
 test("agents list tags as a tree and filter notes by a tag and the tags under it", async () => {
   await call("create_note", { path: "Ideas/Plan B", content: "# Plan B\n\nA backup #plan/b for the importer.\n" });
-  assert.equal((await call("list_tags", {})).text, "- #plan (2 notes)\n  - #plan/b (1 note)\n- #q3 (1 note)");
+  openVault(vault).addTag("Plan/c"); // added in the app, before any note carries it
+  assert.equal((await call("list_tags", {})).text, "- #plan (2 notes)\n  - #plan/b (1 note)\n  - #plan/c (added, not used yet)\n- #q3 (1 note)");
   assert.equal((await call("list_notes", { tag: "plan" })).text, "- Ideas/Plan B.md — Plan B\n- Projects/Roadmap.md — Roadmap");
   assert.equal((await call("search_notes", { query: "importer", tag: "plan/b" })).text, "- Ideas/Plan B.md — Plan B\n    L3: A backup #plan/b for the importer.");
 });
@@ -90,9 +92,23 @@ test("writes are attributed to the connected client", async () => {
   assert.equal((await call("create_note", { path: "Agent log", content: "# Agent log\n" })).isError, false);
   assert.equal(fs.readFileSync(path.join(vault, "Agent log.md"), "utf8"), "# Agent log\n");
   const changes = await call("recent_changes", { path: "Agent log.md" });
-  assert.match(changes.text, /^#\d+ \S+ test-agent for you: create Agent log\.md \(2 lines\)$/);
+  assert.match(changes.text, /^#\d+ \S+ test-agent for you: created Agent log\.md \(2 lines\)$/);
   assert.equal((await call("recent_changes", { path: "Agent log.md", by: "people" })).text, "No changes.");
-  assert.match((await call("recent_changes", { path: "Agent log.md", by: "test-agent" })).text, /test-agent for you: create Agent log\.md/);
+  assert.match((await call("recent_changes", { path: "Agent log.md", by: "test-agent" })).text, /test-agent for you: created Agent log\.md/);
+});
+
+test("recent_changes counts a run of saves by its net change and says renamed, as History does", async () => {
+  await call("create_note", { path: "Churn", content: "# Churn\n\none\ntwo\n" });
+  await call("edit_note", { path: "Churn", old_string: "two\n", new_string: "two\nthree\nfour\nfive\nsix\n" });
+  await call("edit_note", { path: "Churn", old_string: "one\ntwo\nthree\nfour\nfive\nsix\n", new_string: "ONE\ntwo\nthree\n" });
+  await call("edit_note", { path: "Churn", old_string: "three\n", new_string: "three\nfour\n" });
+  await call("move_note", { from: "Churn", to: "Churned" });
+  const lines = (await call("recent_changes", { path: "Churned.md" })).text.split("\n").map((l) => l.replace(/^#\d+ \S+ /, ""));
+  assert.deepEqual(lines, [
+    "test-agent for you: renamed Churn.md → Churned.md",
+    "test-agent for you: edited Churn.md (+3 −1, 3 saves)",
+    "test-agent for you: created Churn.md (5 lines)",
+  ]);
 });
 
 test("tool errors come back as isError with the core's message", async () => {
@@ -143,7 +159,7 @@ test("agents star and unstar notes for the vault's person", async () => {
 test("an agent's delete goes to Trash, attributed to it, and it has no way to delete for good", async () => {
   await call("create_note", { path: "Scratch", content: "# Scratch\n" });
   assert.deepEqual(await call("delete_note", { paths: ["Scratch"] }), { text: "Moved Scratch.md to Trash", isError: false });
-  assert.match((await call("recent_changes", { limit: 1 })).text, /test-agent for you: delete Scratch\.md/);
+  assert.match((await call("recent_changes", { limit: 1 })).text, /test-agent for you: deleted Scratch\.md/);
   assert.equal((await call("read_note", { path: "Scratch" })).isError, true);
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).filter((n) => /trash|purge|forever/.test(n)), []);

@@ -8,6 +8,7 @@ import { api, type Task, type TaskPatch } from "./api.ts";
 import { el, icon, NOTE_DRAG } from "./dom.ts";
 import { sideClick } from "./panes.ts";
 import { tagsInLine } from "../../src/core/tags.ts";
+import { capHtmlDepth, tameMarkdown } from "../../src/core/depth.ts";
 import { endTags, metaChips, today } from "./taskChips.ts";
 import { taskInput } from "./taskInput.ts";
 import { retypeTask } from "../../src/core/quickAdd.ts";
@@ -202,7 +203,7 @@ export function inline(md: string): string {
   let text = clean;
   for (let i = hits.length - 1; i >= 0; i--) text = `${text.slice(0, hits[i].from - 1)}\u0003${i}\u0004${text.slice(hits[i].to)}`;
   const withLinks = text.replace(/\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g, (_m, t: string, alias?: string) => `\u0001${alias ?? t}\u0002`);
-  const html = (marked.parseInline(withLinks, { async: false }) as string)
+  const html = capHtmlDepth(marked.parseInline(tameMarkdown(withLinks), { async: false }) as string)
     .replace(/\u0001([^\u0002]*)\u0002/g, '<span class="qt-link">$1</span>') // already escaped by marked
     .replace(/\u0003(\d+)\u0004/g, (_m, i) => `<span class="tag" data-tag="${hits[+i].tag}" title="Tasks tagged #${hits[+i].display}">#${hits[+i].display}</span>`); // tags are letters, digits, _ - /
   return DOMPurify.sanitize(html, { ...NOTE_HTML, FORBID_TAGS: [...NOTE_HTML.FORBID_TAGS, "img", "input", "button", "textarea", "select"] });

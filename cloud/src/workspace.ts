@@ -19,12 +19,21 @@ import { QuireError } from "../../src/core/paths.ts";
 import { accessOn, type SharedAccess, type ShareRole } from "./grants.ts";
 import { limit } from "./limits.ts";
 import { addShare, linkToken, listShares, removeShare, ShareError, updateShare, type Share, type Target } from "./shares.ts";
+import { Calendar } from "../../src/core/calendar.ts";
+import { assertPublicUrl } from "../../src/core/unfurl.ts";
+import { feedsFor } from "./demo-calendar.ts";
+import { googleMode } from "./connections.ts";
+import { googleReader } from "./google-reader.ts";
 
 export class Workspace extends DurableObject<Env> {
   private db: DoDb;
   private files: SqlContent;
   private quire: Quire;
   private registering: Promise<void> | null = null;
+  private calendar: Calendar;
+  /** Where this app is ("https://commonink.app"), from the last request: feeds may not point back at it, and links written to Google use it. */
+  private selfOrigin: string | null = null;
+  private alarmChecked = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -39,12 +48,26 @@ export class Workspace extends DurableObject<Env> {
     // Notes only change through the core here, so this finds nothing to do, except after an
     // upgrade that asks for notes to be indexed again (tags, say).
     this.quire.sync();
+    // Calendar feeds come from public hosts only, as link previews do.
+    this.calendar = new Calendar(
+      db,
+      feedsFor(env, (u) => {
+        assertPublicUrl(u);
+        if (this.selfOrigin && u.hostname.replace(/\.$/, "") === new URL(this.selfOrigin).hostname) throw new Error("self");
+      }),
+      { readers: googleMode(env) === "off" ? {} : { google: googleReader(env, db) } },
+    );
     // Keep-alives are answered without waking the object.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
 
   async fetch(req: Request): Promise<Response> {
     const wsId = req.headers.get("x-ci-workspace")!;
+    this.selfOrigin = req.headers.get("x-ci-origin") ?? this.selfOrigin;
+    if (!this.alarmChecked) {
+      this.alarmChecked = true;
+      await this.schedule();
+    }
     // Anything unexpected is a plain 500, with no stack or message from inside.
     const res = await this.handle(req, wsId).catch(errorResponse);
     this.claimIds(wsId);
@@ -140,8 +163,27 @@ export class Workspace extends DurableObject<Env> {
         this.broadcast({ type: "change", change });
       },
       tree: () => this.broadcast({ type: "tree" }),
+      calendar: this.calendar,
+      origin: this.selfOrigin ?? undefined,
+      calendarChanged: () => {
+        this.broadcast({ type: "calendar" });
+        this.ctx.waitUntil(this.schedule());
+      },
     };
     return (await handleApi(host, req, route)) ?? json({ error: `No route ${req.method} ${route}` }, 404);
+  }
+
+  /** Wake when the next calendar feed is due; with none, don't wake at all. */
+  private async schedule() {
+    const next = this.calendar.nextSync();
+    if (next === null) await this.ctx.storage.deleteAlarm();
+    else await this.ctx.storage.setAlarm(Math.max(next, Date.now() + 1000));
+  }
+
+  /** Read the calendar feeds that are due, tell open tabs, and sleep until the next one. */
+  async alarm() {
+    if (await this.calendar.syncDue()) this.broadcast({ type: "calendar" });
+    await this.schedule();
   }
 
   /** Fill a brand-new workspace with the starter notes (no-op if it has anything in it). */
@@ -224,7 +266,9 @@ export class Workspace extends DurableObject<Env> {
       if (route === "/live") {
         if (req.headers.get("Upgrade") !== "websocket") return json({ error: "Expected a WebSocket" }, 426);
         const [client, server] = Object.values(new WebSocketPair());
-        this.ctx.acceptWebSocket(server, [user || "link", `s:${req.headers.get("x-ci-session") ?? ""}`]);
+        // Tagged "shared" when grants decide what it hears, so any change to sharing can close it.
+        const tags = [user || "link", `s:${req.headers.get("x-ci-session") ?? ""}`, ...("grants" in access ? ["shared"] : [])];
+        this.ctx.acceptWebSocket(server, tags);
         server.serializeAttachment({ expires: Number(req.headers.get("x-ci-session-expires")) || 0, share: access });
         return new Response(null, { status: 101, webSocket: client });
       }
@@ -291,7 +335,7 @@ export class Workspace extends DurableObject<Env> {
     switch (`${req.method} ${route}`) {
       case "GET /shares": {
         const target = this.shareTarget({ note: url.searchParams.get("note") ?? undefined, path: url.searchParams.get("path") ?? undefined, folder: url.searchParams.get("folder") ?? undefined }, true);
-        return json(await this.describeShares(wsId, target));
+        return json(await this.describeShares(wsId, target, ["owner", "editor"].includes(req.headers.get("x-ci-role") ?? "")));
       }
       case "POST /shares": {
         const tooMany = await limit(this.env.DB, "share", user);
@@ -301,16 +345,19 @@ export class Workspace extends DurableObject<Env> {
         if (!role) throw new ShareError('"role" must be "viewer" or "editor"');
         const expiresAt = typeof body.expiresAt === "number" ? body.expiresAt : null;
         await addShare(this.env.DB, this.env.SESSION_SECRET, { workspaceId: wsId, by: user, target, email: str("email"), link: body.link === true, role, expiresAt });
-        return json(await this.describeShares(wsId, target));
+        this.sharingChanged();
+        return json(await this.describeShares(wsId, target, true));
       }
       case "POST /shares/update": {
         const role = body.role === "editor" || body.role === "viewer" ? body.role : undefined;
         const expiresAt = body.expiresAt === null || typeof body.expiresAt === "number" ? (body.expiresAt as number | null) : undefined;
         await updateShare(this.env.DB, wsId, str("id") ?? "", { role, expiresAt });
+        this.sharingChanged();
         return json({ ok: true });
       }
       case "POST /shares/remove":
         await removeShare(this.env.DB, wsId, str("id") ?? "");
+        this.sharingChanged();
         return json({ ok: true });
     }
     return json({ error: `No route ${req.method} ${route}` }, 404);
@@ -330,12 +377,12 @@ export class Workspace extends DurableObject<Env> {
     return { note: id };
   }
 
-  /** The MCP sharing tools, for an agent working as `user` (its role already decided which it gets). */
-  private agentSharing(wsId: string, user: string, origin: string) {
+  /** The MCP sharing tools, for an agent working as `user` (its role already decided which it gets, and whether it sees links' URLs). */
+  private agentSharing(wsId: string, user: string, origin: string, canManage: boolean) {
     const line = (s: Share & { url: string | null }) =>
-      `- ${s.kind === "link" ? `Anyone with the link: ${origin}${s.url}` : `${s.name ? `${s.name} <${s.email}>` : `${s.email} (by email)`}`} — ${s.role}${s.expiresAt ? `, until ${new Date(s.expiresAt).toISOString().slice(0, 10)}` : ""} (id ${s.id})`;
+      `- ${s.kind === "link" ? `Anyone with the link${s.url ? `: ${origin}${s.url}` : ""}` : `${s.name ? `${s.name} <${s.email}>` : `${s.email} (by email)`}`} — ${s.role}${s.expiresAt ? `, until ${new Date(s.expiresAt).toISOString().slice(0, 10)}` : ""} (id ${s.id})`;
     const describe = async (target: Target | undefined) => {
-      const d = await this.describeShares(wsId, target);
+      const d = await this.describeShares(wsId, target, canManage);
       const what = d.path ?? (target?.folder ? `${target.folder}/` : "this workspace");
       if (!d.shares.length && !d.inherited.length) return `${what} isn't shared with anyone outside the workspace.`;
       return [`${what} is shared with:`, ...d.shares.map(line), ...(d.inherited.length ? ["Through its folders:", ...d.inherited.map(line)] : [])].join("\n");
@@ -355,21 +402,37 @@ export class Workspace extends DurableObject<Env> {
           role: o.role,
           expiresAt: o.expiresInDays ? Date.now() + o.expiresInDays * 86_400_000 : null,
         });
+        this.sharingChanged();
         return describe(target);
       },
-      unshare: async (id: string) => (await removeShare(this.env.DB, wsId, id), "Stopped sharing it."),
+      unshare: async (id: string) => {
+        await removeShare(this.env.DB, wsId, id);
+        this.sharingChanged();
+        return "Stopped sharing it.";
+      },
     };
   }
 
-  /** A note's (or folder's) shares, the folder shares it gets too, and each link's URL. */
-  private async describeShares(wsId: string, target: Target | undefined) {
+  /**
+   * A note's (or folder's) shares and the folder shares it gets too. Each link's URL is its token,
+   * which lets anyone join with the link's role, so only those who may change sharing get it.
+   */
+  private async describeShares(wsId: string, target: Target | undefined, withUrls: boolean) {
     const all = await listShares(this.env.DB, wsId);
     const path = target?.note ? this.quire.pathOf(target.note) : null;
     const direct = target ? all.filter((s) => (target.note ? s.note === target.note : s.folder === target.folder)) : all;
     const inherited = path ? all.filter((s) => s.folder && path.startsWith(`${s.folder}/`)) : [];
     const withLinks = async (list: Share[]) =>
-      Promise.all(list.map(async (s) => ({ ...s, url: s.kind === "link" ? `/s/${await linkToken(this.env.SESSION_SECRET, s.id)}` : null })));
+      Promise.all(list.map(async (s) => ({ ...s, url: withUrls && s.kind === "link" ? `/s/${await linkToken(this.env.SESSION_SECRET, s.id)}` : null })));
     return { target: target ?? null, path, shares: await withLinks(direct), inherited: await withLinks(inherited) };
+  }
+
+  /**
+   * Sharing changed, and an open shared connection still hears by the grants it opened with. Close
+   * them all; each reconnects with what's shared with it now, or is refused.
+   */
+  private sharingChanged() {
+    for (const ws of this.ctx.getWebSockets("shared")) ws.close(4003, "Sharing changed");
   }
 
   private announce(rel: string, content: string | null, version: string, change: Change | null, origin?: string) {
@@ -392,6 +455,7 @@ export class Workspace extends DurableObject<Env> {
       try {
         const { expires, share } = (ws.deserializeAttachment() ?? {}) as { expires?: number; share?: SharedAccess };
         if (expires && expires < now) ws.close(4001, "Session expired");
+        else if (share && "grants" in share && share.grants.some((g) => g.expiresAt && g.expiresAt < now)) ws.close(4003, "Sharing changed");
         else if (!share || this.mayHear(share, msg)) ws.send(data);
       } catch {}
     }
@@ -410,7 +474,9 @@ export class Workspace extends DurableObject<Env> {
       source: () => who.actor,
       may: (route) => access(role, ...(route.split(" ") as [string, string])) === "allowed",
       canEditShared: role === "owner" || role === "editor",
-      sharing: this.agentSharing(who.workspace, who.user, new URL(req.url).origin),
+      sharing: this.agentSharing(who.workspace, who.user, new URL(req.url).origin, role === "owner" || role === "editor"),
+      calendar: this.calendar,
+      origin: new URL(req.url).origin,
     });
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await server.connect(transport);
@@ -422,15 +488,31 @@ export class Workspace extends DurableObject<Env> {
       const made = this.quire.changes({ since: last, limit: 500 }).reverse();
       for (const c of made) {
         if (c.from_path && c.from_path !== c.path) this.broadcast({ type: "removed", path: c.from_path });
+        // Sent to Trash: a tab with it open says so, as when it's deleted in the app.
+        if (c.op === "delete") this.broadcast({ type: "removed", path: c.path });
         const content = kindOf(c.path) === "asset" ? null : this.files.read(c.path);
         this.announce(c.path, content, c.version ?? "", c);
       }
-      if (made.length) this.broadcast({ type: "tree" });
+      if (made.length) {
+        this.broadcast({ type: "tree" });
+        this.broadcast({ type: "calendar" }); // a meeting note an agent made is linked to its event
+      }
       this.claimIds(who.workspace);
     }
   }
 
   /** Close the live connections tagged `tag`: a person's (signed out everywhere) or one session's. Their tabs then ask them to sign in. */
+  /**
+   * Remove a person's own calendars here (of one kind, or all): they disconnected Google, or left or
+   * were removed from the workspace.
+   */
+  async dropCalendarsOf(user: string, kind?: "google") {
+    if (this.calendar.dropOwner(user, kind)) {
+      this.broadcast({ type: "calendar" });
+      await this.schedule();
+    }
+  }
+
   disconnect(tag: string) {
     for (const ws of this.ctx.getWebSockets(tag)) ws.close(4001, "Signed out");
   }
@@ -438,6 +520,7 @@ export class Workspace extends DurableObject<Env> {
   /** The workspace is being deleted: close every tab, delete its uploads from R2 and all its storage. */
   async destroy(wsId: string) {
     for (const ws of this.ctx.getWebSockets()) ws.close(4004, "This workspace was deleted");
+    await this.ctx.storage.deleteAlarm();
     for (let cursor: string | undefined, more = true; more; ) {
       const page = await this.env.FILES.list({ prefix: `ws/${wsId}/`, cursor });
       if (page.objects.length) await this.env.FILES.delete(page.objects.map((o) => o.key));

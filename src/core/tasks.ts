@@ -2,11 +2,12 @@
 //   - [ ] Send invoice to Acme due:2026-10-01 rec:monthly #work/clients @jane !high
 // The line stays the source of truth. This reads the tokens and rewrites one at a time in place, so
 // an edit never touches the rest of the line. No Node imports: the editor uses this too.
-import { headingText, withoutCodeOrLinks } from "./prose.ts";
+import { findSection, withoutCodeOrLinks } from "./prose.ts";
 import { daysBetween, formatRule, nextDue, parseRule, ruleProblem, shiftDate, type Rule } from "./recurrence.ts";
 import { cleanTag, normalizeTag, tagsInLine } from "./tags.ts";
 
-export const TASK_LINE = /^(\s*[-*+]\s+\[)([ xX])(\]\s+)(.*)$/;
+/** A task line: its bullet and "[", its box, "] ", its text, and the `\r` of a Windows line ending if it has one. */
+export const TASK_LINE = /^(\s*[-*+]\s+\[)([ xX])(\]\s+)(.*?)(\r?)$/;
 
 export type Priority = "high" | "low";
 export interface TaskMeta {
@@ -219,7 +220,7 @@ export function editTask(line: string, patch: TaskPatch): string {
     for (const w of fresh.slice(swaps)) text = insertToken(text, field, write(field, w));
   }
   const box = patch.checked === undefined || patch.checked === (m[2] !== " ") ? m[2] : patch.checked ? "x" : " ";
-  return `${m[1]}${box}${m[3]}${text}`;
+  return `${m[1]}${box}${m[3]}${text}${m[5]}`;
 }
 
 /**
@@ -329,26 +330,16 @@ export function addDays(day: string, n: number): string {
  * level), or, without one, at the end of the note, under a new `## Tasks` heading if `heading`
  * (a daily note) or right after the last line otherwise. `line` is where the first one landed.
  */
-export function withTasksAdded(content: string, block: string[], heading: boolean): { content: string; line: number } {
+export function withTasksAdded(original: string, added: string[], heading: boolean): { content: string; line: number } {
+  // Worked out on "\n" lines, and put back with the note's own line endings.
+  const crlf = original.includes("\r\n");
+  const content = crlf ? original.replace(/\r\n/g, "\n") : original;
+  const block = added.map((l) => l.replace(/\r$/, ""));
   let last = content.length;
   while (last > 0 && content[last - 1] === "\n") last--; // a loop: /\n+$/ is quadratic on many blank lines
   const lines = content.slice(0, last).split("\n");
   if (lines.length === 1 && lines[0] === "") lines.pop();
-  let fence: string | null = null;
-  let section = -1;
-  let level = 0;
-  let end = lines.length;
-  for (let i = 0; i < lines.length; i++) {
-    const f = lines[i].match(/^\s{0,3}(`{3,}|~{3,})/)?.[1];
-    if (f && (!fence || (f[0] === fence[0] && f.length >= fence.length))) fence = fence ? null : f;
-    const h = !fence && !f ? lines[i].match(/^(#{1,6})\s+(.*)$/) : null;
-    if (!h) continue;
-    if (section < 0 && headingText(h[2]).toLowerCase() === "tasks") [section, level] = [i, h[1].length];
-    else if (section >= 0 && h[1].length <= level) {
-      end = i;
-      break;
-    }
-  }
+  const { section, end } = findSection(lines, "Tasks");
   let at: number;
   if (section >= 0) {
     // After the section's last line with anything on it; a section with nothing yet gets a blank line first.
@@ -369,7 +360,8 @@ export function withTasksAdded(content: string, block: string[], heading: boolea
     at = lines.length;
     lines.push(...block);
   }
-  return { content: lines.join("\n") + "\n", line: at + 1 };
+  const out = lines.join("\n") + "\n";
+  return { content: crlf ? out.replace(/\n/g, "\r\n") : out, line: at + 1 };
 }
 
 /**

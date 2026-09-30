@@ -2,6 +2,7 @@
 import "./dom.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { cpuMs } from "./helpers.ts";
 
 const { renderMarkdown } = await import("../web/src/render.ts");
 const r = (md: string) => renderMarkdown(md, "Notes/a.md");
@@ -43,9 +44,7 @@ test("GitHub's HTML goes through: kbd, sub, sup, br, a sized image, and a pictur
 
 test("footnotes and emoji keep hostile markdown linear", () => {
   const slow = [["50k [^", "[^".repeat(50_000)], ["50k :a", ":a".repeat(50_000)], ["50k [^a", "[^a".repeat(50_000)]].flatMap(([name, md]) => {
-    const t = performance.now();
-    r(md);
-    const ms = performance.now() - t;
+    const ms = cpuMs(() => r(md));
     return ms > 1500 ? [`${name}: ${Math.round(ms)} ms`] : [];
   });
   assert.deepEqual(slow, []);

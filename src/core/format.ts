@@ -1,7 +1,7 @@
 // Plain-text renderings of core results, shared by the MCP server and the CLI.
 // Agents read markdown far more cheaply than JSON, so this is the default output.
 import { authorLabel } from "./actor.ts";
-import { isTagFavorite, type Backlink, type Change, type Favorite, type Note, type NoteMeta, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView, type TrashItem } from "./quire.ts";
+import { isTagFavorite, type Backlink, type Change, type Favorite, type Note, type NoteMeta, type Quire, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView, type TrashItem } from "./quire.ts";
 import type { Board } from "./kanban.ts";
 
 export function fmtSearch(q: string, hits: SearchHit[]): string {
@@ -58,7 +58,7 @@ export function fmtTags(tags: TagCount[]): string {
   return tags
     .map((t) => {
       const uses = [n(t.notes, "note"), n(t.tasks, "task"), n(t.assets, "asset")].filter(Boolean).join(", ");
-      return `${"  ".repeat(t.tag.split("/").length - 1)}- #${t.display} (${uses})`;
+      return `${"  ".repeat(t.tag.split("/").length - 1)}- #${t.display} (${uses || "added, not used yet"})`;
     })
     .join("\n");
 }
@@ -99,15 +99,24 @@ export function groupChanges(changes: Change[], windowMs = 10 * 60_000): Array<C
   return out;
 }
 
-export function fmtChanges(changes: Change[]): string {
+/**
+ * Changes as History lists them: a run of saves is one line counting its net change (diffStats),
+ * not the sum of each save's count, and its verb is History's ("renamed", "edited").
+ */
+export function fmtChanges(changes: Change[], quire: Pick<Quire, "diffStats">): string {
   if (!changes.length) return "No changes.";
-  return groupChanges(changes)
+  const groups = groupChanges(changes);
+  const runs = groups.filter((g) => g.count > 1);
+  const nets = quire.diffStats(runs.map((g) => changes.filter((c) => c.id >= g.first && c.id <= g.id).map((c) => c.id)));
+  const net = new Map(runs.map((g, i) => [g, nets[i]]));
+  return groups
     .map((c) => {
       const when = new Date(c.ts).toISOString().replace(/\.\d+Z$/, "Z");
       const moved = c.op === "move" || c.op === "archive" || c.op === "unarchive";
-      const what = moved ? `${c.op === "move" ? "moved" : `${c.op}d`} ${c.from_path} → ${c.path}` : `${c.op} ${c.path}`;
-      const saves = c.count > 1 ? `, ${c.count} saves` : "";
-      return `#${c.id} ${when} ${authorLabel(c)}: ${what}${c.summary && !moved ? ` (${c.summary}${saves})` : ""}`;
+      const what = `${changeVerb(c)} ${moved ? `${c.from_path} → ` : ""}${c.path}`;
+      const n = net.get(c);
+      const stat = c.count === 1 ? c.summary : `${n ? `+${n.add} −${n.del}, ` : ""}${c.count} saves`;
+      return `#${c.id} ${when} ${authorLabel(c)}: ${what}${stat && !moved ? ` (${stat})` : ""}`;
     })
     .join("\n");
 }

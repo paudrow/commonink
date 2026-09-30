@@ -49,6 +49,8 @@ export const WORKSPACE_ROUTES = {
   "POST /tasks/remove": "editor",
   "POST /tasks/move": "editor",
   "POST /today/journal": "editor",
+  "POST /tags": "editor",
+  "POST /tags/delete": "editor",
   "POST /tags/rename": "editor",
   "PUT /asset-tags": "editor",
   "POST /move": "editor",
@@ -65,6 +67,20 @@ export const WORKSPACE_ROUTES = {
   "POST /trash/delete": "owner",
   "POST /trash/empty": "owner",
   "POST /upload": "editor",
+  // Calendars (src/core/calendar.ts). Everyone sees the workspace's calendars and may read them again
+  // (at most once a minute each); subscribing, changing and making meeting notes are editors'. A
+// person's own calendars are theirs to change whatever their role (checked in the calendar itself).
+  "GET /calendar/sources": "viewer",
+  "GET /calendar/events": "viewer",
+  "GET /calendar/event": "viewer",
+  "POST /calendar/refresh": "viewer",
+  // A person's own Google calendar, which only they see: anyone may add theirs (see connections.ts),
+  // and change or remove it. The calendar itself checks that a viewer only changes their own.
+  "POST /calendar/google": "viewer",
+  "POST /calendar/sources/update": "viewer",
+  "POST /calendar/sources/remove": "viewer",
+  "POST /calendar/sources": "editor",
+  "POST /calendar/meeting-note": "editor",
   // The workspace's settings (cloud/src/admin.ts). Everyone sees who's in it and may leave; the rest is the owner's.
   "GET /members": "viewer",
   "POST /leave": "viewer",
@@ -72,7 +88,8 @@ export const WORKSPACE_ROUTES = {
   "POST /members/remove": "owner",
   "POST /invites": "owner",
   // Sharing a note or folder with people outside the workspace, or by link (cloud/src/shares.ts).
-  // Anyone in the workspace sees who it's shared with; editors and owners change that.
+  // Anyone in the workspace sees who it's shared with; editors and owners change that, and only
+  // they see a link's URL, since the URL lets anyone in with the link's role.
   "GET /shares": "viewer",
   "POST /shares": "editor",
   "POST /shares/update": "editor",
@@ -112,6 +129,9 @@ export const ACCOUNT_ROUTES = [
   "GET /api/agents",
   "POST /api/agents/revoke",
   "GET /api/shared",
+  "GET /api/google",
+  "GET /api/google/calendars",
+  "POST /api/google/disconnect",
 ] as const;
 export type AccountRoute = (typeof ACCOUNT_ROUTES)[number];
 

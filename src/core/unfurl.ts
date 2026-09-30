@@ -43,24 +43,30 @@ function check(u: URL) {
   if (u.username || u.password) throw new Error("credentials");
 }
 
-async function fetchPreview(raw: string, guard: UrlGuard | undefined, timeout: number): Promise<Unfurl> {
-  const signal = AbortSignal.timeout(timeout);
+/**
+ * Fetch a URL someone else chose, on a short leash: `guard` vets the first URL and every redirect
+ * before it's fetched, redirects are capped, and `signal` bounds the whole thing. The caller reads
+ * the body (readCapped). Link previews and calendar feeds both come through here.
+ */
+export async function fetchGuarded(raw: string, guard: UrlGuard | undefined, init: { signal: AbortSignal; headers: Record<string, string> }): Promise<{ res: Response; url: URL }> {
   let u = new URL(raw);
-  let res: Response | null = null;
   for (let hop = 0; ; hop++) {
     check(u);
     await guard?.(u);
-    res = await fetch(u, {
-      redirect: "manual",
-      signal,
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; QuireLinkPreview/0.1)", Accept: "text/html,application/xhtml+xml" },
-    });
+    const res = await fetch(u, { redirect: "manual", signal: init.signal, headers: init.headers });
     const loc = res.headers.get("location");
-    if (!(res.status >= 300 && res.status < 400 && loc)) break;
+    if (!(res.status >= 300 && res.status < 400 && loc)) return { res, url: u };
     await res.body?.cancel();
     if (hop === MAX_REDIRECTS) throw new Error("too many redirects");
     u = new URL(loc, u);
   }
+}
+
+async function fetchPreview(raw: string, guard: UrlGuard | undefined, timeout: number): Promise<Unfurl> {
+  const { res, url: u } = await fetchGuarded(raw, guard, {
+    signal: AbortSignal.timeout(timeout),
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; QuireLinkPreview/0.1)", Accept: "text/html,application/xhtml+xml" },
+  });
   const type = String(res.headers.get("content-type")).split(";")[0].trim().toLowerCase();
   if (!res.ok || (type !== "text/html" && type !== "application/xhtml+xml")) {
     await res.body?.cancel();
@@ -110,7 +116,8 @@ function attributes(tag: string): Record<string, string> {
   return out;
 }
 
-async function readCapped(res: Response, max: number): Promise<string> {
+/** At most `max` bytes of a body, as text. */
+export async function readCapped(res: Response, max: number): Promise<string> {
   const reader = res.body!.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
