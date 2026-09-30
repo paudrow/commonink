@@ -99,7 +99,6 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /trash/delete", send: (w) => ["POST", "/trash/delete", { ids: [trashIds[w].purge] }], expect: OWN },
   { route: "POST /trash/empty", send: () => ["POST", "/trash/empty", {}], expect: OWN },
   { route: "GET /shares", send: () => ["GET", "/shares?path=Shared%20note.md"], expect: READ },
-  { route: "GET /shares/people", send: () => ["GET", "/shares/people"], expect: EDIT },
   { route: "POST /shares", send: (w) => ["POST", "/shares", { path: `tasks-${w}.md`, link: true, role: "viewer" }], expect: EDIT },
   { route: "POST /shares/update", send: (w) => ["POST", "/shares/update", { id: shareIds[w].update, role: "editor" }], expect: EDIT },
   { route: "POST /shares/remove", send: (w) => ["POST", "/shares/remove", { id: shareIds[w].remove }], expect: EDIT },

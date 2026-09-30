@@ -74,7 +74,6 @@ export const WORKSPACE_ROUTES = {
   // Sharing a note or folder with people outside the workspace, or by link (cloud/src/shares.ts).
   // Anyone in the workspace sees who it's shared with; editors and owners change that.
   "GET /shares": "viewer",
-  "GET /shares/people": "editor",
   "POST /shares": "editor",
   "POST /shares/update": "editor",
   "POST /shares/remove": "editor",

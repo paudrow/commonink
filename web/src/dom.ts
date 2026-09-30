@@ -99,6 +99,8 @@ const ICONS: Record<string, string> = {
   starred: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z" fill="currentColor"/>',
   check: '<path d="m5 12 5 5 9-10"/>',
   back: '<path d="m15 18-6-6 6-6"/>',
+  arrowLeft: '<path d="M19 12H5M11 18l-6-6 6-6"/>',
+  arrowRight: '<path d="M5 12h14M13 6l6 6-6 6"/>',
   close: '<path d="M18 6 6 18M6 6l12 12"/>',
   edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
   history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',

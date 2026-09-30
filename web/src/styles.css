@@ -345,7 +345,6 @@ body.is-split #stage > :is(#editor-host, #html-preview, #notes-view, #tasks-view
 .pane-bar.is-focused { box-shadow: inset 0 -2px 0 var(--accent-line); color: var(--ink-strong); }
 .pane-bar .pane-title { margin-left: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .pane-bar .icon-btn:disabled { opacity: 0.35; pointer-events: none; }
-.pane-bar .is-forward svg { transform: scaleX(-1); }
 .pane-bar .icon-btn.is-on { color: var(--warn); }
 #side-pane { position: absolute; top: 0; right: 0; bottom: 0; width: var(--side, 50%); border-left: 1px solid var(--line); background: var(--bg); }
 #side-pane > :is(#side-host, #side-preview) { top: 34px; }
@@ -2280,3 +2279,10 @@ details.markdown-alert[open] > summary { margin-bottom: 0.3em; }
 .cm-heading-link:hover { background: var(--hover); color: var(--accent-ink); }
 .cm-heading-link[data-said]::after { content: attr(data-said); position: absolute; left: 100%; margin-left: 6px; font: 500 12px var(--ui); letter-spacing: 0; color: var(--muted); white-space: nowrap; }
 @media (hover: none) { .cm-heading-link { opacity: 0.6; } }
+
+/* Back and forward arrows: in the top bar (the focused pane) and in each split pane's bar. */
+.nav-arrows { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+#topbar .nav-arrows { margin-right: 4px; }
+.nav-arrow[aria-disabled="true"] { opacity: 0.4; cursor: default; }
+.nav-arrow[aria-disabled="true"]:hover { background: none; color: var(--muted); }
+.nav-trail .fp-item { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
