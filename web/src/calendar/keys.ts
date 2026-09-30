@@ -23,6 +23,7 @@ export const CALENDAR_KEYS: Array<{ keys: string[]; label: string; action?: Cale
   { keys: ["c"], label: "New event", action: "create" },
   { keys: ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"], label: "Move between days and events" },
   { keys: ["Enter"], label: "Open the event (on a day in Month: that day)" },
+  { keys: ["x"], label: "Tick the task, or reopen it" },
   { keys: ["Escape"], label: "Close the event" },
   { keys: ["Alt-ArrowUp", "Alt-ArrowDown"], label: "Move the event 15 minutes earlier or later" },
   { keys: ["Alt-ArrowLeft", "Alt-ArrowRight"], label: "Move the event a day earlier or later" },

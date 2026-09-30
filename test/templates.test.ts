@@ -2,7 +2,8 @@
 // (or a template is inserted into a note). Daily notes use the same engine.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { asksIn, fillTemplate, formatDate, templateInfo } from "../src/core/templates.ts";
+import fs from "node:fs";
+import { asksIn, fillTemplate, formatDate, handlesFor, PLACEHOLDERS, templateInfo } from "../src/core/templates.ts";
 import { openTempVault } from "./helpers.ts";
 
 const AT = "2026-09-29T14:05"; // a Tuesday, the creator's own clock
@@ -33,7 +34,7 @@ test("named values (a calendar event's when, where, attendees…) fill their {{n
 
 test("{{ask:…}} is asked once per label, with an optional default; answers fill every copy", () => {
   const t = "Attendees: {{ask:Attendees}}\nClient: {{ask:Client|Acme}}\nAgain: {{ask:Attendees}}\n\\{{ask:Not this}}";
-  assert.deepEqual(asksIn(t), [{ label: "Attendees", fallback: "" }, { label: "Client", fallback: "Acme" }]);
+  assert.deepEqual(asksIn(t), [{ label: "Attendees", fallback: "", type: "text", choices: [] }, { label: "Client", fallback: "Acme", type: "text", choices: [] }]);
   assert.equal(fillTemplate(t, { at: AT, answers: { Attendees: "Sam, Lee" } }).text, "Attendees: Sam, Lee\nClient: Acme\nAgain: Sam, Lee\n{{ask:Not this}}");
   // Nothing answered and no default: the placeholder stays, and is reported.
   const r = fillTemplate("Who: {{ask:Attendees}}", { at: AT });
@@ -44,7 +45,7 @@ test("{{ask:…}} is asked once per label, with an optional default; answers fil
 test("a template's own frontmatter says how notes are made from it, and isn't copied into them", () => {
   const md = "---\ntitle: \"{{date}} {{ask:Client}} meeting\"\nfolder: Meetings\napplies_to: [Meetings/, Clients/]\ntags: [meeting]\n---\n# {{title}}\n";
   const info = templateInfo("Templates/Meeting.md", md);
-  assert.deepEqual(info, { path: "Templates/Meeting.md", name: "Meeting", title: "{{date}} {{ask:Client}} meeting", folder: "Meetings", appliesTo: ["Meetings", "Clients"], asks: [{ label: "Client", fallback: "" }], clipboard: false });
+  assert.deepEqual(info, { path: "Templates/Meeting.md", name: "Meeting", title: "{{date}} {{ask:Client}} meeting", folder: "Meetings", appliesTo: ["Meetings", "Clients"], asks: [{ label: "Client", fallback: "", type: "text", choices: [] }], clipboard: false });
   assert.equal(templateInfo("Templates/Clip.md", "{{ clipboard }}").clipboard, true);
   assert.equal(templateInfo("Templates/Clip.md", "\\{{clipboard}}").clipboard, false);
   // The body keeps the frontmatter that isn't the template's (tags).
@@ -107,4 +108,44 @@ test("a template's tasks aren't tasks: Tasks and Today leave Templates/ out", ()
   const { quire } = vault();
   assert.deepEqual(quire.tasks().map((t) => t.path), []);
   assert.equal(quire.openTaskCount(), 0);
+});
+
+test("typed questions: people, a date, a choice; a default after the type; a plain default still works", () => {
+  const t = "{{ask:Attendees|people}} {{ask:Due|date}} {{ask:Priority|choice:low, medium, high|medium}} {{ask:Client|Acme}} {{ask:Who|text|people}}";
+  assert.deepEqual(asksIn(t), [
+    { label: "Attendees", fallback: "", type: "people", choices: [] },
+    { label: "Due", fallback: "", type: "date", choices: [] },
+    { label: "Priority", fallback: "medium", type: "choice", choices: ["low", "medium", "high"] },
+    { label: "Client", fallback: "Acme", type: "text", choices: [] },
+    { label: "Who", fallback: "people", type: "text", choices: [] },
+  ]);
+  const r = fillTemplate("{{ask:Due|date}} · {{ask:Priority|choice:low,medium,high|medium}}", { at: AT, answers: { Due: "2026-10-05" } });
+  assert.equal(r.text, "2026-10-05 · medium");
+});
+
+test("people answers: @handles on a task line (so it's theirs), names elsewhere, and a typed answer as written", () => {
+  const people = [{ name: "Sam Dev", handle: "Sam" }, { name: "Priya Shah", handle: "Priya-Shah" }];
+  const t = "**Attendees:** {{ask:Attendees|people}}\n\n- [ ] Send the recap {{ask:Attendees|people}}\n- [ ] Book the room {{ask:Host|people}}\n";
+  const r = fillTemplate(t, { at: AT, picks: { Attendees: people }, answers: { Host: "@Lee" } });
+  assert.equal(r.text, "**Attendees:** Sam Dev, Priya Shah\n\n- [ ] Send the recap @Sam @Priya-Shah\n- [ ] Book the room @Lee\n");
+  // A person with a link (a contact) is linked outside task lines.
+  const linked = fillTemplate("With {{ask:Who|people}}", { at: AT, picks: { Who: [{ name: "Jane Doe", handle: "Jane", link: "[[People/Jane Doe]]" }] } });
+  assert.equal(linked.text, "With [[People/Jane Doe]]");
+});
+
+test("a person's handle: their first name when no one else in the list has it, else their full name with dashes", () => {
+  assert.deepEqual(handlesFor(["Sam Dev", "Priya Shah", "Sam Lee", "Cher"]), ["Sam-Dev", "Priya", "Sam-Lee", "Cher"]);
+});
+
+test("every placeholder is in the catalogue the {{ autocomplete and the docs use, and docs/templates.md explains each", () => {
+  const docs = fs.readFileSync(new URL("../docs/templates.md", import.meta.url), "utf8");
+  for (const p of PLACEHOLDERS) {
+    assert.ok(p.insert.startsWith("{{") && p.insert.endsWith("}}"), p.insert);
+    assert.ok(p.info.length > 10, `${p.insert} has a description`);
+    assert.ok(docs.includes(p.insert.replace("{{cursor}}", "{{cursor}}")), `docs/templates.md shows ${p.insert}`);
+    // Each works: filled (or asked, or left) the way the catalogue says.
+    const r = fillTemplate(p.insert, { at: AT, title: "T", clipboard: "c", vars: { when: "w", where: "p", attendees: "a", agenda: "g", event: "e" } });
+    assert.ok(r.text !== p.insert || p.insert.startsWith("{{ask:"), `${p.insert} fills in`);
+  }
+  for (const key of ["title:", "folder:", "applies_to:", "\\{{", "Daily note", "Meeting note"]) assert.ok(docs.includes(key), `docs mention ${key}`);
 });

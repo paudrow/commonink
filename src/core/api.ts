@@ -3,7 +3,7 @@
 import { cleanPath, QuireError } from "./paths.ts";
 import type { ArchiveScope, Change, Quire } from "./quire.ts";
 import type { TaskPatch } from "./tasks.ts";
-import type { FillOptions } from "./templates.ts";
+import type { FillOptions, PersonPick } from "./templates.ts";
 import { agentSource, parseAuthorFilter } from "./actor.ts";
 import { findStartNote, GUIDE, parseGuideAction, runGuide } from "./guide.ts";
 import type { Calendar, EventDraft } from "./calendar.ts";
@@ -92,6 +92,14 @@ function fillOptions(raw: unknown): FillOptions {
       throw new QuireError(`"answers" must be an object of strings`);
     }
     out.answers = b.answers as Record<string, string>;
+  }
+  if (b.picks !== undefined && b.picks !== null) {
+    const person = (p: unknown) =>
+      typeof p === "object" && p !== null && typeof (p as PersonPick).name === "string" && typeof (p as PersonPick).handle === "string" && ["undefined", "string"].includes(typeof (p as PersonPick).link);
+    if (typeof b.picks !== "object" || Array.isArray(b.picks) || !Object.values(b.picks).every((v) => Array.isArray(v) && v.every(person))) {
+      throw new QuireError(`"picks" must be an object of lists of { name, handle, link? }`);
+    }
+    out.picks = b.picks as Record<string, PersonPick[]>;
   }
   return out;
 }

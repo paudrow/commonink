@@ -25,10 +25,43 @@ export const DAILY_TEMPLATE = `${TEMPLATES}/Daily note.md`;
 /** The frontmatter keys that are the template's own. */
 const OWN_KEYS = ["title", "folder", "applies_to"];
 
+/** What kind of answer a question takes: see parseAsk. */
+export type AskType = "text" | "people" | "date" | "choice";
+
 export interface Ask {
   label: string;
   /** What it is if left blank ("" for none). */
   fallback: string;
+  type: AskType;
+  /** A choice's options, in order. */
+  choices: string[];
+}
+
+/** Someone picked for a `people` question: `handle` goes on task lines (@Sam), `link` or `name` elsewhere. */
+export interface PersonPick {
+  name: string;
+  handle: string;
+  /** How a note links to them, if they have a contact note ([[People/Name]]). */
+  link?: string;
+}
+
+/**
+ * A question's parts, from what follows `ask:`:
+ *
+ *   Attendees                      text
+ *   Client|Acme                    text, "Acme" if left blank
+ *   Attendees|people               people (a picker: @handles on a task line, names elsewhere)
+ *   Due|date                       a date (YYYY-MM-DD)
+ *   Priority|choice:low,med,high   one of those
+ *   …|type|default                 any type, with a default ("Who|text|people" is text defaulting to "people")
+ */
+export function parseAsk(body: string): Ask {
+  const [label, ...rest] = body.split("|").map((s) => s.trim());
+  const typed = rest[0]?.match(/^(text|people|date|choice:(.*))$/);
+  if (!typed) return { label, fallback: rest.join("|").trim(), type: "text", choices: [] };
+  const type = (typed[2] !== undefined ? "choice" : typed[1]) as AskType;
+  const choices = typed[2] !== undefined ? typed[2].split(",").map((c) => c.trim()).filter(Boolean) : [];
+  return { label, fallback: rest.slice(1).join("|").trim(), type, choices };
 }
 
 export interface TemplateInfo {
@@ -56,6 +89,8 @@ export interface FillOptions {
   clipboard?: string;
   /** Named values for {{name}}, checked first: a calendar event's when, where, attendees… (calendar.ts). */
   vars?: Record<string, string>;
+  /** People picked for `people` questions, by label (answers, given as text, are written as they are). */
+  picks?: Record<string, PersonPick[]>;
 }
 
 /** {{…}} with no `\` before it: its insides are group 2. */
@@ -65,11 +100,27 @@ const PLACEHOLDER = /(\\?)\{\{([^{}\n]+)\}\}/g;
 export function asksIn(text: string): Ask[] {
   const out: Ask[] = [];
   for (const m of text.matchAll(PLACEHOLDER)) {
-    const ask = !m[1] && m[2].match(/^\s*ask:\s*([^|]+?)\s*(?:\|(.*))?$/);
-    if (ask && !out.some((a) => a.label === ask[1])) out.push({ label: ask[1], fallback: (ask[2] ?? "").trim() });
+    const body = !m[1] && m[2].match(/^\s*ask:\s*(.+)$/)?.[1];
+    const ask = body ? parseAsk(body) : null;
+    if (ask?.label && !out.some((a) => a.label === ask.label)) out.push(ask);
   }
   return out;
 }
+
+/**
+ * The @handle for each of `names` (people picked together, or a workspace's members): the first
+ * name when no one else in the list has it, else the full name with dashes ("Sam-Dev").
+ */
+export function handlesFor(names: string[]): string[] {
+  const first = (n: string) => n.trim().split(/\s+/)[0];
+  const count = new Map<string, number>();
+  for (const n of names) count.set(first(n).toLowerCase(), (count.get(first(n).toLowerCase()) ?? 0) + 1);
+  const clean = (s: string) => s.replace(/[^\p{L}\p{N}_.-]/gu, "");
+  return names.map((n) => clean(count.get(first(n).toLowerCase()) === 1 ? first(n) : n.trim().replace(/\s+/g, "-")));
+}
+
+/** A task line (`- [ ] …`): people picked on it are written as @handles, which assign it. */
+const TASK_LINE_START = /^\s*[-*+]\s+\[[ xX]\]\s/;
 
 /** A template note's settings: see the top of this file. */
 export function templateInfo(path: string, md: string): TemplateInfo {
@@ -136,7 +187,7 @@ export function fillTemplate(text: string, opts: FillOptions = {}): { text: stri
   const own = had ? frontmatterText(entries.filter((e) => !OWN_KEYS.includes(e.key))) + body : text;
   const unfilled: string[] = [];
   const CURSOR = "\u0000";
-  const out = own.replace(PLACEHOLDER, (whole, escaped: string, inner: string) => {
+  const out = own.replace(PLACEHOLDER, (whole, escaped: string, inner: string, offset: number, all: string) => {
     if (escaped) return whole.slice(1);
     const name = inner.trim();
     if (opts.vars && Object.hasOwn(opts.vars, name)) return opts.vars[name];
@@ -149,12 +200,18 @@ export function fillTemplate(text: string, opts: FillOptions = {}): { text: stri
     if (name === "title" && opts.title !== undefined) return opts.title;
     if (name === "cursor") return CURSOR;
     if (name === "clipboard" && opts.clipboard !== undefined) return opts.clipboard;
-    const ask = name.match(/^ask:\s*([^|]+?)\s*(?:\|(.*))?$/);
+    const body = name.match(/^ask:\s*(.+)$/)?.[1];
+    const ask = body ? parseAsk(body) : null;
     if (ask) {
-      const answer = opts.answers?.[ask[1]]?.trim() || (ask[2] ?? "").trim();
+      const picked = opts.picks?.[ask.label];
+      if (picked?.length) {
+        const line = all.slice(all.lastIndexOf("\n", offset - 1) + 1, offset);
+        return TASK_LINE_START.test(line) ? picked.map((p) => `@${p.handle}`).join(" ") : picked.map((p) => p.link ?? p.name).join(", ");
+      }
+      const answer = opts.answers?.[ask.label]?.trim() || ask.fallback;
       if (answer) return answer;
     }
-    const key = ask ? `ask:${ask[1]}` : name;
+    const key = ask ? `ask:${ask.label}` : name;
     if (!unfilled.includes(key)) unfilled.push(key);
     return whole;
   });
@@ -171,3 +228,35 @@ export function cleanTitle(s: string): string {
     .trim()
     .slice(0, 120);
 }
+
+/** A placeholder, for the `{{` suggestions and the docs (docs/templates.md lists every one). */
+export interface PlaceholderDoc {
+  insert: string;
+  info: string;
+  /** Where it applies: every template, or only Templates/Meeting note.md (a calendar event's). */
+  where: "any" | "meeting";
+}
+
+/** Every placeholder, in the order the `{{` menu offers them. */
+export const PLACEHOLDERS: PlaceholderDoc[] = [
+  { insert: "{{date}}", info: "Today's date, YYYY-MM-DD", where: "any" },
+  { insert: "{{date:dddd, MMMM D}}", info: "Today in a format: Tuesday, September 29 (Moment-style tokens)", where: "any" },
+  { insert: "{{date:YYYY-MM-DD}}", info: "Today in a format you choose: YYYY MM DD, MMMM MMM, dddd ddd…", where: "any" },
+  { insert: "{{date+1d}}", info: "Tomorrow: an offset in days (d) or weeks (w), + or -", where: "any" },
+  { insert: "{{date-1w:MMM D}}", info: "An offset and a format: a week ago, as Sep 22", where: "any" },
+  { insert: "{{time}}", info: "The time now, HH:mm (24-hour)", where: "any" },
+  { insert: "{{time:h:mm A}}", info: "The time in a format: 2:05 PM", where: "any" },
+  { insert: "{{title}}", info: "The new note's title", where: "any" },
+  { insert: "{{cursor}}", info: "Where the cursor lands when the note opens", where: "any" },
+  { insert: "{{clipboard}}", info: "What's on the clipboard (in the app)", where: "any" },
+  { insert: "{{ask:Question}}", info: "Asked in a form before the note is made", where: "any" },
+  { insert: "{{ask:Question|Default}}", info: "Asked, with a default if left blank", where: "any" },
+  { insert: "{{ask:Attendees|people}}", info: "A people picker: @handles on a task line, names elsewhere", where: "any" },
+  { insert: "{{ask:Due|date}}", info: "A date picker: YYYY-MM-DD", where: "any" },
+  { insert: "{{ask:Priority|choice:low,medium,high}}", info: "One of a list, picked from a menu", where: "any" },
+  { insert: "{{when}}", info: "The event's day and time (meeting notes from the calendar)", where: "meeting" },
+  { insert: "{{where}}", info: "The event's location (meeting notes)", where: "meeting" },
+  { insert: "{{attendees}}", info: "Who's invited (meeting notes)", where: "meeting" },
+  { insert: "{{agenda}}", info: "The event's description (meeting notes)", where: "meeting" },
+  { insert: "{{event}}", info: "A link back to the calendar event (meeting notes)", where: "meeting" },
+];

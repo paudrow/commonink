@@ -6,11 +6,13 @@ import { el, icon } from "../dom.ts";
 import { tagPicker } from "../tagPicker.ts";
 import { formatDuration, parseDuration, serializeDirective } from "./args.ts";
 import type { EditorContext } from "../editor/blocks.ts";
+import { calendars, colorVar } from "../calendar/data.ts";
 
 export interface Field {
   key: string;
   label: string;
-  type: "text" | "duration" | "toggle" | "select";
+  /** `calendars`: which of the workspace's calendars to show, as source IDs; none chosen is all of them. */
+  type: "text" | "duration" | "toggle" | "select" | "calendars";
   placeholder?: string;
   presets?: string[];
   /** Toggles: the value written when off. Omitted from the markdown when on. */
@@ -226,6 +228,7 @@ export function fieldRows(fields: Field[], values: Record<string, string>, chang
       box.addEventListener("change", () => set(f.key, box.checked ? "on" : f.off!));
       return el("label", { class: "qw-field is-toggle" }, el("span", { class: "qw-field-label" }, f.label), el("span", { class: "qw-switch" }, box, el("span", {})));
     }
+    if (f.type === "calendars") return calendarPicker(f, values, (v) => set(f.key, v));
     if (f.type === "select") {
       const select = el("select", { class: "qw-select" }, ...(f.options ?? []).map(([v, label]) => el("option", { value: v }, label)));
       select.value = values[f.key] || f.options?.[0]?.[0] || "";
@@ -266,4 +269,43 @@ export function fieldRows(fields: Field[], values: Record<string, string>, chang
       : null;
     return row(f.picker ? el("span", { class: "qw-picked" }, input, helper) : input, presets);
   });
+}
+
+/**
+ * Which calendars to show: "All calendars", then each one, checked. Everything checked is written as
+ * nothing (so a calendar added later shows too); at least one stays checked.
+ */
+function calendarPicker(f: Field, values: Record<string, string>, set: (v: string) => void): HTMLElement {
+  const list = el("div", { class: "qw-cals" }, el("span", { class: "qw-cals-note" }, "Loading the calendars…"));
+  const check = (label: string, box: HTMLInputElement, color?: string) =>
+    el("label", { class: "qw-cal" }, box, color ? el("span", { class: "cal-dot", style: { background: colorVar(color) }, "aria-hidden": "true" }) : null, el("span", {}, label));
+  void calendars()
+    .then((all) => {
+      if (!all.length) return list.replaceChildren(el("span", { class: "qw-cals-note" }, "No calendars yet: subscribe to one on the Calendar page."));
+      const chosen = new Set((values[f.key] ?? "").split(",").filter(Boolean));
+      const every = el("input", { type: "checkbox" });
+      const boxes = all.map((s) => {
+        const box = el("input", { type: "checkbox", value: s.id });
+        box.checked = !chosen.size || chosen.has(s.id);
+        return { s, box };
+      });
+      const write = () => {
+        const on = boxes.filter((b) => b.box.checked);
+        every.checked = on.length === boxes.length;
+        set(on.length === boxes.length ? "" : on.map((b) => b.s.id).join(","));
+      };
+      every.checked = boxes.every((b) => b.box.checked);
+      every.addEventListener("change", () => {
+        for (const b of boxes) b.box.checked = true;
+        write();
+      });
+      for (const b of boxes)
+        b.box.addEventListener("change", () => {
+          if (!boxes.some((x) => x.box.checked)) b.box.checked = true; // showing none would show nothing
+          write();
+        });
+      list.replaceChildren(check("All calendars", every), ...boxes.map((b) => check(b.s.name, b.box, b.s.color)));
+    })
+    .catch(() => list.replaceChildren(el("span", { class: "qw-cals-note" }, "Couldn't load the calendars")));
+  return el("div", { class: "qw-field", role: "group", "aria-label": f.label }, el("span", { class: "qw-field-label" }, f.label), el("span", { class: "qw-field-control" }, list));
 }
