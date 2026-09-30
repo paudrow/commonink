@@ -92,6 +92,9 @@ export function migrate(db: SqlDb, opts: { local?: boolean } = {}) {
   for (const stmt of SCHEMA) db.exec(stmt);
   // An index from before tags (or tasks): have the next sync read every note again to find them.
   if (stale) db.run("UPDATE notes SET mtime = -1");
+  // Links are kept by the name they end in, without folders (see backlinks in the core). An index from
+  // before that has keys with folders in them: the next sync reads every note again to replace them.
+  if (db.get("SELECT 1 FROM links WHERE key LIKE '%/%' LIMIT 1")) db.run("UPDATE notes SET mtime = -1");
   // Indexes from before stable IDs lack the column. (ALTER, not a pragma: Durable Objects allow it.)
   try {
     db.exec("ALTER TABLE notes ADD COLUMN id TEXT");
@@ -99,6 +102,10 @@ export function migrate(db: SqlDb, opts: { local?: boolean } = {}) {
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS notes_id ON notes(id)");
   for (const { path } of db.all<{ path: string }>("SELECT path FROM notes WHERE id IS NULL")) {
     db.run("UPDATE notes SET id = ? WHERE path = ?", newNoteId(), path);
+  }
+  // Names are indexed in composed Unicode (see stemOf): the next sync reads again any note indexed before that.
+  for (const { path, stem } of db.all<{ path: string; stem: string }>("SELECT path, stem FROM notes")) {
+    if (stem !== stem.normalize("NFC")) db.run("UPDATE notes SET mtime = -1 WHERE path = ?", path);
   }
   // Each note's row in the full-text index (`fts`), so reindexing a note replaces its row directly:
   // FTS5 can only find a row by path by reading every row. Older indexes learn theirs in one pass.
