@@ -33,6 +33,8 @@ export interface Source {
   editable: boolean;
   /** Google calendars: whether a meeting note's link is added to its event. Null for feeds, which are read-only. */
   writeBack: boolean | null;
+  /** Google calendars: which of its owner's calendars it is (only for its owner). Null for feeds. */
+  calendar: string | null;
   status: SyncStatus;
   error: string | null;
   syncedAt: number | null;
@@ -292,6 +294,7 @@ export class Calendar {
       host,
       editable: mayEdit,
       writeBack: r.kind === "google" ? !!(config as { writeBack?: boolean }).writeBack : null,
+      calendar: r.kind === "google" && r.owner === viewer.user ? String((config as { calendar?: string }).calendar) : null,
       status: r.status,
       error: r.error,
       syncedAt: r.synced_at,
@@ -693,6 +696,15 @@ export function describeWhen(ev: Pick<CalendarEvent, "start" | "end" | "allDay">
   return { date, text: text.replace(/ /g, " ") }; // newer ICU puts a narrow space before AM/PM
 }
 
+/** What starts the block a meeting note's link is written back in (Google's write-back). */
+export const LINK_MARK = "\u2014 Common Ink \u2014";
+
+/** A description without the block linking it to a meeting note, which isn't part of its agenda. */
+export function withoutNoteLink(description: string): string {
+  const at = description.startsWith(`${LINK_MARK}\n`) ? 0 : description.indexOf(`\n\n${LINK_MARK}\n`);
+  return (at < 0 ? description : description.slice(0, at)).replace(/\s+$/, "");
+}
+
 /** Markdown for text a feed wrote: its own markup can't make links, widgets or headings in the note. */
 function plain(s: string): string {
   return s.replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n").replace(/<[^<>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
@@ -712,7 +724,7 @@ function meetingTemplate(template: string | null, ev: CalendarEvent, when: { dat
     where: ev.location ? plain(ev.location) : "",
     attendees: people,
     event: link,
-    agenda: ev.description ? plain(ev.description) : "",
+    agenda: ev.description ? plain(withoutNoteLink(ev.description)) : "",
   };
   if (template !== null) return template.replace(/\{\{(\w+)\}\}/g, (m, k: string) => fields[k] ?? m);
   return [

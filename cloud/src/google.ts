@@ -3,6 +3,7 @@
 // zones work one way everywhere. Syncing is incremental: the first read lists every event, later
 // reads send the sync token Google gave last time and get only what changed. No Workers imports, so
 // tests run this against a fake Google.
+import { LINK_MARK, withoutNoteLink } from "../../src/core/calendar.ts";
 
 export const GOOGLE = {
   auth: "https://accounts.google.com/o/oauth2/v2/auth",
@@ -152,17 +153,13 @@ export function instanceId(events: GoogleEvent[], uid: string, instance: string 
 
 // ------------------------------------------------------------------ writing back
 
-const MARK = "\u2014 Common Ink \u2014";
-
 /**
  * An event's description with a link to its meeting note in a block of our own at the end. The block
  * is replaced, not added to, so linking again changes nothing. The note's text never goes to Google.
  */
 export function withNoteLink(description: string | undefined, url: string): string {
-  const text = description ?? "";
-  const at = text.startsWith(`${MARK}\n`) ? 0 : text.indexOf(`\n\n${MARK}\n`);
-  const base = (at < 0 ? text : text.slice(0, at)).replace(/\s+$/, "");
-  const block = `${MARK}\nMeeting notes: ${url}`;
+  const base = withoutNoteLink(description ?? "");
+  const block = `${LINK_MARK}\nMeeting notes: ${url}`;
   return base ? `${base}\n\n${block}` : block;
 }
 

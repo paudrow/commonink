@@ -2,6 +2,7 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import { readIcs } from "../src/core/ics.ts";
+import { withoutNoteLink } from "../src/core/calendar.ts";
 import { eventsToIcs, exchangeCode, GoogleClient, GoogleError, googleMode, instanceId, refreshGrant, revokeGrant, withNoteLink, type GoogleEvent } from "../cloud/src/google.ts";
 import { decrypt, encrypt } from "../cloud/src/secrets.ts";
 
@@ -65,6 +66,7 @@ test("write-back adds only a link, in a block of its own, and linking again repl
   assert.equal(withNoteLink(once, "https://commonink.app/notes/sync-2-a2b3c4d5"), "Agenda:\n1. Roadmap\n\n— Common Ink —\nMeeting notes: https://commonink.app/notes/sync-2-a2b3c4d5");
   assert.equal(withNoteLink(undefined, "https://x.test/n"), "— Common Ink —\nMeeting notes: https://x.test/n");
   assert.equal(withNoteLink(withNoteLink("", "https://x.test/a"), "https://x.test/b"), "— Common Ink —\nMeeting notes: https://x.test/b");
+  assert.equal(withoutNoteLink(once), "Agenda:\n1. Roadmap"); // what a meeting note takes as its agenda
 });
 
 // ------------------------------------------------------------------ against a fake Google

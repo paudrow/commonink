@@ -2,15 +2,20 @@
 // time and a meeting-note button (Today, the ::agenda widget). Event text is set as text only.
 import { el, icon } from "../dom.ts";
 import { toast } from "../toast.ts";
+import { connectUrl, leave, needsWrite } from "./google.ts";
 import { canEditCalendars, colorVar, eventHref, meetingNote, timeOnDay, type CalendarEvent, type Item } from "./data.ts";
 import type { Day } from "./layout.ts";
 
 export const dot = (color: string | null | undefined, cls = "cal-dot") => el("span", { class: cls, "aria-hidden": "true", style: { "--c": colorVar(color) } });
 
-/** Open the event's meeting note, making it first if it has none. */
+/** Open the event's meeting note, making it first if it has none, and say whether its link reached a Google event. */
 export async function openMeetingNote(ev: CalendarEvent, open: (path: string) => void) {
   try {
-    open(await meetingNote(ev));
+    const { path, linkedBack } = await meetingNote(ev);
+    open(path);
+    if (linkedBack?.ok) toast({ icon: "link", text: "Link added to the event in Google Calendar" });
+    else if (linkedBack && needsWrite(linkedBack.error)) toast({ text: linkedBack.error, actionLabel: "Allow", action: () => leave.to(connectUrl(true)) });
+    else if (linkedBack) toast({ text: `Couldn't add the link to Google Calendar: ${linkedBack.error}` });
   } catch (e) {
     toast({ text: e instanceof Error ? e.message : "Couldn't make the meeting note" });
   }

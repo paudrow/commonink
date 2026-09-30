@@ -52,7 +52,7 @@ export function googleReader(env: Env, db: SqlDb): SourceReader {
     },
 
     async linkNote(src, item, url) {
-      if (!(await connectionInfo(env, src.owner!))?.canWrite) throw new Error("feed:Allow Common Ink to edit your Google events first: Calendars, then Allow write-back");
+      if (!(await connectionInfo(env, src.owner!))?.canWrite) throw new Error("feed:Allow Common Ink to edit your Google events first: turn on Link meeting notes in Calendars");
       const calendar = String(src.config.calendar);
       const id = instanceId(kept(src.id), item.uid, item.instance);
       if (!id) throw new Error("feed:Google Calendar: that event isn't there any more");

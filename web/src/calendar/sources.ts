@@ -1,19 +1,24 @@
-// The Calendars dialog: the calendars the workspace subscribes to, with their color, where they
-// come from and how their last read went. Editors subscribe to an ICS or webcal link, rename,
-// recolor, refresh and remove; viewers see the list and can refresh it.
+// The Calendars dialog: the calendars the workspace subscribes to, and your own Google calendars
+// here, with their color, where they come from and how their last read went. Editors subscribe to
+// an ICS or webcal link; anyone can add their Google calendars (google.ts) and refresh. Each row
+// says whether this person may rename, recolor and remove it.
 import { api } from "../api.ts";
 import { el, icon, timeAgo } from "../dom.ts";
 import { toast } from "../toast.ts";
 import { ask } from "../trash.ts";
 import { calendarChanged, calendars, canEditCalendars, COLORS, type CalendarSource, type SourceColor } from "./data.ts";
 import { dot } from "./ui.ts";
+import { googleSection } from "./google.ts";
 
 const FOCUSABLE = "button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
 let closeOpen: (() => void) | null = null;
 
-/** Open the dialog (closing one that's open). `subscribe` puts the cursor in the link field. `changed` runs after anything changes. */
-export function openCalendars(opts: { subscribe?: boolean; changed(): void }) {
+/**
+ * Open the dialog (closing one that's open). `subscribe` puts the cursor in the link field, `google`
+ * on the Google section. `changed` runs after anything changes.
+ */
+export function openCalendars(opts: { subscribe?: boolean; google?: boolean; changed(): void }) {
   closeOpen?.();
   const canEdit = canEditCalendars();
   const back = document.activeElement as HTMLElement | null;
@@ -24,6 +29,7 @@ export function openCalendars(opts: { subscribe?: boolean; changed(): void }) {
     opts.changed();
     await render();
   };
+  const google = googleSection({ changed });
 
   // ---------------------------------------------------------------- subscribe
   const url = el("input", { class: "ws-input cal-src-url", type: "url", placeholder: "https://… or webcal://…", "aria-label": "Calendar link (ICS or webcal)", spellcheck: "false", autocomplete: "off" });
@@ -90,7 +96,18 @@ export function openCalendars(opts: { subscribe?: boolean; changed(): void }) {
         "div",
         { class: "cal-src-row" },
         colorBtn,
-        el("div", { class: "cal-src-main" }, title, el("span", { class: "cal-src-meta" }, ...(s.host ? [s.host, " · "] : []), status(s))),
+        el(
+          "div",
+          { class: "cal-src-main" },
+          title,
+          el(
+            "span",
+            { class: "cal-src-meta" },
+            ...(s.owner ? [el("span", { class: "cal-src-mine", title: "Only you see this calendar" }, icon("lock", 11), "Only you"), " · "] : []),
+            ...(s.kind === "google" ? ["Google Calendar · "] : s.host ? [s.host, " · "] : []),
+            status(s),
+          ),
+        ),
         el("button", { type: "button", class: "icon-btn small", title: "Refresh", "aria-label": `Refresh ${s.name}`, onclick: () => void refresh(s.id) }, icon("reset", 14)),
         s.editable ? el("button", { type: "button", class: "icon-btn small", title: "Rename", "aria-label": `Rename ${s.name}`, onclick: () => rename(s, title) }, icon("edit", 14)) : null,
         s.editable ? el("button", { type: "button", class: "icon-btn small", title: "Remove", "aria-label": `Remove ${s.name}`, onclick: () => void remove(s) }, icon("trash", 14)) : null,
@@ -139,7 +156,7 @@ export function openCalendars(opts: { subscribe?: boolean; changed(): void }) {
   const remove = async (s: CalendarSource) => {
     const sure = await ask({
       title: `Remove ${s.name}?`,
-      body: ["Its events leave the calendar for everyone in this workspace. Meeting notes made from them stay."],
+      body: [s.owner ? "Its events leave this workspace's calendar. Meeting notes made from them stay." : "Its events leave the calendar for everyone in this workspace. Meeting notes made from them stay."],
       actions: [{ label: "Remove", value: "remove", kind: "danger" }],
     });
     if (sure !== "remove") return;
@@ -179,6 +196,7 @@ export function openCalendars(opts: { subscribe?: boolean; changed(): void }) {
     list.replaceChildren(...(all.length ? all.map(row) : [empty()]));
     refreshAll.hidden = all.length < 2;
     if (had) [...list.querySelectorAll<HTMLElement>(".cal-src")].find((n) => n.dataset.id === had)?.querySelector("button")?.focus();
+    await google.render(all);
   }
 
   // ---------------------------------------------------------------- the dialog
@@ -210,11 +228,12 @@ export function openCalendars(opts: { subscribe?: boolean; changed(): void }) {
     canEdit ? form : null,
     list,
     el("div", { class: "cal-src-foot" }, refreshAll),
+    google.root,
   );
   const page = el("div", { id: "agents-page", class: "cal-src-page", onmousedown: (e: Event) => e.target === page && close() }, box);
   document.addEventListener("keydown", onKey, true);
   document.body.append(page);
   closeOpen = close;
   (canEdit && opts.subscribe ? url : box).focus();
-  void render();
+  void render().then(() => opts.google && page.isConnected && google.focus());
 }

@@ -16,10 +16,13 @@ void everyColor;
 /** A color's CSS value (styles.css defines --cal-* for both themes); an unknown one is blue. */
 export const colorVar = (c: string | null | undefined) => `var(--cal-${(COLORS as readonly string[]).includes(c ?? "") ? c : "blue"})`;
 
-let editable = true;
-/** Whether this person may subscribe, rename, recolor, remove and make meeting notes: editors and owners online, anyone locally. */
-export const canEditCalendars = () => editable;
-export const setCanEditCalendars = (on: boolean) => (editable = on);
+/** Who's looking, where: set by main.ts once the workspace is known. */
+const context = { canEdit: true, workspace: "" };
+/** Whether this person may subscribe the workspace and make meeting notes: editors and owners online, anyone locally. */
+export const canEditCalendars = () => context.canEdit;
+/** The workspace open, online ("" locally): connecting Google comes back to it. */
+export const calendarWorkspace = () => context.workspace;
+export const setCalendarContext = (c: Partial<typeof context>) => Object.assign(context, c);
 
 const FRESH = 60_000;
 let sourceCache: { at: number; list: Promise<CalendarSource[]> } | null = null;
@@ -159,11 +162,12 @@ export function eventLink(ev: CalendarEvent): string {
 
 /**
  * The event's meeting note: the one it has, or a new one (editors only; the server makes it from
- * the Meeting note template). Resolves to its path.
+ * the Meeting note template). Resolves to its path and, for a new note on a Google event with
+ * write-back on, whether its link reached the event.
  */
-export async function meetingNote(ev: CalendarEvent): Promise<string> {
-  if (ev.note) return ev.note.path;
+export async function meetingNote(ev: CalendarEvent): Promise<{ path: string; linkedBack?: { ok: true } | { ok: false; error: string } | null }> {
+  if (ev.note) return { path: ev.note.path };
   const r = await api.meetingNote(ev.id);
   calendarChanged();
-  return r.path;
+  return r;
 }

@@ -97,7 +97,7 @@ test("write-back adds only the meeting note's link, once the owner allowed editi
   // On, but Google hasn't been asked for editing yet.
   await cloud.call(editor, "POST", `${base}/calendar/sources/update`, { id: source.id, writeBack: true });
   const early = await cloud.call(editor, "POST", `${base}/calendar/meeting-note`, { id: second.id, timeZone: "America/Los_Angeles" });
-  assert.deepEqual(early.linkedBack, { ok: false, error: "Allow Common Ink to edit your Google events first: Calendars, then Allow write-back" });
+  assert.deepEqual(early.linkedBack, { ok: false, error: "Allow Common Ink to edit your Google events first: turn on Link meeting notes in Calendars" });
 
   await connect(editor, true);
   assert.equal((await cloud.call(editor, "GET", "/api/google")).connection.canWrite, true);
