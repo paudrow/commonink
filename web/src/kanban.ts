@@ -49,7 +49,7 @@ const COLUMN_DRAG = "application/x-common-ink-column";
 /** What's being dragged, since a dragover can't read the data it carries. */
 let dragging: { path: string; board: number; column: number; card?: number; text?: string } | null = null;
 
-const FOLDED = "quire.kanban.folded";
+const FOLDED = "commonink.kanban.folded";
 const folded = (): Set<string> => {
   try {
     return new Set(JSON.parse(localStorage.getItem(FOLDED) ?? "[]"));

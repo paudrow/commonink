@@ -63,7 +63,7 @@ test("rendered markdown keeps a native <details> with its summary and open, and 
   const html = renderMarkdown("<details open>\n<summary>More</summary>\n\n**bold** and [[Note]]\n\n</details>", "a.md");
   assert.equal(
     html,
-    '<details open="">\n<summary>More</summary><p><strong>bold</strong> and <a href="quire:Note">Note</a></p>\n</details>',
+    '<details open="">\n<summary>More</summary><p><strong>bold</strong> and <a href="commonink:Note">Note</a></p>\n</details>',
   );
   const hostile = renderMarkdown('<details ontoggle="alert(1)" open><summary onclick="x()">s</summary>t</details>', "a.md");
   assert.equal(/ontoggle|onclick/.test(hostile), false, hostile);

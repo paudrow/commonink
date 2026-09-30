@@ -7,4 +7,4 @@ title: A quieter editor
 3. Click the `<>` button on the timer, or hover the link card or video and click its `<>`: the cursor goes to that line. Click just above the image to do the same.
 4. Put the cursor at the start of "The line above is a link card…" and press Backspace: the link card's line is selected instead of joined. Press Backspace again to delete it (⌘Z brings it back).
 5. Open [[Empty line hint]] and click the empty line under the first sentence: a grey "Type / for tools, @ to link a note" shows. There's none on the empty lines in the list, the code block or the properties, none when the editor isn't focused, and none in vim's normal mode.
-6. Type `/` and pick anything. The hint is gone from every note after that. To see it again, run `localStorage.removeItem("quire.slashUsed")` in the console and reload.
+6. Type `/` and pick anything. The hint is gone from every note after that. To see it again, run `localStorage.removeItem("commonink.slashUsed")` in the console and reload.

@@ -5,7 +5,7 @@ import { assetUrl, fileUrl } from "./api.ts";
 import { el, icon } from "./dom.ts";
 import { assetIcon, fmtBytes, textFormat, type TextFormat } from "./assetKinds.ts";
 import { compareCells, csvTable, rowFilter } from "./csv.ts";
-import { safeDecode } from "../../src/core/uri.ts";
+import { NOTE_LINKS, noteTarget } from "./noteLinks.ts";
 
 const MAX_PREVIEW = 5 * 1024 * 1024; // bigger than this: offer the download instead
 const MAX_EMBED = 2 * 1024 * 1024; // …and in a note, send people to the Assets page
@@ -17,7 +17,7 @@ type Mode = "table" | "formatted" | "raw";
 const MODES: Record<TextFormat, Mode[]> = { csv: ["table", "raw"], json: ["formatted", "raw"], plain: ["raw"] };
 const LABEL: Record<Mode, string> = { table: "Table", formatted: "Formatted", raw: "Raw" };
 
-const modeKey = (f: TextFormat) => `quire.textMode.${f}`;
+const modeKey = (f: TextFormat) => `commonink.textMode.${f}`;
 function savedMode(f: TextFormat): Mode {
   try {
     const m = localStorage.getItem(modeKey(f)) as Mode | null;
@@ -120,9 +120,9 @@ export function dataEmbed(target: string, from: string | undefined, opts: { acti
  * (in expanded note cards and in notes embedded in notes).
  */
 export function hydrateDataEmbeds(root: HTMLElement, from: string, settle?: () => void) {
-  for (const a of root.querySelectorAll<HTMLAnchorElement>('a[href^="quire:"]')) {
+  for (const a of root.querySelectorAll<HTMLAnchorElement>(NOTE_LINKS)) {
     if (!a.textContent?.startsWith("↳ ")) continue; // an embed, not an ordinary link
-    const target = safeDecode(a.getAttribute("href")!.slice(6));
+    const target = noteTarget(a.getAttribute("href")!)!;
     if (!/\.(csv|json|txt)$/i.test(target.split("#")[0])) continue;
     const card = dataEmbed(target, from, { settle });
     const p = a.parentElement;

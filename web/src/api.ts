@@ -131,7 +131,7 @@ export interface TagCount {
 }
 /** A tag someone added by name that nothing carries yet. */
 export const unusedTag = (t: TagCount) => t.notes + t.tasks + t.assets === 0;
-/** The day at a glance (Quire.today): sections of tasks, and today's journal note. */
+/** The day at a glance (Vault.today): sections of tasks, and today's journal note. */
 export interface TodayView {
   date: string;
   sections: Array<{ id: "overdue" | "due" | "starting"; title: string; tasks: Task[] }>;
@@ -249,7 +249,7 @@ export interface ConnectedAgent {
   /** The person it works for, and its name in the change log (`person`, `agent` there). */
   person: string;
   workspace: { id: string; name: string; role: "owner" | "editor" | "viewer" } | null;
-  /** It may work in every workspace you're in (the quire CLI). */
+  /** It may work in every workspace you're in (the commonink CLI). */
   allWorkspaces?: boolean;
   connectedAt: number;
   usedAt: number | null;
@@ -305,7 +305,7 @@ export interface TrashItem extends Trashed {
   /** How many labels it has, which deleting it for good deletes too (none if left out). */
   labels?: number;
 }
-/** A label of a note (core Quire.label). */
+/** A label of a note (core Vault.label). */
 export interface Label {
   id: string;
   note_id: string;
@@ -345,7 +345,7 @@ const send = (method: string, body: unknown): RequestInit => ({
 const resolveCache = new Map<string, Promise<string | null>>();
 
 export const api = {
-  /** Locally, `vault` and `projectRoot` (where bin/quire is) are absolute paths. */
+  /** Locally, `vault` and `projectRoot` (where bin/commonink is) are absolute paths. */
   info: () => j<{ mode: "local" | "cloud"; name: string; vault?: string; projectRoot?: string }>(`${BASE}/info`),
   /** Online: which of your workspaces a note ID is in (404 if none you can open). */
   locate: (id: string) => j<{ workspace: { id: string; name: string } }>(`/api/note-ids/${id}`),

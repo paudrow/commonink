@@ -5,7 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { agentSource } from "../src/core/actor.ts";
 import { readBefore } from "../src/core/changeTexts.ts";
 import { FsContent, NodeDb, openVault } from "../src/core/local.ts";
-import { Quire } from "../src/core/quire.ts";
+import { Vault } from "../src/core/vault.ts";
 import { migrate, type SqlDb } from "../src/core/store.ts";
 import { openTempVault, random, tempVault } from "./helpers.ts";
 
@@ -15,25 +15,25 @@ type Texts = Map<number, { path: string; before: string; after: string }>;
  * Edit Note.md `n` times at random: people's saves, an agent's appends, a History restore and a
  * rename along the way. Each change's text before and after, by change id.
  */
-function edit(quire: Quire, seed: number, n: number): Texts {
+function edit(vault: Vault, seed: number, n: number): Texts {
   const r = random(seed);
   const texts: Texts = new Map();
   let at = "Note.md";
   for (let i = 0; i < n; i++) {
-    if (i === n / 2) at = quire.move(at, "Filed/Note", "ana").path;
-    const before = quire.read(at).content;
+    if (i === n / 2) at = vault.move(at, "Filed/Note", "ana").path;
+    const before = vault.read(at).content;
     const change =
-      i % 9 === 4 ? quire.append(at, r.text(20), agentSource("Claude", "ana")).change
-      : i % 23 === 11 ? quire.restore([...texts.keys()][r.int(texts.size)], "ana").change
-      : quire.save(at, r.edit(before), { source: "ana" }).change;
-    if (change) texts.set(change.id, { path: at, before, after: quire.read(at).content });
+      i % 9 === 4 ? vault.append(at, r.text(20), agentSource("Claude", "ana")).change
+      : i % 23 === 11 ? vault.restore([...texts.keys()][r.int(texts.size)], "ana").change
+      : vault.save(at, r.edit(before), { source: "ana" }).change;
+    if (change) texts.set(change.id, { path: at, before, after: vault.read(at).content });
   }
   return texts;
 }
 
 /** Every change reads back the text it started from and the one it left, as History and restore see them. */
-function assertTexts(quire: Quire, texts: Texts, label: string) {
-  for (const [id, t] of texts) assert.deepEqual(quire.diff(id, id), { path: t.path, op: "edit", before: t.before, after: t.after }, `${label}: change #${id}`);
+function assertTexts(vault: Vault, texts: Texts, label: string) {
+  for (const [id, t] of texts) assert.deepEqual(vault.diff(id, id), { path: t.path, op: "edit", before: t.before, after: t.after }, `${label}: change #${id}`);
 }
 
 const storedBytes = (db: SqlDb) => db.all<{ before: string }>("SELECT before FROM changes WHERE before IS NOT NULL").reduce((n, r) => n + r.before.length, 0);
@@ -42,23 +42,23 @@ const wholeBytes = (texts: Texts) => [...texts.values()].reduce((n, t) => n + t.
 test("any version of a note comes back exactly from whole texts plus deltas", () => {
   for (const seed of [1, 2, 3]) {
     const r = random(seed);
-    const { dir, quire } = openTempVault({ "Note.md": r.text(3000) });
-    const texts = edit(quire, seed, 120);
-    assertTexts(quire, texts, `seed ${seed}`);
+    const { dir, vault } = openTempVault({ "Note.md": r.text(3000) });
+    const texts = edit(vault, seed, 120);
+    assertTexts(vault, texts, `seed ${seed}`);
     assertTexts(openVault(dir), texts, `seed ${seed}, reopened`);
-    assert.ok(storedBytes(quire.db) < wholeBytes(texts) / 4, `seed ${seed}: ${storedBytes(quire.db)} of ${wholeBytes(texts)} bytes`);
+    assert.ok(storedBytes(vault.db) < wholeBytes(texts) / 4, `seed ${seed}: ${storedBytes(vault.db)} of ${wholeBytes(texts)} bytes`);
   }
 });
 
 test("emptying Trash forgets that note's texts, and other notes' history still reads back", () => {
   const r = random(9);
-  const { quire } = openTempVault({ "Note.md": r.text(3000), "Gone.md": r.text(3000) });
-  const texts = edit(quire, 9, 60);
-  for (let i = 0; i < 40; i++) quire.save("Gone.md", r.edit(quire.read("Gone.md").content), { source: "ana" });
-  quire.delete(["Gone.md"], "ana");
-  quire.purge(quire.trash().map((t) => t.id), "ana");
-  assert.equal(quire.db.get("SELECT count(*) AS n FROM changes WHERE path = 'Gone.md' AND before IS NOT NULL").n, 0);
-  assertTexts(quire, texts, "after the purge");
+  const { vault } = openTempVault({ "Note.md": r.text(3000), "Gone.md": r.text(3000) });
+  const texts = edit(vault, 9, 60);
+  for (let i = 0; i < 40; i++) vault.save("Gone.md", r.edit(vault.read("Gone.md").content), { source: "ana" });
+  vault.delete(["Gone.md"], "ana");
+  vault.purge(vault.trash().map((t) => t.id), "ana");
+  assert.equal(vault.db.get("SELECT count(*) AS n FROM changes WHERE path = 'Gone.md' AND before IS NOT NULL").n, 0);
+  assertTexts(vault, texts, "after the purge");
 });
 
 /** Turn a change log back into the kind from before deltas: every text whole, no base_id column. */
@@ -72,10 +72,10 @@ function asBeforeDeltas(db: SqlDb) {
 
 test("a change log from before deltas is stored as deltas on the next start, and reads back the same", () => {
   const r = random(4);
-  const { dir, quire } = openTempVault({ "Note.md": r.text(3000) });
-  const texts = edit(quire, 4, 100);
-  asBeforeDeltas(quire.db);
-  assert.equal(storedBytes(quire.db), wholeBytes(texts));
+  const { dir, vault } = openTempVault({ "Note.md": r.text(3000) });
+  const texts = edit(vault, 4, 100);
+  asBeforeDeltas(vault.db);
+  assert.equal(storedBytes(vault.db), wholeBytes(texts));
 
   const upgraded = openVault(dir);
   assertTexts(upgraded, texts, "upgraded");
@@ -84,13 +84,13 @@ test("a change log from before deltas is stored as deltas on the next start, and
 
 test("a vault on disk gives back the space the delta upgrade freed, once, and says how much", (t) => {
   const r = random(7);
-  const { dir, quire } = openTempVault({ "Note.md": r.text(3000) });
-  edit(quire, 7, 100);
-  asBeforeDeltas(quire.db);
-  quire.db.exec("VACUUM");
+  const { dir, vault } = openTempVault({ "Note.md": r.text(3000) });
+  edit(vault, 7, 100);
+  asBeforeDeltas(vault.db);
+  vault.db.exec("VACUUM");
   const said = t.mock.method(console, "error", () => {});
   const pages = (db: SqlDb) => db.get<{ n: number }>("SELECT page_count AS n FROM pragma_page_count()")!.n;
-  const was = pages(quire.db);
+  const was = pages(vault.db);
 
   const upgraded = openVault(dir);
   assert.ok(pages(upgraded.db) < was / 2, `${pages(upgraded.db)} of ${was} pages`);
@@ -109,16 +109,16 @@ test("a vault with nothing to store as deltas isn't vacuumed", (t) => {
 
 test("a delta upgrade that fails partway keeps the notes it finished, and the next start does the rest", () => {
   const r = random(5);
-  const { dir, quire } = openTempVault({ "A.md": r.text(3000), "B.md": r.text(3000) });
-  for (let i = 0; i < 30; i++) for (const p of ["A.md", "B.md"]) quire.save(p, r.edit(quire.read(p).content), { source: "ana" });
-  const texts = new Map(quire.changes({ limit: 500 }).map((c) => [c.id, quire.diff(c.id, c.id)]));
-  asBeforeDeltas(quire.db);
-  const [first, second] = quire.db.all<{ note_id: string }>("SELECT DISTINCT note_id FROM changes ORDER BY note_id");
-  quire.db.exec(`CREATE TRIGGER interrupt BEFORE UPDATE ON changes WHEN NEW.note_id = '${second.note_id}' BEGIN SELECT RAISE(ABORT, 'interrupted'); END`);
+  const { dir, vault } = openTempVault({ "A.md": r.text(3000), "B.md": r.text(3000) });
+  for (let i = 0; i < 30; i++) for (const p of ["A.md", "B.md"]) vault.save(p, r.edit(vault.read(p).content), { source: "ana" });
+  const texts = new Map(vault.changes({ limit: 500 }).map((c) => [c.id, vault.diff(c.id, c.id)]));
+  asBeforeDeltas(vault.db);
+  const [first, second] = vault.db.all<{ note_id: string }>("SELECT DISTINCT note_id FROM changes ORDER BY note_id");
+  vault.db.exec(`CREATE TRIGGER interrupt BEFORE UPDATE ON changes WHEN NEW.note_id = '${second.note_id}' BEGIN SELECT RAISE(ABORT, 'interrupted'); END`);
   assert.throws(() => openVault(dir), /interrupted/);
-  const deltas = (noteId: string) => quire.db.get("SELECT count(*) AS n FROM changes WHERE note_id = ? AND base_id IS NOT NULL", noteId).n;
+  const deltas = (noteId: string) => vault.db.get("SELECT count(*) AS n FROM changes WHERE note_id = ? AND base_id IS NOT NULL", noteId).n;
   assert.deepEqual([deltas(first.note_id) > 0, deltas(second.note_id)], [true, 0]);
-  quire.db.exec("DROP TRIGGER interrupt");
+  vault.db.exec("DROP TRIGGER interrupt");
 
   const upgraded = openVault(dir);
   assert.ok(deltas(second.note_id) > 0);
@@ -126,12 +126,12 @@ test("a delta upgrade that fails partway keeps the notes it finished, and the ne
 });
 
 test("an index from before change texts opens, and new changes keep theirs", () => {
-  const { dir, quire } = openTempVault({ "Note.md": "# Note\n" });
-  const old = quire.save("Note.md", "# Note\n\nold\n", { source: "ana" }).change!.id;
-  quire.db.exec("DROP INDEX changes_base");
-  quire.db.exec("ALTER TABLE changes DROP COLUMN base_id");
-  quire.db.exec("ALTER TABLE changes DROP COLUMN before");
-  quire.db.exec("DROP TABLE upgrades");
+  const { dir, vault } = openTempVault({ "Note.md": "# Note\n" });
+  const old = vault.save("Note.md", "# Note\n\nold\n", { source: "ana" }).change!.id;
+  vault.db.exec("DROP INDEX changes_base");
+  vault.db.exec("ALTER TABLE changes DROP COLUMN base_id");
+  vault.db.exec("ALTER TABLE changes DROP COLUMN before");
+  vault.db.exec("DROP TABLE upgrades");
 
   const reopened = openVault(dir);
   const next = reopened.save("Note.md", "# Note\n\nold\nnew\n", { source: "ana" }).change!.id;
@@ -180,13 +180,13 @@ test("a workspace's change log online is upgraded the same way, without a VACUUM
   const open = () => {
     const db = new DurableObjectLikeDb(new DatabaseSync(path.join(dir, "do.sqlite")));
     migrate(db);
-    const quire = new Quire(db, new FsContent(dir));
-    quire.sync();
-    return quire;
+    const vault = new Vault(db, new FsContent(dir));
+    vault.sync();
+    return vault;
   };
-  const quire = open();
-  const texts = edit(quire, 6, 80);
-  asBeforeDeltas(quire.db);
+  const vault = open();
+  const texts = edit(vault, 6, 80);
+  asBeforeDeltas(vault.db);
 
   const upgraded = open();
   assertTexts(upgraded, texts, "online");

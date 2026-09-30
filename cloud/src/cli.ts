@@ -1,11 +1,11 @@
-// The `quire` CLI in a hosted workspace: after `quire login` (OAuth, as for remote MCP), it sends
+// The `commonink` CLI in a hosted workspace: after `commonink login` (OAuth, as for remote MCP), it sends
 // each command here with its token, and the workspace runs it with the same command table and core
 // as a local vault. A CLI's grant may cover all of the person's workspaces; which one a command runs
 // in, and the person's role there, are read fresh on every request.
 import { json } from "../../src/core/api.ts";
 import { agentSource } from "../../src/core/actor.ts";
 import { COMMANDS, UsageError, type WorkspaceSettings } from "../../src/core/commands/index.ts";
-import { QuireError } from "../../src/core/paths.ts";
+import { VaultError } from "../../src/core/paths.ts";
 import { CLI_ROUTE, fromWire, toWire, type RunRequest, type RunResponse } from "../../src/core/commands/wire.ts";
 import { access } from "./access.ts";
 import { adminRoute } from "./admin.ts";
@@ -17,7 +17,7 @@ import type { AgentProps, OAuthEnv } from "./agents.ts";
 export const ALL_WORKSPACES = "*";
 
 const HTTP: Record<string, number> = { usage: 400, invalid: 400, not_found: 404, conflict: 409, exists: 409, forbidden: 403 };
-const CODE: Record<number, QuireError["code"]> = { 403: "forbidden", 404: "not_found", 409: "conflict" };
+const CODE: Record<number, VaultError["code"]> = { 403: "forbidden", 404: "not_found", 409: "conflict" };
 const fail = (error: string, code: string) => json({ ok: false, error, code } satisfies RunResponse, HTTP[code] ?? 400);
 
 /** `GET /mcp/cli/workspaces` and `POST /mcp/cli/run`, for a request with a valid token. */
@@ -33,7 +33,7 @@ export async function serveCli(req: Request, env: OAuthEnv, props: AgentProps): 
   const body = (await req.json().catch(() => null)) as RunRequest | null;
   if (!body || typeof body.command !== "string" || typeof body.input !== "object" || body.input === null) return fail("Expected {command, input}", "usage");
   const command = COMMANDS.find((c) => c.cli === body.command);
-  if (!command) return fail(`No command "${body.command}": see quire help`, "usage");
+  if (!command) return fail(`No command "${body.command}": see commonink help`, "usage");
   const ws = pick(mine, body.workspace);
   if ("error" in ws) return fail(ws.error, ws.code);
   if (access(ws.role, ...(command.route.split(" ") as [string, string])) !== "allowed") {
@@ -49,7 +49,7 @@ export async function serveCli(req: Request, env: OAuthEnv, props: AgentProps): 
       return json(toWire({ ok: true, ...(await command.run({ settings: settingsOf(req, env, user, ws), user: user.id }, fromWire(body.input) as never)) } satisfies RunResponse));
     } catch (e) {
       if (e instanceof Response) return e;
-      if (e instanceof QuireError) return fail(e.message, e.code);
+      if (e instanceof VaultError) return fail(e.message, e.code);
       if (e instanceof UsageError) return fail(e.message, "usage");
       throw e;
     }
@@ -70,7 +70,7 @@ export async function serveCli(req: Request, env: OAuthEnv, props: AgentProps): 
 
 /**
  * A workspace's settings for a settings command: each call goes through the same handler as the
- * app's Settings (admin.ts). A refusal throws a QuireError; being rate-limited throws the 429 as is.
+ * app's Settings (admin.ts). A refusal throws a VaultError; being rate-limited throws the 429 as is.
  */
 function settingsOf(req: Request, env: OAuthEnv, user: User, ws: WorkspaceRef): WorkspaceSettings {
   const url = new URL(req.url);
@@ -81,7 +81,7 @@ function settingsOf(req: Request, env: OAuthEnv, user: User, ws: WorkspaceRef): 
       const res = (await adminRoute(new Request(url, { method }), env, url, user, ws, path, async () => body))!;
       if (res.status === 429) throw res;
       const out = (await res.json()) as { error?: string };
-      if (!res.ok) throw new QuireError(out.error ?? `${route} failed (${res.status})`, CODE[res.status] ?? "invalid");
+      if (!res.ok) throw new VaultError(out.error ?? `${route} failed (${res.status})`, CODE[res.status] ?? "invalid");
       return out;
     },
   };
@@ -90,12 +90,12 @@ function settingsOf(req: Request, env: OAuthEnv, user: User, ws: WorkspaceRef): 
 /** The workspace a command names (by ID or name, any case), or why there isn't one. */
 function pick(mine: WorkspaceRef[], want: string | undefined): WorkspaceRef | { error: string; code: string } {
   const names = mine.map((w) => w.name).join(", ");
-  if (!mine.length) return { error: "This sign-in doesn't reach any workspace you're in now. Run quire login again.", code: "forbidden" };
-  if (!want) return mine.length === 1 ? mine[0] : { error: `Say which workspace: --workspace <name>, or quire workspaces use <name>. Yours: ${names}`, code: "usage" };
+  if (!mine.length) return { error: "This sign-in doesn't reach any workspace you're in now. Run commonink login again.", code: "forbidden" };
+  if (!want) return mine.length === 1 ? mine[0] : { error: `Say which workspace: --workspace <name>, or commonink workspaces use <name>. Yours: ${names}`, code: "usage" };
   const t = want.trim().toLowerCase();
   const found = mine.filter((w) => w.id === want || w.name.toLowerCase() === t);
   if (found.length === 1) return found[0];
   return found.length
-    ? { error: `More than one workspace is called ${want}: use its ID (quire workspaces)`, code: "usage" }
+    ? { error: `More than one workspace is called ${want}: use its ID (commonink workspaces)`, code: "usage" }
     : { error: `No workspace "${want}" here. Yours: ${names}`, code: "not_found" };
 }

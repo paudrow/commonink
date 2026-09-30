@@ -14,7 +14,7 @@
 //
 // So search, links, backlinks, tags and agents work on contacts with nothing new. This file reads
 // and writes that frontmatter (leaving any other keys and the note's words alone), reads vCard and
-// CSV exports, and finds likely duplicates. No I/O here: Quire (quire.ts) does the reading and writing.
+// CSV exports, and finds likely duplicates. No I/O here: Vault (vault.ts) does the reading and writing.
 // The web app uses it too (the Contacts page, @), so nothing here may need Node.
 import { parseCsv } from "./csv.ts";
 import { frontmatterEntries, frontmatterText, listOf, scalarOf, type Entry } from "./frontmatter.ts";

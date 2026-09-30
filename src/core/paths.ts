@@ -60,10 +60,10 @@ export function cleanPath(input: string): string {
   const raw = input.trim().replace(/\\/g, "/").replace(/^\.?\/+/, "");
   const norm = path.posix.normalize(raw);
   if (!norm || norm === "." || norm.startsWith("..") || path.posix.isAbsolute(norm) || /[\x00-\x1f\x7f]/.test(norm)) {
-    throw new QuireError(`Invalid path: ${input}`);
+    throw new VaultError(`Invalid path: ${input}`);
   }
   if (norm.split("/").some((seg) => seg.startsWith("."))) {
-    throw new QuireError(`Hidden paths are not allowed: ${input}`);
+    throw new VaultError(`Hidden paths are not allowed: ${input}`);
   }
   return norm;
 }
@@ -93,7 +93,7 @@ export function linkKey(target: string): string {
     .toLowerCase();
 }
 
-export class QuireError extends Error {
+export class VaultError extends Error {
   constructor(
     message: string,
     public code: "not_found" | "conflict" | "invalid" | "exists" | "forbidden" = "invalid",

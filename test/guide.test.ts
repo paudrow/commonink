@@ -32,7 +32,7 @@ test("both starter checklists have every step, the guide's cards, and the start 
     assert.deepEqual(guideState(text), { open: [...GUIDE_STEPS], done: [], demo: false, finished: false }, rel);
     for (const card of ["watch", "connect", "done"]) assert.match(text, new RegExp(`^\\s*::guide\\{step=${card}\\}$`, "m"), `${rel} has the ${card} card`);
     assert.match(text, /^tags: \[start\]$/m, rel);
-    assert.doesNotMatch(text, /Quire/, rel);
+    assert.doesNotMatch(text, /quire/i, rel); // the legacy name
   }
 });
 
@@ -83,10 +83,10 @@ test("a replacement is widened until its old text occurs once", () => {
 });
 
 function api(files: Record<string, string>, actor = "Audrow") {
-  const { quire } = openTempVault(files);
+  const { vault } = openTempVault(files);
   const written: string[] = [];
   const host: ApiHost = {
-    quire,
+    vault,
     actor,
     user: actor,
     canEditShared: true,
@@ -101,32 +101,32 @@ function api(files: Record<string, string>, actor = "Audrow") {
     const res = await handleApi(host, new Request("http://localhost/api/guide", init), "/guide");
     return { status: res!.status, body: await res!.json() };
   };
-  return { quire, written, call };
+  return { vault, written, call };
 }
 
 test("POST /guide ticks the start note as the Guide working for the person, through the change log", async () => {
-  const { quire, written, call } = api({ "Getting started.md": START, "Other.md": "---\ntags: [start]\n---\n# Other\n" });
+  const { vault, written, call } = api({ "Getting started.md": START, "Other.md": "---\ntags: [start]\n---\n# Other\n" });
   assert.deepEqual((await call("GET")).body.open, [...GUIDE_STEPS]);
   const r = await call("POST", { action: "star" });
   assert.equal(r.status, 200);
   assert.deepEqual(r.body.done, ["star"]);
   assert.deepEqual(written, ["Getting started.md by Guide for Audrow"]);
-  const [change] = quire.changes({ limit: 1 });
+  const [change] = vault.changes({ limit: 1 });
   assert.deepEqual([change.agent, change.person, change.summary], ["Guide", "Audrow", "+1 −1"]);
-  assert.ok(quire.read("Getting started").content.includes("- [x] Star this note"));
+  assert.ok(vault.read("Getting started").content.includes("- [x] Star this note"));
   // Again: nothing to do, nothing written.
   await call("POST", { action: "star" });
   assert.equal(written.length, 1);
 });
 
 test("POST /guide takes only its own actions, and does nothing once the checklist is gone", async () => {
-  const { quire, written, call } = api({ "Getting started.md": START });
+  const { vault, written, call } = api({ "Getting started.md": START });
   const bad = await call("POST", { action: "- [x] Anything I like" });
   assert.equal(bad.status, 400);
   assert.match(bad.body.error, /"action" must be one of slash, link/);
-  quire.save("Getting started.md", "# Getting started\n\nMine now.\n", { source: "Audrow" });
+  vault.save("Getting started.md", "# Getting started\n\nMine now.\n", { source: "Audrow" });
   assert.equal((await call("GET")).body, null);
   assert.equal((await call("POST", { action: "demo" })).body, null);
   assert.deepEqual(written, []);
-  assert.equal(quire.read("Getting started").content, "# Getting started\n\nMine now.\n");
+  assert.equal(vault.read("Getting started").content, "# Getting started\n\nMine now.\n");
 });

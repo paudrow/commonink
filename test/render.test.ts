@@ -14,8 +14,8 @@ test("[[links]], ![[embeds]] and relative images inside code stay as written", (
 });
 
 test("links outside code still render, on the same line as code and after a fence closes", () => {
-  assert.equal(renderMarkdown("[[A|see A]] then `[[B]]` then [[C#Plan]]", "a.md"), '<p><a href="quire:A">see A</a> then <code>[[B]]</code> then <a href="quire:C%23Plan">C › Plan</a></p>\n');
-  assert.equal(renderMarkdown("~~~\n[[B]]\n~~~\n\n![[D]]", "a.md"), '<pre data-code-info=""><code>[[B]]\n</code></pre>\n<p><a href="quire:D">↳ D</a></p>\n');
-  assert.equal(renderMarkdown("An unclosed ` backtick and [[E]]", "a.md"), '<p>An unclosed ` backtick and <a href="quire:E">E</a></p>\n');
-  assert.equal(renderMarkdown("| Note | Why |\n| - | - |\n| [[F|the F]] | `[[G]]` |", "a.md").replace(/\n/g, ""), '<table><thead><tr><th>Note</th><th>Why</th></tr></thead><tbody><tr><td><a href="quire:F">the F</a></td><td><code>[[G]]</code></td></tr></tbody></table>');
+  assert.equal(renderMarkdown("[[A|see A]] then `[[B]]` then [[C#Plan]]", "a.md"), '<p><a href="commonink:A">see A</a> then <code>[[B]]</code> then <a href="commonink:C%23Plan">C › Plan</a></p>\n');
+  assert.equal(renderMarkdown("~~~\n[[B]]\n~~~\n\n![[D]]", "a.md"), '<pre data-code-info=""><code>[[B]]\n</code></pre>\n<p><a href="commonink:D">↳ D</a></p>\n');
+  assert.equal(renderMarkdown("An unclosed ` backtick and [[E]]", "a.md"), '<p>An unclosed ` backtick and <a href="commonink:E">E</a></p>\n');
+  assert.equal(renderMarkdown("| Note | Why |\n| - | - |\n| [[F|the F]] | `[[G]]` |", "a.md").replace(/\n/g, ""), '<table><thead><tr><th>Note</th><th>Why</th></tr></thead><tbody><tr><td><a href="commonink:F">the F</a></td><td><code>[[G]]</code></td></tr></tbody></table>');
 });

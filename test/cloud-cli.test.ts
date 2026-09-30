@@ -1,4 +1,4 @@
-// The CLI against a hosted workspace: `quire login` through a real OAuth round trip with the Worker
+// The CLI against a hosted workspace: `commonink login` through a real OAuth round trip with the Worker
 // running locally in workerd (a person in a browser allows it), then commands in the workspace they
 // pick, attributed, and limited by their role there.
 import { after, before, test } from "node:test";
@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { startCloud, team, type Cloud } from "./cloud.ts";
 
-const BIN = path.resolve(import.meta.dirname, "../bin/quire");
+const BIN = path.resolve(import.meta.dirname, "../bin/commonink");
 let cloud: Cloud;
 let people: Awaited<ReturnType<typeof team>>;
 
@@ -21,11 +21,11 @@ after(() => cloud.close());
 
 /** A CLI with its own config folder (where login keeps its tokens), and no local vault in the way. */
 function cli() {
-  const config = fs.mkdtempSync(path.join(os.tmpdir(), "quire-config-"));
-  const env: NodeJS.ProcessEnv = { ...process.env, QUIRE_CONFIG_DIR: config };
-  delete env.QUIRE_VAULT;
-  delete env.QUIRE_AGENT;
-  delete env.QUIRE_WORKSPACE;
+  const config = fs.mkdtempSync(path.join(os.tmpdir(), "commonink-config-"));
+  const env: NodeJS.ProcessEnv = { ...process.env, COMMONINK_CONFIG_DIR: config };
+  delete env.COMMONINK_VAULT;
+  delete env.COMMONINK_AGENT;
+  delete env.COMMONINK_WORKSPACE;
   const run = (args: string[], input?: string) => {
     const r = spawnSync(BIN, args, { env, input, encoding: "utf8" });
     return { status: r.status, stdout: r.stdout, stderr: r.stderr };
@@ -33,7 +33,7 @@ function cli() {
   return { config, env, run, json: (args: string[]) => JSON.parse(run([...args, "--json"]).stdout) };
 }
 
-/** `quire login`, with `cookie`'s person in the browser allowing it for `workspace` ("*" for all of them). */
+/** `commonink login`, with `cookie`'s person in the browser allowing it for `workspace` ("*" for all of them). */
 async function login(c: ReturnType<typeof cli>, cookie: string, workspace = "*") {
   const child = spawn(BIN, ["login", "--server", cloud.origin, "--no-browser"], { env: c.env, stdio: ["ignore", "pipe", "pipe"] });
   let out = "";
@@ -64,19 +64,19 @@ async function login(c: ReturnType<typeof cli>, cookie: string, workspace = "*")
   return { status, out, err, html };
 }
 
-test("quire login signs in through the browser and keeps its tokens where only you can read them", async () => {
+test("commonink login signs in through the browser and keeps its tokens where only you can read them", async () => {
   const c = cli();
   const { status, out, html } = await login(c, people.owner);
   assert.equal(status, 0);
-  assert.match(html, /Connect quire CLI to Common Ink\?/);
+  assert.match(html, /Connect commonink CLI to Common Ink\?/);
   assert.match(html, /<strong>All your workspaces<\/strong>/);
-  assert.match(out, /^Signed in to http:\/\/\S+ as Owner Dev\. Workspaces: Owner's notes \(owner\), Team \(owner\)\. Pick one with quire workspaces use <name>, or --workspace\.\n$/);
+  assert.match(out, /^Signed in to http:\/\/\S+ as Owner Dev\. Workspaces: Owner's notes \(owner\), Team \(owner\)\. Pick one with commonink workspaces use <name>, or --workspace\.\n$/);
   const file = path.join(c.config, "credentials.json");
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   const creds = JSON.parse(fs.readFileSync(file, "utf8"));
   assert.deepEqual(Object.keys(creds).sort(), ["accessToken", "clientId", "expiresAt", "refreshToken", "server", "user"]);
   const agents = await cloud.call(people.owner, "GET", "/api/agents");
-  assert.deepEqual(agents.map((a: { client: string; allWorkspaces?: boolean }) => [a.client, a.allWorkspaces]), [["quire CLI", true]]);
+  assert.deepEqual(agents.map((a: { client: string; allWorkspaces?: boolean }) => [a.client, a.allWorkspaces]), [["commonink CLI", true]]);
 });
 
 test("commands run in the workspace you name, attributed to you or to the agent writing for you", async () => {
@@ -86,7 +86,7 @@ test("commands run in the workspace you name, attributed to you or to the agent 
   // Two workspaces and no default: a command has to say which.
   const which = c.run(["ls"]);
   assert.equal(which.status, 2);
-  assert.match(which.stderr, /^Say which workspace: --workspace <name>, or quire workspaces use <name>\. Yours: Owner's notes, Team\n$/);
+  assert.match(which.stderr, /^Say which workspace: --workspace <name>, or commonink workspaces use <name>\. Yours: Owner's notes, Team\n$/);
   assert.equal(c.run(["create", "Hello", "-", "--workspace", "team", "--agent", "Tester"], "# Hello from the CLI\n").status, 0);
   assert.equal(c.run(["append", "Hello", "- by hand", "--workspace", "Team"]).status, 0);
   const note = await cloud.call(people.owner, "GET", `${people.base}/note?path=Hello.md`);
@@ -131,7 +131,7 @@ test("a CLI's today is its person's day, in the time zone their browser reported
 test("files go up to R2 and come back down, byte for byte", async () => {
   const c = cli();
   await login(c, people.owner);
-  const here = fs.mkdtempSync(path.join(os.tmpdir(), "quire-up-"));
+  const here = fs.mkdtempSync(path.join(os.tmpdir(), "commonink-up-"));
   const bytes = Buffer.from([0, 1, 2, 250, 251, 252, 137, 80, 78, 71]);
   fs.writeFileSync(path.join(here, "pixel.png"), bytes);
   const up = c.json(["upload", path.join(here, "pixel.png"), "--workspace", "Team"]);
@@ -154,7 +154,7 @@ test("contacts, labels, tasks --by me and export work in a hosted workspace too"
   assert.equal(c.run(["append", "Given", "- [ ] More", ...team]).status, 0);
   assert.match(c.run(["diff", "Given", "--from", "v1", ...team]).stdout, /^\+- \[ \] More$/m);
   assert.match(c.run(["restore", "Given", "--to", "v1", ...team]).stdout, /^Restored to "v1": Given\.md/);
-  const here = fs.mkdtempSync(path.join(os.tmpdir(), "quire-export-"));
+  const here = fs.mkdtempSync(path.join(os.tmpdir(), "commonink-export-"));
   const md = path.join(here, "Given.md");
   assert.equal(c.run(["export", "Given", "--format", "md", "--out", md, ...team]).status, 0);
   assert.equal(fs.readFileSync(md, "utf8"), "- [ ] Ship it @rae\n");
@@ -262,7 +262,7 @@ test("a workspace's settings from the CLI: invite links, members and roles, a ne
   assert.equal(owner.run(["member", "remove", "Stranger Dev", ...two]).status, 3);
   // A local vault has no settings.
   const signedOut = cli();
-  assert.match(signedOut.run(["members"]).stderr, /^members is for a hosted workspace: run quire login first\n$/);
+  assert.match(signedOut.run(["members"]).stderr, /^members is for a hosted workspace: run commonink login first\n$/);
   assert.equal(signedOut.run(["members"]).status, 7);
   assert.equal(owner.run(["members", "--workspace", "local"]).status, 2);
 });
@@ -275,7 +275,7 @@ test("Revoke in Connected agents cuts the CLI off at its next command", async ()
   await cloud.call(people.editor, "POST", "/api/agents/revoke", { id: agent.id });
   const r = c.run(["ls", "--workspace", "Team"]);
   assert.equal(r.status, 7);
-  assert.match(r.stderr, /^Your sign-in to http:\/\/\S+ has ended\. Run quire login\.\n$/);
+  assert.match(r.stderr, /^Your sign-in to http:\/\/\S+ has ended\. Run commonink login\.\n$/);
 });
 
 test("logout ends the sign-in on the server too; then commands say to log in, or use the local vault", async () => {
@@ -287,6 +287,6 @@ test("logout ends the sign-in on the server too; then commands say to log in, or
   assert.equal(res.status, 401);
   const r = c.run(["ls", "--workspace", "Team"]);
   assert.equal(r.status, 7);
-  assert.match(r.stderr, /run quire login first/);
+  assert.match(r.stderr, /run commonink login first/);
   assert.equal(c.run(["workspaces"]).status, 7);
 });

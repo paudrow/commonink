@@ -18,10 +18,10 @@ const VAULT: Record<string, string> = {
 };
 
 function setup() {
-  const { dir, quire } = openTempVault(VAULT);
-  const host = { quire, origin: "https://ink.test", name: "My notes", bytes: async (rel: string) => new Uint8Array(fs.readFileSync(path.join(dir, rel))) };
-  const id = (rel: string) => quire.meta(rel)!.id;
-  return { quire, host, id };
+  const { dir, vault } = openTempVault(VAULT);
+  const host = { vault, origin: "https://ink.test", name: "My notes", bytes: async (rel: string) => new Uint8Array(fs.readFileSync(path.join(dir, rel))) };
+  const id = (rel: string) => vault.meta(rel)!.id;
+  return { vault, host, id };
 }
 
 const unzip = (zip: Uint8Array) => Object.fromEntries(Object.entries(unzipSync(zip)).map(([k, v]) => [k, strFromU8(v)]));
@@ -67,8 +67,8 @@ test("a missing note or folder, or an export too big to build, is a clear error"
 
 test("GET /export answers with the .zip as a download, named for what's in it", async () => {
   const { handleApi } = await import("../src/core/api.ts");
-  const { quire, host: files } = setup();
-  const host = { quire, actor: "you", user: "you", canEditShared: true, info: () => ({ name: "My notes" }), written() {}, moved() {}, removed() {}, tree() {}, fileBytes: files.bytes };
+  const { vault, host: files } = setup();
+  const host = { vault, actor: "you", user: "you", canEditShared: true, info: () => ({ name: "My notes" }), written() {}, moved() {}, removed() {}, tree() {}, fileBytes: files.bytes };
   const get = (q: string) => handleApi(host, new Request(`https://ink.test/api/export?${q}`), "/export");
   const res = (await get("folder=Projects"))!;
   assert.equal(res.headers.get("Content-Type"), "application/zip");

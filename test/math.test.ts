@@ -65,6 +65,6 @@ test("scanning hostile text stays linear and bounded", () => {
 
 test("search finds a note by the LaTeX in its math", async () => {
   const { openTempVault } = await import("./helpers.ts");
-  const { quire } = openTempVault({ "Physics.md": "# Physics\n\n$$\n\\frac{d}{dt} \\mathbf{p} = \\mathbf{F}\n$$\n" });
-  assert.deepEqual(quire.search("mathbf").map((h) => h.path), ["Physics.md"]);
+  const { vault } = openTempVault({ "Physics.md": "# Physics\n\n$$\n\\frac{d}{dt} \\mathbf{p} = \\mathbf{F}\n$$\n" });
+  assert.deepEqual(vault.search("mathbf").map((h) => h.path), ["Physics.md"]);
 });

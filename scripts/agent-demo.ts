@@ -11,7 +11,7 @@ import { localDate } from "../src/core/tasks.ts";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const name = process.argv[2] ?? "claude-code";
 const client = new Client({ name, version: "1.0.0" });
-await client.connect(new StdioClientTransport({ command: path.join(root, "bin", "quire"), args: ["mcp"] }));
+await client.connect(new StdioClientTransport({ command: path.join(root, "bin", "commonink"), args: ["mcp"] }));
 
 const call = async (tool: string, args: Record<string, unknown>) => {
   const r: any = await client.callTool({ name: tool, arguments: args });

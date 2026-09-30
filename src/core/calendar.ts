@@ -6,9 +6,9 @@
 // workspace's. Syncing is async (it fetches), so it runs outside the note core: on a timer or alarm
 // the host sets, and when someone asks. No Node imports: the Worker runs this too.
 import { looksLikeIcs, readIcs, type Occurrence, type Person } from "./ics.ts";
-import { QuireError } from "./paths.ts";
+import { VaultError } from "./paths.ts";
 import { fillTemplate } from "./templates.ts";
-import type { Quire } from "./quire.ts";
+import type { Vault } from "./vault.ts";
 import type { SqlDb } from "./store.ts";
 import { fetchGuarded, readCapped, type UrlGuard } from "./unfurl.ts";
 
@@ -239,11 +239,11 @@ export function feedUrl(raw: string): string {
   try {
     u = new URL(s);
   } catch {
-    throw new QuireError("That isn't a web address. Paste the calendar's ICS or webcal link.");
+    throw new VaultError("That isn't a web address. Paste the calendar's ICS or webcal link.");
   }
-  if (!/^https?:$/.test(u.protocol)) throw new QuireError("Calendar feeds are http, https or webcal addresses");
-  if (u.username || u.password) throw new QuireError("Leave the name and password out of the address");
-  if (s.length > 2048) throw new QuireError("That address is too long");
+  if (!/^https?:$/.test(u.protocol)) throw new VaultError("Calendar feeds are http, https or webcal addresses");
+  if (u.username || u.password) throw new VaultError("Leave the name and password out of the address");
+  if (s.length > 2048) throw new VaultError("That address is too long");
   return u.href;
 }
 
@@ -311,7 +311,7 @@ export class Calendar {
 
   private row(id: string, viewer: { user: string }): SourceRow {
     const r = this.db.get<SourceRow>("SELECT * FROM sources WHERE id = ? AND (owner IS NULL OR owner = ?)", id, viewer.user);
-    if (!r) throw new QuireError("That calendar doesn't exist, or it isn't yours", "not_found");
+    if (!r) throw new VaultError("That calendar doesn't exist, or it isn't yours", "not_found");
     return r;
   }
 
@@ -356,26 +356,26 @@ export class Calendar {
   async addIcs(input: { url: string; name?: string; color?: string }, viewer: Viewer, by: string): Promise<Source> {
     const url = feedUrl(input.url);
     const same = this.db.all<SourceRow>("SELECT * FROM sources WHERE kind = 'ics'").find((s) => (JSON.parse(s.config) as { url?: string }).url === url);
-    if (same) throw new QuireError(`That feed is already here, as "${same.name}"`, "exists", { id: same.id });
+    if (same) throw new VaultError(`That feed is already here, as "${same.name}"`, "exists", { id: same.id });
     return this.add("ics", null, { url }, new URL(url).hostname, input, viewer, by);
   }
 
   /** Add one of the viewer's Google calendars, for them alone, and read it once. */
   async addGoogle(input: { calendar: string; name?: string; color?: string; writeBack?: boolean; accessRole?: string }, viewer: Viewer, by: string): Promise<Source> {
-    if (!this.readers.google) throw new QuireError("Google Calendar isn't set up on this server");
+    if (!this.readers.google) throw new VaultError("Google Calendar isn't set up on this server");
     const calendar = input.calendar.trim();
-    if (!calendar || calendar.length > 500) throw new QuireError('"calendar" must be a Google calendar ID');
+    if (!calendar || calendar.length > 500) throw new VaultError('"calendar" must be a Google calendar ID');
     const same = this.db
       .all<SourceRow>("SELECT * FROM sources WHERE kind = 'google' AND owner = ?", viewer.user)
       .find((s) => (JSON.parse(s.config) as { calendar?: string }).calendar === calendar);
-    if (same) throw new QuireError(`That calendar is already here, as "${same.name}"`, "exists", { id: same.id });
+    if (same) throw new VaultError(`That calendar is already here, as "${same.name}"`, "exists", { id: same.id });
     const accessRole = ["owner", "writer", "reader", "freeBusyReader"].includes(input.accessRole ?? "") ? input.accessRole : undefined;
     return this.add("google", viewer.user, { calendar, writeBack: !!input.writeBack, accessRole }, "Google Calendar", input, viewer, by);
   }
 
   private async add(kind: SourceKind, owner: string | null, config: Record<string, unknown>, fallbackName: string, input: { name?: string; color?: string }, viewer: Viewer, by: string) {
     const all = this.db.all<SourceRow>("SELECT * FROM sources");
-    if (all.length >= MAX_SOURCES) throw new QuireError(`A workspace can have ${MAX_SOURCES} calendars; remove one first`);
+    if (all.length >= MAX_SOURCES) throw new VaultError(`A workspace can have ${MAX_SOURCES} calendars; remove one first`);
     const color = this.pickColor(input.color, all);
     const id = randomId(10);
     const name = cleanName(input.name) ?? fallbackName;
@@ -388,7 +388,7 @@ export class Calendar {
     const first = this.db.get<SourceRow>("SELECT * FROM sources WHERE id = ?", id);
     if (first?.status === "error") {
       this.drop(first);
-      throw new QuireError(first.error ?? "Couldn't read that calendar");
+      throw new VaultError(first.error ?? "Couldn't read that calendar");
     }
     return this.source(id, viewer);
   }
@@ -408,7 +408,7 @@ export class Calendar {
 
   private pickColor(asked: string | undefined, all: SourceRow[]): SourceColor {
     if (asked !== undefined) {
-      if (!(SOURCE_COLORS as readonly string[]).includes(asked)) throw new QuireError(`"color" must be one of ${SOURCE_COLORS.join(", ")}`);
+      if (!(SOURCE_COLORS as readonly string[]).includes(asked)) throw new VaultError(`"color" must be one of ${SOURCE_COLORS.join(", ")}`);
       return asked as SourceColor;
     }
     const used = new Set(all.map((s) => s.color));
@@ -420,11 +420,11 @@ export class Calendar {
     const r = this.row(id, viewer);
     this.mayChange(r, viewer);
     const name = patch.name === undefined ? r.name : cleanName(patch.name);
-    if (!name) throw new QuireError("Give the calendar a name");
+    if (!name) throw new VaultError("Give the calendar a name");
     const color = patch.color === undefined ? r.color : this.pickColor(patch.color, []);
     const config = JSON.parse(r.config) as Record<string, unknown>;
     if (patch.writeBack !== undefined) {
-      if (r.kind !== "google") throw new QuireError("Only Google calendars can have meeting notes linked back");
+      if (r.kind !== "google") throw new VaultError("Only Google calendars can have meeting notes linked back");
       config.writeBack = patch.writeBack;
     }
     this.db.run("UPDATE sources SET name = ?, color = ?, config = ? WHERE id = ?", name, color, JSON.stringify(config), id);
@@ -452,7 +452,7 @@ export class Calendar {
   }
 
   private mayChange(r: SourceRow, viewer: Viewer) {
-    if (r.owner === null ? !viewer.canEdit : r.owner !== viewer.user) throw new QuireError("You can't change that calendar", "forbidden");
+    if (r.owner === null ? !viewer.canEdit : r.owner !== viewer.user) throw new VaultError("You can't change that calendar", "forbidden");
   }
 
   // ---------------------------------------------------------------- syncing
@@ -618,7 +618,7 @@ export class Calendar {
   private target(source: string, viewer: Viewer, by: string): SourceRow {
     const r = source === "local" ? (viewer.canEdit ? this.local(by) : null) : this.row(source, viewer);
     if (!r || !this.writable(r, viewer)) {
-      throw new QuireError(r?.kind === "ics" ? "Events from a subscribed feed can't be changed here: change them where the feed comes from" : "You can't add events to that calendar", "forbidden");
+      throw new VaultError(r?.kind === "ics" ? "Events from a subscribed feed can't be changed here: change them where the feed comes from" : "You can't add events to that calendar", "forbidden");
     }
     return r;
   }
@@ -667,7 +667,7 @@ export class Calendar {
 
   private editable(id: string, viewer: Viewer, by: string) {
     const ev = this.event(id, viewer);
-    if (!ev) throw new QuireError("That event doesn't exist, or you can't see it", "not_found");
+    if (!ev) throw new VaultError("That event doesn't exist, or you can't see it", "not_found");
     const src = this.target(ev.source, viewer, by);
     const { uid, instance } = JSON.parse(this.db.get<{ data: string }>("SELECT data FROM external_items WHERE id = ?", id)!.data) as { uid?: string; instance?: string | null };
     return { src, ev, uid: uid ?? id, instance: instance ?? null };
@@ -677,7 +677,7 @@ export class Calendar {
   private async afterWrite(src: SourceRow, uid: string, instance: string | null, viewer: Viewer): Promise<CalendarEvent> {
     await this.sync(src.id);
     const found = this.event(await itemId(src.id, uid, instance), viewer);
-    if (!found) throw new QuireError("The calendar took the change, but it hasn't come back yet: refresh in a moment");
+    if (!found) throw new VaultError("The calendar took the change, but it hasn't come back yet: refresh in a moment");
     return found;
   }
 
@@ -699,16 +699,16 @@ export class Calendar {
    * from `Templates/Meeting note.md` (or a plain one), linked to the event. `timeZone` is the
    * reader's, for the times written in the note.
    */
-  meetingNote(quire: Quire, id: string, viewer: { user: string }, opts: { timeZone?: string; source: string }) {
+  meetingNote(vault: Vault, id: string, viewer: { user: string }, opts: { timeZone?: string; source: string }) {
     const ev = this.event(id, viewer);
-    if (!ev) throw new QuireError("That event doesn't exist, or you can't see it", "not_found");
+    if (!ev) throw new VaultError("That event doesn't exist, or you can't see it", "not_found");
     if (ev.note) return { path: ev.note.path, created: false as const };
     const zone = validZone(opts.timeZone);
     const when = describeWhen(ev, zone);
     const title = ev.title.replace(/[\\/:*?"<>|#^[\]]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "Meeting";
-    const rel = quire.freePath(`Meetings/${when.date} ${title}.md`);
-    const content = meetingTemplate(quire.files.read("Templates/Meeting note.md"), ev, when);
-    const r = quire.create(rel, content, opts.source);
+    const rel = vault.freePath(`Meetings/${when.date} ${title}.md`);
+    const content = meetingTemplate(vault.files.read("Templates/Meeting note.md"), ev, when);
+    const r = vault.create(rel, content, opts.source);
     const noteId = this.db.get<{ id: string }>("SELECT id FROM notes WHERE path = ?", r.path)?.id ?? null;
     this.db.run("UPDATE external_items SET note_id = ? WHERE id = ?", noteId, id);
     return { path: r.path, created: true as const, version: r.version, change: r.change, noteId };
@@ -753,7 +753,7 @@ function offsetAt(t: number, zone: string): number {
 /** `days` days from the start of `from` (default today) in `zone`, as milliseconds. */
 export function dayRange(from: string | undefined, days: number, zone: string): { from: number; to: number } {
   const day = from ?? new Intl.DateTimeFormat("en-CA", { timeZone: zone }).format(Date.now());
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Number.isNaN(Date.parse(day))) throw new QuireError(`"from" must be a day like 2026-10-01, not "${day}"`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Number.isNaN(Date.parse(day))) throw new VaultError(`"from" must be a day like 2026-10-01, not "${day}"`);
   const midnight = (d: number) => {
     const guess = d - offsetAt(d, zone);
     return d - offsetAt(guess, zone);
@@ -778,7 +778,7 @@ export function fmtEvents(events: CalendarEvent[], sources: Source[], zone: stri
 
 /** Calendars as text: name, where from, and how their last read went. */
 export function fmtSources(list: Source[]): string {
-  if (!list.length) return "No calendars. Subscribe to an ICS or webcal feed: quire calendars add <url>";
+  if (!list.length) return "No calendars. Subscribe to an ICS or webcal feed: commonink calendars add <url>";
   const ago = (t: number | null) => (t === null ? "never read" : `read ${new Date(t).toISOString().slice(0, 16).replace("T", " ")} UTC`);
   return list.map((s) => `${s.name} (${s.id}) · ${s.host ?? s.kind} · ${s.events} events · ${s.status === "error" ? `error: ${s.error}` : ago(s.syncedAt)}`).join("\n");
 }
@@ -815,28 +815,28 @@ async function atSource<T>(fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (e) {
-    throw e instanceof QuireError ? e : new QuireError(feedProblem(e));
+    throw e instanceof VaultError ? e : new VaultError(feedProblem(e));
   }
 }
 
 /** A draft as it's kept: times in one of the two shapes, the end after the start, text trimmed and capped. */
 function checkDraft(d: EventDraft): EventDraft {
   const title = (d.title ?? "").replace(/[\x00-\x1f\x7f]/g, " ").trim().slice(0, 500);
-  if (!title) throw new QuireError("Give the event a title");
+  if (!title) throw new VaultError("Give the event a title");
   const day = /^\d{4}-\d{2}-\d{2}$/;
   const time = (t: string, name: string) => {
     if (d.allDay) {
-      if (!day.test(t) || Number.isNaN(Date.parse(t))) throw new QuireError(`"${name}" must be a day like 2026-10-05 for an all-day event`);
+      if (!day.test(t) || Number.isNaN(Date.parse(t))) throw new VaultError(`"${name}" must be a day like 2026-10-05 for an all-day event`);
       return t;
     }
     const ms = Date.parse(t);
-    if (!/^\d{4}-\d{2}-\d{2}T/.test(t) || Number.isNaN(ms) || !/(Z|[+-]\d{2}:?\d{2})$/.test(t)) throw new QuireError(`"${name}" must be a time with its zone, like 2026-10-05T16:30:00Z`);
+    if (!/^\d{4}-\d{2}-\d{2}T/.test(t) || Number.isNaN(ms) || !/(Z|[+-]\d{2}:?\d{2})$/.test(t)) throw new VaultError(`"${name}" must be a time with its zone, like 2026-10-05T16:30:00Z`);
     return new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
   };
   const start = time(d.start, "start");
   const end = time(d.end, "end");
-  if (msOf(end) <= msOf(start)) throw new QuireError("An event has to end after it starts");
-  if (msOf(end) - msOf(start) > 366 * DAY) throw new QuireError("An event can last a year at most");
+  if (msOf(end) <= msOf(start)) throw new VaultError("An event has to end after it starts");
+  if (msOf(end) - msOf(start) > 366 * DAY) throw new VaultError("An event can last a year at most");
   const text = (s: string | null | undefined, cap: number) => (s ?? "").trim().slice(0, cap) || null;
   const attendees = (d.attendees ?? []).slice(0, 100).flatMap((a) => {
     const email = typeof a?.email === "string" && /^[^\s@]+@[^\s@]+$/.test(a.email.trim()) ? a.email.trim().toLowerCase() : null;

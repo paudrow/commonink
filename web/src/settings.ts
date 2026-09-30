@@ -44,7 +44,7 @@ export interface SettingsApp {
   setVim(on: boolean): void;
   vimDisplayLines: boolean;
   setVimDisplayLines(on: boolean): void;
-  /** Locally, where the vault and the `quire` command are, for the agent setup; online, null. */
+  /** Locally, where the vault and the `commonink` command are, for the agent setup; online, null. */
   localVault: { vault?: string; projectRoot?: string } | null;
   shortcuts(): void;
   connectAgent(): void;

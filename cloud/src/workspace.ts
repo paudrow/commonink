@@ -4,11 +4,11 @@
 // checks the role again against the same table, so a slip in the Worker can't open a route.
 import { DurableObject } from "cloudflare:workers";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { Quire } from "../../src/core/quire.ts";
+import { Vault } from "../../src/core/vault.ts";
 import { migrate } from "../../src/core/store.ts";
 import { errorResponse, handleApi, json, type ApiHost } from "../../src/core/api.ts";
-import { cleanPath, fileSecurityHeaders, kindOf, MAX_UPLOAD, mimeOf, QuireError } from "../../src/core/paths.ts";
-import type { Change } from "../../src/core/quire.ts";
+import { cleanPath, fileSecurityHeaders, kindOf, MAX_UPLOAD, mimeOf, VaultError } from "../../src/core/paths.ts";
+import type { Change } from "../../src/core/vault.ts";
 import { createMcpServer } from "../../src/core/tools.ts";
 import { COMMANDS, UsageError, type VaultBytes } from "../../src/core/commands/index.ts";
 import type { RunResponse } from "../../src/core/commands/wire.ts";
@@ -35,7 +35,7 @@ const MAX_NOTE_BYTES = 1_900_000;
 export class Workspace extends DurableObject<Env> {
   private db: DoDb;
   private files: SqlContent;
-  private quire: Quire;
+  private vault: Vault;
   private registering: Promise<void> | null = null;
   private calendar: Calendar;
   /** Where this app is ("https://commonink.app"), from the last request: feeds may not point back at it, and links written to Google use it. */
@@ -50,10 +50,10 @@ export class Workspace extends DurableObject<Env> {
     db.exec("CREATE TABLE IF NOT EXISTS registered_ids(id TEXT PRIMARY KEY)");
     // An upload's bytes go from R2 once it's deleted for good.
     this.files = new SqlContent(db, (key) => ctx.waitUntil(env.FILES.delete(key)));
-    this.quire = new Quire(db, this.files, { maxNoteBytes: MAX_NOTE_BYTES });
+    this.vault = new Vault(db, this.files, { maxNoteBytes: MAX_NOTE_BYTES });
     // Notes only change through the core here, so this finds nothing to do, except after an
     // upgrade that asks for notes to be indexed again (tags, say).
-    this.quire.sync();
+    this.vault.sync();
     // Calendar feeds come from public hosts only, as link previews do.
     this.calendar = new Calendar(
       db,
@@ -110,8 +110,8 @@ export class Workspace extends DurableObject<Env> {
         const owner = new Map(results.map((r) => [r.id, r.workspace_id]));
         for (const id of chunk) {
           if (owner.get(id) === wsId) this.db.run("INSERT OR IGNORE INTO registered_ids(id) VALUES (?)", id);
-          else if (owner.has(id) && this.quire.pathOf(id)) {
-            this.quire.reassignId(id);
+          else if (owner.has(id) && this.vault.pathOf(id)) {
+            this.vault.reassignId(id);
             reassigned = true;
           }
         }
@@ -148,13 +148,13 @@ export class Workspace extends DurableObject<Env> {
       return this.upload(req, url, wsId, decodeURIComponent(req.headers.get("x-ci-actor") ?? "someone"));
     }
     if (route === "/file-resolve") {
-      const rel = this.quire.resolve(url.searchParams.get("target") ?? "", url.searchParams.get("from") ?? undefined);
+      const rel = this.vault.resolve(url.searchParams.get("target") ?? "", url.searchParams.get("from") ?? undefined);
       if (!rel || kindOf(rel) !== "asset") return json({ error: "Not found" }, 404);
       return new Response(null, { status: 302, headers: { Location: `${base}/files/${rel.split("/").map(encodeURIComponent).join("/")}` } });
     }
 
     const host: ApiHost = {
-      quire: this.quire,
+      vault: this.vault,
       actor: decodeURIComponent(req.headers.get("x-ci-actor") ?? "someone"),
       user,
       canEditShared: ["owner", "editor"].includes(req.headers.get("x-ci-role") ?? ""), // an unknown or missing role can't
@@ -203,8 +203,8 @@ export class Workspace extends DurableObject<Env> {
       await this.env.FILES.put(key, text, { httpMetadata: { contentType: mime } });
       this.files.putBlob(rel, key, new TextEncoder().encode(text).length, mime);
     }
-    for (const [rel, text] of Object.entries(SEED_NOTES)) this.quire.create(rel, text, "Common Ink");
-    this.quire.sync();
+    for (const [rel, text] of Object.entries(SEED_NOTES)) this.vault.create(rel, text, "Common Ink");
+    this.vault.sync();
   }
 
   /** Store an uploaded file in R2 and list it in this workspace (assets/ by default, under a free name). */
@@ -214,7 +214,7 @@ export class Workspace extends DurableObject<Env> {
       const folder = url.searchParams.get("folder") ?? "assets";
       const body = await req.arrayBuffer();
       if (body.byteLength > MAX_UPLOAD) return json({ error: "That file is over 50 MB" }, 413);
-      const { rel, r } = await this.storeFile(wsId, this.quire.uploadPath(name, folder), new Uint8Array(body), actor, () => this.quire.uploadPath(name, folder));
+      const { rel, r } = await this.storeFile(wsId, this.vault.uploadPath(name, folder), new Uint8Array(body), actor, () => this.vault.uploadPath(name, folder));
       this.announce(rel, null, r.version, r.change);
       this.broadcast({ type: "tree" });
       return json({ path: rel, version: r.version, size: r.size });
@@ -230,7 +230,7 @@ export class Workspace extends DurableObject<Env> {
     await this.env.FILES.put(key, bytes, { httpMetadata: { contentType: mime } });
     if (this.files.stat(rel)) rel = again();
     this.files.putBlob(rel, key, bytes.byteLength, mime);
-    return { rel, r: this.quire.recordUpload(rel, false, source) };
+    return { rel, r: this.vault.recordUpload(rel, false, source) };
   }
 
   /** Files' bytes for commands that move them (the CLI's upload and download): assets from R2, notes as text. */
@@ -246,7 +246,7 @@ export class Workspace extends DurableObject<Env> {
         return text === null ? null : new TextEncoder().encode(text);
       },
       add: async (rel, bytes, source) => {
-        if (bytes.byteLength > MAX_UPLOAD) throw new QuireError(`${rel} is over 50 MB`);
+        if (bytes.byteLength > MAX_UPLOAD) throw new VaultError(`${rel} is over 50 MB`);
         await this.storeFile(wsId, rel, bytes, source);
       },
     };
@@ -284,8 +284,8 @@ export class Workspace extends DurableObject<Env> {
 
   /** A note's meta and the role this request has on it; null for no note and for no access alike. */
   private visibleNote(access: SharedAccess, id: string | null | undefined) {
-    const path = id ? this.quire.pathOf(id) : null;
-    const meta = path ? this.quire.meta(path) : null;
+    const path = id ? this.vault.pathOf(id) : null;
+    const meta = path ? this.vault.meta(path) : null;
     const role = meta ? accessOn(access, meta) : null;
     return meta && role ? { meta, role } : null;
   }
@@ -313,7 +313,7 @@ export class Workspace extends DurableObject<Env> {
       }
       if (route.startsWith("/files/") && req.method === "GET") {
         const rel = cleanPath(safeDecode(route.slice("/files/".length)));
-        const meta = this.quire.meta(rel);
+        const meta = this.vault.meta(rel);
         return meta && accessOn(access, meta) ? this.serveFile(rel) : notFound();
       }
       switch (`${req.method} ${route}`) {
@@ -331,7 +331,7 @@ export class Workspace extends DurableObject<Env> {
           if (hit.role !== "editor") return json({ error: "You can view this note but not edit it" }, 403);
           if (typeof b.content !== "string") return json({ error: '"content" must be a string' }, 400);
           const actor = decodeURIComponent(req.headers.get("x-ci-actor") ?? "someone");
-          const r = this.quire.save(hit.meta.path, b.content, { baseVersion: typeof b.baseVersion === "string" ? b.baseVersion : undefined, source: actor });
+          const r = this.vault.save(hit.meta.path, b.content, { baseVersion: typeof b.baseVersion === "string" ? b.baseVersion : undefined, source: actor });
           if (r.change) this.announce(hit.meta.path, b.content, r.version, r.change);
           return json({ version: r.version });
         }
@@ -340,8 +340,8 @@ export class Workspace extends DurableObject<Env> {
         case "GET /file-resolve": {
           const from = this.visibleNote(access, q("from"));
           if (!from) return notFound();
-          const rel = this.quire.resolve(q("target"), from.meta.path);
-          const meta = rel ? this.quire.meta(rel) : null;
+          const rel = this.vault.resolve(q("target"), from.meta.path);
+          const meta = rel ? this.vault.meta(rel) : null;
           const role = meta ? accessOn(access, meta) : null;
           if (route === "/file-resolve") {
             if (!meta || !role || meta.kind !== "asset") return notFound();
@@ -358,7 +358,7 @@ export class Workspace extends DurableObject<Env> {
 
   /** Every note these grants reach (or everything, for a member), by title. */
   sharedList(access: SharedAccess) {
-    return this.quire
+    return this.vault
       .list(undefined, "all")
       .flatMap((m) => {
         const role = accessOn(access, m);
@@ -407,7 +407,7 @@ export class Workspace extends DurableObject<Env> {
 
   /** Every member's agent follows AGENTS.md, so no one outside the workspace may edit it. */
   private refuseEditingAgentsNote(target: Target, role: ShareRole | undefined) {
-    if (role === "editor" && target.note && this.quire.pathOf(target.note) === AGENTS_NOTE) {
+    if (role === "editor" && target.note && this.vault.pathOf(target.note) === AGENTS_NOTE) {
       throw new ShareError(`${AGENTS_NOTE} can't be shared for editing: every connected agent follows it. Share it as a viewer.`);
     }
   }
@@ -420,8 +420,8 @@ export class Workspace extends DurableObject<Env> {
       if (optional) return undefined;
       throw new ShareError("Say which note (or folder) to share");
     }
-    const rel = this.quire.pathOf(target) ?? this.quire.resolve(target);
-    const id = rel ? this.quire.meta(rel)?.id : null;
+    const rel = this.vault.pathOf(target) ?? this.vault.resolve(target);
+    const id = rel ? this.vault.meta(rel)?.id : null;
     if (!id) throw new ShareError(`No note matches "${target}"`, 404);
     return { note: id };
   }
@@ -441,9 +441,9 @@ export class Workspace extends DurableObject<Env> {
       try {
         return await fn();
       } catch (e) {
-        if (e instanceof ShareError) throw new QuireError(e.message, ({ 403: "forbidden", 404: "not_found", 409: "conflict" } as const)[e.status as 403] ?? "invalid");
-        if (e instanceof QuireError) throw e;
-        throw new QuireError((e as Error).message);
+        if (e instanceof ShareError) throw new VaultError(e.message, ({ 403: "forbidden", 404: "not_found", 409: "conflict" } as const)[e.status as 403] ?? "invalid");
+        if (e instanceof VaultError) throw e;
+        throw new VaultError((e as Error).message);
       }
     };
     return {
@@ -480,7 +480,7 @@ export class Workspace extends DurableObject<Env> {
    */
   private async describeShares(wsId: string, target: Target | undefined, withUrls: boolean) {
     const all = await listShares(this.env.DB, wsId);
-    const path = target?.note ? this.quire.pathOf(target.note) : null;
+    const path = target?.note ? this.vault.pathOf(target.note) : null;
     const direct = target ? all.filter((s) => (target.note ? s.note === target.note : s.folder === target.folder)) : all;
     const inherited = path ? all.filter((s) => s.folder && path.startsWith(`${s.folder}/`)) : [];
     const withLinks = async (list: Share[]) =>
@@ -505,7 +505,7 @@ export class Workspace extends DurableObject<Env> {
   private mayHear(share: SharedAccess, msg: Record<string, unknown>) {
     if (msg.type === "tree") return true; // says only that something changed
     const path = (msg.type === "change" ? (msg.change as Change | undefined)?.path : msg.path) as string | undefined;
-    const meta = path ? this.quire.meta(path) : null;
+    const meta = path ? this.vault.meta(path) : null;
     return !!meta && !!accessOn(share, meta);
   }
 
@@ -530,7 +530,7 @@ export class Workspace extends DurableObject<Env> {
   async mcp(req: Request, who: { workspace: string; user: string; actor: string; role: string; timeZone: string }): Promise<Response> {
     const role = asRole(who.role);
     const server = createMcpServer({
-      quire: new Quire(this.db, this.files, { maxNoteBytes: MAX_NOTE_BYTES, timeZone: who.timeZone }),
+      vault: new Vault(this.db, this.files, { maxNoteBytes: MAX_NOTE_BYTES, timeZone: who.timeZone }),
       user: who.user,
       source: () => who.actor,
       may: (route) => access(role, ...(route.split(" ") as [string, string])) === "allowed",
@@ -540,7 +540,7 @@ export class Workspace extends DurableObject<Env> {
       calendar: this.calendar,
       origin: new URL(req.url).origin,
       // Markdown and .zip; a web page and Word are drawn by the app (Share → Export as).
-      exporter: coreExporter({ quire: this.quire, bytes: (rel) => this.fileBytes(rel), origin: new URL(req.url).origin }),
+      exporter: coreExporter({ vault: this.vault, bytes: (rel) => this.fileBytes(rel), origin: new URL(req.url).origin }),
     });
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await server.connect(transport);
@@ -555,14 +555,14 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * One command from someone's CLI (`quire login`; see COMMANDS). The Worker has checked their token,
+   * One command from someone's CLI (`commonink login`; see COMMANDS). The Worker has checked their token,
    * that they're a member and that their role allows the command's route; the role is checked again
    * here, as for every route. Open tabs hear about its changes like any other.
    */
   async runCommand(name: string, input: Record<string, unknown>, who: { workspace: string; user: string; actor: string; role: string; timeZone: string; origin?: string }): Promise<RunResponse> {
     const command = COMMANDS.find((c) => c.cli === name);
     // The Worker runs settings commands itself (cloud/src/cli.ts): they aren't in a workspace's notes.
-    if (!command || command.settings) return { ok: false, error: `No command "${name}" here: see quire help`, code: "usage" };
+    if (!command || command.settings) return { ok: false, error: `No command "${name}" here: see commonink help`, code: "usage" };
     const role = asRole(who.role);
     if (access(role, ...(command.route.split(" ") as [string, string])) !== "allowed") {
       return { ok: false, error: role === "viewer" ? "You can view this workspace but not edit it" : "Only the workspace's owner can do that", code: "forbidden" };
@@ -570,10 +570,10 @@ export class Workspace extends DurableObject<Env> {
     const last = this.lastChange();
     try {
       // Its "today" is a day in the person's time zone, as an agent's is.
-      const quire = new Quire(this.db, this.files, { maxNoteBytes: MAX_NOTE_BYTES, timeZone: who.timeZone });
-      if (command.readOnly) quire.sync();
+      const vault = new Vault(this.db, this.files, { maxNoteBytes: MAX_NOTE_BYTES, timeZone: who.timeZone });
+      if (command.readOnly) vault.sync();
       const host = {
-        quire,
+        vault,
         user: who.user,
         source: who.actor,
         canEditShared: role === "owner" || role === "editor",
@@ -584,11 +584,11 @@ export class Workspace extends DurableObject<Env> {
         // As an agent's: a command can't tell a person from an agent, so the workspace's agent setting holds.
         sharing: who.origin ? this.agentSharing(who.workspace, who.user, who.origin, role === "owner" || role === "editor") : undefined,
         // Markdown and .zip, as over MCP; a web page and Word are drawn by the app (Share → Export as).
-        exporter: who.origin ? coreExporter({ quire, bytes: (rel) => this.fileBytes(rel), origin: who.origin }) : undefined,
+        exporter: who.origin ? coreExporter({ vault, bytes: (rel) => this.fileBytes(rel), origin: who.origin }) : undefined,
       };
       return { ok: true, ...(await command.run(host, input as never)) };
     } catch (e) {
-      if (e instanceof QuireError) return { ok: false, error: e.message, code: e.code };
+      if (e instanceof VaultError) return { ok: false, error: e.message, code: e.code };
       if (e instanceof UsageError) return { ok: false, error: e.message, code: "usage" };
       throw e;
     } finally {
@@ -597,11 +597,11 @@ export class Workspace extends DurableObject<Env> {
     }
   }
 
-  private lastChange = () => this.quire.changes({ limit: 1 })[0]?.id ?? 0;
+  private lastChange = () => this.vault.changes({ limit: 1 })[0]?.id ?? 0;
 
   /** Tell open tabs about every change since change `last`: what an agent or a CLI did in one go. */
   private announceSince(last: number) {
-    const made = this.quire.changes({ since: last, limit: 500 }).reverse();
+    const made = this.vault.changes({ since: last, limit: 500 }).reverse();
     for (const c of made) {
       if (c.from_path && c.from_path !== c.path) this.broadcast({ type: "removed", path: c.from_path });
       // Sent to Trash: a tab with it open says so, as when it's deleted in the app.
@@ -653,7 +653,7 @@ export class Workspace extends DurableObject<Env> {
 /** A share request's error as a response: ShareError has its own status; anything else is a plain 500. */
 function shareErrorResponse(e: unknown): Response {
   if (e instanceof ShareError) return json({ error: e.message }, e.status);
-  if (e instanceof QuireError) return errorResponse(e);
+  if (e instanceof VaultError) return errorResponse(e);
   console.error(e);
   return json({ error: "Internal error" }, 500);
 }

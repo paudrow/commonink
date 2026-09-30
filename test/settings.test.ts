@@ -69,7 +69,7 @@ test("the dialog: labelled controls, search as you type, changes that apply at o
     assert.ok(label?.textContent, `${control.id} has a label`);
     assert.ok(document.getElementById(control.getAttribute("aria-describedby")!)?.textContent, `${control.id} has a description`);
   }
-  assert.ok(dialog.textContent!.includes("claude mcp add quire -e QUIRE_VAULT=/notes -- /code/commonink/bin/quire mcp"));
+  assert.ok(dialog.textContent!.includes("claude mcp add commonink -e COMMONINK_VAULT=/notes -- /code/commonink/bin/commonink mcp"));
 
   search.value = "line";
   search.dispatchEvent(new window.Event("input"));

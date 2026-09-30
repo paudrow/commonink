@@ -1,7 +1,7 @@
 // Runtime state for widgets, keyed by the widget's id. Lives in localStorage so a running timer
 // survives scrolling it out of view, switching notes and reloads, and stays in sync across tabs.
 
-const PREFIX = "quire.w.";
+const PREFIX = "commonink.w.";
 const listeners = new Map<string, Set<() => void>>();
 
 export function loadState<T>(id: string): T | null {

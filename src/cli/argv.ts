@@ -6,9 +6,9 @@ import { COMMANDS, UsageError, type ArgSpec, type Command, type LocalFile } from
 /** Flags every command takes. `value` ones take the next word. */
 export const GLOBAL_FLAGS = {
   json: { value: false, describe: "Print the result (or the error) as JSON on stdout" },
-  agent: { value: true, describe: 'Who is writing, if an agent: History shows "<agent> for you" (or $QUIRE_AGENT)' },
+  agent: { value: true, describe: 'Who is writing, if an agent: History shows "<agent> for you" (or $COMMONINK_AGENT)' },
   as: { value: true, describe: "Same as --agent (older spelling)" },
-  workspace: { value: true, describe: "A hosted workspace (its name or ID) after quire login, or local for this computer's vault (or $QUIRE_WORKSPACE)" },
+  workspace: { value: true, describe: "A hosted workspace (its name or ID) after commonink login, or local for this computer's vault (or $COMMONINK_WORKSPACE)" },
   help: { value: false, describe: "This command's help" },
 } as const;
 
@@ -16,7 +16,7 @@ export const GLOBAL_FLAGS = {
 export const ALIASES: Record<string, { to: string; set: Record<string, unknown> }> = {
   starred: { to: "ls", set: { starred: true } },
 };
-/** A group's words followed by something that isn't one of its commands: `quire task Roadmap 8 --done`. */
+/** A group's words followed by something that isn't one of its commands: `commonink task Roadmap 8 --done`. */
 export const GROUP_DEFAULTS: Record<string, string> = { task: "task update" };
 /**
  * A command that stands for another when it's given one of that one's own flags:
@@ -169,7 +169,7 @@ export function parse(argv: string[], io: Io): Parsed | { help: string[] } | nul
     const hit = args.find(([name, a]) => flagOf(name, a) === flag || a.aliases?.includes(flag));
     const preset = args.find(([, a]) => a.presets && flag in a.presets);
     if (preset) input[preset[0]] = preset[1].presets![flag];
-    else if (!hit) throw new UsageError(`${command.cli} has no --${flag}: see quire help ${command.cli}`);
+    else if (!hit) throw new UsageError(`${command.cli} has no --${flag}: see commonink help ${command.cli}`);
     else if (hit[1].kind === "boolean") input[hit[0]] = true;
     else if (hit[1].kind === "pairs") input[hit[0]] = { ...(input[hit[0]] as object), ...(convert(hit[0], hit[1], String(value), "flag", io) as object) };
     else input[hit[0]] = convert(hit[0], hit[1], String(value), "flag", io);
@@ -195,7 +195,7 @@ export function parse(argv: string[], io: Io): Parsed | { help: string[] } | nul
   }
   for (const [name, a] of args) {
     if (input[name] !== undefined || !cliRequired(a)) continue;
-    // A piped-in body is the content when it's left out: `… | quire create Log`.
+    // A piped-in body is the content when it's left out: `… | commonink create Log`.
     const piped = a.stdin ? io.stdin() : null;
     if (piped !== null) {
       input[name] = piped;

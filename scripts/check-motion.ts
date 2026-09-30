@@ -34,12 +34,12 @@ function playwright(): any {
   throw new Error("playwright-core not found: set PLAYWRIGHT_CORE, or run `npx playwright-core --version` once");
 }
 
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), "quire-motion-"));
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), "commonink-motion-"));
 for (const [f, t] of Object.entries(MOTION_NOTES)) fs.writeFileSync(path.join(dir, f), `${t}\n`);
 const port = 5300 + Math.floor(Math.random() * 400);
 const server = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", "--import", "tsx", "src/server/main.ts"], {
   cwd: ROOT,
-  env: { ...process.env, QUIRE_VAULT: dir, PORT: String(port) },
+  env: { ...process.env, COMMONINK_VAULT: dir, PORT: String(port) },
   stdio: ["ignore", "pipe", "inherit"],
 });
 await new Promise<void>((r) => server.stdout.on("data", (d: Buffer) => d.toString().includes("localhost:") && r()));
@@ -54,7 +54,7 @@ try {
     for (const [mode, down, up] of [["vim", "j", "k"], ["arrows", "ArrowDown", "ArrowUp"]]) {
       // Vim keys on for j/k, off for the arrows (as in any editor); the app remembers the choice here.
       await p.goto(`http://localhost:${port}/`);
-      await p.evaluate(`localStorage.setItem("quire.vim", "${mode === "vim"}")`);
+      await p.evaluate(`localStorage.setItem("commonink.vim", "${mode === "vim"}")`);
       await p.goto(`http://localhost:${port}/notes/x-${ids.get(note)}`);
       await p.locator("#editor-host .cm-content").waitFor();
       await p.waitForTimeout(1200); // widgets drawn and measured

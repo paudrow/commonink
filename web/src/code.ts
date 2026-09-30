@@ -5,7 +5,7 @@
 import type { Language, LanguageDescription } from "@codemirror/language";
 import { highlightTree, tagHighlighter, tags as t, type Highlighter } from "@lezer/highlight";
 import { el, icon } from "./dom.ts";
-import { quireHighlight } from "./editor/language.ts";
+import { commonInkHighlight } from "./editor/language.ts";
 import { codeLanguage, languageNames, shortName } from "./codeLanguage.ts";
 import { diffLine, parseFence, setFenceLang, toggleWrap, wraps, type Fence } from "../../src/core/fence.ts";
 
@@ -33,7 +33,7 @@ export const staticHighlight = tagHighlighter([
 ]);
 
 /** The code in lines of highlighted runs, in `lang`'s grammar; plain lines when there's none. */
-export async function highlight(code: string, lang: string, style: Highlighter = quireHighlight): Promise<CodeLine[]> {
+export async function highlight(code: string, lang: string, style: Highlighter = commonInkHighlight): Promise<CodeLine[]> {
   const desc = codeLanguage(lang);
   if (!desc) return plainLines(code);
   let pending = loading.get(desc);
@@ -73,14 +73,14 @@ export interface CodeActions {
 /** Read and write the reader's default for blocks that don't say: wrap long lines, or scroll. */
 export const codeWrapByDefault = () => {
   try {
-    return localStorage.getItem("quire.codeNowrap") !== "true";
+    return localStorage.getItem("commonink.codeNowrap") !== "true";
   } catch {
     return true;
   }
 };
 export function setCodeWrapByDefault(wrap: boolean) {
   try {
-    localStorage.setItem("quire.codeNowrap", String(!wrap));
+    localStorage.setItem("commonink.codeNowrap", String(!wrap));
   } catch {}
 }
 

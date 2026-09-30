@@ -98,4 +98,4 @@ Today's journal note (Tasks → Today), quick-add's journal, quick capture, and 
 
 ## For agents
 
-`list_templates` lists the templates and what each asks; `create_from_template` makes a note, with `variables` answering its questions by label (plain text, written as given). The reply says what's still unfilled. On the command line: `quire templates`, and `quire new --template Meeting --var Client=Acme --var "Attendees=@Sam @Lee"`.
+`list_templates` lists the templates and what each asks; `create_from_template` makes a note, with `variables` answering its questions by label (plain text, written as given). The reply says what's still unfilled. On the command line: `commonink templates`, and `commonink new --template Meeting --var Client=Acme --var "Attendees=@Sam @Lee"`.

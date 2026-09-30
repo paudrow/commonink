@@ -4,7 +4,7 @@
 import type { Output } from "./types.ts";
 
 /**
- * Where the CLI sends commands for a hosted workspace, with a bearer token from `quire login`. It's
+ * Where the CLI sends commands for a hosted workspace, with a bearer token from `commonink login`. It's
  * under /mcp, the resource agents sign in to, so one sign-in (and one OAuth resource) covers both.
  */
 export const CLI_ROUTE = "/mcp/cli";

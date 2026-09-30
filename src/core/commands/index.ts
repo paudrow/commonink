@@ -1,4 +1,4 @@
-// Every command, in the order `quire help` lists them. The CLI (src/cli.ts) and the MCP server
+// Every command, in the order `commonink help` lists them. The CLI (src/cli.ts) and the MCP server
 // (src/core/tools.ts) are both made from this list, so a feature is reachable from both or it says
 // why not (`mcp: { none }`); test/parity.test.ts fails otherwise.
 //
@@ -58,7 +58,7 @@ export const APP_ONLY: Readonly<Record<string, string>> = {
   "POST /calendar/events/delete": "making, changing and deleting events is the Calendar page's, for now",
   "POST /calendar/sources/update": "a calendar's name and color are the Calendar page's",
   "GET /asset-tags": "tags and ls --tag show what an asset is tagged with",
-  "GET /favorites": "ls --starred (quire starred) lists them",
+  "GET /favorites": "ls --starred (commonink starred) lists them",
   "GET /guide": "the welcome guide in the app",
   "POST /guide": "the welcome guide in the app",
   "GET /live": "the app's live connection",

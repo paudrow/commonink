@@ -38,46 +38,46 @@ test("the people @ can name: contacts and members, one person when their emails 
   assert.equal(preferredHandle(two.find((p) => p.name === "Sam Lee")!), "Sam-Lee");
 });
 
-const vault = () => {
+const freshVault = () => {
   const v = openTempVault({ "People/Jane Doe.md": "---\nemail: jane@acme.com\naliases: [JD]\n---\n# Jane Doe\n" });
-  const { quire } = v;
-  quire.create("Audrow's plan.md", "# Plan\n\n- [ ] Draft the brief @Sam\n- [ ] Review it @JD\n- [ ] Book the room @Audrow\n- [ ] Unassigned\n", "Audrow Nash");
-  quire.create("Sam's list.md", "# Sam\n\n- [ ] Send the invoice @Jane-Doe\n- [ ] Fix the build @sam-dev\n", "Sam Dev");
-  quire.create("Private/Salaries.md", "# Salaries\n\n- [ ] Raise for @Sam\n", "Audrow Nash");
-  quire.create("Home.md", "- [ ] Water plants @me\n", "you");
+  const { vault } = v;
+  vault.create("Audrow's plan.md", "# Plan\n\n- [ ] Draft the brief @Sam\n- [ ] Review it @JD\n- [ ] Book the room @Audrow\n- [ ] Unassigned\n", "Audrow Nash");
+  vault.create("Sam's list.md", "# Sam\n\n- [ ] Send the invoice @Jane-Doe\n- [ ] Fix the build @sam-dev\n", "Sam Dev");
+  vault.create("Private/Salaries.md", "# Salaries\n\n- [ ] Raise for @Sam\n", "Audrow Nash");
+  vault.create("Home.md", "- [ ] Water plants @me\n", "you");
   return v;
 };
 const texts = (tasks: Array<{ text: string }>) => tasks.map((t) => t.text);
 
 test("assigned to me: the reader's tasks in anyone's notes, by any name that's theirs", () => {
-  const { quire } = vault();
+  const { vault } = freshVault();
   const sam = { user: "u2", person: "Sam Dev", members: MEMBERS };
-  assert.deepEqual(texts(quire.tasksFor(sam, { assignee: "me" })), ["Draft the brief @Sam", "Raise for @Sam", "Fix the build @sam-dev"]);
+  assert.deepEqual(texts(vault.tasksFor(sam, { assignee: "me" })), ["Draft the brief @Sam", "Raise for @Sam", "Fix the build @sam-dev"]);
   // Naming someone finds every way they're written.
-  assert.deepEqual(texts(quire.tasksFor(sam, { assignee: "jane" })), ["Review it @JD", "Send the invoice @Jane-Doe"]);
+  assert.deepEqual(texts(vault.tasksFor(sam, { assignee: "jane" })), ["Review it @JD", "Send the invoice @Jane-Doe"]);
   // A name that's no one's is matched as written.
-  assert.deepEqual(texts(quire.tasksFor(sam, { assignee: "bob" })), []);
+  assert.deepEqual(texts(vault.tasksFor(sam, { assignee: "bob" })), []);
   // Locally there are no accounts: @me is you.
-  assert.deepEqual(texts(quire.tasksFor({ user: "you", person: "you", members: [] }, { assignee: "me" })), ["Water plants @me"]);
+  assert.deepEqual(texts(vault.tasksFor({ user: "you", person: "you", members: [] }, { assignee: "me" })), ["Water plants @me"]);
   // Online, @me names no one (every reader would be "me").
-  assert.deepEqual(texts(quire.tasksFor(sam, { assignee: "@me" })), ["Water plants @me"]);
+  assert.deepEqual(texts(vault.tasksFor(sam, { assignee: "@me" })), ["Water plants @me"]);
 });
 
 test("assigned by me: tasks in notes I made, given to someone other than me", () => {
-  const { quire } = vault();
+  const { vault } = freshVault();
   const audrow = { user: "u3", person: "Audrow Nash", members: MEMBERS };
-  assert.deepEqual(texts(quire.tasksFor(audrow, { by: "me" })), ["Draft the brief @Sam", "Review it @JD", "Raise for @Sam"]);
+  assert.deepEqual(texts(vault.tasksFor(audrow, { by: "me" })), ["Draft the brief @Sam", "Review it @JD", "Raise for @Sam"]);
   const sam = { user: "u2", person: "Sam Dev", members: MEMBERS };
-  assert.deepEqual(texts(quire.tasksFor(sam, { by: "me" })), ["Send the invoice @Jane-Doe"]);
+  assert.deepEqual(texts(vault.tasksFor(sam, { by: "me" })), ["Send the invoice @Jane-Doe"]);
   // Both at once: what I gave them, narrowed to one person.
-  assert.deepEqual(texts(quire.tasksFor(audrow, { by: "me", assignee: "sam" })), ["Draft the brief @Sam", "Raise for @Sam"]);
+  assert.deepEqual(texts(vault.tasksFor(audrow, { by: "me", assignee: "sam" })), ["Draft the brief @Sam", "Raise for @Sam"]);
 });
 
 test("only notes the reader may read: one check, canRead, that per-note sharing can fill in", () => {
-  const { quire } = vault();
+  const { vault } = freshVault();
   const sam = { user: "u2", person: "Sam Dev", members: MEMBERS };
-  assert.equal(quire.canRead("u2", "Private/Salaries.md"), true, "everyone in a workspace reads every note, for now");
-  quire.canRead = (user, path) => !(path.startsWith("Private/") && user !== "u3");
-  assert.deepEqual(texts(quire.tasksFor(sam, { assignee: "me" })), ["Draft the brief @Sam", "Fix the build @sam-dev"]);
-  assert.deepEqual(texts(quire.tasksFor({ user: "u3", person: "Audrow Nash", members: MEMBERS }, { assignee: "sam" })), ["Draft the brief @Sam", "Raise for @Sam", "Fix the build @sam-dev"]);
+  assert.equal(vault.canRead("u2", "Private/Salaries.md"), true, "everyone in a workspace reads every note, for now");
+  vault.canRead = (user, path) => !(path.startsWith("Private/") && user !== "u3");
+  assert.deepEqual(texts(vault.tasksFor(sam, { assignee: "me" })), ["Draft the brief @Sam", "Fix the build @sam-dev"]);
+  assert.deepEqual(texts(vault.tasksFor({ user: "u3", person: "Audrow Nash", members: MEMBERS }, { assignee: "sam" })), ["Draft the brief @Sam", "Raise for @Sam", "Fix the build @sam-dev"]);
 });

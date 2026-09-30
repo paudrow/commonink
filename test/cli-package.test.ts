@@ -9,12 +9,12 @@ import { build } from "vite";
 import { tempVault } from "./helpers.ts";
 
 test("the bundled CLI runs outside the project with no node_modules, and says its version", async () => {
-  const out = fs.mkdtempSync(path.join(os.tmpdir(), "quire-bundle-"));
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), "commonink-bundle-"));
   await build({ configFile: path.resolve(import.meta.dirname, "../cli/vite.config.ts"), logLevel: "silent", build: { outDir: out } });
-  const bin = path.join(out, "quire.mjs");
+  const bin = path.join(out, "commonink.mjs");
   assert.match(fs.readFileSync(bin, "utf8").split("\n")[0], /^#!\/usr\/bin\/env -S node /);
   const vault = tempVault();
-  const run = (args: string[]) => spawnSync(process.execPath, ["--disable-warning=ExperimentalWarning", bin, ...args], { cwd: out, env: { ...process.env, QUIRE_VAULT: vault }, encoding: "utf8" });
+  const run = (args: string[]) => spawnSync(process.execPath, ["--disable-warning=ExperimentalWarning", bin, ...args], { cwd: out, env: { ...process.env, COMMONINK_VAULT: vault }, encoding: "utf8" });
   const pkg = JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, "../cli/package.json"), "utf8"));
   assert.equal(run(["version"]).stdout, `${pkg.version}\n`);
   assert.equal(run(["tasks"]).stdout, "- [ ] Ship the importer — Projects/Roadmap.md:8\n");

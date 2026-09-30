@@ -1,6 +1,6 @@
 // A note query: which notes a list shows. It's the same few keys everywhere a list of notes is
 // asked for (a ::query widget, a smart folder, the Notes filter bar, an agent), written the way the
-// widget writes them: `q="launch plan" folder=Projects tag=work sort=title limit=5`. Quire.feed
+// widget writes them: `q="launch plan" folder=Projects tag=work sort=title limit=5`. Vault.feed
 // runs it. No Node imports: the web app uses this too.
 import { parseAttrs, serializeAttrs } from "./directive.ts";
 import { cleanTag } from "./tags.ts";

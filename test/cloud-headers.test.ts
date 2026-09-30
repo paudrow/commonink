@@ -58,7 +58,7 @@ test("pages the Worker writes itself get no script rights at all", async () => {
 test("HTML notes run in /sandbox: its own policy, an opaque origin, framed only by the app", async () => {
   const res = await page("/sandbox");
   assert.equal(res.headers.get("content-security-policy"), "sandbox allow-scripts; frame-ancestors 'self'");
-  assert.match(res.body, /document\.write\(e\.data\.quireHtml\)/);
+  assert.match(res.body, /document\.write\(e\.data\.commonInkHtml\)/);
 });
 
 test("uploaded files are sandboxed and only the app may frame them", async () => {

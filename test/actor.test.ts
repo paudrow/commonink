@@ -74,23 +74,23 @@ test("upgrading a change log fills in who, once, for local vaults and workspaces
 });
 
 test("every write records who: people, agents for people, restores by whoever restored", () => {
-  const { quire } = openTempVault();
-  quire.create("Plan.md", "# Plan\n", "you");
-  quire.append("Plan.md", "- one", agentSource("Claude Code", "you"));
-  quire.append("Plan.md", "- two", agentSource("Cursor", "you"));
-  const undo = quire.changes({ path: "Plan.md", limit: 1 })[0];
-  quire.restore(undo.id, "you");
-  const log = quire.changes({ path: "Plan.md" }).map((c) => [c.op, c.person, c.agent, c.source]);
+  const { vault } = openTempVault();
+  vault.create("Plan.md", "# Plan\n", "you");
+  vault.append("Plan.md", "- one", agentSource("Claude Code", "you"));
+  vault.append("Plan.md", "- two", agentSource("Cursor", "you"));
+  const undo = vault.changes({ path: "Plan.md", limit: 1 })[0];
+  vault.restore(undo.id, "you");
+  const log = vault.changes({ path: "Plan.md" }).map((c) => [c.op, c.person, c.agent, c.source]);
   assert.deepEqual(log, [
     ["edit", "you", null, "you"],
     ["edit", "you", "Cursor", "Cursor (via you)"],
     ["edit", "you", "Claude Code", "Claude Code (via you)"],
     ["create", "you", null, "you"],
   ]);
-  assert.deepEqual(quire.changes({ path: "Plan.md", by: "people" }).map((c) => c.op), ["edit", "create"]);
-  assert.deepEqual(quire.changes({ path: "Plan.md", by: "agents" }).map((c) => c.agent), ["Cursor", "Claude Code"]);
-  assert.deepEqual(quire.changes({ path: "Plan.md", by: { agent: "Cursor" } }).map((c) => c.agent), ["Cursor"]);
-  assert.deepEqual(quire.agents(), ["Claude Code", "Cursor"]);
-  const card = quire.feed({ q: "", limit: 30 }).items.find((i) => i.path === "Plan.md")!;
+  assert.deepEqual(vault.changes({ path: "Plan.md", by: "people" }).map((c) => c.op), ["edit", "create"]);
+  assert.deepEqual(vault.changes({ path: "Plan.md", by: "agents" }).map((c) => c.agent), ["Cursor", "Claude Code"]);
+  assert.deepEqual(vault.changes({ path: "Plan.md", by: { agent: "Cursor" } }).map((c) => c.agent), ["Cursor"]);
+  assert.deepEqual(vault.agents(), ["Claude Code", "Cursor"]);
+  const card = vault.feed({ q: "", limit: 30 }).items.find((i) => i.path === "Plan.md")!;
   assert.deepEqual(card.lastBy, { person: "you", agent: null });
 });

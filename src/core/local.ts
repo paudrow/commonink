@@ -1,17 +1,18 @@
-// The local backend: a folder of markdown files, indexed in <vault>/.quire/index.db with node:sqlite.
+// The local backend: a folder of markdown files, indexed in <vault>/.commonink/index.db with node:sqlite.
+import { dataFolder } from "../legacy.ts"; // first: it reads the env vars below under their legacy names too
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Quire, type QuireOptions } from "./quire.ts";
-import { kindOf, QuireError } from "./paths.ts";
+import { Vault, type VaultOptions } from "./vault.ts";
+import { kindOf, VaultError } from "./paths.ts";
 import { migrate, type Content, type FileStat, type SqlDb } from "./store.ts";
 
 export const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-/** Installed from npm (one bundled file, see cli/), the CLI has no project folder: its vault is ~/Quire. */
-const HOME_VAULT = process.env.QUIRE_BUNDLED === "1" ? path.join(os.homedir(), "Quire") : path.join(PROJECT_ROOT, "vault");
-export const DEFAULT_VAULT = process.env.QUIRE_VAULT ? path.resolve(process.env.QUIRE_VAULT) : HOME_VAULT;
+/** Installed from npm (one bundled file, see cli/), the CLI has no project folder: its vault is ~/Common Ink. */
+const HOME_VAULT = process.env.COMMONINK_BUNDLED === "1" ? path.join(os.homedir(), "Common Ink") : path.join(PROJECT_ROOT, "vault");
+export const DEFAULT_VAULT = process.env.COMMONINK_VAULT ? path.resolve(process.env.COMMONINK_VAULT) : HOME_VAULT;
 
 export class NodeDb implements SqlDb {
   private stmts = new Map<string, StatementSync>();
@@ -51,7 +52,7 @@ function onDisk<T>(fn: () => T): T {
   try {
     return fn();
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENAMETOOLONG") throw new QuireError("That name is too long: a file or folder name can be up to 255 bytes");
+    if ((e as NodeJS.ErrnoException).code === "ENAMETOOLONG") throw new VaultError("That name is too long: a file or folder name can be up to 255 bytes");
     throw e;
   }
 }
@@ -77,7 +78,7 @@ export class FsContent implements Content {
         if (path.dirname(probe) === probe) return p;
         continue; // doesn't exist yet: check the folder it would go in
       }
-      if (real !== this.realRoot && !real.startsWith(this.realRoot + path.sep)) throw new QuireError(`${rel} leads outside the vault`);
+      if (real !== this.realRoot && !real.startsWith(this.realRoot + path.sep)) throw new VaultError(`${rel} leads outside the vault`);
       return p;
     }
   }
@@ -168,16 +169,17 @@ export class FsContent implements Content {
 /** A local vault belongs to one person: this is who its favorites are for, from the app, CLI or MCP. */
 export const LOCAL_USER = "you";
 
-export type LocalVault = Quire & { files: FsContent };
+export type LocalVault = Vault & { files: FsContent };
 
 /** Open (and index) a vault folder. */
-export function openVault(root = DEFAULT_VAULT, opts: QuireOptions = {}): LocalVault {
-  fs.mkdirSync(path.join(root, ".quire"), { recursive: true });
-  const sqlite = new DatabaseSync(path.join(root, ".quire", "index.db"));
+export function openVault(root = DEFAULT_VAULT, opts: VaultOptions = {}): LocalVault {
+  const data = dataFolder(root);
+  fs.mkdirSync(data, { recursive: true });
+  const sqlite = new DatabaseSync(path.join(data, "index.db"));
   sqlite.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA synchronous=NORMAL;");
   const db = new NodeDb(sqlite);
   migrate(db, { local: true });
-  const q = new Quire(db, new FsContent(root), opts) as LocalVault;
+  const q = new Vault(db, new FsContent(root), opts) as LocalVault;
   q.sync();
   return q;
 }

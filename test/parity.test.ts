@@ -27,9 +27,9 @@ test("every command is an MCP tool, or says why not; names are unique on both si
 });
 
 test("the MCP server offers exactly the table's tools", async () => {
-  const { quire } = openTempVault();
-  const calendar = new Calendar(quire.db, async () => ({ status: "unchanged" }));
-  const server = createMcpServer({ quire, user: "you", source: () => "t", calendar, exporter: async () => ({ name: "x.md", mime: "text/markdown", data: new Uint8Array() }), sharing: { list: async () => "", share: async () => "", unshare: async () => "" } }) as unknown as { _registeredTools: Record<string, unknown> };
+  const { vault } = openTempVault();
+  const calendar = new Calendar(vault.db, async () => ({ status: "unchanged" }));
+  const server = createMcpServer({ vault, user: "you", source: () => "t", calendar, exporter: async () => ({ name: "x.md", mime: "text/markdown", data: new Uint8Array() }), sharing: { list: async () => "", share: async () => "", unshare: async () => "" } }) as unknown as { _registeredTools: Record<string, unknown> };
   assert.deepEqual(Object.keys(server._registeredTools).sort(), COMMANDS.flatMap((c) => (toolName(c) ? [toolName(c)!] : [])).sort());
 });
 
@@ -51,12 +51,12 @@ test("every command has help with a summary and examples, and every example is a
   const io = { stdin: () => "piped", readFile: (name: string) => ({ name, bytes: new Uint8Array() }) };
   for (const c of COMMANDS) {
     assert.ok(c.summary && c.examples?.length, `${c.cli} needs a summary and an example`);
-    assert.match(commandHelp(c), new RegExp(`^quire ${c.cli}`));
+    assert.match(commandHelp(c), new RegExp(`^commonink ${c.cli}`));
     for (const e of c.examples!) {
-      // Each `quire …` in the example's pipeline must be a valid command line, and one of them this command.
+      // Each `commonink …` in the example's pipeline must be a valid command line, and one of them this command.
       const found = e
         .split(/ \| /)
-        .filter((part) => part.startsWith("quire "))
+        .filter((part) => part.startsWith("commonink "))
         .map((part) => {
           const words = [...part.replace(/ [<>] \S+/g, "").matchAll(/'([^']*)'|"((?:[^"\\]|\\.)*)"|(\S+)/g)].map((m) => m[1] ?? m[2] ?? m[3]);
           const parsed = parse(words.slice(1), io);

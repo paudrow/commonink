@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# commonink CLI (and `commonink mcp` for the stdio MCP server). Runs the TypeScript source via tsx.
+set -euo pipefail
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+NODE_OPTIONS="--disable-warning=ExperimentalWarning ${NODE_OPTIONS:-}" exec "$DIR/node_modules/.bin/tsx" "$DIR/src/cli.ts" "$@"

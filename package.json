@@ -1,15 +1,16 @@
 {
-  "name": "quire",
+  "name": "commonink",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Local-first markdown notes that any agent can use (prototype)",
   "bin": {
+    "commonink": "bin/commonink",
     "quire": "bin/quire"
   },
   "scripts": {
     "dev": "node --disable-warning=ExperimentalWarning --import tsx src/server/main.ts",
-    "mcp": "bin/quire mcp",
+    "mcp": "bin/commonink mcp",
     "agent-demo": "node --disable-warning=ExperimentalWarning --import tsx scripts/agent-demo.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --disable-warning=ExperimentalWarning --import tsx --test \"test/**/*.test.ts\"",
@@ -61,6 +62,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260927.1",
+    "@lezer/javascript": "^1.5.5",
     "@types/jsdom": "^30.0.0",
     "@types/node": "^26.6.3",
     "@types/ws": "^8.18.1",

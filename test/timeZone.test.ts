@@ -22,13 +22,13 @@ test("localDate gives the calendar day in a time zone", () => {
 });
 
 test("at 9pm in Chicago, an agent's today, tomorrow and done dates are still Chicago's, whatever the server's clock zone", () => {
-  const { quire } = openTempVault(VAULT, { now: () => CHICAGO_EVENING, timeZone: "America/Chicago" });
+  const { vault } = openTempVault(VAULT, { now: () => CHICAGO_EVENING, timeZone: "America/Chicago" });
 
-  const added = quire.addTask("call mom tomorrow", "agent");
+  const added = vault.addTask("call mom tomorrow", "agent");
   assert.equal(added.path, "Journal/2026-09-29.md");
   assert.equal(added.text, "call mom due:2026-09-30");
 
-  const today = quire.today();
+  const today = vault.today();
   assert.equal(today.date, "2026-09-29");
   assert.equal(today.journal.path, "Journal/2026-09-29.md");
   assert.deepEqual(
@@ -39,27 +39,27 @@ test("at 9pm in Chicago, an agent's today, tomorrow and done dates are still Chi
       ["starting", []],
     ],
   );
-  assert.deepEqual(quire.tasks({ due: "tomorrow" }).map((t) => t.text), ["Renew passport due:2026-09-30", "call mom due:2026-09-30"]);
+  assert.deepEqual(vault.tasks({ due: "tomorrow" }).map((t) => t.text), ["Renew passport due:2026-09-30", "call mom due:2026-09-30"]);
 
-  const ticked = quire.updateTask("Inbox", 3, "Pay rent due:2026-09-29", { checked: true }, "agent");
+  const ticked = vault.updateTask("Inbox", 3, "Pay rent due:2026-09-29", { checked: true }, "agent");
   assert.equal(ticked.text, "Pay rent due:2026-09-29 done:2026-09-29");
 
-  quire.editCard("Board", "Draft the post", { done: true }, "agent");
-  assert.match(quire.read("Board").content, /- \[x\] Draft the post done:2026-09-29/);
+  vault.editCard("Board", "Draft the post", { done: true }, "agent");
+  assert.match(vault.read("Board").content, /- \[x\] Draft the post done:2026-09-29/);
 });
 
 test("at 7:30am in Tokyo, an agent's today is already Tokyo's new day while UTC is still on yesterday", () => {
-  const { quire } = openTempVault(VAULT, { now: () => TOKYO_MORNING, timeZone: "Asia/Tokyo" });
+  const { vault } = openTempVault(VAULT, { now: () => TOKYO_MORNING, timeZone: "Asia/Tokyo" });
 
-  const added = quire.addTask("call mom tomorrow", "agent");
+  const added = vault.addTask("call mom tomorrow", "agent");
   assert.equal(added.path, "Journal/2026-09-30.md");
   assert.equal(added.text, "call mom due:2026-10-01");
 
-  const ticked = quire.updateTask("Inbox", 4, "Renew passport due:2026-09-30", { checked: true }, "agent");
+  const ticked = vault.updateTask("Inbox", 4, "Renew passport due:2026-09-30", { checked: true }, "agent");
   assert.equal(ticked.text, "Renew passport due:2026-09-30 done:2026-09-30");
 
-  assert.equal(quire.today().date, "2026-09-30");
-  assert.deepEqual(quire.tasks({ due: "<today" }).map((t) => t.text), ["Pay rent due:2026-09-29"]);
+  assert.equal(vault.today().date, "2026-09-30");
+  assert.deepEqual(vault.tasks({ due: "<today" }).map((t) => t.text), ["Pay rent due:2026-09-29"]);
 });
 
 /** Run `fn` with this process's clock zone set to `zone`, as on a machine there. */
@@ -75,9 +75,9 @@ function onMachineIn<T>(zone: string, fn: () => T): T {
 }
 
 test("locally, with no zone given, today is the machine's day", () => {
-  const { quire } = openTempVault(VAULT, { now: () => CHICAGO_EVENING });
-  assert.equal(onMachineIn("America/Chicago", () => quire.today().date), "2026-09-29");
-  assert.equal(onMachineIn("Asia/Tokyo", () => quire.addTask("call mom tomorrow", "cli").text), "call mom due:2026-10-01");
+  const { vault } = openTempVault(VAULT, { now: () => CHICAGO_EVENING });
+  assert.equal(onMachineIn("America/Chicago", () => vault.today().date), "2026-09-29");
+  assert.equal(onMachineIn("Asia/Tokyo", () => vault.addTask("call mom tomorrow", "cli").text), "call mom due:2026-10-01");
 });
 
 test("Trash says when an item went and when it goes for good in the machine's time", () => {

@@ -18,7 +18,7 @@ import { touches } from "./livePreview.ts";
 /** Open or close sections: by key, or all of them. */
 export const setFold = StateEffect.define<{ key: string; open: boolean } | { all: boolean; keys: string[] }>();
 
-const STORE = (path: string) => `quire.details:${path}`;
+const STORE = (path: string) => `commonink.details:${path}`;
 function load(path: string | undefined): Record<string, boolean> {
   if (!path) return {};
   try {

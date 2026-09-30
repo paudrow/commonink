@@ -6,11 +6,11 @@ import { handleApi, type ApiHost } from "../src/core/api.ts";
 import { openTempVault } from "./helpers.ts";
 
 /** The API over a fresh vault. `canEditShared: false` is how a viewer's requests reach a workspace online. */
-function setup({ canEditShared = true, user = "tester" } = {}, vault?: ReturnType<typeof openTempVault>) {
-  const { dir, quire } = vault ?? openTempVault();
+function setup({ canEditShared = true, user = "tester" } = {}, opened?: ReturnType<typeof openTempVault>) {
+  const { dir, vault } = opened ?? openTempVault();
   const events: string[] = [];
   const host: ApiHost = {
-    quire,
+    vault,
     actor: user,
     user,
     canEditShared,
@@ -27,7 +27,7 @@ function setup({ canEditShared = true, user = "tester" } = {}, vault?: ReturnTyp
     assert.ok(res, `route ${route} exists`);
     return { status: res.status, body: await res.json() };
   };
-  return { dir, quire, events, call };
+  return { dir, vault, events, call };
 }
 
 test("a PUT then GET round-trips a note and announces the write", async () => {
@@ -57,8 +57,8 @@ test("a stale baseVersion is a 409 carrying the current text", async () => {
 });
 
 test("a save that names the note's ID follows it to where it moved, rather than making it again at the old path", async () => {
-  const { call, quire, dir } = setup();
-  const before = quire.read("Welcome.md");
+  const { call, vault, dir } = setup();
+  const before = vault.read("Welcome.md");
   await call("POST", "/move", { from: "Welcome.md", to: "Hello.md" });
   const put = await call("PUT", "/note", { path: "Welcome.md", id: before.id, content: "# Welcome\n\nmore\n", baseVersion: before.version });
   assert.deepEqual([put.status, put.body.path], [200, "Hello.md"]);
@@ -73,15 +73,15 @@ test("a save that names the note's ID follows it to where it moved, rather than 
 });
 
 test("undoing an agent's edit restores the note only while it's still at that edit's version", async () => {
-  const { call, quire } = setup();
-  quire.save("Plan.md", "# Plan\n\nship it\n", { source: "you" });
-  const agent = quire.edit("Plan.md", { oldString: "ship it", newString: "ship it friday" }, "claude");
+  const { call, vault } = setup();
+  vault.save("Plan.md", "# Plan\n\nship it\n", { source: "you" });
+  const agent = vault.edit("Plan.md", { oldString: "ship it", newString: "ship it friday" }, "claude");
   const undo = await call("POST", "/restore", { id: agent.change!.id, version: agent.change!.version });
   assert.equal(undo.status, 200);
   assert.equal((await call("GET", "/note?path=Plan.md")).body.content, "# Plan\n\nship it\n");
 
-  const again = quire.edit("Plan.md", { oldString: "ship it", newString: "ship it monday" }, "claude");
-  quire.save("Plan.md", "# Plan\n\nship it monday, with notes\n", { source: "you" });
+  const again = vault.edit("Plan.md", { oldString: "ship it", newString: "ship it monday" }, "claude");
+  vault.save("Plan.md", "# Plan\n\nship it monday, with notes\n", { source: "you" });
   const late = await call("POST", "/restore", { id: again.change!.id, version: again.change!.version });
   assert.deepEqual([late.status, late.body.code], [409, "conflict"]);
   assert.equal((await call("GET", "/note?path=Plan.md")).body.content, "# Plan\n\nship it monday, with notes\n", "the later edit is kept");
@@ -130,7 +130,7 @@ test("a name too long for the disk is a 400 that says so, not an internal error"
 test("writes can't escape the vault or touch non-note files", async () => {
   const { call, dir } = setup();
   const svg = fs.readFileSync(path.join(dir, "assets/chart.svg"), "utf8");
-  for (const p of ["../escape.md", "../../etc/passwd.md", ".quire/index.db", "a\u0000b.md"]) {
+  for (const p of ["../escape.md", "../../etc/passwd.md", ".commonink/index.db", "a\u0000b.md"]) {
     const r = await call("PUT", "/note", { path: p, content: "x" });
     assert.equal(r.status, 400, p);
   }
@@ -186,14 +186,14 @@ test("a tag can be added before any note carries it, and taken away while none d
 });
 
 test("undoing a tag rename leaves alone a note that changed since", async () => {
-  const { call, quire } = setup({}, openTempVault({ "A.md": "# A\n\nAbout #plan\n", "B.md": "# B\n\nAbout #plan\n" }));
+  const { call, vault } = setup({}, openTempVault({ "A.md": "# A\n\nAbout #plan\n", "B.md": "# B\n\nAbout #plan\n" }));
   const r = await call("POST", "/tags/rename", { from: "plan", to: "roadmap" });
   assert.equal(r.body.versions.length, 2);
-  quire.append("B.md", "Typed after the rename.", "tester");
+  vault.append("B.md", "Typed after the rename.", "tester");
   const undo = await Promise.all(r.body.changes.map((id: number, i: number) => call("POST", "/restore", { id, version: r.body.versions[i] })));
   assert.deepEqual(undo.map((u) => u.status).sort(), [200, 409]);
-  assert.equal(quire.read("A.md").content, "# A\n\nAbout #plan\n");
-  assert.equal(quire.read("B.md").content, "# B\n\nAbout #roadmap\n\nTyped after the rename.\n");
+  assert.equal(vault.read("A.md").content, "# A\n\nAbout #plan\n");
+  assert.equal(vault.read("B.md").content, "# B\n\nAbout #roadmap\n\nTyped after the rename.\n");
 });
 
 test("tasks filter by due date against the reader's today, and a task's tokens change in place", async () => {
@@ -257,9 +257,9 @@ test("today reads the viewer's day, and its journal note is made on request", as
 });
 
 test("smart folders: an editor shares one, a viewer keeps their own but can't create, change or delete shared ones", async () => {
-  const vault = openTempVault();
-  const editor = setup({ user: "ed" }, vault);
-  const viewer = setup({ user: "vi", canEditShared: false }, vault);
+  const opened = openTempVault();
+  const editor = setup({ user: "ed" }, opened);
+  const viewer = setup({ user: "vi", canEditShared: false }, opened);
   const shared = await editor.call("POST", "/smart-folders", { name: "Planning", query: "tag=plan", shared: true });
   assert.deepEqual(shared.body, { id: shared.body.id, name: "Planning", query: "tag=plan", shared: true, count: 1 });
   assert.deepEqual(editor.events, ["tree"]);

@@ -23,9 +23,9 @@ function bash(): string {
   const subs = groups();
   const arms = COMMANDS.map((c) => `    "${c.cli}") flags="${flagsOf(c.cli).join(" ")}" ;;`);
   const subArms = [...subs].map(([g, s]) => `    ${g}) subs="${s.join(" ")}" ;;`);
-  return `# quire completion for bash (and zsh, through bashcompinit). Add to your shell's startup file:
-#   source <(quire completion bash)
-_quire() {
+  return `# commonink completion for bash (and zsh, through bashcompinit). Add to your shell's startup file:
+#   source <(commonink completion bash)
+_commonink() {
   local cur="\${COMP_WORDS[COMP_CWORD]}" w1="\${COMP_WORDS[1]}" w2="\${COMP_WORDS[2]}" key flags="" subs=""
   if [ "$COMP_CWORD" -eq 1 ]; then COMPREPLY=($(compgen -W "${tops().join(" ")}" -- "$cur")); return; fi
   case "$w1" in
@@ -38,12 +38,12 @@ ${arms.join("\n")}
   esac
   if [[ "$cur" == -* ]]; then COMPREPLY=($(compgen -W "$flags" -- "$cur")); else COMPREPLY=($(compgen -f -- "$cur")); fi
 }
-complete -o filenames -F _quire quire`;
+complete -o filenames -F _commonink commonink`;
 }
 
 function zsh(): string {
-  return `# quire completion for zsh. Add to ~/.zshrc:
-#   source <(quire completion zsh)
+  return `# commonink completion for zsh. Add to ~/.zshrc:
+#   source <(commonink completion zsh)
 autoload -U +X bashcompinit && bashcompinit
 ${bash()}`;
 }
@@ -51,17 +51,17 @@ ${bash()}`;
 function fish(): string {
   const subs = groups();
   const lines = [
-    "# quire completion for fish. Save as ~/.config/fish/completions/quire.fish:",
-    "#   quire completion fish > ~/.config/fish/completions/quire.fish",
-    "complete -c quire -f",
-    `complete -c quire -n __fish_use_subcommand -a "${tops().join(" ")}"`,
-    ...[...subs].map(([g, s]) => `complete -c quire -n "__fish_seen_subcommand_from ${g}; and not __fish_seen_subcommand_from ${s.join(" ")}" -a "${s.join(" ")}"`),
+    "# commonink completion for fish. Save as ~/.config/fish/completions/commonink.fish:",
+    "#   commonink completion fish > ~/.config/fish/completions/commonink.fish",
+    "complete -c commonink -f",
+    `complete -c commonink -n __fish_use_subcommand -a "${tops().join(" ")}"`,
+    ...[...subs].map(([g, s]) => `complete -c commonink -n "__fish_seen_subcommand_from ${g}; and not __fish_seen_subcommand_from ${s.join(" ")}" -a "${s.join(" ")}"`),
   ];
   for (const c of COMMANDS) {
     const [first, second] = c.cli.split(" ");
     const when = second ? `__fish_seen_subcommand_from ${first}; and __fish_seen_subcommand_from ${second}` : `__fish_seen_subcommand_from ${first}`;
-    for (const f of flagsOf(c.cli)) lines.push(`complete -c quire -n "${when}" -l ${f.slice(2)}`);
-    if (c.cli === "upload") lines.push(`complete -c quire -n "${when}" -F`);
+    for (const f of flagsOf(c.cli)) lines.push(`complete -c commonink -n "${when}" -l ${f.slice(2)}`);
+    if (c.cli === "upload") lines.push(`complete -c commonink -n "${when}" -F`);
   }
   return lines.join("\n");
 }

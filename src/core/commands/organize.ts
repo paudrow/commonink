@@ -1,8 +1,8 @@
 // Organizing notes: boards, tags, smart folders, favorites and folders.
-import { QuireError } from "../paths.ts";
+import { VaultError } from "../paths.ts";
 import { fmtBoards, fmtFavorites, fmtList, fmtSmartFolders, fmtTags, fmtWrite } from "../format.ts";
 import { parseQuery } from "../query.ts";
-import { ARCHIVE, type Quire } from "../quire.ts";
+import { ARCHIVE, type Vault } from "../vault.ts";
 import { bool, command, list, num, str, UsageError } from "./types.ts";
 
 const BOARD_HELP =
@@ -32,11 +32,11 @@ export const boards = [
     title: "Read board",
     summary: "A note's Kanban boards, column by column, each card with its line number",
     description: `The Kanban boards in a note, column by column, each card with its line number. ${BOARD_HELP}`,
-    examples: ["quire board Launch", "quire board Launch --json"],
+    examples: ["commonink board Launch", "commonink board Launch --json"],
     readOnly: true,
     args: { path: str({ required: true, pos: 0, label: "note" }) },
-    run: ({ quire }, a) => {
-      const { note, boards, unclosed } = quire.boards(a.path);
+    run: ({ vault }, a) => {
+      const { note, boards, unclosed } = vault.boards(a.path);
       return { text: fmtBoards(note.path, boards, unclosed), data: { path: note.path, boards, unclosed } };
     },
   }),
@@ -49,7 +49,7 @@ export const boards = [
     description:
       "Add a card to a column of a Kanban board in a note. The text is the card's line (tokens like due:2026-10-01 @jane #tag, or a [[Note]] link); " +
       "more lines nest under it as details.",
-    examples: ['quire card add Launch "To do" Pick a logo @ana', "quire card add Launch 1 '[[Pricing page]]' --position 1"],
+    examples: ['commonink card add Launch "To do" Pick a logo @ana', "commonink card add Launch 1 '[[Pricing page]]' --position 1"],
     args: {
       path: str({ required: true, pos: 0, label: "note" }),
       column: str({ required: true, pos: 1, describe: COLUMN }),
@@ -57,8 +57,8 @@ export const boards = [
       board: num({ min: 1, describe: "Which board (from 1), when the note has several with this column" }),
       position: num({ min: 1, describe: "Where in the column (from 1); default last" }),
     },
-    run: ({ quire, source }, a) => {
-      const r = quire.addCard(a.path, a.column, a.text, source, { board: a.board, position: a.position });
+    run: ({ vault, source }, a) => {
+      const r = vault.addCard(a.path, a.column, a.text, source, { board: a.board, position: a.position });
       return { text: fmtWrite(r, "Added a card to"), data: r };
     },
   }),
@@ -69,15 +69,15 @@ export const boards = [
     title: "Move card",
     summary: "Move a card to another column, or another place in its column",
     description: "Move a card to another column of its board, or to another place in its column. Moving it into the done column ticks it; out of it, unticks it.",
-    examples: ["quire card move Launch tiers Done", "quire card move Launch 12 Doing --position 1"],
+    examples: ["commonink card move Launch tiers Done", "commonink card move Launch 12 Doing --position 1"],
     args: {
       path: str({ required: true, pos: 0, label: "note" }),
       card: str({ required: true, pos: 1, describe: CARD }),
       to_column: str({ required: true, pos: 2, label: "column", describe: COLUMN }),
       position: num({ min: 1, describe: "Where in the column (from 1); default last" }),
     },
-    run: ({ quire, source }, a) => {
-      const r = quire.moveCard(a.path, a.card, a.to_column, source, { position: a.position });
+    run: ({ vault, source }, a) => {
+      const r = vault.moveCard(a.path, a.card, a.to_column, source, { position: a.position });
       return { text: fmtWrite(r, r.change ? "Moved a card in" : "No change to"), data: r };
     },
   }),
@@ -89,15 +89,15 @@ export const boards = [
     summary: "Change a card's text, or tick it",
     description:
       "Change a card's text or tick it. The new text replaces the card's line after its checkbox (keep any tokens you want to keep); more lines replace the details nested under it.",
-    examples: ['quire card edit Launch logo --text "Pick a logo @ana"', "quire card edit Launch 5 --done"],
+    examples: ['commonink card edit Launch logo --text "Pick a logo @ana"', "commonink card edit Launch 5 --done"],
     args: {
       path: str({ required: true, pos: 0, label: "note" }),
       card: str({ required: true, pos: 1, describe: CARD }),
       text: str({ stdin: true }),
       done: bool({ presets: { undone: false }, describe: "Tick (true) or untick (false). Ticking a repeating card (rec:) adds its next one after it, as update_task does." }),
     },
-    run: ({ quire, source }, a) => {
-      const r = quire.editCard(a.path, a.card, { text: a.text, done: a.done }, source);
+    run: ({ vault, source }, a) => {
+      const r = vault.editCard(a.path, a.card, { text: a.text, done: a.done }, source);
       return { text: fmtWrite(r, r.change ? "Edited a card in" : "No change to"), data: r };
     },
   }),
@@ -113,11 +113,11 @@ export const tags = [
     description:
       "Every tag in the vault as a tree (tags nest with /), with how many notes, tasks and assets carry each one or a tag under it. " +
       "Use the names with the `tag` filter of search_notes and list_notes.",
-    examples: ["quire tags", "quire tags --json"],
+    examples: ["commonink tags", "commonink tags --json"],
     readOnly: true,
     args: {},
-    run: ({ quire }) => {
-      const tags = quire.tags();
+    run: ({ vault }) => {
+      const tags = vault.tags();
       return { text: fmtTags(tags), data: tags };
     },
   }),
@@ -130,13 +130,13 @@ export const tags = [
     description:
       "Rename a tag, and every tag under it, in every note, task and asset. Renaming onto a tag that exists merges the two. " +
       "Each rewritten note is its own change, so recent_changes and restore_change can undo it. Only when the user asks.",
-    examples: ["quire tag rename research research/ml", "quire tag rename '#Work' work"],
+    examples: ["commonink tag rename research research/ml", "commonink tag rename '#Work' work"],
     args: {
       from: str({ required: true, pos: 0, describe: "The tag, with or without #" }),
       to: str({ required: true, pos: 1, describe: "Its new name" }),
     },
-    run: ({ quire, source }, a) => {
-      const r = quire.renameTag(a.from, a.to, source);
+    run: ({ vault, source }, a) => {
+      const r = vault.renameTag(a.from, a.to, source);
       const paths = r.edits.map((e) => e.path);
       const assets = Object.keys(r.assets);
       return {
@@ -152,15 +152,15 @@ export const tags = [
     title: "Tag asset",
     summary: "Set an asset's tags (images and PDFs can't hold #tags); --clear takes them all off",
     description: "Set the tags of an asset (an image, PDF or other file that can't hold #tags in its text). The list replaces the ones it had; an empty list clears them.",
-    examples: ["quire tag asset assets/logo.png brand brand/logos", "quire tag asset assets/logo.png --clear"],
+    examples: ["commonink tag asset assets/logo.png brand brand/logos", "commonink tag asset assets/logo.png --clear"],
     args: {
       path: str({ required: true, pos: 0, label: "asset" }),
       tags: list({ mcpRequired: true, allowEmpty: true, pos: "rest", label: "tag", describe: "The asset's tags from now on ([] clears them)" }),
       clear: bool({ only: "cli", describe: "Take all its tags off" }),
     },
-    run: ({ quire }, a) => {
+    run: ({ vault }, a) => {
       if (!a.tags?.length && !a.clear) throw new UsageError("Name the tags to set, or pass --clear to take them all off");
-      const set = quire.setAssetTags(a.path, a.tags ?? []);
+      const set = vault.setAssetTags(a.path, a.tags ?? []);
       return { text: set.length ? `Tags on ${a.path}: ${set.map((t) => `#${t}`).join(" ")}` : `No tags on ${a.path}`, data: set };
     },
   }),
@@ -176,15 +176,15 @@ export const smartFolders = [
     description:
       "The user's smart folders: saved note queries in the sidebar, each with its query and how many notes match now. " +
       "list_notes with smart_folder lists one's notes.",
-    examples: ["quire smart", "quire smart planning"],
+    examples: ["commonink smart", "commonink smart planning"],
     readOnly: true,
     args: { name: str({ only: "cli", pos: "rest", describe: "List the notes in this one instead" }) },
-    run: ({ quire, user }, a) => {
+    run: ({ vault, user }, a) => {
       if (a.name) {
-        const items = quire.feed({ ...parseQuery(quire.findSmartFolder(user, a.name).query), limit: Infinity }).items;
+        const items = vault.feed({ ...parseQuery(vault.findSmartFolder(user, a.name).query), limit: Infinity }).items;
         return { text: fmtList(items), data: items };
       }
-      const list = quire.smartFolders(user);
+      const list = vault.smartFolders(user);
       return { text: fmtSmartFolders(list), data: list };
     },
   }),
@@ -197,16 +197,16 @@ export const smartFolders = [
     description:
       "Create a smart folder (a saved note query in the sidebar), or change one by id. The query uses ::query's keys: " +
       'q="words" folder=Projects tag=work sort=title limit=10 (all optional; a tag includes the tags under it). Only save one the user asked for.',
-    examples: ["quire smart-save Planning tag=plan --just-me", 'quire smart-save Launch folder=Projects q="launch"'],
+    examples: ["commonink smart-save Planning tag=plan --just-me", 'commonink smart-save Launch folder=Projects q="launch"'],
     args: {
       name: str({ required: true, pos: 0 }),
       query: str({ mcpRequired: true, pos: "rest", describe: "The query, e.g. tag=work sort=title (none: every note)" }),
       just_me: bool({ describe: "Keep it the user's own instead of sharing it with the workspace" }),
       id: str({ describe: "Change this smart folder instead of creating one" }),
     },
-    run: ({ quire, user, canEditShared }, a) => {
-      const f = quire.saveSmartFolder(user, { id: a.id, name: a.name, query: a.query ?? "", shared: !a.just_me }, canEditShared);
-      return { text: fmtSmartFolders(quire.smartFolders(user)), data: f };
+    run: ({ vault, user, canEditShared }, a) => {
+      const f = vault.saveSmartFolder(user, { id: a.id, name: a.name, query: a.query ?? "", shared: !a.just_me }, canEditShared);
+      return { text: fmtSmartFolders(vault.smartFolders(user)), data: f };
     },
   }),
   command({
@@ -216,24 +216,24 @@ export const smartFolders = [
     title: "Delete smart folder",
     summary: "Delete a smart folder (its notes don't change)",
     description: "Delete a smart folder by name or ID. The notes in it don't change.",
-    examples: ["quire smart-rm Planning"],
+    examples: ["commonink smart-rm Planning"],
     destructive: true,
     args: { smart_folder: str({ required: true, pos: 0, label: "name" }) },
-    run: ({ quire, user, canEditShared }, a) => {
-      const list = quire.deleteSmartFolder(user, a.smart_folder, canEditShared);
+    run: ({ vault, user, canEditShared }, a) => {
+      const list = vault.deleteSmartFolder(user, a.smart_folder, canEditShared);
       return { text: fmtSmartFolders(list), data: list };
     },
   }),
 ];
 
 /** Star (or unstar) notes, and `#tags` among them, and say what the favorites are now. */
-function starEach(host: { quire: Quire; user: string }, targets: string[], on: boolean) {
-  const { quire, user } = host;
+function starEach(host: { vault: Vault; user: string }, targets: string[], on: boolean) {
+  const { vault, user } = host;
   for (const t of targets) {
-    if (t.startsWith("#")) on ? quire.starTag(user, t) : quire.unstarTag(user, t);
-    else on ? quire.star(user, t) : quire.unstar(user, t);
+    if (t.startsWith("#")) on ? vault.starTag(user, t) : vault.unstarTag(user, t);
+    else on ? vault.star(user, t) : vault.unstar(user, t);
   }
-  const list = quire.favorites(user);
+  const list = vault.favorites(user);
   return { text: fmtFavorites(list), data: list };
 }
 
@@ -247,7 +247,7 @@ export const favorites = [
     description:
       "Add notes to the user's favorites, which the app shows at the top of the sidebar. Stars follow a note through renames, " +
       "moves and archiving. A path starting with # stars that tag. Only star notes the user asked for.",
-    examples: ["quire star Roadmap", "quire star Welcome '#plan'"],
+    examples: ["commonink star Roadmap", "commonink star Welcome '#plan'"],
     args: { paths: list({ required: true, pos: "rest", label: "note" }) },
     run: (host, a) => starEach(host, a.paths, true),
   }),
@@ -258,7 +258,7 @@ export const favorites = [
     title: "Unstar note",
     summary: "Take notes (or '#tags') out of your favorites",
     description: "Take notes out of the user's favorites. The notes themselves don't change.",
-    examples: ["quire unstar Roadmap"],
+    examples: ["commonink unstar Roadmap"],
     args: { paths: list({ required: true, pos: "rest", label: "note" }) },
     run: (host, a) => starEach(host, a.paths, false),
   }),
@@ -271,7 +271,7 @@ export const favorites = [
     description:
       "Add tags to the user's favorites, beside their starred notes; clicking one in the app shows every note with that tag " +
       "(or a tag under it). A starred tag follows renames and merges. Only star tags the user asked for.",
-    examples: ["quire star-tag work"],
+    examples: ["commonink star-tag work"],
     args: { tags: list({ required: true, pos: "rest", label: "tag", describe: "Tags, with or without #" }) },
     run: (host, a) => starEach(host, a.tags.map((t) => `#${t.replace(/^#/, "")}`), true),
   }),
@@ -282,7 +282,7 @@ export const favorites = [
     title: "Unstar tag",
     summary: "Take tags out of your favorites",
     description: "Take tags out of the user's favorites. The tags and their notes don't change.",
-    examples: ["quire unstar-tag work"],
+    examples: ["commonink unstar-tag work"],
     args: { tags: list({ required: true, pos: "rest", label: "tag" }) },
     run: (host, a) => starEach(host, a.tags.map((t) => `#${t.replace(/^#/, "")}`), false),
   }),
@@ -293,10 +293,10 @@ export const favorites = [
     title: "Order favorites",
     summary: "Put favorites first, in this order (notes, and '#tags'); the rest follow",
     description: "Reorder the user's favorites: these come first, in this order (a note, or a #tag for a starred tag), and the rest follow as they were.",
-    examples: ["quire starred order Roadmap '#work' Welcome"],
+    examples: ["commonink starred order Roadmap '#work' Welcome"],
     args: { paths: list({ required: true, pos: "rest", label: "note" }) },
-    run: ({ quire, user }, a) => {
-      const list = quire.orderFavorites(user, a.paths);
+    run: ({ vault, user }, a) => {
+      const list = vault.orderFavorites(user, a.paths);
       return { text: fmtFavorites(list), data: list };
     },
   }),
@@ -310,11 +310,11 @@ export const folders = [
     title: "List folders",
     summary: "Every folder notes live in, with how many notes each holds",
     description: "Every folder with notes in it (archived notes left out), with how many notes it holds, sub-folders' included. A folder exists while a note is in it: create_note or move_note with a path makes one.",
-    examples: ["quire folders"],
+    examples: ["commonink folders"],
     readOnly: true,
     args: {},
-    run: ({ quire }) => {
-      const found = foldersOf(quire.list(undefined, "active").filter((n) => n.kind !== "asset").map((n) => n.path));
+    run: ({ vault }) => {
+      const found = foldersOf(vault.list(undefined, "active").filter((n) => n.kind !== "asset").map((n) => n.path));
       return { text: found.length ? found.map((f) => `${"  ".repeat(f.folder.split("/").length - 1)}- ${f.folder.split("/").pop()}/ (${f.notes})`).join("\n") : "No folders.", data: found };
     },
   }),
@@ -326,19 +326,19 @@ export const folders = [
     summary: "Delete a folder: its notes to Trash (--notes trash) or up into its parent (--notes lift)",
     description:
       "Delete a folder the user asked to delete. With notes=trash, everything in it goes to Trash (restorable, see list_trash); with notes=lift, its notes and assets move up into the folder above it, links kept.",
-    examples: ["quire folder delete Ideas/Old --notes lift", "quire folder delete Scratch --notes trash"],
+    examples: ["commonink folder delete Ideas/Old --notes lift", "commonink folder delete Scratch --notes trash"],
     destructive: true,
     args: {
       folder: str({ required: true, pos: 0 }),
       notes: str({ required: true, enum: ["trash", "lift"], describe: "trash: to Trash; lift: up into the parent folder" }),
     },
-    run: ({ quire, source }, a) => {
+    run: ({ vault, source }, a) => {
       const dir = a.folder.replace(/^\/+|\/+$/g, "");
-      if (dir === ARCHIVE.slice(0, -1)) throw new QuireError("Archive isn't a folder you can delete; unarchive or delete its notes instead");
-      const r = quire.deleteFolder(dir, a.notes as "trash" | "lift", source);
+      if (dir === ARCHIVE.slice(0, -1)) throw new VaultError("Archive isn't a folder you can delete; unarchive or delete its notes instead");
+      const r = vault.deleteFolder(dir, a.notes as "trash" | "lift", source);
       const trashed = r.deleted.map(({ id, path }) => ({ id, path }));
       const moved = r.moved.map((m) => ({ from: m.from, to: m.path }));
-      if (!trashed.length && !moved.length) throw new QuireError(`There's nothing in ${dir}`, "not_found");
+      if (!trashed.length && !moved.length) throw new VaultError(`There's nothing in ${dir}`, "not_found");
       return {
         text: [...trashed.map((d) => `Moved ${d.path} to Trash (${d.id})`), ...moved.map((m) => `Moved ${m.from} → ${m.to}`)].join("\n"),
         data: { trashed, moved },

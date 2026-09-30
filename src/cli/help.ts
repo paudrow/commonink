@@ -1,4 +1,4 @@
-// `quire help` and `quire help <command>`, made from the command table so they can't drift from it.
+// `commonink help` and `commonink help <command>`, made from the command table so they can't drift from it.
 import { EXIT, GROUPS, toolName, type Command } from "../core/commands/index.ts";
 import { ALIASES, cliArgs, flagOf, GLOBAL_FLAGS, GROUP_DEFAULTS, labelOf } from "./argv.ts";
 
@@ -8,7 +8,7 @@ export const OWN_COMMANDS: Array<{ usage: string; summary: string }> = [
   { usage: "logout", summary: "sign out here, and end the sign-in on the server" },
   { usage: "workspaces [use <name>]", summary: "your hosted workspaces and your role in each; use picks the default" },
   { usage: "help [command]", summary: "this list, or one command's options and examples" },
-  { usage: "completion bash|zsh|fish", summary: "a shell completion script: quire completion zsh >> ~/.zshrc" },
+  { usage: "completion bash|zsh|fish", summary: "a shell completion script: commonink completion zsh >> ~/.zshrc" },
   { usage: "mcp", summary: "run the stdio MCP server (the same commands, as tools)" },
   { usage: "version", summary: "the version of this CLI" },
 ];
@@ -35,7 +35,7 @@ export function usage(c: Command): string {
 const pad = (s: string, n: number) => (s.length >= n ? `${s}\n${" ".repeat(n + 2)}` : s.padEnd(n));
 
 export function overview(): string {
-  const lines = ["quire — markdown notes for you and your agents", "", "Usage: quire <command> [args] [--json] [--agent <name>]", ""];
+  const lines = ["commonink — markdown notes for you and your agents", "", "Usage: commonink <command> [args] [--json] [--agent <name>]", ""];
   for (const g of GROUPS) {
     lines.push(`${g.title}:`);
     for (const c of g.commands) lines.push(`  ${pad(c.cli, 18)} ${c.summary}`);
@@ -46,18 +46,18 @@ export function overview(): string {
   lines.push(
     "",
     "<note> can be a path, a path without .md, a [[wikilink]] name, a note ID or a note URL.",
-    `Also: \`quire starred\` lists your favorites, \`quire task <note> <line> …\` is \`quire task update\`.`,
+    `Also: \`commonink starred\` lists your favorites, \`commonink task <note> <line> …\` is \`commonink task update\`.`,
     "Content (create, append, write, edit's --old and --new) can come from stdin: pass - or pipe it in.",
     "",
     "Writes are yours, unless an agent says it's the one writing: --agent <name> (or --as), or",
-    '$QUIRE_AGENT. Agents: set QUIRE_AGENT, so History shows your changes as "<agent> for you".',
-    "Where: after quire login, your hosted workspace (--workspace <name> picks one; --workspace local,",
-    "or $QUIRE_VAULT, is this computer's vault). Otherwise $QUIRE_VAULT (default: ./vault next to this tool).",
+    '$COMMONINK_AGENT. Agents: set COMMONINK_AGENT, so History shows your changes as "<agent> for you".',
+    "Where: after commonink login, your hosted workspace (--workspace <name> picks one; --workspace local,",
+    "or $COMMONINK_VAULT, is this computer's vault). Otherwise $COMMONINK_VAULT (default: ./vault next to this tool).",
     "",
     `Exit codes: ${Object.entries(EXIT)
       .map(([k, v]) => `${v} ${k.replace("_", " ")}`)
       .join(", ")}.`,
-    "Run quire help <command> for its options and examples.",
+    "Run commonink help <command> for its options and examples.",
   );
   return lines.join("\n");
 }
@@ -78,10 +78,10 @@ export function commandHelp(c: Command): string {
     return [`  ${pad(flag, 24)} ${[a.describe, ...extra].filter(Boolean).join("; ")}`];
   });
   const tool = toolName(c);
-  const aliases = Object.entries(ALIASES).filter(([, x]) => x.to === c.cli).map(([w, x]) => `quire ${w} is quire ${c.cli} with ${Object.keys(x.set).map((k) => `--${k}`).join(" ")}.`);
-  const fallback = Object.entries(GROUP_DEFAULTS).filter(([, to]) => to === c.cli).map(([w]) => `Also: quire ${w} ${usage(c).slice(c.cli.length + 1)}`);
+  const aliases = Object.entries(ALIASES).filter(([, x]) => x.to === c.cli).map(([w, x]) => `commonink ${w} is commonink ${c.cli} with ${Object.keys(x.set).map((k) => `--${k}`).join(" ")}.`);
+  const fallback = Object.entries(GROUP_DEFAULTS).filter(([, to]) => to === c.cli).map(([w]) => `Also: commonink ${w} ${usage(c).slice(c.cli.length + 1)}`);
   return [
-    `quire ${usage(c)}`,
+    `commonink ${usage(c)}`,
     "",
     c.description ?? c.summary,
     ...(opts.length ? ["", "Arguments and options:", ...opts] : []),

@@ -2,11 +2,11 @@
 // notes made from them. They need the host's calendars (CommandHost.calendar).
 import { dayRange, fmtEvent, fmtEvents, fmtSources, type Calendar } from "../calendar.ts";
 import { notePath } from "../ids.ts";
-import { QuireError } from "../paths.ts";
+import { VaultError } from "../paths.ts";
 import { command, num, str, type CommandHost } from "./types.ts";
 
 const calendarOf = (h: CommandHost): Calendar => {
-  if (!h.calendar) throw new QuireError("Calendars aren't available here");
+  if (!h.calendar) throw new VaultError("Calendars aren't available here");
   return h.calendar;
 };
 const viewer = (h: CommandHost) => ({ user: h.user, canEdit: h.canEditShared });
@@ -24,7 +24,7 @@ export const calendar = [
     description:
       "Events from the calendars this workspace subscribes to (and the user's own), soonest first, for a range of days. Each has an id " +
       "for get_event and create_meeting_note, and the meeting note it's linked to, if any. Events are records, not notes.",
-    examples: ["quire events", "quire events --from 2026-10-05 --days 1 --tz America/Los_Angeles", "quire events --query standup --json"],
+    examples: ["commonink events", "commonink events --from 2026-10-05 --days 1 --tz America/Los_Angeles", "commonink events --query standup --json"],
     readOnly: true,
     needs: "calendar",
     args: {
@@ -49,14 +49,14 @@ export const calendar = [
     title: "Get calendar event",
     summary: "One event in full, with its meeting note",
     description: "One event in full: time, place, organizer, attendees, description, and its meeting note if it has one.",
-    examples: ["quire event k3m9x2p7q4rt", "quire event k3m9x2p7q4rt --json"],
+    examples: ["commonink event k3m9x2p7q4rt", "commonink event k3m9x2p7q4rt --json"],
     readOnly: true,
     needs: "calendar",
-    args: { id: str({ required: true, pos: 0, describe: "The event's id from list_events (quire events)" }), time_zone: str(ZONE) },
+    args: { id: str({ required: true, pos: 0, describe: "The event's id from list_events (commonink events)" }), time_zone: str(ZONE) },
     run: (h, a) => {
       const cal = calendarOf(h);
       const ev = cal.event(a.id, viewer(h));
-      if (!ev) throw new QuireError(`No event ${a.id}; quire events (list_events) lists them with their ids`, "not_found");
+      if (!ev) throw new VaultError(`No event ${a.id}; commonink events (list_events) lists them with their ids`, "not_found");
       return { text: fmtEvent(ev, cal.sources(viewer(h)), zoneOf(a.time_zone)), data: ev };
     },
   }),
@@ -69,16 +69,16 @@ export const calendar = [
     description:
       "The event's meeting note: a new note in Meetings/ (from Templates/Meeting note.md if there is one) with its time, place, " +
       "attendees, agenda and a link back to the event, linked to the event. If the event already has one, returns that note instead.",
-    examples: ["quire meeting-note k3m9x2p7q4rt", "quire meeting-note k3m9x2p7q4rt --tz Europe/Berlin"],
+    examples: ["commonink meeting-note k3m9x2p7q4rt", "commonink meeting-note k3m9x2p7q4rt --tz Europe/Berlin"],
     needs: "calendar",
-    args: { id: str({ required: true, pos: 0, describe: "The event's id from list_events (quire events)" }), time_zone: str(ZONE) },
+    args: { id: str({ required: true, pos: 0, describe: "The event's id from list_events (commonink events)" }), time_zone: str(ZONE) },
     run: async (h, a) => {
       const cal = calendarOf(h);
-      const r = cal.meetingNote(h.quire, a.id, viewer(h), { timeZone: zoneOf(a.time_zone), source: h.source });
+      const r = cal.meetingNote(h.vault, a.id, viewer(h), { timeZone: zoneOf(a.time_zone), source: h.source });
       const data = { path: r.path, created: r.created };
       if (!r.created) return { text: `The event already has a meeting note: ${r.path}`, data };
       // Online, the note's link goes back into the event in Google Calendar, where it came from there.
-      const linked = h.origin && r.noteId ? await cal.linkBack(a.id, viewer(h), `${h.origin}${notePath(h.quire.read(r.path).title, r.noteId)}`) : null;
+      const linked = h.origin && r.noteId ? await cal.linkBack(a.id, viewer(h), `${h.origin}${notePath(h.vault.read(r.path).title, r.noteId)}`) : null;
       const back = !linked ? "" : linked.ok ? "; its link was added to the event in Google Calendar" : `; the link couldn't be added in Google Calendar (${linked.error})`;
       return { text: `Created ${r.path}, linked to the event${back}`, data };
     },
@@ -89,7 +89,7 @@ export const calendar = [
     route: "GET /calendar/sources",
     title: "Calendars",
     summary: "The calendars (ICS feeds) this vault subscribes to",
-    examples: ["quire calendars", "quire calendars --json"],
+    examples: ["commonink calendars", "commonink calendars --json"],
     readOnly: true,
     args: {},
     run: (h) => {
@@ -103,7 +103,7 @@ export const calendar = [
     route: "POST /calendar/sources",
     title: "Subscribe to a calendar",
     summary: "Subscribe to an ICS or webcal feed",
-    examples: ["quire calendars add webcal://example.com/team.ics --name Team"],
+    examples: ["commonink calendars add webcal://example.com/team.ics --name Team"],
     args: { url: str({ required: true, pos: 0, describe: "An ICS or webcal address" }), name: str({ describe: "What to call it (default: the feed's own name)" }) },
     run: async (h, a) => {
       const cal = calendarOf(h);
@@ -118,7 +118,7 @@ export const calendar = [
     route: "POST /calendar/refresh",
     title: "Read calendars again",
     summary: "Read every calendar feed again now",
-    examples: ["quire calendars refresh"],
+    examples: ["commonink calendars refresh"],
     args: {},
     run: async (h) => {
       const cal = calendarOf(h);
@@ -132,10 +132,10 @@ export const calendar = [
     mcp: { none: `unsubscribing is the person's: ${PEOPLE}` },
     route: "POST /calendar/sources/remove",
     title: "Unsubscribe from a calendar",
-    summary: "Unsubscribe from a calendar (its id from quire calendars)",
-    examples: ["quire calendars remove c7h2k9"],
+    summary: "Unsubscribe from a calendar (its id from commonink calendars)",
+    examples: ["commonink calendars remove c7h2k9"],
     destructive: true,
-    args: { id: str({ required: true, pos: 0, describe: "Its id, from quire calendars" }) },
+    args: { id: str({ required: true, pos: 0, describe: "Its id, from commonink calendars" }) },
     run: (h, a) => {
       const cal = calendarOf(h);
       cal.remove(a.id, viewer(h));

@@ -14,7 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { openVault } from "../src/core/local.ts";
 import { agentSource } from "../src/core/actor.ts";
-import { Quire } from "../src/core/quire.ts";
+import { Vault } from "../src/core/vault.ts";
 import { migrate, type Content, type SqlDb } from "../src/core/store.ts";
 import { DoDb, SqlContent } from "../cloud/src/do-store.ts";
 import { doStorage } from "./do-shim.ts";
@@ -82,8 +82,8 @@ class Counter {
 }
 
 interface Backend {
-  quire: Quire;
-  counted: Quire;
+  vault: Vault;
+  counted: Vault;
   counter: Counter;
   raw: SqlDb;
   /** Open the vault again from what's stored (a server restart, a Durable Object waking up). */
@@ -118,20 +118,20 @@ function record(size: number, backend: string, op: string, samples: number[], co
 
 /** Cold index build: an empty index over every file. Returns the samples and an open backend. */
 function openLocal(v: GeneratedVault, reps: number): { build: number[]; backend: Backend } {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "quire-bench-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "commonink-bench-"));
   writeTree(dir, v);
   const build: number[] = [];
-  let quire!: ReturnType<typeof openVault>;
+  let vault!: ReturnType<typeof openVault>;
   for (let i = 0; i < reps; i++) {
-    fs.rmSync(path.join(dir, ".quire"), { recursive: true, force: true });
-    build.push(time(() => (quire = openVault(dir))));
+    fs.rmSync(path.join(dir, ".commonink"), { recursive: true, force: true });
+    build.push(time(() => (vault = openVault(dir))));
   }
   const counter = new Counter();
   const backend: Backend = {
-    quire,
+    vault,
     counter,
-    raw: quire.db,
-    counted: new Quire(counter.db(quire.db), counter.files(quire.files)),
+    raw: vault.db,
+    counted: new Vault(counter.db(vault.db), counter.files(vault.files)),
     reopen: () => void openVault(dir),
     close: () => fs.rmSync(dir, { recursive: true, force: true }),
   };
@@ -139,7 +139,7 @@ function openLocal(v: GeneratedVault, reps: number): { build: number[]; backend:
 }
 
 function openDo(v: GeneratedVault, reps: number): { build: number[]; backend: Backend } {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "quire-bench-do-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "commonink-bench-do-"));
   const file = path.join(dir, "do.sqlite");
   // The notes are already stored; the index is what gets built (as after an upgrade that reindexes).
   {
@@ -154,9 +154,9 @@ function openDo(v: GeneratedVault, reps: number): { build: number[]; backend: Ba
     const db = new DoDb(doStorage(file));
     migrate(db);
     const files = new SqlContent(db);
-    const quire = new Quire(db, files);
-    quire.sync();
-    return { db, files, quire };
+    const vault = new Vault(db, files);
+    vault.sync();
+    return { db, files, vault };
   };
   const build: number[] = [];
   let opened!: ReturnType<typeof wake>;
@@ -167,10 +167,10 @@ function openDo(v: GeneratedVault, reps: number): { build: number[]; backend: Ba
   }
   const counter = new Counter();
   const backend: Backend = {
-    quire: opened.quire,
+    vault: opened.vault,
     counter,
     raw: opened.db,
-    counted: new Quire(counter.db(opened.db), counter.files(opened.files)),
+    counted: new Vault(counter.db(opened.db), counter.files(opened.files)),
     reopen: () => void wake(),
     close: () => fs.rmSync(dir, { recursive: true, force: true }),
   };
@@ -178,11 +178,11 @@ function openDo(v: GeneratedVault, reps: number): { build: number[]; backend: Ba
 }
 
 /** Run `fn` `reps` times (after one warm-up) for timings, and once more through the counter. */
-function measure(size: number, name: string, b: Backend, reps: number, fn: (q: Quire, i: number) => void) {
+function measure(size: number, name: string, b: Backend, reps: number, fn: (q: Vault, i: number) => void) {
   if (!OPS.test(name)) return;
-  fn(b.quire, -1);
+  fn(b.vault, -1);
   const samples: number[] = [];
-  for (let i = 0; i < reps; i++) samples.push(time(() => fn(b.quire, i)));
+  for (let i = 0; i < reps; i++) samples.push(time(() => fn(b.vault, i)));
   b.counter.queries = b.counter.reads = 0;
   fn(b.counted, reps);
   record(size, backendName, name, samples, { queries: b.counter.queries, reads: b.counter.reads });
@@ -192,20 +192,20 @@ let backendName = "";
 function scenarios(size: number, v: GeneratedVault, b: Backend) {
   const reps = size >= 10_000 ? 20 : 50;
   const hub = v.hubs[0];
-  const notes = b.quire.list(undefined, "active").filter((n) => n.kind === "md" && !n.path.startsWith("Logs/"));
+  const notes = b.vault.list(undefined, "active").filter((n) => n.kind === "md" && !n.path.startsWith("Logs/"));
   const tag = v.tags[3];
   const root = tag.split("/")[0];
 
   // Setup, untimed: some history (three changes a note), and stars and smart folders someone might have.
-  b.quire.db.tx(() => {
+  b.vault.db.tx(() => {
     for (const [i, n] of notes.entries()) {
-      for (const source of ["you", agentSource(i % 3 ? "Claude" : "Cursor", "you"), i % 2 ? "external" : "you"]) b.quire.recordChange({ path: n.path, op: "edit", source, version: n.version, summary: "+1 −0", from_path: null });
+      for (const source of ["you", agentSource(i % 3 ? "Claude" : "Cursor", "you"), i % 2 ? "external" : "you"]) b.vault.recordChange({ path: n.path, op: "edit", source, version: n.version, summary: "+1 −0", from_path: null });
     }
   });
-  for (const n of notes.slice(0, 20)) b.quire.star(USER, n.path);
-  for (const t of b.quire.tags().slice(0, 5)) b.quire.starTag(USER, t.tag);
+  for (const n of notes.slice(0, 20)) b.vault.star(USER, n.path);
+  for (const t of b.vault.tags().slice(0, 5)) b.vault.starTag(USER, t.tag);
   const folders = [`tag=${root}`, `tag=${tag}`, "folder=Projects", "folder=Journal sort=title", 'q="launch plan"', "q=budget tag=work", "folder=Ideas", `tag=${v.tags[10]}`];
-  for (const [i, q] of folders.entries()) b.quire.saveSmartFolder(USER, { name: `Folder ${i}`, query: q, shared: i % 2 === 0 }, true);
+  for (const [i, q] of folders.entries()) b.vault.saveSmartFolder(USER, { name: `Folder ${i}`, query: q, shared: i % 2 === 0 }, true);
 
   measure(size, "reopen (warm index)", b, Math.min(reps, 10), () => b.reopen());
   measure(size, "list all", b, reps, (q) => q.list(undefined, "all"));

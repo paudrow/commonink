@@ -6,7 +6,7 @@ import { syntaxHighlighting, indentUnit } from "@codemirror/language";
 import { markdownKeymap } from "@codemirror/lang-markdown";
 import { html } from "@codemirror/lang-html";
 import { vim, Vim } from "@replit/codemirror-vim";
-import { markdownWithFrontmatter, quireHighlight } from "./language.ts";
+import { markdownWithFrontmatter, commonInkHighlight } from "./language.ts";
 import { livePreview } from "./livePreview.ts";
 import { blockKeys, blockWidgets, copyCodeKey, editorContext, stepIntoBlocks, type EditorContext } from "./blocks.ts";
 import { lineHint } from "./lineHint.ts";
@@ -164,7 +164,7 @@ export function createState(opts: {
       copyCodeKey,
       keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
       lang,
-      syntaxHighlighting(quireHighlight),
+      syntaxHighlighting(commonInkHighlight),
       agentFlash,
       theme,
       placeholder(opts.kind === "md" ? "Start writing…" : "<!doctype html>"),

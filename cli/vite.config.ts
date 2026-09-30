@@ -12,7 +12,7 @@ export default defineConfig({
     minify: false,
     rollupOptions: {
       output: {
-        entryFileNames: "quire.mjs",
+        entryFileNames: "commonink.mjs",
         codeSplitting: false,
         banner: "#!/usr/bin/env -S node --disable-warning=ExperimentalWarning",
       },
@@ -20,7 +20,7 @@ export default defineConfig({
   },
   ssr: { noExternal: true, target: "node" },
   define: {
-    "process.env.QUIRE_BUNDLED": JSON.stringify("1"),
-    "process.env.QUIRE_CLI_VERSION": JSON.stringify(pkg.version),
+    "process.env.COMMONINK_BUNDLED": JSON.stringify("1"),
+    "process.env.COMMONINK_CLI_VERSION": JSON.stringify(pkg.version),
   },
 });

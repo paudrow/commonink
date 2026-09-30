@@ -5,7 +5,7 @@
 import { ApiError, useWorkspace, whoAmI, type SharedNote } from "./api.ts";
 import { el, icon, timeAgo } from "./dom.ts";
 import { renderMarkdown, sandboxFrame } from "./render.ts";
-import { safeDecode } from "../../src/core/uri.ts";
+import { NOTE_LINKS, noteTarget } from "./noteLinks.ts";
 
 type Where = { link: string } | { workspace: string; note: string };
 
@@ -81,8 +81,8 @@ export async function mountSharedView(where: Where) {
   /** Links and embeds to notes: followable if shared too; otherwise "No access" (embeds) or plain text (links). */
   async function hydrate(root: HTMLElement) {
     for (const img of root.querySelectorAll("img")) img.addEventListener("error", () => img.replaceWith(noAccess()), { once: true });
-    for (const a of root.querySelectorAll<HTMLAnchorElement>('a[href^="quire:"]')) {
-      const target = safeDecode(a.getAttribute("href")!.slice(6)).split("#")[0];
+    for (const a of root.querySelectorAll<HTMLAnchorElement>(NOTE_LINKS)) {
+      const target = noteTarget(a.getAttribute("href")!)!.split("#")[0];
       const embed = a.textContent?.startsWith("↳ ");
       const hit = await call<SharedNote | { noAccess: true }>(`${base}/resolve?target=${encodeURIComponent(target)}&from=${note.id}`).catch(() => ({ noAccess: true as const }));
       if ("noAccess" in hit) {

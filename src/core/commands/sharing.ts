@@ -1,10 +1,10 @@
 // Sharing a note or folder with people outside the workspace, by email or by link. Only hosted
 // workspaces can (CommandHost.sharing); locally there's no one else to share with.
-import { QuireError } from "../paths.ts";
+import { VaultError } from "../paths.ts";
 import { bool, command, num, str, type CommandHost, type Sharing } from "./types.ts";
 
 const sharingOf = (h: CommandHost): Sharing => {
-  if (!h.sharing) throw new QuireError("Sharing is only in hosted workspaces: there's no one else to share a local vault with");
+  if (!h.sharing) throw new VaultError("Sharing is only in hosted workspaces: there's no one else to share a local vault with");
   return h.sharing;
 };
 const TARGET = {
@@ -20,7 +20,7 @@ export const sharing = [
     title: "List shares",
     summary: "Who a note or folder is shared with outside the workspace, or everything it shares",
     description: "Who a note or folder is shared with outside the workspace (people and links, with roles and expiry), or everything the workspace shares.",
-    examples: ["quire shares 'Plan for Sam'", "quire shares --folder Projects", "quire shares"],
+    examples: ["commonink shares 'Plan for Sam'", "commonink shares --folder Projects", "commonink shares"],
     readOnly: true,
     needs: "sharing",
     args: TARGET,
@@ -38,7 +38,7 @@ export const sharing = [
     description:
       "Share a note or folder with someone outside the workspace by email (people without an account get it when they sign in " +
       "with that email), or with anyone who has the link. Only share what the user asked to share, with whom they said.",
-    examples: ["quire share 'Plan for Sam' --email sam@example.com --role viewer", "quire share --folder Projects --link --role viewer --expires-in-days 7"],
+    examples: ["commonink share 'Plan for Sam' --email sam@example.com --role viewer", "commonink share --folder Projects --link --role viewer --expires-in-days 7"],
     needs: "sharing",
     openWorld: true,
     args: {
@@ -60,10 +60,10 @@ export const sharing = [
     title: "Stop sharing",
     summary: "Stop one share: that person, or the link, loses access at once",
     description: "Stop one share (its id from list_shares): that person, or the link, loses access at once.",
-    examples: ["quire unshare k3m9x2p7"],
+    examples: ["commonink unshare k3m9x2p7"],
     destructive: true,
     needs: "sharing",
-    args: { id: str({ required: true, pos: 0, describe: "The share's id from list_shares (quire shares)" }) },
+    args: { id: str({ required: true, pos: 0, describe: "The share's id from list_shares (commonink shares)" }) },
     run: async (h, a) => {
       const text = await sharingOf(h).unshare(a.id);
       return { text, data: text };

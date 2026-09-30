@@ -4,7 +4,7 @@ import { externalTitle, linkKind } from "../web/src/links.ts";
 
 test("http, https and mailto links leave the app; anything else is a note", () => {
   assert.deepEqual(
-    ["https://example.com/a", "HTTP://x.org", "mailto:sam@example.com", " https://a.b ", "quire:Launch", "Projects/Launch.md", "Launch", "#heading", "ftp-notes.md", "javascript:alert(1)"].map(linkKind),
+    ["https://example.com/a", "HTTP://x.org", "mailto:sam@example.com", " https://a.b ", "commonink:Launch", "Projects/Launch.md", "Launch", "#heading", "ftp-notes.md", "javascript:alert(1)"].map(linkKind),
     ["external", "external", "external", "external", "internal", "internal", "internal", "internal", "internal", "internal"],
   );
 });

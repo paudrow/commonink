@@ -50,7 +50,7 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS tags_path ON tags(path)`,
   // How each tag is shown: segment by segment, the way it was first written.
   `CREATE TABLE IF NOT EXISTS tag_names(tag TEXT PRIMARY KEY, display TEXT NOT NULL)`,
-  // Each note's tasks as read when it was indexed (see Quire.tasks): the columns queries filter on, the rest as JSON.
+  // Each note's tasks as read when it was indexed (see Vault.tasks): the columns queries filter on, the rest as JSON.
   `CREATE TABLE IF NOT EXISTS tasks(path TEXT NOT NULL, line INTEGER NOT NULL, done INTEGER NOT NULL, due TEXT, start TEXT, task TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS tasks_path ON tasks(path)`,
   `CREATE TABLE IF NOT EXISTS changes(

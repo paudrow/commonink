@@ -1,7 +1,7 @@
 // Tasks: list, add in words, change tokens, tick, repeat, move and remove; and the day at a glance.
-import { QuireError } from "../paths.ts";
+import { VaultError } from "../paths.ts";
 import { fmtTasks, fmtToday, fmtWrite } from "../format.ts";
-import type { Quire } from "../quire.ts";
+import type { Vault } from "../vault.ts";
 import type { TaskPatch } from "../tasks.ts";
 import { actorOf } from "../actor.ts";
 import { bool, command, list, num, str } from "./types.ts";
@@ -11,10 +11,10 @@ const TEXT = "The task's text after the checkbox, as list_tasks showed it (guard
 const TEXT_CLI = " On the CLI it's looked up from the line when left out.";
 
 /** A task's text, given, or read from its line (the CLI's way: people name a task by where it is). */
-function taskText(quire: Quire, note: string, line: number, text: string | undefined): string {
+function taskText(vault: Vault, note: string, line: number, text: string | undefined): string {
   if (text !== undefined) return text;
-  const task = quire.tasks({ note }).find((t) => t.line === line);
-  if (!task) throw new QuireError(`There's no task on line ${line} of ${note}`, "not_found");
+  const task = vault.tasks({ note }).find((t) => t.line === line);
+  if (!task) throw new VaultError(`There's no task on line ${line} of ${note}`, "not_found");
   return task.text;
 }
 
@@ -49,7 +49,7 @@ export const tasks = [
     description:
       "Checkbox tasks across the vault (not archived notes), as their markdown lines with path:line. A task's metadata is tokens in " +
       "its text: due:YYYY-MM-DD, start:YYYY-MM-DD, rec:… (how it repeats), #tag, @person, !high or !low, and done:YYYY-MM-DD once ticked.",
-    examples: ["quire tasks", "quire tasks --tag work --due '<=today'", "quire tasks --assignee jane --all --json", "quire tasks --assignee me", "quire tasks --by me"],
+    examples: ["commonink tasks", "commonink tasks --tag work --due '<=today'", "commonink tasks --assignee jane --all --json", "commonink tasks --assignee me", "commonink tasks --by me"],
     readOnly: true,
     args: {
       status: str({ enum: ["open", "done", "all"], presets: { done: "done", all: "all" }, describe: "Default open" }),
@@ -60,11 +60,11 @@ export const tasks = [
       by: str({ enum: ["me"], describe: '"me": tasks your person gave someone else, in notes they made' }),
       due: str({ describe: "A due date filter: <=today (overdue or due today), tomorrow, >=2026-10-01…" }),
     },
-    run: async ({ quire, user, source, members }, { status, by, ...filters }) => {
+    run: async ({ vault, user, source, members }, { status, by, ...filters }) => {
       const want = status ?? "open";
       const people = filters.assignee || by ? ((await members?.()) ?? []) : [];
       const person = actorOf(source).person ?? user;
-      const found = quire.tasksFor({ user, person, members: people }, { ...filters, by: by as "me" | undefined }).filter((t) => want === "all" || t.done === (want === "done"));
+      const found = vault.tasksFor({ user, person, members: people }, { ...filters, by: by as "me" | undefined }).filter((t) => want === "all" || t.done === (want === "done"));
       return { text: fmtTasks(found), data: found };
     },
   }),
@@ -79,12 +79,12 @@ export const tasks = [
       "due:… rec:1st #home; \"call mom tomorrow\", \"next fri\", \"oct 3\", \"in 2 weeks\", \"every other week\", \"last friday of the month\", " +
       "\"every 3 days after done\"). Tokens (due:, !high, @person, #tag) pass through. It goes under ## Tasks in today's daily note " +
       "(Journal/YYYY-MM-DD.md, created if needed), or into the note named with → [[Note]].",
-    examples: ['quire task add "Pay rent every month on the 1st #home"', 'quire task add "Review the PR next fri → [[Launch]] @sam"'],
+    examples: ['commonink task add "Pay rent every month on the 1st #home"', 'commonink task add "Review the PR next fri → [[Launch]] @sam"'],
     args: {
-      text: str({ required: true, pos: "rest", stdin: true, missing: 'Say what the task is: quire task add "Call mom tomorrow"', describe: 'The task, e.g. "Review the PR next fri → [[Launch]] @sam"' }),
+      text: str({ required: true, pos: "rest", stdin: true, missing: 'Say what the task is: commonink task add "Call mom tomorrow"', describe: 'The task, e.g. "Review the PR next fri → [[Launch]] @sam"' }),
     },
-    run: ({ quire, source }, a) => {
-      const r = quire.addTask(a.text, source);
+    run: ({ vault, source }, a) => {
+      const r = vault.addTask(a.text, source);
       return { text: `Added "- [ ] ${r.text}" to ${r.path}:${r.line}`, data: r };
     },
   }),
@@ -98,7 +98,7 @@ export const tasks = [
       "Tick, untick or change the metadata of one task, by the path:line and text list_tasks gave. Only the fields you pass change: " +
       "a value sets that token, null (or [] for lists) removes it, and the rest of the line stays as the user wrote it. Ticking adds done: with today's date; " +
       "ticking a repeating task (rec:) also adds its next occurrence on the line below, and unticking it straight after takes that back.",
-    examples: ["quire task Roadmap 8 --due 2026-10-01 --priority high", "quire task Roadmap 8 --done", "quire task Bills 3 --rec 6th --until 2027-06-30", "quire task Roadmap 8 --due none"],
+    examples: ["commonink task Roadmap 8 --due 2026-10-01 --priority high", "commonink task Roadmap 8 --done", "commonink task Bills 3 --rec 6th --until 2027-06-30", "commonink task Roadmap 8 --due none"],
     args: {
       path: str({ required: true, pos: 0, label: "note", describe: "The note the task is in" }),
       line: num({ required: true, pos: 1, min: 1, describe: LINE }),
@@ -107,10 +107,10 @@ export const tasks = [
       ...TASK_FIELDS,
       skip: bool({ describe: "Move a repeating task to its next date without ticking it (on its own: other fields are ignored)" }),
     },
-    run: ({ quire, source }, { path, line, text, done, skip, ...fields }) => {
-      const t = taskText(quire, path, line, text);
+    run: ({ vault, source }, { path, line, text, done, skip, ...fields }) => {
+      const t = taskText(vault, path, line, text);
       const patch = Object.fromEntries(Object.entries({ ...fields, checked: done }).filter(([, v]) => v !== undefined)) as TaskPatch;
-      const r = skip ? quire.skipTask(path, line, t, source) : quire.updateTask(path, line, t, patch, source);
+      const r = skip ? vault.skipTask(path, line, t, source) : vault.updateTask(path, line, t, patch, source);
       return { text: fmtWrite(r, r.change ? "Updated" : "No change to"), data: r };
     },
   }),
@@ -121,15 +121,15 @@ export const tasks = [
     title: "Move task",
     summary: "Move a task (and what's nested under it) to another note's Tasks section",
     description: "Move a task (and the lines nested under it) to another note, by the path:line and text list_tasks gave. It goes at the end of that note's Tasks section, or of the note.",
-    examples: ["quire task move Journal/2026-09-28 5 --to Launch"],
+    examples: ["commonink task move Journal/2026-09-28 5 --to Launch"],
     args: {
       path: str({ required: true, pos: 0, label: "note", describe: "The note the task is in" }),
       line: num({ required: true, pos: 1, min: 1, describe: LINE }),
       text: str({ mcpRequired: true, describe: TEXT + TEXT_CLI }),
       to: str({ required: true, describe: "The note to move it to" }),
     },
-    run: ({ quire, source }, a) => {
-      const r = quire.moveTask(a.path, a.line, taskText(quire, a.path, a.line, a.text), a.to, source);
+    run: ({ vault, source }, a) => {
+      const r = vault.moveTask(a.path, a.line, taskText(vault, a.path, a.line, a.text), a.to, source);
       return { text: `Moved "${r.text}" to ${r.path}:${r.line}`, data: r };
     },
   }),
@@ -140,15 +140,15 @@ export const tasks = [
     title: "Remove task",
     summary: "Take a task's line (and what's nested under it) out of its note",
     description: "Remove one task's line, and the lines nested under it, from its note, by the path:line and text list_tasks gave. Only when the user asks; ticking it is usually what they want.",
-    examples: ["quire task remove Inbox 4"],
+    examples: ["commonink task remove Inbox 4"],
     destructive: true,
     args: {
       path: str({ required: true, pos: 0, label: "note", describe: "The note the task is in" }),
       line: num({ required: true, pos: 1, min: 1, describe: LINE }),
       text: str({ mcpRequired: true, describe: TEXT + TEXT_CLI }),
     },
-    run: ({ quire, source }, a) => {
-      const r = quire.removeTask(a.path, a.line, taskText(quire, a.path, a.line, a.text), source);
+    run: ({ vault, source }, a) => {
+      const r = vault.removeTask(a.path, a.line, taskText(vault, a.path, a.line, a.text), source);
       return { text: fmtWrite(r, "Removed a task from"), data: r };
     },
   }),
@@ -161,11 +161,11 @@ export const tasks = [
     description:
       "The day at a glance: open tasks overdue, due today and starting today (repeating ones show their rec:), and whether today's " +
       "journal note (Journal/YYYY-MM-DD.md) exists. A good start for a morning brief.",
-    examples: ["quire today", "quire today --date 2026-10-01 --json"],
+    examples: ["commonink today", "commonink today --date 2026-10-01 --json"],
     readOnly: true,
     args: { today: str({ flag: "date", describe: "The day to read, YYYY-MM-DD; default the user's today" }) },
-    run: ({ quire }, a) => {
-      const t = quire.today(a.today);
+    run: ({ vault }, a) => {
+      const t = vault.today(a.today);
       return { text: fmtToday(t), data: t };
     },
   }),
@@ -176,10 +176,10 @@ export const tasks = [
     title: "Open journal",
     summary: "Today's journal note, made from the daily template if it's missing",
     description: "Today's journal note (Journal/YYYY-MM-DD.md): its path, made from Templates/Daily note.md (or a plain one) if it doesn't exist yet.",
-    examples: ["quire journal", "quire journal --date 2026-10-01"],
+    examples: ["commonink journal", "commonink journal --date 2026-10-01"],
     args: { today: str({ flag: "date", describe: "The day, YYYY-MM-DD; default the user's today" }) },
-    run: ({ quire, source }, a) => {
-      const r = quire.dailyNote(a.today ?? quire.today().date, source);
+    run: ({ vault, source }, a) => {
+      const r = vault.dailyNote(a.today ?? vault.today().date, source);
       return { text: `${r.created ? "Started" : "Already there:"} ${r.path}`, data: { path: r.path, created: r.created } };
     },
   }),

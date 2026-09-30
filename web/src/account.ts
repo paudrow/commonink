@@ -30,7 +30,7 @@ export function showSignIn() {
   );
 }
 
-const PICKED = "quire.ws";
+const PICKED = "commonink.ws";
 
 /** The workspace to open: ?w=… (from an invite or a switch), then the last one used, then your own. */
 export function pickWorkspace(me: Me) {

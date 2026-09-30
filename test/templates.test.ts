@@ -52,7 +52,7 @@ test("a template's own frontmatter says how notes are made from it, and isn't co
   assert.equal(fillTemplate(md, { at: AT, title: "X" }).text, "---\ntags: [meeting]\n---\n# X\n");
 });
 
-const vault = () =>
+const freshVault = () =>
   openTempVault({
     "Templates/Meeting.md": "---\ntitle: \"{{date}} {{ask:Client}}\"\nfolder: Meetings\napplies_to: Meetings/\n---\n# {{title}}\n\n**Attendees:** {{ask:Attendees}}\n\n## Notes\n\n- {{cursor}}\n\n## Action items\n\n- [ ] Send the recap\n",
     "Templates/Daily note.md": "# {{date:dddd, MMMM D}}\n\n## Tasks\n\n## Log\n",
@@ -60,54 +60,54 @@ const vault = () =>
   });
 
 test("the vault lists its templates, and makes a note from one", () => {
-  const { quire } = vault();
-  assert.deepEqual(quire.templates().map((t) => [t.name, t.appliesTo, t.asks.map((a) => a.label)]), [
+  const { vault } = freshVault();
+  assert.deepEqual(vault.templates().map((t) => [t.name, t.appliesTo, t.asks.map((a) => a.label)]), [
     ["Daily note", [], []],
     ["Decision", [], ["What"]],
     ["Meeting", ["Meetings"], ["Client", "Attendees"]],
   ]);
-  const r = quire.createFromTemplate("Meeting", { at: AT, answers: { Client: "Acme", Attendees: "Sam, Lee" } }, "you");
+  const r = vault.createFromTemplate("Meeting", { at: AT, answers: { Client: "Acme", Attendees: "Sam, Lee" } }, "you");
   assert.equal(r.path, "Meetings/2026-09-29 Acme.md");
-  const text = quire.read(r.path).content;
+  const text = vault.read(r.path).content;
   assert.equal(text, "# 2026-09-29 Acme\n\n**Attendees:** Sam, Lee\n\n## Notes\n\n- \n\n## Action items\n\n- [ ] Send the recap\n");
   assert.equal(r.cursor, text.indexOf("- \n") + 2);
   assert.deepEqual(r.unfilled, []);
   // The same title again gets a free name; a given title and folder win over the template's.
-  assert.equal(quire.createFromTemplate("Meeting", { at: AT, answers: { Client: "Acme" } }, "you").path, "Meetings/2026-09-29 Acme 2.md");
-  const mine = quire.createFromTemplate("Templates/Meeting.md", { at: AT, title: "Kickoff", folder: "Projects/Launch" }, "you");
+  assert.equal(vault.createFromTemplate("Meeting", { at: AT, answers: { Client: "Acme" } }, "you").path, "Meetings/2026-09-29 Acme 2.md");
+  const mine = vault.createFromTemplate("Templates/Meeting.md", { at: AT, title: "Kickoff", folder: "Projects/Launch" }, "you");
   assert.equal(mine.path, "Projects/Launch/Kickoff.md");
   assert.deepEqual(mine.unfilled, ["ask:Attendees"]);
-  assert.throws(() => quire.createFromTemplate("Projects/Launch/Kickoff", { at: AT }, "you"), /isn't a template/);
+  assert.throws(() => vault.createFromTemplate("Projects/Launch/Kickoff", { at: AT }, "you"), /isn't a template/);
   // A template with no title pattern is named after the template.
-  assert.equal(quire.createFromTemplate("Decision", { at: AT }, "you").path, "Decision.md");
+  assert.equal(vault.createFromTemplate("Decision", { at: AT }, "you").path, "Decision.md");
 });
 
 test("a folder's default template: the one whose applies_to names it", () => {
-  const { quire } = vault();
-  assert.equal(quire.defaultTemplate("Meetings")?.name, "Meeting");
-  assert.equal(quire.defaultTemplate("Meetings/2026")?.name, "Meeting", "and folders under it");
-  assert.equal(quire.defaultTemplate("Projects"), null);
+  const { vault } = freshVault();
+  assert.equal(vault.defaultTemplate("Meetings")?.name, "Meeting");
+  assert.equal(vault.defaultTemplate("Meetings/2026")?.name, "Meeting", "and folders under it");
+  assert.equal(vault.defaultTemplate("Projects"), null);
 });
 
 test("inserting a template gives its body, filled, without its frontmatter", () => {
-  const { quire } = vault();
-  const r = quire.renderTemplate("Decision", { at: AT, answers: { What: "Ship Friday" }, title: "Launch plan" });
+  const { vault } = freshVault();
+  const r = vault.renderTemplate("Decision", { at: AT, answers: { What: "Ship Friday" }, title: "Launch plan" });
   assert.equal(r.text, "## Decision: Ship Friday\n\n- **Why:** \n");
   assert.equal(r.cursor, "## Decision: Ship Friday\n\n- **Why:** ".length);
 });
 
 test("daily notes (Today's journal, quick-add's) are made with the same engine", () => {
-  const { quire } = vault();
-  quire.dailyNote("2026-09-29", "you");
-  assert.equal(quire.read("Journal/2026-09-29").content, "# Tuesday, September 29\n\n## Tasks\n\n## Log\n");
-  quire.addTask("Call the bank tomorrow", "you", { today: "2026-10-01" });
-  assert.match(quire.read("Journal/2026-10-01").content, /^# Thursday, October 1\n\n## Tasks\n\n- \[ \] Call the bank due:2026-10-02\n/);
+  const { vault } = freshVault();
+  vault.dailyNote("2026-09-29", "you");
+  assert.equal(vault.read("Journal/2026-09-29").content, "# Tuesday, September 29\n\n## Tasks\n\n## Log\n");
+  vault.addTask("Call the bank tomorrow", "you", { today: "2026-10-01" });
+  assert.match(vault.read("Journal/2026-10-01").content, /^# Thursday, October 1\n\n## Tasks\n\n- \[ \] Call the bank due:2026-10-02\n/);
 });
 
 test("a template's tasks aren't tasks: Tasks and Today leave Templates/ out", () => {
-  const { quire } = vault();
-  assert.deepEqual(quire.tasks().map((t) => t.path), []);
-  assert.equal(quire.openTaskCount(), 0);
+  const { vault } = freshVault();
+  assert.deepEqual(vault.tasks().map((t) => t.path), []);
+  assert.equal(vault.openTaskCount(), 0);
 });
 
 test("typed questions: people, a date, a choice; a default after the type; a plain default still works", () => {

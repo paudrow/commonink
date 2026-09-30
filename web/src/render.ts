@@ -91,7 +91,7 @@ export function sectionOf(md: string, heading: string): string {
   return lines.slice(start, end).join("\n");
 }
 
-const SAFE_URI = /^(?:(?:https?|mailto|quire):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i;
+const SAFE_URI = /^(?:(?:https?|mailto|commonink|quire):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i; // quire: is the legacy scheme
 
 /**
  * What note content may be as HTML. No styles or forms. Its ids and names are prefixed, so a note
@@ -114,9 +114,9 @@ export function renderMarkdown(md: string, from: string, opts: { boards?: boolea
       .replace(/!\[\[([^[\]|]+)(?:\|[^[\]]*)?\]\]/g, (_m, target: string) => {
         const kind = embedKindOf(target);
         if (kind === "image") return `![${target}](${assetUrl(target, from)})`;
-        return `[↳ ${target}](quire:${encodeURIComponent(target)})`;
+        return `[↳ ${target}](commonink:${encodeURIComponent(target)})`;
       })
-      .replace(/\[\[([^[\]|]+)(?:\|([^[\]]*))?\]\]/g, (_m, target: string, alias?: string) => `[${alias ?? target.replace(/#/, " › ")}](quire:${encodeURIComponent(target)})`)
+      .replace(/\[\[([^[\]|]+)(?:\|([^[\]]*))?\]\]/g, (_m, target: string, alias?: string) => `[${alias ?? target.replace(/#/, " › ")}](commonink:${encodeURIComponent(target)})`)
       .replace(/!\[([^[\]]*)\]\((?!https?:|\/)([^()\s]+)\)/g, (_m, alt, src) => `![${alt}](${assetUrl(safeDecode(src), from)})`),
   );
   // marked recurses once per nested quote, list and emphasis, and a DOM's serializer once per
@@ -149,7 +149,7 @@ export function sandboxFrame(html: string, opts: { autoHeight?: boolean; title?:
     frame.setAttribute("loading", "lazy"); // embeds only; the full-page preview should paint at once
   }
   const reporter = opts.autoHeight
-    ? `<script>(()=>{const p=()=>parent.postMessage({quireFrameHeight:document.documentElement.scrollHeight},"*");new ResizeObserver(p).observe(document.documentElement);addEventListener("load",p);p()})()</script>`
+    ? `<script>(()=>{const p=()=>parent.postMessage({commonInkFrameHeight:document.documentElement.scrollHeight},"*");new ResizeObserver(p).observe(document.documentElement);addEventListener("load",p);p()})()</script>`
     : "";
   // Not srcdoc: that would inherit the app's CSP, which only lets our own scripts run. The sandbox
   // page asks for its HTML each time it loads (moving a frame in the DOM reloads it).
@@ -161,20 +161,20 @@ export function sandboxFrame(html: string, opts: { autoHeight?: boolean; title?:
 const sandboxHtml = new WeakMap<HTMLIFrameElement, string>();
 
 window.addEventListener("message", (e) => {
-  if ((e.data as { quireSandbox?: unknown })?.quireSandbox === "ready") {
+  if ((e.data as { commonInkSandbox?: unknown })?.commonInkSandbox === "ready") {
     for (const f of document.querySelectorAll<HTMLIFrameElement>("iframe")) {
-      if (f.contentWindow === e.source && sandboxHtml.has(f)) f.contentWindow?.postMessage({ quireHtml: sandboxHtml.get(f) }, "*");
+      if (f.contentWindow === e.source && sandboxHtml.has(f)) f.contentWindow?.postMessage({ commonInkHtml: sandboxHtml.get(f) }, "*");
     }
     return;
   }
-  const h = (e.data as { quireFrameHeight?: unknown })?.quireFrameHeight;
+  const h = (e.data as { commonInkFrameHeight?: unknown })?.commonInkFrameHeight;
   if (typeof h !== "number") return;
   for (const f of document.querySelectorAll<HTMLIFrameElement>("iframe[data-autoheight]")) {
     if (f.contentWindow === e.source) {
       const px = `${Math.min(Math.max(h, 60), 1400)}px`;
       if (f.style.height !== px) {
         f.style.height = px;
-        f.dispatchEvent(new CustomEvent("quire-resize", { bubbles: true }));
+        f.dispatchEvent(new CustomEvent("commonink-resize", { bubbles: true }));
       }
     }
   }

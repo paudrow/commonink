@@ -95,7 +95,7 @@ test("a contact's handles, for @name on a task: its name with dashes, and aliase
 });
 
 test("the vault lists contacts with when each was last mentioned, and shows one's timeline", () => {
-  const { quire } = openTempVault({
+  const { vault } = openTempVault({
     "People/Jane Doe.md": JANE,
     "People/Sam Lee.md": "---\nemail: sam@x.org\n---\n# Sam Lee\n",
     "Archive/People/Old Friend.md": "# Old Friend\n",
@@ -104,10 +104,10 @@ test("the vault lists contacts with when each was last mentioned, and shows one'
     "Meetings/2026-08-15 Deal review.md": "# Deal review\n\nOwner: [[People/Jane Doe]]\n",
     "Meetings/Kickoff.md": "---\ndate: 2026-07-01\n---\n# Kickoff\n\nWith [[People/Sam Lee]].\n",
   });
-  const list = quire.contacts();
+  const list = vault.contacts();
   // A note without a day in its name is dated by its `date:`.
   assert.deepEqual(list.map((c) => [c.name, c.mentions, c.lastContacted]), [["Jane Doe", 3, "2026-09-20"], ["Sam Lee", 1, "2026-07-01"]]);
-  const { contact, timeline } = quire.contact("People/Jane Doe");
+  const { contact, timeline } = vault.contact("People/Jane Doe");
   assert.equal(contact.company, "Acme");
   // Newest first; a note with a day in its name (or a `date:`) is dated by it, others by when they last changed.
   assert.deepEqual(timeline.map((t) => [t.kind, t.path, t.date, t.text]), [
@@ -115,51 +115,51 @@ test("the vault lists contacts with when each was last mentioned, and shows one'
     ["note", "Journal/2026-09-02.md", "2026-09-02", "Lunch with [[People/Jane Doe]]."],
     ["note", "Meetings/2026-08-15 Deal review.md", "2026-08-15", "Owner: [[People/Jane Doe]]"],
   ]);
-  assert.throws(() => quire.contact("Journal/2026-09-02"), /isn't a contact/);
+  assert.throws(() => vault.contact("Journal/2026-09-02"), /isn't a contact/);
 });
 
 test("creating and editing a contact writes its note in People/", () => {
-  const { quire } = openTempVault({});
-  const r = quire.createContact({ name: "Ada Lovelace", email: ["ada@engine.org"], company: "Analytical" }, "you");
+  const { vault } = openTempVault({});
+  const r = vault.createContact({ name: "Ada Lovelace", email: ["ada@engine.org"], company: "Analytical" }, "you");
   assert.equal(r.path, "People/Ada Lovelace.md");
-  assert.equal(quire.read("People/Ada Lovelace").content, "---\nemail: ada@engine.org\ncompany: Analytical\n---\n# Ada Lovelace\n");
-  assert.throws(() => quire.createContact({ name: "ada lovelace" }, "you"), /already/);
-  assert.throws(() => quire.createContact({ name: "  " }, "you"), /needs a name/);
-  assert.throws(() => quire.createContact({ name: "A/B" }, "you"), /can't have/);
-  quire.updateContact("People/Ada Lovelace", { role: "Programmer", email: ["ada@engine.org", "ada@home.org"] }, "you");
-  assert.deepEqual(quire.contacts()[0].email, ["ada@engine.org", "ada@home.org"]);
-  assert.equal(quire.contacts()[0].role, "Programmer");
+  assert.equal(vault.read("People/Ada Lovelace").content, "---\nemail: ada@engine.org\ncompany: Analytical\n---\n# Ada Lovelace\n");
+  assert.throws(() => vault.createContact({ name: "ada lovelace" }, "you"), /already/);
+  assert.throws(() => vault.createContact({ name: "  " }, "you"), /needs a name/);
+  assert.throws(() => vault.createContact({ name: "A/B" }, "you"), /can't have/);
+  vault.updateContact("People/Ada Lovelace", { role: "Programmer", email: ["ada@engine.org", "ada@home.org"] }, "you");
+  assert.deepEqual(vault.contacts()[0].email, ["ada@engine.org", "ada@home.org"]);
+  assert.equal(vault.contacts()[0].role, "Programmer");
 });
 
 test("merging two contacts keeps one, fills in what it lacked, moves the other's links to it, and trashes the other", () => {
-  const { quire } = openTempVault({
+  const { vault } = openTempVault({
     "People/Jane Doe.md": "---\nemail: jane@acme.com\n---\n# Jane Doe\n\nMet at the offsite.\n",
     "People/J Doe.md": "---\nemail: [jane@acme.com, jd@home.org]\nphone: 555-0100\ncompany: Acme\ntags: [client]\n---\n# J Doe\n\nPrefers email.\n",
     "Notes/Call.md": "# Call\n\nWith [[People/J Doe]] and [[J Doe|J]].\n",
   });
-  const r = quire.mergeContacts("People/Jane Doe", "People/J Doe", "you");
+  const r = vault.mergeContacts("People/Jane Doe", "People/J Doe", "you");
   assert.equal(r.path, "People/Jane Doe.md");
   assert.equal(
-    quire.read("People/Jane Doe").content,
+    vault.read("People/Jane Doe").content,
     "---\nemail: [jane@acme.com, jd@home.org]\nphone: 555-0100\ncompany: Acme\naliases: [J Doe]\ntags: [client]\n---\n# Jane Doe\n\nMet at the offsite.\n\n## From J Doe\n\nPrefers email.\n",
   );
-  assert.equal(quire.read("Notes/Call").content, "# Call\n\nWith [[People/Jane Doe]] and [[People/Jane Doe|J]].\n");
+  assert.equal(vault.read("Notes/Call").content, "# Call\n\nWith [[People/Jane Doe]] and [[People/Jane Doe|J]].\n");
   assert.deepEqual(r.updated, ["Notes/Call.md"]);
-  assert.equal(quire.meta("People/J Doe.md"), null);
-  assert.ok(quire.trash().some((t) => t.path === "People/J Doe.md"), "in Trash, to bring back");
-  assert.throws(() => quire.mergeContacts("People/Jane Doe", "People/Jane Doe", "you"), /itself/);
+  assert.equal(vault.meta("People/J Doe.md"), null);
+  assert.ok(vault.trash().some((t) => t.path === "People/J Doe.md"), "in Trash, to bring back");
+  assert.throws(() => vault.mergeContacts("People/Jane Doe", "People/Jane Doe", "you"), /itself/);
 });
 
 test("importing fills in contacts that exist (same email or name) and creates the rest, once each", () => {
-  const { quire } = openTempVault({ "People/Jane Doe.md": "---\nemail: jane@acme.com\n---\n# Jane Doe\n" });
+  const { vault } = openTempVault({ "People/Jane Doe.md": "---\nemail: jane@acme.com\n---\n# Jane Doe\n" });
   const csv = "Name,Email,Company,Phone\nJane D.,jane@acme.com,Acme,\nSam Lee,sam@x.org,Globex,555-0101\nSam Lee,sam@x.org,,\n,,,\n";
-  const r = quire.importContacts(csv, "csv", "you");
+  const r = vault.importContacts(csv, "csv", "you");
   assert.deepEqual(r, { created: ["People/Sam Lee.md"], updated: ["People/Jane Doe.md"], unchanged: [] });
-  assert.match(quire.read("People/Jane Doe").content, /company: Acme/);
-  assert.match(quire.read("People/Jane Doe").content, /aliases: \[Jane D.\]/, "the name it came in under becomes an alias");
-  assert.deepEqual(quire.importContacts(csv, "csv", "you"), { created: [], updated: [], unchanged: ["People/Jane Doe.md", "People/Sam Lee.md"] });
+  assert.match(vault.read("People/Jane Doe").content, /company: Acme/);
+  assert.match(vault.read("People/Jane Doe").content, /aliases: \[Jane D.\]/, "the name it came in under becomes an alias");
+  assert.deepEqual(vault.importContacts(csv, "csv", "you"), { created: [], updated: [], unchanged: ["People/Jane Doe.md", "People/Sam Lee.md"] });
   // A vCard's note lands in the new contact's body.
-  const v = quire.importContacts("BEGIN:VCARD\nFN:Ann Bee\nNOTE:Tennis on Thursdays\nEND:VCARD\n", "vcard", "you");
+  const v = vault.importContacts("BEGIN:VCARD\nFN:Ann Bee\nNOTE:Tennis on Thursdays\nEND:VCARD\n", "vcard", "you");
   assert.deepEqual(v.created, ["People/Ann Bee.md"]);
-  assert.equal(quire.read("People/Ann Bee").content, "# Ann Bee\n\nTennis on Thursdays\n");
+  assert.equal(vault.read("People/Ann Bee").content, "# Ann Bee\n\nTennis on Thursdays\n");
 });

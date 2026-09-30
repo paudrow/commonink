@@ -6,6 +6,7 @@ import { api, type FeedItem, type FeedPage, type TagCount, type Task } from "./a
 import type { TrashPage } from "./trash.ts";
 import { $, authorAvatar, authorName, displayName, el, escapeHtml, icon, NOTE_DRAG, timeAgo } from "./dom.ts";
 import { renderMarkdown, sandboxFrame } from "./render.ts";
+import { noteTarget } from "./noteLinks.ts";
 import { hydrateCode } from "./code.ts";
 import { hydrateMath } from "./math.ts";
 import { followInPage } from "./gfm.ts";
@@ -19,7 +20,6 @@ import { hydrateTaskChips, withTaskChips } from "./taskChips.ts";
 import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
 import { linkClick, sideClick } from "./panes.ts";
 import { calendarTarget, openCalendarLink } from "./links.ts";
-import { safeDecode } from "../../src/core/uri.ts";
 import { emptyState } from "./emptyState.ts";
 import { AGENTS_BLURB, agentsBadge } from "./agentsNote.ts";
 import { notePath } from "../../src/core/ids.ts";
@@ -459,7 +459,7 @@ export class NotesPage {
         e.preventDefault();
         const href = a.getAttribute("href") ?? "";
         if (/^https?:/i.test(href)) window.open(href, "_blank", "noopener");
-        else if (href.startsWith("quire:")) void api.resolve(safeDecode(href.slice(6)), item.path).then((p) => p && this.hooks.open(p, undefined, side));
+        else if (noteTarget(href) !== null) void api.resolve(noteTarget(href)!, item.path).then((p) => p && this.hooks.open(p, undefined, side));
         else if (calendarTarget(href) !== null) openCalendarLink(href);
         else followInPage(node, href); // a footnote, or a #heading in the note
         return;

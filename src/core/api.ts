@@ -1,7 +1,7 @@
 // The note API, written against the web-standard Request/Response so the same routes run in the
 // local Node server and in a Cloudflare workspace Durable Object.
-import { cleanPath, QuireError } from "./paths.ts";
-import type { ArchiveScope, Change, Quire } from "./quire.ts";
+import { cleanPath, VaultError } from "./paths.ts";
+import type { ArchiveScope, Change, Vault } from "./vault.ts";
 import type { TaskPatch } from "./tasks.ts";
 import type { ContactFields } from "./contacts.ts";
 import type { FillOptions, PersonPick } from "./templates.ts";
@@ -12,7 +12,7 @@ import type { Calendar, EventDraft } from "./calendar.ts";
 import { notePath } from "./ids.ts";
 
 export interface ApiHost {
-  quire: Quire;
+  vault: Vault;
   /** Who changes made through this request are attributed to ("you" locally, a person's name online). */
   actor: string;
   /** Whose favorites and personal smart folders this request reads and changes (the vault's one person locally, a user ID online). */
@@ -59,7 +59,7 @@ export function attachment(name: string): string {
 }
 
 export function errorResponse(e: unknown): Response {
-  if (e instanceof QuireError) {
+  if (e instanceof VaultError) {
     const status = { not_found: 404, conflict: 409, exists: 409, invalid: 400, forbidden: 403 }[e.code];
     return json({ error: e.message, code: e.code, ...e.data }, status);
   }
@@ -82,7 +82,7 @@ const SCOPES: ArchiveScope[] = ["active", "archived", "all"];
 
 /** A task patch from a request body: each field a string, null, or (for lists) strings. Values are the core's to check. */
 function taskPatch(v: unknown): TaskPatch {
-  if (typeof v !== "object" || v === null || Array.isArray(v)) throw new QuireError(`"patch" must be an object`);
+  if (typeof v !== "object" || v === null || Array.isArray(v)) throw new VaultError(`"patch" must be an object`);
   const out: Record<string, unknown> = {};
   for (const [k, x] of Object.entries(v)) {
     const ok =
@@ -92,7 +92,7 @@ function taskPatch(v: unknown): TaskPatch {
       : ["due", "start", "done", "rec", "until", "priority"].includes(k) ? x === null || typeof x === "string"
       : k === "times" ? x === null || typeof x === "number"
       : false;
-    if (!ok) throw new QuireError(`"patch.${k}" isn't a task field or has the wrong type`);
+    if (!ok) throw new VaultError(`"patch.${k}" isn't a task field or has the wrong type`);
     out[k] = x;
   }
   return out as TaskPatch;
@@ -104,7 +104,7 @@ const MAX_IMPORT = 8 * 1024 * 1024;
 
 /** Contact fields from a request: lists of strings, and company and role as strings. `name` only where it's allowed. */
 function contactFields(v: unknown, withName: boolean): Partial<ContactFields> {
-  if (typeof v !== "object" || v === null || Array.isArray(v)) throw new QuireError("Expected an object of contact fields");
+  if (typeof v !== "object" || v === null || Array.isArray(v)) throw new VaultError("Expected an object of contact fields");
   const out: Record<string, unknown> = {};
   for (const [k, x] of Object.entries(v)) {
     if (x === undefined) continue;
@@ -112,7 +112,7 @@ function contactFields(v: unknown, withName: boolean): Partial<ContactFields> {
       CONTACT_LISTS.includes(k) ? Array.isArray(x) && x.every((s) => typeof s === "string")
       : k === "company" || k === "role" || (k === "name" && withName) || (k === "notes" && withName) ? typeof x === "string"
       : false;
-    if (!ok) throw new QuireError(`"${k}" isn't a contact field or has the wrong type`);
+    if (!ok) throw new VaultError(`"${k}" isn't a contact field or has the wrong type`);
     out[k] = x;
   }
   return out as Partial<ContactFields>;
@@ -124,13 +124,13 @@ function fillOptions(raw: unknown): FillOptions {
   const out: FillOptions = {};
   for (const k of ["at", "title", "clipboard"] as const) {
     if (b[k] === undefined || b[k] === null) continue;
-    if (typeof b[k] !== "string") throw new QuireError(`"${k}" must be a string`);
+    if (typeof b[k] !== "string") throw new VaultError(`"${k}" must be a string`);
     out[k] = b[k] as string;
   }
-  if (out.at !== undefined && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(out.at)) throw new QuireError(`"at" must look like 2026-10-01T09:30`);
+  if (out.at !== undefined && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(out.at)) throw new VaultError(`"at" must look like 2026-10-01T09:30`);
   if (b.answers !== undefined && b.answers !== null) {
     if (typeof b.answers !== "object" || Array.isArray(b.answers) || !Object.values(b.answers).every((v) => typeof v === "string")) {
-      throw new QuireError(`"answers" must be an object of strings`);
+      throw new VaultError(`"answers" must be an object of strings`);
     }
     out.answers = b.answers as Record<string, string>;
   }
@@ -138,7 +138,7 @@ function fillOptions(raw: unknown): FillOptions {
     const person = (p: unknown) =>
       typeof p === "object" && p !== null && typeof (p as PersonPick).name === "string" && typeof (p as PersonPick).handle === "string" && ["undefined", "string"].includes(typeof (p as PersonPick).link);
     if (typeof b.picks !== "object" || Array.isArray(b.picks) || !Object.values(b.picks).every((v) => Array.isArray(v) && v.every(person))) {
-      throw new QuireError(`"picks" must be an object of lists of { name, handle, link? }`);
+      throw new VaultError(`"picks" must be an object of lists of { name, handle, link? }`);
     }
     out.picks = b.picks as Record<string, PersonPick[]>;
   }
@@ -147,14 +147,14 @@ function fillOptions(raw: unknown): FillOptions {
 
 /** Typed reads of a request's JSON body and query string. Anything malformed is a 400 naming the field. */
 function inputs(body: unknown, url: URL) {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) throw new QuireError("Expected a JSON object");
+  if (typeof body !== "object" || body === null || Array.isArray(body)) throw new VaultError("Expected a JSON object");
   const b = body as Record<string, unknown>;
   const str = (k: string): string => {
-    if (typeof b[k] !== "string") throw new QuireError(`"${k}" must be a string`);
+    if (typeof b[k] !== "string") throw new VaultError(`"${k}" must be a string`);
     return b[k];
   };
   const int = (k: string, v: unknown = b[k]): number => {
-    if (!Number.isInteger(v)) throw new QuireError(`"${k}" must be a whole number`);
+    if (!Number.isInteger(v)) throw new VaultError(`"${k}" must be a whole number`);
     return v as number;
   };
   const q = (k: string) => url.searchParams.get(k) ?? "";
@@ -167,13 +167,13 @@ function inputs(body: unknown, url: URL) {
     flag: (k: string) => !!b[k],
     optBool: (k: string) => {
       if (b[k] === undefined || b[k] === null) return undefined;
-      if (typeof b[k] !== "boolean") throw new QuireError(`"${k}" must be true or false`);
+      if (typeof b[k] !== "boolean") throw new VaultError(`"${k}" must be true or false`);
       return b[k] as boolean;
     },
     patch: () => taskPatch(b.patch),
     paths: (k: string): string[] => {
       const v = b[k];
-      if (!Array.isArray(v) || !v.every((p) => typeof p === "string")) throw new QuireError(`"${k}" must be a list of strings`);
+      if (!Array.isArray(v) || !v.every((p) => typeof p === "string")) throw new VaultError(`"${k}" must be a list of strings`);
       return v;
     },
     q,
@@ -185,7 +185,7 @@ function inputs(body: unknown, url: URL) {
     },
     qScope: (): ArchiveScope => {
       const s = (q("scope") || "active") as ArchiveScope;
-      if (!SCOPES.includes(s)) throw new QuireError(`"scope" must be one of ${SCOPES.join(", ")}`);
+      if (!SCOPES.includes(s)) throw new VaultError(`"scope" must be one of ${SCOPES.join(", ")}`);
       return s;
     },
   };
@@ -201,14 +201,14 @@ export async function handleApi(host: ApiHost, req: Request, route: string): Pro
 }
 
 async function dispatch(host: ApiHost, req: Request, route: string): Promise<Response | null> {
-  const { quire, actor } = host;
+  const { vault, actor } = host;
   const url = new URL(req.url);
   const raw = req.method === "GET" || req.method === "HEAD" ? {} : await req.json().catch(() => {
-    throw new QuireError("Invalid JSON");
+    throw new VaultError("Invalid JSON");
   });
   const { str, int, optStr, text, flag, paths, patch, q, qInt, qCount, qScope } = inputs(raw, url);
 
-  const moveAll = (paths: string[], fn: (p: string) => ReturnType<Quire["move"]>) => {
+  const moveAll = (paths: string[], fn: (p: string) => ReturnType<Vault["move"]>) => {
     const moved = paths.map((p) => {
       const r = fn(p);
       for (const e of r.edits) host.written(e.path, e.content, e.version, e.change);
@@ -219,7 +219,7 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     return json({ moved });
   };
 
-  const trashed = (gone: ReturnType<Quire["delete"]>) => {
+  const trashed = (gone: ReturnType<Vault["delete"]>) => {
     for (const g of gone) host.removed(g.path, g.change);
     return gone.map(({ id, path }) => ({ id, path }));
   };
@@ -231,16 +231,16 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     case "GET /info":
       return json(host.info());
     case "GET /notes":
-      return json(quire.list(undefined, "all")); // the UI hides archived notes itself
+      return json(vault.list(undefined, "all")); // the UI hides archived notes itself
     case "GET /note":
-      return json(quire.read(q("path")));
+      return json(vault.read(q("path")));
     case "GET /resolve":
-      return json({ path: quire.resolve(q("target"), q("from") || undefined) });
+      return json({ path: vault.resolve(q("target"), q("from") || undefined) });
     case "GET /search":
-      return json(quire.search(q("q"), qCount("limit", 30, 200), qScope()));
+      return json(vault.search(q("q"), qCount("limit", 30, 200), qScope()));
     case "GET /feed":
       return json(
-        quire.feed({
+        vault.feed({
           q: q("q"),
           scope: qScope(),
           folder: q("folder") || undefined,
@@ -251,28 +251,28 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
         }),
       );
     case "GET /backlinks":
-      return json(quire.backlinks(q("path")));
+      return json(vault.backlinks(q("path")));
     case "GET /changes":
-      return json(quire.changes({ limit: qCount("limit", 50, 500), before: qCount("before", 0, Infinity) || undefined, path: q("path") || undefined, by: parseAuthorFilter(q("by")) }));
+      return json(vault.changes({ limit: qCount("limit", 50, 500), before: qCount("before", 0, Infinity) || undefined, path: q("path") || undefined, by: parseAuthorFilter(q("by")) }));
     case "GET /changes/agents":
-      return json(quire.agents());
+      return json(vault.agents());
     case "GET /diffs":
-      return json(quire.diffSet(parseIdRanges(q("ids"))));
+      return json(vault.diffSet(parseIdRanges(q("ids"))));
     case "GET /diffstats":
-      return json(quire.diffStats(q("sets").split(";").slice(0, 50).map(parseIdRanges)));
+      return json(vault.diffStats(q("sets").split(";").slice(0, 50).map(parseIdRanges)));
     case "GET /favorites":
-      return json(quire.favorites(host.user));
+      return json(vault.favorites(host.user));
     case "GET /smart-folders":
-      return json(quire.smartFolders(host.user));
+      return json(vault.smartFolders(host.user));
     case "GET /tasks": {
       // `assignee` is someone's name (every @name that's theirs) or "me"; `by=me` keeps the tasks
       // the reader gave someone else in their own notes. Only those need the workspace's members.
       const assignee = q("assignee") || undefined;
       const by = q("by") || undefined;
-      if (by !== undefined && by !== "me") throw new QuireError(`"by" can only be "me"`);
+      if (by !== undefined && by !== "me") throw new VaultError(`"by" can only be "me"`);
       const members = assignee || by ? ((await host.members?.()) ?? []) : [];
       return json(
-        quire.tasksFor({ user: host.user, person: actor, members }, {
+        vault.tasksFor({ user: host.user, person: actor, members }, {
           folder: q("folder") || undefined,
           note: q("note") || undefined,
           tag: q("tag") || undefined,
@@ -284,32 +284,32 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       );
     }
     case "GET /tasks/count":
-      return json({ open: quire.openTaskCount() });
+      return json({ open: vault.openTaskCount() });
     case "GET /tags":
-      return json(quire.tags());
+      return json(vault.tags());
     case "GET /asset-tags":
-      return json(quire.assetTags());
+      return json(vault.assetTags());
     case "GET /diff":
-      return json(quire.diff(qInt("from"), q("to") ? qInt("to") : qInt("from")));
+      return json(vault.diff(qInt("from"), q("to") ? qInt("to") : qInt("from")));
     case "GET /contacts":
-      return json(quire.contacts());
+      return json(vault.contacts());
     case "GET /contact":
-      return json(quire.contact(q("path")));
+      return json(vault.contact(q("path")));
     case "GET /members":
       return json(host.members ? await host.members() : []);
     case "POST /contacts": {
-      const r = quire.createContact({ ...contactFields(raw, true), name: str("name") }, actor);
-      host.written(r.path, quire.files.read(r.path), r.version, r.change);
+      const r = vault.createContact({ ...contactFields(raw, true), name: str("name") }, actor);
+      host.written(r.path, vault.files.read(r.path), r.version, r.change);
       host.tree();
       return json({ path: r.path, version: r.version });
     }
     case "POST /contacts/update": {
-      const r = quire.updateContact(str("path"), contactFields((raw as { patch?: unknown }).patch, false), actor);
-      if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
+      const r = vault.updateContact(str("path"), contactFields((raw as { patch?: unknown }).patch, false), actor);
+      if (r.change) host.written(r.path, vault.files.read(r.path), r.version, r.change);
       return json({ path: r.path, version: r.version });
     }
     case "POST /contacts/merge": {
-      const r = quire.mergeContacts(str("keep"), str("drop"), actor);
+      const r = vault.mergeContacts(str("keep"), str("drop"), actor);
       host.written(r.path, r.content, r.version, r.change);
       trashed(r.trashed);
       for (const e of r.edits) host.written(e.path, e.content, e.version, e.change);
@@ -318,22 +318,22 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     }
     case "POST /contacts/import": {
       const format = str("format");
-      if (format !== "vcard" && format !== "csv") throw new QuireError(`"format" must be "vcard" or "csv"`);
+      if (format !== "vcard" && format !== "csv") throw new VaultError(`"format" must be "vcard" or "csv"`);
       const body = str("text");
-      if (body.length > MAX_IMPORT) throw new QuireError("That file is too big to import at once; split it up");
-      const r = quire.importContacts(body, format, actor);
-      for (const p of [...r.created, ...r.updated]) host.written(p, quire.files.read(p), quire.meta(p)?.version ?? "", null);
+      if (body.length > MAX_IMPORT) throw new VaultError("That file is too big to import at once; split it up");
+      const r = vault.importContacts(body, format, actor);
+      for (const p of [...r.created, ...r.updated]) host.written(p, vault.files.read(p), vault.meta(p)?.version ?? "", null);
       if (r.created.length) host.tree();
       return json(r);
     }
     case "GET /templates":
-      return json(quire.templates());
+      return json(vault.templates());
     // A template filled in, to insert at the cursor (the editor writes it, so this only reads).
     case "POST /templates/render":
-      return json(quire.renderTemplate(str("template"), fillOptions(raw)));
+      return json(vault.renderTemplate(str("template"), fillOptions(raw)));
     case "POST /notes/from-template": {
-      const r = quire.createFromTemplate(str("template"), { ...fillOptions(raw), folder: optStr("folder") }, actor);
-      host.written(r.path, quire.files.read(r.path), r.version, r.change);
+      const r = vault.createFromTemplate(str("template"), { ...fillOptions(raw), folder: optStr("folder") }, actor);
+      host.written(r.path, vault.files.read(r.path), r.version, r.change);
       host.tree();
       return json({ path: r.path, version: r.version, cursor: r.cursor, unfilled: r.unfilled });
     }
@@ -343,161 +343,161 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       // The note moved while this save was on its way (its first title renamed it, an agent moved
       // it): save it where it is now, not as a new note at the old path.
       const id = optStr("id");
-      if (id) rel = quire.pathOf(id) ?? rel;
+      if (id) rel = vault.pathOf(id) ?? rel;
       const content = text("content");
       // Never let a client blank out a note by accident (e.g. a stale tab whose editor failed to load).
-      if (!content.trim() && !flag("allowEmpty") && quire.files.read(rel)?.trim()) {
+      if (!content.trim() && !flag("allowEmpty") && vault.files.read(rel)?.trim()) {
         return json({ error: `Refusing to replace ${rel} with an empty note`, code: "empty" }, 422);
       }
-      const isNew = !quire.files.stat(rel);
-      const r = quire.save(rel, content, { baseVersion: optStr("baseVersion"), source: actor, autosave: true });
+      const isNew = !vault.files.stat(rel);
+      const r = vault.save(rel, content, { baseVersion: optStr("baseVersion"), source: actor, autosave: true });
       host.written(rel, content, r.version, r.change, optStr("clientId"));
       if (isNew) host.tree();
       return json({ path: rel, version: r.version });
     }
     case "POST /note": {
       const content = text("content");
-      const r = quire.create(str("path"), content, actor);
+      const r = vault.create(str("path"), content, actor);
       host.written(r.path, content, r.version, r.change);
       host.tree();
       return json({ path: r.path, version: r.version });
     }
     case "POST /tasks/set": {
-      const r = quire.setTask(str("path"), int("line"), str("text"), flag("done"), actor, optStr("today")); // done: gets the person's day
-      if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
+      const r = vault.setTask(str("path"), int("line"), str("text"), flag("done"), actor, optStr("today")); // done: gets the person's day
+      if (r.change) host.written(r.path, vault.files.read(r.path), r.version, r.change);
       return json({ path: r.path, version: r.version, line: r.line, text: r.text });
     }
     case "POST /tasks/update": {
-      const r = quire.updateTask(str("path"), int("line"), str("text"), patch(), actor, optStr("today"));
-      if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
+      const r = vault.updateTask(str("path"), int("line"), str("text"), patch(), actor, optStr("today"));
+      if (r.change) host.written(r.path, vault.files.read(r.path), r.version, r.change);
       return json({ path: r.path, version: r.version, line: r.line, text: r.text });
     }
     case "GET /today":
-      return json(quire.today(q("today") || undefined));
+      return json(vault.today(q("today") || undefined));
     case "POST /today/journal": {
-      const r = quire.dailyNote(str("today"), actor);
+      const r = vault.dailyNote(str("today"), actor);
       if (r.change) {
-        host.written(r.path, quire.files.read(r.path), r.version!, r.change);
+        host.written(r.path, vault.files.read(r.path), r.version!, r.change);
         host.tree();
       }
       return json({ path: r.path, created: r.created });
     }
     case "POST /tasks/add": {
-      const r = quire.addTask(str("text"), actor, { today: optStr("today"), to: optStr("to"), ignore: (raw as { ignore?: unknown }).ignore === undefined ? [] : paths("ignore") });
-      host.written(r.path, quire.files.read(r.path), r.version, r.change);
+      const r = vault.addTask(str("text"), actor, { today: optStr("today"), to: optStr("to"), ignore: (raw as { ignore?: unknown }).ignore === undefined ? [] : paths("ignore") });
+      host.written(r.path, vault.files.read(r.path), r.version, r.change);
       if (r.change?.op === "create") host.tree();
       return json({ path: r.path, version: r.version, line: r.line, text: r.text });
     }
     case "POST /tasks/remove": {
-      const r = quire.removeTask(str("path"), int("line"), str("text"), actor);
-      host.written(r.path, quire.files.read(r.path), r.version, r.change);
+      const r = vault.removeTask(str("path"), int("line"), str("text"), actor);
+      host.written(r.path, vault.files.read(r.path), r.version, r.change);
       return json({ path: r.path, version: r.version });
     }
     case "POST /tasks/move": {
-      const r = quire.moveTask(str("path"), int("line"), str("text"), str("to"), actor);
-      host.written(r.cut.path, quire.files.read(r.cut.path), r.cut.version, r.cut.change);
-      host.written(r.path, quire.files.read(r.path), r.version, r.change);
+      const r = vault.moveTask(str("path"), int("line"), str("text"), str("to"), actor);
+      host.written(r.cut.path, vault.files.read(r.cut.path), r.cut.version, r.cut.change);
+      host.written(r.path, vault.files.read(r.path), r.version, r.change);
       return json({ path: r.path, version: r.version, line: r.line, text: r.text });
     }
     case "POST /move": {
-      const r = quire.move(str("from"), str("to"), actor);
+      const r = vault.move(str("from"), str("to"), actor);
       for (const e of r.edits) host.written(e.path, e.content, e.version, e.change);
       host.moved(r.from, r.path, r.version, r.change);
       host.tree();
       return json({ path: r.path, updated: r.updated });
     }
     case "PUT /asset-tags": {
-      const tags = quire.setAssetTags(str("path"), paths("tags"));
+      const tags = vault.setAssetTags(str("path"), paths("tags"));
       host.tree();
       return json({ tags });
     }
     // A tag added by name, before any note carries it, and taking one away again. Both return every tag.
     case "POST /tags": {
-      const tags = quire.addTag(str("tag"));
+      const tags = vault.addTag(str("tag"));
       host.tree();
       return json(tags);
     }
     case "POST /tags/delete": {
-      const tags = quire.removeTag(str("tag"));
+      const tags = vault.removeTag(str("tag"));
       host.tree();
       return json(tags);
     }
     case "POST /tags/rename": {
-      const r = quire.renameTag(str("from"), str("to"), actor);
+      const r = vault.renameTag(str("from"), str("to"), actor);
       for (const e of r.edits) host.written(e.path, e.content, e.version, e.change);
       host.tree();
       // Restoring each change while its note is still at `versions` (the text the rename left), and
       // setting these assets' tags back, undoes the rename without writing over a later edit.
       return json({ changes: r.edits.map((e) => e.change.id), versions: r.edits.map((e) => e.version), assets: r.assets });
     }
-    // Labels (Quire.label): a name on a version of a note, to compare with or go back to.
+    // Labels (Vault.label): a name on a version of a note, to compare with or go back to.
     case "GET /labels":
-      return json(quire.labels(q("path") || undefined));
+      return json(vault.labels(q("path") || undefined));
     case "GET /labels/compare": {
       // Two versions' text: a label and another label (?to=<id>), or the note now (?to=now, the default).
-      const c = quire.compareLabels(q("from"), q("to") || "now");
+      const c = vault.compareLabels(q("from"), q("to") || "now");
       return json({ path: c.path, from: { ...c.from.label, text: c.from.text }, to: c.to.label ? { ...c.to.label, text: c.to.text } : { now: true, text: c.to.text } });
     }
     case "POST /labels": {
       const at = (raw as { at?: unknown }).at == null ? undefined : int("at"); // a past change to label the version after; now if absent
-      return json(quire.label(str("path"), str("name"), actor, { description: optStr("description"), at }));
+      return json(vault.label(str("path"), str("name"), actor, { description: optStr("description"), at }));
     }
     case "POST /labels/rename": {
       const description = (raw as { description?: unknown }).description;
-      return json(quire.renameLabel(str("id"), str("name"), { description: description === undefined ? undefined : description === null ? null : str("description") }));
+      return json(vault.renameLabel(str("id"), str("name"), { description: description === undefined ? undefined : description === null ? null : str("description") }));
     }
     case "POST /labels/delete":
-      return json(quire.deleteLabel(str("id")));
+      return json(vault.deleteLabel(str("id")));
     case "POST /labels/restore": {
-      const r = quire.restoreLabel(str("id"), actor, { baseVersion: optStr("version") });
-      if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
+      const r = vault.restoreLabel(str("id"), actor, { baseVersion: optStr("version") });
+      if (r.change) host.written(r.path, vault.files.read(r.path), r.version, r.change);
       return json({ path: r.path, version: r.version, change: r.change?.id ?? null }); // restoring `change` undoes this
     }
     case "POST /restore": {
-      const r = quire.restore(int("id"), actor, optStr("version"));
-      if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
+      const r = vault.restore(int("id"), actor, optStr("version"));
+      if (r.change) host.written(r.path, vault.files.read(r.path), r.version, r.change);
       return json({ path: r.path, version: r.version, change: r.change?.id ?? null }); // restoring `change` undoes this
     }
     // A `tag` stars or unstars a tag; a `path` a note.
     case "POST /favorites/star":
-      return json(favorited(optStr("tag") !== undefined ? quire.starTag(host.user, str("tag")) : quire.star(host.user, str("path"))));
+      return json(favorited(optStr("tag") !== undefined ? vault.starTag(host.user, str("tag")) : vault.star(host.user, str("path"))));
     case "POST /favorites/unstar":
-      return json(favorited(optStr("tag") !== undefined ? quire.unstarTag(host.user, str("tag")) : quire.unstar(host.user, str("path"))));
+      return json(favorited(optStr("tag") !== undefined ? vault.unstarTag(host.user, str("tag")) : vault.unstar(host.user, str("path"))));
     case "PUT /favorites":
-      return json(favorited(quire.orderFavorites(host.user, paths("paths"))));
+      return json(favorited(vault.orderFavorites(host.user, paths("paths"))));
     case "POST /smart-folders": {
-      const f = quire.saveSmartFolder(host.user, { id: optStr("id"), name: str("name"), query: text("query"), shared: flag("shared") }, host.canEditShared, true);
+      const f = vault.saveSmartFolder(host.user, { id: optStr("id"), name: str("name"), query: text("query"), shared: flag("shared") }, host.canEditShared, true);
       host.tree();
       return json(f);
     }
     case "POST /smart-folders/delete": {
-      const list = quire.deleteSmartFolder(host.user, str("id"), host.canEditShared, true);
+      const list = vault.deleteSmartFolder(host.user, str("id"), host.canEditShared, true);
       host.tree();
       return json(list);
     }
     case "GET /guide":
-      return json(findStartNote(quire)?.state ?? null);
+      return json(findStartNote(vault)?.state ?? null);
     // The guide ticks its own checklist as the person tries things. Only these fixed edits, and
     // only in the start note, so this can't be used to write anything else under the guide's name.
     case "POST /guide": {
-      const r = runGuide(quire, parseGuideAction(str("action")), agentSource(GUIDE, actor));
+      const r = runGuide(vault, parseGuideAction(str("action")), agentSource(GUIDE, actor));
       if (r.write) host.written(r.write.path, r.write.content, r.write.version, r.write.change);
       return json(r.state);
     }
     case "POST /archive":
-      return moveAll(paths("paths"), (p) => quire.archive(p, actor));
+      return moveAll(paths("paths"), (p) => vault.archive(p, actor));
     // Trash. Deleting sends notes, assets or a folder's contents there; `trashed` is what Undo restores.
     case "GET /delete-check":
-      return json(quire.deleteCheck(url.searchParams.getAll("path"), q("folder") || undefined));
+      return json(vault.deleteCheck(url.searchParams.getAll("path"), q("folder") || undefined));
     case "POST /delete": {
-      const out = trashed(quire.delete(paths("paths"), actor));
+      const out = trashed(vault.delete(paths("paths"), actor));
       host.tree();
       return json({ trashed: out });
     }
     case "POST /delete-folder": {
       const notes = str("notes");
-      if (notes !== "trash" && notes !== "lift") throw new QuireError(`"notes" must be "trash" or "lift"`);
-      const r = quire.deleteFolder(str("folder"), notes, actor);
+      if (notes !== "trash" && notes !== "lift") throw new VaultError(`"notes" must be "trash" or "lift"`);
+      const r = vault.deleteFolder(str("folder"), notes, actor);
       for (const m of r.moved) {
         for (const e of m.edits) host.written(e.path, e.content, e.version, e.change);
         host.moved(m.from, m.path, m.version, m.change);
@@ -507,25 +507,25 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json({ trashed: out, moved: r.moved.map((m) => ({ from: m.from, to: m.path })) });
     }
     case "GET /trash":
-      return json(quire.trash());
+      return json(vault.trash());
     case "GET /export": {
       // Notes as a .zip (core/export.ts): ?path=… (repeated), ?folder=…, or ?all=1 for the whole workspace.
       const what: ExportWhat = q("all") ? { all: true } : q("folder") ? { folder: q("folder") } : { paths: url.searchParams.getAll("path").slice(0, 2000) };
-      const out = await exportZip({ quire, bytes: host.fileBytes ?? (async () => null), origin: host.origin ?? url.origin, name: String(host.info().name ?? "Workspace") }, what);
+      const out = await exportZip({ vault, bytes: host.fileBytes ?? (async () => null), origin: host.origin ?? url.origin, name: String(host.info().name ?? "Workspace") }, what);
       return new Response(out.zip as Uint8Array<ArrayBuffer>, { headers: { "Content-Type": "application/zip", "Content-Disposition": attachment(out.name), "Cache-Control": "no-store" } });
     }
     case "POST /trash/restore": {
-      const back = quire.untrash(paths("ids"), actor);
-      for (const b of back) host.written(b.path, quire.files.read(b.path), b.version, b.change);
+      const back = vault.untrash(paths("ids"), actor);
+      for (const b of back) host.written(b.path, vault.files.read(b.path), b.version, b.change);
       host.tree();
       return json({ restored: back.map((b) => b.path) });
     }
     case "POST /trash/delete":
-      return json({ deleted: quire.purge(paths("ids"), actor) });
+      return json({ deleted: vault.purge(paths("ids"), actor) });
     case "POST /trash/empty":
-      return json({ deleted: quire.emptyTrash(actor) });
+      return json({ deleted: vault.emptyTrash(actor) });
     case "POST /unarchive":
-      return moveAll(paths("paths"), (p) => quire.unarchive(p, actor));
+      return moveAll(paths("paths"), (p) => vault.unarchive(p, actor));
   }
   if (route.startsWith("/calendar/") && host.calendar) return calendarRoute(host, host.calendar, `${req.method} ${route}`, inputs(raw, url));
   return null;
@@ -545,7 +545,7 @@ function draftOf({ str, optStr, optBool, raw }: ReturnType<typeof inputs>, whole
   const people = raw.attendees;
   if (people !== undefined) {
     if (!Array.isArray(people) || !people.every((a) => a && typeof a === "object" && ["name", "email"].every((k) => a[k] === undefined || a[k] === null || typeof a[k] === "string"))) {
-      throw new QuireError('"attendees" must be a list of { name, email }');
+      throw new VaultError('"attendees" must be a list of { name, email }');
     }
     out.attendees = people.map((a: { name?: string | null; email?: string | null }) => ({ name: a.name ?? null, email: a.email ?? null, status: null }));
   } else if (whole) out.attendees = [];
@@ -555,7 +555,7 @@ function draftOf({ str, optStr, optBool, raw }: ReturnType<typeof inputs>, whole
 /** An instant from the query: an ISO date or time. */
 function instant(s: string, name: string): number {
   const t = Date.parse(s);
-  if (!s || Number.isNaN(t)) throw new QuireError(`"${name}" must be a date or time like 2026-10-01 or 2026-10-01T09:00:00Z`);
+  if (!s || Number.isNaN(t)) throw new VaultError(`"${name}" must be a date or time like 2026-10-01 or 2026-10-01T09:00:00Z`);
   return t;
 }
 
@@ -581,7 +581,7 @@ async function calendarRoute(host: ApiHost, cal: Calendar, key: string, input: R
     case "GET /calendar/events": {
       const from = instant(q("from"), "from");
       const to = instant(q("to"), "to");
-      if (to <= from || to - from > 400 * 86_400_000) throw new QuireError(`"to" must be after "from", and at most 400 days later`);
+      if (to <= from || to - from > 400 * 86_400_000) throw new VaultError(`"to" must be after "from", and at most 400 days later`);
       return json(cal.events(viewer, { from, to, zone: q("tz") || undefined, q: q("q") || undefined, source: q("source") || undefined, limit: qCount("limit", 2000, 5000) }));
     }
     case "GET /calendar/event": {
@@ -593,9 +593,9 @@ async function calendarRoute(host: ApiHost, cal: Calendar, key: string, input: R
       const ev = await cal.createEvent(str("source"), draftOf(input, true) as EventDraft, viewer, host.actor, optStr("note"));
       host.calendarChanged?.();
       if (!optBool("meetingNote")) return json({ event: ev, note: null });
-      const r = cal.meetingNote(host.quire, ev.id, viewer, { timeZone: optStr("timeZone"), source: host.actor });
+      const r = cal.meetingNote(host.vault, ev.id, viewer, { timeZone: optStr("timeZone"), source: host.actor });
       if (r.created) {
-        host.written(r.path, host.quire.files.read(r.path), r.version, r.change);
+        host.written(r.path, host.vault.files.read(r.path), r.version, r.change);
         host.tree();
       }
       return json({ event: cal.event(ev.id, viewer), note: { path: r.path } });
@@ -607,12 +607,12 @@ async function calendarRoute(host: ApiHost, cal: Calendar, key: string, input: R
       return changed({ ok: true });
     case "POST /calendar/meeting-note": {
       const id = str("id");
-      const r = cal.meetingNote(host.quire, id, viewer, { timeZone: optStr("timeZone"), source: host.actor });
+      const r = cal.meetingNote(host.vault, id, viewer, { timeZone: optStr("timeZone"), source: host.actor });
       if (!r.created) return json({ path: r.path, created: false });
-      host.written(r.path, host.quire.files.read(r.path), r.version, r.change);
+      host.written(r.path, host.vault.files.read(r.path), r.version, r.change);
       host.tree();
       host.calendarChanged?.();
-      const title = host.quire.read(r.path).title;
+      const title = host.vault.read(r.path).title;
       const linked = host.origin && r.noteId ? await cal.linkBack(id, viewer, `${host.origin}${notePath(title, r.noteId)}`) : null;
       return json({ path: r.path, created: true, linkedBack: linked });
     }
