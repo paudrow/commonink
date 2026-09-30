@@ -18,4 +18,6 @@ For agents:
 - Content comes from stdin with `-` (or piped in). `--base <version>` (from `read`) refuses a write to a note that changed since.
 - Set `QUIRE_AGENT=<your name>` (or `--agent`), so History shows your changes as "<agent> for you".
 
+Hosted workspaces: `quire login` signs in in the browser (`--server` for another address than https://commonink.app), `quire workspaces` lists yours and `quire workspaces use <name>` picks one, `--workspace <name>` picks one for a single command, and `quire logout` signs out. There, `quire members`, `quire invite`, `quire invites`, `quire member role|remove`, `quire leave` and `quire workspace rename|log` manage the workspace itself, as its Settings do. Tokens stay in `~/.config/quire/credentials.json`, readable only by you.
+
 `quire help <command>` shows a command's options and examples, and `quire completion bash|zsh|fish` prints a completion script.

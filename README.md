@@ -59,6 +59,16 @@ Online, agents connect over MCP's Streamable HTTP at `https://commonink.app/mcp`
 
 The client opens Common Ink in your browser: sign in, pick the workspace it may use, and **Allow**. From then on it acts as you, with your role in that workspace at the time of each request: a viewer's agent only gets the read tools and starring. Its changes show in History as "Claude (via Audrow)". The same tools serve both kinds of connection (`src/core/tools.ts`). **Connected agents** in the account menu lists your agents, when each was last used and what it changed lately, and **Revoke** cuts one off at its next request.
 
+#### The CLI in a hosted workspace
+
+`quire login` signs the CLI in the same way (OAuth 2.1 with PKCE, redirected to a port on 127.0.0.1), and asks for **All your workspaces**: each command says which one it runs in, with your role there at the time. The tokens are kept in `~/.config/quire/credentials.json` (or `$XDG_CONFIG_HOME/quire`), readable only by you. Then:
+
+- `quire login [--server https://pr-<number>-commonink.<subdomain>.workers.dev]`: the default server is `https://commonink.app`. `--no-browser` prints the address to open elsewhere, and takes the address you land on pasted back (for a machine with no browser, say over SSH).
+- `quire workspaces` lists yours with your role, and `quire workspaces use <name>` picks the one commands go to. `--workspace <name>` (or `$QUIRE_WORKSPACE`) picks one for one command, and `--workspace local` (or setting `$QUIRE_VAULT`) uses this computer's vault.
+- Every command works the same: the Worker runs it with the same command table and core as a local vault (`POST /mcp/cli/run`). Writes are yours, or "<agent> for <you>" with `--agent` or `$QUIRE_AGENT`.
+- A workspace's settings work from the CLI too, with the same checks as the app's Settings: `quire members`, `quire member role <person> <role>`, `quire member remove <person>`, `quire leave`, `quire invite [--role viewer]`, `quire invites` and `quire invites revoke <id>`, `quire workspace rename <name>` and `quire workspace log`. Deleting a workspace is only in the app. They're not MCP tools: an agent's MCP access is to one workspace's notes.
+- `quire logout` ends the sign-in on the server too. The CLI shows in **Connected agents** as "quire CLI", on all your workspaces, and **Revoke** cuts it off.
+
 ## How edits from agents and you stay safe together
 
 - **Edits are exact-string replacements** with an optional `base_version`. A stale edit fails with a clear message instead of clobbering anything.

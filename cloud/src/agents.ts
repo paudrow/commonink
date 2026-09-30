@@ -10,13 +10,18 @@ import { getUser, membership, timeZoneFor, workspacesOf, type User, type Workspa
 import type { Env } from "./env.ts";
 import { D1Kv } from "./oauth-store.ts";
 import { agentSource, authorLabel } from "../../src/core/actor.ts";
+import { CLI_ROUTE } from "../../src/core/commands/wire.ts";
+import { ALL_WORKSPACES, serveCli } from "./cli.ts";
 
-/** What a grant carries: who connected, to which workspace, and the client's name. */
+/** What a grant carries: who connected, to which workspace (or ALL_WORKSPACES, for the CLI), and the client's name. */
 export interface AgentProps {
   userId: string;
   workspaceId: string;
   client: string;
 }
+
+/** The scope the `quire` CLI asks for: every workspace the person is in, each with their role there. */
+export const WORKSPACES_SCOPE = "workspaces";
 
 export type OAuthEnv = Env & { OAUTH_KV: KVNamespace };
 export const withOAuthStore = (env: Env): OAuthEnv => ({ ...env, OAUTH_KV: new D1Kv(env.DB) as unknown as KVNamespace });
@@ -25,7 +30,13 @@ export const withOAuthStore = (env: Env): OAuthEnv => ({ ...env, OAUTH_KV: new D
 export function oauthOptions(origin: string, app: ExportedHandler<OAuthEnv>): OAuthProviderOptions<OAuthEnv> {
   return {
     apiRoute: "/mcp",
-    apiHandler: { fetch: (req, env, ctx) => serveMcp(req, env, ctx as ExecutionContext<AgentProps> & { auth: { token: string } }) },
+    apiHandler: {
+      fetch: (req, env, ctx) => {
+        const c = ctx as ExecutionContext<AgentProps> & { auth: { token: string } };
+        noteUse(env, c);
+        return new URL(req.url).pathname.startsWith(`${CLI_ROUTE}/`) ? serveCli(req, env, c.props) : serveMcp(req, env, c);
+      },
+    },
     defaultHandler: app,
     authorizeEndpoint: "/authorize",
     tokenEndpoint: "/oauth/token",
@@ -56,7 +67,13 @@ async function serveMcp(req: Request, env: OAuthEnv, ctx: ExecutionContext<Agent
   const { userId, workspaceId, client } = ctx.props;
   const [user, ws, timeZone] = await Promise.all([getUser(env.DB, userId), membership(env.DB, userId, workspaceId), timeZoneFor(env.DB, userId, workspaceId)]);
   if (!user || !ws) return json({ error: "The person who connected this agent is no longer in that workspace" }, 403);
-  // Tokens are "<user>:<grant>:<secret>". Last use is kept to the minute, to save a write per call.
+  const stub = env.WORKSPACE.get(env.WORKSPACE.idFromName(ws.id));
+  return stub.mcp(req, { workspace: ws.id, user: user.id, actor: agentSource(client, user.name), role: ws.role, timeZone });
+}
+
+/** When a grant was last used (for Connected agents), kept to the minute to save a write per call. */
+function noteUse(env: OAuthEnv, ctx: ExecutionContext<AgentProps> & { auth: { token: string } }) {
+  // Tokens are "<user>:<grant>:<secret>".
   const grantId = ctx.auth.token.split(":")[1];
   const now = Date.now();
   ctx.waitUntil(
@@ -64,8 +81,6 @@ async function serveMcp(req: Request, env: OAuthEnv, ctx: ExecutionContext<Agent
       .bind(grantId, now, now - 60_000)
       .run(),
   );
-  const stub = env.WORKSPACE.get(env.WORKSPACE.idFromName(ws.id));
-  return stub.mcp(req, { workspace: ws.id, user: user.id, actor: agentSource(client, user.name), role: ws.role, timeZone });
 }
 
 // ------------------------------------------------------------------ consent
@@ -84,9 +99,12 @@ export async function authorize(req: Request, env: Env, url: URL): Promise<Respo
         const denied = await oauth.denyConsent(req, handle);
         return new Response(null, { status: 302, headers: denied.headers });
       }
-      const ws = await membership(env.DB, user.id, String(form.get("workspace") ?? ""));
-      if (!ws) return text(400, "Pick one of your workspaces, then try again.");
+      const picked = String(form.get("workspace") ?? "");
       const approved = await oauth.approveConsent(req, handle);
+      // Every workspace only when the app asked for it (the CLI does), so no form can add it for another.
+      const every = picked === ALL_WORKSPACES && approved.request.scope.includes(WORKSPACES_SCOPE);
+      const ws = every ? { id: ALL_WORKSPACES } : await membership(env.DB, user.id, picked);
+      if (!ws) return text(400, "Pick one of your workspaces, then try again.");
       const client = clientName((await oauth.lookupClient(approved.request.clientId))?.clientName);
       // Connecting again to the same workspace replaces that connection; other workspaces keep theirs.
       for (const g of await grantsOf(oauth, user.id)) {
@@ -106,7 +124,7 @@ export async function authorize(req: Request, env: Env, url: URL): Promise<Respo
     const request = await oauth.parseAuthRequest(req);
     const details = await oauth.describeConsent(request);
     const consent = await oauth.beginConsent(request);
-    const res = consentPage(details, consent.handle, user, await workspacesOf(env.DB, user.id));
+    const res = consentPage(details, consent.handle, user, await workspacesOf(env.DB, user.id), request.scope.includes(WORKSPACES_SCOPE));
     for (const [k, v] of consent.headers) if (k.toLowerCase() === "set-cookie") res.headers.append(k, v);
     return res;
   } catch (e) {
@@ -122,14 +140,21 @@ const CAN: Record<WorkspaceRef["role"], string> = {
   viewer: "read notes, and star them for you",
 };
 
-function consentPage(details: ConsentDescription, handle: string, user: User, workspaces: WorkspaceRef[]) {
+function consentPage(details: ConsentDescription, handle: string, user: User, workspaces: WorkspaceRef[], offerAll: boolean) {
   const name = escapeHtml(clientName(details.clientName));
-  const choices = workspaces
-    .map(
-      (w, i) => `<label class="ws"><input type="radio" name="workspace" value="${escapeHtml(w.id)}"${i === 0 ? " checked" : ""}>
+  // A CLI asks for all of them: you pick which one each command runs in, with your role there.
+  const all = offerAll
+    ? `<label class="ws"><input type="radio" name="workspace" value="${ALL_WORKSPACES}" checked>
+        <span><strong>All your workspaces</strong><br><span class="muted">Each command says which one, and it can do there what your role allows, now and as it changes.</span></span></label>`
+    : "";
+  const choices =
+    all +
+    workspaces
+      .map(
+        (w, i) => `<label class="ws"><input type="radio" name="workspace" value="${escapeHtml(w.id)}"${i === 0 && !offerAll ? " checked" : ""}>
         <span><strong>${escapeHtml(w.name)}</strong><br><span class="muted">You're ${w.role === "owner" ? "the owner" : `a${w.role === "editor" ? "n" : ""} ${w.role}`}: it can ${CAN[w.role]}.</span></span></label>`,
-    )
-    .join("");
+      )
+      .join("");
   const res = page(
     200,
     `<style>
@@ -165,6 +190,8 @@ export interface ConnectedAgent {
   /** The person it works for, as its changes record them (`person`, with `agent` = client). */
   person: string;
   workspace: { id: string; name: string; role: WorkspaceRef["role"] } | null;
+  /** It may work in every workspace the person is in (the quire CLI). */
+  allWorkspaces?: boolean;
   connectedAt: number;
   usedAt: number | null;
 }
@@ -203,6 +230,7 @@ export async function listAgents(env: Env, url: URL, user: User): Promise<Connec
         actor: agentActor(client, user),
         person: user.name,
         workspace: ws ? { id: ws.id, name: ws.name, role: ws.role } : null,
+        ...(g.metadata?.workspaceId === ALL_WORKSPACES ? { allWorkspaces: true } : {}),
         connectedAt: g.createdAt * 1000,
         usedAt: used.get(g.id) ?? null,
       };

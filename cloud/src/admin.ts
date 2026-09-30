@@ -2,38 +2,12 @@
 // leaving it and deleting it. The Worker handles these routes itself (the workspace's Durable Object
 // holds only notes); `access.ts` says who may use each. Every change goes in `workspace_log`.
 import { json } from "../../src/core/api.ts";
+import type { InviteRow, LogEntry, Member } from "../../src/core/commands/settings.ts";
 import type { Role } from "./access.ts";
 import { revokeAgentsIn } from "./agents.ts";
 import { createInvite, type User, type WorkspaceRef } from "./directory.ts";
 import type { Env } from "./env.ts";
 import { limit } from "./limits.ts";
-
-export interface Member {
-  id: string;
-  name: string;
-  email: string;
-  role: Role;
-  joinedAt: number;
-}
-
-export interface InviteRow {
-  /** The stored hash of its token: enough to revoke it, useless for joining. */
-  id: string;
-  role: "editor" | "viewer";
-  createdBy: string | null;
-  createdAt: number;
-  expiresAt: number;
-  usedBy: string | null;
-  usedAt: number | null;
-}
-
-export interface LogEntry {
-  at: number;
-  actor: string | null;
-  action: "rename" | "role" | "remove" | "leave" | "invite" | "revoke-invite";
-  target: string | null;
-  detail: string | null;
-}
 
 const ROLES: Role[] = ["owner", "editor", "viewer"];
 const fail = (error: string, status = 400) => json({ error }, status);
