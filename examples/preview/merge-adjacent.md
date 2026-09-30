@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 129
 title: An agent's edit next to yours merges instead of conflicting
 ---
 When an agent changed a note while you were typing in it, the two versions merged only if the changes were at least a line apart. Otherwise you got "the edits overlap" with Keep mine and Use theirs. That included an agent adding a line at the end while you typed at the end, and an agent ticking the task right under the one you were editing. Now those merge. Only both sides changing the same line still asks.
