@@ -30,3 +30,14 @@ test("a PR's own section comes first, the stacked PRs' after it, and demo files 
   ]);
   assert.deepEqual(readSections(path.join(dir, "nowhere")), []);
 });
+
+test("a demo note's .versions folder gives its marked versions, oldest first, and isn't a note of its own", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "preview-"));
+  fs.writeFileSync(path.join(dir, "marks.md"), "---\npr: 9\ntitle: Marked versions\n---\n1. Open [[Proposal]].\n");
+  fs.mkdirSync(path.join(dir, "marks/Proposal.versions"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "marks/Proposal.md"), "# Proposal\n\nNow.\n");
+  fs.writeFileSync(path.join(dir, "marks/Proposal.versions/2 Sent to Alex.md"), "# Proposal\n\nSent.\n");
+  fs.writeFileSync(path.join(dir, "marks/Proposal.versions/1 v1.md"), "# Proposal\n\nFirst.\n");
+  const [section] = readSections(dir);
+  assert.deepEqual(section.files.map((f) => [f.to, f.versions?.map((v) => v.name)]), [["Try/Marked versions/Proposal.md", ["v1", "Sent to Alex"]]]);
+});
