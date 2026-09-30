@@ -631,9 +631,13 @@ body.is-resizing iframe { pointer-events: none; }
 .cm-task-gear { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 5px; color: var(--muted); }
 .cm-task-gear:hover { background: var(--hover); color: var(--ink-strong); }
 .cm-task-hint { font: 12px var(--ui); color: var(--muted); }
-/* A phrase on the cursor's task line that Tab or a click would make a token: marked, never changed on its own. */
-.cm-phrase { text-decoration: underline dotted var(--accent-line); text-decoration-thickness: 1.5px; text-underline-offset: 3px; cursor: pointer; }
-.cm-phrase.is-rec, .cm-phrase.is-ends { text-decoration-color: color-mix(in srgb, var(--ok) 70%, transparent); }
+/* A phrase on the cursor's task line that Tab, a click, or leaving the line just after typing it makes a token. */
+.cm-phrase { text-decoration: underline dotted var(--accent); text-decoration-thickness: 2px; text-underline-offset: 3px; cursor: pointer; }
+.cm-phrase.is-rec, .cm-phrase.is-ends { text-decoration-color: var(--ok); }
+/* The chips those phrases would become, beside the ⚙: a click (or Tab) makes them tokens. */
+.cm-task-pending { display: inline-flex; align-items: center; gap: 4px; padding: 1px 4px 1px 2px; border: 1px dashed var(--accent-line); border-radius: 6px; cursor: pointer; }
+.cm-task-pending:hover { background: var(--accent-soft); }
+.cm-task-pending kbd { font-size: 10.5px; color: var(--muted); }
 .cm-hint-word { padding: 0 2px; border-radius: 4px; font: inherit; color: inherit; cursor: pointer; }
 .cm-hint-word:hover, .cm-hint-word:focus-visible { color: var(--ink-2); background: var(--hover); }
 .cm-checkbox {

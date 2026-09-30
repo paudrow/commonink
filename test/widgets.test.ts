@@ -7,7 +7,7 @@ import { parseAttrs, serializeAttrs } from "../src/core/directive.ts";
 import { parseQuery } from "../src/core/query.ts";
 import { EditorState } from "@codemirror/state";
 import { history, undo } from "@codemirror/commands";
-import { convertPhrases, HINTS, phraseTab, phrasesAt, taskLineEdit, taskPhrases, taskTools, taskToolsAt } from "../web/src/editor/taskEdit.ts";
+import { convertPhrases, HINTS, lineVisit, phrasesLeft, phraseTab, phrasesAt, taskLineEdit, taskPhrases, taskTools, taskToolsAt } from "../web/src/editor/taskEdit.ts";
 import { dayPicks, taskTokenSource } from "../web/src/editor/taskComplete.ts";
 import { withTaskChips } from "../web/src/taskChips.ts";
 import type { TaskPatch } from "../src/core/tasks.ts";
@@ -217,6 +217,61 @@ test("the cursor's task line underlines its phrases; Tab right after one turns t
   assert.ok(phraseTab(at(doc, 1, "- [ ] Call mom tomorrow about the trip every".length), "2026-09-28"), "inside a phrase");
   assert.ok(phraseTab(at(doc, 1, "- [ ] Call mom tomorrow ".length), "2026-09-28"), "a space after it still counts");
   assert.equal(phraseTab(at(doc, 2), "2026-09-28"), null);
+});
+
+test("phrases just typed at the end of a task become its tokens once the cursor leaves the line", () => {
+  const TODAY = "2026-09-30"; // a Wednesday
+  /** A note being edited: type at the cursor, or move it to another line (what that move converts, applied). */
+  const editing = (doc: string, line: number) => {
+    let state = EditorState.create({ doc, extensions: [markdown(), lineVisit], selection: { anchor: EditorState.create({ doc }).doc.line(line).to } });
+    const type = (text: string) => {
+      const head = state.selection.main.head;
+      state = state.update({ changes: { from: head, insert: text }, selection: { anchor: head + text.length }, userEvent: "input.type" }).state;
+    };
+    const move = (to: number) => {
+      const tr = state.update({ selection: { anchor: state.doc.line(to).to } });
+      ensureSyntaxTree(tr.state, tr.state.doc.length, 5000);
+      const spec = phrasesLeft(tr, TODAY);
+      state = spec ? tr.state.update(spec).state : tr.state;
+      return !!spec;
+    };
+    return { type, move, line: (n: number) => state.doc.line(n).text };
+  };
+  const a = editing("# Errands\n- [ ] ", 2);
+  a.type("Buy milk tomorrow");
+  assert.equal(a.move(2), false, "moving along the same line changes nothing");
+  assert.equal(a.line(2), "- [ ] Buy milk tomorrow");
+  assert.equal(a.move(1), true);
+  assert.equal(a.line(2), "- [ ] Buy milk due:2026-10-01");
+  // Several phrases at the end go together.
+  const b = editing("- [ ] \nnext", 1);
+  b.type("Standup every week starting monday");
+  b.move(2);
+  assert.equal(b.line(1), "- [ ] Standup due:2026-10-05 start:2026-10-05 rec:weekly");
+  // A phrase inside the sentence waits for Tab or a click: it's likelier to be words ("the Monday memo").
+  const c = editing("- [ ] \nnext", 1);
+  c.type("Read the Monday memo");
+  assert.equal(c.move(2), false);
+  assert.equal(c.line(1), "- [ ] Read the Monday memo");
+  // A possessive isn't a date.
+  const d = editing("- [ ] \nnext", 1);
+  d.type("Plan tomorrow's party");
+  assert.equal(d.move(2), false);
+  // A phrase that was already there stays words when you only pass through or type elsewhere on the line.
+  const e = editing("- [ ] Call mom friday\nnext", 1);
+  e.type(" ");
+  assert.equal(e.move(2), false);
+  assert.equal(e.line(1), "- [ ] Call mom friday ");
+  // Not a task, or in code: nothing.
+  const f = editing("Plain line \nnext", 1);
+  f.type("tomorrow");
+  assert.equal(f.move(2), false);
+});
+
+test("the task line's tools show what its phrases will become, in place of the hint words they'll fill", () => {
+  const s = at("- [ ] Pay rent every month on the 1st tomorrow", 1);
+  assert.deepEqual(taskToolsAt(s, "2026-09-30"), { line: 1, pos: s.doc.line(1).to, missing: ["assignees", "tags", "priority"], pending: ["rec:1st", "due:2026-10-01"] });
+  assert.deepEqual(taskToolsAt(at("- [ ] Pay rent", 1), "2026-09-30")!.pending, []);
 });
 
 test("a Notes card shows a task's words, then its chips where its tokens were; code keeps its text", () => {
