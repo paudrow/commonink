@@ -12,7 +12,9 @@ import { hideBanner, showBanner } from "./banner.ts";
 import { showConflict as conflictBanner } from "./conflict.ts";
 import { createState, openLinkToSide, remote, vimSlot } from "./editor/setup.ts";
 import { linkTargetAt } from "./editor/linkAt.ts";
-import { bumpEmbeds, editorContext } from "./editor/blocks.ts";
+import { bumpEmbeds, codeRange, editorContext } from "./editor/blocks.ts";
+import { codeWrapByDefault, setCodeWrapByDefault } from "./code.ts";
+import { foldAll, foldAt, foldCount } from "./editor/details.ts";
 import { clearFlash, flashChanges } from "./editor/agentFlash.ts";
 import { editsBetween, merge3 } from "./merge.ts";
 import { sandboxFrame } from "./render.ts";
@@ -22,11 +24,12 @@ import { folderPicker } from "./folderPicker.ts";
 import type { History } from "./history.ts";
 import type { Assets } from "./assets.ts";
 import { renderTasksPage } from "./tasksView.ts";
-import { isQuickAddKey, openQuickAdd } from "./quickAdd.ts";
-import { runTaskCommand } from "./taskCommand.ts";
+import { openQuickAdd, QUICK_ADD } from "./quickAdd.ts";
+import { formatKeys, learnLayout, matchKeys } from "./keys.ts";
+import { taskInputPrefs } from "./taskInput.ts";
 import type { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./account.ts";
-import { appCommands, learnLayout, matchKeys } from "./commands.ts";
+import { appCommands } from "./commands.ts";
 import { toggleShortcuts } from "./shortcuts.ts";
 import { did, vaultEvents } from "./events.ts";
 import { guideMessage, startGuide } from "./onboarding.ts";
@@ -35,11 +38,13 @@ import { changeVerb, groupChanges } from "../../src/core/format.ts";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
 import { clampSide, forget, historyStep, IS_MAC, newLayout, pageEntry, pageOf, parseLayout, rememberPlace, SIDE_CLICK, sideClick, step, visit, type PaneTrail, type Place } from "./panes.ts";
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
+import { headingMatches } from "../../src/core/gfm.ts";
 import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
 import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
 import { safeDecode } from "../../src/core/uri.ts";
+import { deleteFolder, deletePaths, TrashPage, type DeleteHooks } from "./trash.ts";
 import { AGENTS_BLURB, isAgentsNote } from "./agentsNote.ts";
 import { closeDrawer, setupMobileNav } from "./mobileNav.ts";
 
@@ -96,6 +101,7 @@ const prefs = {
   /** Sidebar sections folded away from their header. Folders start folded: the sidebar leads with tags. */
   folded: { favorites: false, smart: false, folders: true, tags: false, ...store.get<Record<string, boolean>>("folded", {}) } as Record<string, boolean>,
 };
+taskInputPrefs.vim = prefs.vim; // every task input (quick-add, inline edit, a card) types with the editor's keys
 
 let notes: NoteMeta[] = [];
 /** Your starred notes, in your order (archived ones too; the sidebar leaves those out). */
@@ -135,6 +141,7 @@ const notesPage = new NotesPage({
   starButton: (tag) => tagStarButton(tag, "chip"),
   openPerson: (assignee) => void showTasks({ assignee }),
   readOnly: () => viewer,
+  delete: (paths) => deletePaths(paths, deleteHooks),
   toast: (t) => toast(t),
   changed: () => {
     api.clearResolveCache();
@@ -142,6 +149,18 @@ const notesPage = new NotesPage({
   },
   newNote: () => void newNote(),
 });
+/** What deleting (and restoring from Trash) needs: a toast, and everything that lists notes brought up to date. */
+const deleteHooks: DeleteHooks = {
+  toast: (t) => toast(t),
+  changed: async () => {
+    api.clearResolveCache();
+    await refreshNotes();
+    notesPage.refreshSoon();
+    assetsPage?.refresh();
+    await trashPage?.refresh();
+  },
+};
+let trashPage: TrashPage | null = null;
 // History, Assets and Tags load the first time they're opened (each is null until then).
 let historyPage: History | null = null;
 let assetsPage: Assets | null = null;
@@ -163,6 +182,7 @@ const loadAssets = once(async () =>
     upload: (files) => uploadFiles(files),
     open: (path) => fromPage(path),
     archive: (path) => archivePath(path),
+    delete: (paths) => (viewer ? Promise.resolve([]) : deletePaths(paths, deleteHooks)),
     embedName: (path) => embedName(path),
     tags: () => tags,
     refreshTags: () => refreshNotes(),
@@ -206,12 +226,14 @@ function commands() {
     canBack: active.trail.back.length > 0,
     canForward: active.trail.forward.length > 0,
     onLink: s?.kind === "md" && !!linkTargetAt(active.view.state, active.view.state.selection.main.head),
+    canDelete: !viewer,
+    folds: s?.kind === "md" ? foldCount(active.view.state) : 0,
     account,
     newNote: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
     newFolder: startNewFolder,
     go: (page) => {
       if (page === "notes" || page === "archive") void showNotes({ scope: page === "notes" ? "active" : "archived", query: {} });
-      else void { tasks: showTasks, tags: showTags, assets: showAssets, history: showHistory }[page]();
+      else void { tasks: showTasks, tags: showTags, assets: showAssets, history: showHistory, trash: showTrash }[page]();
     },
     filterNotes: () => void showNotes({ filter: true }),
     quickAdd,
@@ -223,6 +245,7 @@ function commands() {
     toggleHtml: () => setHtmlMode(prefs.htmlMode === "preview" ? "source" : "preview"),
     star: () => s && void toggleStar(s.path),
     archive: () => void archiveCurrent(),
+    delete: () => void deleteCurrent(),
     move: () => openMovePicker($("#move-btn")),
     noteHistory: () => s && void showHistory({ note: s.path }),
     gettingStarted: async () => {
@@ -233,6 +256,7 @@ function commands() {
     back: () => void stepPane(active, "back"),
     forward: () => void stepPane(active, "forward"),
     followLink: () => followLinkAtCursor(),
+    foldAll: (open) => foldAll(open)(active.view),
   });
 }
 
@@ -275,6 +299,11 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
     const line = opts.line ?? (opts.heading ? headingLine(beside, opts.heading) : undefined);
     if (line) goToLine(beside, line);
     return beside.view.focus();
+  }
+  if (pane.session?.path === path && (opts.line || opts.heading)) {
+    const line = opts.line ?? headingLine(pane, opts.heading!);
+    if (line) goToLine(pane, line);
+    return pane.view.focus();
   }
   const ticket = ++pane.opens;
   await flushSave(pane);
@@ -327,6 +356,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
           openTag,
           openPerson: (assignee) => void showTasks({ assignee }),
           saveSmartFolder,
+          noteUrl: () => notePath(next.title, next.id),
         },
         onUpdate: (docChanged, fromRemote, state) => onUpdate(next, docChanged, fromRemote, state),
       }),
@@ -435,7 +465,6 @@ const sideOf = (p: Pane) => (split ? other(p) : panes[1]);
 function renderPaneBars() {
   if (!split) return;
   const page = onPage();
-  const label = { notes: "Notes", tasks: "Tasks", history: "History", assets: "Assets", tags: "Tags" };
   for (const p of panes) {
     const s = p.session;
     const btn = (ico: string, title: string, run: () => void, cls = "", disabled = false) =>
@@ -444,10 +473,10 @@ function renderPaneBars() {
     p.bar.replaceChildren(
       btn("back", "Back in this pane", () => void stepPane(p, "back"), "", !p.trail.back.length),
       btn("back", "Forward in this pane", () => void stepPane(p, "forward"), "is-forward", !p.trail.forward.length),
-      el("span", { class: "pane-title" }, s ? s.title : p.index === 0 && page ? label[page] : ""),
+      el("span", { class: "pane-title" }, s ? s.title : p.index === 0 && page ? PAGE_LABEL[page] : ""),
       el("span", { class: "spacer" }),
       ...(s && s.kind !== "asset" ? [btn(starred ? "starred" : "star", starred ? "Unstar" : "Star", () => void toggleStar(s.path), starred ? "is-on" : "")] : []),
-      btn("close", "Close this pane (⌘⌥\\)", () => void closePane(p)),
+      btn("close", `Close this pane (${formatKeys("Mod-Alt-\\")})`, () => void closePane(p)),
     );
     p.bar.classList.toggle("is-focused", p === active);
   }
@@ -506,7 +535,7 @@ function setUrl(url: string, how: "push" | "replace" = "push") {
 
 let unmountTasks: (() => void) | null = null;
 
-function showStage(which: "editor" | "html" | "notes" | "tasks" | "history" | "assets" | "tags") {
+function showStage(which: "editor" | "html" | "notes" | "tasks" | "history" | "assets" | "tags" | "trash") {
   closeDrawer();
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
@@ -515,6 +544,7 @@ function showStage(which: "editor" | "html" | "notes" | "tasks" | "history" | "a
   $("#tasks-view").hidden = which !== "tasks";
   $("#history-view").hidden = which !== "history";
   $("#tags-view").hidden = which !== "tags";
+  $("#trash-view").hidden = which !== "trash";
   if (which !== "tasks") {
     unmountTasks?.();
     unmountTasks = null;
@@ -563,7 +593,7 @@ async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: strin
 async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("tasks");
-  unmountTasks = renderTasksPage($("#tasks-view"), { open: (path, line, side) => void openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }), tags: () => tags, vim: prefs.vim }, { tag: opts.tag, assignee: opts.assignee });
+  unmountTasks = renderTasksPage($("#tasks-view"), { open: (path, line, side) => void openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }), tags: () => tags }, { tag: opts.tag, assignee: opts.assignee });
   $("#tasks-view").focus({ preventScroll: true });
   if (opts.push !== false) wentTo("/tasks");
   document.title = "Tasks · Common Ink";
@@ -601,6 +631,21 @@ async function showTags(opts: { push?: boolean } = {}) {
 function openTag(tag: string, where: "notes" | "tasks" = "notes") {
   if (where === "tasks") void showTasks({ tag });
   else void showNotes({ scope: "active", query: { tag } });
+}
+
+/** Trash: what's been deleted, to restore (or, for owners and locally, to delete for good). */
+async function showTrash(opts: { push?: boolean } = {}) {
+  if (viewer) return showNotes({ push: opts.push }); // viewers have no Trash
+  await leaveNote();
+  showStage("trash");
+  trashPage ??= new TrashPage({ ...deleteHooks, canPurge: () => owner, open: (path) => fromPage(path) });
+  const loading = trashPage.show(); // the page and its chrome show at once; the list fills in
+  if (opts.push !== false) setUrl("/trash");
+  document.title = "Trash · Common Ink";
+  renderChrome();
+  renderTree();
+  renderOutline();
+  await loading;
 }
 
 async function showAssets(opts: { open?: string; push?: boolean } = {}) {
@@ -646,8 +691,16 @@ function pickFiles(): Promise<File[]> {
   });
 }
 
+const PAGE_LABEL = { notes: "Notes", tasks: "Tasks", history: "History", assets: "Assets", tags: "Tags", trash: "Trash" } as const;
+
 const onPage = () =>
-  notesPage.visible ? "notes" : !$("#tasks-view").hidden ? "tasks" : historyPage?.visible ? "history" : assetsPage?.visible ? "assets" : tagsPage?.visible ? "tags" : null;
+  notesPage.visible ? "notes"
+  : !$("#tasks-view").hidden ? "tasks"
+  : historyPage?.visible ? "history"
+  : assetsPage?.visible ? "assets"
+  : tagsPage?.visible ? "tags"
+  : !$("#trash-view").hidden ? "trash"
+  : null;
 
 // ------------------------------------------------------------------ focus mode
 
@@ -663,7 +716,7 @@ async function setFocusMode(on: boolean) {
   focusMode = on;
   document.body.classList.toggle("is-focus", on);
   $("#focus-btn").replaceChildren(icon(on ? "unfocus" : "focus", 16));
-  setLabel($("#focus-btn"), on ? "Leave focus mode (⌘⇧↵)" : "Focus mode (⌘⇧↵)");
+  setLabel($("#focus-btn"), `${on ? "Leave focus mode" : "Focus mode"} (${formatKeys("Mod-Shift-Enter")})`);
   const keyboard = (navigator as any).keyboard;
   try {
     if (on && !document.fullscreenElement) {
@@ -709,6 +762,15 @@ async function archiveCurrent() {
       }
     },
   });
+}
+
+/** Delete the open note (to Trash, with Undo) and go back to Notes. */
+async function deleteCurrent() {
+  const s = active.session;
+  if (!s || viewer) return;
+  await flushSave();
+  const went = await deletePaths([s.path], deleteHooks);
+  if (went.length) await showNotes();
 }
 
 async function openTarget(target: string, from?: string, pane = active) {
@@ -792,12 +854,11 @@ async function nameUntitled(s: Session) {
   }
 }
 
-function headingLine(pane: Pane, heading: string): number | undefined {
-  const want = heading.trim().toLowerCase();
-  const doc = pane.view.state.doc;
-  for (let i = 1; i <= doc.lines; i++) {
-    const m = doc.line(i).text.match(/^#{1,6}[ \t]+(.*)$/);
-    if (m && headingName(headingText(m[1])).toLowerCase() === want) return i;
+/** The line of the heading `anchor` names (its words, or GitHub's slug of them), outside code. */
+function headingLine(pane: Pane, anchor: string): number | undefined {
+  for (const [n, text] of proseLines(pane.view.state.doc.toString())) {
+    const m = text.match(/^#{1,6}[ \t]+(.*)$/);
+    if (m && headingMatches(headingName(headingText(m[1])), anchor)) return n;
   }
 }
 
@@ -1364,6 +1425,8 @@ function renderTree() {
   setCurrent($("#assets-btn"), page === "assets");
   setCurrent($("#archive-nav"), page === "notes" && notesPage.scope === "archived");
   setCurrent($("#tags-page-btn"), page === "tags", "is-on");
+  setCurrent($("#trash-nav"), page === "trash");
+  $("#trash-nav").hidden = viewer;
 
   const empty = emptyFolders();
   for (const f of [...empty]) if (notes.some((n) => n.path.startsWith(`${f}/`))) empty.delete(f); // it has notes now: it's a real folder
@@ -1420,13 +1483,23 @@ function renderTree() {
             "span",
             { class: "row-actions" },
             action(`New note in ${path}`, "plus", () => void newNote(path)),
-            !n && empty.has(path) ? action("Remove this empty folder", "close", () => (empty.delete(path), setEmptyFolders(empty), renderTree())) : null,
+            viewer ? null : action(`Delete ${path}`, "trash", () => void removeFolder(path)),
           ),
         );
         dropTarget(row, () => path);
         return [row, ...(open ? walk(path, depth + 1) : [])];
       });
   $("#tree").replaceChildren(...walk("", 0));
+}
+
+/** Delete a folder: an empty one just goes; one with notes asks what happens to them. */
+async function removeFolder(path: string) {
+  if (!(await deleteFolder(path, deleteHooks))) return;
+  const empty = emptyFolders();
+  for (const f of [...empty]) if (f === path || f.startsWith(`${path}/`)) empty.delete(f);
+  setEmptyFolders(empty);
+  if (notesPage.query.folder === path || notesPage.query.folder?.startsWith(`${path}/`)) await showNotes({ scope: "active", query: {} });
+  renderTree();
 }
 
 /**
@@ -1630,12 +1703,13 @@ function renderChrome() {
   const page = onPage();
   $("#back-btn").hidden = page === "notes";
   $("#archive-btn").hidden = !s;
+  $("#delete-btn").hidden = !s || viewer;
   $("#move-btn").hidden = !s;
   $("#star-btn").hidden = !s || s.kind === "asset";
   $("#note-history-btn").hidden = !s || s.kind === "asset";
   $("#focus-btn").hidden = !s || s.kind === "asset";
   $("#split-btn").hidden = !split && (!s || s.kind === "asset");
-  setLabel($("#split-btn"), split ? "Close the side pane (⌘⌥\\)" : "Split view (⌘⌥\\)");
+  setLabel($("#split-btn"), `${split ? "Close the side pane" : "Split view"} (${formatKeys("Mod-Alt-\\")})`);
   $("#split-btn").classList.toggle("is-on", split);
   $("#save-status").hidden = !s;
   renderPaneBars();
@@ -1643,10 +1717,9 @@ function renderChrome() {
     $("#html-toggle").hidden = true;
     for (const id of ["#vim-mode", "#cursor-pos", "#word-count"]) $(id).textContent = "";
     $("#vim-mode").dataset.mode = "";
-    const label = { notes: "Notes", tasks: "Tasks", history: "History", assets: "Assets", tags: "Tags" };
-    const note = page === "history" ? (historyPage?.noteFilter ?? null) : null;
+      const note = page === "history" ? (historyPage?.noteFilter ?? null) : null;
     return crumbs.replaceChildren(
-      ...(page ? [el("span", { class: "crumb-file" }, label[page])] : []),
+      ...(page ? [el("span", { class: "crumb-file" }, PAGE_LABEL[page])] : []),
       ...(note ? [el("span", { class: "crumb-sep" }, "·"), el("span", { class: "crumb" }, displayName(note))] : []),
     );
   }
@@ -1655,7 +1728,7 @@ function renderChrome() {
   setLabel($("#star-btn"), starred ? "Unstar (take out of Favorites)" : "Star (add to Favorites)");
   $("#star-btn").replaceChildren(icon(starred ? "starred" : "star", 16));
   const archived = isArchived(s.path);
-  setLabel($("#archive-btn"), archived ? "Unarchive note (⌘⇧E)" : "Archive note (⌘⇧E)");
+  setLabel($("#archive-btn"), `${archived ? "Unarchive note" : "Archive note"} (${formatKeys("Mod-Shift-e")})`);
   $("#archive-btn").replaceChildren(icon(archived ? "unarchive" : "archive", 16));
   const parts = s.path.split("/");
   const file = parts.pop()!;
@@ -1914,17 +1987,10 @@ Vim.defineEx("edit", "e", (_cm: unknown, params: { args?: string[] }) => {
   else openPalette();
 });
 Vim.defineEx("archive", "arch", () => void archiveCurrent());
+// Not :delete, which is Vim's own (:d deletes lines).
+Vim.defineEx("trash", "trash", () => void deleteCurrent());
 Vim.defineEx("notes", "note", () => void showNotes());
 Vim.defineEx("star", "star", () => active.session && void toggleStar(active.session.path));
-// :task <words> adds a task (as quick-add reads it) to today's daily note, with an Undo; :task alone opens the bar.
-Vim.defineEx("task", "task", (_cm: unknown, params: { argString?: string }) =>
-  void runTaskCommand(params.argString ?? "", {
-    add: (text) => api.addTask(text),
-    remove: async (r) => void (await api.removeTask(r)),
-    openBar: quickAdd,
-    toast: (t) => toast({ icon: "check", ...t }),
-  }).catch((err) => toast({ text: err instanceof Error ? err.message : "Couldn't add the task" })),
-);
 Vim.defineEx("focus", "foc", () => void setFocusMode(!focusMode));
 Vim.defineEx("vsplit", "vs", (_cm: unknown, params: { args?: string[] }) => {
   const arg = params.args?.join(" ");
@@ -1933,6 +1999,19 @@ Vim.defineEx("vsplit", "vs", (_cm: unknown, params: { args?: string[] }) => {
 });
 Vim.defineEx("only", "on", () => split && void closePane(other(active)));
 Vim.defineEx("close", "clo", () => void closePane(active));
+// `ic`, the inner code block: the code between a fenced block's fences, for yic, dic, cic and vic.
+Vim.defineMotion("quireInnerCode", (_cm: unknown, head: { line: number; ch: number }) => {
+  const { state } = active.view;
+  const r = codeRange(state, state.doc.line(head.line + 1).from + head.ch);
+  if (!r || r.to <= r.from) return head;
+  const pos = (at: number) => {
+    const line = state.doc.lineAt(at);
+    return { line: line.number - 1, ch: at - line.from };
+  };
+  return [pos(r.from), pos(r.to)];
+});
+Vim.mapCommand("ic", "motion", "quireInnerCode", {}, { context: "operatorPending" });
+Vim.mapCommand("ic", "motion", "quireInnerCode", {}, { context: "visual" });
 Vim.defineAction("quireFollowLink", () => followLinkAtCursor());
 Vim.mapCommand("gd", "action", "quireFollowLink", {}, { context: "normal" });
 Vim.mapCommand("gf", "action", "quireFollowLink", {}, { context: "normal" });
@@ -1944,6 +2023,11 @@ Vim.defineAction("quireBack", () => void stepPane(active, "back"));
 Vim.defineAction("quireForward", () => void stepPane(active, "forward"));
 Vim.mapCommand("<C-o>", "action", "quireBack", {}, { context: "normal" });
 Vim.mapCommand("<C-i>", "action", "quireForward", {}, { context: "normal" });
+// Collapsible sections: za toggles the one under the cursor, zo/zc open and close it, zR/zM all of them.
+for (const [keys, run] of [["za", foldAt("toggle")], ["zo", foldAt("open")], ["zc", foldAt("close")], ["zR", foldAll(true)], ["zM", foldAll(false)]] as const) {
+  Vim.defineAction(`quireFold${keys}`, () => run(active.view));
+  Vim.mapCommand(keys, "action", `quireFold${keys}`, {}, { context: "normal" });
+}
 
 function followLinkAtCursor() {
   const link = linkTargetAt(active.view.state, active.view.state.selection.main.head);
@@ -1956,53 +2040,55 @@ function followLinkAtCursor() {
 window.addEventListener(
   "keydown",
   (e) => {
-    const mod = e.metaKey || e.ctrlKey;
+    // Matched by the character typed, so they work on any keyboard layout (keys.ts).
+    const is = (keys: string) => matchKeys(e, keys);
     // Back and forward through the notes (and pages) this pane has shown: ⌘[ and ⌘] by the character
     // typed, and off a Mac also Alt+← and Alt+→, the platform's back and forward.
-    const altArrow = !IS_MAC && e.altKey && !mod && !e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight") ? e.key : null;
-    const back = matchKeys(e, "Mod-[") || altArrow === "ArrowLeft";
-    const quickOpen = matchKeys(e, "Mod-p") || matchKeys(e, "Mod-k");
-    if (back || matchKeys(e, "Mod-]") || altArrow === "ArrowRight") {
+    const altArrow = !IS_MAC && e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight") ? e.key : null;
+    const back = is("Mod-[") || altArrow === "ArrowLeft";
+    const quickOpen = is("Mod-p") || is("Mod-k");
+    if (back || is("Mod-]") || altArrow === "ArrowRight") {
       e.preventDefault();
       e.stopPropagation();
       void stepPane(active, back ? "back" : "forward");
-    } else if (quickOpen || matchKeys(e, "Mod-Shift-p")) {
+    } else if (quickOpen || is("Mod-Shift-p")) {
       e.preventDefault();
       paletteToSide = false;
       if (quickOpen && !palette.isOpen) did("search");
       palette.toggle(quickOpen ? "" : ">");
-    } else if (mod && !e.altKey && e.key === "\\") {
+    } else if (is("Mod-\\")) {
       e.preventDefault();
       togglePanel();
-    } else if (mod && e.key === "s") {
+    } else if (is("Mod-s")) {
       e.preventDefault();
       flushSave();
-    } else if (mod && e.shiftKey && e.key.toLowerCase() === "e") {
+    } else if (is("Mod-Shift-e")) {
       e.preventDefault();
       void archiveCurrent();
-    } else if (mod && e.shiftKey && e.key === "Enter") {
+    } else if (is("Mod-Shift-Enter")) {
       e.preventDefault();
       void setFocusMode(!focusMode);
-    } else if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
+    } else if (is("Mod-Shift-f")) {
       e.preventDefault();
       void showNotes({ filter: true });
-    } else if (matchKeys(e, "Mod-Alt-\\")) {
+    } else if (is("Mod-Alt-\\")) {
       e.preventDefault();
       void (split ? closePane(active) : openSplit());
-    } else if ((matchKeys(e, "Mod-Alt-[") || matchKeys(e, "Mod-Alt-]")) && split) {
+    } else if ((is("Mod-Alt-[") || is("Mod-Alt-]")) && split) {
       e.preventDefault();
-      const p = panes[matchKeys(e, "Mod-Alt-[") ? 0 : 1];
+      const p = panes[is("Mod-Alt-[") ? 0 : 1];
       focusPane(p);
       if (p.session && p.session.kind !== "asset") p.view.focus();
-    } else if (isQuickAddKey(e) || (e.key === "q" && !mod && !e.altKey && !typingIn(e.target))) {
-      // ⌘⇧. anywhere (the editor in any Vim mode too), or q where you aren't typing: the quick-add bar.
+    } else if (is(QUICK_ADD)) {
+      // ⌘⇧. anywhere, the editor in any Vim mode too: the quick-add bar.
       e.preventDefault();
       e.stopPropagation(); // not the editor's (or Vim's) key as well
       quickAdd();
-    } else if (e.key === "?" && !mod && !e.altKey && !typingIn(e.target)) {
+    } else if (e.key === "?" && !e.metaKey && !e.ctrlKey && !e.altKey && !typingIn(e.target)) {
+      // ? where you aren't typing: the shortcut sheet (a character, whichever key types it).
       e.preventDefault();
       toggleShortcuts(commands(), { vim: prefs.vim });
-    } else if (mod && e.key === "e" && active.session?.kind === "html") {
+    } else if (is("Mod-e") && active.session?.kind === "html") {
       e.preventDefault();
       setHtmlMode(prefs.htmlMode === "preview" ? "source" : "preview");
     }
@@ -2015,7 +2101,6 @@ function quickAdd() {
   openQuickAdd({
     added: (r) => toast({ icon: "check", text: `Added to ${r.path.replace(/\.md$/, "")}`, actionLabel: "Open", action: () => void openNote(r.path, { line: r.line }) }),
     open: (path, line) => void openNote(path, { line }),
-    vim: prefs.vim,
     note: active.session?.kind === "md" ? active.session.path : undefined,
   });
 }
@@ -2034,6 +2119,7 @@ function togglePanel(force?: boolean) {
 function toggleVim() {
   prefs.vim = !prefs.vim;
   store.set("vim", prefs.vim);
+  taskInputPrefs.vim = prefs.vim;
   for (const p of panes) p.view.dispatch({ effects: vimSlot.reconfigure(prefs.vim ? vim() : []) });
   attachVim();
   active.view.focus();
@@ -2127,7 +2213,7 @@ function setupPanes() {
   // Clicking or tabbing into a pane gives it the focus.
   // (Not from a pane bar's buttons: redrawing the bar on mousedown would swallow their click.)
   const follow = (p: Pane) => (e: Event) => p !== active && split && !(e.target as Element).closest?.(".pane-bar button") && focusPane(p);
-  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#tasks-view", "#history-view", "#assets-view", "#tags-view"]], [panes[1], ["#side-pane"]]] as const) {
+  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#tasks-view", "#history-view", "#assets-view", "#tags-view", "#trash-view"]], [panes[1], ["#side-pane"]]] as const) {
     for (const sel of nodes) {
       $(sel).addEventListener("focusin", follow(p));
       $(sel).addEventListener("mousedown", follow(p));
@@ -2148,6 +2234,8 @@ function debounce<A extends unknown[]>(fn: (...a: A) => unknown, ms: number) {
 let workspaceId = "";
 /** You can view this workspace but not edit it: you keep smart folders of your own but can't change shared ones. */
 let viewer = false;
+/** May delete for good (Trash's Delete forever and Empty trash): workspace owners online, and always locally. */
+let owner = true;
 
 /**
  * Show whatever the address bar points at: /notes/<title>-<id>, /tasks, /history, /assets, or the
@@ -2155,7 +2243,8 @@ let viewer = false;
  */
 async function route() {
   const hash = location.hash;
-  if (hash.startsWith("#/") || /^#(feed|tasks|assets|history)\b/.test(hash)) {
+  const onNote = !!parseNotePath(location.pathname);
+  if (!onNote && (hash.startsWith("#/") || /^#(feed|tasks|assets|history)\b/.test(hash))) {
     const legacy = hash.startsWith("#/") ? safeDecode(hash.slice(2)) : "";
     const meta = legacy ? notes.find((n) => n.path === legacy) : undefined;
     const [page, query = ""] = hash.slice(1).split("?");
@@ -2171,6 +2260,7 @@ async function route() {
     return showTasks({ push: false });
   }
   if (at === "/assets") return showAssets({ push: false });
+  if (at === "/trash") return showTrash({ push: false });
   if (at === "/tags") return showTags({ push: false });
   if (at === "/history") {
     const id = new URLSearchParams(location.search).get("note");
@@ -2178,7 +2268,8 @@ async function route() {
   }
   const link = parseNotePath(at);
   const path = link ? (notes.find((n) => n.id === link.id)?.path ?? (await api.resolve(link.id).catch(() => null))) : undefined;
-  if (path) return path === active.session?.path ? undefined : openNote(path, { push: false });
+  const spot = onNote ? spotOf(hash) : {};
+  if (path) return path === active.session?.path && !spot.line && !spot.heading ? undefined : openNote(path, { push: false, ...spot });
   if (link && workspaceId) {
     // Online, the link may be to a note in another of your workspaces: switch to it (?w= picks it).
     const where = await api.locate(link.id).catch(() => null);
@@ -2187,6 +2278,15 @@ async function route() {
   if (link) toast({ text: workspaceId ? "That note doesn't exist, or you don't have access to it" : "That note doesn't exist any more" });
   setUrl("/notes", "replace");
   return showNotes({ push: false });
+}
+
+/**
+ * Where in a note its address's #anchor points (it opens there, in whichever pane has the note): a
+ * line (#L12), or a heading by its words or GitHub's slug of them (a copied heading link).
+ */
+function spotOf(hash: string): { line?: number; heading?: string } {
+  const anchor = hash.length > 1 ? safeDecode(hash.slice(1)) : "";
+  return /^L\d+$/.test(anchor) ? { line: Number(anchor.slice(1)) } : anchor ? { heading: anchor } : {};
 }
 
 /** The Tasks badge: how many checkboxes are still open across the workspace. */
@@ -2207,6 +2307,7 @@ async function boot() {
     const ws = pickWorkspace(who.me);
     workspaceId = ws.id;
     viewer = ws.role === "viewer";
+    owner = ws.role === "owner";
     useWorkspace(`/api/w/${ws.id}`, `/api/w/${ws.id}/live`);
     setSelfName(who.me.user.name);
     account = renderAccount(who.me, ws, (t) => toast(t));
@@ -2221,9 +2322,24 @@ async function boot() {
   // A new note goes at the top level, unless Notes is showing a folder: then it goes there.
   $("#new-note").addEventListener("click", () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""));
   $("#panel-btn").addEventListener("click", () => togglePanel());
+  setLabel($("#panel-btn"), `Toggle side panel (${formatKeys("Mod-\\")})`);
   setupPanes();
   $("#stage").addEventListener("mousedown", () => document.body.classList.remove("panel-overlay"));
   $("#theme-toggle").addEventListener("click", toggleTheme);
+  // Whether long lines in code blocks wrap, for blocks that don't say (```ts nowrap / wrap do).
+  const codeWrapChip = () => {
+    const on = codeWrapByDefault();
+    const chip = $("#codewrap-toggle");
+    setPressed(chip, on);
+    chip.textContent = `Wrap code: ${on ? "on" : "off"}`;
+    chip.title = on ? "Long lines in code blocks wrap. Click to scroll them instead." : "Long lines in code blocks scroll. Click to wrap them.";
+  };
+  codeWrapChip();
+  $("#codewrap-toggle").addEventListener("click", () => {
+    setCodeWrapByDefault(!codeWrapByDefault());
+    codeWrapChip();
+    for (const p of panes) bumpEmbeds(p.view);
+  });
   $("#vim-toggle").addEventListener("click", toggleVim);
   attachVim(); // the toggle's label, before any note opens
   $("#html-toggle").addEventListener("click", (e) => {
@@ -2244,6 +2360,8 @@ async function boot() {
   $("#back-btn").addEventListener("click", () => void showNotes());
   $("#archive-nav").addEventListener("click", () => void showNotes({ scope: "archived", query: {} }));
   $("#archive-btn").addEventListener("click", () => void archiveCurrent());
+  $("#delete-btn").addEventListener("click", () => void deleteCurrent());
+  $("#trash-nav").addEventListener("click", () => void showTrash());
   $("#star-btn").addEventListener("click", () => active.session && void toggleStar(active.session.path));
   $("#move-btn").addEventListener("click", () => openMovePicker($("#move-btn")));
   $("#focus-btn").addEventListener("click", () => void setFocusMode(!focusMode));
@@ -2294,10 +2412,12 @@ async function boot() {
   if (beside) await openNote(beside.path, { pane: panes[1], focus: false, trail: false });
   if (beside && parseNotePath(location.pathname)?.id === beside.id) {
     // The address bar names the side pane's note: the main pane gets back what it had.
+    const spot = spotOf(location.hash);
     const main = notes.find((n) => n.id === layout.panes[0].note && n.kind !== "asset");
     if (main) await openNote(main.path, { pane: panes[0], focus: false, trail: false });
     else await showNotes({ push: false });
     focusPane(panes[1]);
+    if (spot.line || spot.heading) await openNote(beside.path, { pane: panes[1], ...spot });
   } else await route();
 }
 

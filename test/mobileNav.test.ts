@@ -60,7 +60,7 @@ test("More lists the showing overflow buttons by their titles, and an item press
   $("#move-btn").hidden = true;
   $("#more-btn").click();
   const items = [...document.querySelectorAll("#more-menu [role=menuitem]")].map((n) => n.textContent);
-  assert.deepEqual(items, ["History of this note", "Archive note", "Focus mode", "Toggle side panel"]);
+  assert.deepEqual(items, ["History of this note", "Archive note", "Delete note", "Focus mode", "Toggle side panel"]);
   assert.deepEqual([$("#more-btn").getAttribute("aria-expanded"), focused()], ["true", "History of this note"]);
   let pressed = "";
   $("#archive-btn").addEventListener("click", () => (pressed = "archive"), { once: true });

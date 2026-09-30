@@ -28,7 +28,8 @@ export class Workspace extends DurableObject<Env> {
     migrate(db);
     // Note IDs this workspace has claimed in the directory (see registerIds).
     db.exec("CREATE TABLE IF NOT EXISTS registered_ids(id TEXT PRIMARY KEY)");
-    this.files = new SqlContent(db);
+    // An upload's bytes go from R2 once it's deleted for good.
+    this.files = new SqlContent(db, (key) => ctx.waitUntil(env.FILES.delete(key)));
     // A note and its previous text are each a SQLite row here, which holds at most 2 MB.
     this.quire = new Quire(db, this.files, { maxNoteBytes: 1_900_000 });
     // Notes only change through the core here, so this finds nothing to do, except after an
@@ -125,6 +126,10 @@ export class Workspace extends DurableObject<Env> {
       moved: (from, to, version, change) => {
         this.broadcast({ type: "removed", path: from });
         this.announce(to, this.files.read(to), version, change);
+      },
+      removed: (rel, change) => {
+        this.broadcast({ type: "removed", path: rel });
+        this.broadcast({ type: "change", change });
       },
       tree: () => this.broadcast({ type: "tree" }),
     };
@@ -233,6 +238,18 @@ export class Workspace extends DurableObject<Env> {
   /** Close the live connections tagged `tag`: a person's (signed out everywhere) or one session's. Their tabs then ask them to sign in. */
   disconnect(tag: string) {
     for (const ws of this.ctx.getWebSockets(tag)) ws.close(4001, "Signed out");
+  }
+
+  /** The workspace is being deleted: close every tab, delete its uploads from R2 and all its storage. */
+  async destroy(wsId: string) {
+    for (const ws of this.ctx.getWebSockets()) ws.close(4004, "This workspace was deleted");
+    for (let cursor: string | undefined, more = true; more; ) {
+      const page = await this.env.FILES.list({ prefix: `ws/${wsId}/`, cursor });
+      if (page.objects.length) await this.env.FILES.delete(page.objects.map((o) => o.key));
+      more = page.truncated;
+      cursor = page.truncated ? page.cursor : undefined;
+    }
+    await this.ctx.storage.deleteAll();
   }
 
   webSocketMessage() {}

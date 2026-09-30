@@ -17,6 +17,7 @@ function setup({ canEditShared = true, user = "tester" } = {}, vault?: ReturnTyp
     info: () => ({ mode: "test" }),
     written: (rel, _content, _version, change) => events.push(`written ${rel} by ${change?.source ?? "-"}`),
     moved: (from, to) => events.push(`moved ${from} -> ${to}`),
+    removed: (rel, change) => events.push(`removed ${rel} by ${change.source}`),
     tree: () => events.push("tree"),
   };
   const call = async (method: string, route: string, body?: unknown) => {
@@ -252,4 +253,35 @@ test("favorites are starred, ordered and unstarred per person, and tell the othe
   assert.deepEqual(events, ["tree", "tree", "tree", "tree"]);
   assert.equal((await call("POST", "/favorites/star", { path: "Nope" })).status, 404);
   assert.equal((await call("PUT", "/favorites", { paths: "Welcome" })).status, 400);
+});
+
+test("delete sends notes to Trash and says who links to them; Trash restores, and deletes for good", async () => {
+  const { call, events } = setup();
+  assert.deepEqual((await call("GET", "/delete-check?path=Roadmap&path=Welcome")).body, { notes: 2, assets: 0, linkedFrom: [] });
+  assert.deepEqual((await call("GET", "/delete-check?path=Roadmap")).body, { notes: 1, assets: 0, linkedFrom: ["Welcome.md"] });
+  const del = await call("POST", "/delete", { paths: ["Roadmap"] });
+  assert.deepEqual(del.body.trashed.map((t: { path: string }) => t.path), ["Projects/Roadmap.md"]);
+  assert.deepEqual(events, ["removed Projects/Roadmap.md by tester", "tree"]);
+  assert.equal((await call("GET", "/note?path=Roadmap")).status, 404);
+  const trash = (await call("GET", "/trash")).body;
+  assert.deepEqual(trash.map((t: { id: string; path: string }) => [t.id, t.path]), [[del.body.trashed[0].id, "Projects/Roadmap.md"]]);
+  assert.deepEqual((await call("POST", "/trash/restore", { ids: [trash[0].id] })).body, { restored: ["Projects/Roadmap.md"] });
+  assert.equal((await call("GET", "/note?path=Roadmap")).status, 200);
+
+  const again = (await call("POST", "/delete", { paths: ["Roadmap", "Welcome"] })).body.trashed;
+  assert.deepEqual((await call("POST", "/trash/delete", { ids: [again[0].id] })).body, { deleted: ["Projects/Roadmap.md"] });
+  assert.deepEqual((await call("POST", "/trash/empty", {})).body, { deleted: ["Welcome.md"] });
+  assert.deepEqual((await call("GET", "/trash")).body, []);
+  assert.equal((await call("POST", "/trash/restore", { ids: ["../Welcome.md"] })).status, 404);
+  assert.equal((await call("POST", "/delete", { paths: ["Nope"] })).status, 404);
+});
+
+test("deleting a folder moves its notes up a level, or sends them all to Trash", async () => {
+  const { call } = setup();
+  await call("POST", "/note", { path: "Projects/Launch/Plan.md", content: "# Plan\n" });
+  assert.deepEqual((await call("GET", "/delete-check?folder=Projects")).body, { notes: 2, assets: 0, linkedFrom: ["Welcome.md"] });
+  assert.deepEqual((await call("POST", "/delete-folder", { folder: "Projects/Launch", notes: "lift" })).body, { trashed: [], moved: [{ from: "Projects/Launch/Plan.md", to: "Projects/Plan.md" }] });
+  const gone = (await call("POST", "/delete-folder", { folder: "Projects", notes: "trash" })).body;
+  assert.deepEqual(gone.trashed.map((t: { path: string }) => t.path), ["Projects/Plan.md", "Projects/Roadmap.md"]);
+  assert.equal((await call("POST", "/delete-folder", { folder: "Projects", notes: "shred" })).status, 400);
 });

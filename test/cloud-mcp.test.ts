@@ -80,7 +80,7 @@ const VIEWER_TOOLS = [
   "read_note", "recent_changes", "save_smart_folder", "search_notes", "star_note", "star_tag", "unstar_note", "unstar_tag",
 ];
 const ALL_TOOLS = [
-  ...VIEWER_TOOLS, "add_card", "add_task", "append_to_note", "archive_note", "create_note", "edit_card", "edit_note", "move_card",
+  ...VIEWER_TOOLS, "add_card", "add_task", "append_to_note", "archive_note", "create_note", "delete_note", "edit_card", "edit_note", "move_card",
   "move_note", "move_task", "unarchive_note", "update_task",
 ].sort();
 
@@ -158,6 +158,20 @@ test("a role change applies to a connected agent on its next request", async () 
   const later = await mcp((await connect(people.editor, people.id)).access);
   assert.deepEqual([(await editor.tools()).includes("create_note"), (await later.tools()).includes("create_note")], [false, false]);
   await env.DB.prepare("UPDATE members SET role = 'editor' WHERE workspace_id = ? AND user_id = (SELECT id FROM users WHERE email = 'editor@localhost')").bind(people.id).run();
+});
+
+test("an owner changing someone's role or removing them disconnects that person's agents there, and only there", async () => {
+  const t = await team(cloud);
+  const mine = (await cloud.call(t.editor, "GET", "/api/me")).workspaces.find((w: { kind: string }) => w.kind === "personal");
+  const here = await connect(t.editor, t.id);
+  const elsewhere = await connect(t.editor, mine.id);
+  const editorId = (await cloud.call(t.owner, "GET", `${t.base}/members`)).find((m: { name: string }) => m.name === "Editor Dev").id;
+  await cloud.call(t.owner, "POST", `${t.base}/members/role`, { user: editorId, role: "viewer" });
+  const status = async (token: string) => (await cloud.server.fetch(new URL("/mcp", cloud.origin), { method: "POST", headers: { Authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json, text/event-stream" }, body: "{}" })).status;
+  assert.deepEqual([await status(here.access), await status(elsewhere.access) !== 401], [401, true]);
+  const again = await connect(t.editor, t.id);
+  await cloud.call(t.owner, "POST", `${t.base}/members/remove`, { user: editorId });
+  assert.equal(await status(again.access), 401);
 });
 
 test("refresh tokens rotate, and tokens are stored only as hashes", async () => {

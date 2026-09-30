@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { historyStep, pageEntry, pageOf, rememberPlace, step, visit } from "../web/src/panes.ts";
-import { learnLayout, matchKeys } from "../web/src/commands.ts";
+import { learnLayout, matchKeys } from "../web/src/keys.ts";
 
 test("a page is in a pane's trail only when you went to it; back from a linked note is the note that linked it", () => {
   // Notes (clicked) → A → link to B → link to C.

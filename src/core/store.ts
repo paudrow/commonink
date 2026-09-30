@@ -27,6 +27,8 @@ export interface Content {
   stat(rel: string): FileStat | null;
   /** Every note and asset, hidden paths excluded. */
   list(): Array<{ path: string } & FileStat>;
+  /** Every file under the folder `dir`, hidden or not (Trash lives in one). */
+  listUnder(dir: string): Array<{ path: string } & FileStat>;
 }
 
 const SCHEMA = [

@@ -123,6 +123,14 @@ test("smart-save, smart and smart-rm keep saved note queries", () => {
   assert.equal(quire(vault, ["smart-rm", "Planning"]).stdout, "No smart folders.\n");
 });
 
+test("task --until and --times end a repeat, and ticking counts it down", () => {
+  const vault = tempVault();
+  quire(vault, ["task", "Roadmap", "8", "--due", "2026-10-01", "--rec", "weekly", "--times", "2", "--until", "2027-01-01"]);
+  quire(vault, ["task", "Roadmap", "8", "--done"]);
+  assert.match(fs.readFileSync(path.join(vault, "Projects/Roadmap.md"), "utf8"), /\n- \[ \] Ship the importer due:2026-10-08 rec:weekly until:2027-01-01 times:1\n/);
+  assert.equal(quire(vault, ["task", "Roadmap", "8", "--times", "0"]).stderr, '"times" must be a whole number of repeats left, 1 or more\n');
+});
+
 test("star and unstar take #tags as well as notes", () => {
   const vault = tempVault();
   assert.equal(quire(vault, ["star", "Welcome", "#plan"]).stdout, "Favorites:\n- Welcome.md — Welcome\n- #plan (1 note)\n");
@@ -135,4 +143,14 @@ test("star, unstar and starred keep your favorites in order", () => {
   assert.equal(quire(vault, ["unstar", "Welcome"]).stdout, "Favorites:\n- Projects/Roadmap.md — Roadmap\n");
   assert.deepEqual(JSON.parse(quire(vault, ["starred", "--json"]).stdout).map((n: { path: string }) => n.path), ["Projects/Roadmap.md"]);
   assert.equal(quire(vault, ["star"]).stderr, "star needs <note>\n");
+});
+
+test("delete sends notes to Trash, trash lists them, and trash restore brings one back", () => {
+  const vault = tempVault();
+  assert.match(quire(vault, ["delete", "Roadmap", "--agent", "Planner"]).stdout, /^Moved Projects\/Roadmap\.md to Trash \(\d+-\d+\)\n$/);
+  const listed = quire(vault, ["trash"]).stdout;
+  assert.match(listed, /^\d+-\d+  Projects\/Roadmap\.md — deleted \d{4}-\d{2}-\d{2} \d{2}:\d{2} by Planner for you, gone for good \d{4}-\d{2}-\d{2}\n$/);
+  assert.equal(quire(vault, ["trash", "restore", listed.split(" ")[0]]).stdout, "Restored Projects/Roadmap.md\n");
+  assert.equal(quire(vault, ["trash"]).stdout, "Trash is empty.\n");
+  assert.equal(quire(vault, ["trash", "empty"]).stderr, 'trash takes restore, not "empty"\n');
 });

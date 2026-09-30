@@ -2,8 +2,8 @@
 // mark, a person, a tag. The markdown keeps the tokens; these only draw them. Each chip says which
 // token it is (data-field, data-value), so a task list can open that token's editor.
 import { avatar, el, icon } from "./dom.ts";
-import { localDate, parseTask, TASK_LINE, type ParsedTask, type TaskMeta } from "../../src/core/tasks.ts";
-import { nextDue, parseRule, ruleLabel } from "../../src/core/recurrence.ts";
+import { endsOf, localDate, parseTask, TASK_LINE, type ParsedTask, type TaskMeta } from "../../src/core/tasks.ts";
+import { endsLabel, nextDue, parseRule, ruleLabel } from "../../src/core/recurrence.ts";
 import { tagsInLine } from "../../src/core/tags.ts";
 
 export const today = () => localDate(Date.now());
@@ -31,9 +31,10 @@ export type ChipField = keyof Omit<TaskMeta, "tags" | "assignees"> | "assignees"
 
 /**
  * One token as a chip. `done` mutes a due date that would otherwise show as overdue. `next` is a
- * repeating task's date after this one, shown on its repeat chip in task lists.
+ * repeating task's date after this one, and `ends` how it stops, both shown on its repeat chip in
+ * task lists ("Monthly · 5 left").
  */
-export function tokenChip(field: ChipField, value: string, opts: { done?: boolean; now?: string; next?: string | null } = {}): HTMLElement {
+export function tokenChip(field: ChipField, value: string, opts: { done?: boolean; now?: string; next?: string | null; ends?: { until: string | null; times: number | null } } = {}): HTMLElement {
   const now = opts.now ?? today();
   const chip = (cls: string, title: string, ...children: Array<Node | string>) =>
     el("span", { class: `tk ${cls}`.trim(), title, "data-field": field, "data-value": value }, ...children);
@@ -48,11 +49,18 @@ export function tokenChip(field: ChipField, value: string, opts: { done?: boolea
       return chip("tk-muted", `Done ${value}`, icon("check", 12), dayLabel(value, now));
     case "rec": {
       const rule = parseRule(value);
+      const ends = rule ? endsOf(opts.ends ?? { until: null, times: null }, rule) : null;
+      const end = ends ? endsLabel(ends) : "";
       const then = opts.next ? dayLabel(opts.next, now) : null;
-      const title = `${rule ? ruleLabel(rule, true) : `Repeats ${value}`}${then ? `. After this one: ${then}` : ""}`;
-      const label = rule ? ruleLabel(rule) : value;
+      const title = `${rule ? ruleLabel(rule, true) + endsLabel(ends!, true) : `Repeats ${value}`}${then ? `. After this one: ${then}` : ""}`;
+      const label = (rule ? ruleLabel(rule) : value) + (end ? ` · ${end}` : "");
       return then ? chip("", title, icon("reset", 12), label, el("span", { class: "tk-next" }, `· ${then}`)) : chip("", title, icon("reset", 12), label);
     }
+    // A repeat's ends, on their own (the editor draws each token): they open the repeat's editor.
+    case "until":
+      return chip("tk-muted", `Repeats until ${value}`, icon("reset", 12), `until ${dayLabel(value, now)}`);
+    case "times":
+      return chip("tk-muted", `${value} ${value === "1" ? "time" : "times"} left, this one included`, icon("reset", 12), `${value} left`);
     case "priority":
       return chip(`tk-priority is-${value}`, `${value === "high" ? "High" : "Low"} priority`, icon("flag", 12), value === "high" ? "High" : "Low");
     case "assignees":
@@ -62,10 +70,13 @@ export function tokenChip(field: ChipField, value: string, opts: { done?: boolea
   }
 }
 
-/** The date after a repeating task's current due date, when the calendar says (not for `after-` rules, which wait for completion). */
+/** The date after a repeating task's current due date, when the calendar says (not for `after-` rules, which wait for completion), and if it hasn't ended by then. */
 function nextOf(meta: TaskMeta): string | null {
   const rule = meta.rec ? parseRule(meta.rec) : null;
-  return rule && rule.from === "due" && meta.due ? nextDue(rule, meta.due, meta.due) : null;
+  if (!rule || rule.from !== "due" || !meta.due) return null;
+  const ends = endsOf(meta, rule);
+  const next = ends.times === null || ends.times > 1 ? nextDue(rule, meta.due, meta.due) : null;
+  return next && (!ends.until || next.slice(0, 10) <= ends.until) ? next : null;
 }
 
 /**
@@ -78,7 +89,7 @@ export function metaChips(meta: TaskMeta, done: boolean, tags: string[] = []): H
     meta.priority && tokenChip("priority", meta.priority),
     meta.due && tokenChip("due", meta.due, { done, now }),
     meta.start && meta.start.slice(0, 10) > now && tokenChip("start", meta.start, { now }),
-    meta.rec && tokenChip("rec", meta.rec, { next: done ? null : nextOf(meta) }),
+    meta.rec && tokenChip("rec", meta.rec, { next: done ? null : nextOf(meta), ends: meta }),
     ...meta.assignees.map((a) => tokenChip("assignees", a)),
     ...[...tags].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })).map((t) => tokenChip("tags", t)),
     done && meta.done && tokenChip("done", meta.done, { now }),

@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import { LOCAL_USER, openVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
-import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtWrite } from "./core/format.ts";
+import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtTrash, fmtWrite } from "./core/format.ts";
 import { parseQuery } from "./core/query.ts";
 import { agentSource, parseAuthorFilter } from "./core/actor.ts";
 
@@ -26,9 +26,10 @@ Usage: quire <command> [args] [--agent <name>] [--json]
   task move <note> <line> --to <note>
                                    move a task (and what's nested under it) to another note
   task <note> <line> [--done|--undone] [--due D] [--start D] [--rec R]
-       [--priority high|low] [--assignee P,…] [--tag T,…] [--skip]
+       [--until D] [--times N] [--priority high|low] [--assignee P,…] [--tag T,…] [--skip]
                                    tick a task or change its tokens; "none" clears one.
                                    --rec weekly, 6th, 1st-tue, after-1m (from done)…;
+                                   --until and --times end a repeat (last day, times left);
                                    --skip moves a repeating task to its next date
   board <note>                     the note's Kanban boards (:::kanban blocks), cards with line numbers
   card add <note> <column> <text…> [--board N] [--position N]
@@ -37,6 +38,9 @@ Usage: quire <command> [args] [--agent <name>] [--json]
                                    <card> is a line number from \`board\`, or words only its text has
   archive <note…>                  move notes to Archive/ (links keep working)
   unarchive <note…>                move archived notes back
+  delete <note…>                   move notes or assets to Trash (restorable for 30 days)
+  trash                            what's in Trash, newest first, with ids
+  trash restore <id…>              put Trash items back where they were
   create <path> [content | -]      '-' or no content reads stdin
   edit <note> --old <s> --new <s> [--all] [--base <version>]
   append <note> [text | -]
@@ -140,7 +144,7 @@ if (cmd === "mcp") {
         const list = (k: string) => (str(k) === undefined ? undefined : str(k) === "none" ? [] : str(k)!.split(",").map((s) => s.trim().replace(/^[@#]/, "")));
         const checked = flags.done ? true : flags.undone ? false : undefined;
         const patch = Object.fromEntries(
-          Object.entries({ checked, due: one("due"), start: one("start"), rec: one("rec"), priority: one("priority"), assignees: list("assignee"), tags: list("tag") }).filter(([, v]) => v !== undefined),
+          Object.entries({ checked, due: one("due"), start: one("start"), rec: one("rec"), until: one("until"), times: str("times") === undefined ? undefined : str("times") === "none" ? null : Number(str("times")), priority: one("priority"), assignees: list("assignee"), tags: list("tag") }).filter(([, v]) => v !== undefined),
         );
         const r = flags.skip ? q.skipTask(note, line, task.text, source) : q.updateTask(note, line, task.text, patch, source);
         out(fmtWrite(r, r.change ? "Updated" : "No change to"), r);
@@ -217,6 +221,25 @@ if (cmd === "mcp") {
           return `${cmd === "archive" ? "Archived" : "Unarchived"} → ${r.path}`;
         });
         out(lines.join("\n"), lines);
+        break;
+      }
+      case "delete": {
+        if (!args.length) throw new QuireError("delete needs <note>");
+        const gone = q.delete(args, source);
+        out(gone.map((d) => `Moved ${d.path} to Trash (${d.id})`).join("\n"), gone.map(({ id, path }) => ({ id, path })));
+        break;
+      }
+      // Restoring only: deleting for good is for a person, in the app.
+      case "trash": {
+        if (args[0] === "restore") {
+          if (args.length < 2) throw new QuireError("trash restore needs <id>");
+          const back = q.untrash(args.slice(1), source);
+          out(back.map((b) => `Restored ${b.path}`).join("\n"), back.map((b) => b.path));
+          break;
+        }
+        if (args.length) throw new QuireError(`trash takes restore, not "${args[0]}"`);
+        const items = q.trash();
+        out(fmtTrash(items), items);
         break;
       }
       case "star":

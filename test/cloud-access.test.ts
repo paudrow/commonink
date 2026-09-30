@@ -23,6 +23,13 @@ let startId: string;
 const restoreIds = {} as Record<Who, number>;
 /** A smart folder of each person's own, for them to delete. */
 const folderIds = {} as Record<Who, string>;
+/** Trash items for each person to restore and to delete for good. */
+const trashIds = {} as Record<Who, { restore: string; purge: string }>;
+/** A member only the owner's requests change (their role, then removing them), and an invite link to revoke. */
+let spareId = "";
+let spareInvite = "";
+/** A second team with the same people in the same roles, for them to leave. */
+let leaveBase = "";
 
 /**
  * Every route online, what each kind of person gets back, and a request that works for anyone
@@ -73,8 +80,26 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /restore", send: (w) => ["POST", "/restore", { id: restoreIds[w] ?? 1 }], expect: EDIT },
   { route: "POST /archive", send: (w) => ["POST", "/archive", { paths: [`arch-${w}.md`] }], expect: EDIT },
   { route: "POST /unarchive", send: (w) => ["POST", "/unarchive", { paths: [`Archive/unarch-${w}.md`] }], expect: EDIT },
+  { route: "GET /delete-check", send: (w) => ["GET", `/delete-check?path=tasks-${w}.md`], expect: EDIT },
+  { route: "POST /delete", send: (w) => ["POST", "/delete", { paths: [`del-${w}.md`] }], expect: EDIT },
+  { route: "POST /delete-folder", send: (w) => ["POST", "/delete-folder", { folder: `folder-${w}`, notes: "lift" }], expect: EDIT },
+  { route: "GET /trash", send: () => ["GET", "/trash"], expect: EDIT },
+  { route: "POST /trash/restore", send: (w) => ["POST", "/trash/restore", { ids: [trashIds[w].restore] }], expect: EDIT },
+  { route: "POST /trash/delete", send: (w) => ["POST", "/trash/delete", { ids: [trashIds[w].purge] }], expect: OWN },
+  { route: "POST /trash/empty", send: () => ["POST", "/trash/empty", {}], expect: OWN },
   { route: "POST /upload", send: (w) => ["POST", `/upload?name=up-${w}.txt`, new TextEncoder().encode("hi"), { "content-type": "text/plain" }], expect: EDIT },
   { route: "POST /invites", send: () => ["POST", "/invites", { role: "viewer" }], expect: OWN },
+  { route: "GET /members", send: () => ["GET", "/members"], expect: READ },
+  { route: "GET /invites", send: () => ["GET", "/invites"], expect: OWN },
+  { route: "POST /invites/revoke", send: () => ["POST", "/invites/revoke", { id: spareInvite }], expect: OWN },
+  { route: "GET /workspace/log", send: () => ["GET", "/workspace/log"], expect: OWN },
+  { route: "POST /workspace/rename", send: () => ["POST", "/workspace/rename", { name: "Team" }], expect: OWN },
+  { route: "POST /members/role", send: () => ["POST", "/members/role", { user: spareId, role: "viewer" }], expect: OWN },
+  { route: "POST /members/remove", send: () => ["POST", "/members/remove", { user: spareId }], expect: OWN },
+  // A wrong name deletes nothing: the owner gets past the role check to the 400.
+  { route: "POST /workspace/delete", send: () => ["POST", "/workspace/delete", { confirm: "not the name" }], expect: [401, 404, 403, 403, 400] },
+  // Leaving the second team keeps everyone in this one. Its only owner can't leave (409).
+  { route: "POST /leave", send: () => ["POST", `${leaveBase}/leave`, {}], expect: [401, 404, "ok", "ok", 409] },
   { route: "GET /api/me", send: () => ["GET", "/api/me"], expect: SIGNED_IN },
   { route: "POST /api/workspaces", send: (w) => ["POST", "/api/workspaces", { name: `${w}'s team` }], expect: SIGNED_IN },
   { route: "GET /api/unfurl", send: () => ["GET", "/api/unfurl?url=https://example.invalid/"], expect: SIGNED_IN },
@@ -105,9 +130,26 @@ before(async () => {
     await note(`restore-${w}.md`);
     await cloud.call(owner, "PUT", `${base}/note`, { path: `restore-${w}.md`, content: "# Changed\n" });
     restoreIds[w] = (await cloud.call(owner, "GET", `${base}/changes?path=restore-${w}.md&limit=1`))[0].id;
+    await note(`del-${w}.md`);
+    await note(`folder-${w}/Inside.md`);
+    await note(`trash-restore-${w}.md`);
+    await note(`trash-purge-${w}.md`);
+    const [restore, purge] = (await cloud.call(owner, "POST", `${base}/delete`, { paths: [`trash-restore-${w}.md`, `trash-purge-${w}.md`] })).trashed.map((t: { id: string }) => t.id);
+    trashIds[w] = { restore, purge };
   }
   for (const w of ["viewer", "editor", "owner"] as const) {
     folderIds[w] = (await cloud.call(people[w], "POST", `${base}/smart-folders`, { name: `Doomed ${w}`, query: "tag=plan" })).id;
+  }
+  const spare = await cloud.signIn("spare");
+  const { url } = await cloud.call(owner, "POST", `${base}/invites`, { role: "editor" });
+  await cloud.request(spare, "POST", new URL(url).pathname);
+  spareId = (await cloud.call(owner, "GET", `${base}/members`)).find((m: { name: string }) => m.name === "Spare Dev").id;
+  await cloud.call(owner, "POST", `${base}/invites`, { role: "viewer" });
+  spareInvite = (await cloud.call(owner, "GET", `${base}/invites`)).find((i: { usedAt: number | null }) => i.usedAt === null).id;
+  leaveBase = `/api/w/${(await cloud.call(owner, "POST", "/api/workspaces", { name: "Leavers" })).id}`;
+  for (const w of ["editor", "viewer"] as const) {
+    const invite = await cloud.call(owner, "POST", `${leaveBase}/invites`, { role: w });
+    await cloud.request(people[w], "POST", new URL(invite.url).pathname);
   }
   const notes: Array<{ path: string; id: string }> = await cloud.call(owner, "GET", `${base}/notes`);
   startId = notes.find((n) => n.path === "Getting started.md")!.id;
@@ -123,6 +165,9 @@ test("every route online has a row in the access matrix, and every API route has
   const coreRoutes = [...api.matchAll(/case "((?:GET|POST|PUT|PATCH|DELETE) \/[^"]*)"/g)].map((m) => m[1]);
   assert.deepEqual(coreRoutes.filter((r) => !(r in WORKSPACE_ROUTES)), [], "core API routes with no role in cloud/src/access.ts");
   assert.deepEqual(Object.entries(TOOL_ROUTES).filter(([, r]) => !(r in WORKSPACE_ROUTES)), [], "MCP tools whose route has no role");
+  const admin = fs.readFileSync(path.resolve(import.meta.dirname, "../cloud/src/admin.ts"), "utf8");
+  const settings = [...admin.matchAll(/case "((?:GET|POST) \/[^"]*)"/g)].map((m) => m[1]);
+  assert.deepEqual(settings.filter((r) => !(r in WORKSPACE_ROUTES)), [], "settings routes with no role in cloud/src/access.ts");
 });
 
 test("each route answers each kind of person as the matrix says", async () => {
@@ -162,4 +207,41 @@ test("a workspace checks the role again, whatever the Worker forwarded", async (
     [await send("POST", "/note", "viewer"), await send("POST", "/note"), await send("POST", "/note", "admin"), await send("POST", "/seed", "owner"), await send("GET", "/info", "viewer")],
     [403, 403, 403, 404, 200],
   );
+});
+
+type Trashed = { trashed: Array<{ id: string; path: string }> };
+
+test("what's in Trash can't be reached as a file, a note or through another workspace", async () => {
+  const owner = await cloud.signIn("owner"); // the matrix ended with signing everyone out everywhere
+  const { base } = people;
+  await cloud.request(owner, "POST", `${base}/note`, { path: "Secret.md", content: "# Secret\n\nthe plan\n" });
+  const { trashed } = (await (await cloud.request(owner, "POST", `${base}/delete`, { paths: ["Secret.md"] })).json()) as Trashed;
+  const id = trashed[0].id;
+  const tries = [
+    await cloud.request(owner, "GET", `${base}/note?path=Secret`),
+    await cloud.request(owner, "GET", `${base}/files/.trash/${id}/Secret.md`),
+    await cloud.request(owner, "GET", `${base}/files/%2Etrash/${id}/Secret.md`),
+    await cloud.request(owner, "GET", `${base}/search?q=plan`),
+  ];
+  assert.deepEqual(tries.slice(0, 3).map((r) => r.status >= 400), [true, true, true]);
+  assert.deepEqual(await tries[3].json(), []);
+  // Another workspace of the same owner has its own Trash, and can't restore this one's items.
+  const other = ((await (await cloud.request(owner, "POST", "/api/workspaces", { name: "Elsewhere" })).json()) as { id: string }).id;
+  assert.equal((await cloud.request(owner, "POST", `/api/w/${other}/trash/restore`, { ids: [id] })).status, 404);
+  const theirs = (await (await cloud.request(owner, "GET", `/api/w/${other}/trash`)).json()) as Array<{ id: string }>;
+  assert.equal(theirs.some((t) => t.id === id), false);
+});
+
+test("an upload deleted for good takes its bytes out of R2; one in Trash keeps them", async () => {
+  const owner = await cloud.signIn("owner");
+  const { base } = people;
+  const env = await cloud.server.getWorker().getEnv();
+  const keys = async () => (await env.FILES.list()).objects.length;
+  const up = (await (await cloud.request(owner, "POST", `${base}/upload?name=bin.txt`, new TextEncoder().encode("bytes"), { "content-type": "text/plain" })).json()) as { path: string };
+  const before = await keys();
+  const { trashed } = (await (await cloud.request(owner, "POST", `${base}/delete`, { paths: [up.path] })).json()) as Trashed;
+  assert.equal(await keys(), before);
+  await cloud.request(owner, "POST", `${base}/trash/delete`, { ids: [trashed[0].id] });
+  await new Promise((r) => setTimeout(r, 50)); // the delete runs after the response
+  assert.equal(await keys(), before - 1);
 });

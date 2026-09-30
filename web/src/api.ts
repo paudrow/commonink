@@ -24,7 +24,7 @@ export interface Change {
   id: number;
   ts: number;
   path: string;
-  op: "create" | "edit" | "move" | "delete" | "archive" | "unarchive";
+  op: "create" | "edit" | "move" | "delete" | "archive" | "unarchive" | "restore" | "purge";
   source: string;
   version: string | null;
   summary: string | null;
@@ -199,6 +199,50 @@ export async function whoAmI(): Promise<{ me: Me | null; devLogin: boolean } | u
 }
 const enc = encodeURIComponent;
 
+export interface WorkspaceMember {
+  id: string;
+  name: string;
+  email: string;
+  role: "owner" | "editor" | "viewer";
+  joinedAt: number;
+}
+export interface WorkspaceInvite {
+  id: string;
+  role: "editor" | "viewer";
+  createdBy: string | null;
+  createdAt: number;
+  expiresAt: number;
+  usedBy: string | null;
+  usedAt: number | null;
+}
+export interface WorkspaceLogEntry {
+  at: number;
+  actor: string | null;
+  action: "rename" | "role" | "remove" | "leave" | "invite" | "revoke-invite";
+  target: string | null;
+  detail: string | null;
+}
+
+/** A note or asset just sent to Trash, and the id that brings it back. */
+export interface Trashed {
+  id: string;
+  path: string;
+}
+export interface TrashItem extends Trashed {
+  kind: "md" | "html" | "asset";
+  size: number;
+  deletedAt: number;
+  expiresAt: number;
+  by: { source: string; person: string | null; agent: string | null } | null;
+  excerpt: string;
+}
+export interface DeleteCheck {
+  notes: number;
+  assets: number;
+  /** Notes (outside what's being deleted) that link to or embed it. */
+  linkedFrom: string[];
+}
+
 async function j<T>(url: string, init?: RequestInit): Promise<T> {
   const r = await fetch(url, init);
   const data = await r.json().catch(() => ({}));
@@ -226,6 +270,16 @@ export const api = {
   /** A page of a workspace's change log, whichever workspace is open. */
   changesIn: (workspace: string) => j<Change[]>(`/api/w/${workspace}/changes?limit=200`),
   invite: (role: "editor" | "viewer") => j<{ url: string }>(`${BASE}/invites`, send("POST", { role })),
+  // Online: the workspace's settings (cloud/src/admin.ts).
+  members: () => j<WorkspaceMember[]>(`${BASE}/members`),
+  setRole: (user: string, role: WorkspaceMember["role"]) => j<{ ok: true }>(`${BASE}/members/role`, send("POST", { user, role })),
+  removeMember: (user: string) => j<{ ok: true }>(`${BASE}/members/remove`, send("POST", { user })),
+  leave: () => j<{ ok: true }>(`${BASE}/leave`, send("POST", {})),
+  invites: () => j<WorkspaceInvite[]>(`${BASE}/invites`),
+  revokeInvite: (id: string) => j<{ ok: true }>(`${BASE}/invites/revoke`, send("POST", { id })),
+  workspaceLog: () => j<WorkspaceLogEntry[]>(`${BASE}/workspace/log`),
+  renameWorkspace: (name: string) => j<{ ok: true; name: string }>(`${BASE}/workspace/rename`, send("POST", { name })),
+  deleteWorkspace: (confirm: string) => j<{ ok: true }>(`${BASE}/workspace/delete`, send("POST", { confirm })),
   notes: () => j<NoteMeta[]>(`${BASE}/notes`),
   note: (path: string) => j<Note>(`${BASE}/note?path=${enc(path)}`),
   search: (q: string, scope: Scope = "active") => j<SearchHit[]>(`${BASE}/search?q=${enc(q)}&limit=20&scope=${scope}`),
@@ -255,7 +309,6 @@ export const api = {
   /** Add a task written in words (see src/core/quickAdd.ts); `ignore` holds phrases kept as words. */
   addTask: (text: string, ignore: string[] = [], to?: string) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/add`, send("POST", { text, ignore, to, today: today() })),
   /** Take a task (and what's nested under it) out of its note: quick-add's Undo. */
-  removeTask: (t: { path: string; line: number; text: string }) => j<{ path: string; version: string }>(`${BASE}/tasks/remove`, send("POST", { path: t.path, line: t.line, text: t.text })),
   /** Move a task (and what's nested under it) to another note. */
   moveTask: (t: Task, to: string) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/move`, send("POST", { path: t.path, line: t.line, text: t.text, to })),
   /** Your starred notes, in your order. Each change returns the new list. */
@@ -271,6 +324,17 @@ export const api = {
   /** Have the guide tick a step, show its demo edit, or close the checklist. */
   guideDo: (action: GuideAction) => j<GuideState | null>(`${BASE}/guide`, send("POST", { action })),
   archive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/archive`, send("POST", { paths })),
+  /** What deleting these notes, or everything in a folder, would touch. */
+  deleteCheck: (o: { paths?: string[]; folder?: string }) =>
+    j<DeleteCheck>(`${BASE}/delete-check?${o.folder ? `folder=${enc(o.folder)}` : (o.paths ?? []).map((p) => `path=${enc(p)}`).join("&")}`),
+  /** Send notes and assets to Trash; `trashed` is what Undo restores. */
+  delete: (paths: string[]) => j<{ trashed: Trashed[] }>(`${BASE}/delete`, send("POST", { paths })),
+  deleteFolder: (folder: string, notes: "trash" | "lift") =>
+    j<{ trashed: Trashed[]; moved: Array<{ from: string; to: string }> }>(`${BASE}/delete-folder`, send("POST", { folder, notes })),
+  trash: () => j<TrashItem[]>(`${BASE}/trash`),
+  restoreTrash: (ids: string[]) => j<{ restored: string[] }>(`${BASE}/trash/restore`, send("POST", { ids })),
+  purgeTrash: (ids: string[]) => j<{ deleted: string[] }>(`${BASE}/trash/delete`, send("POST", { ids })),
+  emptyTrash: () => j<{ deleted: string[] }>(`${BASE}/trash/empty`, send("POST", {})),
   unarchive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/unarchive`, send("POST", { paths })),
   backlinks: (path: string) => j<Backlink[]>(`${BASE}/backlinks?path=${enc(path)}`),
   /** A page of the change log, newest first; `before` pages further back. */

@@ -1,7 +1,7 @@
 // Plain-text renderings of core results, shared by the MCP server and the CLI.
 // Agents read markdown far more cheaply than JSON, so this is the default output.
 import { authorLabel } from "./actor.ts";
-import { isTagFavorite, type Backlink, type Change, type Favorite, type Note, type NoteMeta, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView } from "./quire.ts";
+import { isTagFavorite, type Backlink, type Change, type Favorite, type Note, type NoteMeta, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView, type TrashItem } from "./quire.ts";
 import type { Board } from "./kanban.ts";
 
 export function fmtSearch(q: string, hits: SearchHit[]): string {
@@ -76,7 +76,7 @@ export const isRename = (from: string | null, to: string) => from !== null && fo
 /** What a change did, as a past-tense verb ("you renamed Groceries"). */
 export function changeVerb(c: Pick<Change, "op" | "path" | "from_path">): string {
   if (c.op === "move" && isRename(c.from_path, c.path)) return "renamed";
-  return { create: "created", edit: "edited", move: "moved", delete: "deleted", archive: "archived", unarchive: "unarchived" }[c.op];
+  return { create: "created", edit: "edited", move: "moved", delete: "deleted", archive: "archived", unarchive: "unarchived", restore: "restored", purge: "deleted forever" }[c.op];
 }
 
 /**
@@ -141,4 +141,12 @@ export function fmtBoards(path: string, boards: Board[], unclosed: number | null
       })
       .join("\n\n") + open
   );
+}
+
+/** What's in Trash, one line each: id, where it was, when it went and who sent it. */
+export function fmtTrash(items: TrashItem[]): string {
+  if (!items.length) return "Trash is empty.";
+  return items
+    .map((t) => `${t.id}  ${t.path} — deleted ${new Date(t.deletedAt).toISOString().slice(0, 16).replace("T", " ")}${t.by ? ` by ${authorLabel({ ...t.by })}` : ""}, gone for good ${new Date(t.expiresAt).toISOString().slice(0, 10)}`)
+    .join("\n");
 }

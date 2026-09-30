@@ -5,7 +5,7 @@ import { z } from "zod";
 import { QuireError } from "./paths.ts";
 import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtWrite } from "./format.ts";
 import { parseQuery } from "./query.ts";
-import type { Quire } from "./quire.ts";
+import { TRASH_DAYS, type Quire } from "./quire.ts";
 import { parseAuthorFilter } from "./actor.ts";
 import { AGENTS_NOTE } from "./noteRoles.ts";
 
@@ -45,6 +45,7 @@ export const TOOL_ROUTES: Record<string, string> = {
   append_to_note: "PUT /note",
   move_note: "POST /move",
   archive_note: "POST /archive",
+  delete_note: "POST /delete",
   unarchive_note: "POST /unarchive",
   add_task: "POST /tasks/add",
   move_task: "POST /tasks/move",
@@ -292,8 +293,10 @@ export function createMcpServer(host: ToolHost): McpServer {
           .optional()
           .describe(
             "How it repeats, from the due date: daily, weekly, monthly, yearly, 3d, 2w, mon,thu, 2w-mon,thu, 6th, last-day, 1st-tue,3rd-tue, last-fri, mar-1, 1st-mon-mar, day-50; " +
-              "a gap after it's done: after-1m, after-10d; or RRULE:FREQ=…;BYDAY=…",
+              "a gap after it's done: after-1m, after-10d; or RRULE:FREQ=…;BYDAY=… (COUNT and UNTIL too)",
           ),
+        until: z.string().nullable().optional().describe("The repeat's last day, YYYY-MM-DD: no occurrence after it"),
+        times: z.number().int().min(1).nullable().optional().describe("How many times the repeat is left to happen, this one included; each tick counts one down"),
         skip: z.boolean().optional().describe("Move a repeating task to its next date without ticking it (on its own: other fields are ignored)"),
         priority: z.enum(["high", "low"]).nullable().optional(),
         assignees: z.array(z.string()).optional().describe("People, without @"),
@@ -457,6 +460,20 @@ export function createMcpServer(host: ToolHost): McpServer {
       annotations: writes,
     },
     ({ paths }) => run(() => paths.map((p) => `Archived → ${quire.archive(p, source()).path}`).join("\n")),
+  );
+
+  server.registerTool(
+    "delete_note",
+    {
+      title: "Delete note",
+      description:
+        `Delete notes or assets the user asked to delete: each goes to Trash, where the user can restore it for ${TRASH_DAYS} days. ` +
+        "Notes that link to it show the link as missing meanwhile. Prefer archive_note for something that's just done. " +
+        "Agents can't delete anything for good.",
+      inputSchema: { paths: z.array(z.string()).min(1) },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    },
+    ({ paths }) => run(() => quire.delete(paths, source()).map((d) => `Moved ${d.path} to Trash`).join("\n")),
   );
 
   server.registerTool(
