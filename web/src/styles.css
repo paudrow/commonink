@@ -581,6 +581,9 @@ body.is-resizing iframe { pointer-events: none; }
 .cm-task-gear { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 5px; color: var(--muted); }
 .cm-task-gear:hover { background: var(--hover); color: var(--ink-strong); }
 .cm-task-hint { font: 12px var(--ui); color: var(--muted); }
+/* A phrase on the cursor's task line that Tab or a click would make a token: marked, never changed on its own. */
+.cm-phrase { text-decoration: underline dotted var(--accent-line); text-decoration-thickness: 1.5px; text-underline-offset: 3px; cursor: pointer; }
+.cm-phrase.is-rec, .cm-phrase.is-ends { text-decoration-color: color-mix(in srgb, var(--ok) 70%, transparent); }
 .cm-hint-word { padding: 0 2px; border-radius: 4px; font: inherit; color: inherit; cursor: pointer; }
 .cm-hint-word:hover, .cm-hint-word:focus-visible { color: var(--ink-2); background: var(--hover); }
 .cm-checkbox {
@@ -618,6 +621,71 @@ body.is-resizing iframe { pointer-events: none; }
 .cm-codeblock.is-first.is-fence { text-align: right; line-height: 1; padding-top: 0.7em !important; }
 .cm-codeblock.is-last.is-fence { line-height: 0.3; }
 .cm-fence-label { font: 650 10px/1 var(--ui); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+
+/* A code block outside the source view (code.ts): in the editor, embeds and Notes cards alike. */
+.cb { position: relative; margin: 0.4em 0 0.8em; border-radius: 10px; background: var(--code-bg); font-size: 0.84em; }
+.cm-code-widget { padding: 0.2em 0 0.5em; white-space: normal; cursor: text; }
+.cm-code-widget > .cb { margin: 0; } /* padding on the wrapper instead: see CodeWidget */
+/* The header is its own row, so the label and tools never sit over the first line of code. */
+.cb-head { display: flex; align-items: center; gap: 2px; min-height: 26px; padding: 5px 8px 0 1.45em; font: 650 10px/1 var(--ui); letter-spacing: 0.08em; color: var(--muted); }
+.cb-head .spacer { flex: 1; }
+.cb-title { font: 600 11.5px/1.2 var(--mono); letter-spacing: 0; color: var(--muted); text-transform: none; }
+.cb-lang { text-transform: uppercase; padding: 3px 5px; }
+.cb-btn { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 5px; border: 0; border-radius: 6px; background: none; color: var(--muted); font: inherit; cursor: pointer; }
+.cb-btn:hover { background: var(--hover); color: var(--ink); }
+.cb-btn.cb-wrap.is-on { color: var(--ink); }
+.cb-copy.is-done { color: var(--ok); opacity: 1; }
+.cb-copy span { letter-spacing: 0; text-transform: none; font-weight: 600; }
+/* Copy, wrap and the picker come up on hover (and focus), so the label alone shows at rest. */
+.cb-copy, .cb-wrap { opacity: 0; transition: opacity 0.12s; }
+.cb:hover :is(.cb-copy, .cb-wrap), .cb-head :focus-visible, .cb-copy.is-done { opacity: 1; }
+.cb > .cb-pre { margin: 0; padding: 0.15em 1.2em 0.8em; border-radius: 0; background: none; font-family: var(--mono); font-size: 1em; line-height: 1.65; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; } /* over embeds' and cards' own pre styles */
+.cb-pre code { display: block; font: inherit; background: none; padding: 0; counter-reset: cb-line; }
+.cb.is-nowrap .cb-pre { white-space: pre; overflow-wrap: normal; overflow-x: auto; }
+.cb.is-nowrap .cb-pre code { min-width: max-content; }
+.cb-line { display: block; min-height: 1.65em; margin: 0 -1.2em; padding: 0 1.2em; }
+/* Marked lines get a bar, not a tint: any tint over --code-bg takes the syntax colors below 4.5:1. */
+.cb-line.is-marked { box-shadow: inset 3px 0 var(--accent-line); }
+/* Diff lines keep a light tint, with their text in the -ink colors, which stay at 4.5:1 over it. */
+.cb-line.is-add { background: color-mix(in srgb, var(--ok) 8%, transparent); box-shadow: inset 3px 0 var(--ok); }
+.cb-line.is-add, .cb-line.is-add * { color: var(--ok-ink) !important; }
+.cb-line.is-del { background: color-mix(in srgb, var(--bad) 8%, transparent); box-shadow: inset 3px 0 var(--bad); }
+.cb-line.is-del, .cb-line.is-del * { color: var(--bad-ink) !important; }
+.cb.has-numbers .cb-line::before { counter-increment: cb-line; content: counter(cb-line); display: inline-block; width: 2.6em; margin-left: -0.4em; padding-right: 1em; text-align: right; color: var(--muted); user-select: none; }
+/* Math (math.ts): inline in its line, display on its own, the source in red when it doesn't parse. */
+.math-inline { white-space: nowrap; }
+.math-display { position: relative; display: block; margin: 0.5em 0 0.8em; padding: 0.5em 2.5em; overflow-x: auto; overflow-y: hidden; text-align: center; }
+.math-display.is-preview { border-radius: 10px; background: var(--code-bg); }
+.cm-math-block { padding: 0.3em 0 0.6em; white-space: normal; }
+.cm-math-block > .math-display { margin: 0; } /* padding on the wrapper instead: see MathWidget */
+.math-error { color: var(--bad-ink); font-family: var(--mono); font-size: 0.85em; white-space: pre-wrap; text-decoration: underline wavy color-mix(in srgb, var(--bad) 45%, transparent); text-underline-offset: 3px; cursor: help; }
+.math-display.math-error { text-align: left; overflow: visible; } /* room for the message below */
+.math-error { position: relative; outline: none; }
+.math-error[data-error]:is(:hover, :focus-visible)::after {
+  content: attr(data-error);
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  width: max-content;
+  max-width: min(420px, 80vw);
+  padding: 6px 9px;
+  border-radius: 7px;
+  background: var(--ink-strong);
+  color: var(--bg);
+  font: 500 12px/1.4 var(--ui);
+  white-space: normal;
+  text-decoration: none;
+  pointer-events: none;
+  box-shadow: var(--shadow-sm);
+}
+.math-error:focus-visible { box-shadow: 0 0 0 2px var(--accent-line); border-radius: 3px; }
+.math-copy { position: absolute; top: 6px; right: 6px; opacity: 0; transition: opacity 0.12s; }
+.math-display:hover .math-copy, .math-copy:focus-visible, .math-copy.is-done { opacity: 1; }
+.cm-math-source { font-family: var(--mono); font-size: 0.88em; color: var(--ink-2); }
+.cm-math-block-source { font-family: var(--mono); font-size: 0.84em; color: var(--ink-2); }
+.cb-picker { position: fixed; z-index: 60; width: 240px; }
+.cb-picker-input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--ink); font: inherit; }
 
 .cm-frontmatter { font-family: var(--mono); font-size: 0.8em; color: var(--muted); background: var(--code-bg); padding: 0 1em !important; }
 .cm-frontmatter.is-first { border-radius: 8px 8px 0 0; padding-top: 0.3em !important; }
@@ -1523,7 +1591,9 @@ button.crumb:hover { background: var(--hover); color: var(--ink-strong); }
 /* Today: today's journal note, then sections of task rows (the top of Tasks, and ::today) */
 .td-block { margin-bottom: 18px; }
 .td-title { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; font-size: 13px; font-weight: 600; color: var(--ink-strong); }
-.td-title svg { color: var(--warn); }
+.td-title svg { flex: none; color: var(--warn); }
+/* On Tasks the title is the card's own: inset like the body under it (Journal, Overdue), its icon centred on the title's line. */
+.qw-today.is-standalone > .td-title { margin: 0; padding: 14px 14px 4px; line-height: 16px; }
 .td-section + .td-section { margin-top: 10px; }
 .td-section.is-overdue .qt-note { color: var(--bad-ink); }
 .td-none { padding: 2px 0 4px; font-size: 13px; color: var(--muted); }
@@ -1881,22 +1951,21 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .qt-act + .qt-act { margin-left: -8px; }
 .qt-act:hover { background: var(--active); color: var(--ink-strong); }
 .qt-words { cursor: text; }
-.qt-input { width: min(100%, 420px); margin-right: 4px; padding: 1px 6px; border: 1px solid var(--accent-line); border-radius: 6px; background: var(--bg-elev); color: var(--ink-strong); font: inherit; outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+.qt-edit { display: inline-block; width: min(100%, 420px); margin-right: 4px; vertical-align: top; }
+.qt-edit .qa-box { padding: 0 6px; border: 1px solid var(--accent-line); border-radius: 6px; background: var(--bg-elev); box-shadow: 0 0 0 3px var(--accent-soft); }
+.qt-edit .qa-preview { padding-top: 5px; }
 .task-menu-item .task-menu-value { flex: none; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--ink-2); }
 .task-menu-item .task-menu-value.is-empty { color: var(--muted); }
 .fp-sep { height: 1px; margin: 4px 2px; background: var(--line); }
 
-/* quick-add: the bar on Tasks and floating on q. The mirror sits under a transparent input and
-   draws the highlights for phrases read as dates and repeats. */
+/* the task input (taskInput.ts): the quick-add bar on Tasks and floating on ⌘⇧., the inline edit,
+   a Kanban card. Phrases read as dates and repeats are lit in place. */
 .qa { position: relative; margin: 0 0 18px; }
 .qa-field { display: flex; align-items: center; gap: 10px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg-elev); color: var(--muted); }
 .qa-field:focus-within { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
 .qa-box { position: relative; flex: 1; min-width: 0; }
-.qa-input, .qa-mirror { box-sizing: border-box; width: 100%; height: 40px; padding: 0; border: 0; font: 15px var(--ui); letter-spacing: normal; white-space: pre; }
-.qa-input { position: relative; z-index: 1; background: transparent; color: var(--ink-strong); outline: none; }
-.qa-mirror { position: absolute; inset: 0; overflow: hidden; line-height: 40px; color: transparent; pointer-events: none; }
-.qa-hl { color: transparent; border-radius: 4px; background: var(--accent-soft); box-shadow: 0 0 0 2px var(--accent-soft); }
-.qa-hl.is-rec { background: color-mix(in srgb, var(--ok) 18%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 18%, transparent); }
+.qa-hl { border-radius: 4px; background: var(--accent-soft); box-shadow: 0 0 0 2px var(--accent-soft); }
+.qa-hl.is-rec, .qa-hl.is-ends { background: color-mix(in srgb, var(--ok) 18%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 18%, transparent); }
 .qa-hl.is-target { background: var(--hover); box-shadow: 0 0 0 2px var(--hover); }
 .qa-preview { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 2px; min-height: 22px; padding: 8px 2px 0; font-size: 13px; color: var(--ink-2); }
 .qa-words { margin-right: 6px; }
@@ -1907,14 +1976,19 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .qa-link { color: var(--accent-ink); }
 .qa-link:hover { text-decoration: underline; }
 .qa-error { color: var(--bad-ink); }
-.qa-suggest { position: absolute; z-index: 5; left: 34px; top: 44px; width: 260px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg-elev); box-shadow: var(--shadow-lg); }
 .qa-cm .cm-editor { height: 40px; font: 15px var(--ui); }
 .qa-cm .cm-editor.cm-focused { outline: none; }
 .qa-cm .cm-scroller { overflow: hidden; line-height: 40px; font: inherit; }
 .qa-cm .cm-content { padding: 0; line-height: 40px; caret-color: var(--ink-strong); color: var(--ink-strong); }
 .qa-cm .cm-line { padding: 0; line-height: 40px; }
-.qa-cm .qa-hl { color: inherit; }
 .qa-cm .cm-fat-cursor { background: var(--accent-soft) !important; }
+.qa-cm .cm-placeholder { color: var(--faint); }
+/* In a row or a card: the text's own size, as tall as its lines. */
+.qa-compact .cm-editor { height: auto; font: inherit; }
+.qa-compact .cm-scroller, .qa-compact .cm-content, .qa-compact .cm-line { line-height: 1.5; }
+.qa-compact .cm-content { padding: 1px 0; }
+/* A card field on a board in a note: the card's size, not the note's. */
+:is(#editor-host, #side-host) .qa-compact .cm-editor { font-size: inherit; }
 .qa-target { flex: none; display: inline-flex; align-items: center; gap: 5px; max-width: 40%; padding: 3px 8px; border-radius: 999px; background: var(--hover); font-size: 12px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qa-target:hover { color: var(--ink-strong); }
 .qa-float { position: fixed; z-index: 70; top: 18vh; left: 50%; width: min(620px, calc(100vw - 32px)); transform: translateX(-50%); padding: 14px 14px 0; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--bg); box-shadow: var(--shadow-lg); }
@@ -1984,6 +2058,7 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .chip-rec-summary { font-size: 13.5px; color: var(--ink-strong); }
 .chip-rec-summary.is-error { color: var(--bad-ink); }
 .chip-rec-dates { font-size: 12.5px; color: var(--muted); }
+.chip-rec .chip-date-in { flex: 1; min-width: 0; height: 32px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-elev); color: var(--ink-strong); padding: 0 8px; font: 14px var(--ui); }
 .chip-rec-text { width: 100%; height: 32px; box-sizing: border-box; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-elev); color: var(--ink-strong); padding: 0 8px; font: 13px var(--mono); }
 .tk-next { color: var(--muted); font-weight: 400; }
 
@@ -2058,3 +2133,97 @@ body.is-link-dragging, body.is-link-dragging * { cursor: grabbing !important; us
 .tr-meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .tr-meta .avatar { box-shadow: none; }
 @media (max-width: 640px) { .tr-row { flex-wrap: wrap; } .tr-main { flex-basis: calc(100% - 40px); } }
+/* ------------------------------------------------------------------ collapsible sections (<details>) */
+.cm-line.cm-details-head:not(.is-raw) { font: 600 1em/1.72 var(--prose); color: var(--ink-strong); }
+.cm-line.cm-details-head { position: relative; }
+.cm-details-summary { cursor: text; }
+.cm-details-toggle { display: inline-grid; place-items: center; width: 22px; height: 22px; margin: 0 4px 0 -26px; vertical-align: -5px; border-radius: 5px; color: var(--muted); font-weight: normal; }
+.cm-details-toggle svg { transition: transform 0.12s; }
+.cm-details-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
+.cm-details-toggle:hover { background: var(--hover); color: var(--ink-strong); }
+.cm-details-end { height: 8px; width: 18px; margin-left: -15px; border-left: 2px solid var(--line-strong); border-bottom: 2px solid var(--line-strong); border-bottom-left-radius: 6px; }
+details > summary { cursor: pointer; font-weight: 600; }
+details { margin: 0.4em 0; }
+
+/* ------------------------------------------------------------------ GitHub markdown: alerts, footnotes, emoji, HTML */
+/* Alerts in GitHub's colours, light and dark; each type's icon is a mask filled with its colour. */
+:root {
+  --alert-note: #0969da;
+  --alert-tip: #1a7f37;
+  --alert-important: #8250df;
+  --alert-warning: #9a6700;
+  --alert-caution: #d1242f;
+}
+:root[data-theme="dark"] {
+  --alert-note: #4493f8;
+  --alert-tip: #3fb950;
+  --alert-important: #ab7df8;
+  --alert-warning: #d29922;
+  --alert-caution: #f85149;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --alert-note: #4493f8;
+    --alert-tip: #3fb950;
+    --alert-important: #ab7df8;
+    --alert-warning: #d29922;
+    --alert-caution: #f85149;
+  }
+}
+.markdown-alert-note, .cm-alert-note { --alert: var(--alert-note); --alert-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='6.4'/%3E%3Cpath d='M8 7.3v3.9M8 4.9v.1'/%3E%3C/svg%3E"); }
+.markdown-alert-tip, .cm-alert-tip { --alert: var(--alert-tip); --alert-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5.6 10.4a4.4 4.4 0 1 1 4.8 0c-.4.3-.6.8-.6 1.3v.3H6.2v-.3c0-.5-.2-1-.6-1.3ZM6.4 14.3h3.2'/%3E%3C/svg%3E"); }
+.markdown-alert-important, .cm-alert-important { --alert: var(--alert-important); --alert-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 3.3a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v7.1a1 1 0 0 1-1 1H7.2l-3 2.4v-2.4h-.7a1 1 0 0 1-1-1Z'/%3E%3Cpath d='M8 4.9v2.8M8 9.5v.1'/%3E%3C/svg%3E"); }
+.markdown-alert-warning, .cm-alert-warning { --alert: var(--alert-warning); --alert-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7.1 2.5a1 1 0 0 1 1.8 0l5.4 9.9a1 1 0 0 1-.9 1.5H2.6a1 1 0 0 1-.9-1.5Z'/%3E%3Cpath d='M8 6v3.1M8 11.2v.1'/%3E%3C/svg%3E"); }
+.markdown-alert-caution, .cm-alert-caution { --alert: var(--alert-caution); --alert-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5.3 1.8h5.4l3.5 3.5v5.4l-3.5 3.5H5.3l-3.5-3.5V5.3Z'/%3E%3Cpath d='M8 4.8v3.6M8 10.8v.1'/%3E%3C/svg%3E"); }
+.markdown-alert-icon { display: inline-block; flex: none; width: 16px; height: 16px; background: var(--alert); -webkit-mask: var(--alert-icon) center / contain no-repeat; mask: var(--alert-icon) center / contain no-repeat; vertical-align: -3px; }
+.markdown-alert { margin: 0.6em 0; padding: 0.45em 1em; border-left: 0.25em solid var(--alert); color: var(--ink); font-style: normal; }
+.markdown-alert > :last-child { margin-bottom: 0; }
+.markdown-alert-title { display: flex; align-items: center; gap: 8px; margin: 0 0 0.3em; font-weight: 600; color: var(--alert); }
+details.markdown-alert > summary.markdown-alert-title { display: list-item; margin: 0; }
+details.markdown-alert > summary .markdown-alert-icon { margin: 0 6px 0 2px; }
+details.markdown-alert[open] > summary { margin-bottom: 0.3em; }
+/* In the editor: the callout's colour down its lines, its marker drawn as the title. */
+.cm-line.cm-alert { border-left: 3px solid var(--alert); padding-left: 1.1em !important; font-style: normal; color: var(--ink); background: color-mix(in srgb, var(--alert) 5%, transparent); }
+.cm-line.cm-alert.is-first { padding-top: 3px !important; }
+.cm-line.cm-alert.is-last { padding-bottom: 5px !important; }
+.cm-alert-title { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; color: var(--alert); }
+.cm-alert-toggle { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 5px; color: var(--muted); }
+.cm-alert-toggle svg { transition: transform 0.12s; }
+.cm-alert-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
+.cm-alert-toggle:hover { background: var(--hover); color: var(--ink-strong); }
+
+/* Footnotes: a raised number with the footnote on hover; the list at the end, each with a way back. */
+.cm-fnref { position: relative; padding: 0 1px; font: 600 0.72em var(--ui); line-height: 0; color: var(--accent-ink); cursor: pointer; }
+.cm-fn-pop { display: none; position: absolute; left: 50%; bottom: 1.4em; z-index: 10; transform: translateX(-50%); width: max-content; max-width: min(340px, 70vw); padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-elev); box-shadow: var(--shadow-sm); font: 400 13px/1.5 var(--ui); color: var(--ink); white-space: normal; cursor: default; }
+.cm-fnref:hover .cm-fn-pop { display: block; }
+.cm-line.cm-fn-def { font-size: 0.92em; color: var(--ink-2); }
+.cm-fn-def-head { display: inline-flex; align-items: center; gap: 2px; margin-right: 6px; }
+.cm-fn-label { font: 600 0.85em var(--ui); color: var(--muted); }
+.cm-fn-def-head .cm-fn-label { margin-right: 2px; }
+.cm-fn-back { padding: 0 4px; border-radius: 4px; color: var(--accent-ink); font: 13px var(--ui); }
+.cm-fn-back:hover { background: var(--hover); }
+.footnote-ref a { font-weight: 600; text-decoration: none !important; }
+.footnotes { margin-top: 1.2em; padding-top: 0.5em; border-top: 1px solid var(--line); font-size: 0.9em; color: var(--ink-2); }
+.footnotes ol { padding-left: 1.4em; margin: 0; }
+.footnote-backref { text-decoration: none !important; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+/* Emoji, and GitHub's HTML: keys, sub- and superscript, line breaks, images. */
+.cm-emoji, .emoji { font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; font-style: normal; }
+.q-emoji { display: inline-block; width: 16px; text-align: center; font-size: 14px; line-height: 1; }
+.cm-kbd, .embed-body kbd, .fc-body kbd { font: 500 0.8em/1 var(--mono); color: var(--ink); padding: 0.12em 0.4em; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 5px; background: var(--bg-elev); }
+.cm-sub { vertical-align: sub; font-size: 0.78em; }
+.cm-sup { vertical-align: super; font-size: 0.78em; }
+.cm-br { display: block; }
+.cm-html-block { display: block; padding: 4px 0; white-space: normal; cursor: pointer; }
+.cm-html-inline { white-space: normal; }
+.cm-html-block img, .cm-html-inline img { max-width: 100%; vertical-align: middle; }
+.cm-html-block p { margin: 0; }
+.cm-html-block picture, .cm-html-block picture > img { display: block; }
+
+/* "Copy link to heading": on a hovered heading, and says when it's copied. */
+.cm-heading-link { position: relative; display: inline-grid; place-items: center; width: 24px; height: 24px; margin-left: 8px; vertical-align: middle; border-radius: 6px; color: var(--muted); opacity: 0; transition: opacity 0.1s; }
+.cm-h:hover .cm-heading-link, .cm-heading-link:focus-visible, .cm-heading-link[data-said] { opacity: 1; }
+.cm-heading-link:hover { background: var(--hover); color: var(--accent-ink); }
+.cm-heading-link[data-said]::after { content: attr(data-said); position: absolute; left: 100%; margin-left: 6px; font: 500 12px var(--ui); letter-spacing: 0; color: var(--muted); white-space: nowrap; }
+@media (hover: none) { .cm-heading-link { opacity: 0.6; } }

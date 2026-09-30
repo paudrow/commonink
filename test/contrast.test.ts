@@ -82,3 +82,21 @@ for (const [name, t] of Object.entries(themes)) {
     assert.ok(ratio >= 4.5, `--on-accent on --accent is ${ratio.toFixed(2)}`);
   });
 }
+
+// Code blocks' diff lines (web/src/code.ts) tint --code-bg and write their text in --ok-ink and
+// --bad-ink, which must stay at 4.5:1 over the tint. Marked lines get a bar instead of a tint.
+for (const [name, t] of Object.entries(themes)) {
+  test(`${name} diff lines in code blocks keep their text at 4.5:1`, () => {
+    const tint = css.match(/\.cb-line\.is-add \{ background: color-mix\(in srgb, var\(--ok\) (\d+)%/);
+    assert.ok(tint, "styles.css tints added lines with color-mix");
+    const alpha = Number(tint[1]) / 100;
+    for (const [line, ink] of [["ok", "ok-ink"], ["bad", "bad-ink"]]) {
+      const [r, g, b] = parse(t[line]);
+      const bg = over([r, g, b, alpha], parse(t["code-bg"]));
+      const ratio = contrast(parse(t[ink]), bg);
+      assert.ok(ratio >= 4.5, `--${ink} over a ${line} line is ${ratio.toFixed(2)}`);
+    }
+    assert.match(css, new RegExp(`\\.cb-line\\.is-del \\{ background: color-mix\\(in srgb, var\\(--bad\\) ${tint[1]}%`), "removed lines use the same tint");
+    assert.doesNotMatch(css, /\.cb-line\.is-marked \{[^}]*background/, "marked lines have no tint");
+  });
+}

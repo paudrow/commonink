@@ -72,6 +72,13 @@ test("agents read the day: overdue, due today, starting today, and the journal n
   assert.equal((await call("get_today", { today: "someday" })).isError, true);
 });
 
+test("agents end a repeat with until and times", async () => {
+  await call("create_note", { path: "Lessons", content: "# Lessons\n\n- [ ] Piano due:2026-10-01 rec:weekly\n" });
+  await call("update_task", { path: "Lessons", line: 3, text: "Piano due:2026-10-01 rec:weekly", times: 2, until: "2026-12-31" });
+  assert.match((await call("list_tasks", { note: "Lessons" })).text, /Piano due:2026-10-01 rec:weekly until:2026-12-31 times:2/);
+  assert.equal((await call("update_task", { path: "Lessons", line: 3, text: "Piano due:2026-10-01 rec:weekly until:2026-12-31 times:2", until: "soon" })).isError, true);
+});
+
 test("agents list tags as a tree and filter notes by a tag and the tags under it", async () => {
   await call("create_note", { path: "Ideas/Plan B", content: "# Plan B\n\nA backup #plan/b for the importer.\n" });
   assert.equal((await call("list_tags", {})).text, "- #plan (2 notes)\n  - #plan/b (1 note)\n- #q3 (1 note)");
