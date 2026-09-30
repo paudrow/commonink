@@ -85,6 +85,33 @@ export type ArchiveScope = "active" | "archived" | "all";
  * A deleted note or asset, waiting in Trash. Its file sits at `.trash/<id>/<path>`, where the id is
  * "<ms deleted>-<change id>": hidden, so no listing, search, index or /files route ever sees it.
  */
+/** A marked version of a note: a name on one version, to compare with or go back to. */
+export interface Mark {
+  id: string;
+  note_id: string;
+  /** Where the note is now; null while it's in Trash. */
+  path: string | null;
+  /** The change right before this version (its place in History), or null if the log has none. */
+  change_id: number | null;
+  name: string;
+  description: string | null;
+  version: string;
+  /** When it was marked, and who marked it. */
+  ts: number;
+  source: string;
+  person: string | null;
+  agent: string | null;
+  /** The note is at this version now. */
+  current: boolean;
+}
+
+/** A marked version's name: short, one line. */
+export const MARK_NAME_MAX = 80;
+const MARK_DESCRIPTION_MAX = 500;
+/** The most marks one note keeps. */
+export const MARKS_PER_NOTE = 200;
+const MARK_COLS = "m.id, m.note_id, n.path, m.change_id, m.name, m.description, m.version, m.ts, m.source, m.person, m.agent, n.version AS now";
+
 export interface TrashItem {
   id: string;
   /** Where it was. */
@@ -96,6 +123,8 @@ export interface TrashItem {
   expiresAt: number;
   /** Who deleted it, from the change log (null once the log no longer has it). */
   by: Actor & { source: string } | null;
+  /** Its marked versions, which deleting it for good deletes too. */
+  marks: number;
   /** The start of a note's text; empty for an asset. */
   excerpt: string;
 }
@@ -922,6 +951,110 @@ export class Quire {
     return { ...this.save(at, row.before, { source, baseVersion }), path: at };
   }
 
+  // ---------------------------------------------------------------- marked versions
+
+  /**
+   * Mark a version of a note with a name ("Sent to Alex", "v1"): the note as it is now, or, with
+   * `at`, as it was right after that change. The mark keeps the version's text.
+   */
+  mark(target: string, name: string, source: string, opts: { description?: string; at?: number } = {}): Mark {
+    const rel = this.mustResolve(target);
+    if (kindOf(rel) === "asset") throw new QuireError(`${rel} is a file, not a note: only notes have marked versions`);
+    const noteId = this.meta(rel)!.id;
+    const label = markName(name);
+    const description = opts.description?.trim().slice(0, MARK_DESCRIPTION_MAX) || null;
+    let text: string;
+    let changeId: number | null;
+    if (opts.at !== undefined) {
+      const c = this.db.get(`SELECT ${CHANGE_COLS} FROM changes WHERE id = ?`, opts.at) as Change | undefined;
+      if (!c || c.note_id !== noteId) throw new QuireError(`Change #${opts.at} isn't a change to ${rel}`, "not_found");
+      if (c.op === "delete" || c.op === "purge") throw new QuireError(`Change #${opts.at} deleted ${c.path}: there's no version after it to mark`);
+      const after = this.textAfter(c);
+      if (after === null) throw new QuireError(`The text right after change #${opts.at} isn't in the change log any more`);
+      [text, changeId] = [after, c.id];
+    } else {
+      text = this.files.read(rel) ?? "";
+      const at = this.db.get("SELECT id FROM changes WHERE note_id = ? AND version = ? ORDER BY id DESC LIMIT 1", noteId, versionOf(text));
+      changeId = at?.id ?? null;
+    }
+    const id = newNoteId();
+    this.db.tx(() => {
+      if (this.db.get("SELECT 1 FROM marks WHERE note_id = ? AND lower(name) = lower(?)", noteId, label)) {
+        throw new QuireError(`${rel} already has a version marked "${label}"`, "exists");
+      }
+      if ((this.db.get("SELECT count(*) AS n FROM marks WHERE note_id = ?", noteId)?.n ?? 0) >= MARKS_PER_NOTE) {
+        throw new QuireError(`${rel} has ${MARKS_PER_NOTE} marked versions already: delete one first`, "invalid");
+      }
+      const who = actorOf(source);
+      this.db.run(
+        "INSERT INTO marks(id, note_id, change_id, name, description, version, text, ts, source, person, agent) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        id, noteId, changeId, label, description, versionOf(text), text, this.now(), who.source, who.person, who.agent,
+      );
+    });
+    return this.findMark(id);
+  }
+
+  /** A note's marked versions, or every note's (for History), newest first. */
+  marks(target?: string, limit = 500): Mark[] {
+    const noteId = target ? this.meta(this.mustResolve(target))?.id : null;
+    return this.db
+      .all<Mark & { now: string | null }>(`SELECT ${MARK_COLS} FROM marks m LEFT JOIN notes n ON n.id = m.note_id WHERE (? IS NULL OR m.note_id = ?) ORDER BY m.ts DESC, m.rowid DESC LIMIT ?`, noteId, noteId, limit)
+      .map(toMark);
+  }
+
+  /** A mark by its ID, or by its name on the note `target`. */
+  findMark(ref: string, target?: string): Mark {
+    const r = ref.trim();
+    let row = this.db.get<Mark & { now: string | null }>(`SELECT ${MARK_COLS} FROM marks m LEFT JOIN notes n ON n.id = m.note_id WHERE m.id = ?`, r);
+    if (!row && target) {
+      const noteId = this.meta(this.mustResolve(target))?.id;
+      row = this.db.get(`SELECT ${MARK_COLS} FROM marks m LEFT JOIN notes n ON n.id = m.note_id WHERE m.note_id = ? AND lower(m.name) = lower(?)`, noteId, r);
+    }
+    if (!row) throw new QuireError(`No marked version "${ref}"${target ? ` on ${target}` : ""}. List them with list_marks.`, "not_found");
+    return toMark(row);
+  }
+
+  /** A marked version's text. */
+  markText(ref: string, target?: string): { mark: Mark; text: string } {
+    const mark = this.findMark(ref, target);
+    return { mark, text: this.db.get("SELECT text FROM marks WHERE id = ?", mark.id).text as string };
+  }
+
+  renameMark(ref: string, name: string, opts: { description?: string | null; target?: string } = {}): Mark {
+    const mark = this.findMark(ref, opts.target);
+    const label = markName(name);
+    if (this.db.get("SELECT 1 FROM marks WHERE note_id = ? AND lower(name) = lower(?) AND id != ?", mark.note_id, label, mark.id)) {
+      throw new QuireError(`This note already has a version marked "${label}"`, "exists");
+    }
+    const description = opts.description === undefined ? mark.description : opts.description?.trim().slice(0, MARK_DESCRIPTION_MAX) || null;
+    this.db.run("UPDATE marks SET name = ?, description = ? WHERE id = ?", label, description, mark.id);
+    return this.findMark(mark.id);
+  }
+
+  /** Take the name off a version. Only the mark goes: the note and its history stay as they are. */
+  deleteMark(ref: string, target?: string): Mark {
+    const mark = this.findMark(ref, target);
+    this.db.run("DELETE FROM marks WHERE id = ?", mark.id);
+    return mark;
+  }
+
+  /** Two versions of a note to compare: a mark against another mark, or against the note now (`to` = "now"). */
+  compareMarks(from: string, to = "now", target?: string): { path: string; from: { mark: Mark; text: string }; to: { mark: Mark | null; text: string } } {
+    const a = this.markText(from, target);
+    const b = to === "now" ? null : this.markText(to, target ?? a.mark.path ?? undefined);
+    if (b && b.mark.note_id !== a.mark.note_id) throw new QuireError(`"${a.mark.name}" and "${b.mark.name}" are marks on different notes`);
+    const path = a.mark.path;
+    if (!path) throw new QuireError(`The note marked "${a.mark.name}" is in Trash: restore it to compare its versions`, "not_found");
+    return { path, from: a, to: b ?? { mark: null, text: this.files.read(path) ?? "" } };
+  }
+
+  /** Put a note back to a marked version: one change like any other, so it's in History and can be undone. */
+  restoreMark(ref: string, source: string, opts: { baseVersion?: string; target?: string } = {}) {
+    const { mark, text } = this.markText(ref, opts.target);
+    if (!mark.path) throw new QuireError(`The note marked "${mark.name}" is in Trash: restore it from Trash first`, "not_found");
+    return { ...this.save(mark.path, text, { source, baseVersion: opts.baseVersion }), path: mark.path, mark };
+  }
+
   // ---------------------------------------------------------------- favorites
 
   /**
@@ -1610,7 +1743,9 @@ export class Quire {
       const c = this.db.get("SELECT source, person, agent FROM changes WHERE id = ? AND op = 'delete'", changeId);
       const kind = kindOf(f.path) ?? "asset";
       const text = kind === "asset" ? "" : (this.files.read(f.at) ?? "");
-      return [{ id, path: f.path, kind, size: f.size, deletedAt: ms, expiresAt: ms + TRASH_DAYS * 86_400_000, by: c ?? null, excerpt: kind === "md" ? excerptOf(splitFrontmatter(text).body, titleOf(text, kind, f.path), 240) : "" }];
+      const noteId = this.db.get("SELECT note_id FROM changes WHERE id = ?", changeId)?.note_id;
+      const marks = noteId ? (this.db.get("SELECT count(*) AS n FROM marks WHERE note_id = ?", noteId)?.n ?? 0) : 0;
+      return [{ id, path: f.path, kind, size: f.size, deletedAt: ms, expiresAt: ms + TRASH_DAYS * 86_400_000, by: c ?? null, marks, excerpt: kind === "md" ? excerptOf(splitFrontmatter(text).body, titleOf(text, kind, f.path), 240) : "" }];
     });
   }
 
@@ -1646,8 +1781,10 @@ export class Quire {
       for (const x of this.files.listUnder(`${TRASH}/${id}`)) this.files.remove(x.path);
       const changeId = Number(id.split("-")[1]);
       const noteId = this.db.get("SELECT note_id FROM changes WHERE id = ?", changeId)?.note_id;
-      if (noteId) this.db.run("UPDATE changes SET before = NULL WHERE note_id = ?", noteId);
-      else this.db.run("UPDATE changes SET before = NULL WHERE id = ?", changeId);
+      if (noteId) {
+        this.db.run("UPDATE changes SET before = NULL WHERE note_id = ?", noteId);
+        this.db.run("DELETE FROM marks WHERE note_id = ?", noteId); // its marked versions keep its text: they go too
+      } else this.db.run("UPDATE changes SET before = NULL WHERE id = ?", changeId);
       if (source) this.recordChange({ path: f.path, op: "purge", source, version: null, summary: "deleted forever", from_path: null });
       return [f.path];
     });
@@ -1831,4 +1968,16 @@ function lineCountStat(before: string, after: string): LineStat {
   let del = 0;
   for (const n of count.values()) del += n;
   return { add, del };
+}
+
+/** A mark's name, checked: one line, 1 to MARK_NAME_MAX characters. */
+function markName(name: string): string {
+  const label = name.replace(/\s+/g, " ").trim();
+  if (!label) throw new QuireError("A marked version needs a name, like \"v1\" or \"Sent to Alex\"");
+  if (label.length > MARK_NAME_MAX) throw new QuireError(`A marked version's name is at most ${MARK_NAME_MAX} characters`);
+  return label;
+}
+
+function toMark({ now, ...m }: Mark & { now: string | null }): Mark {
+  return { ...m, current: now === m.version };
 }
