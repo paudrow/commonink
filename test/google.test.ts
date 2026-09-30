@@ -141,7 +141,7 @@ test("the API client: calendars across pages, a first sync then only changes, a 
   const expired = await api.changes("me@example.com", "s2").catch((e: GoogleError) => e.status);
   expireSyncTokens = false;
   assert.equal(expired, 410);
-  await api.describe("me@example.com", "abc_20261013T160000Z", "New text");
+  await api.patch("me@example.com", "abc_20261013T160000Z", { description: "New text" });
   assert.deepEqual(seen.at(-1), { method: "PATCH", path: "/api/calendars/me%40example.com/events/abc_20261013T160000Z", auth: "Bearer at-1", body: '{"description":"New text"}' });
   const wrong = await new GoogleClient(async () => "stale", endpoints()).calendars().catch((e: GoogleError) => [e.status, e.message]);
   assert.deepEqual(wrong, [401, "Invalid Credentials"]);

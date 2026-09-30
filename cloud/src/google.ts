@@ -3,7 +3,7 @@
 // zones work one way everywhere. Syncing is incremental: the first read lists every event, later
 // reads send the sync token Google gave last time and get only what changed. No Workers imports, so
 // tests run this against a fake Google.
-import { LINK_MARK, withoutNoteLink } from "../../src/core/calendar.ts";
+import { LINK_MARK, withoutNoteLink, type EventDraft } from "../../src/core/calendar.ts";
 
 export const GOOGLE = {
   auth: "https://accounts.google.com/o/oauth2/v2/auth",
@@ -63,8 +63,12 @@ export interface GoogleApi {
   /** Events changed since `syncToken` (every event, without one), the token for next time, and the calendar's zone. A 410 means start again without a token. */
   changes(calendar: string, syncToken: string | null): Promise<{ events: GoogleEvent[]; syncToken: string; zone: string | null; name: string | null }>;
   event(calendar: string, eventId: string): Promise<GoogleEvent>;
-  /** Set an event's description, and nothing else about it. */
-  describe(calendar: string, eventId: string, description: string): Promise<void>;
+  /** Change the given fields of an event (or of one instance of a series), and nothing else about it. */
+  patch(calendar: string, eventId: string, fields: Partial<GoogleEvent>): Promise<void>;
+  /** Add an event. Google sends no invitations (sendUpdates is left at none). */
+  insert(calendar: string, event: Partial<GoogleEvent>): Promise<GoogleEvent>;
+  /** Delete an event, or cancel one instance of a series. */
+  remove(calendar: string, eventId: string): Promise<void>;
 }
 
 /** An error from Google, with its status (401: the token is no good; 410: the sync token expired). */
@@ -151,6 +155,19 @@ export function instanceId(events: GoogleEvent[], uid: string, instance: string 
   return override?.id ?? (series ? `${series.id}_${instance}` : null);
 }
 
+/** An event as the app writes it, as Google's fields: all day as dates, timed as instants in the zone it was made in. */
+export function toGoogle(d: Partial<EventDraft>): Partial<GoogleEvent> {
+  const when = (t: string) => (d.allDay ? { date: t } : { dateTime: t, ...(d.timeZone ? { timeZone: d.timeZone } : {}) });
+  const out: Partial<GoogleEvent> = {};
+  if (d.title !== undefined) out.summary = d.title;
+  if (d.location !== undefined) out.location = d.location ?? "";
+  if (d.description !== undefined) out.description = d.description ?? "";
+  if (d.start !== undefined) out.start = when(d.start);
+  if (d.end !== undefined) out.end = when(d.end);
+  if (d.attendees !== undefined) out.attendees = d.attendees.filter((a) => a.email).map((a) => ({ email: a.email!, ...(a.name ? { displayName: a.name } : {}) }));
+  return out;
+}
+
 // ------------------------------------------------------------------ writing back
 
 /**
@@ -220,8 +237,16 @@ export class GoogleClient implements GoogleApi {
     return this.call<GoogleEvent>(`/calendars/${encodeURIComponent(calendar)}/events/${encodeURIComponent(eventId)}`);
   }
 
-  async describe(calendar: string, eventId: string, description: string) {
-    await this.call(`/calendars/${encodeURIComponent(calendar)}/events/${encodeURIComponent(eventId)}`, { method: "PATCH", body: JSON.stringify({ description }) });
+  async patch(calendar: string, eventId: string, fields: Partial<GoogleEvent>) {
+    await this.call(`/calendars/${encodeURIComponent(calendar)}/events/${encodeURIComponent(eventId)}`, { method: "PATCH", body: JSON.stringify(fields) });
+  }
+
+  insert(calendar: string, event: Partial<GoogleEvent>) {
+    return this.call<GoogleEvent>(`/calendars/${encodeURIComponent(calendar)}/events`, { method: "POST", body: JSON.stringify(event) });
+  }
+
+  async remove(calendar: string, eventId: string) {
+    await this.call(`/calendars/${encodeURIComponent(calendar)}/events/${encodeURIComponent(eventId)}`, { method: "DELETE" });
   }
 }
 

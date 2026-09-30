@@ -6,7 +6,7 @@ import type { TaskPatch } from "./tasks.ts";
 import type { FillOptions } from "./templates.ts";
 import { agentSource, parseAuthorFilter } from "./actor.ts";
 import { findStartNote, GUIDE, parseGuideAction, runGuide } from "./guide.ts";
-import type { Calendar } from "./calendar.ts";
+import type { Calendar, EventDraft } from "./calendar.ts";
 import { notePath } from "./ids.ts";
 
 export interface ApiHost {
@@ -110,6 +110,7 @@ function inputs(body: unknown, url: URL) {
   };
   const q = (k: string) => url.searchParams.get(k) ?? "";
   return {
+    raw: b,
     str,
     int,
     optStr: (k: string) => (b[k] === undefined || b[k] === null ? undefined : str(k)),
@@ -409,6 +410,27 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
   return null;
 }
 
+/** An event's fields from a request body: every one for a new event, only those given for a change. */
+function draftOf({ str, optStr, optBool, raw }: ReturnType<typeof inputs>, whole: boolean): Partial<EventDraft> {
+  const out: Partial<EventDraft> = {};
+  const take = <K extends keyof EventDraft>(k: K, v: EventDraft[K] | undefined) => v !== undefined && (out[k] = v);
+  take("title", whole ? str("title") : optStr("title"));
+  take("start", whole ? str("start") : optStr("start"));
+  take("end", whole ? str("end") : optStr("end"));
+  take("allDay", optBool("allDay") ?? (whole ? false : undefined));
+  take("timeZone", optStr("timeZone"));
+  take("location", optStr("location"));
+  take("description", optStr("description"));
+  const people = raw.attendees;
+  if (people !== undefined) {
+    if (!Array.isArray(people) || !people.every((a) => a && typeof a === "object" && ["name", "email"].every((k) => a[k] === undefined || a[k] === null || typeof a[k] === "string"))) {
+      throw new QuireError('"attendees" must be a list of { name, email }');
+    }
+    out.attendees = people.map((a: { name?: string | null; email?: string | null }) => ({ name: a.name ?? null, email: a.email ?? null, status: null }));
+  } else if (whole) out.attendees = [];
+  return out;
+}
+
 /** An instant from the query: an ISO date or time. */
 function instant(s: string, name: string): number {
   const t = Date.parse(s);
@@ -417,7 +439,8 @@ function instant(s: string, name: string): number {
 }
 
 /** Calendars: the sources the workspace subscribes to, their events, and meeting notes made from them. */
-async function calendarRoute(host: ApiHost, cal: Calendar, key: string, { str, optStr, optBool, q, qCount }: ReturnType<typeof inputs>): Promise<Response | null> {
+async function calendarRoute(host: ApiHost, cal: Calendar, key: string, input: ReturnType<typeof inputs>): Promise<Response | null> {
+  const { str, optStr, optBool, q, qCount } = input;
   const viewer = { user: host.user, canEdit: host.canEditShared };
   const changed = <T>(out: T) => (host.calendarChanged?.(), json(out));
   switch (key) {
@@ -426,7 +449,7 @@ async function calendarRoute(host: ApiHost, cal: Calendar, key: string, { str, o
     case "POST /calendar/sources":
       return changed(await cal.addIcs({ url: str("url"), name: optStr("name"), color: optStr("color") }, viewer, host.actor));
     case "POST /calendar/google":
-      return changed(await cal.addGoogle({ calendar: str("calendar"), name: optStr("name"), color: optStr("color"), writeBack: optBool("writeBack") }, viewer, host.actor));
+      return changed(await cal.addGoogle({ calendar: str("calendar"), name: optStr("name"), color: optStr("color"), writeBack: optBool("writeBack"), accessRole: optStr("accessRole") }, viewer, host.actor));
     case "POST /calendar/sources/update":
       return changed(cal.update(str("id"), { name: optStr("name"), color: optStr("color"), writeBack: optBool("writeBack") }, viewer));
     case "POST /calendar/sources/remove":
@@ -444,6 +467,23 @@ async function calendarRoute(host: ApiHost, cal: Calendar, key: string, { str, o
       const ev = cal.event(q("id"), viewer);
       return ev ? json(ev) : json({ error: "That event doesn't exist, or you can't see it" }, 404);
     }
+    // Events made and changed in the app: in the workspace's own calendar ("local"), or a Google one.
+    case "POST /calendar/events": {
+      const ev = await cal.createEvent(str("source"), draftOf(input, true) as EventDraft, viewer, host.actor);
+      host.calendarChanged?.();
+      if (!optBool("meetingNote")) return json({ event: ev, note: null });
+      const r = cal.meetingNote(host.quire, ev.id, viewer, { timeZone: optStr("timeZone"), source: host.actor });
+      if (r.created) {
+        host.written(r.path, host.quire.files.read(r.path), r.version, r.change);
+        host.tree();
+      }
+      return json({ event: cal.event(ev.id, viewer), note: { path: r.path } });
+    }
+    case "POST /calendar/events/update":
+      return changed(await cal.updateEvent(str("id"), draftOf(input, false), viewer, host.actor));
+    case "POST /calendar/events/delete":
+      await cal.deleteEvent(str("id"), viewer, host.actor);
+      return changed({ ok: true });
     case "POST /calendar/meeting-note": {
       const id = str("id");
       const r = cal.meetingNote(host.quire, id, viewer, { timeZone: optStr("timeZone"), source: host.actor });

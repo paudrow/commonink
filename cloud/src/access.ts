@@ -85,6 +85,11 @@ export const WORKSPACE_ROUTES = {
   "POST /calendar/sources/remove": "viewer",
   "POST /calendar/sources": "editor",
   "POST /calendar/meeting-note": "editor",
+  // Events made in the app. The workspace's own calendar takes editors' (checked in the calendar);
+  // anyone may add to and change their own Google calendars.
+  "POST /calendar/events": "viewer",
+  "POST /calendar/events/update": "viewer",
+  "POST /calendar/events/delete": "viewer",
   // The workspace's settings (cloud/src/admin.ts). Everyone sees who's in it and may leave; the rest is the owner's.
   "GET /members": "viewer",
   "POST /leave": "viewer",

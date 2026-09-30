@@ -243,3 +243,35 @@ test("agents get events as lines with their ids, for a range of days in their zo
     ].join("\n"),
   );
 });
+
+test("the workspace's own calendar: made with its first event, which editors move, change and delete; feeds stay read-only", async () => {
+  const { cal, quire } = setup();
+  const viewer = { user: "viewer", canEdit: false };
+  const draft = { title: " Launch review ", start: "2026-10-06T15:00:00.000Z", end: "2026-10-06T16:00:00Z", allDay: false, timeZone: "America/Chicago", location: "Room 1", description: null, attendees: [{ name: "Ana", email: "ANA@example.com", status: null }, { name: null, email: "not an address", status: null }] };
+  await assert.rejects(cal.createEvent("local", draft, viewer, "viewer"), /You can't add events to that calendar/);
+  const made = await cal.createEvent("local", draft, ME, "you");
+  assert.deepEqual([made.title, made.start, made.end, made.location, made.attendees], ["Launch review", "2026-10-06T15:00:00Z", "2026-10-06T16:00:00Z", "Room 1", [{ name: "Ana", email: "ana@example.com", status: null }]]);
+  const [own] = cal.sources(ME);
+  assert.deepEqual([own.kind, own.name, own.owner, own.writable, cal.sources(viewer)[0].writable], ["local", "Common Ink", null, true, false]);
+  assert.deepEqual(cal.events(viewer, OCT).map((e) => e.id), [made.id]); // everyone sees it
+
+  const moved = await cal.updateEvent(made.id, { start: "2026-10-07T17:00:00Z", end: "2026-10-07T18:30:00Z" }, ME, "you");
+  assert.deepEqual([moved.id, moved.start, moved.end, moved.title], [made.id, "2026-10-07T17:00:00Z", "2026-10-07T18:30:00Z", "Launch review"]);
+  const allDay = await cal.updateEvent(made.id, { allDay: true, start: "2026-10-08", end: "2026-10-09" }, ME, "you");
+  assert.deepEqual([allDay.allDay, allDay.start, allDay.end], [true, "2026-10-08", "2026-10-09"]);
+  await assert.rejects(cal.updateEvent(made.id, { end: "2026-10-07" }, ME, "you"), /has to end after it starts/);
+  await assert.rejects(cal.updateEvent(made.id, { title: "Mine" }, viewer, "viewer"), /You can't add events to that calendar/);
+  const note = cal.meetingNote(quire, made.id, ME, { source: "you" });
+  assert.equal(note.path, "Meetings/2026-10-08 Launch review.md");
+
+  team = ics(STANDUP);
+  await cal.addIcs({ url: `${base}/team.ics` }, ME, "you");
+  const feed = cal.events(ME, OCT).find((e) => e.title === "Standup")!;
+  await assert.rejects(cal.updateEvent(feed.id, { title: "Mine now" }, ME, "you"), /can't be changed here/);
+  await assert.rejects(cal.createEvent(feed.source, draft, ME, "you"), /can't be changed here/);
+
+  await cal.deleteEvent(made.id, ME, "you");
+  assert.equal(cal.event(made.id, ME), null);
+  await assert.rejects(cal.createEvent("local", { ...draft, title: "  " }, ME, "you"), /Give the event a title/);
+  await assert.rejects(cal.createEvent("local", { ...draft, start: "2026-10-06T15:00:00" }, ME, "you"), /must be a time with its zone/);
+});
