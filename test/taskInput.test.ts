@@ -11,7 +11,8 @@ import { quickAddBar } from "../web/src/quickAdd.ts";
 import { today } from "../web/src/taskChips.ts";
 import { mountBoard, type BoardHost } from "../web/src/kanban.ts";
 import { el } from "../web/src/dom.ts";
-import { addDays } from "../src/core/tasks.ts";
+import { addDays, parseTask, type TaskPatch } from "../src/core/tasks.ts";
+import { openFieldEditor } from "../web/src/taskChipEditors.ts";
 
 const TODAY = today();
 const fieldIn = (root: Element) => EditorView.findFromDOM(root.querySelector(".qa-box")!)!;
@@ -62,6 +63,49 @@ test("phrases already in the text a field opens with stay words: only what you t
   assert.deepEqual(calls, [["submit", "Call mom tomorrow", ["tomorrow"]]]);
   type(" every week");
   assert.deepEqual([...input.dom.querySelectorAll(".qa-hl")].map((n) => n.textContent), ["every week"]);
+});
+
+test("a monthly day past the 28th gets a note offering the last day of the month, one click away", () => {
+  const note = (input: { preview: HTMLElement }) => input.preview.querySelector(".rec-note");
+  const words = mount();
+  words.type("Pay rent every month on the 31st");
+  assert.equal(note(words.input)!.textContent, "Shorter months have no 31st, so it falls on their last day. Use the last day of the month instead");
+  note(words.input)!.querySelector("button")!.click();
+  assert.equal(words.view.state.doc.toString(), "Pay rent on the last day of every month");
+  assert.equal(words.input.parsed()!.meta.rec, "last-day");
+  assert.equal(note(words.input), null);
+  // A rec: token typed as it is switches as a token.
+  const token = mount();
+  token.type("Pay rent rec:30th");
+  note(token.input)!.querySelector("button")!.click();
+  assert.equal(token.view.state.doc.toString(), "Pay rent rec:last-day");
+  // A plain monthly from a due date past the 28th skips the months without that day.
+  const plain = mount();
+  plain.type("Pay rent every month starting oct 31");
+  assert.equal(note(plain.input)!.textContent, "Months without a 31st are skipped. Use the last day of the month instead");
+  note(plain.input)!.querySelector("button")!.click();
+  assert.equal(plain.view.state.doc.toString(), "Pay rent on the last day of every month starting oct 31");
+  // The 28th is in every month: no note.
+  const fine = mount();
+  fine.type("Pay rent every month on the 28th");
+  assert.equal(note(fine.input), null);
+});
+
+test("the repeat form notes a day past the 28th, and switches it to the last day in one click", async () => {
+  const saved: TaskPatch[] = [];
+  const anchor = el("button");
+  document.body.replaceChildren(anchor);
+  const meta = parseTask("- [ ] Pay rent due:2026-10-31 rec:31st")!.meta;
+  const task = { path: "Bills.md", title: "Bills", line: 0, text: "Pay rent due:2026-10-31 rec:31st", summary: "Pay rent", done: false, heading: null, meta };
+  openFieldEditor("rec", anchor, "31st", { task, save: async (p) => void saved.push(p), people: async () => [], showPerson: () => {} }, { more: true });
+  const form = document.querySelector<HTMLFormElement>("form.chip-rec")!;
+  assert.equal(form.querySelector(".rec-note")!.textContent, "Shorter months have no 31st, so it falls on their last day. Use the last day of the month instead");
+  form.querySelector<HTMLButtonElement>(".rec-note button")!.click();
+  assert.equal(form.querySelector(".chip-rec-summary")!.textContent, "Every month on the last day");
+  assert.equal(form.querySelector(".rec-note"), null);
+  form.querySelector<HTMLButtonElement>("button[type=submit]")!.click();
+  await settle();
+  assert.deepEqual(saved, [{ rec: "last-day", until: null, times: null }]);
 });
 
 test("Tab is the host's while typing, and a card's input takes a nested line on Shift+Enter", () => {

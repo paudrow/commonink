@@ -47,6 +47,10 @@ test("repeats in words map onto the rec: grammar, due on the first time it comes
     ["Gym every monday, wednesday & friday", "- [ ] Gym due:2026-09-28 rec:mon,wed,fri"],
     ["Standup every weekday", "- [ ] Standup due:2026-09-28 rec:mon,tue,wed,thu,fri"],
     ["Invoice on the last day of the month", "- [ ] Invoice due:2026-09-30 rec:last-day"],
+    ["Invoice on the last day of every month", "- [ ] Invoice due:2026-09-30 rec:last-day"],
+    ["Timesheet the day before the last day of every month", "- [ ] Timesheet due:2026-09-29 rec:last-day-1"],
+    ["Pay the card 2 days before the end of the month", "- [ ] Pay the card due:2026-09-28 rec:last-day-2"],
+    ["Rent every month on the 31st", "- [ ] Rent due:2026-09-30 rec:31st"], // September's last day stands in for the 31st
     ["Birthday every year on mar 1", "- [ ] Birthday due:2027-03-01 rec:mar-1"],
     ["Birthday every march 1", "- [ ] Birthday due:2027-03-01 rec:mar-1"],
     ["Review every other week starting oct 5", "- [ ] Review due:2026-10-05 start:2026-10-05 rec:2w"],
