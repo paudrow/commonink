@@ -10,6 +10,8 @@ import { sideClick } from "../panes.ts";
 import { addDays } from "../../../src/core/tasks.ts";
 import { today } from "../taskChips.ts";
 import { redrawRows, taskRow } from "../taskRow.ts";
+import { assignees } from "../people.ts";
+import { personFor, type Person } from "../../../src/core/contacts.ts";
 
 type Show = "open" | "done" | "all";
 type Group = "note" | "due" | "priority" | "tag" | "person";
@@ -19,8 +21,11 @@ const SORTS: Record<Sort, string> = { note: "Note order", due: "Due first", prio
 const PRIORITY = { high: 0, none: 1, low: 2 };
 const prevent = (e: Event) => e.preventDefault();
 
-/** Where a task goes when grouped `by`: one group, or one per tag or person. `rank` orders the groups. */
-function groupsOf(t: Task, by: Group, now: string): Array<{ key: string; label: string; rank: string }> {
+/**
+ * Where a task goes when grouped `by`: one group, or one per tag or person. `rank` orders the
+ * groups. A person is one group however they're written (@JD, @Jane-Doe), under their name.
+ */
+function groupsOf(t: Task, by: Group, now: string, people: Person[]): Array<{ key: string; label: string; rank: string }> {
   const m = t.meta;
   switch (by) {
     case "note":
@@ -37,7 +42,15 @@ function groupsOf(t: Task, by: Group, now: string): Array<{ key: string; label: 
     case "tag":
       return m.tags.length ? m.tags.map((tag) => ({ key: tag.toLowerCase(), label: `#${tag}`, rank: tag.toLowerCase() })) : [{ key: "", label: "No tag", rank: "￿" }];
     case "person":
-      return m.assignees.length ? m.assignees.map((a) => ({ key: a.toLowerCase(), label: `@${a}`, rank: a.toLowerCase() })) : [{ key: "", label: "Unassigned", rank: "￿" }];
+      if (!m.assignees.length) return [{ key: "", label: "Unassigned", rank: "￿" }];
+      return [
+        ...new Map(
+          m.assignees.map((a) => {
+            const p = personFor(a, people);
+            return [p ? `p:${p.name.toLowerCase()}` : a.toLowerCase(), { key: p ? `p:${p.name.toLowerCase()}` : a.toLowerCase(), label: p ? p.name : `@${a}`, rank: (p?.name ?? a).toLowerCase() }];
+          }),
+        ).values(),
+      ];
   }
 }
 
@@ -59,7 +72,7 @@ export const tasks: WidgetSpec = {
     { key: "folder", label: "Folder", type: "text", placeholder: "Every note, or e.g. Projects" },
     { key: "note", label: "Note", type: "text", placeholder: "Just one note (optional)" },
     { key: "tag", label: "Tag", type: "text", placeholder: "e.g. work (includes work/…)" },
-    { key: "assignee", label: "Person", type: "text", placeholder: "e.g. jane" },
+    { key: "assignee", label: "Person", type: "text", placeholder: "e.g. jane, or me" },
     { key: "due", label: "Due", type: "text", placeholder: "<=today, tomorrow, >=2026-10-01" },
     { key: "group", label: "Group", type: "text", placeholder: "note, due, priority, tag or person" },
   ],
@@ -69,6 +82,8 @@ export const tasks: WidgetSpec = {
     let group: Group = Object.hasOwn(GROUPS, env.args.group ?? "") ? (env.args.group as Group) : "note";
     let sort: Sort = Object.hasOwn(SORTS, env.args.sort ?? "") ? (env.args.sort as Sort) : "note";
     let all: Task[] = [];
+    /** Who each @name is, for grouping by person. */
+    let people: Person[] = [];
     /** Tasks were found, counting the ones `skip` leaves out. */
     let found = false;
     let problem = "";
@@ -85,7 +100,7 @@ export const tasks: WidgetSpec = {
       s.addEventListener("change", () => (set(s.value as T), render()));
       return s;
     };
-    const groupSel = select("Group", GROUPS, () => group, (v) => (group = v));
+    const groupSel = select("Group", GROUPS, () => group, (v) => ((group = v), v === "person" && !people.length && void assignees().then((a) => ((people = a.directory), render())).catch(() => {})));
     const sortSel = select("Sort", SORTS, () => sort, (v) => (sort = v));
     const list = el("div", { class: "qt-list" });
     const top = el("div", { class: "qt-top" }, summary, el("span", { class: "spacer" }), groupSel, sortSel, seg);
@@ -94,7 +109,12 @@ export const tasks: WidgetSpec = {
 
     async function load() {
       try {
-        const t = await api.tasks({ folder: env.args.folder, note: env.args.note, tag: env.args.tag, assignee: env.args.assignee, due: env.args.due, today: today() });
+        const by = env.args.by === "me" ? ("me" as const) : undefined;
+        const [t, who] = await Promise.all([
+          api.tasks({ folder: env.args.folder, note: env.args.note, tag: env.args.tag, assignee: env.args.assignee, by, due: env.args.due, today: today() }),
+          group === "person" ? assignees().then((a) => a.directory).catch(() => people) : Promise.resolve(people),
+        ]);
+        people = who;
         if (!alive) return;
         [all, problem, found] = [env.skip ? t.filter((x) => !env.skip!(x)) : t, "", t.length > 0];
       } catch (e) {
@@ -125,7 +145,7 @@ export const tasks: WidgetSpec = {
       const shown = expanded ? visible : visible.slice(0, limit);
       const groups = new Map<string, { label: string; rank: string; tasks: Task[] }>();
       for (const t of shown) {
-        for (const g of groupsOf(t, group, now)) {
+        for (const g of groupsOf(t, group, now, people)) {
           if (!groups.has(g.key)) groups.set(g.key, { label: g.label, rank: g.rank, tasks: [] });
           groups.get(g.key)!.tasks.push(t);
         }

@@ -13,7 +13,7 @@ import { api } from "./api.ts";
 import { displayName, el } from "./dom.ts";
 import { parseQuickAdd, type QuickAdd, type QuickSpan } from "../../src/core/quickAdd.ts";
 import { endTags, metaChips, today } from "./taskChips.ts";
-import { taskPeople } from "./taskChipEditors.ts";
+import { assigneeOptions, assignees } from "./people.ts";
 
 /** The same words wherever a task is typed. */
 export const PLACEHOLDER = "Add a task…";
@@ -77,10 +77,10 @@ const spansField = StateField.define<DecorationSet>({
 });
 
 /** What `#`, `@` and `[[` suggest, loaded when a field takes focus. */
-const pools = { tags: [] as string[], people: [] as string[], notes: [] as string[] };
+const pools = { tags: [] as string[], people: { directory: [], onTasks: [] } as Awaited<ReturnType<typeof assignees>>, notes: [] as string[] };
 function loadPools() {
   void api.tags().then((t) => (pools.tags = t.map((x) => x.display))).catch(() => {});
-  void taskPeople().then((p) => (pools.people = p)).catch(() => {});
+  void assignees().then((p) => (pools.people = p)).catch(() => {});
   void api.notes().then((n) => (pools.notes = n.filter((x) => x.kind === "md" && !x.path.startsWith("Archive/")).map((x) => displayName(x.path)))).catch(() => {});
 }
 
@@ -94,8 +94,10 @@ function suggest(ctx: CompletionContext): CompletionResult | null {
   if (!m) return null;
   const at = m.from + m.text.search(/[#@]/);
   const sigil = ctx.state.sliceDoc(at, at + 1);
-  const pool = sigil === "#" ? pools.tags : pools.people;
-  return { from: at + 1, options: pool.map((p, i) => ({ label: p, detail: sigil === "#" ? "tag" : "person", boost: -i, apply: `${p} ` })) };
+  if (sigil === "#") return { from: at + 1, options: pools.tags.map((p, i) => ({ label: p, detail: "tag", boost: -i, apply: `${p} ` })) };
+  // A person: contacts and members by name (or any @name of theirs), writing their @handle.
+  const people = assigneeOptions(ctx.state.sliceDoc(at + 1, ctx.pos), pools.people.directory, pools.people.onTasks);
+  return { from: at + 1, filter: false, options: people.slice(0, 12).map((p) => ({ label: p.name, detail: p.handle === p.name ? p.detail : `@${p.handle}`, apply: `${p.handle} ` })) };
 }
 
 /** A task input; put `dom` and `preview` where the host wants them. */

@@ -195,7 +195,9 @@ const loadAssets = once(async () =>
 );
 const loadContacts = once(async () =>
   (contactsPage = new (await import("./contactsPage.ts")).ContactsPage($("#contacts-view"), {
-    open: (path, line) => fromPage(path, line),
+    open: (path, line, side) => fromPage(path, line, side),
+    openTag: (tag) => openTag(tag, "tasks"),
+    openPerson: (assignee) => void showTasks({ assignee }),
     // A contact's page is drawn already: just the address bar and title. Back to the list shows it.
     navigate: (c) => (c ? (setUrl(`/contacts?c=${c.id}`), (document.title = `${c.name} · Contacts · Common Ink`)) : void showContacts()),
     canEdit: () => !viewer,
@@ -538,7 +540,7 @@ async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: strin
 async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("tasks");
-  unmountTasks = renderTasksPage($("#tasks-view"), { open: (path, line, side) => void openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }), tags: () => tags }, { tag: opts.tag, assignee: opts.assignee });
+  unmountTasks = renderTasksPage($("#tasks-view"), { open: (path, line, side) => void openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }), tags: () => tags, me: workspaceId ? "Tasks with your @name" : "Tasks with @me" }, { tag: opts.tag, assignee: opts.assignee });
   $("#tasks-view").focus({ preventScroll: true });
   if (opts.push !== false) setUrl("/tasks");
   document.title = "Tasks · Common Ink";

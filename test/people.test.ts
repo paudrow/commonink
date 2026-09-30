@@ -3,7 +3,8 @@
 import "./dom.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { contactLink, memberOf, membersWithoutContact, rankPeople } from "../web/src/people.ts";
+import { assigneeOptions, contactLink, memberOf, membersWithoutContact, rankPeople } from "../web/src/people.ts";
+import { peopleDirectory } from "../src/core/contacts.ts";
 import type { Contact, Member } from "../web/src/api.ts";
 
 const contact = (name: string, o: Partial<Contact> = {}): Contact => ({
@@ -38,4 +39,15 @@ test("@ offers contacts first, best match first, then members without a contact"
 test("a note links to a contact by its path", () => {
   assert.equal(contactLink("People/Jane Doe.md"), "[[People/Jane Doe]]");
   assert.equal(contactLink("People/Team/Omar.md"), "[[People/Team/Omar]]");
+});
+
+test("@ on a task offers people by name or by any @name that's theirs, writes their handle, then names only ever on tasks", () => {
+  const directory = peopleDirectory([{ ...CONTACTS[0], aliases: ["JD"] }, CONTACTS[1]], MEMBERS);
+  const offer = (q: string) => assigneeOptions(q, directory, ["jane", "bob", "Priya"]).map((a) => `${a.name}=@${a.handle} (${a.detail})`);
+  assert.deepEqual(offer("jan"), ["Jane Doe=@JD (contact · member)"]);
+  assert.deepEqual(offer("jd"), ["Jane Doe=@JD (contact · member)"]);
+  assert.deepEqual(offer("sam"), ["Sam Dev=@Sam (member)"]);
+  // "jane" and "Priya" are people's names already; "bob" is only on tasks.
+  assert.deepEqual(offer("b"), ["bob=@bob (on tasks)"]);
+  assert.deepEqual(offer("").map((o) => o.split("=")[0]), ["Jane Doe", "Priya Shah", "Sam Dev", "You Dev", "bob"]);
 });

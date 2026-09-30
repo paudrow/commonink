@@ -10,11 +10,15 @@ import { ask } from "./trash.ts";
 import { fuzzyScore } from "./fuzzy.ts";
 import { memberOf, membersWithoutContact, refreshPeople } from "./people.ts";
 import { onVaultChange } from "./events.ts";
-import { duplicateContacts, matchContacts } from "../../src/core/contacts.ts";
+import { duplicateContacts, handlesOf, matchContacts, peopleDirectory } from "../../src/core/contacts.ts";
+import { mountTasks } from "./tasksView.ts";
 
 interface Hooks {
-  /** Open a note (at a line). */
-  open(path: string, line?: number): void;
+  /** Open a note (at a line; `side`: in the other pane). */
+  open(path: string, line?: number, side?: boolean): void;
+  /** Tasks with a tag, or one person's tasks (from a task's chips). */
+  openTag(tag: string): void;
+  openPerson(name: string): void;
   /** A contact's page, or the list: the address bar follows. */
   navigate(contact: Contact | null): void;
   /** Whether this person may change contacts (not a viewer). */
@@ -34,6 +38,8 @@ export class ContactsPage {
   private contacts: Contact[] = [];
   private members: Member[] = [];
   private shown: Contact | null = null;
+  /** The contact page's task list, while it's showing. */
+  private unmountTasks = () => {};
   private search = el("input", { placeholder: "Search people…", spellcheck: "false", autocomplete: "off", "aria-label": "Search people" });
   private tag = el("select", { class: "ct-select", "aria-label": "Tag" });
   private company = el("select", { class: "ct-select", "aria-label": "Company" });
@@ -64,6 +70,7 @@ export class ContactsPage {
     if (c) await this.openContact(c, false);
     else {
       this.shown = null;
+      this.unmountTasks();
       this.renderList();
       this.search.focus({ preventScroll: true });
     }
@@ -212,7 +219,11 @@ export class ContactsPage {
   }
 
   private renderContact(c: Contact, timeline: TimelineItem[]) {
+    this.unmountTasks();
     const member = memberOf(c, this.members);
+    // Their tasks: every @name that's theirs (the server finds them all from one).
+    const handle = peopleDirectory(this.contacts, this.members).find((p) => p.contact === c.path)?.handle ?? handlesOf(c)[0];
+    const tasksHost = el("div", { class: "ct-tasks" });
     const canEdit = this.hooks.canEdit();
     const field = (label: string, values: Array<Node | string>) => (values.length ? [el("dt", {}, label), el("dd", {}, ...values)] : []);
     const join = (nodes: Node[]) => [el("span", {}, ...nodes.flatMap((n, i) => (i ? [", ", n] : [n])))];
@@ -249,6 +260,14 @@ export class ContactsPage {
         ),
       ),
       details.childElementCount ? details : el("p", { class: "ct-none" }, canEdit ? "No details yet. Edit the note to add an email, phone, company or role." : "No details yet."),
+      handle
+        ? el(
+            "section",
+            { class: "ct-timeline" },
+            el("h2", {}, "Tasks", el("span", { class: "ct-handle" }, `@${handle}`)),
+            tasksHost,
+          )
+        : "",
       el(
         "section",
         { class: "ct-timeline" },
@@ -260,6 +279,16 @@ export class ContactsPage {
       ),
     );
     this.root.scrollTop = 0;
+    if (handle) {
+      this.unmountTasks = mountTasks(tasksHost, {
+        limit: 20,
+        assignee: handle,
+        open: this.hooks.open,
+        openTag: this.hooks.openTag,
+        openPerson: this.hooks.openPerson,
+        empty: () => el("p", { class: "ct-none" }, `No tasks for ${c.name.split(" ")[0]} yet. Put @${handle} on a task to give it to them.`),
+      });
+    }
   }
 
   private event(t: TimelineItem): HTMLElement {
