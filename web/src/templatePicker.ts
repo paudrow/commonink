@@ -2,7 +2,7 @@
 // and the {{ask:…}} form. Making a note or inserting the text is the caller's (see main.ts).
 import { el, icon } from "./dom.ts";
 import { fuzzyScore } from "./fuzzy.ts";
-import type { TemplateInfo } from "../../src/core/templates.ts";
+import { fillTemplate, localNow, type TemplateInfo } from "../../src/core/templates.ts";
 
 /** A modal on the page; `done` closes it. Escape or a click outside is `cancel`. */
 function modal(title: string, children: HTMLElement[], cancel: () => void) {
@@ -77,7 +77,10 @@ export function askFor(t: TemplateInfo, opts: { title: boolean }): Promise<{ tit
   return new Promise((resolve) => {
     const field = (name: string, label: string, placeholder: string) =>
       el("label", {}, el("span", {}, label), el("input", { name, placeholder, autocomplete: "off", "aria-label": label }));
-    const titleField = opts.title ? field("__title", "Title", t.title ? `From the template: ${t.title}` : t.name) : null;
+    // Left blank, the title comes from the template: shown as it'll read, each answer by its label.
+    const labels = Object.fromEntries(t.asks.map((a) => [a.label, `‹${a.label}›`]));
+    const fromTemplate = t.title ? fillTemplate(t.title, { at: localNow(), answers: labels }).text : t.name;
+    const titleField = opts.title ? field("__title", "Title", `Blank for “${fromTemplate}”`) : null;
     const fields = t.asks.map((a) => field(a.label, a.label, a.fallback));
     const form = el("form", { class: "tpl-form" }, ...(titleField ? [titleField] : []), ...fields);
     const submit = () => {

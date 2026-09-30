@@ -37,6 +37,7 @@ test("the form asks the title (when making a note) and each question; blank answ
   const labels = [...document.querySelectorAll(".tpl-form label span")].map((s) => s.textContent);
   assert.deepEqual(labels, ["Title", "Client", "Attendees"]);
   assert.equal((document.querySelector('.tpl-form input[name="Attendees"]') as HTMLInputElement).placeholder, "Sam");
+  assert.match((document.querySelector('.tpl-form input[name="__title"]') as HTMLInputElement).placeholder, /^Blank for “\d{4}-\d\d-\d\d ‹Client›”$/);
   assert.equal(document.activeElement?.getAttribute("name"), "Client", "the first question has the keyboard (the title can come from the template)");
   type("Acme");
   key("Enter");
