@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 91
 title: Sharing notes
 ---
 This PR is the model and its enforcement: who a note is shared with, and what they can reach. The share dialog, the link page and Shared with me come in the next PR, so for now you try it through the API and an agent. This Preview has shared [[Plan for Sam]] (editor), [[Read only for Sam]] (viewer) and the folder **Shared folder** (viewer) with a second person, Sam Dev, and [[Public page]] with anyone who has the link. [[Secret numbers]] isn't shared.
