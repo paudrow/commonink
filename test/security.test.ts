@@ -10,6 +10,7 @@ import { headingName, headingText, withoutCodeOrLinks } from "../src/core/prose.
 import { scanTags, tagsInLine } from "../src/core/tags.ts";
 import { editTask, withTasksAdded } from "../src/core/tasks.ts";
 import { boardsIn } from "../src/core/kanban.ts";
+import { capHtmlDepth, clip, tameMarkdown } from "../src/core/depth.ts";
 import { parseQuickAdd } from "../src/core/quickAdd.ts";
 import { diffstat } from "../src/core/quire.ts";
 import { openTempVault } from "./helpers.ts";
@@ -123,4 +124,28 @@ test("a link that isn't valid percent-encoding can't take the vault down", () =>
   assert.equal(quire.resolve("/notes/progress-%zz"), null);
   const again = openVault(dir); // the index is rebuilt from disk on open
   assert.equal(again.read("Progress").path, "Progress.md");
+});
+
+test("nesting caps leave ordinary notes as written, and flatten only what's past them", () => {
+  const ordinary = ["- a\n  - b\n    - c", "> quote\n> > inner", "---", "* * *", "- - -", "**bold** _em_ ~~del~~", "1. one\n2. two", "```\n" + " ".repeat(200) + "code\n```"];
+  for (const md of ordinary) assert.equal(tameMarkdown(md), md, md);
+  assert.equal(tameMarkdown("> ".repeat(20) + "x"), "> ".repeat(20) + "x", "20 levels stay");
+  assert.equal(tameMarkdown("> - ".repeat(15) + "x"), "> - ".repeat(10) + "x", "past 20, the extra markers go and the text stays at the deepest level");
+  assert.equal(tameMarkdown("- a\n" + " ".repeat(300) + "- deep"), "- a\n" + " ".repeat(100) + "- deep", "list content indented past 100 columns");
+  assert.equal(tameMarkdown("\n" + " ".repeat(300) + "code"), "\n" + " ".repeat(300) + "code", "an indented code block is code, and left alone");
+  assert.equal(tameMarkdown("- " + "*".repeat(70) + "a"), "- " + "\\*".repeat(70) + "a", "a run of 70 * is text");
+  assert.equal(tameMarkdown("*".repeat(70)), "*".repeat(70), "a line of them is still a thematic break");
+  assert.equal(tameMarkdown("`" + "*".repeat(70) + "`"), "`" + "*".repeat(70) + "`", "code is left alone");
+});
+
+test("HTML nested past the cap loses its extra tags, closing ones included, and keeps its text; shallower HTML is untouched", () => {
+  const shallow = "<div><p><kbd>K</kbd> <em>x</em><br><img src=a></p></div>";
+  assert.equal(capHtmlDepth(shallow), shallow);
+  assert.equal(capHtmlDepth("<b>".repeat(3) + "x" + "</b>".repeat(3), 2), "<b><b>x</b></b>");
+  assert.equal(capHtmlDepth("<i>".repeat(4) + "<!-- <i> -->" + "<br/>", 2), "<i><i><!-- <i> --><br/>");
+  // A paragraph's end closes what's still open in it, so what comes after isn't nested any deeper.
+  assert.equal(capHtmlDepth("<p>" + "<kbd>".repeat(4) + "a</p><p>b</p>", 3), "<p><kbd><kbd>a</p><p>b</p>");
+  assert.equal(capHtmlDepth("</div>x", 1), "</div>x", "a closing tag with nothing to close is left for the browser");
+  assert.equal(clip("x".repeat(400)).length, 301);
+  assert.equal(clip("short"), "short");
 });
