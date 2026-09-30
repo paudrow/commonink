@@ -255,7 +255,6 @@ export const api = {
   /** Add a task written in words (see src/core/quickAdd.ts); `ignore` holds phrases kept as words. */
   addTask: (text: string, ignore: string[] = [], to?: string) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/add`, send("POST", { text, ignore, to, today: today() })),
   /** Take a task (and what's nested under it) out of its note: quick-add's Undo. */
-  removeTask: (t: { path: string; line: number; text: string }) => j<{ path: string; version: string }>(`${BASE}/tasks/remove`, send("POST", { path: t.path, line: t.line, text: t.text })),
   /** Move a task (and what's nested under it) to another note. */
   moveTask: (t: Task, to: string) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/move`, send("POST", { path: t.path, line: t.line, text: t.text, to })),
   /** Your starred notes, in your order. Each change returns the new list. */

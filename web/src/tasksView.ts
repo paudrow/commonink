@@ -67,11 +67,11 @@ function mountToday(host: HTMLElement, hooks: { open: Open; openTag(tag: string)
 }
 
 /** The page, narrowed to `tag` (and the tags under it) and to one person's tasks, if given. */
-export function renderTasksPage(root: HTMLElement, hooks: { open: Open; tags(): TagCount[]; vim?: boolean }, filter: { tag?: string; assignee?: string } = {}): () => void {
+export function renderTasksPage(root: HTMLElement, hooks: { open: Open; tags(): TagCount[] }, filter: { tag?: string; assignee?: string } = {}): () => void {
   const host = el("div");
   const todayHost = el("div", { class: "td-block" });
   const filters = el("div", { class: "feed-filters page-filters" });
-  const bar = quickAddBar({ added: () => {}, open: hooks.open, vim: hooks.vim }); // Today and the list below reload when the note changes
+  const bar = quickAddBar({ added: () => {}, open: hooks.open }); // Today and the list below reload when the note changes
   const empty = () =>
     emptyState({
       icon: "task",
