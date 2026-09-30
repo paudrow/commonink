@@ -1,7 +1,7 @@
 // A quiet hint on the cursor's empty line, "Type / for tools, @ to link a note", until the person
 // has picked something from the / menu once. It's drawn, not written: never part of the note, and
 // hidden from screen readers (the menu itself is the accessible way in).
-import { syntaxTree } from "@codemirror/language";
+import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import type { EditorState } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
@@ -27,7 +27,10 @@ export function lineHintAt(state: EditorState): number | null {
   if (line.length) return null;
   // The blocks that carry on past this line; at the very end, the one this line ends (an unclosed code block).
   const side = line.from === state.doc.length ? -1 : 1;
-  for (let n: SyntaxNode | null = syntaxTree(state).resolveInner(line.from, side); n; n = n.parent) if (NOT_PROSE.has(n.name)) return null;
+  // The whole note's tree, as blocks.ts reads it: the state's own can stop short of the cursor
+  // when the parser's first time slice runs out (a long note, a busy machine).
+  const tree = ensureSyntaxTree(state, state.doc.length, 50) ?? syntaxTree(state);
+  for (let n: SyntaxNode | null = tree.resolveInner(line.from, side); n; n = n.parent) if (NOT_PROSE.has(n.name)) return null;
   return line.from;
 }
 
