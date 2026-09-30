@@ -26,6 +26,7 @@ const app = (over: Partial<App> = {}): App => {
     account: [],
     newNote: run("newNote"),
     newFolder: run("newFolder"),
+    newTag: run("newTag"),
     go: (page) => void ran.push(`go:${page}`),
     filterNotes: run("filterNotes"),
     quickAdd: run("quickAdd"),

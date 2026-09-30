@@ -1,16 +1,21 @@
 // Tags: every tag as a tree, with how many notes, tasks and assets carry it (tags under it
 // included). Click one to see its notes. Rename rewrites the tag everywhere; renaming onto a tag
-// that exists merges the two. Either comes with Undo.
-import { api, type TagCount } from "./api.ts";
+// that exists merges the two. Either comes with Undo. A tag added by name that nothing carries yet
+// can be deleted too.
+import { api, unusedTag, type TagCount } from "./api.ts";
 import { el, icon } from "./dom.ts";
 import type { ToastSpec } from "./toast.ts";
-import { cleanTag } from "../../src/core/tags.ts";
+import { cleanTag, tagMatches } from "../../src/core/tags.ts";
 
 interface Hooks {
   tags(): TagCount[];
   /** The tags changed: fetch them again. */
   refresh(): Promise<void>;
   openTag(tag: string, where?: "notes" | "tasks"): void;
+  /** Take away a tag nothing carries yet, with Undo. */
+  deleteTag(t: TagCount): Promise<void>;
+  /** A viewer (online) can't change tags. */
+  readOnly(): boolean;
   toast(t: ToastSpec): void;
 }
 
@@ -83,13 +88,15 @@ export class TagsPage {
       t.assets ? `${t.assets} asset${t.assets === 1 ? "" : "s"}` : "",
     ].filter(Boolean);
     const label = el("span", { class: "tags-name" }, "#", depth ? el("span", { class: "tags-parent" }, t.display.slice(0, -name.length)) : null, name);
+    const edit = !this.hooks.readOnly();
     const node = el(
       "div",
       { class: "tags-row", role: "listitem", "data-tag": t.tag, style: { "--depth": String(depth) } },
       el("button", { type: "button", class: "tags-open", title: `Notes tagged #${t.display}`, onclick: () => this.hooks.openTag(t.display) }, icon("hash", 14), label),
-      el("span", { class: "tags-uses" }, uses.join(" · ")),
+      el("span", { class: "tags-uses" }, unusedTag(t) ? "Not used yet" : uses.join(" · ")),
       t.tasks ? el("button", { type: "button", class: "row-act", title: `Tasks tagged #${t.display}`, onclick: () => this.hooks.openTag(t.display, "tasks") }, icon("task", 14)) : null,
-      el("button", { type: "button", class: "row-act tags-rename", title: "Rename or merge", "aria-label": `Rename or merge #${t.display}`, onclick: () => this.startRename(node, t) }, icon("edit", 14)),
+      edit ? el("button", { type: "button", class: "row-act tags-rename", title: "Rename or merge", "aria-label": `Rename or merge #${t.display}`, onclick: () => this.startRename(node, t) }, icon("edit", 14)) : null,
+      edit && unusedTag(t) ? el("button", { type: "button", class: "row-act", title: `Delete #${t.display}`, onclick: () => void this.hooks.deleteTag(t) }, icon("trash", 14)) : null,
     );
     return node;
   }
@@ -124,8 +131,12 @@ export class TagsPage {
 
   /** Rename (or merge) a tag, with Undo. Whether it happened. */
   private async rename(t: TagCount, to: string): Promise<boolean> {
-    const into = this.hooks.tags().find((x) => x.tag === to.toLowerCase() && x.tag !== t.tag);
+    const all = this.hooks.tags();
+    const into = all.find((x) => x.tag === to.toLowerCase() && x.tag !== t.tag);
     if (into && !confirm(`#${into.display} already exists. Merge #${t.display} into it? Everything tagged #${t.display} will be tagged #${into.display}.`)) return false;
+    // Tags added by name under it move with it; Undo moves them back.
+    const waiting = all.filter((x) => tagMatches(x.tag, t.tag) && unusedTag(x) && !all.some((c) => c.tag.startsWith(`${x.tag}/`)));
+    const movedTo = (x: TagCount) => (into?.tag ?? to.toLowerCase()) + x.tag.slice(t.tag.length);
     let r: Awaited<ReturnType<typeof api.renameTag>>;
     try {
       r = await api.renameTag(t.tag, into?.display ?? to); // a merge keeps the way the other tag is written
@@ -142,6 +153,10 @@ export class TagsPage {
       action: async () => {
         for (const id of [...r.changes].reverse()) await api.restore(id).catch(() => null);
         for (const [path, tags] of Object.entries(r.assets)) await api.setAssetTags(path, tags).catch(() => null);
+        for (const x of waiting) {
+          await api.deleteTag(movedTo(x)).catch(() => null);
+          await api.addTag(x.display).catch(() => null);
+        }
         await this.hooks.refresh();
       },
     });
