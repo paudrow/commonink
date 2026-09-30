@@ -210,6 +210,16 @@ export async function listAgents(env: Env, url: URL, user: User): Promise<Connec
     .sort((a, b) => (b.usedAt ?? b.connectedAt) - (a.usedAt ?? a.connectedAt));
 }
 
+/** Disconnect a person's agents in one workspace (they left, were removed, or their role changed). */
+export async function revokeAgentsIn(env: Env, url: URL, userId: string, workspaceId: string) {
+  const oauth = oauthApi(env, url);
+  for (const g of await grantsOf(oauth, userId)) {
+    if (g.metadata?.workspaceId !== workspaceId) continue;
+    await oauth.revokeGrant(g.id, userId);
+    await env.DB.prepare("DELETE FROM agent_use WHERE grant_id = ?").bind(g.id).run();
+  }
+}
+
 /** Disconnect agents (one, or all of them): their tokens stop working with the next request. */
 export async function revokeAgents(env: Env, url: URL, user: User, which: string | "all") {
   const oauth = oauthApi(env, url);

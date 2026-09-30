@@ -226,7 +226,7 @@ export class ContactsPage {
     const tasksHost = el("div", { class: "ct-tasks" });
     const canEdit = this.hooks.canEdit();
     const field = (label: string, values: Array<Node | string>) => (values.length ? [el("dt", {}, label), el("dd", {}, ...values)] : []);
-    const join = (nodes: Node[]) => [el("span", {}, ...nodes.flatMap((n, i) => (i ? [", ", n] : [n])))];
+    const join = (nodes: Node[]) => (nodes.length ? [el("span", {}, ...nodes.flatMap((n, i) => (i ? [", ", n] : [n])))] : []);
     const link = (href: string, text: string) => el("a", { href, target: href.startsWith("http") ? "_blank" : undefined, rel: "noopener" }, text);
     const details = el(
       "dl",
@@ -237,7 +237,7 @@ export class ContactsPage {
       ...field("Role", c.role ? [c.role] : []),
       ...field("Links", join(c.links.filter((l) => /^https?:\/\//i.test(l)).map((l) => link(l, l.replace(/^https?:\/\/(www\.)?/i, ""))))),
       ...field("Also", c.aliases.length ? [c.aliases.join(", ")] : []),
-      ...field("Tags", [el("span", { class: "ct-taglist" }, ...c.tags.map((t) => el("span", { class: "tag" }, `#${t}`)))]),
+      ...field("Tags", c.tags.length ? [el("span", { class: "ct-taglist" }, ...c.tags.map((t) => el("span", { class: "tag" }, `#${t}`)))] : []),
     );
     const mentions = timeline.filter((t) => t.kind === "note");
     this.body.replaceChildren(

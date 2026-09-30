@@ -35,7 +35,6 @@ export const WORKSPACE_ROUTES = {
   "GET /guide": "viewer",
   "GET /contacts": "viewer",
   "GET /contact": "viewer",
-  "GET /members": "viewer",
   "GET /files/*": "viewer",
   "GET /file-resolve": "viewer",
   "GET /live": "viewer",
@@ -73,7 +72,17 @@ export const WORKSPACE_ROUTES = {
   "POST /trash/delete": "owner",
   "POST /trash/empty": "owner",
   "POST /upload": "editor",
+  // The workspace's settings (cloud/src/admin.ts). Everyone sees who's in it and may leave; the rest is the owner's.
+  "GET /members": "viewer",
+  "POST /leave": "viewer",
+  "POST /members/role": "owner",
+  "POST /members/remove": "owner",
   "POST /invites": "owner",
+  "GET /invites": "owner",
+  "POST /invites/revoke": "owner",
+  "GET /workspace/log": "owner",
+  "POST /workspace/rename": "owner",
+  "POST /workspace/delete": "owner",
 } as const satisfies Record<string, Role>;
 
 /** Routes for whoever is signed in, whatever workspace they're in. */

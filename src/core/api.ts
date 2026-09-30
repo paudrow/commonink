@@ -34,7 +34,7 @@ export interface Member {
   name: string;
   email: string;
   /** Whether it's the person asking. */
-  you: boolean;
+  you?: boolean;
 }
 
 export const json = (data: unknown, status = 200) =>
