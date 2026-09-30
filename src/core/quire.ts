@@ -2,6 +2,7 @@ import { actorOf, authorWhere, type Actor, type AuthorFilter } from "./actor.ts"
 import path from "node:path";
 import crypto from "node:crypto";
 import { diffLines } from "diff";
+import { chainBefore, dropBefores, readBefore } from "./changeTexts.ts";
 import type { Content, SqlDb } from "./store.ts";
 import { cleanPath, isHidden, kindOf, linkKey, QuireError, stemOf, type NoteKind } from "./paths.ts";
 import { headingName, headingText, mapOutsideCode, proseLines } from "./prose.ts";
@@ -820,14 +821,16 @@ export class Quire {
         "INSERT INTO changes(ts, path, op, source, version, summary, from_path, before, note_id, person, agent, autosave) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         ts, c.path, c.op, source, c.version, c.summary, c.from_path, before, noteId, person, agent, opts.autosave && !agent ? 1 : null,
       ).lastId;
-    // A sitting's change moves to a new id as it grows, so catching up by id (recent_changes) sees it again.
-    const id = opts.replaces
-      ? this.db.tx(() => {
-          const next = insert();
-          this.db.run("DELETE FROM changes WHERE id = ?", opts.replaces);
-          return next;
-        })
-      : insert();
+    const id = this.db.tx(() => {
+      const next = insert();
+      if (opts.replaces) {
+        // A sitting's change moves to a new id as it grows, so catching up by id (recent_changes) sees it again.
+        this.db.run("UPDATE changes SET base_id = ? WHERE base_id = ?", next, opts.replaces);
+        this.db.run("DELETE FROM changes WHERE id = ?", opts.replaces);
+      }
+      chainBefore(this.db, next, noteId, before);
+      return next;
+    });
     return { ...c, source, id, ts, note_id: noteId, person, agent };
   }
 
@@ -837,10 +840,10 @@ export class Quire {
    */
   private sittingOf(rel: string, source: string, current: string): { id: number; before: string | null } | null {
     const noteId = this.meta(rel)?.id;
-    const last = noteId ? this.db.get("SELECT id, ts, source, autosave, version, before FROM changes WHERE note_id = ? ORDER BY id DESC LIMIT 1", noteId) : undefined;
+    const last = noteId ? this.db.get("SELECT id, ts, source, autosave, version FROM changes WHERE note_id = ? ORDER BY id DESC LIMIT 1", noteId) : undefined;
     if (!last?.autosave || last.source !== source || this.now() - last.ts > SITTING_MS || last.version !== versionOf(current)) return null;
     if (this.db.get("SELECT 1 FROM changes WHERE id > ? AND source = ? LIMIT 1", last.id, source)) return null;
-    return last;
+    return { id: last.id, before: readBefore(this.db, last.id) };
   }
 
   /**
@@ -848,11 +851,12 @@ export class Quire {
    * range for a run of autosaves). Either side is null if it can't be recovered.
    */
   diff(fromId: number, toId: number): { path: string; op: Change["op"]; before: string | null; after: string | null } {
-    const first = this.db.get("SELECT op, before FROM changes WHERE id = ?", fromId);
+    const first = this.db.get("SELECT op FROM changes WHERE id = ?", fromId);
     const last = this.db.get(`SELECT ${CHANGE_COLS} FROM changes WHERE id = ?`, toId) as Change | undefined;
     if (!first || !last) throw new QuireError(`No change #${first ? toId : fromId}`, "not_found");
-    const before = first.op === "create" || first.op === "restore" ? "" : (first.before as string | null);
-    return { path: last.path, op: last.op, before, after: last.op === "delete" ? "" : this.textAfter(last) };
+    const seen = new Map<number, string>();
+    const before = first.op === "create" || first.op === "restore" ? "" : readBefore(this.db, fromId, seen);
+    return { path: last.path, op: last.op, before, after: last.op === "delete" ? "" : this.textAfter(last, seen) };
   }
 
   /**
@@ -950,13 +954,14 @@ export class Quire {
    * A note's text right after a change: the next change's `before`, or the file as it is now,
    * following later moves. Candidates are checked against the change's version hash.
    */
-  private textAfter(c: Change): string | null {
+  private textAfter(c: Change, seen = new Map<number, string>()): string | null {
     if (!c.version) return null;
     let at = c.path;
     let since = c.id;
     for (let hop = 0; hop < 8; hop++) {
-      for (const r of this.db.all("SELECT before FROM changes WHERE path = ? AND id > ? AND before IS NOT NULL ORDER BY id LIMIT 20", at, since)) {
-        if (versionOf(r.before) === c.version) return r.before;
+      for (const r of this.db.all<{ id: number }>("SELECT id FROM changes WHERE path = ? AND id > ? AND before IS NOT NULL ORDER BY id LIMIT 20", at, since)) {
+        const text = readBefore(this.db, r.id, seen);
+        if (text !== null && versionOf(text) === c.version) return text;
       }
       const now = this.files.read(at);
       if (now !== null && versionOf(now) === c.version) return now;
@@ -970,12 +975,13 @@ export class Quire {
 
   /** Put a note back the way it was before change #id; with `baseVersion`, only if the note is still at it. */
   restore(id: number, source: string, baseVersion?: string) {
-    const row = this.db.get("SELECT path, op, before FROM changes WHERE id = ?", id);
+    const row = this.db.get("SELECT path, op FROM changes WHERE id = ?", id);
     if (!row) throw new QuireError(`No change #${id}`, "not_found");
     // A note deleted by this change is still in Trash: bring it back from there, ID and all.
     const trashed = row.op === "delete" ? this.trashIds().find((t) => t.endsWith(`-${id}`)) : undefined;
     if (trashed) return this.untrash([trashed], source)[0];
-    if (row.before === null) throw new QuireError(`Change #${id} (${row.op} ${row.path}) has no earlier text to restore`);
+    const before = readBefore(this.db, id);
+    if (before === null) throw new QuireError(`Change #${id} (${row.op} ${row.path}) has no earlier text to restore`);
     // The note may have been renamed or archived since: restore it where it lives now.
     let at = row.path as string;
     let since = id;
@@ -983,7 +989,7 @@ export class Quire {
       at = moved.path;
       since = moved.id;
     }
-    return { ...this.save(at, row.before, { source, baseVersion }), path: at };
+    return { ...this.save(at, before, { source, baseVersion }), path: at };
   }
 
   // ---------------------------------------------------------------- favorites
@@ -1808,8 +1814,8 @@ export class Quire {
       for (const x of this.files.listUnder(`${TRASH}/${id}`)) this.files.remove(x.path);
       const changeId = Number(id.split("-")[1]);
       const noteId = this.db.get("SELECT note_id FROM changes WHERE id = ?", changeId)?.note_id;
-      if (noteId) this.db.run("UPDATE changes SET before = NULL WHERE note_id = ?", noteId);
-      else this.db.run("UPDATE changes SET before = NULL WHERE id = ?", changeId);
+      if (noteId) dropBefores(this.db, "note_id = ?", noteId);
+      else dropBefores(this.db, "id = ?", changeId);
       if (source) this.recordChange({ path: f.path, op: "purge", source, version: null, summary: "deleted forever", from_path: null });
       return [f.path];
     });
