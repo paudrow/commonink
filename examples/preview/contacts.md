@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 93
 title: Contacts
 ---
 1. Open **Contacts** in the sidebar. Jane Doe, Priya Shah, Omar Haddad and J. Doe are notes in `People/`, and each shows when a note last mentioned them. Search for "acme", or filter by the #client tag or by company.
