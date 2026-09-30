@@ -1,11 +1,10 @@
 ---
-title: Welcome to Common Ink
-tags: [start]
+title: Tips
 ---
 
-# Welcome to Common Ink
+# Tips
 
-Common Ink is a shared notebook for you, your team, and your agents. Everything is plain **markdown**, and every change shows who made it: you, a teammate, or an agent.
+Everything in Common Ink is plain **markdown**, and every change shows who made it: you, a teammate, or an agent.
 
 ![[margin.svg]]
 
@@ -13,9 +12,9 @@ Common Ink is a shared notebook for you, your team, and your agents. Everything 
 
 Markup tucks itself away when your cursor leaves it: **bold**, *italic*, ~~struck~~, `inline code`, and [links](https://modelcontextprotocol.io).
 
-- [ ] Tasks become checkboxes. Click one
-- [ ] Type `/` for tools: embeds, timers, task lists, diagrams
-- [ ] Type `@` to link another note
+- `- [ ]` makes a task you can tick
+- `/` opens tools: embeds, timers, task lists, diagrams
+- `@` links another note
 
 > Notes are markdown. Agents are guests. You stay in charge of both.
 
@@ -27,4 +26,5 @@ Link with [[Overview]], or embed a note (or just one section of it) with `![[…
 
 - `⌘K` search and jump between notes, `⌘⇧F` all your notes
 - `⌘⇧E` archive a note (it keeps its links, and you can undo)
-- Vim keys are on; toggle them in the status bar
+- `⌘Z` takes back the last change in a note, an agent's included
+- Vim keys: toggle them in the status bar

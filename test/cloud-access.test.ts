@@ -19,10 +19,12 @@ const SIGNED_IN: Expect[] = [401, "ok", "ok", "ok", "ok"];
 
 let cloud: Cloud;
 let people: Awaited<ReturnType<typeof team>>;
-let welcomeId: string;
+let startId: string;
 const restoreIds = {} as Record<Who, number>;
 /** A smart folder of each person's own, for them to delete. */
 const folderIds = {} as Record<Who, string>;
+/** Trash items for each person to restore and to delete for good. */
+const trashIds = {} as Record<Who, { restore: string; purge: string }>;
 
 /**
  * Every route online, what each kind of person gets back, and a request that works for anyone
@@ -31,11 +33,11 @@ const folderIds = {} as Record<Who, string>;
 const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }> = [
   { route: "GET /info", send: () => ["GET", "/info"], expect: READ },
   { route: "GET /notes", send: () => ["GET", "/notes"], expect: READ },
-  { route: "GET /note", send: () => ["GET", "/note?path=Welcome.md"], expect: READ },
-  { route: "GET /resolve", send: () => ["GET", "/resolve?target=Welcome"], expect: READ },
+  { route: "GET /note", send: () => ["GET", "/note?path=Getting%20started.md"], expect: READ },
+  { route: "GET /resolve", send: () => ["GET", "/resolve?target=Getting%20started"], expect: READ },
   { route: "GET /search", send: () => ["GET", "/search?q=welcome"], expect: READ },
   { route: "GET /feed", send: () => ["GET", "/feed"], expect: READ },
-  { route: "GET /backlinks", send: () => ["GET", "/backlinks?path=Welcome.md"], expect: READ },
+  { route: "GET /backlinks", send: () => ["GET", "/backlinks?path=Getting%20started.md"], expect: READ },
   { route: "GET /changes", send: () => ["GET", "/changes?by=ai"], expect: READ },
   { route: "GET /changes/agents", send: () => ["GET", "/changes/agents"], expect: READ },
   { route: "GET /diffs", send: () => ["GET", "/diffs?ids=1-3"], expect: READ },
@@ -51,8 +53,8 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "GET /files/*", send: () => ["GET", "/files/assets/margin.svg"], expect: READ },
   { route: "GET /file-resolve", send: () => ["GET", "/file-resolve?target=margin.svg"], expect: READ },
   { route: "GET /live", send: () => ["GET", "/live", undefined, liveHeaders()], expect: READ },
-  { route: "POST /favorites/star", send: () => ["POST", "/favorites/star", { path: "Welcome.md" }], expect: READ },
-  { route: "POST /favorites/unstar", send: () => ["POST", "/favorites/unstar", { path: "Welcome.md" }], expect: READ },
+  { route: "POST /favorites/star", send: () => ["POST", "/favorites/star", { path: "Getting started.md" }], expect: READ },
+  { route: "POST /favorites/unstar", send: () => ["POST", "/favorites/unstar", { path: "Getting started.md" }], expect: READ },
   { route: "PUT /favorites", send: () => ["PUT", "/favorites", { paths: [] }], expect: READ },
   // A viewer's smart folders are their own; the workspace refuses them shared ones (test/api.test.ts).
   { route: "POST /smart-folders", send: (w) => ["POST", "/smart-folders", { name: `Mine ${w}`, query: "tag=plan" }], expect: READ },
@@ -61,9 +63,11 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /note", send: (w) => ["POST", "/note", { path: `new-${w}.md`, content: "# New\n" }], expect: EDIT },
   { route: "POST /tasks/set", send: (w) => ["POST", "/tasks/set", { path: `tasks-${w}.md`, line: 1, text: "Do it", done: true }], expect: EDIT },
   { route: "POST /tasks/update", send: (w) => ["POST", "/tasks/update", { path: `update-${w}.md`, line: 1, text: "Change me", patch: { due: "2026-10-01" } }], expect: EDIT },
-  { route: "POST /tasks/add", send: (w) => ["POST", "/tasks/add", { text: `Call ${w} tomorrow → [[Welcome]]` }], expect: EDIT },
+  { route: "POST /tasks/add", send: (w) => ["POST", "/tasks/add", { text: `Call ${w} tomorrow → [[Getting started]]` }], expect: EDIT },
   { route: "POST /tasks/remove", send: (w) => ["POST", "/tasks/remove", { path: `task-rm-${w}.md`, line: 1, text: "Remove me" }], expect: EDIT },
-  { route: "POST /tasks/move", send: (w) => ["POST", "/tasks/move", { path: `task-move-${w}.md`, line: 1, text: "Move me", to: "Welcome" }], expect: EDIT },
+  { route: "POST /tasks/move", send: (w) => ["POST", "/tasks/move", { path: `task-move-${w}.md`, line: 1, text: "Move me", to: "Getting started" }], expect: EDIT },
+  { route: "GET /guide", send: () => ["GET", "/guide"], expect: READ },
+  { route: "POST /guide", send: () => ["POST", "/guide", { action: "search" }], expect: EDIT },
   { route: "POST /today/journal", send: () => ["POST", "/today/journal", { today: "2026-10-01" }], expect: EDIT },
   { route: "POST /tags/rename", send: (w) => ["POST", "/tags/rename", { from: `old-${w}`, to: `new-${w}` }], expect: EDIT },
   { route: "PUT /asset-tags", send: (w) => ["PUT", "/asset-tags", { path: "assets/margin.svg", tags: [`asset-${w}`] }], expect: EDIT },
@@ -71,12 +75,19 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /restore", send: (w) => ["POST", "/restore", { id: restoreIds[w] ?? 1 }], expect: EDIT },
   { route: "POST /archive", send: (w) => ["POST", "/archive", { paths: [`arch-${w}.md`] }], expect: EDIT },
   { route: "POST /unarchive", send: (w) => ["POST", "/unarchive", { paths: [`Archive/unarch-${w}.md`] }], expect: EDIT },
+  { route: "GET /delete-check", send: (w) => ["GET", `/delete-check?path=tasks-${w}.md`], expect: EDIT },
+  { route: "POST /delete", send: (w) => ["POST", "/delete", { paths: [`del-${w}.md`] }], expect: EDIT },
+  { route: "POST /delete-folder", send: (w) => ["POST", "/delete-folder", { folder: `folder-${w}`, notes: "lift" }], expect: EDIT },
+  { route: "GET /trash", send: () => ["GET", "/trash"], expect: EDIT },
+  { route: "POST /trash/restore", send: (w) => ["POST", "/trash/restore", { ids: [trashIds[w].restore] }], expect: EDIT },
+  { route: "POST /trash/delete", send: (w) => ["POST", "/trash/delete", { ids: [trashIds[w].purge] }], expect: OWN },
+  { route: "POST /trash/empty", send: () => ["POST", "/trash/empty", {}], expect: OWN },
   { route: "POST /upload", send: (w) => ["POST", `/upload?name=up-${w}.txt`, new TextEncoder().encode("hi"), { "content-type": "text/plain" }], expect: EDIT },
   { route: "POST /invites", send: () => ["POST", "/invites", { role: "viewer" }], expect: OWN },
   { route: "GET /api/me", send: () => ["GET", "/api/me"], expect: SIGNED_IN },
   { route: "POST /api/workspaces", send: (w) => ["POST", "/api/workspaces", { name: `${w}'s team` }], expect: SIGNED_IN },
   { route: "GET /api/unfurl", send: () => ["GET", "/api/unfurl?url=https://example.invalid/"], expect: SIGNED_IN },
-  { route: "GET /api/note-ids/*", send: () => ["GET", `/api/note-ids/${welcomeId}`], expect: READ },
+  { route: "GET /api/note-ids/*", send: () => ["GET", `/api/note-ids/${startId}`], expect: READ },
   { route: "GET /api/agents", send: () => ["GET", "/api/agents"], expect: SIGNED_IN },
   { route: "POST /api/agents/revoke", send: () => ["POST", "/api/agents/revoke", { id: "not-a-grant" }], expect: SIGNED_IN },
   // Last: it ends everyone's sessions.
@@ -103,14 +114,20 @@ before(async () => {
     await note(`restore-${w}.md`);
     await cloud.call(owner, "PUT", `${base}/note`, { path: `restore-${w}.md`, content: "# Changed\n" });
     restoreIds[w] = (await cloud.call(owner, "GET", `${base}/changes?path=restore-${w}.md&limit=1`))[0].id;
+    await note(`del-${w}.md`);
+    await note(`folder-${w}/Inside.md`);
+    await note(`trash-restore-${w}.md`);
+    await note(`trash-purge-${w}.md`);
+    const [restore, purge] = (await cloud.call(owner, "POST", `${base}/delete`, { paths: [`trash-restore-${w}.md`, `trash-purge-${w}.md`] })).trashed.map((t: { id: string }) => t.id);
+    trashIds[w] = { restore, purge };
   }
   for (const w of ["viewer", "editor", "owner"] as const) {
     folderIds[w] = (await cloud.call(people[w], "POST", `${base}/smart-folders`, { name: `Doomed ${w}`, query: "tag=plan" })).id;
   }
   const notes: Array<{ path: string; id: string }> = await cloud.call(owner, "GET", `${base}/notes`);
-  welcomeId = notes.find((n) => n.path === "Welcome.md")!.id;
+  startId = notes.find((n) => n.path === "Getting started.md")!.id;
   // Note IDs reach the directory just after the request that made them.
-  for (let i = 0; i < 50 && (await cloud.request(owner, "GET", `/api/note-ids/${welcomeId}`)).status !== 200; i++) await new Promise((r) => setTimeout(r, 50));
+  for (let i = 0; i < 50 && (await cloud.request(owner, "GET", `/api/note-ids/${startId}`)).status !== 200; i++) await new Promise((r) => setTimeout(r, 50));
 });
 
 after(() => cloud.close());
@@ -160,4 +177,41 @@ test("a workspace checks the role again, whatever the Worker forwarded", async (
     [await send("POST", "/note", "viewer"), await send("POST", "/note"), await send("POST", "/note", "admin"), await send("POST", "/seed", "owner"), await send("GET", "/info", "viewer")],
     [403, 403, 403, 404, 200],
   );
+});
+
+type Trashed = { trashed: Array<{ id: string; path: string }> };
+
+test("what's in Trash can't be reached as a file, a note or through another workspace", async () => {
+  const owner = await cloud.signIn("owner"); // the matrix ended with signing everyone out everywhere
+  const { base } = people;
+  await cloud.request(owner, "POST", `${base}/note`, { path: "Secret.md", content: "# Secret\n\nthe plan\n" });
+  const { trashed } = (await (await cloud.request(owner, "POST", `${base}/delete`, { paths: ["Secret.md"] })).json()) as Trashed;
+  const id = trashed[0].id;
+  const tries = [
+    await cloud.request(owner, "GET", `${base}/note?path=Secret`),
+    await cloud.request(owner, "GET", `${base}/files/.trash/${id}/Secret.md`),
+    await cloud.request(owner, "GET", `${base}/files/%2Etrash/${id}/Secret.md`),
+    await cloud.request(owner, "GET", `${base}/search?q=plan`),
+  ];
+  assert.deepEqual(tries.slice(0, 3).map((r) => r.status >= 400), [true, true, true]);
+  assert.deepEqual(await tries[3].json(), []);
+  // Another workspace of the same owner has its own Trash, and can't restore this one's items.
+  const other = ((await (await cloud.request(owner, "POST", "/api/workspaces", { name: "Elsewhere" })).json()) as { id: string }).id;
+  assert.equal((await cloud.request(owner, "POST", `/api/w/${other}/trash/restore`, { ids: [id] })).status, 404);
+  const theirs = (await (await cloud.request(owner, "GET", `/api/w/${other}/trash`)).json()) as Array<{ id: string }>;
+  assert.equal(theirs.some((t) => t.id === id), false);
+});
+
+test("an upload deleted for good takes its bytes out of R2; one in Trash keeps them", async () => {
+  const owner = await cloud.signIn("owner");
+  const { base } = people;
+  const env = await cloud.server.getWorker().getEnv();
+  const keys = async () => (await env.FILES.list()).objects.length;
+  const up = (await (await cloud.request(owner, "POST", `${base}/upload?name=bin.txt`, new TextEncoder().encode("bytes"), { "content-type": "text/plain" })).json()) as { path: string };
+  const before = await keys();
+  const { trashed } = (await (await cloud.request(owner, "POST", `${base}/delete`, { paths: [up.path] })).json()) as Trashed;
+  assert.equal(await keys(), before);
+  await cloud.request(owner, "POST", `${base}/trash/delete`, { ids: [trashed[0].id] });
+  await new Promise((r) => setTimeout(r, 50)); // the delete runs after the response
+  assert.equal(await keys(), before - 1);
 });

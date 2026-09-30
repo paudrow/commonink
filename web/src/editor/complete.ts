@@ -14,6 +14,8 @@ import { NEW_BOARD } from "../../../src/core/kanban.ts";
 import { taskPeople } from "../taskChipEditors.ts";
 import { taskTokenSource } from "./taskComplete.ts";
 import { inTaskText } from "./taskEdit.ts";
+import { did } from "../events.ts";
+import { slashUsed } from "./lineHint.ts";
 
 interface Option extends Completion {
   icon?: string;
@@ -105,8 +107,10 @@ async function mentionSource(ctx: CompletionContext): Promise<CompletionResult |
       detail: r.detail,
       icon: r.icon,
       section: { name: p.section, rank: p.rank },
-      apply: (view: EditorView, _c: Completion, _from: number, to: number) =>
-        view.dispatch({ changes: { from: at, to, insert: r.insert }, selection: { anchor: at + r.insert.length }, userEvent: "input.complete" }),
+      apply: (view: EditorView, _c: Completion, _from: number, to: number) => {
+        view.dispatch({ changes: { from: at, to, insert: r.insert }, selection: { anchor: at + r.insert.length }, userEvent: "input.complete" });
+        did("link");
+      },
     })),
   ));
   if (!options.length && /\s/.test(query)) return null; // "@ " in ordinary prose: get out of the way
@@ -136,6 +140,7 @@ function linkSource(ctx: CompletionContext): CompletionResult | null {
         apply: (view: EditorView, _c: Completion, from: number, to: number) => {
           const insert = name + (closed ? "" : "]]");
           view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + name.length + 2 }, userEvent: "input.complete" });
+          if (!embed) did("link");
         },
       };
     });
@@ -285,6 +290,8 @@ const TOOLS: Tool[] = [
   { title: "Numbered list", hint: "1.", icon: "listOrdered", keywords: "list numbered ordered", section: "Blocks", run: (v, f, t) => insert(v, f, t, "1. ", { block: true }) },
   { title: "Quote", hint: ">", icon: "quote", keywords: "quote blockquote citation", section: "Blocks", run: (v, f, t) => insert(v, f, t, "> ", { block: true }) },
   { title: "Code block", hint: "```", icon: "braces", keywords: "code block snippet fence", section: "Blocks", run: (v, f, t) => insert(v, f, t, "```\n\n```", { cursor: 3, block: true }) },
+  { title: "Math (inline)", hint: "$x$", icon: "sigma", keywords: "math equation formula latex tex katex inline", section: "Blocks", run: (v, f, t) => insert(v, f, t, "$x$", { cursor: 1, select: 1 }) },
+  { title: "Math (block)", hint: "$$", icon: "sigma", keywords: "math equation formula latex tex katex block display", section: "Blocks", run: (v, f, t) => insert(v, f, t, "$$\nE = mc^2\n$$", { cursor: 3, select: 8, block: true }) },
   { title: "Table", hint: "2 × 2", icon: "table", keywords: "table grid columns", section: "Blocks", run: (v, f, t) => insert(v, f, t, "| Column | Column |\n| ------ | ------ |\n|        |        |", { cursor: 2, select: 6, block: true }) },
   { title: "Divider", hint: "---", icon: "divider", keywords: "divider rule separator hr line", section: "Blocks", run: (v, f, t) => insert(v, f, t, "---", { own: true }) },
   { title: "Today's date", hint: today(), icon: "calendar", keywords: "date today day", section: "Insert", run: (v, f, t) => insert(v, f, t, today()) },
@@ -321,7 +328,7 @@ export function toolSource(ctx: CompletionContext): CompletionResult | null {
       icon: t.icon,
       boost: -i,
       section: q ? undefined : { name: t.section, rank: SECTION_RANK[t.section] },
-      apply: (view: EditorView, _c: Completion, from: number, to: number) => t.run(view, from, to),
+      apply: (view: EditorView, _c: Completion, from: number, to: number) => (slashUsed(), t.run(view, from, to), did("slash")),
     })) as Option[],
   };
 }
@@ -406,9 +413,6 @@ const pasteFiles = EditorView.domEventHandlers({
 export function typingHelpers(): Extension {
   return [completions([toolSource, taskTokenSource, mentionSource, linkSource, tagSource, frontmatterTagSource]), pasteLinks, pasteFiles];
 }
-
-/** `[[` note names and `#` tags, for a field outside the note editor (a board's card). */
-export const fieldCompletions = (): Extension => completions([linkSource, tagSource]);
 
 function completions(override: CompletionSource[]): Extension {
   return autocompletion({

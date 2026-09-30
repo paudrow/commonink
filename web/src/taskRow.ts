@@ -8,8 +8,11 @@ import { api, type Task, type TaskPatch } from "./api.ts";
 import { el, icon, NOTE_DRAG } from "./dom.ts";
 import { sideClick } from "./panes.ts";
 import { tagsInLine } from "../../src/core/tags.ts";
-import { endTags, metaChips } from "./taskChips.ts";
+import { endTags, metaChips, today } from "./taskChips.ts";
+import { taskInput } from "./taskInput.ts";
+import { retypeTask } from "../../src/core/quickAdd.ts";
 import { openChipEditor, openTaskMenu, taskPeople } from "./taskChipEditors.ts";
+import { toast } from "./toast.ts";
 
 export interface RowEnv {
   /** `side`: in the other pane (Cmd/Ctrl-click). */
@@ -39,7 +42,7 @@ export function taskRow(t: Task, env: RowEnv, where: string | null): HTMLElement
   text.addEventListener("mousedown", (e) => {
     // A click on the words edits them, so let that one place the caret; chips and tags keep focus where it is.
     const target = e.target as HTMLElement;
-    if (target.closest(".qt-input")) return; // placing the caret or selecting in the open edit
+    if (target.closest(".qt-edit")) return; // placing the caret or selecting in the open edit
     if (!target.closest(".qt-words") || sideClick(e)) prevent(e);
   });
   text.addEventListener("click", (e) => {
@@ -58,7 +61,7 @@ export function taskRow(t: Task, env: RowEnv, where: string | null): HTMLElement
   // A row dragged to the right edge of the window opens its note there.
   const row = el("div", { class: `qt-row${t.done ? " is-done" : ""}`, draggable: "true" }, box, text, where ? el("span", { class: "qt-where" }, where) : null, menu, go, side);
   row.addEventListener("dragstart", (e) => {
-    if ((e.target as HTMLElement).closest("input")) return e.preventDefault();
+    if ((e.target as HTMLElement).closest(".qt-edit")) return e.preventDefault();
     e.dataTransfer!.setData(NOTE_DRAG, t.path);
     e.dataTransfer!.effectAllowed = "copy";
   });
@@ -74,11 +77,21 @@ export function taskRow(t: Task, env: RowEnv, where: string | null): HTMLElement
   return row;
 }
 
+/** How long a task just ticked stays in its list, struck through, before a list that hides it lets it go. */
+export const LINGER = 1500;
+const lingerFor = () => (matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : LINGER);
+/** Each list's latest redraw, held while a row in it lingers. */
+const held = new Map<HTMLElement, () => void>();
+/** Tasks being ticked or unticked right now: another click waits for the first. */
+const busy = new WeakSet<Task>();
+
 /**
  * Draw a list of task rows again. If a row's checkbox or button had the keyboard focus, the same
  * control on the row now in its place gets it (a task ticked off an Open list is gone, so that's the next one).
+ * While a row just ticked lingers, the redraw waits for it.
  */
 export function redrawRows(list: HTMLElement, draw: () => void) {
+  if (list.querySelector(".qt-row.is-lingering")) return void held.set(list, () => redrawRows(list, draw));
   const rows = () => [...list.querySelectorAll<HTMLElement>(".qt-row")];
   const controls = (row: HTMLElement) => [...row.querySelectorAll<HTMLElement>(".cm-checkbox, .qt-act")];
   const row = rows().findIndex((r) => r.contains(document.activeElement));
@@ -90,50 +103,91 @@ export function redrawRows(list: HTMLElement, draw: () => void) {
   if (there) controls(there)[control]?.focus({ preventScroll: true });
 }
 
-/** Tick or untick: shown at once, then the list reloads with what the note says now. */
+/**
+ * Tick or untick: shown at once, then the list reloads with what the note says now. The row stays a
+ * moment first, so a list that hides done tasks doesn't whisk away the one you just ticked, and
+ * ticking one done says so, with an Undo.
+ */
 async function toggle(t: Task, row: HTMLElement, box: HTMLElement, env: RowEnv) {
+  if (busy.has(t)) return;
+  busy.add(t);
   const next = !t.done;
-  row.classList.toggle("is-done", next);
-  box.classList.toggle("is-checked", next);
+  show(row, box, next);
+  linger(row, lingerFor());
   try {
     const r = await api.setTask(t, next);
     Object.assign(t, { done: next, line: r.line, text: r.text }); // ticking adds done:, so the text changed too
+    if (next) toast({ icon: "check", text: `Done: ${clip(t.summary)}`, actionLabel: "Undo", action: () => void untick(t, row, box) });
   } catch {
     // The note changed underneath us: the reload shows what's there now.
   }
+  busy.delete(t);
   env.reload();
 }
 
+async function untick(t: Task, row: HTMLElement, box: HTMLElement) {
+  if (!t.done || busy.has(t)) return;
+  show(row, box, false);
+  busy.add(t);
+  try {
+    const r = await api.setTask(t, false);
+    Object.assign(t, { done: false, line: r.line, text: r.text });
+  } catch {
+    toast({ text: `Couldn't reopen “${clip(t.summary)}”. Open its note to change it.` });
+  }
+  busy.delete(t); // the note changed, so every list of tasks reloads
+}
+
+function show(row: HTMLElement, box: HTMLElement, done: boolean) {
+  row.classList.toggle("is-done", done);
+  box.classList.toggle("is-checked", done);
+  box.setAttribute("aria-checked", String(done));
+  box.title = done ? "Mark open" : "Mark done";
+}
+
+function linger(row: HTMLElement, ms: number) {
+  if (!ms) return;
+  row.classList.add("is-lingering");
+  setTimeout(() => {
+    row.classList.remove("is-lingering");
+    for (const [list, redraw] of held) {
+      if (list.querySelector(".qt-row.is-lingering")) continue;
+      held.delete(list);
+      redraw();
+    }
+  }, ms);
+}
+
+const clip = (s: string) => (s.length > 80 ? `${s.slice(0, 79)}…` : s);
+
 /**
- * Edit a task's words in place: an input over them, its chips left as they are. Enter or leaving
- * the input saves (only the words change; the core leaves the tokens be), Escape puts them back.
+ * Edit a task's words in place, in the task input (taskInput.ts), its chips left as they are.
+ * Phrases typed there ("tomorrow", "every week") and tokens typed after the words become the
+ * task's tokens, as in quick-add. Enter or leaving the field saves; Escape puts the words back.
  */
 function editWords(t: Task, words: HTMLElement, save: (patch: TaskPatch) => Promise<void>) {
-  const input = el("input", { class: "qt-input", value: t.summary, "aria-label": "Task text", spellcheck: "true" });
   let done = false;
   const finish = (keep: boolean) => {
     if (done) return;
     done = true;
-    const next = input.value.trim();
-    input.replaceWith(words);
-    if (keep && next && next !== t.summary) {
-      words.innerHTML = inline(next); // show it now; the reload confirms it
-      void save({ summary: next }).catch((e) => {
-        words.innerHTML = inline(t.summary);
-        alert(e instanceof Error ? e.message : "Couldn't change the task");
-      });
-    }
+    const text = input.value().trim();
+    const ignore = input.ignore();
+    edit.replaceWith(words);
+    input.destroy();
+    if (!keep || !text) return;
+    const patch = retypeTask(`- [ ] ${t.text}`, text, today(), ignore);
+    if (Object.keys(patch).length === 1 && patch.summary === t.summary) return; // nothing changed
+    words.innerHTML = inline(patch.summary ?? t.summary); // show it now; the reload confirms it
+    void save(patch).catch((e) => {
+      words.innerHTML = inline(t.summary);
+      alert(e instanceof Error ? e.message : "Couldn't change the task");
+    });
   };
-  input.addEventListener("keydown", (e) => {
-    e.stopPropagation();
-    if (e.key === "Enter") (e.preventDefault(), finish(true));
-    else if (e.key === "Escape") (e.preventDefault(), finish(false));
-  });
-  input.addEventListener("blur", () => finish(true));
-  input.addEventListener("click", (e) => e.stopPropagation());
-  words.replaceWith(input);
+  const input = taskInput({ value: t.summary, compact: true, submit: () => finish(true), cancel: () => finish(false), blur: () => finish(true) });
+  // Clicks in the field and its preview are the field's, not the row's (a preview chip isn't the task's chip).
+  const edit = el("span", { class: "qt-edit", onclick: (e: Event) => e.stopPropagation() }, input.dom, input.preview);
+  words.replaceWith(edit);
   input.focus();
-  input.setSelectionRange(input.value.length, input.value.length);
 }
 
 /**

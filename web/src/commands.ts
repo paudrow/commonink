@@ -1,12 +1,11 @@
 // Everything you can do from ⌘K, and every keyboard shortcut: one registry that the palette's
 // Commands section and the shortcut sheet (?) both read. main.ts supplies the state and the actions.
 import { fuzzyScore } from "./fuzzy.ts";
-import { IS_MAC } from "./panes.ts";
 
 export type Area = "Global" | "Notes page" | "Editor" | "Vim" | "Tasks" | "Split view";
 export const AREAS: Area[] = ["Global", "Notes page", "Editor", "Vim", "Tasks", "Split view"];
 
-/** Keys as CodeMirror writes them ("Mod-Shift-e", "Mod-Alt-\\"), or typed literally ("q", "gd", ":w"). */
+/** Keys as CodeMirror writes them ("Mod-Shift-e", "Mod-Alt-\\"), or typed literally ("?", "gd", ":w"). */
 export interface Shortcut {
   keys: string[];
   label: string;
@@ -28,7 +27,7 @@ export interface Command {
   run: () => unknown;
 }
 
-export type Page = "notes" | "tasks" | "tags" | "assets" | "history" | "archive";
+export type Page = "notes" | "tasks" | "tags" | "assets" | "history" | "archive" | "trash";
 
 /** What the registry needs from the app: a snapshot of its state, and the actions to run. */
 export interface App {
@@ -43,6 +42,8 @@ export interface App {
   htmlMode: "preview" | "source";
   /** A note tagged `start` exists. */
   hasStart: boolean;
+  /** Can delete notes (not a viewer online). */
+  canDelete: boolean;
   /** Online, the account menu's actions; locally, none. */
   account: Array<{ label: string; icon: string; run: () => unknown; workspace?: boolean; current?: boolean }>;
   newNote(): void;
@@ -60,6 +61,7 @@ export interface App {
   toggleHtml(): void;
   star(): void;
   archive(): void;
+  delete(): void;
   move(): void;
   noteHistory(): void;
   gettingStarted(): void;
@@ -81,6 +83,7 @@ export function appCommands(app: App): Command[] {
     go("assets", "Assets", "grid", "files images uploads attachments"),
     go("history", "History", "history", "changes activity versions"),
     go("archive", "Archive", "archive", "archived"),
+    { ...go("trash", "Trash", "trash", "deleted restore bin recycle"), available: app.canDelete },
     { id: "theme", title: "Toggle theme", keywords: "dark light mode appearance colors", icon: "moon", run: app.toggleTheme },
     { id: "vim", title: app.vim ? "Turn vim keys off" : "Turn vim keys on", keywords: "vim keybindings modal editing toggle", icon: "code", run: app.toggleVim },
     {
@@ -97,6 +100,7 @@ export function appCommands(app: App): Command[] {
     { id: "split", title: app.split ? "Close this pane" : "Open to the side", keywords: "split view pane side by side", icon: "split", keys: ["Mod-Alt-\\"], area: "Split view", run: app.toggleSplit },
     { id: "star", title: note?.starred ? "Unstar note" : "Star note", keywords: "star favorite favourite", icon: note?.starred ? "starred" : "star", available: !!note, run: app.star },
     { id: "archive", title: note?.archived ? "Unarchive note" : "Archive note", keywords: "archive remove hide", icon: note?.archived ? "unarchive" : "archive", keys: ["Mod-Shift-e"], available: !!note, run: app.archive },
+    { id: "delete", title: "Delete note", keywords: "delete remove trash bin", icon: "trash", available: !!note && app.canDelete, run: app.delete },
     { id: "move", title: "Move to folder…", keywords: "move note folder file", icon: "move", available: !!note, run: app.move },
     { id: "note-history", title: "History of this note", keywords: "versions changes diff restore", icon: "history", available: !!note, run: app.noteHistory },
     {
@@ -130,6 +134,7 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: ["s"], label: "Star or unstar", area: "Notes page" },
   { keys: ["e"], label: "Archive (the selected notes, or this one)", area: "Notes page" },
   { keys: ["x"], label: "Select", area: "Notes page" },
+  { keys: ["Delete", "Backspace"], label: "Delete (the selected notes, or this one)", area: "Notes page" },
   { keys: ["/"], label: "Filter", area: "Notes page" },
   { keys: ["Escape"], label: "Clear the selection", area: "Notes page" },
   { keys: ["Mod-z"], label: "Undo", area: "Editor" },
@@ -138,6 +143,7 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: ["[["], label: "Link a note", area: "Editor" },
   { keys: ["Mod-Alt-Enter"], label: "Open the linked note to the side", area: "Editor" },
   { keys: ["Mod-."], label: "Open the task's ⚙ menu", area: "Editor" },
+  { keys: ["Tab"], label: "Right after an underlined phrase on a task line (\"tomorrow\"), make it a token", area: "Editor" },
   { keys: ["Tab", "Shift-Tab"], label: "Indent / outdent", area: "Editor" },
   { keys: ["gd", "gf"], label: "Follow the link under the cursor", area: "Vim" },
   { keys: ["gs"], label: "Open the link to the side", area: "Vim" },
@@ -145,6 +151,7 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: [":e name"], label: "Open a note (:e alone opens quick open)", area: "Vim" },
   { keys: [":star"], label: "Star or unstar the note", area: "Vim" },
   { keys: [":archive"], label: "Archive the note", area: "Vim" },
+  { keys: [":trash"], label: "Delete the note (to Trash)", area: "Vim" },
   { keys: [":notes"], label: "Go to Notes", area: "Vim" },
   { keys: [":focus"], label: "Focus mode", area: "Vim" },
   { keys: [":set nu", ":set nonu"], label: "Show / hide line numbers", area: "Vim" },
@@ -164,21 +171,6 @@ export function shortcutSheet(commands: Command[]): Array<{ area: Area; shortcut
   return AREAS.map((area) => ({ area, shortcuts: all.filter((s) => s.area === area) })).filter((s) => s.shortcuts.length);
 }
 
-const MAC_MOD: Record<string, string> = { Mod: "⌘", Ctrl: "⌃", Alt: "⌥", Shift: "⇧" };
-const PC_MOD: Record<string, string> = { Mod: "Ctrl", Ctrl: "Ctrl", Alt: "Alt", Shift: "Shift" };
-const KEY_NAMES: Record<string, string> = { Enter: "↵", Escape: "Esc", ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→", click: "click" };
-
-/** "Mod-Shift-e" → ⌘⇧E on a Mac and Ctrl+Shift+E elsewhere; a key typed as is ("gd", "q") stays as it is. */
-export function formatKeys(keys: string, mac = IS_MAC): string {
-  const parts = keys.length > 1 ? keys.split(/-(?=.)/) : [keys];
-  const key = parts.pop()!;
-  const mods = parts.filter((p) => p in MAC_MOD);
-  if (mods.length !== parts.length) return keys;
-  const name = KEY_NAMES[key] ?? (mods.length && key.length === 1 ? key.toUpperCase() : key);
-  if (key === "click") return mac ? `${mods.map((m) => MAC_MOD[m]).join("")}-click` : `${mods.map((m) => PC_MOD[m]).join("+")}-click`;
-  return mac ? mods.map((m) => MAC_MOD[m]).join("") + name : [...mods.map((m) => PC_MOD[m]), name].join("+");
-}
-
 /** The commands on offer that a query (what follows `>`) finds, best first; all of them, in order, for none. */
 export function matchCommands(query: string, commands: Command[]): Command[] {
   const q = query.trim();
@@ -189,30 +181,4 @@ export function matchCommands(query: string, commands: Command[]): Command[] {
     .filter((m) => m.score >= 0)
     .sort((a, b) => b.score - a.score)
     .map((m) => m.command);
-}
-
-/** What each physical key types in this keyboard layout, unshifted (Chrome and Edge can tell; see learnLayout). */
-let layout: ReadonlyMap<string, string> | null = null;
-
-/** Learn the keyboard layout, so a shortcut with ⇧ or ⌥ still finds the key its character is on. */
-export async function learnLayout(keyboard: { getLayoutMap(): Promise<ReadonlyMap<string, string>> } | undefined = (navigator as any).keyboard) {
-  layout = (await keyboard?.getLayoutMap().catch(() => null)) ?? null;
-}
-
-/** Where a browser that can't tell the layout finds keys that ⌥ turns into other characters on a Mac. */
-const US_CODES: Record<string, string> = { BracketLeft: "[", BracketRight: "]", Backslash: "\\", Period: ".", Slash: "/" };
-
-/**
- * Whether a key press is the shortcut `keys` ("Mod-Shift-p"). It goes by the character typed, not
- * the key's place, so it works on any layout (Dvorak too). Mod is ⌘ on a Mac and Ctrl elsewhere.
- */
-export function matchKeys(e: Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">, keys: string, mac = IS_MAC): boolean {
-  const parts = keys.split(/-(?=.)/);
-  const want = parts.pop()!.toLowerCase();
-  const has = (m: string) => parts.includes(m);
-  if ((mac ? e.metaKey : e.ctrlKey) !== has("Mod") || (mac && e.ctrlKey) !== has("Ctrl") || e.altKey !== has("Alt") || e.shiftKey !== has("Shift")) return false;
-  if (e.key.toLowerCase() === want) return true;
-  // ⇧ and ⌥ change the character (⌥[ types “ on a Mac): ask the layout what the key types without them.
-  if (!e.altKey && !e.shiftKey) return false;
-  return (layout ? layout.get(e.code) : US_CODES[e.code]) === want;
 }

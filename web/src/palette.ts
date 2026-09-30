@@ -1,10 +1,12 @@
 // Quick open (⌘P, or ⌘K): fuzzy jump by name + full-text search (SQLite FTS5 on the server), in one
 // list. A leading `>` (or ⌘⇧P, which types it) lists the app's commands instead.
 import { api, isArchived, type NoteMeta, type SearchHit } from "./api.ts";
-import { formatKeys, matchCommands, type Command } from "./commands.ts";
+import { matchCommands, type Command } from "./commands.ts";
 import { $, displayName, el, escapeHtml, icon } from "./dom.ts";
 import { fuzzyScore } from "./fuzzy.ts";
+import { agentsBadge, isAgentsNote } from "./agentsNote.ts";
 import { MOD_ENTER, paletteEnter } from "./panes.ts";
+import { formatKeys, matchKeys } from "./keys.ts";
 
 type Item =
   | { type: "note"; note: NoteMeta; archived?: boolean }
@@ -164,6 +166,7 @@ export class Palette {
         { class: "palette-item", role: "option" },
         icon(kindIcon(n.kind), 15),
         el("span", { class: "pi-title" }, n.kind === "asset" ? displayName(n.path) : n.title),
+        isAgentsNote(n.path) ? agentsBadge() : null,
         el("span", { class: "pi-path" }, n.path),
       );
     }
@@ -181,7 +184,7 @@ export class Palette {
       el(
         "div",
         { class: "pi-stack" },
-        el("div", { class: "pi-row" }, el("span", { class: "pi-title" }, h.title), el("span", { class: "pi-path" }, h.lines[0] ? `${h.path}:${h.lines[0].line}` : h.path)),
+        el("div", { class: "pi-row" }, el("span", { class: "pi-title" }, h.title), isAgentsNote(h.path) ? agentsBadge() : null, el("span", { class: "pi-path" }, h.lines[0] ? `${h.path}:${h.lines[0].line}` : h.path)),
         el("div", { class: "pi-snippet", html: marked }),
       ),
     );
@@ -213,8 +216,9 @@ export class Palette {
   }
 
   private key(e: KeyboardEvent) {
-    const down = e.key === "ArrowDown" || (e.ctrlKey && (e.key === "n" || e.key === "j"));
-    const up = e.key === "ArrowUp" || (e.ctrlKey && (e.key === "p" || e.key === "k"));
+    // Ctrl+N/J and Ctrl+P/K move too (Ctrl on a Mac as well), by the letter typed.
+    const down = e.key === "ArrowDown" || matchKeys(e, "Ctrl-n") || matchKeys(e, "Ctrl-j");
+    const up = e.key === "ArrowUp" || matchKeys(e, "Ctrl-p") || matchKeys(e, "Ctrl-k");
     if (down || up) {
       e.preventDefault();
       const n = this.items.length;

@@ -85,10 +85,22 @@ export class FsContent implements Content {
   }
   remove(rel: string) {
     fs.rmSync(this.abs(rel), { force: true });
+    this.pruneTrash(rel);
   }
   rename(from: string, to: string) {
     fs.mkdirSync(path.dirname(this.abs(to)), { recursive: true });
     fs.renameSync(this.abs(from), this.abs(to));
+    this.pruneTrash(from);
+  }
+  /** Take away the folders a file leaving Trash emptied, up to Trash itself. */
+  private pruneTrash(rel: string) {
+    for (let dir = path.posix.dirname(rel); dir.startsWith(".trash/"); dir = path.posix.dirname(dir)) {
+      try {
+        fs.rmdirSync(this.abs(dir)); // only if empty
+      } catch {
+        return;
+      }
+    }
   }
   stat(rel: string): FileStat | null {
     try {
@@ -113,6 +125,24 @@ export class FsContent implements Content {
       }
     };
     walk("");
+    return out;
+  }
+  listUnder(dir: string) {
+    const out: Array<{ path: string } & FileStat> = [];
+    const walk = (rel: string) => {
+      let ents: fs.Dirent[];
+      try {
+        ents = fs.readdirSync(this.abs(rel), { withFileTypes: true });
+      } catch {
+        return; // no such folder yet
+      }
+      for (const ent of ents) {
+        const child = `${rel}/${ent.name}`;
+        if (ent.isDirectory()) walk(child);
+        else if (ent.isFile()) out.push({ path: child, ...this.stat(child)! });
+      }
+    };
+    walk(dir);
     return out;
   }
 }

@@ -8,7 +8,8 @@ import { html } from "@codemirror/lang-html";
 import { vim, Vim } from "@replit/codemirror-vim";
 import { markdownWithFrontmatter, quireHighlight } from "./language.ts";
 import { livePreview } from "./livePreview.ts";
-import { blockWidgets, editorContext, stepIntoBlocks, type EditorContext } from "./blocks.ts";
+import { blockKeys, blockWidgets, copyCodeKey, editorContext, stepIntoBlocks, type EditorContext } from "./blocks.ts";
+import { lineHint } from "./lineHint.ts";
 import { agentFlash } from "./agentFlash.ts";
 import { typingHelpers } from "./complete.ts";
 import { IS_MAC, sideClick } from "../panes.ts";
@@ -60,7 +61,7 @@ const theme = EditorView.theme({
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--accent)", borderLeftWidth: "2px" },
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": { backgroundColor: "var(--selection) !important" },
   ".cm-selectionMatch": { backgroundColor: "var(--accent-soft)" },
-  ".cm-placeholder": { color: "var(--faint)", fontStyle: "italic" },
+  ".cm-placeholder": { color: "var(--muted)", fontStyle: "italic" },
   ".cm-panels": { backgroundColor: "var(--bg-elev)", color: "var(--ink)", borderTop: "1px solid var(--line)" },
 });
 
@@ -143,7 +144,7 @@ export function createState(opts: {
 }): EditorState {
   const lang: Extension =
     opts.kind === "md"
-      ? [markdownWithFrontmatter(), keymap.of(markdownKeymap), livePreview, linkSideButton, keymap.of([{ key: "Mod-Alt-Enter", run: openLinkToSide }]), taskLineTools, blockWidgets, stepIntoBlocks, linkClicks, typingHelpers()]
+      ? [markdownWithFrontmatter(), keymap.of(markdownKeymap), livePreview, linkSideButton, keymap.of([{ key: "Mod-Alt-Enter", run: openLinkToSide }]), taskLineTools, blockWidgets, stepIntoBlocks, blockKeys, lineHint, linkClicks, typingHelpers()]
       : [html(), indentUnit.of("  ")];
   return EditorState.create({
     doc: opts.doc,
@@ -158,6 +159,7 @@ export function createState(opts: {
       rectangularSelection(),
       highlightSelectionMatches(),
       EditorView.lineWrapping,
+      copyCodeKey,
       keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
       lang,
       syntaxHighlighting(quireHighlight),

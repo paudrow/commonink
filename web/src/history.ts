@@ -7,12 +7,15 @@ import { renderDiff } from "./diff.ts";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
 import { assetIcon, assetType, extOf } from "./assetKinds.ts";
 import { changeVerb, groupChanges, isRename } from "../../src/core/format.ts";
+import { emptyState } from "./emptyState.ts";
 
 type Item = Change & { count: number; first: number };
 
 interface Hooks {
   open(path: string): void;
   toast(t: { text: string; icon?: string; actionLabel?: string; action?: () => void }): void;
+  /** The sidebar's New note (none for a viewer). */
+  newNote?(): void;
 }
 
 const PAGE = 200;
@@ -191,7 +194,7 @@ export class History {
   private renderList() {
     const items = this.visibleItems();
     const chip = (by: string, label: string, ico?: string) =>
-      el("button", { type: "button", class: `chip${this.by === by ? " is-on" : ""}`, onclick: () => void this.setBy(by) }, ico ? icon(ico, 12) : null, label);
+      el("button", { type: "button", class: `chip${this.by === by ? " is-on" : ""}`, "aria-pressed": String(this.by === by), onclick: () => void this.setBy(by) }, ico ? icon(ico, 12) : null, label);
     const agentPick = el(
       "select",
       { class: `hist-agent${this.agentNames.includes(this.by) ? " is-on" : ""}`, title: "One agent's changes", "aria-label": "One agent's changes", onchange: (e: Event) => void this.setBy((e.target as HTMLSelectElement).value) },
@@ -234,11 +237,24 @@ export class History {
       row.addEventListener("click", (e) => this.click(i, e));
       rows.push(row);
     });
-    this.listEl.replaceChildren(...(rows.length ? rows : [el("div", { class: "hist-empty" }, this.by ? "No changes like that yet." : "No changes yet.")]));
+    this.listEl.replaceChildren(...(rows.length ? rows : [this.empty()]));
     void loadStats(items.filter((it) => it.count > 1).map((it) => toRanges(this.idsOf(it)))).then((fresh) => fresh && this.renderList());
     this.moreEl.replaceChildren(
       ...(this.more ? [el("button", { type: "button", class: "link-btn", onclick: () => void this.load(true) }, "Load older changes")] : []),
     );
+  }
+
+  private empty(): HTMLElement {
+    if (this.by) {
+      return emptyState({ icon: "history", title: "No changes like that yet", text: ["History can show everyone's changes, or just people's, agents' or one agent's."], action: { label: "Show every change", run: () => void this.setBy("") } });
+    }
+    const newNote = this.hooks.newNote;
+    return emptyState({
+      icon: "history",
+      title: "No changes yet",
+      text: ["Every edit to a note shows up here with who made it, a person or an agent. You can put any note back the way it was."],
+      action: newNote && !this.note ? { label: "New note", icon: "plus", run: () => newNote() } : null,
+    });
   }
 
   private renderSummary(files: DiffFile[] | null) {

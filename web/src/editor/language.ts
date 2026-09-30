@@ -1,5 +1,6 @@
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { languages } from "@codemirror/language-data";
+import { codeLanguage } from "../codeLanguage.ts";
+import { MathSyntax } from "./mathSyntax.ts";
 import { yamlFrontmatter } from "@codemirror/lang-yaml";
 import { HighlightStyle } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
@@ -38,7 +39,7 @@ export const WikiLinks: MarkdownConfig = {
 
 export const markdownWithFrontmatter = () =>
   yamlFrontmatter({
-    content: markdown({ base: markdownLanguage, codeLanguages: languages, extensions: [WikiLinks] }),
+    content: markdown({ base: markdownLanguage, codeLanguages: codeLanguage, extensions: [WikiLinks, MathSyntax] }),
   });
 
 export const quireHighlight = HighlightStyle.define([
@@ -48,12 +49,12 @@ export const quireHighlight = HighlightStyle.define([
   { tag: t.strikethrough, textDecoration: "line-through", color: "var(--muted)" },
   { tag: t.link, color: "var(--accent)" },
   { tag: t.url, color: "var(--muted)" },
-  { tag: t.processingInstruction, color: "var(--faint)", fontWeight: "400" },
+  { tag: t.processingInstruction, color: "var(--muted)", fontWeight: "400" },
   { tag: t.quote, color: "var(--ink-2)" },
-  { tag: t.contentSeparator, color: "var(--faint)" },
+  { tag: t.contentSeparator, color: "var(--muted)" },
   { tag: t.atom, color: "var(--accent)" },
   { tag: t.monospace, fontFamily: "var(--mono)", fontSize: "0.88em" },
-  { tag: t.meta, color: "var(--faint)" },
+  { tag: t.meta, color: "var(--muted)" },
   // code inside fences, yaml frontmatter, html notes
   { tag: [t.keyword, t.moduleKeyword, t.controlKeyword], color: "var(--c-keyword)" },
   { tag: [t.string, t.special(t.string), t.regexp], color: "var(--c-string)" },

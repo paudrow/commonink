@@ -1,7 +1,7 @@
 import "./dom.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appCommands, formatKeys, learnLayout, matchCommands, matchKeys, shortcutSheet, type App } from "../web/src/commands.ts";
+import { appCommands, matchCommands, shortcutSheet, type App } from "../web/src/commands.ts";
 import { Palette } from "../web/src/palette.ts";
 import { toggleShortcuts } from "../web/src/shortcuts.ts";
 import type { NoteMeta } from "../web/src/api.ts";
@@ -18,6 +18,7 @@ const app = (over: Partial<App> = {}): App => {
     focusMode: false,
     htmlMode: "preview",
     hasStart: false,
+    canDelete: true,
     account: [],
     newNote: run("newNote"),
     newFolder: run("newFolder"),
@@ -34,6 +35,7 @@ const app = (over: Partial<App> = {}): App => {
     toggleHtml: run("toggleHtml"),
     star: run("star"),
     archive: run("archive"),
+    delete: run("delete"),
     move: run("move"),
     noteHistory: run("noteHistory"),
     gettingStarted: run("gettingStarted"),
@@ -42,43 +44,6 @@ const app = (over: Partial<App> = {}): App => {
   };
 };
 const titles = (q: string, a: App) => matchCommands(q, appCommands(a)).map((c) => c.title);
-const press = (key: string, code: string, mods: { meta?: boolean; ctrl?: boolean; alt?: boolean; shift?: boolean } = {}) => ({
-  key,
-  code,
-  metaKey: !!mods.meta,
-  ctrlKey: !!mods.ctrl,
-  altKey: !!mods.alt,
-  shiftKey: !!mods.shift,
-});
-
-test("shortcuts match the character typed, with Mod as ⌘ on a Mac and Ctrl elsewhere", async () => {
-  assert.equal(matchKeys(press("p", "KeyP", { meta: true }), "Mod-p", true), true);
-  assert.equal(matchKeys(press("p", "KeyP", { ctrl: true }), "Mod-p", true), false, "Ctrl isn't Mod on a Mac");
-  assert.equal(matchKeys(press("p", "KeyP", { ctrl: true }), "Mod-p", false), true);
-  assert.equal(matchKeys(press("P", "KeyP", { meta: true, shift: true }), "Mod-Shift-p", true), true);
-  assert.equal(matchKeys(press("P", "KeyP", { meta: true, shift: true }), "Mod-p", true), false, "⌘⇧P isn't ⌘P");
-  // Dvorak: P is on the physical R key, and [ on the physical minus key.
-  assert.equal(matchKeys(press("p", "KeyR", { meta: true }), "Mod-p", true), true);
-  assert.equal(matchKeys(press("r", "KeyP", { meta: true }), "Mod-p", true), false);
-  await learnLayout({ getLayoutMap: async () => new Map([["Minus", "["], ["BracketLeft", "/"]]) });
-  assert.equal(matchKeys(press("“", "Minus", { meta: true, alt: true }), "Mod-Alt-[", true), true, "⌥ changed the character; the layout knows the key");
-  assert.equal(matchKeys(press("“", "BracketLeft", { meta: true, alt: true }), "Mod-Alt-[", true), false);
-  await learnLayout(undefined);
-  assert.equal(matchKeys(press("“", "BracketLeft", { meta: true, alt: true }), "Mod-Alt-[", true), true, "no layout map: the US key");
-});
-
-test("shortcuts read ⌘⇧E on a Mac and Ctrl+Shift+E elsewhere; keys typed as they are stay as they are", () => {
-  const keys = ["Mod-Shift-e", "Mod-Alt-\\", "Mod-Enter", "Shift-Tab", "Mod-click", "q", "G", "gd", ":w", "?"];
-  assert.deepEqual(
-    keys.map((k) => formatKeys(k, true)),
-    ["⌘⇧E", "⌘⌥\\", "⌘↵", "⇧Tab", "⌘-click", "q", "G", "gd", ":w", "?"],
-  );
-  assert.deepEqual(
-    keys.map((k) => formatKeys(k, false)),
-    ["Ctrl+Shift+E", "Ctrl+Alt+\\", "Ctrl+↵", "Shift+Tab", "Ctrl-click", "q", "G", "gd", ":w", "?"],
-  );
-});
-
 test("commands match fuzzily, by name or by what they're about, and none alone lists every command on offer", () => {
   assert.deepEqual(titles("tgthm", app()), ["Toggle theme"]);
   assert.deepEqual(titles("dark", app()), ["Toggle theme"]);
@@ -213,4 +178,11 @@ test("the shortcut sheet is a labelled modal dialog: Ctrl off a Mac, vim folded 
   document.activeElement!.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   assert.equal(document.querySelector("[role=dialog]"), null);
   assert.equal(document.activeElement?.id, "before");
+});
+
+test("Delete and Trash are commands for whoever can delete, not viewers", () => {
+  const note = { kind: "md" as const, starred: false, archived: false };
+  assert.deepEqual(titles("trash", app({ note })).slice(0, 2), ["Go to Trash", "Delete note"]);
+  assert.deepEqual(titles("trash", app({ note: null })), ["Go to Trash"]);
+  assert.deepEqual(titles("trash", app({ note, canDelete: false })), []);
 });

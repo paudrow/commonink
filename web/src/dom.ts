@@ -23,10 +23,31 @@ export function el<K extends keyof HTMLElementTagNameMap>(
     else node.setAttribute(k, v === true ? "" : String(v));
   }
   for (const c of children) if (c !== null && c !== undefined && c !== false) node.append(c);
+  // An icon-only button's tooltip is its name for screen readers too.
+  if (tag === "button" && attrs.title && !attrs["aria-label"] && !node.textContent?.trim()) node.setAttribute("aria-label", attrs.title);
   return node;
 }
 
+/** Name a button: its tooltip and what screen readers say. */
+export function setLabel(node: Element, text: string) {
+  node.setAttribute("title", text);
+  node.setAttribute("aria-label", text);
+}
+
 export const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
+
+/** A toggle's state, shown (`is-on`) and told to screen readers (aria-pressed) together. */
+export function setPressed(node: Element, on: boolean) {
+  node.classList.toggle("is-on", on);
+  node.setAttribute("aria-pressed", String(on));
+}
+
+/** The sidebar entry for what the main view shows, shown (`is-active`) and told to screen readers (aria-current). */
+export function setCurrent(node: Element, on: boolean, cls = "is-active") {
+  node.classList.toggle(cls, on);
+  if (on) node.setAttribute("aria-current", "page");
+  else node.removeAttribute("aria-current");
+}
 
 const ICONS: Record<string, string> = {
   bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
@@ -86,6 +107,8 @@ const ICONS: Record<string, string> = {
   paperclip: '<path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/>',
   upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5M12 3v12"/>',
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5M12 15V3"/>',
+  sigma: '<path d="M18 7V5a1 1 0 0 0-1-1H6.5a.5.5 0 0 0-.4.8l4.5 6a2 2 0 0 1 0 2.4l-4.5 6a.5.5 0 0 0 .4.8H17a1 1 0 0 0 1-1v-2"/>',
+  wrap: '<path d="M3 6h18"/><path d="M3 12h15a3 3 0 1 1 0 6h-4"/><path d="m16 16-2 2 2 2"/><path d="M3 18h7"/>',
   copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
   split: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/>',
   more: '<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>',
@@ -183,6 +206,12 @@ export function timeAgo(ts: number): string {
 
 export const escapeHtml = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+
+/** Whether a key pressed here is someone typing: a field, a text area, or the editor. */
+export function typingIn(target: EventTarget | null): boolean {
+  const t = target as HTMLElement | null;
+  return !!t?.closest?.("input, textarea, select, [contenteditable]:not([contenteditable=false]), .cm-editor");
+}
 
 export const displayName = (p: string) => p.split("/").pop()!.replace(/\.(md|markdown)$/i, "");
 

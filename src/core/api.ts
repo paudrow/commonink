@@ -3,7 +3,8 @@
 import { cleanPath, QuireError } from "./paths.ts";
 import type { ArchiveScope, Change, Quire } from "./quire.ts";
 import type { TaskPatch } from "./tasks.ts";
-import { parseAuthorFilter } from "./actor.ts";
+import { agentSource, parseAuthorFilter } from "./actor.ts";
+import { findStartNote, GUIDE, parseGuideAction, runGuide } from "./guide.ts";
 
 export interface ApiHost {
   quire: Quire;
@@ -18,6 +19,8 @@ export interface ApiHost {
   written(rel: string, content: string | null, version: string, change: Change | null, origin?: string): void;
   /** A note moved (renamed, archived, unarchived). */
   moved(from: string, to: string, version: string, change: Change | null): void;
+  /** A note or asset went to Trash. */
+  removed(rel: string, change: Change): void;
   /** The set of notes changed. */
   tree(): void;
 }
@@ -56,7 +59,8 @@ function taskPatch(v: unknown): TaskPatch {
       k === "checked" ? typeof x === "boolean"
       : k === "summary" ? typeof x === "string"
       : k === "assignees" || k === "tags" ? Array.isArray(x) && x.every((s) => typeof s === "string")
-      : ["due", "start", "done", "rec", "priority"].includes(k) ? x === null || typeof x === "string"
+      : ["due", "start", "done", "rec", "until", "priority"].includes(k) ? x === null || typeof x === "string"
+      : k === "times" ? x === null || typeof x === "number"
       : false;
     if (!ok) throw new QuireError(`"patch.${k}" isn't a task field or has the wrong type`);
     out[k] = x;
@@ -130,6 +134,11 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     });
     host.tree();
     return json({ moved });
+  };
+
+  const trashed = (gone: ReturnType<Quire["delete"]>) => {
+    for (const g of gone) host.removed(g.path, g.change);
+    return gone.map(({ id, path }) => ({ id, path }));
   };
 
   /** Favorites changed: the person's other tabs pick them up when they refresh. */
@@ -269,7 +278,7 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json({ changes: r.edits.map((e) => e.change.id), assets: r.assets });
     }
     case "POST /restore": {
-      const r = quire.restore(int("id"), actor);
+      const r = quire.restore(int("id"), actor, optStr("version"));
       if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
       return json({ path: r.path, version: r.version, change: r.change?.id ?? null }); // restoring `change` undoes this
     }
@@ -290,8 +299,49 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       host.tree();
       return json(list);
     }
+    case "GET /guide":
+      return json(findStartNote(quire)?.state ?? null);
+    // The guide ticks its own checklist as the person tries things. Only these fixed edits, and
+    // only in the start note, so this can't be used to write anything else under the guide's name.
+    case "POST /guide": {
+      const r = runGuide(quire, parseGuideAction(str("action")), agentSource(GUIDE, actor));
+      if (r.write) host.written(r.write.path, r.write.content, r.write.version, r.write.change);
+      return json(r.state);
+    }
     case "POST /archive":
       return moveAll(paths("paths"), (p) => quire.archive(p, actor));
+    // Trash. Deleting sends notes, assets or a folder's contents there; `trashed` is what Undo restores.
+    case "GET /delete-check":
+      return json(quire.deleteCheck(url.searchParams.getAll("path"), q("folder") || undefined));
+    case "POST /delete": {
+      const out = trashed(quire.delete(paths("paths"), actor));
+      host.tree();
+      return json({ trashed: out });
+    }
+    case "POST /delete-folder": {
+      const notes = str("notes");
+      if (notes !== "trash" && notes !== "lift") throw new QuireError(`"notes" must be "trash" or "lift"`);
+      const r = quire.deleteFolder(str("folder"), notes, actor);
+      for (const m of r.moved) {
+        for (const e of m.edits) host.written(e.path, e.content, e.version, e.change);
+        host.moved(m.from, m.path, m.version, m.change);
+      }
+      const out = trashed(r.deleted);
+      host.tree();
+      return json({ trashed: out, moved: r.moved.map((m) => ({ from: m.from, to: m.path })) });
+    }
+    case "GET /trash":
+      return json(quire.trash());
+    case "POST /trash/restore": {
+      const back = quire.untrash(paths("ids"), actor);
+      for (const b of back) host.written(b.path, quire.files.read(b.path), b.version, b.change);
+      host.tree();
+      return json({ restored: back.map((b) => b.path) });
+    }
+    case "POST /trash/delete":
+      return json({ deleted: quire.purge(paths("ids"), actor) });
+    case "POST /trash/empty":
+      return json({ deleted: quire.emptyTrash(actor) });
     case "POST /unarchive":
       return moveAll(paths("paths"), (p) => quire.unarchive(p, actor));
   }

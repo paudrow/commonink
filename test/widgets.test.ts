@@ -7,7 +7,7 @@ import { parseAttrs, serializeAttrs } from "../src/core/directive.ts";
 import { parseQuery } from "../src/core/query.ts";
 import { EditorState } from "@codemirror/state";
 import { history, undo } from "@codemirror/commands";
-import { HINTS, taskLineEdit, taskTools, taskToolsAt } from "../web/src/editor/taskEdit.ts";
+import { convertPhrases, HINTS, phraseTab, phrasesAt, taskLineEdit, taskPhrases, taskTools, taskToolsAt } from "../web/src/editor/taskEdit.ts";
 import { dayPicks, taskTokenSource } from "../web/src/editor/taskComplete.ts";
 import { withTaskChips } from "../web/src/taskChips.ts";
 import type { TaskPatch } from "../src/core/tasks.ts";
@@ -163,6 +163,50 @@ test("each hint word's editor writes its token at its place among the tokens, as
     undo({ state, dispatch: (tr) => (state = tr.state) });
     assert.equal(state.doc.line(1).text, line);
   }
+});
+
+test("phrases on the cursor's task line are only marked, and become tokens on Tab or a click, in one undoable change", () => {
+  const doc = "- [ ] Call mom tomorrow every week\nCall the bank tomorrow\n```\n- [ ] in code tomorrow\n```";
+  const st = (line: number) => at(doc, line);
+  const spans = phrasesAt(st(1), "2026-09-28")!;
+  assert.deepEqual(spans.phrases.map((p) => [st(1).sliceDoc(p.from, p.to), p.kind]), [["tomorrow", "due"], ["every week", "rec"]]);
+  assert.equal(phrasesAt(st(2), "2026-09-28"), null); // not a task line
+  assert.equal(phrasesAt(st(4), "2026-09-28"), null); // in code
+  // Marked, not changed: the document is what was typed.
+  assert.equal(st(1).doc.toString(), doc);
+  // Tab: all of them, in one change that one undo takes back.
+  let state = EditorState.create({ doc, extensions: [history()] });
+  state = state.update(convertPhrases(state, 1, "2026-09-28")!).state;
+  assert.equal(state.doc.line(1).text, "- [ ] Call mom due:2026-09-29 rec:weekly");
+  undo({ state, dispatch: (tr) => (state = tr.state) });
+  assert.equal(state.doc.toString(), doc);
+  // A click: just that phrase.
+  state = state.update(convertPhrases(state, 1, "2026-09-28", "every week")!).state;
+  assert.equal(state.doc.line(1).text, "- [ ] Call mom tomorrow due:2026-09-28 rec:weekly");
+  assert.equal(convertPhrases(EditorState.create({ doc: "- [ ] Nothing to read" }), 1, "2026-09-28"), null);
+  // A ticked task keeps its box; indentation stays.
+  const done = EditorState.create({ doc: "  - [x] Filed tomorrow" });
+  assert.equal(done.update(convertPhrases(done, 1, "2026-09-28")!).state.doc.toString(), "  - [x] Filed due:2026-09-29");
+});
+
+test("the cursor's task line underlines its phrases; Tab right after one turns the line's phrases into tokens", () => {
+  const doc = "- [ ] Call mom tomorrow about the trip every week\nplain line";
+  const marks = (s: EditorState) => {
+    const out: string[] = [];
+    s.field(field).between(0, s.doc.length, (from, to, d) => void out.push(`${s.sliceDoc(from, to)}|${d.spec.class}|${d.spec.attributes.title}`));
+    return out;
+  };
+  const field = taskPhrases(() => "2026-09-28");
+  const on = (line: number, ch = -1) => EditorState.create({ doc, extensions: [markdown(), field], selection: { anchor: ch < 0 ? at(doc, line).selection.main.head : at(doc, line, ch).selection.main.head } });
+  assert.deepEqual(marks(on(1)), ["tomorrow|cm-phrase is-due|Tab or click: due:2026-09-29", "every week|cm-phrase is-rec|Tab or click: rec:weekly"]);
+  assert.deepEqual(marks(on(2)), [], "only the cursor's line, and only a task");
+  // Tab touches the document only right after (or inside) a phrase; anywhere else it's Tab as usual.
+  const afterTomorrow = at(doc, 1, "- [ ] Call mom tomorrow".length);
+  assert.equal(afterTomorrow.update(phraseTab(afterTomorrow, "2026-09-28")!).state.doc.line(1).text, "- [ ] Call mom about the trip due:2026-09-29 rec:weekly");
+  assert.equal(phraseTab(at(doc, 1, "- [ ] Call mom tomorrow about".length), "2026-09-28"), null);
+  assert.ok(phraseTab(at(doc, 1, "- [ ] Call mom tomorrow about the trip every".length), "2026-09-28"), "inside a phrase");
+  assert.ok(phraseTab(at(doc, 1, "- [ ] Call mom tomorrow ".length), "2026-09-28"), "a space after it still counts");
+  assert.equal(phraseTab(at(doc, 2), "2026-09-28"), null);
 });
 
 test("a Notes card shows a task's words, then its chips where its tokens were; code keeps its text", () => {

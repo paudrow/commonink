@@ -1,8 +1,8 @@
 // Block-level live preview: whole-line embeds, tables and frontmatter render as widgets.
 // Block decorations must come from a StateField (they change vertical layout).
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
-import { EditorSelection, EditorState, Facet, StateEffect, StateField, type Range, type Text } from "@codemirror/state";
-import { Decoration, EditorView, WidgetType, type DecorationSet } from "@codemirror/view";
+import { EditorSelection, EditorState, Facet, Prec, StateEffect, StateField, type Line, type Range, type StateCommand, type Text } from "@codemirror/state";
+import { Decoration, EditorView, keymap, WidgetType, type DecorationSet } from "@codemirror/view";
 import { api, assetUrl } from "../api.ts";
 import { el, icon } from "../dom.ts";
 import { currentScheme, embedKindOf, renderMarkdown, sandboxFrame, sectionOf, type EmbedKind } from "../render.ts";
@@ -19,6 +19,10 @@ import { boardsIn, unclosedBoard } from "../../../src/core/kanban.ts";
 // Boards load with the first note that has one.
 import type { BoardHost, mountBoard } from "../kanban.ts";
 import { editsBetween } from "../merge.ts";
+import { codeWrapByDefault, copyCode, hydrateCode, renderCodeBlock } from "../code.ts";
+import { hydrateMath } from "../math.ts";
+import { blockTex, inlineTex, MathWidget } from "./mathWidgets.ts";
+import { matchKeys } from "../keys.ts";
 import { redo, undo } from "@codemirror/commands";
 import { safeDecode } from "../../../src/core/uri.ts";
 
@@ -116,6 +120,7 @@ class EmbedWidget extends WidgetType {
           ? el("img", { src, alt: this.target, draggable: "false", onload: settle, onerror: () => missing() })
           : el("video", { src, controls: true, preload: "metadata", onloadedmetadata: settle });
       wrap.append(el("figure", {}, media));
+      if (this.kind === "video") wrap.append(editButton(view, wrap, "Edit the embed line"));
       wrap.addEventListener("mousedown", (e) => {
         if (this.kind === "image") {
           e.preventDefault();
@@ -208,6 +213,8 @@ class EmbedWidget extends WidgetType {
         const md = heading ? sectionOf(note.content, heading) : note.content;
         body.innerHTML = renderMarkdown(md, path, { boards: !heading });
         hydrateDataEmbeds(body, path, settle);
+        hydrateCode(body);
+        hydrateMath(body);
         body.querySelectorAll("input").forEach((i) => (i.disabled = true));
         if (body.querySelector(".kb-slot[data-board]")) {
           void import("../kanban.ts").then((m) => ((outer as any).stopBoards = m.hydrateBoards(body, path, { ctx, readOnly: view.state.readOnly, resized: settle })));
@@ -250,6 +257,17 @@ function sourceBar(view: EditorView, wrap: HTMLElement, label: string, url: stri
   );
 }
 
+/** A code button over a card's corner, shown on hover, that brings back the card's markdown line. */
+function editButton(view: EditorView, wrap: HTMLElement, title: string) {
+  const edit = el("button", { class: "embed-btn bm-edit", title, "aria-label": title, type: "button" }, icon("code", 14));
+  edit.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    reveal(view, wrap);
+  });
+  return edit;
+}
+
 /** A link card for any other pasted URL: title, description, site and image from the page's OpenGraph tags. */
 function bookmark(view: EditorView, wrap: HTMLElement, url: string, settle: () => void) {
   let host = url;
@@ -258,12 +276,7 @@ function bookmark(view: EditorView, wrap: HTMLElement, url: string, settle: () =
   } catch {}
   wrap.className = "cm-embed is-bookmark";
   const card = el("div", { class: "bookmark", title: url }, el("div", { class: "bm-text" }, el("div", { class: "bm-title" }, host), el("div", { class: "bm-site" }, url)));
-  const edit = el("button", { class: "embed-btn bm-edit", title: "Edit the link", type: "button" }, icon("code", 14));
-  edit.addEventListener("mousedown", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    reveal(view, wrap);
-  });
+  const edit = editButton(view, wrap, "Edit the link");
   card.addEventListener("mousedown", (e) => e.preventDefault());
   card.addEventListener("click", () => window.open(url, "_blank", "noopener"));
   wrap.replaceChildren(card, edit);
@@ -327,6 +340,7 @@ class DirectiveWidget extends WidgetType {
         env.update({ ...args, id });
       },
       focusEditor: () => view.focus(),
+      editSource: () => reveal(view, root),
       open: (target, line, side) => view.state.facet(editorContext).openTarget(line ? `${target}#L${line}` : target, this.note, { side }),
       openTag: (tag) => view.state.facet(editorContext).openTag(tag, "tasks"),
       saveSmartFolder: (query, name, anchor) => view.state.facet(editorContext).saveSmartFolder(query, name, anchor),
@@ -443,6 +457,32 @@ class BoardWidget extends WidgetType {
   }
 }
 
+/**
+ * Stands in for an embed's or widget's markdown line while the cursor is elsewhere: a thin edge
+ * above the card. Moving the cursor onto the line, or pressing the edge, shows the markdown again.
+ */
+class SourceGap extends WidgetType {
+  eq() {
+    return true;
+  }
+  get estimatedHeight() {
+    return 8;
+  }
+  ignoreEvent() {
+    return true;
+  }
+  toDOM(view: EditorView) {
+    const gap = el("div", { class: "cm-embed-gap", "aria-hidden": "true" });
+    gap.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      view.dispatch({ selection: { anchor: view.state.doc.lineAt(view.posAtDOM(gap)).to } });
+      view.focus();
+    });
+    return gap;
+  }
+}
+const sourceGap = Decoration.replace({ block: true, widget: new SourceGap(), hiddenSource: true });
+
 /** A quiet note under a line, for markdown that almost makes a block. */
 class HintWidget extends WidgetType {
   constructor(readonly text: string) {
@@ -453,6 +493,116 @@ class HintWidget extends WidgetType {
   }
   toDOM() {
     return el("div", { class: "cm-block-hint" }, icon("spark", 12), this.text);
+  }
+}
+
+/**
+ * Display math from `first` to `last`: drawn in their place, or, while the cursor is in them, drawn
+ * under them as a live preview (the way diagrams are).
+ */
+function mathBlock(state: EditorState, first: Line, last: Line, tex: string): Range<Decoration> {
+  if (!touches(state, first.from, last.to)) return Decoration.replace({ block: true, widget: new MathWidget(tex, true) }).range(first.from, last.to);
+  const widget = new MathWidget(tex, true, true);
+  return last.number < state.doc.lines
+    ? Decoration.widget({ block: true, side: -1, widget }).range(last.to + 1)
+    : Decoration.widget({ block: true, side: 1, widget }).range(last.to);
+}
+
+/**
+ * The code lines of the fenced block at `pos` (from the start of the first to the end of the last,
+ * without the fences), and how far the fence is indented; null if `pos` isn't in one.
+ */
+export function codeRange(state: EditorState, pos: number): { from: number; to: number; indent: number } | null {
+  for (let n: any = syntaxTree(state).resolveInner(pos, -1); n; n = n.parent) {
+    if (n.name !== "FencedCode") continue;
+    const doc = state.doc;
+    const first = doc.lineAt(n.from);
+    const last = lastLine(doc, n.from, n.to);
+    const closed = last.number > first.number && /^\s*(```|~~~)/.test(last.text);
+    const end = closed ? last.from - 1 : last.to;
+    return { from: Math.min(first.to + 1, end), to: Math.max(first.to, end), indent: first.text.match(/^\s*/)![0].length };
+  }
+  return null;
+}
+
+/** The code of the fenced block at `pos`, without its fences or their indent; null if `pos` isn't in one. */
+export function codeAt(state: EditorState, pos: number): string | null {
+  const r = codeRange(state, pos);
+  if (!r) return null;
+  if (r.to <= r.from) return "";
+  return state.doc.sliceString(r.from, r.to).split("\n").map((l) => l.slice(Math.min(r.indent, l.match(/^\s*/)![0].length))).join("\n");
+}
+
+/** Copy the code of the block the cursor is in (Mod-Shift-C). Only in a code block; elsewhere the key passes. */
+export const copyCodeCommand = (view: EditorView) => {
+  const code = codeAt(view.state, view.state.selection.main.head);
+  if (code === null) return false;
+  void copyCode(code);
+  return true;
+};
+
+/**
+ * ⌘⇧C (Ctrl+Shift+C off a Mac) by the character typed, so it's the key that types "c" on Dvorak
+ * too. A CodeMirror keymap can fall back to the key's US position when the browser reports one.
+ */
+export const copyCodeKey = Prec.highest(
+  EditorView.domEventHandlers({
+    keydown(e, view) {
+      if (!matchKeys(e, "Mod-Shift-c") || !copyCodeCommand(view)) return false;
+      e.preventDefault();
+      return true;
+    },
+  }),
+);
+
+/**
+ * A fenced code block while the cursor is elsewhere: drawn like rendered markdown's (code.ts), with
+ * copy, wrap and language on hover. A click in the code puts the cursor there.
+ */
+class CodeWidget extends WidgetType {
+  constructor(
+    readonly code: string,
+    readonly info: string,
+    readonly indent: number,
+    readonly wrapByDefault: boolean,
+  ) {
+    super();
+  }
+  eq(o: CodeWidget) {
+    return o.code === this.code && o.info === this.info && o.indent === this.indent && o.wrapByDefault === this.wrapByDefault;
+  }
+  get estimatedHeight() {
+    return heights.get(`c|${this.info}|${this.code}`) ?? 40 + this.code.split("\n").length * 22;
+  }
+  ignoreEvent() {
+    return true;
+  }
+  toDOM(view: EditorView) {
+    // Spacing is the wrapper's padding, never a margin: CodeMirror measures a block widget without
+    // its margins, and heights it gets wrong send the cursor past blocks when it moves up or down.
+    const dom = el("div", { class: "cm-code-widget" });
+    /** The opening fence's line, wherever the block is now. */
+    const fence = () => view.state.doc.lineAt(view.posAtDOM(dom));
+    const block = renderCodeBlock(this.code, this.info, {
+      setInfo: view.state.readOnly
+        ? undefined
+        : (info) => {
+            const line = fence();
+            const m = line.text.match(/^(\s*(?:`{3,}|~{3,})\s*)(.*)$/);
+            if (m) view.dispatch({ changes: { from: line.from + m[1].length, to: line.to, insert: info } });
+          },
+      edit: (n, column) => {
+        const doc = view.state.doc;
+        const line = doc.line(Math.min(fence().number + 1 + n, doc.lines));
+        view.dispatch({ selection: { anchor: Math.min(line.to, line.from + this.indent + column) } });
+        view.focus();
+      },
+    });
+    dom.append(block);
+    requestAnimationFrame(() => {
+      if (dom.isConnected) heights.set(`c|${this.info}|${this.code}`, dom.offsetHeight);
+    });
+    return dom;
   }
 }
 
@@ -657,11 +807,25 @@ function buildBlocks(state: EditorState): DecorationSet {
       }
       if (ref.name === "FencedCode") {
         const info = ref.node.getChild("CodeInfo");
-        if (!info || doc.sliceString(info.from, info.to).trim().toLowerCase() !== "mermaid") return false;
+        const infoText = info ? doc.sliceString(info.from, info.to).trim() : "";
         const first = doc.lineAt(ref.from);
         const last = lastLine(doc, ref.from, ref.to);
         if (last.number === first.number) return false;
         const closed = /^\s*(```|~~~)/.test(last.text);
+        if (/^math$/i.test(infoText) && closed) {
+          const tex = doc.sliceString(first.to + 1, Math.max(first.to + 1, last.from - 1)).trim();
+          if (tex) out.push(mathBlock(state, first, last, tex));
+          return false;
+        }
+        if (infoText.toLowerCase() !== "mermaid") {
+          // Any other closed block draws as a code block until the cursor goes in.
+          if (closed && !touches(state, first.from, last.to)) {
+            const indent = first.text.match(/^\s*/)![0].length;
+            const code = doc.sliceString(first.to + 1, Math.max(first.to + 1, last.from - 1)).split("\n").map((l) => l.slice(Math.min(indent, l.match(/^\s*/)![0].length))).join("\n");
+            out.push(Decoration.replace({ block: true, widget: new CodeWidget(code, infoText, indent, codeWrapByDefault()) }).range(first.from, last.to));
+          }
+          return false;
+        }
         const code = doc.sliceString(first.to + 1, closed ? Math.max(first.to + 1, last.from - 1) : last.to);
         const widget = new DiagramWidget(code, embedRev);
         if (touches(state, first.from, last.to)) {
@@ -676,6 +840,13 @@ function buildBlocks(state: EditorState): DecorationSet {
         }
         return false;
       }
+      if (ref.name === "BlockMath") {
+        const first = doc.lineAt(ref.from);
+        const last = lastLine(doc, ref.from, ref.to);
+        const tex = blockTex(doc.sliceString(first.from, last.to));
+        if (tex) out.push(mathBlock(state, first, last, tex));
+        return false;
+      }
       if (ref.name === "Table") {
         const first = doc.lineAt(ref.from);
         const last = lastLine(doc, ref.from, ref.to);
@@ -686,16 +857,23 @@ function buildBlocks(state: EditorState): DecorationSet {
         return false;
       }
       if (ref.name === "Paragraph") {
+        // Math across whole lines of a paragraph ($$ lines straight under text) draws as a block.
+        for (const m of ref.node.getChildren("InlineMath")) {
+          const source = doc.sliceString(m.from, m.to);
+          const [top, bottom] = [doc.lineAt(m.from), doc.lineAt(m.to)];
+          const math = source.includes("\n") ? inlineTex(source) : null;
+          if (math && !doc.sliceString(top.from, m.from).trim() && !doc.sliceString(m.to, bottom.to).trim()) out.push(mathBlock(state, top, bottom, math.tex));
+        }
         const first = doc.lineAt(ref.from).number;
         const last = lastLine(doc, ref.from, ref.to).number;
         for (let l = first; l <= last; l++) {
           const line = doc.line(l);
           if (hidden(line.from)) continue;
-          // The markdown line stays visible (as a quiet caption) above what it renders, so the
-          // cursor can move onto it and edit it like any other line.
+          // The markdown line shows above what it renders only while the cursor or selection is on
+          // it. Elsewhere it's hidden, but still a line: the cursor steps onto it like any other.
           const place = (widget: WidgetType) => {
-            const active = touches(state, line.from, line.to);
-            out.push(Decoration.line({ class: active ? "cm-embed-src is-active" : "cm-embed-src" }).range(line.from));
+            if (touches(state, line.from, line.to)) out.push(Decoration.line({ class: "cm-embed-src" }).range(line.from));
+            else out.push(sourceGap.range(line.from, line.to));
             // Hang the card off the start of the *next* line: attached to the end of the source
             // line, the two form one tall block that vertical cursor motion jumps over.
             out.push(
@@ -741,12 +919,13 @@ export const blockWidgets = StateField.define<DecorationSet>({
 });
 
 /**
- * Tables and frontmatter collapse into rendered cards, and vertical cursor motion (j/k, arrows)
- * would step straight over them. When a one-step move jumps a collapsed block, land inside it
- * instead, which expands it for editing.
+ * Tables, frontmatter and the markdown lines of embeds and widgets collapse into rendered cards,
+ * and vertical cursor motion (j/k, arrows) would step straight over them. When a one-step move
+ * jumps a collapsed block, land inside it instead, which expands it for editing. A click lands
+ * where it was clicked. (Vim's j/k carry no user event, so this can't wait for a "select".)
  */
 export const stepIntoBlocks = EditorState.transactionFilter.of((tr) => {
-  if (!tr.selection || tr.docChanged || tr.selection.ranges.length > 1) return tr;
+  if (!tr.selection || tr.docChanged || tr.selection.ranges.length > 1 || tr.isUserEvent("select.pointer")) return tr;
   const start = tr.startState;
   const deco = start.field(blockWidgets, false);
   if (!deco) return tr;
@@ -769,3 +948,39 @@ export const stepIntoBlocks = EditorState.transactionFilter.of((tr) => {
   if (target === null || Math.abs(b - a) - hidden !== 1) return tr;
   return [tr, { selection: EditorSelection.single(tr.selection.main.empty ? target : tr.selection.main.anchor, target), sequential: true }];
 });
+
+/** Line `n`, if it's an embed's or widget's markdown line and hidden right now. */
+export function hiddenSource(state: EditorState, n: number) {
+  if (n < 1 || n > state.doc.lines) return null;
+  const line = state.doc.line(n);
+  let hidden = false;
+  state.field(blockWidgets, false)?.between(line.from, line.from, (from, _to, d) => {
+    if (from === line.from && d.spec.hiddenSource) hidden = true;
+  });
+  return hidden ? line : null;
+}
+
+/**
+ * Backspace at the start of the line after a card, or Delete at the end of the line before one,
+ * would join that line's text onto the card's hidden markdown and break the card. Select the
+ * markdown instead: it shows, and a second press deletes it. From an empty line the key works as usual.
+ */
+export const selectSource =
+  (dir: -1 | 1): StateCommand =>
+  ({ state, dispatch }) => {
+    const sel = state.selection;
+    if (sel.ranges.length > 1 || !sel.main.empty) return false;
+    const here = state.doc.lineAt(sel.main.head);
+    if (!here.length || sel.main.head !== (dir < 0 ? here.from : here.to)) return false;
+    const src = hiddenSource(state, here.number + dir);
+    if (!src) return false;
+    dispatch(state.update({ selection: { anchor: src.from, head: src.to }, scrollIntoView: true }));
+    return true;
+  };
+
+export const blockKeys = Prec.high(
+  keymap.of([
+    ...["Backspace", "Mod-Backspace", "Alt-Backspace"].map((key) => ({ key, run: selectSource(-1) })),
+    ...["Delete", "Mod-Delete", "Alt-Delete"].map((key) => ({ key, run: selectSource(1) })),
+  ]),
+);

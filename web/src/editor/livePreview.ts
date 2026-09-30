@@ -9,6 +9,8 @@ import { today, tokenChip } from "../taskChips.ts";
 import { openChipEditor } from "../taskChipEditors.ts";
 import { taskLineEdit } from "./taskEdit.ts";
 import { lineTaskContext } from "./taskTools.ts";
+import { inlineTex, MathWidget } from "./mathWidgets.ts";
+import { did } from "../events.ts";
 
 const hide = Decoration.replace({});
 
@@ -73,6 +75,7 @@ class CheckboxWidget extends WidgetType {
       const spec = taskLineEdit(view.state, line.number, line.text, { checked: !this.checked }, today());
       if (spec) view.dispatch(spec);
       else view.dispatch({ changes: { from: this.pos + 1, to: this.pos + 2, insert: this.checked ? " " : "x" } });
+      if (!this.checked) did("tick");
     });
     return box;
   }
@@ -273,7 +276,7 @@ function build(view: EditorView): DecorationSet {
           }
           case "WikiLink":
           case "Embed": {
-            // A whole-line ![[embed]] is shown raw: it's the caption above the rendered embed.
+            // A whole-line ![[embed]] is shown raw: it's the line above the rendered embed, there while the cursor is on it.
             if (name === "Embed" && doc.lineAt(ref.from).text.trim() === doc.sliceString(ref.from, ref.to)) return false;
             const bang = name === "Embed" ? 1 : 0;
             const inner = doc.sliceString(ref.from + 2 + bang, ref.to - 2);
@@ -360,6 +363,26 @@ function build(view: EditorView): DecorationSet {
               if (closing && last.number > first.number) out.push(hide.range(last.from, last.to));
             }
             return false;
+          }
+          case "InlineMath": {
+            // Drawn while the cursor is off it; its source while it's on it. Math across lines (a $$ block
+            // straight under text) can't be drawn from here: blocks.ts draws it.
+            const source = doc.sliceString(ref.from, ref.to);
+            const math = inlineTex(source);
+            if (math && !source.includes("\n") && !touches(state, ref.from, ref.to)) out.push(Decoration.replace({ widget: new MathWidget(math.tex, math.display) }).range(ref.from, ref.to));
+            else out.push(Decoration.mark({ class: "cm-math-source" }).range(ref.from, ref.to));
+            return false;
+          }
+          case "BlockMath": {
+            // Blocks draw in blocks.ts; while one is being edited, its lines read as source.
+            const first = doc.lineAt(ref.from).number;
+            const last = endLine(state, ref.from, ref.to).number;
+            for (let l = first; l <= last; l++) out.push(Decoration.line({ class: "cm-math-block-source" }).range(doc.line(l).from));
+            return false;
+          }
+          case "Comment": {
+            if (!touches(state, ref.from, ref.to)) out.push(hide.range(ref.from, ref.to)); // <!-- notes --> in a line, like the guide's markers
+            return;
           }
           case "HTMLBlock":
           case "CommentBlock": {

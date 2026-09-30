@@ -1,9 +1,20 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { formatRule, nextDue, occurrences, parseRule, ruleLabel, ruleProblem } from "../src/core/recurrence.ts";
+import { endsLabel, formatRule, nextDue, occurrences, parseRule, ruleLabel, ruleProblem } from "../src/core/recurrence.ts";
 
 const next = (token: string, due: string | null, done = "2026-01-01") => nextDue(parseRule(token)!, due, done);
 const three = (token: string, from: string) => occurrences(parseRule(token)!, from, 3);
+
+test("an RRULE can end with COUNT or UNTIL, and a rule's ends read as words", () => {
+  const counted = parseRule("RRULE:FREQ=MONTHLY;BYMONTHDAY=6;COUNT=5")!;
+  assert.deepEqual([counted.count, counted.until], [5, undefined]);
+  assert.equal(formatRule(counted), "RRULE:FREQ=MONTHLY;BYMONTHDAY=6;COUNT=5");
+  assert.equal(parseRule("RRULE:FREQ=WEEKLY;UNTIL=20270630T000000Z")!.until, "2027-06-30");
+  assert.equal(formatRule(parseRule("RRULE:FREQ=WEEKLY;UNTIL=20270630")!), "RRULE:FREQ=WEEKLY;UNTIL=20270630");
+  assert.deepEqual(["RRULE:FREQ=WEEKLY;COUNT=0", "RRULE:FREQ=WEEKLY;UNTIL=2027", "RRULE:FREQ=WEEKLY;UNTIL=20270231"].map(parseRule), [null, null, null]);
+  assert.deepEqual([endsLabel({ times: 5, until: null }), endsLabel({ times: null, until: "2027-06-30" }), endsLabel({ times: 2, until: "2027-06-30" }), endsLabel({ times: null, until: null })], ["5 left", "until Jun 30", "2 left · until Jun 30", ""]);
+  assert.deepEqual([endsLabel({ times: 5, until: null }, true), endsLabel({ times: 1, until: null }, true), endsLabel({ times: null, until: "2027-06-30" }, true)], [", 5 more times", ", this is the last time", ", until June 30, 2027"]);
+});
 
 test("every token reads to a rule and writes back as itself", () => {
   const tokens = [
@@ -15,7 +26,7 @@ test("every token reads to a rule and writes back as itself", () => {
   for (const t of tokens) assert.equal(formatRule(parseRule(t)!), t, t);
   assert.deepEqual(["1y", "+1w", "1d"].map((t) => formatRule(parseRule(t)!)), ["yearly", "weekly", "daily"]); // a gap of one is written as its word; todo.txt's +1w reads as ours (from the due date)
   assert.equal(formatRule(parseRule("RRULE:FREQ=WEEKLY;BYDAY=MO,TH")!), "mon,thu"); // an RRULE we have a word for
-  assert.deepEqual(["2 weeks", "after-1st-tue", "RRULE:FREQ=HOURLY", "RRULE:FREQ=DAILY;COUNT=3", "0d", "32nd", "5th-sun-feb-x"].map(parseRule), [null, null, null, null, null, null, null]);
+  assert.deepEqual(["2 weeks", "after-1st-tue", "RRULE:FREQ=HOURLY", "RRULE:FREQ=DAILY;COUNT=0", "0d", "32nd", "5th-sun-feb-x"].map(parseRule), [null, null, null, null, null, null, null]);
 });
 
 test("from the due date: a bill due on the 6th and paid early is next due on the 6th", () => {
