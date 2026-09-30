@@ -27,10 +27,10 @@ async function call(name: string, args: Record<string, unknown>) {
 test("the server lists every tool", async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
-    "add_card", "add_task", "append_to_note", "archive_note", "backlinks", "create_note", "delete_note", "delete_smart_folder",
-    "edit_card", "edit_note", "get_today", "list_notes", "list_smart_folders", "list_tags", "list_tasks",
-    "move_card", "move_note", "move_task", "read_board", "read_note", "recent_changes", "save_smart_folder",
-    "search_notes", "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag", "update_task",
+    "add_card", "add_task", "append_to_note", "archive_note", "backlinks", "create_contact", "create_note", "delete_note", "delete_smart_folder",
+    "edit_card", "edit_note", "get_today", "import_contacts", "list_contacts", "list_notes", "list_smart_folders", "list_tags", "list_tasks",
+    "merge_contacts", "move_card", "move_note", "move_task", "read_board", "read_contact", "read_note", "recent_changes", "save_smart_folder",
+    "search_notes", "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag", "update_contact", "update_task",
   ]);
 });
 
@@ -147,4 +147,21 @@ test("an agent's delete goes to Trash, attributed to it, and it has no way to de
   assert.equal((await call("read_note", { path: "Scratch" })).isError, true);
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).filter((n) => /trash|purge|forever/.test(n)), []);
+});
+
+test("agents keep contacts: create, list, read one with where they're mentioned, update, import and merge", async () => {
+  const made = await call("create_contact", { name: "Priya Shah", email: ["priya@initech.com"], company: "Initech", tags: ["client"] });
+  assert.equal(made.text, "Created People/Priya Shah.md. Link to them with [[People/Priya Shah]].");
+  await call("create_note", { path: "Journal/2026-09-18", content: "# Sep 18\n\nDemo for [[People/Priya Shah]].\n" });
+  const list = await call("list_contacts", { company: "initech" });
+  assert.equal(list.text, "People/Priya Shah.md — Priya Shah · Initech · priya@initech.com #client · last mentioned 2026-09-18 (1 note)");
+  assert.match((await call("list_contacts", { q: "nobody" })).text, /No contacts match/);
+  const one = await call("read_contact", { contact: "Priya Shah" });
+  assert.equal(one.text, "# Priya Shah (People/Priya Shah.md)\nemail: priya@initech.com\ncompany: Initech\ntags: #client\n\nMentioned in:\n- 2026-09-18 Journal/2026-09-18.md:3 Demo for [[People/Priya Shah]].");
+  assert.match((await call("update_contact", { contact: "Priya Shah", role: "VP Eng" })).text, /^Updated People\/Priya Shah\.md/);
+  const imported = await call("import_contacts", { format: "vcard", text: "BEGIN:VCARD\nFN:P. Shah\nEMAIL:priya@initech.com\nTEL:555-0142\nEND:VCARD\nBEGIN:VCARD\nFN:Tom Wu\nEND:VCARD\n" });
+  assert.equal(imported.text, "Created 1: People/Tom Wu.md\nUpdated 1: People/Priya Shah.md");
+  const merged = await call("merge_contacts", { keep: "Priya Shah", drop: "Tom Wu" });
+  assert.equal(merged.text, "Merged People/Tom Wu.md into People/Priya Shah.md (it's in Trash). Links updated in 0 notes.");
+  assert.equal((await call("read_contact", { contact: "Journal/2026-09-18" })).isError, true);
 });

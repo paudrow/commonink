@@ -157,6 +157,24 @@ export function contactNote(c: ContactFields, existing?: string): string {
   return lines.length ? `---\n${lines.join("\n")}\n---\n${body}` : body;
 }
 
+/**
+ * The contacts that match: `q`'s words each in their name, an alias, an email or their company;
+ * `company` in their company; `tag` on them (or a tag under it). Any case.
+ */
+export function matchContacts<T extends ContactFields>(list: T[], f: { q?: string; tag?: string; company?: string }): T[] {
+  const words = (f.q ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+  const tag = (f.tag ?? "").replace(/^#/, "").toLowerCase();
+  const company = (f.company ?? "").trim().toLowerCase();
+  return list.filter((c) => {
+    const text = [c.name, ...c.aliases, ...c.email, c.company].join(" ").toLowerCase();
+    return (
+      words.every((w) => text.includes(w)) &&
+      (!company || c.company.toLowerCase().includes(company)) &&
+      (!tag || c.tags.some((t) => t.toLowerCase() === tag || t.toLowerCase().startsWith(`${tag}/`)))
+    );
+  });
+}
+
 /** `a` with `b`'s values added (any case counts as the same value, and emails ignore case). */
 export function unionOf(a: string[], b: string[]): string[] {
   const out = [...a];

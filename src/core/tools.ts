@@ -3,8 +3,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { QuireError } from "./paths.ts";
-import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtWrite } from "./format.ts";
+import { fmtBacklinks, fmtBoards, fmtChanges, fmtContact, fmtContactLine, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtWrite } from "./format.ts";
 import { parseQuery } from "./query.ts";
+import { matchContacts } from "./contacts.ts";
 import { TRASH_DAYS, type Quire } from "./quire.ts";
 import { parseAuthorFilter } from "./actor.ts";
 import { AGENTS_NOTE } from "./noteRoles.ts";
@@ -60,6 +61,12 @@ export const TOOL_ROUTES: Record<string, string> = {
   unstar_tag: "POST /favorites/unstar",
   save_smart_folder: "POST /smart-folders",
   delete_smart_folder: "POST /smart-folders/delete",
+  list_contacts: "GET /contacts",
+  read_contact: "GET /contact",
+  create_contact: "POST /contacts",
+  update_contact: "POST /contacts/update",
+  merge_contacts: "POST /contacts/merge",
+  import_contacts: "POST /contacts/import",
 };
 
 type Result = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
@@ -618,6 +625,120 @@ export function createMcpServer(host: ToolHost): McpServer {
       annotations: readOnly,
     },
     ({ since, path, limit, by }) => run(() => fmtChanges(quire.changes({ since, path, limit: limit ?? 30, by: parseAuthorFilter(by) }))),
+  );
+
+  // ---------------------------------------------------------------- contacts
+
+  const CONTACT = {
+    email: z.array(z.string()).optional(),
+    phone: z.array(z.string()).optional(),
+    company: z.string().optional(),
+    role: z.string().optional(),
+    links: z.array(z.string()).optional().describe("URLs: a profile, a site, a repo"),
+    aliases: z.array(z.string()).optional().describe("Other names they go by"),
+    tags: z.array(z.string()).optional(),
+  };
+
+  server.registerTool(
+    "list_contacts",
+    {
+      title: "List contacts",
+      description:
+        "The people in the vault: each is a note in People/ whose frontmatter has email, phone, company, role, links, aliases and tags. " +
+        "Shows when each was last mentioned in another note. Link to a person with [[People/Name]].",
+      inputSchema: {
+        q: z.string().optional().describe("Words in their name, an alias, email or company"),
+        tag: z.string().optional(),
+        company: z.string().optional(),
+      },
+      annotations: readOnly,
+    },
+    ({ q, tag, company }) =>
+      run(() => {
+        quire.sync();
+        const hits = matchContacts(quire.contacts(), { q, tag, company });
+        return hits.length ? hits.map(fmtContactLine).join("\n") : "No contacts match. People are notes in People/; create_contact makes one.";
+      }),
+  );
+
+  server.registerTool(
+    "read_contact",
+    {
+      title: "Read a contact",
+      description: "One person: how to reach them, and the notes that mention them, newest first. read_note shows their note's own words.",
+      inputSchema: { contact: z.string().describe("Their name or their note's path") },
+      annotations: readOnly,
+    },
+    ({ contact }) =>
+      run(() => {
+        quire.sync();
+        return fmtContact(quire.contact(contact));
+      }),
+  );
+
+  server.registerTool(
+    "create_contact",
+    {
+      title: "Create a contact",
+      description: "Add a person: a note People/<name>.md with their details in its frontmatter, and `notes` under their name.",
+      inputSchema: { name: z.string(), ...CONTACT, notes: z.string().optional() },
+      annotations: writes,
+    },
+    (input) =>
+      run(() => {
+        const r = quire.createContact(input, source());
+        return `Created ${r.path}. Link to them with [[${r.path.replace(/\.md$/, "")}]].`;
+      }),
+  );
+
+  server.registerTool(
+    "update_contact",
+    {
+      title: "Update a contact",
+      description: "Change a person's details. Each field given replaces what's there (send the whole list to add to one); the rest stay.",
+      inputSchema: { contact: z.string().describe("Their name or their note's path"), ...CONTACT },
+      annotations: writes,
+    },
+    ({ contact, ...patch }) =>
+      run(() => {
+        const r = quire.updateContact(contact, patch, source());
+        return r.change ? `Updated ${r.path} → version ${r.version}` : `${r.path} already says that`;
+      }),
+  );
+
+  server.registerTool(
+    "merge_contacts",
+    {
+      title: "Merge contacts",
+      description:
+        "Two notes for one person: `keep` gains what `drop` has that it doesn't (emails, phones, links, tags, its name as an alias, and its " +
+        "notes under a heading), links to `drop` are pointed at `keep`, and `drop` goes to Trash.",
+      inputSchema: { keep: z.string(), drop: z.string() },
+      annotations: { ...writes, destructiveHint: true },
+    },
+    ({ keep, drop }) =>
+      run(() => {
+        const r = quire.mergeContacts(keep, drop, source());
+        return `Merged ${r.trashed[0].path} into ${r.path} (it's in Trash). Links updated in ${r.updated.length} note${r.updated.length === 1 ? "" : "s"}.`;
+      }),
+  );
+
+  server.registerTool(
+    "import_contacts",
+    {
+      title: "Import contacts",
+      description:
+        "Contacts from a vCard (.vcf) or CSV export (Google, Outlook, Apple or your own columns: Name or First/Last Name, Email, Phone, " +
+        "Company, Title, Tags…). Someone already here (same email or name) gains what's new; everyone else becomes a contact.",
+      inputSchema: { format: z.enum(["vcard", "csv"]), text: z.string().describe("The file's text") },
+      annotations: writes,
+    },
+    ({ format, text }) =>
+      run(() => {
+        const r = quire.importContacts(text, format, source());
+        const line = (label: string, paths: string[]) => (paths.length ? [`${label} ${paths.length}: ${paths.join(", ")}`] : []);
+        return [...line("Created", r.created), ...line("Updated", r.updated), ...line("Unchanged", r.unchanged)].join("\n") || "No contacts in that file.";
+      }),
   );
 
   return mcp;
