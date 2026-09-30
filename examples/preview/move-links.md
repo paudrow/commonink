@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 106
 title: Renames rewrite only the links to the note
 ---
 Renaming or moving a note rewrites the links that pointed at it: all of them, and only those.
