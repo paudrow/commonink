@@ -7,6 +7,7 @@ import { $, authorAvatar, authorName, displayName, el, escapeHtml, icon, NOTE_DR
 import { renderMarkdown, sandboxFrame } from "./render.ts";
 import { hydrateCode } from "./code.ts";
 import { hydrateMath } from "./math.ts";
+import { followInPage } from "./gfm.ts";
 import { hydrateDataEmbeds } from "./textPreview.ts";
 import { parseDirective } from "./widgets/args.ts";
 import { WIDGETS } from "./widgets/index.ts";
@@ -384,6 +385,7 @@ export class NotesPage {
         const href = a.getAttribute("href") ?? "";
         if (/^https?:/i.test(href)) window.open(href, "_blank", "noopener");
         else if (href.startsWith("quire:")) void api.resolve(safeDecode(href.slice(6)), item.path).then((p) => p && this.hooks.open(p, undefined, side));
+        else followInPage(node, href); // a footnote, or a #heading in the note
         return;
       }
       if (side && !t.closest("button, input")) return this.hooks.open(item.path, undefined, true);
