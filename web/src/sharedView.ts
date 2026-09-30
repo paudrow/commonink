@@ -95,13 +95,29 @@ export async function mountSharedView(where: Where) {
   }
   const noAccess = () => el("div", { class: "sv-noaccess" }, icon("lock", 14), "No access");
 
+  const signIn = () => location.assign(who?.devLogin ? `/auth/dev?next=${encodeURIComponent(location.pathname)}` : `/auth/google?next=${encodeURIComponent(location.pathname)}`);
   const keep = el("button", { type: "button", class: "qw-btn primary", onclick: async () => {
-    if (!me) return location.assign(who?.devLogin ? `/auth/dev?next=${encodeURIComponent(location.pathname)}` : `/auth/google?next=${encodeURIComponent(location.pathname)}`);
+    if (!me) return signIn();
     const r = await call<{ workspace: string; note: string | null }>(`${base}/join`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => null);
     if (r) location.assign(`/shared/${r.workspace}/${r.note ?? note.id}`);
   } }, me ? "Keep in Shared with me" : "Sign in");
   const edit = el("button", { type: "button", class: "qw-btn", onclick: () => startEdit() }, icon("edit", 14), "Edit");
-  actions.replaceChildren(...("link" in where ? [keep] : note.role === "editor" && note.kind === "md" ? [edit] : []), ...(me && !("link" in where) ? [el("a", { class: "qw-btn", href: "/" }, "Your notes")] : []));
+  const yourNotes = el("a", { class: "qw-btn", href: "/" }, "Your notes");
+  // While editing: Done saves; if editing was taken away meanwhile, Leave goes back to the note unsaved.
+  let done: HTMLElement | null = null;
+  const leave = el("button", { type: "button", class: "qw-btn", onclick: async () => {
+    editing = false;
+    note = await show(note.id).catch(() => note);
+    render();
+    renderActions();
+  } }, "Leave without saving");
+  const renderActions = () => {
+    if ("link" in where) return actions.replaceChildren(keep);
+    const canEdit = note.role === "editor" && note.kind === "md";
+    if (editing) return actions.replaceChildren(canEdit && done ? done : leave);
+    actions.replaceChildren(...(canEdit ? [edit] : []), ...(me ? [yourNotes] : []));
+  };
+  renderActions();
 
   function startEdit() {
     editing = true;
@@ -118,22 +134,52 @@ export async function mountSharedView(where: Where) {
       status.textContent = `Saved ${timeAgo(Date.now())}`;
       return true;
     };
-    const done = el("button", { type: "button", class: "qw-btn primary", onclick: async () => {
+    done = el("button", { type: "button", class: "qw-btn primary", onclick: async () => {
       if (!(await save())) return;
       editing = false;
-      actions.replaceChildren(edit);
       render();
+      renderActions();
     } }, "Done");
     box.addEventListener("keydown", (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "s") (e.preventDefault(), void save());
     });
-    actions.replaceChildren(done);
+    renderActions();
     body.replaceChildren(box);
     box.focus();
   }
 
   render();
   if (!("link" in where)) listen();
+
+  /** The page can't show the note any more: say why, and keep nothing of it on screen. */
+  function end(heading: string, why: string, ...more: HTMLElement[]) {
+    editing = false;
+    document.title = "Shared note · Common Ink";
+    title.textContent = heading;
+    badge.replaceChildren();
+    status.textContent = "";
+    body.replaceChildren(el("p", {}, why));
+    actions.replaceChildren(...more);
+  }
+
+  /**
+   * The live connection closed. Sharing changing closes it on purpose (4003), as does signing out
+   * (4001); a network blip does too. Ask again what's shared, then listen again, or end the page.
+   */
+  async function recheck() {
+    const now = await show(note.id).catch((e: unknown) => (e instanceof Error ? e : new Error(String(e))));
+    if (now instanceof ApiError && now.status === 401) return end("You're signed out", "Sign in again to see this note.", el("button", { type: "button", class: "qw-btn primary", onclick: signIn }, "Sign in"));
+    if (now instanceof ApiError && now.status === 404) return end("This note isn't shared with you any more", "Whoever shared it stopped, or the share ran out.", ...(me ? [yourNotes] : []));
+    if (now instanceof Error) return void setTimeout(recheck, 3000);
+    const was = note.role;
+    // While editing, keep the version the edit started from: saving checks against it.
+    note = editing ? { ...now, content: note.content, version: note.version } : now;
+    if (note.role !== was) status.textContent = note.role === "editor" ? "You can edit this now." : editing ? "You can only view this now, so your changes can't be saved. Copy anything you want to keep." : "You can only view this now.";
+    if (editing && note.role !== "editor") body.querySelector<HTMLTextAreaElement>(".sv-editor")!.readOnly = true;
+    render();
+    renderActions();
+    listen();
+  }
 
   /** Someone else changed the note: show it (or, while editing, say so). */
   function listen() {
@@ -146,7 +192,7 @@ export async function mountSharedView(where: Where) {
       status.textContent = `Updated by ${m.source ?? "someone"} ${timeAgo(Date.now())}`;
       render();
     });
-    ws.addEventListener("close", () => setTimeout(listen, 3000), { once: true });
+    ws.addEventListener("close", (e) => void setTimeout(recheck, e.code === 4003 ? 0 : 3000), { once: true });
   }
 }
 

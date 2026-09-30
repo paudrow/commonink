@@ -102,7 +102,11 @@ export async function showShareDialog(
     const explain = el("span", { class: "agents-meta" }, link ? "Anyone with the link can open it, signed in or not." : "Only the people above (and the workspace's members) can open it.");
     const extra: HTMLElement[] = [];
     if (link) {
-      const url = `${location.origin}${link.url}`;
+      // The link's URL lets anyone in with its role, so the server gives it only to those who could make one.
+      const url = link.url && `${location.origin}${link.url}`;
+      const copy = url
+        ? el("button", { type: "button", class: "qw-btn primary", onclick: () => void navigator.clipboard.writeText(url).then(() => opts.toast({ icon: "copy", text: "Link copied" }), () => prompt("The link", url)) }, icon("copy", 14), "Copy link")
+        : el("span", { class: "agents-meta" }, "Only editors can copy this link");
       const expiry = el(
         "select",
         { class: "ws-role", "aria-label": "Link expiry", disabled: !opts.canShare, onchange: (e: Event) => {
@@ -118,7 +122,7 @@ export async function showShareDialog(
           { class: "ws-row" },
           roleSelect(link.role, (r) => void api.updateShare(link.id, { role: r }).then(reload, failed), "Link role"),
           expiry,
-          el("button", { type: "button", class: "qw-btn primary", onclick: () => void navigator.clipboard.writeText(url).then(() => opts.toast({ icon: "copy", text: "Link copied" }), () => prompt("The link", url)) }, icon("copy", 14), "Copy link"),
+          copy,
         ),
         el("p", { class: "agents-meta sh-note" }, link.role === "editor" ? "Signed-in people who open it can keep it and edit." : "People who open it can read it; signed in, they can keep it in Shared with me."),
       );
