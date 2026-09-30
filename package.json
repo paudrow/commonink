@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Local-first markdown notes that any agent can use (prototype)",
   "bin": {
+    "commonink": "bin/commonink",
     "quire": "bin/quire"
   },
   "scripts": {

@@ -48,7 +48,7 @@ const vite = UI && await (await import("vite")).createServer({
     middlewareMode: true,
     hmr: { server: httpServer },
     cors: false,
-    fs: { strict: true, deny: [".env", ".env.*", "*.{crt,pem}", "**/.git/**", "**/.dev.vars", "**/.commonink/**", "**/vault/**"] },
+    fs: { strict: true, deny: [".env", ".env.*", "*.{crt,pem}", "**/.git/**", "**/.dev.vars", "**/.commonink/**", "**/.quire/**" /* legacy data folder */, "**/vault/**"] },
   },
   appType: "spa",
   logLevel: "warn",

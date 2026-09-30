@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# The legacy name: `quire` is now `commonink`. This says so, and runs it, so old scripts and MCP
+# entries keep working.
+set -euo pipefail
+echo "quire is now commonink: use bin/commonink (this still works, for now)." >&2
+exec "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/commonink" "$@"

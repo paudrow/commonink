@@ -1,4 +1,5 @@
 // The local backend: a folder of markdown files, indexed in <vault>/.commonink/index.db with node:sqlite.
+import { dataFolder } from "../legacy.ts"; // first: it reads the env vars below under their legacy names too
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import fs from "node:fs";
 import os from "node:os";
@@ -172,8 +173,9 @@ export type LocalVault = Vault & { files: FsContent };
 
 /** Open (and index) a vault folder. */
 export function openVault(root = DEFAULT_VAULT, opts: VaultOptions = {}): LocalVault {
-  fs.mkdirSync(path.join(root, ".commonink"), { recursive: true });
-  const sqlite = new DatabaseSync(path.join(root, ".commonink", "index.db"));
+  const data = dataFolder(root);
+  fs.mkdirSync(data, { recursive: true });
+  const sqlite = new DatabaseSync(path.join(data, "index.db"));
   sqlite.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA synchronous=NORMAL;");
   const db = new NodeDb(sqlite);
   migrate(db, { local: true });
