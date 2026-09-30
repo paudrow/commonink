@@ -78,13 +78,15 @@ const spansField = StateField.define<DecorationSet>({
 
 /** What `#`, `@` and `[[` suggest, loaded when a field takes focus. */
 const pools = { tags: [] as string[], people: { directory: [], onTasks: [] } as Awaited<ReturnType<typeof assignees>>, notes: [] as string[] };
+/** The people are on their way: `@` typed right after focus waits for them (online, that's a round trip). */
+let peopleLoaded: Promise<unknown> = Promise.resolve();
 function loadPools() {
   void api.tags().then((t) => (pools.tags = t.map((x) => x.display))).catch(() => {});
-  void assignees().then((p) => (pools.people = p)).catch(() => {});
+  peopleLoaded = assignees().then((p) => (pools.people = p)).catch(() => {});
   void api.notes().then((n) => (pools.notes = n.filter((x) => x.kind === "md" && !x.path.startsWith("Archive/")).map((x) => displayName(x.path)))).catch(() => {});
 }
 
-function suggest(ctx: CompletionContext): CompletionResult | null {
+async function suggest(ctx: CompletionContext): Promise<CompletionResult | null> {
   const link = ctx.matchBefore(/\[\[[^\]\n]*$/);
   if (link) {
     const closed = ctx.state.sliceDoc(ctx.pos, ctx.pos + 2) === "]]";
@@ -96,6 +98,7 @@ function suggest(ctx: CompletionContext): CompletionResult | null {
   const sigil = ctx.state.sliceDoc(at, at + 1);
   if (sigil === "#") return { from: at + 1, options: pools.tags.map((p, i) => ({ label: p, detail: "tag", boost: -i, apply: `${p} ` })) };
   // A person: contacts and members by name (or any @name of theirs), writing their @handle.
+  await peopleLoaded;
   const people = assigneeOptions(ctx.state.sliceDoc(at + 1, ctx.pos), pools.people.directory, pools.people.onTasks);
   return { from: at + 1, filter: false, options: people.slice(0, 12).map((p) => ({ label: p.name, detail: p.handle === p.name ? p.detail : `@${p.handle}`, apply: `${p.handle} ` })) };
 }
