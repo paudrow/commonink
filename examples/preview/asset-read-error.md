@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 128
 title: An unreadable file no longer stops the local server
 ---
 Running locally, the server answered a request for an image or PDF it couldn't open by crashing. The file might have no read permission, or it was deleted between the check and the read. Every open tab lost its connection, and edits stopped saving until you restarted it. Now it answers 404. Online isn't affected.
