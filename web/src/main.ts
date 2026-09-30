@@ -8,7 +8,6 @@ import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, useWork
 import { normalizeTag } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
-import { markVersion, versionsMenu } from "./marks.ts";
 import type { Mark } from "./api.ts";
 import { hideBanner, showBanner } from "./banner.ts";
 import { showConflict as conflictBanner } from "./conflict.ts";
@@ -674,7 +673,7 @@ async function markCurrent(name?: string) {
   const s = active.session;
   if (!s || s.kind === "asset" || viewer) return;
   await flushSave();
-  if (!name) return void markVersion(s.path, { toast, show: showMark });
+  if (!name) return void (await import("./marks.ts")).markVersion(s.path, { toast, show: showMark });
   const mark = await api.mark(s.path, name).catch((e: Error) => (toast({ text: e.message }), null));
   if (mark) toast({ icon: "bookmark", text: `Marked this version “${mark.name}”`, actionLabel: "Show", action: () => showMark(mark) });
 }
@@ -2453,7 +2452,7 @@ async function boot() {
     const s = active.session;
     if (!s) return;
     await flushSave();
-    versionsMenu($("#versions-btn"), s.path, { toast, show: showMark, readOnly: viewer });
+    (await import("./marks.ts")).versionsMenu($("#versions-btn"), s.path, { toast, show: showMark, readOnly: viewer });
   });
   $("#focus-btn").addEventListener("click", () => void setFocusMode(!focusMode));
   $("#new-folder").addEventListener("click", () => startNewFolder());
