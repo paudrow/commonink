@@ -10,7 +10,7 @@ import type { Quire } from "./quire.ts";
 import type { SqlDb } from "./store.ts";
 import { fetchGuarded, readCapped, type UrlGuard } from "./unfurl.ts";
 
-export type SourceKind = "ics";
+export type SourceKind = "ics" | "google";
 export type SyncStatus = "pending" | "ok" | "error";
 
 /** Colors a source can have; the app maps each to a theme color. */
@@ -31,6 +31,10 @@ export interface Source {
   host: string | null;
   /** Whether the viewer may rename, recolor or remove it. */
   editable: boolean;
+  /** Google calendars: whether a meeting note's link is added to its event. Null for feeds, which are read-only. */
+  writeBack: boolean | null;
+  /** Google calendars: which of its owner's calendars it is (only for its owner). Null for feeds. */
+  calendar: string | null;
   status: SyncStatus;
   error: string | null;
   syncedAt: number | null;
@@ -65,6 +69,40 @@ export interface CalendarEvent {
 export type FeedResult = { status: "ok"; text: string; etag: string | null; modified: string | null } | { status: "unchanged" };
 /** How a host fetches a feed, with its own rules for which addresses are allowed. */
 export type FeedFetcher = (url: string, last: { etag: string | null; modified: string | null }) => Promise<FeedResult>;
+
+/**
+ * A source as its reader sees it: its settings, and the cursor the reader left last time. `fresh`:
+ * it was read today already, so "nothing changed" can stand (the window moves a day at a time).
+ */
+export interface SourceRef {
+  id: string;
+  owner: string | null;
+  config: Record<string, unknown>;
+  state: Record<string, unknown>;
+  fresh: boolean;
+}
+
+/**
+ * How one kind of source is read. Every kind ends up as iCalendar text, so one expander handles
+ * recurrence and time zones for all of them (an ICS feed is its own text; Google's events become it).
+ */
+export interface SourceReader {
+  read(src: SourceRef): Promise<{ status: "ok"; text: string; state: Record<string, unknown> } | { status: "unchanged" }>;
+  /** The source is gone: forget whatever was kept for it. */
+  removed?(src: SourceRef): void;
+  /** Point an event at its meeting note, at the source (Google's write-back). */
+  linkNote?(src: SourceRef, item: { uid: string; instance: string | null }, url: string): Promise<void>;
+  /** How often it's read again; SYNC_EVERY if unset. */
+  every?: number;
+}
+
+const icsReader = (fetcher: FeedFetcher): SourceReader => ({
+  async read({ config, state, fresh }) {
+    const last = fresh ? { etag: (state.etag as string | null) ?? null, modified: (state.modified as string | null) ?? null } : { etag: null, modified: null };
+    const got = await fetcher(String(config.url), last);
+    return got.status === "ok" ? { status: "ok", text: got.text, state: { etag: got.etag, modified: got.modified } } : got;
+  },
+});
 
 export const MAX_SOURCES = 25;
 export const FEED_BYTES = 10 * 1024 * 1024;
@@ -214,13 +252,16 @@ export async function fetchFeed(url: string, last: { etag: string | null; modifi
 export class Calendar {
   private now: () => number;
   private running = new Map<string, Promise<void>>();
+  private readers: Partial<Record<SourceKind, SourceReader>>;
 
+  /** `fetcher` reads ICS feeds; `readers` add other kinds of source (Google, online). */
   constructor(
     private db: SqlDb,
-    private fetcher: FeedFetcher,
-    opts: { now?: () => number } = {},
+    fetcher: FeedFetcher,
+    opts: { now?: () => number; readers?: Partial<Record<Exclude<SourceKind, "ics">, SourceReader>> } = {},
   ) {
     this.now = opts.now ?? Date.now;
+    this.readers = { ics: icsReader(fetcher), ...opts.readers };
     for (const stmt of SCHEMA) db.exec(stmt);
   }
 
@@ -252,6 +293,8 @@ export class Calendar {
       url: mayEdit ? (config.url ?? null) : null,
       host,
       editable: mayEdit,
+      writeBack: r.kind === "google" ? !!(config as { writeBack?: boolean }).writeBack : null,
+      calendar: r.kind === "google" && r.owner === viewer.user ? String((config as { calendar?: string }).calendar) : null,
       status: r.status,
       error: r.error,
       syncedAt: r.synced_at,
@@ -272,28 +315,54 @@ export class Calendar {
   /** Subscribe the workspace to an ICS feed, and read it once. */
   async addIcs(input: { url: string; name?: string; color?: string }, viewer: Viewer, by: string): Promise<Source> {
     const url = feedUrl(input.url);
+    const same = this.db.all<SourceRow>("SELECT * FROM sources WHERE kind = 'ics'").find((s) => (JSON.parse(s.config) as { url?: string }).url === url);
+    if (same) throw new QuireError(`That feed is already here, as "${same.name}"`, "exists", { id: same.id });
+    return this.add("ics", null, { url }, new URL(url).hostname, input, viewer, by);
+  }
+
+  /** Add one of the viewer's Google calendars, for them alone, and read it once. */
+  async addGoogle(input: { calendar: string; name?: string; color?: string; writeBack?: boolean }, viewer: Viewer, by: string): Promise<Source> {
+    if (!this.readers.google) throw new QuireError("Google Calendar isn't set up on this server");
+    const calendar = input.calendar.trim();
+    if (!calendar || calendar.length > 500) throw new QuireError('"calendar" must be a Google calendar ID');
+    const same = this.db
+      .all<SourceRow>("SELECT * FROM sources WHERE kind = 'google' AND owner = ?", viewer.user)
+      .find((s) => (JSON.parse(s.config) as { calendar?: string }).calendar === calendar);
+    if (same) throw new QuireError(`That calendar is already here, as "${same.name}"`, "exists", { id: same.id });
+    return this.add("google", viewer.user, { calendar, writeBack: !!input.writeBack }, "Google Calendar", input, viewer, by);
+  }
+
+  private async add(kind: SourceKind, owner: string | null, config: Record<string, unknown>, fallbackName: string, input: { name?: string; color?: string }, viewer: Viewer, by: string) {
     const all = this.db.all<SourceRow>("SELECT * FROM sources");
     if (all.length >= MAX_SOURCES) throw new QuireError(`A workspace can have ${MAX_SOURCES} calendars; remove one first`);
-    const same = all.find((s) => s.kind === "ics" && (JSON.parse(s.config) as { url?: string }).url === url);
-    if (same) throw new QuireError(`That feed is already here, as "${same.name}"`, "exists", { id: same.id });
     const color = this.pickColor(input.color, all);
     const id = randomId(10);
-    const name = cleanName(input.name) ?? new URL(url).hostname;
+    const name = cleanName(input.name) ?? fallbackName;
     this.db.run(
       "INSERT INTO sources(id, kind, owner, name, color, config, status, next_sync, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-      id, "ics", null, name, color, JSON.stringify({ url }), "pending", this.now(), by, this.now(),
+      id, kind, owner, name, color, JSON.stringify(config), "pending", this.now(), by, this.now(),
     );
     await this.sync(id, { named: !cleanName(input.name) });
-    // A feed that can't be read on the first try isn't kept: the person sees why, and can fix the address.
+    // A source that can't be read on the first try isn't kept: the person sees why, and can fix it.
     const first = this.db.get<SourceRow>("SELECT * FROM sources WHERE id = ?", id);
     if (first?.status === "error") {
-      this.db.tx(() => {
-        this.db.run("DELETE FROM external_items WHERE source = ?", id);
-        this.db.run("DELETE FROM sources WHERE id = ?", id);
-      });
-      throw new QuireError(first.error ?? "Couldn't read that feed");
+      this.drop(first);
+      throw new QuireError(first.error ?? "Couldn't read that calendar");
     }
     return this.source(id, viewer);
+  }
+
+  /** A source, its items, and whatever its reader kept for it, gone. */
+  private drop(r: SourceRow) {
+    this.db.tx(() => {
+      this.db.run("DELETE FROM external_items WHERE source = ?", r.id);
+      this.db.run("DELETE FROM sources WHERE id = ?", r.id);
+    });
+    this.readers[r.kind]?.removed?.(this.ref(r));
+  }
+
+  private ref(r: SourceRow, fresh = false): SourceRef {
+    return { id: r.id, owner: r.owner, config: JSON.parse(r.config), state: JSON.parse(r.state), fresh };
   }
 
   private pickColor(asked: string | undefined, all: SourceRow[]): SourceColor {
@@ -305,14 +374,19 @@ export class Calendar {
     return SOURCE_COLORS.find((c) => !used.has(c)) ?? SOURCE_COLORS[all.length % SOURCE_COLORS.length];
   }
 
-  /** Rename or recolor a source. */
-  update(id: string, patch: { name?: string; color?: string }, viewer: Viewer): Source {
+  /** Rename or recolor a source, or (Google) turn writing meeting-note links back on or off. */
+  update(id: string, patch: { name?: string; color?: string; writeBack?: boolean }, viewer: Viewer): Source {
     const r = this.row(id, viewer);
     this.mayChange(r, viewer);
     const name = patch.name === undefined ? r.name : cleanName(patch.name);
     if (!name) throw new QuireError("Give the calendar a name");
     const color = patch.color === undefined ? r.color : this.pickColor(patch.color, []);
-    this.db.run("UPDATE sources SET name = ?, color = ? WHERE id = ?", name, color, id);
+    const config = JSON.parse(r.config) as Record<string, unknown>;
+    if (patch.writeBack !== undefined) {
+      if (r.kind !== "google") throw new QuireError("Only Google calendars can have meeting notes linked back");
+      config.writeBack = patch.writeBack;
+    }
+    this.db.run("UPDATE sources SET name = ?, color = ?, config = ? WHERE id = ?", name, color, JSON.stringify(config), id);
     return this.source(id, viewer);
   }
 
@@ -320,10 +394,14 @@ export class Calendar {
   remove(id: string, viewer: Viewer) {
     const r = this.row(id, viewer);
     this.mayChange(r, viewer);
-    this.db.tx(() => {
-      this.db.run("DELETE FROM external_items WHERE source = ?", id);
-      this.db.run("DELETE FROM sources WHERE id = ?", id);
-    });
+    this.drop(r);
+  }
+
+  /** Remove a person's own sources (of one kind, or all): they disconnected it, or left the workspace. Returns how many went. */
+  dropOwner(user: string, kind?: SourceKind): number {
+    const rows = this.db.all<SourceRow>("SELECT * FROM sources WHERE owner = ? AND (? IS NULL OR kind = ?)", user, kind ?? null, kind ?? null);
+    for (const r of rows) this.drop(r);
+    return rows.length;
   }
 
   private mayChange(r: SourceRow, viewer: Viewer) {
@@ -365,23 +443,23 @@ export class Calendar {
   private async read(id: string, opts: { named?: boolean }) {
     const r = this.db.get<SourceRow>("SELECT * FROM sources WHERE id = ?", id);
     if (!r) return;
-    const { url } = JSON.parse(r.config) as { url: string };
-    const state = JSON.parse(r.state) as { etag?: string | null; modified?: string | null; hash?: string };
+    const state = JSON.parse(r.state) as Record<string, unknown> & { hash?: string };
     const now = this.now();
+    const reader = this.readers[r.kind];
     try {
-      // The window moves every day, so on a new day the feed is read and expanded again even if unchanged.
+      if (!reader) throw new Error("feed:This server can't read this kind of calendar");
+      // The window moves every day, so on a new day the source is read and expanded again even if unchanged.
       const day = new Date(now).toISOString().slice(0, 10);
-      const today = state.hash?.startsWith(`${day}:`);
-      const got = await this.fetcher(url, today ? { etag: state.etag ?? null, modified: state.modified ?? null } : { etag: null, modified: null });
+      const got = await reader.read(this.ref(r, !!state.hash?.startsWith(`${day}:`)));
       const hash = got.status === "ok" ? `${day}:${hex(await sha256(got.text))}` : state.hash;
       if (got.status === "ok" && hash !== state.hash) {
         const { feed, events } = readIcs(got.text, { from: new Date(now - WINDOW.back), to: new Date(now + WINDOW.ahead) }, { perEvent: PER_EVENT, total: PER_SOURCE });
         await this.store(id, events);
         if (opts.named && feed.name) this.db.run("UPDATE sources SET name = ? WHERE id = ?", cleanName(feed.name) ?? r.name, id);
       }
-      const next = got.status === "ok" ? { etag: got.etag, modified: got.modified, hash } : state;
+      const next = got.status === "ok" ? { ...got.state, hash } : state;
       if (!this.db.get("SELECT 1 FROM sources WHERE id = ?", id)) return; // removed while it was being read
-      this.db.run("UPDATE sources SET status = 'ok', error = NULL, synced_at = ?, next_sync = ?, fails = 0, state = ? WHERE id = ?", now, now + SYNC_EVERY, JSON.stringify(next), id);
+      this.db.run("UPDATE sources SET status = 'ok', error = NULL, synced_at = ?, next_sync = ?, fails = 0, state = ? WHERE id = ?", now, now + (reader.every ?? SYNC_EVERY), JSON.stringify(next), id);
     } catch (e) {
       const fails = r.fails + 1;
       this.db.run(
@@ -397,7 +475,7 @@ export class Calendar {
       events.map(async (o) => {
         const data = JSON.stringify({
           allDay: o.allDay, timeZone: o.timeZone, location: o.location, description: o.description, url: o.url,
-          organizer: o.organizer, attendees: o.attendees, status: o.status, recurring: o.recurring,
+          organizer: o.organizer, attendees: o.attendees, status: o.status, recurring: o.recurring, uid: o.uid, instance: o.recurrenceId,
         });
         return { id: await itemId(source, o.uid, o.recurrenceId), o, data, hash: hex(await sha256(`${o.title}\n${o.start}\n${o.end}\n${data}`)) };
       }),
@@ -491,7 +569,30 @@ export class Calendar {
     const r = quire.create(rel, content, opts.source);
     const noteId = this.db.get<{ id: string }>("SELECT id FROM notes WHERE path = ?", r.path)?.id ?? null;
     this.db.run("UPDATE external_items SET note_id = ? WHERE id = ?", noteId, id);
-    return { path: r.path, created: true as const, version: r.version, change: r.change };
+    return { path: r.path, created: true as const, version: r.version, change: r.change, noteId };
+  }
+
+  /**
+   * Point the event at its meeting note (`url`) at its source, if the source can and its owner turned
+   * that on (Google's write-back). Only a link goes, never the note. Null when there's nothing to do;
+   * otherwise whether it worked, and why not.
+   */
+  async linkBack(id: string, viewer: { user: string }, url: string): Promise<{ ok: true } | { ok: false; error: string } | null> {
+    const row = this.db.get<{ data: string; source: string }>(
+      "SELECT i.data, i.source FROM external_items i JOIN sources s ON s.id = i.source WHERE i.id = ? AND (s.owner IS NULL OR s.owner = ?)",
+      id, viewer.user,
+    );
+    const src = row && this.db.get<SourceRow>("SELECT * FROM sources WHERE id = ?", row.source);
+    const reader = src && this.readers[src.kind];
+    if (!src || !reader?.linkNote || !(JSON.parse(src.config) as { writeBack?: boolean }).writeBack) return null;
+    const { uid, instance } = JSON.parse(row.data) as { uid: string; instance: string | null };
+    try {
+      await reader.linkNote(this.ref(src), { uid, instance }, url);
+      await this.sync(src.id); // so the event shows the link now, not at the next read
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: feedProblem(e) };
+    }
   }
 }
 
@@ -595,6 +696,15 @@ export function describeWhen(ev: Pick<CalendarEvent, "start" | "end" | "allDay">
   return { date, text: text.replace(/ /g, " ") }; // newer ICU puts a narrow space before AM/PM
 }
 
+/** What starts the block a meeting note's link is written back in (Google's write-back). */
+export const LINK_MARK = "\u2014 Common Ink \u2014";
+
+/** A description without the block linking it to a meeting note, which isn't part of its agenda. */
+export function withoutNoteLink(description: string): string {
+  const at = description.startsWith(`${LINK_MARK}\n`) ? 0 : description.indexOf(`\n\n${LINK_MARK}\n`);
+  return (at < 0 ? description : description.slice(0, at)).replace(/\s+$/, "");
+}
+
 /** Markdown for text a feed wrote: its own markup can't make links, widgets or headings in the note. */
 function plain(s: string): string {
   return s.replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n").replace(/<[^<>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
@@ -614,7 +724,7 @@ function meetingTemplate(template: string | null, ev: CalendarEvent, when: { dat
     where: ev.location ? plain(ev.location) : "",
     attendees: people,
     event: link,
-    agenda: ev.description ? plain(ev.description) : "",
+    agenda: ev.description ? plain(withoutNoteLink(ev.description)) : "",
   };
   if (template !== null) return template.replace(/\{\{(\w+)\}\}/g, (m, k: string) => fields[k] ?? m);
   return [

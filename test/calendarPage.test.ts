@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 await import("./dom.ts");
 (globalThis as any).matchMedia = (q: string) => ({ matches: false, media: q, addEventListener() {} });
 const { CalendarPage } = await import("../web/src/calendar/page.ts");
-const { setCanEditCalendars, canEditCalendars, calendarChanged } = await import("../web/src/calendar/data.ts");
+const { setCalendarContext, canEditCalendars, calendarChanged } = await import("../web/src/calendar/data.ts");
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const now = new Date();
@@ -166,7 +166,7 @@ test("subscribing shows the server's reason when a feed can't be added", async (
 });
 
 test("a viewer sees the calendars but can't subscribe, rename, remove or make a meeting note", async () => {
-  setCanEditCalendars(false);
+  setCalendarContext({ canEdit: false });
   calendarChanged();
   await page.refresh();
   button("Calendars", root)!.click();
@@ -179,5 +179,5 @@ test("a viewer sees the calendars but can't subscribe, rename, remove or make a 
   const details = root.querySelector(".cal-details")!;
   assert.equal(button("Create meeting note", details), undefined);
   assert.equal(details.querySelector(".cal-d-hint")!.textContent, "No meeting note yet");
-  setCanEditCalendars(true);
+  setCalendarContext({ canEdit: true });
 });

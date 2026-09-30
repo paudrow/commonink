@@ -50,8 +50,9 @@ import { deleteFolder, deletePaths, TrashPage, type DeleteHooks } from "./trash.
 import { AGENTS_BLURB, isAgentsNote } from "./agentsNote.ts";
 import { closeDrawer, setupMobileNav } from "./mobileNav.ts";
 import type { CalendarPage } from "./calendar/page.ts";
-import { calendarChanged, calendars, setCanEditCalendars } from "./calendar/data.ts";
+import { calendarChanged, calendars, setCalendarContext } from "./calendar/data.ts";
 import { calendarTarget, OPEN_CALENDAR } from "./links.ts";
+import { connectUrl, googleChanged, googleKnown, googleOutcome, googleStatus, leave } from "./calendar/google.ts";
 
 // ------------------------------------------------------------------ state
 
@@ -247,6 +248,7 @@ function commands() {
     onLink: s?.kind === "md" && !!linkTargetAt(active.view.state, active.view.state.selection.main.head),
     canDelete: !viewer,
     canSubscribe: !viewer,
+    canConnectGoogle: !!googleKnown() && googleKnown()!.mode !== "off" && !googleKnown()!.connection,
     folds: s?.kind === "md" ? foldCount(active.view.state) : 0,
     account,
     newNote: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
@@ -258,6 +260,7 @@ function commands() {
     },
     subscribeCalendar: () => void subscribeCalendar(),
     refreshCalendars: () => void refreshCalendars(),
+    connectGoogle: () => leave.to(connectUrl()),
     filterNotes: () => void showNotes({ filter: true }),
     quickAdd,
     toggleTheme,
@@ -686,6 +689,22 @@ async function showCalendar(opts: { event?: string; push?: boolean } = {}) {
 async function subscribeCalendar() {
   await showCalendar();
   calendarPage?.subscribe();
+}
+
+/**
+ * Back from connecting Google Calendar (/calendar?google=connected|denied|failed): say how it went,
+ * and show the Calendars dialog at its Google section, where the calendars are to add.
+ */
+async function backFromGoogle(outcome: string) {
+  const url = new URL(location.href);
+  url.searchParams.delete("google");
+  history.replaceState(history.state, "", url.pathname + url.search + url.hash);
+  const said = googleOutcome(outcome);
+  if (!said) return;
+  googleChanged();
+  toast({ icon: "calendar", text: said, alert: outcome !== "connected" });
+  await showCalendar({ push: false });
+  calendarPage?.openSources({ google: true });
 }
 
 /** Read every calendar again now (each at most once a minute). */
@@ -2448,6 +2467,8 @@ async function refreshTaskCount() {
 const refreshTaskCountSoon = debounce(refreshTaskCount, 400);
 
 async function boot() {
+  // Read before the workspace is picked: picking one tidies the address, this included.
+  const fromGoogle = new URLSearchParams(location.search).get("google");
   // Online, the note API is per workspace and needs a signed-in person; locally it's just /api.
   const who = await whoAmI();
   // Where developer sign-in is on (local `cloud:dev`, and Previews) there's nothing to choose: go straight in.
@@ -2458,7 +2479,8 @@ async function boot() {
     workspaceId = ws.id;
     local = false;
     viewer = ws.role === "viewer";
-    setCanEditCalendars(!viewer);
+    setCalendarContext({ canEdit: !viewer, workspace: ws.id });
+    void googleStatus().catch(() => null); // the palette's Connect Google Calendar
     owner = ws.role === "owner";
     useWorkspace(`/api/w/${ws.id}`, `/api/w/${ws.id}/live`);
     setSelfName(who.me.user.name);
@@ -2581,6 +2603,7 @@ async function boot() {
     focusPane(panes[1]);
     if (spot.line || spot.heading) await openNote(beside.path, { pane: panes[1], ...spot });
   } else await route();
+  if (fromGoogle) await backFromGoogle(fromGoogle);
 }
 
 boot();

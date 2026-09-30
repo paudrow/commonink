@@ -11,6 +11,7 @@ import { renderDetails } from "./details.ts";
 import { CALENDAR_KEYS, VIEW_KEYS, type CalendarAction } from "./keys.ts";
 import { addDays, bars, bucket, dayKey, dayStart, daysRange, inAllDayRow, monthWeeks, nowMinutes, spanOf, stepDay, timeGrid, viewDays, type Bar, type Day, type View } from "./layout.ts";
 import { openCalendars } from "./sources.ts";
+import { googleStatus } from "./google.ts";
 import { dot } from "./ui.ts";
 
 export interface CalendarHooks {
@@ -61,6 +62,8 @@ export class CalendarPage {
   private cursor: Cursor = { day: this.day, key: "" };
   private items: Item[] = [];
   private sources: CalendarSource[] = [];
+  /** Whether this server has Google Calendar, which anyone may add their own calendars from. */
+  private google = false;
   private problem = "";
   private loaded = false;
   private loading = 0;
@@ -164,7 +167,8 @@ export class CalendarPage {
     if (!this.loaded) this.body.replaceChildren(el("div", { class: "cal-loading" }, "Loading…"));
     let items: Item[] = keep ? this.items : []; // a refresh that fails keeps what's showing
     try {
-      const [sources, list, tasks] = await Promise.all([calendars(), events(from, to), dueTasks(days[0], days[days.length - 1])]);
+      const [sources, list, tasks, google] = await Promise.all([calendars(), events(from, to), dueTasks(days[0], days[days.length - 1]), googleStatus().catch(() => null)]);
+      this.google = !!google && google.mode !== "off";
       this.sources = sources;
       items = [...eventItems(list, sources), ...tasks];
       this.problem = "";
@@ -296,13 +300,14 @@ export class CalendarPage {
     this.details.replaceChildren(renderDetails(item, { open: (path) => this.hooks.open(path), close: () => this.closeDetails() }));
   }
 
-  private openSources(subscribe = false) {
-    openCalendars({ subscribe, changed: () => void this.refresh() });
+  /** The Calendars dialog; `subscribe` starts in its link field, `google` at its Google section. */
+  openSources(opts: { subscribe?: boolean; google?: boolean } = {}) {
+    openCalendars({ ...opts, changed: () => void this.refresh() });
   }
 
   /** Subscribe from the palette: the page, then the dialog with the link field ready. */
   subscribe() {
-    this.openSources(true);
+    this.openSources({ subscribe: true });
   }
 
   // ---------------------------------------------------------------- drawing
@@ -335,10 +340,19 @@ export class CalendarPage {
     this.notice.hidden = !this.problem && !none;
     if (this.problem) return this.notice.replaceChildren(icon("info", 14), el("span", {}, this.problem), el("button", { type: "button", class: "qw-btn", onclick: () => void this.refresh() }, "Try again"));
     if (!none) return;
+    const edit = canEditCalendars();
+    const google = el("button", { type: "button", class: "qw-btn", onclick: () => this.openSources({ google: true }) }, icon("globe", 13), "Google Calendar");
     this.notice.replaceChildren(
       icon("calendar", 14),
-      el("span", {}, canEditCalendars() ? "No calendars yet. Subscribe to a calendar's ICS or webcal link to see its events here, with your tasks." : "No calendars in this workspace yet. Tasks with due dates show here."),
-      ...(canEditCalendars() ? [el("button", { type: "button", class: "qw-btn", onclick: () => this.openSources(true) }, icon("plus", 13), "Subscribe")] : []),
+      el(
+        "span",
+        {},
+        edit
+          ? `No calendars yet. Subscribe to a calendar's ICS or webcal link${this.google ? ", or add your Google calendars," : ""} to see events here, with your tasks.`
+          : `No calendars in this workspace yet. Tasks with due dates show here${this.google ? ", and your own Google calendars if you add them" : ""}.`,
+      ),
+      ...(edit ? [el("button", { type: "button", class: "qw-btn", onclick: () => this.openSources({ subscribe: true }) }, icon("plus", 13), "Subscribe")] : []),
+      ...(this.google ? [google] : []),
     );
   }
 

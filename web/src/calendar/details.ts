@@ -51,7 +51,7 @@ export function renderDetails(item: Extract<Item, { kind: "event" }>, hooks: { o
         )
       : null,
     description ? el("div", { class: "cal-d-desc", tabindex: "0", role: "region", "aria-label": "Description" }, description) : null,
-    ev.url ? field("open", "Link", outLink(ev.url, `Open in ${hostOf(ev.url)}`)) : null,
+    ev.url ? field("open", "Link", outLink(ev.url, item.source?.kind === "google" ? "Open in Google Calendar" : `Open in ${hostOf(ev.url)}`)) : null,
     el(
       "div",
       { class: "cal-d-actions" },

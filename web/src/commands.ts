@@ -52,6 +52,8 @@ export interface App {
   canDelete: boolean;
   /** Can add calendars (not a viewer online). */
   canSubscribe: boolean;
+  /** Google Calendar works on this server and isn't connected yet. */
+  canConnectGoogle: boolean;
   /** How many collapsible sections the focused note has. */
   folds: number;
   /** Online, the account menu's actions; locally, none. */
@@ -66,6 +68,7 @@ export interface App {
   /** The Calendar page, with the Calendars dialog open at its link field. */
   subscribeCalendar(): void;
   refreshCalendars(): void;
+  connectGoogle(): void;
   toggleTheme(): void;
   toggleVim(): void;
   toggleVimDisplayLines(): void;
@@ -104,6 +107,7 @@ export function appCommands(app: App): Command[] {
     go("tasks", "Tasks", "task", "todo checklist"),
     go("calendar", "Calendar", "calendar", "events meetings schedule agenda month week day"),
     { id: "subscribe-calendar", title: "Subscribe to a calendar…", keywords: "calendar add ics webcal ical feed google outlook subscribe", icon: "calendar", available: app.canSubscribe, run: app.subscribeCalendar },
+    { id: "connect-google", title: "Connect Google Calendar", keywords: "google calendar gcal account events", icon: "calendar", available: app.canConnectGoogle, run: app.connectGoogle },
     { id: "refresh-calendars", title: "Refresh calendars", keywords: "calendar sync reload events update", icon: "reset", run: app.refreshCalendars },
     go("tags", "Tags", "hash", "rename merge"),
     go("assets", "Assets", "grid", "files images uploads attachments"),
