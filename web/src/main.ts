@@ -10,7 +10,7 @@ import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, ico
 import { toast } from "./toast.ts";
 import { hideBanner, showBanner } from "./banner.ts";
 import { showConflict as conflictBanner } from "./conflict.ts";
-import { createState, openLinkToSide, remote, vimSlot } from "./editor/setup.ts";
+import { createState, lineNumbersFor, lineNumbersSlot, openLinkToSide, remote, setVimDisplayLines, vimSlot } from "./editor/setup.ts";
 import { linkTargetAt } from "./editor/linkAt.ts";
 import { bumpEmbeds, codeRange, editorContext } from "./editor/blocks.ts";
 import { codeWrapByDefault, setCodeWrapByDefault } from "./code.ts";
@@ -92,6 +92,9 @@ try {
 const prefs = {
   /** Off until you turn it on: in Vim, a stray Esc then `dd` deletes a line. */
   vim: store.get("vim", false),
+  /** In vim, j and k move by the line on screen (gj, gk), not the line in the file. */
+  vimDisplayLines: store.get("vimDisplayLines", false),
+  lineNumbers: store.get("lineNumbers", false),
   panel: store.get("panel", true),
   htmlMode: store.get<"preview" | "source">("htmlMode", "preview"),
   /** Folders whose subfolders are showing in the sidebar (they start closed). */
@@ -219,6 +222,8 @@ function commands() {
   return appCommands({
     note: s ? { kind: s.kind, starred: isStarred(s.id), archived: isArchived(s.path) } : null,
     vim: prefs.vim,
+    vimDisplayLines: prefs.vimDisplayLines,
+    lineNumbers: prefs.lineNumbers,
     split,
     focusMode,
     htmlMode: prefs.htmlMode,
@@ -239,6 +244,8 @@ function commands() {
     quickAdd,
     toggleTheme,
     toggleVim,
+    toggleVimDisplayLines,
+    toggleLineNumbers,
     togglePanel: () => togglePanel(),
     toggleFocus: () => void setFocusMode(!focusMode),
     toggleSplit: () => void (split ? closePane(active) : openSplit()),
@@ -343,6 +350,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
         doc: note.content,
         kind: note.kind === "html" ? "html" : "md",
         vim: prefs.vim,
+        lineNumbers: prefs.lineNumbers,
         readOnly: viewer,
         context: {
           path: note.path,
@@ -2028,6 +2036,14 @@ for (const [keys, run] of [["za", foldAt("toggle")], ["zo", foldAt("open")], ["z
   Vim.defineAction(`quireFold${keys}`, () => run(active.view));
   Vim.mapCommand(keys, "action", `quireFold${keys}`, {}, { context: "normal" });
 }
+setVimDisplayLines(prefs.vimDisplayLines);
+// :set number / :set nu / :set nonu / :set nu! / :set nu? — the same setting as ⌘K's, one for every pane.
+// Vim calls this once globally and once for the editor; the global call does the work, and asked
+// for the editor's own value it answers undefined, which falls back to the global one.
+Vim.defineOption("number", undefined, "boolean", ["nu"], (value?: boolean, cm?: unknown) => {
+  if (value === undefined) return cm ? undefined : prefs.lineNumbers;
+  if (!cm) setLineNumbers(value);
+});
 
 function followLinkAtCursor() {
   const link = linkTargetAt(active.view.state, active.view.state.selection.main.head);
@@ -2124,6 +2140,20 @@ function toggleVim() {
   attachVim();
   active.view.focus();
 }
+
+function toggleVimDisplayLines() {
+  prefs.vimDisplayLines = !prefs.vimDisplayLines;
+  store.set("vimDisplayLines", prefs.vimDisplayLines);
+  setVimDisplayLines(prefs.vimDisplayLines);
+}
+
+function setLineNumbers(on: boolean) {
+  if (on === prefs.lineNumbers) return;
+  prefs.lineNumbers = on;
+  store.set("lineNumbers", on);
+  for (const p of panes) p.view.dispatch({ effects: lineNumbersSlot.reconfigure(lineNumbersFor(on)) });
+}
+const toggleLineNumbers = () => setLineNumbers(!prefs.lineNumbers);
 
 function toggleTheme() {
   const dark = document.documentElement.dataset.theme
