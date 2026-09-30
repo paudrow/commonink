@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 119
 title: No workspace talk in a local vault's smart folders
 ---
 The change is for local vaults (`npm run dev`). A Preview is online, so it's the check that nothing changed there.
