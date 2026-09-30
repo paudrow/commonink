@@ -42,6 +42,34 @@ test("resolve accepts paths, extensionless paths and wikilink names", () => {
   assert.equal(quire.resolve("../../etc/passwd"), null);
 });
 
+test("a path typed in another case is the note's own path, not a second note", () => {
+  const { quire } = openTempVault();
+  assert.equal(quire.resolve("projects/roadmap"), "Projects/Roadmap.md");
+  assert.equal(quire.read("projects/roadmap.md").path, "Projects/Roadmap.md");
+  quire.edit("projects/roadmap", { oldString: "Ship the importer", newString: "Ship it" }, "t");
+  assert.deepEqual(quire.list(undefined, "all").map((n) => n.path), ["assets/chart.svg", "Dashboards/Stats.html", "Projects/Roadmap.md", "Welcome.md"]);
+  assert.deepEqual(quire.tasks().map((t) => `${t.path}:${t.text}`), ["Projects/Roadmap.md:Ship it", "Projects/Roadmap.md:Write the parser"]);
+  assert.deepEqual(quire.changes().map((c) => c.path), ["Projects/Roadmap.md"]);
+});
+
+test("a file named in decomposed Unicode is the note a link or path in composed Unicode means", () => {
+  const nfd = "Café".normalize("NFD");
+  const { quire } = openTempVault({ [`${nfd}.md`]: "# Café\n\n- [ ] one\n", "A.md": "See [[Café]]\n" });
+  assert.equal(quire.resolve("Café"), `${nfd}.md`);
+  assert.equal(quire.resolve("Café.md"), `${nfd}.md`);
+  quire.edit("Café", { oldString: "one", newString: "two" }, "t");
+  assert.deepEqual(quire.list().map((n) => n.path), ["A.md", `${nfd}.md`]);
+  assert.deepEqual(quire.tasks().map((t) => `${t.path}:${t.text}`), [`${nfd}.md:two`]);
+  assert.deepEqual(quire.backlinks(`${nfd}.md`).map((b) => b.path), ["A.md"]);
+});
+
+test("an index from before composed names learns them on open", () => {
+  const nfd = "Café".normalize("NFD");
+  const { dir, quire } = openTempVault({ [`Places/${nfd}.md`]: "# Café\n" });
+  quire.db.run("UPDATE notes SET stem = ?", nfd.toLowerCase());
+  assert.equal(openVault(dir).resolve("café"), `Places/${nfd}.md`);
+});
+
 test("edit replaces one exact string and refuses ambiguous or stale edits", () => {
   const { dir, quire } = openTempVault();
   const before = quire.read("Roadmap");
