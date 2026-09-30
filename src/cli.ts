@@ -5,6 +5,8 @@ import { QuireError } from "./core/paths.ts";
 import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtTrash, fmtWrite } from "./core/format.ts";
 import { parseQuery } from "./core/query.ts";
 import { agentSource, parseAuthorFilter } from "./core/actor.ts";
+import { Calendar, dayRange, fetchFeed, fmtEvent, fmtEvents, fmtSources } from "./core/calendar.ts";
+import { assertPublic } from "./server/unfurl.ts";
 
 const HELP = `quire — markdown notes for you and your agents
 
@@ -56,6 +58,14 @@ Usage: quire <command> [args] [--agent <name>] [--json]
                                    --path brings the note's history under earlier names too;
                                    --by shows only people's changes, any agent's, or one agent's
   restore <change-id>              put a note back the way it was before that change
+  events [--from YYYY-MM-DD] [--days N] [--query words] [--tz Zone]
+                                   calendar events, soonest first (default: the next 7 days);
+                                   feeds that are due are read first
+  event <id>                       one event in full, with its meeting note
+  meeting-note <id> [--tz Zone]    the event's meeting note in Meetings/, made and linked if new
+  calendars                        the calendars (ICS feeds) this vault subscribes to
+  calendars add <url> [--name N]   subscribe to an ICS or webcal feed
+  calendars refresh | remove <id>  read every feed again now, or unsubscribe from one
   mcp                              run the stdio MCP server
 
 <note> can be a path, a path without .md, a [[wikilink]] name, a note ID or a note URL.
@@ -94,6 +104,9 @@ const source = agent ? agentSource(agent, LOCAL_USER) : LOCAL_USER;
 const stdin = () => fs.readFileSync(0, "utf8");
 const scope = flags.archived ? ("archived" as const) : flags.all ? ("all" as const) : ("active" as const);
 const out = (text: string, data: unknown) => console.log(flags.json ? JSON.stringify(data, null, 2) : text);
+/** The vault's one person, who may change its calendars. */
+const ME = { user: LOCAL_USER, canEdit: true };
+const calendarOf = (q: ReturnType<typeof openVault>) => new Calendar(q.db, (url, last) => fetchFeed(url, last, assertPublic));
 
 if (cmd === "mcp") {
   await import("./mcp.ts");
@@ -211,7 +224,7 @@ if (cmd === "mcp") {
       }
       case "changes": {
         const cs = q.changes({ since: str("since"), path: str("path"), limit: num("limit") ?? 30, by: parseAuthorFilter(str("by")) });
-        out(fmtChanges(cs), cs);
+        out(fmtChanges(cs, q), cs);
         break;
       }
       case "archive":
@@ -284,6 +297,37 @@ if (cmd === "mcp") {
         if (!/^\d+$/.test(id)) throw new QuireError(`<change-id> must be a whole number, not "${id}"`);
         const r = q.restore(Number(id), source);
         out(fmtWrite(r, "Restored"), r);
+        break;
+      }
+      case "events": {
+        const cal = calendarOf(q);
+        await cal.syncDue();
+        const zone = str("tz") || Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const range = dayRange(str("from"), num("days") ?? 7, zone);
+        const events = cal.events(ME, { ...range, zone, q: str("query") });
+        out(fmtEvents(events, cal.sources(ME), zone, range), events);
+        break;
+      }
+      case "event": {
+        const cal = calendarOf(q);
+        const ev = cal.event(need(0, "id"), ME);
+        if (!ev) throw new QuireError(`No event ${args[0]}; \`quire events\` lists them with their ids`);
+        out(fmtEvent(ev, cal.sources(ME), str("tz") || Intl.DateTimeFormat().resolvedOptions().timeZone), ev);
+        break;
+      }
+      case "meeting-note": {
+        const r = calendarOf(q).meetingNote(q, need(0, "id"), ME, { timeZone: str("tz") || Intl.DateTimeFormat().resolvedOptions().timeZone, source });
+        out(r.created ? `Created ${r.path}, linked to the event` : `The event already has a meeting note: ${r.path}`, { path: r.path, created: r.created });
+        break;
+      }
+      case "calendars": {
+        const cal = calendarOf(q);
+        if (args[0] === "add") await cal.addIcs({ url: need(1, "url"), name: str("name") }, ME, source);
+        else if (args[0] === "remove") cal.remove(need(1, "id"), ME);
+        else if (args[0] === "refresh") await cal.refresh(ME);
+        else if (args[0] !== undefined) throw new QuireError(`calendars takes add, refresh or remove, not "${args[0]}"`);
+        const list = cal.sources(ME);
+        out(fmtSources(list), list);
         break;
       }
       default:

@@ -26,7 +26,7 @@ const SIGNUP_TRIES = 5;
 
 // ------------------------------------------------------------------ signed cookies
 
-const b64url = (bytes: ArrayBuffer | Uint8Array) =>
+export const b64url = (bytes: ArrayBuffer | Uint8Array) =>
   btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const fromB64url = (s: string) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
 
@@ -35,7 +35,7 @@ async function hmac(secret: string, data: string) {
   return b64url(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data)));
 }
 
-async function seal(secret: string, payload: object) {
+export async function seal(secret: string, payload: object) {
   const body = b64url(new TextEncoder().encode(JSON.stringify(payload)));
   return `${body}.${await hmac(secret, body)}`;
 }
@@ -47,7 +47,7 @@ function timingSafeEqual(a: ArrayLike<number>, b: ArrayLike<number>) {
   return diff === 0;
 }
 
-async function unseal<T extends { exp: number }>(secret: string, value: string | undefined): Promise<T | null> {
+export async function unseal<T extends { exp: number }>(secret: string, value: string | undefined): Promise<T | null> {
   if (!value) return null;
   const [body, sig] = value.split(".");
   if (!body || !sig) return null;
@@ -57,14 +57,14 @@ async function unseal<T extends { exp: number }>(secret: string, value: string |
   return payload.exp > Date.now() ? payload : null;
 }
 
-function cookie(req: Request, name: string) {
+export function cookie(req: Request, name: string) {
   for (const part of (req.headers.get("Cookie") ?? "").split(/;\s*/)) {
     const i = part.indexOf("=");
     if (part.slice(0, i) === name) return part.slice(i + 1);
   }
 }
 
-const setCookie = (name: string, value: string, maxAge: number) =>
+export const setCookie = (name: string, value: string, maxAge: number) =>
   `${name}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
 
 const sha256 = async (s: string) => b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
@@ -122,10 +122,20 @@ interface PendingSignup {
 }
 
 /**
- * Only paths on this site, so `next` can't bounce people to another one. Browsers read `/\evil.com`
- * as `//evil.com`, so backslashes are out too.
+ * Only paths on this site, so `next` can't bounce people to another one. It's read the way a
+ * browser reads a Location (which turns `\` into `/` and drops tabs and newlines, so `/<tab>/evil.com`
+ * is `//evil.com`), and what goes back out is that reading.
  */
-const safeNext = (next: string | null) => (next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/");
+function safeNext(next: string | null) {
+  const base = "https://next.invalid";
+  try {
+    const u = new URL(next ?? "", base);
+    const path = `${u.pathname}${u.search}${u.hash}`;
+    return next?.startsWith("/") && u.origin === base && !path.startsWith("//") ? path : "/";
+  } catch {
+    return "/";
+  }
+}
 
 export async function handleAuth(
   req: Request,

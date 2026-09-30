@@ -1,6 +1,6 @@
 // The shortcut sheet (? or "Keyboard shortcuts" in ⌘K): every shortcut, by where it works.
 import { shortcutSheet, type Command } from "./commands.ts";
-import { formatKeys } from "./keys.ts";
+import { kbd } from "./keys.ts";
 import { el, icon } from "./dom.ts";
 import { IS_MAC } from "./panes.ts";
 
@@ -13,7 +13,7 @@ export function toggleShortcuts(commands: Command[], opts: { vim: boolean; mac?:
   if (closeOpen) return closeOpen();
   const mac = opts.mac ?? IS_MAC;
   const back = document.activeElement as HTMLElement | null;
-  const keys = (list: string[]) => list.flatMap((k, i) => [i ? el("span", { class: "sc-or" }, "/") : null, el("kbd", {}, formatKeys(k, mac))]);
+  const keys = (list: string[]) => list.flatMap((k, i) => [i ? el("span", { class: "sc-or" }, "/") : null, kbd(k, mac)]);
   const sections = shortcutSheet(commands).map(({ area, shortcuts }) => {
     const rows = el("dl", { class: "sc-list" }, ...shortcuts.flatMap((s) => [el("dt", {}, ...keys(s.keys)), el("dd", {}, s.label)]));
     if (area !== "Vim") return el("section", { class: "sc-area" }, el("h3", {}, area), rows);

@@ -12,7 +12,9 @@ import { cleanPath, fileSecurityHeaders, isHidden, kindOf, mimeOf, MAX_UPLOAD, Q
 import { errorResponse, handleApi, json, type ApiHost } from "../core/api.ts";
 import { SANDBOX_PATH, sandboxPage } from "../core/sandbox.ts";
 import { appPolicy } from "../core/csp.ts";
-import { unfurl } from "./unfurl.ts";
+import { assertPublic, unfurl } from "./unfurl.ts";
+import { Calendar, fetchFeed } from "../core/calendar.ts";
+import { watchTree } from "./watch.ts";
 
 // PORT=0 picks a free port (printed on start). QUIRE_NO_UI=1 serves only /api, skipping Vite.
 const PORT = Number(process.env.PORT ?? 4777);
@@ -101,9 +103,7 @@ function announce(rel: string, content: string | null, version: string, change: 
 // ------------------------------------------------------------------ file watcher
 
 const timers = new Map<string, NodeJS.Timeout>();
-fs.watch(files.root, { recursive: true }, (_event, filename) => {
-  if (!filename) return;
-  const rel = filename.split(path.sep).join("/");
+watchTree(files.root, (rel) => {
   if (isHidden(rel) && rel !== ASSET_TAGS) return;
   const key = kindOf(rel) ? rel : "*"; // directory events → full resync
   clearTimeout(timers.get(key));
@@ -197,7 +197,17 @@ const host: ApiHost = {
     broadcast({ type: "change", change });
   },
   tree: () => broadcast({ type: "tree" }),
+  // Calendar feeds are fetched from public hosts only, like link previews.
+  calendar: new Calendar(quire.db, (url, last) => fetchFeed(url, last, assertPublic)),
+  calendarChanged: () => broadcast({ type: "calendar" }),
 };
+
+/** Read calendar feeds as they come due (every half hour each), while the app is running. */
+async function syncCalendars() {
+  if (await host.calendar!.syncDue().catch((e) => (console.error("Calendar sync failed:", e), 0))) broadcast({ type: "calendar" });
+}
+setInterval(syncCalendars, 60_000).unref();
+void syncCalendars();
 
 async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
   if (!hostOk(req)) return send(res, json({ error: "Forbidden host" }, 403));
@@ -205,6 +215,11 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
   // Every path, the app's files included: another site (or another localhost port) gets nothing.
   if (!originOk(req)) return send(res, json({ error: "Cross-origin request refused" }, 403));
   if (url.pathname === SANDBOX_PATH) return send(res, sandboxPage());
+  // A share the service worker didn't catch (it wasn't set up yet): the capture screen says so.
+  if (url.pathname === "/share" && req.method === "POST") {
+    res.writeHead(303, { Location: "/capture?share=none" });
+    return res.end();
+  }
   if (!url.pathname.startsWith("/api/")) {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Content-Security-Policy", appPolicy(NONCE, url)); // also: no framing the app to click through it
@@ -216,6 +231,8 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
   if (req.method !== "GET" && !String(req.headers["content-type"]).startsWith("application/json")) {
     return send(res, json({ error: "JSON only" }, 415));
   }
+  // The web app asks who's signed in to tell online from local: here, nobody signs in.
+  if (route === "/me") return send(res, json({ local: true }));
   if (route.startsWith("/files/")) return asset(res, decodePath(route.slice("/files/".length)));
   if (route === "/file-resolve") {
     const rel = quire.resolve(url.searchParams.get("target") ?? "", url.searchParams.get("from") ?? undefined);
@@ -246,8 +263,16 @@ function asset(res: http.ServerResponse, raw: string) {
   const rel = cleanPath(raw);
   const mime = mimeOf(rel);
   if (!mime || !files.stat(rel)) return send(res, json({ error: "Not found" }, 404));
-  res.writeHead(200, { "Content-Type": mime, "Content-Length": String(files.stat(rel)!.size), ...fileSecurityHeaders(mime), "Cache-Control": "no-cache" });
-  fs.createReadStream(files.abs(rel)).pipe(res);
+  // Opened before answering: a file that can't be read (its permissions, or deleted just now) is a
+  // 404, not an error on a stream with no listener, which would stop the server.
+  let fd: number;
+  try {
+    fd = fs.openSync(files.abs(rel), "r");
+  } catch {
+    return send(res, json({ error: "Not found" }, 404));
+  }
+  res.writeHead(200, { "Content-Type": mime, "Content-Length": String(fs.fstatSync(fd).size), ...fileSecurityHeaders(mime), "Cache-Control": "no-cache" });
+  fs.createReadStream("", { fd }).on("error", () => res.destroy()).pipe(res);
 }
 
 /** Save an uploaded file into the vault (assets/ by default), under a free name. */
@@ -269,30 +294,25 @@ async function upload(req: http.IncomingMessage, res: http.ServerResponse, url: 
 }
 
 /**
- * A request body, or null if it's over `limit` bytes. An oversized body is left unread rather than
- * destroyed, so the 413 (sent with `tooLarge`) reaches the client before the connection closes.
+ * A request body, or null if it's over `limit` bytes. An oversized body is still read to its end and
+ * dropped, so the client has sent all of it when the 413 comes back. Closing the connection on a
+ * client that's still sending resets it, which can lose the 413.
  */
 function readBody(req: http.IncomingMessage, limit: number): Promise<Uint8Array<ArrayBuffer> | null> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
-    const onData = (c: Buffer) => {
+    req.on("data", (c: Buffer) => {
       size += c.length;
-      if (size <= limit) return void chunks.push(c);
-      req.off("data", onData);
-      req.pause();
-      resolve(null);
-    };
-    req.on("data", onData);
-    req.on("end", () => resolve(Uint8Array.from(Buffer.concat(chunks))));
+      if (size <= limit) chunks.push(c);
+      else chunks.length = 0;
+    });
+    req.on("end", () => resolve(size <= limit ? Uint8Array.from(Buffer.concat(chunks)) : null));
     req.on("error", reject);
   });
 }
 
-const tooLarge = (res: http.ServerResponse, error: string) => {
-  res.setHeader("Connection", "close");
-  return send(res, json({ error }, 413));
-};
+const tooLarge = (res: http.ServerResponse, error: string) => send(res, json({ error }, 413));
 
 /** The web-standard Request for the shared API, or null if the body is too big. */
 async function toRequest(req: http.IncomingMessage, url: URL): Promise<Request | null> {

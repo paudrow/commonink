@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { blockMathAt, inlineMathAt, MAX_TEX } from "../src/core/math.ts";
+import { cpuMs } from "./helpers.ts";
 
 /** Every inline formula in a line, scanning left to right the way the parsers do. */
 function formulas(text: string): string[] {
@@ -54,15 +55,12 @@ test("scanning hostile text stays linear and bounded", () => {
     `$${"x".repeat(MAX_TEX * 3)}$`,
   ];
   for (const text of hostile) {
-    const t = performance.now();
-    const found = formulas(text);
-    assert.ok(performance.now() - t < 300, `slow on ${JSON.stringify(text.slice(0, 12))}`);
-    assert.ok(found.every((f) => f.length <= MAX_TEX + 2));
+    assert.ok(cpuMs(() => formulas(text)) < 300, `slow on ${JSON.stringify(text.slice(0, 12))}`);
+    assert.ok(formulas(text).every((f) => f.length <= MAX_TEX + 2));
   }
   const lines = ["$$", ...Array(50_000).fill("x"), "$$"];
-  const t = performance.now();
   assert.equal(blockMathAt(lines, 0), null, "too long to be one formula");
-  assert.ok(performance.now() - t < 100);
+  assert.ok(cpuMs(() => blockMathAt(lines, 0)) < 100);
 });
 
 test("search finds a note by the LaTeX in its math", async () => {

@@ -7,7 +7,7 @@ import { api } from "./api.ts";
 import { el, icon } from "./dom.ts";
 import { today } from "./taskChips.ts";
 import { targetOf } from "./taskCommand.ts";
-import { formatKeys } from "./keys.ts";
+import { kbd } from "./keys.ts";
 import { HINT, taskInput, type TaskInput } from "./taskInput.ts";
 
 export interface QuickAddOptions {
@@ -23,7 +23,6 @@ export interface QuickAddOptions {
 
 /** The shortcut that opens the bar from anywhere, the editor included: the key that types "." (keys.ts), with ⌘⇧ (Ctrl+Shift off a Mac). */
 export const QUICK_ADD = "Mod-Shift-.";
-const SHORTCUT = formatKeys(QUICK_ADD);
 
 /** A quick-add bar; focus it with the returned `focus`. */
 export function quickAddBar(opts: QuickAddOptions): { root: HTMLElement; focus(): void; destroy(): void } {
@@ -75,7 +74,7 @@ export function quickAddBar(opts: QuickAddOptions): { root: HTMLElement; focus()
     cancel: () => (input.value() ? input.clear() : opts.escape?.()),
     tab: toggleTarget,
     where: () => (drawTarget(), where().label),
-    idle: () => (drawTarget(), status ?? el("span", { class: "qa-hint" }, HINT, el("kbd", {}, "Enter"), " adds · ", el("kbd", {}, SHORTCUT), " opens this anywhere")),
+    idle: () => (drawTarget(), status ?? el("span", { class: "qa-hint" }, HINT, el("kbd", {}, "Enter"), " adds · ", kbd(QUICK_ADD), " opens this anywhere")),
     typed: () => (status = null),
   });
   const root = el("div", { class: "qa" }, el("div", { class: "qa-field" }, icon("plus", 15), input.dom, targetChip), input.preview);

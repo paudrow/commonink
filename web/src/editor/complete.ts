@@ -1,6 +1,6 @@
 // Typing helpers: `@` mentions, `[[` links, `#` tags, `:` emoji, `/` tools, and smart link pasting.
 import { autocompletion, startCompletion, type Completion, type CompletionContext, type CompletionResult, type CompletionSource } from "@codemirror/autocomplete";
-import { syntaxTree } from "@codemirror/language";
+import { noteTree } from "./tree.ts";
 import type { EditorState, Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { fileUrl, type NoteMeta, type TagCount } from "../api.ts";
@@ -19,6 +19,8 @@ import { emojiMatches } from "../../../src/core/emoji.ts";
 import { did } from "../events.ts";
 import { slashUsed } from "./lineHint.ts";
 import { formatKeys } from "../keys.ts";
+import { eventLink, linkableEvents, whenText, type CalendarEvent } from "../calendar/data.ts";
+import { spanOf } from "../calendar/layout.ts";
 
 interface Option extends Completion {
   icon?: string;
@@ -30,7 +32,7 @@ interface Option extends Completion {
 
 const NOT_PROSE = new Set(["FencedCode", "CodeBlock", "InlineCode", "CodeText", "Frontmatter", "FrontmatterContent", "HTMLBlock", "CommentBlock", "URL", "Autolink", "WikiLink", "Embed"]);
 function inProse(state: EditorState, pos: number): boolean {
-  for (let n: any = syntaxTree(state).resolveInner(pos, -1); n; n = n.parent) if (NOT_PROSE.has(n.name)) return false;
+  for (let n: any = noteTree(state).resolveInner(pos, -1); n; n = n.parent) if (NOT_PROSE.has(n.name)) return false;
   return true;
 }
 
@@ -58,13 +60,14 @@ function rankNotes(notes: NoteMeta[], query: string): NoteMeta[] {
 // ------------------------------------------------------------------ @ mentions
 
 /**
- * A source of things you can @-mention. Notes today; people plug in here later
+ * A source of things you can @-mention: notes and calendar events today; people plug in here later
  * (e.g. { section: "People", search: (q) => members matching q, insert: (m) => `@${m.handle}` }).
  */
+type Mention = { label: string; detail?: string; icon: string; insert: string };
 interface MentionProvider {
   section: string;
   rank: number;
-  search(query: string, state: EditorState): Array<{ label: string; detail?: string; icon: string; insert: string }>;
+  search(query: string, state: EditorState): Mention[] | Promise<Mention[]>;
 }
 
 const noteMentions: MentionProvider = {
@@ -79,7 +82,25 @@ const noteMentions: MentionProvider = {
   },
 };
 
-const MENTIONS: MentionProvider[] = [noteMentions];
+/** Calendar events from a week back to a month ahead, best match first (the soonest from today with nothing typed), as links to them. */
+async function eventMatches(query: string, limit: number): Promise<Array<CalendarEvent & { when: string }>> {
+  const now = Date.now();
+  const all = (await linkableEvents()).map((ev) => ({ ev, span: spanOf(ev) }));
+  const ranked = query
+    ? all.map((x) => ({ ...x, s: fuzzyScore(query, x.ev.title) })).filter((x) => x.s >= 0).sort((a, b) => b.s - a.s || Math.abs(a.span.start.getTime() - now) - Math.abs(b.span.start.getTime() - now))
+    : all.filter((x) => x.span.end.getTime() >= now);
+  return ranked.slice(0, limit).map((x) => ({ ...x.ev, when: whenText(x.span) }));
+}
+
+const eventMentions: MentionProvider = {
+  section: "Events",
+  rank: 1,
+  async search(query) {
+    return (await eventMatches(query, 8)).map((ev) => ({ label: ev.title || "Event", detail: ev.when, icon: "calendar", insert: eventLink(ev) }));
+  },
+};
+
+const MENTIONS: MentionProvider[] = [noteMentions, eventMentions];
 
 /** People already on tasks, for `@` on a task line; fetched at most every half minute. */
 let people: { at: number; list: Promise<string[]> } | null = null;
@@ -106,8 +127,9 @@ async function mentionSource(ctx: CompletionContext): Promise<CompletionResult |
   });
   const typedName = /^[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*$/u.test(query) && !found.some((p) => p.toLowerCase() === query.toLowerCase());
   const options: Option[] = [...found.slice(0, 8).map(person), ...(onTask && typedName ? [person(query)] : [])];
-  options.push(...MENTIONS.flatMap((p) =>
-    p.search(query, ctx.state).map((r) => ({
+  const mentioned = await Promise.all(MENTIONS.map(async (p) => ({ p, results: await p.search(query, ctx.state) })));
+  options.push(...mentioned.flatMap(({ p, results }) =>
+    results.map((r) => ({
       label: r.label,
       detail: r.detail,
       icon: r.icon,
@@ -124,7 +146,7 @@ async function mentionSource(ctx: CompletionContext): Promise<CompletionResult |
 
 // ------------------------------------------------------------------ [[ links
 
-function linkSource(ctx: CompletionContext): CompletionResult | null {
+async function linkSource(ctx: CompletionContext): Promise<CompletionResult | null> {
   const m = ctx.matchBefore(/!?\[\[[^\]\n|#]*$/);
   if (!m) return null;
   const embed = m.text.startsWith("!");
@@ -149,6 +171,22 @@ function linkSource(ctx: CompletionContext): CompletionResult | null {
         },
       };
     });
+  // An event is a markdown link, not a [[link]]: it takes the place of the brackets too.
+  const events = embed ? [] : await eventMatches(query, 6);
+  if (ctx.aborted) return null;
+  for (const ev of events) {
+    const insert = eventLink(ev);
+    options.push({
+      label: ev.title || "Event",
+      detail: ev.when,
+      icon: "calendar",
+      section: { name: "Events", rank: 1 },
+      apply: (view: EditorView, _c: Completion, _from: number, to: number) => {
+        view.dispatch({ changes: { from: m.from, to: to + (closed ? 2 : 0), insert }, selection: { anchor: m.from + insert.length }, userEvent: "input.complete" });
+        did("link");
+      },
+    });
+  }
   return { from: start, options, filter: false };
 }
 
@@ -209,7 +247,7 @@ function tagSource(ctx: CompletionContext): CompletionResult | null {
 /** The frontmatter `tags:` field: `tags: [a, b`, `tags: a, b`, or a `- item` under `tags:`. */
 function frontmatterTagSource(ctx: CompletionContext): CompletionResult | null {
   let inside = false;
-  for (let n: any = syntaxTree(ctx.state).resolveInner(ctx.pos, -1); n; n = n.parent) if (n.name === "Frontmatter") inside = true;
+  for (let n: any = noteTree(ctx.state).resolveInner(ctx.pos, -1); n; n = n.parent) if (n.name === "Frontmatter") inside = true;
   if (!inside) return null;
   const doc = ctx.state.doc;
   const line = doc.lineAt(ctx.pos);
@@ -290,7 +328,8 @@ const TOOLS: Tool[] = [
   { title: "Link embed", hint: "YouTube, X, Bluesky, Spotify… or any page", icon: "video", keywords: "embed link url youtube video tweet x twitter bluesky mastodon instagram tiktok spotify vimeo loom bookmark", section: "Embed", run: (v, f, t) => insert(v, f, t, "https://", { cursor: 0, select: 8, block: true }) },
   widgetTool("tasks", "tasks todo checklist rollup dashboard open"),
   widgetTool("query", "notes list query dashboard recent folder tag"),
-  widgetTool("calendar", "calendar journal daily month diary"),
+  widgetTool("calendar", "calendar journal daily month diary events"),
+  widgetTool("agenda", "agenda events calendar meetings schedule upcoming"),
   widgetTool("timer", "timer countdown pomodoro alarm"),
   widgetTool("stopwatch", "stopwatch count up laps"),
   {

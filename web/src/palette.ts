@@ -5,8 +5,8 @@ import { matchCommands, type Command } from "./commands.ts";
 import { $, displayName, el, escapeHtml, icon } from "./dom.ts";
 import { fuzzyScore } from "./fuzzy.ts";
 import { agentsBadge, isAgentsNote } from "./agentsNote.ts";
-import { MOD_ENTER, paletteEnter } from "./panes.ts";
-import { formatKeys, matchKeys } from "./keys.ts";
+import { paletteEnter } from "./panes.ts";
+import { kbd, matchKeys } from "./keys.ts";
 
 type Item =
   | { type: "note"; note: NoteMeta; archived?: boolean }
@@ -37,8 +37,7 @@ export class Palette {
     private onCreate: (name: string) => void,
     private commands: () => Command[],
   ) {
-    this.root.querySelector(".palette-side")!.textContent = MOD_ENTER;
-    document.querySelectorAll<HTMLElement>("kbd[data-keys]").forEach((k) => (k.textContent = formatKeys(k.dataset.keys!)));
+    document.querySelectorAll<HTMLElement>("kbd[data-keys]").forEach((k) => k.replaceChildren(...kbd(k.dataset.keys!).childNodes));
     this.input.addEventListener("input", () => this.query());
     this.input.addEventListener("keydown", (e) => this.key(e));
     this.root.addEventListener("mousedown", (e) => {
@@ -153,11 +152,11 @@ export class Palette {
         { class: "palette-item is-command", role: "option" },
         icon(c.icon ?? "spark", 15),
         el("span", { class: "pi-title" }, c.title),
-        c.keys ? el("kbd", {}, formatKeys(c.keys[0])) : null,
+        c.keys ? kbd(c.keys[0]) : null,
       );
     }
     if (item.type === "create") {
-      return el("div", { class: "palette-item is-create", role: "option" }, icon("plus", 15), el("span", { class: "pi-title" }, `Create “${item.name}”`), el("kbd", {}, "⇧↵"));
+      return el("div", { class: "palette-item is-create", role: "option" }, icon("plus", 15), el("span", { class: "pi-title" }, `Create “${item.name}”`), kbd("Shift-Enter"));
     }
     if (item.type === "note") {
       const n = item.note;
