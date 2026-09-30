@@ -12,6 +12,7 @@ import { pendingConfig, WIDGETS } from "../widgets/index.ts";
 import { editorContext } from "./blocks.ts";
 import { api } from "../api.ts";
 import { askFor, pickTemplate, templatePeople } from "../templatePicker.ts";
+import { placeholderSource } from "./templateComplete.ts";
 import { localNow } from "../../../src/core/templates.ts";
 import { NEW_BOARD } from "../../../src/core/kanban.ts";
 import { wrapInDetails } from "../../../src/core/details.ts";
@@ -504,7 +505,7 @@ const pasteFiles = EditorView.domEventHandlers({
 // ------------------------------------------------------------------ extension
 
 export function typingHelpers(): Extension {
-  return [completions([toolSource, taskTokenSource, mentionSource, linkSource, tagSource, frontmatterTagSource, emojiSource]), pasteLinks, pasteFiles];
+  return [completions([toolSource, taskTokenSource, mentionSource, linkSource, tagSource, frontmatterTagSource, emojiSource, placeholderSource]), pasteLinks, pasteFiles];
 }
 
 function completions(override: CompletionSource[]): Extension {
