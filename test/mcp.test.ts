@@ -171,3 +171,8 @@ test("agents list templates and make notes from them, told what's left to fill i
   const made = await call("create_from_template", { template: "Meeting", variables: { Client: "Initech" } });
   assert.match(made.text, /^Created Meetings\/\d{4}-\d\d-\d\d Initech\.md from Templates\/Meeting\.md\. Still to fill in: \{\{ask:Attendees\}\} \(line 3\)\.$/);
 });
+
+test("list_templates says what kind of answer each question takes", async () => {
+  await call("create_note", { path: "Templates/Typed", content: "{{ask:Who|people}} {{ask:Due|date}} {{ask:Size|choice:S,M,L}} {{ask:Note}}\n" });
+  assert.match((await call("list_templates", {})).text, /^Templates\/Typed\.md — Typed · asks: Who \(people\), Due \(date\), Size \(one of S, M, L\), Note$/m);
+});

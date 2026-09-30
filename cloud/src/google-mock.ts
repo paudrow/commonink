@@ -64,27 +64,39 @@ export class MockGoogle implements GoogleApi {
     private token: () => Promise<string>,
     private db?: SqlDb,
   ) {
-    db?.exec("CREATE TABLE IF NOT EXISTS google_mock(calendar TEXT NOT NULL, id TEXT NOT NULL, description TEXT NOT NULL, version INTEGER NOT NULL, PRIMARY KEY(calendar, id))");
+    // What's been written: changes to the demo events (or their instances), events added, and deletions, each at a version.
+    db?.exec("CREATE TABLE IF NOT EXISTS google_mock_events(calendar TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, version INTEGER NOT NULL, PRIMARY KEY(calendar, id))");
   }
 
-  private written(calendar: string): Array<{ id: string; description: string; version: number }> {
-    return this.db?.all("SELECT id, description, version FROM google_mock WHERE calendar = ?", calendar) ?? [];
+  private written(calendar: string): Array<{ id: string; data: Partial<GoogleEvent>; version: number }> {
+    return (this.db?.all<{ id: string; data: string; version: number }>("SELECT id, data, version FROM google_mock_events WHERE calendar = ?", calendar) ?? []).map((r) => ({ ...r, data: JSON.parse(r.data) }));
+  }
+
+  /** The event with this ID as it stands: a demo event, one instance of a demo series, or one added. */
+  private base(calendar: string, id: string): GoogleEvent | null {
+    const series = EVENTS[calendar] ?? [];
+    const own = series.find((e) => e.id === id);
+    if (own) return { ...own };
+    const [seriesId, instance] = id.split("_");
+    const of = series.find((e) => e.id === seriesId);
+    const when = of && instance ? instanceStart(of, instance) : null;
+    return of && when ? { ...of, id, recurrence: undefined, recurringEventId: of.id, originalStartTime: when.start, ...when } : null;
   }
 
   private all(calendar: string): GoogleEvent[] {
-    const series = EVENTS[calendar] ?? [];
-    const out = series.map((e) => ({ ...e }));
-    for (const w of this.written(calendar)) {
-      const own = out.find((e) => e.id === w.id);
-      if (own) own.description = w.description;
-      else {
-        const [seriesId, instance] = w.id.split("_");
-        const of = series.find((e) => e.id === seriesId);
-        const when = of && instanceStart(of, instance);
-        if (of && when) out.push({ ...of, id: w.id, recurrence: undefined, recurringEventId: of.id, originalStartTime: when.start, ...when, description: w.description });
-      }
-    }
-    return out;
+    const out = new Map((EVENTS[calendar] ?? []).map((e) => [e.id, { ...e }] as const));
+    for (const w of this.written(calendar)) out.set(w.id, { ...(this.base(calendar, w.id) ?? {}), ...w.data, id: w.id } as GoogleEvent);
+    return [...out.values()];
+  }
+
+  private write(calendar: string, id: string, data: Partial<GoogleEvent>) {
+    if (!this.db) throw new Error("feed:Google Calendar: can't write here");
+    const version = this.written(calendar).reduce((n, w) => Math.max(n, w.version), 0) + 1;
+    const had = this.written(calendar).find((w) => w.id === id)?.data ?? {};
+    this.db.run(
+      "INSERT INTO google_mock_events(calendar, id, data, version) VALUES (?,?,?,?) ON CONFLICT(calendar, id) DO UPDATE SET data = excluded.data, version = excluded.version",
+      calendar, id, JSON.stringify({ ...had, ...data }), version,
+    );
   }
 
   async calendars() {
@@ -94,9 +106,10 @@ export class MockGoogle implements GoogleApi {
 
   async changes(calendar: string, syncToken: string | null) {
     await this.token();
-    const version = this.written(calendar).reduce((n, w) => Math.max(n, w.version), 0);
+    const written = this.written(calendar);
+    const version = written.reduce((n, w) => Math.max(n, w.version), 0);
     const since = syncToken?.match(/^mock:(\d+)$/) ? Number(syncToken.slice(5)) : null;
-    const changed = new Set(this.written(calendar).filter((w) => since === null || w.version > since).map((w) => w.id));
+    const changed = new Set(written.filter((w) => since === null || w.version > since).map((w) => w.id));
     const events = this.all(calendar).filter((e) => since === null || changed.has(e.id));
     const cal = CALENDARS.find((c) => c.id === calendar);
     return { events, syncToken: `mock:${version}`, zone: cal?.timeZone ?? null, name: cal?.summary ?? null };
@@ -104,22 +117,28 @@ export class MockGoogle implements GoogleApi {
 
   async event(calendar: string, eventId: string) {
     await this.token();
-    const found = this.all(calendar).find((e) => e.id === eventId);
-    if (found) return found;
-    const [seriesId, instance] = eventId.split("_");
-    const of = (EVENTS[calendar] ?? []).find((e) => e.id === seriesId);
-    const when = of && instanceStart(of, instance ?? "");
-    if (!of || !when) throw new Error("feed:Google Calendar: that event isn't there any more");
-    return { ...of, id: eventId, recurrence: undefined, recurringEventId: of.id, originalStartTime: when.start, ...when };
+    const found = this.all(calendar).find((e) => e.id === eventId) ?? this.base(calendar, eventId);
+    if (!found || found.status === "cancelled") throw new Error("feed:Google Calendar: that event isn't there any more");
+    return found;
   }
 
-  async describe(calendar: string, eventId: string, description: string) {
+  async patch(calendar: string, eventId: string, fields: Partial<GoogleEvent>) {
     await this.token();
-    if (!this.db) throw new Error("feed:Google Calendar: can't write here");
-    const version = this.written(calendar).reduce((n, w) => Math.max(n, w.version), 0) + 1;
-    this.db.run(
-      "INSERT INTO google_mock(calendar, id, description, version) VALUES (?,?,?,?) ON CONFLICT(calendar, id) DO UPDATE SET description = excluded.description, version = excluded.version",
-      calendar, eventId, description, version,
-    );
+    if (!this.all(calendar).some((e) => e.id === eventId) && !this.base(calendar, eventId)) throw new Error("feed:Google Calendar: that event isn't there any more");
+    this.write(calendar, eventId, fields);
+  }
+
+  async insert(calendar: string, event: Partial<GoogleEvent>) {
+    await this.token();
+    if (CALENDARS.find((c) => c.id === calendar)?.accessRole === "reader") throw new Error("feed:Google Calendar: you can only read that calendar");
+    const id = `made${[...crypto.getRandomValues(new Uint8Array(6))].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+    const made = { ...event, id, iCalUID: `${id}@google.demo`, status: "confirmed" as const, htmlLink: `https://calendar.google.com/calendar/event?eid=${id}` };
+    this.write(calendar, id, made);
+    return made as GoogleEvent;
+  }
+
+  async remove(calendar: string, eventId: string) {
+    await this.token();
+    this.write(calendar, eventId, { status: "cancelled" });
   }
 }

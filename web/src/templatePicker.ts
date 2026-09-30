@@ -1,13 +1,16 @@
-// Choosing a template and answering its questions: the picker (type to filter, arrows and Enter)
-// and the {{ask:…}} form. Making a note or inserting the text is the caller's (see main.ts). Also
-// the name prompt of Rename note, which uses the same dialog.
+// Choosing a template and answering its questions: the picker (type to filter, arrows and Enter,
+// and ? for the help on every template option) and the {{ask:…}} form, whose fields follow each
+// question's type: text, a people picker, a date picker, or a menu of choices. Making the note or
+// inserting the text is the caller's (see main.ts and editor/complete.ts). Also the name prompt of
+// Rename note, which uses the same dialog.
+import { api } from "./api.ts";
 import { el, icon } from "./dom.ts";
 import { fuzzyScore } from "./fuzzy.ts";
-import { fillTemplate, localNow, type TemplateInfo } from "../../src/core/templates.ts";
+import { fillTemplate, handlesFor, localNow, type Ask, type PersonPick, type TemplateInfo } from "../../src/core/templates.ts";
 
-/** A modal on the page; `done` closes it. Escape or a click outside is `cancel`. */
-function modal(title: string, children: HTMLElement[], cancel: () => void) {
-  const box = el("div", { class: "ask-box tpl-box", role: "dialog", "aria-modal": "true", "aria-label": title }, el("h2", {}, title), ...children);
+/** A modal on the page; `close` takes it away. Escape or a click outside is `cancel`. */
+function modal(title: string, children: HTMLElement[], cancel: () => void, head?: HTMLElement) {
+  const box = el("div", { class: "ask-box tpl-box", role: "dialog", "aria-modal": "true", "aria-label": title }, el("div", { class: "tpl-head" }, el("h2", {}, title), head ?? null), ...children);
   const overlay = el("div", { class: "ask", onmousedown: (e: MouseEvent) => e.target === overlay && close(true) }, box);
   const onKey = (e: KeyboardEvent) => {
     if (e.key !== "Escape") return;
@@ -25,8 +28,11 @@ function modal(title: string, children: HTMLElement[], cancel: () => void) {
   return { box, close };
 }
 
-/** Pick one of `templates`; null if called off. */
-export function pickTemplate(templates: TemplateInfo[], title: string): Promise<TemplateInfo | null> {
+/** The help on every template option (docs/templates.md), loaded when it's asked for. */
+export const openTemplateHelp = () => void import("./templateHelp.ts").then((m) => m.showTemplateHelp());
+
+/** Pick one of `templates`; null if called off. `help` is what the ? button does. */
+export function pickTemplate(templates: TemplateInfo[], title: string, opts: { help?: () => void } = {}): Promise<TemplateInfo | null> {
   return new Promise((resolve) => {
     const filter = el("input", { placeholder: "Find a template…", "aria-label": "Find a template", autocomplete: "off", spellcheck: "false" });
     const list = el("div", { class: "tpl-list", role: "listbox", "aria-label": "Templates" });
@@ -48,7 +54,7 @@ export function pickTemplate(templates: TemplateInfo[], title: string): Promise<
                 el("span", { class: "tpl-hint" }, [t.asks.length ? `asks ${t.asks.map((a) => a.label).join(", ")}` : "", t.appliesTo.length ? `for ${t.appliesTo.map((f) => `${f}/`).join(", ")}` : ""].filter(Boolean).join(" · ")),
               ),
             )
-          : [el("p", { class: "tpl-none" }, templates.length ? "No template matches." : "No templates yet. A template is any note in Templates/.")]),
+          : [el("p", { class: "tpl-none" }, templates.length ? "No template matches." : "No templates yet. A template is any note in Templates/; ? says how to write one.")]),
       );
     };
     filter.addEventListener("input", () => ((active = 0), draw()));
@@ -62,7 +68,8 @@ export function pickTemplate(templates: TemplateInfo[], title: string): Promise<
         pick(shown[active]);
       }
     });
-    const m = modal(title, [filter, list], () => resolve(null));
+    const help = el("button", { type: "button", class: "icon-btn small tpl-help", title: "Every template option: placeholders, questions, frontmatter", "aria-label": "Help on templates", onclick: () => (opts.help ?? openTemplateHelp)() }, "?");
+    const m = modal(title, [filter, list], () => resolve(null), help);
     draw();
     filter.focus();
   });
@@ -91,30 +98,145 @@ export function askName(title: string, name: string): Promise<string | null> {
   });
 }
 
+/** Someone a `people` question can offer: a workspace member, or a contact (with the link a note uses). */
+export interface Offer {
+  name: string;
+  link?: string;
+}
+
 /**
- * Ask a template's questions (and the new note's title, with `title`), before it's filled in. A
- * blank answer is left out, so the template's default fills it or the placeholder stays to fill in
- * later. A template with nothing to ask resolves at once. Null if called off.
+ * A people question's field: chips for who's picked, and an input that suggests `people` (type to
+ * find, arrows and Enter to pick; a name no one has is someone new). Backspace on an empty input
+ * takes the last one off.
  */
-export function askFor(t: TemplateInfo, opts: { title: boolean }): Promise<{ title?: string; answers: Record<string, string> } | null> {
-  if (!t.asks.length && !opts.title) return Promise.resolve({ title: undefined, answers: {} });
+function peopleField(a: Ask, people: Offer[]) {
+  const picked: Offer[] = [];
+  const chips = el("span", { class: "tpl-chips" });
+  const input = el("input", { name: a.label, "aria-label": a.label, placeholder: a.fallback || "Type a name…", autocomplete: "off", spellcheck: "false" });
+  const menu = el("div", { class: "tpl-people", role: "listbox", "aria-label": `${a.label}: suggestions` });
+  let options: Array<{ offer: Offer; isNew: boolean }> = [];
+  let active = 0;
+  /** Someone's @handle among everyone offered and picked, so it names only them ("Sam-Lee" when there are two Sams). */
+  const handleOf = (o: Offer) => {
+    const all = [...new Set([...people, ...picked, o].map((p) => p.name))];
+    return handlesFor(all)[all.indexOf(o.name)];
+  };
+  const drawChips = () =>
+    chips.replaceChildren(
+      ...picked.map((p, i) =>
+        el("span", { class: "tpl-chip" }, p.name, el("button", { type: "button", "aria-label": `Remove ${p.name}`, onclick: () => (picked.splice(i, 1), drawChips(), input.focus()) }, "×")),
+      ),
+    );
+  const drawMenu = () => {
+    const q = input.value.trim();
+    const free = people.filter((p) => !picked.some((x) => x.name === p.name));
+    const hits = q ? free.map((p) => ({ p, s: fuzzyScore(q, p.name) })).filter((x) => x.s >= 0).sort((x, y) => y.s - x.s).map((x) => x.p) : [];
+    const exact = [...people, ...picked].some((p) => p.name.toLowerCase() === q.toLowerCase());
+    options = [...hits.slice(0, 6).map((offer) => ({ offer, isNew: false })), ...(q && !exact ? [{ offer: { name: q }, isNew: true }] : [])];
+    active = Math.min(active, Math.max(0, options.length - 1));
+    menu.hidden = !options.length;
+    menu.replaceChildren(
+      ...options.map((o, i) =>
+        el(
+          "button",
+          { type: "button", class: `tpl-people-opt${i === active ? " is-active" : ""}`, role: "option", "aria-selected": String(i === active), onmousedown: (e: Event) => e.preventDefault(), onclick: () => take(o.offer) },
+          o.isNew ? `Add “${o.offer.name}”` : o.offer.name,
+          el("span", { class: "tpl-hint" }, o.isNew ? "new" : `@${handleOf(o.offer)}`),
+        ),
+      ),
+    );
+  };
+  const take = (o: Offer) => {
+    picked.push(o);
+    input.value = "";
+    active = 0;
+    drawChips();
+    drawMenu();
+    input.focus();
+  };
+  input.addEventListener("input", () => ((active = 0), drawMenu()));
+  input.addEventListener("keydown", (e) => {
+    if ((e.key === "ArrowDown" || e.key === "ArrowUp") && options.length) {
+      e.preventDefault();
+      active = (active + (e.key === "ArrowDown" ? 1 : options.length - 1)) % options.length;
+      drawMenu();
+    } else if (e.key === "Enter" && options[active]) {
+      e.preventDefault();
+      e.stopPropagation(); // picking someone, not making the note
+      take(options[active].offer);
+    } else if (e.key === "Backspace" && !input.value && picked.length) {
+      picked.pop();
+      drawChips();
+    }
+  });
+  drawMenu();
+  const field = el("label", {}, el("span", {}, a.label), el("div", { class: "tpl-people-box" }, chips, input), menu);
+  const value = (): PersonPick[] => picked.map((p) => ({ name: p.name, handle: handleOf(p), ...(p.link ? { link: p.link } : {}) }));
+  return { field, input, value };
+}
+
+/**
+ * Who a template's people questions offer: the workspace's members (online; a local vault has none,
+ * so only "add someone new"). Contacts join them once they're in the app (#93).
+ */
+export async function templatePeople(t: TemplateInfo): Promise<Offer[]> {
+  if (!t.asks.some((a) => a.type === "people")) return [];
+  const members = await api.members().catch(() => []);
+  return members.map((m) => ({ name: m.name }));
+}
+
+/** The form's answers: text answers by label, and the people picked for `people` questions. */
+export interface Answers {
+  title?: string;
+  answers: Record<string, string>;
+  picks: Record<string, PersonPick[]>;
+}
+
+/**
+ * Ask a template's questions (and the new note's title, with `title`), before it's filled in, each
+ * with the field its type calls for; `people` is who a people question offers. A blank answer is
+ * left out, so the template's default fills it or the placeholder stays to fill in later. A
+ * template with nothing to ask resolves at once. Null if called off.
+ */
+export function askFor(t: TemplateInfo, opts: { title: boolean; people?: Offer[] }): Promise<Answers | null> {
+  if (!t.asks.length && !opts.title) return Promise.resolve({ title: undefined, answers: {}, picks: {} });
   return new Promise((resolve) => {
-    const field = (name: string, label: string, placeholder: string) =>
-      el("label", {}, el("span", {}, label), el("input", { name, placeholder, autocomplete: "off", "aria-label": label }));
+    const text = (name: string, label: string, placeholder: string, type = "text") =>
+      el("label", {}, el("span", {}, label), el("input", { name, type, placeholder, autocomplete: "off", "aria-label": label }));
     // Left blank, the title comes from the template: shown as it'll read, each answer by its label.
     const labels = Object.fromEntries(t.asks.map((a) => [a.label, `‹${a.label}›`]));
     const fromTemplate = t.title ? fillTemplate(t.title, { at: localNow(), answers: labels }).text : t.name;
-    const titleField = opts.title ? field("__title", "Title", `Blank for “${fromTemplate}”`) : null;
-    const fields = t.asks.map((a) => field(a.label, a.label, a.fallback));
+    const titleField = opts.title ? text("__title", "Title", `Blank for “${fromTemplate}”`) : null;
+    const pickers = new Map<string, ReturnType<typeof peopleField>>();
+    const fields = t.asks.map((a) => {
+      if (a.type === "people") {
+        const p = peopleField(a, opts.people ?? []);
+        pickers.set(a.label, p);
+        return p.field;
+      }
+      if (a.type === "date") {
+        const f = text(a.label, a.label, a.fallback, "date");
+        const input = f.querySelector("input")!;
+        input.value = /^\d{4}-\d\d-\d\d$/.test(a.fallback) ? a.fallback : "";
+        return f;
+      }
+      if (a.type === "choice") {
+        const select = el("select", { name: a.label, "aria-label": a.label }, el("option", { value: "" }, "—"), ...a.choices.map((c) => el("option", { value: c }, c)));
+        select.value = a.choices.includes(a.fallback) ? a.fallback : "";
+        return el("label", {}, el("span", {}, a.label), select);
+      }
+      return text(a.label, a.label, a.fallback);
+    });
     const form = el("form", { class: "tpl-form" }, ...(titleField ? [titleField] : []), ...fields);
     const submit = () => {
       m.close();
-      const value = (name: string) => [...form.querySelectorAll("input")].find((i) => i.name === name)!.value.trim();
-      const answers = Object.fromEntries(t.asks.map((a) => [a.label, value(a.label)]).filter(([, v]) => v));
-      resolve({ title: opts.title ? value("__title") || undefined : undefined, answers });
+      const value = (name: string) => ([...form.querySelectorAll<HTMLInputElement | HTMLSelectElement>("input, select")].find((i) => i.name === name)?.value ?? "").trim();
+      const answers = Object.fromEntries(t.asks.filter((a) => a.type !== "people").map((a) => [a.label, value(a.label)]).filter(([, v]) => v));
+      const picks = Object.fromEntries([...pickers].map(([label, p]) => [label, p.value()]).filter(([, v]) => v.length));
+      resolve({ title: opts.title ? value("__title") || undefined : undefined, answers, picks });
     };
     form.addEventListener("submit", (e) => (e.preventDefault(), submit()));
-    form.addEventListener("keydown", (e) => e.key === "Enter" && (e.preventDefault(), submit()));
+    form.addEventListener("keydown", (e) => e.key === "Enter" && !e.defaultPrevented && (e.preventDefault(), submit()));
     const actions = el(
       "div",
       { class: "ask-actions" },
@@ -122,7 +244,7 @@ export function askFor(t: TemplateInfo, opts: { title: boolean }): Promise<{ tit
       el("button", { type: "button", class: "qw-btn primary", onclick: submit }, opts.title ? "Create" : "Insert"),
     );
     const m = modal(t.name, [form, actions], () => resolve(null));
-    // The first question has the keyboard; the title can come from the template, so it's asked last in effect.
-    (form.querySelector<HTMLInputElement>(fields.length ? "input:not([name='__title'])" : "input") ?? form.querySelector("input"))?.focus();
+    // The first question has the keyboard; the title can come from the template.
+    (form.querySelector<HTMLElement>(fields.length ? "input:not([name='__title']), select" : "input") ?? form.querySelector("input"))?.focus();
   });
 }
