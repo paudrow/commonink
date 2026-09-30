@@ -3,6 +3,7 @@
 // that exists merges the two. Either comes with Undo.
 import { api, type TagCount } from "./api.ts";
 import { el, icon } from "./dom.ts";
+import type { ToastSpec } from "./toast.ts";
 import { cleanTag } from "../../src/core/tags.ts";
 
 interface Hooks {
@@ -10,7 +11,7 @@ interface Hooks {
   /** The tags changed: fetch them again. */
   refresh(): Promise<void>;
   openTag(tag: string, where?: "notes" | "tasks"): void;
-  toast(t: { text: string; icon?: string; actionLabel?: string; action?: () => void }): void;
+  toast(t: ToastSpec): void;
 }
 
 export class TagsPage {

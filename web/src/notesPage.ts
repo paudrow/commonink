@@ -12,6 +12,7 @@ import { hydrateDataEmbeds } from "./textPreview.ts";
 import { parseDirective } from "./widgets/args.ts";
 import { WIDGETS } from "./widgets/index.ts";
 import { tagChip, tagFilter } from "./tagPicker.ts";
+import type { ToastSpec } from "./toast.ts";
 import { formatQuery, type NoteQuery } from "../../src/core/query.ts";
 import { hydrateTaskChips, withTaskChips } from "./taskChips.ts";
 import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
@@ -39,7 +40,7 @@ interface Hooks {
   readOnly(): boolean;
   /** Send notes to Trash (asking first if other notes link to them). Resolves to the paths that went. */
   delete(paths: string[]): Promise<string[]>;
-  toast(t: { text: string; icon?: string; actionLabel?: string; action?: () => void }): void;
+  toast(t: ToastSpec): void;
   changed(): void;
   /** The sidebar's New note. */
   newNote(): void;

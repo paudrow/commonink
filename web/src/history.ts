@@ -8,12 +8,13 @@ import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
 import { assetIcon, assetType, extOf } from "./assetKinds.ts";
 import { changeVerb, groupChanges, isRename } from "../../src/core/format.ts";
 import { emptyState } from "./emptyState.ts";
+import type { ToastSpec } from "./toast.ts";
 
 type Item = Change & { count: number; first: number };
 
 interface Hooks {
   open(path: string): void;
-  toast(t: { text: string; icon?: string; actionLabel?: string; action?: () => void }): void;
+  toast(t: ToastSpec): void;
   /** The sidebar's New note (none for a viewer). */
   newNote?(): void;
 }
@@ -336,12 +337,9 @@ export class History {
     restore?.addEventListener("click", async () => {
       const res = await api.restore(r.from).catch(() => null);
       if (!res) return this.hooks.toast({ text: "Couldn't restore that version" });
-      this.hooks.toast({
-        icon: "reset",
-        text: `Restored ${displayName(res.path)}`,
-        actionLabel: res.change ? "Undo" : undefined,
-        action: res.change ? () => void api.restore(res.change!) : undefined,
-      });
+      const said = { icon: "reset", text: `Restored ${displayName(res.path)}` };
+      const change = res.change;
+      this.hooks.toast(change ? { ...said, actionLabel: "Undo", action: () => void api.restore(change) } : said);
     });
     return el(
       "div",

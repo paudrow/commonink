@@ -1093,14 +1093,8 @@ function onMessage(m: ServerMsg) {
       if (!isSelf(m.source) && m.change) {
         const c = m.change;
         const undo = c.op === "edit";
-        toast({
-          by: c,
-          text: `${changeVerb(c)} ${displayName(m.path)}`,
-          detail: c.summary ?? undefined,
-          actionLabel: undo ? "Undo" : undefined,
-          action: undo ? () => void undoChange(c, m.content) : open ? undefined : () => openNote(m.path),
-          open: undo && !open ? () => void openNote(m.path) : undefined,
-        });
+        const said = { by: c, text: `${changeVerb(c)} ${displayName(m.path)}`, detail: c.summary ?? undefined, open: open ? undefined : () => void openNote(m.path) };
+        toast(undo ? { ...said, actionLabel: "Undo", action: () => void undoChange(c, m.content) } : said);
       }
       refreshNotesSoon();
       if (active.session && m.path !== active.session.path) refreshBacklinksSoon();
@@ -2446,7 +2440,7 @@ async function boot() {
       icon: "timer",
       text: `${t.label || "Timer"} is done`,
       detail: t.note ? displayName(t.note) : undefined,
-      action: t.note && t.note !== active.session?.path ? () => openNote(t.note!) : undefined,
+      open: t.note && t.note !== active.session?.path ? () => void openNote(t.note!) : undefined,
       alert: true,
     }),
   );

@@ -216,6 +216,8 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
   if (req.method !== "GET" && !String(req.headers["content-type"]).startsWith("application/json")) {
     return send(res, json({ error: "JSON only" }, 415));
   }
+  // The web app asks who's signed in to tell online from local: here, nobody signs in.
+  if (route === "/me") return send(res, json({ local: true }));
   if (route.startsWith("/files/")) return asset(res, decodePath(route.slice("/files/".length)));
   if (route === "/file-resolve") {
     const rel = quire.resolve(url.searchParams.get("target") ?? "", url.searchParams.get("from") ?? undefined);
