@@ -459,7 +459,7 @@ export class NotesPage {
         e.preventDefault();
         const href = a.getAttribute("href") ?? "";
         if (/^https?:/i.test(href)) window.open(href, "_blank", "noopener");
-        else if (href.startsWith("quire:")) void api.resolve(safeDecode(href.slice(6)), item.path).then((p) => p && this.hooks.open(p, undefined, side));
+        else if (href.startsWith("commonink:")) void api.resolve(safeDecode(href.slice(6)), item.path).then((p) => p && this.hooks.open(p, undefined, side));
         else if (calendarTarget(href) !== null) openCalendarLink(href);
         else followInPage(node, href); // a footnote, or a #heading in the note
         return;

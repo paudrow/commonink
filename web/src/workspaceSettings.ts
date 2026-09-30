@@ -10,7 +10,7 @@ type Workspace = Me["workspaces"][number];
 /** Go to your own workspace (after leaving or deleting this one). */
 function goHome() {
   try {
-    localStorage.removeItem("quire.ws");
+    localStorage.removeItem("commonink.ws");
   } catch {}
   location.href = "/";
 }

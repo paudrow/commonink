@@ -6,16 +6,16 @@ import { openTempVault } from "./helpers.ts";
 
 test("a note with Windows line endings has its tasks and outline, and keeps its line endings when they change", () => {
   const crlf = (s: string) => s.replace(/\n/g, "\r\n");
-  const { quire } = openTempVault({ "Win.md": crlf("# Windows\n\n## Tasks\n\n- [ ] Ship it due:2026-10-01\n- [ ] Water plants due:2026-09-29 rec:weekly\n\n## Log\n") });
-  assert.deepEqual(quire.tasks().map((t) => [t.line, t.text, t.heading]), [
+  const { vault } = openTempVault({ "Win.md": crlf("# Windows\n\n## Tasks\n\n- [ ] Ship it due:2026-10-01\n- [ ] Water plants due:2026-09-29 rec:weekly\n\n## Log\n") });
+  assert.deepEqual(vault.tasks().map((t) => [t.line, t.text, t.heading]), [
     [5, "Ship it due:2026-10-01", "Tasks"],
     [6, "Water plants due:2026-09-29 rec:weekly", "Tasks"],
   ]);
-  assert.deepEqual(quire.outline("Win").map((h) => h.text), ["Windows", "Tasks", "Log"]);
-  quire.setTask("Win", 6, "Water plants due:2026-09-29 rec:weekly", true, "t", "2026-09-29");
-  quire.addTask("Call the plumber tomorrow → [[Win]]", "t", { today: "2026-09-29" });
+  assert.deepEqual(vault.outline("Win").map((h) => h.text), ["Windows", "Tasks", "Log"]);
+  vault.setTask("Win", 6, "Water plants due:2026-09-29 rec:weekly", true, "t", "2026-09-29");
+  vault.addTask("Call the plumber tomorrow → [[Win]]", "t", { today: "2026-09-29" });
   assert.equal(
-    quire.read("Win").content,
+    vault.read("Win").content,
     crlf("# Windows\n\n## Tasks\n\n- [ ] Ship it due:2026-10-01\n- [x] Water plants due:2026-09-29 rec:weekly done:2026-09-29\n- [ ] Water plants due:2026-10-06 rec:weekly\n- [ ] Call the plumber due:2026-09-30\n\n## Log\n"),
   );
 });

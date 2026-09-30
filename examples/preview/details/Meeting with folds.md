@@ -28,9 +28,9 @@ It only read plain text, and it dropped front matter.
 <summary>Links and references</summary>
 
 - [[Welcome]]
-- The roadmap: [[Quire roadmap]]
+- The roadmap: [[Common Ink roadmap]]
 
-![[Quire roadmap]]
+![[Common Ink roadmap]]
 
 </details>
 

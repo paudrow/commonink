@@ -117,9 +117,9 @@ test("a repeating card repeats once, ticked where it is or moved into Done: its 
   assert.equal((moveCard(ticked, 5, { board: 0, column: 2 }, 0, TODAY).match(/Pay rent/g) ?? []).length, 2);
   const moved = moveCard(md, 4, { board: 0, column: 2 }, 0, TODAY);
   assert.equal(moved, `:::kanban\r\n## To do\r\n${next}- [ ] Other\r\n## Doing\r\n## Done\r\n- [x] Pay rent due:2026-10-01 rec:monthly done:${TODAY}\r\n  From savings.\r\n:::\r\n`);
-  const { quire } = openTempVault({ "Bills.md": md });
-  quire.editCard("Bills", "Pay rent", { done: true }, "agent", TODAY);
-  assert.equal(quire.read("Bills").content, ticked);
+  const { vault } = openTempVault({ "Bills.md": md });
+  vault.editCard("Bills", "Pay rent", { done: true }, "agent", TODAY);
+  assert.equal(vault.read("Bills").content, ticked);
 });
 
 test("editing a card's text keeps its checkbox and nested lines; new detail lines nest under it", () => {
@@ -225,52 +225,52 @@ function launchVault() {
 }
 
 test("board cards are tasks under their column; the note's own tasks keep their heading, even after the board", () => {
-  const { quire } = launchVault();
+  const { vault } = launchVault();
   assert.deepEqual(
-    quire.tasks({ note: "Launch" }).map((t) => `${t.line} ${t.heading}: ${t.summary}${t.done ? " (done)" : ""}`),
+    vault.tasks({ note: "Launch" }).map((t) => `${t.line} ${t.heading}: ${t.summary}${t.done ? " (done)" : ""}`),
     ["3 Launch: Book the venue", "7 Backlog: [[Pricing page]]", "8 Backlog: Draft the announcement", "11 Doing: [[Stripe billing]]", "14 Done: [[Landing page]] (done)", "17 Launch: Send the recap"],
   );
-  assert.deepEqual(quire.tasks({ assignee: "audrow" }).map((t) => t.line), [8]);
-  assert.deepEqual(quire.outline("Launch").map((h) => h.text), ["Launch", "Backlog", "Doing", "Done"]);
-  quire.edit("Launch", { oldString: "## Doing", newString: "## Doing {color=blue}" }, "you");
-  assert.deepEqual(quire.outline("Launch").map((h) => h.text), ["Launch", "Backlog", "Doing", "Done"]);
-  assert.equal(quire.tasks({ note: "Launch" }).find((t) => t.line === 11)?.heading, "Doing");
+  assert.deepEqual(vault.tasks({ assignee: "audrow" }).map((t) => t.line), [8]);
+  assert.deepEqual(vault.outline("Launch").map((h) => h.text), ["Launch", "Backlog", "Doing", "Done"]);
+  vault.edit("Launch", { oldString: "## Doing", newString: "## Doing {color=blue}" }, "you");
+  assert.deepEqual(vault.outline("Launch").map((h) => h.text), ["Launch", "Backlog", "Doing", "Done"]);
+  assert.equal(vault.tasks({ note: "Launch" }).find((t) => t.line === 11)?.heading, "Doing");
 });
 
 test("links, backlinks and tags on cards are indexed like any others, and renaming a linked note keeps its card linked", () => {
-  const { quire } = launchVault();
-  assert.deepEqual(quire.backlinks("Stripe billing").map((b) => `${b.path}:${b.line} ${b.text}`), ["Launch.md:11 - [ ] [[Stripe billing]]"]);
-  assert.deepEqual(quire.tagged("business").map((u) => `${u.kind} ${u.path}:${u.line}`), ["task Launch.md:7"]);
-  quire.move("Stripe billing", "Projects/Billing with Stripe", "you");
-  assert.equal(quire.boards("Launch").boards[0].columns[1].cards[0].text, "[[Billing with Stripe]]");
-  assert.equal(quire.read("Launch").content, LAUNCH.replace("[[Stripe billing]]", "[[Billing with Stripe]]"));
+  const { vault } = launchVault();
+  assert.deepEqual(vault.backlinks("Stripe billing").map((b) => `${b.path}:${b.line} ${b.text}`), ["Launch.md:11 - [ ] [[Stripe billing]]"]);
+  assert.deepEqual(vault.tagged("business").map((u) => `${u.kind} ${u.path}:${u.line}`), ["task Launch.md:7"]);
+  vault.move("Stripe billing", "Projects/Billing with Stripe", "you");
+  assert.equal(vault.boards("Launch").boards[0].columns[1].cards[0].text, "[[Billing with Stripe]]");
+  assert.equal(vault.read("Launch").content, LAUNCH.replace("[[Stripe billing]]", "[[Billing with Stripe]]"));
 });
 
 test("agents add, move and edit cards by column name and card words; each is one logged change that restore undoes", () => {
-  const { quire } = launchVault();
-  quire.addCard("Launch", "doing", "Webhooks @sam", "agent");
-  const moved = quire.moveCard("Launch", "stripe", "Done", "agent", { position: 1 });
+  const { vault } = launchVault();
+  vault.addCard("Launch", "doing", "Webhooks @sam", "agent");
+  const moved = vault.moveCard("Launch", "stripe", "Done", "agent", { position: 1 });
   assert.equal(moved.change?.source, "agent");
-  quire.editCard("Launch", "announcement", { text: "Draft the launch post due:2026-10-16\nAsk legal." }, "agent");
-  quire.editCard("Launch", "L7", { done: true }, "agent");
+  vault.editCard("Launch", "announcement", { text: "Draft the launch post due:2026-10-16\nAsk legal." }, "agent");
+  vault.editCard("Launch", "L7", { done: true }, "agent");
   assert.equal(
-    quire.read("Launch").content,
+    vault.read("Launch").content,
     LAUNCH.replace("- [ ] [[Pricing page]] #business", `- [x] [[Pricing page]] #business done:${TODAY}`)
       .replace("- [ ] Draft the announcement @audrow due:2026-10-15", "- [ ] Draft the launch post due:2026-10-16\n  Ask legal.")
       .replace("## Doing\n- [ ] [[Stripe billing]]\n", "## Doing\n- [ ] Webhooks @sam\n")
       .replace("## Done\n", `## Done\n- [x] [[Stripe billing]] done:${TODAY}\n`),
   );
-  const log = quire.changes({ path: "Launch.md" });
+  const log = vault.changes({ path: "Launch.md" });
   assert.deepEqual(log.map((c) => `${c.op} by ${c.source}`), ["edit by agent", "edit by agent", "edit by agent", "edit by agent"]);
-  for (const c of log) quire.restore(c.id, "you");
-  assert.equal(quire.read("Launch").content, LAUNCH);
+  for (const c of log) vault.restore(c.id, "you");
+  assert.equal(vault.read("Launch").content, LAUNCH);
 });
 
 test("agents get a clear error for a card or column that isn't there or could be several", () => {
-  const { quire } = launchVault();
-  assert.throws(() => quire.moveCard("Launch", "page", "Done", "agent"), /"page" matches 2 cards in Launch\.md; name the card by its line number/);
-  assert.throws(() => quire.moveCard("Launch", "nothing like it", "Done", "agent"), /No card in Launch\.md matches "nothing like it"/);
-  assert.throws(() => quire.addCard("Launch", "Review", "x", "agent"), /No column "Review" on the board in Launch\.md\. Columns: Backlog, Doing, Done/);
-  assert.throws(() => quire.addCard("Stripe billing", "Doing", "x", "agent"), /Stripe billing\.md has no board/);
-  assert.throws(() => quire.addCard("Launch", "Doing", " ", "agent"), /A card needs some text/);
+  const { vault } = launchVault();
+  assert.throws(() => vault.moveCard("Launch", "page", "Done", "agent"), /"page" matches 2 cards in Launch\.md; name the card by its line number/);
+  assert.throws(() => vault.moveCard("Launch", "nothing like it", "Done", "agent"), /No card in Launch\.md matches "nothing like it"/);
+  assert.throws(() => vault.addCard("Launch", "Review", "x", "agent"), /No column "Review" on the board in Launch\.md\. Columns: Backlog, Doing, Done/);
+  assert.throws(() => vault.addCard("Stripe billing", "Doing", "x", "agent"), /Stripe billing\.md has no board/);
+  assert.throws(() => vault.addCard("Launch", "Doing", " ", "agent"), /A card needs some text/);
 });

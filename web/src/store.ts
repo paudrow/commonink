@@ -1,8 +1,8 @@
-/** This browser's preferences, in localStorage under `quire.*`. */
+/** This browser's preferences, in localStorage under `commonink.*`. */
 export const store = {
   get<T>(k: string, d: T): T {
     try {
-      const v = localStorage.getItem(`quire.${k}`);
+      const v = localStorage.getItem(`commonink.${k}`);
       return v === null ? d : JSON.parse(v);
     } catch {
       return d;
@@ -10,7 +10,7 @@ export const store = {
   },
   set(k: string, v: unknown) {
     try {
-      localStorage.setItem(`quire.${k}`, JSON.stringify(v));
+      localStorage.setItem(`commonink.${k}`, JSON.stringify(v));
     } catch {}
   },
 };

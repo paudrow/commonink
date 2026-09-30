@@ -1,8 +1,8 @@
-// What a command is: one operation on a vault, defined once and offered twice, as a `quire` CLI
+// What a command is: one operation on a vault, defined once and offered twice, as a `commonink` CLI
 // command and as an MCP tool (src/core/tools.ts), locally and in a hosted workspace alike. Each
 // argument says how it's spelled in both. No Node imports: hosted workspaces run these too.
 import type { Calendar } from "../calendar.ts";
-import type { Quire } from "../quire.ts";
+import type { Vault } from "../vault.ts";
 import type { MemberRef } from "../contacts.ts";
 import type { Exporter } from "../export.ts";
 
@@ -78,7 +78,7 @@ export interface VaultBytes {
 
 /** Where a command runs: the vault, and who's asking. */
 export interface CommandHost {
-  quire: Quire;
+  vault: Vault;
   /** Whose favorites and own smart folders these are. */
   user: string;
   /** Who writes are attributed to (see agentSource in actor.ts). */
@@ -116,7 +116,7 @@ export interface Sharing {
 export interface WorkspaceSettings {
   /** The workspace's name. */
   name: string;
-  /** One of the settings routes (a command's `route`) with its body, and what it answers. Throws a QuireError when refused. */
+  /** One of the settings routes (a command's `route`) with its body, and what it answers. Throws a VaultError when refused. */
   call(route: string, body?: Record<string, unknown>): Promise<unknown>;
 }
 
@@ -135,9 +135,9 @@ interface CommandInfo<A extends Args> {
   /** The API route it's equivalent to: online, only someone whose role allows that route may run it. */
   route: string;
   title: string;
-  /** One line, for `quire help` and the tool list. */
+  /** One line, for `commonink help` and the tool list. */
   summary: string;
-  /** Everything an agent should know, for MCP and `quire help <command>`. Default the summary. */
+  /** Everything an agent should know, for MCP and `commonink help <command>`. Default the summary. */
   description?: string;
   examples?: readonly string[];
   /** Reads only: it runs against the vault as it is on disk now (it syncs the index first). */
@@ -188,7 +188,7 @@ export const EXIT = {
   ok: 0,
   /** Refused or failed, for any reason not below (bad input the vault can't take, say). */
   error: 1,
-  /** The command or its arguments are wrong: see `quire help <command>`. */
+  /** The command or its arguments are wrong: see `commonink help <command>`. */
   usage: 2,
   /** No such note, task, card, folder or change. */
   not_found: 3,
@@ -198,7 +198,7 @@ export const EXIT = {
   exists: 5,
   /** Your role in the workspace doesn't allow it. */
   forbidden: 6,
-  /** Not signed in, or the sign-in expired: run `quire login`. */
+  /** Not signed in, or the sign-in expired: run `commonink login`. */
   auth: 7,
   /** The server couldn't be reached, or failed. */
   unavailable: 8,

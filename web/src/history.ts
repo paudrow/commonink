@@ -29,7 +29,7 @@ interface Hooks {
 const PAGE = 200;
 
 /** Whose changes History shows: everyone's (""), "people", "ai", or one agent's name. Kept per browser. */
-const BY_KEY = "quire.history.by";
+const BY_KEY = "commonink.history.by";
 function savedBy(): string {
   try {
     return localStorage.getItem(BY_KEY) ?? "";

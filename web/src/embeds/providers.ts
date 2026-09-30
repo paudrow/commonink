@@ -248,7 +248,7 @@ window.addEventListener("message", (e) => {
     const h = info.heightFrom(e.data);
     if (typeof h === "number" && h > 40) {
       f.style.height = `${Math.min(Math.ceil(h), 2400)}px`;
-      f.dispatchEvent(new CustomEvent("quire-resize", { bubbles: true }));
+      f.dispatchEvent(new CustomEvent("commonink-resize", { bubbles: true }));
     }
     return;
   }

@@ -42,7 +42,7 @@ export const markdownWithFrontmatter = () =>
     content: markdown({ base: markdownLanguage, codeLanguages: codeLanguage, extensions: [WikiLinks, MathSyntax] }),
   });
 
-export const quireHighlight = HighlightStyle.define([
+export const commonInkHighlight = HighlightStyle.define([
   { tag: t.heading, fontWeight: "650", color: "var(--heading)" },
   { tag: t.strong, fontWeight: "650", color: "var(--ink-strong)" },
   { tag: t.emphasis, fontStyle: "italic" },

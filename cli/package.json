@@ -1,14 +1,13 @@
 {
   "name": "commonink",
   "version": "0.1.0",
-  "description": "The quire CLI: your Common Ink notes from a shell, for you and your agents",
+  "description": "The commonink CLI: your Common Ink notes from a shell, for you and your agents",
   "type": "module",
   "bin": {
-    "quire": "dist/quire.mjs",
-    "commonink": "dist/quire.mjs"
+    "commonink": "dist/commonink.mjs"
   },
   "files": [
-    "dist/quire.mjs",
+    "dist/commonink.mjs",
     "README.md"
   ],
   "engines": {

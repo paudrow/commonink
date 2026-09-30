@@ -17,7 +17,7 @@ type Mode = "table" | "formatted" | "raw";
 const MODES: Record<TextFormat, Mode[]> = { csv: ["table", "raw"], json: ["formatted", "raw"], plain: ["raw"] };
 const LABEL: Record<Mode, string> = { table: "Table", formatted: "Formatted", raw: "Raw" };
 
-const modeKey = (f: TextFormat) => `quire.textMode.${f}`;
+const modeKey = (f: TextFormat) => `commonink.textMode.${f}`;
 function savedMode(f: TextFormat): Mode {
   try {
     const m = localStorage.getItem(modeKey(f)) as Mode | null;
@@ -120,7 +120,7 @@ export function dataEmbed(target: string, from: string | undefined, opts: { acti
  * (in expanded note cards and in notes embedded in notes).
  */
 export function hydrateDataEmbeds(root: HTMLElement, from: string, settle?: () => void) {
-  for (const a of root.querySelectorAll<HTMLAnchorElement>('a[href^="quire:"]')) {
+  for (const a of root.querySelectorAll<HTMLAnchorElement>('a[href^="commonink:"]')) {
     if (!a.textContent?.startsWith("↳ ")) continue; // an embed, not an ordinary link
     const target = safeDecode(a.getAttribute("href")!.slice(6));
     if (!/\.(csv|json|txt)$/i.test(target.split("#")[0])) continue;

@@ -5,7 +5,7 @@ Local first, then hosted. The vault on disk stays the source of truth either way
 ## Now
 
 - [x] Core: vault, SQLite FTS5 index, change log with attribution
-- [x] Surfaces: web editor, stdio MCP server, `quire` CLI
+- [x] Surfaces: web editor, stdio MCP server, `commonink` CLI
 - [x] Live preview, embeds, HTML notes in a sandbox
 
 ## Next

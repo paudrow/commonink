@@ -18,7 +18,7 @@ process.on("exit", () => {
 
 /** A fresh vault folder on disk holding `files`, removed when the test process exits. */
 export function tempVault(files: Record<string, string> = FIXTURE): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "quire-test-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "commonink-test-"));
   made.push(dir);
   for (const [rel, text] of Object.entries(files)) {
     fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
@@ -29,7 +29,7 @@ export function tempVault(files: Record<string, string> = FIXTURE): string {
 
 export function openTempVault(files?: Record<string, string>, opts?: Parameters<typeof openVault>[1]) {
   const dir = tempVault(files);
-  return { dir, quire: openVault(dir, opts) };
+  return { dir, vault: openVault(dir, opts) };
 }
 
 /** Random texts and edits from a seed, so a failure names a seed that reproduces it. */

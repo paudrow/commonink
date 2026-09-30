@@ -3,8 +3,8 @@
 // agent gets the same tools either way.
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { QuireError } from "./paths.ts";
-import type { Quire } from "./quire.ts";
+import { VaultError } from "./paths.ts";
+import type { Vault } from "./vault.ts";
 import type { Calendar } from "./calendar.ts";
 import type { MemberRef } from "./contacts.ts";
 import type { Exporter } from "./export.ts";
@@ -12,7 +12,7 @@ import { AGENTS_NOTE } from "./noteRoles.ts";
 import { COMMANDS, toolName, type ArgSpec, type Command, type Sharing } from "./commands/index.ts";
 
 export interface ToolHost {
-  quire: Quire;
+  vault: Vault;
   /** Whose favorites and own smart folders the tools read and change. */
   user: string;
   /** Who writes are attributed to, given the name the client connected with. */
@@ -79,9 +79,9 @@ function fileResult(file: { name: string; bytes: Uint8Array; mime?: string }): R
   const bare = mime.split(";")[0];
   if (file.bytes.byteLength > MAX_MCP_FILE) {
     const mb = Math.round(file.bytes.byteLength / 1024 / 1024);
-    return { content: [{ type: "text", text: `${file.name} is ${mb} MB, too big to send here: export a folder at a time, or use the app's Share menu or \`quire export\`.` }], isError: true };
+    return { content: [{ type: "text", text: `${file.name} is ${mb} MB, too big to send here: export a folder at a time, or use the app's Share menu or \`commonink export\`.` }], isError: true };
   }
-  const uri = `quire-export:///${encodeURIComponent(file.name)}`;
+  const uri = `commonink-export:///${encodeURIComponent(file.name)}`;
   return {
     content: [
       { type: "text", text: `${file.name} (${bare}, ${file.bytes.byteLength} bytes)` },
@@ -93,13 +93,13 @@ function fileResult(file: { name: string; bytes: Uint8Array; mime?: string }): R
 }
 
 export function createMcpServer(host: ToolHost): McpServer {
-  const { quire, user } = host;
-  const agentsMd = quire.files.read(AGENTS_NOTE) ?? "";
+  const { vault, user } = host;
+  const agentsMd = vault.files.read(AGENTS_NOTE) ?? "";
   const mcp = new McpServer(
-    { name: "quire", version: "0.1.0" },
+    { name: "commonink", version: "0.1.0" },
     {
       instructions: [
-        "Quire is the user's markdown notes vault. Notes are plain .md files (some .html notes); paths are vault-relative.",
+        "Common Ink is the user's markdown notes vault. Notes are plain .md files (some .html notes); paths are vault-relative.",
         "Find before you write: search_notes, then read_note. Change existing notes with edit_note (small exact replacements); create_note is for new notes.",
         "Link notes with [[Note name]] and embed with ![[Note name]]. The user may be editing at the same time; if an edit fails, re-read and retry.",
         agentsMd && `\nVault conventions (AGENTS.md):\n${agentsMd}`,
@@ -118,17 +118,17 @@ export function createMcpServer(host: ToolHost): McpServer {
       { title: c.title, description: c.description ?? c.summary, inputSchema: inputSchema(c), annotations: annotations(c) },
       async (input) => {
         try {
-          if (c.readOnly) quire.sync(); // files written straight to disk count too
+          if (c.readOnly) vault.sync(); // files written straight to disk count too
           // Every write is attributed to the connected client, so the app can show who changed what.
           const source = host.source(mcp.server.getClientVersion()?.name);
           const out = await c.run(
-            { quire, user, source, canEditShared: host.canEditShared ?? true, calendar: host.calendar, origin: host.origin, members: host.members, exporter: host.exporter, sharing: host.sharing },
+            { vault, user, source, canEditShared: host.canEditShared ?? true, calendar: host.calendar, origin: host.origin, members: host.members, exporter: host.exporter, sharing: host.sharing },
             input as never,
           );
           if (out.save) return fileResult(out.save);
           return { content: [{ type: "text", text: out.text }] };
         } catch (e) {
-          const text = e instanceof QuireError ? e.message : `Unexpected error: ${(e as Error).message}`;
+          const text = e instanceof VaultError ? e.message : `Unexpected error: ${(e as Error).message}`;
           return { content: [{ type: "text", text }], isError: true };
         }
       },

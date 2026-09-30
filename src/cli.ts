@@ -1,9 +1,9 @@
-// `quire` CLI — the same commands as the MCP server (src/core/commands), for agents that prefer a
+// `commonink` CLI — the same commands as the MCP server (src/core/commands), for agents that prefer a
 // shell, and for you. `--json` prints any result as JSON; the exit code says how it went (EXIT).
 import fs from "node:fs";
 import path from "node:path";
 import { LOCAL_USER, openVault, type LocalVault } from "./core/local.ts";
-import { QuireError } from "./core/paths.ts";
+import { VaultError } from "./core/paths.ts";
 import { agentSource } from "./core/actor.ts";
 import { Calendar, fetchFeed } from "./core/calendar.ts";
 import { assertPublic } from "./server/unfurl.ts";
@@ -26,7 +26,7 @@ const io: Io = {
     try {
       return { name: path.basename(p), bytes: new Uint8Array(fs.readFileSync(p)) };
     } catch {
-      throw new QuireError(`There's no file at ${p}`, "not_found");
+      throw new VaultError(`There's no file at ${p}`, "not_found");
     }
   },
 };
@@ -34,7 +34,7 @@ const io: Io = {
 /** The local vault, and who's writing. */
 function localHost(q: LocalVault, agent: string | undefined): CommandHost {
   return {
-    quire: q,
+    vault: q,
     user: LOCAL_USER,
     source: agent ? agentSource(agent, LOCAL_USER) : LOCAL_USER,
     canEditShared: true,
@@ -74,14 +74,14 @@ function print(out: Output, input: Record<string, unknown>) {
 
 /**
  * Where a command runs: a hosted workspace once you've signed in, unless --workspace (or
- * $QUIRE_WORKSPACE) says local, or $QUIRE_VAULT names a vault and no workspace is asked for.
+ * $COMMONINK_WORKSPACE) says local, or $COMMONINK_VAULT names a vault and no workspace is asked for.
  */
 function where(asked: string | undefined): { local: true } | { creds: Credentials; workspace?: string } {
-  const want = asked ?? process.env.QUIRE_WORKSPACE;
-  if (want === "local" || (!want && process.env.QUIRE_VAULT)) return { local: true };
+  const want = asked ?? process.env.COMMONINK_WORKSPACE;
+  if (want === "local" || (!want && process.env.COMMONINK_VAULT)) return { local: true };
   const creds = loadCredentials();
   if (!creds) {
-    if (want) throw new CliError(`--workspace ${want} is a hosted workspace: run quire login first (or --workspace local)`, "auth", EXIT.auth);
+    if (want) throw new CliError(`--workspace ${want} is a hosted workspace: run commonink login first (or --workspace local)`, "auth", EXIT.auth);
     return { local: true };
   }
   return { creds, workspace: want ?? creds.workspace };
@@ -96,11 +96,11 @@ const flagValue = (name: string) => {
 async function own(first: string, more: string[]): Promise<boolean> {
   const say = (line: string) => console.error(line);
   if (first === "login") {
-    const server = (flagValue("server") ?? process.env.QUIRE_SERVER ?? DEFAULT_SERVER).replace(/\/+$/, "");
+    const server = (flagValue("server") ?? process.env.COMMONINK_SERVER ?? DEFAULT_SERVER).replace(/\/+$/, "");
     const c = await login(server, { browser: !argv.includes("--no-browser"), say });
     const { user, workspaces: list } = await workspaces(c);
     saveCredentials({ ...c, user: user.name, workspace: list.length === 1 ? list[0].name : undefined });
-    const text = `Signed in to ${server} as ${user.name}. Workspaces: ${list.map((w) => `${w.name} (${w.role})`).join(", ") || "none"}.${list.length > 1 ? " Pick one with quire workspaces use <name>, or --workspace." : ""}`;
+    const text = `Signed in to ${server} as ${user.name}. Workspaces: ${list.map((w) => `${w.name} (${w.role})`).join(", ") || "none"}.${list.length > 1 ? " Pick one with commonink workspaces use <name>, or --workspace." : ""}`;
     console.log(json ? JSON.stringify({ server, user: user.name, workspaces: list }, null, 2) : text);
     return true;
   }
@@ -111,7 +111,7 @@ async function own(first: string, more: string[]): Promise<boolean> {
   }
   if (first === "workspaces") {
     const creds = loadCredentials();
-    if (!creds) throw new CliError("You aren't signed in to a hosted workspace: run quire login. Commands use this computer's vault meanwhile.", "auth", EXIT.auth);
+    if (!creds) throw new CliError("You aren't signed in to a hosted workspace: run commonink login. Commands use this computer's vault meanwhile.", "auth", EXIT.auth);
     const { user, workspaces: list } = await workspaces(creds);
     const words = more.filter((w) => !w.startsWith("-"));
     if (words[0] === "use") {
@@ -139,7 +139,7 @@ async function main() {
   // The CLI's own commands come first on the line; a note command's words can be anywhere among its flags.
   const [first, ...more] = argv;
   if (first === "mcp") return void (await import("./mcp.ts"));
-  if (first === "version" || first === "--version") return console.log(process.env.QUIRE_CLI_VERSION ?? JSON.parse(fs.readFileSync(new URL("../cli/package.json", import.meta.url), "utf8")).version);
+  if (first === "version" || first === "--version") return console.log(process.env.COMMONINK_CLI_VERSION ?? JSON.parse(fs.readFileSync(new URL("../cli/package.json", import.meta.url), "utf8")).version);
   if (first === "completion") {
     const shell = SHELLS[more[0] as keyof typeof SHELLS];
     if (!shell) throw new UsageError(`completion takes bash, zsh or fish, not "${more[0] ?? ""}"`);
@@ -151,7 +151,7 @@ async function main() {
     const asked = more.filter((w) => !w.startsWith("-"));
     if (!asked.length) return console.log(overview());
     const found = findCommand(asked);
-    if (!found) throw new UsageError(`No command "${asked.join(" ")}": see quire help`);
+    if (!found) throw new UsageError(`No command "${asked.join(" ")}": see commonink help`);
     return console.log(commandHelp(found.command));
   }
   const parsed = parse(argv, io);
@@ -164,13 +164,13 @@ async function main() {
   }
   if ("help" in parsed) return console.log(commandHelp(findCommand(parsed.help)!.command));
   const { command, input, globals } = parsed;
-  const agent = globals.agent ?? process.env.QUIRE_AGENT;
+  const agent = globals.agent ?? process.env.COMMONINK_AGENT;
   const at = where(globals.workspace);
   if ("creds" in at) return print(await runRemote(at.creds, { command: command.cli, input, workspace: at.workspace, agent }), input);
   if (command.settings) {
     throw loadCredentials()
       ? new UsageError(`${command.cli} is for a hosted workspace, not this computer's vault: name one with --workspace`)
-      : new CliError(`${command.cli} is for a hosted workspace: run quire login first`, "auth", EXIT.auth);
+      : new CliError(`${command.cli} is for a hosted workspace: run commonink login first`, "auth", EXIT.auth);
   }
   const q = openVault();
   if (command.readOnly) q.sync();
@@ -179,7 +179,7 @@ async function main() {
 
 main().catch((e) => {
   if (e instanceof UsageError) fail(e.message, "usage", EXIT.usage);
-  if (e instanceof QuireError) fail(e.message, e.code, EXIT[e.code === "invalid" ? "error" : e.code]);
+  if (e instanceof VaultError) fail(e.message, e.code, EXIT[e.code === "invalid" ? "error" : e.code]);
   if (e instanceof CliError) fail(e.message, e.code, e.exit);
   console.error(e);
   process.exit(EXIT.error);

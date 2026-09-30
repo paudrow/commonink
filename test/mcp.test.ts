@@ -7,15 +7,15 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { openVault } from "../src/core/local.ts";
 import { tempVault } from "./helpers.ts";
 
-const BIN = path.resolve(import.meta.dirname, "../bin/quire");
+const BIN = path.resolve(import.meta.dirname, "../bin/commonink");
 let vault: string;
 let client: Client;
 
 before(async () => {
   vault = tempVault();
-  const env = Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined && e[0] !== "QUIRE_AGENT"));
+  const env = Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined && e[0] !== "COMMONINK_AGENT"));
   client = new Client({ name: "test-agent", version: "1.0.0" });
-  await client.connect(new StdioClientTransport({ command: BIN, args: ["mcp"], env: { ...env, QUIRE_VAULT: vault } }));
+  await client.connect(new StdioClientTransport({ command: BIN, args: ["mcp"], env: { ...env, COMMONINK_VAULT: vault } }));
 });
 
 after(() => client.close());

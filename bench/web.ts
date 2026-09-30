@@ -44,7 +44,7 @@ async function playwright(): Promise<any> {
 
 /** A scratch vault: the 1k-note vault, plus the notes the scenarios open. */
 function scratchVault(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "quire-web-bench-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "commonink-web-bench-"));
   const v = generateVault(1000);
   const put = (rel: string, text: string | Uint8Array) => {
     fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
@@ -66,7 +66,7 @@ function scratchVault(): string {
 function startServer(vault: string, port: number): Promise<() => void> {
   const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", "--import", "tsx", "src/server/main.ts"], {
     cwd: ROOT,
-    env: { ...process.env, QUIRE_VAULT: vault, PORT: String(port) },
+    env: { ...process.env, COMMONINK_VAULT: vault, PORT: String(port) },
     stdio: ["ignore", "pipe", "inherit"],
   });
   return new Promise((resolve, reject) => {

@@ -2,7 +2,7 @@
 // The day at a glance: today's journal note (open it, or start it from the daily template), today's
 // events from the workspace's calendars, then open tasks overdue, due today and starting today. The
 // top of the Tasks page is this widget, with empty sections left out. Task sections come from the
-// core (Quire.today), so new kinds slot in there.
+// core (Vault.today), so new kinds slot in there.
 import { api, type TodayView } from "../api.ts";
 import { el, icon } from "../dom.ts";
 import { onVaultChange } from "../events.ts";

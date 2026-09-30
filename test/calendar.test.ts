@@ -53,9 +53,9 @@ const OCT = { from: Date.parse("2026-10-01T00:00:00Z"), to: Date.parse("2026-11-
 
 function setup(files?: Record<string, string>) {
   let now = Date.parse("2026-10-01T12:00:00Z");
-  const { quire } = openTempVault(files ?? {}, { now: () => now });
-  const cal = new Calendar(quire.db, feeds, { now: () => now });
-  return { quire, cal, tick: (ms: number) => (now += ms) };
+  const { vault } = openTempVault(files ?? {}, { now: () => now });
+  const cal = new Calendar(vault.db, feeds, { now: () => now });
+  return { vault, cal, tick: (ms: number) => (now += ms) };
 }
 
 const brief = (cal: Calendar) => cal.events(ME, OCT).map((e) => [e.title, e.start, e.end]);
@@ -112,11 +112,11 @@ test("webcal addresses are https, and a feed that can't be read isn't kept", asy
 });
 
 test("reading a feed again updates its events in place: IDs stay, gone events go, meeting notes stay linked", async () => {
-  const { cal, quire, tick } = setup();
+  const { cal, vault, tick } = setup();
   team = ics(STANDUP, OFFSITE);
   const s = await cal.addIcs({ url: `${base}/team.ics` }, ME, "you");
   const before = cal.events(ME, OCT);
-  cal.meetingNote(quire, before[0].id, ME, { timeZone: "America/Los_Angeles", source: "you" });
+  cal.meetingNote(vault, before[0].id, ME, { timeZone: "America/Los_Angeles", source: "you" });
 
   team = ics(STANDUP.replace("SUMMARY:Standup", "SUMMARY:Daily standup"));
   tick(SYNC_EVERY);
@@ -164,14 +164,14 @@ test("a manual refresh reads a feed at most once a minute", async () => {
 });
 
 test("a meeting note has the event's time in the reader's zone, its people and a link back, and only one is made", async () => {
-  const { cal, quire } = setup();
+  const { cal, vault } = setup();
   team = ics(STANDUP, OFFSITE);
   await cal.addIcs({ url: `${base}/team.ics` }, ME, "you");
   const [standup, , , offsite] = cal.events(ME, OCT);
-  const r = cal.meetingNote(quire, standup.id, ME, { timeZone: "America/Los_Angeles", source: "you" });
+  const r = cal.meetingNote(vault, standup.id, ME, { timeZone: "America/Los_Angeles", source: "you" });
   assert.deepEqual([r.path, r.created], ["Meetings/2026-10-05 Standup.md", true]);
   assert.equal(
-    quire.files.read(r.path),
+    vault.files.read(r.path),
     [
       "---",
       `event: ${standup.id}`,
@@ -193,24 +193,24 @@ test("a meeting note has the event's time in the reader's zone, its people and a
       "",
     ].join("\n"),
   );
-  assert.deepEqual(cal.meetingNote(quire, standup.id, ME, { source: "you" }), { path: r.path, created: false });
+  assert.deepEqual(cal.meetingNote(vault, standup.id, ME, { source: "you" }), { path: r.path, created: false });
   assert.equal(cal.event(standup.id, ME)?.note?.path, r.path);
-  assert.equal(quire.changes({ limit: 1 })[0].path, r.path);
+  assert.equal(vault.changes({ limit: 1 })[0].path, r.path);
 
-  const all = cal.meetingNote(quire, offsite.id, ME, { timeZone: "Asia/Tokyo", source: "you" });
-  assert.match(quire.files.read(all.path)!, /\*\*When:\*\* Mon, Oct 12, 2026 to Tue, Oct 13, 2026, all day/);
+  const all = cal.meetingNote(vault, offsite.id, ME, { timeZone: "Asia/Tokyo", source: "you" });
+  assert.match(vault.files.read(all.path)!, /\*\*When:\*\* Mon, Oct 12, 2026 to Tue, Oct 13, 2026, all day/);
 });
 
 test("a meeting note follows Templates/Meeting note.md when there is one, and a deleted note can be made again", async () => {
   // The template engine's placeholders work here too: a date format, the start time, the escape.
-  const { cal, quire } = setup({ "Templates/Meeting note.md": "# {{title}} on {{date}} ({{date:dddd}}, {{time}})\n\n{{when}} · {{event}}\n{{unknown}} \\{{title}}\n" });
+  const { cal, vault } = setup({ "Templates/Meeting note.md": "# {{title}} on {{date}} ({{date:dddd}}, {{time}})\n\n{{when}} · {{event}}\n{{unknown}} \\{{title}}\n" });
   team = ics(STANDUP);
   await cal.addIcs({ url: `${base}/team.ics` }, ME, "you");
   const [ev] = cal.events(ME, OCT);
-  const r = cal.meetingNote(quire, ev.id, ME, { timeZone: "UTC", source: "you" });
-  assert.equal(quire.files.read(r.path), `# Standup on 2026-10-05 (Monday, 16:30)\n\nMon, Oct 5, 2026, 4:30 PM to 4:45 PM UTC · [Standup](/calendar/${ev.id})\n{{unknown}} {{title}}\n`);
-  quire.delete([r.path], "you");
-  const again = cal.meetingNote(quire, ev.id, ME, { source: "you" });
+  const r = cal.meetingNote(vault, ev.id, ME, { timeZone: "UTC", source: "you" });
+  assert.equal(vault.files.read(r.path), `# Standup on 2026-10-05 (Monday, 16:30)\n\nMon, Oct 5, 2026, 4:30 PM to 4:45 PM UTC · [Standup](/calendar/${ev.id})\n{{unknown}} {{title}}\n`);
+  vault.delete([r.path], "you");
+  const again = cal.meetingNote(vault, ev.id, ME, { source: "you" });
   assert.deepEqual([again.path, again.created, cal.event(ev.id, ME)?.note?.path], [r.path, true, r.path]);
 });
 
@@ -245,7 +245,7 @@ test("agents get events as lines with their ids, for a range of days in their zo
 });
 
 test("the workspace's own calendar: made with its first event, which editors move, change and delete; feeds stay read-only", async () => {
-  const { cal, quire } = setup();
+  const { cal, vault } = setup();
   const viewer = { user: "viewer", canEdit: false };
   const draft = { title: " Launch review ", start: "2026-10-06T15:00:00.000Z", end: "2026-10-06T16:00:00Z", allDay: false, timeZone: "America/Chicago", location: "Room 1", description: null, attendees: [{ name: "Ana", email: "ANA@example.com", status: null }, { name: null, email: "not an address", status: null }] };
   await assert.rejects(cal.createEvent("local", draft, viewer, "viewer"), /You can't add events to that calendar/);
@@ -261,7 +261,7 @@ test("the workspace's own calendar: made with its first event, which editors mov
   assert.deepEqual([allDay.allDay, allDay.start, allDay.end], [true, "2026-10-08", "2026-10-09"]);
   await assert.rejects(cal.updateEvent(made.id, { end: "2026-10-07" }, ME, "you"), /has to end after it starts/);
   await assert.rejects(cal.updateEvent(made.id, { title: "Mine" }, viewer, "viewer"), /You can't add events to that calendar/);
-  const note = cal.meetingNote(quire, made.id, ME, { source: "you" });
+  const note = cal.meetingNote(vault, made.id, ME, { source: "you" });
   assert.equal(note.path, "Meetings/2026-10-08 Launch review.md");
 
   team = ics(STANDUP);
@@ -273,7 +273,7 @@ test("the workspace's own calendar: made with its first event, which editors mov
   await cal.deleteEvent(made.id, ME, "you");
   assert.equal(cal.event(made.id, ME), null);
   // Undo makes it again (a new ID) and links it to its meeting note again; a note that's gone isn't linked.
-  const again = await cal.createEvent("local", draft, ME, "you", quire.read(note.path).id);
+  const again = await cal.createEvent("local", draft, ME, "you", vault.read(note.path).id);
   assert.deepEqual([again.id === made.id, again.note?.path], [false, note.path]);
   assert.equal((await cal.createEvent("local", draft, ME, "you", "nonote22")).note, null);
   await assert.rejects(cal.createEvent("local", { ...draft, title: "  " }, ME, "you"), /Give the event a title/);

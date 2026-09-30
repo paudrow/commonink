@@ -8,15 +8,15 @@ import { localExporter } from "./server/export.ts";
 import { Calendar, fetchFeed } from "./core/calendar.ts";
 import { assertPublic } from "./server/unfurl.ts";
 
-const quire = openVault();
+const vault = openVault();
 const server = createMcpServer({
-  quire,
-  exporter: localExporter(quire),
+  vault,
+  exporter: localExporter(vault),
   user: LOCAL_USER,
-  // Every write is the connected agent's, for the vault's person: QUIRE_AGENT, or the name the
+  // Every write is the connected agent's, for the vault's person: COMMONINK_AGENT, or the name the
   // client gave when it connected ("Claude Code").
-  source: (client) => agentSource(process.env.QUIRE_AGENT || client || "Agent", LOCAL_USER),
-  calendar: new Calendar(quire.db, (url, last) => fetchFeed(url, last, assertPublic)),
+  source: (client) => agentSource(process.env.COMMONINK_AGENT || client || "Agent", LOCAL_USER),
+  calendar: new Calendar(vault.db, (url, last) => fetchFeed(url, last, assertPublic)),
 });
 
 await server.connect(new StdioServerTransport());

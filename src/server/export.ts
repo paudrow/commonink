@@ -11,12 +11,12 @@ import { kindOf, mimeOf } from "../core/paths.ts";
 import { localDate } from "../core/tasks.ts";
 import type { LocalVault } from "../core/local.ts";
 
-/** Where the app runs, for links to notes (`QUIRE_URL`, or the local server's default address). */
-export const APP_URL = (process.env.QUIRE_URL ?? "http://localhost:4777").replace(/\/+$/, "");
+/** Where the app runs, for links to notes (`COMMONINK_URL`, or the local server's default address). */
+export const APP_URL = (process.env.COMMONINK_URL ?? "http://localhost:4777").replace(/\/+$/, "");
 
 export function localExporter(vault: LocalVault, origin = APP_URL): Exporter {
   const bytes = async (rel: string) => (vault.files.stat(rel) ? new Uint8Array(await fs.promises.readFile(vault.files.abs(rel))) : null);
-  return coreExporter({ quire: vault, bytes, origin, name: path.basename(vault.files.root) }, (rel, format) => render(vault, rel, format, origin));
+  return coreExporter({ vault: vault, bytes, origin, name: path.basename(vault.files.root) }, (rel, format) => render(vault, rel, format, origin));
 }
 
 let dom: Promise<void> | null = null;

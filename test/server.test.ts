@@ -17,7 +17,7 @@ before(async () => {
   vault = tempVault();
   server = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", "--import", "tsx", "src/server/main.ts"], {
     cwd: ROOT,
-    env: { ...process.env, QUIRE_VAULT: vault, PORT: "0", QUIRE_NO_UI: "1" },
+    env: { ...process.env, COMMONINK_VAULT: vault, PORT: "0", COMMONINK_NO_UI: "1" },
     stdio: ["ignore", "pipe", "inherit"],
   });
   port = await new Promise<number>((resolve, reject) => {
@@ -86,7 +86,7 @@ test("vault files are served sandboxed, and paths can't climb out", async () => 
   assert.match(String(svg.headers["content-security-policy"]), /^sandbox;/);
   assert.equal((await request("GET", "/api/files/..%2F..%2Fetc%2Fpasswd")).status, 400);
   assert.equal((await request("GET", "/api/files/%E0%A4%A")).status, 400);
-  assert.equal((await request("GET", "/api/files/.quire/index.db")).status, 400);
+  assert.equal((await request("GET", "/api/files/.commonink/index.db")).status, 400);
   assert.equal((await request("GET", "/api/files/Welcome.md")).status, 404);
 });
 
@@ -114,7 +114,7 @@ test("HTML notes' sandbox page has its own policy and an opaque origin", async (
   const res = await request("GET", "/sandbox");
   assert.equal(res.status, 200);
   assert.equal(res.headers["content-security-policy"], "sandbox allow-scripts; frame-ancestors 'self'");
-  assert.match(res.body, /parent\.postMessage\(\{ quireSandbox: "ready" \}, "\*"\)/);
+  assert.match(res.body, /parent\.postMessage\(\{ commonInkSandbox: "ready" \}, "\*"\)/);
 });
 
 test("uploads land in assets/ under a free name; wrong types and oversized files are refused", async () => {

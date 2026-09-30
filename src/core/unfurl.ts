@@ -65,7 +65,7 @@ export async function fetchGuarded(raw: string, guard: UrlGuard | undefined, ini
 async function fetchPreview(raw: string, guard: UrlGuard | undefined, timeout: number): Promise<Unfurl> {
   const { res, url: u } = await fetchGuarded(raw, guard, {
     signal: AbortSignal.timeout(timeout),
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; QuireLinkPreview/0.1)", Accept: "text/html,application/xhtml+xml" },
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; CommonInkLinkPreview/0.1)", Accept: "text/html,application/xhtml+xml" },
   });
   const type = String(res.headers.get("content-type")).split(";")[0].trim().toLowerCase();
   if (!res.ok || (type !== "text/html" && type !== "application/xhtml+xml")) {

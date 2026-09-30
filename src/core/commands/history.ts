@@ -1,8 +1,8 @@
 // History, Trash, and files moving in and out of the vault.
 import { createTwoFilesPatch } from "diff";
-import { QuireError } from "../paths.ts";
+import { VaultError } from "../paths.ts";
 import { fmtChanges, fmtTrash, fmtWrite } from "../format.ts";
-import { TRASH_DAYS } from "../quire.ts";
+import { TRASH_DAYS } from "../vault.ts";
 import { parseAuthorFilter } from "../actor.ts";
 import { EXPORT_FORMATS, type ExportFormat } from "../export.ts";
 import { command, list, localFiles, num, str } from "./types.ts";
@@ -19,7 +19,7 @@ export const history = [
       "`since` is an ISO timestamp or a change id from a previous call — use it to catch up. " +
       "`path` (a note's name, path, ID or URL) narrows it to one note, including its history under earlier names. " +
       "`by` narrows it to people's own changes (`people`), any agent's (`ai`), or one agent's (its name).",
-    examples: ["quire changes --since 120", "quire changes --path Roadmap --by ai", "quire changes --by Claude --json"],
+    examples: ["commonink changes --since 120", "commonink changes --path Roadmap --by ai", "commonink changes --by Claude --json"],
     readOnly: true,
     args: {
       since: str({ describe: "An ISO time, or a change id from before: only what came after" }),
@@ -27,11 +27,11 @@ export const history = [
       limit: num({ min: 1, max: 200, describe: "At most this many (default 30)" }),
       by: str({ describe: '"people", "ai", or an agent\'s name' }),
     },
-    run: ({ quire }, a) => {
+    run: ({ vault }, a) => {
       // A note's name finds it too; a note that's gone is only found by the path it had.
-      const path = a.path === undefined ? undefined : (quire.resolve(a.path) ?? a.path);
-      const cs = quire.changes({ since: a.since, path, limit: a.limit ?? 30, by: parseAuthorFilter(a.by) });
-      return { text: fmtChanges(cs, quire), data: cs };
+      const path = a.path === undefined ? undefined : (vault.resolve(a.path) ?? a.path);
+      const cs = vault.changes({ since: a.since, path, limit: a.limit ?? 30, by: parseAuthorFilter(a.by) });
+      return { text: fmtChanges(cs, vault), data: cs };
     },
   }),
   command({
@@ -41,14 +41,14 @@ export const history = [
     title: "Show change",
     summary: "What a change (or a run of them) did to its note, as a unified diff",
     description: "What a change did to its note, as a unified diff of the text before and after it. `to` makes it a run of changes, from `id` to `to`.",
-    examples: ["quire diff 42", "quire diff 40 --to 44"],
+    examples: ["commonink diff 42", "commonink diff 40 --to 44"],
     readOnly: true,
     args: {
       id: num({ required: true, pos: 0, min: 1, label: "change-id", describe: "A change id from recent_changes" }),
       to: num({ min: 1, describe: "The last change of a run (same note)" }),
     },
-    run: ({ quire }, a) => {
-      const d = quire.diff(a.id, a.to ?? a.id);
+    run: ({ vault }, a) => {
+      const d = vault.diff(a.id, a.to ?? a.id);
       const patch = d.before === null || d.after === null ? null : createTwoFilesPatch(d.path, d.path, d.before, d.after, `before #${a.id}`, `after #${a.to ?? a.id}`);
       // From the `---` line on: what comes before it is a separator.
       const text = patch ? patch.slice(patch.indexOf("--- ")).trimEnd() : `Change #${a.id} (${d.op} ${d.path}) has no text to compare.`;
@@ -64,13 +64,13 @@ export const history = [
     description:
       "Put a note back the way it was before a change (from recent_changes); a deleted note comes back from Trash. The restore is a change of its own, so it can be undone the same way. " +
       "base_version refuses it if the note changed since it was read.",
-    examples: ["quire restore 42", "quire restore 42 --base 1a2b3c4d5e6f"],
+    examples: ["commonink restore 42", "commonink restore 42 --base 1a2b3c4d5e6f"],
     args: {
       id: num({ required: true, pos: 0, min: 1, label: "change-id", describe: "A change id from recent_changes" }),
       base_version: str({ flag: "base", describe: "The note's version as read: refuse if it changed since" }),
     },
-    run: ({ quire, source }, a) => {
-      const r = quire.restore(a.id, source, a.base_version);
+    run: ({ vault, source }, a) => {
+      const r = vault.restore(a.id, source, a.base_version);
       return { text: fmtWrite(r, "Restored"), data: r };
     },
   }),
@@ -85,11 +85,11 @@ export const trash = [
     title: "List Trash",
     summary: `What's in Trash, newest first, with ids to restore (kept ${TRASH_DAYS} days)`,
     description: `What's in Trash, newest first: each item's id, where it was, when and by whom it was deleted, and when it's deleted for good (after ${TRASH_DAYS} days).`,
-    examples: ["quire trash", "quire trash --json"],
+    examples: ["commonink trash", "commonink trash --json"],
     readOnly: true,
     args: {},
-    run: ({ quire }) => {
-      const items = quire.trash();
+    run: ({ vault }) => {
+      const items = vault.trash();
       return { text: fmtTrash(items), data: items };
     },
   }),
@@ -100,10 +100,10 @@ export const trash = [
     title: "Restore from Trash",
     summary: "Put Trash items back where they were",
     description: "Put items from Trash back where they were (a free name if that's taken since), by the ids list_trash gave.",
-    examples: ["quire trash restore 1727600000000-42"],
+    examples: ["commonink trash restore 1727600000000-42"],
     args: { ids: list({ required: true, pos: "rest", label: "id" }) },
-    run: ({ quire, source }, a) => {
-      const back = quire.untrash(a.ids, source).map((b) => b.path);
+    run: ({ vault, source }, a) => {
+      const back = vault.untrash(a.ids, source).map((b) => b.path);
       return { text: back.map((p) => `Restored ${p}`).join("\n"), data: back };
     },
   }),
@@ -121,16 +121,16 @@ export const files = [
     route: "POST /upload",
     title: "Upload files",
     summary: "Add files to the vault (assets/ by default), each under a free name",
-    examples: ["quire upload logo.png", "quire upload *.pdf --folder Projects/Launch"],
+    examples: ["commonink upload logo.png", "commonink upload *.pdf --folder Projects/Launch"],
     args: {
       files: localFiles({ required: true, pos: "rest", label: "file", describe: "Files on this computer" }),
       folder: str({ describe: "Where in the vault (default assets)" }),
     },
-    run: async ({ quire, bytes, source }, a) => {
-      if (!bytes) throw new QuireError("Uploading needs the CLI or the app");
+    run: async ({ vault, bytes, source }, a) => {
+      if (!bytes) throw new VaultError("Uploading needs the CLI or the app");
       const added: Array<{ path: string; size: number }> = [];
       for (const f of a.files) {
-        const rel = quire.uploadPath(f.name, a.folder ?? "assets");
+        const rel = vault.uploadPath(f.name, a.folder ?? "assets");
         await bytes.add(rel, f.bytes, source);
         added.push({ path: rel, size: f.bytes.length });
       }
@@ -143,18 +143,18 @@ export const files = [
     route: "GET /files/*",
     title: "Download file",
     summary: "Copy a file from the vault to this computer (--out -: to stdout)",
-    examples: ["quire download assets/logo.png", "quire download assets/logo.png --out ~/Desktop/logo.png", "quire download report.pdf --out - | pdftotext - -"],
+    examples: ["commonink download assets/logo.png", "commonink download assets/logo.png --out ~/Desktop/logo.png", "commonink download report.pdf --out - | pdftotext - -"],
     readOnly: true,
     args: {
       path: str({ required: true, pos: 0, label: "file", describe: "A file in the vault: an asset, or a note's markdown" }),
       out: str({ only: "cli", describe: "Where to save it (default: its name, here); - for stdout" }),
     },
     // What comes back is the bytes; the CLI saves them where --out says.
-    run: async ({ quire, bytes }, a) => {
-      if (!bytes) throw new QuireError("Downloading needs the CLI or the app");
-      const rel = quire.resolve(a.path);
+    run: async ({ vault, bytes }, a) => {
+      if (!bytes) throw new VaultError("Downloading needs the CLI or the app");
+      const rel = vault.resolve(a.path);
       const got = rel ? await bytes.read(rel) : null;
-      if (!rel || !got) throw new QuireError(`No file matches "${a.path}"`, "not_found");
+      if (!rel || !got) throw new VaultError(`No file matches "${a.path}"`, "not_found");
       return { text: `Downloaded ${rel} (${kb(got.length)})`, data: { path: rel, size: got.length }, save: { name: rel.split("/").pop()!, bytes: got } };
     },
   }),
@@ -168,7 +168,7 @@ export const files = [
       "Export a note, a folder or the whole workspace as a file. `md`: the note's markdown as it is. `html`: one self-contained web page " +
       "(the note as it looks in the app, widgets as a snapshot). `docx`: a Word document. `zip`: markdown files and the files they use, " +
       "folders kept, links that work in Obsidian (links to notes left out go to their web address). A folder, or \"/\" for everything, exports as zip.",
-    examples: ["quire export Welcome --format html", "quire export Projects --format zip --out projects.zip", "quire export / --format zip", "quire export Welcome --out - | wc -l"],
+    examples: ["commonink export Welcome --format html", "commonink export Projects --format zip --out projects.zip", "commonink export / --format zip", "commonink export Welcome --out - | wc -l"],
     readOnly: true,
     needs: "exporter",
     args: {
@@ -177,7 +177,7 @@ export const files = [
       out: str({ only: "cli", describe: "Where to save it (default: its name, here); - for stdout" }),
     },
     run: async ({ exporter }, a) => {
-      if (!exporter) throw new QuireError("Exporting needs the CLI or the app");
+      if (!exporter) throw new VaultError("Exporting needs the CLI or the app");
       const file = await exporter(a.target, (a.format ?? "md") as ExportFormat);
       return {
         text: `Exported ${file.name} (${file.data.byteLength} bytes)`,

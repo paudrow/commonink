@@ -159,7 +159,7 @@ class EmbedWidget extends WidgetType {
             sourceBar(view, wrap, info.label, info.url),
           );
           frame.addEventListener("load", settle);
-          wrap.addEventListener("quire-resize", settle);
+          wrap.addEventListener("commonink-resize", settle);
           settle();
         })
         .catch(() => bookmark(view, wrap, this.target, settle));
@@ -215,7 +215,7 @@ class EmbedWidget extends WidgetType {
       if (this.kind === "html") {
         const frame = sandboxFrame(note.content, { autoHeight: true, title: note.title });
         frame.addEventListener("load", settle);
-        wrap.addEventListener("quire-resize", settle);
+        wrap.addEventListener("commonink-resize", settle);
         body.replaceChildren(frame);
       } else {
         const md = heading ? sectionOf(note.content, heading) : note.content;
@@ -233,7 +233,7 @@ class EmbedWidget extends WidgetType {
           if (!a) return;
           e.preventDefault();
           const href = a.getAttribute("href") ?? "";
-          if (href.startsWith("quire:")) ctx.openTarget(safeDecode(href.slice(6)), path);
+          if (href.startsWith("commonink:")) ctx.openTarget(safeDecode(href.slice(6)), path);
           else if (/^https?:/i.test(href)) window.open(href, "_blank", "noopener");
           else if (calendarTarget(href) !== null) ctx.openTarget(href, path);
           else followInPage(body, href); // a footnote, or a #heading in the embedded note

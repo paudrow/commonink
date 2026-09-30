@@ -47,7 +47,7 @@ https://x.com/bridgemindai/status/2104242319037804728
 ## Code and tables
 
 ```ts
-const hits = quire.search("embeds", 10);
+const hits = commonink.search("embeds", 10);
 for (const hit of hits) console.log(hit.path, hit.lines);
 ```
 
@@ -55,7 +55,7 @@ for (const hit of hits) console.log(hit.path, hit.lines);
 | ----------- | ------------------------------ | ------------ |
 | Web editor  | you                            | local server |
 | MCP server  | Claude, Cursor, Codex, …       | the vault    |
-| `quire` CLI | shell agents, scripts, you     | the vault    |
+| `commonink` CLI | shell agents, scripts, you     | the vault    |
 
 ## Keys
 

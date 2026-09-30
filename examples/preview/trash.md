@@ -12,4 +12,4 @@ Anything you can add, you can now delete. It goes to **Trash** for 30 days first
 6. With vim on, type `:trash` in a note to delete it. (`:delete` stays Vim's own line delete.)
 7. Open **History**: deletes, restores and deletes-forever are all there. Select a delete and press **Restore to before**, and the note comes back from Trash.
 8. In **Trash**, press **Delete forever** on one item, then **Empty trash**. Both ask first. On a Preview you own your workspace; online only owners can delete for good, and viewers don't see Trash at all.
-9. Agents can delete too, but only to Trash: `quire delete <note>` and the MCP `delete_note` tool. `quire trash` lists what's there and `quire trash restore <id>` brings it back.
+9. Agents can delete too, but only to Trash: `commonink delete <note>` and the MCP `delete_note` tool. `commonink trash` lists what's there and `commonink trash restore <id>` brings it back.

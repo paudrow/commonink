@@ -6,13 +6,13 @@ export const SANDBOX_PATH = "/sandbox";
 
 const PAGE = `<!doctype html><meta charset="utf-8"><script>
 addEventListener("message", function run(e) {
-  if (e.source !== parent || typeof (e.data && e.data.quireHtml) !== "string") return;
+  if (e.source !== parent || typeof (e.data && e.data.commonInkHtml) !== "string") return;
   removeEventListener("message", run);
   document.open();
-  document.write(e.data.quireHtml);
+  document.write(e.data.commonInkHtml);
   document.close();
 });
-parent.postMessage({ quireSandbox: "ready" }, "*");
+parent.postMessage({ commonInkSandbox: "ready" }, "*");
 </script>`;
 
 export const sandboxPage = () =>

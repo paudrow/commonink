@@ -2,7 +2,7 @@
 // Agents read markdown far more cheaply than JSON, so this is the default output.
 import { authorLabel } from "./actor.ts";
 import { createTwoFilesPatch } from "diff";
-import { isTagFavorite, type Backlink, type Change, type Favorite, type Label, type Note, type NoteMeta, type Quire, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView, type TrashItem } from "./quire.ts";
+import { isTagFavorite, type Backlink, type Change, type Favorite, type Label, type Note, type NoteMeta, type Vault, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView, type TrashItem } from "./vault.ts";
 import type { Board } from "./kanban.ts";
 import type { TemplateInfo } from "./templates.ts";
 import type { Contact, TimelineItem } from "./contacts.ts";
@@ -107,11 +107,11 @@ export function groupChanges(changes: Change[], windowMs = 10 * 60_000): Array<C
  * Changes as History lists them: a run of saves is one line counting its net change (diffStats),
  * not the sum of each save's count, and its verb is History's ("renamed", "edited").
  */
-export function fmtChanges(changes: Change[], quire: Pick<Quire, "diffStats">): string {
+export function fmtChanges(changes: Change[], vault: Pick<Vault, "diffStats">): string {
   if (!changes.length) return "No changes.";
   const groups = groupChanges(changes);
   const runs = groups.filter((g) => g.count > 1);
-  const nets = quire.diffStats(runs.map((g) => changes.filter((c) => c.id >= g.first && c.id <= g.id).map((c) => c.id)));
+  const nets = vault.diffStats(runs.map((g) => changes.filter((c) => c.id >= g.first && c.id <= g.id).map((c) => c.id)));
   const net = new Map(runs.map((g, i) => [g, nets[i]]));
   return groups
     .map((c) => {

@@ -3,8 +3,8 @@
 // found by a marker comment at the end of its task line (`<!-- guide:star -->`), so rewording it
 // doesn't lose it. The guide only ever makes the few edits below, worked out here from the note's
 // text; nothing a client sends ends up in the note. No Node imports: the web app uses this too.
-import type { Quire } from "./quire.ts";
-import { QuireError } from "./paths.ts";
+import type { Vault } from "./vault.ts";
+import { VaultError } from "./paths.ts";
 import { TASK_LINE } from "./tasks.ts";
 import { parseDirective } from "./directive.ts";
 
@@ -38,7 +38,7 @@ export const FINISHED_TEXT = `**You're set.** That's the tour. [[Tips]] has mark
 /** A request's action, checked at the boundary. */
 export function parseGuideAction(s: string): GuideAction {
   if (isStep(s) || s === "demo" || s === "finish") return s;
-  throw new QuireError(`"action" must be one of ${[...GUIDE_STEPS, "demo", "finish"].join(", ")}`);
+  throw new VaultError(`"action" must be one of ${[...GUIDE_STEPS, "demo", "finish"].join(", ")}`);
 }
 
 /** Which boxes are ticked in a start note's text; null if it has none of the guide's (the checklist is gone). */
@@ -107,9 +107,9 @@ export function asReplacement(before: string, after: string): { oldString: strin
 }
 
 /** The active note tagged `start` that still has the guide's checklist: its state, text and version. */
-export function findStartNote(quire: Quire): { state: GuideState; content: string; version: string } | null {
-  for (const n of quire.list(undefined, "active", START_TAG)) {
-    const content = n.kind === "md" ? quire.files.read(n.path) : null;
+export function findStartNote(vault: Vault): { state: GuideState; content: string; version: string } | null {
+  for (const n of vault.list(undefined, "active", START_TAG)) {
+    const content = n.kind === "md" ? vault.files.read(n.path) : null;
     const state = content === null ? null : guideState(content);
     if (state) return { state: { path: n.path, ...state }, content: content!, version: n.version };
   }
@@ -121,13 +121,13 @@ export function findStartNote(quire: Quire): { state: GuideState; content: strin
  * exact-string edit agents use, at the version just read. `source` is the guide working for the
  * person who asked (see agentSource).
  */
-export function runGuide(quire: Quire, action: GuideAction, source: string) {
-  const note = findStartNote(quire);
+export function runGuide(vault: Vault, action: GuideAction, source: string) {
+  const note = findStartNote(vault);
   if (!note) return { state: null, write: null };
   const { state, content, version } = note;
   const edit = asReplacement(content, guideNext(content, action));
   if (!edit) return { state, write: null };
-  const r = quire.edit(state.path, { ...edit, baseVersion: version }, source);
-  const next = quire.files.read(state.path)!;
+  const r = vault.edit(state.path, { ...edit, baseVersion: version }, source);
+  const next = vault.files.read(state.path)!;
   return { state: { path: state.path, ...guideState(next)! }, write: { path: state.path, content: next, version: r.version, change: r.change } };
 }

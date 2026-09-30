@@ -20,7 +20,7 @@ export interface AgentProps {
   client: string;
 }
 
-/** The scope the `quire` CLI asks for: every workspace the person is in, each with their role there. */
+/** The scope the `commonink` CLI asks for: every workspace the person is in, each with their role there. */
 export const WORKSPACES_SCOPE = "workspaces";
 
 export type OAuthEnv = Env & { OAUTH_KV: KVNamespace };
@@ -190,7 +190,7 @@ export interface ConnectedAgent {
   /** The person it works for, as its changes record them (`person`, with `agent` = client). */
   person: string;
   workspace: { id: string; name: string; role: WorkspaceRef["role"] } | null;
-  /** It may work in every workspace the person is in (the quire CLI). */
+  /** It may work in every workspace the person is in (the commonink CLI). */
   allWorkspaces?: boolean;
   connectedAt: number;
   usedAt: number | null;

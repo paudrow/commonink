@@ -108,7 +108,7 @@ interface Pane {
 
 // This PR's first version stored a "Start on Today" choice; Today is the top of Tasks now.
 try {
-  localStorage.removeItem("quire.startOnToday");
+  localStorage.removeItem("commonink.startOnToday");
 } catch {}
 
 const prefs = {
@@ -2474,7 +2474,7 @@ Vim.defineEx("vsplit", "vs", (_cm: unknown, params: { args?: string[] }) => {
 Vim.defineEx("only", "on", () => split && void closePane(other(active)));
 Vim.defineEx("close", "clo", () => void closePane(active));
 // `ic`, the inner code block: the code between a fenced block's fences, for yic, dic, cic and vic.
-Vim.defineMotion("quireInnerCode", (_cm: unknown, head: { line: number; ch: number }) => {
+Vim.defineMotion("commonInkInnerCode", (_cm: unknown, head: { line: number; ch: number }) => {
   const { state } = active.view;
   const r = codeRange(state, state.doc.line(head.line + 1).from + head.ch);
   if (!r || r.to <= r.from) return head;
@@ -2484,23 +2484,23 @@ Vim.defineMotion("quireInnerCode", (_cm: unknown, head: { line: number; ch: numb
   };
   return [pos(r.from), pos(r.to)];
 });
-Vim.mapCommand("ic", "motion", "quireInnerCode", {}, { context: "operatorPending" });
-Vim.mapCommand("ic", "motion", "quireInnerCode", {}, { context: "visual" });
-Vim.defineAction("quireFollowLink", () => followLinkAtCursor());
-Vim.mapCommand("gd", "action", "quireFollowLink", {}, { context: "normal" });
-Vim.mapCommand("gf", "action", "quireFollowLink", {}, { context: "normal" });
-Vim.defineAction("quireOpenSide", () => openLinkToSide(active.view));
-Vim.mapCommand("gs", "action", "quireOpenSide", {}, { context: "normal" });
-Vim.mapCommand("gD", "action", "quireOpenSide", {}, { context: "normal" });
+Vim.mapCommand("ic", "motion", "commonInkInnerCode", {}, { context: "operatorPending" });
+Vim.mapCommand("ic", "motion", "commonInkInnerCode", {}, { context: "visual" });
+Vim.defineAction("commonInkFollowLink", () => followLinkAtCursor());
+Vim.mapCommand("gd", "action", "commonInkFollowLink", {}, { context: "normal" });
+Vim.mapCommand("gf", "action", "commonInkFollowLink", {}, { context: "normal" });
+Vim.defineAction("commonInkOpenSide", () => openLinkToSide(active.view));
+Vim.mapCommand("gs", "action", "commonInkOpenSide", {}, { context: "normal" });
+Vim.mapCommand("gD", "action", "commonInkOpenSide", {}, { context: "normal" });
 // Ctrl-O and Ctrl-I: back and forward through the notes this pane has shown, like vim's jumps across files.
-Vim.defineAction("quireBack", () => void stepPane(active, "back"));
-Vim.defineAction("quireForward", () => void stepPane(active, "forward"));
-Vim.mapCommand("<C-o>", "action", "quireBack", {}, { context: "normal" });
-Vim.mapCommand("<C-i>", "action", "quireForward", {}, { context: "normal" });
+Vim.defineAction("commonInkBack", () => void stepPane(active, "back"));
+Vim.defineAction("commonInkForward", () => void stepPane(active, "forward"));
+Vim.mapCommand("<C-o>", "action", "commonInkBack", {}, { context: "normal" });
+Vim.mapCommand("<C-i>", "action", "commonInkForward", {}, { context: "normal" });
 // Collapsible sections: za toggles the one under the cursor, zo/zc open and close it, zR/zM all of them.
 for (const [keys, run] of [["za", foldAt("toggle")], ["zo", foldAt("open")], ["zc", foldAt("close")], ["zR", foldAll(true)], ["zM", foldAll(false)]] as const) {
-  Vim.defineAction(`quireFold${keys}`, () => run(active.view));
-  Vim.mapCommand(keys, "action", `quireFold${keys}`, {}, { context: "normal" });
+  Vim.defineAction(`commonInkFold${keys}`, () => run(active.view));
+  Vim.mapCommand(keys, "action", `commonInkFold${keys}`, {}, { context: "normal" });
 }
 setVimDisplayLines(prefs.vimDisplayLines);
 // :set number / :set nu / :set nonu / :set nu! / :set nu? — the same setting as ⌘K's, one for every pane.
@@ -2641,8 +2641,8 @@ const toggleTheme = () => setTheme(isDark() ? "light" : "dark");
 /** Light, dark, or the system's (index.html applies a stored choice before the page draws). */
 function setTheme(next: Theme) {
   try {
-    if (next === "system") localStorage.removeItem("quire.theme");
-    else localStorage.setItem("quire.theme", next);
+    if (next === "system") localStorage.removeItem("commonink.theme");
+    else localStorage.setItem("commonink.theme", next);
   } catch {}
   if (next === "system") delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = next;
@@ -2674,7 +2674,7 @@ function renderCodeWrap() {
   chip.title = on ? "Long lines in code blocks wrap. Click to scroll them instead." : "Long lines in code blocks scroll. Click to wrap them.";
 }
 
-/** Local vaults: where the vault and the `quire` command are, for connecting an agent. Online, null. */
+/** Local vaults: where the vault and the `commonink` command are, for connecting an agent. Online, null. */
 let localVault: { vault?: string; projectRoot?: string } | null = null;
 
 function openSettings() {
@@ -3019,4 +3019,4 @@ async function boot() {
 
 boot();
 
-(window as any).quire = { panes }; // handy in devtools
+(window as any).commonink = { panes }; // handy in devtools

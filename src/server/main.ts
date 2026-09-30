@@ -6,9 +6,9 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
-import { ASSET_TAGS, diffstat, versionOf, type Change } from "../core/quire.ts";
+import { ASSET_TAGS, diffstat, versionOf, type Change } from "../core/vault.ts";
 import { LOCAL_USER, openVault, PROJECT_ROOT } from "../core/local.ts";
-import { cleanPath, fileSecurityHeaders, isHidden, kindOf, mimeOf, MAX_UPLOAD, QuireError } from "../core/paths.ts";
+import { cleanPath, fileSecurityHeaders, isHidden, kindOf, mimeOf, MAX_UPLOAD, VaultError } from "../core/paths.ts";
 import { errorResponse, handleApi, json, type ApiHost } from "../core/api.ts";
 import { SANDBOX_PATH, sandboxPage } from "../core/sandbox.ts";
 import { appPolicy } from "../core/csp.ts";
@@ -16,17 +16,17 @@ import { assertPublic, unfurl } from "./unfurl.ts";
 import { Calendar, fetchFeed } from "../core/calendar.ts";
 import { watchTree } from "./watch.ts";
 
-// PORT=0 picks a free port (printed on start). QUIRE_NO_UI=1 serves only /api, skipping Vite.
+// PORT=0 picks a free port (printed on start). COMMONINK_NO_UI=1 serves only /api, skipping Vite.
 const PORT = Number(process.env.PORT ?? 4777);
-const UI = process.env.QUIRE_NO_UI !== "1";
-const quire = openVault();
-const files = quire.files;
+const UI = process.env.COMMONINK_NO_UI !== "1";
+const vault = openVault();
+const files = vault.files;
 
 // What every UI client currently believes each file looks like. Used to tell our own writes
 // (already broadcast) from writes made by agents or other editors.
 const seen = new Map<string, string>();
 const lastText = new Map<string, string>();
-for (const n of quire.list(undefined, "all")) {
+for (const n of vault.list(undefined, "all")) {
   seen.set(n.path, n.version);
   if (n.kind !== "asset") lastText.set(n.path, files.read(n.path) ?? "");
 }
@@ -48,7 +48,7 @@ const vite = UI && await (await import("vite")).createServer({
     middlewareMode: true,
     hmr: { server: httpServer },
     cors: false,
-    fs: { strict: true, deny: [".env", ".env.*", "*.{crt,pem}", "**/.git/**", "**/.dev.vars", "**/.quire/**", "**/vault/**"] },
+    fs: { strict: true, deny: [".env", ".env.*", "*.{crt,pem}", "**/.git/**", "**/.dev.vars", "**/.commonink/**", "**/vault/**"] },
   },
   appType: "spa",
   logLevel: "warn",
@@ -124,13 +124,13 @@ watchTree(files.root, (rel) => {
 
 function onDiskChange(rel: string) {
   if (rel === ASSET_TAGS) {
-    quire.sync(); // re-reads the asset tags file if it changed
+    vault.sync(); // re-reads the asset tags file if it changed
     return broadcast({ type: "tree" });
   }
   if (!files.stat(rel)) {
     if (!seen.delete(rel)) return;
     lastText.delete(rel);
-    quire.unindex(rel);
+    vault.unindex(rel);
     broadcast({ type: "removed", path: rel });
     broadcast({ type: "tree" });
     return;
@@ -138,7 +138,7 @@ function onDiskChange(rel: string) {
   const kind = kindOf(rel)!;
   const isNew = !seen.has(rel);
   if (kind === "asset") {
-    const meta = quire.indexFile(rel);
+    const meta = vault.indexFile(rel);
     if (meta) seen.set(rel, meta.version);
     if (isNew) broadcast({ type: "tree" });
     return;
@@ -149,11 +149,11 @@ function onDiskChange(rel: string) {
   const before = lastText.get(rel);
   seen.set(rel, version);
   lastText.set(rel, content);
-  quire.indexFile(rel, content);
+  vault.indexFile(rel, content);
   // Written through MCP/CLI? Then the change log already knows who did it.
   const change =
-    quire.attribution(rel, version) ??
-    quire.recordChange(
+    vault.attribution(rel, version) ??
+    vault.recordChange(
       {
         path: rel,
         op: isNew ? "create" : "edit",
@@ -169,8 +169,8 @@ function onDiskChange(rel: string) {
 }
 
 function resync() {
-  quire.sync();
-  const now = new Set(quire.list(undefined, "all").map((n) => n.path));
+  vault.sync();
+  const now = new Set(vault.list(undefined, "all").map((n) => n.path));
   for (const p of [...seen.keys()]) if (!now.has(p)) onDiskChange(p);
   for (const p of now) if (!seen.has(p)) onDiskChange(p);
 }
@@ -179,7 +179,7 @@ function resync() {
 
 /** The note API, shared with the Cloudflare workspace. Writes here are announced directly; the watcher skips them. */
 const host: ApiHost = {
-  quire,
+  vault,
   actor: "you",
   user: LOCAL_USER,
   canEditShared: true,
@@ -199,7 +199,7 @@ const host: ApiHost = {
   },
   tree: () => broadcast({ type: "tree" }),
   // Calendar feeds are fetched from public hosts only, like link previews.
-  calendar: new Calendar(quire.db, (url, last) => fetchFeed(url, last, assertPublic)),
+  calendar: new Calendar(vault.db, (url, last) => fetchFeed(url, last, assertPublic)),
   calendarChanged: () => broadcast({ type: "calendar" }),
 };
 
@@ -224,7 +224,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
   if (!url.pathname.startsWith("/api/")) {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Content-Security-Policy", appPolicy(NONCE, url)); // also: no framing the app to click through it
-    return vite ? vite.middlewares(req, res) : send(res, json({ error: "Not found (QUIRE_NO_UI)" }, 404));
+    return vite ? vite.middlewares(req, res) : send(res, json({ error: "Not found (COMMONINK_NO_UI)" }, 404));
   }
   const route = url.pathname.slice("/api".length);
   // Uploads are raw bytes; the Origin check above is what keeps other sites out.
@@ -236,7 +236,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
   if (route === "/me") return send(res, json({ local: true }));
   if (route.startsWith("/files/")) return asset(res, decodePath(route.slice("/files/".length)));
   if (route === "/file-resolve") {
-    const rel = quire.resolve(url.searchParams.get("target") ?? "", url.searchParams.get("from") ?? undefined);
+    const rel = vault.resolve(url.searchParams.get("target") ?? "", url.searchParams.get("from") ?? undefined);
     if (!rel || kindOf(rel) !== "asset") return send(res, json({ error: "Not found" }, 404));
     res.writeHead(302, { Location: `/api/files/${rel.split("/").map(encodeURIComponent).join("/")}` });
     return res.end();
@@ -256,7 +256,7 @@ function decodePath(s: string): string {
   try {
     return decodeURIComponent(s);
   } catch {
-    throw new QuireError(`Invalid path: ${s}`);
+    throw new VaultError(`Invalid path: ${s}`);
   }
 }
 
@@ -279,12 +279,12 @@ function asset(res: http.ServerResponse, raw: string) {
 /** Save an uploaded file into the vault (assets/ by default), under a free name. */
 async function upload(req: http.IncomingMessage, res: http.ServerResponse, url: URL) {
   try {
-    const rel = quire.uploadPath(url.searchParams.get("name") ?? "", url.searchParams.get("folder") ?? "assets");
+    const rel = vault.uploadPath(url.searchParams.get("name") ?? "", url.searchParams.get("folder") ?? "assets");
     const bytes = await readBody(req, MAX_UPLOAD);
     if (!bytes) return tooLarge(res, "That file is over 50 MB");
     seen.set(rel, "uploading"); // the watcher leaves it to us
     files.write(rel, bytes);
-    const r = quire.recordUpload(rel, false, host.actor);
+    const r = vault.recordUpload(rel, false, host.actor);
     seen.set(rel, r.version);
     announce(rel, null, r.version, r.change);
     broadcast({ type: "tree" });
@@ -335,5 +335,5 @@ async function send(res: http.ServerResponse, r: Response) {
 httpServer.listen(PORT, "127.0.0.1", () => {
   const port = (httpServer.address() as { port: number }).port;
   for (const h of [`localhost:${port}`, `127.0.0.1:${port}`]) hosts.add(h), origins.add(`http://${h}`);
-  console.log(`\n  Quire  http://localhost:${port}\n  vault  ${files.root}\n`);
+  console.log(`\n  Common Ink  http://localhost:${port}\n  vault  ${files.root}\n`);
 });

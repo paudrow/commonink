@@ -1,7 +1,7 @@
 // A hosted workspace's settings from the CLI: who's in it and their roles, invite links, its name
 // and its log. The server runs these itself (cloud/src/admin.ts), with the same checks as the app's
 // Settings; a local vault has no settings. They're not MCP tools: see NOT_FOR_AGENTS.
-import { QuireError } from "../paths.ts";
+import { VaultError } from "../paths.ts";
 import { UsageError, settingsCommand, str, type WorkspaceSettings } from "./types.ts";
 
 export type Role = "owner" | "editor" | "viewer";
@@ -45,15 +45,15 @@ async function member(s: WorkspaceSettings, who: string): Promise<Member> {
   const found = all.filter((m) => m.id === who || m.email.toLowerCase() === t || m.name.toLowerCase() === t);
   if (found.length === 1) return found[0];
   if (found.length) throw new UsageError(`More than one person in ${s.name} is called ${who}: use their email`);
-  throw new QuireError(`No one called ${who} is in ${s.name}. Its members: ${all.map((m) => m.name).join(", ")}`, "not_found");
+  throw new VaultError(`No one called ${who} is in ${s.name}. Its members: ${all.map((m) => m.name).join(", ")}`, "not_found");
 }
 
-/** An invite link, by its ID or the start of it (as `quire invites` shows it). */
+/** An invite link, by its ID or the start of it (as `commonink invites` shows it). */
 async function invite(s: WorkspaceSettings, id: string): Promise<InviteRow> {
   const found = ((await s.call("GET /invites")) as InviteRow[]).filter((i) => i.id.startsWith(id.trim()));
   if (found.length === 1) return found[0];
   if (found.length) throw new UsageError(`More than one invite link starts with ${id}: give more of its ID`);
-  throw new QuireError(`No invite link ${id} in ${s.name}: see quire invites`, "not_found");
+  throw new VaultError(`No invite link ${id} in ${s.name}: see commonink invites`, "not_found");
 }
 
 const inviteState = (i: InviteRow, now: number) => (i.usedAt ? `used by ${i.usedBy ?? "someone"} on ${day(i.usedAt)}` : i.expiresAt < now ? "expired" : `active until ${day(i.expiresAt)}`);
@@ -65,7 +65,7 @@ export const settings = [
     route: "GET /members",
     title: "Members",
     summary: "Who's in the workspace, and their roles",
-    examples: ["quire members --workspace Team", "quire members --json"],
+    examples: ["commonink members --workspace Team", "commonink members --json"],
     readOnly: true,
     args: {},
     run: async ({ settings: s }) => {
@@ -80,9 +80,9 @@ export const settings = [
     title: "Change a member's role",
     summary: "Make someone an owner, editor or viewer (owners only)",
     description: "Change someone's role in the workspace. Their agents connected with the old role, so they're disconnected and connect again. A workspace keeps at least one owner.",
-    examples: ["quire member role sam@example.com viewer --workspace Team"],
+    examples: ["commonink member role sam@example.com viewer --workspace Team"],
     args: {
-      person: str({ required: true, pos: 0, describe: "Their name, email or ID (see quire members)" }),
+      person: str({ required: true, pos: 0, describe: "Their name, email or ID (see commonink members)" }),
       role: str({ required: true, pos: 1, enum: ROLES, describe: "owner, editor or viewer" }),
     },
     run: async ({ settings: s }, a) => {
@@ -97,10 +97,10 @@ export const settings = [
     route: "POST /members/remove",
     title: "Remove a member",
     summary: "Take someone out of the workspace (owners only)",
-    description: "Take someone out of the workspace: they, and their agents, lose access to it at once. To leave yourself, use quire leave.",
-    examples: ["quire member remove Sam --workspace Team"],
+    description: "Take someone out of the workspace: they, and their agents, lose access to it at once. To leave yourself, use commonink leave.",
+    examples: ["commonink member remove Sam --workspace Team"],
     destructive: true,
-    args: { person: str({ required: true, pos: 0, describe: "Their name, email or ID (see quire members)" }) },
+    args: { person: str({ required: true, pos: 0, describe: "Their name, email or ID (see commonink members)" }) },
     run: async ({ settings: s }, a) => {
       const m = await member(s, a.person);
       await s.call("POST /members/remove", { user: m.id });
@@ -113,7 +113,7 @@ export const settings = [
     route: "POST /leave",
     title: "Leave the workspace",
     summary: "Leave a team workspace; its notes stay with its other members",
-    examples: ["quire leave --workspace Team"],
+    examples: ["commonink leave --workspace Team"],
     destructive: true,
     args: {},
     run: async ({ settings: s }) => {
@@ -127,8 +127,8 @@ export const settings = [
     route: "POST /invites",
     title: "Invite someone",
     summary: "A link that lets one person join the team workspace (owners only)",
-    description: "Make an invite link to the team workspace. Whoever opens it first, signed in, joins as an editor (or --role viewer). Send it yourself; `quire invites revoke` takes it back.",
-    examples: ["quire invite --workspace Team", "quire invite --role viewer --json"],
+    description: "Make an invite link to the team workspace. Whoever opens it first, signed in, joins as an editor (or --role viewer). Send it yourself; `commonink invites revoke` takes it back.",
+    examples: ["commonink invite --workspace Team", "commonink invite --role viewer --json"],
     args: { role: str({ enum: ["editor", "viewer"], describe: "What they may do once they join: editor (default) or viewer" }) },
     run: async ({ settings: s }, a) => {
       const { url } = (await s.call("POST /invites", { role: a.role ?? "editor" })) as { url: string };
@@ -141,7 +141,7 @@ export const settings = [
     route: "GET /invites",
     title: "Invite links",
     summary: "The workspace's invite links: who made them, and which are still open (owners only)",
-    examples: ["quire invites --workspace Team"],
+    examples: ["commonink invites --workspace Team"],
     readOnly: true,
     args: {},
     run: async ({ settings: s }) => {
@@ -157,8 +157,8 @@ export const settings = [
     route: "POST /invites/revoke",
     title: "Revoke an invite link",
     summary: "Take back an invite link no one has used yet (owners only)",
-    examples: ["quire invites revoke 3f9a2c41 --workspace Team"],
-    args: { id: str({ required: true, pos: 0, label: "invite-id", describe: "Its ID, or the start of it (see quire invites)" }) },
+    examples: ["commonink invites revoke 3f9a2c41 --workspace Team"],
+    args: { id: str({ required: true, pos: 0, label: "invite-id", describe: "Its ID, or the start of it (see commonink invites)" }) },
     run: async ({ settings: s }, a) => {
       const i = await invite(s, a.id);
       await s.call("POST /invites/revoke", { id: i.id });
@@ -171,7 +171,7 @@ export const settings = [
     route: "POST /workspace/rename",
     title: "Rename the workspace",
     summary: "Give the workspace a new name, for everyone in it (owners only)",
-    examples: ['quire workspace rename "Launch team" --workspace Team'],
+    examples: ['commonink workspace rename "Launch team" --workspace Team'],
     args: { name: str({ required: true, pos: "rest", describe: "The new name (up to 80 characters)" }) },
     run: async ({ settings: s }, a) => {
       const { name } = (await s.call("POST /workspace/rename", { name: a.name })) as { name: string };
@@ -184,7 +184,7 @@ export const settings = [
     route: "GET /workspace/log",
     title: "Workspace log",
     summary: "Who joined, left, changed roles or renamed the workspace, newest first (owners only)",
-    examples: ["quire workspace log --workspace Team"],
+    examples: ["commonink workspace log --workspace Team"],
     readOnly: true,
     args: {},
     run: async ({ settings: s }) => {

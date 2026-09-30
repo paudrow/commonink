@@ -1,7 +1,7 @@
 {
   "mcpServers": {
-    "quire": {
-      "command": "/Users/audrow/code/quire/bin/quire",
+    "commonink": {
+      "command": "/Users/audrow/code/commonink/bin/commonink",
       "args": [
         "mcp"
       ]

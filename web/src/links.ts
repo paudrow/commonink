@@ -48,5 +48,5 @@ export function calendarTarget(href: string): string | null {
 }
 
 /** A calendar link clicked where no note editor handles it (a note card, an embed): main.ts goes there. */
-export const OPEN_CALENDAR = "quire-open-calendar";
+export const OPEN_CALENDAR = "commonink-open-calendar";
 export const openCalendarLink = (href: string) => window.dispatchEvent(new CustomEvent(OPEN_CALENDAR, { detail: calendarTarget(href) ?? "" }));

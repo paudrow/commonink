@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import { diffLines } from "diff";
 import { chainBefore, dropBefores, readBefore } from "./changeTexts.ts";
 import type { Content, SqlDb } from "./store.ts";
-import { cleanPath, isHidden, kindOf, linkKey, QuireError, stemOf, type NoteKind } from "./paths.ts";
+import { cleanPath, isHidden, kindOf, linkKey, VaultError, stemOf, type NoteKind } from "./paths.ts";
 import { headingName, headingText, mapOutsideCode, proseLines } from "./prose.ts";
 import { extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
@@ -258,7 +258,7 @@ const TRASH_TAGS = ".tags.json";
 /** How long a deleted file's ID waits for the same file to reappear under a new name. */
 const RENAME_WINDOW_MS = 60_000;
 
-export interface QuireOptions {
+export interface VaultOptions {
   /** Milliseconds since the epoch: stamps changes and bounds the attribution and rename windows. Tests pass a fake clock. */
   now?: () => number;
   /** The largest note a write may leave behind, in bytes (UTF-8). Online, a SQLite row holds 2 MB. */
@@ -284,7 +284,7 @@ const DIFF_TEXT_BUDGET = 16 * 1024 * 1024;
  */
 
 /** One section of the Today view: a heading and its tasks. */
-/** What a task list asks for: see Quire.tasks. */
+/** What a task list asks for: see Vault.tasks. */
 export interface TaskQuery {
   folder?: string;
   note?: string;
@@ -335,7 +335,7 @@ function findTask(lines: string[], line: number, text: string, notePath: string)
   const matches = (i: number) => lines[i]?.match(TASK_LINE)?.[4] === text;
   if (matches(line - 1)) return line - 1;
   const near = lines.map((_, j) => j).filter(matches).sort((a, b) => Math.abs(a - (line - 1)) - Math.abs(b - (line - 1)));
-  if (!near.length) throw new QuireError(`That task isn't in ${notePath} any more`, "conflict");
+  if (!near.length) throw new VaultError(`That task isn't in ${notePath} any more`, "conflict");
   return near[0];
 }
 
@@ -345,7 +345,7 @@ const toTask = (r: TaskRow): Task => {
   return { path: r.path, title: r.title, line: r.line, text: t.text, summary: t.summary, done: r.done === 1, heading: t.heading, meta: t.meta };
 };
 
-/** A note's checkbox tasks (with text), each with the heading it sits under: what the index keeps for Quire.tasks. */
+/** A note's checkbox tasks (with text), each with the heading it sits under: what the index keeps for Vault.tasks. */
 function tasksIn(text: string): Array<Pick<Task, "line" | "text" | "summary" | "done" | "heading" | "meta">> {
   const out: ReturnType<typeof tasksIn> = [];
   let heading: string | null = null;
@@ -362,7 +362,7 @@ function tasksIn(text: string): Array<Pick<Task, "line" | "text" | "summary" | "
   return out;
 }
 
-export class Quire {
+export class Vault {
   private now: () => number;
   private maxNoteBytes: number;
   private timeZone: string | undefined;
@@ -370,7 +370,7 @@ export class Quire {
   constructor(
     readonly db: SqlDb,
     readonly files: Content,
-    opts: QuireOptions = {},
+    opts: VaultOptions = {},
   ) {
     this.now = opts.now ?? Date.now;
     this.maxNoteBytes = opts.maxNoteBytes ?? MAX_NOTE_BYTES;
@@ -643,16 +643,16 @@ export class Quire {
 
   private mustResolve(target: string): string {
     const rel = this.resolve(target);
-    if (!rel) throw new QuireError(`No note matches "${target}". Try search_notes to find it.`, "not_found");
+    if (!rel) throw new VaultError(`No note matches "${target}". Try search_notes to find it.`, "not_found");
     return rel;
   }
 
   read(target: string): Note {
     const rel = this.mustResolve(target);
     const kind = kindOf(rel)!;
-    if (kind === "asset") throw new QuireError(`${rel} is a binary asset, not a note`);
+    if (kind === "asset") throw new VaultError(`${rel} is a binary asset, not a note`);
     const content = this.files.read(rel);
-    if (content === null) throw new QuireError(`No note matches "${target}"`, "not_found");
+    if (content === null) throw new VaultError(`No note matches "${target}"`, "not_found");
     const meta = this.meta(rel) ?? this.indexFile(rel, content)!;
     return { ...meta, version: versionOf(content), content };
   }
@@ -762,7 +762,7 @@ export class Quire {
   }
 
   /** The notes a query matches, archived ones included, in its order. The part of the feed smart folder counts need. */
-  private matching(query: NoteQuery, all = this.feedRows()): ReturnType<Quire["feedRows"]> {
+  private matching(query: NoteQuery, all = this.feedRows()): ReturnType<Vault["feedRows"]> {
     const terms = searchTerms(query.q ?? "");
     let rows = all;
     if (terms.length) {
@@ -833,7 +833,7 @@ export class Quire {
     if (typeof opts.since === "number" || /^\d+$/.test(String(opts.since ?? ""))) sinceId = Number(opts.since);
     else if (opts.since) {
       sinceTs = Date.parse(opts.since);
-      if (Number.isNaN(sinceTs)) throw new QuireError(`Bad "since": ${opts.since} (use an ISO time or a change id)`);
+      if (Number.isNaN(sinceTs)) throw new VaultError(`Bad "since": ${opts.since} (use an ISO time or a change id)`);
     }
     return this.db.all(`SELECT ${CHANGE_COLS} FROM changes WHERE id > ? AND ts > ? AND ${where} ORDER BY id DESC LIMIT ?`, sinceId, sinceTs, ...args, limit);
   }
@@ -904,7 +904,7 @@ export class Quire {
   diff(fromId: number, toId: number): { path: string; op: Change["op"]; before: string | null; after: string | null } {
     const first = this.db.get("SELECT op FROM changes WHERE id = ?", fromId);
     const last = this.db.get(`SELECT ${CHANGE_COLS} FROM changes WHERE id = ?`, toId) as Change | undefined;
-    if (!first || !last) throw new QuireError(`No change #${first ? toId : fromId}`, "not_found");
+    if (!first || !last) throw new VaultError(`No change #${first ? toId : fromId}`, "not_found");
     const seen = new Map<number, string>();
     const before = first.op === "create" || first.op === "restore" ? "" : readBefore(this.db, fromId, seen);
     return { path: last.path, op: last.op, before, after: last.op === "delete" ? "" : this.textAfter(last, seen) };
@@ -1027,12 +1027,12 @@ export class Quire {
   /** Put a note back the way it was before change #id; with `baseVersion`, only if the note is still at it. */
   restore(id: number, source: string, baseVersion?: string) {
     const row = this.db.get("SELECT path, op FROM changes WHERE id = ?", id);
-    if (!row) throw new QuireError(`No change #${id}`, "not_found");
+    if (!row) throw new VaultError(`No change #${id}`, "not_found");
     // A note deleted by this change is still in Trash: bring it back from there, ID and all.
     const trashed = row.op === "delete" ? this.trashIds().find((t) => t.endsWith(`-${id}`)) : undefined;
     if (trashed) return this.untrash([trashed], source)[0];
     const before = readBefore(this.db, id);
-    if (before === null) throw new QuireError(`Change #${id} (${row.op} ${row.path}) has no earlier text to restore`);
+    if (before === null) throw new VaultError(`Change #${id} (${row.op} ${row.path}) has no earlier text to restore`);
     // The note may have been renamed or archived since: restore it where it lives now.
     let at = row.path as string;
     let since = id;
@@ -1051,7 +1051,7 @@ export class Quire {
    */
   label(target: string, name: string, source: string, opts: { description?: string; at?: number } = {}): Label {
     const rel = this.mustResolve(target);
-    if (kindOf(rel) === "asset") throw new QuireError(`${rel} is a file, not a note: only notes have labels`);
+    if (kindOf(rel) === "asset") throw new VaultError(`${rel} is a file, not a note: only notes have labels`);
     const noteId = this.meta(rel)!.id;
     const named = labelName(name);
     const description = opts.description?.trim().slice(0, LABEL_DESCRIPTION_MAX) || null;
@@ -1059,10 +1059,10 @@ export class Quire {
     let changeId: number | null;
     if (opts.at !== undefined) {
       const c = this.db.get(`SELECT ${CHANGE_COLS} FROM changes WHERE id = ?`, opts.at) as Change | undefined;
-      if (!c || c.note_id !== noteId) throw new QuireError(`Change #${opts.at} isn't a change to ${rel}`, "not_found");
-      if (c.op === "delete" || c.op === "purge") throw new QuireError(`Change #${opts.at} deleted ${c.path}: there's no version after it to label`);
+      if (!c || c.note_id !== noteId) throw new VaultError(`Change #${opts.at} isn't a change to ${rel}`, "not_found");
+      if (c.op === "delete" || c.op === "purge") throw new VaultError(`Change #${opts.at} deleted ${c.path}: there's no version after it to label`);
       const after = this.textAfter(c);
-      if (after === null) throw new QuireError(`The text right after change #${opts.at} isn't in the change log any more`);
+      if (after === null) throw new VaultError(`The text right after change #${opts.at} isn't in the change log any more`);
       [text, changeId] = [after, c.id];
     } else {
       text = this.files.read(rel) ?? "";
@@ -1072,10 +1072,10 @@ export class Quire {
     const id = newNoteId();
     this.db.tx(() => {
       if (this.db.get("SELECT 1 FROM labels WHERE note_id = ? AND lower(name) = lower(?)", noteId, named)) {
-        throw new QuireError(`${rel} already has a version labeled "${named}"`, "exists");
+        throw new VaultError(`${rel} already has a version labeled "${named}"`, "exists");
       }
       if ((this.db.get("SELECT count(*) AS n FROM labels WHERE note_id = ?", noteId)?.n ?? 0) >= LABELS_PER_NOTE) {
-        throw new QuireError(`${rel} has ${LABELS_PER_NOTE} labels already: delete one first`, "invalid");
+        throw new VaultError(`${rel} has ${LABELS_PER_NOTE} labels already: delete one first`, "invalid");
       }
       const who = actorOf(source);
       this.db.run(
@@ -1102,7 +1102,7 @@ export class Quire {
       const noteId = this.meta(this.mustResolve(target))?.id;
       row = this.db.get(`SELECT ${LABEL_COLS} FROM labels m LEFT JOIN notes n ON n.id = m.note_id WHERE m.note_id = ? AND lower(m.name) = lower(?)`, noteId, r);
     }
-    if (!row) throw new QuireError(`No label "${ref}"${target ? ` on ${target}` : ""}. List them with list_labels.`, "not_found");
+    if (!row) throw new VaultError(`No label "${ref}"${target ? ` on ${target}` : ""}. List them with list_labels.`, "not_found");
     return toLabel(row);
   }
 
@@ -1116,7 +1116,7 @@ export class Quire {
     const label = this.findLabel(ref, opts.target);
     const named = labelName(name);
     if (this.db.get("SELECT 1 FROM labels WHERE note_id = ? AND lower(name) = lower(?) AND id != ?", label.note_id, named, label.id)) {
-      throw new QuireError(`This note already has a version labeled "${named}"`, "exists");
+      throw new VaultError(`This note already has a version labeled "${named}"`, "exists");
     }
     const description = opts.description === undefined ? label.description : opts.description?.trim().slice(0, LABEL_DESCRIPTION_MAX) || null;
     this.db.run("UPDATE labels SET name = ?, description = ? WHERE id = ?", named, description, label.id);
@@ -1134,16 +1134,16 @@ export class Quire {
   compareLabels(from: string, to = "now", target?: string): { path: string; from: { label: Label; text: string }; to: { label: Label | null; text: string } } {
     const a = this.labelText(from, target);
     const b = to === "now" ? null : this.labelText(to, target ?? a.label.path ?? undefined);
-    if (b && b.label.note_id !== a.label.note_id) throw new QuireError(`"${a.label.name}" and "${b.label.name}" are labels on different notes`);
+    if (b && b.label.note_id !== a.label.note_id) throw new VaultError(`"${a.label.name}" and "${b.label.name}" are labels on different notes`);
     const path = a.label.path;
-    if (!path) throw new QuireError(`The note labeled "${a.label.name}" is in Trash: restore it to compare its versions`, "not_found");
+    if (!path) throw new VaultError(`The note labeled "${a.label.name}" is in Trash: restore it to compare its versions`, "not_found");
     return { path, from: a, to: b ?? { label: null, text: this.files.read(path) ?? "" } };
   }
 
   /** Put a note back to a label: one change like any other, so it's in History and can be undone. */
   restoreLabel(ref: string, source: string, opts: { baseVersion?: string; target?: string } = {}) {
     const { label, text } = this.labelText(ref, opts.target);
-    if (!label.path) throw new QuireError(`The note labeled "${label.name}" is in Trash: restore it from Trash first`, "not_found");
+    if (!label.path) throw new VaultError(`The note labeled "${label.name}" is in Trash: restore it from Trash first`, "not_found");
     return { ...this.save(label.path, text, { source, baseVersion: opts.baseVersion }), path: label.path, label };
   }
 
@@ -1184,7 +1184,7 @@ export class Quire {
   /** Star a note (a path, ID, note URL or [[name]]) at the end of `user`'s favorites. Starring it again changes nothing. */
   star(user: string, target: string): Favorite[] {
     const meta = this.metaOf(target);
-    if (meta.kind === "asset") throw new QuireError(`${meta.path} is a binary asset, not a note`);
+    if (meta.kind === "asset") throw new VaultError(`${meta.path} is a binary asset, not a note`);
     this.addFavorite(user, meta.id, meta.path);
     return this.favorites(user);
   }
@@ -1197,9 +1197,9 @@ export class Quire {
   /** Star a tag (and so everything under it) at the end of `user`'s favorites. It must be on a note. */
   starTag(user: string, raw: string): Favorite[] {
     const tag = normalizeTag(raw);
-    if (!tag) throw new QuireError(`"${raw}" isn't a tag: use letters, numbers, - and _, nested with /`);
+    if (!tag) throw new VaultError(`"${raw}" isn't a tag: use letters, numbers, - and _, nested with /`);
     const t = this.tagInUse(tag);
-    if (!t) throw new QuireError(`No note has #${tag} yet`, "not_found");
+    if (!t) throw new VaultError(`No note has #${tag} yet`, "not_found");
     this.addFavorite(user, tagKey(tag), t.display);
     return this.favorites(user);
   }
@@ -1233,7 +1233,7 @@ export class Quire {
   private metaOf(target: string): NoteMeta {
     const rel = this.mustResolve(target);
     const meta = this.meta(rel) ?? this.indexFile(rel);
-    if (!meta) throw new QuireError(`No note matches "${target}"`, "not_found");
+    if (!meta) throw new VaultError(`No note matches "${target}"`, "not_found");
     return meta;
   }
 
@@ -1265,7 +1265,7 @@ export class Quire {
     const rows = this.smartFolderRows(user);
     const named = idOnly ? [] : rows.filter((f) => f.name.toLowerCase() === t).sort((a, b) => Number(a.shared) - Number(b.shared));
     const found = rows.find((f) => f.id === t) ?? named[0];
-    if (!found) throw new QuireError(`No smart folder "${target}". Try list_smart_folders.`, "not_found");
+    if (!found) throw new VaultError(`No smart folder "${target}". Try list_smart_folders.`, "not_found");
     return this.counted(found);
   }
 
@@ -1276,19 +1276,19 @@ export class Quire {
    */
   saveSmartFolder(user: string, f: { id?: string; name: string; query: string; shared: boolean }, canEditShared: boolean, idOnly = false): SmartFolder {
     const name = f.name.trim();
-    if (!name) throw new QuireError("Give the smart folder a name");
-    if (name.length > 80) throw new QuireError("A smart folder's name can be up to 80 characters");
-    if (f.query.length > 500) throw new QuireError("A smart folder's query can be up to 500 characters");
+    if (!name) throw new VaultError("Give the smart folder a name");
+    if (name.length > 80) throw new VaultError("A smart folder's name can be up to 80 characters");
+    if (f.query.length > 500) throw new VaultError("A smart folder's query can be up to 500 characters");
     const problem = queryProblem(f.query);
-    if (problem) throw new QuireError(problem);
+    if (problem) throw new VaultError(problem);
     // A limit sizes a widget; a smart folder shows (and counts) every match.
     const query = formatQuery({ ...parseQuery(f.query), limit: undefined });
     const existing = f.id ? this.findSmartFolder(user, f.id, idOnly) : null;
     if (!existing && this.db.get<{ n: number }>("SELECT count(*) AS n FROM smart_folders WHERE owner = ? OR (owner IS NULL AND ?)", user, f.shared ? 1 : 0)!.n >= 50) {
-      throw new QuireError("That's 50 smart folders already. Delete one to make another.");
+      throw new VaultError("That's 50 smart folders already. Delete one to make another.");
     }
     if ((f.shared || existing?.shared) && !canEditShared) {
-      throw new QuireError("Only editors can create or change shared smart folders. Make it just yours instead.", "forbidden");
+      throw new VaultError("Only editors can create or change shared smart folders. Make it just yours instead.", "forbidden");
     }
     const owner = f.shared ? null : user;
     const id = existing?.id ?? newNoteId();
@@ -1300,7 +1300,7 @@ export class Quire {
   /** Delete one of `user`'s smart folders (a shared one only if they `canEditShared`). Returns what they see now. */
   deleteSmartFolder(user: string, target: string, canEditShared: boolean, idOnly = false): SmartFolder[] {
     const f = this.findSmartFolder(user, target, idOnly);
-    if (f.shared && !canEditShared) throw new QuireError("Only editors can delete shared smart folders.", "forbidden");
+    if (f.shared && !canEditShared) throw new VaultError("Only editors can delete shared smart folders.", "forbidden");
     this.db.run("DELETE FROM smart_folders WHERE id = ?", f.id);
     return this.smartFolders(user);
   }
@@ -1338,9 +1338,9 @@ export class Quire {
    */
   addTag(raw: string): TagCount[] {
     const display = cleanTag(raw);
-    if (!display) throw new QuireError(`"${raw}" isn't a tag: use letters, numbers, - and _, nested with /`);
+    if (!display) throw new VaultError(`"${raw}" isn't a tag: use letters, numbers, - and _, nested with /`);
     if (this.db.get<{ n: number }>("SELECT count(*) AS n FROM added_tags")!.n >= 500) {
-      throw new QuireError("That's 500 tags waiting for a note already. Use some, or delete one.");
+      throw new VaultError("That's 500 tags waiting for a note already. Use some, or delete one.");
     }
     this.addUnused(display.toLowerCase());
     this.nameTag(display);
@@ -1358,9 +1358,9 @@ export class Quire {
    */
   removeTag(raw: string): TagCount[] {
     const tag = normalizeTag(raw);
-    if (!tag) throw new QuireError(`"${raw}" isn't a tag`);
+    if (!tag) throw new VaultError(`"${raw}" isn't a tag`);
     const t = this.tags().find((x) => x.tag === tag);
-    if (t && t.notes + t.tasks + t.assets) throw new QuireError(`#${t.display} is in use. Rename it, or take it out of what carries it.`, "conflict");
+    if (t && t.notes + t.tasks + t.assets) throw new VaultError(`#${t.display} is in use. Rename it, or take it out of what carries it.`, "conflict");
     this.db.run(`DELETE FROM added_tags WHERE ${UNDER}`, ...under(tag));
     return this.tags();
   }
@@ -1406,7 +1406,7 @@ export class Quire {
   /** Set an asset's tags (an empty list clears them). Returns them as stored: tidied, each once. */
   setAssetTags(target: string, tags: string[]): string[] {
     const meta = this.metaOf(target);
-    if (meta.kind !== "asset") throw new QuireError(`${meta.path} is a note: tag it with #tags in its text`);
+    if (meta.kind !== "asset") throw new VaultError(`${meta.path} is a note: tag it with #tags in its text`);
     const clean = uniqueTags(tags, true);
     const map = this.assetTags();
     if (clean.length) map[meta.path] = clean;
@@ -1429,8 +1429,8 @@ export class Quire {
   renameTag(from: string, to: string, source: string) {
     const old = normalizeTag(from);
     const next = cleanTag(to);
-    if (!old) throw new QuireError(`"${from}" isn't a tag`);
-    if (!next) throw new QuireError(`"${to}" isn't a tag: use letters, numbers, - and _, nested with /`);
+    if (!old) throw new VaultError(`"${from}" isn't a tag`);
+    if (!next) throw new VaultError(`"${to}" isn't a tag: use letters, numbers, - and _, nested with /`);
     const edits: Array<{ path: string; content: string; version: string; change: Change }> = [];
     for (const rel of new Set(this.tagged(old).filter((r) => r.kind !== "asset").map((r) => r.path))) {
       const before = this.files.read(rel);
@@ -1476,7 +1476,7 @@ export class Quire {
   private commit(rel: string, before: string | null, after: string, source: string, op: Change["op"], autosave = false) {
     // Every write through the core lands here, so one limit covers the API, MCP, the CLI and online.
     if (after.length > this.maxNoteBytes / 4 && new TextEncoder().encode(after).length > this.maxNoteBytes) {
-      throw new QuireError(`${rel} would be over ${Math.round(this.maxNoteBytes / 1024 / 1024)} MB, the most a note can hold`, "invalid");
+      throw new VaultError(`${rel} would be over ${Math.round(this.maxNoteBytes / 1024 / 1024)} MB, the most a note can hold`, "invalid");
     }
     this.files.write(rel, after);
     const sitting = autosave && op === "edit" && before !== null ? this.sittingOf(rel, actorOf(source).source, before) : null;
@@ -1501,8 +1501,8 @@ export class Quire {
     let rel = cleanPath(target);
     if (!kindOf(rel)) rel += ".md";
     const kind = kindOf(rel);
-    if (kind === "asset") throw new QuireError("Only .md and .html notes can be created");
-    if (this.files.stat(rel)) throw new QuireError(`${rel} already exists; use edit_note instead`, "exists", { path: rel });
+    if (kind === "asset") throw new VaultError("Only .md and .html notes can be created");
+    if (this.files.stat(rel)) throw new VaultError(`${rel} already exists; use edit_note instead`, "exists", { path: rel });
     return this.commit(rel, null, content, source, "create");
   }
 
@@ -1510,12 +1510,12 @@ export class Quire {
   save(target: string, content: string, opts: { baseVersion?: string; source: string; autosave?: boolean }) {
     const rel = cleanPath(target);
     const kind = kindOf(rel);
-    if (kind !== "md" && kind !== "html") throw new QuireError(`${rel} isn't a note: only .md and .html files can be saved as text`);
+    if (kind !== "md" && kind !== "html") throw new VaultError(`${rel} isn't a note: only .md and .html files can be saved as text`);
     const current = this.files.read(rel);
     const exists = current !== null;
     if (current !== null && opts.baseVersion && versionOf(current) !== opts.baseVersion) {
       const last = this.attribution(rel, versionOf(current), 24 * 3600_000);
-      throw new QuireError(`${rel} changed on disk since version ${opts.baseVersion}`, "conflict", {
+      throw new VaultError(`${rel} changed on disk since version ${opts.baseVersion}`, "conflict", {
         version: versionOf(current),
         content: current,
         source: last?.source ?? "external",
@@ -1533,19 +1533,19 @@ export class Quire {
   ) {
     const note = this.read(target);
     if (opts.baseVersion && opts.baseVersion !== note.version) {
-      throw new QuireError(
+      throw new VaultError(
         `${note.path} is at version ${note.version}, not ${opts.baseVersion}. Re-read it and retry.`,
         "conflict",
         { version: note.version },
       );
     }
-    if (!opts.oldString) throw new QuireError("old_string must not be empty (use append_to_note to add text)");
+    if (!opts.oldString) throw new VaultError("old_string must not be empty (use append_to_note to add text)");
     const count = note.content.split(opts.oldString).length - 1;
     if (count === 0) {
-      throw new QuireError(`old_string not found in ${note.path}. Re-read the note; it may have changed.`, "not_found");
+      throw new VaultError(`old_string not found in ${note.path}. Re-read the note; it may have changed.`, "not_found");
     }
     if (count > 1 && !opts.replaceAll) {
-      throw new QuireError(`old_string occurs ${count} times in ${note.path}; add surrounding context or set replace_all.`);
+      throw new VaultError(`old_string occurs ${count} times in ${note.path}; add surrounding context or set replace_all.`);
     }
     const next = opts.replaceAll
       ? note.content.split(opts.oldString).join(opts.newString)
@@ -1570,9 +1570,9 @@ export class Quire {
     if (opts.note && !only) return [];
     const prefix = opts.folder ? opts.folder.replace(/^\/+|\/+$/g, "") + "/" : "";
     const tagged = opts.tag === undefined ? null : new Set(this.tagged(opts.tag).filter((r) => r.kind === "task").map((r) => `${r.path}:${r.line}`));
-    if (opts.today && !isDate(opts.today)) throw new QuireError(`"today" must be a date like 2026-10-01, not "${opts.today}"`);
+    if (opts.today && !isDate(opts.today)) throw new VaultError(`"today" must be a date like 2026-10-01, not "${opts.today}"`);
     const due = opts.due ? dueFilter(opts.due, opts.today ?? this.day()) : null;
-    if (opts.due && !due) throw new QuireError(`Bad due filter "${opts.due}": use a date or today/tomorrow/yesterday, optionally after <, <=, > or >=`);
+    if (opts.due && !due) throw new VaultError(`Bad due filter "${opts.due}": use a date or today/tomorrow/yesterday, optionally after <, <=, > or >=`);
     // `assignees` (any of them) is a person's every name; `assignee` one name, as written.
     const names = new Set([...(opts.assignees ?? []), ...(opts.assignee ? [opts.assignee] : [])].map((a) => a.replace(/^@/, "").toLowerCase()));
     // The query narrows to the note, or to notes with the tag on a task (the lines are checked below).
@@ -1663,7 +1663,7 @@ export class Quire {
    */
   updateTask(target: string, line: number, text: string, patch: TaskPatch, source: string, today = this.day()) {
     const problem = patchProblem(patch) ?? (isDate(today) ? null : `"today" must be a date like 2026-10-01, not "${today}"`);
-    if (problem) throw new QuireError(problem);
+    if (problem) throw new VaultError(problem);
     const note = this.read(target);
     const lines = note.content.split("\n");
     const i = findTask(lines, line, text, note.path);
@@ -1690,7 +1690,7 @@ export class Quire {
    * goes in the column; the default is last.
    */
   addCard(target: string, column: string, text: string, source: string, opts: { board?: number; position?: number } = {}, today = this.day()) {
-    if (!text.trim()) throw new QuireError("A card needs some text");
+    if (!text.trim()) throw new VaultError("A card needs some text");
     const { note, boards } = this.boards(target);
     const at = findColumn(boards, column, note.path, opts.board);
     return this.commitBoard(note, addCard(note.content, at, text, today, (opts.position ?? Infinity) - 1), source);
@@ -1706,7 +1706,7 @@ export class Quire {
 
   /** Change a card's text (its first line, then any lines to nest under it) or tick it. */
   editCard(target: string, card: string, patch: { text?: string; done?: boolean }, source: string, today = this.day()) {
-    if (patch.text !== undefined && !patch.text.trim()) throw new QuireError("A card needs some text");
+    if (patch.text !== undefined && !patch.text.trim()) throw new VaultError("A card needs some text");
     const { note, boards } = this.boards(target);
     const { card: c } = findCard(boards, card, note.path);
     let next = patch.text === undefined ? note.content : editCard(note.content, c.from, patch.text);
@@ -1727,12 +1727,12 @@ export class Quire {
    */
   addTask(input: string, source: string, opts: { today?: string; ignore?: string[]; to?: string } = {}) {
     const today = opts.today ?? this.day();
-    if (!isDate(today)) throw new QuireError(`"today" must be a date like 2026-10-01, not "${today}"`);
+    if (!isDate(today)) throw new VaultError(`"today" must be a date like 2026-10-01, not "${today}"`);
     const q = parseQuickAdd(input, today, opts.ignore);
-    if (!q.words) throw new QuireError("Say what the task is: once its dates and repeats are taken out, there are no words left");
+    if (!q.words) throw new VaultError("Say what the task is: once its dates and repeats are taken out, there are no words left");
     const named = q.target ?? opts.to;
     const rel = named ? this.mustResolve(named) : `Journal/${today}.md`;
-    if (kindOf(rel) !== "md") throw new QuireError(`Tasks go in markdown notes, and ${rel} isn't one`);
+    if (kindOf(rel) !== "md") throw new VaultError(`Tasks go in markdown notes, and ${rel} isn't one`);
     const before = this.files.read(rel);
     // A day with no note yet gets one from the daily template, with the task in its Tasks section.
     const added = withTasksAdded(before ?? this.dailyTemplate(today), [q.line], !named);
@@ -1746,7 +1746,7 @@ export class Quire {
    * more (calendar, reviews, mail) can slot in beside these.
    */
   today(date = this.day()): TodayView {
-    if (!isDate(date)) throw new QuireError(`"today" must be a date like 2026-10-01, not "${date}"`);
+    if (!isDate(date)) throw new VaultError(`"today" must be a date like 2026-10-01, not "${date}"`);
     // Open tasks that could be in a section: due by today, or starting today.
     const open = this.taskRows("t.done = 0 AND (substr(t.due, 1, 10) <= ? OR substr(t.start, 1, 10) = ?)", date, date).map(toTask);
     const into = (id: string) => open.filter((t) => todaySection(t.meta, date) === id);
@@ -1766,7 +1766,7 @@ export class Quire {
 
   /** Today's journal note (`Journal/YYYY-MM-DD.md`), made from the daily template if it's missing. */
   dailyNote(date: string, source: string) {
-    if (!isDate(date)) throw new QuireError(`"today" must be a date like 2026-10-01, not "${date}"`);
+    if (!isDate(date)) throw new VaultError(`"today" must be a date like 2026-10-01, not "${date}"`);
     const rel = `Journal/${date}.md`;
     if (this.files.stat(rel)) return { path: rel, created: false, change: null };
     const r = this.commit(rel, null, this.dailyTemplate(date), source, "create");
@@ -1798,8 +1798,8 @@ export class Quire {
   /** The template `target` names: a note in Templates/ (its name, or its path). */
   private templatePath(target: string): string {
     const rel = this.resolve(target) ?? this.resolve(`${TEMPLATES}/${target}`);
-    if (!rel) throw new QuireError(`No template "${target}". Templates are notes in ${TEMPLATES}/.`, "not_found");
-    if (kindOf(rel) !== "md" || !rel.startsWith(`${TEMPLATES}/`)) throw new QuireError(`${rel} isn't a template: templates are notes in ${TEMPLATES}/`);
+    if (!rel) throw new VaultError(`No template "${target}". Templates are notes in ${TEMPLATES}/.`, "not_found");
+    if (kindOf(rel) !== "md" || !rel.startsWith(`${TEMPLATES}/`)) throw new VaultError(`${rel} isn't a template: templates are notes in ${TEMPLATES}/`);
     return rel;
   }
 
@@ -1838,8 +1838,8 @@ export class Quire {
   moveTask(target: string, line: number, text: string, to: string, source: string) {
     const note = this.read(target);
     const dest = this.mustResolve(to);
-    if (dest === note.path) throw new QuireError(`That task is already in ${dest}`);
-    if (kindOf(dest) !== "md") throw new QuireError(`Tasks go in markdown notes, and ${dest} isn't one`);
+    if (dest === note.path) throw new VaultError(`That task is already in ${dest}`);
+    if (kindOf(dest) !== "md") throw new VaultError(`Tasks go in markdown notes, and ${dest} isn't one`);
     const lines = note.content.split("\n");
     const block = cutTask(lines, findTask(lines, line, text, note.path));
     const there = this.read(dest);
@@ -1864,7 +1864,7 @@ export class Quire {
   skipTask(target: string, line: number, text: string, source: string, today = this.day()) {
     const task = parseTask(`- [ ] ${text}`);
     const patch = task && skipPatch(task.meta, today);
-    if (!patch) throw new QuireError("That task doesn't repeat, so there's nothing to skip");
+    if (!patch) throw new VaultError("That task doesn't repeat, so there's nothing to skip");
     return this.updateTask(target, line, text, patch, source, today);
   }
 
@@ -1875,14 +1875,14 @@ export class Quire {
   uploadPath(name: string, folder = "assets"): string {
     const base = path.posix.basename(name.replace(/\\/g, "/")).replace(/[:*?"<>|#^[\]]/g, "").trim();
     const rel = cleanPath(folder ? `${folder}/${base}` : base);
-    if (kindOf(rel) !== "asset") throw new QuireError(`Can't upload ${base || "that file"}: images, PDFs, audio, video and common documents only`);
+    if (kindOf(rel) !== "asset") throw new VaultError(`Can't upload ${base || "that file"}: images, PDFs, audio, video and common documents only`);
     return this.freePath(rel);
   }
 
   /** The host just wrote a file's bytes to `rel`: index it and log who added it. */
   recordUpload(rel: string, existed: boolean, source: string) {
     const meta = this.indexFile(rel);
-    if (!meta) throw new QuireError(`${rel} isn't there`, "not_found");
+    if (!meta) throw new VaultError(`${rel} isn't there`, "not_found");
     const change = this.recordChange({ path: rel, op: existed ? "edit" : "create", source, version: meta.version, summary: fmtBytes(meta.size), from_path: null });
     return { ...meta, change };
   }
@@ -1890,13 +1890,13 @@ export class Quire {
   /** Archive a note: move it under Archive/ (links keep working: they resolve by name). */
   archive(target: string, source: string) {
     const rel = this.mustResolve(target);
-    if (isArchived(rel)) throw new QuireError(`${rel} is already archived`);
+    if (isArchived(rel)) throw new VaultError(`${rel} is already archived`);
     return this.move(rel, this.freePath(ARCHIVE + rel), source, "archive");
   }
 
   unarchive(target: string, source: string) {
     const rel = this.mustResolve(target);
-    if (!isArchived(rel)) throw new QuireError(`${rel} isn't archived`);
+    if (!isArchived(rel)) throw new VaultError(`${rel} isn't archived`);
     return this.move(rel, this.freePath(rel.slice(ARCHIVE.length)), source, "unarchive");
   }
 
@@ -1923,7 +1923,7 @@ export class Quire {
     this.purgeExpired();
     return rels.map((rel) => {
       const meta = this.meta(rel) ?? this.indexFile(rel);
-      if (!meta) throw new QuireError(`No note matches "${rel}"`, "not_found");
+      if (!meta) throw new VaultError(`No note matches "${rel}"`, "not_found");
       const text = meta.kind === "asset" ? null : (this.files.read(rel) ?? "");
       const summary = meta.kind === "asset" ? fmtBytes(meta.size) : diffstat(text!, "");
       const change = this.recordChange({ path: rel, op: "delete", source, version: null, summary, from_path: null }, text);
@@ -1991,7 +1991,7 @@ export class Quire {
   untrash(ids: string[], source: string) {
     return ids.map((id) => {
       const f = this.trashFile(id);
-      if (!f) throw new QuireError("That's no longer in Trash", "not_found");
+      if (!f) throw new VaultError("That's no longer in Trash", "not_found");
       const noteId = this.db.get("SELECT note_id FROM changes WHERE id = ?", Number(id.split("-")[1]))?.note_id;
       const dest = this.freePath(f.path);
       this.files.rename(f.at, dest);
@@ -2063,12 +2063,12 @@ export class Quire {
     if (!kindOf(dest)) dest += path.posix.extname(from);
     const [extFrom, extTo] = [from, dest].map((p) => path.posix.extname(p).toLowerCase());
     if (kindOf(dest) !== kindOf(from) || (kindOf(from) === "asset" && extFrom !== extTo)) {
-      throw new QuireError(`Moving ${from} can't change its file type from ${extFrom} to ${extTo}`);
+      throw new VaultError(`Moving ${from} can't change its file type from ${extFrom} to ${extTo}`);
     }
     if (dest === from) return { path: dest, from, version: this.meta(from)?.version ?? "", change: null, updated: [] as string[], edits: [] };
     // On a case-insensitive disk, "notes.md" is there when renaming "Notes.md" to it: the same file.
     const caseOnly = dest.toLowerCase() === from.toLowerCase() && !this.meta(dest);
-    if (!caseOnly && this.files.stat(dest)) throw new QuireError(`${dest} already exists`, "exists");
+    if (!caseOnly && this.files.stat(dest)) throw new VaultError(`${dest} already exists`, "exists");
     // Read before it moves: after, a name can lead to another note. Its own links to itself
     // ([[Guide#Setup]] in Guide) move with it.
     const pointing = this.linksTo(from, [from, ...this.backlinks(from).map((b) => b.path)]);
@@ -2160,7 +2160,7 @@ export class Quire {
   /** The note `target` names, if it's a contact (a note in People/). */
   private contactPath(target: string): string {
     const rel = this.mustResolve(target);
-    if (kindOf(rel) !== "md" || !rel.startsWith(`${PEOPLE}/`)) throw new QuireError(`${rel} isn't a contact: contacts are notes in ${PEOPLE}/`);
+    if (kindOf(rel) !== "md" || !rel.startsWith(`${PEOPLE}/`)) throw new VaultError(`${rel} isn't a contact: contacts are notes in ${PEOPLE}/`);
     return rel;
   }
 
@@ -2180,11 +2180,11 @@ export class Quire {
   /** A new contact: `People/<name>.md`, its fields in the frontmatter and `notes` under its title. */
   createContact(input: Partial<ContactFields> & { name: string; notes?: string }, source: string) {
     const name = input.name.trim().replace(/\s+/g, " ");
-    if (!name) throw new QuireError("A contact needs a name");
-    if (/[/\\\x00-\x1f]/.test(name) || name.startsWith(".")) throw new QuireError(`A contact's name can't have / or \\ in it, or start with a dot: "${name}"`);
+    if (!name) throw new VaultError("A contact needs a name");
+    if (/[/\\\x00-\x1f]/.test(name) || name.startsWith(".")) throw new VaultError(`A contact's name can't have / or \\ in it, or start with a dot: "${name}"`);
     const rel = cleanPath(`${PEOPLE}/${name}.md`);
     const taken = this.list(PEOPLE, "all").find((n) => n.path.toLowerCase() === rel.toLowerCase()) ?? (this.files.stat(rel) ? { path: rel } : null);
-    if (taken) throw new QuireError(`${taken.path} already exists`, "exists", { path: taken.path });
+    if (taken) throw new VaultError(`${taken.path} already exists`, "exists", { path: taken.path });
     const fields = { ...emptyContact(name), ...input, name };
     const notes = input.notes?.trim();
     return this.commit(rel, null, contactNote(fields) + (notes ? `\n${notes}\n` : ""), source, "create");
@@ -2205,7 +2205,7 @@ export class Quire {
   mergeContacts(keepTarget: string, dropTarget: string, source: string) {
     const keep = this.contactPath(keepTarget);
     const drop = this.contactPath(dropTarget);
-    if (keep === drop) throw new QuireError("Can't merge a contact with itself");
+    if (keep === drop) throw new VaultError("Can't merge a contact with itself");
     const [keepText, dropText] = [keep, drop].map((p) => this.files.read(p) ?? "");
     const fields = fillContact(contactFromNote(keep, keepText), contactFromNote(drop, dropText));
     const dropName = contactFromNote(drop, dropText).name;
@@ -2229,7 +2229,7 @@ export class Quire {
     try {
       inputs = format === "vcard" ? parseVCards(text) : parseContactsCsv(text);
     } catch (e) {
-      throw new QuireError(e instanceof Error ? e.message : String(e));
+      throw new VaultError(e instanceof Error ? e.message : String(e));
     }
     const known: ContactNote[] = this.contacts();
     const created: string[] = [];
@@ -2291,7 +2291,7 @@ function uniqueTags(tags: string[], strict: boolean): string[] {
   const out: string[] = [];
   for (const raw of tags) {
     const t = cleanTag(raw);
-    if (!t && strict) throw new QuireError(`"${raw}" isn't a tag: use letters, numbers, - and _, nested with /`);
+    if (!t && strict) throw new VaultError(`"${raw}" isn't a tag: use letters, numbers, - and _, nested with /`);
     if (t && !out.some((o) => o.toLowerCase() === t.toLowerCase())) out.push(t);
   }
   return out;
@@ -2308,22 +2308,22 @@ function findCard(boards: Board[], ref: string, path: string) {
   const exact = all.filter((x) => (line ? x.card.from + 1 === Number(line) : x.card.text.toLowerCase() === want));
   const hits = exact.length ? exact : line ? [] : all.filter((x) => x.card.text.toLowerCase().includes(want));
   if (hits.length === 1) return hits[0];
-  if (hits.length) throw new QuireError(`"${ref}" matches ${hits.length} cards in ${path}; name the card by its line number from read_board`);
-  throw new QuireError(`No card in ${path} matches "${ref}"`, "not_found");
+  if (hits.length) throw new VaultError(`"${ref}" matches ${hits.length} cards in ${path}; name the card by its line number from read_board`);
+  throw new VaultError(`No card in ${path} matches "${ref}"`, "not_found");
 }
 
 /** The column `ref` names (its title, any case, or its number from 1) on `board` (from 1), or on whichever board has it. */
 function findColumn(boards: Board[], ref: string, path: string, board?: number): Place {
-  if (!boards.length) throw new QuireError(`${path} has no board. Add one as a :::kanban block.`, "not_found");
-  if (board !== undefined && !boards[board - 1]) throw new QuireError(`${path} has ${boards.length} board${boards.length === 1 ? "" : "s"}, not ${board}`, "not_found");
+  if (!boards.length) throw new VaultError(`${path} has no board. Add one as a :::kanban block.`, "not_found");
+  if (board !== undefined && !boards[board - 1]) throw new VaultError(`${path} has ${boards.length} board${boards.length === 1 ? "" : "s"}, not ${board}`, "not_found");
   const want = ref.trim().toLowerCase();
   const hits = boards.flatMap((b, i) =>
     board !== undefined && i !== board - 1 ? [] : b.columns.flatMap((c, column) => (c.title.toLowerCase() === want || String(column + 1) === want ? [{ board: i, column }] : [])),
   );
   if (hits.length === 1) return hits[0];
-  if (hits.length) throw new QuireError(`${hits.length} boards in ${path} have a column "${ref}"; say which board (from 1)`);
+  if (hits.length) throw new VaultError(`${hits.length} boards in ${path} have a column "${ref}"; say which board (from 1)`);
   const names = boards.flatMap((b) => b.columns.map((c) => c.title)).join(", ");
-  throw new QuireError(`No column "${ref}" on the board${boards.length === 1 ? "" : "s"} in ${path}. Columns: ${names}`, "not_found");
+  throw new VaultError(`No column "${ref}" on the board${boards.length === 1 ? "" : "s"} in ${path}. Columns: ${names}`, "not_found");
 }
 
 function searchTerms(q: string): string[] {
@@ -2382,8 +2382,8 @@ function lineCountStat(before: string, after: string): LineStat {
 /** A label's name, checked: one line, 1 to LABEL_NAME_MAX characters. */
 function labelName(name: string): string {
   const named = name.replace(/\s+/g, " ").trim();
-  if (!named) throw new QuireError("A label needs a name, like \"v1\" or \"Sent to Alex\"");
-  if (named.length > LABEL_NAME_MAX) throw new QuireError(`A label's name is at most ${LABEL_NAME_MAX} characters`);
+  if (!named) throw new VaultError("A label needs a name, like \"v1\" or \"Sent to Alex\"");
+  if (named.length > LABEL_NAME_MAX) throw new VaultError(`A label's name is at most ${LABEL_NAME_MAX} characters`);
   return named;
 }
 

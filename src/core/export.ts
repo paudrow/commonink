@@ -6,10 +6,10 @@
 // this; a host supplies the bytes of uploaded files. No Node or DOM imports: Workers run it.
 import { strToU8, zipSync } from "fflate";
 import { notePath } from "./ids.ts";
-import { cleanPath, isHidden, kindOf, QuireError } from "./paths.ts";
+import { cleanPath, isHidden, kindOf, VaultError } from "./paths.ts";
 import { mapOutsideCode } from "./prose.ts";
 import { safeDecode } from "./uri.ts";
-import type { Quire } from "./quire.ts";
+import type { Vault } from "./vault.ts";
 
 /** The most an export may hold, in bytes before zipping: it's built in memory. */
 export const MAX_EXPORT_BYTES = 100 * 1024 * 1024;
@@ -18,7 +18,7 @@ export const MAX_EXPORT_BYTES = 100 * 1024 * 1024;
 export type ExportWhat = { paths: string[] } | { folder: string } | { all: true };
 
 export interface ExportHost {
-  quire: Quire;
+  vault: Vault;
   /** An uploaded file's bytes, or null if it's gone. */
   bytes(rel: string): Promise<Uint8Array | null>;
   /** Where the app is ("https://commonink.app"), for links to notes left out. */
@@ -80,33 +80,33 @@ export function relink(md: string, from: string, plan: LinkPlan): string {
 }
 
 /** The notes and files an export takes, by path. */
-function pick(quire: Quire, what: ExportWhat): string[] {
-  if ("all" in what) return quire.list(undefined, "all").map((n) => n.path);
+function pick(vault: Vault, what: ExportWhat): string[] {
+  if ("all" in what) return vault.list(undefined, "all").map((n) => n.path);
   if ("folder" in what) {
     const folder = cleanPath(what.folder);
-    const inside = quire.list(folder).map((n) => n.path);
-    if (!inside.length) throw new QuireError(`No folder "${what.folder}" with notes in it`, "not_found");
+    const inside = vault.list(folder).map((n) => n.path);
+    if (!inside.length) throw new VaultError(`No folder "${what.folder}" with notes in it`, "not_found");
     return inside;
   }
   return what.paths.map((p) => {
-    const rel = quire.resolve(p);
-    if (!rel) throw new QuireError(`No note matches "${p}". Try search_notes to find it.`, "not_found");
+    const rel = vault.resolve(p);
+    if (!rel) throw new VaultError(`No note matches "${p}". Try search_notes to find it.`, "not_found");
     return rel;
   });
 }
 
 /** Notes (and their files) as one .zip, folders and all. */
 export async function exportZip(host: ExportHost, what: ExportWhat): Promise<Exported> {
-  const { quire } = host;
-  const paths = [...new Set(pick(quire, what))].filter((p) => !isHidden(p));
-  if (!paths.length) throw new QuireError("Nothing to export");
+  const { vault } = host;
+  const paths = [...new Set(pick(vault, what))].filter((p) => !isHidden(p));
+  if (!paths.length) throw new VaultError("Nothing to export");
   const inZip = new Set(paths.map((p) => p.toLowerCase()));
   const used = new Set<string>();
   const plan: LinkPlan = {
-    resolve: (target, from) => quire.resolve(target, from),
+    resolve: (target, from) => vault.resolve(target, from),
     included: (rel) => inZip.has(rel.toLowerCase()),
     url: (rel) => {
-      const meta = quire.meta(rel);
+      const meta = vault.meta(rel);
       return meta ? `${host.origin}${notePath(meta.title, meta.id)}` : null;
     },
     uses: (rel) => void (inZip.has(rel.toLowerCase()) || used.add(rel)),
@@ -115,13 +115,13 @@ export async function exportZip(host: ExportHost, what: ExportWhat): Promise<Exp
   let total = 0;
   const add = (rel: string, data: Uint8Array) => {
     total += data.byteLength;
-    if (total > MAX_EXPORT_BYTES) throw new QuireError(`That's more than ${MAX_EXPORT_BYTES / 1024 / 1024} MB: export a folder at a time`, "invalid");
+    if (total > MAX_EXPORT_BYTES) throw new VaultError(`That's more than ${MAX_EXPORT_BYTES / 1024 / 1024} MB: export a folder at a time`, "invalid");
     files[rel] = data;
   };
   for (const rel of paths) {
     const kind = kindOf(rel);
     if (kind === "asset") continue;
-    const text = quire.files.read(rel);
+    const text = vault.files.read(rel);
     if (text === null) continue;
     add(rel, strToU8(kind === "md" ? relink(text, rel, plan) : text));
   }
@@ -130,7 +130,7 @@ export async function exportZip(host: ExportHost, what: ExportWhat): Promise<Exp
     if (data) add(rel, data);
   }
   const names = Object.keys(files);
-  if (!names.length) throw new QuireError("Nothing to export");
+  if (!names.length) throw new VaultError("Nothing to export");
   const zip = zipSync(Object.fromEntries(names.map((n) => [n, [files[n], { level: kindOf(n) === "asset" ? 0 : 6 }]])));
   return { name: `${zipName(what, paths, host.name)}.zip`, zip, files: names.sort() };
 }
@@ -153,25 +153,25 @@ export type Exporter = (target: string, format: ExportFormat) => Promise<ExportF
  * where there's a DOM to run it in (locally, under jsdom: server/export.ts); `render` does those.
  */
 export function coreExporter(host: ExportHost, render?: (rel: string, format: "html" | "docx") => Promise<ExportFile>): Exporter {
-  const { quire } = host;
+  const { vault } = host;
   return async (target, format) => {
     const t = target.trim();
-    const rel = t && t !== "/" ? quire.resolve(t) : null;
+    const rel = t && t !== "/" ? vault.resolve(t) : null;
     const note = rel && kindOf(rel) !== "asset" ? rel : null;
     if (format === "zip") {
       const out = await exportZip(host, !t || t === "/" ? { all: true } : note ? { paths: [note] } : { folder: t });
       return { name: out.name, mime: "application/zip", data: out.zip };
     }
-    if (!note) throw new QuireError(`No note matches "${target}". A folder, or "/" for everything, exports as a zip (format "zip").`, "not_found");
+    if (!note) throw new VaultError(`No note matches "${target}". A folder, or "/" for everything, exports as a zip (format "zip").`, "not_found");
     if (format === "md") {
-      if (kindOf(note) !== "md") throw new QuireError(`${note} isn't markdown: export it as "html"`);
-      return { name: note.split("/").pop()!, mime: "text/markdown; charset=utf-8", data: strToU8(quire.read(note).content) };
+      if (kindOf(note) !== "md") throw new VaultError(`${note} isn't markdown: export it as "html"`);
+      return { name: note.split("/").pop()!, mime: "text/markdown; charset=utf-8", data: strToU8(vault.read(note).content) };
     }
     if (kindOf(note) === "html") {
-      if (format !== "html") throw new QuireError(`${note} is an HTML note: export it as "html" (the file itself)`);
-      return { name: note.split("/").pop()!, mime: "text/html; charset=utf-8", data: strToU8(quire.read(note).content) };
+      if (format !== "html") throw new VaultError(`${note} is an HTML note: export it as "html" (the file itself)`);
+      return { name: note.split("/").pop()!, mime: "text/html; charset=utf-8", data: strToU8(vault.read(note).content) };
     }
-    if (!render) throw new QuireError(`A web page and Word are drawn by the app: use Share → Export as, or \`quire export\` on the computer with the notes. Markdown and zip work here.`, "invalid");
+    if (!render) throw new VaultError(`A web page and Word are drawn by the app: use Share → Export as, or \`commonink export\` on the computer with the notes. Markdown and zip work here.`, "invalid");
     return render(note, format);
   };
 }

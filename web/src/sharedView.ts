@@ -81,7 +81,7 @@ export async function mountSharedView(where: Where) {
   /** Links and embeds to notes: followable if shared too; otherwise "No access" (embeds) or plain text (links). */
   async function hydrate(root: HTMLElement) {
     for (const img of root.querySelectorAll("img")) img.addEventListener("error", () => img.replaceWith(noAccess()), { once: true });
-    for (const a of root.querySelectorAll<HTMLAnchorElement>('a[href^="quire:"]')) {
+    for (const a of root.querySelectorAll<HTMLAnchorElement>('a[href^="commonink:"]')) {
       const target = safeDecode(a.getAttribute("href")!.slice(6)).split("#")[0];
       const embed = a.textContent?.startsWith("↳ ");
       const hit = await call<SharedNote | { noAccess: true }>(`${base}/resolve?target=${encodeURIComponent(target)}&from=${note.id}`).catch(() => ({ noAccess: true as const }));

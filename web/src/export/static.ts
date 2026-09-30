@@ -98,7 +98,7 @@ async function build(path: string, md: string, src: StaticSources, opts: StaticO
       const d = widgets[Number(slot.dataset.slot)];
       slot.replaceWith(d ? await snapshot(d, path, src) : el("div"));
     }),
-    ...[...root.querySelectorAll<HTMLAnchorElement>('a[href^="quire:"]')].filter(isEmbed).map((a) => embed(a, path, src, opts, depth, seen)),
+    ...[...root.querySelectorAll<HTMLAnchorElement>('a[href^="commonink:"]')].filter(isEmbed).map((a) => embed(a, path, src, opts, depth, seen)),
   ]);
   if (opts.frontmatter && Object.keys(data).length) root.prepend(properties(data));
   return root;
@@ -142,7 +142,7 @@ async function finish(root: HTMLElement, path: string, src: StaticSources, opts:
       }
       pre.replaceWith(await staticCodeBlock(code, info));
     }),
-    ...[...root.querySelectorAll<HTMLAnchorElement>('a[href^="quire:"]')].map(async (a) => {
+    ...[...root.querySelectorAll<HTMLAnchorElement>('a[href^="commonink:"]')].map(async (a) => {
       const url = await src.url(safeDecode(a.getAttribute("href")!.slice(6)), path).catch(() => null);
       if (url) a.setAttribute("href", url);
       else a.replaceWith(el("span", { class: "st-link" }, ...a.childNodes));
@@ -257,7 +257,7 @@ function inline(md: string, from: string, done = false): HTMLElement {
 }
 
 /** A link to a note by its path, which `finish` points at the note's web address. */
-const noteLink = (path: string, title: string) => el("a", { href: `quire:${encodeURIComponent(path)}` }, title);
+const noteLink = (path: string, title: string) => el("a", { href: `commonink:${encodeURIComponent(path)}` }, title);
 
 const firstLine = (s: string) => s.split("\n").find((l) => l.trim())?.trim().slice(0, 140) ?? "";
 
@@ -283,7 +283,7 @@ function staticBoard(board: Board, from: string): HTMLElement {
 
 // ------------------------------------------------------------------ embeds, links and cards
 
-/** Rendered markdown writes `![[x]]` as a "↳ x" link to `quire:x` (see render.ts). */
+/** Rendered markdown writes `![[x]]` as a "↳ x" link to `commonink:x` (see render.ts). */
 const isEmbed = (a: HTMLAnchorElement) => !!a.textContent?.startsWith("↳ ");
 
 /** An embedded note drawn in place (to MAX_DEPTH, and never inside itself); any other embed as a card. */

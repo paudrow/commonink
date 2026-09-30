@@ -1,4 +1,4 @@
-// Hosted workspaces from the CLI: `quire login` (browser OAuth with PKCE and a loopback redirect,
+// Hosted workspaces from the CLI: `commonink login` (browser OAuth with PKCE and a loopback redirect,
 // the same flow remote MCP uses), the credentials it keeps, and running a command in a workspace
 // over HTTP. The Worker runs the command with the same table and core as a local vault.
 import { spawn } from "node:child_process";
@@ -37,12 +37,12 @@ export interface Credentials {
   expiresAt: number;
   /** Who signed in, as the server knows them. */
   user?: string;
-  /** Where commands go when they don't say (quire workspaces use). */
+  /** Where commands go when they don't say (commonink workspaces use). */
   workspace?: string;
 }
 
-/** ~/.config/quire, or $XDG_CONFIG_HOME/quire, or $QUIRE_CONFIG_DIR. */
-export const configDir = () => process.env.QUIRE_CONFIG_DIR ?? path.join(process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), ".config"), "quire");
+/** ~/.config/commonink, or $XDG_CONFIG_HOME/commonink, or $COMMONINK_CONFIG_DIR. */
+export const configDir = () => process.env.COMMONINK_CONFIG_DIR ?? path.join(process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), ".config"), "commonink");
 const credentialsFile = () => path.join(configDir(), "credentials.json");
 
 export function loadCredentials(): Credentials | null {
@@ -109,7 +109,7 @@ export async function login(server: string, opts: { browser: boolean; say(line: 
     const reg = await call(meta.registration_endpoint, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ client_name: "quire CLI", redirect_uris: [redirect], token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"], scope: SCOPE }),
+      body: JSON.stringify({ client_name: "commonink CLI", redirect_uris: [redirect], token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"], scope: SCOPE }),
     });
     if (!reg.ok) throw new CliError(`Couldn't register the CLI with ${server} (${reg.status}): ${await reg.text()}`, "unavailable", EXIT.unavailable);
     const clientId = ((await reg.json()) as { client_id: string }).client_id;
@@ -128,7 +128,7 @@ export async function login(server: string, opts: { browser: boolean; say(line: 
     if (opts.browser) openBrowser(url);
     const landed = await Promise.race([callback(listener), pasted(opts)]);
     const back = new URL(landed, redirect);
-    if (back.searchParams.get("state") !== state) throw new CliError("The sign-in came back for a different request. Run quire login again.", "auth", EXIT.auth);
+    if (back.searchParams.get("state") !== state) throw new CliError("The sign-in came back for a different request. Run commonink login again.", "auth", EXIT.auth);
     const code = back.searchParams.get("code");
     if (!code) throw new CliError(`Sign-in didn't finish: ${back.searchParams.get("error_description") ?? back.searchParams.get("error") ?? "no code"}`, "auth", EXIT.auth);
     const res = await call(meta.token_endpoint, form({ grant_type: "authorization_code", code, redirect_uri: redirect, client_id: clientId, code_verifier: verifier }));
@@ -182,7 +182,7 @@ async function fresh(c: Credentials, force = false): Promise<Credentials> {
   if (!force && c.expiresAt > Date.now() + 60_000) return c;
   const meta = await discover(c.server);
   const res = await call(meta.token_endpoint, form({ grant_type: "refresh_token", refresh_token: c.refreshToken, client_id: c.clientId }));
-  if (!res.ok) throw new CliError(`Your sign-in to ${c.server} has ended. Run quire login.`, "auth", EXIT.auth);
+  if (!res.ok) throw new CliError(`Your sign-in to ${c.server} has ended. Run commonink login.`, "auth", EXIT.auth);
   const next = tokens(c, await res.json());
   saveCredentials(next);
   return next;
@@ -197,7 +197,7 @@ async function authed(c: Credentials, p: string, init: RequestInit = {}): Promis
     creds = await fresh(creds, true);
     res = await go();
   }
-  if (res.status === 401) throw new CliError(`Your sign-in to ${c.server} isn't accepted any more. Run quire login.`, "auth", EXIT.auth);
+  if (res.status === 401) throw new CliError(`Your sign-in to ${c.server} isn't accepted any more. Run commonink login.`, "auth", EXIT.auth);
   return res;
 }
 

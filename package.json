@@ -1,5 +1,5 @@
 {
-  "name": "quire",
+  "name": "commonink",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "node --disable-warning=ExperimentalWarning --import tsx src/server/main.ts",
-    "mcp": "bin/quire mcp",
+    "mcp": "bin/commonink mcp",
     "agent-demo": "node --disable-warning=ExperimentalWarning --import tsx scripts/agent-demo.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --disable-warning=ExperimentalWarning --import tsx --test \"test/**/*.test.ts\"",

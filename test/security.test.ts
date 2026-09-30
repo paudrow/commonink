@@ -12,7 +12,7 @@ import { editTask, withTasksAdded } from "../src/core/tasks.ts";
 import { boardsIn } from "../src/core/kanban.ts";
 import { capHtmlDepth, clip, tameMarkdown } from "../src/core/depth.ts";
 import { parseQuickAdd } from "../src/core/quickAdd.ts";
-import { diffstat } from "../src/core/quire.ts";
+import { diffstat } from "../src/core/vault.ts";
 import { cpuMs, openTempVault } from "./helpers.ts";
 
 test("headings keep their words and lose their closing #s", () => {
@@ -25,9 +25,9 @@ test("headings keep their words and lose their closing #s", () => {
 
 /** The Tasks view's headings for a note's tasks. */
 function tasksUnder(md: string) {
-  const { quire } = openTempVault();
-  quire.create("Hostile.md", md, "you");
-  return quire.tasks({ note: "Hostile" }).map((t) => t.heading);
+  const { vault } = openTempVault();
+  vault.create("Hostile.md", md, "you");
+  return vault.tasks({ note: "Hostile" }).map((t) => t.heading);
 }
 
 /**
@@ -73,53 +73,53 @@ test("a rewrite too big to diff still gets its line counts", () => {
 });
 
 test("no write can leave a note over the size limit, however it's made", () => {
-  const { quire } = openTempVault(undefined, { maxNoteBytes: 1000 });
-  assert.throws(() => quire.create("Big.md", "x".repeat(1001), "you"), /Big\.md would be over 0 MB, the most a note can hold/);
-  quire.create("Small.md", "ab ".repeat(100), "you");
+  const { vault } = openTempVault(undefined, { maxNoteBytes: 1000 });
+  assert.throws(() => vault.create("Big.md", "x".repeat(1001), "you"), /Big\.md would be over 0 MB, the most a note can hold/);
+  vault.create("Small.md", "ab ".repeat(100), "you");
   // 50 bytes of arguments that would multiply the note 200 times over.
-  assert.throws(() => quire.edit("Small.md", { oldString: "ab", newString: "ab".repeat(20), replaceAll: true }, "agent"), /would be over/);
-  assert.equal(quire.read("Small.md").content, "ab ".repeat(100));
+  assert.throws(() => vault.edit("Small.md", { oldString: "ab", newString: "ab".repeat(20), replaceAll: true }, "agent"), /would be over/);
+  assert.equal(vault.read("Small.md").content, "ab ".repeat(100));
 });
 
 test("one request for diffs can't ask for unbounded text", () => {
-  const { quire } = openTempVault();
+  const { vault } = openTempVault();
   const mb = "x".repeat(1024 * 1024);
-  quire.create("Log.md", mb, "you");
-  for (let i = 0; i < 24; i++) quire.save("Log.md", i % 2 ? mb : `${mb}y`, { source: i % 2 ? "you" : "agent" });
+  vault.create("Log.md", mb, "you");
+  for (let i = 0; i < 24; i++) vault.save("Log.md", i % 2 ? mb : `${mb}y`, { source: i % 2 ? "you" : "agent" });
   // Every other change, so each is a run of its own (with its full before and after text).
-  const ids = quire.changes({ path: "Log.md", limit: 50 }).map((c) => c.id).filter((_, i) => i % 2 === 0);
-  const runs = quire.diffSet(ids).flatMap((f) => f.runs);
+  const ids = vault.changes({ path: "Log.md", limit: 50 }).map((c) => c.id).filter((_, i) => i % 2 === 0);
+  const runs = vault.diffSet(ids).flatMap((f) => f.runs);
   const text = runs.reduce((n, r) => n + (r.before?.length ?? 0) + (r.after?.length ?? 0), 0);
   assert.equal(runs.length, 13);
   assert.ok(text <= 18 * 1024 * 1024, `${text} bytes of text`);
   assert.equal(runs.at(-1)!.before, null, "the oldest runs come without their text");
   // Net stats for many sets share one budget: once it's spent, the rest come back unknown.
-  const stats = quire.diffStats(Array.from({ length: 50 }, () => ids.slice(0, 2)));
+  const stats = vault.diffStats(Array.from({ length: 50 }, () => ids.slice(0, 2)));
   assert.deepEqual([stats[0], stats.at(-1)], [{ add: 2, del: 2 }, null]);
 });
 
 test("a symlink in the vault doesn't lead reads, writes or listings outside it", () => {
-  const { dir, quire } = openTempVault();
-  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "quire-outside-"));
+  const { dir, vault } = openTempVault();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "commonink-outside-"));
   fs.writeFileSync(path.join(outside, "secret.md"), "# Secret\n");
   fs.symlinkSync(outside, path.join(dir, "linkdir"));
   fs.symlinkSync(path.join(outside, "secret.md"), path.join(dir, "linked.md"));
-  quire.sync();
-  assert.deepEqual(quire.list(undefined, "all").map((n) => n.path).filter((p) => p.includes("link")), []);
-  assert.throws(() => quire.read("linkdir/secret.md"), /No note matches/);
-  assert.equal(quire.files.read("linked.md"), null);
-  assert.throws(() => quire.create("linkdir/pwned.md", "x", "agent"), /leads outside the vault/);
+  vault.sync();
+  assert.deepEqual(vault.list(undefined, "all").map((n) => n.path).filter((p) => p.includes("link")), []);
+  assert.throws(() => vault.read("linkdir/secret.md"), /No note matches/);
+  assert.equal(vault.files.read("linked.md"), null);
+  assert.throws(() => vault.create("linkdir/pwned.md", "x", "agent"), /leads outside the vault/);
   assert.deepEqual(fs.readdirSync(outside), ["secret.md"]);
   fs.rmSync(outside, { recursive: true, force: true });
 });
 
 test("a link that isn't valid percent-encoding can't take the vault down", () => {
-  const { dir, quire } = openTempVault();
-  quire.create("Progress.md", "# Progress\n\n[done](100%) and [x](%zz) and [[Welcome]]\n", "you");
-  assert.deepEqual(quire.backlinks("Welcome.md").map((b) => b.path), ["Progress.md"]);
-  quire.move("Welcome.md", "Hello.md", "you");
-  assert.equal(quire.read("Progress.md").content, "# Progress\n\n[done](100%) and [x](%zz) and [[Hello]]\n");
-  assert.equal(quire.resolve("/notes/progress-%zz"), null);
+  const { dir, vault } = openTempVault();
+  vault.create("Progress.md", "# Progress\n\n[done](100%) and [x](%zz) and [[Welcome]]\n", "you");
+  assert.deepEqual(vault.backlinks("Welcome.md").map((b) => b.path), ["Progress.md"]);
+  vault.move("Welcome.md", "Hello.md", "you");
+  assert.equal(vault.read("Progress.md").content, "# Progress\n\n[done](100%) and [x](%zz) and [[Hello]]\n");
+  assert.equal(vault.resolve("/notes/progress-%zz"), null);
   const again = openVault(dir); // the index is rebuilt from disk on open
   assert.equal(again.read("Progress").path, "Progress.md");
 });
