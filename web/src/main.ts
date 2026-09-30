@@ -4,10 +4,12 @@ import "./mobile.css";
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, type EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
-import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, unusedTag, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type Scope, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
+import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, unusedTag, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
 import { cleanTag, normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
+import { setShareState, setShareWithPeople, SHARE_KEYS, toggleShareMenu, type ShareNote } from "./share.ts";
+import type { Label } from "./api.ts";
 import { hideBanner, showBanner } from "./banner.ts";
 import { showConflict as conflictBanner } from "./conflict.ts";
 import { createState, lineNumbersFor, lineNumbersSlot, openLinkToSide, remote, setVimDisplayLines, vimSlot } from "./editor/setup.ts";
@@ -19,16 +21,20 @@ import { clearFlash, flashChanges } from "./editor/agentFlash.ts";
 import { editsBetween, merge3 } from "./merge.ts";
 import { sandboxFrame } from "./render.ts";
 import { Palette } from "./palette.ts";
-import { NotesPage } from "./notesPage.ts";
+import { NotesPage, type NotesTab } from "./notesPage.ts";
 import { folderPicker } from "./folderPicker.ts";
 import type { History } from "./history.ts";
 import type { Assets } from "./assets.ts";
 import { renderTasksPage } from "./tasksView.ts";
+import { askFor, askName, pickTemplate, templatePeople } from "./templatePicker.ts";
+import { localNow, type TemplateInfo } from "../../src/core/templates.ts";
 import { openQuickAdd, QUICK_ADD } from "./quickAdd.ts";
 import { formatKeys, learnLayout, matchKeys } from "./keys.ts";
 import { navArrows, type Dir, type NavArrows } from "./navArrows.ts";
+import { cleanName, fixedName, nameFromHeading, nameLine, renamedPath } from "./noteName.ts";
 import { taskInputPrefs } from "./taskInput.ts";
 import type { TagsPage } from "./tagsPage.ts";
+import type { Theme } from "./settings.ts";
 import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./account.ts";
 import { appCommands } from "./commands.ts";
 import { toggleShortcuts } from "./shortcuts.ts";
@@ -75,6 +81,10 @@ interface Session {
   edited: boolean;
   /** The last save didn't reach the server (offline, or it failed): it's tried again until it does. */
   failed: boolean;
+  /** The words of the heading that names it (see noteName.ts), as last seen; null without one. */
+  heading: string | null;
+  /** You changed that heading here, so the file is renamed to match (see retitle). An agent changing it on disk doesn't. */
+  retitle: boolean;
   /** The pane it's open in. */
   pane: Pane;
 }
@@ -164,6 +174,8 @@ const notesPage = new NotesPage({
     void refreshNotes();
   },
   newNote: () => void newNote(),
+  goTab: (tab) => void showNotes({ tab }),
+  trash: () => (viewer ? null : (trashPage ??= new TrashPage({ ...deleteHooks, canPurge: () => owner, open: (path) => fromPage(path) }))),
 });
 /** What deleting (and restoring from Trash) needs: a toast, and everything that lists notes brought up to date. */
 const deleteHooks: DeleteHooks = {
@@ -182,6 +194,7 @@ let capturePage: CapturePage | null = null;
 let historyPage: History | null = null;
 let assetsPage: Assets | null = null;
 let tagsPage: TagsPage | null = null;
+let contactsPage: import("./contactsPage.ts").ContactsPage | null = null;
 let calendarPage: CalendarPage | null = null;
 const once = <T>(load: () => Promise<T>) => {
   let loading: Promise<T> | null = null;
@@ -192,6 +205,7 @@ const loadHistory = once(async () =>
     open: (path) => fromPage(path),
     toast: (t) => toast(t),
     newNote: viewer ? undefined : () => void newNote(),
+    readOnly: viewer,
   })),
 );
 const loadAssets = once(async () =>
@@ -204,6 +218,17 @@ const loadAssets = once(async () =>
     embedName: (path) => embedName(path),
     tags: () => tags,
     refreshTags: () => refreshNotes(),
+    toast: (t) => toast(t),
+  })),
+);
+const loadContacts = once(async () =>
+  (contactsPage = new (await import("./contactsPage.ts")).ContactsPage($("#contacts-view"), {
+    open: (path, line, side) => fromPage(path, line, side),
+    openTag: (tag) => openTag(tag, "tasks"),
+    openPerson: (assignee) => void showTasks({ assignee }),
+    // A contact's page is drawn already: just the address bar and title. Back to the list shows it.
+    navigate: (c) => (c ? (setUrl(`/contacts?c=${c.id}`), (document.title = `${c.name} · Contacts · Common Ink`)) : void showContacts()),
+    canEdit: () => !viewer,
     toast: (t) => toast(t),
   })),
 );
@@ -261,16 +286,21 @@ function commands() {
     folds: s?.kind === "md" ? foldCount(active.view.state) : 0,
     account,
     newNote: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
+    newFromTemplate: () => void newFromTemplate(undefined, onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
     newBoard: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : "", `\n${NEW_BOARD}\n`),
     newFolder: startNewFolder,
     newTag: startNewTag,
     go: (page) => {
-      if (page === "notes" || page === "archive") void showNotes({ scope: page === "notes" ? "active" : "archived", query: {} });
-      else void { tasks: showTasks, calendar: showCalendar, tags: showTags, assets: showAssets, history: showHistory, trash: showTrash, shared: showShared }[page]();
+      if (page === "notes" || page === "archive" || page === "trash") void showNotes({ tab: page, query: {} });
+      else void { tasks: showTasks, calendar: showCalendar, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory, shared: showShared }[page]();
     },
     subscribeCalendar: () => void subscribeCalendar(),
     refreshCalendars: () => void refreshCalendars(),
     connectGoogle: () => leave.to(connectUrl()),
+    newEvent: async () => {
+      await showCalendar();
+      calendarPage?.newEvent();
+    },
     filterNotes: () => void showNotes({ filter: true }),
     quickAdd,
     toggleTheme,
@@ -284,14 +314,23 @@ function commands() {
     star: () => s && void toggleStar(s.path),
     archive: () => void archiveCurrent(),
     delete: () => void deleteCurrent(),
-    share: () => active.session && openShare({ path: active.session.path }),
+    shareWithPeople: () => active.session && openShareDialog({ path: active.session.path }),
     move: () => openMovePicker($("#move-btn")),
+    rename: () => void renameNote(),
     noteHistory: () => s && void showHistory({ note: s.path }),
+    labelVersion: () => void labelCurrent(),
+    noteLabels: () => s && void showHistory({ note: s.path }),
     gettingStarted: async () => {
       const start = (await api.feed({ tag: "start", limit: 1 }).catch(() => null))?.items[0];
       if (start) void openNote(start.path);
     },
     shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
+    share: openShare,
+    copyLink: () => void copyLink(),
+    exportAs: (how) => void exportNote(how),
+    exportWorkspace: () => void exportZip({ all: true }),
+    settings: openSettings,
+    connectAgent,
     back: () => void stepPane(active, "back"),
     forward: () => void stepPane(active, "forward"),
     followLink: () => followLinkAtCursor(),
@@ -346,7 +385,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   }
   const ticket = ++pane.opens;
   await flushSave(pane);
-  if (pane.session) await nameUntitled(pane.session);
+  if (pane.session) await retitle(pane.session);
   keepPlace(pane);
   const meta = notes.find((n) => n.path === path);
   if (meta?.kind === "asset") return showAssets({ open: meta.path, push: opts.push });
@@ -373,6 +412,8 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
     failed: false,
     timer: 0,
     edited: false,
+    heading: null,
+    retitle: false,
     pane,
   };
   // Build the editor before switching sessions: if this throws, the old note stays open and
@@ -406,6 +447,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
     console.error(e);
     return showBanner(`Couldn't open ${note.path} in the editor. Reload the page to try again.`);
   }
+  if (note.kind === "md") next.heading = nameLine(pane.view.state.doc).text;
   pane.session = next;
   pane.trail = opts.trail === false ? { ...pane.trail, note: note.id } : visit(pane.trail, note.id);
   resetVimJumps();
@@ -532,11 +574,10 @@ function navState(p: Pane) {
 const topArrows = navArrows((dir, steps) => stepPane(active, dir, steps));
 const paneArrows: NavArrows[] = [];
 
-/** The bars over the panes while split: back and forward, the note's name, star, close. The top bar's arrows follow the focused pane. */
+/** The bars over the panes while split: back and forward, star, close. The top bar's arrows follow the focused pane. */
 function renderPaneBars() {
   topArrows.update(navState(active));
   if (!split) return;
-  const page = onPage();
   for (const p of panes) {
     const s = p.session;
     const btn = (ico: string, title: string, run: () => void, cls = "", disabled = false) =>
@@ -547,7 +588,6 @@ function renderPaneBars() {
     const focused = arrows.el.contains(document.activeElement) ? (document.activeElement as HTMLElement) : null;
     p.bar.replaceChildren(
       arrows.el,
-      el("span", { class: "pane-title" }, s ? s.title : p.index === 0 && page ? PAGE_LABEL[page] : ""),
       el("span", { class: "spacer" }),
       ...(s && s.kind !== "asset" ? [btn(starred ? "starred" : "star", starred ? "Unstar" : "Star", () => void toggleStar(s.path), starred ? "is-on" : "")] : []),
       btn("close", `Close this pane (${formatKeys("Mod-Alt-\\")})`, () => void closePane(p)),
@@ -612,7 +652,7 @@ function setUrl(url: string, how: "push" | "replace" = "push") {
 
 let unmountTasks: (() => void) | null = null;
 
-function showStage(which: "editor" | "html" | "notes" | "tasks" | "calendar" | "history" | "assets" | "tags" | "trash" | "shared" | "capture") {
+function showStage(which: "editor" | "html" | "notes" | "tasks" | "calendar" | "contacts" | "history" | "assets" | "tags" | "shared" | "capture") {
   closeDrawer();
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
@@ -622,7 +662,7 @@ function showStage(which: "editor" | "html" | "notes" | "tasks" | "calendar" | "
   $("#calendar-view").hidden = which !== "calendar";
   $("#history-view").hidden = which !== "history";
   $("#tags-view").hidden = which !== "tags";
-  $("#trash-view").hidden = which !== "trash";
+  $("#contacts-view").hidden = which !== "contacts";
   $("#shared-view").hidden = which !== "shared";
   $("#capture-view").hidden = which !== "capture";
   if (which !== "tasks") {
@@ -647,7 +687,7 @@ async function leaveNote() {
   const main = panes[0];
   main.opens++; // a note still loading into it doesn't come back over the page
   await flushSave(main);
-  if (main.session) await nameUntitled(main.session);
+  if (main.session) await retitle(main.session);
   keepPlace(main);
   main.session = null;
   active = main;
@@ -658,13 +698,18 @@ async function leaveNote() {
   $("#backlinks").replaceChildren(el("div", { class: "panel-empty" }, "—"));
 }
 
-/** Notes is home: every note, newest first. No note is open while it's showing. */
-async function showNotes(opts: { scope?: Scope; filter?: boolean; folder?: string; tag?: string; query?: NoteQuery; push?: boolean } = {}) {
+/**
+ * Notes is home: every note, newest first. Its tabs, Archive and Trash, are where notes go when
+ * they're put away or deleted. No note is open while it's showing.
+ */
+async function showNotes(opts: { tab?: NotesTab; filter?: boolean; folder?: string; tag?: string; query?: NoteQuery; push?: boolean } = {}) {
   await leaveNote();
   showStage("notes");
   notesPage.show(opts);
-  if (opts.push !== false) wentTo("/notes");
-  document.title = "Notes · Common Ink";
+  const tab = notesPage.tab; // a viewer asking for Trash gets Notes
+  if (opts.push !== false) wentTo(`/${tab}`);
+  else if (tab !== opts.tab && opts.tab) setUrl(`/${tab}`, "replace");
+  document.title = `${PAGE_LABEL[tab]} · Common Ink`;
   renderChrome();
   renderTree();
   renderOutline();
@@ -676,7 +721,7 @@ async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean
   // Today's events open on the Calendar page (/calendar/<id>); everything else is a note.
   const open = (path: string, line?: number, side?: boolean) =>
     void (calendarTarget(path) !== null ? openTarget(path) : openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }));
-  unmountTasks = renderTasksPage($("#tasks-view"), { open, tags: () => tags }, { tag: opts.tag, assignee: opts.assignee });
+  unmountTasks = renderTasksPage($("#tasks-view"), { open, tags: () => tags, me: workspaceId ? "Tasks with your @name" : "Tasks with @me" }, { tag: opts.tag, assignee: opts.assignee });
   $("#tasks-view").focus({ preventScroll: true });
   if (opts.push !== false) wentTo("/tasks");
   document.title = "Tasks · Common Ink";
@@ -738,16 +783,31 @@ async function refreshCalendars() {
 }
 
 /** History, optionally for one note, with a change selected (e.g. from the activity list). */
-async function showHistory(opts: { note?: string | null; select?: number; push?: boolean } = {}) {
+async function showHistory(opts: { note?: string | null; select?: number; label?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("history");
-  await (await loadHistory()).show({ note: opts.note ?? null, select: opts.select });
+  await (await loadHistory()).show({ note: opts.note ?? null, select: opts.select, label: opts.label });
   const id = opts.note ? notes.find((n) => n.path === opts.note)?.id : undefined;
   if (opts.push !== false) wentTo(id ? `/history?note=${id}` : "/history");
   document.title = `${opts.note ? `${displayName(opts.note)} · ` : ""}History · Common Ink`;
   renderChrome();
   renderTree();
   renderOutline();
+}
+
+// ------------------------------------------------------------------ labels (labels.ts)
+
+/** A label, in its note's History: compared with now, ready to restore. */
+const showLabel = (m: Label) => void showHistory({ note: m.path, label: m.id });
+
+/** Label the focused note's version as it is now: saved first, so the label is what's on screen. */
+async function labelCurrent(name?: string) {
+  const s = active.session;
+  if (!s || s.kind === "asset" || viewer) return;
+  await flushSave();
+  if (!name) return void (await import("./labels.ts")).labelVersion(s.path, { toast, show: showLabel });
+  const label = await api.label(s.path, name).catch((e: Error) => (toast({ text: e.message }), null));
+  if (label) toast({ icon: "label", text: `Labeled this version “${label.name}”`, actionLabel: "Show", action: () => showLabel(label) });
 }
 
 async function showTags(opts: { push?: boolean } = {}) {
@@ -762,25 +822,24 @@ async function showTags(opts: { push?: boolean } = {}) {
   renderOutline();
 }
 
-/** Show what carries a tag (and the tags under it): its notes, or its tasks. */
-function openTag(tag: string, where: "notes" | "tasks" = "notes") {
-  if (where === "tasks") void showTasks({ tag });
-  else void showNotes({ scope: "active", query: { tag } });
-}
-
-/** Trash: what's been deleted, to restore (or, for owners and locally, to delete for good). */
-async function showTrash(opts: { push?: boolean } = {}) {
-  if (viewer) return showNotes({ push: opts.push }); // viewers have no Trash
+/** Contacts: the people in the notes, or one person's page (`contact`: its note ID). */
+async function showContacts(opts: { contact?: string | null; push?: boolean } = {}) {
   await leaveNote();
-  showStage("trash");
-  trashPage ??= new TrashPage({ ...deleteHooks, canPurge: () => owner, open: (path) => fromPage(path) });
-  const loading = trashPage.show(); // the page and its chrome show at once; the list fills in
-  if (opts.push !== false) setUrl("/trash");
-  document.title = "Trash · Common Ink";
+  showStage("contacts");
+  const page = await loadContacts();
+  await page.show(opts.contact ?? null);
+  const name = opts.contact ? notes.find((n) => n.id === opts.contact)?.title : undefined;
+  if (opts.push !== false) setUrl(name ? `/contacts?c=${opts.contact}` : "/contacts");
+  document.title = `${name ? `${name} · ` : ""}Contacts · Common Ink`;
   renderChrome();
   renderTree();
   renderOutline();
-  await loading;
+}
+
+/** Show what carries a tag (and the tags under it): its notes, or its tasks. */
+function openTag(tag: string, where: "notes" | "tasks" = "notes") {
+  if (where === "tasks") void showTasks({ tag });
+  else void showNotes({ tab: "notes", query: { tag } });
 }
 
 // ------------------------------------------------------------------ sharing (online)
@@ -797,8 +856,8 @@ async function refreshShares() {
   notesPage.refreshSoon();
 }
 
-/** The share dialog for a note or folder. */
-function openShare(target: { path: string } | { folder: string }) {
+/** The share dialog for a note or folder: who it's shared with outside the workspace, and by link. */
+function openShareDialog(target: { path: string } | { folder: string }) {
   void showShareDialog(target, {
     canShare: !viewer,
     toast: (t) => toast(t),
@@ -919,16 +978,17 @@ function pickFiles(): Promise<File[]> {
   });
 }
 
-const PAGE_LABEL = { notes: "Notes", tasks: "Tasks", calendar: "Calendar", history: "History", assets: "Assets", tags: "Tags", trash: "Trash", shared: "Shared with me", capture: "Capture" } as const;
+const PAGE_LABEL = { notes: "Notes", archive: "Archive", trash: "Trash", tasks: "Tasks", calendar: "Calendar", contacts: "Contacts", history: "History", assets: "Assets", tags: "Tags", shared: "Shared with me", capture: "Capture" } as const;
 
+/** The page showing (the Notes page by its tab), or null while a note is. */
 const onPage = () =>
-  notesPage.visible ? "notes"
+  notesPage.visible ? notesPage.tab
   : !$("#tasks-view").hidden ? "tasks"
   : calendarPage?.visible ? "calendar"
+  : contactsPage?.visible ? "contacts"
   : historyPage?.visible ? "history"
   : assetsPage?.visible ? "assets"
   : tagsPage?.visible ? "tags"
-  : !$("#trash-view").hidden ? "trash"
   : !$("#shared-view").hidden ? "shared"
   : !$("#capture-view").hidden ? "capture"
   : null;
@@ -996,6 +1056,58 @@ async function archiveCurrent() {
 }
 
 /** Delete the open note (to Trash, with Undo) and go back to Notes. */
+// ------------------------------------------------------------------ share, print and export (share.ts, export/)
+
+/** The focused pane's note, for the Share menu: its link, and its content as it is now. */
+function shareNote(): ShareNote | null {
+  const s = active.session;
+  if (!s || s.kind === "asset") return null;
+  const view = active.view;
+  return { path: s.path, title: s.title, kind: s.kind, url: `${location.origin}${notePath(s.title, s.id)}`, content: () => view.state.doc.toString() };
+}
+
+/** The Share menu, under the Share button (or under More, where a phone keeps the button). */
+function openShare() {
+  const note = shareNote();
+  if (!note) return;
+  const button = $("#share-btn");
+  const anchor = button.offsetParent ? button : (document.querySelector<HTMLElement>("#more-btn") ?? button);
+  toggleShareMenu(anchor, note, (text) => toast({ text }));
+}
+
+async function copyLink() {
+  const note = shareNote();
+  if (!note) return;
+  await navigator.clipboard.writeText(note.url);
+  toast({ icon: "link", text: "Link copied" });
+}
+
+/** Notes as a .zip: a folder, some notes, or everything. */
+async function exportZip(what: { paths?: string[]; folder?: string; all?: boolean }) {
+  toast({ icon: "download", text: "Making the .zip…" });
+  try {
+    const name = await (await import("./export/files.ts")).exportZip(what);
+    toast({ icon: "check", text: `Exported ${name}` });
+  } catch (e) {
+    toast({ text: `Couldn't export: ${e instanceof Error ? e.message : String(e)}` });
+  }
+}
+
+/** Print the note, or export it: the same as the Share menu's items. */
+async function exportNote(how: "print" | "pdf" | "md" | "html" | "docx") {
+  const note = shareNote();
+  if (!note || note.kind !== "md") return;
+  const printable = { path: note.path, title: note.title, content: note.content() };
+  try {
+    if (how === "print" || how === "pdf") await (await import("./export/print.ts")).print(printable, { pdf: how === "pdf" });
+    else if (how === "md") toast({ icon: "check", text: `Exported ${await (await import("./export/files.ts")).exportMarkdown(printable)}` });
+    else if (how === "docx") await (await import("./export/files.ts")).exportDocx(printable);
+    else await (await import("./export/files.ts")).exportHtml(printable);
+  } catch (e) {
+    toast({ text: `Couldn't export: ${e instanceof Error ? e.message : String(e)}` });
+  }
+}
+
 async function deleteCurrent() {
   const s = active.session;
   if (!s || viewer) return;
@@ -1035,8 +1147,44 @@ async function createNote(name: string) {
   }
 }
 
-/** New note button: create "Untitled" right away (in `folder`, if given, with `body` under the title) and put the cursor in its title. */
+/**
+ * A new note from a template: pick one (unless given), answer its questions, and open the note with
+ * the cursor at its {{cursor}}. It goes in the template's folder, else `folder`.
+ */
+async function newFromTemplate(template?: TemplateInfo, folder = "") {
+  let t = template;
+  if (!t) {
+    const list = await api.templates().catch(() => []);
+    t = (await pickTemplate(list, "New note from template")) ?? undefined;
+  }
+  if (!t) return;
+  const asked = await askFor(t, { title: true, people: await templatePeople(t) });
+  if (!asked) return;
+  const clipboard = t.clipboard ? await navigator.clipboard?.readText().catch(() => undefined) : undefined;
+  try {
+    const r = await api.fromTemplate(t.path, { at: localNow(), title: asked.title, answers: asked.answers, picks: asked.picks, clipboard, folder: t.folder ? undefined : folder || undefined });
+    await refreshNotes();
+    await openNote(r.path);
+    const at = Math.min(r.cursor ?? active.view.state.doc.length, active.view.state.doc.length);
+    active.view.dispatch({ selection: { anchor: at }, scrollIntoView: true });
+    active.view.focus();
+    const cm = getCM(active.view);
+    if (cm && prefs.vim) Vim.handleKey(cm, "i", "user");
+    if (r.unfilled.length) toast({ icon: "file", text: `Still to fill in: ${r.unfilled.map((u) => `{{${u}}}`).join(", ")}` });
+  } catch (e) {
+    toast({ text: e instanceof ApiError ? e.message : `Couldn't make a note from ${t.name}` });
+  }
+}
+
+/**
+ * New note button: in a folder with a default template (its applies_to), that template; else
+ * "Untitled" (in `folder`, if given, with `body` under the title), cursor in its title.
+ */
 async function newNote(folder = "", body = "") {
+  if (folder && !body) {
+    const def = (await api.templates().catch(() => [])).find((t) => t.appliesTo.some((a) => folder === a || folder.startsWith(`${a}/`)));
+    if (def) return newFromTemplate(def, folder);
+  }
   const dir = folder ? `${folder}/` : "";
   const taken = new Set(notes.map((n) => n.path.toLowerCase()));
   let name = "Untitled";
@@ -1054,36 +1202,91 @@ async function newNote(folder = "", body = "") {
   }
 }
 
-const UNTITLED = /^Untitled( \d+)?$/;
+/** The note being moved by this window, whose own move coming back from the server isn't news. */
 let renaming: string | null = null;
+/** A rename after a heading on its way; flushSave waits for it, so nothing acts on the old path meanwhile. */
+let retitling: Promise<void> | null = null;
+let retitleTimer = 0;
 
-/** Once an "Untitled" note has a real title, rename the file to match (in place, without reloading the editor). */
-async function nameUntitled(s: Session) {
-  const stem = s.path.split("/").pop()!.replace(/\.md$/i, "");
-  if (s.kind !== "md" || !UNTITLED.test(stem) || renaming) return;
-  const title = s.pane.view.state.doc.line(1).text.match(/^#\s+(.+?)\s*#*$/)?.[1]?.trim();
-  const clean = title?.replace(/[\\/:*?"<>|#^[\]]/g, " ").replace(/\s+/g, " ").trim().slice(0, 120);
-  if (!clean || UNTITLED.test(clean)) return;
-  const dir = s.path.includes("/") ? s.path.slice(0, s.path.lastIndexOf("/") + 1) : "";
-  let target = `${dir}${clean}.md`;
-  for (let i = 2; notes.some((n) => n.path.toLowerCase() === target.toLowerCase()); i++) target = `${dir}${clean} ${i}.md`;
+/**
+ * Rename the note `s` shows to `to` in place, without reloading the editor. Links to it are
+ * rewritten (api.move), and a toast says so when that changed other notes. Throws if it can't.
+ */
+async function renameSession(s: Session, to: string, title?: string) {
   renaming = s.path;
+  let r;
   try {
-    const r = await api.move(s.path, target);
+    r = await api.move(s.path, to);
     s.pane.view.state.facet(editorContext).path = r.path; // the open editor now belongs to the new path
     s.path = r.path;
-    s.title = title!;
-    if (s === active.session) {
-      renderPaneBars();
-      setUrl(notePath(s.title, s.id), "replace");
-      document.title = `${s.title} · Common Ink`;
-      renderChrome();
-    }
-    await refreshNotes();
-  } catch {
-    // leave it as Untitled; the user can rename from the title bar
   } finally {
     renaming = null;
+  }
+  await refreshNotes();
+  s.title = title ?? notes.find((n) => n.id === s.id)?.title ?? displayName(r.path);
+  if (s === active.session) {
+    setUrl(notePath(s.title, s.id), "replace");
+    document.title = `${s.title} · Common Ink`;
+    renderChrome();
+  }
+  const others = r.updated.filter((p) => p !== r.path).length;
+  if (others) toast({ icon: "link", text: `Renamed to ${displayName(r.path)}`, detail: `Updated links in ${others} note${others > 1 ? "s" : ""}` });
+}
+
+/**
+ * Once you've changed the heading that names a note (see noteName.ts), rename the file to match. It
+ * runs when you pause off the heading line, leave the editor or open something else; not while an
+ * IME is composing, and never for a viewer. A note with no heading keeps its name.
+ */
+function retitle(s: Session): Promise<void> {
+  if (!s.retitle || viewer || renaming || s !== s.pane.session || s.pane.view.composing) return Promise.resolve();
+  s.retitle = false;
+  const name = nameFromHeading(s.path, s.pane.view.state.doc);
+  const to = name && renamedPath(s.path, name, notes.map((n) => n.path));
+  if (!to) return Promise.resolve();
+  // A failed rename leaves the name as it was; changing the heading again tries again.
+  return (retitling = renameSession(s, to, s.heading!)
+    .catch(() => {})
+    .finally(() => (retitling = null)));
+}
+
+/** A pause off the heading's line renames the note after it. Typing on that line waits: each rename rewrites links. */
+function retitleSoon(s: Session, state: EditorState) {
+  clearTimeout(retitleTimer);
+  if (state.doc.lineAt(state.selection.main.head).number !== nameLine(state.doc).line) retitleTimer = window.setTimeout(() => void retitle(s), 1500);
+}
+
+/**
+ * ⌘K "Rename note…": a note named by its heading gets the heading's words selected (a heading with
+ * its name is added first if it has none), and is renamed after it as you'd changed it. Any other
+ * note (HTML, a frontmatter title, a daily note…) asks for the name.
+ */
+async function renameNote() {
+  const s = active.session;
+  if (!s || viewer) return;
+  const view = s.pane.view;
+  const h = s.kind === "md" && !fixedName(s.path) ? nameLine(view.state.doc) : null;
+  if (h && !h.titled) {
+    s.retitle = true; // the name follows the heading from here, even if it's left as it is
+    if (h.text === null) {
+      const name = displayName(s.path);
+      const lead = h.line > view.state.doc.lines ? "\n" : "";
+      view.dispatch({ changes: { from: h.at, insert: `${lead}# ${name}\n` } });
+      const from = h.at + lead.length + 2;
+      view.dispatch({ selection: { anchor: from, head: from + name.length }, scrollIntoView: true });
+    } else view.dispatch({ selection: { anchor: h.from, head: h.to }, scrollIntoView: true });
+    return view.focus();
+  }
+  const file = s.path.split("/").pop()!;
+  const ext = file.match(/\.[^.]+$/)?.[0] ?? "";
+  const typed = await askName("Rename note", file.slice(0, file.length - ext.length));
+  const name = typed && cleanName(typed);
+  if (!name) return;
+  await flushSave();
+  try {
+    await renameSession(s, `${s.path.slice(0, s.path.lastIndexOf("/") + 1)}${name}${ext}`);
+  } catch (e) {
+    toast({ text: e instanceof Error ? e.message : `Couldn't rename ${displayName(s.path)}` });
   }
 }
 
@@ -1108,6 +1311,14 @@ function onUpdate(s: Session, docChanged: boolean, fromRemote: boolean, state: E
     s.edited = true;
     scheduleSave(s);
   }
+  if (docChanged && s.kind === "md") {
+    const heading = nameLine(state.doc).text;
+    if (heading !== s.heading) {
+      s.heading = heading;
+      s.retitle = !fromRemote;
+    }
+  }
+  if (s.retitle) retitleSoon(s, state);
   if (s.pane !== active) return;
   renderStatusSoon(state);
   if (docChanged) renderOutlineSoon();
@@ -1145,7 +1356,6 @@ async function save(s: Session) {
     s.base = content;
     s.baseVersion = r.version;
     s.failed = false;
-    if (s === s.pane.session && view.state.doc.lineAt(view.state.selection.main.head).number > 1) void nameUntitled(s);
     if (s === s.pane.session) status(s, view.state.doc.toString() === content ? "saved" : "editing");
   } catch (e) {
     if (e instanceof ApiError && e.status === 409) {
@@ -1171,6 +1381,7 @@ async function save(s: Session) {
 
 /** Save now whatever's waiting to be saved, in one pane or both. */
 async function flushSave(...only: Pane[]) {
+  await retitling;
   for (const p of only.length ? only : panes) {
     const s = p.session;
     if (!s || s.kind === "asset" || !s.edited) continue;
@@ -1412,7 +1623,7 @@ function newSmartFolder(anchor: HTMLElement) {
     save: async (f) => {
       const saved = await api.saveSmartFolder(f);
       smartFolders = await api.smartFolders();
-      await showNotes({ scope: "active", query: parseQuery(saved.query) });
+      await showNotes({ tab: "notes", query: parseQuery(saved.query) });
     },
   });
 }
@@ -1484,7 +1695,7 @@ function renderSmartFolders(active: string | null) {
         "aria-current": f.query === active && "page",
         style: { "--depth": "0" },
         title: `${f.query || "Every note"}${f.shared ? "" : " (just you)"}`,
-        ...opens(() => void showNotes({ scope: "active", query: parseQuery(f.query) })),
+        ...opens(() => void showNotes({ tab: "notes", query: parseQuery(f.query) })),
       },
       el("span", { class: "chev is-leaf" }), // the chevron column Folders and Tags rows have, so icons and names line up
       icon("folderSearch", 14),
@@ -1528,7 +1739,7 @@ function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
 /** Starred notes and tags, in your order: drag one to reorder, or drag a card in from Notes to star it. */
 function renderFavorites() {
   // The tag Notes shows on its own (like a folder alone), which its favorite marks as open.
-  const q = onPage() === "notes" && notesPage.scope === "active" ? notesPage.query : null;
+  const q = onPage() === "notes" ? notesPage.query : null;
   const shownTag = q?.tag && formatQuery(q) === formatQuery({ tag: q.tag }) ? (normalizeTag(q.tag) ?? "") : "";
   const rows = favorites.map((f) => {
     if (isTagFavorite(f)) {
@@ -1549,7 +1760,7 @@ function renderFavorites() {
         ...opens((e) => void openNote(f.path, { pane: e && sideClick(e) ? sideOf(active) : active })),
         ondragstart: (e: DragEvent) => {
           e.dataTransfer!.setData(FAVORITE, f.path);
-          e.dataTransfer!.setData(NOTE_DRAG, f.path); // so it can go to a folder or Archive too
+          e.dataTransfer!.setData(NOTE_DRAG, f.path); // so it can go to a folder too
           document.body.classList.add("is-dragging");
           e.dataTransfer!.effectAllowed = "move";
         },
@@ -1657,25 +1868,21 @@ function renderTree() {
   renderFavorites();
   const page = onPage();
   // What Notes is showing, as a query: the Notes view, a folder and a smart folder each match one.
-  const showing = page === "notes" && notesPage.scope === "active" ? formatQuery(notesPage.query) : null;
+  const showing = page === "notes" ? formatQuery(notesPage.query) : null;
   renderSmartFolders(showing);
   notesPage.named((showing && smartFolders.find((f) => f.query === showing)?.name) || null);
-  const archivedCount = notes.filter((n) => isArchived(n.path) && n.kind !== "asset").length;
-  $("#archive-count").textContent = archivedCount ? String(archivedCount) : "";
   const assetCount = notes.filter((n) => n.kind === "asset" && !isArchived(n.path)).length;
   $("#assets-count").textContent = assetCount ? String(assetCount) : "";
-  setCurrent($("#notes-btn"), showing === "");
+  setCurrent($("#notes-btn"), showing === "" || page === "archive" || page === "trash"); // Archive and Trash are tabs of Notes
   const shownTag = showing === null ? "" : (parseQuery(showing).tag ?? "");
   renderTagTree(shownTag && showing === formatQuery({ tag: shownTag }) ? shownTag.toLowerCase() : ""); // a tag alone, like a folder alone
   setCurrent($("#tasks-btn"), page === "tasks");
   setCurrent($("#calendar-btn"), page === "calendar");
+  setCurrent($("#contacts-btn"), page === "contacts");
   setCurrent($("#history-btn"), page === "history" && !historyPage?.noteFilter);
   setCurrent($("#assets-btn"), page === "assets");
-  setCurrent($("#archive-nav"), page === "notes" && notesPage.scope === "archived");
   setCurrent($("#tags-page-btn"), page === "tags", "is-on");
-  setCurrent($("#trash-nav"), page === "trash");
   setCurrent($("#shared-btn"), page === "shared");
-  $("#trash-nav").hidden = viewer;
 
   const empty = emptyFolders();
   for (const f of [...empty]) if (notes.some((n) => n.path.startsWith(`${f}/`))) empty.delete(f); // it has notes now: it's a real folder
@@ -1705,7 +1912,7 @@ function renderTree() {
             style: { "--depth": String(depth) },
             "data-folder": path,
             title: n ? `Show the notes in ${path}` : `${path} is empty. Drag notes here.`,
-            ...opens(() => void showNotes({ scope: "active", query: { folder: path } })),
+            ...opens(() => void showNotes({ tab: "notes", query: { folder: path } })),
           },
           subs
             ? el(
@@ -1732,7 +1939,8 @@ function renderTree() {
             "span",
             { class: "row-actions" },
             action(`New note in ${path}`, "plus", () => void newNote(path)),
-            workspaceId ? action(`Share ${path}…`, "share", () => openShare({ folder: path })) : null,
+            action(`Export ${path} as a .zip`, "download", () => void exportZip({ folder: path })),
+            workspaceId ? action(`Share ${path}…`, "share", () => openShareDialog({ folder: path })) : null,
             viewer ? null : action(`Delete ${path}`, "trash", () => void removeFolder(path)),
           ),
         );
@@ -1749,7 +1957,7 @@ async function removeFolder(path: string) {
   const empty = emptyFolders();
   for (const f of [...empty]) if (f === path || f.startsWith(`${path}/`)) empty.delete(f);
   setEmptyFolders(empty);
-  if (notesPage.query.folder === path || notesPage.query.folder?.startsWith(`${path}/`)) await showNotes({ scope: "active", query: {} });
+  if (notesPage.query.folder === path || notesPage.query.folder?.startsWith(`${path}/`)) await showNotes({ tab: "notes", query: {} });
   renderTree();
 }
 
@@ -1904,14 +2112,13 @@ function endDrag() {
   document.body.classList.remove("is-dragging");
   markDrop(null);
 }
-function dropTarget(node: HTMLElement, folder: () => string, onDrop?: (path: string) => void) {
+function dropTarget(node: HTMLElement, folder: () => string) {
   node.addEventListener("dragover", (e) => {
     if (!e.dataTransfer?.types.includes(NOTE_DRAG)) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = "move";
-    if (onDrop) node.classList.add("is-drop");
-    else markDrop(folder());
+    markDrop(folder());
   });
   node.addEventListener("dragleave", (e) => {
     if (!node.contains(e.relatedTarget as Node)) node.classList.remove("is-drop");
@@ -1922,8 +2129,7 @@ function dropTarget(node: HTMLElement, folder: () => string, onDrop?: (path: str
     e.preventDefault();
     e.stopPropagation();
     endDrag();
-    if (onDrop) onDrop(path);
-    else void moveToFolder(path, folder());
+    void moveToFolder(path, folder());
   });
 }
 
@@ -1963,7 +2169,7 @@ async function moveToFolder(path: string, folder: string, opts: { undo?: boolean
   }
 }
 
-/** Archive a note dropped on Archive. The open note stays open (marked archived), like ⌘⇧E. */
+/** Archive a note by its path (the guide's last card offers it). The open note stays open (marked archived), like ⌘⇧E. */
 async function archivePath(path: string) {
   if (active.session?.path === path) return archiveCurrent();
   const r = await api.archive([path]).catch(() => null);
@@ -2003,38 +2209,30 @@ function startNewFolder() {
   });
 }
 
-// ------------------------------------------------------------------ chrome: crumbs, status, panel
+// ------------------------------------------------------------------ chrome: top bar, status, panel
 
 function renderChrome() {
   const s = active.session;
-  const crumbs = $("#crumbs");
-  const page = onPage();
-  $("#back-btn").hidden = page === "notes";
   $("#archive-btn").hidden = !s;
   $("#delete-btn").hidden = !s || viewer;
-  $("#share-btn").hidden = !s || !workspaceId;
   $("#move-btn").hidden = !s;
   $("#star-btn").hidden = !s || s.kind === "asset";
+  $("#share-btn").hidden = !s || s.kind === "asset";
+  setShareState(!!s && !!workspaceId && isShared(s.id, s.path));
   $("#note-history-btn").hidden = !s || s.kind === "asset";
   $("#focus-btn").hidden = !s || s.kind === "asset";
   $("#split-btn").hidden = !split && (!s || s.kind === "asset");
   setLabel($("#split-btn"), `${split ? "Close the side pane" : "Split view"} (${formatKeys("Mod-Alt-\\")})`);
   $("#split-btn").classList.toggle("is-on", split);
   $("#save-status").hidden = !s;
+  renderCodeWrap();
   renderPaneBars();
   if (!s) {
     $("#html-toggle").hidden = true;
     for (const id of ["#vim-mode", "#cursor-pos", "#word-count"]) $(id).textContent = "";
     $("#vim-mode").dataset.mode = "";
-      const note = page === "history" ? (historyPage?.noteFilter ?? null) : null;
-    return crumbs.replaceChildren(
-      ...(page ? [el("span", { class: "crumb-file" }, PAGE_LABEL[page])] : []),
-      ...(note ? [el("span", { class: "crumb-sep" }, "·"), el("span", { class: "crumb" }, displayName(note))] : []),
-    );
+    return;
   }
-  const shared = !!workspaceId && isShared(s.id, s.path);
-  $("#share-btn").classList.toggle("is-shared", shared);
-  setLabel($("#share-btn"), shared ? "Shared outside the workspace · Share…" : "Share…");
   const starred = isStarred(s.id);
   $("#star-btn").classList.toggle("is-on", starred);
   setLabel($("#star-btn"), starred ? "Unstar (take out of Favorites)" : "Star (add to Favorites)");
@@ -2042,16 +2240,8 @@ function renderChrome() {
   const archived = isArchived(s.path);
   setLabel($("#archive-btn"), `${archived ? "Unarchive note" : "Archive note"} (${formatKeys("Mod-Shift-e")})`);
   $("#archive-btn").replaceChildren(icon(archived ? "unarchive" : "archive", 16));
-  const parts = s.path.split("/");
-  const file = parts.pop()!;
-  const name = el("span", { class: "crumb-file", title: "Click to rename" }, file.replace(/\.(md|markdown)$/i, ""));
-  name.addEventListener("click", () => startRename(name));
-  const folderCrumbs = parts.flatMap((p, i) => {
-    const crumb = el("button", { type: "button", class: "crumb", title: "Move to another folder" }, p);
-    crumb.addEventListener("click", () => openMovePicker(crumb));
-    return i === 0 && p === "Archive" ? [el("span", { class: "crumb" }, p), el("span", { class: "crumb-sep" }, "/")] : [crumb, el("span", { class: "crumb-sep" }, "/")];
-  });
-  crumbs.replaceChildren(...folderCrumbs, name);
+  const folder = parentOf(s.path);
+  setLabel($("#move-btn"), `${folder ? `In ${folder.split("/").join(" / ")}` : "At the top level"} · Move to another folder`);
   $("#html-toggle").hidden = s.kind !== "html";
   $("#html-toggle").querySelectorAll("button").forEach((b) => setPressed(b, b.dataset.mode === prefs.htmlMode));
   setSaveStatus("saved");
@@ -2061,40 +2251,6 @@ function openMovePicker(anchor: HTMLElement) {
   const s = active.session;
   if (!s) return;
   folderPicker(anchor, { folders: allFolders(), current: parentOf(s.path), onPick: (folder) => void moveToFolder(s.path, folder) });
-}
-
-function startRename(label: HTMLElement) {
-  const s = active.session;
-  if (!s) return;
-  const ext = s.path.match(/\.[^.]+$/)?.[0] ?? "";
-  const input = el("input", { class: "rename-input", value: s.path.replace(/\.(md|markdown)$/i, ""), spellcheck: "false" });
-  label.replaceWith(input);
-  input.focus();
-  input.select();
-  let done = false;
-  const finish = async (commit: boolean) => {
-    if (done) return;
-    done = true;
-    const to = input.value.trim();
-    if (commit && to && to !== s.path.replace(/\.(md|markdown)$/i, "")) {
-      try {
-        await flushSave();
-        const r = await api.move(s.path, /\.[a-z]+$/i.test(to) ? to : to + (ext === ".md" ? "" : ext));
-        await refreshNotes();
-        await openNote(r.path, { push: false });
-        if (r.updated.length) toast({ by: { source: "you", person: "you", agent: null }, text: `Renamed · updated links in ${r.updated.length} note${r.updated.length > 1 ? "s" : ""}` });
-        return;
-      } catch (e) {
-        toast({ text: e instanceof Error ? e.message : "Rename failed" });
-      }
-    }
-    renderChrome();
-  };
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") finish(true);
-    if (e.key === "Escape") finish(false);
-  });
-  input.addEventListener("blur", () => finish(false));
 }
 
 function setSaveStatus(state: "saved" | "editing" | "saving" | "error") {
@@ -2303,7 +2459,12 @@ Vim.defineEx("archive", "arch", () => void archiveCurrent());
 Vim.defineEx("trash", "trash", () => void deleteCurrent());
 Vim.defineEx("notes", "note", () => void showNotes());
 Vim.defineEx("calendar", "cal", () => void showCalendar());
+// After vim puts the focus back in the editor, so the name prompt keeps it.
+Vim.defineEx("rename", "ren", () => setTimeout(() => void renameNote()));
 Vim.defineEx("star", "star", () => active.session && void toggleStar(active.session.path));
+Vim.defineEx("share", "sha", () => openShare());
+// :label names the note's version as it is now (:label v1); with no name, it asks for one.
+Vim.defineEx("label", "label", (_cm: unknown, params: { args?: string[] }) => void labelCurrent(params.args?.join(" ").trim() || undefined));
 Vim.defineEx("focus", "foc", () => void setFocusMode(!focusMode));
 Vim.defineEx("vsplit", "vs", (_cm: unknown, params: { args?: string[] }) => {
   const arg = params.args?.join(" ");
@@ -2365,7 +2526,9 @@ window.addEventListener(
     const is = (keys: string) => matchKeys(e, keys);
     // Back and forward through the notes (and pages) this pane has shown: ⌘[ and ⌘] by the character
     // typed, and off a Mac also Alt+← and Alt+→, the platform's back and forward.
-    const altArrow = !IS_MAC && e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight") ? e.key : null;
+    // On a calendar event, Alt+← and Alt+→ move it a day instead (calendar/keys.ts).
+    const onEvent = !!(e.target as Element | null)?.closest?.("[data-event], .cal-details");
+    const altArrow = !IS_MAC && !onEvent && e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight") ? e.key : null;
     const back = is("Mod-[") || altArrow === "ArrowLeft";
     const quickOpen = is("Mod-p") || is("Mod-k");
     if (back || is("Mod-]") || altArrow === "ArrowRight") {
@@ -2377,6 +2540,9 @@ window.addEventListener(
       paletteToSide = false;
       if (quickOpen && !palette.isOpen) did("search");
       palette.toggle(quickOpen ? "" : ">");
+    } else if (is("Mod-,")) {
+      e.preventDefault();
+      openSettings();
     } else if (is("Mod-\\")) {
       e.preventDefault();
       togglePanel();
@@ -2386,6 +2552,9 @@ window.addEventListener(
     } else if (is("Mod-Shift-e")) {
       e.preventDefault();
       void archiveCurrent();
+    } else if (is(SHARE_KEYS) && shareNote()) {
+      e.preventDefault();
+      openShare();
     } else if (is("Mod-Shift-Enter")) {
       e.preventDefault();
       void setFocusMode(!focusMode);
@@ -2437,13 +2606,16 @@ function togglePanel(force?: boolean) {
   document.body.classList.toggle("panel-closed", !prefs.panel);
 }
 
-function toggleVim() {
-  prefs.vim = !prefs.vim;
-  store.set("vim", prefs.vim);
-  taskInputPrefs.vim = prefs.vim;
-  for (const p of panes) p.view.dispatch({ effects: vimSlot.reconfigure(prefs.vim ? vim() : []) });
+function setVim(on: boolean) {
+  prefs.vim = on;
+  store.set("vim", on);
+  taskInputPrefs.vim = on;
+  for (const p of panes) p.view.dispatch({ effects: vimSlot.reconfigure(on ? vim() : []) });
   attachVim();
   renderPaneBars(); // the arrows' labels say Ctrl-O / Ctrl-I with vim on
+}
+function toggleVim() {
+  setVim(!prefs.vim);
   active.view.focus();
 }
 
@@ -2461,22 +2633,75 @@ function setLineNumbers(on: boolean) {
 }
 const toggleLineNumbers = () => setLineNumbers(!prefs.lineNumbers);
 
-function toggleTheme() {
-  const dark = document.documentElement.dataset.theme
-    ? document.documentElement.dataset.theme === "dark"
-    : matchMedia("(prefers-color-scheme: dark)").matches;
-  const next = dark ? "light" : "dark";
-  document.documentElement.dataset.theme = next;
-  store.set("theme", next);
+const systemDark = matchMedia("(prefers-color-scheme: dark)");
+const theme = (): Theme => (document.documentElement.dataset.theme as "light" | "dark" | undefined) ?? "system";
+const isDark = () => (theme() === "system" ? systemDark.matches : theme() === "dark");
+const toggleTheme = () => setTheme(isDark() ? "light" : "dark");
+
+/** Light, dark, or the system's (index.html applies a stored choice before the page draws). */
+function setTheme(next: Theme) {
   try {
-    localStorage.setItem("quire.theme", next);
+    if (next === "system") localStorage.removeItem("quire.theme");
+    else localStorage.setItem("quire.theme", next);
   } catch {}
-  $("#theme-toggle").replaceChildren(icon(next === "dark" ? "sun" : "moon", 15));
+  if (next === "system") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = next;
+  renderTheme();
+}
+
+function renderTheme() {
+  $("#theme-toggle").replaceChildren(icon(isDark() ? "sun" : "moon", 15));
   for (const p of panes) {
     if (p.session?.kind === "html") renderHtmlPreview(p);
     if (p.session?.kind === "md") bumpEmbeds(p.view);
   }
 }
+
+/** Whether long lines in code blocks wrap, for blocks that don't say (```ts nowrap / wrap do). */
+function setCodeWrap(on: boolean) {
+  setCodeWrapByDefault(on);
+  renderCodeWrap();
+  for (const p of panes) bumpEmbeds(p.view);
+}
+
+/** The Wrap code chip: only where there's a note to have code in. mobile.css hides it on phones. */
+function renderCodeWrap() {
+  const on = codeWrapByDefault();
+  const chip = $("#codewrap-toggle");
+  chip.hidden = !panes.some((p) => p.session?.kind === "md");
+  setPressed(chip, on);
+  chip.textContent = `Wrap code: ${on ? "on" : "off"}`;
+  chip.title = on ? "Long lines in code blocks wrap. Click to scroll them instead." : "Long lines in code blocks scroll. Click to wrap them.";
+}
+
+/** Local vaults: where the vault and the `quire` command are, for connecting an agent. Online, null. */
+let localVault: { vault?: string; projectRoot?: string } | null = null;
+
+function openSettings() {
+  void import("./settings.ts").then((m) =>
+    m.openSettings(() =>
+      m.appSettings({
+        theme: theme(),
+        setTheme,
+        lineNumbers: prefs.lineNumbers,
+        setLineNumbers,
+        codeWrap: codeWrapByDefault(),
+        setCodeWrap,
+        htmlMode: prefs.htmlMode,
+        setHtmlMode,
+        vim: prefs.vim,
+        setVim,
+        vimDisplayLines: prefs.vimDisplayLines,
+        setVimDisplayLines: (on) => on !== prefs.vimDisplayLines && toggleVimDisplayLines(),
+        localVault,
+        shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
+        connectAgent,
+      }),
+    ),
+  );
+}
+
+const connectAgent = () => void import("./agentsPage.ts").then((m) => m.showAgents());
 
 // ------------------------------------------------------------------ split view
 
@@ -2549,12 +2774,14 @@ function setupPanes() {
   // Clicking or tabbing into a pane gives it the focus.
   // (Not from a pane bar's buttons: redrawing the bar on mousedown would swallow their click.)
   const follow = (p: Pane) => (e: Event) => p !== active && split && !(e.target as Element).closest?.(".pane-bar button") && focusPane(p);
-  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#tasks-view", "#calendar-view", "#history-view", "#assets-view", "#tags-view", "#trash-view"]], [panes[1], ["#side-pane"]]] as const) {
+  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#tasks-view", "#calendar-view", "#contacts-view", "#history-view", "#assets-view", "#tags-view"]], [panes[1], ["#side-pane"]]] as const) {
     for (const sel of nodes) {
       $(sel).addEventListener("focusin", follow(p));
       $(sel).addEventListener("mousedown", follow(p));
     }
   }
+  // Leaving an editor renames its note after a heading you changed there (see retitle).
+  for (const p of panes) p.view.contentDOM.addEventListener("blur", () => p.session && void retitle(p.session));
 }
 
 // ------------------------------------------------------------------ utils + boot
@@ -2598,11 +2825,20 @@ async function route() {
     return showTasks({ push: false });
   }
   if (at === "/assets") return showAssets({ push: false });
+  if (at === "/contacts") {
+    const id = new URLSearchParams(location.search).get("c");
+    return showContacts({ contact: id && NOTE_ID.test(id) ? id : null, push: false });
+  }
   const event = calendarTarget(at);
   if (event !== null) return showCalendar({ event: event || undefined, push: false });
-  if (at === "/trash") return showTrash({ push: false });
   if (at === "/shared") return showShared({ push: false });
   if (at === "/capture") return showCapture();
+  // Archive and Trash are tabs of Notes. `?scope=archived` is how an address could once ask Notes for its archived notes.
+  const tab = at === "/archive" || (at === "/notes" && new URLSearchParams(location.search).get("scope") === "archived") ? "archive" : at === "/trash" ? "trash" : null;
+  if (tab) {
+    if (at !== `/${tab}`) setUrl(`/${tab}`, "replace");
+    return showNotes({ tab, push: false });
+  }
   if (at === "/tags") return showTags({ push: false });
   if (at === "/history") {
     const id = new URLSearchParams(location.search).get("note");
@@ -2619,7 +2855,7 @@ async function route() {
   }
   if (link) toast({ text: workspaceId ? "That note doesn't exist, or you don't have access to it" : "That note doesn't exist any more" });
   setUrl("/notes", "replace");
-  return showNotes({ push: false });
+  return showNotes({ tab: "notes", push: false });
 }
 
 /**
@@ -2661,8 +2897,10 @@ async function boot() {
     owner = ws.role === "owner";
     useWorkspace(`/api/w/${ws.id}`, `/api/w/${ws.id}/live`);
     setSelfName(who.me.user.name);
+    api.reportTimeZone().catch(() => {}); // unreported, agents use the owner's zone, or UTC
     account = renderAccount(who.me, ws, (t) => toast(t));
     $("#shared-btn").hidden = false;
+    setShareWithPeople({ label: "Share with people…", icon: "share-people", run: (note) => openShareDialog({ path: note.path }) });
     void refreshShares();
     void api.sharedWithMe().then((g) => ($("#shared-count").textContent = String(g.reduce((n, x) => n + x.notes.length, 0) || "")), () => {});
   }
@@ -2675,60 +2913,48 @@ async function boot() {
   $("#search-btn").addEventListener("click", () => openPalette());
   // A new note goes at the top level, unless Notes is showing a folder: then it goes there.
   $("#new-note").addEventListener("click", () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""));
+  $("#new-from-template").addEventListener("click", () => void newFromTemplate(undefined, onPage() === "notes" ? (notesPage.query.folder ?? "") : ""));
   $("#panel-btn").addEventListener("click", () => togglePanel());
   setLabel($("#panel-btn"), `Toggle side panel (${formatKeys("Mod-\\")})`);
   setupPanes();
   $("#stage").addEventListener("mousedown", () => document.body.classList.remove("panel-overlay"));
   $("#theme-toggle").addEventListener("click", toggleTheme);
-  // Whether long lines in code blocks wrap, for blocks that don't say (```ts nowrap / wrap do).
-  const codeWrapChip = () => {
-    const on = codeWrapByDefault();
-    const chip = $("#codewrap-toggle");
-    setPressed(chip, on);
-    chip.textContent = `Wrap code: ${on ? "on" : "off"}`;
-    chip.title = on ? "Long lines in code blocks wrap. Click to scroll them instead." : "Long lines in code blocks scroll. Click to wrap them.";
-  };
-  codeWrapChip();
-  $("#codewrap-toggle").addEventListener("click", () => {
-    setCodeWrapByDefault(!codeWrapByDefault());
-    codeWrapChip();
-    for (const p of panes) bumpEmbeds(p.view);
-  });
+  renderCodeWrap();
+  $("#codewrap-toggle").addEventListener("click", () => setCodeWrap(!codeWrapByDefault()));
   $("#vim-toggle").addEventListener("click", toggleVim);
+  $("#settings-btn").addEventListener("click", () => openSettings());
+  setLabel($("#settings-btn"), `Settings (${formatKeys("Mod-,")})`);
   attachVim(); // the toggle's label, before any note opens
   $("#html-toggle").addEventListener("click", (e) => {
     const mode = (e.target as HTMLElement).closest("button")?.dataset.mode as "preview" | "source" | undefined;
     if (mode) setHtmlMode(mode);
   });
-  const isDark = document.documentElement.dataset.theme === "dark" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
-  $("#theme-toggle").replaceChildren(icon(isDark ? "sun" : "moon", 15));
+  renderTheme();
+  systemDark.addEventListener("change", () => theme() === "system" && renderTheme());
   window.addEventListener("popstate", (e) => void onPopState(e));
-  $("#notes-btn").addEventListener("click", () => void showNotes({ scope: "active", query: {} }));
+  $("#notes-btn").addEventListener("click", () => void showNotes({ tab: "notes", query: {} }));
   $("#tasks-btn").addEventListener("click", () => void showTasks());
   $("#calendar-btn").addEventListener("click", () => void showCalendar());
   window.addEventListener(OPEN_CALENDAR, (e) => void showCalendar({ event: (e as CustomEvent<string>).detail || undefined }));
+  $("#contacts-btn").addEventListener("click", () => void showContacts());
   $("#history-btn").addEventListener("click", () => void showHistory());
   $("#assets-btn").addEventListener("click", () => void showAssets());
   $("#tags-page-btn").addEventListener("click", () => void showTags());
   $("#new-smart-folder").addEventListener("click", () => newSmartFolder($("#new-smart-folder")));
   setupSections();
   $("#note-history-btn").addEventListener("click", () => active.session && void showHistory({ note: active.session.path }));
-  $("#back-btn").addEventListener("click", () => void showNotes());
-  $("#back-btn").before(topArrows.el);
-  $("#archive-nav").addEventListener("click", () => void showNotes({ scope: "archived", query: {} }));
+  $("#topbar > .spacer").before(topArrows.el);
   $("#archive-btn").addEventListener("click", () => void archiveCurrent());
   $("#delete-btn").addEventListener("click", () => void deleteCurrent());
-  $("#trash-nav").addEventListener("click", () => void showTrash());
-  $("#share-btn").addEventListener("click", () => active.session && openShare({ path: active.session.path }));
   $("#shared-btn").addEventListener("click", () => void showShared());
   $("#star-btn").addEventListener("click", () => active.session && void toggleStar(active.session.path));
   $("#move-btn").addEventListener("click", () => openMovePicker($("#move-btn")));
+  $("#share-btn").addEventListener("click", openShare);
   $("#focus-btn").addEventListener("click", () => void setFocusMode(!focusMode));
   $("#new-folder").addEventListener("click", () => startNewFolder());
   $("#new-tag").addEventListener("click", () => startNewTag());
   $("#new-tag").hidden = viewer;
   dropTarget($("#tree"), () => "");
-  dropTarget($("#archive-nav"), () => "", (path) => void archivePath(path));
   favoriteDrop($("#favorites"), "is-drop");
   document.addEventListener("dragend", endDrag); // a drag that lands nowhere still clears its highlights
   vaultEvents.addEventListener("change", () => refreshTaskCountSoon());
@@ -2753,6 +2979,7 @@ async function boot() {
 
   const [info, list, starred, recent, tagList, smart] = await Promise.all([api.info(), api.notes(), api.favorites(), api.changes(), api.tags(), api.smartFolders()]);
   $("#vault-name").textContent = info.name;
+  if (info.mode === "local") localVault = info;
   notes = list;
   favorites = starred;
   tags = tagList;

@@ -1,0 +1,25 @@
+{
+  "name": "commonink",
+  "version": "0.1.0",
+  "description": "The quire CLI: your Common Ink notes from a shell, for you and your agents",
+  "type": "module",
+  "bin": {
+    "quire": "dist/quire.mjs",
+    "commonink": "dist/quire.mjs"
+  },
+  "files": [
+    "dist/quire.mjs",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "keywords": [
+    "notes",
+    "markdown",
+    "cli",
+    "mcp",
+    "agents"
+  ],
+  "license": "UNLICENSED"
+}

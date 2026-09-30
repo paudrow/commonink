@@ -58,22 +58,24 @@ test("read prints numbered lines and honours --offset/--limit", () => {
   assert.equal(r.stdout.split("\n").slice(2).join("\n"), "\n4│# Roadmap\n5│\n6│## Now\n");
 });
 
-test("missing or malformed arguments are one-line errors, not stack traces", () => {
+test("missing or malformed arguments are one-line errors with exit code 2, not stack traces", () => {
   const vault = tempVault();
-  const cases: Array<[string[], RegExp]> = [
-    [["read"], /^read needs <note>\n$/],
-    [["mv", "Roadmap"], /^mv needs <new-path>\n$/],
-    [["backlinks"], /^backlinks needs <note>\n$/],
-    [["restore"], /^restore needs <change-id>\n$/],
-    [["restore", "abc"], /^<change-id> must be a whole number, not "abc"\n$/],
-    [["search", "roadmap", "--limit", "abc"], /^--limit must be a positive whole number, not "abc"\n$/],
-    [["read", "Roadmap", "--offset", "0"], /^--offset must be a positive whole number, not "0"\n$/],
-    [["ls", "--recent", "x"], /^--recent must be a positive whole number, not "x"\n$/],
-    [["read", "../../etc/passwd"], /^No note matches/],
+  const cases: Array<[string[], RegExp, number]> = [
+    [["read"], /^read needs <note>\n$/, 2],
+    [["mv", "Roadmap"], /^mv needs <new-path>\n$/, 2],
+    [["backlinks"], /^backlinks needs <note>\n$/, 2],
+    [["restore"], /^restore needs <change-id>\n$/, 2],
+    [["restore", "abc"], /^<change-id> must be a whole number, not "abc"\n$/, 2],
+    [["search", "roadmap", "--limit", "abc"], /^--limit must be a positive whole number from 1 to 50, not "abc"\n$/, 2],
+    [["read", "Roadmap", "--offset", "0"], /^--offset must be a positive whole number, not "0"\n$/, 2],
+    [["ls", "--recent", "x"], /^--recent must be a positive whole number from 1 to 100, not "x"\n$/, 2],
+    [["ls", "--colour", "red"], /^ls has no --colour: see quire help ls\n$/, 2],
+    [["task", "Roadmap", "8", "--priority", "urgent"], /^--priority must be high or low, not "urgent"\n$/, 2],
+    [["read", "../../etc/passwd"], /^No note matches/, 3],
   ];
-  for (const [args, stderr] of cases) {
+  for (const [args, stderr, status] of cases) {
     const r = quire(vault, args);
-    assert.equal(r.status, 1, args.join(" "));
+    assert.equal(r.status, status, args.join(" "));
     assert.match(r.stderr, stderr, args.join(" "));
   }
 });
@@ -103,7 +105,7 @@ test("tasks lists open tasks, and task changes one's tokens or ticks it", () => 
 
 test("board shows a note's boards, and card adds, moves and edits cards", () => {
   const vault = tempVault({ "Launch.md": "# Launch\n\n:::kanban\n## To do\n- [ ] Tiers\n\n## Done\n:::\n" });
-  assert.match(quire(vault, ["card", "add", "Launch", "to do", "Pick", "a", "logo"]).stdout, /^Changed a card in Launch\.md/);
+  assert.match(quire(vault, ["card", "add", "Launch", "to do", "Pick", "a", "logo"]).stdout, /^Added a card to Launch\.md/);
   quire(vault, ["card", "move", "Launch", "tiers", "Done"]);
   quire(vault, ["card", "edit", "Launch", "logo", "--text", "Pick a logo @ana"]);
   assert.match(quire(vault, ["board", "Launch"]).stdout, /^Board 1 of 1 in Launch\.md\n\n## To do\n- \[ \] Pick a logo @ana — L5\n\n## Done \(done column\)\n- \[x\] Tiers done:\d{4}-\d{2}-\d{2} — L8\n$/);
@@ -148,7 +150,7 @@ test("task --until and --times end a repeat, and ticking counts it down", () => 
   quire(vault, ["task", "Roadmap", "8", "--due", "2026-10-01", "--rec", "weekly", "--times", "2", "--until", "2027-01-01"]);
   quire(vault, ["task", "Roadmap", "8", "--done"]);
   assert.match(fs.readFileSync(path.join(vault, "Projects/Roadmap.md"), "utf8"), /\n- \[ \] Ship the importer due:2026-10-08 rec:weekly until:2027-01-01 times:1\n/);
-  assert.equal(quire(vault, ["task", "Roadmap", "8", "--times", "0"]).stderr, '"times" must be a whole number of repeats left, 1 or more\n');
+  assert.equal(quire(vault, ["task", "Roadmap", "8", "--times", "0"]).stderr, '--times must be a positive whole number, not "0"\n');
 });
 
 test("star and unstar take #tags as well as notes", () => {
@@ -175,11 +177,52 @@ test("delete sends notes to Trash, trash lists them, and trash restore brings on
   assert.equal(quire(vault, ["trash", "empty"]).stderr, 'trash takes restore, not "empty"\n');
 });
 
+test("contacts: add, list with filters, read, change, import a file and merge", () => {
+  const vault = tempVault();
+  assert.equal(quire(vault, ["contact", "add", "Jane Doe", "--email", "jane@acme.com", "--company", "Acme", "--tag", "client"]).stdout, "Created People/Jane Doe.md. Link to them with [[People/Jane Doe]].\n");
+  fs.writeFileSync(path.join(vault, "Call.md"), "# Call\n\nWith [[People/Jane Doe]].\n");
+  assert.match(quire(vault, ["contacts", "--company", "acme"]).stdout, /^People\/Jane Doe\.md — Jane Doe · Acme · jane@acme\.com #client · last mentioned \d{4}-\d\d-\d\d \(1 note\)\n$/);
+  assert.equal(quire(vault, ["contacts", "--tag", "vendor"]).stdout, "No contacts match. People are notes in People/; `quire contact add <name>` makes one.\n");
+  assert.match(quire(vault, ["contact", "Jane Doe"]).stdout, /^# Jane Doe \(People\/Jane Doe\.md\)\nemail: jane@acme\.com\ncompany: Acme\ntags: #client\n\nMentioned in:\n- \S+ Call\.md:3 With \[\[People\/Jane Doe\]\]\.\n$/);
+  assert.match(quire(vault, ["contact", "Jane Doe", "--role", "CTO", "--phone", "555-0100,555-0199"]).stdout, /^Updated People\/Jane Doe\.md/);
+  assert.match(fs.readFileSync(path.join(vault, "People/Jane Doe.md"), "utf8"), /phone: \[555-0100, 555-0199\]\ncompany: Acme\nrole: CTO/);
+  const file = path.join(vault, "..", `import-${path.basename(vault)}.vcf`);
+  fs.writeFileSync(file, "BEGIN:VCARD\nFN:Sam Lee\nEMAIL:sam@x.org\nEND:VCARD\n");
+  assert.equal(quire(vault, ["contacts", "import", file]).stdout, "Created 1: People/Sam Lee.md\n");
+  assert.equal(quire(vault, ["contacts", "import", file, "--format", "xlsx"]).stderr, '--format must be vcard or csv, not "xlsx"\n');
+  assert.equal(quire(vault, ["contacts", "merge", "Jane Doe", "Sam Lee"]).stdout, "Merged People/Sam Lee.md into People/Jane Doe.md (it's in Trash). Links updated in 0 notes.\n");
+  assert.equal(quire(vault, ["contact", "add"]).stderr, "contact add needs <name>\n");
+});
+
+test("tasks --assignee me and --by me", () => {
+  const vault = tempVault();
+  fs.writeFileSync(path.join(vault, "Mine.md"), "- [ ] Water plants @me\n- [ ] Call the bank @sam\n");
+  quire(vault, ["read", "Mine"]); // indexed; the file came from outside, so no one made it
+  assert.match(quire(vault, ["tasks", "--assignee", "me"]).stdout, /Water plants @me/);
+  assert.doesNotMatch(quire(vault, ["tasks", "--assignee", "me"]).stdout, /Call the bank/);
+  quire(vault, ["create", "Given", "- [ ] Send the deck @priya\n"]);
+  assert.match(quire(vault, ["tasks", "--by", "me"]).stdout, /Send the deck @priya/);
+  assert.doesNotMatch(quire(vault, ["tasks", "--by", "me"]).stdout, /Call the bank/, "a file made outside the app has no author");
+});
+
+test("templates and new --template", () => {
+  const vault = tempVault();
+  fs.mkdirSync(path.join(vault, "Templates"));
+  fs.writeFileSync(path.join(vault, "Templates/Meeting.md"), "---\ntitle: \"{{date}} {{ask:Client}}\"\nfolder: Meetings\napplies_to: Meetings/\n---\n# {{title}}\n\n**Attendees:** {{ask:Attendees}}\n\n- {{cursor}}\n");
+  assert.match(quire(vault, ["templates"]).stdout, /Templates\/Meeting\.md — Meeting · asks: Client, Attendees/);
+  const r = quire(vault, ["new", "--template", "Meeting", "--var", "Client=Acme", "--var", "Attendees=Sam, Lee"]);
+  assert.match(r.stdout, /^Created Meetings\/\d{4}-\d\d-\d\d Acme\.md from Templates\/Meeting\.md\.\n$/);
+  const made = fs.readdirSync(path.join(vault, "Meetings"))[0];
+  assert.match(fs.readFileSync(path.join(vault, "Meetings", made), "utf8"), /\*\*Attendees:\*\* Sam, Lee/);
+  assert.equal(quire(vault, ["new", "--template", "Meeting", "--var", "oops"]).stderr, "--var takes Name=value, not \"oops\"\n");
+  assert.equal(quire(vault, ["new"]).stderr, "new needs --template <name>\n");
+});
+
 test("calendars: an empty vault says how to subscribe, and a private address is refused and not kept", () => {
   const vault = tempVault();
   assert.equal(quire(vault, ["events", "--from", "2026-10-05", "--tz", "UTC"]).stdout, "0 events, Mon, Oct 5 to Sun, Oct 11 (UTC). This workspace has no calendars yet: subscribe to an ICS feed from the Calendar page.\n");
   const add = quire(vault, ["calendars", "add", "http://127.0.0.1:9/cal.ics"]);
   assert.deepEqual([add.status, add.stderr], [1, "That address isn't on the public internet\n"]);
   assert.equal(quire(vault, ["calendars"]).stdout, "No calendars. Subscribe to an ICS or webcal feed: quire calendars add <url>\n");
-  assert.equal(quire(vault, ["event", "nope"]).stderr, "No event nope; `quire events` lists them with their ids\n");
+  assert.equal(quire(vault, ["event", "nope"]).stderr, "No event nope; quire events (list_events) lists them with their ids\n");
 });

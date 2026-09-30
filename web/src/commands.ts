@@ -28,7 +28,7 @@ export interface Command {
   run: () => unknown;
 }
 
-export type Page = "notes" | "tasks" | "calendar" | "tags" | "assets" | "history" | "archive" | "trash" | "shared";
+export type Page = "notes" | "tasks" | "calendar" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash" | "shared";
 
 /** What the registry needs from the app: a snapshot of its state, and the actions to run. */
 export interface App {
@@ -61,6 +61,8 @@ export interface App {
   /** Online, the account menu's actions; locally, none. */
   account: Array<{ label: string; icon: string; run: () => unknown; workspace?: boolean; current?: boolean }>;
   newNote(): void;
+  /** Pick a template, answer its questions, and open the new note. */
+  newFromTemplate(): void;
   /** A new note that holds a Kanban board. */
   newBoard(): void;
   newFolder(): void;
@@ -72,6 +74,8 @@ export interface App {
   subscribeCalendar(): void;
   refreshCalendars(): void;
   connectGoogle(): void;
+  /** The Calendar page, with the new-event form open. */
+  newEvent(): void;
   toggleTheme(): void;
   toggleVim(): void;
   toggleVimDisplayLines(): void;
@@ -83,11 +87,27 @@ export interface App {
   star(): void;
   archive(): void;
   delete(): void;
-  share(): void;
+  /** Online: the dialog for sharing the focused note with people or by link (shareDialog.ts). */
+  shareWithPeople(): void;
   move(): void;
+  /** Put the cursor on what names the note (its heading), or ask for a name. */
+  rename(): void;
   noteHistory(): void;
+  /** Name the focused note's version as it is now (labels.ts). */
+  labelVersion(): void;
+  /** The focused note's labels, in its History. */
+  noteLabels(): void;
   gettingStarted(): void;
   shortcuts(): void;
+  /** The Share menu (share.ts). */
+  share(): void;
+  copyLink(): void;
+  exportAs(how: "print" | "pdf" | "md" | "html" | "docx"): void;
+  /** Every note and file, as a .zip. */
+  exportWorkspace(): void;
+  settings(): void;
+  /** Online, the Connected agents dialog; locally, how to connect one to this vault. */
+  connectAgent(): void;
   /** Back or forward through what the focused pane has shown. */
   back(): void;
   forward(): void;
@@ -103,6 +123,7 @@ export function appCommands(app: App): Command[] {
   const go = (page: Page, title: string, icon: string, keywords = ""): Command => ({ id: `go:${page}`, title: `Go to ${title}`, keywords: `open show page ${keywords}`, icon, run: () => app.go(page) });
   return [
     { id: "new-note", title: "New note", keywords: "create add page", icon: "plus", run: app.newNote },
+    { id: "new-from-template", title: "New note from template…", keywords: "template meeting create add from boilerplate", icon: "file", available: app.canDelete, run: app.newFromTemplate },
     { id: "new-board", title: "New board", keywords: "create add kanban columns cards trello project", icon: "kanban", run: app.newBoard },
     { id: "new-folder", title: "New folder", keywords: "create add directory", icon: "folderPlus", run: app.newFolder },
     { id: "new-tag", title: "New tag", keywords: "create add label hashtag", icon: "hash", available: app.canDelete, run: app.newTag },
@@ -112,8 +133,10 @@ export function appCommands(app: App): Command[] {
     go("tasks", "Tasks", "task", "todo checklist"),
     go("calendar", "Calendar", "calendar", "events meetings schedule agenda month week day"),
     { id: "subscribe-calendar", title: "Subscribe to a calendar…", keywords: "calendar add ics webcal ical feed google outlook subscribe", icon: "calendar", available: app.canSubscribe, run: app.subscribeCalendar },
+    { id: "new-event", title: "New event…", keywords: "calendar event meeting create add schedule appointment", icon: "plus", run: app.newEvent },
     { id: "connect-google", title: "Connect Google Calendar", keywords: "google calendar gcal account events", icon: "calendar", available: app.canConnectGoogle, run: app.connectGoogle },
     { id: "refresh-calendars", title: "Refresh calendars", keywords: "calendar sync reload events update", icon: "reset", run: app.refreshCalendars },
+    go("contacts", "Contacts", "user", "people crm person email company"),
     go("tags", "Tags", "hash", "rename merge"),
     go("assets", "Assets", "grid", "files images uploads attachments"),
     go("history", "History", "history", "changes activity versions"),
@@ -136,14 +159,25 @@ export function appCommands(app: App): Command[] {
     { id: "split", title: app.split ? "Close this pane" : "Open to the side", keywords: "split view pane side by side", icon: "split", keys: ["Mod-Alt-\\"], area: "Split view", run: app.toggleSplit },
     { id: "star", title: note?.starred ? "Unstar note" : "Star note", keywords: "star favorite favourite", icon: note?.starred ? "starred" : "star", available: !!note, run: app.star },
     { id: "archive", title: note?.archived ? "Unarchive note" : "Archive note", keywords: "archive remove hide", icon: note?.archived ? "unarchive" : "archive", keys: ["Mod-Shift-e"], available: !!note, run: app.archive },
-    { id: "share", title: "Share…", keywords: "share people link invite collaborate public", icon: "share", available: !!note && app.online, run: app.share },
     { id: "delete", title: "Delete note", keywords: "delete remove trash bin", icon: "trash", available: !!note && app.canDelete, run: app.delete },
     { id: "move", title: "Move to folder…", keywords: "move note folder file", icon: "move", available: !!note, run: app.move },
+    { id: "rename", title: "Rename note…", keywords: "rename name title heading file", icon: "edit", available: !!note && app.canDelete, run: app.rename },
+    { id: "share", title: "Share…", keywords: "share link copy print export download pdf markdown html word send", icon: "share", keys: ["Mod-Shift-s"], available: text, run: app.share },
+    { id: "share-people", title: "Share with people…", keywords: "share people link invite collaborate public email", icon: "share-people", available: !!note && app.online, run: app.shareWithPeople },
+    { id: "copy-link", title: "Copy link to this note", keywords: "share url address copy", icon: "link", available: text, run: app.copyLink },
+    { id: "print", title: "Print…", keywords: "print paper pdf", icon: "printer", available: note?.kind === "md", run: () => app.exportAs("print") },
+    { id: "export-pdf", title: "Export as PDF", keywords: "save download pdf print", icon: "pdf", available: note?.kind === "md", run: () => app.exportAs("pdf") },
+    { id: "export-md", title: "Export as Markdown", keywords: "save download md markdown file", icon: "file", available: note?.kind === "md", run: () => app.exportAs("md") },
+    { id: "export-html", title: "Export as web page (HTML)", keywords: "save download html web page file", icon: "html", available: note?.kind === "md", run: () => app.exportAs("html") },
+    { id: "export-docx", title: "Export as Word", keywords: "save download docx word document office google docs", icon: "file", available: note?.kind === "md", run: () => app.exportAs("docx") },
+    { id: "export-workspace", title: "Export all notes (.zip)", keywords: "export download backup zip everything workspace vault obsidian take out", icon: "download", run: app.exportWorkspace },
     { id: "back", title: "Go back", keywords: "previous history return last note ctrl-o", icon: "back", keys: ["Mod-["], available: app.canBack, run: app.back },
     { id: "forward", title: "Go forward", keywords: "next history ctrl-i", icon: "chevron", keys: ["Mod-]"], available: app.canForward, run: app.forward },
     { id: "follow-link", title: "Follow link", keywords: "open link under the cursor gd go to", icon: "link", area: "Editor", available: app.onLink, run: app.followLink },
     { id: "fold-all", title: "Fold all sections", keywords: "collapse close details collapsible zM", icon: "chevron", available: text && app.folds > 0, run: () => app.foldAll(false) },
     { id: "unfold-all", title: "Unfold all sections", keywords: "expand open details collapsible zR", icon: "chevron", available: text && app.folds > 0, run: () => app.foldAll(true) },
+    { id: "label-version", title: "Label this version…", keywords: "name version milestone snapshot tag save point v1 checkpoint", icon: "label", available: text && app.canDelete, run: app.labelVersion },
+    { id: "note-labels", title: "Labels of this note", keywords: "versions compare restore label tag release history", icon: "label", available: text, run: app.noteLabels },
     { id: "note-history", title: "History of this note", keywords: "versions changes diff restore", icon: "history", available: !!note, run: app.noteHistory },
     {
       id: "html-mode",
@@ -156,6 +190,8 @@ export function appCommands(app: App): Command[] {
       run: app.toggleHtml,
     },
     { id: "getting-started", title: "Open Getting started", keywords: "help start welcome guide tour", icon: "info", available: app.hasStart, run: app.gettingStarted },
+    { id: "settings", title: "Open settings", keywords: "preferences options configure", icon: "gear", keys: ["Mod-,"], run: app.settings },
+    { id: "connect-agent", title: "Connect an agent", keywords: "agent mcp claude cursor connected agents ai assistant", icon: "bot", run: app.connectAgent },
     { id: "shortcuts", title: "Keyboard shortcuts", keywords: "keys keybindings help hotkeys cheat sheet", icon: "keyboard", keys: ["?"], run: app.shortcuts },
     ...app.account
       .filter((a) => !a.current)
@@ -186,7 +222,7 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: ["[["], label: "Link a note", area: "Editor" },
   { keys: ["Mod-Alt-Enter"], label: "Open the linked note to the side", area: "Editor" },
   { keys: ["Mod-."], label: "Open the task's ⚙ menu", area: "Editor" },
-  { keys: ["Tab"], label: "Right after an underlined phrase on a task line (\"tomorrow\"), make it a token", area: "Editor" },
+  { keys: ["Tab"], label: "Right after an underlined date or repeat on a task line (\"tomorrow\"), make it a token now; typed at the end, it becomes one when you leave the line", area: "Editor" },
   { keys: ["Tab", "Shift-Tab"], label: "Indent / outdent", area: "Editor" },
   { keys: ["Mod-Alt-s"], label: "Wrap the selection in a collapsible section", area: "Editor" },
   { keys: ["Space"], label: "On a section's summary line: fold or unfold it", area: "Editor" },
@@ -198,6 +234,7 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: [":w"], label: "Save", area: "Vim" },
   { keys: [":e name"], label: "Open a note (:e alone opens quick open)", area: "Vim" },
   { keys: [":star"], label: "Star or unstar the note", area: "Vim" },
+  { keys: [":rename"], label: "Rename the note (selects its heading)", area: "Vim" },
   { keys: [":archive"], label: "Archive the note", area: "Vim" },
   { keys: [":trash"], label: "Delete the note (to Trash)", area: "Vim" },
   { keys: [":notes"], label: "Go to Notes", area: "Vim" },

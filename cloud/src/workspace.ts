@@ -7,15 +7,19 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { Quire } from "../../src/core/quire.ts";
 import { migrate } from "../../src/core/store.ts";
 import { errorResponse, handleApi, json, type ApiHost } from "../../src/core/api.ts";
-import { cleanPath, fileSecurityHeaders, kindOf, MAX_UPLOAD, mimeOf } from "../../src/core/paths.ts";
+import { cleanPath, fileSecurityHeaders, kindOf, MAX_UPLOAD, mimeOf, QuireError } from "../../src/core/paths.ts";
 import type { Change } from "../../src/core/quire.ts";
 import { createMcpServer } from "../../src/core/tools.ts";
+import { COMMANDS, UsageError, type VaultBytes } from "../../src/core/commands/index.ts";
+import type { RunResponse } from "../../src/core/commands/wire.ts";
+import { coreExporter } from "../../src/core/export.ts";
 import { access, asRole } from "./access.ts";
 import { DoDb, SqlContent } from "./do-store.ts";
 import { SEED_FILES, SEED_NOTES } from "./seed.ts";
+import { membersOf } from "./admin.ts";
 import type { Env } from "./env.ts";
 import { safeDecode } from "../../src/core/uri.ts";
-import { QuireError } from "../../src/core/paths.ts";
+import { AGENTS_NOTE } from "../../src/core/noteRoles.ts";
 import { accessOn, type SharedAccess, type ShareRole } from "./grants.ts";
 import { limit } from "./limits.ts";
 import { addShare, linkToken, listShares, removeShare, ShareError, updateShare, type Share, type Target } from "./shares.ts";
@@ -24,6 +28,9 @@ import { assertPublicUrl } from "../../src/core/unfurl.ts";
 import { feedsFor } from "./demo-calendar.ts";
 import { googleMode } from "./connections.ts";
 import { googleReader } from "./google-reader.ts";
+
+/** A note and its previous text are each a SQLite row here, which holds at most 2 MB. */
+const MAX_NOTE_BYTES = 1_900_000;
 
 export class Workspace extends DurableObject<Env> {
   private db: DoDb;
@@ -43,8 +50,7 @@ export class Workspace extends DurableObject<Env> {
     db.exec("CREATE TABLE IF NOT EXISTS registered_ids(id TEXT PRIMARY KEY)");
     // An upload's bytes go from R2 once it's deleted for good.
     this.files = new SqlContent(db, (key) => ctx.waitUntil(env.FILES.delete(key)));
-    // A note and its previous text are each a SQLite row here, which holds at most 2 MB.
-    this.quire = new Quire(db, this.files, { maxNoteBytes: 1_900_000 });
+    this.quire = new Quire(db, this.files, { maxNoteBytes: MAX_NOTE_BYTES });
     // Notes only change through the core here, so this finds nothing to do, except after an
     // upgrade that asks for notes to be indexed again (tags, say).
     this.quire.sync();
@@ -163,12 +169,15 @@ export class Workspace extends DurableObject<Env> {
         this.broadcast({ type: "change", change });
       },
       tree: () => this.broadcast({ type: "tree" }),
+      // Everyone in the workspace (the directory's, in D1): who "me" is on a task. (The Worker answers GET /members itself.)
+      members: async () => (await membersOf(this.env, wsId)).map((m) => ({ ...m, you: m.id === user })),
       calendar: this.calendar,
       origin: this.selfOrigin ?? undefined,
       calendarChanged: () => {
         this.broadcast({ type: "calendar" });
         this.ctx.waitUntil(this.schedule());
       },
+      fileBytes: (rel) => this.fileBytes(rel),
     };
     return (await handleApi(host, req, route)) ?? json({ error: `No route ${req.method} ${route}` }, 404);
   }
@@ -203,21 +212,51 @@ export class Workspace extends DurableObject<Env> {
     try {
       const name = url.searchParams.get("name") ?? "";
       const folder = url.searchParams.get("folder") ?? "assets";
-      let rel = this.quire.uploadPath(name, folder);
       const body = await req.arrayBuffer();
       if (body.byteLength > MAX_UPLOAD) return json({ error: "That file is over 50 MB" }, 413);
-      const mime = mimeOf(rel)!;
-      const key = `ws/${wsId}/${crypto.randomUUID()}`;
-      await this.env.FILES.put(key, body, { httpMetadata: { contentType: mime } });
-      if (this.files.stat(rel)) rel = this.quire.uploadPath(name, folder); // taken while we were storing it
-      this.files.putBlob(rel, key, body.byteLength, mime);
-      const r = this.quire.recordUpload(rel, false, actor);
+      const { rel, r } = await this.storeFile(wsId, this.quire.uploadPath(name, folder), new Uint8Array(body), actor, () => this.quire.uploadPath(name, folder));
       this.announce(rel, null, r.version, r.change);
       this.broadcast({ type: "tree" });
       return json({ path: rel, version: r.version, size: r.size });
     } catch (e) {
       return errorResponse(e);
     }
+  }
+
+  /** A new file's bytes into R2, listed at `rel` (or `again()`, if that was taken while they were stored), and logged. */
+  private async storeFile(wsId: string, rel: string, bytes: Uint8Array, source: string, again = () => rel) {
+    const mime = mimeOf(rel)!;
+    const key = `ws/${wsId}/${crypto.randomUUID()}`;
+    await this.env.FILES.put(key, bytes, { httpMetadata: { contentType: mime } });
+    if (this.files.stat(rel)) rel = again();
+    this.files.putBlob(rel, key, bytes.byteLength, mime);
+    return { rel, r: this.quire.recordUpload(rel, false, source) };
+  }
+
+  /** Files' bytes for commands that move them (the CLI's upload and download): assets from R2, notes as text. */
+  private vaultBytes(wsId: string): VaultBytes {
+    return {
+      read: async (rel) => {
+        const blob = this.files.blob(rel)?.blob;
+        if (blob) {
+          const obj = await this.env.FILES.get(blob);
+          return obj ? new Uint8Array(await obj.arrayBuffer()) : null;
+        }
+        const text = this.files.read(rel);
+        return text === null ? null : new TextEncoder().encode(text);
+      },
+      add: async (rel, bytes, source) => {
+        if (bytes.byteLength > MAX_UPLOAD) throw new QuireError(`${rel} is over 50 MB`);
+        await this.storeFile(wsId, rel, bytes, source);
+      },
+    };
+  }
+
+  /** An uploaded file's bytes, from R2. */
+  private async fileBytes(rel: string): Promise<Uint8Array | null> {
+    const key = this.files.blob(rel)?.blob;
+    const obj = key ? await this.env.FILES.get(key) : null;
+    return obj ? new Uint8Array(await obj.arrayBuffer()) : null;
   }
 
   private async serveFile(raw: string): Promise<Response> {
@@ -343,14 +382,17 @@ export class Workspace extends DurableObject<Env> {
         const target = this.shareTarget({ note: str("note"), path: str("path"), folder: str("folder") })!;
         const role = body.role === "editor" ? "editor" : body.role === "viewer" ? "viewer" : null;
         if (!role) throw new ShareError('"role" must be "viewer" or "editor"');
+        this.refuseEditingAgentsNote(target, role);
         const expiresAt = typeof body.expiresAt === "number" ? body.expiresAt : null;
-        await addShare(this.env.DB, this.env.SESSION_SECRET, { workspaceId: wsId, by: user, target, email: str("email"), link: body.link === true, role, expiresAt });
+        await addShare(this.env.DB, this.env.SESSION_SECRET, { workspaceId: wsId, by: user, target, email: str("email"), link: body.link === true, role, expiresAt, viaAgent: false });
         this.sharingChanged();
         return json(await this.describeShares(wsId, target, true));
       }
       case "POST /shares/update": {
         const role = body.role === "editor" || body.role === "viewer" ? body.role : undefined;
         const expiresAt = body.expiresAt === null || typeof body.expiresAt === "number" ? (body.expiresAt as number | null) : undefined;
+        const share = role === "editor" ? (await listShares(this.env.DB, wsId)).find((s) => s.id === str("id")) : undefined;
+        if (share?.note) this.refuseEditingAgentsNote({ note: share.note }, role);
         await updateShare(this.env.DB, wsId, str("id") ?? "", { role, expiresAt });
         this.sharingChanged();
         return json({ ok: true });
@@ -361,6 +403,13 @@ export class Workspace extends DurableObject<Env> {
         return json({ ok: true });
     }
     return json({ error: `No route ${req.method} ${route}` }, 404);
+  }
+
+  /** Every member's agent follows AGENTS.md, so no one outside the workspace may edit it. */
+  private refuseEditingAgentsNote(target: Target, role: ShareRole | undefined) {
+    if (role === "editor" && target.note && this.quire.pathOf(target.note) === AGENTS_NOTE) {
+      throw new ShareError(`${AGENTS_NOTE} can't be shared for editing: every connected agent follows it. Share it as a viewer.`);
+    }
   }
 
   /** The note (by ID or path) or folder a share request is about; none for a GET of everything. */
@@ -387,12 +436,23 @@ export class Workspace extends DurableObject<Env> {
       if (!d.shares.length && !d.inherited.length) return `${what} isn't shared with anyone outside the workspace.`;
       return [`${what} is shared with:`, ...d.shares.map(line), ...(d.inherited.length ? ["Through its folders:", ...d.inherited.map(line)] : [])].join("\n");
     };
+    // A refusal reaches the agent or the CLI as its message, with the code it would have in the app.
+    const refusing = async <T>(fn: () => Promise<T>): Promise<T> => {
+      try {
+        return await fn();
+      } catch (e) {
+        if (e instanceof ShareError) throw new QuireError(e.message, ({ 403: "forbidden", 404: "not_found", 409: "conflict" } as const)[e.status as 403] ?? "invalid");
+        if (e instanceof QuireError) throw e;
+        throw new QuireError((e as Error).message);
+      }
+    };
     return {
-      list: async (o: { path?: string; folder?: string }) => describe(this.shareTarget({ path: o.path, folder: o.folder }, true)),
-      share: async (o: { path?: string; folder?: string; email?: string; link?: boolean; role: ShareRole; expiresInDays?: number }) => {
+      list: (o: { path?: string; folder?: string }) => refusing(async () => describe(this.shareTarget({ path: o.path, folder: o.folder }, true))),
+      share: (o: { path?: string; folder?: string; email?: string; link?: boolean; role: ShareRole; expiresInDays?: number }) => refusing(async () => {
         const tooMany = await limit(this.env.DB, "share", user);
         if (tooMany) throw new Error(((await tooMany.json()) as { error: string }).error);
         const target = this.shareTarget({ path: o.path, folder: o.folder })!;
+        this.refuseEditingAgentsNote(target, o.role);
         await addShare(this.env.DB, this.env.SESSION_SECRET, {
           workspaceId: wsId,
           by: user,
@@ -401,15 +461,16 @@ export class Workspace extends DurableObject<Env> {
           link: o.link === true,
           role: o.role,
           expiresAt: o.expiresInDays ? Date.now() + o.expiresInDays * 86_400_000 : null,
+          viaAgent: true,
         });
         this.sharingChanged();
         return describe(target);
-      },
-      unshare: async (id: string) => {
+      }),
+      unshare: (id: string) => refusing(async () => {
         await removeShare(this.env.DB, wsId, id);
         this.sharingChanged();
         return "Stopped sharing it.";
-      },
+      }),
     };
   }
 
@@ -464,40 +525,93 @@ export class Workspace extends DurableObject<Env> {
   /**
    * One MCP request from a connected agent (the Worker has checked its token and membership). Tools
    * are offered by `role`, and writes are attributed to `actor`, e.g. "Claude (via Audrow)". Open
-   * tabs hear about the agent's changes like any other.
+   * tabs hear about the agent's changes like any other. Its "today" is a day in `who.timeZone`.
    */
-  async mcp(req: Request, who: { workspace: string; user: string; actor: string; role: string }): Promise<Response> {
+  async mcp(req: Request, who: { workspace: string; user: string; actor: string; role: string; timeZone: string }): Promise<Response> {
     const role = asRole(who.role);
     const server = createMcpServer({
-      quire: this.quire,
+      quire: new Quire(this.db, this.files, { maxNoteBytes: MAX_NOTE_BYTES, timeZone: who.timeZone }),
       user: who.user,
       source: () => who.actor,
       may: (route) => access(role, ...(route.split(" ") as [string, string])) === "allowed",
       canEditShared: role === "owner" || role === "editor",
       sharing: this.agentSharing(who.workspace, who.user, new URL(req.url).origin, role === "owner" || role === "editor"),
+      members: () => membersOf(this.env, who.workspace),
       calendar: this.calendar,
       origin: new URL(req.url).origin,
+      // Markdown and .zip; a web page and Word are drawn by the app (Share → Export as).
+      exporter: coreExporter({ quire: this.quire, bytes: (rel) => this.fileBytes(rel), origin: new URL(req.url).origin }),
     });
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await server.connect(transport);
-    const last = this.quire.changes({ limit: 1 })[0]?.id ?? 0;
+    const last = this.lastChange();
     try {
       return await transport.handleRequest(req);
     } finally {
       await server.close();
-      const made = this.quire.changes({ since: last, limit: 500 }).reverse();
-      for (const c of made) {
-        if (c.from_path && c.from_path !== c.path) this.broadcast({ type: "removed", path: c.from_path });
-        // Sent to Trash: a tab with it open says so, as when it's deleted in the app.
-        if (c.op === "delete") this.broadcast({ type: "removed", path: c.path });
-        const content = kindOf(c.path) === "asset" ? null : this.files.read(c.path);
-        this.announce(c.path, content, c.version ?? "", c);
-      }
-      if (made.length) {
-        this.broadcast({ type: "tree" });
-        this.broadcast({ type: "calendar" }); // a meeting note an agent made is linked to its event
-      }
+      this.announceSince(last);
       this.claimIds(who.workspace);
+    }
+  }
+
+  /**
+   * One command from someone's CLI (`quire login`; see COMMANDS). The Worker has checked their token,
+   * that they're a member and that their role allows the command's route; the role is checked again
+   * here, as for every route. Open tabs hear about its changes like any other.
+   */
+  async runCommand(name: string, input: Record<string, unknown>, who: { workspace: string; user: string; actor: string; role: string; timeZone: string; origin?: string }): Promise<RunResponse> {
+    const command = COMMANDS.find((c) => c.cli === name);
+    // The Worker runs settings commands itself (cloud/src/cli.ts): they aren't in a workspace's notes.
+    if (!command || command.settings) return { ok: false, error: `No command "${name}" here: see quire help`, code: "usage" };
+    const role = asRole(who.role);
+    if (access(role, ...(command.route.split(" ") as [string, string])) !== "allowed") {
+      return { ok: false, error: role === "viewer" ? "You can view this workspace but not edit it" : "Only the workspace's owner can do that", code: "forbidden" };
+    }
+    const last = this.lastChange();
+    try {
+      // Its "today" is a day in the person's time zone, as an agent's is.
+      const quire = new Quire(this.db, this.files, { maxNoteBytes: MAX_NOTE_BYTES, timeZone: who.timeZone });
+      if (command.readOnly) quire.sync();
+      const host = {
+        quire,
+        user: who.user,
+        source: who.actor,
+        canEditShared: role === "owner" || role === "editor",
+        bytes: this.vaultBytes(who.workspace),
+        calendar: this.calendar,
+        origin: who.origin,
+        members: () => membersOf(this.env, who.workspace),
+        // As an agent's: a command can't tell a person from an agent, so the workspace's agent setting holds.
+        sharing: who.origin ? this.agentSharing(who.workspace, who.user, who.origin, role === "owner" || role === "editor") : undefined,
+        // Markdown and .zip, as over MCP; a web page and Word are drawn by the app (Share → Export as).
+        exporter: who.origin ? coreExporter({ quire, bytes: (rel) => this.fileBytes(rel), origin: who.origin }) : undefined,
+      };
+      return { ok: true, ...(await command.run(host, input as never)) };
+    } catch (e) {
+      if (e instanceof QuireError) return { ok: false, error: e.message, code: e.code };
+      if (e instanceof UsageError) return { ok: false, error: e.message, code: "usage" };
+      throw e;
+    } finally {
+      this.announceSince(last);
+      this.claimIds(who.workspace);
+    }
+  }
+
+  private lastChange = () => this.quire.changes({ limit: 1 })[0]?.id ?? 0;
+
+  /** Tell open tabs about every change since change `last`: what an agent or a CLI did in one go. */
+  private announceSince(last: number) {
+    const made = this.quire.changes({ since: last, limit: 500 }).reverse();
+    for (const c of made) {
+      if (c.from_path && c.from_path !== c.path) this.broadcast({ type: "removed", path: c.from_path });
+      // Sent to Trash: a tab with it open says so, as when it's deleted in the app.
+      if (c.op === "delete") this.broadcast({ type: "removed", path: c.path });
+      const content = kindOf(c.path) === "asset" ? null : this.files.read(c.path);
+      this.announce(c.path, content, c.version ?? "", c);
+    }
+    if (made.length) {
+      this.broadcast({ type: "tree" });
+      this.broadcast({ type: "calendar" }); // a meeting note made here is linked to its event
     }
   }
 

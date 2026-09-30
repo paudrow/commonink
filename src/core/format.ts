@@ -1,8 +1,12 @@
 // Plain-text renderings of core results, shared by the MCP server and the CLI.
 // Agents read markdown far more cheaply than JSON, so this is the default output.
 import { authorLabel } from "./actor.ts";
-import { isTagFavorite, type Backlink, type Change, type Favorite, type Note, type NoteMeta, type Quire, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView, type TrashItem } from "./quire.ts";
+import { createTwoFilesPatch } from "diff";
+import { isTagFavorite, type Backlink, type Change, type Favorite, type Label, type Note, type NoteMeta, type Quire, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView, type TrashItem } from "./quire.ts";
 import type { Board } from "./kanban.ts";
+import type { TemplateInfo } from "./templates.ts";
+import type { Contact, TimelineItem } from "./contacts.ts";
+import { localDate } from "./tasks.ts";
 
 export function fmtSearch(q: string, hits: SearchHit[]): string {
   if (!hits.length) return `No notes match "${q}".`;
@@ -121,6 +125,25 @@ export function fmtChanges(changes: Change[], quire: Pick<Quire, "diffStats">): 
     .join("\n");
 }
 
+/** Labels, newest first: each one's name and ID, its note, who labeled it and when. */
+export function fmtLabels(labels: Label[], note?: string): string {
+  if (!labels.length) return note ? `${note} has no labels yet. Label one with label_version.` : "No labels yet.";
+  return labels
+    .map((m) => {
+      const when = new Date(m.ts).toISOString().replace(/\.\d+Z$/, "Z");
+      const at = m.change_id ? `after change #${m.change_id}` : "";
+      const where = m.path ?? "(in Trash)";
+      return `- "${m.name}" [${m.id}] ${where}, labeled ${when} by ${authorLabel(m)}${at ? `, ${at}` : ""}${m.current ? " (the note is at this version now)" : ""}${m.description ? `\n    ${m.description}` : ""}`;
+    })
+    .join("\n");
+}
+
+/** What changed between two versions, as a unified diff (context of 3 lines). */
+export function fmtVersionDiff(path: string, from: { label: string; text: string }, to: { label: string; text: string }): string {
+  if (from.text === to.text) return `${path}: "${from.label}" and ${to.label} are the same.`;
+  return createTwoFilesPatch(`${path} (${from.label})`, `${path} (${to.label})`, from.text, to.text, "", "", { context: 3 }).replace(/^=+\n/, "").trimEnd();
+}
+
 export function fmtWrite(r: { path: string; version: string; change?: Change | null }, verb: string): string {
   return `${verb} ${r.path} → version ${r.version}${r.change?.summary ? ` (${r.change.summary})` : ""}`;
 }
@@ -156,6 +179,37 @@ export function fmtBoards(path: string, boards: Board[], unclosed: number | null
 export function fmtTrash(items: TrashItem[]): string {
   if (!items.length) return "Trash is empty.";
   return items
-    .map((t) => `${t.id}  ${t.path} — deleted ${new Date(t.deletedAt).toISOString().slice(0, 16).replace("T", " ")}${t.by ? ` by ${authorLabel({ ...t.by })}` : ""}, gone for good ${new Date(t.expiresAt).toISOString().slice(0, 10)}`)
+    .map((t) => `${t.id}  ${t.path} — deleted ${localDate(t.deletedAt)} ${new Date(t.deletedAt).toTimeString().slice(0, 5)}${t.by ? ` by ${authorLabel({ ...t.by })}` : ""}, gone for good ${localDate(t.expiresAt)}`)
     .join("\n");
+}
+
+/** A template on a line: its path and name, what it asks, and the folders it's the default for. */
+export function fmtTemplate(t: TemplateInfo): string {
+  const kind = (a: TemplateInfo["asks"][number]) => (a.type === "choice" ? ` (one of ${a.choices.join(", ")})` : a.type === "text" ? "" : ` (${a.type})`);
+  const asks = t.asks.length ? ` · asks: ${t.asks.map((a) => a.label + kind(a)).join(", ")}` : "";
+  const where = t.appliesTo.length ? ` · new notes in ${t.appliesTo.map((f) => `${f}/`).join(", ")} start from it` : "";
+  return `${t.path} — ${t.name}${asks}${where}`;
+}
+
+/** One contact on a line: path, name, role and company, emails and tags, and when they were last mentioned. */
+export function fmtContactLine(c: Contact): string {
+  const tags = c.tags.map((t) => `#${t}`).join(" ");
+  const seen = c.lastContacted ? `last mentioned ${c.lastContacted} (${c.mentions} note${c.mentions === 1 ? "" : "s"})` : "not mentioned yet";
+  return `${c.path} — ${[c.name, [c.role, c.company].filter(Boolean).join(", "), [c.email.join(", "), tags].filter(Boolean).join(" "), seen].filter(Boolean).join(" · ")}`;
+}
+
+/** A contact's details, then the notes that mention them. */
+export function fmtContact({ contact: c, timeline }: { contact: Contact; timeline: TimelineItem[] }): string {
+  const fields: Array<[string, string]> = [
+    ["email", c.email.join(", ")],
+    ["phone", c.phone.join(", ")],
+    ["company", c.company],
+    ["role", c.role],
+    ["links", c.links.join(", ")],
+    ["aliases", c.aliases.join(", ")],
+    ["tags", c.tags.map((t) => `#${t}`).join(" ")],
+  ];
+  const head = [`# ${c.name} (${c.path})`, ...fields.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`)];
+  const seen = timeline.length ? ["Mentioned in:", ...timeline.map((t) => `- ${t.date} ${t.path}:${t.line} ${t.text}`)] : ["Not mentioned in any note yet."];
+  return [...head, "", ...seen].join("\n");
 }

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { readIcs } from "../src/core/ics.ts";
 import { withoutNoteLink } from "../src/core/calendar.ts";
-import { eventsToIcs, exchangeCode, GoogleClient, GoogleError, googleMode, instanceId, refreshGrant, revokeGrant, withNoteLink, type GoogleEvent } from "../cloud/src/google.ts";
+import { eventsToIcs, exchangeCode, GoogleClient, GoogleError, googleMode, instanceId, refreshGrant, revokeGrant, toGoogle, withNoteLink, type GoogleEvent } from "../cloud/src/google.ts";
 import { decrypt, encrypt } from "../cloud/src/secrets.ts";
 
 const LA = "America/Los_Angeles";
@@ -101,7 +101,7 @@ const fake = http.createServer(async (req, res) => {
       : send(200, { items: [{ id: "me@example.com", summary: "Me", primary: true, accessRole: "owner", timeZone: LA }], nextPageToken: "p2" });
   }
   const m = url.pathname.match(/^\/api\/calendars\/([^/]+)\/events(?:\/([^/]+))?$/);
-  if (m && !m[2]) {
+  if (m && !m[2] && req.method === "GET") {
     const token = url.searchParams.get("syncToken");
     if (token && expireSyncTokens) return send(410, { error: { message: "Sync token is no longer valid, a full sync is required." } });
     if (token === "s1") return send(200, { items: [MOVED], nextSyncToken: "s2", timeZone: LA, summary: "Me" });
@@ -110,6 +110,8 @@ const fake = http.createServer(async (req, res) => {
   }
   if (m && m[2] && req.method === "GET") return send(200, { ...SERIES, id: decodeURIComponent(m[2]) });
   if (m && m[2] && req.method === "PATCH") return send(200, {});
+  if (m && !m[2] && req.method === "POST") return send(200, { ...JSON.parse(body), id: "new1", iCalUID: "new1@google.com" });
+  if (m && m[2] && req.method === "DELETE") return res.writeHead(204).end();
   send(404, { error: { message: "Not found" } });
 });
 before(async () => {
@@ -141,8 +143,16 @@ test("the API client: calendars across pages, a first sync then only changes, a 
   const expired = await api.changes("me@example.com", "s2").catch((e: GoogleError) => e.status);
   expireSyncTokens = false;
   assert.equal(expired, 410);
-  await api.describe("me@example.com", "abc_20261013T160000Z", "New text");
-  assert.deepEqual(seen.at(-1), { method: "PATCH", path: "/api/calendars/me%40example.com/events/abc_20261013T160000Z", auth: "Bearer at-1", body: '{"description":"New text"}' });
+  await api.patch("me@example.com", "abc_20261013T160000Z", { description: "New text" });
+  assert.deepEqual(seen.at(-1), { method: "PATCH", path: "/api/calendars/me%40example.com/events/abc_20261013T160000Z?sendUpdates=none", auth: "Bearer at-1", body: '{"description":"New text"}' });
+  const made = await api.insert("me@example.com", toGoogle({ title: "Pairing", start: "2026-10-07T17:00:00Z", end: "2026-10-07T18:00:00Z", allDay: false, timeZone: LA, attendees: [{ name: "Ana", email: "ana@example.com", status: null }] }));
+  assert.deepEqual([made.id, seen.at(-1)!.method, seen.at(-1)!.path, JSON.parse(seen.at(-1)!.body)], [
+    "new1", "POST", "/api/calendars/me%40example.com/events?sendUpdates=none",
+    { summary: "Pairing", start: { dateTime: "2026-10-07T17:00:00Z", timeZone: LA }, end: { dateTime: "2026-10-07T18:00:00Z", timeZone: LA }, attendees: [{ email: "ana@example.com", displayName: "Ana" }] },
+  ]);
+  assert.deepEqual(toGoogle({ allDay: true, start: "2026-10-08", end: "2026-10-10" }), { start: { date: "2026-10-08" }, end: { date: "2026-10-10" } });
+  await api.remove("me@example.com", "new1");
+  assert.deepEqual([seen.at(-1)!.method, seen.at(-1)!.path], ["DELETE", "/api/calendars/me%40example.com/events/new1?sendUpdates=none"]);
   const wrong = await new GoogleClient(async () => "stale", endpoints()).calendars().catch((e: GoogleError) => [e.status, e.message]);
   assert.deepEqual(wrong, [401, "Invalid Credentials"]);
 });

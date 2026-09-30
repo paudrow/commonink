@@ -32,6 +32,7 @@
         </button>
         <button id="notes-btn" class="nav-item" type="button"><span class="ico" data-icon="feed"></span><span>Notes</span></button>
         <button id="tasks-btn" class="nav-item" type="button"><span class="ico" data-icon="task"></span><span>Tasks</span><span id="tasks-count" class="n"></span></button>
+        <button id="contacts-btn" class="nav-item" type="button"><span class="ico" data-icon="user"></span><span>Contacts</span></button>
         <button id="calendar-btn" class="nav-item" type="button"><span class="ico" data-icon="calendar"></span><span>Calendar</span></button>
         <button id="assets-btn" class="nav-item" type="button"><span class="ico" data-icon="grid"></span><span>Assets</span><span id="assets-count" class="n"></span></button>
         <button id="history-btn" class="nav-item" type="button"><span class="ico" data-icon="history"></span><span>History</span></button>
@@ -61,26 +62,25 @@
         <nav id="tag-tree" aria-label="Tags"></nav>
         </div>
         <div class="sidebar-foot">
-          <button id="archive-nav" class="nav-item" type="button"><span class="ico" data-icon="archive"></span><span>Archive</span><span id="archive-count" class="n"></span></button>
-          <button id="trash-nav" class="nav-item" type="button"><span class="ico" data-icon="trash"></span><span>Trash</span></button>
-          <button id="new-note" class="ghost-btn" type="button"><span class="ico" data-icon="plus"></span>New note</button>
+          <div class="new-note-row">
+            <button id="new-note" class="ghost-btn" type="button"><span class="ico" data-icon="plus"></span>New note</button>
+            <button id="new-from-template" class="icon-btn small" type="button" title="New note from template…" aria-label="New note from template…"><span class="ico" data-icon="file" data-size="15"></span></button>
+          </div>
         </div>
       </aside>
 
       <main id="main">
         <header id="topbar">
-          <button id="back-btn" class="back-btn" type="button" title="Back to notes" hidden><span class="ico" data-icon="back"></span><span>Notes</span></button>
-          <div id="crumbs"></div>
           <div class="spacer"></div>
           <div id="agents" title="Agents active in the last 15 minutes"></div>
           <div id="save-status" aria-live="polite"></div>
           <div id="html-toggle" class="seg" role="group" aria-label="Show as" hidden>
             <button data-mode="preview" type="button">Preview</button><button data-mode="source" type="button">Source</button>
           </div>
-          <button id="share-btn" class="icon-btn" type="button" title="Share…" aria-label="Share…" hidden><span class="ico" data-icon="share"></span></button>
+          <button id="share-btn" class="icon-btn" type="button" title="Share, print or export" aria-label="Share, print or export" aria-haspopup="menu" aria-expanded="false" hidden><span class="ico" data-icon="share"></span></button>
           <button id="star-btn" class="icon-btn" type="button" title="Star (add to Favorites)" aria-label="Star (add to Favorites)"><span class="ico" data-icon="star"></span></button>
           <button id="note-history-btn" class="icon-btn" type="button" title="History of this note" aria-label="History of this note"><span class="ico" data-icon="history"></span></button>
-          <button id="move-btn" class="icon-btn" type="button" title="Move to folder" aria-label="Move to folder"><span class="ico" data-icon="move"></span></button>
+          <button id="move-btn" class="icon-btn" type="button" title="Move to another folder" aria-label="Move to another folder"><span class="ico" data-icon="move"></span></button>
           <button id="archive-btn" class="icon-btn" type="button" title="Archive note (⌘⇧E)" aria-label="Archive note (⌘⇧E)"><span class="ico" data-icon="archive"></span></button>
           <button id="delete-btn" class="icon-btn" type="button" title="Delete note (to Trash)" aria-label="Delete note (to Trash)"><span class="ico" data-icon="trash"></span></button>
           <button id="split-btn" class="icon-btn" type="button" title="Split view (⌘⌥\)" aria-label="Split view (⌘⌥\)"><span class="ico" data-icon="split"></span></button>
@@ -98,7 +98,7 @@
           <div id="history-view" hidden tabindex="-1"></div>
           <div id="assets-view" hidden tabindex="-1"></div>
           <div id="tags-view" hidden tabindex="-1"></div>
-          <div id="trash-view" hidden tabindex="-1"></div>
+          <div id="contacts-view" hidden tabindex="-1"></div>
           <div id="shared-view" hidden tabindex="-1"></div>
           <div id="capture-view" hidden tabindex="-1"></div>
           <div id="pane-divider" role="separator" aria-orientation="vertical" aria-label="Resize the panes" tabindex="0" hidden></div>
@@ -118,6 +118,7 @@
           <button id="codewrap-toggle" class="chip-btn" type="button" aria-pressed="false">Wrap code: on</button>
           <button id="vim-toggle" class="chip-btn" type="button" title="Vim keybindings in the editor" aria-pressed="false">Vim keys: off</button>
           <button id="theme-toggle" class="icon-btn small" type="button" title="Toggle theme" aria-label="Toggle theme"><span class="ico" data-icon="moon"></span></button>
+          <button id="settings-btn" class="icon-btn small" type="button" title="Settings (⌘,)" aria-label="Settings (⌘,)"><span class="ico" data-icon="gear"></span></button>
         </footer>
       </main>
 

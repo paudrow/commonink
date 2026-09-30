@@ -1,341 +1,186 @@
-// `quire` CLI — the same core as the MCP server, for agents that prefer a shell (and for you).
+// `quire` CLI — the same commands as the MCP server (src/core/commands), for agents that prefer a
+// shell, and for you. `--json` prints any result as JSON; the exit code says how it went (EXIT).
 import fs from "node:fs";
-import { LOCAL_USER, openVault } from "./core/local.ts";
+import path from "node:path";
+import { LOCAL_USER, openVault, type LocalVault } from "./core/local.ts";
 import { QuireError } from "./core/paths.ts";
-import { fmtBacklinks, fmtBoards, fmtChanges, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtSmartFolders, fmtTags, fmtTasks, fmtToday, fmtTrash, fmtWrite } from "./core/format.ts";
-import { parseQuery } from "./core/query.ts";
-import { agentSource, parseAuthorFilter } from "./core/actor.ts";
-import { Calendar, dayRange, fetchFeed, fmtEvent, fmtEvents, fmtSources } from "./core/calendar.ts";
+import { agentSource } from "./core/actor.ts";
+import { Calendar, fetchFeed } from "./core/calendar.ts";
 import { assertPublic } from "./server/unfurl.ts";
-
-const HELP = `quire — markdown notes for you and your agents
-
-Usage: quire <command> [args] [--agent <name>] [--json]
-
-  search <query…> [--tag T] [--limit N] [--archived|--all]
-                                   full-text search (prefix matching)
-  read <note> [--offset N] [--limit N]
-  ls [folder] [--tag T] [--recent N] [--archived|--all]
-  tags                             every tag, nested, with what carries it
-                                   (--tag work also matches #work/acme)
-  tasks [--tag T] [--assignee P] [--due '<=today'] [--done|--all]
-                                   open tasks (tokens: due: start: rec: #tag @person !high)
-  today [--date YYYY-MM-DD]        the day at a glance: overdue, due today, starting today,
-                                   and today's journal note
-  task add "<task>"                add a task in words: "Pay rent every month on the 1st #home",
-                                   "Call mom tomorrow → [[Family]]"; it goes in today's daily
-                                   note (Journal/YYYY-MM-DD.md) or the → [[note]]
-  task move <note> <line> --to <note>
-                                   move a task (and what's nested under it) to another note
-  task <note> <line> [--done|--undone] [--due D] [--start D] [--rec R]
-       [--until D] [--times N] [--priority high|low] [--assignee P,…] [--tag T,…] [--skip]
-                                   tick a task or change its tokens; "none" clears one.
-                                   --rec weekly, 6th, 1st-tue, after-1m (from done)…;
-                                   --until and --times end a repeat (last day, times left);
-                                   --skip moves a repeating task to its next date
-  board <note>                     the note's Kanban boards (:::kanban blocks), cards with line numbers
-  card add <note> <column> <text…> [--board N] [--position N]
-  card move <note> <card> <column> [--position N]
-  card edit <note> <card> [--text T] [--done|--undone]
-                                   <card> is a line number from \`board\`, or words only its text has
-  archive <note…>                  move notes to Archive/ (links keep working)
-  unarchive <note…>                move archived notes back
-  delete <note…>                   move notes or assets to Trash (restorable for 30 days)
-  trash                            what's in Trash, newest first, with ids
-  trash restore <id…>              put Trash items back where they were
-  create <path> [content | -]      '-' or no content reads stdin
-  edit <note> --old <s> --new <s> [--all] [--base <version>]
-  append <note> [text | -]
-  mv <note> <new-path>             rewrites links to the note
-  backlinks <note>
-  star <note…> / unstar <note…>    add to or take out of your favorites ('#tag' for a tag)
-  starred                          list your favorites, in order
-  smart [name]                     your smart folders, or the notes in one
-  smart-save <name> [query…] [--just-me] [--id ID]
-                                   save a note query (q="…" folder=… tag=… sort=title)
-  smart-rm <name>                  delete a smart folder
-  changes [--since <iso|id>] [--path <path|id|url>] [--limit N] [--by people|ai|<agent>]
-                                   --path brings the note's history under earlier names too;
-                                   --by shows only people's changes, any agent's, or one agent's
-  restore <change-id>              put a note back the way it was before that change
-  events [--from YYYY-MM-DD] [--days N] [--query words] [--tz Zone]
-                                   calendar events, soonest first (default: the next 7 days);
-                                   feeds that are due are read first
-  event <id>                       one event in full, with its meeting note
-  meeting-note <id> [--tz Zone]    the event's meeting note in Meetings/, made and linked if new
-  calendars                        the calendars (ICS feeds) this vault subscribes to
-  calendars add <url> [--name N]   subscribe to an ICS or webcal feed
-  calendars refresh | remove <id>  read every feed again now, or unsubscribe from one
-  mcp                              run the stdio MCP server
-
-<note> can be a path, a path without .md, a [[wikilink]] name, a note ID or a note URL.
-Writes are yours, unless an agent says it's the one writing: --agent <name> (or --as), or
-$QUIRE_AGENT. Agents: set QUIRE_AGENT, so History shows your changes as "<agent> for you".
-Vault: $QUIRE_VAULT (default: ./vault next to this tool).`;
+import { EXIT, UsageError, type CommandHost, type Output } from "./core/commands/index.ts";
+import { findCommand, noSuchSubcommand, parse, type Io } from "./cli/argv.ts";
+import { commandHelp, overview } from "./cli/help.ts";
+import { SHELLS } from "./cli/completion.ts";
+import { CliError, DEFAULT_SERVER, loadCredentials, login, logout, runRemote, saveCredentials, workspaces, type Credentials } from "./cli/hosted.ts";
 
 const argv = process.argv.slice(2);
-const flags: Record<string, string | true> = {};
-const pos: string[] = [];
-for (let i = 0; i < argv.length; i++) {
-  const a = argv[i];
-  if (a.startsWith("--")) {
-    const key = a.slice(2);
-    const next = argv[i + 1];
-    if (["all", "json", "help", "archived", "done", "undone", "skip", "just-me"].includes(key) || next === undefined) flags[key] = true;
-    else flags[key] = argv[++i];
-  } else pos.push(a);
-}
-const [cmd, ...args] = pos;
-const str = (k: string) => (typeof flags[k] === "string" ? (flags[k] as string) : undefined);
-/** A positive whole number from `--k`, or undefined if the flag is absent. */
-const num = (k: string) => {
-  const v = str(k);
-  if (v === undefined) return undefined;
-  if (!/^[1-9]\d*$/.test(v)) throw new QuireError(`--${k} must be a positive whole number, not "${v}"`);
-  return Number(v);
-};
-/** The i-th positional argument, which the command can't do without. */
-const need = (i: number, name: string) => {
-  if (args[i] === undefined) throw new QuireError(`${cmd} needs <${name}>`);
-  return args[i];
-};
-const agent = str("agent") || str("as") || process.env.QUIRE_AGENT;
-const source = agent ? agentSource(agent, LOCAL_USER) : LOCAL_USER;
-const stdin = () => fs.readFileSync(0, "utf8");
-const scope = flags.archived ? ("archived" as const) : flags.all ? ("all" as const) : ("active" as const);
-const out = (text: string, data: unknown) => console.log(flags.json ? JSON.stringify(data, null, 2) : text);
-/** The vault's one person, who may change its calendars. */
-const ME = { user: LOCAL_USER, canEdit: true };
-const calendarOf = (q: ReturnType<typeof openVault>) => new Calendar(q.db, (url, last) => fetchFeed(url, last, assertPublic));
+const json = argv.includes("--json");
 
-if (cmd === "mcp") {
-  await import("./mcp.ts");
-} else if (!cmd || flags.help || cmd === "help") {
-  console.log(HELP);
-} else {
-  try {
-    const q = openVault();
-    switch (cmd) {
-      case "search": {
-        const query = args.join(" ");
-        const hits = q.search(query, num("limit") ?? 10, scope, str("tag"));
-        out(fmtSearch(query, hits), hits);
-        break;
-      }
-      case "today": {
-        const t = q.today(str("date"));
-        out(fmtToday(t), t);
-        break;
-      }
-      case "tasks": {
-        const tasks = q.tasks({ tag: str("tag"), assignee: str("assignee"), due: str("due") }).filter((t) => flags.all || t.done === !!flags.done);
-        out(fmtTasks(tasks), tasks);
-        break;
-      }
-      case "task": {
-        if (args[0] === "add") {
-          if (!args[1]) throw new QuireError('Say what the task is: quire task add "Call mom tomorrow"');
-          const r = q.addTask(args.slice(1).join(" "), source);
-          out(`Added "- [ ] ${r.text}" to ${r.path}:${r.line}`, r);
-          break;
-        }
-        if (args[0] === "move") {
-          const [note, line] = [need(1, "note"), Number(need(2, "line"))];
-          const task = q.tasks({ note }).find((t) => t.line === line);
-          if (!task) throw new QuireError(`There's no task on line ${args[2]} of ${note}`);
-          const to = str("to");
-          if (!to) throw new QuireError("task move needs --to <note>");
-          const r = q.moveTask(note, line, task.text, to, source);
-          out(`Moved "${r.text}" to ${r.path}:${r.line}`, r);
-          break;
-        }
-        const note = need(0, "note");
-        const line = Number(need(1, "line"));
-        const task = q.tasks({ note }).find((t) => t.line === line);
-        if (!task) throw new QuireError(`There's no task on line ${args[1]} of ${note}`);
-        const one = (k: string) => (str(k) === undefined ? undefined : str(k) === "none" ? null : str(k));
-        const list = (k: string) => (str(k) === undefined ? undefined : str(k) === "none" ? [] : str(k)!.split(",").map((s) => s.trim().replace(/^[@#]/, "")));
-        const checked = flags.done ? true : flags.undone ? false : undefined;
-        const patch = Object.fromEntries(
-          Object.entries({ checked, due: one("due"), start: one("start"), rec: one("rec"), until: one("until"), times: str("times") === undefined ? undefined : str("times") === "none" ? null : Number(str("times")), priority: one("priority"), assignees: list("assignee"), tags: list("tag") }).filter(([, v]) => v !== undefined),
-        );
-        const r = flags.skip ? q.skipTask(note, line, task.text, source) : q.updateTask(note, line, task.text, patch, source);
-        out(fmtWrite(r, r.change ? "Updated" : "No change to"), r);
-        break;
-      }
-      case "board": {
-        const { note, boards, unclosed } = q.boards(need(0, "note"));
-        out(fmtBoards(note.path, boards, unclosed), { boards, unclosed });
-        break;
-      }
-      case "card": {
-        const [verb, note] = [need(0, "add|move|edit"), need(1, "note")];
-        const r =
-          verb === "add" ? q.addCard(note, need(2, "column"), args.slice(3).join(" "), source, { board: num("board"), position: num("position") })
-          : verb === "move" ? q.moveCard(note, need(2, "card"), need(3, "column"), source, { position: num("position") })
-          : verb === "edit" ? q.editCard(note, need(2, "card"), { text: str("text"), done: flags.done ? true : flags.undone ? false : undefined }, source)
-          : null;
-        if (!r) throw new QuireError(`card needs add, move or edit, not "${verb}"`);
-        out(fmtWrite(r, r.change ? "Changed a card in" : "No change to"), r);
-        break;
-      }
-      case "tags": {
-        const tags = q.tags();
-        out(fmtTags(tags), tags);
-        break;
-      }
-      case "read": {
-        const n = q.read(need(0, "note"));
-        out(fmtRead(n, num("offset"), num("limit")), n);
-        break;
-      }
-      case "ls": {
-        const notes = num("recent") ? q.recent(num("recent")) : q.list(args[0], scope, str("tag"));
-        out(fmtList(notes), notes);
-        break;
-      }
-      case "create": {
-        const content = args[1] === undefined || args[1] === "-" ? stdin() : args.slice(1).join(" ");
-        const r = q.create(need(0, "path"), content, source);
-        out(fmtWrite(r, "Created"), r);
-        break;
-      }
-      case "edit": {
-        if (str("old") === undefined || str("new") === undefined) throw new QuireError("edit needs --old and --new");
-        const r = q.edit(need(0, "note"), { oldString: str("old")!, newString: str("new")!, replaceAll: !!flags.all, baseVersion: str("base") }, source);
-        out(fmtWrite(r, "Edited"), r);
-        break;
-      }
-      case "append": {
-        const text = args[1] === undefined || args[1] === "-" ? stdin() : args.slice(1).join(" ");
-        const r = q.append(need(0, "note"), text, source);
-        out(fmtWrite(r, "Appended to"), r);
-        break;
-      }
-      case "mv": {
-        const r = q.move(need(0, "note"), need(1, "new-path"), source);
-        out(`Moved to ${r.path}.${r.updated.length ? ` Updated links in: ${r.updated.join(", ")}` : ""}`, r);
-        break;
-      }
-      case "backlinks": {
-        const links = q.backlinks(need(0, "note"));
-        out(fmtBacklinks(args[0], links), links);
-        break;
-      }
-      case "changes": {
-        const cs = q.changes({ since: str("since"), path: str("path"), limit: num("limit") ?? 30, by: parseAuthorFilter(str("by")) });
-        out(fmtChanges(cs, q), cs);
-        break;
-      }
-      case "archive":
-      case "unarchive": {
-        const lines = args.map((a) => {
-          const r = cmd === "archive" ? q.archive(a, source) : q.unarchive(a, source);
-          return `${cmd === "archive" ? "Archived" : "Unarchived"} → ${r.path}`;
-        });
-        out(lines.join("\n"), lines);
-        break;
-      }
-      case "delete": {
-        if (!args.length) throw new QuireError("delete needs <note>");
-        const gone = q.delete(args, source);
-        out(gone.map((d) => `Moved ${d.path} to Trash (${d.id})`).join("\n"), gone.map(({ id, path }) => ({ id, path })));
-        break;
-      }
-      // Restoring only: deleting for good is for a person, in the app.
-      case "trash": {
-        if (args[0] === "restore") {
-          if (args.length < 2) throw new QuireError("trash restore needs <id>");
-          const back = q.untrash(args.slice(1), source);
-          out(back.map((b) => `Restored ${b.path}`).join("\n"), back.map((b) => b.path));
-          break;
-        }
-        if (args.length) throw new QuireError(`trash takes restore, not "${args[0]}"`);
-        const items = q.trash();
-        out(fmtTrash(items), items);
-        break;
-      }
-      case "star":
-      case "unstar": {
-        if (!args.length) throw new QuireError(`${cmd} needs <note>`);
-        for (const a of args) {
-          if (a.startsWith("#")) cmd === "star" ? q.starTag(LOCAL_USER, a) : q.unstarTag(LOCAL_USER, a);
-          else cmd === "star" ? q.star(LOCAL_USER, a) : q.unstar(LOCAL_USER, a);
-        }
-        const list = q.favorites(LOCAL_USER);
-        out(fmtFavorites(list), list);
-        break;
-      }
-      case "smart": {
-        if (!args.length) {
-          const list = q.smartFolders(LOCAL_USER);
-          out(fmtSmartFolders(list), list);
-          break;
-        }
-        const query = parseQuery(q.findSmartFolder(LOCAL_USER, args.join(" ")).query);
-        const notes = q.feed({ ...query, limit: Infinity }).items;
-        out(fmtList(notes), notes);
-        break;
-      }
-      case "smart-save": {
-        const f = q.saveSmartFolder(LOCAL_USER, { id: str("id"), name: need(0, "name"), query: args.slice(1).join(" "), shared: !flags["just-me"] }, true);
-        out(fmtSmartFolders([f]), f);
-        break;
-      }
-      case "smart-rm": {
-        const list = q.deleteSmartFolder(LOCAL_USER, need(0, "name"), true);
-        out(fmtSmartFolders(list), list);
-        break;
-      }
-      case "starred": {
-        const list = q.favorites(LOCAL_USER);
-        out(fmtFavorites(list), list);
-        break;
-      }
-      case "restore": {
-        const id = need(0, "change-id");
-        if (!/^\d+$/.test(id)) throw new QuireError(`<change-id> must be a whole number, not "${id}"`);
-        const r = q.restore(Number(id), source);
-        out(fmtWrite(r, "Restored"), r);
-        break;
-      }
-      case "events": {
-        const cal = calendarOf(q);
-        await cal.syncDue();
-        const zone = str("tz") || Intl.DateTimeFormat().resolvedOptions().timeZone;
-        const range = dayRange(str("from"), num("days") ?? 7, zone);
-        const events = cal.events(ME, { ...range, zone, q: str("query") });
-        out(fmtEvents(events, cal.sources(ME), zone, range), events);
-        break;
-      }
-      case "event": {
-        const cal = calendarOf(q);
-        const ev = cal.event(need(0, "id"), ME);
-        if (!ev) throw new QuireError(`No event ${args[0]}; \`quire events\` lists them with their ids`);
-        out(fmtEvent(ev, cal.sources(ME), str("tz") || Intl.DateTimeFormat().resolvedOptions().timeZone), ev);
-        break;
-      }
-      case "meeting-note": {
-        const r = calendarOf(q).meetingNote(q, need(0, "id"), ME, { timeZone: str("tz") || Intl.DateTimeFormat().resolvedOptions().timeZone, source });
-        out(r.created ? `Created ${r.path}, linked to the event` : `The event already has a meeting note: ${r.path}`, { path: r.path, created: r.created });
-        break;
-      }
-      case "calendars": {
-        const cal = calendarOf(q);
-        if (args[0] === "add") await cal.addIcs({ url: need(1, "url"), name: str("name") }, ME, source);
-        else if (args[0] === "remove") cal.remove(need(1, "id"), ME);
-        else if (args[0] === "refresh") await cal.refresh(ME);
-        else if (args[0] !== undefined) throw new QuireError(`calendars takes add, refresh or remove, not "${args[0]}"`);
-        const list = cal.sources(ME);
-        out(fmtSources(list), list);
-        break;
-      }
-      default:
-        console.error(`Unknown command: ${cmd}\n\n${HELP}`);
-        process.exit(2);
+const io: Io = {
+  stdin() {
+    if (process.stdin.isTTY) return null;
+    const text = fs.readFileSync(0, "utf8");
+    return text === "" ? null : text;
+  },
+  readFile(p) {
+    try {
+      return { name: path.basename(p), bytes: new Uint8Array(fs.readFileSync(p)) };
+    } catch {
+      throw new QuireError(`There's no file at ${p}`, "not_found");
     }
-  } catch (e) {
-    console.error(e instanceof QuireError ? e.message : e);
-    process.exit(1);
-  }
+  },
+};
+
+/** The local vault, and who's writing. */
+function localHost(q: LocalVault, agent: string | undefined): CommandHost {
+  return {
+    quire: q,
+    user: LOCAL_USER,
+    source: agent ? agentSource(agent, LOCAL_USER) : LOCAL_USER,
+    canEditShared: true,
+    // Feeds come from public addresses only, as link previews do.
+    calendar: new Calendar(q.db, (url, last) => fetchFeed(url, last, assertPublic)),
+    // Loaded when it's used: the web page and Word renderers are big.
+    exporter: async (target, format) => (await import("./server/export.ts")).localExporter(q)(target, format),
+    bytes: {
+      read: async (rel) => {
+        try {
+          return new Uint8Array(fs.readFileSync(q.files.abs(rel)));
+        } catch {
+          return null;
+        }
+      },
+      add: async (rel, bytes, source) => {
+        q.files.write(rel, bytes);
+        q.recordUpload(rel, false, source);
+      },
+    },
+  };
 }
+
+/** Print a result, and save a file it hands back (a download) where --out says. */
+function print(out: Output, input: Record<string, unknown>) {
+  let data = out.data;
+  if (out.save) {
+    // The name comes from the vault (or a server): only ever a file here, never a path out of it.
+    const dest = typeof input.out === "string" ? input.out : path.basename(out.save.name.replaceAll("\\", "/")) || "download";
+    if (dest === "-") return void process.stdout.write(out.save.bytes);
+    fs.writeFileSync(dest, out.save.bytes);
+    data = { ...(out.data as object), saved: dest };
+    out = { ...out, text: `${out.text} → ${dest}` };
+  }
+  console.log(json ? JSON.stringify(data, null, 2) : out.text);
+}
+
+/**
+ * Where a command runs: a hosted workspace once you've signed in, unless --workspace (or
+ * $QUIRE_WORKSPACE) says local, or $QUIRE_VAULT names a vault and no workspace is asked for.
+ */
+function where(asked: string | undefined): { local: true } | { creds: Credentials; workspace?: string } {
+  const want = asked ?? process.env.QUIRE_WORKSPACE;
+  if (want === "local" || (!want && process.env.QUIRE_VAULT)) return { local: true };
+  const creds = loadCredentials();
+  if (!creds) {
+    if (want) throw new CliError(`--workspace ${want} is a hosted workspace: run quire login first (or --workspace local)`, "auth", EXIT.auth);
+    return { local: true };
+  }
+  return { creds, workspace: want ?? creds.workspace };
+}
+
+/** The CLI's own flags for login and workspaces: `--server URL`, `--no-browser`. */
+const flagValue = (name: string) => {
+  const at = argv.indexOf(`--${name}`);
+  return at < 0 ? undefined : argv[at + 1];
+};
+
+async function own(first: string, more: string[]): Promise<boolean> {
+  const say = (line: string) => console.error(line);
+  if (first === "login") {
+    const server = (flagValue("server") ?? process.env.QUIRE_SERVER ?? DEFAULT_SERVER).replace(/\/+$/, "");
+    const c = await login(server, { browser: !argv.includes("--no-browser"), say });
+    const { user, workspaces: list } = await workspaces(c);
+    saveCredentials({ ...c, user: user.name, workspace: list.length === 1 ? list[0].name : undefined });
+    const text = `Signed in to ${server} as ${user.name}. Workspaces: ${list.map((w) => `${w.name} (${w.role})`).join(", ") || "none"}.${list.length > 1 ? " Pick one with quire workspaces use <name>, or --workspace." : ""}`;
+    console.log(json ? JSON.stringify({ server, user: user.name, workspaces: list }, null, 2) : text);
+    return true;
+  }
+  if (first === "logout") {
+    const server = await logout();
+    console.log(json ? JSON.stringify({ signedOut: server }) : server ? `Signed out of ${server}.` : "You weren't signed in.");
+    return true;
+  }
+  if (first === "workspaces") {
+    const creds = loadCredentials();
+    if (!creds) throw new CliError("You aren't signed in to a hosted workspace: run quire login. Commands use this computer's vault meanwhile.", "auth", EXIT.auth);
+    const { user, workspaces: list } = await workspaces(creds);
+    const words = more.filter((w) => !w.startsWith("-"));
+    if (words[0] === "use") {
+      const pick = list.find((w) => w.id === words[1] || w.name.toLowerCase() === (words[1] ?? "").toLowerCase());
+      if (!pick) throw new UsageError(`workspaces use needs one of: ${list.map((w) => w.name).join(", ")}`);
+      saveCredentials({ ...creds, workspace: pick.name });
+      console.log(json ? JSON.stringify(pick, null, 2) : `Commands go to ${pick.name} now.`);
+      return true;
+    }
+    if (words.length) throw new UsageError(`workspaces takes use <name>, not "${words[0]}"`);
+    const rows = list.map((w) => `${w.name === creds.workspace ? "*" : "-"} ${w.name} (${w.role}${w.kind === "personal" ? ", personal" : ""}) [${w.id}]`);
+    console.log(json ? JSON.stringify({ server: creds.server, user: user.name, default: creds.workspace ?? null, workspaces: list }, null, 2) : [`${creds.server}, signed in as ${user.name}:`, ...rows].join("\n"));
+    return true;
+  }
+  return false;
+}
+
+function fail(message: string, code: string, exit: number): never {
+  if (json) console.log(JSON.stringify({ error: message, code, exit }, null, 2));
+  else console.error(message);
+  process.exit(exit);
+}
+
+async function main() {
+  // The CLI's own commands come first on the line; a note command's words can be anywhere among its flags.
+  const [first, ...more] = argv;
+  if (first === "mcp") return void (await import("./mcp.ts"));
+  if (first === "version" || first === "--version") return console.log(process.env.QUIRE_CLI_VERSION ?? JSON.parse(fs.readFileSync(new URL("../cli/package.json", import.meta.url), "utf8")).version);
+  if (first === "completion") {
+    const shell = SHELLS[more[0] as keyof typeof SHELLS];
+    if (!shell) throw new UsageError(`completion takes bash, zsh or fish, not "${more[0] ?? ""}"`);
+    return console.log(shell());
+  }
+  if (await own(first, more)) return;
+  const words = argv.filter((w) => !w.startsWith("-"));
+  if (!argv.filter((w) => w !== "--json").length || first === "help" || first === "--help" || first === "-h") {
+    const asked = more.filter((w) => !w.startsWith("-"));
+    if (!asked.length) return console.log(overview());
+    const found = findCommand(asked);
+    if (!found) throw new UsageError(`No command "${asked.join(" ")}": see quire help`);
+    return console.log(commandHelp(found.command));
+  }
+  const parsed = parse(argv, io);
+  if (!parsed) {
+    const sub = noSuchSubcommand(words);
+    if (sub) throw new UsageError(sub);
+    if (json) fail(`Unknown command: ${words[0]}`, "usage", EXIT.usage);
+    console.error(`Unknown command: ${words[0]}\n\n${overview()}`);
+    process.exit(EXIT.usage);
+  }
+  if ("help" in parsed) return console.log(commandHelp(findCommand(parsed.help)!.command));
+  const { command, input, globals } = parsed;
+  const agent = globals.agent ?? process.env.QUIRE_AGENT;
+  const at = where(globals.workspace);
+  if ("creds" in at) return print(await runRemote(at.creds, { command: command.cli, input, workspace: at.workspace, agent }), input);
+  if (command.settings) {
+    throw loadCredentials()
+      ? new UsageError(`${command.cli} is for a hosted workspace, not this computer's vault: name one with --workspace`)
+      : new CliError(`${command.cli} is for a hosted workspace: run quire login first`, "auth", EXIT.auth);
+  }
+  const q = openVault();
+  if (command.readOnly) q.sync();
+  print(await command.run(localHost(q, agent), input as never), input);
+}
+
+main().catch((e) => {
+  if (e instanceof UsageError) fail(e.message, "usage", EXIT.usage);
+  if (e instanceof QuireError) fail(e.message, e.code, EXIT[e.code === "invalid" ? "error" : e.code]);
+  if (e instanceof CliError) fail(e.message, e.code, e.exit);
+  console.error(e);
+  process.exit(EXIT.error);
+});

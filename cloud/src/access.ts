@@ -32,7 +32,15 @@ export const WORKSPACE_ROUTES = {
   "GET /tags": "viewer",
   "GET /asset-tags": "viewer",
   "GET /today": "viewer",
+  "GET /export": "viewer",
+  "GET /labels": "viewer",
+  "GET /labels/compare": "viewer",
   "GET /guide": "viewer",
+  "GET /contacts": "viewer",
+  "GET /contact": "viewer",
+  "GET /templates": "viewer",
+  // Filling a template in only reads it; inserting the text is an edit to the note.
+  "POST /templates/render": "viewer",
   "GET /files/*": "viewer",
   "GET /file-resolve": "viewer",
   "GET /live": "viewer",
@@ -55,7 +63,17 @@ export const WORKSPACE_ROUTES = {
   "PUT /asset-tags": "editor",
   "POST /move": "editor",
   "POST /restore": "editor",
+  "POST /labels": "editor",
+  "POST /labels/rename": "editor",
+  "POST /labels/delete": "editor",
+  "POST /labels/restore": "editor",
   "POST /guide": "editor",
+  // Contacts are notes in People/: shared with the workspace, so changing them is an editor's.
+  "POST /contacts": "editor",
+  "POST /contacts/update": "editor",
+  "POST /contacts/merge": "editor",
+  "POST /contacts/import": "editor",
+  "POST /notes/from-template": "editor",
   "POST /archive": "editor",
   "POST /unarchive": "editor",
   // Trash: editors delete and restore, and only they see what's in it; deleting for good is the owner's.
@@ -81,6 +99,11 @@ export const WORKSPACE_ROUTES = {
   "POST /calendar/sources/remove": "viewer",
   "POST /calendar/sources": "editor",
   "POST /calendar/meeting-note": "editor",
+  // Events made in the app. The workspace's own calendar takes editors' (checked in the calendar);
+  // anyone may add to and change their own Google calendars.
+  "POST /calendar/events": "viewer",
+  "POST /calendar/events/update": "viewer",
+  "POST /calendar/events/delete": "viewer",
   // The workspace's settings (cloud/src/admin.ts). Everyone sees who's in it and may leave; the rest is the owner's.
   "GET /members": "viewer",
   "POST /leave": "viewer",
@@ -97,6 +120,9 @@ export const WORKSPACE_ROUTES = {
   "GET /invites": "owner",
   "POST /invites/revoke": "owner",
   "GET /workspace/log": "owner",
+  // Whether agents may share by link or with editors: anyone sees it, only owners change it.
+  "GET /workspace/settings": "viewer",
+  "POST /workspace/settings": "owner",
   "POST /workspace/rename": "owner",
   "POST /workspace/delete": "owner",
 } as const satisfies Record<string, Role>;
@@ -122,6 +148,7 @@ export const LINK_ROUTES = ["GET /list", "GET /note", "GET /resolve", "GET /file
 /** Routes for whoever is signed in, whatever workspace they're in. */
 export const ACCOUNT_ROUTES = [
   "GET /api/me",
+  "POST /api/me/time-zone",
   "POST /api/workspaces",
   "GET /api/unfurl",
   "GET /api/note-ids/*",

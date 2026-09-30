@@ -334,3 +334,68 @@ test("deleting a folder moves its notes up a level, or sends them all to Trash",
   assert.deepEqual(gone.trashed.map((t: { path: string }) => t.path), ["Projects/Plan.md", "Projects/Roadmap.md"]);
   assert.equal((await call("POST", "/delete-folder", { folder: "Projects", notes: "shred" })).status, 400);
 });
+
+test("contacts: list, read one with its timeline, create, change, merge and import", async () => {
+  const { call, events } = setup();
+  assert.deepEqual((await call("GET", "/contacts")).body, []);
+  const made = await call("POST", "/contacts", { name: "Jane Doe", email: ["jane@acme.com"], company: "Acme" });
+  assert.equal(made.body.path, "People/Jane Doe.md");
+  assert.equal((await call("POST", "/contacts", { name: "Jane Doe" })).status, 409);
+  assert.equal((await call("POST", "/contacts", { name: "X", email: "not-a-list" })).status, 400);
+  await call("PUT", "/note", { path: "Journal/2026-09-20.md", content: "# Sep 20\n\nCalled [[People/Jane Doe]].\n" });
+  const [jane] = (await call("GET", "/contacts")).body;
+  assert.deepEqual([jane.name, jane.company, jane.mentions, jane.lastContacted], ["Jane Doe", "Acme", 1, "2026-09-20"]);
+  const one = (await call("GET", "/contact?path=People/Jane Doe")).body;
+  assert.deepEqual(one.timeline.map((t: { path: string }) => t.path), ["Journal/2026-09-20.md"]);
+  await call("POST", "/contacts/update", { path: "People/Jane Doe.md", patch: { role: "CTO" } });
+  assert.equal((await call("GET", "/contacts")).body[0].role, "CTO");
+  assert.equal((await call("POST", "/contacts/update", { path: "People/Jane Doe.md", patch: { name: "Janet" } })).status, 400);
+  const imported = await call("POST", "/contacts/import", { format: "csv", text: "Name,Email\nJ. Doe,jane@acme.com\nSam Lee,sam@x.org\n" });
+  assert.deepEqual(imported.body, { created: ["People/Sam Lee.md"], updated: ["People/Jane Doe.md"], unchanged: [] });
+  assert.equal((await call("POST", "/contacts/import", { format: "xlsx", text: "" })).status, 400);
+  events.length = 0;
+  const merged = await call("POST", "/contacts/merge", { keep: "People/Jane Doe.md", drop: "People/Sam Lee.md" });
+  assert.equal(merged.body.path, "People/Jane Doe.md");
+  assert.deepEqual(events, ["written People/Jane Doe.md by tester", "removed People/Sam Lee.md by tester", "tree"]);
+  assert.deepEqual((await call("GET", "/contacts")).body.map((c: { name: string }) => c.name), ["Jane Doe"]);
+});
+
+test("members: the workspace's people, from the host (none in a local vault)", async () => {
+  const { call } = setup();
+  assert.deepEqual((await call("GET", "/members")).body, []);
+});
+
+test("tasks assigned to me and by me: locally, me is @me and the notes I made", async () => {
+  const { call } = setup({ user: "you" });
+  await call("PUT", "/note", { path: "Mine.md", content: "- [ ] Water plants @me\n- [ ] Call the bank @sam\n- [ ] Just a task\n" });
+  const text = (r: { body: Array<{ text: string }> }) => r.body.map((t) => t.text);
+  assert.deepEqual(text(await call("GET", "/tasks?assignee=me")), ["Water plants @me"]);
+  assert.deepEqual(text(await call("GET", "/tasks?by=me")), ["Call the bank @sam"]);
+  assert.equal((await call("GET", "/tasks?by=someone")).status, 400);
+});
+
+test("templates: listed, rendered for inserting, and made into notes", async () => {
+  const { call, events } = setup();
+  await call("PUT", "/note", { path: "Templates/Meeting.md", content: "---\ntitle: \"{{date}} {{ask:Client}}\"\nfolder: Meetings\napplies_to: Meetings/\n---\n# {{title}}\n\n**Attendees:** {{ask:Attendees}}\n\n- {{cursor}}\n" });
+  await call("PUT", "/note", { path: "Templates/Decision.md", content: "## Decision: {{ask:What}}\n\n{{cursor}}\n" });
+  const list = (await call("GET", "/templates")).body;
+  assert.deepEqual(list.map((t: { name: string; appliesTo: string[] }) => [t.name, t.appliesTo]), [["Decision", []], ["Meeting", ["Meetings"]]]);
+  const r = (await call("POST", "/templates/render", { template: "Decision", at: "2026-09-29T09:00", answers: { What: "Ship it" } })).body;
+  assert.deepEqual(r, { path: "Templates/Decision.md", text: "## Decision: Ship it\n\n\n", cursor: 22, unfilled: [] });
+  events.length = 0;
+  const made = await call("POST", "/notes/from-template", { template: "Meeting", at: "2026-09-29T09:00", answers: { Client: "Acme", Attendees: "Sam" } });
+  assert.deepEqual([made.status, made.body.path, made.body.unfilled], [200, "Meetings/2026-09-29 Acme.md", []]);
+  assert.equal((await call("GET", "/note?path=Meetings/2026-09-29 Acme.md")).body.content.slice(made.body.cursor - 2, made.body.cursor), "- ");
+  assert.deepEqual(events, ["written Meetings/2026-09-29 Acme.md by tester", "tree"]);
+  assert.equal((await call("POST", "/notes/from-template", { template: "Nope" })).status, 404);
+  assert.equal((await call("POST", "/notes/from-template", { template: "Meeting", answers: { Client: 3 } })).status, 400);
+});
+
+test("a template's people picks become @handles on task lines and names elsewhere; bad picks are a 400", async () => {
+  const { call } = setup();
+  await call("PUT", "/note", { path: "Templates/Kickoff.md", content: "With {{ask:Who|people}}\n\n- [ ] Plan it {{ask:Who|people}}\n" });
+  const picks = { Who: [{ name: "Sam Dev", handle: "Sam" }, { name: "Lee Chang", handle: "Lee" }] };
+  const r = (await call("POST", "/templates/render", { template: "Kickoff", picks })).body;
+  assert.equal(r.text, "With Sam Dev, Lee Chang\n\n- [ ] Plan it @Sam @Lee\n");
+  assert.equal((await call("POST", "/templates/render", { template: "Kickoff", picks: { Who: [{ name: "Sam" }] } })).status, 400);
+});

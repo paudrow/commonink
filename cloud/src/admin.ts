@@ -2,38 +2,13 @@
 // leaving it and deleting it. The Worker handles these routes itself (the workspace's Durable Object
 // holds only notes); `access.ts` says who may use each. Every change goes in `workspace_log`.
 import { json } from "../../src/core/api.ts";
+import type { InviteRow, LogEntry, Member } from "../../src/core/commands/settings.ts";
 import type { Role } from "./access.ts";
 import { revokeAgentsIn } from "./agents.ts";
 import { createInvite, type User, type WorkspaceRef } from "./directory.ts";
 import type { Env } from "./env.ts";
 import { limit } from "./limits.ts";
-
-export interface Member {
-  id: string;
-  name: string;
-  email: string;
-  role: Role;
-  joinedAt: number;
-}
-
-export interface InviteRow {
-  /** The stored hash of its token: enough to revoke it, useless for joining. */
-  id: string;
-  role: "editor" | "viewer";
-  createdBy: string | null;
-  createdAt: number;
-  expiresAt: number;
-  usedBy: string | null;
-  usedAt: number | null;
-}
-
-export interface LogEntry {
-  at: number;
-  actor: string | null;
-  action: "rename" | "role" | "remove" | "leave" | "invite" | "revoke-invite";
-  target: string | null;
-  detail: string | null;
-}
+import { agentLinksAllowed } from "./shares.ts";
 
 const ROLES: Role[] = ["owner", "editor", "viewer"];
 const fail = (error: string, status = 400) => json({ error }, status);
@@ -69,7 +44,8 @@ export async function adminRoute(req: Request, env: Env, url: URL, user: User, w
   const str = (v: unknown) => (typeof v === "string" ? v : "");
   switch (`${req.method} ${route}`) {
     case "GET /members":
-      return json(await membersOf(env, ws.id));
+      // `you`: which one is the person asking (a contact with their email is them; see src/core/contacts.ts).
+      return json((await membersOf(env, ws.id)).map((m) => ({ ...m, you: m.id === user.id })));
 
     case "POST /members/role": {
       const b = await body();
@@ -152,6 +128,17 @@ export async function adminRoute(req: Request, env: Env, url: URL, user: User, w
       await env.DB.prepare("UPDATE workspaces SET name = ? WHERE id = ?").bind(name, ws.id).run();
       await log(env, ws.id, user.id, "rename", null, `${ws.name} → ${name}`);
       return json({ ok: true, name });
+    }
+
+    case "GET /workspace/settings":
+      return json({ agentLinks: await agentLinksAllowed(env.DB, ws.id) });
+
+    case "POST /workspace/settings": {
+      const { agentLinks } = await body();
+      if (typeof agentLinks !== "boolean") return fail('"agentLinks" must be true or false');
+      await env.DB.prepare("UPDATE workspaces SET agent_links = ? WHERE id = ?").bind(agentLinks ? 1 : 0, ws.id).run();
+      await log(env, ws.id, user.id, "settings", null, `agentLinks: ${agentLinks ? "on" : "off"}`);
+      return json({ agentLinks });
     }
 
     case "POST /workspace/delete": {

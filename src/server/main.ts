@@ -184,6 +184,7 @@ const host: ApiHost = {
   user: LOCAL_USER,
   canEditShared: true,
   info: () => ({ mode: "local", name: path.basename(files.root), vault: files.root, projectRoot: PROJECT_ROOT }),
+  fileBytes: async (rel) => (files.stat(rel) ? new Uint8Array(await fs.promises.readFile(files.abs(rel))) : null),
   written(rel, content, version, change, origin) {
     seen.set(rel, version);
     if (content !== null) lastText.set(rel, content);

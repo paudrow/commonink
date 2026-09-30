@@ -2,7 +2,7 @@
 import "./dom.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cpuMs } from "./helpers.ts";
+import { cpuMs, superlinear } from "./helpers.ts";
 
 const { renderMarkdown } = await import("../web/src/render.ts");
 const r = (md: string) => renderMarkdown(md, "Notes/a.md");
@@ -18,6 +18,26 @@ test("alerts render as GitHub's callouts; Obsidian's folding ones as <details>",
   );
   assert.match(r("> [!tip]+\n> Open."), /^<details class="markdown-alert markdown-alert-tip" open="">/);
   assert.equal(r("> Just a quote"), "<blockquote>\n<p>Just a quote</p>\n</blockquote>\n");
+});
+
+test("an alert's first paragraph reads like any other: footnotes, emoji, math and GitHub's HTML in it render", () => {
+  const html = r("> [!NOTE]\n> See this[^src] :tada: <kbd>K</kbd> and $x^2$.\n> Second line[^src].\n\n[^src]: The source.");
+  const body = html.slice(html.indexOf("</p>") + 4, html.indexOf("</div>"));
+  assert.match(body, /^<p>See this<sup class="footnote-ref"><a href="#user-content-fn-src" title="The source\." id="user-content-fnref-src">1<\/a><\/sup> /);
+  assert.match(body, /<span class="emoji" title=":tada:">🎉<\/span>/);
+  assert.match(body, /<kbd>K<\/kbd>/);
+  assert.match(body, /<span class="math" data-tex="x\^2">/);
+  assert.match(body, /Second line<sup class="footnote-ref"><a href="#user-content-fn-src" title="The source\." id="user-content-fnref-src-2">1<\/a><\/sup>\./);
+  assert.match(html, /<section class="footnotes"/);
+  // Read once more, not once per line or per token: the time grows with the input. Each unit's n
+  // makes its smaller run a few tens of milliseconds.
+  const units = [["[^a", 16_000], ["$a ", 16_000], [":a", 64_000], ["<kbd>k</kbd> ", 2_000], ["x[^s] \n> ", 1_000]] as const;
+  for (const [unit, n] of units) {
+    const slower = superlinear(r, (n) => `> [!NOTE]\n> ${unit.repeat(n)}\n\n[^s]: S.`, n);
+    assert.equal(slower, null, `${JSON.stringify(unit)} in an alert grows faster than its input: ${slower}`);
+  }
+  // The same in a folding one.
+  assert.match(r("> [!tip]- Title\n> See[^a].\n\n[^a]: A."), /<summary class="markdown-alert-title">.*Title<\/summary><p>See<sup class="footnote-ref">/);
 });
 
 test("footnotes: numbered references with the note's text as a tooltip, and a list with ways back", () => {

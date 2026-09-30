@@ -43,6 +43,12 @@ globalThis.fetch = (async (input: string, init?: RequestInit) => {
   if (url.pathname === "/api/calendar/event") return json(EVENTS.find((e) => e.id === url.searchParams.get("id")) ?? { error: "no" }, EVENTS.some((e) => e.id === url.searchParams.get("id")) ? 200 : 404);
   if (url.pathname === "/api/calendar/meeting-note") return json({ path: "Meetings/Standup.md", created: true });
   if (url.pathname === "/api/tasks") return json(TASKS);
+  if (url.pathname === "/api/tasks/set") {
+    const { done } = JSON.parse(String(init!.body));
+    const t = TASKS[0];
+    Object.assign(t, { done, text: done ? `${t.text.replace(/ done:\S+/, "")} done:${today}` : t.text.replace(/ done:\S+/, "") });
+    return json({ path: t.path, version: "v", line: t.line, text: t.text });
+  }
   return json({ error: `no stub for ${url.pathname}` }, 404);
 }) as typeof fetch;
 
@@ -71,7 +77,7 @@ test("the week shows the day's events side by side, and the all-day row the offs
   ]);
   assert.deepEqual(texts(".cal-tg-allday .cal-chip-title"), ["Offsite", "Send invoice"]);
   assert.equal(root.querySelectorAll(".cal-col.is-today .cal-now").length, 1);
-  root.querySelector<HTMLElement>(".cal-chip.is-task")!.click();
+  root.querySelector<HTMLElement>(".cal-chip.is-task .cal-chip-open")!.click();
   assert.deepEqual(opened.splice(0), ["Projects/Acme.md:4"]);
 });
 
@@ -180,4 +186,34 @@ test("a viewer sees the calendars but can't subscribe, rename, remove or make a 
   assert.equal(button("Create meeting note", details), undefined);
   assert.equal(details.querySelector(".cal-d-hint")!.textContent, "No meeting note yet");
   setCalendarContext({ canEdit: true });
+});
+
+test("a task due on the calendar ticks from its checkbox (or x), stays struck through, and Undo reopens it", async () => {
+  await page.setView("week", today);
+  await settle();
+  const toasts = () => [...document.querySelectorAll(".toast-text")].map((t) => t.textContent);
+  const box = () => root.querySelector<HTMLElement>(".cal-tg-allday .cal-chip.is-task .cal-check")!;
+  assert.deepEqual([box().getAttribute("role"), box().getAttribute("aria-checked")], ["checkbox", "false"]);
+  box().click();
+  await settle();
+  const sets = () => requests.filter((r) => r.url === "/api/tasks/set").map((r) => [r.body.path, r.body.line, r.body.done]);
+  assert.deepEqual(sets(), [["Projects/Acme.md", 4, true]]);
+  assert.equal(toasts().at(-1), "Done: Send invoice");
+  // Read again from the notes: a ticked task stays on its day, struck through, so it can be reopened.
+  assert.deepEqual([box().getAttribute("aria-checked"), box().closest(".cal-chip")!.classList.contains("is-done")], ["true", true]);
+  [...document.querySelectorAll<HTMLElement>(".toast-action")].find((b) => b.textContent === "Undo")!.click();
+  await settle();
+  assert.deepEqual(sets().at(-1), ["Projects/Acme.md", 4, false]);
+  assert.equal(box().getAttribute("aria-checked"), "false");
+
+  // x ticks the task with the keyboard, in the agenda too, where its row keeps the checkbox.
+  press("a");
+  await settle();
+  const open = root.querySelector<HTMLElement>(".cal-arow.is-task .cal-chip-open")!;
+  assert.deepEqual([open.textContent, root.querySelectorAll(".cal-arow.is-task .cal-check").length], ["DueSend invoiceAcme", 1]);
+  open.focus();
+  press("x", open);
+  await settle();
+  assert.deepEqual(sets().at(-1), ["Projects/Acme.md", 4, true]);
+  assert.equal(root.querySelector(".cal-arow.is-task .cal-arow-time")!.textContent, "Done");
 });

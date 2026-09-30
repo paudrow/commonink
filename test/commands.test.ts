@@ -28,6 +28,7 @@ const app = (over: Partial<App> = {}): App => {
     folds: 0,
     account: [],
     newNote: run("newNote"),
+    newFromTemplate: run("newFromTemplate"),
     newBoard: run("newBoard"),
     newFolder: run("newFolder"),
     newTag: run("newTag"),
@@ -37,6 +38,7 @@ const app = (over: Partial<App> = {}): App => {
     subscribeCalendar: run("subscribeCalendar"),
     refreshCalendars: run("refreshCalendars"),
     connectGoogle: run("connectGoogle"),
+    newEvent: run("newEvent"),
     toggleTheme: run("toggleTheme"),
     toggleVim: run("toggleVim"),
     toggleVimDisplayLines: run("toggleVimDisplayLines"),
@@ -48,11 +50,20 @@ const app = (over: Partial<App> = {}): App => {
     star: run("star"),
     archive: run("archive"),
     delete: run("delete"),
-    share: run("share"),
+    shareWithPeople: run("shareWithPeople"),
     move: run("move"),
+    rename: run("rename"),
     noteHistory: run("noteHistory"),
+    labelVersion: run("labelVersion"),
+    noteLabels: run("noteLabels"),
     gettingStarted: run("gettingStarted"),
     shortcuts: run("shortcuts"),
+    share: run("share"),
+    copyLink: run("copyLink"),
+    exportAs: (how) => void ran.push(`export:${how}`),
+    exportWorkspace: run("exportWorkspace"),
+    settings: run("settings"),
+    connectAgent: run("connectAgent"),
     back: run("back"),
     forward: run("forward"),
     followLink: run("followLink"),
@@ -67,6 +78,10 @@ test("commands match fuzzily, by name or by what they're about, and none alone l
   assert.deepEqual(titles("archive", app({ note: { kind: "md", starred: false, archived: false } })).slice(0, 2), ["Archive note", "Go to Archive"]);
   assert.deepEqual(titles("zzz", app()), []);
   assert.deepEqual(titles("kanban", app()), ["New board"]);
+  assert.deepEqual(titles("preferences", app()), ["Open settings"]);
+  assert.deepEqual(titles("settings", app()).slice(0, 1), ["Open settings"]);
+  assert.deepEqual(titles("connect", app()), ["Connect an agent"]);
+  assert.deepEqual(titles("mcp", app()), ["Connect an agent"]);
   const all = titles("", app());
   assert.equal(all[0], "New note");
   assert.ok(all.includes("Keyboard shortcuts"));
@@ -84,8 +99,14 @@ test("commands follow the app: vim's state, the open note, Getting started, and 
   // "Subscribe to a calendar…" spells s-t-a-r too, after any star command.
   assert.deepEqual(titles("star", app()), ["Subscribe to a calendar…"], "no note to star");
   assert.deepEqual(titles("star", app({ note: { kind: "md", starred: true, archived: false } })), ["Unstar note", "Subscribe to a calendar…"]);
-  assert.deepEqual(titles("html", app({ note: { kind: "html", starred: false, archived: false }, htmlMode: "preview" })), ["Show HTML source"]);
+  assert.deepEqual(titles("html", app({ note: { kind: "html", starred: false, archived: false }, htmlMode: "preview" })), ["Show HTML source", "Share…"]);
   assert.deepEqual(titles("go back", app()), [], "nowhere to go back to");
+  assert.deepEqual(titles("rename", app()), ["Go to Tags"], "no note to rename");
+  assert.deepEqual(titles("rename", app({ note: { kind: "md", starred: false, archived: false }, canDelete: false })), ["Go to Tags"], "a viewer can't rename");
+  const rename = matchCommands("rename", appCommands(app({ note: { kind: "html", starred: false, archived: false } })));
+  assert.deepEqual(rename.map((c) => c.title), ["Rename note…", "Go to Tags"]);
+  rename[0].run();
+  assert.equal(ran.at(-1), "rename");
   const moving = appCommands(app({ canBack: true, canForward: true, onLink: true, note: { kind: "md", starred: false, archived: false } })).filter((c) => ["back", "forward", "follow-link"].includes(c.id));
   assert.deepEqual(moving.map((c) => [c.title, c.keys?.[0]]), [["Go back", "Mod-["], ["Go forward", "Mod-]"], ["Follow link", undefined]]);
   moving.forEach((c) => c.run());
@@ -234,16 +255,18 @@ test("Delete and Trash are commands for whoever can delete, not viewers", () => 
   assert.deepEqual(titles("trash", app({ note, canDelete: false })), []);
 });
 
-test("Share… and Shared with me are commands online only", () => {
+test("Share with people… and Shared with me are commands online only", () => {
   const note = { kind: "md" as const, starred: false, archived: false };
-  assert.deepEqual(titles("share", app({ note, online: true })).slice(0, 2), ["Share…", "Go to Shared with me"]);
-  assert.deepEqual(titles("share", app({ note, online: false })).filter((t) => /Share/.test(t)), []);
+  const sharing = (t: string) => /people|Shared with me/.test(t);
+  assert.deepEqual(titles("share", app({ note, online: true })).filter(sharing), ["Share with people…", "Go to Shared with me"]);
+  assert.deepEqual(titles("share", app({ note, online: false })).filter(sharing), []);
 });
 
 test("the calendar is a page to go to, a feed to subscribe to (not for viewers) and something to refresh; its keys are on the sheet", () => {
-  assert.deepEqual(titles("calendar", app()), ["Go to Calendar", "Refresh calendars", "Subscribe to a calendar…"]);
+  assert.deepEqual(titles("calendar", app()), ["Go to Calendar", "Refresh calendars", "Subscribe to a calendar…", "New event…"]);
   assert.deepEqual(titles("webcal", app({ canSubscribe: false })), []);
-  assert.deepEqual(titles("calendar", app({ canSubscribe: false })), ["Go to Calendar", "Refresh calendars"]);
+  assert.deepEqual(titles("calendar", app({ canSubscribe: false })), ["Go to Calendar", "Refresh calendars", "New event…"]);
+  assert.deepEqual(titles("new event", app()).slice(0, 1), ["New event…"]);
   for (const c of appCommands(app()).filter((c) => c.id.includes("calendar"))) c.run();
   assert.deepEqual(ran.slice(-3), ["go:calendar", "subscribeCalendar", "refreshCalendars"]);
   const keys = shortcutSheet(appCommands(app())).find((s) => s.area === "Calendar")!.shortcuts.map((s) => s.keys.join(" "));

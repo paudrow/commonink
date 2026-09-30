@@ -29,7 +29,7 @@ test("the menu button opens the sidebar as a modal drawer, and Esc closes it bac
 test("Tab and Shift+Tab wrap inside the open drawer", () => {
   $("#menu-btn").click();
   key(document.activeElement!, "Tab", true);
-  assert.equal(focused(), "new-note");
+  assert.equal(focused(), "new-from-template"); // the last control in the sidebar
   key(document.activeElement!, "Tab");
   assert.equal(focused(), "search-btn");
   closeDrawer();
@@ -85,7 +85,7 @@ test("arrow keys, Home and End move through More's items, wrapping; Esc closes i
   const menu = $("#more-menu");
   const walk = (k: string) => (key(document.activeElement!, k), focused());
   assert.deepEqual([walk("ArrowDown"), walk("End"), walk("ArrowDown"), walk("ArrowUp"), walk("Home")], [
-    "Move to folder",
+    "Move to another folder",
     "Toggle side panel",
     "History of this note",
     "Toggle side panel",

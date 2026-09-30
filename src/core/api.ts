@@ -3,9 +3,12 @@
 import { cleanPath, QuireError } from "./paths.ts";
 import type { ArchiveScope, Change, Quire } from "./quire.ts";
 import type { TaskPatch } from "./tasks.ts";
+import type { ContactFields } from "./contacts.ts";
+import type { FillOptions, PersonPick } from "./templates.ts";
 import { agentSource, parseAuthorFilter } from "./actor.ts";
 import { findStartNote, GUIDE, parseGuideAction, runGuide } from "./guide.ts";
-import type { Calendar } from "./calendar.ts";
+import { exportZip, type ExportWhat } from "./export.ts";
+import type { Calendar, EventDraft } from "./calendar.ts";
 import { notePath } from "./ids.ts";
 
 export interface ApiHost {
@@ -31,10 +34,29 @@ export interface ApiHost {
   calendarChanged?(): void;
   /** Where the app is ("https://commonink.app"), for links that leave it (a meeting note's, written back to Google). */
   origin?: string;
+  /** An uploaded file's bytes (for exports), or null if it's gone. */
+  fileBytes?(rel: string): Promise<Uint8Array | null>;
+  /** The workspace's members (online); a local vault has none. */
+  members?(): Promise<Member[]>;
+}
+
+/** Someone with an account in the workspace. A contact with the same email is them (see contacts.ts). */
+export interface Member {
+  id: string;
+  name: string;
+  email: string;
+  /** Whether it's the person asking. */
+  you?: boolean;
 }
 
 export const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+
+/** `attachment; filename=…` for a download, the name in ASCII and in full. */
+export function attachment(name: string): string {
+  const ascii = name.replace(/[^\x20-\x7e]|["\\]/g, "_");
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+}
 
 export function errorResponse(e: unknown): Response {
   if (e instanceof QuireError) {
@@ -76,6 +98,53 @@ function taskPatch(v: unknown): TaskPatch {
   return out as TaskPatch;
 }
 
+const CONTACT_LISTS = ["email", "phone", "links", "aliases", "tags"];
+/** The most text one contacts import may bring (about 20,000 contacts). */
+const MAX_IMPORT = 8 * 1024 * 1024;
+
+/** Contact fields from a request: lists of strings, and company and role as strings. `name` only where it's allowed. */
+function contactFields(v: unknown, withName: boolean): Partial<ContactFields> {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) throw new QuireError("Expected an object of contact fields");
+  const out: Record<string, unknown> = {};
+  for (const [k, x] of Object.entries(v)) {
+    if (x === undefined) continue;
+    const ok =
+      CONTACT_LISTS.includes(k) ? Array.isArray(x) && x.every((s) => typeof s === "string")
+      : k === "company" || k === "role" || (k === "name" && withName) || (k === "notes" && withName) ? typeof x === "string"
+      : false;
+    if (!ok) throw new QuireError(`"${k}" isn't a contact field or has the wrong type`);
+    out[k] = x;
+  }
+  return out as Partial<ContactFields>;
+}
+
+/** How to fill a template, from a request: `at` (the person's own clock), `title`, `answers`, `clipboard`. */
+function fillOptions(raw: unknown): FillOptions {
+  const b = raw as Record<string, unknown>;
+  const out: FillOptions = {};
+  for (const k of ["at", "title", "clipboard"] as const) {
+    if (b[k] === undefined || b[k] === null) continue;
+    if (typeof b[k] !== "string") throw new QuireError(`"${k}" must be a string`);
+    out[k] = b[k] as string;
+  }
+  if (out.at !== undefined && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(out.at)) throw new QuireError(`"at" must look like 2026-10-01T09:30`);
+  if (b.answers !== undefined && b.answers !== null) {
+    if (typeof b.answers !== "object" || Array.isArray(b.answers) || !Object.values(b.answers).every((v) => typeof v === "string")) {
+      throw new QuireError(`"answers" must be an object of strings`);
+    }
+    out.answers = b.answers as Record<string, string>;
+  }
+  if (b.picks !== undefined && b.picks !== null) {
+    const person = (p: unknown) =>
+      typeof p === "object" && p !== null && typeof (p as PersonPick).name === "string" && typeof (p as PersonPick).handle === "string" && ["undefined", "string"].includes(typeof (p as PersonPick).link);
+    if (typeof b.picks !== "object" || Array.isArray(b.picks) || !Object.values(b.picks).every((v) => Array.isArray(v) && v.every(person))) {
+      throw new QuireError(`"picks" must be an object of lists of { name, handle, link? }`);
+    }
+    out.picks = b.picks as Record<string, PersonPick[]>;
+  }
+  return out;
+}
+
 /** Typed reads of a request's JSON body and query string. Anything malformed is a 400 naming the field. */
 function inputs(body: unknown, url: URL) {
   if (typeof body !== "object" || body === null || Array.isArray(body)) throw new QuireError("Expected a JSON object");
@@ -90,6 +159,7 @@ function inputs(body: unknown, url: URL) {
   };
   const q = (k: string) => url.searchParams.get(k) ?? "";
   return {
+    raw: b,
     str,
     int,
     optStr: (k: string) => (b[k] === undefined || b[k] === null ? undefined : str(k)),
@@ -194,17 +264,25 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json(quire.favorites(host.user));
     case "GET /smart-folders":
       return json(quire.smartFolders(host.user));
-    case "GET /tasks":
+    case "GET /tasks": {
+      // `assignee` is someone's name (every @name that's theirs) or "me"; `by=me` keeps the tasks
+      // the reader gave someone else in their own notes. Only those need the workspace's members.
+      const assignee = q("assignee") || undefined;
+      const by = q("by") || undefined;
+      if (by !== undefined && by !== "me") throw new QuireError(`"by" can only be "me"`);
+      const members = assignee || by ? ((await host.members?.()) ?? []) : [];
       return json(
-        quire.tasks({
+        quire.tasksFor({ user: host.user, person: actor, members }, {
           folder: q("folder") || undefined,
           note: q("note") || undefined,
           tag: q("tag") || undefined,
-          assignee: q("assignee") || undefined,
+          assignee,
+          by,
           due: q("due") || undefined,
           today: q("today") || undefined, // the browser's day, so "today" means the reader's today
         }),
       );
+    }
     case "GET /tasks/count":
       return json({ open: quire.openTaskCount() });
     case "GET /tags":
@@ -213,6 +291,52 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json(quire.assetTags());
     case "GET /diff":
       return json(quire.diff(qInt("from"), q("to") ? qInt("to") : qInt("from")));
+    case "GET /contacts":
+      return json(quire.contacts());
+    case "GET /contact":
+      return json(quire.contact(q("path")));
+    case "GET /members":
+      return json(host.members ? await host.members() : []);
+    case "POST /contacts": {
+      const r = quire.createContact({ ...contactFields(raw, true), name: str("name") }, actor);
+      host.written(r.path, quire.files.read(r.path), r.version, r.change);
+      host.tree();
+      return json({ path: r.path, version: r.version });
+    }
+    case "POST /contacts/update": {
+      const r = quire.updateContact(str("path"), contactFields((raw as { patch?: unknown }).patch, false), actor);
+      if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
+      return json({ path: r.path, version: r.version });
+    }
+    case "POST /contacts/merge": {
+      const r = quire.mergeContacts(str("keep"), str("drop"), actor);
+      host.written(r.path, r.content, r.version, r.change);
+      trashed(r.trashed);
+      for (const e of r.edits) host.written(e.path, e.content, e.version, e.change);
+      host.tree();
+      return json({ path: r.path, updated: r.updated, trashed: r.trashed.map(({ id, path }) => ({ id, path })) });
+    }
+    case "POST /contacts/import": {
+      const format = str("format");
+      if (format !== "vcard" && format !== "csv") throw new QuireError(`"format" must be "vcard" or "csv"`);
+      const body = str("text");
+      if (body.length > MAX_IMPORT) throw new QuireError("That file is too big to import at once; split it up");
+      const r = quire.importContacts(body, format, actor);
+      for (const p of [...r.created, ...r.updated]) host.written(p, quire.files.read(p), quire.meta(p)?.version ?? "", null);
+      if (r.created.length) host.tree();
+      return json(r);
+    }
+    case "GET /templates":
+      return json(quire.templates());
+    // A template filled in, to insert at the cursor (the editor writes it, so this only reads).
+    case "POST /templates/render":
+      return json(quire.renderTemplate(str("template"), fillOptions(raw)));
+    case "POST /notes/from-template": {
+      const r = quire.createFromTemplate(str("template"), { ...fillOptions(raw), folder: optStr("folder") }, actor);
+      host.written(r.path, quire.files.read(r.path), r.version, r.change);
+      host.tree();
+      return json({ path: r.path, version: r.version, cursor: r.cursor, unfilled: r.unfilled });
+    }
 
     case "PUT /note": {
       let rel = cleanPath(str("path"));
@@ -226,7 +350,7 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
         return json({ error: `Refusing to replace ${rel} with an empty note`, code: "empty" }, 422);
       }
       const isNew = !quire.files.stat(rel);
-      const r = quire.save(rel, content, { baseVersion: optStr("baseVersion"), source: actor });
+      const r = quire.save(rel, content, { baseVersion: optStr("baseVersion"), source: actor, autosave: true });
       host.written(rel, content, r.version, r.change, optStr("clientId"));
       if (isNew) host.tree();
       return json({ path: rel, version: r.version });
@@ -306,6 +430,29 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       // setting these assets' tags back, undoes the rename without writing over a later edit.
       return json({ changes: r.edits.map((e) => e.change.id), versions: r.edits.map((e) => e.version), assets: r.assets });
     }
+    // Labels (Quire.label): a name on a version of a note, to compare with or go back to.
+    case "GET /labels":
+      return json(quire.labels(q("path") || undefined));
+    case "GET /labels/compare": {
+      // Two versions' text: a label and another label (?to=<id>), or the note now (?to=now, the default).
+      const c = quire.compareLabels(q("from"), q("to") || "now");
+      return json({ path: c.path, from: { ...c.from.label, text: c.from.text }, to: c.to.label ? { ...c.to.label, text: c.to.text } : { now: true, text: c.to.text } });
+    }
+    case "POST /labels": {
+      const at = (raw as { at?: unknown }).at == null ? undefined : int("at"); // a past change to label the version after; now if absent
+      return json(quire.label(str("path"), str("name"), actor, { description: optStr("description"), at }));
+    }
+    case "POST /labels/rename": {
+      const description = (raw as { description?: unknown }).description;
+      return json(quire.renameLabel(str("id"), str("name"), { description: description === undefined ? undefined : description === null ? null : str("description") }));
+    }
+    case "POST /labels/delete":
+      return json(quire.deleteLabel(str("id")));
+    case "POST /labels/restore": {
+      const r = quire.restoreLabel(str("id"), actor, { baseVersion: optStr("version") });
+      if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
+      return json({ path: r.path, version: r.version, change: r.change?.id ?? null }); // restoring `change` undoes this
+    }
     case "POST /restore": {
       const r = quire.restore(int("id"), actor, optStr("version"));
       if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
@@ -361,6 +508,12 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     }
     case "GET /trash":
       return json(quire.trash());
+    case "GET /export": {
+      // Notes as a .zip (core/export.ts): ?path=… (repeated), ?folder=…, or ?all=1 for the whole workspace.
+      const what: ExportWhat = q("all") ? { all: true } : q("folder") ? { folder: q("folder") } : { paths: url.searchParams.getAll("path").slice(0, 2000) };
+      const out = await exportZip({ quire, bytes: host.fileBytes ?? (async () => null), origin: host.origin ?? url.origin, name: String(host.info().name ?? "Workspace") }, what);
+      return new Response(out.zip as Uint8Array<ArrayBuffer>, { headers: { "Content-Type": "application/zip", "Content-Disposition": attachment(out.name), "Cache-Control": "no-store" } });
+    }
     case "POST /trash/restore": {
       const back = quire.untrash(paths("ids"), actor);
       for (const b of back) host.written(b.path, quire.files.read(b.path), b.version, b.change);
@@ -378,6 +531,27 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
   return null;
 }
 
+/** An event's fields from a request body: every one for a new event, only those given for a change. */
+function draftOf({ str, optStr, optBool, raw }: ReturnType<typeof inputs>, whole: boolean): Partial<EventDraft> {
+  const out: Partial<EventDraft> = {};
+  const take = <K extends keyof EventDraft>(k: K, v: EventDraft[K] | undefined) => v !== undefined && (out[k] = v);
+  take("title", whole ? str("title") : optStr("title"));
+  take("start", whole ? str("start") : optStr("start"));
+  take("end", whole ? str("end") : optStr("end"));
+  take("allDay", optBool("allDay") ?? (whole ? false : undefined));
+  take("timeZone", optStr("timeZone"));
+  take("location", optStr("location"));
+  take("description", optStr("description"));
+  const people = raw.attendees;
+  if (people !== undefined) {
+    if (!Array.isArray(people) || !people.every((a) => a && typeof a === "object" && ["name", "email"].every((k) => a[k] === undefined || a[k] === null || typeof a[k] === "string"))) {
+      throw new QuireError('"attendees" must be a list of { name, email }');
+    }
+    out.attendees = people.map((a: { name?: string | null; email?: string | null }) => ({ name: a.name ?? null, email: a.email ?? null, status: null }));
+  } else if (whole) out.attendees = [];
+  return out;
+}
+
 /** An instant from the query: an ISO date or time. */
 function instant(s: string, name: string): number {
   const t = Date.parse(s);
@@ -386,7 +560,8 @@ function instant(s: string, name: string): number {
 }
 
 /** Calendars: the sources the workspace subscribes to, their events, and meeting notes made from them. */
-async function calendarRoute(host: ApiHost, cal: Calendar, key: string, { str, optStr, optBool, q, qCount }: ReturnType<typeof inputs>): Promise<Response | null> {
+async function calendarRoute(host: ApiHost, cal: Calendar, key: string, input: ReturnType<typeof inputs>): Promise<Response | null> {
+  const { str, optStr, optBool, q, qCount } = input;
   const viewer = { user: host.user, canEdit: host.canEditShared };
   const changed = <T>(out: T) => (host.calendarChanged?.(), json(out));
   switch (key) {
@@ -395,7 +570,7 @@ async function calendarRoute(host: ApiHost, cal: Calendar, key: string, { str, o
     case "POST /calendar/sources":
       return changed(await cal.addIcs({ url: str("url"), name: optStr("name"), color: optStr("color") }, viewer, host.actor));
     case "POST /calendar/google":
-      return changed(await cal.addGoogle({ calendar: str("calendar"), name: optStr("name"), color: optStr("color"), writeBack: optBool("writeBack") }, viewer, host.actor));
+      return changed(await cal.addGoogle({ calendar: str("calendar"), name: optStr("name"), color: optStr("color"), writeBack: optBool("writeBack"), accessRole: optStr("accessRole") }, viewer, host.actor));
     case "POST /calendar/sources/update":
       return changed(cal.update(str("id"), { name: optStr("name"), color: optStr("color"), writeBack: optBool("writeBack") }, viewer));
     case "POST /calendar/sources/remove":
@@ -413,6 +588,23 @@ async function calendarRoute(host: ApiHost, cal: Calendar, key: string, { str, o
       const ev = cal.event(q("id"), viewer);
       return ev ? json(ev) : json({ error: "That event doesn't exist, or you can't see it" }, 404);
     }
+    // Events made and changed in the app: in the workspace's own calendar ("local"), or a Google one.
+    case "POST /calendar/events": {
+      const ev = await cal.createEvent(str("source"), draftOf(input, true) as EventDraft, viewer, host.actor, optStr("note"));
+      host.calendarChanged?.();
+      if (!optBool("meetingNote")) return json({ event: ev, note: null });
+      const r = cal.meetingNote(host.quire, ev.id, viewer, { timeZone: optStr("timeZone"), source: host.actor });
+      if (r.created) {
+        host.written(r.path, host.quire.files.read(r.path), r.version, r.change);
+        host.tree();
+      }
+      return json({ event: cal.event(ev.id, viewer), note: { path: r.path } });
+    }
+    case "POST /calendar/events/update":
+      return changed(await cal.updateEvent(str("id"), draftOf(input, false), viewer, host.actor));
+    case "POST /calendar/events/delete":
+      await cal.deleteEvent(str("id"), viewer, host.actor);
+      return changed({ ok: true });
     case "POST /calendar/meeting-note": {
       const id = str("id");
       const r = cal.meetingNote(host.quire, id, viewer, { timeZone: optStr("timeZone"), source: host.actor });
