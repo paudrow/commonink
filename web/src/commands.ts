@@ -84,6 +84,8 @@ export interface App {
   archive(): void;
   delete(): void;
   move(): void;
+  /** Put the cursor on what names the note (its heading), or ask for a name. */
+  rename(): void;
   noteHistory(): void;
   gettingStarted(): void;
   shortcuts(): void;
@@ -137,6 +139,7 @@ export function appCommands(app: App): Command[] {
     { id: "archive", title: note?.archived ? "Unarchive note" : "Archive note", keywords: "archive remove hide", icon: note?.archived ? "unarchive" : "archive", keys: ["Mod-Shift-e"], available: !!note, run: app.archive },
     { id: "delete", title: "Delete note", keywords: "delete remove trash bin", icon: "trash", available: !!note && app.canDelete, run: app.delete },
     { id: "move", title: "Move to folder…", keywords: "move note folder file", icon: "move", available: !!note, run: app.move },
+    { id: "rename", title: "Rename note…", keywords: "rename name title heading file", icon: "edit", available: !!note && app.canDelete, run: app.rename },
     { id: "back", title: "Go back", keywords: "previous history return last note ctrl-o", icon: "back", keys: ["Mod-["], available: app.canBack, run: app.back },
     { id: "forward", title: "Go forward", keywords: "next history ctrl-i", icon: "chevron", keys: ["Mod-]"], available: app.canForward, run: app.forward },
     { id: "follow-link", title: "Follow link", keywords: "open link under the cursor gd go to", icon: "link", area: "Editor", available: app.onLink, run: app.followLink },
@@ -196,6 +199,7 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: [":w"], label: "Save", area: "Vim" },
   { keys: [":e name"], label: "Open a note (:e alone opens quick open)", area: "Vim" },
   { keys: [":star"], label: "Star or unstar the note", area: "Vim" },
+  { keys: [":rename"], label: "Rename the note (selects its heading)", area: "Vim" },
   { keys: [":archive"], label: "Archive the note", area: "Vim" },
   { keys: [":trash"], label: "Delete the note (to Trash)", area: "Vim" },
   { keys: [":notes"], label: "Go to Notes", area: "Vim" },

@@ -24,11 +24,12 @@ import { folderPicker } from "./folderPicker.ts";
 import type { History } from "./history.ts";
 import type { Assets } from "./assets.ts";
 import { renderTasksPage } from "./tasksView.ts";
-import { askFor, pickTemplate } from "./templatePicker.ts";
+import { askFor, askName, pickTemplate } from "./templatePicker.ts";
 import { localNow, type TemplateInfo } from "../../src/core/templates.ts";
 import { openQuickAdd, QUICK_ADD } from "./quickAdd.ts";
 import { formatKeys, learnLayout, matchKeys } from "./keys.ts";
 import { navArrows, type Dir, type NavArrows } from "./navArrows.ts";
+import { cleanName, fixedName, nameFromHeading, nameLine, renamedPath } from "./noteName.ts";
 import { taskInputPrefs } from "./taskInput.ts";
 import type { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./account.ts";
@@ -75,6 +76,10 @@ interface Session {
   edited: boolean;
   /** The last save didn't reach the server (offline, or it failed): it's tried again until it does. */
   failed: boolean;
+  /** The words of the heading that names it (see noteName.ts), as last seen; null without one. */
+  heading: string | null;
+  /** You changed that heading here, so the file is renamed to match (see retitle). An agent changing it on disk doesn't. */
+  retitle: boolean;
   /** The pane it's open in. */
   pane: Pane;
 }
@@ -286,6 +291,7 @@ function commands() {
     archive: () => void archiveCurrent(),
     delete: () => void deleteCurrent(),
     move: () => openMovePicker($("#move-btn")),
+    rename: () => void renameNote(),
     noteHistory: () => s && void showHistory({ note: s.path }),
     gettingStarted: async () => {
       const start = (await api.feed({ tag: "start", limit: 1 }).catch(() => null))?.items[0];
@@ -346,7 +352,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   }
   const ticket = ++pane.opens;
   await flushSave(pane);
-  if (pane.session) await nameUntitled(pane.session);
+  if (pane.session) await retitle(pane.session);
   keepPlace(pane);
   const meta = notes.find((n) => n.path === path);
   if (meta?.kind === "asset") return showAssets({ open: meta.path, push: opts.push });
@@ -373,6 +379,8 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
     failed: false,
     timer: 0,
     edited: false,
+    heading: null,
+    retitle: false,
     pane,
   };
   // Build the editor before switching sessions: if this throws, the old note stays open and
@@ -406,6 +414,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
     console.error(e);
     return showBanner(`Couldn't open ${note.path} in the editor. Reload the page to try again.`);
   }
+  if (note.kind === "md") next.heading = nameLine(pane.view.state.doc).text;
   pane.session = next;
   pane.trail = opts.trail === false ? { ...pane.trail, note: note.id } : visit(pane.trail, note.id);
   resetVimJumps();
@@ -532,11 +541,10 @@ function navState(p: Pane) {
 const topArrows = navArrows((dir, steps) => stepPane(active, dir, steps));
 const paneArrows: NavArrows[] = [];
 
-/** The bars over the panes while split: back and forward, the note's name, star, close. The top bar's arrows follow the focused pane. */
+/** The bars over the panes while split: back and forward, star, close. The top bar's arrows follow the focused pane. */
 function renderPaneBars() {
   topArrows.update(navState(active));
   if (!split) return;
-  const page = onPage();
   for (const p of panes) {
     const s = p.session;
     const btn = (ico: string, title: string, run: () => void, cls = "", disabled = false) =>
@@ -547,7 +555,6 @@ function renderPaneBars() {
     const focused = arrows.el.contains(document.activeElement) ? (document.activeElement as HTMLElement) : null;
     p.bar.replaceChildren(
       arrows.el,
-      el("span", { class: "pane-title" }, s ? s.title : p.index === 0 && page ? PAGE_LABEL[page] : ""),
       el("span", { class: "spacer" }),
       ...(s && s.kind !== "asset" ? [btn(starred ? "starred" : "star", starred ? "Unstar" : "Star", () => void toggleStar(s.path), starred ? "is-on" : "")] : []),
       btn("close", `Close this pane (${formatKeys("Mod-Alt-\\")})`, () => void closePane(p)),
@@ -645,7 +652,7 @@ async function leaveNote() {
   const main = panes[0];
   main.opens++; // a note still loading into it doesn't come back over the page
   await flushSave(main);
-  if (main.session) await nameUntitled(main.session);
+  if (main.session) await retitle(main.session);
   keepPlace(main);
   main.session = null;
   active = main;
@@ -1013,36 +1020,91 @@ async function newNote(folder = "", body = "") {
   }
 }
 
-const UNTITLED = /^Untitled( \d+)?$/;
+/** The note being moved by this window, whose own move coming back from the server isn't news. */
 let renaming: string | null = null;
+/** A rename after a heading on its way; flushSave waits for it, so nothing acts on the old path meanwhile. */
+let retitling: Promise<void> | null = null;
+let retitleTimer = 0;
 
-/** Once an "Untitled" note has a real title, rename the file to match (in place, without reloading the editor). */
-async function nameUntitled(s: Session) {
-  const stem = s.path.split("/").pop()!.replace(/\.md$/i, "");
-  if (s.kind !== "md" || !UNTITLED.test(stem) || renaming) return;
-  const title = s.pane.view.state.doc.line(1).text.match(/^#\s+(.+?)\s*#*$/)?.[1]?.trim();
-  const clean = title?.replace(/[\\/:*?"<>|#^[\]]/g, " ").replace(/\s+/g, " ").trim().slice(0, 120);
-  if (!clean || UNTITLED.test(clean)) return;
-  const dir = s.path.includes("/") ? s.path.slice(0, s.path.lastIndexOf("/") + 1) : "";
-  let target = `${dir}${clean}.md`;
-  for (let i = 2; notes.some((n) => n.path.toLowerCase() === target.toLowerCase()); i++) target = `${dir}${clean} ${i}.md`;
+/**
+ * Rename the note `s` shows to `to` in place, without reloading the editor. Links to it are
+ * rewritten (api.move), and a toast says so when that changed other notes. Throws if it can't.
+ */
+async function renameSession(s: Session, to: string, title?: string) {
   renaming = s.path;
+  let r;
   try {
-    const r = await api.move(s.path, target);
+    r = await api.move(s.path, to);
     s.pane.view.state.facet(editorContext).path = r.path; // the open editor now belongs to the new path
     s.path = r.path;
-    s.title = title!;
-    if (s === active.session) {
-      renderPaneBars();
-      setUrl(notePath(s.title, s.id), "replace");
-      document.title = `${s.title} · Common Ink`;
-      renderChrome();
-    }
-    await refreshNotes();
-  } catch {
-    // leave it as Untitled; the user can rename from the title bar
   } finally {
     renaming = null;
+  }
+  await refreshNotes();
+  s.title = title ?? notes.find((n) => n.id === s.id)?.title ?? displayName(r.path);
+  if (s === active.session) {
+    setUrl(notePath(s.title, s.id), "replace");
+    document.title = `${s.title} · Common Ink`;
+    renderChrome();
+  }
+  const others = r.updated.filter((p) => p !== r.path).length;
+  if (others) toast({ icon: "link", text: `Renamed to ${displayName(r.path)}`, detail: `Updated links in ${others} note${others > 1 ? "s" : ""}` });
+}
+
+/**
+ * Once you've changed the heading that names a note (see noteName.ts), rename the file to match. It
+ * runs when you pause off the heading line, leave the editor or open something else; not while an
+ * IME is composing, and never for a viewer. A note with no heading keeps its name.
+ */
+function retitle(s: Session): Promise<void> {
+  if (!s.retitle || viewer || renaming || s !== s.pane.session || s.pane.view.composing) return Promise.resolve();
+  s.retitle = false;
+  const name = nameFromHeading(s.path, s.pane.view.state.doc);
+  const to = name && renamedPath(s.path, name, notes.map((n) => n.path));
+  if (!to) return Promise.resolve();
+  // A failed rename leaves the name as it was; changing the heading again tries again.
+  return (retitling = renameSession(s, to, s.heading!)
+    .catch(() => {})
+    .finally(() => (retitling = null)));
+}
+
+/** A pause off the heading's line renames the note after it. Typing on that line waits: each rename rewrites links. */
+function retitleSoon(s: Session, state: EditorState) {
+  clearTimeout(retitleTimer);
+  if (state.doc.lineAt(state.selection.main.head).number !== nameLine(state.doc).line) retitleTimer = window.setTimeout(() => void retitle(s), 1500);
+}
+
+/**
+ * ⌘K "Rename note…": a note named by its heading gets the heading's words selected (a heading with
+ * its name is added first if it has none), and is renamed after it as you'd changed it. Any other
+ * note (HTML, a frontmatter title, a daily note…) asks for the name.
+ */
+async function renameNote() {
+  const s = active.session;
+  if (!s || viewer) return;
+  const view = s.pane.view;
+  const h = s.kind === "md" && !fixedName(s.path) ? nameLine(view.state.doc) : null;
+  if (h && !h.titled) {
+    s.retitle = true; // the name follows the heading from here, even if it's left as it is
+    if (h.text === null) {
+      const name = displayName(s.path);
+      const lead = h.line > view.state.doc.lines ? "\n" : "";
+      view.dispatch({ changes: { from: h.at, insert: `${lead}# ${name}\n` } });
+      const from = h.at + lead.length + 2;
+      view.dispatch({ selection: { anchor: from, head: from + name.length }, scrollIntoView: true });
+    } else view.dispatch({ selection: { anchor: h.from, head: h.to }, scrollIntoView: true });
+    return view.focus();
+  }
+  const file = s.path.split("/").pop()!;
+  const ext = file.match(/\.[^.]+$/)?.[0] ?? "";
+  const typed = await askName("Rename note", file.slice(0, file.length - ext.length));
+  const name = typed && cleanName(typed);
+  if (!name) return;
+  await flushSave();
+  try {
+    await renameSession(s, `${s.path.slice(0, s.path.lastIndexOf("/") + 1)}${name}${ext}`);
+  } catch (e) {
+    toast({ text: e instanceof Error ? e.message : `Couldn't rename ${displayName(s.path)}` });
   }
 }
 
@@ -1067,6 +1129,14 @@ function onUpdate(s: Session, docChanged: boolean, fromRemote: boolean, state: E
     s.edited = true;
     scheduleSave(s);
   }
+  if (docChanged && s.kind === "md") {
+    const heading = nameLine(state.doc).text;
+    if (heading !== s.heading) {
+      s.heading = heading;
+      s.retitle = !fromRemote;
+    }
+  }
+  if (s.retitle) retitleSoon(s, state);
   if (s.pane !== active) return;
   renderStatusSoon(state);
   if (docChanged) renderOutlineSoon();
@@ -1104,7 +1174,6 @@ async function save(s: Session) {
     s.base = content;
     s.baseVersion = r.version;
     s.failed = false;
-    if (s === s.pane.session && view.state.doc.lineAt(view.state.selection.main.head).number > 1) void nameUntitled(s);
     if (s === s.pane.session) status(s, view.state.doc.toString() === content ? "saved" : "editing");
   } catch (e) {
     if (e instanceof ApiError && e.status === 409) {
@@ -1130,6 +1199,7 @@ async function save(s: Session) {
 
 /** Save now whatever's waiting to be saved, in one pane or both. */
 async function flushSave(...only: Pane[]) {
+  await retitling;
   for (const p of only.length ? only : panes) {
     const s = p.session;
     if (!s || s.kind === "asset" || !s.edited) continue;
@@ -1953,13 +2023,10 @@ function startNewFolder() {
   });
 }
 
-// ------------------------------------------------------------------ chrome: crumbs, status, panel
+// ------------------------------------------------------------------ chrome: top bar, status, panel
 
 function renderChrome() {
   const s = active.session;
-  const crumbs = $("#crumbs");
-  const page = onPage();
-  $("#back-btn").hidden = notesPage.visible;
   $("#archive-btn").hidden = !s;
   $("#delete-btn").hidden = !s || viewer;
   $("#move-btn").hidden = !s;
@@ -1975,11 +2042,7 @@ function renderChrome() {
     $("#html-toggle").hidden = true;
     for (const id of ["#vim-mode", "#cursor-pos", "#word-count"]) $(id).textContent = "";
     $("#vim-mode").dataset.mode = "";
-      const note = page === "history" ? (historyPage?.noteFilter ?? null) : null;
-    return crumbs.replaceChildren(
-      ...(page ? [el("span", { class: "crumb-file" }, PAGE_LABEL[page])] : []),
-      ...(note ? [el("span", { class: "crumb-sep" }, "·"), el("span", { class: "crumb" }, displayName(note))] : []),
-    );
+    return;
   }
   const starred = isStarred(s.id);
   $("#star-btn").classList.toggle("is-on", starred);
@@ -1988,16 +2051,8 @@ function renderChrome() {
   const archived = isArchived(s.path);
   setLabel($("#archive-btn"), `${archived ? "Unarchive note" : "Archive note"} (${formatKeys("Mod-Shift-e")})`);
   $("#archive-btn").replaceChildren(icon(archived ? "unarchive" : "archive", 16));
-  const parts = s.path.split("/");
-  const file = parts.pop()!;
-  const name = el("span", { class: "crumb-file", title: "Click to rename" }, file.replace(/\.(md|markdown)$/i, ""));
-  name.addEventListener("click", () => startRename(name));
-  const folderCrumbs = parts.flatMap((p, i) => {
-    const crumb = el("button", { type: "button", class: "crumb", title: "Move to another folder" }, p);
-    crumb.addEventListener("click", () => openMovePicker(crumb));
-    return i === 0 && p === "Archive" ? [el("span", { class: "crumb" }, p), el("span", { class: "crumb-sep" }, "/")] : [crumb, el("span", { class: "crumb-sep" }, "/")];
-  });
-  crumbs.replaceChildren(...folderCrumbs, name);
+  const folder = parentOf(s.path);
+  setLabel($("#move-btn"), `${folder ? `In ${folder.split("/").join(" / ")}` : "At the top level"} · Move to another folder`);
   $("#html-toggle").hidden = s.kind !== "html";
   $("#html-toggle").querySelectorAll("button").forEach((b) => setPressed(b, b.dataset.mode === prefs.htmlMode));
   setSaveStatus("saved");
@@ -2007,40 +2062,6 @@ function openMovePicker(anchor: HTMLElement) {
   const s = active.session;
   if (!s) return;
   folderPicker(anchor, { folders: allFolders(), current: parentOf(s.path), onPick: (folder) => void moveToFolder(s.path, folder) });
-}
-
-function startRename(label: HTMLElement) {
-  const s = active.session;
-  if (!s) return;
-  const ext = s.path.match(/\.[^.]+$/)?.[0] ?? "";
-  const input = el("input", { class: "rename-input", value: s.path.replace(/\.(md|markdown)$/i, ""), spellcheck: "false" });
-  label.replaceWith(input);
-  input.focus();
-  input.select();
-  let done = false;
-  const finish = async (commit: boolean) => {
-    if (done) return;
-    done = true;
-    const to = input.value.trim();
-    if (commit && to && to !== s.path.replace(/\.(md|markdown)$/i, "")) {
-      try {
-        await flushSave();
-        const r = await api.move(s.path, /\.[a-z]+$/i.test(to) ? to : to + (ext === ".md" ? "" : ext));
-        await refreshNotes();
-        await openNote(r.path, { push: false });
-        if (r.updated.length) toast({ by: { source: "you", person: "you", agent: null }, text: `Renamed · updated links in ${r.updated.length} note${r.updated.length > 1 ? "s" : ""}` });
-        return;
-      } catch (e) {
-        toast({ text: e instanceof Error ? e.message : "Rename failed" });
-      }
-    }
-    renderChrome();
-  };
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") finish(true);
-    if (e.key === "Escape") finish(false);
-  });
-  input.addEventListener("blur", () => finish(false));
 }
 
 function setSaveStatus(state: "saved" | "editing" | "saving" | "error") {
@@ -2249,6 +2270,8 @@ Vim.defineEx("archive", "arch", () => void archiveCurrent());
 Vim.defineEx("trash", "trash", () => void deleteCurrent());
 Vim.defineEx("notes", "note", () => void showNotes());
 Vim.defineEx("calendar", "cal", () => void showCalendar());
+// After vim puts the focus back in the editor, so the name prompt keeps it.
+Vim.defineEx("rename", "ren", () => setTimeout(() => void renameNote()));
 Vim.defineEx("star", "star", () => active.session && void toggleStar(active.session.path));
 Vim.defineEx("focus", "foc", () => void setFocusMode(!focusMode));
 Vim.defineEx("vsplit", "vs", (_cm: unknown, params: { args?: string[] }) => {
@@ -2501,6 +2524,8 @@ function setupPanes() {
       $(sel).addEventListener("mousedown", follow(p));
     }
   }
+  // Leaving an editor renames its note after a heading you changed there (see retitle).
+  for (const p of panes) p.view.contentDOM.addEventListener("blur", () => p.session && void retitle(p.session));
 }
 
 // ------------------------------------------------------------------ utils + boot
@@ -2658,8 +2683,7 @@ async function boot() {
   $("#new-smart-folder").addEventListener("click", () => newSmartFolder($("#new-smart-folder")));
   setupSections();
   $("#note-history-btn").addEventListener("click", () => active.session && void showHistory({ note: active.session.path }));
-  $("#back-btn").addEventListener("click", () => void showNotes());
-  $("#back-btn").before(topArrows.el);
+  $("#topbar > .spacer").before(topArrows.el);
   $("#archive-btn").addEventListener("click", () => void archiveCurrent());
   $("#delete-btn").addEventListener("click", () => void deleteCurrent());
   $("#star-btn").addEventListener("click", () => active.session && void toggleStar(active.session.path));

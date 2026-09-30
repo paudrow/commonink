@@ -36,7 +36,6 @@
 
 @media (pointer: coarse), (max-width: 760px) {
   #topbar .icon-btn, #statusbar .icon-btn, #sidebar .tree-head .icon-btn { width: 44px; height: 44px; flex: none; }
-  #topbar :is(.back-btn, button.crumb) { min-width: 44px; min-height: 44px; }
   #statusbar { height: 44px; }
   /* The vim chip keeps its look; its tap area grows to 44px. */
   #statusbar .chip-btn { position: relative; }
@@ -52,8 +51,6 @@
   .more-wrap { display: block; }
   #note-history-btn, #move-btn, #archive-btn, #delete-btn, #focus-btn, #panel-btn, #html-toggle { display: none; }
   #topbar { gap: 4px; padding-right: 4px; }
-  /* A long name ends in … instead of running under the presence avatars. */
-  #crumbs { overflow: hidden; padding-block: 4px; }
 }
 
 @media (pointer: coarse) {
@@ -90,12 +87,10 @@
   #panel { width: auto; left: max(8px, calc(100vw - 300px)); }
 
   #menu-btn, #search-top { display: grid; }
-  #back-btn, #split-btn { display: none; }
+  #split-btn { display: none; }
   /* The top bar is full on a phone: → shows only when there's somewhere to go forward, like a phone browser's. */
   #topbar .nav-arrow[data-dir="forward"][aria-disabled="true"] { display: none; }
   #topbar { padding-left: 4px; }
-  #crumbs :is(.crumb, .crumb-sep) { display: none; }
-  #crumbs .crumb-file { margin-left: 0; }
   #save-status { flex: none; }
   #save-status:not([data-state="error"]) { font-size: 0; min-width: 0; gap: 0; }
   #agents .avatar:nth-child(n + 2) { display: none; }

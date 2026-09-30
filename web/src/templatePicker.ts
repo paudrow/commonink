@@ -1,5 +1,6 @@
 // Choosing a template and answering its questions: the picker (type to filter, arrows and Enter)
-// and the {{ask:…}} form. Making a note or inserting the text is the caller's (see main.ts).
+// and the {{ask:…}} form. Making a note or inserting the text is the caller's (see main.ts). Also
+// the name prompt of Rename note, which uses the same dialog.
 import { el, icon } from "./dom.ts";
 import { fuzzyScore } from "./fuzzy.ts";
 import { fillTemplate, localNow, type TemplateInfo } from "../../src/core/templates.ts";
@@ -64,6 +65,29 @@ export function pickTemplate(templates: TemplateInfo[], title: string): Promise<
     const m = modal(title, [filter, list], () => resolve(null));
     draw();
     filter.focus();
+  });
+}
+
+/** Ask for a new name, starting from `name`. Null if called off or left as it was. */
+export function askName(title: string, name: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const input = el("input", { name: "name", value: name, autocomplete: "off", spellcheck: "false", "aria-label": "Name" });
+    const form = el("form", { class: "tpl-form" }, el("label", {}, el("span", {}, "Name"), input));
+    const submit = () => {
+      m.close();
+      const typed = input.value.trim();
+      resolve(typed && typed !== name ? typed : null);
+    };
+    form.addEventListener("submit", (e) => (e.preventDefault(), submit()));
+    const actions = el(
+      "div",
+      { class: "ask-actions" },
+      el("button", { type: "button", class: "qw-btn", onclick: () => (m.close(), resolve(null)) }, "Cancel"),
+      el("button", { type: "button", class: "qw-btn primary", onclick: submit }, "Rename"),
+    );
+    const m = modal(title, [form, actions], () => resolve(null));
+    input.focus();
+    input.select();
   });
 }
 
