@@ -2274,6 +2274,29 @@ details.markdown-alert[open] > summary { margin-bottom: 0.3em; }
 .nav-arrow[aria-disabled="true"]:hover { background: none; color: var(--muted); }
 .nav-trail .fp-item { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Quick capture: the screen a share lands on */
+.capture { max-width: 640px; margin: 0 auto; padding: 32px 24px 64px; display: grid; gap: 12px; }
+.capture .tr-head { margin-bottom: 4px; }
+.cap-notice { margin: 0; padding: 8px 12px; border-radius: 8px; background: var(--hover); font-size: 13.5px; color: var(--ink-2); }
+.cap-field { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); }
+.cap-field .ws-input { width: 100%; min-width: 0; }
+.cap-text { height: auto; padding: 8px 10px; resize: vertical; line-height: 1.5; }
+.cap-images { display: flex; flex-wrap: wrap; gap: 8px; }
+.cap-images:empty { display: none; }
+.cap-image { position: relative; margin: 0; }
+.cap-image img { display: block; width: 96px; height: 96px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
+.cap-image .icon-btn { position: absolute; top: 4px; right: 4px; background: var(--bg-elev); box-shadow: var(--shadow-sm); }
+.cap-where { display: grid; gap: 4px; margin: 4px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.cap-where legend { padding: 0 4px; font-size: 12.5px; color: var(--muted); }
+.cap-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 32px; font-size: 14px; color: var(--ink); }
+.cap-choice input[type="radio"] { accent-color: var(--accent); margin: 0; }
+.cap-detail { font-size: 12.5px; color: var(--muted); }
+.cap-other .ws-input { flex: 1; min-width: 160px; }
+.cap-error { margin: 0; color: var(--bad); font-size: 13.5px; }
+.cap-error:empty { display: none; }
+.cap-actions { display: flex; justify-content: flex-end; gap: 8px; }
+@media (pointer: coarse) { .cap-choice { min-height: 44px; } .capture .qw-btn { min-height: 44px; } }
+
 /* ------------------------------------------------------------------ calendar (web/src/calendar/) */
 /* Each item carries its calendar's color as --c. Event text sits on a light tint of it (the
    contrast test checks the tint), with a bar of the full color at its start. */
