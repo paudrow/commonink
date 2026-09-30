@@ -26,6 +26,7 @@ import type { Assets } from "./assets.ts";
 import { renderTasksPage } from "./tasksView.ts";
 import { openQuickAdd, QUICK_ADD } from "./quickAdd.ts";
 import { formatKeys, learnLayout, matchKeys } from "./keys.ts";
+import { navArrows, type Dir, type NavArrows } from "./navArrows.ts";
 import { taskInputPrefs } from "./taskInput.ts";
 import type { TagsPage } from "./tagsPage.ts";
 import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./account.ts";
@@ -36,7 +37,7 @@ import { guideMessage, startGuide } from "./onboarding.ts";
 import { store } from "./store.ts";
 import { changeVerb, groupChanges } from "../../src/core/format.ts";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
-import { clampSide, forget, historyStep, IS_MAC, newLayout, pageEntry, pageOf, parseLayout, rememberPlace, SIDE_CLICK, sideClick, step, visit, type PaneTrail, type Place } from "./panes.ts";
+import { clampSide, forget, historyStep, IS_MAC, newLayout, pageEntry, pageOf, parseLayout, rememberPlace, SIDE_CLICK, sideClick, step, trailAhead, visit, type PaneTrail, type Place } from "./panes.ts";
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { headingMatches } from "../../src/core/gfm.ts";
 import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
@@ -461,8 +462,39 @@ async function openSplit() {
 /** Where a note opened "to the side" of a pane goes. */
 const sideOf = (p: Pane) => (split ? other(p) : panes[1]);
 
-/** The bars over the panes while split: back and forward, the note's name, star, close. */
+/** Can a step in pane `p` land on this trail entry (a note that's there and not in the other pane, or a page in the main pane)? */
+function stepsTo(p: Pane, entry: string): boolean {
+  const page = pageOf(entry);
+  if (page !== null) return p.index === 0;
+  const path = notes.find((n) => n.id === entry)?.path;
+  return !!path && path !== other(p).session?.path;
+}
+
+/** A trail entry as the back and forward menus name it: a note's title, or a page's name. */
+function entryTitle(entry: string): string {
+  const page = pageOf(entry);
+  if (page === null) return notes.find((n) => n.id === entry)?.title ?? "Untitled";
+  const name = page.slice(1).split(/[?/]/)[0] as keyof typeof PAGE_LABEL;
+  return PAGE_LABEL[name] ?? page;
+}
+
+/** Back and forward, as the arrows show them for pane `p`: what's each way, and the shortcuts. */
+function navState(p: Pane) {
+  const label = (dir: Dir) => {
+    const keys = [formatKeys(dir === "back" ? "Mod-[" : "Mod-]"), ...(prefs.vim ? [formatKeys(dir === "back" ? "Ctrl-o" : "Ctrl-i")] : [])];
+    return `${dir === "back" ? "Back" : "Forward"} (${keys.join(", ")})`;
+  };
+  const ahead = (dir: Dir) => trailAhead(p.trail, dir, (entry) => stepsTo(p, entry)).map(entryTitle);
+  return { back: ahead("back"), forward: ahead("forward"), labels: { back: label("back"), forward: label("forward") } };
+}
+
+/** The top bar's arrows (for the focused pane) and each split pane's own. */
+const topArrows = navArrows((dir, steps) => stepPane(active, dir, steps));
+const paneArrows: NavArrows[] = [];
+
+/** The bars over the panes while split: back and forward, the note's name, star, close. The top bar's arrows follow the focused pane. */
 function renderPaneBars() {
+  topArrows.update(navState(active));
   if (!split) return;
   const page = onPage();
   for (const p of panes) {
@@ -470,14 +502,17 @@ function renderPaneBars() {
     const btn = (ico: string, title: string, run: () => void, cls = "", disabled = false) =>
       el("button", { type: "button", class: `icon-btn small ${cls}`, title, "aria-label": title, disabled, onclick: (e: Event) => (e.stopPropagation(), run()) }, icon(ico, 14));
     const starred = s ? isStarred(s.id) : false;
+    const arrows = (paneArrows[p.index] ??= navArrows((dir, steps) => stepPane(p, dir, steps), { small: true }));
+    arrows.update(navState(p));
+    const focused = arrows.el.contains(document.activeElement) ? (document.activeElement as HTMLElement) : null;
     p.bar.replaceChildren(
-      btn("back", "Back in this pane", () => void stepPane(p, "back"), "", !p.trail.back.length),
-      btn("back", "Forward in this pane", () => void stepPane(p, "forward"), "is-forward", !p.trail.forward.length),
+      arrows.el,
       el("span", { class: "pane-title" }, s ? s.title : p.index === 0 && page ? PAGE_LABEL[page] : ""),
       el("span", { class: "spacer" }),
       ...(s && s.kind !== "asset" ? [btn(starred ? "starred" : "star", starred ? "Unstar" : "Star", () => void toggleStar(s.path), starred ? "is-on" : "")] : []),
       btn("close", `Close this pane (${formatKeys("Mod-Alt-\\")})`, () => void closePane(p)),
     );
+    focused?.focus({ preventScroll: true }); // moving the arrows back in drops their focus
     p.bar.classList.toggle("is-focused", p === active);
   }
 }
@@ -487,24 +522,26 @@ function renderPaneBars() {
  * that are gone or open in the other pane. The main pane's trail has the pages you went to, too.
  * False if there was nowhere to go.
  */
-async function stepPane(p: Pane, dir: "back" | "forward"): Promise<boolean> {
+async function stepPane(p: Pane, dir: "back" | "forward", steps = 1): Promise<boolean> {
   let from = p.trail;
+  let left = steps; // the arrows' menus jump several steps at once
   for (let to = step(from, dir); to; to = step(from, dir)) {
+    if (!stepsTo(p, to.note!)) {
+      from = { ...forget(from, to.note!), note: from.note };
+      continue;
+    }
+    if (--left > 0) {
+      from = to;
+      continue;
+    }
+    p.trail = to;
+    saveLayout();
     const page = pageOf(to.note!);
-    if (page !== null && p.index === 0) {
-      p.trail = to;
-      saveLayout();
+    if (page !== null) {
       history.replaceState({ i: historyAt }, "", page);
       await route();
-      return true;
-    }
-    const path = page === null ? notes.find((n) => n.id === to!.note)?.path : undefined;
-    if (path && path !== other(p).session?.path) {
-      p.trail = to;
-      await openNote(path, { pane: p, trail: false });
-      return true;
-    }
-    from = { ...forget(from, to.note!), note: from.note };
+    } else await openNote(notes.find((n) => n.id === to!.note)!.path, { pane: p, trail: false });
+    return true;
   }
   return false;
 }
@@ -2122,6 +2159,7 @@ function toggleVim() {
   taskInputPrefs.vim = prefs.vim;
   for (const p of panes) p.view.dispatch({ effects: vimSlot.reconfigure(prefs.vim ? vim() : []) });
   attachVim();
+  renderPaneBars(); // the arrows' labels say Ctrl-O / Ctrl-I with vim on
   active.view.focus();
 }
 
@@ -2358,6 +2396,7 @@ async function boot() {
   setupSections();
   $("#note-history-btn").addEventListener("click", () => active.session && void showHistory({ note: active.session.path }));
   $("#back-btn").addEventListener("click", () => void showNotes());
+  $("#back-btn").before(topArrows.el);
   $("#archive-nav").addEventListener("click", () => void showNotes({ scope: "archived", query: {} }));
   $("#archive-btn").addEventListener("click", () => void archiveCurrent());
   $("#delete-btn").addEventListener("click", () => void deleteCurrent());

@@ -124,3 +124,11 @@ export function rememberPlace(places: Record<string, Place>, id: string, place: 
   const rest = Object.entries(places).filter(([k]) => k !== id);
   return Object.fromEntries([...rest.slice(Math.max(0, rest.length - keep + 1)), [id, place]]);
 }
+
+/**
+ * The entries that way in a pane's trail, nearest first, without the ones a step would skip (`ok`
+ * says which it wouldn't: a note that's gone, or one the other pane shows).
+ */
+export function trailAhead(p: PaneTrail, dir: "back" | "forward", ok: (entry: string) => boolean): string[] {
+  return [...(dir === "back" ? p.back : p.forward)].reverse().filter(ok);
+}
