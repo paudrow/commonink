@@ -57,6 +57,14 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
   if (url.pathname.startsWith("/invite/")) return invite(req, env, url);
   if (url.pathname.startsWith("/api/s/")) return shareLink(req, env, url);
   if (url.pathname.startsWith("/api/")) return api(req, env, url);
+  if (url.pathname.startsWith("/s/")) {
+    // A shared link's page: not for search engines, and its token stays out of Referer.
+    const res = await fetchAsset(env.ASSETS, req, url);
+    const page = new Response(res.body, res);
+    page.headers.set("X-Robots-Tag", "noindex, nofollow");
+    page.headers.set("Referrer-Policy", "no-referrer");
+    return page;
+  }
   // A share the service worker didn't catch (it wasn't set up yet): the capture screen says so.
   if (url.pathname === "/share" && req.method === "POST") return Response.redirect(new URL("/capture?share=none", url).href, 303);
   return fetchAsset(env.ASSETS, req, url);

@@ -36,6 +36,7 @@
         <button id="calendar-btn" class="nav-item" type="button"><span class="ico" data-icon="calendar"></span><span>Calendar</span></button>
         <button id="assets-btn" class="nav-item" type="button"><span class="ico" data-icon="grid"></span><span>Assets</span><span id="assets-count" class="n"></span></button>
         <button id="history-btn" class="nav-item" type="button"><span class="ico" data-icon="history"></span><span>History</span></button>
+        <button id="shared-btn" class="nav-item" type="button" hidden><span class="ico" data-icon="share"></span><span>Shared with me</span><span id="shared-count" class="n"></span></button>
         <div class="sidebar-sections">
         <div class="tree-head" data-section="favorites">
           <button class="section-toggle" type="button" aria-expanded="true" aria-controls="favorites"><span class="ico" data-icon="chevron" data-size="12"></span><span>Favorites</span></button>
@@ -98,6 +99,7 @@
           <div id="assets-view" hidden tabindex="-1"></div>
           <div id="tags-view" hidden tabindex="-1"></div>
           <div id="contacts-view" hidden tabindex="-1"></div>
+          <div id="shared-view" hidden tabindex="-1"></div>
           <div id="capture-view" hidden tabindex="-1"></div>
           <div id="pane-divider" role="separator" aria-orientation="vertical" aria-label="Resize the panes" tabindex="0" hidden></div>
           <section id="side-pane" aria-label="Side pane" hidden>

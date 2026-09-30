@@ -28,7 +28,7 @@ export interface Command {
   run: () => unknown;
 }
 
-export type Page = "notes" | "tasks" | "calendar" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash";
+export type Page = "notes" | "tasks" | "calendar" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash" | "shared";
 
 /** What the registry needs from the app: a snapshot of its state, and the actions to run. */
 export interface App {
@@ -50,6 +50,8 @@ export interface App {
   onLink: boolean;
   /** Can delete notes (not a viewer online). */
   canDelete: boolean;
+  /** Online: notes can be shared, and there's a Shared with me. */
+  online: boolean;
   /** Can add calendars (not a viewer online). */
   canSubscribe: boolean;
   /** Google Calendar works on this server and isn't connected yet. */
@@ -85,6 +87,8 @@ export interface App {
   star(): void;
   archive(): void;
   delete(): void;
+  /** Online: the dialog for sharing the focused note with people or by link (shareDialog.ts). */
+  shareWithPeople(): void;
   move(): void;
   /** Put the cursor on what names the note (its heading), or ask for a name. */
   rename(): void;
@@ -138,6 +142,7 @@ export function appCommands(app: App): Command[] {
     go("history", "History", "history", "changes activity versions"),
     go("archive", "Archive", "archive", "archived"),
     { ...go("trash", "Trash", "trash", "deleted restore bin recycle"), available: app.canDelete },
+    { ...go("shared", "Shared with me", "share", "shared others people"), available: app.online },
     { id: "theme", title: "Toggle theme", keywords: "dark light mode appearance colors", icon: "moon", run: app.toggleTheme },
     { id: "vim", title: app.vim ? "Turn vim keys off" : "Turn vim keys on", keywords: "vim keybindings modal editing toggle", icon: "code", run: app.toggleVim },
     {
@@ -158,6 +163,7 @@ export function appCommands(app: App): Command[] {
     { id: "move", title: "Move to folder…", keywords: "move note folder file", icon: "move", available: !!note, run: app.move },
     { id: "rename", title: "Rename note…", keywords: "rename name title heading file", icon: "edit", available: !!note && app.canDelete, run: app.rename },
     { id: "share", title: "Share…", keywords: "share link copy print export download pdf markdown html word send", icon: "share", keys: ["Mod-Shift-s"], available: text, run: app.share },
+    { id: "share-people", title: "Share with people…", keywords: "share people link invite collaborate public email", icon: "share-people", available: !!note && app.online, run: app.shareWithPeople },
     { id: "copy-link", title: "Copy link to this note", keywords: "share url address copy", icon: "link", available: text, run: app.copyLink },
     { id: "print", title: "Print…", keywords: "print paper pdf", icon: "printer", available: note?.kind === "md", run: () => app.exportAs("print") },
     { id: "export-pdf", title: "Export as PDF", keywords: "save download pdf print", icon: "pdf", available: note?.kind === "md", run: () => app.exportAs("pdf") },

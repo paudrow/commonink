@@ -22,6 +22,7 @@ const app = (over: Partial<App> = {}): App => {
     canForward: false,
     onLink: false,
     canDelete: true,
+    online: false,
     canSubscribe: true,
     canConnectGoogle: false,
     folds: 0,
@@ -49,6 +50,7 @@ const app = (over: Partial<App> = {}): App => {
     star: run("star"),
     archive: run("archive"),
     delete: run("delete"),
+    shareWithPeople: run("shareWithPeople"),
     move: run("move"),
     rename: run("rename"),
     noteHistory: run("noteHistory"),
@@ -251,6 +253,13 @@ test("Delete and Trash are commands for whoever can delete, not viewers", () => 
   assert.deepEqual(titles("trash", app({ note })).slice(0, 2), ["Go to Trash", "Delete note"]);
   assert.deepEqual(titles("trash", app({ note: null })), ["Go to Trash"]);
   assert.deepEqual(titles("trash", app({ note, canDelete: false })), []);
+});
+
+test("Share with people… and Shared with me are commands online only", () => {
+  const note = { kind: "md" as const, starred: false, archived: false };
+  const sharing = (t: string) => /people|Shared with me/.test(t);
+  assert.deepEqual(titles("share", app({ note, online: true })).filter(sharing), ["Share with people…", "Go to Shared with me"]);
+  assert.deepEqual(titles("share", app({ note, online: false })).filter(sharing), []);
 });
 
 test("the calendar is a page to go to, a feed to subscribe to (not for viewers) and something to refresh; its keys are on the sheet", () => {

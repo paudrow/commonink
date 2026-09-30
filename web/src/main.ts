@@ -8,7 +8,7 @@ import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, unusedT
 import { cleanTag, normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
-import { paintShareButton, SHARE_KEYS, toggleShareMenu, type ShareNote } from "./share.ts";
+import { setShareState, setShareWithPeople, SHARE_KEYS, toggleShareMenu, type ShareNote } from "./share.ts";
 import type { Label } from "./api.ts";
 import { hideBanner, showBanner } from "./banner.ts";
 import { showConflict as conflictBanner } from "./conflict.ts";
@@ -53,6 +53,8 @@ import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
 import { safeDecode } from "../../src/core/uri.ts";
 import { deleteFolder, deletePaths, TrashPage, type DeleteHooks } from "./trash.ts";
+import { mountSharedView, sharedRoute } from "./sharedView.ts";
+import { showShareDialog } from "./shareDialog.ts";
 import { CapturePage, registerWorker } from "./capture.ts";
 import { AGENTS_BLURB, isAgentsNote } from "./agentsNote.ts";
 import { closeDrawer, setupMobileNav } from "./mobileNav.ts";
@@ -164,6 +166,7 @@ const notesPage = new NotesPage({
   starButton: (tag) => tagStarButton(tag, "chip"),
   openPerson: (assignee) => void showTasks({ assignee }),
   readOnly: () => viewer,
+  shared: (item) => !!workspaceId && isShared(item.id, item.path),
   delete: (paths) => deletePaths(paths, deleteHooks),
   toast: (t) => toast(t),
   changed: () => {
@@ -277,6 +280,7 @@ function commands() {
     canForward: active.trail.forward.length > 0,
     onLink: s?.kind === "md" && !!linkTargetAt(active.view.state, active.view.state.selection.main.head),
     canDelete: !viewer,
+    online: !!workspaceId,
     canSubscribe: !viewer,
     canConnectGoogle: !!googleKnown() && googleKnown()!.mode !== "off" && !googleKnown()!.connection,
     folds: s?.kind === "md" ? foldCount(active.view.state) : 0,
@@ -288,7 +292,7 @@ function commands() {
     newTag: startNewTag,
     go: (page) => {
       if (page === "notes" || page === "archive" || page === "trash") void showNotes({ tab: page, query: {} });
-      else void { tasks: showTasks, calendar: showCalendar, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory }[page]();
+      else void { tasks: showTasks, calendar: showCalendar, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory, shared: showShared }[page]();
     },
     subscribeCalendar: () => void subscribeCalendar(),
     refreshCalendars: () => void refreshCalendars(),
@@ -310,6 +314,7 @@ function commands() {
     star: () => s && void toggleStar(s.path),
     archive: () => void archiveCurrent(),
     delete: () => void deleteCurrent(),
+    shareWithPeople: () => active.session && openShareDialog({ path: active.session.path }),
     move: () => openMovePicker($("#move-btn")),
     rename: () => void renameNote(),
     noteHistory: () => s && void showHistory({ note: s.path }),
@@ -647,7 +652,7 @@ function setUrl(url: string, how: "push" | "replace" = "push") {
 
 let unmountTasks: (() => void) | null = null;
 
-function showStage(which: "editor" | "html" | "notes" | "tasks" | "calendar" | "contacts" | "history" | "assets" | "tags" | "capture") {
+function showStage(which: "editor" | "html" | "notes" | "tasks" | "calendar" | "contacts" | "history" | "assets" | "tags" | "shared" | "capture") {
   closeDrawer();
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
@@ -658,6 +663,7 @@ function showStage(which: "editor" | "html" | "notes" | "tasks" | "calendar" | "
   $("#history-view").hidden = which !== "history";
   $("#tags-view").hidden = which !== "tags";
   $("#contacts-view").hidden = which !== "contacts";
+  $("#shared-view").hidden = which !== "shared";
   $("#capture-view").hidden = which !== "capture";
   if (which !== "tasks") {
     unmountTasks?.();
@@ -836,6 +842,70 @@ function openTag(tag: string, where: "notes" | "tasks" = "notes") {
   else void showNotes({ tab: "notes", query: { tag } });
 }
 
+// ------------------------------------------------------------------ sharing (online)
+
+/** What this workspace shares outside itself: notes by ID, and folders, for the "shared" marks. */
+let shareIndex: { notes: Set<string>; folders: string[] } = { notes: new Set(), folders: [] };
+const isShared = (id: string, path: string) => shareIndex.notes.has(id) || shareIndex.folders.some((f) => path.startsWith(`${f}/`));
+async function refreshShares() {
+  if (!workspaceId) return;
+  const all = await api.shares().catch(() => null);
+  if (!all) return;
+  shareIndex = { notes: new Set(all.shares.flatMap((s) => (s.note ? [s.note] : []))), folders: all.shares.flatMap((s) => (s.folder ? [s.folder] : [])) };
+  renderChrome();
+  notesPage.refreshSoon();
+}
+
+/** The share dialog for a note or folder: who it's shared with outside the workspace, and by link. */
+function openShareDialog(target: { path: string } | { folder: string }) {
+  void showShareDialog(target, {
+    canShare: !viewer,
+    toast: (t) => toast(t),
+    changed: () => void refreshShares(),
+    workspaceSettings: () => void account.find((a) => /^(Workspace settings|Members)…$/.test(a.label))?.run(),
+  });
+}
+
+/** Shared with me: notes other workspaces share with you, each opening on its own page. */
+async function showShared(opts: { push?: boolean } = {}) {
+  await leaveNote();
+  showStage("shared");
+  const root = $("#shared-view");
+  root.replaceChildren(el("div", { class: "trash" }, el("div", { class: "tr-head" }, el("div", { class: "tr-title" }, el("h1", {}, "Shared with me")), el("p", {}, "Notes people outside your workspaces have shared with you. Each opens on its own page."))));
+  if (opts.push !== false) setUrl("/shared");
+  document.title = "Shared with me · Common Ink";
+  renderChrome();
+  renderTree();
+  renderOutline();
+  const groups = await api.sharedWithMe().catch(() => []);
+  $("#shared-count").textContent = String(groups.reduce((n, g) => n + g.notes.length, 0) || "");
+  const box = root.querySelector(".trash")!;
+  box.append(
+    ...(groups.length
+      ? groups.map((g) =>
+          el(
+            "section",
+            { class: "sh-section" },
+            el("h3", {}, g.workspace.name),
+            el(
+              "div",
+              { class: "tr-list" },
+              ...g.notes.map((n) =>
+                el(
+                  "a",
+                  { class: "tr-row sh-link", href: `/shared/${g.workspace.id}/${n.id}` },
+                  el("span", { class: "tr-icon" }, icon(n.kind === "asset" ? "image" : n.kind === "html" ? "html" : "file", 16)),
+                  el("div", { class: "tr-main" }, el("div", { class: "tr-name" }, n.title, el("span", { class: "tr-path" }, n.path))),
+                  el("span", { class: "sh-badge" }, n.role === "editor" ? "Can edit" : "View only"),
+                ),
+              ),
+            ),
+          ),
+        )
+      : [el("div", { class: "as-empty" }, icon("share", 26), el("b", {}, "Nothing shared with you yet"), el("span", {}, "When someone shares a note with your email, or you keep a shared link, it shows up here."))]),
+  );
+}
+
 /**
  * Quick capture: what another app shared (the phone's share sheet, through the service worker), or
  * /capture?title=…&text=…&url=…, to check over and save into a note. It isn't a place in the back
@@ -908,7 +978,7 @@ function pickFiles(): Promise<File[]> {
   });
 }
 
-const PAGE_LABEL = { notes: "Notes", archive: "Archive", trash: "Trash", tasks: "Tasks", calendar: "Calendar", contacts: "Contacts", history: "History", assets: "Assets", tags: "Tags", capture: "Capture" } as const;
+const PAGE_LABEL = { notes: "Notes", archive: "Archive", trash: "Trash", tasks: "Tasks", calendar: "Calendar", contacts: "Contacts", history: "History", assets: "Assets", tags: "Tags", shared: "Shared with me", capture: "Capture" } as const;
 
 /** The page showing (the Notes page by its tab), or null while a note is. */
 const onPage = () =>
@@ -919,6 +989,7 @@ const onPage = () =>
   : historyPage?.visible ? "history"
   : assetsPage?.visible ? "assets"
   : tagsPage?.visible ? "tags"
+  : !$("#shared-view").hidden ? "shared"
   : !$("#capture-view").hidden ? "capture"
   : null;
 
@@ -1811,6 +1882,7 @@ function renderTree() {
   setCurrent($("#history-btn"), page === "history" && !historyPage?.noteFilter);
   setCurrent($("#assets-btn"), page === "assets");
   setCurrent($("#tags-page-btn"), page === "tags", "is-on");
+  setCurrent($("#shared-btn"), page === "shared");
 
   const empty = emptyFolders();
   for (const f of [...empty]) if (notes.some((n) => n.path.startsWith(`${f}/`))) empty.delete(f); // it has notes now: it's a real folder
@@ -1868,6 +1940,7 @@ function renderTree() {
             { class: "row-actions" },
             action(`New note in ${path}`, "plus", () => void newNote(path)),
             action(`Export ${path} as a .zip`, "download", () => void exportZip({ folder: path })),
+            workspaceId ? action(`Share ${path}…`, "share", () => openShareDialog({ folder: path })) : null,
             viewer ? null : action(`Delete ${path}`, "trash", () => void removeFolder(path)),
           ),
         );
@@ -2145,7 +2218,7 @@ function renderChrome() {
   $("#move-btn").hidden = !s;
   $("#star-btn").hidden = !s || s.kind === "asset";
   $("#share-btn").hidden = !s || s.kind === "asset";
-  paintShareButton($("#share-btn"));
+  setShareState(!!s && !!workspaceId && isShared(s.id, s.path));
   $("#note-history-btn").hidden = !s || s.kind === "asset";
   $("#focus-btn").hidden = !s || s.kind === "asset";
   $("#split-btn").hidden = !split && (!s || s.kind === "asset");
@@ -2758,6 +2831,7 @@ async function route() {
   }
   const event = calendarTarget(at);
   if (event !== null) return showCalendar({ event: event || undefined, push: false });
+  if (at === "/shared") return showShared({ push: false });
   if (at === "/capture") return showCapture();
   // Archive and Trash are tabs of Notes. `?scope=archived` is how an address could once ask Notes for its archived notes.
   const tab = at === "/archive" || (at === "/notes" && new URLSearchParams(location.search).get("scope") === "archived") ? "archive" : at === "/trash" ? "trash" : null;
@@ -2802,6 +2876,9 @@ async function refreshTaskCount() {
 const refreshTaskCountSoon = debounce(refreshTaskCount, 400);
 
 async function boot() {
+  // A shared note (a link, or one shared with you) is its own page, without the workspace around it.
+  const shared = sharedRoute();
+  if (shared) return mountSharedView(shared);
   registerWorker(); // installable, and the share target (web/public/sw.js)
   // Read before the workspace is picked: picking one tidies the address, this included.
   const fromGoogle = new URLSearchParams(location.search).get("google");
@@ -2822,6 +2899,10 @@ async function boot() {
     setSelfName(who.me.user.name);
     api.reportTimeZone().catch(() => {}); // unreported, agents use the owner's zone, or UTC
     account = renderAccount(who.me, ws, (t) => toast(t));
+    $("#shared-btn").hidden = false;
+    setShareWithPeople({ label: "Share with people…", icon: "share-people", run: (note) => openShareDialog({ path: note.path }) });
+    void refreshShares();
+    void api.sharedWithMe().then((g) => ($("#shared-count").textContent = String(g.reduce((n, x) => n + x.notes.length, 0) || "")), () => {});
   }
 
   hydrateIcons();
@@ -2865,6 +2946,7 @@ async function boot() {
   $("#topbar > .spacer").before(topArrows.el);
   $("#archive-btn").addEventListener("click", () => void archiveCurrent());
   $("#delete-btn").addEventListener("click", () => void deleteCurrent());
+  $("#shared-btn").addEventListener("click", () => void showShared());
   $("#star-btn").addEventListener("click", () => active.session && void toggleStar(active.session.path));
   $("#move-btn").addEventListener("click", () => openMovePicker($("#move-btn")));
   $("#share-btn").addEventListener("click", openShare);
