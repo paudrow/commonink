@@ -4,7 +4,7 @@ import { JSDOM } from "jsdom";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/", pretendToBeVisual: true });
 const g = globalThis as Record<string, unknown>;
-for (const key of ["window", "document", "Node", "Element", "HTMLElement", "HTMLIFrameElement", "DOMParser", "DocumentFragment", "CustomEvent", "localStorage", "location", "getComputedStyle", "navigator", "MutationObserver", "requestAnimationFrame", "cancelAnimationFrame", "getSelection", "KeyboardEvent", "MouseEvent", "Event", "Range", "Text", "Window"]) {
+for (const key of ["window", "document", "Node", "Element", "HTMLElement", "HTMLIFrameElement", "DOMParser", "DocumentFragment", "CustomEvent", "NodeFilter", "localStorage", "location", "getComputedStyle", "navigator", "MutationObserver", "requestAnimationFrame", "cancelAnimationFrame", "getSelection", "KeyboardEvent", "MouseEvent", "Event", "Range", "Text", "Window"]) {
   if (!(key in g) || key === "navigator") Object.defineProperty(g, key, { value: (dom.window as unknown as Record<string, unknown>)[key], configurable: true, writable: true });
 }
 // jsdom lays nothing out; CodeMirror measures text ranges, which then have no boxes.
