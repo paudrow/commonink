@@ -79,9 +79,19 @@ https://www.youtube.com/watch?v=aqz-KE-bpKQ
 
 > A quote, to see how it prints.
 
+## GitHub markdown
+
+> [!TIP]
+> Alerts print in their colors. Jump back to [the tasks](#tasks), or read the footnote.[^paper] :printer:
+
+> [!WARNING]-
+> A collapsed alert: it prints open too.
+
 <details>
 <summary>A collapsed section</summary>
 
 This prints open, unless you ask to keep collapsed sections closed.
 
 </details>
+
+[^paper]: Footnotes gather at the end, as on GitHub, each with a link back.

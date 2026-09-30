@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import type { StaticSources } from "../web/src/export/static.ts";
 
 const { renderStatic } = await import("../web/src/export/static.ts");
-const { LIGHT_TOKENS } = await import("../web/src/export/staticCss.ts");
+const { ALERT_ICONS, LIGHT_TOKENS } = await import("../web/src/export/staticCss.ts");
 
 const NOTES: Record<string, string> = {
   "Launch.md": "# Launch\n\nThe plan in short.\n\n## Risks\n\n- Slipping dates\n\n## Later\n\nNot this.",
@@ -142,6 +142,20 @@ test("properties can be included, closed sections kept closed, and math written 
   assert.equal(d.querySelector(".katex-html"), null, "KaTeX's HTML, which needs its stylesheet and fonts, is left out");
 });
 
+test("GitHub's markdown comes through: alerts, footnotes, heading links and emoji, with collapsible alerts open", async () => {
+  const md = "# Plan\n\nSee [the risks](#risks) and a note.[^1] :tada:\n\n> [!WARNING]\n> Dates may slip.\n\n> [!NOTE]-\n> Folded by default.\n\n## Risks\n\nSome.\n\n[^1]: The footnote.";
+  const d = parse(await renderStatic("Plan.md", md, sources()));
+  assert.deepEqual([...d.querySelectorAll(".markdown-alert")].map((a) => [a.tagName, a.className.split(" ").find((c) => c.startsWith("markdown-alert-")), a.hasAttribute("open")]), [
+    ["DIV", "markdown-alert-warning", false],
+    ["DETAILS", "markdown-alert-note", true],
+  ]);
+  const risks = d.querySelector<HTMLAnchorElement>('a[href*="risks"]')!;
+  assert.ok(d.querySelector(`[id="${risks.getAttribute("href")!.slice(1)}"]`), `the heading link finds its heading: ${risks.getAttribute("href")}`);
+  const ref = d.querySelector<HTMLAnchorElement>(".footnote-ref a")!;
+  assert.ok(d.querySelector(`[id="${ref.getAttribute("href")!.slice(1)}"]`)?.textContent?.includes("The footnote."), "a footnote reference finds its footnote");
+  assert.ok(d.textContent!.includes("🎉"));
+});
+
 test("without a diagram renderer (no browser), a diagram shows as its code", async () => {
   const d = parse(await renderStatic("Demo.md", "```mermaid\nflowchart LR\n  A --> B\n```", sources({ diagram: undefined })));
   assert.equal(d.querySelector(".cb")?.getAttribute("data-lang"), "mermaid");
@@ -167,9 +181,11 @@ test("nothing in a note, a diagram or an embed can run in the static HTML", asyn
 
 test("the export stylesheet's colors are the app's light theme", () => {
   const css = readFileSync(new URL("../web/src/styles.css", import.meta.url), "utf8");
-  const start = css.indexOf(":root {");
-  const light = Object.fromEntries([...css.slice(start, css.indexOf("}", start)).matchAll(/--([\w-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]));
+  // Every plain `:root {` block (the light theme), not the dark ones.
+  const blocks = [...css.matchAll(/^:root \{([^}]*)\}/gm)].map((m) => m[1]);
+  const light = Object.fromEntries(blocks.flatMap((b) => [...b.matchAll(/--([\w-]+):\s*([^;]+);/g)]).map((m) => [m[1], m[2].trim()]));
   for (const [k, v] of Object.entries(LIGHT_TOKENS)) assert.equal(v, light[k], `--${k}`);
+  for (const [k, url] of Object.entries(ALERT_ICONS)) assert.ok(css.includes(`.markdown-alert-${k}, .cm-alert-${k} { --alert: var(--alert-${k}); --alert-icon: ${url}; }`), `${k}'s icon`);
 });
 
 test("a note's title can't break out of the print header or the exported page's <title>", async () => {

@@ -34,6 +34,20 @@ export const LIGHT_TOKENS: Record<string, string> = {
   "c-type": "#9b5a14",
   "c-prop": "#1b7686",
   "c-punct": "#716b61",
+  "alert-note": "#0969da",
+  "alert-tip": "#1a7f37",
+  "alert-important": "#8250df",
+  "alert-warning": "#9a6700",
+  "alert-caution": "#d1242f",
+};
+
+/** GitHub's alert icons, as styles.css draws them (a mask filled with the alert's color). */
+export const ALERT_ICONS: Record<string, string> = {
+  note: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='6.4'/%3E%3Cpath d='M8 7.3v3.9M8 4.9v.1'/%3E%3C/svg%3E")`,
+  tip: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5.6 10.4a4.4 4.4 0 1 1 4.8 0c-.4.3-.6.8-.6 1.3v.3H6.2v-.3c0-.5-.2-1-.6-1.3ZM6.4 14.3h3.2'/%3E%3C/svg%3E")`,
+  important: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 3.3a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v7.1a1 1 0 0 1-1 1H7.2l-3 2.4v-2.4h-.7a1 1 0 0 1-1-1Z'/%3E%3Cpath d='M8 4.9v2.8M8 9.5v.1'/%3E%3C/svg%3E")`,
+  warning: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7.1 2.5a1 1 0 0 1 1.8 0l5.4 9.9a1 1 0 0 1-.9 1.5H2.6a1 1 0 0 1-.9-1.5Z'/%3E%3Cpath d='M8 6v3.1M8 11.2v.1'/%3E%3C/svg%3E")`,
+  caution: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5.3 1.8h5.4l3.5 3.5v5.4l-3.5 3.5H5.3l-3.5-3.5V5.3Z'/%3E%3Cpath d='M8 4.8v3.6M8 10.8v.1'/%3E%3C/svg%3E")`,
 };
 
 const tokens = Object.entries(LIGHT_TOKENS)
@@ -110,6 +124,24 @@ export const STATIC_CSS = `
 .st-doc .math-error { color: var(--bad-ink); font-family: var(--mono); font-size: 0.85em; white-space: pre-wrap; }
 .st-doc .math-display.math-error { text-align: left; }
 .st-doc math[display="block"] { margin: 0.2em 0; }
+
+/* GitHub markdown (gfm.ts): alerts, footnotes, keys, emoji */
+${Object.entries(ALERT_ICONS)
+  .map(([k, url]) => `.st-doc .markdown-alert-${k} { --alert: var(--alert-${k}); --alert-icon: ${url}; }`)
+  .join("\n")}
+.st-doc .markdown-alert { margin: 0.8em 0; padding: 0.45em 1em; border-left: 0.25em solid var(--alert); color: var(--ink); break-inside: avoid; }
+.st-doc .markdown-alert > :last-child { margin-bottom: 0; }
+.st-doc .markdown-alert-title { display: flex; align-items: center; gap: 8px; margin: 0 0 0.3em; font-weight: 600; color: var(--alert); }
+.st-doc details.markdown-alert > summary.markdown-alert-title { display: list-item; margin: 0; }
+.st-doc details.markdown-alert[open] > summary { margin-bottom: 0.3em; }
+.st-doc .markdown-alert-icon { display: inline-block; flex: none; width: 16px; height: 16px; background: var(--alert); -webkit-mask: var(--alert-icon) center / contain no-repeat; mask: var(--alert-icon) center / contain no-repeat; vertical-align: -3px; }
+.st-doc .footnote-ref a { font-weight: 600; text-decoration: none; }
+.st-doc .footnotes { margin-top: 1.6em; padding-top: 0.5em; border-top: 1px solid var(--line); font-size: 0.88em; color: var(--ink-2); }
+.st-doc .footnotes ol { padding-left: 1.4em; margin: 0; }
+.st-doc .footnote-backref { text-decoration: none; }
+.st-doc .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.st-doc kbd { font: 500 0.8em/1 var(--mono); padding: 0.12em 0.4em; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 5px; background: var(--bg-elev); }
+.st-doc .emoji { font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; font-style: normal; }
 
 /* Diagrams, embedded notes, link cards, widgets and boards */
 .st-doc .st-diagram { margin: 1em 0; text-align: center; break-inside: avoid; }

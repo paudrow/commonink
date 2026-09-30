@@ -108,6 +108,13 @@ async function build(path: string, md: string, src: StaticSources, opts: StaticO
 async function finish(root: HTMLElement, path: string, src: StaticSources, opts: StaticOptions) {
   for (const box of root.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')) box.setAttribute("disabled", "");
   if (!opts.keepFolds) for (const d of root.querySelectorAll("details")) d.setAttribute("open", "");
+  // In-page links (`[see](#risks)`, footnotes) point at ids with DOMPurify's `user-content-` prefix,
+  // as rendered markdown's do in the app (gfm.ts followInPage), so they work in a file and a PDF.
+  const ids = new Set([...root.querySelectorAll("[id]")].map((n) => n.id));
+  for (const a of root.querySelectorAll<HTMLAnchorElement>('a[href^="#"]')) {
+    const id = `user-content-${safeDecode(a.getAttribute("href")!.slice(1)).replace(/^user-content-/, "")}`;
+    if (ids.has(id)) a.setAttribute("href", `#${id}`);
+  }
   const math = root.querySelector("[data-tex]") ? await src.math() : null;
   for (const node of root.querySelectorAll<HTMLElement>("[data-tex]")) {
     const tex = node.dataset.tex ?? "";
