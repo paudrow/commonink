@@ -13,7 +13,9 @@ const PAGE = {
   kind: "md",
   version: "v1",
   role: "viewer",
-  content: "# Public page\n\nIt links [[Secret numbers]] and [[Also public]], and embeds:\n\n![[Secret numbers]]\n\n::query{tag=hush}\n",
+  content:
+    "# Public page\n\nIt links [[Secret numbers]] and [[Also public]], and embeds:\n\n![[Secret numbers]]\n\n::query{tag=hush}\n\n" +
+    "> [!NOTE]\n> In a callout: ![[Secret numbers]]\n\nA footnote.[^1]\n\n[^1]: About [[Secret numbers]].\n",
 };
 const requests: string[] = [];
 globalThis.fetch = (async (url: string) => {
@@ -36,8 +38,8 @@ test("a link page shows its note; a link or embed to what isn't shared says no a
   const body = document.querySelector(".sv-body")!;
   assert.equal(document.querySelector(".sv-title")!.textContent, "Public page");
   assert.equal((document.querySelector("#app") as HTMLElement).hidden, true, "no workspace around it");
-  assert.equal(document.querySelectorAll(".sv-noaccess").length, 1, "the embed");
-  assert.deepEqual([...body.querySelectorAll(".sv-dead")].map((n) => n.textContent), ["Secret numbers"], "the link keeps the words the note itself wrote, but goes nowhere");
+  assert.equal(document.querySelectorAll(".sv-noaccess").length, 2, "the embeds, in the body and in a callout");
+  assert.deepEqual([...body.querySelectorAll(".sv-dead")].map((n) => n.textContent), ["Secret numbers", "Secret numbers"], "links (the footnote's too) keep the words the note itself wrote, but go nowhere");
   assert.equal(body.querySelector<HTMLAnchorElement>('a[href*="also2345"]')?.getAttribute("href"), `/s/${TOKEN}?note=also2345`);
   assert.match(body.textContent ?? "", /A query widget: it shows only inside the workspace/);
   assert.equal(requests.some((u) => /\/(search|feed|tasks|notes)\b/.test(u)), false, "it asks for nothing else of the workspace");

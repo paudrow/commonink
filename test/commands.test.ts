@@ -20,6 +20,7 @@ const app = (over: Partial<App> = {}): App => {
     hasStart: false,
     canDelete: true,
     online: false,
+    folds: 0,
     account: [],
     newNote: run("newNote"),
     newFolder: run("newFolder"),
@@ -42,6 +43,7 @@ const app = (over: Partial<App> = {}): App => {
     noteHistory: run("noteHistory"),
     gettingStarted: run("gettingStarted"),
     shortcuts: run("shortcuts"),
+    foldAll: (open) => void ran.push(`foldAll:${open}`),
     ...over,
   };
 };
@@ -68,6 +70,12 @@ test("commands follow the app: vim's state, the open note, Getting started, and 
   assert.deepEqual(titles("star", app()), []);
   assert.deepEqual(titles("star", app({ note: { kind: "md", starred: true, archived: false } })), ["Unstar note"]);
   assert.deepEqual(titles("html", app({ note: { kind: "html", starred: false, archived: false }, htmlMode: "preview" })), ["Show HTML source"]);
+  const md = { kind: "md" as const, starred: false, archived: false };
+  assert.deepEqual(titles("fold all", app({ note: md })), [], "no sections: nothing to fold");
+  const folding = appCommands(app({ note: md, folds: 2 })).filter((c) => c.id.endsWith("fold-all"));
+  assert.deepEqual(folding.map((c) => c.title), ["Fold all sections", "Unfold all sections"]);
+  folding.forEach((c) => c.run());
+  assert.deepEqual(ran.slice(-2), ["foldAll:false", "foldAll:true"]);
   assert.deepEqual(titles("getting", app()), []);
   assert.deepEqual(titles("getting", app({ hasStart: true })), ["Open Getting started"]);
   const account = [

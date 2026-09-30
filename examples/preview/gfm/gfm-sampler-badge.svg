@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="40" viewBox="0 0 200 40">
+  <rect width="200" height="40" rx="8" fill="#24292f"/>
+  <path d="M8 0h84v40H8a8 8 0 0 1-8-8V8a8 8 0 0 1 8-8Z" fill="#555c66"/>
+  <text x="46" y="25" fill="#fff" font-family="Helvetica, Arial, sans-serif" font-size="14" text-anchor="middle">markdown</text>
+  <text x="146" y="25" fill="#fff" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle">GitHub-flavored</text>
+</svg>
