@@ -2,7 +2,7 @@
 // anchors, emoji shortcodes, and the HTML GitHub allows (`<kbd>`, `<sub>`, `<picture>`…). Each is
 // turned into plain HTML while marked parses, so DOMPurify still runs last over all of it (see
 // renderMarkdown); nothing here is added after sanitizing.
-import { Lexer, type MarkedExtension, type Token, type Tokens } from "marked";
+import { Lexer, type MarkedExtension, type MarkedOptions, type Token, type Tokens } from "marked";
 import DOMPurify from "dompurify";
 import { escapeHtml } from "./dom.ts";
 import { assetUrl } from "./api.ts";
@@ -44,7 +44,9 @@ function eachToken(tokens: Token[], fn: (t: Token) => void) {
 }
 
 // Asset paths in HTML, and alerts: a blockquote whose first line is `[!TYPE]`, which becomes its title.
-function visit(token: Token) {
+// The rest of that paragraph is read again with this parse's own options (`options`), so its
+// footnotes, math and anything else an extension reads come out as they would anywhere else.
+function visit(token: Token, options: MarkedOptions) {
   if (token.type === "html") token.text = assetPaths(token.text);
   if (token.type !== "blockquote" || !token.tokens) return;
   const first = token.tokens[0];
@@ -56,7 +58,7 @@ function visit(token: Token) {
   const body = rest.join("\n").trim();
   if (body) {
     first.raw = first.text = body;
-    first.tokens = Lexer.lexInline(body, { gfm: true });
+    first.tokens = Lexer.lexInline(body, options);
   } else token.tokens!.shift();
 }
 
@@ -65,7 +67,8 @@ export const gfmMarked: MarkedExtension = {
     // Not `walkTokens`: marked collects its results with one array concat per token, which is
     // quadratic in a paragraph of tens of thousands of tokens (a long run of `\(`).
     processAllTokens(tokens) {
-      eachToken(tokens, visit);
+      const options = this.options; // marked hands each hook this parse's options, extensions and all
+      eachToken(tokens, (t) => visit(t, options));
       return tokens;
     },
     preprocess(md) {
