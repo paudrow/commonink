@@ -9,6 +9,7 @@ import { EXIT, UsageError, type CommandHost, type Output } from "./core/commands
 import { findCommand, noSuchSubcommand, parse, type Io } from "./cli/argv.ts";
 import { commandHelp, overview } from "./cli/help.ts";
 import { SHELLS } from "./cli/completion.ts";
+import { CliError, DEFAULT_SERVER, loadCredentials, login, logout, runRemote, saveCredentials, workspaces, type Credentials } from "./cli/hosted.ts";
 
 const argv = process.argv.slice(2);
 const json = argv.includes("--json");
@@ -64,6 +65,63 @@ function print(out: Output, input: Record<string, unknown>) {
   console.log(json ? JSON.stringify(data, null, 2) : out.text);
 }
 
+/**
+ * Where a command runs: a hosted workspace once you've signed in, unless --workspace (or
+ * $QUIRE_WORKSPACE) says local, or $QUIRE_VAULT names a vault and no workspace is asked for.
+ */
+function where(asked: string | undefined): { local: true } | { creds: Credentials; workspace?: string } {
+  const want = asked ?? process.env.QUIRE_WORKSPACE;
+  if (want === "local" || (!want && process.env.QUIRE_VAULT)) return { local: true };
+  const creds = loadCredentials();
+  if (!creds) {
+    if (want) throw new CliError(`--workspace ${want} is a hosted workspace: run quire login first (or --workspace local)`, "auth", EXIT.auth);
+    return { local: true };
+  }
+  return { creds, workspace: want ?? creds.workspace };
+}
+
+/** The CLI's own flags for login and workspaces: `--server URL`, `--no-browser`. */
+const flagValue = (name: string) => {
+  const at = argv.indexOf(`--${name}`);
+  return at < 0 ? undefined : argv[at + 1];
+};
+
+async function own(first: string, more: string[]): Promise<boolean> {
+  const say = (line: string) => console.error(line);
+  if (first === "login") {
+    const server = (flagValue("server") ?? process.env.QUIRE_SERVER ?? DEFAULT_SERVER).replace(/\/+$/, "");
+    const c = await login(server, { browser: !argv.includes("--no-browser"), say });
+    const { user, workspaces: list } = await workspaces(c);
+    saveCredentials({ ...c, user: user.name, workspace: list.length === 1 ? list[0].name : undefined });
+    const text = `Signed in to ${server} as ${user.name}. Workspaces: ${list.map((w) => `${w.name} (${w.role})`).join(", ") || "none"}.${list.length > 1 ? " Pick one with quire workspaces use <name>, or --workspace." : ""}`;
+    console.log(json ? JSON.stringify({ server, user: user.name, workspaces: list }, null, 2) : text);
+    return true;
+  }
+  if (first === "logout") {
+    const server = await logout();
+    console.log(json ? JSON.stringify({ signedOut: server }) : server ? `Signed out of ${server}.` : "You weren't signed in.");
+    return true;
+  }
+  if (first === "workspaces") {
+    const creds = loadCredentials();
+    if (!creds) throw new CliError("You aren't signed in to a hosted workspace: run quire login. Commands use this computer's vault meanwhile.", "auth", EXIT.auth);
+    const { user, workspaces: list } = await workspaces(creds);
+    const words = more.filter((w) => !w.startsWith("-"));
+    if (words[0] === "use") {
+      const pick = list.find((w) => w.id === words[1] || w.name.toLowerCase() === (words[1] ?? "").toLowerCase());
+      if (!pick) throw new UsageError(`workspaces use needs one of: ${list.map((w) => w.name).join(", ")}`);
+      saveCredentials({ ...creds, workspace: pick.name });
+      console.log(json ? JSON.stringify(pick, null, 2) : `Commands go to ${pick.name} now.`);
+      return true;
+    }
+    if (words.length) throw new UsageError(`workspaces takes use <name>, not "${words[0]}"`);
+    const rows = list.map((w) => `${w.name === creds.workspace ? "*" : "-"} ${w.name} (${w.role}${w.kind === "personal" ? ", personal" : ""}) [${w.id}]`);
+    console.log(json ? JSON.stringify({ server: creds.server, user: user.name, default: creds.workspace ?? null, workspaces: list }, null, 2) : [`${creds.server}, signed in as ${user.name}:`, ...rows].join("\n"));
+    return true;
+  }
+  return false;
+}
+
 function fail(message: string, code: string, exit: number): never {
   if (json) console.log(JSON.stringify({ error: message, code, exit }, null, 2));
   else console.error(message);
@@ -80,6 +138,7 @@ async function main() {
     if (!shell) throw new UsageError(`completion takes bash, zsh or fish, not "${more[0] ?? ""}"`);
     return console.log(shell());
   }
+  if (await own(first, more)) return;
   const words = argv.filter((w) => !w.startsWith("-"));
   if (!argv.filter((w) => w !== "--json").length || first === "help" || first === "--help" || first === "-h") {
     const asked = more.filter((w) => !w.startsWith("-"));
@@ -98,14 +157,18 @@ async function main() {
   }
   if ("help" in parsed) return console.log(commandHelp(findCommand(parsed.help)!.command));
   const { command, input, globals } = parsed;
+  const agent = globals.agent ?? process.env.QUIRE_AGENT;
+  const at = where(globals.workspace);
+  if ("creds" in at) return print(await runRemote(at.creds, { command: command.cli, input, workspace: at.workspace, agent }), input);
   const q = openVault();
   if (command.readOnly) q.sync();
-  print(await command.run(localHost(q, globals.agent ?? process.env.QUIRE_AGENT), input as never), input);
+  print(await command.run(localHost(q, agent), input as never), input);
 }
 
 main().catch((e) => {
   if (e instanceof UsageError) fail(e.message, "usage", EXIT.usage);
   if (e instanceof QuireError) fail(e.message, e.code, EXIT[e.code === "invalid" ? "error" : e.code]);
+  if (e instanceof CliError) fail(e.message, e.code, e.exit);
   console.error(e);
   process.exit(EXIT.error);
 });

@@ -1,0 +1,172 @@
+// The CLI against a hosted workspace: `quire login` through a real OAuth round trip with the Worker
+// running locally in workerd (a person in a browser allows it), then commands in the workspace they
+// pick, attributed, and limited by their role there.
+import { after, before, test } from "node:test";
+import assert from "node:assert/strict";
+import { spawn, spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { startCloud, team, type Cloud } from "./cloud.ts";
+
+const BIN = path.resolve(import.meta.dirname, "../bin/quire");
+let cloud: Cloud;
+let people: Awaited<ReturnType<typeof team>>;
+
+before(async () => {
+  cloud = await startCloud();
+  people = await team(cloud);
+});
+after(() => cloud.close());
+
+/** A CLI with its own config folder (where login keeps its tokens), and no local vault in the way. */
+function cli() {
+  const config = fs.mkdtempSync(path.join(os.tmpdir(), "quire-config-"));
+  const env: NodeJS.ProcessEnv = { ...process.env, QUIRE_CONFIG_DIR: config };
+  delete env.QUIRE_VAULT;
+  delete env.QUIRE_AGENT;
+  delete env.QUIRE_WORKSPACE;
+  const run = (args: string[], input?: string) => {
+    const r = spawnSync(BIN, args, { env, input, encoding: "utf8" });
+    return { status: r.status, stdout: r.stdout, stderr: r.stderr };
+  };
+  return { config, env, run, json: (args: string[]) => JSON.parse(run([...args, "--json"]).stdout) };
+}
+
+/** `quire login`, with `cookie`'s person in the browser allowing it for `workspace` ("*" for all of them). */
+async function login(c: ReturnType<typeof cli>, cookie: string, workspace = "*") {
+  const child = spawn(BIN, ["login", "--server", cloud.origin, "--no-browser"], { env: c.env, stdio: ["ignore", "pipe", "pipe"] });
+  let out = "";
+  let err = "";
+  child.stdout.on("data", (d) => (out += d));
+  const url = await new Promise<string>((resolve) =>
+    child.stderr.on("data", (d) => {
+      err += d;
+      const m = err.match(/(http\S+\/authorize\?\S+)/);
+      if (m) resolve(m[1]);
+    }),
+  );
+  const page = await cloud.request(cookie, "GET", new URL(url).pathname + new URL(url).search);
+  assert.equal(page.status, 200);
+  const html = await page.text();
+  const handle = html.match(/name="handle" value="([^"]+)"/)![1];
+  const binding = page.headers.getSetCookie().map((x) => x.split(";")[0]).join("; ");
+  const answer = await cloud.server.fetch(new URL("/authorize", cloud.origin), {
+    method: "POST",
+    redirect: "manual",
+    headers: { "content-type": "application/x-www-form-urlencoded", cookie: `${cookie}; ${binding}`, origin: cloud.origin },
+    body: new URLSearchParams({ handle, decision: "allow", workspace }).toString(),
+  });
+  assert.equal(answer.status, 302);
+  // The browser follows the redirect to the CLI's loopback address.
+  await fetch(answer.headers.get("location")!);
+  const status = await new Promise<number | null>((resolve) => child.on("exit", resolve));
+  return { status, out, err, html };
+}
+
+test("quire login signs in through the browser and keeps its tokens where only you can read them", async () => {
+  const c = cli();
+  const { status, out, html } = await login(c, people.owner);
+  assert.equal(status, 0);
+  assert.match(html, /Connect quire CLI to Common Ink\?/);
+  assert.match(html, /<strong>All your workspaces<\/strong>/);
+  assert.match(out, /^Signed in to http:\/\/\S+ as Owner Dev\. Workspaces: Owner's notes \(owner\), Team \(owner\)\. Pick one with quire workspaces use <name>, or --workspace\.\n$/);
+  const file = path.join(c.config, "credentials.json");
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  const creds = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.deepEqual(Object.keys(creds).sort(), ["accessToken", "clientId", "expiresAt", "refreshToken", "server", "user"]);
+  const agents = await cloud.call(people.owner, "GET", "/api/agents");
+  assert.deepEqual(agents.map((a: { client: string; allWorkspaces?: boolean }) => [a.client, a.allWorkspaces]), [["quire CLI", true]]);
+});
+
+test("commands run in the workspace you name, attributed to you or to the agent writing for you", async () => {
+  const c = cli();
+  await login(c, people.owner);
+  assert.deepEqual(c.json(["workspaces"]).workspaces.map((w: { name: string; role: string }) => [w.name, w.role]), [["Owner's notes", "owner"], ["Team", "owner"]]);
+  // Two workspaces and no default: a command has to say which.
+  const which = c.run(["ls"]);
+  assert.equal(which.status, 2);
+  assert.match(which.stderr, /^Say which workspace: --workspace <name>, or quire workspaces use <name>\. Yours: Owner's notes, Team\n$/);
+  assert.equal(c.run(["create", "Hello", "-", "--workspace", "team", "--agent", "Tester"], "# Hello from the CLI\n").status, 0);
+  assert.equal(c.run(["append", "Hello", "- by hand", "--workspace", "Team"]).status, 0);
+  const note = await cloud.call(people.owner, "GET", `${people.base}/note?path=Hello.md`);
+  assert.equal(note.content, "# Hello from the CLI\n\n- by hand\n");
+  const changes = await cloud.call(people.owner, "GET", `${people.base}/changes?path=Hello.md`);
+  assert.deepEqual(changes.map((ch: { op: string; agent: string | null; person: string }) => [ch.op, ch.agent, ch.person]), [["edit", null, "Owner Dev"], ["create", "Tester", "Owner Dev"]]);
+  // A default workspace, and the other one by name.
+  assert.equal(c.run(["workspaces", "use", "Team"]).stdout, "Commands go to Team now.\n");
+  assert.match(c.run(["ls"]).stdout, /^- Hello\.md — Hello from the CLI\n/m);
+  assert.equal(c.run(["read", "Hello", "--workspace", "Owner's notes"]).status, 3);
+  assert.equal(c.json(["read", "Hello"]).content, "# Hello from the CLI\n\n- by hand\n");
+  const nowhere = c.run(["ls", "--workspace", "Nowhere"]);
+  assert.equal(nowhere.status, 3);
+  // Exit codes and --json errors are the same as for a local vault.
+  assert.deepEqual(JSON.parse(c.run(["create", "Hello", "again", "--json"]).stdout), { error: "Hello.md already exists; use edit_note instead", code: "exists", exit: 5 });
+  assert.equal(c.run(["edit", "Hello", "--old", "by hand", "--new", "x", "--base", "000000000000"]).status, 4);
+});
+
+test("files go up to R2 and come back down, byte for byte", async () => {
+  const c = cli();
+  await login(c, people.owner);
+  const here = fs.mkdtempSync(path.join(os.tmpdir(), "quire-up-"));
+  const bytes = Buffer.from([0, 1, 2, 250, 251, 252, 137, 80, 78, 71]);
+  fs.writeFileSync(path.join(here, "pixel.png"), bytes);
+  const up = c.json(["upload", path.join(here, "pixel.png"), "--workspace", "Team"]);
+  assert.deepEqual(up, [{ path: "assets/pixel.png", size: 10 }]);
+  const out = path.join(here, "back.png");
+  assert.equal(c.run(["download", "assets/pixel.png", "--workspace", "Team", "--out", out]).status, 0);
+  assert.deepEqual([...fs.readFileSync(out)], [...bytes]);
+});
+
+test("a viewer's CLI reads but can't write, and a grant for one workspace stays in it", async () => {
+  const viewer = cli();
+  await login(viewer, people.viewer);
+  const team = "--workspace";
+  assert.equal(viewer.run(["ls", team, "Team"]).status, 0);
+  const denied = viewer.run(["create", "Nope", "x", team, "Team"]);
+  assert.equal(denied.status, 6);
+  assert.match(denied.stderr, /^You can view Team but not edit it\n$/);
+  // A grant for just the Team workspace (an app that asked for one) can't reach the person's own notes.
+  const one = cli();
+  await login(one, people.editor, people.id);
+  assert.deepEqual(one.json(["workspaces"]).workspaces.map((w: { name: string }) => w.name), ["Team"]);
+  assert.equal(one.run(["ls"]).status, 0);
+  assert.equal(one.run(["ls", team, "Editor's notes"]).status, 3);
+});
+
+test("only an app that asks for every workspace can be given every workspace", async () => {
+  // An MCP client asks for no scope: an answer of "all of them" (a forged form) is refused.
+  const reg = await cloud.server.fetch(new URL("/oauth/register", cloud.origin), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ client_name: "Some Agent", redirect_uris: ["http://127.0.0.1:9/callback"], token_endpoint_auth_method: "none" }),
+  });
+  const { client_id } = (await reg.json()) as { client_id: string };
+  const query = new URLSearchParams({ response_type: "code", client_id, redirect_uri: "http://127.0.0.1:9/callback", code_challenge: "x".repeat(43), code_challenge_method: "S256", state: "s" });
+  const page = await cloud.request(people.owner, "GET", `/authorize?${query}`);
+  const html = await page.text();
+  assert.doesNotMatch(html, /All your workspaces/);
+  const handle = html.match(/name="handle" value="([^"]+)"/)![1];
+  const binding = page.headers.getSetCookie().map((x) => x.split(";")[0]).join("; ");
+  const answer = await cloud.server.fetch(new URL("/authorize", cloud.origin), {
+    method: "POST",
+    redirect: "manual",
+    headers: { "content-type": "application/x-www-form-urlencoded", cookie: `${people.owner}; ${binding}`, origin: cloud.origin },
+    body: new URLSearchParams({ handle, decision: "allow", workspace: "*" }).toString(),
+  });
+  assert.equal(answer.status, 400);
+  assert.match(await answer.text(), /Pick one of your workspaces/);
+});
+
+test("logout ends the sign-in on the server too; then commands say to log in, or use the local vault", async () => {
+  const c = cli();
+  await login(c, people.owner);
+  const { accessToken } = JSON.parse(fs.readFileSync(path.join(c.config, "credentials.json"), "utf8"));
+  assert.match(c.run(["logout"]).stdout, /^Signed out of http:\/\/\S+\.\n$/);
+  const res = await fetch(new URL("/mcp/cli/workspaces", cloud.origin), { headers: { authorization: `Bearer ${accessToken}` } });
+  assert.equal(res.status, 401);
+  const r = c.run(["ls", "--workspace", "Team"]);
+  assert.equal(r.status, 7);
+  assert.match(r.stderr, /run quire login first/);
+  assert.equal(c.run(["workspaces"]).status, 7);
+});

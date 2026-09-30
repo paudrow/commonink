@@ -8,6 +8,7 @@ export const GLOBAL_FLAGS = {
   json: { value: false, describe: "Print the result (or the error) as JSON on stdout" },
   agent: { value: true, describe: 'Who is writing, if an agent: History shows "<agent> for you" (or $QUIRE_AGENT)' },
   as: { value: true, describe: "Same as --agent (older spelling)" },
+  workspace: { value: true, describe: "A hosted workspace (its name or ID) after quire login, or local for this computer's vault (or $QUIRE_WORKSPACE)" },
   help: { value: false, describe: "This command's help" },
 } as const;
 
@@ -31,7 +32,7 @@ export interface Parsed {
   command: Command;
   /** What the command's `run` gets. */
   input: Record<string, unknown>;
-  globals: { json: boolean; agent?: string; help: boolean };
+  globals: { json: boolean; agent?: string; workspace?: string; help: boolean };
 }
 
 export interface Io {
@@ -144,6 +145,10 @@ export function parse(argv: string[], io: Io): Parsed | { help: string[] } | nul
     }
     if (flag === "agent" || flag === "as") {
       globals.agent = String(value);
+      continue;
+    }
+    if (flag === "workspace") {
+      globals.workspace = String(value);
       continue;
     }
     const hit = args.find(([name, a]) => flagOf(name, a) === flag || a.aliases?.includes(flag));

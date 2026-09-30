@@ -4,6 +4,9 @@ import { ALIASES, cliArgs, flagOf, GLOBAL_FLAGS, GROUP_DEFAULTS, labelOf } from 
 
 /** Commands that are the CLI's own, not operations on notes. */
 export const OWN_COMMANDS: Array<{ usage: string; summary: string }> = [
+  { usage: "login [--server URL]", summary: "sign in to a hosted workspace in the browser (--no-browser to paste instead)" },
+  { usage: "logout", summary: "sign out here, and end the sign-in on the server" },
+  { usage: "workspaces [use <name>]", summary: "your hosted workspaces and your role in each; use picks the default" },
   { usage: "help [command]", summary: "this list, or one command's options and examples" },
   { usage: "completion bash|zsh|fish", summary: "a shell completion script: quire completion zsh >> ~/.zshrc" },
   { usage: "mcp", summary: "run the stdio MCP server (the same commands, as tools)" },
@@ -48,7 +51,8 @@ export function overview(): string {
     "",
     "Writes are yours, unless an agent says it's the one writing: --agent <name> (or --as), or",
     '$QUIRE_AGENT. Agents: set QUIRE_AGENT, so History shows your changes as "<agent> for you".',
-    "Vault: $QUIRE_VAULT (default: ./vault next to this tool).",
+    "Where: after quire login, your hosted workspace (--workspace <name> picks one; --workspace local,",
+    "or $QUIRE_VAULT, is this computer's vault). Otherwise $QUIRE_VAULT (default: ./vault next to this tool).",
     "",
     `Exit codes: ${Object.entries(EXIT)
       .map(([k, v]) => `${v} ${k.replace("_", " ")}`)
