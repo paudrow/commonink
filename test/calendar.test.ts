@@ -202,12 +202,13 @@ test("a meeting note has the event's time in the reader's zone, its people and a
 });
 
 test("a meeting note follows Templates/Meeting note.md when there is one, and a deleted note can be made again", async () => {
-  const { cal, quire } = setup({ "Templates/Meeting note.md": "# {{title}} on {{date}}\n\n{{when}} · {{event}}\n{{unknown}}\n" });
+  // The template engine's placeholders work here too: a date format, the start time, the escape.
+  const { cal, quire } = setup({ "Templates/Meeting note.md": "# {{title}} on {{date}} ({{date:dddd}}, {{time}})\n\n{{when}} · {{event}}\n{{unknown}} \\{{title}}\n" });
   team = ics(STANDUP);
   await cal.addIcs({ url: `${base}/team.ics` }, ME, "you");
   const [ev] = cal.events(ME, OCT);
   const r = cal.meetingNote(quire, ev.id, ME, { timeZone: "UTC", source: "you" });
-  assert.equal(quire.files.read(r.path), `# Standup on 2026-10-05\n\nMon, Oct 5, 2026, 4:30 PM to 4:45 PM UTC · [Standup](/calendar/${ev.id})\n{{unknown}}\n`);
+  assert.equal(quire.files.read(r.path), `# Standup on 2026-10-05 (Monday, 16:30)\n\nMon, Oct 5, 2026, 4:30 PM to 4:45 PM UTC · [Standup](/calendar/${ev.id})\n{{unknown}} {{title}}\n`);
   quire.delete([r.path], "you");
   const again = cal.meetingNote(quire, ev.id, ME, { source: "you" });
   assert.deepEqual([again.path, again.created, cal.event(ev.id, ME)?.note?.path], [r.path, true, r.path]);

@@ -24,6 +24,8 @@ import { folderPicker } from "./folderPicker.ts";
 import type { History } from "./history.ts";
 import type { Assets } from "./assets.ts";
 import { renderTasksPage } from "./tasksView.ts";
+import { askFor, pickTemplate } from "./templatePicker.ts";
+import { localNow, type TemplateInfo } from "../../src/core/templates.ts";
 import { openQuickAdd, QUICK_ADD } from "./quickAdd.ts";
 import { formatKeys, learnLayout, matchKeys } from "./keys.ts";
 import { navArrows, type Dir, type NavArrows } from "./navArrows.ts";
@@ -259,6 +261,7 @@ function commands() {
     folds: s?.kind === "md" ? foldCount(active.view.state) : 0,
     account,
     newNote: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
+    newFromTemplate: () => void newFromTemplate(undefined, onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
     newBoard: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : "", `\n${NEW_BOARD}\n`),
     newFolder: startNewFolder,
     newTag: startNewTag,
@@ -955,8 +958,44 @@ async function createNote(name: string) {
   }
 }
 
-/** New note button: create "Untitled" right away (in `folder`, if given, with `body` under the title) and put the cursor in its title. */
+/**
+ * A new note from a template: pick one (unless given), answer its questions, and open the note with
+ * the cursor at its {{cursor}}. It goes in the template's folder, else `folder`.
+ */
+async function newFromTemplate(template?: TemplateInfo, folder = "") {
+  let t = template;
+  if (!t) {
+    const list = await api.templates().catch(() => []);
+    t = (await pickTemplate(list, "New note from template")) ?? undefined;
+  }
+  if (!t) return;
+  const asked = await askFor(t, { title: true });
+  if (!asked) return;
+  const clipboard = t.clipboard ? await navigator.clipboard?.readText().catch(() => undefined) : undefined;
+  try {
+    const r = await api.fromTemplate(t.path, { at: localNow(), title: asked.title, answers: asked.answers, clipboard, folder: t.folder ? undefined : folder || undefined });
+    await refreshNotes();
+    await openNote(r.path);
+    const at = Math.min(r.cursor ?? active.view.state.doc.length, active.view.state.doc.length);
+    active.view.dispatch({ selection: { anchor: at }, scrollIntoView: true });
+    active.view.focus();
+    const cm = getCM(active.view);
+    if (cm && prefs.vim) Vim.handleKey(cm, "i", "user");
+    if (r.unfilled.length) toast({ icon: "file", text: `Still to fill in: ${r.unfilled.map((u) => `{{${u}}}`).join(", ")}` });
+  } catch (e) {
+    toast({ text: e instanceof ApiError ? e.message : `Couldn't make a note from ${t.name}` });
+  }
+}
+
+/**
+ * New note button: in a folder with a default template (its applies_to), that template; else
+ * "Untitled" (in `folder`, if given, with `body` under the title), cursor in its title.
+ */
 async function newNote(folder = "", body = "") {
+  if (folder && !body) {
+    const def = (await api.templates().catch(() => [])).find((t) => t.appliesTo.some((a) => folder === a || folder.startsWith(`${a}/`)));
+    if (def) return newFromTemplate(def, folder);
+  }
   const dir = folder ? `${folder}/` : "";
   const taken = new Set(notes.map((n) => n.path.toLowerCase()));
   let name = "Untitled";
@@ -2580,6 +2619,7 @@ async function boot() {
   $("#search-btn").addEventListener("click", () => openPalette());
   // A new note goes at the top level, unless Notes is showing a folder: then it goes there.
   $("#new-note").addEventListener("click", () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""));
+  $("#new-from-template").addEventListener("click", () => void newFromTemplate(undefined, onPage() === "notes" ? (notesPage.query.folder ?? "") : ""));
   $("#panel-btn").addEventListener("click", () => togglePanel());
   setLabel($("#panel-btn"), `Toggle side panel (${formatKeys("Mod-\\")})`);
   setupPanes();

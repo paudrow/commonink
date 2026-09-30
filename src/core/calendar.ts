@@ -6,6 +6,7 @@
 // the host sets, and when someone asks. No Node imports: the Worker runs this too.
 import { looksLikeIcs, readIcs, type Occurrence, type Person } from "./ics.ts";
 import { QuireError } from "./paths.ts";
+import { fillTemplate } from "./templates.ts";
 import type { Quire } from "./quire.ts";
 import type { SqlDb } from "./store.ts";
 import { fetchGuarded, readCapped, type UrlGuard } from "./unfurl.ts";
@@ -689,11 +690,13 @@ export function describeWhen(ev: Pick<CalendarEvent, "start" | "end" | "allDay">
   const time = (d: Date, zoneName = false) => new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit", ...(zoneName && abs ? { timeZoneName: "short" as const } : {}) }).format(d);
   if (ev.allDay) {
     const last = new Date(end.getTime() - DAY);
-    return { date, text: last.getTime() > start.getTime() ? `${day(start)} to ${day(last)}, all day` : `${day(start)}, all day` };
+    return { date, start: "00:00", text: last.getTime() > start.getTime() ? `${day(start)} to ${day(last)}, all day` : `${day(start)}, all day` };
   }
+  /** Its start, HH:mm, for a template's {{time}}. */
+  const startsAt = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(start);
   const sameDay = day(start) === day(end) || end.getTime() === start.getTime();
   const text = sameDay ? `${day(start)}, ${time(start)} to ${time(end, true)}` : `${day(start)}, ${time(start, true)} to ${day(end)}, ${time(end, true)}`;
-  return { date, text: text.replace(/ /g, " ") }; // newer ICU puts a narrow space before AM/PM
+  return { date, start: startsAt, text: text.replace(/ /g, " ") }; // newer ICU puts a narrow space before AM/PM
 }
 
 /** What starts the block a meeting note's link is written back in (Google's write-back). */
@@ -714,7 +717,7 @@ function plain(s: string): string {
 const who = (p: Person) => plain(p.name ?? p.email ?? "");
 
 /** A new meeting note: the template's {{placeholders}} filled in, or the default layout. */
-function meetingTemplate(template: string | null, ev: CalendarEvent, when: { date: string; text: string }): string {
+function meetingTemplate(template: string | null, ev: CalendarEvent, when: { date: string; start: string; text: string }): string {
   const people = ev.attendees.map(who).filter(Boolean).join(", ");
   const link = `[${plain(ev.title)}](/calendar/${ev.id})`;
   const fields: Record<string, string> = {
@@ -726,7 +729,11 @@ function meetingTemplate(template: string | null, ev: CalendarEvent, when: { dat
     event: link,
     agenda: ev.description ? plain(withoutNoteLink(ev.description)) : "",
   };
-  if (template !== null) return template.replace(/\{\{(\w+)\}\}/g, (m, k: string) => fields[k] ?? m);
+  // The one template engine (templates.ts): {{title}} and {{date…}}/{{time…}} are the event's, the rest named here.
+  if (template !== null) {
+    const { title, date, ...vars } = fields;
+    return fillTemplate(template, { at: `${date}T${when.start}`, title, vars }).text;
+  }
   return [
     "---",
     `event: ${ev.id}`,

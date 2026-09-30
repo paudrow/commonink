@@ -27,6 +27,7 @@ const app = (over: Partial<App> = {}): App => {
     folds: 0,
     account: [],
     newNote: run("newNote"),
+    newFromTemplate: run("newFromTemplate"),
     newBoard: run("newBoard"),
     newFolder: run("newFolder"),
     newTag: run("newTag"),
