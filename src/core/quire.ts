@@ -15,6 +15,10 @@ import { formatQuery, parseQuery, queryProblem, type NoteQuery } from "./query.t
 import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
 import { safeDecode } from "./uri.ts";
 import { AGENTS_NOTE, START_TAG, type NoteRole } from "./noteRoles.ts";
+import {
+  contactFromNote, contactNote, dayOfNote, emptyContact, fillContact, parseContactsCsv, parseVCards, PEOPLE, peopleDirectory, personFor, sameFields, samePerson,
+  type Contact, type ContactFields, type ContactInput, type ContactNote, type MemberRef, type TimelineItem,
+} from "./contacts.ts";
 import { cleanTitle, DAILY_TEMPLATE, fillTemplate, localNow, TEMPLATES, templateInfo, type FillOptions, type TemplateInfo } from "./templates.ts";
 import { frontmatterEntries } from "./frontmatter.ts";
 
@@ -88,6 +92,33 @@ export type ArchiveScope = "active" | "archived" | "all";
  * A deleted note or asset, waiting in Trash. Its file sits at `.trash/<id>/<path>`, where the id is
  * "<ms deleted>-<change id>": hidden, so no listing, search, index or /files route ever sees it.
  */
+/** A label of a note: a name on one version, to compare with or go back to. */
+export interface Label {
+  id: string;
+  note_id: string;
+  /** Where the note is now; null while it's in Trash. */
+  path: string | null;
+  /** The change right before this version (its place in History), or null if the log has none. */
+  change_id: number | null;
+  name: string;
+  description: string | null;
+  version: string;
+  /** When it was labeled, and who labeled it. */
+  ts: number;
+  source: string;
+  person: string | null;
+  agent: string | null;
+  /** The note is at this version now. */
+  current: boolean;
+}
+
+/** A label's name: short, one line. */
+export const LABEL_NAME_MAX = 80;
+const LABEL_DESCRIPTION_MAX = 500;
+/** The most labels one note keeps. */
+export const LABELS_PER_NOTE = 200;
+const LABEL_COLS = "m.id, m.note_id, n.path, m.change_id, m.name, m.description, m.version, m.ts, m.source, m.person, m.agent, n.version AS now";
+
 export interface TrashItem {
   id: string;
   /** Where it was. */
@@ -99,6 +130,8 @@ export interface TrashItem {
   expiresAt: number;
   /** Who deleted it, from the change log (null once the log no longer has it). */
   by: Actor & { source: string } | null;
+  /** How many labels it has, which deleting it for good deletes too (none if left out). */
+  labels?: number;
   /** The start of a note's text; empty for an asset. */
   excerpt: string;
 }
@@ -251,6 +284,28 @@ const DIFF_TEXT_BUDGET = 16 * 1024 * 1024;
  */
 
 /** One section of the Today view: a heading and its tasks. */
+/** What a task list asks for: see Quire.tasks. */
+export interface TaskQuery {
+  folder?: string;
+  note?: string;
+  tag?: string;
+  /** One `@name`, as written. */
+  assignee?: string;
+  /** Any of these `@name`s: one person's every name. */
+  assignees?: string[];
+  due?: string;
+  today?: string;
+}
+
+/** Who's asking, for lists that depend on it (tasksFor): their account and name, and the workspace's members (none locally). */
+export interface Viewer {
+  /** Their user ID online; the vault's one person locally. */
+  user: string;
+  /** Their name as the change log records it. */
+  person: string;
+  members: MemberRef[];
+}
+
 export interface TodaySection {
   id: "overdue" | "due" | "starting";
   title: string;
@@ -988,6 +1043,110 @@ export class Quire {
     return { ...this.save(at, before, { source, baseVersion }), path: at };
   }
 
+  // ---------------------------------------------------------------- labels
+
+  /**
+   * Label a version of a note with a name ("Sent to Alex", "v1"): the note as it is now, or, with
+   * `at`, as it was right after that change. The label keeps the version's text.
+   */
+  label(target: string, name: string, source: string, opts: { description?: string; at?: number } = {}): Label {
+    const rel = this.mustResolve(target);
+    if (kindOf(rel) === "asset") throw new QuireError(`${rel} is a file, not a note: only notes have labels`);
+    const noteId = this.meta(rel)!.id;
+    const named = labelName(name);
+    const description = opts.description?.trim().slice(0, LABEL_DESCRIPTION_MAX) || null;
+    let text: string;
+    let changeId: number | null;
+    if (opts.at !== undefined) {
+      const c = this.db.get(`SELECT ${CHANGE_COLS} FROM changes WHERE id = ?`, opts.at) as Change | undefined;
+      if (!c || c.note_id !== noteId) throw new QuireError(`Change #${opts.at} isn't a change to ${rel}`, "not_found");
+      if (c.op === "delete" || c.op === "purge") throw new QuireError(`Change #${opts.at} deleted ${c.path}: there's no version after it to label`);
+      const after = this.textAfter(c);
+      if (after === null) throw new QuireError(`The text right after change #${opts.at} isn't in the change log any more`);
+      [text, changeId] = [after, c.id];
+    } else {
+      text = this.files.read(rel) ?? "";
+      const at = this.db.get("SELECT id FROM changes WHERE note_id = ? AND version = ? ORDER BY id DESC LIMIT 1", noteId, versionOf(text));
+      changeId = at?.id ?? null;
+    }
+    const id = newNoteId();
+    this.db.tx(() => {
+      if (this.db.get("SELECT 1 FROM labels WHERE note_id = ? AND lower(name) = lower(?)", noteId, named)) {
+        throw new QuireError(`${rel} already has a version labeled "${named}"`, "exists");
+      }
+      if ((this.db.get("SELECT count(*) AS n FROM labels WHERE note_id = ?", noteId)?.n ?? 0) >= LABELS_PER_NOTE) {
+        throw new QuireError(`${rel} has ${LABELS_PER_NOTE} labels already: delete one first`, "invalid");
+      }
+      const who = actorOf(source);
+      this.db.run(
+        "INSERT INTO labels(id, note_id, change_id, name, description, version, text, ts, source, person, agent) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        id, noteId, changeId, named, description, versionOf(text), text, this.now(), who.source, who.person, who.agent,
+      );
+    });
+    return this.findLabel(id);
+  }
+
+  /** A note's labels, or every note's (for History), newest first. */
+  labels(target?: string, limit = 500): Label[] {
+    const noteId = target ? this.meta(this.mustResolve(target))?.id : null;
+    return this.db
+      .all<Label & { now: string | null }>(`SELECT ${LABEL_COLS} FROM labels m LEFT JOIN notes n ON n.id = m.note_id WHERE (? IS NULL OR m.note_id = ?) ORDER BY m.ts DESC, m.rowid DESC LIMIT ?`, noteId, noteId, limit)
+      .map(toLabel);
+  }
+
+  /** A label by its ID, or by its name on the note `target`. */
+  findLabel(ref: string, target?: string): Label {
+    const r = ref.trim();
+    let row = this.db.get<Label & { now: string | null }>(`SELECT ${LABEL_COLS} FROM labels m LEFT JOIN notes n ON n.id = m.note_id WHERE m.id = ?`, r);
+    if (!row && target) {
+      const noteId = this.meta(this.mustResolve(target))?.id;
+      row = this.db.get(`SELECT ${LABEL_COLS} FROM labels m LEFT JOIN notes n ON n.id = m.note_id WHERE m.note_id = ? AND lower(m.name) = lower(?)`, noteId, r);
+    }
+    if (!row) throw new QuireError(`No label "${ref}"${target ? ` on ${target}` : ""}. List them with list_labels.`, "not_found");
+    return toLabel(row);
+  }
+
+  /** A label's text. */
+  labelText(ref: string, target?: string): { label: Label; text: string } {
+    const label = this.findLabel(ref, target);
+    return { label, text: this.db.get("SELECT text FROM labels WHERE id = ?", label.id).text as string };
+  }
+
+  renameLabel(ref: string, name: string, opts: { description?: string | null; target?: string } = {}): Label {
+    const label = this.findLabel(ref, opts.target);
+    const named = labelName(name);
+    if (this.db.get("SELECT 1 FROM labels WHERE note_id = ? AND lower(name) = lower(?) AND id != ?", label.note_id, named, label.id)) {
+      throw new QuireError(`This note already has a version labeled "${named}"`, "exists");
+    }
+    const description = opts.description === undefined ? label.description : opts.description?.trim().slice(0, LABEL_DESCRIPTION_MAX) || null;
+    this.db.run("UPDATE labels SET name = ?, description = ? WHERE id = ?", named, description, label.id);
+    return this.findLabel(label.id);
+  }
+
+  /** Take the name off a version. Only the label goes: the note and its history stay as they are. */
+  deleteLabel(ref: string, target?: string): Label {
+    const label = this.findLabel(ref, target);
+    this.db.run("DELETE FROM labels WHERE id = ?", label.id);
+    return label;
+  }
+
+  /** Two versions of a note to compare: a label against another label, or against the note now (`to` = "now"). */
+  compareLabels(from: string, to = "now", target?: string): { path: string; from: { label: Label; text: string }; to: { label: Label | null; text: string } } {
+    const a = this.labelText(from, target);
+    const b = to === "now" ? null : this.labelText(to, target ?? a.label.path ?? undefined);
+    if (b && b.label.note_id !== a.label.note_id) throw new QuireError(`"${a.label.name}" and "${b.label.name}" are labels on different notes`);
+    const path = a.label.path;
+    if (!path) throw new QuireError(`The note labeled "${a.label.name}" is in Trash: restore it to compare its versions`, "not_found");
+    return { path, from: a, to: b ?? { label: null, text: this.files.read(path) ?? "" } };
+  }
+
+  /** Put a note back to a label: one change like any other, so it's in History and can be undone. */
+  restoreLabel(ref: string, source: string, opts: { baseVersion?: string; target?: string } = {}) {
+    const { label, text } = this.labelText(ref, opts.target);
+    if (!label.path) throw new QuireError(`The note labeled "${label.name}" is in Trash: restore it from Trash first`, "not_found");
+    return { ...this.save(label.path, text, { source, baseVersion: opts.baseVersion }), path: label.path, label };
+  }
+
   // ---------------------------------------------------------------- favorites
 
   /**
@@ -1406,7 +1565,7 @@ export class Quire {
    * @person, and `due` the ones whose due date passes a filter like `<=today` (see dueFilter).
    * `today` (YYYY-MM-DD) is the day that filter means by today; the default is the core's clock.
    */
-  tasks(opts: { folder?: string; note?: string; tag?: string; assignee?: string; due?: string; today?: string } = {}): Task[] {
+  tasks(opts: TaskQuery = {}): Task[] {
     const only = opts.note ? this.resolve(opts.note) : null;
     if (opts.note && !only) return [];
     const prefix = opts.folder ? opts.folder.replace(/^\/+|\/+$/g, "") + "/" : "";
@@ -1414,7 +1573,8 @@ export class Quire {
     if (opts.today && !isDate(opts.today)) throw new QuireError(`"today" must be a date like 2026-10-01, not "${opts.today}"`);
     const due = opts.due ? dueFilter(opts.due, opts.today ?? this.day()) : null;
     if (opts.due && !due) throw new QuireError(`Bad due filter "${opts.due}": use a date or today/tomorrow/yesterday, optionally after <, <=, > or >=`);
-    const person = opts.assignee?.replace(/^@/, "").toLowerCase();
+    // `assignees` (any of them) is a person's every name; `assignee` one name, as written.
+    const names = new Set([...(opts.assignees ?? []), ...(opts.assignee ? [opts.assignee] : [])].map((a) => a.replace(/^@/, "").toLowerCase()));
     // The query narrows to the note, or to notes with the tag on a task (the lines are checked below).
     // Each is its own query so the planner uses the index.
     const rows = only
@@ -1425,7 +1585,54 @@ export class Quire {
     return rows
       .filter((r) => (!prefix || r.path.startsWith(prefix)) && (!tagged || tagged.has(`${r.path}:${r.line}`)))
       .map(toTask)
-      .filter((t) => (!due || due(t.meta.due)) && (!person || t.meta.assignees.some((a) => a.toLowerCase() === person)));
+      .filter((t) => (!due || due(t.meta.due)) && (!names.size || t.meta.assignees.some((a) => names.has(a.toLowerCase()))));
+  }
+
+  /**
+   * Whether `user` may read the note at `path`. Everyone in a workspace reads every note for now;
+   * this is the one place per-note sharing (#12) decides otherwise. Lists that reach into other
+   * people's notes for someone (tasksFor) ask it.
+   */
+  canRead(_user: string, _path: string): boolean {
+    return true;
+  }
+
+  /**
+   * Tasks as `viewer` asks for them, with people resolved: `assignee` is "me" (the viewer), or
+   * someone's name, which finds every `@name` that's theirs (see peopleDirectory); `by: "me"` keeps
+   * the tasks in notes the viewer made that are assigned to someone else. Only notes they may read.
+   */
+  tasksFor(viewer: Viewer, opts: TaskQuery & { assignee?: string; by?: "me" } = {}): Task[] {
+    const { assignee, by, ...rest } = opts;
+    const people = peopleDirectory(this.contactNotes(), viewer.members);
+    // Online, "me" is the viewer's account (and the contact with their email). Locally there are
+    // no accounts, so it's `@me`; online `@me` names no one, as every reader would be "me".
+    const mine = viewer.members.length ? (people.find((p) => p.member === viewer.user)?.handles ?? []) : ["me"];
+    const names = assignee === undefined ? undefined : assignee === "me" ? mine : (personFor(assignee, people)?.handles ?? [assignee]);
+    if (names && !names.length) return [];
+    let list = this.tasks({ ...rest, assignees: names });
+    if (by === "me") {
+      const authors = this.noteAuthors();
+      const me = new Set(mine.map((h) => h.toLowerCase()));
+      const author = viewer.person.toLowerCase();
+      list = list.filter((t) => t.meta.assignees.length && authors.get(t.path)?.toLowerCase() === author && !t.meta.assignees.some((a) => me.has(a.toLowerCase())));
+    }
+    return list.filter((t) => this.canRead(viewer.user, t.path));
+  }
+
+  /** Who made each note: the person on its first change (an agent's note is its person's). */
+  private noteAuthors(): Map<string, string> {
+    const rows = this.db.all<{ path: string; person: string | null }>(
+      "SELECT n.path, c.person FROM changes c JOIN notes n ON n.id = c.note_id WHERE c.id IN (SELECT MIN(id) FROM changes WHERE note_id IS NOT NULL GROUP BY note_id)",
+    );
+    return new Map(rows.filter((r) => r.person).map((r) => [r.path, r.person!]));
+  }
+
+  /** Each contact's note, read (without the mentions contacts() counts). */
+  private contactNotes(): ContactNote[] {
+    return this.list(PEOPLE)
+      .filter((n) => n.kind === "md")
+      .map((n) => contactFromNote(n.path, this.files.read(n.path) ?? ""));
   }
 
   /** How many tasks are still open in active notes: what tasks() would list with `done` false. */
@@ -1774,7 +1981,9 @@ export class Quire {
       const c = this.db.get("SELECT source, person, agent FROM changes WHERE id = ? AND op = 'delete'", changeId);
       const kind = kindOf(f.path) ?? "asset";
       const text = kind === "asset" ? "" : (this.files.read(f.at) ?? "");
-      return [{ id, path: f.path, kind, size: f.size, deletedAt: ms, expiresAt: ms + TRASH_DAYS * 86_400_000, by: c ?? null, excerpt: kind === "md" ? excerptOf(splitFrontmatter(text).body, titleOf(text, kind, f.path), 240) : "" }];
+      const noteId = this.db.get("SELECT note_id FROM changes WHERE id = ?", changeId)?.note_id;
+      const labels = noteId ? (this.db.get("SELECT count(*) AS n FROM labels WHERE note_id = ?", noteId)?.n ?? 0) : 0;
+      return [{ id, path: f.path, kind, size: f.size, deletedAt: ms, expiresAt: ms + TRASH_DAYS * 86_400_000, by: c ?? null, labels, excerpt: kind === "md" ? excerptOf(splitFrontmatter(text).body, titleOf(text, kind, f.path), 240) : "" }];
     });
   }
 
@@ -1810,8 +2019,10 @@ export class Quire {
       for (const x of this.files.listUnder(`${TRASH}/${id}`)) this.files.remove(x.path);
       const changeId = Number(id.split("-")[1]);
       const noteId = this.db.get("SELECT note_id FROM changes WHERE id = ?", changeId)?.note_id;
-      if (noteId) dropBefores(this.db, "note_id = ?", noteId);
-      else dropBefores(this.db, "id = ?", changeId);
+      if (noteId) {
+        dropBefores(this.db, "note_id = ?", noteId);
+        this.db.run("DELETE FROM labels WHERE note_id = ?", noteId); // its labels keep its text: they go too
+      } else dropBefores(this.db, "id = ?", changeId);
       if (source) this.recordChange({ path: f.path, op: "purge", source, version: null, summary: "deleted forever", from_path: null });
       return [f.path];
     });
@@ -1858,14 +2069,9 @@ export class Quire {
     // On a case-insensitive disk, "notes.md" is there when renaming "Notes.md" to it: the same file.
     const caseOnly = dest.toLowerCase() === from.toLowerCase() && !this.meta(dest);
     if (!caseOnly && this.files.stat(dest)) throw new QuireError(`${dest} already exists`, "exists");
-    // Which links point at the note, read before it moves: after, a name can lead to another note.
-    const resolveBefore = this.resolver();
-    const pointing = new Map<string, Set<string>>();
-    // The note's own links to itself ([[Guide#Setup]] in Guide) move with it.
-    for (const src of new Set([from, ...this.backlinks(from).map((b) => b.path)])) {
-      const targets = extractLinks(this.files.read(src) ?? "").map((l) => l.target).filter((t) => resolveBefore(t, src) === from);
-      if (targets.length) pointing.set(src, new Set(targets));
-    }
+    // Read before it moves: after, a name can lead to another note. Its own links to itself
+    // ([[Guide#Setup]] in Guide) move with it.
+    const pointing = this.linksTo(from, [from, ...this.backlinks(from).map((b) => b.path)]);
 
     const id = this.meta(from)?.id;
     this.files.rename(from, dest);
@@ -1881,6 +2087,27 @@ export class Quire {
 
     const newStemUnique = this.db.get("SELECT count(*) AS n FROM notes WHERE stem = ?", stemOf(dest)).n === 1;
     const wikiTarget = newStemUnique ? path.posix.basename(dest).replace(/\.(md|markdown)$/i, "") : dest.replace(/\.(md|markdown)$/i, "");
+    const { updated, edits } = this.relink(pointing, from, dest, wikiTarget, source);
+    // Its own links to itself rewritten make a newer version of it.
+    return { path: dest, from, version: edits.find((e) => e.path === dest)?.version ?? meta.version, change, updated, edits };
+  }
+
+  /** The link targets in each of `notes` that lead to `rel`, by note (those with none left out). */
+  private linksTo(rel: string, notes: Iterable<string>): Map<string, Set<string>> {
+    const resolve = this.resolver();
+    const pointing = new Map<string, Set<string>>();
+    for (const src of new Set(notes)) {
+      const targets = extractLinks(this.files.read(src) ?? "").map((l) => l.target).filter((t) => resolve(t, src) === rel);
+      if (targets.length) pointing.set(src, new Set(targets));
+    }
+    return pointing;
+  }
+
+  /**
+   * Point the links in `pointing` (see linksTo) that went to `from`, now moved or gone, at `dest`:
+   * `[[wikiTarget]]`, or its path in a markdown link. A note that was `from` is now `dest`.
+   */
+  private relink(pointing: Map<string, Set<string>>, from: string, dest: string, wikiTarget: string, source: string) {
     const updated: string[] = [];
     const edits: Array<{ path: string; content: string; version: string; change: Change }> = [];
     const resolve = this.resolver(); // rewriting links changes no note's path
@@ -1905,7 +2132,129 @@ export class Quire {
         edits.push({ path: src, content: after, version: r.version, change: r.change });
       }
     }
-    return { path: dest, from, version: edits.find((e) => e.path === dest)?.version ?? meta.version, change, updated, edits };
+    return { updated, edits };
+  }
+
+  // ---------------------------------------------------------------- contacts
+
+  /** Every contact (a note in People/, not archived), by name, with how often and when last other notes mention them. */
+  contacts(): Contact[] {
+    return this.list(PEOPLE)
+      .filter((n) => n.kind === "md")
+      .map((n) => {
+        const mentions = this.mentionsOf(n.path);
+        return { ...contactFromNote(n.path, this.files.read(n.path) ?? ""), id: n.id, mentions: mentions.length, lastContacted: mentions[0]?.date ?? null };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  }
+
+  /** One contact and its timeline: the notes that mention them, newest first. */
+  contact(target: string): { contact: Contact; timeline: TimelineItem[] } {
+    const rel = this.contactPath(target);
+    const meta = this.meta(rel)!;
+    const timeline = this.mentionsOf(rel);
+    const contact = { ...contactFromNote(rel, this.files.read(rel) ?? ""), id: meta.id, mentions: timeline.length, lastContacted: timeline[0]?.date ?? null };
+    return { contact, timeline };
+  }
+
+  /** The note `target` names, if it's a contact (a note in People/). */
+  private contactPath(target: string): string {
+    const rel = this.mustResolve(target);
+    if (kindOf(rel) !== "md" || !rel.startsWith(`${PEOPLE}/`)) throw new QuireError(`${rel} isn't a contact: contacts are notes in ${PEOPLE}/`);
+    return rel;
+  }
+
+  /** The notes that link to `rel`, one entry each (the first line that does), newest first. */
+  private mentionsOf(rel: string): TimelineItem[] {
+    const seen = new Set<string>();
+    const out: TimelineItem[] = [];
+    for (const b of this.backlinks(rel)) {
+      if (seen.has(b.path)) continue;
+      seen.add(b.path);
+      const date = dayOfNote(b.path, this.files.read(b.path) ?? "") ?? localDate(this.meta(b.path)?.mtime ?? this.now());
+      out.push({ kind: "note", path: b.path, title: b.title, date, line: b.line, text: b.text });
+    }
+    return out.sort((a, b) => b.date.localeCompare(a.date) || a.path.localeCompare(b.path));
+  }
+
+  /** A new contact: `People/<name>.md`, its fields in the frontmatter and `notes` under its title. */
+  createContact(input: Partial<ContactFields> & { name: string; notes?: string }, source: string) {
+    const name = input.name.trim().replace(/\s+/g, " ");
+    if (!name) throw new QuireError("A contact needs a name");
+    if (/[/\\\x00-\x1f]/.test(name) || name.startsWith(".")) throw new QuireError(`A contact's name can't have / or \\ in it, or start with a dot: "${name}"`);
+    const rel = cleanPath(`${PEOPLE}/${name}.md`);
+    const taken = this.list(PEOPLE, "all").find((n) => n.path.toLowerCase() === rel.toLowerCase()) ?? (this.files.stat(rel) ? { path: rel } : null);
+    if (taken) throw new QuireError(`${taken.path} already exists`, "exists", { path: taken.path });
+    const fields = { ...emptyContact(name), ...input, name };
+    const notes = input.notes?.trim();
+    return this.commit(rel, null, contactNote(fields) + (notes ? `\n${notes}\n` : ""), source, "create");
+  }
+
+  /** Change a contact's fields (any of them but its name, which is its note's). Its words and other frontmatter stay. */
+  updateContact(target: string, patch: Partial<Omit<ContactFields, "name">>, source: string) {
+    const rel = this.contactPath(target);
+    const before = this.files.read(rel) ?? "";
+    const after = contactNote({ ...contactFromNote(rel, before), ...patch }, before);
+    return after === before ? { ...this.meta(rel)!, change: null } : this.commit(rel, before, after, source, "edit");
+  }
+
+  /**
+   * Make two contacts one: `keep` gains what `drop` knows that it doesn't (see fillContact) and
+   * `drop`'s notes under "## From <name>"; links to `drop` then point at `keep`, and `drop` goes to Trash.
+   */
+  mergeContacts(keepTarget: string, dropTarget: string, source: string) {
+    const keep = this.contactPath(keepTarget);
+    const drop = this.contactPath(dropTarget);
+    if (keep === drop) throw new QuireError("Can't merge a contact with itself");
+    const [keepText, dropText] = [keep, drop].map((p) => this.files.read(p) ?? "");
+    const fields = fillContact(contactFromNote(keep, keepText), contactFromNote(drop, dropText));
+    const dropName = contactFromNote(drop, dropText).name;
+    const words = splitFrontmatter(dropText).body.replace(/^\s*#[ \t]+.*\n?/, "").trim();
+    let merged = contactNote(fields, keepText);
+    if (words) merged = `${merged.replace(/\n*$/, "\n")}\n## From ${dropName}\n\n${words}\n`;
+    const pointing = this.linksTo(drop, this.backlinks(drop).map((b) => b.path).filter((p) => p !== keep));
+    const r = this.commit(keep, keepText, merged, source, "edit");
+    const trashed = this.delete([drop], source);
+    const relinked = this.relink(pointing, drop, keep, keep.replace(/\.(md|markdown)$/i, ""), source);
+    return { path: keep, version: r.version, change: r.change, content: merged, trashed, ...relinked };
+  }
+
+  /**
+   * Contacts from a vCard or CSV export. Each person already here (an email or a name in common)
+   * gains what the import knows that they didn't; everyone else becomes a new contact. Several rows
+   * for one person count once.
+   */
+  importContacts(text: string, format: "vcard" | "csv", source: string) {
+    let inputs: ContactInput[];
+    try {
+      inputs = format === "vcard" ? parseVCards(text) : parseContactsCsv(text);
+    } catch (e) {
+      throw new QuireError(e instanceof Error ? e.message : String(e));
+    }
+    const known: ContactNote[] = this.contacts();
+    const created: string[] = [];
+    const updated: string[] = [];
+    const unchanged: string[] = [];
+    for (const input of inputs) {
+      const match = known.find((c) => samePerson(c, input));
+      if (!match) {
+        const r = this.createContact(input, source);
+        known.push(contactFromNote(r.path, this.files.read(r.path) ?? ""));
+        created.push(r.path);
+        continue;
+      }
+      const filled = fillContact(match, input);
+      if (sameFields(filled, match)) {
+        if (![...created, ...updated, ...unchanged].includes(match.path)) unchanged.push(match.path);
+        continue;
+      }
+      this.updateContact(match.path, filled, source);
+      Object.assign(match, filled);
+      if (!created.includes(match.path) && !updated.includes(match.path)) updated.push(match.path);
+      const at = unchanged.indexOf(match.path);
+      if (at >= 0) unchanged.splice(at, 1);
+    }
+    return { created, updated, unchanged };
   }
 }
 
@@ -2028,4 +2377,16 @@ function lineCountStat(before: string, after: string): LineStat {
   let del = 0;
   for (const n of count.values()) del += n;
   return { add, del };
+}
+
+/** A label's name, checked: one line, 1 to LABEL_NAME_MAX characters. */
+function labelName(name: string): string {
+  const named = name.replace(/\s+/g, " ").trim();
+  if (!named) throw new QuireError("A label needs a name, like \"v1\" or \"Sent to Alex\"");
+  if (named.length > LABEL_NAME_MAX) throw new QuireError(`A label's name is at most ${LABEL_NAME_MAX} characters`);
+  return named;
+}
+
+function toLabel({ now, ...m }: Label & { now: string | null }): Label {
+  return { ...m, current: now === m.version };
 }

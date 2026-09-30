@@ -3,7 +3,9 @@
 // question's type: text, a people picker, a date picker, or a menu of choices. Making the note or
 // inserting the text is the caller's (see main.ts and editor/complete.ts). Also the name prompt of
 // Rename note, which uses the same dialog.
-import { api } from "./api.ts";
+import type { Contact, Member } from "./api.ts";
+import { contactLink, people } from "./people.ts";
+import { peopleDirectory } from "../../src/core/contacts.ts";
 import { el, icon } from "./dom.ts";
 import { fuzzyScore } from "./fuzzy.ts";
 import { fillTemplate, handlesFor, localNow, type Ask, type PersonPick, type TemplateInfo } from "../../src/core/templates.ts";
@@ -101,6 +103,8 @@ export function askName(title: string, name: string): Promise<string | null> {
 /** Someone a `people` question can offer: a workspace member, or a contact (with the link a note uses). */
 export interface Offer {
   name: string;
+  /** The @handle a task line gives them (the directory's, see peopleDirectory); someone new gets one from their name. */
+  handle?: string;
   link?: string;
 }
 
@@ -116,8 +120,9 @@ function peopleField(a: Ask, people: Offer[]) {
   const menu = el("div", { class: "tpl-people", role: "listbox", "aria-label": `${a.label}: suggestions` });
   let options: Array<{ offer: Offer; isNew: boolean }> = [];
   let active = 0;
-  /** Someone's @handle among everyone offered and picked, so it names only them ("Sam-Lee" when there are two Sams). */
+  /** Someone's @handle: their own, or for someone new one that names only them among everyone offered and picked ("Sam-Lee" when there are two Sams). */
   const handleOf = (o: Offer) => {
+    if (o.handle) return o.handle;
     const all = [...new Set([...people, ...picked, o].map((p) => p.name))];
     return handlesFor(all)[all.indexOf(o.name)];
   };
@@ -175,14 +180,16 @@ function peopleField(a: Ask, people: Offer[]) {
   return { field, input, value };
 }
 
-/**
- * Who a template's people questions offer: the workspace's members (online; a local vault has none,
- * so only "add someone new"). Contacts join them once they're in the app (#93).
- */
+/** The people `@` knows (contacts and members, one each), with their @handle and, for a contact, the link to their note. */
+export function peopleOffers(contacts: Contact[], members: Member[]): Offer[] {
+  return peopleDirectory(contacts, members).map((p) => ({ name: p.name, handle: p.handle, ...(p.contact ? { link: contactLink(p.contact) } : {}) }));
+}
+
+/** Who a template's people questions offer: contacts, and online the workspace's members (see peopleOffers). */
 export async function templatePeople(t: TemplateInfo): Promise<Offer[]> {
   if (!t.asks.some((a) => a.type === "people")) return [];
-  const members = await api.members().catch(() => []);
-  return members.map((m) => ({ name: m.name }));
+  const { contacts, members } = await people();
+  return peopleOffers(contacts, members);
 }
 
 /** The form's answers: text answers by label, and the people picked for `people` questions. */

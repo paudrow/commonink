@@ -3,6 +3,7 @@
 import { cleanPath, QuireError } from "./paths.ts";
 import type { ArchiveScope, Change, Quire } from "./quire.ts";
 import type { TaskPatch } from "./tasks.ts";
+import type { ContactFields } from "./contacts.ts";
 import type { FillOptions, PersonPick } from "./templates.ts";
 import { agentSource, parseAuthorFilter } from "./actor.ts";
 import { findStartNote, GUIDE, parseGuideAction, runGuide } from "./guide.ts";
@@ -35,6 +36,17 @@ export interface ApiHost {
   origin?: string;
   /** An uploaded file's bytes (for exports), or null if it's gone. */
   fileBytes?(rel: string): Promise<Uint8Array | null>;
+  /** The workspace's members (online); a local vault has none. */
+  members?(): Promise<Member[]>;
+}
+
+/** Someone with an account in the workspace. A contact with the same email is them (see contacts.ts). */
+export interface Member {
+  id: string;
+  name: string;
+  email: string;
+  /** Whether it's the person asking. */
+  you?: boolean;
 }
 
 export const json = (data: unknown, status = 200) =>
@@ -84,6 +96,26 @@ function taskPatch(v: unknown): TaskPatch {
     out[k] = x;
   }
   return out as TaskPatch;
+}
+
+const CONTACT_LISTS = ["email", "phone", "links", "aliases", "tags"];
+/** The most text one contacts import may bring (about 20,000 contacts). */
+const MAX_IMPORT = 8 * 1024 * 1024;
+
+/** Contact fields from a request: lists of strings, and company and role as strings. `name` only where it's allowed. */
+function contactFields(v: unknown, withName: boolean): Partial<ContactFields> {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) throw new QuireError("Expected an object of contact fields");
+  const out: Record<string, unknown> = {};
+  for (const [k, x] of Object.entries(v)) {
+    if (x === undefined) continue;
+    const ok =
+      CONTACT_LISTS.includes(k) ? Array.isArray(x) && x.every((s) => typeof s === "string")
+      : k === "company" || k === "role" || (k === "name" && withName) || (k === "notes" && withName) ? typeof x === "string"
+      : false;
+    if (!ok) throw new QuireError(`"${k}" isn't a contact field or has the wrong type`);
+    out[k] = x;
+  }
+  return out as Partial<ContactFields>;
 }
 
 /** How to fill a template, from a request: `at` (the person's own clock), `title`, `answers`, `clipboard`. */
@@ -232,17 +264,25 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json(quire.favorites(host.user));
     case "GET /smart-folders":
       return json(quire.smartFolders(host.user));
-    case "GET /tasks":
+    case "GET /tasks": {
+      // `assignee` is someone's name (every @name that's theirs) or "me"; `by=me` keeps the tasks
+      // the reader gave someone else in their own notes. Only those need the workspace's members.
+      const assignee = q("assignee") || undefined;
+      const by = q("by") || undefined;
+      if (by !== undefined && by !== "me") throw new QuireError(`"by" can only be "me"`);
+      const members = assignee || by ? ((await host.members?.()) ?? []) : [];
       return json(
-        quire.tasks({
+        quire.tasksFor({ user: host.user, person: actor, members }, {
           folder: q("folder") || undefined,
           note: q("note") || undefined,
           tag: q("tag") || undefined,
-          assignee: q("assignee") || undefined,
+          assignee,
+          by,
           due: q("due") || undefined,
           today: q("today") || undefined, // the browser's day, so "today" means the reader's today
         }),
       );
+    }
     case "GET /tasks/count":
       return json({ open: quire.openTaskCount() });
     case "GET /tags":
@@ -251,6 +291,41 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json(quire.assetTags());
     case "GET /diff":
       return json(quire.diff(qInt("from"), q("to") ? qInt("to") : qInt("from")));
+    case "GET /contacts":
+      return json(quire.contacts());
+    case "GET /contact":
+      return json(quire.contact(q("path")));
+    case "GET /members":
+      return json(host.members ? await host.members() : []);
+    case "POST /contacts": {
+      const r = quire.createContact({ ...contactFields(raw, true), name: str("name") }, actor);
+      host.written(r.path, quire.files.read(r.path), r.version, r.change);
+      host.tree();
+      return json({ path: r.path, version: r.version });
+    }
+    case "POST /contacts/update": {
+      const r = quire.updateContact(str("path"), contactFields((raw as { patch?: unknown }).patch, false), actor);
+      if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
+      return json({ path: r.path, version: r.version });
+    }
+    case "POST /contacts/merge": {
+      const r = quire.mergeContacts(str("keep"), str("drop"), actor);
+      host.written(r.path, r.content, r.version, r.change);
+      trashed(r.trashed);
+      for (const e of r.edits) host.written(e.path, e.content, e.version, e.change);
+      host.tree();
+      return json({ path: r.path, updated: r.updated, trashed: r.trashed.map(({ id, path }) => ({ id, path })) });
+    }
+    case "POST /contacts/import": {
+      const format = str("format");
+      if (format !== "vcard" && format !== "csv") throw new QuireError(`"format" must be "vcard" or "csv"`);
+      const body = str("text");
+      if (body.length > MAX_IMPORT) throw new QuireError("That file is too big to import at once; split it up");
+      const r = quire.importContacts(body, format, actor);
+      for (const p of [...r.created, ...r.updated]) host.written(p, quire.files.read(p), quire.meta(p)?.version ?? "", null);
+      if (r.created.length) host.tree();
+      return json(r);
+    }
     case "GET /templates":
       return json(quire.templates());
     // A template filled in, to insert at the cursor (the editor writes it, so this only reads).
@@ -354,6 +429,29 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       // Restoring each change while its note is still at `versions` (the text the rename left), and
       // setting these assets' tags back, undoes the rename without writing over a later edit.
       return json({ changes: r.edits.map((e) => e.change.id), versions: r.edits.map((e) => e.version), assets: r.assets });
+    }
+    // Labels (Quire.label): a name on a version of a note, to compare with or go back to.
+    case "GET /labels":
+      return json(quire.labels(q("path") || undefined));
+    case "GET /labels/compare": {
+      // Two versions' text: a label and another label (?to=<id>), or the note now (?to=now, the default).
+      const c = quire.compareLabels(q("from"), q("to") || "now");
+      return json({ path: c.path, from: { ...c.from.label, text: c.from.text }, to: c.to.label ? { ...c.to.label, text: c.to.text } : { now: true, text: c.to.text } });
+    }
+    case "POST /labels": {
+      const at = (raw as { at?: unknown }).at == null ? undefined : int("at"); // a past change to label the version after; now if absent
+      return json(quire.label(str("path"), str("name"), actor, { description: optStr("description"), at }));
+    }
+    case "POST /labels/rename": {
+      const description = (raw as { description?: unknown }).description;
+      return json(quire.renameLabel(str("id"), str("name"), { description: description === undefined ? undefined : description === null ? null : str("description") }));
+    }
+    case "POST /labels/delete":
+      return json(quire.deleteLabel(str("id")));
+    case "POST /labels/restore": {
+      const r = quire.restoreLabel(str("id"), actor, { baseVersion: optStr("version") });
+      if (r.change) host.written(r.path, quire.files.read(r.path), r.version, r.change);
+      return json({ path: r.path, version: r.version, change: r.change?.id ?? null }); // restoring `change` undoes this
     }
     case "POST /restore": {
       const r = quire.restore(int("id"), actor, optStr("version"));

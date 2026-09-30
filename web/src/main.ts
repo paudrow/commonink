@@ -9,6 +9,7 @@ import { cleanTag, normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
 import { paintShareButton, SHARE_KEYS, toggleShareMenu, type ShareNote } from "./share.ts";
+import type { Label } from "./api.ts";
 import { hideBanner, showBanner } from "./banner.ts";
 import { showConflict as conflictBanner } from "./conflict.ts";
 import { createState, lineNumbersFor, lineNumbersSlot, openLinkToSide, remote, setVimDisplayLines, vimSlot } from "./editor/setup.ts";
@@ -190,6 +191,7 @@ let capturePage: CapturePage | null = null;
 let historyPage: History | null = null;
 let assetsPage: Assets | null = null;
 let tagsPage: TagsPage | null = null;
+let contactsPage: import("./contactsPage.ts").ContactsPage | null = null;
 let calendarPage: CalendarPage | null = null;
 const once = <T>(load: () => Promise<T>) => {
   let loading: Promise<T> | null = null;
@@ -200,6 +202,7 @@ const loadHistory = once(async () =>
     open: (path) => fromPage(path),
     toast: (t) => toast(t),
     newNote: viewer ? undefined : () => void newNote(),
+    readOnly: viewer,
   })),
 );
 const loadAssets = once(async () =>
@@ -212,6 +215,17 @@ const loadAssets = once(async () =>
     embedName: (path) => embedName(path),
     tags: () => tags,
     refreshTags: () => refreshNotes(),
+    toast: (t) => toast(t),
+  })),
+);
+const loadContacts = once(async () =>
+  (contactsPage = new (await import("./contactsPage.ts")).ContactsPage($("#contacts-view"), {
+    open: (path, line, side) => fromPage(path, line, side),
+    openTag: (tag) => openTag(tag, "tasks"),
+    openPerson: (assignee) => void showTasks({ assignee }),
+    // A contact's page is drawn already: just the address bar and title. Back to the list shows it.
+    navigate: (c) => (c ? (setUrl(`/contacts?c=${c.id}`), (document.title = `${c.name} · Contacts · Common Ink`)) : void showContacts()),
+    canEdit: () => !viewer,
     toast: (t) => toast(t),
   })),
 );
@@ -274,7 +288,7 @@ function commands() {
     newTag: startNewTag,
     go: (page) => {
       if (page === "notes" || page === "archive" || page === "trash") void showNotes({ tab: page, query: {} });
-      else void { tasks: showTasks, calendar: showCalendar, tags: showTags, assets: showAssets, history: showHistory }[page]();
+      else void { tasks: showTasks, calendar: showCalendar, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory }[page]();
     },
     subscribeCalendar: () => void subscribeCalendar(),
     refreshCalendars: () => void refreshCalendars(),
@@ -299,6 +313,8 @@ function commands() {
     move: () => openMovePicker($("#move-btn")),
     rename: () => void renameNote(),
     noteHistory: () => s && void showHistory({ note: s.path }),
+    labelVersion: () => void labelCurrent(),
+    noteLabels: () => s && void showHistory({ note: s.path }),
     gettingStarted: async () => {
       const start = (await api.feed({ tag: "start", limit: 1 }).catch(() => null))?.items[0];
       if (start) void openNote(start.path);
@@ -631,7 +647,7 @@ function setUrl(url: string, how: "push" | "replace" = "push") {
 
 let unmountTasks: (() => void) | null = null;
 
-function showStage(which: "editor" | "html" | "notes" | "tasks" | "calendar" | "history" | "assets" | "tags" | "capture") {
+function showStage(which: "editor" | "html" | "notes" | "tasks" | "calendar" | "contacts" | "history" | "assets" | "tags" | "capture") {
   closeDrawer();
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
@@ -641,6 +657,7 @@ function showStage(which: "editor" | "html" | "notes" | "tasks" | "calendar" | "
   $("#calendar-view").hidden = which !== "calendar";
   $("#history-view").hidden = which !== "history";
   $("#tags-view").hidden = which !== "tags";
+  $("#contacts-view").hidden = which !== "contacts";
   $("#capture-view").hidden = which !== "capture";
   if (which !== "tasks") {
     unmountTasks?.();
@@ -698,7 +715,7 @@ async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean
   // Today's events open on the Calendar page (/calendar/<id>); everything else is a note.
   const open = (path: string, line?: number, side?: boolean) =>
     void (calendarTarget(path) !== null ? openTarget(path) : openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }));
-  unmountTasks = renderTasksPage($("#tasks-view"), { open, tags: () => tags }, { tag: opts.tag, assignee: opts.assignee });
+  unmountTasks = renderTasksPage($("#tasks-view"), { open, tags: () => tags, me: workspaceId ? "Tasks with your @name" : "Tasks with @me" }, { tag: opts.tag, assignee: opts.assignee });
   $("#tasks-view").focus({ preventScroll: true });
   if (opts.push !== false) wentTo("/tasks");
   document.title = "Tasks · Common Ink";
@@ -760,16 +777,31 @@ async function refreshCalendars() {
 }
 
 /** History, optionally for one note, with a change selected (e.g. from the activity list). */
-async function showHistory(opts: { note?: string | null; select?: number; push?: boolean } = {}) {
+async function showHistory(opts: { note?: string | null; select?: number; label?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("history");
-  await (await loadHistory()).show({ note: opts.note ?? null, select: opts.select });
+  await (await loadHistory()).show({ note: opts.note ?? null, select: opts.select, label: opts.label });
   const id = opts.note ? notes.find((n) => n.path === opts.note)?.id : undefined;
   if (opts.push !== false) wentTo(id ? `/history?note=${id}` : "/history");
   document.title = `${opts.note ? `${displayName(opts.note)} · ` : ""}History · Common Ink`;
   renderChrome();
   renderTree();
   renderOutline();
+}
+
+// ------------------------------------------------------------------ labels (labels.ts)
+
+/** A label, in its note's History: compared with now, ready to restore. */
+const showLabel = (m: Label) => void showHistory({ note: m.path, label: m.id });
+
+/** Label the focused note's version as it is now: saved first, so the label is what's on screen. */
+async function labelCurrent(name?: string) {
+  const s = active.session;
+  if (!s || s.kind === "asset" || viewer) return;
+  await flushSave();
+  if (!name) return void (await import("./labels.ts")).labelVersion(s.path, { toast, show: showLabel });
+  const label = await api.label(s.path, name).catch((e: Error) => (toast({ text: e.message }), null));
+  if (label) toast({ icon: "label", text: `Labeled this version “${label.name}”`, actionLabel: "Show", action: () => showLabel(label) });
 }
 
 async function showTags(opts: { push?: boolean } = {}) {
@@ -779,6 +811,20 @@ async function showTags(opts: { push?: boolean } = {}) {
   refreshTagsSoon();
   if (opts.push !== false) wentTo("/tags");
   document.title = "Tags · Common Ink";
+  renderChrome();
+  renderTree();
+  renderOutline();
+}
+
+/** Contacts: the people in the notes, or one person's page (`contact`: its note ID). */
+async function showContacts(opts: { contact?: string | null; push?: boolean } = {}) {
+  await leaveNote();
+  showStage("contacts");
+  const page = await loadContacts();
+  await page.show(opts.contact ?? null);
+  const name = opts.contact ? notes.find((n) => n.id === opts.contact)?.title : undefined;
+  if (opts.push !== false) setUrl(name ? `/contacts?c=${opts.contact}` : "/contacts");
+  document.title = `${name ? `${name} · ` : ""}Contacts · Common Ink`;
   renderChrome();
   renderTree();
   renderOutline();
@@ -862,13 +908,14 @@ function pickFiles(): Promise<File[]> {
   });
 }
 
-const PAGE_LABEL = { notes: "Notes", archive: "Archive", trash: "Trash", tasks: "Tasks", calendar: "Calendar", history: "History", assets: "Assets", tags: "Tags", capture: "Capture" } as const;
+const PAGE_LABEL = { notes: "Notes", archive: "Archive", trash: "Trash", tasks: "Tasks", calendar: "Calendar", contacts: "Contacts", history: "History", assets: "Assets", tags: "Tags", capture: "Capture" } as const;
 
 /** The page showing (the Notes page by its tab), or null while a note is. */
 const onPage = () =>
   notesPage.visible ? notesPage.tab
   : !$("#tasks-view").hidden ? "tasks"
   : calendarPage?.visible ? "calendar"
+  : contactsPage?.visible ? "contacts"
   : historyPage?.visible ? "history"
   : assetsPage?.visible ? "assets"
   : tagsPage?.visible ? "tags"
@@ -1760,6 +1807,7 @@ function renderTree() {
   renderTagTree(shownTag && showing === formatQuery({ tag: shownTag }) ? shownTag.toLowerCase() : ""); // a tag alone, like a folder alone
   setCurrent($("#tasks-btn"), page === "tasks");
   setCurrent($("#calendar-btn"), page === "calendar");
+  setCurrent($("#contacts-btn"), page === "contacts");
   setCurrent($("#history-btn"), page === "history" && !historyPage?.noteFilter);
   setCurrent($("#assets-btn"), page === "assets");
   setCurrent($("#tags-page-btn"), page === "tags", "is-on");
@@ -2342,6 +2390,8 @@ Vim.defineEx("calendar", "cal", () => void showCalendar());
 Vim.defineEx("rename", "ren", () => setTimeout(() => void renameNote()));
 Vim.defineEx("star", "star", () => active.session && void toggleStar(active.session.path));
 Vim.defineEx("share", "sha", () => openShare());
+// :label names the note's version as it is now (:label v1); with no name, it asks for one.
+Vim.defineEx("label", "label", (_cm: unknown, params: { args?: string[] }) => void labelCurrent(params.args?.join(" ").trim() || undefined));
 Vim.defineEx("focus", "foc", () => void setFocusMode(!focusMode));
 Vim.defineEx("vsplit", "vs", (_cm: unknown, params: { args?: string[] }) => {
   const arg = params.args?.join(" ");
@@ -2651,7 +2701,7 @@ function setupPanes() {
   // Clicking or tabbing into a pane gives it the focus.
   // (Not from a pane bar's buttons: redrawing the bar on mousedown would swallow their click.)
   const follow = (p: Pane) => (e: Event) => p !== active && split && !(e.target as Element).closest?.(".pane-bar button") && focusPane(p);
-  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#tasks-view", "#calendar-view", "#history-view", "#assets-view", "#tags-view"]], [panes[1], ["#side-pane"]]] as const) {
+  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#tasks-view", "#calendar-view", "#contacts-view", "#history-view", "#assets-view", "#tags-view"]], [panes[1], ["#side-pane"]]] as const) {
     for (const sel of nodes) {
       $(sel).addEventListener("focusin", follow(p));
       $(sel).addEventListener("mousedown", follow(p));
@@ -2702,6 +2752,10 @@ async function route() {
     return showTasks({ push: false });
   }
   if (at === "/assets") return showAssets({ push: false });
+  if (at === "/contacts") {
+    const id = new URLSearchParams(location.search).get("c");
+    return showContacts({ contact: id && NOTE_ID.test(id) ? id : null, push: false });
+  }
   const event = calendarTarget(at);
   if (event !== null) return showCalendar({ event: event || undefined, push: false });
   if (at === "/capture") return showCapture();
@@ -2801,6 +2855,7 @@ async function boot() {
   $("#tasks-btn").addEventListener("click", () => void showTasks());
   $("#calendar-btn").addEventListener("click", () => void showCalendar());
   window.addEventListener(OPEN_CALENDAR, (e) => void showCalendar({ event: (e as CustomEvent<string>).detail || undefined }));
+  $("#contacts-btn").addEventListener("click", () => void showContacts());
   $("#history-btn").addEventListener("click", () => void showHistory());
   $("#assets-btn").addEventListener("click", () => void showAssets());
   $("#tags-page-btn").addEventListener("click", () => void showTags());

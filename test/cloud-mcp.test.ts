@@ -77,13 +77,15 @@ async function mcp(token: string) {
 
 /** What a viewer's agent gets: reading, and what's each person's own (favorites, their smart folders). */
 const VIEWER_TOOLS = [
-  "backlinks", "delete_smart_folder", "export_note", "get_event", "get_today", "list_events", "list_notes", "list_smart_folders", "list_tags", "list_tasks",
-  "list_templates", "read_board",
-  "read_note", "recent_changes", "save_smart_folder", "search_notes", "star_note", "star_tag", "unstar_note", "unstar_tag",
+  "backlinks", "delete_smart_folder", "diff_versions", "export_note", "get_event", "get_today", "list_contacts", "list_events", "list_labels", "list_notes",
+  "list_smart_folders", "list_tags", "list_tasks", "list_templates", "read_board", "read_contact", "read_note", "recent_changes", "save_smart_folder", "search_notes",
+  "star_note", "star_tag", "unstar_note", "unstar_tag",
 ];
 const ALL_TOOLS = [
-  ...VIEWER_TOOLS, "add_card", "add_task", "append_to_note", "archive_note", "create_from_template", "create_meeting_note", "create_note", "delete_note", "edit_card", "edit_note", "move_card",
-  "move_note", "move_task", "unarchive_note", "update_task",
+  ...VIEWER_TOOLS,
+  "add_card", "add_task", "append_to_note", "archive_note", "create_contact", "create_from_template", "create_meeting_note", "create_note", "delete_note", "edit_card",
+  "edit_note", "import_contacts", "label_version", "merge_contacts", "move_card", "move_note", "move_task", "restore_label", "unarchive_note", "update_contact",
+  "update_task",
 ].sort();
 
 test("an agent discovers where to sign in from /mcp", async () => {

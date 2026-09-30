@@ -2,6 +2,7 @@ import { localDate, type TaskMeta, type TaskPatch } from "../../src/core/tasks.t
 import type { GuideAction, GuideState } from "../../src/core/guide.ts";
 import { did } from "./events.ts";
 import type { NoteRole } from "../../src/core/noteRoles.ts";
+import type { Contact, ContactFields, TimelineItem } from "../../src/core/contacts.ts";
 import { safeDecode } from "../../src/core/uri.ts";
 import type { FillOptions, TemplateInfo } from "../../src/core/templates.ts";
 import type { CalendarEvent, EventDraft, Source as CalendarSource, SourceColor } from "../../src/core/calendar.ts";
@@ -10,6 +11,8 @@ import type { CalendarEvent, EventDraft, Source as CalendarSource, SourceColor }
 const today = () => localDate(Date.now());
 
 export type { GuideState, TaskMeta, TaskPatch };
+export type { Contact, ContactFields, TimelineItem } from "../../src/core/contacts.ts";
+export type { Member } from "../../src/core/api.ts";
 export type Kind = "md" | "html" | "asset";
 export interface NoteMeta {
   id: string;
@@ -231,6 +234,8 @@ export interface WorkspaceMember {
   email: string;
   role: "owner" | "editor" | "viewer";
   joinedAt: number;
+  /** Whether it's you. */
+  you?: boolean;
 }
 export interface WorkspaceInvite {
   id: string;
@@ -261,6 +266,26 @@ export interface TrashItem extends Trashed {
   expiresAt: number;
   by: { source: string; person: string | null; agent: string | null } | null;
   excerpt: string;
+  /** How many labels it has, which deleting it for good deletes too (none if left out). */
+  labels?: number;
+}
+/** A label of a note (core Quire.label). */
+export interface Label {
+  id: string;
+  note_id: string;
+  /** Where the note is now; null while it's in Trash. */
+  path: string | null;
+  /** The change right before this version, or null. */
+  change_id: number | null;
+  name: string;
+  description: string | null;
+  version: string;
+  ts: number;
+  source: string;
+  person: string | null;
+  agent: string | null;
+  /** The note is at this version now. */
+  current: boolean;
 }
 export interface DeleteCheck {
   notes: number;
@@ -313,7 +338,8 @@ export const api = {
   search: (q: string, scope: Scope = "active") => j<SearchHit[]>(`${BASE}/search?q=${enc(q)}&limit=20&scope=${scope}`),
   feed: (p: { q?: string; scope?: Scope; folder?: string; tag?: string; sort?: "modified" | "title"; offset?: number; limit?: number }) =>
     j<FeedPage>(`${BASE}/feed?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
-  tasks: (p: { folder?: string; note?: string; tag?: string; assignee?: string; due?: string; today?: string }) =>
+  /** `assignee`: someone's name (every @name that's theirs) or "me"; `by: "me"`: tasks you gave someone else, in your notes. */
+  tasks: (p: { folder?: string; note?: string; tag?: string; assignee?: string; by?: "me"; due?: string; today?: string }) =>
     j<Task[]>(`${BASE}/tasks?${new URLSearchParams(Object.entries(p).filter(([, v]) => v).map(([k, v]) => [k, String(v)]))}`),
   /** How many tasks are still open across the workspace (the Tasks badge). */
   openTasks: () => j<{ open: number }>(`${BASE}/tasks/count`).then((r) => r.open),
@@ -368,6 +394,15 @@ export const api = {
   emptyTrash: () => j<{ deleted: string[] }>(`${BASE}/trash/empty`, send("POST", {})),
   unarchive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/unarchive`, send("POST", { paths })),
   backlinks: (path: string) => j<Backlink[]>(`${BASE}/backlinks?path=${enc(path)}`),
+  /** The workspace's contacts (notes in People/), by name. */
+  contacts: () => j<Contact[]>(`${BASE}/contacts`),
+  /** One contact, and the notes that mention them, newest first. */
+  contact: (path: string) => j<{ contact: Contact; timeline: TimelineItem[] }>(`${BASE}/contact?path=${enc(path)}`),
+  createContact: (c: Partial<ContactFields> & { name: string; notes?: string }) => j<{ path: string; version: string }>(`${BASE}/contacts`, send("POST", c)),
+  updateContact: (path: string, patch: Partial<Omit<ContactFields, "name">>) => j<{ path: string; version: string }>(`${BASE}/contacts/update`, send("POST", { path, patch })),
+  /** `keep` gains `drop`'s details and links; `drop` goes to Trash (`trashed` restores it). */
+  mergeContacts: (keep: string, drop: string) => j<{ path: string; updated: string[]; trashed: Trashed[] }>(`${BASE}/contacts/merge`, send("POST", { keep, drop })),
+  importContacts: (format: "vcard" | "csv", text: string) => j<{ created: string[]; updated: string[]; unchanged: string[] }>(`${BASE}/contacts/import`, send("POST", { format, text })),
   /** The note templates (notes in Templates/), by name. */
   templates: () => j<TemplateInfo[]>(`${BASE}/templates`),
   /** A template filled in, to insert: its text and where its {{cursor}} is. */
@@ -387,6 +422,15 @@ export const api = {
   /** The net lines added and removed by each set of changes (ranges as for diffs), at most 50 sets. */
   diffStats: (sets: string[]) => j<Array<LineStat | null>>(`${BASE}/diffstats?sets=${sets.join(";")}`),
   /** Put a note back the way it was before change #id; with `version`, only if the note is still at that version. */
+  /** A note's labels, or every note's. */
+  labels: (path?: string) => j<Label[]>(`${BASE}/labels${path ? `?path=${enc(path)}` : ""}`),
+  label: (path: string, name: string, opts: { description?: string; at?: number } = {}) => j<Label>(`${BASE}/labels`, send("POST", { path, name, ...opts })),
+  renameLabel: (id: string, name: string, description: string | null) => j<Label>(`${BASE}/labels/rename`, send("POST", { id, name, description })),
+  deleteLabel: (id: string) => j<Label>(`${BASE}/labels/delete`, send("POST", { id })),
+  /** A label's text beside another label's, or the note's now (`to` = "now"). */
+  compareLabels: (from: string, to = "now") =>
+    j<{ path: string; from: Label & { text: string }; to: (Label & { text: string }) | { now: true; text: string } }>(`${BASE}/labels/compare?from=${enc(from)}&to=${enc(to)}`),
+  restoreLabel: (id: string, version?: string) => j<{ path: string; version: string; change: number | null }>(`${BASE}/labels/restore`, send("POST", { id, version })),
   restore: (id: number, version?: string) => j<{ path: string; version: string; change: number | null }>(`${BASE}/restore`, send("POST", { id, version })),
   changes: () => j<Change[]>(`${BASE}/changes?limit=40`),
   /**
