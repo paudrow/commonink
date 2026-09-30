@@ -4,17 +4,23 @@
 // field's editor. Every change goes through taskLineEdit, so undo takes it back.
 //
 // Phrases quick-add would read ("tomorrow", "every week") get a dotted underline on the cursor's
-// task line. Nothing changes until you say so: Tab right after one, or a click on one, turns it
-// into tokens, as one change that one undo takes back.
+// task line, and the tools show the chips they'd become. Tab right after one, or a click on the
+// chips or a phrase, turns them into tokens. Phrases you just typed at the end of the task's words
+// turn by themselves when the cursor leaves the line, and a toast says what they became. Each is
+// one change that one undo takes back.
 import { completionStatus } from "@codemirror/autocomplete";
+import { isolateHistory } from "@codemirror/commands";
 import { Prec } from "@codemirror/state";
 import { EditorView, keymap, WidgetType } from "@codemirror/view";
-import { localDate, parseTask } from "../../../src/core/tasks.ts";
+import { localDate, parseTask, type TaskMeta } from "../../../src/core/tasks.ts";
+import { recLabel } from "../../../src/core/recurrence.ts";
 import { el, icon } from "../dom.ts";
 import { formatKeys } from "../keys.ts";
 import { openFieldEditor, openTaskMenu, taskPeople, type ChipContext, type MenuField } from "../taskChipEditors.ts";
+import { dayLabel, tokenChip, type ChipField } from "../taskChips.ts";
+import { toast } from "../toast.ts";
 import { editorContext } from "./blocks.ts";
-import { convertPhrases, HINTS, phrasesAt, phraseTab, taskLineEdit, taskPhrases, taskTools, taskToolsAt, type HintField } from "./taskEdit.ts";
+import { convertPhrases, HINTS, lineVisit, phrasesAt, phrasesLeft, phraseTab, taskLineEdit, taskPhrases, taskTools, taskToolsAt, type HintField } from "./taskEdit.ts";
 
 /** A task on line `n` as the chip editors take it, saving through a transaction on that line. */
 export function lineTaskContext(view: EditorView, n: number): ChipContext | null {
@@ -47,11 +53,14 @@ export function openFieldAt(view: EditorView, field: MenuField, pos: number, opt
 }
 
 class ToolsWidget extends WidgetType {
-  constructor(readonly missing: HintField[]) {
+  constructor(
+    readonly missing: HintField[],
+    readonly pending: string[],
+  ) {
     super();
   }
   eq(o: ToolsWidget) {
-    return o.missing.join() === this.missing.join();
+    return o.missing.join() === this.missing.join() && o.pending.join() === this.pending.join();
   }
   toDOM(view: EditorView) {
     const button = el("button", { type: "button", class: "cm-task-gear", title: `Priority, due, repeat, person, tags… (${formatKeys("Mod-.")})`, "aria-label": "Task fields" }, icon("sliders", 13));
@@ -60,7 +69,16 @@ class ToolsWidget extends WidgetType {
       el("button", { type: "button", class: "cm-hint-word", "data-field": field, title: `Add ${WORD_TITLES[field]}` }, word),
     );
     const hint = words.length ? el("span", { class: "cm-task-hint" }, ...words.flatMap((w, i) => (i ? [" · ", w] : [w]))) : null;
-    const wrap = el("span", { class: "cm-task-tools" }, button, hint);
+    // What the underlined phrases would become, as the chips they'd be: a click (or Tab) makes them tokens.
+    const pending = this.pending.length
+      ? el(
+          "button",
+          { type: "button", class: "cm-task-pending", title: "Make these the task's tokens (Tab). Typed at the end of the task, they are when you leave the line." },
+          ...this.pending.map((t) => tokenChip(t.slice(0, t.indexOf(":")) as ChipField, t.slice(t.indexOf(":") + 1))),
+          el("kbd", {}, "Tab"),
+        )
+      : null;
+    const wrap = el("span", { class: "cm-task-tools" }, button, pending, hint);
     wrap.addEventListener("mousedown", (e) => {
       if (e.button !== 0) return;
       e.preventDefault(); // the cursor stays on the line, so the tools do too
@@ -69,7 +87,10 @@ class ToolsWidget extends WidgetType {
       const word = (e.target as HTMLElement).closest<HTMLElement>(".cm-hint-word");
       if (!ctx) return;
       if (word) openFieldEditor(word.dataset.field as HintField, word, "", ctx);
-      else if ((e.target as HTMLElement).closest(".cm-task-gear")) openTaskMenu(button, ctx);
+      else if ((e.target as HTMLElement).closest(".cm-task-pending")) {
+        const spec = convertPhrases(view.state, ctx.task.line, today());
+        if (spec) view.dispatch(spec);
+      } else if ((e.target as HTMLElement).closest(".cm-task-gear")) openTaskMenu(button, ctx);
     });
     return wrap;
   }
@@ -134,5 +155,47 @@ const phraseClick = EditorView.domEventHandlers({
   },
 });
 
-/** The editor extension: the tools on the cursor's task line, ⌘. to open its menu, and its phrases underlined. */
-export const taskLineTools = [taskTools((missing) => new ToolsWidget(missing)), openMenuKey, taskPhrases(today), phraseKey, phraseClick];
+/** What a converted line was set to, as words for its toast: "due Tomorrow, repeats weekly". */
+function setLabel(was: TaskMeta, now: TaskMeta): string {
+  const changed = (k: "due" | "start" | "rec" | "until" | "times") => now[k] !== null && now[k] !== was[k];
+  return [
+    changed("due") && `due ${dayLabel(now.due!)}`,
+    changed("start") && `starts ${dayLabel(now.start!)}`,
+    changed("rec") && `repeats ${recLabel(now.rec!).toLowerCase()}`,
+    changed("until") && `until ${dayLabel(now.until!)}`,
+    changed("times") && `${now.times} times`,
+  ].filter(Boolean).join(", ");
+}
+
+/**
+ * Leaving a task line turns the phrases just typed at the end of its words into tokens, once the
+ * move has landed: its own undo step, so one undo takes back just that. A toast says what they
+ * became, with an Undo that puts the words back if the line hasn't changed since.
+ */
+const convertOnLeave = EditorView.updateListener.of((u) => {
+  const tr = u.transactions.at(-1);
+  const spec = tr && phrasesLeft(tr, today());
+  if (!spec) return;
+  queueMicrotask(() => {
+    if (u.view.state !== u.state) return; // something else happened first: leave the words
+    const change = spec.changes as { from: number; to: number; insert: string };
+    const n = u.state.doc.lineAt(change.from).number;
+    const before = u.state.doc.line(n).text;
+    u.view.dispatch({ ...spec, annotations: isolateHistory.of("full") });
+    const after = u.view.state.doc.line(n).text;
+    const [was, now] = [parseTask(before)!, parseTask(after)!];
+    toast({
+      text: `${now.summary}: ${setLabel(was.meta, now.meta)}`,
+      icon: "calendar",
+      actionLabel: "Undo",
+      action: () => {
+        const at = u.view.state.doc.lines >= n && u.view.state.doc.line(n);
+        if (!at || at.text !== after) return toast({ text: "That task changed since, so it stays as it is" });
+        u.view.dispatch({ changes: { from: at.from, to: at.to, insert: before }, userEvent: "input.task", annotations: isolateHistory.of("full") });
+      },
+    });
+  });
+});
+
+/** The editor extension: the tools on the cursor's task line, ⌘. to open its menu, and its phrases underlined and turned into tokens. */
+export const taskLineTools = [taskTools((missing, pending) => new ToolsWidget(missing, pending), today), openMenuKey, taskPhrases(today), phraseKey, phraseClick, lineVisit, convertOnLeave];

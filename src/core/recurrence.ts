@@ -3,11 +3,14 @@
 // UTC (a date never moves with a time zone or a daylight-saving change). No Node imports: the
 // editor uses this too.
 //
-//   rec:weekly  rec:2w  rec:mon,thu  rec:2w-mon,thu  rec:6th  rec:last-day  rec:1st-tue,3rd-tue
-//   rec:last-fri  rec:mar-1  rec:1st-mon-mar  rec:day-50  rec:after-1m  rec:RRULE:FREQ=…;BYDAY=…
+//   rec:weekly  rec:2w  rec:mon,thu  rec:2w-mon,thu  rec:6th  rec:last-day  rec:last-day-2
+//   rec:1st-tue,3rd-tue  rec:last-fri  rec:mar-1  rec:1st-mon-mar  rec:day-50  rec:after-1m
+//   rec:RRULE:FREQ=…;BYDAY=…
 //
 // By default the next date follows the calendar from the current due date (a bill due on the 6th is
 // next due on the 6th, however early it's paid); `after-` counts from the day it was done instead.
+// One break from RFC 5545: a day of the month that a month doesn't have (the 31st in April) falls on
+// that month's last day rather than skipping the month.
 
 export type Freq = "day" | "week" | "month" | "year";
 
@@ -63,9 +66,10 @@ export function parseRule(raw: string): Rule | null {
     return { ...blank("week", weekly[1] ? +weekly[1] : 1), byDay: unique(weekly[2].split(",").map((d) => ({ n: 0, day: DAYS.indexOf(d) }))) };
   }
   const items = s.split(",");
-  if (items.every((x) => x === "last-day" || /^\d{1,2}(st|nd|rd|th)$/.test(x))) {
-    const days = items.map((x) => (x === "last-day" ? -1 : parseInt(x, 10)));
-    return days.every((d) => d === -1 || (d >= 1 && d <= 31)) ? { ...blank("month"), byMonthDay: [...new Set(days)] } : null;
+  if (items.every((x) => /^last-day(-[1-9]\d?)?$/.test(x) || /^\d{1,2}(st|nd|rd|th)$/.test(x))) {
+    // last-day is -1, and last-day-N the Nth day before it.
+    const days = items.map((x) => (x.startsWith("last-day") ? -1 - (+x.slice(9) || 0) : parseInt(x, 10)));
+    return days.every((d) => d >= -31 && d !== 0 && d <= 31) ? { ...blank("month"), byMonthDay: [...new Set(days)] } : null;
   }
   const ords = items.map((x) => x.split("-"));
   if (ords.every((p) => p.length === 2 && ORDINAL.test(p[0]) && DAYS.includes(p[1]))) {
@@ -132,6 +136,20 @@ function unique(days: Rule["byDay"]): Rule["byDay"] {
   return days.filter((d, i) => days.findIndex((o) => o.n === d.n && o.day === d.day) === i);
 }
 
+/**
+ * The days past the 28th a monthly rule lands on, which shorter months don't have, and the same rule
+ * on the last day of the month instead. A day of the rule's own falls on a shorter month's last day;
+ * a plain monthly takes its day from `due` and `skips` the months without it. Null for none.
+ */
+export function pastThe28th(r: Rule, due: string | null = null): { days: number[]; skips: boolean; lastDay: Rule } | null {
+  if (r.freq !== "month" || r.from !== "due" || r.byDay.length || r.byMonth.length || r.byYearDay.length) return null;
+  const skips = !r.byMonthDay.length;
+  const dueDay = due ? +due.slice(8, 10) : 0;
+  const days = skips ? (dueDay > 28 ? [dueDay] : []) : r.byMonthDay.filter((d) => d > 28);
+  if (!days.length) return null;
+  return { days, skips, lastDay: { ...r, byMonthDay: skips ? [-1] : [...new Set(r.byMonthDay.map((d) => (d > 28 ? -1 : d)))] } };
+}
+
 /** What's wrong with a `rec:` value, or null if it's a rule. */
 export function ruleProblem(raw: string): string | null {
   if (parseRule(raw)) return null;
@@ -154,7 +172,7 @@ export function formatRule(r: Rule): string {
     return r.interval === 1 ? days : `${r.interval}w-${days}`;
   }
   if (r.interval === 1 && r.freq === "month") {
-    if (only("byMonthDay") && r.byMonthDay.every((d) => d > 0 || d === -1)) return r.byMonthDay.map((d) => (d === -1 ? "last-day" : nth(d))).join(",");
+    if (only("byMonthDay")) return r.byMonthDay.map((d) => (d > 0 ? nth(d) : d === -1 ? "last-day" : `last-day-${-d - 1}`)).join(",");
     if (only("byDay") && r.byDay.every((d) => (d.n >= 1 && d.n <= 5) || d.n === -1)) return r.byDay.map(day).join(",");
   }
   if (r.interval === 1 && r.freq === "year") {
@@ -204,7 +222,9 @@ export function ruleLabel(r: Rule, long = false): string {
     if (byDay) return `${(full ? andList : ampList)(r.byDay.map((d) => nth(d.n)))} ${name(r.byDay[0].day)}`;
     return (full ? andList : ampList)(r.byDay.map((d) => `${nth(d.n)} ${name(d.day)}`));
   };
-  const monthDays = (full: boolean) => (full ? andList : ampList)(r.byMonthDay.map((d) => (d === -1 ? (full ? "last day" : "Last day") : d < 0 ? `${nth(-d)} from last` : nth(d))));
+  /** The `n`th day before the last day (0: the last day itself). */
+  const fromEnd = (n: number, full: boolean) => (!full ? (n ? `Last day − ${n}` : "Last day") : n === 0 ? "last day" : n === 1 ? "day before the last day" : `${nth(n)} day before the last day`);
+  const monthDays = (full: boolean) => (full ? andList : ampList)(r.byMonthDay.map((d) => (d < 0 ? fromEnd(-d - 1, full) : nth(d))));
   const months = (full: boolean) => andList(r.byMonth.map((m) => (full ? MONTH_NAMES[m - 1] : MONTH_NAMES[m - 1].slice(0, 3))));
   const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
   if (!long) {
@@ -279,8 +299,10 @@ function period(r: Rule, anchor: number, k: number): number[] {
 function inMonth(r: Rule, y: number, m: number, anchorDay: number): number[] {
   const first = dayNumber(y, m, 1);
   const last = first + daysIn(y, m) - 1;
-  const byMonthDay = r.byMonthDay.map((d) => (d > 0 ? valid(y, m, d) : daysIn(y, m) + d + 1 >= 1 ? last + d + 1 : null)).filter((x): x is number => x !== null);
   const byDay = r.byDay.flatMap((d) => weekdaysBetween(first, last, d.n, d.day));
+  // A day on its own that the month doesn't have (the 31st in April) is its last day; with weekdays too (Friday the 31st), it's none.
+  const day = (d: number) => (d < 0 ? (last + d + 1 >= first ? last + d + 1 : null) : first + d - 1 <= last ? first + d - 1 : r.byDay.length ? null : last);
+  const byMonthDay = [...new Set(r.byMonthDay.map(day).filter((x): x is number => x !== null))];
   if (r.byMonthDay.length && r.byDay.length) return byMonthDay.filter((x) => byDay.includes(x));
   if (r.byMonthDay.length) return byMonthDay;
   if (r.byDay.length) return byDay;
@@ -291,9 +313,13 @@ function inMonth(r: Rule, y: number, m: number, anchorDay: number): number[] {
 /** How many periods to look through before giving up (a rule like "every Feb 30" never happens). */
 const HORIZON: Record<Freq, number> = { day: 4000, week: 600, month: 1300, year: 420 };
 
+/** The most days a period can span, so a jump to the period before `after` never overshoots it. */
+const LONGEST: Record<Freq, number> = { day: 1, week: 7, month: 31, year: 366 };
+
 /** The first date the rule gives strictly after `after`, counting periods from `anchor`. Null if there's none in sight. */
 function nextAfter(r: Rule, anchor: number, after: number): number | null {
-  for (let k = 0; k < HORIZON[r.freq]; k++) {
+  const skip = Math.max(0, Math.floor((after - anchor) / (LONGEST[r.freq] * r.interval)) - 1);
+  for (let k = skip; k < skip + HORIZON[r.freq]; k++) {
     const hit = period(r, anchor, k).sort((x, y) => x - y).find((x) => x > after);
     if (hit !== undefined) return hit;
   }
@@ -303,23 +329,31 @@ function nextAfter(r: Rule, anchor: number, after: number): number | null {
 /**
  * The next due date for a task repeating by `r`: from its current due date (the next one strictly
  * after it) or, for `after-` rules, a gap after the day it was done. A task with no due date counts
- * from the day it was done. Keeps a due date's time of day. Null if the rule never happens again.
+ * from the day it was done. Never before `today`: dates the rule gave that have already gone by are
+ * stepped past, in the rule's own rhythm. Keeps a due date's time of day. Null if the rule never
+ * happens again.
  */
-export function nextDue(r: Rule, due: string | null, done: string): string | null {
+export function nextDue(r: Rule, due: string | null, done: string, today = done): string | null {
   const time = due && due.length > 10 ? due.slice(10) : "";
-  if (r.from === "done") return addGap(fromIso(done), r) + time;
+  const before = fromIso(today) - 1;
+  if (r.from === "done") {
+    const from = fromIso(done);
+    let k = 1;
+    while (addGap(from, r, k) <= before) k++;
+    return toIso(addGap(from, r, k)) + time;
+  }
   const anchor = fromIso(due ?? done);
-  const next = nextAfter(r, anchor, anchor);
+  const next = nextAfter(r, anchor, Math.max(anchor, before));
   return next === null ? null : toIso(next) + time;
 }
 
-/** A gap after a day. A month after the 31st is the next month's last day, if it's shorter. */
-function addGap(from: number, r: Rule): string {
-  if (r.freq === "day" || r.freq === "week") return toIso(from + r.interval * (r.freq === "week" ? 7 : 1));
+/** `k` gaps after a day. A month after the 31st is the next month's last day, if it's shorter. */
+function addGap(from: number, r: Rule, k: number): number {
+  if (r.freq === "day" || r.freq === "week") return from + k * r.interval * (r.freq === "week" ? 7 : 1);
   const { y, m, d } = partsOf(from);
-  const index = y * 12 + (m - 1) + r.interval * (r.freq === "year" ? 12 : 1);
+  const index = y * 12 + (m - 1) + k * r.interval * (r.freq === "year" ? 12 : 1);
   const [ny, nm] = [Math.floor(index / 12), (index % 12) + 1];
-  return toIso(dayNumber(ny, nm, Math.min(d, daysIn(ny, nm))));
+  return dayNumber(ny, nm, Math.min(d, daysIn(ny, nm)));
 }
 
 /** The next `count` dates after `from`, each one's successor from it (what the editor previews). */

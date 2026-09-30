@@ -54,7 +54,8 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS tasks_path ON tasks(path)`,
   `CREATE TABLE IF NOT EXISTS changes(
      id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, path TEXT NOT NULL, op TEXT NOT NULL,
-     source TEXT NOT NULL, version TEXT, summary TEXT, from_path TEXT, before TEXT, note_id TEXT, person TEXT, agent TEXT)`,
+     source TEXT NOT NULL, version TEXT, summary TEXT, from_path TEXT, before TEXT, note_id TEXT, person TEXT, agent TEXT,
+     autosave INTEGER)`,
   `CREATE INDEX IF NOT EXISTS changes_path ON changes(path, version)`,
   // Each person's starred notes, in their order. `path` is where the note was last seen, so a star
   // can find its note again if the note comes back under a new ID (deleted, then restored).
@@ -138,6 +139,11 @@ export function migrate(db: SqlDb, opts: { local?: boolean } = {}) {
     }
   });
   db.exec("CREATE INDEX IF NOT EXISTS changes_agent ON changes(agent, id)");
+  // Which changes are a person's editor autosaves, that a later one in the same sitting may join.
+  // Older rows stay unmarked: nothing joins them.
+  try {
+    db.exec("ALTER TABLE changes ADD COLUMN autosave INTEGER");
+  } catch {}
   // Older local indexes predate the `before` column. (Durable Objects may refuse pragmas; their
   // databases are always created with the current schema, so there's nothing to upgrade.)
   let cols: string[];

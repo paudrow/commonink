@@ -4,7 +4,7 @@ import { did } from "./events.ts";
 import type { NoteRole } from "../../src/core/noteRoles.ts";
 import type { Contact, ContactFields, TimelineItem } from "../../src/core/contacts.ts";
 import type { FillOptions, TemplateInfo } from "../../src/core/templates.ts";
-import type { CalendarEvent, Source as CalendarSource, SourceColor } from "../../src/core/calendar.ts";
+import type { CalendarEvent, EventDraft, Source as CalendarSource, SourceColor } from "../../src/core/calendar.ts";
 
 /** The reader's day, which task writes and due filters go by (the server may be in another time zone). */
 const today = () => localDate(Date.now());
@@ -160,6 +160,8 @@ export type ServerMsg =
   | { type: "calendar" };
 
 export type { CalendarEvent, CalendarSource, SourceColor };
+/** An event as the app sends it to be made or changed: guests by name and address (the server keeps their replies). */
+export type EventInput = Omit<EventDraft, "attendees"> & { attendees: Array<{ name: string | null; email: string | null }> };
 
 /** Google Calendar on this server (cloud/src/connections.ts): "mock" is the Preview stand-in, "off" not set up. */
 export interface GoogleStatus {
@@ -291,6 +293,8 @@ export const api = {
   /** Online: which of your workspaces a note ID is in (404 if none you can open). */
   locate: (id: string) => j<{ workspace: { id: string; name: string } }>(`/api/note-ids/${id}`),
   createWorkspace: (name: string) => j<{ id: string }>("/api/workspaces", send("POST", { name })),
+  /** Online: tell the server this browser's time zone, so your agents' "today" is yours. */
+  reportTimeZone: () => j<{ timeZone: string }>("/api/me/time-zone", send("POST", { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })),
   signOutEverywhere: () => j<{ ok: true }>("/api/sign-out-everywhere", send("POST", {})),
   /** Online: the agents you've connected over MCP, most recently used first. */
   agents: () => j<ConnectedAgent[]>("/api/agents"),
@@ -435,7 +439,7 @@ export const api = {
   subscribe: (url: string, name?: string, color?: SourceColor) => j<CalendarSource>(`${BASE}/calendar/sources`, send("POST", { url, name, color })),
   updateCalendar: (id: string, patch: { name?: string; color?: SourceColor; writeBack?: boolean }) => j<CalendarSource>(`${BASE}/calendar/sources/update`, send("POST", { id, ...patch })),
   /** Add one of your Google calendars to this workspace, where only you see it. */
-  addGoogleCalendar: (calendar: string, name?: string) => j<CalendarSource>(`${BASE}/calendar/google`, send("POST", { calendar, name })),
+  addGoogleCalendar: (calendar: string, name?: string, accessRole?: string) => j<CalendarSource>(`${BASE}/calendar/google`, send("POST", { calendar, name, accessRole })),
   /** Online: whether Google Calendar works on this server, and your connection to it (404 locally). */
   google: () => j<GoogleStatus>("/api/google"),
   googleCalendars: () => j<GoogleCalendar[]>("/api/google/calendars"),
@@ -448,6 +452,12 @@ export const api = {
   events: (from: Date, to: Date, q?: string) =>
     j<CalendarEvent[]>(`${BASE}/calendar/events?from=${enc(from.toISOString())}&to=${enc(to.toISOString())}&tz=${enc(Intl.DateTimeFormat().resolvedOptions().timeZone)}${q ? `&q=${enc(q)}` : ""}`),
   event: (id: string) => j<CalendarEvent>(`${BASE}/calendar/event?id=${enc(id)}`),
+  /** Add an event to a calendar you can write to ("local": the workspace's own, made on its first event), and its meeting note if asked. */
+  createEvent: (draft: EventInput & { source: string; meetingNote?: boolean; note?: string }) =>
+    j<{ event: CalendarEvent; note: { path: string } | null }>(`${BASE}/calendar/events`, send("POST", draft)),
+  /** Move an event, change its length or what it says; it keeps its ID. */
+  updateEvent: (id: string, patch: Partial<EventInput>) => j<CalendarEvent>(`${BASE}/calendar/events/update`, send("POST", { id, ...patch })),
+  deleteEvent: (id: string) => j<{ ok: true }>(`${BASE}/calendar/events/delete`, send("POST", { id })),
   /**
    * The event's meeting note, made (in Meetings/) and linked if it doesn't have one yet. `linkedBack`:
    * for a Google event with write-back on, whether the note's link reached the event.

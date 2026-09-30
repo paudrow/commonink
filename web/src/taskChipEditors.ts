@@ -6,7 +6,7 @@ import { cleanTag, normalizeTag } from "../../src/core/tags.ts";
 import { avatar, el, icon } from "./dom.ts";
 import { addDays, endsOf, skipPatch } from "../../src/core/tasks.ts";
 import { DAY_NAMES, endsLabel, formatRule, isInterval, MONTH_NAMES, nth, occurrences, parseRule, recLabel, ruleLabel, ruleProblem, type Freq, type Rule } from "../../src/core/recurrence.ts";
-import { dayLabel, today, type ChipField } from "./taskChips.ts";
+import { dayLabel, monthEndNote, today, type ChipField } from "./taskChips.ts";
 
 export interface ChipContext {
   task: Task;
@@ -152,6 +152,8 @@ const repeat: Editor = (anchor, value, ctx, opts) => {
 
 const UNITS: Freq[] = ["day", "week", "month", "year"];
 const ORDINALS = [1, 2, 3, 4, 5, -1];
+/** How far back from the month's end the form's day list goes: a week before the last day. */
+const FROM_END = -7;
 const blankRule = (freq: Freq, interval: number, from: Rule["from"]): Rule => ({ freq, interval, from, byDay: [], byMonthDay: [], byMonth: [], byYearDay: [] });
 
 /** Whether the form can show a rule; anything else (a hand-written RRULE) is edited as text. */
@@ -165,7 +167,7 @@ function formFits(r: Rule): boolean {
     case "week":
       return none("byMonthDay", "byMonth", "byYearDay") && r.byDay.every((d) => d.n === 0);
     case "month":
-      return none("byMonth", "byYearDay") && (none("byDay") || none("byMonthDay")) && r.byDay.every(ordinal) && r.byMonthDay.every((d) => (d >= 1 && d <= 31) || d === -1);
+      return none("byMonth", "byYearDay") && (none("byDay") || none("byMonthDay")) && r.byDay.every(ordinal) && r.byMonthDay.every((d) => (d >= 1 && d <= 31) || (d <= -1 && d >= FROM_END));
     case "year":
       if (isInterval(r)) return true;
       if (r.byMonth.length === 1 && r.byMonthDay.length === 1 && none("byDay", "byYearDay")) return r.byMonthDay[0] >= 1;
@@ -202,16 +204,23 @@ function ruleForm(start: Rule, value: string, ctx: ChipContext, close: () => voi
 
   const body = el("div", { class: "chip-rec-body" });
   const summary = el("div", { class: "chip-rec-summary", "aria-live": "polite" });
+  const note = el("div", { class: "chip-rec-note" });
   const dates = el("div", { class: "chip-rec-dates" });
   const text = el("input", { class: "chip-rec-text", "aria-label": "Repeat as text", spellcheck: "false", autocomplete: "off", value: value || formatRule(r) });
   const swap = el("button", { type: "button", class: "qw-btn" });
   const save = el("button", { type: "submit", class: "qw-btn primary" }, "Save");
-  const form = el("form", { class: "chip-rec" }, body, el("div", { class: "chip-rec-about" }, summary, dates), el("div", { class: "qw-config-foot" }, swap, el("span", { class: "spacer" }), save));
+  const form = el("form", { class: "chip-rec" }, body, note, el("div", { class: "chip-rec-about" }, summary, dates), el("div", { class: "qw-config-foot" }, swap, el("span", { class: "spacer" }), save));
 
   /** The rule the form or the text says now, or why the text isn't one. */
   const rule = (): Rule | string => (asText ? (parseRule(text.value) ?? ruleProblem(text.value.trim()) ?? "Not a repeat") : r);
   const refresh = () => {
     const now = rule();
+    // A day past the 28th: what shorter months do, and the last day of the month in one click.
+    note.replaceChildren(monthEndNote(typeof now === "string" ? null : now, due, (lastDay) => {
+      if (!asText) return calendar({ byMonthDay: lastDay.byMonthDay });
+      text.value = formatRule(lastDay);
+      refresh();
+    }) ?? "");
     save.disabled = typeof now === "string";
     summary.classList.toggle("is-error", typeof now === "string");
     if (typeof now === "string") {
@@ -282,7 +291,10 @@ function ruleForm(start: Rule, value: string, ctx: ChipContext, close: () => voi
       if (mode === "days")
         list(r.byMonthDay, (byMonthDay) => calendar({ byMonthDay }), (d, set) => [
           el("span", {}, "Day"),
-          select([...Array.from({ length: 31 }, (_, i): [number, string] => [i + 1, nth(i + 1)]), [-1, "last day"]], d, (v) => set(+v), "Day of the month"),
+          select([
+            ...Array.from({ length: 31 }, (_, i): [number, string] => [i + 1, nth(i + 1)]),
+            ...Array.from({ length: -FROM_END }, (_, i): [number, string] => [-1 - i, i ? `last day − ${i}` : "last day"]),
+          ], d, (v) => set(+v), "Day of the month"),
         ], r.byMonthDay.includes(-1) ? 1 : -1, "day");
       if (mode === "weekdays")
         list(r.byDay, (byDay) => calendar({ byDay }), (d, set) => [

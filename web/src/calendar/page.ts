@@ -1,19 +1,30 @@
 // The Calendar page: the workspace's calendars and the open tasks due each day, as a month, a week,
 // a day or an agenda of what's next. An event opens beside the calendar with its details and its
-// meeting note; its address is /calendar/<event id>. Keys are in keys.ts; the date math in layout.ts.
+// meeting note; its address is /calendar/<event id>. Events in calendars this person can write to
+// are made here (the form, editor.ts, or a drag), moved and resized (drags, drag.ts, or keys), and
+// deleted, each with Undo. Keys are in keys.ts; the date math in layout.ts.
 import { api } from "../api.ts";
 import { el, icon, setPressed, typingIn } from "../dom.ts";
 import { matchKeys } from "../keys.ts";
 import { store } from "../store.ts";
 import { toast } from "../toast.ts";
-import { calendars, canEditCalendars, colorVar, dayText, dueTasks, eventHref, eventItems, events, placeText, timeOnDay, timeText, whenText, type CalendarSource, type Item } from "./data.ts";
+import { calendarChanged, calendars, canEditCalendars, colorVar, dayText, dueTasks, eventAgain, eventBody, eventHref, eventItems, events, eventTargets, placeText, readOnlyReason, timeOnDay, timeText, whenText, type CalendarSource, type Item } from "./data.ts";
 import { renderDetails } from "./details.ts";
-import { CALENDAR_KEYS, VIEW_KEYS, type CalendarAction } from "./keys.ts";
-import { addDays, bars, bucket, dayKey, dayStart, daysRange, inAllDayRow, monthWeeks, nowMinutes, spanOf, stepDay, timeGrid, viewDays, type Bar, type Day, type View } from "./layout.ts";
+import { CALENDAR_KEYS, NUDGE_KEYS, VIEW_KEYS, type CalendarAction, type Nudge } from "./keys.ts";
+import { addDays, bars, bucket, dayKey, dayStart, daysRange, defaultSlot, inAllDayRow, monthWeeks, moved, nowMinutes, resizedBy, spanOf, stepDay, timeGrid, timesOf, viewDays, type Bar, type Day, type Times, type View } from "./layout.ts";
+import { lastTarget, openEventForm } from "./editor.ts";
+import { gridDrags, monthDrags, type DragHooks } from "./drag.ts";
 import { openCalendars } from "./sources.ts";
-import { googleStatus } from "./google.ts";
+import { connectUrl, googleStatus, leave, needsWrite } from "./google.ts";
 import { dot } from "./ui.ts";
 import { setDone } from "../taskRow.ts";
+
+/** An event at other times (shown before the server has them). */
+function withTimes(item: Item, times: Times): Item {
+  if (item.kind !== "event") return item;
+  const event = { ...item.event, ...times };
+  return { ...item, event, span: spanOf(event) };
+}
 
 export interface CalendarHooks {
   /** Open a note, at a line (a task's), or to the side. */
@@ -25,6 +36,8 @@ export interface CalendarHooks {
 const PHONE = "(max-width: 760px)";
 /** Pixels per hour in the time grid. */
 const HOUR = 48;
+/** How long a run of key presses on one event waits before it's saved, as one change with one Undo. */
+const NUDGE_SAVE = 700;
 /** Lines a day shows in Month before "+N more". */
 const MONTH_LINES = 3;
 /** How often the page reads its events again while it's showing. */
@@ -80,6 +93,16 @@ export class CalendarPage {
   private notice = el("div", { class: "cal-notice", hidden: true });
   private body = el("div", { class: "cal-body" });
   private details = el("div", { class: "cal-details-host" });
+  private newButton = el("button", { type: "button", class: "qw-btn primary cal-new", title: "New event (c)", "aria-label": "New event", onclick: () => this.newEvent() }, icon("plus", 14), el("span", {}, "New event"));
+  /** An event being moved by keys: where it was before the first press, where it is now, and the save waiting for the last. */
+  private nudging: { id: string; was: Times; times: Times; timer: number } | null = null;
+  private drags: DragHooks = {
+    item: (key) => this.items.find((i) => i.key === key),
+    canCreate: () => eventTargets(this.sources).length > 0,
+    create: (slot) => this.newEvent(slot),
+    change: (item, times, verb) => void this.changeTimes(item, times, verb),
+    refuse: (reason) => toast({ icon: "info", text: reason }),
+  };
 
   constructor(
     readonly root: HTMLElement,
@@ -110,6 +133,7 @@ export class CalendarPage {
               btn("chevron", "Next (j)", () => void this.run("next")),
             ),
             el("div", { class: "seg cal-views", role: "group", "aria-label": "View" }, ...Object.values(this.viewButtons)),
+            this.newButton,
             el("button", { type: "button", class: "qw-btn cal-sources-btn", title: "Your calendars: subscribe, rename, remove", "aria-label": "Calendars", onclick: () => this.openSources() }, icon("calendar", 14), el("span", {}, "Calendars")),
           ),
         ),
@@ -173,7 +197,9 @@ export class CalendarPage {
       const [sources, list, tasks, google] = await Promise.all([calendars(), events(from, to), dueTasks(days[0], days[days.length - 1]), googleStatus().catch(() => null)]);
       this.google = !!google && google.mode !== "off";
       this.sources = sources;
-      items = [...eventItems(list, sources), ...tasks];
+      // An event being moved by keys shows where the keys put it, until that's saved.
+      const n = this.nudging;
+      items = [...eventItems(list, sources), ...tasks].map((i) => (n && i.key === n.id ? withTimes(i, n.times) : i));
       this.problem = "";
     } catch (e) {
       this.problem = e instanceof Error ? e.message : "Couldn't load the calendar";
@@ -188,6 +214,7 @@ export class CalendarPage {
   // ---------------------------------------------------------------- moving around
 
   private async run(action: CalendarAction) {
+    if (action === "create") return this.newEvent();
     if (action === "today") return this.goTo(dayKey(new Date()));
     if (action === "next" || action === "prev") return this.goTo(stepDay(this.view, this.day, action === "next" ? 1 : -1));
     return this.setView(action);
@@ -256,6 +283,12 @@ export class CalendarPage {
       e.preventDefault();
       return this.closeDetails();
     }
+    const nudge = NUDGE_KEYS.find((n) => matchKeys(e, n.keys));
+    const target = t.closest<HTMLElement>("[data-event]")?.dataset.event ?? (t.closest(".cal-details") ? this.selected : null);
+    if (nudge && target) {
+      e.preventDefault();
+      return this.nudge(target, nudge.by);
+    }
     if (t.closest(".cal-details, .cal-head")) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (/^Arrow/.test(e.key) && !e.shiftKey) {
@@ -306,12 +339,163 @@ export class CalendarPage {
     this.root.classList.toggle("has-details", !!item);
     for (const n of this.body.querySelectorAll<HTMLElement>("[data-event]")) n.classList.toggle("is-selected", n.dataset.event === item?.key);
     if (!item) return this.details.replaceChildren();
-    this.details.replaceChildren(renderDetails(item, { open: (path) => this.hooks.open(path), close: () => this.closeDetails() }));
+    const writable = !readOnlyReason(item);
+    this.details.replaceChildren(
+      renderDetails(item, {
+        open: (path) => this.hooks.open(path),
+        close: () => this.closeDetails(),
+        ...(writable ? { edit: () => this.editEvent(item), delete: () => void this.deleteEvent(item) } : {}),
+      }),
+    );
   }
 
   /** The Calendars dialog; `subscribe` starts in its link field, `google` at its Google section. */
   openSources(opts: { subscribe?: boolean; google?: boolean } = {}) {
     openCalendars({ ...opts, changed: () => void this.refresh() });
+  }
+
+  // ---------------------------------------------------------------- making and changing events
+
+  /** Say why a change didn't happen; where Google hasn't allowed editing yet, offer to ask it. */
+  private failed(e: unknown, what: string) {
+    const text = e instanceof Error ? e.message : what;
+    toast(needsWrite(text) ? { text, actionLabel: "Allow", action: () => leave.to(connectUrl(true)) } : { text });
+  }
+
+  /** The form for a new event: at `slot` (a drag), or the next half hour (on the focused day). */
+  newEvent(slot?: { start: Date; end: Date; allDay?: boolean }) {
+    const targets = eventTargets(this.sources);
+    if (!targets.length) return toast({ icon: "info", text: canEditCalendars() ? "There's no calendar to add events to" : "Only editors can add events to this workspace's calendar. Add your own Google calendar to make events there." });
+    const at = slot ?? defaultSlot(new Date(), this.view === "agenda" ? undefined : this.cursor.day);
+    openEventForm({
+      mode: "new",
+      targets,
+      initial: { source: lastTarget(targets), title: "", start: at.start, end: at.end, allDay: !!slot?.allDay, location: "", description: "", attendees: [], meetingNote: false },
+      save: async (form) => {
+        const r = await api.createEvent(eventBody(form));
+        await this.showChanged(r.event.id, r.event.start);
+        const open = r.note ? () => this.hooks.open(r.note!.path) : undefined;
+        toast({ icon: "calendar", text: `Added ${r.event.title}`, detail: r.note ? "With a meeting note" : undefined, open });
+      },
+    });
+  }
+
+  private editEvent(item: Extract<Item, { kind: "event" }>) {
+    const ev = item.event;
+    openEventForm({
+      mode: "edit",
+      targets: [],
+      calendar: item.source?.name ?? "",
+      initial: { source: ev.source, title: ev.title, start: item.span.start, end: item.span.end, allDay: ev.allDay, location: ev.location ?? "", description: ev.description ?? "", attendees: ev.attendees.map((a) => ({ name: a.name, email: a.email })), meetingNote: false },
+      save: async (form) => {
+        const { source: _, meetingNote: __, ...patch } = eventBody(form);
+        const saved = await api.updateEvent(ev.id, patch);
+        await this.showChanged(saved.id, saved.start);
+        toast({ icon: "calendar", text: `Saved ${saved.title}` });
+      },
+    });
+  }
+
+  private async deleteEvent(item: Extract<Item, { kind: "event" }>) {
+    const ev = item.event;
+    try {
+      await api.deleteEvent(ev.id);
+    } catch (e) {
+      return this.failed(e, "Couldn't delete the event");
+    }
+    this.closeDetails();
+    calendarChanged();
+    await this.refresh();
+    toast({
+      icon: "trash",
+      text: `Deleted ${ev.title}`,
+      actionLabel: "Undo",
+      action: async () => {
+        // Back as a new event with the same fields (and so a new ID).
+        try {
+          const r = await api.createEvent(eventAgain(ev));
+          await this.showChanged(r.event.id, r.event.start);
+        } catch (e) {
+          this.failed(e, "Couldn't put the event back");
+        }
+      },
+    });
+  }
+
+  /** After a save: the calendar read again, on the event's day, with it open. */
+  private async showChanged(id: string, start: string) {
+    calendarChanged();
+    const day = dayKey(spanOf({ start, end: start, allDay: start.length === 10 }).start);
+    if (!viewDays(this.view, this.day).includes(day)) this.day = day;
+    this.selected = id;
+    this.cursor = { day, key: id };
+    this.hooks.setUrl(eventHref(id));
+    await this.load(true);
+  }
+
+  /** Move or resize an event: shown at once, saved, with Undo; put back as it was if saving fails. */
+  private async changeTimes(item: Item, times: Times, verb: "Moved" | "Resized", from?: Times) {
+    if (item.kind !== "event") return;
+    const was = from ?? timesOf(item.span.start, item.span.end, item.span.allDay);
+    this.place(item, times);
+    try {
+      await api.updateEvent(item.key, times);
+    } catch (e) {
+      this.place(item, was);
+      return this.failed(e, "Couldn't change the event");
+    }
+    calendarChanged();
+    void this.refresh();
+    toast({ icon: "calendar", text: `${verb} ${item.title}`, actionLabel: "Undo", action: () => void this.undoTimes(item.key, was) });
+  }
+
+  private async undoTimes(id: string, was: Times) {
+    try {
+      await api.updateEvent(id, was);
+      calendarChanged();
+      await this.refresh();
+    } catch (e) {
+      this.failed(e, "Couldn't undo that");
+    }
+  }
+
+  /** Show an event at new times before the server has them: the keyboard stays on it, even on another day. */
+  private place(item: Item, times: Times) {
+    if (item.kind !== "event") return;
+    const next = withTimes(item, times);
+    this.items = this.items.map((i) => (i.key === item.key ? next : i));
+    const day = dayKey(next.span.start);
+    const follow = this.cursor.key === item.key || this.selected === item.key;
+    if (follow) this.cursor = { day, key: item.key };
+    if (follow && !viewDays(this.view, this.day).includes(day)) {
+      this.day = day;
+      return void this.load(true);
+    }
+    this.render(true);
+  }
+
+  /** Alt+arrows on an event: it moves at once; the run of presses is saved as one change, with one Undo. */
+  private nudge(id: string, by: Nudge) {
+    const item = this.items.find((i) => i.key === id);
+    if (!item) return;
+    const reason = readOnlyReason(item);
+    if (reason) return toast({ icon: "info", text: reason });
+    if (item.span.allDay && !by.days) return; // all day: only whole days
+    const times = by.end ? resizedBy(item.span, by.end) : moved(item.span, by);
+    const was = this.nudging?.id === id ? this.nudging.was : timesOf(item.span.start, item.span.end, item.span.allDay);
+    if (this.nudging) window.clearTimeout(this.nudging.timer);
+    const verb = by.end ? "Resized" : "Moved";
+    this.nudging = {
+      id,
+      was,
+      times,
+      timer: window.setTimeout(() => {
+        this.nudging = null;
+        const now = this.items.find((i) => i.key === id);
+        if (now) void this.changeTimes(now, times, verb, was);
+      }, NUDGE_SAVE),
+    };
+    this.place(item, times);
   }
 
   /** Subscribe from the palette: the page, then the dialog with the link field ready. */
@@ -329,6 +513,7 @@ export class CalendarPage {
     this.title.textContent = VIEWS[this.view].title(this.day);
     for (const [v, b] of Object.entries(this.viewButtons)) setPressed(b, v === this.view);
     this.renderNotice();
+    this.newButton.hidden = !eventTargets(this.sources).length;
     this.root.dataset.view = this.view;
     const views: Record<View, () => HTMLElement> = { month: () => this.month(), week: () => this.timeGrid(viewDays("week", this.day)), day: () => this.timeGrid([this.day]), agenda: () => this.agenda() };
     this.body.replaceChildren(views[this.view]());
@@ -392,6 +577,7 @@ export class CalendarPage {
         },
       },
       ...(how.timed ? [title, time] : [lead, time, title]),
+      how.timed && item.kind === "event" && !readOnlyReason(item) ? el("span", { class: "cal-ev-grip", title: "Drag to change the end", "aria-hidden": "true" }) : null,
     );
   }
 
@@ -452,7 +638,7 @@ export class CalendarPage {
     const byDay = bucket(this.items, span, weeks.flat());
     const month = dayStart(this.day).getMonth();
     const today = dayKey(new Date());
-    return el(
+    const grid = el(
       "div",
       { class: "cal-month", role: "grid", "aria-label": VIEWS.month.title(this.day), style: { "--weeks": String(weeks.length) } },
       el("div", { class: "cal-dows", role: "row" }, ...DOW.map((d) => el("div", { class: "cal-dow", role: "columnheader" }, d))),
@@ -484,6 +670,8 @@ export class CalendarPage {
         ),
       ),
     );
+    monthDrags(grid, this.drags);
+    return grid;
   }
 
   private timeGrid(days: Day[]): HTMLElement {
@@ -499,12 +687,13 @@ export class CalendarPage {
         : el("button", { type: "button", class: `cal-dayhead${d === today ? " is-today" : ""}`, "data-nav": `${d}|`, title: `Show ${longDay(d)}`, "aria-label": `Show ${longDay(d)}`, onclick: () => this.goDay(d) }, label);
     };
     const hours = Array.from({ length: 23 }, (_, h) => el("div", { class: "cal-hour", style: { top: `${(h + 1) * HOUR}px` } }, timeText(new Date(2000, 0, 1, h + 1)).replace(":00", "")));
+    const body = el("div", { class: "cal-tg-body" });
     const column = (d: Day) => {
       const segs = timeGrid(this.items, span, d);
       const now = d === today ? el("div", { class: "cal-now", "aria-hidden": "true", style: { top: `${(nowMinutes(new Date()) / 60) * HOUR}px` } }) : null;
       return el(
         "div",
-        { class: `cal-col${d === today ? " is-today" : ""}`, role: "group", "aria-label": longDay(d) },
+        { class: `cal-col${d === today ? " is-today" : ""}`, role: "group", "aria-label": longDay(d), "data-day": d },
         ...segs.map((s) => {
           const chip = this.chip(s.item, d, { timed: true });
           const height = (Math.max(s.bottom - s.top, 15) / 60) * HOUR;
@@ -517,6 +706,8 @@ export class CalendarPage {
         now,
       );
     };
+    body.append(el("div", { class: "cal-hours", "aria-hidden": "true" }, ...hours), ...days.map(column));
+    gridDrags(body, this.drags, HOUR);
     return el(
       "div",
       { class: "cal-tg", style: { "--days": String(days.length), "--hour": `${HOUR}px` } },
@@ -535,7 +726,7 @@ export class CalendarPage {
           }),
         ),
       ),
-      el("div", { class: "cal-tg-body" }, el("div", { class: "cal-hours", "aria-hidden": "true" }, ...hours), ...days.map(column)),
+      body,
     );
   }
 
