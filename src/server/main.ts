@@ -248,8 +248,16 @@ function asset(res: http.ServerResponse, raw: string) {
   const rel = cleanPath(raw);
   const mime = mimeOf(rel);
   if (!mime || !files.stat(rel)) return send(res, json({ error: "Not found" }, 404));
-  res.writeHead(200, { "Content-Type": mime, "Content-Length": String(files.stat(rel)!.size), ...fileSecurityHeaders(mime), "Cache-Control": "no-cache" });
-  fs.createReadStream(files.abs(rel)).pipe(res);
+  // Opened before answering: a file that can't be read (its permissions, or deleted just now) is a
+  // 404, not an error on a stream with no listener, which would stop the server.
+  let fd: number;
+  try {
+    fd = fs.openSync(files.abs(rel), "r");
+  } catch {
+    return send(res, json({ error: "Not found" }, 404));
+  }
+  res.writeHead(200, { "Content-Type": mime, "Content-Length": String(fs.fstatSync(fd).size), ...fileSecurityHeaders(mime), "Cache-Control": "no-cache" });
+  fs.createReadStream("", { fd }).on("error", () => res.destroy()).pipe(res);
 }
 
 /** Save an uploaded file into the vault (assets/ by default), under a free name. */
