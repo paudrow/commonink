@@ -175,6 +175,34 @@ test("delete sends notes to Trash, trash lists them, and trash restore brings on
   assert.equal(quire(vault, ["trash", "empty"]).stderr, 'trash takes restore, not "empty"\n');
 });
 
+test("contacts: add, list with filters, read, change, import a file and merge", () => {
+  const vault = tempVault();
+  assert.equal(quire(vault, ["contact", "add", "Jane Doe", "--email", "jane@acme.com", "--company", "Acme", "--tag", "client"]).stdout, "Created People/Jane Doe.md. Link to them with [[People/Jane Doe]].\n");
+  fs.writeFileSync(path.join(vault, "Call.md"), "# Call\n\nWith [[People/Jane Doe]].\n");
+  assert.match(quire(vault, ["contacts", "--company", "acme"]).stdout, /^People\/Jane Doe\.md — Jane Doe · Acme · jane@acme\.com #client · last mentioned \d{4}-\d\d-\d\d \(1 note\)\n$/);
+  assert.equal(quire(vault, ["contacts", "--tag", "vendor"]).stdout, "No contacts match. People are notes in People/; `quire contact add <name>` makes one.\n");
+  assert.match(quire(vault, ["contact", "Jane Doe"]).stdout, /^# Jane Doe \(People\/Jane Doe\.md\)\nemail: jane@acme\.com\ncompany: Acme\ntags: #client\n\nMentioned in:\n- \S+ Call\.md:3 With \[\[People\/Jane Doe\]\]\.\n$/);
+  assert.match(quire(vault, ["contact", "Jane Doe", "--role", "CTO", "--phone", "555-0100,555-0199"]).stdout, /^Updated People\/Jane Doe\.md/);
+  assert.match(fs.readFileSync(path.join(vault, "People/Jane Doe.md"), "utf8"), /phone: \[555-0100, 555-0199\]\ncompany: Acme\nrole: CTO/);
+  const file = path.join(vault, "..", `import-${path.basename(vault)}.vcf`);
+  fs.writeFileSync(file, "BEGIN:VCARD\nFN:Sam Lee\nEMAIL:sam@x.org\nEND:VCARD\n");
+  assert.equal(quire(vault, ["contacts", "import", file]).stdout, "Created 1: People/Sam Lee.md\n");
+  assert.equal(quire(vault, ["contacts", "import", file, "--format", "xlsx"]).stderr, "--format must be vcard or csv\n");
+  assert.equal(quire(vault, ["contacts", "merge", "Jane Doe", "Sam Lee"]).stdout, "Merged People/Sam Lee.md into People/Jane Doe.md (it's in Trash). Links updated in 0 notes.\n");
+  assert.equal(quire(vault, ["contact", "add"]).stderr, "contact add needs <name>\n");
+});
+
+test("tasks --assignee me and --by me", () => {
+  const vault = tempVault();
+  fs.writeFileSync(path.join(vault, "Mine.md"), "- [ ] Water plants @me\n- [ ] Call the bank @sam\n");
+  quire(vault, ["read", "Mine"]); // indexed; the file came from outside, so no one made it
+  assert.match(quire(vault, ["tasks", "--assignee", "me"]).stdout, /Water plants @me/);
+  assert.doesNotMatch(quire(vault, ["tasks", "--assignee", "me"]).stdout, /Call the bank/);
+  quire(vault, ["create", "Given", "- [ ] Send the deck @priya\n"]);
+  assert.match(quire(vault, ["tasks", "--by", "me"]).stdout, /Send the deck @priya/);
+  assert.doesNotMatch(quire(vault, ["tasks", "--by", "me"]).stdout, /Call the bank/, "a file made outside the app has no author");
+});
+
 test("templates and new --template", () => {
   const vault = tempVault();
   fs.mkdirSync(path.join(vault, "Templates"));

@@ -28,6 +28,8 @@ let cloud: Cloud;
 let people: Awaited<ReturnType<typeof team>>;
 let startId: string;
 const restoreIds = {} as Record<Who, number>;
+/** A label of each person's own note, to compare, rename, restore to and delete. */
+const labelIds = {} as Record<Who, string>;
 /** A smart folder of each person's own, for them to delete. */
 const folderIds = {} as Record<Who, string>;
 /** Trash items for each person to restore and to delete for good. */
@@ -73,6 +75,9 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "GET /tags", send: () => ["GET", "/tags"], expect: READ },
   { route: "GET /asset-tags", send: () => ["GET", "/asset-tags"], expect: READ },
   { route: "GET /today", send: () => ["GET", "/today?today=2026-10-01"], expect: READ },
+  { route: "GET /export", send: () => ["GET", "/export?path=Getting%20started.md&path=assets/margin.svg"], expect: READ },
+  { route: "GET /labels", send: (w) => ["GET", `/labels?path=labeled-${w}.md`], expect: READ },
+  { route: "GET /labels/compare", send: (w) => ["GET", `/labels/compare?from=${labelIds[w] ?? "none"}&to=now`], expect: READ },
   { route: "GET /files/*", send: () => ["GET", "/files/assets/margin.svg"], expect: READ },
   { route: "GET /file-resolve", send: () => ["GET", "/file-resolve?target=margin.svg"], expect: READ },
   { route: "GET /live", send: () => ["GET", "/live", undefined, liveHeaders()], expect: READ },
@@ -90,6 +95,12 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /tasks/remove", send: (w) => ["POST", "/tasks/remove", { path: `task-rm-${w}.md`, line: 1, text: "Remove me" }], expect: EDIT },
   { route: "POST /tasks/move", send: (w) => ["POST", "/tasks/move", { path: `task-move-${w}.md`, line: 1, text: "Move me", to: "Getting started" }], expect: EDIT },
   { route: "GET /guide", send: () => ["GET", "/guide"], expect: READ },
+  { route: "GET /contacts", send: () => ["GET", "/contacts"], expect: READ },
+  { route: "GET /contact", send: () => ["GET", "/contact?path=People/Shared%20Person.md"], expect: READ },
+  { route: "POST /contacts", send: (w) => ["POST", "/contacts", { name: `Contact ${w}` }], expect: EDIT },
+  { route: "POST /contacts/update", send: (w) => ["POST", "/contacts/update", { path: `People/Update ${w}.md`, patch: { role: "Tester" } }], expect: EDIT },
+  { route: "POST /contacts/merge", send: (w) => ["POST", "/contacts/merge", { keep: `People/Keep ${w}.md`, drop: `People/Drop ${w}.md` }], expect: EDIT },
+  { route: "POST /contacts/import", send: (w) => ["POST", "/contacts/import", { format: "csv", text: `Name\nImported ${w}\n` }], expect: EDIT },
   { route: "GET /templates", send: () => ["GET", "/templates"], expect: READ },
   { route: "POST /templates/render", send: () => ["POST", "/templates/render", { template: "Access template" }], expect: READ },
   { route: "POST /notes/from-template", send: (w) => ["POST", "/notes/from-template", { template: "Access template", title: `From template ${w}` }], expect: EDIT },
@@ -101,6 +112,10 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "PUT /asset-tags", send: (w) => ["PUT", "/asset-tags", { path: "assets/margin.svg", tags: [`asset-${w}`] }], expect: EDIT },
   { route: "POST /move", send: (w) => ["POST", "/move", { from: `move-${w}.md`, to: `moved-${w}.md` }], expect: EDIT },
   { route: "POST /restore", send: (w) => ["POST", "/restore", { id: restoreIds[w] ?? 1 }], expect: EDIT },
+  { route: "POST /labels", send: (w) => ["POST", "/labels", { path: `labeled-${w}.md`, name: `Mine ${w}` }], expect: EDIT },
+  { route: "POST /labels/rename", send: (w) => ["POST", "/labels/rename", { id: labelIds[w] ?? "none", name: `v1 ${w}` }], expect: EDIT },
+  { route: "POST /labels/restore", send: (w) => ["POST", "/labels/restore", { id: labelIds[w] ?? "none" }], expect: EDIT },
+  { route: "POST /labels/delete", send: (w) => ["POST", "/labels/delete", { id: labelIds[w] ?? "none" }], expect: EDIT },
   { route: "POST /archive", send: (w) => ["POST", "/archive", { paths: [`arch-${w}.md`] }], expect: EDIT },
   { route: "POST /unarchive", send: (w) => ["POST", "/unarchive", { paths: [`Archive/unarch-${w}.md`] }], expect: EDIT },
   { route: "GET /delete-check", send: (w) => ["GET", `/delete-check?path=tasks-${w}.md`], expect: EDIT },
@@ -186,7 +201,13 @@ before(async () => {
     await note(`restore-${w}.md`);
     await cloud.call(owner, "PUT", `${base}/note`, { path: `restore-${w}.md`, content: "# Changed\n" });
     restoreIds[w] = (await cloud.call(owner, "GET", `${base}/changes?path=restore-${w}.md&limit=1`))[0].id;
+    await note(`labeled-${w}.md`);
+    labelIds[w] = (await cloud.call(owner, "POST", `${base}/labels`, { path: `labeled-${w}.md`, name: "v1" })).id;
+    await cloud.call(owner, "PUT", `${base}/note`, { path: `labeled-${w}.md`, content: "# Since v1\n" });
     await note(`del-${w}.md`);
+    await note(`People/Update ${w}.md`, `# Update ${w}\n`);
+    await note(`People/Keep ${w}.md`, `# Keep ${w}\n`);
+    await note(`People/Drop ${w}.md`, `# Drop ${w}\n`);
     if (w === "signedOut") await note("Templates/Access template.md", "# {{title}}\n");
     await note(`folder-${w}/Inside.md`);
     await note(`trash-restore-${w}.md`);
@@ -211,6 +232,7 @@ before(async () => {
     const made = async (email: string) => (await cloud.call(owner, "POST", `${base}/shares`, { path: `share-${w}.md`, email, role: "viewer" })).shares.find((s: { email: string }) => s.email === email).id;
     shareIds[w] = { update: await made(`update-${w.toLowerCase()}@example.com`), remove: await made(`remove-${w.toLowerCase()}@example.com`) };
   }
+  await cloud.call(owner, "POST", `${base}/note`, { path: "People/Shared Person.md", content: "# Shared Person\n" });
   const spare = await cloud.signIn("spare");
   const { url } = await cloud.call(owner, "POST", `${base}/invites`, { role: "editor" });
   await cloud.request(spare, "POST", new URL(url).pathname);
@@ -261,6 +283,24 @@ test("each route answers each kind of person as the matrix says", async () => {
   }
   const off = Object.keys(expected).filter((r) => JSON.stringify(actual[r]) !== JSON.stringify(expected[r]));
   assert.deepEqual(actual, expected, off.map((r) => `${r}: ${JSON.stringify(actual[r])}`).join("; "));
+});
+
+test("online, each member sees which of the workspace's members is them (a contact with their email is them)", async () => {
+  const viewer = await cloud.signIn("viewer"); // the matrix ended with signing everyone out everywhere
+  const list: Array<{ name: string; email: string; you: boolean }> = await cloud.call(viewer, "GET", `${people.base}/members`);
+  assert.deepEqual(list.filter((m) => m.you).map((m) => [m.name, m.email]), [["Viewer Dev", "viewer@localhost"]]);
+  assert.ok(list.some((m) => m.name === "Owner Dev" && !m.you));
+});
+
+test("online, a task assigned to a member is in their Tasks, in someone else's note; and in the assigner's 'by me'", async () => {
+  const [owner, editor] = [await cloud.signIn("owner"), await cloud.signIn("editor")]; // the matrix signed everyone out
+  const { base } = people;
+  await cloud.call(owner, "POST", `${base}/note`, { path: "Handoff.md", content: "# Handoff\n\n- [ ] Review the launch post @Editor\n- [ ] Ship it @Owner-Dev\n" });
+  const text = (list: Array<{ text: string }>) => list.map((t) => t.text);
+  assert.deepEqual(text(await cloud.call(editor, "GET", `${base}/tasks?assignee=me`)), ["Review the launch post @Editor"]);
+  assert.deepEqual(text(await cloud.call(owner, "GET", `${base}/tasks?assignee=me`)), ["Ship it @Owner-Dev"]);
+  assert.deepEqual(text(await cloud.call(owner, "GET", `${base}/tasks?by=me`)), ["Review the launch post @Editor"]);
+  assert.deepEqual(text(await cloud.call(editor, "GET", `${base}/tasks?by=me`)), []);
 });
 
 test("online, a viewer keeps smart folders of their own but can't share one", async () => {
@@ -320,4 +360,14 @@ test("an upload deleted for good takes its bytes out of R2; one in Trash keeps t
   await cloud.request(owner, "POST", `${base}/trash/delete`, { ids: [trashed[0].id] });
   await new Promise((r) => setTimeout(r, 50)); // the delete runs after the response
   assert.equal(await keys(), before - 1);
+});
+
+test("online, an exported note's link to a note left out goes to the app's own address", async () => {
+  const { strFromU8, unzipSync } = await import("fflate");
+  const owner = await cloud.signIn("owner");
+  await cloud.request(owner, "POST", `${people.base}/note`, { path: "Out/Linker.md", content: "# Linker\n\nSee [[Getting started]].\n" });
+  const res = await cloud.request(owner, "GET", `${people.base}/export?folder=Out`);
+  assert.equal(res.headers.get("content-type"), "application/zip");
+  const note = strFromU8(unzipSync(new Uint8Array(await res.arrayBuffer()))["Out/Linker.md"]);
+  assert.match(note, new RegExp(`See \\[Getting started\\]\\(${cloud.origin.replace(/[.]/g, "\\.")}/notes/getting-started-[a-z2-9]{8}\\)\\.`), note);
 });

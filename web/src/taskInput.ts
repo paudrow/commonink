@@ -12,8 +12,9 @@ import { getCM, vim, Vim } from "@replit/codemirror-vim";
 import { api } from "./api.ts";
 import { displayName, el } from "./dom.ts";
 import { parseQuickAdd, type QuickAdd, type QuickSpan } from "../../src/core/quickAdd.ts";
-import { endTags, metaChips, today } from "./taskChips.ts";
-import { taskPeople } from "./taskChipEditors.ts";
+import { formatRule, parseRule, type Rule } from "../../src/core/recurrence.ts";
+import { endTags, metaChips, monthEndNote, today } from "./taskChips.ts";
+import { assigneeOptions, assignees } from "./people.ts";
 
 /** The same words wherever a task is typed. */
 export const PLACEHOLDER = "Add a task…";
@@ -77,14 +78,16 @@ const spansField = StateField.define<DecorationSet>({
 });
 
 /** What `#`, `@` and `[[` suggest, loaded when a field takes focus. */
-const pools = { tags: [] as string[], people: [] as string[], notes: [] as string[] };
+const pools = { tags: [] as string[], people: { directory: [], onTasks: [] } as Awaited<ReturnType<typeof assignees>>, notes: [] as string[] };
+/** The people are on their way: `@` typed right after focus waits for them (online, that's a round trip). */
+let peopleLoaded: Promise<unknown> = Promise.resolve();
 function loadPools() {
   void api.tags().then((t) => (pools.tags = t.map((x) => x.display))).catch(() => {});
-  void taskPeople().then((p) => (pools.people = p)).catch(() => {});
+  peopleLoaded = assignees().then((p) => (pools.people = p)).catch(() => {});
   void api.notes().then((n) => (pools.notes = n.filter((x) => x.kind === "md" && !x.path.startsWith("Archive/")).map((x) => displayName(x.path)))).catch(() => {});
 }
 
-function suggest(ctx: CompletionContext): CompletionResult | null {
+async function suggest(ctx: CompletionContext): Promise<CompletionResult | null> {
   const link = ctx.matchBefore(/\[\[[^\]\n]*$/);
   if (link) {
     const closed = ctx.state.sliceDoc(ctx.pos, ctx.pos + 2) === "]]";
@@ -94,8 +97,11 @@ function suggest(ctx: CompletionContext): CompletionResult | null {
   if (!m) return null;
   const at = m.from + m.text.search(/[#@]/);
   const sigil = ctx.state.sliceDoc(at, at + 1);
-  const pool = sigil === "#" ? pools.tags : pools.people;
-  return { from: at + 1, options: pool.map((p, i) => ({ label: p, detail: sigil === "#" ? "tag" : "person", boost: -i, apply: `${p} ` })) };
+  if (sigil === "#") return { from: at + 1, options: pools.tags.map((p, i) => ({ label: p, detail: "tag", boost: -i, apply: `${p} ` })) };
+  // A person: contacts and members by name (or any @name of theirs), writing their @handle.
+  await peopleLoaded;
+  const people = assigneeOptions(ctx.state.sliceDoc(at + 1, ctx.pos), pools.people.directory, pools.people.onTasks);
+  return { from: at + 1, filter: false, options: people.slice(0, 12).map((p) => ({ label: p.name, detail: p.handle === p.name ? p.detail : `@${p.handle}`, apply: `${p.handle} ` })) };
 }
 
 /** A task input; put `dom` and `preview` where the host wants them. */
@@ -124,12 +130,25 @@ export function taskInput(opts: TaskInputOptions): TaskInput {
     }
     const where = opts.where?.(parsed) ?? null;
     const chips = metaChips(parsed.meta, false, endTags(parsed.words, parsed.meta.tags));
+    const note = monthEndNote(parsed.meta.rec ? parseRule(parsed.meta.rec) : null, parsed.meta.due, useLastDay);
     preview.hidden = !!opts.compact && !chips.length && !where;
     preview.replaceChildren(
       el("span", { class: "qa-words" }, parsed.words || el("em", {}, "Say what the task is")),
       ...chips,
       where ? el("span", { class: "qa-where" }, "→ ", where) : "",
+      note ?? "",
     );
+  };
+  /** The month-end note's switch: the repeat's phrase, or its `rec:` token, rewritten to say the last day. */
+  const useLastDay = (lastDay: Rule) => {
+    const rec = formatRule(lastDay);
+    const span = parsed?.spans.find((s) => s.kind === "rec");
+    const token = firstLine().match(/(?<!\S)rec:\S+/);
+    const [from, to, insert] = span
+      ? [span.from, span.to, rec === "last-day" ? "on the last day of every month" : `rec:${rec}`]
+      : [token!.index!, token!.index! + token![0].length, `rec:${rec}`];
+    view.dispatch({ changes: { from, to, insert }, userEvent: "input" });
+    view.focus();
   };
 
   const view = new EditorView({

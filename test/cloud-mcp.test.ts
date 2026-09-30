@@ -33,6 +33,13 @@ async function register(name = "Test Agent") {
 }
 
 /**
+ * One client for the tests that connect several people: registrations are rate-limited per address
+ * (20 an hour), and this file would pass that with a client per test.
+ */
+let reused: string | undefined;
+const reusedClient = async () => (reused ??= await register());
+
+/**
  * The browser side of connecting an agent: sign-in cookie, consent page, Allow with a workspace,
  * and the code at the redirect.
  */
@@ -77,13 +84,15 @@ async function mcp(token: string) {
 
 /** What a viewer's agent gets: reading, and what's each person's own (favorites, their smart folders). */
 const VIEWER_TOOLS = [
-  "backlinks", "delete_smart_folder", "get_event", "get_today", "list_events", "list_notes", "list_shares", "list_smart_folders", "list_tags",
-  "list_tasks", "list_templates", "read_board", "read_note", "recent_changes", "save_smart_folder", "search_notes", "star_note", "star_tag",
-  "unstar_note", "unstar_tag",
+  "backlinks", "delete_smart_folder", "diff_versions", "export_note", "get_event", "get_today", "list_contacts", "list_events", "list_labels", "list_notes",
+  "list_shares", "list_smart_folders", "list_tags", "list_tasks", "list_templates", "read_board", "read_contact", "read_note", "recent_changes", "save_smart_folder",
+  "search_notes", "star_note", "star_tag", "unstar_note", "unstar_tag",
 ];
 const ALL_TOOLS = [
-  ...VIEWER_TOOLS, "add_card", "add_task", "append_to_note", "archive_note", "create_from_template", "create_meeting_note", "create_note",
-  "delete_note", "edit_card", "edit_note", "move_card", "move_note", "move_task", "share_note", "unarchive_note", "unshare_note", "update_task",
+  ...VIEWER_TOOLS,
+  "add_card", "add_task", "append_to_note", "archive_note", "create_contact", "create_from_template", "create_meeting_note", "create_note", "delete_note", "edit_card",
+  "edit_note", "import_contacts", "label_version", "merge_contacts", "move_card", "move_note", "move_task", "restore_label", "share_note", "unarchive_note",
+  "unshare_note", "update_contact", "update_task",
 ].sort();
 
 test("an agent discovers where to sign in from /mcp", async () => {
@@ -150,6 +159,22 @@ test("an agent acts as its person, with their role, and its writes say who", asy
   assert.equal(refused.isError, true);
   assert.equal((await viewer.call("read_note", { path: "From an agent" })).isError, false);
   await Promise.all([owner.client.close(), viewer.client.close()]);
+});
+
+test("online, an agent exports Markdown and a .zip; a web page and Word come from the app", async () => {
+  const viewer = await mcp((await connect(people.viewer, people.id)).access);
+  const raw = async (args: Record<string, unknown>) => (await viewer.client.callTool({ name: "export_note", arguments: args })) as { content: Array<{ text?: string; resource?: { mimeType: string; text?: string; blob?: string } }>; isError?: boolean };
+  const md = await raw({ target: "Getting started", format: "md" });
+  assert.equal(md.content[1].resource?.mimeType, "text/markdown");
+  assert.ok(md.content[1].resource?.text?.includes("# "), "the note's markdown");
+  const zip = await raw({ target: "/", format: "zip" });
+  const { unzipSync } = await import("fflate");
+  const files = Object.keys(unzipSync(new Uint8Array(Buffer.from(zip.content[1].resource!.blob!, "base64"))));
+  assert.ok(files.includes("Getting started.md") && files.includes("assets/margin.svg"), `the workspace, with its uploads from R2: ${files}`);
+  const word = await raw({ target: "Getting started", format: "docx" });
+  assert.equal(word.isError, true);
+  assert.match(word.content[0].text!, /drawn by the app: use Share → Export as/);
+  await viewer.client.close();
 });
 
 test("an agent lists the workspace's events and makes a meeting note, linked to the event and attributed to it", async () => {
@@ -306,8 +331,7 @@ test("a client can revoke its own token (RFC 7009)", async () => {
 });
 
 test("an agent shares a note as its person, lists who it's shared with, and stops sharing; a viewer's agent can only list", async () => {
-  // One registered client for both people: registrations are rate-limited per address.
-  const first = await connect(people.owner, people.id);
+  const first = await connect(people.owner, people.id, await reusedClient());
   const owner = await mcp(first.access);
   await owner.call("create_note", { path: "Plan to share", content: "# Plan to share\n" });
   // Until an owner allows it, agents (whatever their role) can't make links, public or editor, or invite an editor by email.
@@ -339,8 +363,7 @@ test("an agent's today is its person's day in the time zone their browser report
   // UTC+14 and UTC-11 are 25 hours apart, so they're never on the same day.
   const [AHEAD, BEHIND] = ["Pacific/Kiritimati", "Pacific/Pago_Pago"];
   const dayIn = (timeZone: string) => new Intl.DateTimeFormat("en-CA", { timeZone }).format(Date.now());
-  // One registered client for everyone: registrations are rate-limited per address.
-  const client = await register();
+  const client = await reusedClient();
   const agentOf = async (cookie: string, workspace: string) => {
     const { code, verifier } = await authorizeCode(cookie, workspace, client);
     const { access_token } = (await (await exchange(client, code, verifier)).json()) as { access_token: string };

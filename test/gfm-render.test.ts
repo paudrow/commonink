@@ -2,7 +2,7 @@
 import "./dom.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cpuMs } from "./helpers.ts";
+import { cpuMs, superlinear } from "./helpers.ts";
 
 const { renderMarkdown } = await import("../web/src/render.ts");
 const r = (md: string) => renderMarkdown(md, "Notes/a.md");
@@ -29,20 +29,12 @@ test("an alert's first paragraph reads like any other: footnotes, emoji, math an
   assert.match(body, /<span class="math" data-tex="x\^2">/);
   assert.match(body, /Second line<sup class="footnote-ref"><a href="#user-content-fn-src" title="The source\." id="user-content-fnref-src-2">1<\/a><\/sup>\./);
   assert.match(html, /<section class="footnotes"/);
-  // Read once more, not once per line or per token: twice the input takes about twice as long.
-  const time = (md: string) => {
-    let best = Infinity;
-    for (let i = 0; i < 3; i++) {
-      const t = performance.now();
-      r(md);
-      best = Math.min(best, performance.now() - t);
-    }
-    return best;
-  };
-  for (const unit of ["[^a", "$a ", ":a", "<kbd>k</kbd> ", "x[^s] \n> "]) {
-    const alert = (n: number) => `> [!NOTE]\n> ${unit.repeat(n)}\n\n[^s]: S.`;
-    const [once, twice] = [time(alert(8_000)), time(alert(16_000))];
-    assert.ok(twice < 3 * once + 20, `${JSON.stringify(unit)} in an alert grows faster than its input: ${Math.round(once)} ms, then ${Math.round(twice)} ms`);
+  // Read once more, not once per line or per token: the time grows with the input. Each unit's n
+  // makes its smaller run a few tens of milliseconds.
+  const units = [["[^a", 16_000], ["$a ", 16_000], [":a", 64_000], ["<kbd>k</kbd> ", 2_000], ["x[^s] \n> ", 1_000]] as const;
+  for (const [unit, n] of units) {
+    const slower = superlinear(r, (n) => `> [!NOTE]\n> ${unit.repeat(n)}\n\n[^s]: S.`, n);
+    assert.equal(slower, null, `${JSON.stringify(unit)} in an alert grows faster than its input: ${slower}`);
   }
   // The same in a folding one.
   assert.match(r("> [!tip]- Title\n> See[^a].\n\n[^a]: A."), /<summary class="markdown-alert-title">.*Title<\/summary><p>See<sup class="footnote-ref">/);

@@ -70,7 +70,8 @@ export async function adminRoute(req: Request, env: Env, url: URL, user: User, w
   const str = (v: unknown) => (typeof v === "string" ? v : "");
   switch (`${req.method} ${route}`) {
     case "GET /members":
-      return json(await membersOf(env, ws.id));
+      // `you`: which one is the person asking (a contact with their email is them; see src/core/contacts.ts).
+      return json((await membersOf(env, ws.id)).map((m) => ({ ...m, you: m.id === user.id })));
 
     case "POST /members/role": {
       const b = await body();
