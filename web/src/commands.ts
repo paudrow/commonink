@@ -42,6 +42,11 @@ export interface App {
   htmlMode: "preview" | "source";
   /** A note tagged `start` exists. */
   hasStart: boolean;
+  /** The focused pane has somewhere to go back / forward to. */
+  canBack: boolean;
+  canForward: boolean;
+  /** The cursor is on a link (a [[link]] or a markdown link). */
+  onLink: boolean;
   /** Can delete notes (not a viewer online). */
   canDelete: boolean;
   /** How many collapsible sections the focused note has. */
@@ -72,6 +77,11 @@ export interface App {
   share(): void;
   copyLink(): void;
   exportAs(how: "print" | "pdf" | "md" | "html"): void;
+  /** Back or forward through what the focused pane has shown. */
+  back(): void;
+  forward(): void;
+  /** Follow the link under the cursor. */
+  followLink(): void;
   /** Open or close every collapsible section in the focused note. */
   foldAll(open: boolean): void;
 }
@@ -116,6 +126,9 @@ export function appCommands(app: App): Command[] {
     { id: "export-pdf", title: "Export as PDF", keywords: "save download pdf print", icon: "pdf", available: note?.kind === "md", run: () => app.exportAs("pdf") },
     { id: "export-md", title: "Export as Markdown", keywords: "save download md markdown file", icon: "file", available: note?.kind === "md", run: () => app.exportAs("md") },
     { id: "export-html", title: "Export as web page (HTML)", keywords: "save download html web page file", icon: "html", available: note?.kind === "md", run: () => app.exportAs("html") },
+    { id: "back", title: "Go back", keywords: "previous history return last note ctrl-o", icon: "back", keys: ["Mod-["], available: app.canBack, run: app.back },
+    { id: "forward", title: "Go forward", keywords: "next history ctrl-i", icon: "chevron", keys: ["Mod-]"], available: app.canForward, run: app.forward },
+    { id: "follow-link", title: "Follow link", keywords: "open link under the cursor gd go to", icon: "link", area: "Editor", available: app.onLink, run: app.followLink },
     { id: "fold-all", title: "Fold all sections", keywords: "collapse close details collapsible zM", icon: "chevron", available: text && app.folds > 0, run: () => app.foldAll(false) },
     { id: "unfold-all", title: "Unfold all sections", keywords: "expand open details collapsible zR", icon: "chevron", available: text && app.folds > 0, run: () => app.foldAll(true) },
     { id: "note-history", title: "History of this note", keywords: "versions changes diff restore", icon: "history", available: !!note, run: app.noteHistory },
@@ -164,7 +177,8 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: ["Mod-Alt-s"], label: "Wrap the selection in a collapsible section", area: "Editor" },
   { keys: ["Space"], label: "On a section's summary line: fold or unfold it", area: "Editor" },
   { keys: ["gd", "gf"], label: "Follow the link under the cursor", area: "Vim" },
-  { keys: ["gs"], label: "Open the link to the side", area: "Vim" },
+  { keys: ["gs", "gD"], label: "Open the link to the side", area: "Vim" },
+  { keys: ["Ctrl-o", "Ctrl-i"], label: "Back / forward through the notes this pane showed", area: "Vim" },
   { keys: ["za", "zo", "zc"], label: "Toggle / open / close the section under the cursor", area: "Vim" },
   { keys: ["zM", "zR"], label: "Fold / unfold every section", area: "Vim" },
   { keys: [":w"], label: "Save", area: "Vim" },

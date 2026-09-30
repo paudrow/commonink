@@ -96,6 +96,11 @@ function accountActions(me: Me, current: Me["workspaces"][number], toast: (t: { 
           },
         ]
       : []),
+    {
+      label: current.role === "owner" ? "Workspace settings…" : "Members…",
+      icon: "sliders",
+      run: () => void import("./workspaceSettings.ts").then((m) => m.showWorkspaceSettings(current, me.user, toast)),
+    },
     { label: "Connected agents…", icon: "bot", run: () => void import("./agentsPage.ts").then((m) => m.showAgents()) },
     {
       label: "Sign out",

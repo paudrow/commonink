@@ -9,7 +9,8 @@ import { SANDBOX_PATH, sandboxPage } from "../../src/core/sandbox.ts";
 import { access, isAccountRoute, routeKey, type AccountRoute } from "./access.ts";
 import { authorize, listAgents, oauthOptions, revokeAgents, withOAuthStore, type OAuthEnv } from "./agents.ts";
 import { clearSessionCookies, ensurePersonalWorkspace, escapeHtml, handleAuth, page, readSession, readSessionOf, seedWorkspace, text } from "./auth.ts";
-import { acceptInvite, createInvite, inviteInfo, createWorkspace, endSessionsOf, locateNote, membership, workspacesOf, type User } from "./directory.ts";
+import { adminRoute } from "./admin.ts";
+import { acceptInvite, inviteInfo, createWorkspace, endSessionsOf, locateNote, membership, workspacesOf, type User } from "./directory.ts";
 import type { Env } from "./env.ts";
 import { fetchAsset, secure } from "./headers.ts";
 import { limit } from "./limits.ts";
@@ -149,14 +150,9 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
     return json({ error: ws.role === "viewer" ? "You can view this workspace but not edit it" : "Only the workspace's owner can do that" }, 403);
   }
 
-  if (route === "/invites" && req.method === "POST") {
-    if (ws.kind !== "team") return json({ error: "Only a team's owner can invite people" }, 403);
-    const { role } = (await body(req)) as { role?: unknown };
-    const tooMany = await limit(env.DB, "invite", user.id);
-    if (tooMany) return tooMany;
-    const token = await createInvite(env.DB, ws.id, user.id, role === "viewer" ? "viewer" : "editor");
-    return json({ url: `${url.origin}/invite/${token}` });
-  }
+  // The workspace's own settings (members, invites, name) live in D1, so they're answered here.
+  const settings = await adminRoute(req, env, url, user, ws, route, () => body(req));
+  if (settings) return settings;
 
   if (isUpload) {
     const tooMany = await limit(env.DB, "upload", user.id);
