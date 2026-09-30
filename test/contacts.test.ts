@@ -102,12 +102,14 @@ test("the vault lists contacts with when each was last mentioned, and shows one'
     "Journal/2026-09-02.md": "# Sep 2\n\nLunch with [[People/Jane Doe]].\n",
     "Journal/2026-09-20.md": "# Sep 20\n\nCalled [[Jane Doe|Jane]] about the renewal.\n",
     "Meetings/2026-08-15 Deal review.md": "# Deal review\n\nOwner: [[People/Jane Doe]]\n",
+    "Meetings/Kickoff.md": "---\ndate: 2026-07-01\n---\n# Kickoff\n\nWith [[People/Sam Lee]].\n",
   });
   const list = quire.contacts();
-  assert.deepEqual(list.map((c) => [c.name, c.mentions, c.lastContacted]), [["Jane Doe", 3, "2026-09-20"], ["Sam Lee", 0, null]]);
+  // A note without a day in its name is dated by its `date:`.
+  assert.deepEqual(list.map((c) => [c.name, c.mentions, c.lastContacted]), [["Jane Doe", 3, "2026-09-20"], ["Sam Lee", 1, "2026-07-01"]]);
   const { contact, timeline } = quire.contact("People/Jane Doe");
   assert.equal(contact.company, "Acme");
-  // Newest first; a note with a day in its name is dated by it, others by when they last changed.
+  // Newest first; a note with a day in its name (or a `date:`) is dated by it, others by when they last changed.
   assert.deepEqual(timeline.map((t) => [t.kind, t.path, t.date, t.text]), [
     ["note", "Journal/2026-09-20.md", "2026-09-20", "Called [[Jane Doe|Jane]] about the renewal."],
     ["note", "Journal/2026-09-02.md", "2026-09-02", "Lunch with [[People/Jane Doe]]."],

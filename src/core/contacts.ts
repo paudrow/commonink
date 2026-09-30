@@ -15,8 +15,9 @@
 // So search, links, backlinks, tags and agents work on contacts with nothing new. This file reads
 // and writes that frontmatter (leaving any other keys and the note's words alone), reads vCard and
 // CSV exports, and finds likely duplicates. No I/O here: Quire (quire.ts) does the reading and writing.
+// The web app uses it too (the Contacts page, @), so nothing here may need Node.
 import { parseCsv } from "./csv.ts";
-import { titleOf } from "./parse.ts";
+import { headingText } from "./prose.ts";
 import { cleanTag } from "./tags.ts";
 
 /** The folder contacts live in. */
@@ -117,9 +118,18 @@ function splitItems(s: string): string[] {
   return out.map((x) => x.trim());
 }
 
+/** A note's title as the index reads it (see titleOf in parse.ts): `title:`, else its first `# heading`, else its file name. */
+function titleIn(path: string, md: string): string {
+  const { entries: fm, body } = entries(md);
+  const title = fm.find((e) => e.key === "title");
+  if (title) return valuesOf(title.lines).join(", ");
+  const h1 = body.match(/^#[ \t]+(.+)$/m);
+  return (h1 && headingText(h1[1])) || path.split("/").pop()!.replace(/\.(md|markdown)$/i, "");
+}
+
 /** A contact from its note: the frontmatter fields, and its name (the note's title). */
 export function contactFromNote(path: string, md: string): ContactNote {
-  const c: ContactNote = { path, ...emptyContact(titleOf(md, "md", path)) };
+  const c: ContactNote = { path, ...emptyContact(titleIn(path, md)) };
   for (const e of entries(md).entries) {
     const values = valuesOf(e.lines);
     if ((LISTS as readonly string[]).includes(e.key)) c[e.key as ListField] = values;
@@ -230,9 +240,15 @@ export function handlesOf(c: Pick<ContactFields, "name" | "aliases">): string[] 
   return [own, ...c.aliases.map((a) => a.trim())].filter((h, i, all) => h && HANDLE.test(h) && all.findIndex((x) => x.toLowerCase() === h.toLowerCase()) === i);
 }
 
-/** The day a note is about: one in its file name (Journal/2026-09-20.md, "2026-08-15 Review.md"), else null. */
-export function dayInName(path: string): string | null {
-  return path.split("/").pop()!.match(/(?:^|\D)(\d{4}-\d{2}-\d{2})(?:\D|$)/)?.[1] ?? null;
+/**
+ * The day a note is about: one in its file name (Journal/2026-09-20.md, "2026-08-15 Review.md"),
+ * else its frontmatter `date:`, else null (the caller uses when it last changed).
+ */
+export function dayOfNote(path: string, md: string): string | null {
+  const named = path.split("/").pop()!.match(/(?:^|\D)(\d{4}-\d{2}-\d{2})(?:\D|$)/)?.[1];
+  if (named) return named;
+  const date = entries(md).entries.find((e) => e.key === "date");
+  return (date && valuesOf(date.lines)[0]?.match(/^\d{4}-\d{2}-\d{2}/)?.[0]) ?? null;
 }
 
 // ---------------------------------------------------------------- import

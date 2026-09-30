@@ -27,7 +27,7 @@ export interface Command {
   run: () => unknown;
 }
 
-export type Page = "notes" | "tasks" | "tags" | "assets" | "history" | "archive" | "trash";
+export type Page = "notes" | "tasks" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash";
 
 /** What the registry needs from the app: a snapshot of its state, and the actions to run. */
 export interface App {
@@ -74,6 +74,7 @@ export function appCommands(app: App): Command[] {
     go("notes", "Notes", "feed", "home all"),
     { id: "filter-notes", title: "Filter notes", keywords: "search find notes page", icon: "search", keys: ["Mod-Shift-f"], run: app.filterNotes },
     go("tasks", "Tasks", "task", "todo checklist"),
+    go("contacts", "Contacts", "user", "people crm person email company"),
     go("tags", "Tags", "hash", "rename merge"),
     go("assets", "Assets", "grid", "files images uploads attachments"),
     go("history", "History", "history", "changes activity versions"),

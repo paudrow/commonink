@@ -163,6 +163,7 @@ let trashPage: TrashPage | null = null;
 let historyPage: History | null = null;
 let assetsPage: Assets | null = null;
 let tagsPage: TagsPage | null = null;
+let contactsPage: import("./contactsPage.ts").ContactsPage | null = null;
 const once = <T>(load: () => Promise<T>) => {
   let loading: Promise<T> | null = null;
   return () => (loading ??= load());
@@ -184,6 +185,14 @@ const loadAssets = once(async () =>
     embedName: (path) => embedName(path),
     tags: () => tags,
     refreshTags: () => refreshNotes(),
+    toast: (t) => toast(t),
+  })),
+);
+const loadContacts = once(async () =>
+  (contactsPage = new (await import("./contactsPage.ts")).ContactsPage($("#contacts-view"), {
+    open: (path, line) => fromPage(path, line),
+    navigate: (c) => void showContacts({ contact: c?.id ?? null }),
+    canEdit: () => !viewer,
     toast: (t) => toast(t),
   })),
 );
@@ -227,7 +236,7 @@ function commands() {
     newFolder: startNewFolder,
     go: (page) => {
       if (page === "notes" || page === "archive") void showNotes({ scope: page === "notes" ? "active" : "archived", query: {} });
-      else void { tasks: showTasks, tags: showTags, assets: showAssets, history: showHistory, trash: showTrash }[page]();
+      else void { tasks: showTasks, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory, trash: showTrash }[page]();
     },
     filterNotes: () => void showNotes({ filter: true }),
     quickAdd,
@@ -462,7 +471,7 @@ function setUrl(url: string, how: "push" | "replace" = "push") {
 
 let unmountTasks: (() => void) | null = null;
 
-function showStage(which: "editor" | "html" | "notes" | "tasks" | "history" | "assets" | "tags" | "trash") {
+function showStage(which: "editor" | "html" | "notes" | "tasks" | "contacts" | "history" | "assets" | "tags" | "trash") {
   closeDrawer();
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
@@ -472,6 +481,7 @@ function showStage(which: "editor" | "html" | "notes" | "tasks" | "history" | "a
   $("#history-view").hidden = which !== "history";
   $("#tags-view").hidden = which !== "tags";
   $("#trash-view").hidden = which !== "trash";
+  $("#contacts-view").hidden = which !== "contacts";
   if (which !== "tasks") {
     unmountTasks?.();
     unmountTasks = null;
@@ -543,6 +553,20 @@ async function showTags(opts: { push?: boolean } = {}) {
   renderOutline();
 }
 
+/** Contacts: the people in the notes, or one person's page (`contact`: its note ID). */
+async function showContacts(opts: { contact?: string | null; push?: boolean } = {}) {
+  await leaveNote();
+  showStage("contacts");
+  const page = await loadContacts();
+  await page.show(opts.contact ?? null);
+  const name = opts.contact ? notes.find((n) => n.id === opts.contact)?.title : undefined;
+  if (opts.push !== false) setUrl(name ? `/contacts?c=${opts.contact}` : "/contacts");
+  document.title = `${name ? `${name} · ` : ""}Contacts · Common Ink`;
+  renderChrome();
+  renderTree();
+  renderOutline();
+}
+
 /** Show what carries a tag (and the tags under it): its notes, or its tasks. */
 function openTag(tag: string, where: "notes" | "tasks" = "notes") {
   if (where === "tasks") void showTasks({ tag });
@@ -607,11 +631,12 @@ function pickFiles(): Promise<File[]> {
   });
 }
 
-const PAGE_LABEL = { notes: "Notes", tasks: "Tasks", history: "History", assets: "Assets", tags: "Tags", trash: "Trash" } as const;
+const PAGE_LABEL = { notes: "Notes", tasks: "Tasks", contacts: "Contacts", history: "History", assets: "Assets", tags: "Tags", trash: "Trash" } as const;
 
 const onPage = () =>
   notesPage.visible ? "notes"
   : !$("#tasks-view").hidden ? "tasks"
+  : contactsPage?.visible ? "contacts"
   : historyPage?.visible ? "history"
   : assetsPage?.visible ? "assets"
   : tagsPage?.visible ? "tags"
@@ -1338,6 +1363,7 @@ function renderTree() {
   const shownTag = showing === null ? "" : (parseQuery(showing).tag ?? "");
   renderTagTree(shownTag && showing === formatQuery({ tag: shownTag }) ? shownTag.toLowerCase() : ""); // a tag alone, like a folder alone
   setCurrent($("#tasks-btn"), page === "tasks");
+  setCurrent($("#contacts-btn"), page === "contacts");
   setCurrent($("#history-btn"), page === "history" && !historyPage?.noteFilter);
   setCurrent($("#assets-btn"), page === "assets");
   setCurrent($("#archive-nav"), page === "notes" && notesPage.scope === "archived");
@@ -2111,7 +2137,7 @@ function setupPanes() {
   // Clicking or tabbing into a pane gives it the focus.
   // (Not from a pane bar's buttons: redrawing the bar on mousedown would swallow their click.)
   const follow = (p: Pane) => (e: Event) => p !== active && split && !(e.target as Element).closest?.(".pane-bar button") && focusPane(p);
-  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#tasks-view", "#history-view", "#assets-view", "#tags-view", "#trash-view"]], [panes[1], ["#side-pane"]]] as const) {
+  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#tasks-view", "#contacts-view", "#history-view", "#assets-view", "#tags-view", "#trash-view"]], [panes[1], ["#side-pane"]]] as const) {
     for (const sel of nodes) {
       $(sel).addEventListener("focusin", follow(p));
       $(sel).addEventListener("mousedown", follow(p));
@@ -2157,6 +2183,10 @@ async function route() {
     return showTasks({ push: false });
   }
   if (at === "/assets") return showAssets({ push: false });
+  if (at === "/contacts") {
+    const id = new URLSearchParams(location.search).get("c");
+    return showContacts({ contact: id && NOTE_ID.test(id) ? id : null, push: false });
+  }
   if (at === "/trash") return showTrash({ push: false });
   if (at === "/tags") return showTags({ push: false });
   if (at === "/history") {
@@ -2238,6 +2268,7 @@ async function boot() {
   window.addEventListener("popstate", () => void route());
   $("#notes-btn").addEventListener("click", () => void showNotes({ scope: "active", query: {} }));
   $("#tasks-btn").addEventListener("click", () => void showTasks());
+  $("#contacts-btn").addEventListener("click", () => void showContacts());
   $("#history-btn").addEventListener("click", () => void showHistory());
   $("#assets-btn").addEventListener("click", () => void showAssets());
   $("#tags-page-btn").addEventListener("click", () => void showTags());

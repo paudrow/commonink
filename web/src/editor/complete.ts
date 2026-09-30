@@ -145,7 +145,10 @@ async function peopleOptions(query: string, at: number): Promise<Option[]> {
       p.contact ? insert(view, to, contactLink(p.contact.path)) : makeAndLink(view, to, p.name, p.member!.email),
   }));
   const name = query.trim().replace(/\s+/g, " ");
-  const known = [...contacts.flatMap((c) => [c.name, ...c.aliases]), ...members.map((m) => m.name)].some((n) => n.toLowerCase() === name.toLowerCase());
+  // Not when someone's name (or a word in it) starts with what's typed: "@pri" means Priya Shah, not a new "pri".
+  const known = [...contacts.flatMap((c) => [c.name, ...c.aliases]), ...members.map((m) => m.name)].some((n) =>
+    [n, ...n.split(/\s+/)].some((w) => w.toLowerCase().startsWith(name.toLowerCase())),
+  );
   // Something that reads as a name: from a letter, at most four words, nothing a link can't hold ("@ 5pm" isn't one).
   const looksLikeName = /^\p{L}/u.test(query) && name.split(" ").length <= 4 && /^[^[\]#|/\\^:]+$/.test(name);
   if (name.length >= 2 && !known && looksLikeName) {

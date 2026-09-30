@@ -15,7 +15,7 @@ import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type B
 import { safeDecode } from "./uri.ts";
 import { AGENTS_NOTE, START_TAG, type NoteRole } from "./noteRoles.ts";
 import {
-  contactFromNote, contactNote, dayInName, emptyContact, fillContact, parseContactsCsv, parseVCards, PEOPLE, sameFields, samePerson,
+  contactFromNote, contactNote, dayOfNote, emptyContact, fillContact, parseContactsCsv, parseVCards, PEOPLE, sameFields, samePerson,
   type Contact, type ContactFields, type ContactInput, type ContactNote, type TimelineItem,
 } from "./contacts.ts";
 
@@ -1768,7 +1768,7 @@ export class Quire {
     for (const b of this.backlinks(rel)) {
       if (seen.has(b.path)) continue;
       seen.add(b.path);
-      const date = dayInName(b.path) ?? localDate(this.meta(b.path)?.mtime ?? this.now());
+      const date = dayOfNote(b.path, this.files.read(b.path) ?? "") ?? localDate(this.meta(b.path)?.mtime ?? this.now());
       out.push({ kind: "note", path: b.path, title: b.title, date, line: b.line, text: b.text });
     }
     return out.sort((a, b) => b.date.localeCompare(a.date) || a.path.localeCompare(b.path));
