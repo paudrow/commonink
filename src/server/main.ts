@@ -291,9 +291,13 @@ function asset(res: http.ServerResponse, raw: string) {
 /** Save an uploaded file into the vault (assets/ by default), under a free name. */
 async function upload(req: http.IncomingMessage, res: http.ServerResponse, url: URL) {
   try {
-    const rel = vault.uploadPath(url.searchParams.get("name") ?? "", url.searchParams.get("folder") ?? "assets");
+    const name = url.searchParams.get("name") ?? "", folder = url.searchParams.get("folder") ?? "assets";
+    vault.uploadPath(name, folder); // refuses a type we don't take before reading the body
     const bytes = await readBody(req, MAX_UPLOAD);
     if (!bytes) return tooLarge(res, "That file is over 50 MB");
+    // Named only once the bytes are in, and written straight after: two uploads called image.png
+    // at once would otherwise both pick assets/image.png, and the second would replace the first.
+    const rel = vault.uploadPath(name, folder);
     seen.set(rel, "uploading"); // the watcher leaves it to us
     files.write(rel, bytes);
     const r = vault.recordUpload(rel, false, host.actor);
