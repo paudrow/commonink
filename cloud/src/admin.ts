@@ -153,14 +153,20 @@ export async function adminRoute(req: Request, env: Env, url: URL, user: User, w
 
 /**
  * Delete a team workspace for good: everyone's agents lose access, open tabs close, its notes and
- * files go (the Durable Object's storage and R2), and so do its members, invites, note IDs and log.
+ * files go (the Durable Object's storage and R2), and so do its members, invites, shares, note IDs and log.
  */
 async function deleteWorkspace(env: Env, url: URL, ws: string) {
   for (const m of await membersOf(env, ws)) await revokeAgentsIn(env, url, m.id, ws);
-  await env.WORKSPACE.get(env.WORKSPACE.idFromName(ws)).destroy(ws);
+  // The directory goes first, shares included (they reference the workspace): if it fails, the notes are still there.
   await env.DB.batch(
-    ["DELETE FROM invites WHERE workspace_id = ?", "DELETE FROM note_ids WHERE workspace_id = ?", "DELETE FROM workspace_log WHERE workspace_id = ?", "DELETE FROM members WHERE workspace_id = ?", "DELETE FROM workspaces WHERE id = ?"].map(
-      (sql) => env.DB.prepare(sql).bind(ws),
-    ),
+    [
+      "DELETE FROM shares WHERE workspace_id = ?",
+      "DELETE FROM invites WHERE workspace_id = ?",
+      "DELETE FROM note_ids WHERE workspace_id = ?",
+      "DELETE FROM workspace_log WHERE workspace_id = ?",
+      "DELETE FROM members WHERE workspace_id = ?",
+      "DELETE FROM workspaces WHERE id = ?",
+    ].map((sql) => env.DB.prepare(sql).bind(ws)),
   );
+  await env.WORKSPACE.get(env.WORKSPACE.idFromName(ws)).destroy(ws);
 }
