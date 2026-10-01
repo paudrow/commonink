@@ -224,11 +224,11 @@ export function providerFrame(info: EmbedInfo): HTMLIFrameElement {
   f.src = info.src;
   f.title = `${info.label} embed`;
   f.loading = "lazy";
-  f.allowFullscreen = true;
+  f.allowFullscreen = !info.anyHost;
   f.referrerPolicy = "strict-origin-when-cross-origin"; // YouTube refuses to play without a referrer
   // A provider on any host (Mastodon) could be any page at all, so it gets no forms, no clipboard,
-  // and popups that stay sandboxed.
-  f.setAttribute("allow", info.anyHost ? "autoplay; picture-in-picture; fullscreen" : "autoplay; encrypted-media; picture-in-picture; fullscreen; clipboard-write");
+  // popups that stay sandboxed, and no full screen (where it could pass itself off as the app).
+  f.setAttribute("allow", info.anyHost ? "autoplay; picture-in-picture" : "autoplay; encrypted-media; picture-in-picture; fullscreen; clipboard-write");
   f.setAttribute(
     "sandbox",
     info.anyHost ? "allow-scripts allow-same-origin allow-popups" : "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation allow-forms",

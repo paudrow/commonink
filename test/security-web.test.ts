@@ -48,12 +48,14 @@ test("a link in note content opens in a new tab, never in place of the app", () 
   window.open = realOpen;
 });
 
-test("a Mastodon-style embed, which can be any host, gets no forms, clipboard or unsandboxed popups", async () => {
+test("a Mastodon-style embed, which can be any host, gets no forms, clipboard, full screen or unsandboxed popups", async () => {
   const { resolveEmbed, providerFrame } = await import("../web/src/embeds/providers.ts");
   const frame = providerFrame((await resolveEmbed("https://evil.example/@a/123456"))!);
-  assert.deepEqual([frame.getAttribute("sandbox"), frame.getAttribute("allow")], ["allow-scripts allow-same-origin allow-popups", "autoplay; picture-in-picture; fullscreen"]);
+  assert.deepEqual([frame.getAttribute("sandbox"), frame.getAttribute("allow"), frame.allowFullscreen], ["allow-scripts allow-same-origin allow-popups", "autoplay; picture-in-picture", false]);
   const youtube = providerFrame((await resolveEmbed("https://www.youtube.com/watch?v=dQw4w9WgXcQ"))!);
   assert.match(youtube.getAttribute("sandbox")!, /allow-forms/);
+  assert.match(youtube.getAttribute("allow")!, /fullscreen/);
+  assert.equal(youtube.allowFullscreen, true);
 });
 
 test("hostile markdown renders in linear time, and deep quotes don't overflow the stack", async () => {
