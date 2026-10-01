@@ -47,6 +47,24 @@ test("members can leave; the only owner can't until someone else owns it, and no
   assert.equal((await cloud.request(t.viewer, "POST", `/api/w/${mine.id}/leave`, {})).status, 409);
 });
 
+test("someone removed, or who leaves, loses what was shared with them there too, by account or by email", async () => {
+  const t = await team(cloud);
+  await cloud.call(t.owner, "POST", `${t.base}/note`, { path: "Plans/Q4.md", content: "# Q4\n" });
+  await cloud.call(t.owner, "POST", `${t.base}/shares`, { folder: "Plans", email: "viewer@localhost", role: "viewer" });
+  await cloud.call(t.owner, "POST", `${t.base}/shares`, { folder: "Plans", email: "latecomer@localhost", role: "editor" });
+  const latecomer = await cloud.signIn("latecomer");
+  const { url } = await cloud.call(t.owner, "POST", `${t.base}/invites`, { role: "viewer" });
+  await cloud.request(latecomer, "POST", new URL(url).pathname);
+  const kinds = (await cloud.call(t.owner, "GET", `${t.base}/shares?folder=Plans`)).shares.map((s: { kind: string }) => s.kind).sort();
+  assert.deepEqual(kinds, ["email", "user"]);
+
+  const viewerId = (await cloud.call(t.owner, "GET", `${t.base}/members`)).find((m: { name: string }) => m.name === "Viewer Dev").id;
+  await cloud.call(t.owner, "POST", `${t.base}/members/remove`, { user: viewerId });
+  await cloud.call(latecomer, "POST", `${t.base}/leave`, {});
+  for (const who of [t.viewer, latecomer]) assert.equal((await cloud.request(who, "GET", `${t.base}/shared/list`)).status, 404);
+  assert.deepEqual((await cloud.call(t.owner, "GET", `${t.base}/shares?folder=Plans`)).shares, []);
+});
+
 test("invite links list who used them; an unused one can be revoked, and then it doesn't work", async () => {
   const t = await team(cloud);
   const newcomer = await cloud.signIn("newcomer");

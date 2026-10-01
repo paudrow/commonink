@@ -4,7 +4,7 @@
 // archive or delete in bulk. Its tabs are where notes go: Notes, Archive and Trash.
 import { api, type FeedItem, type FeedPage, type TagCount, type Task } from "./api.ts";
 import type { TrashPage } from "./trash.ts";
-import { $, authorAvatar, authorName, displayName, el, escapeHtml, icon, NOTE_DRAG, timeAgo } from "./dom.ts";
+import { $, authorAvatar, authorName, displayName, el, icon, markTerms, NOTE_DRAG, timeAgo } from "./dom.ts";
 import { renderMarkdown, sandboxFrame } from "./render.ts";
 import { noteTarget } from "./noteLinks.ts";
 import { hydrateCode } from "./code.ts";
@@ -397,7 +397,7 @@ export class NotesPage {
     let body: HTMLElement;
     if (open) body = this.fullBody(item);
     else if (q && item.lines.length) {
-      body = el("div", { class: "fc-hits" }, ...item.lines.map((l) => el("div", { class: "fc-hit", html: highlight(l.text, q), onclick: (e: Event) => (e.stopPropagation(), this.hooks.open(item.path, l.line)) })));
+      body = el("div", { class: "fc-hits" }, ...item.lines.map((l) => el("div", { class: "fc-hit", html: markTerms(l.text, q), onclick: (e: Event) => (e.stopPropagation(), this.hooks.open(item.path, l.line)) })));
     } else if (item.kind === "html") body = el("div", { class: "fc-body is-muted" }, "HTML note · click to preview");
     else if (item.role === "agents") body = el("div", { class: "fc-body is-muted" }, AGENTS_BLURB);
     else {
@@ -727,12 +727,6 @@ function forPreview(md: string): string {
       return line;
     })
     .join("\n");
-}
-
-function highlight(text: string, q: string): string {
-  const terms = q.split(/\s+/).filter((t) => t.length > 1).map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  const safe = escapeHtml(text);
-  return terms.length ? safe.replace(new RegExp(`(${terms.join("|")})`, "gi"), "<mark>$1</mark>") : safe;
 }
 
 function debounce(fn: () => unknown, ms: number) {

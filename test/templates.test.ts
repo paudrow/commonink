@@ -17,6 +17,11 @@ test("dates and times, with Moment-style formats and day or week offsets", () =>
   assert.equal(formatDate(new Date(2026, 0, 5, 9, 7), "YYYY-M-D H:m [at] hh:mm a"), "2026-1-5 9:7 at 09:07 am");
 });
 
+test("a template's frontmatter keeps a leading comment and keys with spaces when its own keys go", () => {
+  const tpl = "---\n# made by me\nfolder: Meetings\nDate Created: {{date}}\nkind: meeting\n---\n# {{title}}\n";
+  assert.equal(fillTemplate(tpl, { at: AT, title: "Sync" }).text, "---\n# made by me\nDate Created: 2026-09-29\nkind: meeting\n---\n# Sync\n");
+});
+
 test("title, clipboard, cursor, and escaped or unknown braces", () => {
   const r = fillTemplate("# {{title}}\n\n{{clipboard}}\n\n- {{cursor}}\n\n\\{{date}} stays, {{mood}} too", { at: AT, title: "Acme sync", clipboard: "pasted" });
   assert.equal(r.text, "# Acme sync\n\npasted\n\n- \n\n{{date}} stays, {{mood}} too");
