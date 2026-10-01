@@ -59,7 +59,7 @@ import { mountSharedView, sharedRoute } from "./sharedView.ts";
 import { showShareDialog } from "./shareDialog.ts";
 import { CapturePage, registerWorker } from "./capture.ts";
 import { AGENTS_BLURB, isAgentsNote } from "./agentsNote.ts";
-import { closeDrawer, setupMobileNav } from "./mobileNav.ts";
+import { closeDrawer, renderMore, setupMobileNav } from "./mobileNav.ts";
 import { nameField, plusMark, sectionHint, shownItems, sidebarTags, type OptionalItem } from "./sidebar.ts";
 import { PEOPLE } from "../../src/core/contacts.ts";
 import type { CalendarPage } from "./calendar/page.ts";
@@ -2273,6 +2273,7 @@ function renderChrome() {
     $("#html-toggle").hidden = true;
     for (const id of ["#vim-mode", "#cursor-pos", "#word-count"]) $(id).textContent = "";
     $("#vim-mode").dataset.mode = "";
+    renderMore();
     return;
   }
   const starred = isStarred(s.id);
@@ -2287,6 +2288,7 @@ function renderChrome() {
   $("#html-toggle").hidden = s.kind !== "html";
   $("#html-toggle").querySelectorAll("button").forEach((b) => setPressed(b, b.dataset.mode === prefs.htmlMode));
   setSaveStatus("saved");
+  renderMore();
 }
 
 function openMovePicker(anchor: HTMLElement) {
@@ -3031,6 +3033,7 @@ async function boot() {
   $("#move-btn").addEventListener("click", () => openMovePicker($("#move-btn")));
   $("#share-btn").addEventListener("click", openShare);
   $("#focus-btn").addEventListener("click", () => void setFocusMode(!focusMode));
+  setLabel($("#focus-btn"), `Focus mode (${formatKeys("Mod-Shift-Enter")})`); // ⌘⇧↵ in the markup is a Mac's
   $("#new-folder").addEventListener("click", () => startNewFolder());
   $("#new-tag").addEventListener("click", () => startNewTag());
   $("#new-tag").hidden = viewer;

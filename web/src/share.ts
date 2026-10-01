@@ -1,8 +1,8 @@
 // The Share menu: everything about getting a note out of the app, from the top bar's Share button,
 // ⌘⇧S (Ctrl+Shift+S off a Mac), "Share…" in ⌘K, :share in Vim, and More on a phone. Copy link, Print,
 // Export as Markdown, a web page, Word or PDF, and places for what comes next: sharing with people (#12, which
-// fills its item in with setShareWithPeople) and Google Drive (#47). Printing and exporting load
-// only when picked (export/).
+// fills its item in with setShareWithPeople) and Google Drive (#47, marked where it goes). Printing and
+// exporting load only when picked (export/).
 import { el, icon, setLabel } from "./dom.ts";
 import { formatKeys } from "./keys.ts";
 
@@ -78,8 +78,8 @@ export function toggleShareMenu(anchor: HTMLElement, note: ShareNote, toast: (te
     ),
     md ? item("Word", "file", async () => (await import("./export/files.ts")).exportDocx(printable()), ".docx") : null,
     md ? item("PDF", "pdf", async () => (await import("./export/print.ts")).print(printable(), { pdf: true }), "via Print") : null,
-    el("div", { class: "share-sep", role: "separator" }),
-    item("Save to Google Drive", "drive", null, "Coming soon"),
+    // Save to Google Drive (#47) goes last, after a separator, once it works: item("Save to Google
+    // Drive", "drive", …). Until then the menu leaves it out rather than show a button that can't be pressed.
   );
   const items = () => [...menu.querySelectorAll<HTMLButtonElement>(".share-item:not(:disabled)")];
   menu.addEventListener("keydown", (e) => {

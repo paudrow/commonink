@@ -17,17 +17,17 @@ function button() {
   return b;
 }
 
-test("the menu has Copy link, Print, the exports, and Google Drive turned off; an HTML note gets its link and its file", () => {
+test("the menu has Copy link, Print and the exports; an HTML note gets its link and its file", () => {
   const b = button();
   toggleShareMenu(b, note(), () => {});
-  assert.deepEqual(items(), ["Copy link", "Print…", "Markdown", "Web page", "Word", "PDF", "Save to Google Drive (off)"]);
+  assert.deepEqual(items(), ["Copy link", "Print…", "Markdown", "Web page", "Word", "PDF"]);
   assert.equal(b.getAttribute("aria-expanded"), "true");
   assert.equal(document.activeElement?.textContent?.startsWith("Copy link"), true, "the first item has the focus");
   document.querySelector(".share-menu")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   assert.equal(document.querySelector(".share-menu"), null, "Escape closes it");
   assert.equal(b.getAttribute("aria-expanded"), "false");
   toggleShareMenu(b, note("html"), () => {});
-  assert.deepEqual(items(), ["Copy link", "HTML file", "Save to Google Drive (off)"]);
+  assert.deepEqual(items(), ["Copy link", "HTML file"]);
   toggleShareMenu(b, note("html"), () => {});
   assert.equal(document.querySelector(".share-menu"), null, "pressing the button again closes it");
 });
