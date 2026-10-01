@@ -30,12 +30,20 @@ export async function membersOf(env: Env, ws: string): Promise<Member[]> {
 const owners = async (env: Env, ws: string) =>
   (await env.DB.prepare("SELECT COUNT(*) AS n FROM members WHERE workspace_id = ? AND role = 'owner'").bind(ws).first<{ n: number }>())?.n ?? 0;
 
-/** Someone leaves (or is removed): their membership, their agents' access here, their open tabs and their own calendars here all go. */
+/**
+ * Someone leaves (or is removed): their membership, their agents' access here, their open tabs, their
+ * own calendars here and anything here shared with them (by account or email) all go.
+ */
 async function drop(env: Env, url: URL, ws: string, userId: string) {
-  await env.DB.prepare("DELETE FROM members WHERE workspace_id = ? AND user_id = ?").bind(ws, userId).run();
+  const email = (await env.DB.prepare("SELECT email FROM users WHERE id = ?").bind(userId).first<{ email: string }>())?.email.toLowerCase() ?? "";
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM members WHERE workspace_id = ? AND user_id = ?").bind(ws, userId),
+    env.DB.prepare("DELETE FROM shares WHERE workspace_id = ? AND ((principal_type = 'user' AND principal = ?) OR (principal_type = 'email' AND principal = ?))").bind(ws, userId, email),
+  ]);
   await revokeAgentsIn(env, url, userId, ws);
   const stub = env.WORKSPACE.get(env.WORKSPACE.idFromName(ws));
   await stub.disconnect(userId);
+  await stub.sharingChanged();
   await stub.dropCalendarsOf(userId); // their own calendars there (Google's) go with them
 }
 

@@ -490,9 +490,10 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Sharing changed, and an open shared connection still hears by the grants it opened with. Close
-   * them all; each reconnects with what's shared with it now, or is refused.
+   * them all; each reconnects with what's shared with it now, or is refused. (The Worker calls it
+   * too, when someone leaves and what was shared with them goes.)
    */
-  private sharingChanged() {
+  sharingChanged() {
     for (const ws of this.ctx.getWebSockets("shared")) ws.close(4003, "Sharing changed");
   }
 
