@@ -32,6 +32,9 @@ export function drawDiagram(code: string, look: DiagramLook): Promise<string> {
     m.initialize({
       startOnLoad: false,
       securityLevel: "strict",
+      // What a diagram's own `%%{init}%%` or frontmatter can't change: Mermaid's own list, and the
+      // look. Its themeCSS lands in the page, where it could pin the SVG over the app or load a URL.
+      secure: ["secure", "securityLevel", "startOnLoad", "maxTextSize", "suppressErrorRendering", "maxEdges", "themeCSS", "themeVariables", "fontFamily", "altFontFamily", "darkMode", "theme"],
       htmlLabels: false,
       flowchart: { htmlLabels: false, curve: "basis" },
       // Drawn in the app's own palette, so diagrams look native in light and dark.
