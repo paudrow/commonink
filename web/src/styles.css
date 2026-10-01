@@ -151,6 +151,13 @@
 /* Inks (web/src/inks.ts): the accent in another color, earned by using the app. Indigo, above, is the
    one you start with; index.html puts the one you picked on <html> as data-ink before the page draws.
    Each swatch in Settings (.ink-option) takes its own ink's colors the same way. */
+/* The logo is the ink you picked, too: a white drop on a square of its color. It keeps the light
+   theme's shade in dark as well, as the indigo logo always has (each ink's --ink-mark is in its light
+   rule below). The drop's highlight is cut out of it, so the square's color shows through there. */
+:root {
+  --ink-mark: #5b5bd6;
+  --mark-drop: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cmask id='m'%3E%3Crect width='100' height='100' fill='%23fff'/%3E%3Cpath d='M37 60.5a13 13 0 0 0 9 12' stroke='%23000' stroke-width='5' stroke-linecap='round' fill='none'/%3E%3C/mask%3E%3Cpath d='M50 14.5C50 14.5 25 43.5 25 60.5a25 25 0 0 0 50 0C75 43.5 50 14.5 50 14.5Z' fill='%23fff' mask='url(%23m)'/%3E%3C/svg%3E");
+}
 .ink-option[data-ink="indigo"] {
   --accent: #5b5bd6;
   --accent-ink: #4545b8;
@@ -165,6 +172,7 @@
   --accent-soft: rgba(143, 91, 44, 0.11);
   --accent-line: rgba(143, 91, 44, 0.35);
   --selection: rgba(143, 91, 44, 0.18);
+  --ink-mark: #8f5b2c;
 }
 :root[data-ink="viridian"],
 .ink-option[data-ink="viridian"] {
@@ -173,6 +181,7 @@
   --accent-soft: rgba(27, 122, 94, 0.11);
   --accent-line: rgba(27, 122, 94, 0.35);
   --selection: rgba(27, 122, 94, 0.18);
+  --ink-mark: #1b7a5e;
 }
 :root[data-ink="vermilion"],
 .ink-option[data-ink="vermilion"] {
@@ -181,6 +190,7 @@
   --accent-soft: rgba(192, 58, 34, 0.11);
   --accent-line: rgba(192, 58, 34, 0.35);
   --selection: rgba(192, 58, 34, 0.18);
+  --ink-mark: #c03a22;
 }
 :root[data-ink="cobalt"],
 .ink-option[data-ink="cobalt"] {
@@ -189,6 +199,7 @@
   --accent-soft: rgba(33, 96, 196, 0.11);
   --accent-line: rgba(33, 96, 196, 0.35);
   --selection: rgba(33, 96, 196, 0.18);
+  --ink-mark: #2160c4;
 }
 :root[data-ink="iron-gall"],
 .ink-option[data-ink="iron-gall"] {
@@ -197,6 +208,7 @@
   --accent-soft: rgba(77, 59, 102, 0.11);
   --accent-line: rgba(77, 59, 102, 0.35);
   --selection: rgba(77, 59, 102, 0.18);
+  --ink-mark: #4d3b66;
 }
 :root[data-theme="dark"] .ink-option[data-ink="indigo"] {
   --accent: #9090f7;
@@ -342,8 +354,8 @@ body.panel-closed #panel { opacity: 0; pointer-events: none; }
   width: 26px;
   height: 26px;
   border-radius: 24%;
-  background: url("/favicon.svg") center / contain no-repeat;
-  box-shadow: 0 2px 6px -1px rgba(75, 75, 196, 0.45);
+  background: var(--mark-drop) center / contain no-repeat, var(--ink-mark);
+  box-shadow: 0 2px 6px -1px color-mix(in srgb, var(--ink-mark) 45%, transparent);
   flex: none;
 }
 .brand-text { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
@@ -1633,7 +1645,7 @@ body.is-resizing iframe { pointer-events: none; }
   display: inline-block;
   width: 52px;
   height: 52px;
-  box-shadow: 0 6px 18px -4px rgba(75, 75, 196, 0.55);
+  box-shadow: 0 6px 18px -4px color-mix(in srgb, var(--ink-mark) 55%, transparent);
 }
 .signin-card h1 { margin: 18px 0 6px; font-size: 28px; letter-spacing: -0.025em; color: var(--heading); }
 .signin-tag { margin: 0 0 26px; color: var(--ink-2); font-size: 15px; line-height: 1.5; }
