@@ -45,6 +45,18 @@ test("writing a contact keeps the note's words and any frontmatter it doesn't kn
   assert.match(contactNote({ name: "Q", email: [], phone: [], company: "Smith, Jones & Co: Law", role: "", links: [], aliases: [], tags: [] }), /company: "Smith, Jones & Co: Law"/);
 });
 
+test("writing a contact keeps a comment before the first key and keys with spaces or accents", () => {
+  const md = "---\n# my comment\nemail: a@b.com\nDate Created: 2024-01-01\ntítulo: x\nnotes: x\n---\n# Jane\nbody\n";
+  const c = contactFromNote("People/Jane.md", md);
+  assert.deepEqual(c.email, ["a@b.com"]);
+  assert.equal(
+    contactNote({ ...c, phone: ["+1 555"] }, md),
+    "---\nemail: a@b.com\nphone: +1 555\n# my comment\nDate Created: 2024-01-01\ntítulo: x\nnotes: x\n---\n# Jane\nbody\n",
+  );
+  // Removing the email removes only its line.
+  assert.equal(contactNote({ ...c, email: [] }, md), "---\n# my comment\nDate Created: 2024-01-01\ntítulo: x\nnotes: x\n---\n# Jane\nbody\n");
+});
+
 test("vCards: folded lines, several emails and phones, organization, title, nickname, categories", () => {
   const vcf = [
     "BEGIN:VCARD",
