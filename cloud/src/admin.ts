@@ -27,16 +27,25 @@ export async function membersOf(env: Env, ws: string): Promise<Member[]> {
   return results;
 }
 
-const owners = async (env: Env, ws: string) =>
-  (await env.DB.prepare("SELECT COUNT(*) AS n FROM members WHERE workspace_id = ? AND role = 'owner'").bind(ws).first<{ n: number }>())?.n ?? 0;
+/**
+ * Ends an UPDATE or DELETE of one member (?1 the workspace) so it applies only if they aren't an
+ * owner or another owner stays. Checked in the same statement, so two owners demoting each other
+ * (or both leaving) at once can't leave the workspace with none.
+ */
+const KEEPS_AN_OWNER = "AND (role <> 'owner' OR (SELECT COUNT(*) FROM members WHERE workspace_id = ?1 AND role = 'owner') > 1)";
 
-/** Someone leaves (or is removed): their membership, their agents' access here, their open tabs and their own calendars here all go. */
+/**
+ * Someone leaves (or is removed): their membership, their agents' access here, their open tabs and
+ * their own calendars here all go. False, and nothing changes, if they're the last owner.
+ */
 async function drop(env: Env, url: URL, ws: string, userId: string) {
-  await env.DB.prepare("DELETE FROM members WHERE workspace_id = ? AND user_id = ?").bind(ws, userId).run();
+  const { meta } = await env.DB.prepare(`DELETE FROM members WHERE workspace_id = ?1 AND user_id = ?2 ${KEEPS_AN_OWNER}`).bind(ws, userId).run();
+  if (!meta.changes) return false;
   await revokeAgentsIn(env, url, userId, ws);
   const stub = env.WORKSPACE.get(env.WORKSPACE.idFromName(ws));
   await stub.disconnect(userId);
   await stub.dropCalendarsOf(userId); // their own calendars there (Google's) go with them
+  return true;
 }
 
 /** The settings routes, or null if `route` isn't one (it goes on to the workspace). */
@@ -54,8 +63,8 @@ export async function adminRoute(req: Request, env: Env, url: URL, user: User, w
       const current = (await membersOf(env, ws.id)).find((m) => m.id === target);
       if (!current) return fail("They aren't in this workspace", 404);
       if (current.role === role) return json({ ok: true });
-      if (current.role === "owner" && (await owners(env, ws.id)) === 1) return fail("A workspace needs an owner. Make someone else an owner first.", 409);
-      await env.DB.prepare("UPDATE members SET role = ? WHERE workspace_id = ? AND user_id = ?").bind(role, ws.id, target).run();
+      const { meta } = await env.DB.prepare(`UPDATE members SET role = ?3 WHERE workspace_id = ?1 AND user_id = ?2 ${KEEPS_AN_OWNER}`).bind(ws.id, target, role).run();
+      if (!meta.changes) return fail("A workspace needs an owner. Make someone else an owner first.", 409);
       // Their agents connected with the old role; they reconnect to get the new one.
       await revokeAgentsIn(env, url, target, ws.id);
       await log(env, ws.id, user.id, "role", target, `${current.role} → ${role}`);
@@ -67,16 +76,14 @@ export async function adminRoute(req: Request, env: Env, url: URL, user: User, w
       const current = (await membersOf(env, ws.id)).find((m) => m.id === target);
       if (!current) return fail("They aren't in this workspace", 404);
       if (target === user.id) return fail("To leave, use Leave workspace", 400);
-      if (current.role === "owner" && (await owners(env, ws.id)) === 1) return fail("A workspace needs an owner. Make someone else an owner first.", 409);
-      await drop(env, url, ws.id, target);
+      if (!(await drop(env, url, ws.id, target))) return fail("A workspace needs an owner. Make someone else an owner first.", 409);
       await log(env, ws.id, user.id, "remove", target, current.role);
       return json({ ok: true });
     }
 
     case "POST /leave": {
       if (ws.kind === "personal") return fail("Your own workspace is yours to keep. Rename it instead.", 409);
-      if (ws.role === "owner" && (await owners(env, ws.id)) === 1) return fail("You're its only owner. Make someone else an owner first, or delete the workspace.", 409);
-      await drop(env, url, ws.id, user.id);
+      if (!(await drop(env, url, ws.id, user.id))) return fail("You're its only owner. Make someone else an owner first, or delete the workspace.", 409);
       await log(env, ws.id, user.id, "leave", user.id, ws.role);
       return json({ ok: true });
     }
