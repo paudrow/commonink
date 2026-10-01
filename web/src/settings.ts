@@ -6,9 +6,10 @@ import { formatKeys } from "./keys.ts";
 import { trapKeys } from "./modal.ts";
 import { localSteps } from "./connectAgent.ts";
 import { button } from "./widgets/core.ts";
+import type { OptionalItem } from "./sidebar.ts";
 
-export type Section = "Appearance" | "Editor" | "Keyboard" | "Agents";
-export const SECTIONS: Section[] = ["Appearance", "Editor", "Keyboard", "Agents"];
+export type Section = "Appearance" | "Sidebar" | "Editor" | "Keyboard" | "Agents";
+export const SECTIONS: Section[] = ["Appearance", "Sidebar", "Editor", "Keyboard", "Agents"];
 
 export type Theme = "system" | "light" | "dark";
 
@@ -44,13 +45,35 @@ export interface SettingsApp {
   setVim(on: boolean): void;
   vimDisplayLines: boolean;
   setVimDisplayLines(on: boolean): void;
+  /** The sidebar items kept showing before they're in use. */
+  sidebarPinned: Partial<Record<OptionalItem, boolean>>;
+  setSidebarPinned(item: OptionalItem, on: boolean): void;
   /** Locally, where the vault and the `commonink` command are, for the agent setup; online, null. */
   localVault: { vault?: string; projectRoot?: string } | null;
   shortcuts(): void;
   connectAgent(): void;
 }
 
+/** Each sidebar item that waits until it's in use: its name, and what puts it in the sidebar by itself. */
+const WAITING: Array<{ item: OptionalItem; name: string; when: string; keywords: string }> = [
+  { item: "contacts", name: "Contacts", when: "you add someone", keywords: "people crm" },
+  { item: "calendar", name: "Calendar", when: "you add a calendar or an event", keywords: "events meetings schedule" },
+  { item: "assets", name: "Assets", when: "you upload a file", keywords: "files images uploads attachments" },
+  { item: "smart", name: "Smart folders", when: "you save one", keywords: "saved searches queries" },
+];
+
 export function appSettings(app: SettingsApp): Setting[] {
+  // A new workspace's sidebar leaves these out until they're in use; each can stay there from the start instead.
+  const sidebar = WAITING.map(
+    ({ item, name, when, keywords }): Setting => ({
+      id: `sidebar-${item}`,
+      section: "Sidebar",
+      title: `Always show ${name}`,
+      description: `The sidebar shows ${name} once ${when}. Turn this on to keep it there even before then.`,
+      keywords: `sidebar navigation hide show empty pin ${keywords}`,
+      control: { kind: "toggle", on: !!app.sidebarPinned[item], set: (on) => app.setSidebarPinned(item, on) },
+    }),
+  );
   return [
     {
       id: "theme",
@@ -69,6 +92,7 @@ export function appSettings(app: SettingsApp): Setting[] {
         set: (v) => app.setTheme(v as Theme),
       },
     },
+    ...sidebar,
     {
       id: "line-numbers",
       section: "Editor",

@@ -58,7 +58,8 @@ import { showShareDialog } from "./shareDialog.ts";
 import { CapturePage, registerWorker } from "./capture.ts";
 import { AGENTS_BLURB, isAgentsNote } from "./agentsNote.ts";
 import { closeDrawer, setupMobileNav } from "./mobileNav.ts";
-import { nameField, plusMark, sectionHint, sidebarTags } from "./sidebar.ts";
+import { nameField, plusMark, sectionHint, shownItems, sidebarTags, type OptionalItem } from "./sidebar.ts";
+import { PEOPLE } from "../../src/core/contacts.ts";
 import type { CalendarPage } from "./calendar/page.ts";
 import { calendarChanged, calendars, setCalendarContext } from "./calendar/data.ts";
 import { calendarTarget, OPEN_CALENDAR } from "./links.ts";
@@ -125,6 +126,8 @@ const prefs = {
   tagsOpen: new Set<string>(store.get<string[]>("tagsOpen", [])),
   /** Sidebar sections folded away from their header. Folders start folded: the sidebar leads with tags. */
   folded: { favorites: false, smart: false, folders: true, tags: false, ...store.get<Record<string, boolean>>("folded", {}) } as Record<string, boolean>,
+  /** Contacts, Calendar, Assets and Smart folders kept in the sidebar before they're in use (Settings, Sidebar). */
+  sidebarPinned: store.get<Partial<Record<OptionalItem, boolean>>>("sidebarPinned", {}),
 };
 taskInputPrefs.vim = prefs.vim; // every task input (quick-add, inline edit, a card) types with the editor's keys
 
@@ -136,6 +139,10 @@ let changes: Change[] = [];
 let tags: TagCount[] = [];
 /** Your smart folders (the workspace's shared ones and your own), with live counts. */
 let smartFolders: SmartFolder[] = [];
+/** You see a calendar here: a subscription, a Google calendar, or the workspace's own, which its first event makes. */
+let hasCalendars = false;
+/** Optional sidebar items asked for from ⌘K this visit (New smart folder), kept showing until you reload. */
+const revealed = new Set<OptionalItem>();
 
 const layoutKey = () => `layout:${workspaceId || "local"}`;
 /** How the window was split, and each pane's trail; read again once the workspace is known (see boot). */
@@ -290,6 +297,7 @@ function commands() {
     newBoard: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : "", `\n${NEW_BOARD}\n`),
     newFolder: startNewFolder,
     newTag: startNewTag,
+    newSmartFolder: newSmartFolderFromPalette,
     go: (page) => {
       if (page === "notes" || page === "archive" || page === "trash") void showNotes({ tab: page, query: {} });
       else void { tasks: showTasks, calendar: showCalendar, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory, shared: showShared }[page]();
@@ -1537,6 +1545,7 @@ function onMessage(m: ServerMsg) {
     case "calendar":
       calendarChanged();
       void calendarPage?.refresh();
+      void learnCalendars();
       return;
     case "tree":
       notesPage.refreshSoon();
@@ -1564,6 +1573,13 @@ async function refreshNotes() {
   tagsPage?.refresh();
 }
 const refreshNotesSoon = debounce(refreshNotes, 120);
+/** Whether there's a calendar, so Calendar shows in the sidebar. A failed read leaves it as it was. */
+async function learnCalendars() {
+  const list = await calendars().catch(() => null);
+  if (!list || (list.length > 0) === hasCalendars) return;
+  hasCalendars = list.length > 0;
+  renderTree();
+}
 const refreshTagsSoon = debounce(async () => {
   tags = await api.tags().catch(() => tags);
   tagsPage?.refresh();
@@ -1612,6 +1628,13 @@ function saveSmartFolder(query: string, name: string, anchor: HTMLElement) {
       toast({ icon: "folderSearch", text: `Saved ${saved.name}`, detail: local ? undefined : saved.shared ? "Everyone in the workspace sees it in their sidebar." : "Only you see it." });
     },
   });
+}
+
+/** A new smart folder from ⌘K: the Smart folders section shows (it waits for a first one otherwise), and the form opens under its +. */
+function newSmartFolderFromPalette() {
+  revealed.add("smart");
+  renderTree();
+  newSmartFolder($("#new-smart-folder"));
 }
 
 /** A new smart folder from scratch (the Smart folders header, or its empty row). Saving opens it. */
@@ -1873,6 +1896,22 @@ function renderTree() {
   notesPage.named((showing && smartFolders.find((f) => f.query === showing)?.name) || null);
   const assetCount = notes.filter((n) => n.kind === "asset" && !isArchived(n.path)).length;
   $("#assets-count").textContent = assetCount ? String(assetCount) : "";
+  // Contacts, Calendar, Assets and Smart folders wait until they're in use, or until you're on one.
+  const here = new Set<OptionalItem>(revealed);
+  if (page === "contacts" || page === "calendar" || page === "assets") here.add(page);
+  const shown = shownItems(
+    {
+      contacts: notes.some((n) => n.kind === "md" && n.path.startsWith(`${PEOPLE}/`) && !isArchived(n.path)), // what api.contacts() lists
+      calendar: hasCalendars,
+      assets: assetCount > 0,
+      smart: smartFolders.length > 0,
+    },
+    prefs.sidebarPinned,
+    here,
+  );
+  for (const item of ["contacts", "calendar", "assets"] as const) $(`#${item}-btn`).hidden = !shown[item];
+  $('.tree-head[data-section="smart"]').hidden = !shown.smart;
+  $("#smart-folders").hidden = !shown.smart || !!prefs.folded.smart;
   setCurrent($("#notes-btn"), showing === "" || page === "archive" || page === "trash"); // Archive and Trash are tabs of Notes
   const shownTag = showing === null ? "" : (parseQuery(showing).tag ?? "");
   renderTagTree(shownTag && showing === formatQuery({ tag: shownTag }) ? shownTag.toLowerCase() : ""); // a tag alone, like a folder alone
@@ -2091,7 +2130,7 @@ function setupSections() {
       const folded = !!prefs.folded[section];
       toggle.setAttribute("aria-expanded", String(!folded));
       head.classList.toggle("is-folded", folded);
-      body.hidden = folded;
+      body.hidden = folded || head.hidden; // a section the sidebar leaves out until it's in use (Smart folders) stays out
     };
     toggle.addEventListener("click", () => {
       prefs.folded[section] = !prefs.folded[section];
@@ -2694,11 +2733,20 @@ function openSettings() {
         vimDisplayLines: prefs.vimDisplayLines,
         setVimDisplayLines: (on) => on !== prefs.vimDisplayLines && toggleVimDisplayLines(),
         localVault,
+        sidebarPinned: prefs.sidebarPinned,
+        setSidebarPinned,
         shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
         connectAgent,
       }),
     ),
   );
+}
+
+/** Keep an optional sidebar item showing even before it's in use (Settings, Sidebar), or let it wait again. */
+function setSidebarPinned(item: OptionalItem, on: boolean) {
+  prefs.sidebarPinned = { ...prefs.sidebarPinned, [item]: on };
+  store.set("sidebarPinned", prefs.sidebarPinned);
+  renderTree();
 }
 
 const connectAgent = () => void import("./agentsPage.ts").then((m) => m.showAgents());
@@ -2985,6 +3033,7 @@ async function boot() {
   tags = tagList;
   smartFolders = smart;
   changes = recent;
+  void learnCalendars();
   renderActivity();
   renderPresence();
   connect(onMessage, (up) => {
