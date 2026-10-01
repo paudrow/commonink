@@ -23,7 +23,29 @@ test("a task can't carry a form, an input or a button", () => {
 
 test("note HTML can't stand in for the app's elements or float over it", () => {
   assert.equal(renderMarkdown('<div id="backlinks" popover>x</div>', "a.md"), '<div id="user-content-backlinks">x</div>');
-  assert.equal(renderMarkdown('<button popovertarget="p">b</button>', "a.md"), "<p><button>b</button></p>\n");
+  assert.equal(renderMarkdown('<button popovertarget="p">b</button>', "a.md"), "<p>b</p>\n");
+});
+
+test("note HTML can't borrow the app's classes, as a full-screen sign-in dialog would", () => {
+  const md = '<div class="ask"><div class="modal ask-box">Your session expired. <a href="https://evil.example/login" class="btn primary">Sign in again</a></div></div>';
+  assert.equal(/class="(?!is-external")/.test(renderMarkdown(md, "a.md")), false, renderMarkdown(md, "a.md"));
+  assert.equal(inline('<span class="ask">t</span>'), "<span>t</span>");
+  // Only the app's own classes are kept, alongside a hostile one or not.
+  assert.equal(renderMarkdown('<span class="emoji ask">x</span>', "a.md"), '<p><span class="emoji">x</span></p>\n');
+});
+
+test("note HTML can't carry controls, but a task's checkbox stays", () => {
+  const md = '<input type="password" placeholder="Password"><input type=" Text"><textarea>t</textarea><select><option>o</option></select><dialog open>d</dialog>';
+  assert.equal(/<(input|textarea|select|dialog)/.test(renderMarkdown(md, "a.md")), false, renderMarkdown(md, "a.md"));
+  assert.equal(renderMarkdown("- [x] done\n- [ ] todo", "a.md"), '<ul>\n<li><input checked="" disabled="" type="checkbox"> done</li>\n<li><input disabled="" type="checkbox"> todo</li>\n</ul>\n');
+});
+
+test("what the renderer itself writes keeps its classes", () => {
+  const html = renderMarkdown("```ts\nx\n```\n\n> [!WARNING]\n> careful\n\nA :smile: and $x$ and[^1] [web](https://example.com)\n\n[^1]: note", "a.md");
+  for (const cls of ["language-ts", "markdown-alert markdown-alert-warning", "markdown-alert-title", "markdown-alert-icon", "emoji", "math", "footnote-ref", "footnotes", "footnote-backref", "sr-only", "is-external"]) {
+    assert.ok(html.includes(`class="${cls}"`), `${cls} in ${html}`);
+  }
+  assert.match(renderMarkdown(":::kanban\n## Todo\n- a\n:::", "a.md", { boards: true }), /<div class="kb-slot" data-board="0"><\/div>/);
 });
 
 test("a link in note content opens in a new tab, never in place of the app", () => {
