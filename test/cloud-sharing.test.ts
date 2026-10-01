@@ -160,6 +160,25 @@ test("signed in with a link, you can keep it: it joins Shared with me with the l
   assert.equal((await cloud.request(null, "POST", `/api/s/${link}/join`, {})).status, 401);
 });
 
+test("making a link view-only, or removing it, does the same for everyone who joined it; what was shared with them directly stays", async () => {
+  await cloud.call(t.owner, "POST", `${t.base}/note`, { path: "Passed around.md", content: "# Passed around\n" });
+  await cloud.call(t.owner, "POST", `${t.base}/shares`, { path: "Passed around.md", email: "direct@localhost", role: "viewer" });
+  const made = await cloud.call(t.owner, "POST", `${t.base}/shares`, { path: "Passed around.md", link: true, role: "editor" });
+  const share = made.shares.find((s: { kind: string }) => s.kind === "link");
+  const [keeper, direct] = await Promise.all(["keeper", "direct"].map((a) => cloud.signIn(a)));
+  for (const who of [keeper, direct]) await cloud.call(who, "POST", `/api/s/${share.url.split("/")[2]}/join`, {});
+  const id = (await cloud.call(t.owner, "GET", `${t.base}/notes`)).find((n: { path: string }) => n.path === "Passed around.md").id;
+  const role = async (who: string) => {
+    const r = await get(who, `${t.base}/shared/note?id=${id}`);
+    return r.status === 200 ? ((await r.json()) as { role: string }).role : r.status;
+  };
+  assert.deepEqual([await role(keeper), await role(direct)], ["editor", "editor"]);
+  await cloud.call(t.owner, "POST", `${t.base}/shares/update`, { id: share.id, role: "viewer" });
+  assert.deepEqual([await role(keeper), await role(direct)], ["viewer", "viewer"]);
+  await cloud.call(t.owner, "POST", `${t.base}/shares/remove`, { id: share.id });
+  assert.deepEqual([await role(keeper), await role(direct)], [404, "viewer"]);
+});
+
 test("an address several accounts share (Previews' developer sign-ins) is shared by address, and reaches whoever signs in with it", async () => {
   const twin = await cloud.signIn("twin");
   const env = await cloud.server.getWorker().getEnv();
