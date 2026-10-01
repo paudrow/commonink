@@ -197,6 +197,14 @@ test("sharing from the CLI: by email, listed, stopped; links wait for the owner'
   const link = editor.run(["share", "Shared from the CLI", "--link", "--role", "viewer", ...team]);
   assert.equal(link.status, 6);
   assert.match(link.stderr, /^Agents can't share by link or for editing in this workspace\./);
+  // Nor does it get the URL of a link made in the app (anyone with it could join), until that's allowed.
+  const made = await cloud.call(people.owner, "POST", `${people.base}/shares`, { path: "Shared from the CLI.md", link: true, role: "viewer" });
+  const linkLine = () => editor.run(["shares", "Shared from the CLI", ...team]).stdout.split("\n").find((l) => l.includes("Anyone with the link"))!;
+  assert.match(linkLine(), /^- Anyone with the link — viewer/);
+  await cloud.call(people.owner, "POST", `${people.base}/workspace/settings`, { agentLinks: true });
+  assert.match(linkLine(), /^- Anyone with the link: http\S+\/s\/[a-f0-9]{64} — viewer/);
+  await cloud.call(people.owner, "POST", `${people.base}/workspace/settings`, { agentLinks: false });
+  await cloud.call(people.owner, "POST", `${people.base}/shares/remove`, { id: made.shares.find((s: { kind: string }) => s.kind === "link").id });
   const viewer = cli();
   await login(viewer, people.viewer);
   assert.match(viewer.run(["shares", "Shared from the CLI", ...team]).stdout, /cli-guest@example\.com/);
