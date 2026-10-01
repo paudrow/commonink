@@ -103,7 +103,6 @@ export function appSettings(app: SettingsApp): Setting[] {
         set: (v) => app.setTheme(v as Theme),
       },
     },
-    ...sidebar,
     {
       id: "ink",
       section: "Appearance",
@@ -112,6 +111,7 @@ export function appSettings(app: SettingsApp): Setting[] {
       keywords: "accent color colour palette unlock sepia viridian vermilion cobalt iron gall",
       control: { kind: "custom", render: () => [inkPicker(app)] },
     },
+    ...sidebar,
     {
       id: "line-numbers",
       section: "Editor",
