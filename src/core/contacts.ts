@@ -357,7 +357,7 @@ export function parseContactsCsv(text: string): ContactInput[] {
       const role = roles[i];
       const v = cell.trim();
       if (!role || !v) return;
-      const items = v.split(/\s*:::\s*|\s*;\s*/).filter(Boolean);
+      const items = v.split(/:::|;/).map((s) => s.trim()).filter(Boolean); // trimmed after, not in the pattern: `\s*` there rescans every run of spaces
       if (role === "first") first = v;
       else if (role === "last") last = v;
       else if (role === "name") c.name = v;

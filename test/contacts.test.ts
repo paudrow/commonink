@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { contactFromNote, contactNote, duplicateContacts, handlesOf, parseContactsCsv, parseVCards, type Contact } from "../src/core/contacts.ts";
-import { openTempVault } from "./helpers.ts";
+import { cpuMs, openTempVault } from "./helpers.ts";
 
 const JANE = `---
 email: jane@acme.com
@@ -81,6 +81,13 @@ test("CSV: Google's and Outlook's column names, first and last name, lists in on
   const outlook = "First Name,Last Name,E-mail Address,Company,Job Title,Mobile Phone,Categories\nSam,Lee,sam@x.org,Globex,PM,555-0101,vendor;friend\n,,,,,,\n";
   assert.deepEqual(parseContactsCsv(outlook), [{ name: "Sam Lee", email: ["sam@x.org"], phone: ["555-0101"], company: "Globex", role: "PM", links: [], aliases: [], tags: ["vendor", "friend"], notes: "" }]);
   assert.throws(() => parseContactsCsv("colour,size\nred,L\n"), /no column for a name or an email/);
+});
+
+test("a hostile CSV cell (a long run of spaces between two words) parses in linear time", () => {
+  const csv = `Name,Email\na,x${" ".repeat(100_000)}y\n`;
+  assert.ok(cpuMs(() => parseContactsCsv(csv)) < 300, "fast");
+  assert.deepEqual(parseContactsCsv(csv)[0].email, [`x${" ".repeat(100_000)}y`]);
+  assert.deepEqual(parseContactsCsv("Name,Email\na, x@y.org ;  ; z@y.org ::: w@y.org\n")[0].email, ["x@y.org", "z@y.org", "w@y.org"]);
 });
 
 test("duplicates: contacts that share an email, or a name (aliases count)", () => {
