@@ -16,6 +16,7 @@ import { createState, lineNumbersFor, lineNumbersSlot, openLinkToSide, remote, s
 import { linkTargetAt } from "./editor/linkAt.ts";
 import { bumpEmbeds, codeRange, editorContext } from "./editor/blocks.ts";
 import { codeWrapByDefault, setCodeWrapByDefault } from "./code.ts";
+import { hasFencedCode } from "../../src/core/fence.ts";
 import { foldAll, foldAt, foldCount } from "./editor/details.ts";
 import { clearFlash, flashChanges } from "./editor/agentFlash.ts";
 import { editsBetween, merge3 } from "./merge.ts";
@@ -1319,6 +1320,7 @@ function onUpdate(s: Session, docChanged: boolean, fromRemote: boolean, state: E
     }
   }
   if (s.retitle) retitleSoon(s, state);
+  if (docChanged && s.kind === "md") renderCodeWrapSoon(); // either pane: a code block may have come or gone
   if (s.pane !== active) return;
   renderStatusSoon(state);
   if (docChanged) renderOutlineSoon();
@@ -2292,6 +2294,9 @@ function attachVim() {
   const cm = getCM(active.view);
   const node = $("#vim-mode");
   const toggle = $("#vim-toggle");
+  // Only while Vim is on: then it says so beside the mode and turns it off in one click. Settings
+  // and ⌘⇧P turn it on, so someone who never uses Vim never sees it.
+  toggle.hidden = !prefs.vim;
   setPressed(toggle, prefs.vim);
   toggle.textContent = `Vim keys: ${prefs.vim ? "on" : "off"}`;
   if (!cm || !prefs.vim) {
@@ -2664,14 +2669,25 @@ function setCodeWrap(on: boolean) {
   for (const p of panes) bumpEmbeds(p.view);
 }
 
-/** The Wrap code chip: only where there's a note to have code in. mobile.css hides it on phones. */
+/**
+ * The Wrap code chip: only while an open note has a code block for it to change, so a note of
+ * plain prose doesn't show a switch that does nothing there. Settings has it always. mobile.css
+ * hides it on phones.
+ */
 function renderCodeWrap() {
   const on = codeWrapByDefault();
   const chip = $("#codewrap-toggle");
-  chip.hidden = !panes.some((p) => p.session?.kind === "md");
+  chip.hidden = !panes.some((p) => p.session?.kind === "md" && hasFencedCode(p.view.state.doc.toString()));
   setPressed(chip, on);
   chip.textContent = `Wrap code: ${on ? "on" : "off"}`;
   chip.title = on ? "Long lines in code blocks wrap. Click to scroll them instead." : "Long lines in code blocks scroll. Click to wrap them.";
+}
+
+/** As you type: a moment after the last keystroke, so typing or deleting a fence shows or hides the chip. */
+let codeWrapTimer = 0;
+function renderCodeWrapSoon() {
+  clearTimeout(codeWrapTimer);
+  codeWrapTimer = window.setTimeout(renderCodeWrap, 300);
 }
 
 /** Local vaults: where the vault and the `commonink` command are, for connecting an agent. Online, null. */
