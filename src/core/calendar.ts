@@ -10,7 +10,7 @@ import { VaultError } from "./paths.ts";
 import { fillTemplate } from "./templates.ts";
 import type { Vault } from "./vault.ts";
 import type { SqlDb } from "./store.ts";
-import { fetchGuarded, readCapped, type UrlGuard } from "./unfurl.ts";
+import { fetchGuarded, readCappedBytes, type UrlGuard } from "./unfurl.ts";
 
 export type SourceKind = "ics" | "google" | "local";
 export type SyncStatus = "pending" | "ok" | "error";
@@ -281,8 +281,8 @@ export async function fetchFeed(url: string, last: { etag: string | null; modifi
     await res.body?.cancel();
     throw new Error(`feed:That feed is over ${size(max)}`);
   }
-  const text = await readCapped(res, max + 1);
-  if (text.length > max) throw new Error(`feed:That feed is over ${size(max)}`);
+  const { text, bytes } = await readCappedBytes(res, max + 1);
+  if (bytes > max) throw new Error(`feed:That feed is over ${size(max)}`);
   if (!looksLikeIcs(text)) throw new Error("feed:That address isn't a calendar feed (no BEGIN:VCALENDAR)");
   return { status: "ok", text, etag: res.headers.get("etag"), modified: res.headers.get("last-modified") };
 }
