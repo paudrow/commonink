@@ -1,7 +1,7 @@
 import "./dom.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { nameField, sectionHint, sidebarTags } from "../web/src/sidebar.ts";
+import { nameField, sectionHint, shownItems, sidebarTags } from "../web/src/sidebar.ts";
 import type { TagCount } from "../web/src/api.ts";
 
 const tag = (t: string, notes: number, tasks = 0, assets = 0): TagCount => ({ tag: t, display: t, notes, tasks, assets });
@@ -36,4 +36,14 @@ test("a section's name field hands over what was typed on Enter, nothing on Esca
   section.querySelector("input")!.dispatchEvent(new window.Event("blur")); // jsdom's Event: Node's own isn't one jsdom takes
   assert.deepEqual(got, ["work/clients", null, "left"]);
   assert.equal(section.querySelector(".is-input"), null);
+});
+
+test("Contacts, Calendar, Assets and Smart folders show once in use, while you're on one, or always if Settings says so", () => {
+  const none = { contacts: false, calendar: false, assets: false, smart: false };
+  const shown = (r: Record<string, boolean>) => Object.keys(r).filter((k) => r[k]);
+  assert.deepEqual(shown(shownItems(none, {}, new Set())), [], "a new workspace's sidebar leaves them all out");
+  assert.deepEqual(shown(shownItems({ ...none, assets: true, smart: true }, {}, new Set())), ["assets", "smart"]);
+  assert.deepEqual(shown(shownItems(none, {}, new Set(["contacts"]))), ["contacts"], "opened by URL or from ⌘K, it shows while you're on it");
+  assert.deepEqual(shown(shownItems(none, { calendar: true, assets: false }, new Set())), ["calendar"]);
+  assert.deepEqual(shown(shownItems({ ...none, assets: true }, { assets: false }, new Set())), ["assets"], "turning the setting off only lets it wait again");
 });

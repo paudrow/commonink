@@ -23,7 +23,29 @@ test("a task can't carry a form, an input or a button", () => {
 
 test("note HTML can't stand in for the app's elements or float over it", () => {
   assert.equal(renderMarkdown('<div id="backlinks" popover>x</div>', "a.md"), '<div id="user-content-backlinks">x</div>');
-  assert.equal(renderMarkdown('<button popovertarget="p">b</button>', "a.md"), "<p><button>b</button></p>\n");
+  assert.equal(renderMarkdown('<button popovertarget="p">b</button>', "a.md"), "<p>b</p>\n");
+});
+
+test("note HTML can't borrow the app's classes, as a full-screen sign-in dialog would", () => {
+  const md = '<div class="ask"><div class="modal ask-box">Your session expired. <a href="https://evil.example/login" class="btn primary">Sign in again</a></div></div>';
+  assert.equal(/class="(?!is-external")/.test(renderMarkdown(md, "a.md")), false, renderMarkdown(md, "a.md"));
+  assert.equal(inline('<span class="ask">t</span>'), "<span>t</span>");
+  // Only the app's own classes are kept, alongside a hostile one or not.
+  assert.equal(renderMarkdown('<span class="emoji ask">x</span>', "a.md"), '<p><span class="emoji">x</span></p>\n');
+});
+
+test("note HTML can't carry controls, but a task's checkbox stays", () => {
+  const md = '<input type="password" placeholder="Password"><input type=" Text"><textarea>t</textarea><select><option>o</option></select><dialog open>d</dialog>';
+  assert.equal(/<(input|textarea|select|dialog)/.test(renderMarkdown(md, "a.md")), false, renderMarkdown(md, "a.md"));
+  assert.equal(renderMarkdown("- [x] done\n- [ ] todo", "a.md"), '<ul>\n<li><input checked="" disabled="" type="checkbox"> done</li>\n<li><input disabled="" type="checkbox"> todo</li>\n</ul>\n');
+});
+
+test("what the renderer itself writes keeps its classes", () => {
+  const html = renderMarkdown("```ts\nx\n```\n\n> [!WARNING]\n> careful\n\nA :smile: and $x$ and[^1] [web](https://example.com)\n\n[^1]: note", "a.md");
+  for (const cls of ["language-ts", "markdown-alert markdown-alert-warning", "markdown-alert-title", "markdown-alert-icon", "emoji", "math", "footnote-ref", "footnotes", "footnote-backref", "sr-only", "is-external"]) {
+    assert.ok(html.includes(`class="${cls}"`), `${cls} in ${html}`);
+  }
+  assert.match(renderMarkdown(":::kanban\n## Todo\n- a\n:::", "a.md", { boards: true }), /<div class="kb-slot" data-board="0"><\/div>/);
 });
 
 test("a link in note content opens in a new tab, never in place of the app", () => {
@@ -48,12 +70,14 @@ test("a link in note content opens in a new tab, never in place of the app", () 
   window.open = realOpen;
 });
 
-test("a Mastodon-style embed, which can be any host, gets no forms, clipboard or unsandboxed popups", async () => {
+test("a Mastodon-style embed, which can be any host, gets no forms, clipboard, full screen or unsandboxed popups", async () => {
   const { resolveEmbed, providerFrame } = await import("../web/src/embeds/providers.ts");
   const frame = providerFrame((await resolveEmbed("https://evil.example/@a/123456"))!);
-  assert.deepEqual([frame.getAttribute("sandbox"), frame.getAttribute("allow")], ["allow-scripts allow-same-origin allow-popups", "autoplay; picture-in-picture; fullscreen"]);
+  assert.deepEqual([frame.getAttribute("sandbox"), frame.getAttribute("allow"), frame.allowFullscreen], ["allow-scripts allow-same-origin allow-popups", "autoplay; picture-in-picture", false]);
   const youtube = providerFrame((await resolveEmbed("https://www.youtube.com/watch?v=dQw4w9WgXcQ"))!);
   assert.match(youtube.getAttribute("sandbox")!, /allow-forms/);
+  assert.match(youtube.getAttribute("allow")!, /fullscreen/);
+  assert.equal(youtube.allowFullscreen, true);
 });
 
 test("hostile markdown renders in linear time, and deep quotes don't overflow the stack", async () => {
@@ -156,4 +180,32 @@ test("the web-link marker runs after sanitizing: it can't bring back a bad href,
     { href: "https://evil.example", class: "is-external", title: "evil.example · opens in your browser" },
     {},
   ]);
+});
+
+test("a search's matches are marked in the text, never inside its escaped < > & \" '", async () => {
+  const { api } = await import("../web/src/api.ts");
+  const { query } = await import("../web/src/widgets/query.ts");
+  const line = `if a < b && c > "d" it's <b>bold</b>`;
+  const feed = api.feed;
+  api.feed = (async () => ({ items: [{ path: "a.md", title: "A", kind: "md", mtime: 0, excerpt: "", lines: [{ line: 1, text: line }] }], total: 1 })) as unknown as typeof api.feed;
+  try {
+    const shown = async (q: string) => {
+      const body = document.createElement("div");
+      const stop = query.mount(body, { args: { q }, note: "n.md", remeasure() {}, open() {} } as never, body);
+      await new Promise((r) => setTimeout(r, 0));
+      stop();
+      return body.querySelector(".qq-preview")!;
+    };
+    for (const q of ["lt", "gt", "amp", "quot", "39"]) {
+      const p = await shown(q);
+      assert.equal(p.textContent, line, q);
+      assert.equal(p.querySelector("mark"), null, q);
+    }
+    const p = await shown("bold it");
+    assert.equal(p.textContent, line);
+    assert.deepEqual([...p.querySelectorAll("mark")].map((m) => m.textContent), ["it", "bold"]);
+    assert.equal(p.querySelector("b"), null, "the note's own HTML stays text");
+  } finally {
+    api.feed = feed;
+  }
 });

@@ -47,6 +47,24 @@ test("members can leave; the only owner can't until someone else owns it, and no
   assert.equal((await cloud.request(t.viewer, "POST", `/api/w/${mine.id}/leave`, {})).status, 409);
 });
 
+test("someone removed, or who leaves, loses what was shared with them there too, by account or by email", async () => {
+  const t = await team(cloud);
+  await cloud.call(t.owner, "POST", `${t.base}/note`, { path: "Plans/Q4.md", content: "# Q4\n" });
+  await cloud.call(t.owner, "POST", `${t.base}/shares`, { folder: "Plans", email: "viewer@localhost", role: "viewer" });
+  await cloud.call(t.owner, "POST", `${t.base}/shares`, { folder: "Plans", email: "latecomer@localhost", role: "editor" });
+  const latecomer = await cloud.signIn("latecomer");
+  const { url } = await cloud.call(t.owner, "POST", `${t.base}/invites`, { role: "viewer" });
+  await cloud.request(latecomer, "POST", new URL(url).pathname);
+  const kinds = (await cloud.call(t.owner, "GET", `${t.base}/shares?folder=Plans`)).shares.map((s: { kind: string }) => s.kind).sort();
+  assert.deepEqual(kinds, ["email", "user"]);
+
+  const viewerId = (await cloud.call(t.owner, "GET", `${t.base}/members`)).find((m: { name: string }) => m.name === "Viewer Dev").id;
+  await cloud.call(t.owner, "POST", `${t.base}/members/remove`, { user: viewerId });
+  await cloud.call(latecomer, "POST", `${t.base}/leave`, {});
+  for (const who of [t.viewer, latecomer]) assert.equal((await cloud.request(who, "GET", `${t.base}/shared/list`)).status, 404);
+  assert.deepEqual((await cloud.call(t.owner, "GET", `${t.base}/shares?folder=Plans`)).shares, []);
+});
+
 test("invite links list who used them; an unused one can be revoked, and then it doesn't work", async () => {
   const t = await team(cloud);
   const newcomer = await cloud.signIn("newcomer");
@@ -72,6 +90,9 @@ test("owners rename a workspace, and delete a team one only by typing its name: 
   assert.equal((await cloud.call(t.editor, "GET", "/api/me")).workspaces.find((w: { id: string }) => w.id === t.id).name, "Launch crew");
   await cloud.request(t.owner, "POST", `${t.base}/upload?name=f.txt`, new TextEncoder().encode("bytes"), { "content-type": "text/plain" });
   const invite = await cloud.call(t.owner, "POST", `${t.base}/invites`, { role: "viewer" });
+  await cloud.call(t.owner, "PUT", `${t.base}/note`, { path: "Shared.md", content: "# Shared\n" });
+  await cloud.call(t.owner, "POST", `${t.base}/shares`, { path: "Shared.md", link: true, role: "viewer" });
+  await cloud.call(t.owner, "POST", `${t.base}/shares`, { path: "Shared.md", email: "outsider@localhost", role: "viewer" });
   const env = await cloud.server.getWorker().getEnv();
   const blobs = async () => (await env.FILES.list({ prefix: `ws/${t.id}/` })).objects.length;
   assert.ok((await blobs()) > 0);
@@ -82,7 +103,7 @@ test("owners rename a workspace, and delete a team one only by typing its name: 
   assert.equal((await cloud.call(t.editor, "GET", "/api/me")).workspaces.some((w: { id: string }) => w.id === t.id), false);
   assert.equal(await blobs(), 0);
   assert.equal((await cloud.request(await cloud.signIn("late"), "GET", new URL(invite.url).pathname)).status, 410);
-  const left = await env.DB.prepare("SELECT (SELECT COUNT(*) FROM members WHERE workspace_id = ?1) + (SELECT COUNT(*) FROM invites WHERE workspace_id = ?1) + (SELECT COUNT(*) FROM note_ids WHERE workspace_id = ?1) AS n").bind(t.id).first();
+  const left = await env.DB.prepare("SELECT (SELECT COUNT(*) FROM members WHERE workspace_id = ?1) + (SELECT COUNT(*) FROM invites WHERE workspace_id = ?1) + (SELECT COUNT(*) FROM note_ids WHERE workspace_id = ?1) + (SELECT COUNT(*) FROM shares WHERE workspace_id = ?1) AS n").bind(t.id).first();
   assert.equal((left as { n: number } | null)?.n, 0);
 
   const mine = (await cloud.call(t.owner, "GET", "/api/me")).workspaces.find((w: { kind: string }) => w.kind === "personal");

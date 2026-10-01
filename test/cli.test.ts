@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { browserCommand } from "../src/cli/hosted.ts";
 import { groupChanges } from "../src/core/format.ts";
 import { openVault } from "../src/core/local.ts";
 import { tempVault } from "./helpers.ts";
@@ -225,4 +226,13 @@ test("calendars: an empty vault says how to subscribe, and a private address is 
   assert.deepEqual([add.status, add.stderr], [1, "That address isn't on the public internet\n"]);
   assert.equal(commonink(vault, ["calendars"]).stdout, "No calendars. Subscribe to an ICS or webcal feed: commonink calendars add <url>\n");
   assert.equal(commonink(vault, ["event", "nope"]).stderr, "No event nope; commonink events (list_events) lists them with their ids\n");
+});
+
+test("login opens the whole sign-in address, &s and all, and only a web address, with no shell in between", () => {
+  const url = "https://commonink.app/oauth/authorize?response_type=code&client_id=c&state=s";
+  assert.deepEqual(browserCommand(url, "win32"), ["rundll32", ["url.dll,FileProtocolHandler", url]]);
+  assert.deepEqual(browserCommand(url, "darwin"), ["open", [url]]);
+  assert.deepEqual(browserCommand(url, "linux"), ["xdg-open", [url]]);
+  // A server's discovery document names the address, so it may try to be a command.
+  for (const bad of ["file:///etc/passwd", "calc.exe", "javascript:alert(1)", "-a Terminal", ""]) assert.equal(browserCommand(bad, "win32"), null, bad);
 });

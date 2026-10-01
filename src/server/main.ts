@@ -79,6 +79,16 @@ const originOk = (req: http.IncomingMessage) => {
   const o = req.headers.origin;
   return o === undefined ? req.method === "GET" : origins.has(o);
 };
+/**
+ * Blocks other sites' credential-less GETs, which carry no Origin: an `<img>` or `<script>` probing
+ * /api/files, or asking for /api/export over and over. Browsers say where a request came from in
+ * Sec-Fetch-Site; the CLI and MCP send none. Another site may still open the app in a tab.
+ */
+const siteOk = (req: http.IncomingMessage, api: boolean) => {
+  const site = req.headers["sec-fetch-site"];
+  if (site === undefined || site === "same-origin" || site === "none") return true;
+  return !api && req.headers["sec-fetch-mode"] === "navigate" && req.headers["sec-fetch-dest"] === "document";
+};
 
 // ------------------------------------------------------------------ live updates
 
@@ -214,7 +224,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
   if (!hostOk(req)) return send(res, json({ error: "Forbidden host" }, 403));
   const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
   // Every path, the app's files included: another site (or another localhost port) gets nothing.
-  if (!originOk(req)) return send(res, json({ error: "Cross-origin request refused" }, 403));
+  if (!originOk(req) || !siteOk(req, url.pathname.startsWith("/api/"))) return send(res, json({ error: "Cross-origin request refused" }, 403));
   if (url.pathname === SANDBOX_PATH) return send(res, sandboxPage());
   // A share the service worker didn't catch (it wasn't set up yet): the capture screen says so.
   if (url.pathname === "/share" && req.method === "POST") {
@@ -226,6 +236,8 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
     res.setHeader("Content-Security-Policy", appPolicy(NONCE, url)); // also: no framing the app to click through it
     return vite ? vite.middlewares(req, res) : send(res, json({ error: "Not found (COMMONINK_NO_UI)" }, 404));
   }
+  // No other origin may read or embed what the API answers, even in browsers that don't send Sec-Fetch-Site.
+  res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
   const route = url.pathname.slice("/api".length);
   // Uploads are raw bytes; the Origin check above is what keeps other sites out.
   if (route === "/upload" && req.method === "POST") return upload(req, res, url);
@@ -279,9 +291,13 @@ function asset(res: http.ServerResponse, raw: string) {
 /** Save an uploaded file into the vault (assets/ by default), under a free name. */
 async function upload(req: http.IncomingMessage, res: http.ServerResponse, url: URL) {
   try {
-    const rel = vault.uploadPath(url.searchParams.get("name") ?? "", url.searchParams.get("folder") ?? "assets");
+    const name = url.searchParams.get("name") ?? "", folder = url.searchParams.get("folder") ?? "assets";
+    vault.uploadPath(name, folder); // refuses a type we don't take before reading the body
     const bytes = await readBody(req, MAX_UPLOAD);
     if (!bytes) return tooLarge(res, "That file is over 50 MB");
+    // Named only once the bytes are in, and written straight after: two uploads called image.png
+    // at once would otherwise both pick assets/image.png, and the second would replace the first.
+    const rel = vault.uploadPath(name, folder);
     seen.set(rel, "uploading"); // the watcher leaves it to us
     files.write(rel, bytes);
     const r = vault.recordUpload(rel, false, host.actor);
