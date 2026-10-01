@@ -5,8 +5,12 @@ import assert from "node:assert/strict";
 import WebSocket from "ws";
 import { startCloud, team, type Cloud } from "./cloud.ts";
 
+// Loaded by a computed name, so this project's typecheck doesn't follow it into Workers types.
+const AUTH = "../cloud/src/auth.ts";
+const { seal } = (await import(AUTH)) as { seal: (secret: string, payload: object) => Promise<string> };
+
 let cloud: Cloud;
-before(async () => (cloud = await startCloud()));
+before(async () => (cloud = await startCloud({ SIGNUP_CODE: "open sesame" })));
 after(() => cloud.close());
 
 const me = async (cookie: string) => (await cloud.request(cookie, "GET", "/api/me")).status;
@@ -101,4 +105,28 @@ test("bad input gets a 4xx with a plain message, never an exception from inside"
       [400, "Invalid path: ../../x.png"],
     ],
   );
+});
+
+test("wrong sign-up codes sent all at once still get only five tries a day", async () => {
+  // A new Google account's ticket, as the OAuth callback hands it over.
+  const ticket = async (sub: string) =>
+    `__Host-ci_signup=${await seal("test-only-secret", { sub, profile: { email: `${sub}@example.com`, name: sub }, next: "/", exp: Date.now() + 15 * 60_000 })}`;
+  const tryCode = (cookie: string, code: string) =>
+    cloud.server.fetch(new URL("/auth/signup", cloud.origin), {
+      method: "POST",
+      redirect: "manual",
+      headers: { cookie, origin: cloud.origin, "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ code }).toString(),
+    });
+
+  const guesser = await ticket("google:guesser");
+  const statuses = (await Promise.all(Array.from({ length: 20 }, (_, i) => tryCode(guesser, `guess ${i}`)))).map((r) => r.status);
+  assert.equal(statuses.filter((s) => s === 403).length, 5, "five wrong codes are checked");
+  assert.equal(statuses.filter((s) => s === 429).length, 15, "the rest are refused unchecked");
+  assert.equal((await tryCode(guesser, "open sesame")).status, 429, "even the right code waits until tomorrow");
+
+  // Someone who mistypes a few times at once still gets in with the right code.
+  const typo = await ticket("google:typo");
+  await Promise.all([tryCode(typo, "open sesme"), tryCode(typo, "opn sesame")]);
+  assert.equal((await tryCode(typo, "open sesame")).status, 302);
 });
