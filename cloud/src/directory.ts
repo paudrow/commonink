@@ -122,14 +122,25 @@ export async function createInvite(db: D1Database, workspaceId: string, by: stri
   return token;
 }
 
-/** Wrong sign-up codes entered for this identity since `since`. */
-export async function failedSignups(db: D1Database, sub: string, since: number) {
-  const row = await db.prepare("SELECT COUNT(*) AS n FROM signup_attempts WHERE sub = ? AND at > ?").bind(sub, since).first<{ n: number }>();
-  return row?.n ?? 0;
+/**
+ * Takes one of this identity's `tries` sign-up codes since `since`, counted as wrong until
+ * `forgiveSignupTry` says otherwise; null when they're used up. Counting and taking are one
+ * statement, so codes sent all at once can't all slip in under the limit.
+ */
+export async function takeSignupTry(db: D1Database, sub: string, since: number, tries: number) {
+  const row = await db
+    .prepare(
+      `INSERT INTO signup_attempts(sub, at) SELECT ?1, ?2
+       WHERE (SELECT COUNT(*) FROM signup_attempts WHERE sub = ?1 AND at > ?3) < ?4 RETURNING rowid AS id`,
+    )
+    .bind(sub, Date.now(), since, tries)
+    .first<{ id: number }>();
+  return row?.id ?? null;
 }
 
-export async function recordFailedSignup(db: D1Database, sub: string) {
-  await db.prepare("INSERT INTO signup_attempts(sub, at) VALUES (?, ?)").bind(sub, Date.now()).run();
+/** The code was right after all, so the try doesn't count against them. */
+export async function forgiveSignupTry(db: D1Database, id: number) {
+  await db.prepare("DELETE FROM signup_attempts WHERE rowid = ?").bind(id).run();
 }
 
 /** Whether an invite link is still good, without using it. */
