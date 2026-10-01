@@ -14,10 +14,6 @@ Your vault at a glance. Each block below is one line of markdown (or a code bloc
 
 ::calendar{folder=Journal}
 
-## Writing days
-
-::streak
-
 ## How it fits together
 
 ```mermaid

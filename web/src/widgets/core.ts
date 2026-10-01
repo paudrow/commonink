@@ -1,7 +1,7 @@
 // Shared chrome for interactive widgets: the card, its header, and the settings form that
 // writes the widget's args back into the markdown line. Its fields (fieldRows) are shared with
 // the smart folder editor, so a query field added once shows up in both.
-import type { TagCount, Task } from "../api.ts";
+import type { TagCount } from "../api.ts";
 import { el, icon } from "../dom.ts";
 import { tagPicker } from "../tagPicker.ts";
 import { formatDuration, parseDuration, serializeDirective } from "./args.ts";
@@ -39,7 +39,7 @@ export interface WidgetEnv {
   /** Run fn with this widget's state id; if the markdown has none yet, one is written first. */
   withId(fn: (id: string) => void): void;
   focusEditor(): void;
-  /** Show the widget's markdown line in the note, with the cursor on it (none on the Tasks page). */
+  /** Show the widget's markdown line in the note, with the cursor on it (none on the Tasks and Today pages). */
   editSource?(): void;
   remeasure(): void;
   /** Open a note (path or [[name]]), optionally at a line; `side`: to the side (Cmd/Ctrl-click). */
@@ -52,12 +52,10 @@ export interface WidgetEnv {
   sources: FieldSources;
   /** Show a person's tasks. */
   openPerson(name: string): void;
-  /** The note editor the widget is in (none on the Tasks page): its note names and tags, for suggestions. */
+  /** The note editor the widget is in (none on the Tasks and Today pages): its note names and tags, for suggestions. */
   editor?: EditorContext;
   /** The person can read this workspace but not change it. */
   readOnly?: boolean;
-  /** Tasks a list leaves out (the Tasks page: the ones its Today section already shows). */
-  skip?(task: Task): boolean;
   /** What a list shows when there are no tasks at all (the Tasks page: where tasks come from). */
   empty?(): HTMLElement;
 }
@@ -65,6 +63,8 @@ export interface WidgetEnv {
 export interface WidgetSpec {
   name: string;
   title: string;
+  /** The header's words, when they depend on the args ("Writing days in Journal"); `title` otherwise. */
+  heading?(args: Record<string, string>): string;
   icon: string;
   hint: string;
   keywords: string;
@@ -85,7 +85,7 @@ export function renderWidget(spec: WidgetSpec, env: WidgetEnv): { dom: HTMLEleme
   const head = el(
     "div",
     { class: "qw-head" },
-    el("span", { class: "qw-kind" }, icon(spec.icon, 13), spec.title),
+    el("span", { class: "qw-kind" }, icon(spec.icon, 13), spec.heading?.(env.args) ?? spec.title),
     env.args.label ? el("span", { class: "qw-label" }, env.args.label) : null,
     el("span", { class: "spacer" }),
     source,

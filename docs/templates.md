@@ -82,7 +82,7 @@ tags: [meeting]
 
 ## Daily notes
 
-Today's journal note (Tasks → Today), quick-add's journal, quick capture, and the calendar widget over `Journal/` make a new day's note from `Templates/Daily note.md`, with the same placeholders. `{{date}}` is that day, so `# {{date:dddd, MMMM D}}` heads it with the weekday.
+Today's journal note (on the Today page), quick-add's journal, quick capture, and the calendar widget over `Journal/` make a new day's note from `Templates/Daily note.md`, with the same placeholders. `{{date}}` is that day, so `# {{date:dddd, MMMM D}}` heads it with the weekday.
 
 ## Meeting notes
 

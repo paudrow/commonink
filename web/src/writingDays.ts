@@ -1,6 +1,6 @@
 // "Your writing days": which days you wrote, and how many days in a row. Pure date math, so it can
-// be tested without a browser: the sidebar's streak chip and the `::streak` widget (streak.ts) draw
-// what this works out. Days are calendar days where you are (localDate), and stepping from one to
+// be tested without a browser: the Today page's Writing streak and the `::streak` widget (streak.ts)
+// draw what this works out. Days are calendar days where you are (localDate), and stepping from one to
 // the next goes by date, not by 24 hours, so a clock change never skips or doubles a day.
 import { addDays, localDate } from "../../src/core/tasks.ts";
 
@@ -43,6 +43,30 @@ export function streakOf(days: Map<string, number>, today: string): Streak {
     longest = Math.max(longest, run);
   }
   return { current, longest, wroteToday };
+}
+
+/** How many days of `today`'s week (Monday to today) you wrote: a missed day lowers it by one, rather than resetting anything. */
+export function thisWeek(days: Map<string, number>, today: string): number {
+  let n = 0;
+  for (let d = mondayOf(today); d <= today; d = addDays(d, 1)) if ((days.get(d) ?? 0) > 0) n++;
+  return n;
+}
+
+/**
+ * Whether a change to `path` counts toward a `::streak{folder=…}`: the note is in that folder or one
+ * under it. An archived note still counts toward the folder it came from, as Notes' folder filter does.
+ */
+export function inFolder(path: string, folder: string): boolean {
+  const want = folder.replace(/^\/+|\/+$/g, "");
+  if (!want) return true;
+  return path.replace(/^Archive\//, "").startsWith(`${want}/`);
+}
+
+/** What a streak counts, as its header says it: "Writing days", "Writing days in Journal", "Writing days tagged #work". */
+export function streakTitle(filter: { folder?: string; tag?: string }): string {
+  const folder = filter.folder?.replace(/^\/+|\/+$/g, "");
+  const tag = filter.tag?.replace(/^#/, "");
+  return `Writing days${folder ? ` in ${folder}` : ""}${tag ? ` tagged #${tag}` : ""}`;
 }
 
 /** The Monday of `day`'s week (weeks start on Monday, as on the Calendar page). */

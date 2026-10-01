@@ -2,7 +2,7 @@
 // you until tonight rather than breaking at 9am), and the 12 weeks the heatmap shows.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { countByDay, daysText, heatmapWeeks, level, mondayOf, streakOf } from "../web/src/writingDays.ts";
+import { countByDay, daysText, heatmapWeeks, inFolder, level, mondayOf, streakOf, streakTitle, thisWeek } from "../web/src/writingDays.ts";
 
 const days = (...list: string[]) => new Map(list.map((d) => [d, 1]));
 
@@ -65,4 +65,28 @@ test("a day's square darkens with its changes, and counts read as words", () => 
   assert.deepEqual([0, 1, 2, 3, 4, 7, 8, 40].map(level), [0, 1, 2, 2, 3, 3, 4, 4]);
   assert.equal(daysText(1), "1 day");
   assert.equal(daysText(3), "3 days");
+});
+
+test("this week counts the days you wrote since Monday, so a missed day lowers it by one", () => {
+  const wrote = days("2026-09-27", "2026-09-28", "2026-09-30", "2026-10-01"); // Sunday, then Mon, Wed, Thu
+  assert.equal(thisWeek(wrote, "2026-10-01"), 3);
+  assert.equal(streakOf(wrote, "2026-10-01").current, 2, "Tuesday ended the run");
+  assert.equal(thisWeek(wrote, "2026-09-28"), 1, "on Monday, only Monday");
+  assert.equal(thisWeek(new Map(), "2026-10-01"), 0);
+});
+
+test("a folder filter counts notes in that folder or under it, archived ones toward where they came from", () => {
+  assert.ok(inFolder("Journal/2026-10-01.md", "Journal"));
+  assert.ok(inFolder("Journal/2026/Oct.md", "Journal/"));
+  assert.ok(inFolder("Archive/Journal/2026-01-01.md", "Journal"));
+  assert.ok(!inFolder("Journals/x.md", "Journal"), "a folder whose name starts the same isn't it");
+  assert.ok(!inFolder("Journal.md", "Journal"));
+  assert.ok(inFolder("anything.md", ""), "no folder is every note");
+});
+
+test("the header says what's counted", () => {
+  assert.equal(streakTitle({}), "Writing days");
+  assert.equal(streakTitle({ folder: "Journal/" }), "Writing days in Journal");
+  assert.equal(streakTitle({ tag: "#work" }), "Writing days tagged #work");
+  assert.equal(streakTitle({ folder: "Projects", tag: "work" }), "Writing days in Projects tagged #work");
 });
