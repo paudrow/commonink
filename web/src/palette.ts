@@ -2,7 +2,7 @@
 // list. A leading `>` (or ⌘⇧P, which types it) lists the app's commands instead.
 import { api, isArchived, type NoteMeta, type SearchHit } from "./api.ts";
 import { matchCommands, type Command } from "./commands.ts";
-import { $, displayName, el, escapeHtml, icon } from "./dom.ts";
+import { $, displayName, el, icon, markTerms, searchTerms } from "./dom.ts";
 import { fuzzyScore } from "./fuzzy.ts";
 import { agentsBadge, isAgentsNote } from "./agentsNote.ts";
 import { paletteEnter } from "./panes.ts";
@@ -170,12 +170,11 @@ export class Palette {
       );
     }
     const h = item.hit;
-    const terms = q.split(/\s+/).filter((t) => t.length > 1).map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const terms = searchTerms(q);
     let text = (h.lines[0]?.text ?? h.snippet.replace(/[\u0001\u0002]/g, "")).replace(/^[-*>#\s]+/, "");
-    const at = terms.length ? text.search(new RegExp(terms.join("|"), "i")) : -1;
+    const at = terms ? text.search(new RegExp(terms, "i")) : -1;
     if (at > 36) text = `…${text.slice(at - 28)}`; // keep the match in view
-    const snippet = escapeHtml(text);
-    const marked = terms.length ? snippet.replace(new RegExp(`(${terms.join("|")})`, "gi"), "<mark>$1</mark>") : snippet;
+    const marked = markTerms(text, q);
     return el(
       "div",
       { class: "palette-item is-hit", role: "option" },
