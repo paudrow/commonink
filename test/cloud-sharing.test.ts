@@ -150,6 +150,14 @@ test("sharing by email before someone has an account: it's theirs when they sign
   );
 });
 
+test("a folder shared as \"Team folder/\", with its trailing slash, is the folder: it reaches the notes in it", async () => {
+  const made = await cloud.call(t.owner, "POST", `${t.base}/shares`, { folder: "Team folder/", email: "slasher@localhost", role: "viewer" });
+  assert.deepEqual(made.target, { folder: "Team folder" });
+  const slasher = await cloud.signIn("slasher");
+  const shared = await cloud.call(slasher, "GET", "/api/shared");
+  assert.deepEqual(shared.flatMap((w: { notes: Array<{ path: string }> }) => w.notes.map((n) => n.path)), ["Team folder/Inside.md"]);
+});
+
 test("signed in with a link, you can keep it: it joins Shared with me with the link's role", async () => {
   const joiner = await cloud.signIn("joiner");
   assert.deepEqual(await cloud.call(joiner, "GET", "/api/shared"), []);

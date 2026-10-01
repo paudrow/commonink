@@ -414,7 +414,8 @@ export class Workspace extends DurableObject<Env> {
 
   /** The note (by ID or path) or folder a share request is about; none for a GET of everything. */
   private shareTarget(o: { note?: string; path?: string; folder?: string }, optional = false): Target | undefined {
-    if (o.folder) return { folder: cleanPath(o.folder) };
+    // "Projects/" is the folder "Projects": grants match notes under `${folder}/`.
+    if (o.folder) return { folder: cleanPath(o.folder).replace(/\/+$/, "") };
     const target = o.note ?? o.path;
     if (!target) {
       if (optional) return undefined;
