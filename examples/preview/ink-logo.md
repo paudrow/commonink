@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 181
 title: The logo takes your ink
 ---
 1. Open Settings (⌘,) → Appearance → **Ink** and pick any ink you've earned (the sample notes earn a few here).
