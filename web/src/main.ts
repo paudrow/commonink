@@ -43,6 +43,7 @@ import { NO_TIPS, tipText, watchTips, type TipsState } from "./shortcutTips.ts";
 import { did, vaultEvents } from "./events.ts";
 import { guideMessage, startGuide } from "./onboarding.ts";
 import { watchTodayCleared } from "./todayCleared.ts";
+import { inkState, setInk, startInks } from "./inkUnlocks.ts";
 import { store } from "./store.ts";
 import { changeVerb, groupChanges } from "../../src/core/format.ts";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
@@ -2736,30 +2737,35 @@ function renderCodeWrapSoon() {
 /** Local vaults: where the vault and the `commonink` command are, for connecting an agent. Online, null. */
 let localVault: { vault?: string; projectRoot?: string } | null = null;
 
-function openSettings() {
+/** Settings, with `query` in its search box ("ink" goes to the Ink setting). */
+function openSettings(query?: string) {
   void import("./settings.ts").then((m) =>
-    m.openSettings(() =>
-      m.appSettings({
-        theme: theme(),
-        setTheme,
-        lineNumbers: prefs.lineNumbers,
-        setLineNumbers,
-        codeWrap: codeWrapByDefault(),
-        setCodeWrap,
-        htmlMode: prefs.htmlMode,
-        setHtmlMode,
-        vim: prefs.vim,
-        setVim,
-        vimDisplayLines: prefs.vimDisplayLines,
-        setVimDisplayLines: (on) => on !== prefs.vimDisplayLines && toggleVimDisplayLines(),
-        shortcutTips: !tipsState().off,
-        setShortcutTips: (on) => store.set("shortcutTips", { ...tipsState(), off: !on }),
-        localVault,
-        sidebarPinned: prefs.sidebarPinned,
-        setSidebarPinned,
-        shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
-        connectAgent,
-      }),
+    m.openSettings(
+      () =>
+        m.appSettings({
+          theme: theme(),
+          setTheme,
+          ink: inkState(),
+          setInk,
+          lineNumbers: prefs.lineNumbers,
+          setLineNumbers,
+          codeWrap: codeWrapByDefault(),
+          setCodeWrap,
+          htmlMode: prefs.htmlMode,
+          setHtmlMode,
+          vim: prefs.vim,
+          setVim,
+          vimDisplayLines: prefs.vimDisplayLines,
+          setVimDisplayLines: (on) => on !== prefs.vimDisplayLines && toggleVimDisplayLines(),
+          shortcutTips: !tipsState().off,
+          setShortcutTips: (on) => store.set("shortcutTips", { ...tipsState(), off: !on }),
+          localVault,
+          sidebarPinned: prefs.sidebarPinned,
+          setSidebarPinned,
+          shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
+          connectAgent,
+        }),
+      { query },
     ),
   );
 }
@@ -3082,6 +3088,7 @@ async function boot() {
   });
   if (!viewer) void startGuide({ archive: (path) => void archivePath(path), flush: () => flushSave() });
   if (!viewer) watchTodayCleared();
+  startInks({ choose: () => openSettings("ink") });
 
   void refreshTaskCount();
   // Home is the notes list; a note's URL (or the tasks, history or assets page) opens that instead.
