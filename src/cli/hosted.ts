@@ -87,9 +87,28 @@ function tokens(c: Omit<Credentials, "accessToken" | "refreshToken" | "expiresAt
 
 // ------------------------------------------------------------------ login
 
+/**
+ * The command that opens `url` in the browser on `platform`, or null if it isn't a web address (the
+ * sign-in page's address comes from the server, so it may be anything). Never through a shell: on
+ * Windows, `cmd /c start` would split the address at each `&`, cutting it short or running the rest.
+ */
+export function browserCommand(url: string, platform: NodeJS.Platform = process.platform): [string, string[]] | null {
+  let href: string;
+  try {
+    const u = new URL(url);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    href = u.href;
+  } catch {
+    return null;
+  }
+  return platform === "darwin" ? ["open", [href]] : platform === "win32" ? ["rundll32", ["url.dll,FileProtocolHandler", href]] : ["xdg-open", [href]];
+}
+
 /** Open a URL in the browser, best effort (the URL is printed too). */
 function openBrowser(url: string) {
-  const [cmd, args] = process.platform === "darwin" ? ["open", [url]] : process.platform === "win32" ? ["cmd", ["/c", "start", "", url]] : ["xdg-open", [url]];
+  const command = browserCommand(url);
+  if (!command) return;
+  const [cmd, args] = command;
   try {
     spawn(cmd, args, { stdio: "ignore", detached: true }).on("error", () => {}).unref();
   } catch {}
