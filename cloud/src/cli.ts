@@ -44,6 +44,9 @@ export async function serveCli(req: Request, env: OAuthEnv, props: AgentProps): 
     if (tooMany) return tooMany;
   }
   if (command.settings) {
+    // An MCP client connected to one workspace reaches /mcp/cli too, with the same token. Its grant is
+    // to that workspace's notes (settings aren't MCP tools), so only a CLI's grant for every workspace runs them.
+    if (props.workspaceId !== ALL_WORKSPACES) return fail(`${command.cli} needs a sign-in for all your workspaces: run commonink login again and allow all of them`, "forbidden");
     // Settings live in the directory, not the workspace's notes: the Worker runs these itself, as it does the app's.
     try {
       return json(toWire({ ok: true, ...(await command.run({ settings: settingsOf(req, env, user, ws), user: user.id }, fromWire(body.input) as never)) } satisfies RunResponse));

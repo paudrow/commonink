@@ -174,6 +174,15 @@ test("a viewer's CLI reads but can't write, and a grant for one workspace stays 
   assert.deepEqual(one.json(["workspaces"]).workspaces.map((w: { name: string }) => w.name), ["Team"]);
   assert.equal(one.run(["ls"]).status, 0);
   assert.equal(one.run(["ls", team, "Editor's notes"]).status, 3);
+  // Nor its settings: a grant for one workspace (an MCP client's, which reaches /mcp/cli with the same token) is to its notes.
+  const owner = cli();
+  await login(owner, people.owner, people.id);
+  assert.equal(owner.run(["ls"]).status, 0);
+  for (const args of [["invite", "--role", "editor"], ["members"], ["workspace", "rename", "Mine"]]) {
+    const refused = owner.run(args);
+    assert.equal(refused.status, 6, args.join(" "));
+    assert.match(refused.stderr, /needs a sign-in for all your workspaces/);
+  }
 });
 
 test("sharing from the CLI: by email, listed, stopped; links wait for the owner's setting, as an agent's do, and a viewer only lists", async () => {
