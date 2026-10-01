@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 180
 title: Turn gamification off for a workspace
 ---
 1. Open Settings (⌘,) and search "gamification", or scroll to **Workspace → Unlock as you go**. It's on.
