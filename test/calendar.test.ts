@@ -111,6 +111,19 @@ test("webcal addresses are https, and a feed that can't be read isn't kept", asy
   assert.equal(await refused(`${base}/team.ics`), 'That feed is already here, as "Mine"');
 });
 
+test("searching events ignores case, accented letters too", async () => {
+  const { cal } = setup();
+  const sync = (uid: string, day: string, title: string) => vevent(uid, [`DTSTART:202610${day}T150000Z`, `DTEND:202610${day}T153000Z`, `SUMMARY:${title}`]);
+  team = ics(STANDUP, OFFSITE, sync("e1", "08", "Équipe Sync"), sync("e2", "09", "ÉQUIPE planning"), sync("e3", "10", "Café"));
+  await cal.addIcs({ url: `${base}/team.ics` }, ME, "you");
+  const titles = (q: string, limit?: number) => cal.events(ME, { ...OCT, q, limit }).map((e) => e.title);
+  assert.deepEqual(titles("équipe"), ["Équipe Sync", "ÉQUIPE planning"]);
+  assert.deepEqual(titles("Équipe"), ["Équipe Sync", "ÉQUIPE planning"]);
+  assert.deepEqual(titles("équipe", 1), ["Équipe Sync"]);
+  assert.deepEqual(titles("SYNC"), ["Équipe Sync"]);
+  assert.deepEqual(titles("standup", 2), ["Standup", "Standup"]);
+});
+
 test("reading a feed again updates its events in place: IDs stay, gone events go, meeting notes stay linked", async () => {
   const { cal, vault, tick } = setup();
   team = ics(STANDUP, OFFSITE);
