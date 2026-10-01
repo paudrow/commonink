@@ -72,6 +72,9 @@ test("owners rename a workspace, and delete a team one only by typing its name: 
   assert.equal((await cloud.call(t.editor, "GET", "/api/me")).workspaces.find((w: { id: string }) => w.id === t.id).name, "Launch crew");
   await cloud.request(t.owner, "POST", `${t.base}/upload?name=f.txt`, new TextEncoder().encode("bytes"), { "content-type": "text/plain" });
   const invite = await cloud.call(t.owner, "POST", `${t.base}/invites`, { role: "viewer" });
+  await cloud.call(t.owner, "PUT", `${t.base}/note`, { path: "Shared.md", content: "# Shared\n" });
+  await cloud.call(t.owner, "POST", `${t.base}/shares`, { path: "Shared.md", link: true, role: "viewer" });
+  await cloud.call(t.owner, "POST", `${t.base}/shares`, { path: "Shared.md", email: "outsider@localhost", role: "viewer" });
   const env = await cloud.server.getWorker().getEnv();
   const blobs = async () => (await env.FILES.list({ prefix: `ws/${t.id}/` })).objects.length;
   assert.ok((await blobs()) > 0);
@@ -82,7 +85,7 @@ test("owners rename a workspace, and delete a team one only by typing its name: 
   assert.equal((await cloud.call(t.editor, "GET", "/api/me")).workspaces.some((w: { id: string }) => w.id === t.id), false);
   assert.equal(await blobs(), 0);
   assert.equal((await cloud.request(await cloud.signIn("late"), "GET", new URL(invite.url).pathname)).status, 410);
-  const left = await env.DB.prepare("SELECT (SELECT COUNT(*) FROM members WHERE workspace_id = ?1) + (SELECT COUNT(*) FROM invites WHERE workspace_id = ?1) + (SELECT COUNT(*) FROM note_ids WHERE workspace_id = ?1) AS n").bind(t.id).first();
+  const left = await env.DB.prepare("SELECT (SELECT COUNT(*) FROM members WHERE workspace_id = ?1) + (SELECT COUNT(*) FROM invites WHERE workspace_id = ?1) + (SELECT COUNT(*) FROM note_ids WHERE workspace_id = ?1) + (SELECT COUNT(*) FROM shares WHERE workspace_id = ?1) AS n").bind(t.id).first();
   assert.equal((left as { n: number } | null)?.n, 0);
 
   const mine = (await cloud.call(t.owner, "GET", "/api/me")).workspaces.find((w: { kind: string }) => w.kind === "personal");
