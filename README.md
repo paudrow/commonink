@@ -79,7 +79,7 @@ The client opens Common Ink in your browser: sign in, pick the workspace it may 
 
 ## Editor
 
-CodeMirror 6, with vim mode (`@replit/codemirror-vim`) behind the status bar's **Vim keys** toggle (off until you turn it on), plus:
+CodeMirror 6, with vim mode (`@replit/codemirror-vim`), off until you turn on **Vim keys** in Settings (⌘,) or ⌘⇧P; while it's on, the status bar shows the mode and a **Vim keys: on** chip that turns it off, plus:
 
 - **Editor settings** in ⌘K, kept per browser: vim keys on or off; with vim on, "j and k move by line on screen" maps `j`/`k` to `gj`/`gk` in normal and visual mode, so a wrapped paragraph is walked a row at a time (`dj`, `yk` still take whole lines); and "Show line numbers" (or `:set number` / `:set nonu` / `:set nu!` in vim) adds a gutter numbering the file's lines.
 

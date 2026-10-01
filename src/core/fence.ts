@@ -90,3 +90,10 @@ export function diffLine(line: string): "add" | "del" | null {
   if (line.startsWith("-") && !line.startsWith("---")) return "del";
   return null;
 }
+
+/**
+ * Whether markdown has a fenced code block: a line opening with ``` or ~~~ (indented, or in a
+ * list or quote, too). An unclosed fence counts, as it's a block to the end of the note. A line
+ * like ```x``` is inline code, not a fence. The status bar shows its Wrap code switch only then.
+ */
+export const hasFencedCode = (md: string) => /^[ \t>]*(?:[-*+] +|\d+[.)] +)?(?:`{3,}[^`\n]*$|~{3,})/m.test(md);
