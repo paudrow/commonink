@@ -101,6 +101,8 @@ interface Pane {
   host: HTMLElement;
   preview: HTMLElement;
   bar: HTMLElement;
+  /** The strip over its note, for something about that note (archived, a conflict…). */
+  banner: HTMLElement;
   trail: PaneTrail;
   /** Counts what the pane was asked to show, so a note that loads after a later request doesn't replace it. */
   opens: number;
@@ -140,17 +142,18 @@ let smartFolders: SmartFolder[] = [];
 const layoutKey = () => `layout:${workspaceId || "local"}`;
 /** How the window was split, and each pane's trail; read again once the workspace is known (see boot). */
 let layout = newLayout();
-const makePane = (index: 0 | 1, host: HTMLElement, preview: HTMLElement, bar: HTMLElement): Pane => ({
+const makePane = (index: 0 | 1, host: HTMLElement, preview: HTMLElement, bar: HTMLElement, banner: HTMLElement): Pane => ({
   index,
   view: new EditorView({ parent: host }),
   session: null,
   host,
   preview,
   bar,
+  banner,
   trail: layout.panes[index],
   opens: 0,
 });
-const panes: [Pane, Pane] = [makePane(0, $("#editor-host"), $("#html-preview"), $("#main-bar")), makePane(1, $("#side-host"), $("#side-preview"), $("#side-bar"))];
+const panes: [Pane, Pane] = [makePane(0, $("#editor-host"), $("#html-preview"), $("#main-bar"), $("#banner")), makePane(1, $("#side-host"), $("#side-preview"), $("#side-bar"), $("#side-banner"))];
 let active = panes[0];
 let split = false;
 const other = (p: Pane) => panes[1 - p.index];
@@ -397,7 +400,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
     return toast({ text: `Couldn't open ${path}` });
   }
   if (ticket !== pane.opens) return; // something else was opened here while this loaded
-  hideBanner();
+  hideBanner(pane.banner);
   // The same note again (renamed, moved or archived while open) keeps its place.
   const keep = pane.session?.id === note.id ? { scroll: pane.view.scrollSnapshot(), head: pane.view.state.selection.main.head } : null;
   const next: Session = {
@@ -445,19 +448,15 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
     );
   } catch (e) {
     console.error(e);
-    return showBanner(`Couldn't open ${note.path} in the editor. Reload the page to try again.`);
+    return showBanner(`Couldn't open ${note.path} in the editor. Reload the page to try again.`, [], { in: pane.banner });
   }
   if (note.kind === "md") next.heading = nameLine(pane.view.state.doc).text;
   pane.session = next;
   pane.trail = opts.trail === false ? { ...pane.trail, note: note.id } : visit(pane.trail, note.id);
   resetVimJumps();
-  if (isArchived(note.path)) {
-    showBanner("This note is archived. It's hidden from search and the sidebar.", ["Unarchive", () => void archiveCurrent()]);
-    $("#banner").classList.add("is-info");
-  } else if (isAgentsNote(note.path)) {
-    showBanner(AGENTS_BLURB);
-    $("#banner").classList.add("is-info");
-  }
+  // Split, the banner is over this pane only: Unarchive puts back this pane's note, whichever has the focus.
+  if (isArchived(note.path)) showBanner("This note is archived. It's hidden from search and the sidebar.", [["Unarchive", () => void archiveCurrent(pane)]], { in: pane.banner, info: true });
+  else if (isAgentsNote(note.path)) showBanner(AGENTS_BLURB, [], { in: pane.banner, info: true });
   pane.host.classList.toggle("is-code", note.kind === "html");
   showNoteIn(pane);
   if (pane.index === 1 && !split) setSplit(true);
@@ -513,6 +512,7 @@ function setSplit(on: boolean) {
   $("#side-pane").hidden = !on;
   $("#pane-divider").hidden = !on;
   $("#main-bar").hidden = !on;
+  if (!on) hideBanner(panes[1].banner);
   $("#stage").style.setProperty("--side", `${layout.side * 100}%`);
   if (!on) panes[1].session = null;
   renderPaneBars();
@@ -692,7 +692,7 @@ async function leaveNote() {
   main.session = null;
   active = main;
   renderPaneBars();
-  hideBanner();
+  hideBanner(main.banner);
   await setFocusMode(false);
   $("#backlink-count").textContent = "";
   $("#backlinks").replaceChildren(el("div", { class: "panel-empty" }, "—"));
@@ -1025,8 +1025,8 @@ async function setFocusMode(on: boolean) {
 }
 
 /** Archive the open note (or unarchive it, if it's archived). Stays on the note, with Undo. */
-async function archiveCurrent() {
-  const s = active.session;
+async function archiveCurrent(pane = active) {
+  const s = pane.session;
   if (!s) return;
   await flushSave();
   const restore = isArchived(s.path);
@@ -1040,7 +1040,7 @@ async function archiveCurrent() {
     renaming = null;
   }
   await refreshNotes();
-  await openNote(to, { push: false });
+  await openNote(to, { push: false, pane });
   toast({
     icon: restore ? "unarchive" : "archive",
     text: `${restore ? "Unarchived" : "Archived"} ${displayName(to)}`,
@@ -1048,8 +1048,8 @@ async function archiveCurrent() {
     action: async () => {
       const back = (await (restore ? api.archive([to]) : api.unarchive([to]))).moved[0].to;
       await refreshNotes();
-      if (active.session?.path === to) {
-        await openNote(back, { push: false });
+      if (pane.session?.path === to) {
+        await openNote(back, { push: false, pane });
       }
     },
   });
@@ -1433,6 +1433,7 @@ function showConflict(s: Session, m: { path: string; content: string | null; ver
   clearTimeout(s.timer);
   status(s, "error");
   conflictBanner({
+    banner: s.pane.banner,
     who,
     where: split ? displayName(s.path) : "this note",
     mine: () => s.pane.view.state.doc.toString(),
@@ -1529,7 +1530,8 @@ function onMessage(m: ServerMsg) {
     case "removed": {
       const path = m.path;
       setTimeout(() => {
-        if (panes.some((p) => p.session?.path === path) && !notes.some((n) => n.path === path)) showBanner(`${displayName(path)} was moved or deleted on disk.`);
+        if (notes.some((n) => n.path === path)) return;
+        for (const p of panes) if (p.session?.path === path) showBanner(`${displayName(path)} was moved or deleted on disk.`, [], { in: p.banner });
       }, 400);
       refreshNotesSoon();
       return;
@@ -2171,7 +2173,8 @@ async function moveToFolder(path: string, folder: string, opts: { undo?: boolean
 
 /** Archive a note by its path (the guide's last card offers it). The open note stays open (marked archived), like ⌘⇧E. */
 async function archivePath(path: string) {
-  if (active.session?.path === path) return archiveCurrent();
+  const open = panes.find((p) => p.session?.path === path);
+  if (open) return archiveCurrent(open);
   const r = await api.archive([path]).catch(() => null);
   if (!r) return toast({ text: `Couldn't archive ${displayName(path)}` });
   await refreshNotes();
