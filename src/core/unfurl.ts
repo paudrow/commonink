@@ -118,6 +118,11 @@ function attributes(tag: string): Record<string, string> {
 
 /** At most `max` bytes of a body, as text. */
 export async function readCapped(res: Response, max: number): Promise<string> {
+  return (await readCappedBytes(res, max)).text;
+}
+
+/** readCapped, and how many bytes came (a cap is in bytes; text with accents has fewer characters). */
+export async function readCappedBytes(res: Response, max: number): Promise<{ text: string; bytes: number }> {
   const reader = res.body!.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
@@ -131,7 +136,7 @@ export async function readCapped(res: Response, max: number): Promise<string> {
   const all = new Uint8Array(size);
   let at = 0;
   for (const c of chunks) (all.set(c, at), (at += c.length));
-  return new TextDecoder().decode(all.subarray(0, Math.min(size, max)));
+  return { text: new TextDecoder().decode(all.subarray(0, Math.min(size, max))), bytes: size };
 }
 
 function decode(s: string): string {
