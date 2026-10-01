@@ -42,6 +42,7 @@ import { toggleShortcuts } from "./shortcuts.ts";
 import { NO_TIPS, tipText, watchTips, type TipsState } from "./shortcutTips.ts";
 import { did, vaultEvents } from "./events.ts";
 import { guideMessage, startGuide } from "./onboarding.ts";
+import { watchTodayCleared } from "./todayCleared.ts";
 import { store } from "./store.ts";
 import { changeVerb, groupChanges } from "../../src/core/format.ts";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
@@ -3028,6 +3029,7 @@ async function boot() {
     }
   });
   if (!viewer) void startGuide({ archive: (path) => void archivePath(path), flush: () => flushSave() });
+  if (!viewer) watchTodayCleared();
 
   void refreshTaskCount();
   // Home is the notes list; a note's URL (or the tasks, history or assets page) opens that instead.
