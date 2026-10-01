@@ -2,8 +2,7 @@
 // order, and its ⚙ and ↗ buttons. Click the words to edit them in place, a chip to edit that token,
 // ⌘/Ctrl-click to open the note at the line. Every change goes to the note the task lives in.
 import { marked } from "marked";
-import DOMPurify from "dompurify";
-import { NOTE_HTML } from "./render.ts";
+import { NOTE_HTML, sanitizeNote } from "./render.ts";
 import { api, type Task, type TaskPatch } from "./api.ts";
 import { el, icon, NOTE_DRAG } from "./dom.ts";
 import { sideClick } from "./panes.ts";
@@ -217,5 +216,5 @@ export function inline(md: string): string {
   const html = capHtmlDepth(marked.parseInline(tameMarkdown(withLinks), { async: false }) as string)
     .replace(/\u0001([^\u0002]*)\u0002/g, '<span class="qt-link">$1</span>') // already escaped by marked
     .replace(/\u0003(\d+)\u0004/g, (_m, i) => `<span class="tag" data-tag="${hits[+i].tag}" title="Tasks tagged #${hits[+i].display}">#${hits[+i].display}</span>`); // tags are letters, digits, _ - /
-  return DOMPurify.sanitize(html, { ...NOTE_HTML, FORBID_TAGS: [...NOTE_HTML.FORBID_TAGS, "img", "input", "button", "textarea", "select"] });
+  return sanitizeNote(html, { ...NOTE_HTML, FORBID_TAGS: [...NOTE_HTML.FORBID_TAGS, "img", "input", "button", "textarea", "select"] });
 }

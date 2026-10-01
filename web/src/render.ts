@@ -96,14 +96,46 @@ const SAFE_URI = /^(?:(?:https?|mailto|commonink|quire):|[^a-z]|[a-z+.-]+(?:[^a-
 /**
  * What note content may be as HTML. No styles or forms. Its ids and names are prefixed, so a note
  * can't stand in for the app's own elements (`#backlinks`), and it can't put itself in the top
- * layer as a popover.
+ * layer as a popover. Sanitize with sanitizeNote, which also cuts its classes and controls down.
  */
 export const NOTE_HTML = {
   ALLOWED_URI_REGEXP: SAFE_URI,
-  FORBID_TAGS: ["style", "form"],
+  FORBID_TAGS: ["style", "form", "button", "textarea", "select", "dialog"],
   FORBID_ATTR: ["style", "popover", "popovertarget", "popovertargetaction"],
   SANITIZE_NAMED_PROPS: true,
 };
+
+/**
+ * The classes note HTML may carry: only those the renderer writes itself (code's language, math,
+ * footnotes, alerts, emoji, a board's or a static widget's slot, a task's link and tag chips). Any other would let a note
+ * borrow the app's own styles, such as a full-screen dialog (`.ask`) asking to sign in again.
+ * is-external and is-event are added after this check, by the hook above.
+ */
+const NOTE_CLASS = /^(?:language-\S+|math|footnotes|footnote-ref|footnote-backref|sr-only|emoji|markdown-alert(?:-(?:icon|title|note|tip|important|warning|caution))?|kb-slot|st-slot|qt-link|tag)$/;
+
+let sanitizingNote = false;
+
+/** Note HTML, sanitized with `config` (NOTE_HTML or a stricter copy of it). */
+export function sanitizeNote(html: string, config: typeof NOTE_HTML = NOTE_HTML): string {
+  sanitizingNote = true;
+  try {
+    return DOMPurify.sanitize(html, config);
+  } finally {
+    sanitizingNote = false;
+  }
+}
+
+DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
+  if (!sanitizingNote || data.attrName !== "class") return;
+  const kept = data.attrValue.split(/\s+/).filter((c) => NOTE_CLASS.test(c));
+  if (kept.length) data.attrValue = kept.join(" ");
+  else data.keepAttr = false;
+});
+
+// The only control a note shows is a task's checkbox (marked writes `- [ ]` as one): no password fields.
+DOMPurify.addHook("uponSanitizeElement", (node, data) => {
+  if (sanitizingNote && data.tagName === "input" && (node as Element).getAttribute("type")?.trim().toLowerCase() !== "checkbox") node.parentNode?.removeChild(node);
+});
 
 /** Markdown to safe HTML. `boards` leaves a slot for each Kanban board to draw a live board in (see hydrateBoards); otherwise a board shows as its headings and lists. */
 export function renderMarkdown(md: string, from: string, opts: { boards?: boolean } = {}): string {
@@ -123,7 +155,7 @@ export function renderMarkdown(md: string, from: string, opts: { boards?: boolea
   // element level: nesting past a sane depth reads flat (see src/core/depth.ts). DOMPurify stays last.
   renderingFrom(from);
   const html = marked.parse(tameMarkdown(pre), { async: false, gfm: true }) as string;
-  return DOMPurify.sanitize(capHtmlDepth(html), NOTE_HTML);
+  return sanitizeNote(capHtmlDepth(html));
 }
 
 function boardSlots(md: string, slots: boolean): string {
