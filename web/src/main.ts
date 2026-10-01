@@ -40,6 +40,7 @@ import { appCommands } from "./commands.ts";
 import { toggleShortcuts } from "./shortcuts.ts";
 import { did, vaultEvents } from "./events.ts";
 import { guideMessage, startGuide } from "./onboarding.ts";
+import { inkState, setInk, startInks } from "./inkUnlocks.ts";
 import { store } from "./store.ts";
 import { changeVerb, groupChanges } from "../../src/core/format.ts";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
@@ -2677,26 +2678,31 @@ function renderCodeWrap() {
 /** Local vaults: where the vault and the `commonink` command are, for connecting an agent. Online, null. */
 let localVault: { vault?: string; projectRoot?: string } | null = null;
 
-function openSettings() {
+/** Settings, with `query` in its search box ("ink" goes to the Ink setting). */
+function openSettings(query?: string) {
   void import("./settings.ts").then((m) =>
-    m.openSettings(() =>
-      m.appSettings({
-        theme: theme(),
-        setTheme,
-        lineNumbers: prefs.lineNumbers,
-        setLineNumbers,
-        codeWrap: codeWrapByDefault(),
-        setCodeWrap,
-        htmlMode: prefs.htmlMode,
-        setHtmlMode,
-        vim: prefs.vim,
-        setVim,
-        vimDisplayLines: prefs.vimDisplayLines,
-        setVimDisplayLines: (on) => on !== prefs.vimDisplayLines && toggleVimDisplayLines(),
-        localVault,
-        shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
-        connectAgent,
-      }),
+    m.openSettings(
+      () =>
+        m.appSettings({
+          theme: theme(),
+          setTheme,
+          ink: inkState(),
+          setInk,
+          lineNumbers: prefs.lineNumbers,
+          setLineNumbers,
+          codeWrap: codeWrapByDefault(),
+          setCodeWrap,
+          htmlMode: prefs.htmlMode,
+          setHtmlMode,
+          vim: prefs.vim,
+          setVim,
+          vimDisplayLines: prefs.vimDisplayLines,
+          setVimDisplayLines: (on) => on !== prefs.vimDisplayLines && toggleVimDisplayLines(),
+          localVault,
+          shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
+          connectAgent,
+        }),
+      { query },
     ),
   );
 }
@@ -2996,6 +3002,7 @@ async function boot() {
     }
   });
   if (!viewer) void startGuide({ archive: (path) => void archivePath(path), flush: () => flushSave() });
+  startInks({ choose: () => openSettings("ink") });
 
   void refreshTaskCount();
   // Home is the notes list; a note's URL (or the tasks, history or assets page) opens that instead.
