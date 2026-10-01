@@ -132,6 +132,29 @@ test("uploads land in assets/ under a free name; wrong types and oversized files
   assert.equal(fs.existsSync(path.join(vault, "assets/big.png")), false);
 });
 
+test("two pastes named image.png at once both keep their file", async () => {
+  // The first upload's body is still arriving when the second one is sent and saved.
+  const slow = new Promise<string>((resolve, reject) => {
+    const req = http.request(
+      { host: "127.0.0.1", port, method: "POST", path: "/api/upload?name=image.png", headers: { Host: `localhost:${port}`, ...origin() } },
+      (res) => {
+        let body = "";
+        res.setEncoding("utf8").on("data", (d) => (body += d)).on("end", () => resolve(body));
+      },
+    );
+    req.on("error", reject);
+    req.write("first ");
+    setTimeout(async () => {
+      const second = await request("POST", "/api/upload?name=image.png", { headers: origin(), body: "second" });
+      assert.equal(JSON.parse(second.body).path, "assets/image.png");
+      req.end("file");
+    }, 100);
+  });
+  assert.equal(JSON.parse(await slow).path, "assets/image 2.png");
+  assert.equal(fs.readFileSync(path.join(vault, "assets/image.png"), "utf8"), "second");
+  assert.equal(fs.readFileSync(path.join(vault, "assets/image 2.png"), "utf8"), "first file");
+});
+
 test("a file the server can't read is a 404, and the server keeps running", { skip: process.getuid?.() === 0 && "root reads any file" }, async () => {
   const locked = path.join(vault, "assets/locked.png");
   fs.mkdirSync(path.dirname(locked), { recursive: true });
