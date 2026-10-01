@@ -1,15 +1,25 @@
 // Phone layout: below 760px the sidebar is a drawer behind a menu button, and Search sits in the
-// top bar. With a phone or a tablet's touch screen, the note's less-used top-bar buttons move into
-// a More menu. A floating button makes a note from Notes. The layout itself is in mobile.css.
+// top bar. The note's less-used top-bar buttons wait in a More menu (⋯): on a computer, its
+// history, Move, Archive, Split view and Delete; with a phone or a tablet's touch screen, nearly all
+// of them. A floating button makes a note from Notes. The layout itself is in mobile.css.
 import { $, el, icon } from "./dom.ts";
 
 const PHONE = "(max-width: 760px)";
+/** A phone, or a touch tablet: More holds nearly the whole bar. mobile.css has the same query. */
+const TOUCH = "(max-width: 760px), (pointer: coarse) and (max-width: 1100px)";
 
 /**
- * The top-bar buttons that More holds, in menu order. mobile.css hides exactly these where More
- * shows. An item presses the button itself, so labels, icons and handlers stay the button's own.
+ * The top-bar buttons that More holds on a phone or a touch tablet, in menu order. mobile.css hides
+ * exactly these there. An item presses the button itself, so labels, icons, shortcuts, handlers and
+ * which ones show (Delete not for viewers, no history for an asset) stay the button's own.
  */
-const OVERFLOW = ["#share-btn", "#note-history-btn", "#move-btn", "#archive-btn", "#delete-btn", "#focus-btn", "#panel-btn", '#html-toggle [data-mode="preview"]', '#html-toggle [data-mode="source"]'];
+const OVERFLOW = ["#share-btn", "#note-history-btn", "#move-btn", "#archive-btn", "#split-btn", "#delete-btn", "#focus-btn", "#panel-btn", '#html-toggle [data-mode="preview"]', '#html-toggle [data-mode="source"]'];
+/**
+ * On a computer, More holds only the note's occasional buttons; Share, Star, Focus mode and the
+ * side panel stay in the bar. Split view's button comes back to the bar, lit, while a split is open,
+ * so there's a visible way to close it. mobile.css hides these on every screen.
+ */
+const DESKTOP = new Set(["#note-history-btn", "#move-btn", "#archive-btn", "#split-btn", "#delete-btn"]);
 
 let drawerOpen = false;
 
@@ -61,22 +71,45 @@ function onDrawerKey(e: KeyboardEvent) {
 
 // ------------------------------------------------------------------ More menu
 
-function moreItems(): HTMLElement[] {
-  return OVERFLOW.map((sel) => document.querySelector<HTMLButtonElement>(sel))
-    .filter((b): b is HTMLButtonElement => !!b && !b.closest("[hidden]") && !b.classList.contains("is-on")) // a pressed Preview/Source is where you are already
-    .map((b) =>
-      el(
-        "button",
-        { type: "button", role: "menuitem", tabindex: "-1", class: "more-item", onclick: () => (closeMore(true), b.click()) },
-        (b.querySelector("svg")?.cloneNode(true) as SVGElement | undefined) ?? icon(b.dataset.mode === "source" ? "code" : "html", 16),
-        el("span", {}, b.title.replace(/\s*\(.*\)$/, "") || `Show ${b.textContent?.toLowerCase()}`),
-      ),
-    );
+/** The buttons More offers right now: the ones this screen tucks away that the note shows. */
+function moreButtons(): HTMLButtonElement[] {
+  const touch = matchMedia(TOUCH).matches;
+  const phone = matchMedia(PHONE).matches;
+  return OVERFLOW.filter((sel) => (touch ? !(phone && sel === "#split-btn") : DESKTOP.has(sel))) // a phone shows one pane
+    .map((sel) => document.querySelector<HTMLButtonElement>(sel))
+    .filter((b): b is HTMLButtonElement => !!b && !b.closest("[hidden]") && !b.classList.contains("is-on")); // a pressed Preview/Source is where you are already; a lit Split is in the bar
+}
+
+/**
+ * A menu item for a button: its icon, its name, and on the right its shortcut, from the button's
+ * title ("Archive note (⌘⇧E)"), or where Move says the note is ("In Projects · Move to another folder").
+ * A note in brackets that isn't a shortcut ("Delete note (to Trash)") is the tooltip's alone.
+ */
+function moreItem(b: HTMLButtonElement): HTMLElement {
+  const title = b.title.match(/^(.*?)(?:\s*\((.*)\))?$/)!;
+  const keys = title[2] && !/\s/.test(title[2]) ? title[2] : undefined;
+  const dot = title[1].lastIndexOf(" · ");
+  const [hint, name] = dot >= 0 ? [title[1].slice(0, dot), title[1].slice(dot + 3)] : [keys, title[1]];
+  return el(
+    "button",
+    { type: "button", role: "menuitem", tabindex: "-1", class: "more-item", onclick: () => (closeMore(true), b.click()) },
+    (b.querySelector("svg")?.cloneNode(true) as SVGElement | undefined) ?? icon(b.dataset.mode === "source" ? "code" : "html", 16),
+    el("span", {}, name || `Show ${b.textContent?.toLowerCase()}`),
+    hint ? el("span", { class: hint === keys ? "more-hint more-keys" : "more-hint" }, hint) : null,
+  );
+}
+
+/** Show More only when it has something in it: with no note open, a computer's bar has nothing to tuck away. */
+export function renderMore() {
+  const wrap = document.querySelector<HTMLElement>(".more-wrap");
+  if (!wrap) return;
+  wrap.hidden = moreButtons().length === 0;
+  if (wrap.hidden) closeMore(false);
 }
 
 function openMore() {
   const menu = $("#more-menu");
-  menu.replaceChildren(...moreItems());
+  menu.replaceChildren(...moreButtons().map(moreItem));
   menu.hidden = false;
   $("#more-btn").setAttribute("aria-expanded", "true");
   menu.querySelector<HTMLElement>("[role=menuitem]")?.focus();
@@ -126,7 +159,7 @@ export function setupMobileNav() {
   );
   const menu = el("div", { id: "more-menu", role: "menu", "aria-label": "More", hidden: true, onkeydown: onMoreKey });
   $("#star-btn").after(iconBtn("search-top", "Search notes", "search", {}, () => $("#search-btn").click()));
-  topbar.append(el("div", { class: "more-wrap" }, more, menu));
+  $("#delete-btn").after(el("div", { class: "more-wrap" }, more, menu)); // after the buttons it holds, before Focus mode and the side panel
 
   document.body.append(el("div", { id: "scrim", hidden: true, onclick: () => setDrawer(false) }));
   $("#stage").append(el("button", { id: "fab-new", class: "fab", type: "button", title: "New note", "aria-label": "New note", onclick: () => $("#new-note").click() }, icon("plus", 22)));
@@ -134,4 +167,6 @@ export function setupMobileNav() {
   sidebar.addEventListener("keydown", onDrawerKey);
   $("#search-btn").addEventListener("click", closeDrawer);
   matchMedia(PHONE).addEventListener("change", () => (setDrawer(false), closeMore(false)));
+  matchMedia(TOUCH).addEventListener("change", () => (closeMore(false), renderMore()));
+  renderMore();
 }
