@@ -75,6 +75,14 @@ test("vCards: folded lines, several emails and phones, organization, title, nick
   assert.deepEqual(sam.email, ["sam@x.org"], "a folded line continues the one before");
 });
 
+test("vCards: an escaped backslash stays one backslash, before an n or a separator", () => {
+  const vcf = ["BEGIN:VCARD", "FN:Kim", "ORG:A\\\\;Dept", "NICKNAME:x\\\\,y", "NOTE:Path C:\\\\new\\\\Notes\\nnext", "END:VCARD"].join("\n");
+  const [kim] = parseVCards(vcf);
+  assert.equal(kim.notes, "Path C:\\new\\Notes\nnext");
+  assert.equal(kim.company, "A\\", "the semicolon after an escaped backslash separates");
+  assert.deepEqual(kim.aliases, ["x\\", "y"]);
+});
+
 test("CSV: Google's and Outlook's column names, first and last name, lists in one cell", () => {
   const google = 'Name,Given Name,Family Name,E-mail 1 - Value,E-mail 2 - Value,Phone 1 - Value,Organization 1 - Name,Organization 1 - Title,Labels,Website 1 - Value\nJane Doe,Jane,Doe,jane@acme.com,jd@home.org,+1 555 0100,Acme,CTO,client ::: * myContacts,https://jane.dev\n';
   assert.deepEqual(parseContactsCsv(google), [{ name: "Jane Doe", email: ["jane@acme.com", "jd@home.org"], phone: ["+1 555 0100"], company: "Acme", role: "CTO", links: ["https://jane.dev"], aliases: [], tags: ["client"], notes: "" }]);
