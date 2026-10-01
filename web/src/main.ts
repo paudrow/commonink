@@ -9,6 +9,7 @@ import { cleanTag, normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
 import { setShareState, setShareWithPeople, SHARE_KEYS, toggleShareMenu, type ShareNote } from "./share.ts";
+import { mountStreakChip } from "./streak.ts";
 import type { Label } from "./api.ts";
 import { hideBanner, showBanner } from "./banner.ts";
 import { showConflict as conflictBanner } from "./conflict.ts";
@@ -2946,6 +2947,7 @@ async function boot() {
   // A new note goes at the top level, unless Notes is showing a folder: then it goes there.
   $("#new-note").addEventListener("click", () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""));
   $("#new-from-template").addEventListener("click", () => void newFromTemplate(undefined, onPage() === "notes" ? (notesPage.query.folder ?? "") : ""));
+  mountStreakChip($(".new-note-row")); // after setSelfName, since it counts only your own changes
   $("#panel-btn").addEventListener("click", () => togglePanel());
   setLabel($("#panel-btn"), `Toggle side panel (${formatKeys("Mod-\\")})`);
   setupPanes();

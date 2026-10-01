@@ -14,6 +14,10 @@ Your workspace at a glance. Each block below is one line of markdown (or a code 
 
 ::calendar{folder=Journal}
 
+## Writing days
+
+::streak
+
 ## How it fits together
 
 ```mermaid
