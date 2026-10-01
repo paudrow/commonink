@@ -16,9 +16,14 @@ export function frontmatterEntries(md: string): { entries: Entry[]; body: string
   if (!m) return { entries: [], body: md, had: false };
   const out: Entry[] = [];
   for (const line of m[1].split(/\r?\n/)) {
-    const key = line.match(/^([\w-]+):/)?.[1];
+    // Any unindented `key:` starts an entry (`Date Created:`, `título:` too), so writing one key back
+    // never takes another's line with it.
+    const key = line.match(/^([^\s#:-][^:]*|-[^\s:][^:]*):/)?.[1].trimEnd();
     if (key) out.push({ key, lines: [line] });
-    else if (out.length) out.at(-1)!.lines.push(line); // a nested line, or a blank one
+    // A nested line, a `- item`, or a blank one belongs to the entry above.
+    else if (out.length && /^(\s|-\s|-$|$)/.test(line)) out.at(-1)!.lines.push(line);
+    // Anything else (a `# comment`, or lines before the first key) is kept as its own keyless entry.
+    else out.push({ key: "", lines: [line] });
   }
   return { entries: out, body: md.slice(m[0].length), had: true };
 }
@@ -52,13 +57,13 @@ function splitItems(s: string): string[] {
 
 /** An entry as one value (`key: "a, b"` is "a, b"). */
 export function scalarOf(e: Entry | undefined): string {
-  return e ? unquote(e.lines[0].replace(/^[\w-]+:/, "")) : "";
+  return e ? unquote(e.lines[0].replace(/^[^:]*:/, "")) : "";
 }
 
 /** An entry's values: `key: a`, `key: [a, b]`, `key: a, b`, or one `- a` per line under it. */
 export function listOf(e: Entry | undefined): string[] {
   if (!e) return [];
-  const inline = e.lines[0].replace(/^[\w-]+:/, "").trim();
+  const inline = e.lines[0].replace(/^[^:]*:/, "").trim();
   if (inline) {
     const list = inline.match(/^\[(.*)\]$/);
     return splitItems(list ? list[1] : inline).map(unquote).filter(Boolean);
