@@ -6,9 +6,11 @@ import { formatKeys } from "./keys.ts";
 import { trapKeys } from "./modal.ts";
 import { localSteps } from "./connectAgent.ts";
 import { button } from "./widgets/core.ts";
+import type { OptionalItem } from "./sidebar.ts";
+import { INKS, progressText, type InkId, type InkStats } from "./inks.ts";
 
-export type Section = "Appearance" | "Editor" | "Keyboard" | "Agents";
-export const SECTIONS: Section[] = ["Appearance", "Editor", "Keyboard", "Agents"];
+export type Section = "Appearance" | "Sidebar" | "Editor" | "Keyboard" | "Agents";
+export const SECTIONS: Section[] = ["Appearance", "Sidebar", "Editor", "Keyboard", "Agents"];
 
 export type Theme = "system" | "light" | "dark";
 
@@ -34,6 +36,9 @@ export interface Setting {
 export interface SettingsApp {
   theme: Theme;
   setTheme(theme: Theme): void;
+  /** The accent color in use, the inks earned, and the counts toward the rest (null until counted). */
+  ink: { current: InkId; earned: InkId[]; stats: InkStats | null };
+  setInk(ink: InkId): void;
   lineNumbers: boolean;
   setLineNumbers(on: boolean): void;
   codeWrap: boolean;
@@ -46,13 +51,35 @@ export interface SettingsApp {
   setVimDisplayLines(on: boolean): void;
   shortcutTips: boolean;
   setShortcutTips(on: boolean): void;
+  /** The sidebar items kept showing before they're in use. */
+  sidebarPinned: Partial<Record<OptionalItem, boolean>>;
+  setSidebarPinned(item: OptionalItem, on: boolean): void;
   /** Locally, where the vault and the `commonink` command are, for the agent setup; online, null. */
   localVault: { vault?: string; projectRoot?: string } | null;
   shortcuts(): void;
   connectAgent(): void;
 }
 
+/** Each sidebar item that waits until it's in use: its name, and what puts it in the sidebar by itself. */
+const WAITING: Array<{ item: OptionalItem; name: string; when: string; keywords: string }> = [
+  { item: "contacts", name: "Contacts", when: "you add someone", keywords: "people crm" },
+  { item: "calendar", name: "Calendar", when: "you add a calendar or an event", keywords: "events meetings schedule" },
+  { item: "assets", name: "Assets", when: "you upload a file", keywords: "files images uploads attachments" },
+  { item: "smart", name: "Smart folders", when: "you save one", keywords: "saved searches queries" },
+];
+
 export function appSettings(app: SettingsApp): Setting[] {
+  // A new workspace's sidebar leaves these out until they're in use; each can stay there from the start instead.
+  const sidebar = WAITING.map(
+    ({ item, name, when, keywords }): Setting => ({
+      id: `sidebar-${item}`,
+      section: "Sidebar",
+      title: `Always show ${name}`,
+      description: `The sidebar shows ${name} once ${when}. Turn this on to keep it there even before then.`,
+      keywords: `sidebar navigation hide show empty pin ${keywords}`,
+      control: { kind: "toggle", on: !!app.sidebarPinned[item], set: (on) => app.setSidebarPinned(item, on) },
+    }),
+  );
   return [
     {
       id: "theme",
@@ -71,6 +98,15 @@ export function appSettings(app: SettingsApp): Setting[] {
         set: (v) => app.setTheme(v as Theme),
       },
     },
+    {
+      id: "ink",
+      section: "Appearance",
+      title: "Ink",
+      description: "The color of links, ticks and highlights. Indigo is yours from the start; use the app to earn the others.",
+      keywords: "accent color colour palette unlock sepia viridian vermilion cobalt iron gall",
+      control: { kind: "custom", render: () => [inkPicker(app)] },
+    },
+    ...sidebar,
     {
       id: "line-numbers",
       section: "Editor",
@@ -165,6 +201,60 @@ export function matchSettings(query: string, settings: Setting[]): Setting[] {
     const text = `${s.section} ${s.title} ${s.description} ${s.keywords ?? ""} ${options}`.toLowerCase();
     return words.every((w) => text.includes(w));
   });
+}
+
+/**
+ * The Ink setting: a swatch for each ink, as a radio group (arrow keys move and pick, as in any
+ * group of radio buttons). A locked ink is dimmed with a lock, and says what earns it and how far
+ * along you are; it can be reached, to read that, but not picked.
+ */
+function inkPicker(app: SettingsApp): HTMLElement {
+  const { current, earned, stats } = app.ink;
+  const pick = (b: HTMLElement) => {
+    const id = b.dataset.ink as InkId;
+    if (!earned.includes(id)) return;
+    app.setInk(id);
+    for (const o of options) {
+      o.setAttribute("aria-checked", String(o === b));
+      o.tabIndex = o === b ? 0 : -1;
+    }
+  };
+  const options = INKS.map((ink) => {
+    const open = earned.includes(ink.id);
+    const count = open ? null : progressText(ink, stats);
+    const goal = open ? null : el("span", { class: "ink-goal", id: `ink-goal-${ink.id}` }, ink.goal);
+    const progress = count ? el("span", { class: "ink-count", id: `ink-count-${ink.id}` }, count) : null;
+    return el(
+      "button",
+      {
+        type: "button",
+        role: "radio",
+        class: `ink-option${open ? "" : " is-locked"}`,
+        "data-ink": ink.id,
+        "aria-checked": String(ink.id === current),
+        "aria-disabled": open ? undefined : "true",
+        "aria-describedby": [goal?.id, progress?.id].filter(Boolean).join(" ") || undefined,
+        tabindex: ink.id === current ? "0" : "-1",
+        title: open ? ink.name : `${ink.name}: ${ink.goal}${count ? ` (${count})` : ""}`,
+        onclick: (e: Event) => pick(e.currentTarget as HTMLElement),
+      },
+      el("span", { class: "ink-swatch", "aria-hidden": "true" }, open ? icon("check", 14) : icon("lock", 12)),
+      el("span", { class: "ink-name" }, ink.name),
+      goal,
+      progress,
+    );
+  });
+  const group = el("div", { class: "ink-picker", role: "radiogroup", "aria-labelledby": "st-ink-title", "aria-describedby": "st-ink-desc" }, ...options);
+  group.addEventListener("keydown", (e) => {
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    const at = options.indexOf(e.target as HTMLButtonElement);
+    if (!step || at < 0) return;
+    e.preventDefault();
+    const next = options[(at + step + options.length) % options.length];
+    next.focus();
+    pick(next);
+  });
+  return group;
 }
 
 function controlFor(s: Setting, id: string, describedBy: string): HTMLElement {

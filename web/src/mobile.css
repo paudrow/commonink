@@ -1,24 +1,30 @@
 /* ------------------------------------------------------------------ phones and touch screens (mobileNav.ts) */
 /* Three widths: a phone (up to 760px) gets the drawer; a phone or a touch tablet (up to 1100px)
-   gets the More menu; any touch screen gets 44px targets. */
+   puts nearly the whole top bar in the More menu; any touch screen gets 44px targets. */
 
-#menu-btn, #search-top, .more-wrap, #fab-new { display: none; }
+#menu-btn, #search-top, #fab-new { display: none; }
 .more-wrap { position: relative; flex: none; }
+/* Everywhere, More (⋯) holds a note's occasional buttons. Split view's stays out while a split is
+   open, lit, so the way to close it is in sight. */
+#note-history-btn, #move-btn, #archive-btn, #delete-btn, #split-btn:not(.is-on) { display: none; }
 #more-menu {
   position: absolute;
   top: calc(100% + 4px);
   right: 0;
   z-index: 45;
+  width: max-content;
   min-width: 220px;
+  max-width: calc(100vw - 16px);
   padding: 6px;
   border-radius: 12px;
   background: var(--bg-elev);
   border: 1px solid var(--line);
   box-shadow: var(--shadow-lg);
 }
-.more-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 0 10px; border-radius: 8px; font-size: 14px; color: var(--ink-2); text-align: left; }
+.more-item { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 32px; padding: 0 9px; border-radius: 7px; font-size: 13px; color: var(--ink-2); text-align: left; white-space: nowrap; }
 .more-item:hover, .more-item:focus-visible { background: var(--hover); color: var(--ink-strong); outline: none; }
 .more-item svg { color: var(--muted); flex: none; }
+.more-hint { margin-left: auto; padding-left: 16px; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
 #scrim { position: fixed; inset: 0; z-index: 34; background: rgba(20, 16, 10, 0.32); animation: fade 0.15s ease-out; }
 .fab {
   position: absolute;
@@ -41,6 +47,7 @@
   #statusbar .chip-btn { position: relative; }
   #statusbar .chip-btn::after { content: ""; position: absolute; inset: -12px -6px; }
   #sidebar .search-pill, #sidebar .nav-item, #sidebar .ghost-btn, #sidebar .tree-row, .acct-btn, .acct-item { height: auto; min-height: 44px; }
+  .more-item { gap: 10px; min-height: 44px; padding: 0 10px; border-radius: 8px; font-size: 14px; }
   #sidebar .tree-head { margin-top: 0; }
   #sidebar .section-toggle { min-height: 44px; }
   #sidebar :is(.tree-row, .tree-hint) .chev { width: 32px; margin: 0 -8px 0 -10px; }
@@ -48,8 +55,7 @@
 }
 
 @media (max-width: 760px), (pointer: coarse) and (max-width: 1100px) {
-  .more-wrap { display: block; }
-  #share-btn, #note-history-btn, #move-btn, #archive-btn, #delete-btn, #focus-btn, #panel-btn, #html-toggle { display: none; }
+  #share-btn, #focus-btn, #panel-btn, #html-toggle { display: none; }
   #topbar { gap: 4px; padding-right: 4px; }
 }
 
@@ -88,6 +94,7 @@
 
   #menu-btn, #search-top { display: grid; }
   #split-btn { display: none; }
+  .more-keys { display: none; } /* a phone's More is tapped, so it leaves out the keyboard shortcuts */
   /* The top bar is full on a phone: → shows only when there's somewhere to go forward, like a phone browser's. */
   #topbar .nav-arrow[data-dir="forward"][aria-disabled="true"] { display: none; }
   #topbar { padding-left: 4px; }
