@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 182
 title: A Today page
 ---
 1. Click **Today**, first in the sidebar (the app still opens on Notes). It has the quick-add bar, today's journal note, today's events, and what's overdue, due today and starting today. ⌘K → "Go to Today" and `/today` get you there too.
