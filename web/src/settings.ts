@@ -44,6 +44,8 @@ export interface SettingsApp {
   setVim(on: boolean): void;
   vimDisplayLines: boolean;
   setVimDisplayLines(on: boolean): void;
+  shortcutTips: boolean;
+  setShortcutTips(on: boolean): void;
   /** Locally, where the vault and the `commonink` command are, for the agent setup; online, null. */
   localVault: { vault?: string; projectRoot?: string } | null;
   shortcuts(): void;
@@ -125,6 +127,14 @@ export function appSettings(app: SettingsApp): Setting[] {
       description: "Every shortcut, by where it works. Press ? anywhere you aren't typing.",
       keywords: "keys keybindings hotkeys cheat sheet help",
       control: { kind: "button", label: "Show shortcuts", run: app.shortcuts },
+    },
+    {
+      id: "shortcut-tips",
+      section: "Keyboard",
+      title: "Shortcut tips",
+      description: "When you've clicked a button that has a keyboard shortcut a few times, a tip says once which keys do the same.",
+      keywords: "keys hints hotkeys learn toast",
+      control: { kind: "toggle", on: app.shortcutTips, set: app.setShortcutTips },
     },
     app.localVault
       ? {
