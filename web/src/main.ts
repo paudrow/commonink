@@ -62,7 +62,7 @@ import { nameField, plusMark, sectionHint, sidebarTags } from "./sidebar.ts";
 import type { CalendarPage } from "./calendar/page.ts";
 import { calendarChanged, calendars, setCalendarContext } from "./calendar/data.ts";
 import { calendarTarget, OPEN_CALENDAR } from "./links.ts";
-import { connectUrl, googleChanged, googleKnown, googleOutcome, googleStatus, leave } from "./calendar/google.ts";
+import { connectUrl, contactsConnectUrl, disconnectGoogle, googleChanged, googleKnown, googleOutcome, googleStatus, leave } from "./calendar/google.ts";
 
 // ------------------------------------------------------------------ state
 
@@ -751,12 +751,18 @@ async function subscribeCalendar() {
 
 /**
  * Back from connecting Google Calendar (/calendar?google=connected|denied|failed): say how it went,
- * and show the Calendars dialog at its Google section, where the calendars are to add.
+ * and show the Calendars dialog at its Google section, where the calendars are to add. Back from
+ * connecting Google Contacts (/contacts?google=…), Contacts says so and syncs.
  */
 async function backFromGoogle(outcome: string) {
   const url = new URL(location.href);
   url.searchParams.delete("google");
   history.replaceState(history.state, "", url.pathname + url.search + url.hash);
+  if (url.pathname === "/contacts") {
+    googleChanged();
+    await showContacts({ push: false });
+    return (await loadContacts()).backFromGoogle(outcome);
+  }
   const said = googleOutcome(outcome);
   if (!said) return;
   googleChanged();
@@ -2696,6 +2702,14 @@ function openSettings() {
         localVault,
         shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
         connectAgent,
+        integrations: local
+          ? null
+          : {
+              status: () => googleStatus(),
+              connectCalendar: () => leave.to(connectUrl()),
+              connectContacts: (write) => leave.to(contactsConnectUrl(write)),
+              disconnect: disconnectGoogle,
+            },
       }),
     ),
   );

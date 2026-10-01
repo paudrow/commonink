@@ -5,6 +5,7 @@
 // imports vCard and CSV exports. Online, members of the workspace with no contact are listed too.
 // Online with Google set up, a bar connects Google Contacts and syncs it (src/core/googleContacts.ts):
 // Google is the truth for how to reach someone, and the notes stay the workspace's own.
+import { leave, contactsConnectUrl } from "./calendar/google.ts";
 import { api, ApiError, currentWorkspace, type Contact, type GoogleContactsStatus, type Member, type TimelineItem } from "./api.ts";
 import { avatar, el, icon } from "./dom.ts";
 import { emptyState } from "./emptyState.ts";
@@ -105,24 +106,18 @@ export class ContactsPage {
     this.members = members;
     this.google = google;
     this.loaded = true;
-    await this.backFromGoogle();
   }
 
-  /** Back from connecting (/contacts?google=connected|denied|failed): say so, and sync straight away. */
-  private async backFromGoogle() {
-    const url = new URL(location.href);
-    const outcome = url.searchParams.get("google");
-    if (!outcome) return;
-    url.searchParams.delete("google");
-    url.searchParams.delete("w");
-    history.replaceState(history.state, "", url.pathname + url.search);
+  /** Back from connecting (/contacts?google=connected|denied|failed; main.ts reads it): say so, and sync straight away. */
+  async backFromGoogle(outcome: string) {
+    await this.load();
     if (outcome === "connected" && this.google?.connection) await this.syncGoogle();
     else this.hooks.toast({ text: outcome === "denied" ? "Google Contacts wasn't connected: access wasn't allowed" : "Couldn't connect Google Contacts. Try again." });
   }
 
   /** Leave for Google's consent page (or the stand-in's), coming back here. `write` also asks to edit contacts. */
   private connectGoogle(write: boolean) {
-    location.assign(`/auth/google/calendar?for=contacts&w=${encodeURIComponent(currentWorkspace())}${write ? "&write=1" : ""}`);
+    leave.to(contactsConnectUrl(write));
   }
 
   private async syncGoogle() {
@@ -174,7 +169,7 @@ export class ContactsPage {
         g.connection.canWrite ? " · edits here go to Google" : " · read only",
       ),
       g.connection.canWrite ? null : el("button", { type: "button", class: "qw-btn", title: "Let edits to emails, phones, company and role here go back to Google", onclick: () => this.connectGoogle(true) }, "Allow editing"),
-      el("button", { type: "button", class: "qw-btn primary", disabled: this.syncing, onclick: () => void this.syncGoogle() }, icon("refresh", 14), this.syncing ? "Syncing…" : "Sync"),
+      el("button", { type: "button", class: "qw-btn", disabled: this.syncing, onclick: () => void this.syncGoogle() }, this.syncing ? "Syncing…" : "Sync now"),
     );
   }
 

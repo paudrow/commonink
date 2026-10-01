@@ -100,3 +100,34 @@ test("the dialog: labelled controls, search as you type, changes that apply at o
   assert.equal(document.querySelector("#settings"), null);
   assert.equal(document.activeElement, before, "the focus goes back where it was");
 });
+
+test("online, Integrations shows the Google account with what Calendar and Contacts may do, and its buttons", async () => {
+  const log: string[] = [];
+  let connection: { account: string; canWrite: boolean; contacts: "none" | "read" | "write" } | null = null;
+  const { app } = fakeApp({
+    localVault: null,
+    integrations: {
+      status: async () => ({ mode: "real", connection }),
+      connectCalendar: () => log.push("calendar"),
+      connectContacts: (write) => log.push(`contacts:${write}`),
+      disconnect: async () => void log.push("disconnect"),
+    },
+  });
+  assert.deepEqual(titles("contacts", app), ["Google"]);
+  assert.deepEqual(titles("", fakeApp().app).includes("Google"), false); // locally there's none
+  const render = async () => {
+    const s = appSettings(app).find((x) => x.id === "google")!;
+    const [box] = (s.control as { render(): HTMLElement[] }).render();
+    await new Promise((r) => setTimeout(r, 0));
+    return box;
+  };
+  let box = await render();
+  assert.match(box.textContent!, /Not connected\./);
+  [...box.querySelectorAll("button")].forEach((b) => b.click());
+  assert.deepEqual(log, ["calendar", "contacts:false"]);
+
+  connection = { account: "me@gmail.example", canWrite: false, contacts: "read" };
+  box = await render();
+  assert.match(box.textContent!, /Connected as me@gmail\.example\..*Syncs into People\/ \(read only\)/);
+  assert.deepEqual([...box.querySelectorAll("button")].map((b) => b.textContent), ["Allow editing", "Disconnect Google"]);
+});

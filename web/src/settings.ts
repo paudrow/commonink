@@ -7,8 +7,21 @@ import { trapKeys } from "./modal.ts";
 import { localSteps } from "./connectAgent.ts";
 import { button } from "./widgets/core.ts";
 
-export type Section = "Appearance" | "Editor" | "Keyboard" | "Agents";
-export const SECTIONS: Section[] = ["Appearance", "Editor", "Keyboard", "Agents"];
+export type Section = "Appearance" | "Editor" | "Keyboard" | "Agents" | "Integrations";
+export const SECTIONS: Section[] = ["Appearance", "Editor", "Keyboard", "Agents", "Integrations"];
+
+/**
+ * Accounts connected to other services, in one place (online, where the server has Google): what's
+ * connected, what each is allowed, and connecting or disconnecting. Calendar and Contacts keep their
+ * own shortcuts to connect; this is where all of them are.
+ */
+export interface Integrations {
+  /** Google on this server, and the person's connection; null where it has none. */
+  status(): Promise<{ mode: string; connection: { account: string; canWrite: boolean; contacts: "none" | "read" | "write" } | null } | null>;
+  connectCalendar(): void;
+  connectContacts(write: boolean): void;
+  disconnect(): Promise<void>;
+}
 
 export type Theme = "system" | "light" | "dark";
 
@@ -48,6 +61,8 @@ export interface SettingsApp {
   localVault: { vault?: string; projectRoot?: string } | null;
   shortcuts(): void;
   connectAgent(): void;
+  /** Online: connected accounts (Integrations). Locally, none. */
+  integrations?: Integrations | null;
 }
 
 export function appSettings(app: SettingsApp): Setting[] {
@@ -143,7 +158,47 @@ export function appSettings(app: SettingsApp): Setting[] {
           keywords: "agent mcp claude cursor connect ai assistant revoke",
           control: { kind: "button", label: "Connected agents…", run: app.connectAgent },
         },
+    ...(app.integrations
+      ? [
+          {
+            id: "google",
+            section: "Integrations" as const,
+            title: "Google",
+            description: "Your Google account: Calendar shows your calendars, Contacts keeps People/ in step with your address book. Only you see your calendars; synced contacts are the workspace's.",
+            keywords: "google calendar contacts account connect disconnect integration sync oauth",
+            control: { kind: "custom" as const, render: () => googleRow(app.integrations!) },
+          },
+        ]
+      : []),
   ];
+}
+
+/** The Google row: who's connected, what Calendar and Contacts may do, and the buttons to change it. Filled in once the server answers. */
+function googleRow(int: Integrations): HTMLElement[] {
+  const box = el("div", { class: "st-integration" }, el("span", { class: "st-desc" }, "Checking…"));
+  const line = (name: string, state: string, ...actions: Array<HTMLElement | null>) =>
+    el("div", { class: "st-int-line" }, el("span", { class: "st-int-name" }, name), el("span", { class: "st-desc" }, state), ...actions.filter((a): a is HTMLElement => !!a));
+  const fill = () =>
+    void int.status().then(
+      (s) => {
+        if (!s || s.mode === "off") return box.replaceChildren(el("span", { class: "st-desc" }, "Google isn't set up on this server: its owner sets GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and INTEGRATIONS_KEY."));
+        const c = s.connection;
+        const contacts = c?.contacts ?? "none";
+        box.replaceChildren(
+          el("span", { class: "st-desc" }, c ? `Connected as ${c.account}.${s.mode === "mock" ? " (A stand-in for Google on this Preview.)" : ""}` : "Not connected."),
+          line("Calendar", !c ? "Off" : c.canWrite ? "Reads your calendars, and links meeting notes to events" : "Reads your calendars", !c ? button("Connect", null, int.connectCalendar) : null),
+          line(
+            "Contacts",
+            contacts === "write" ? "Syncs into People/, and sends edits here back" : contacts === "read" ? "Syncs into People/ (read only)" : "Off",
+            contacts === "none" ? button("Connect", null, () => int.connectContacts(false)) : contacts === "read" ? button("Allow editing", null, () => int.connectContacts(true)) : null,
+          ),
+          c ? el("div", { class: "st-int-line" }, button("Disconnect Google", null, () => void int.disconnect().then(fill))) : "",
+        );
+      },
+      () => box.replaceChildren(el("span", { class: "st-desc" }, "Couldn't check Google. Try again later.")),
+    );
+  fill();
+  return [box];
 }
 
 /** The settings a search finds: those with every word of it in their section, title, description or keywords. */
