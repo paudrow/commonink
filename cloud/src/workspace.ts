@@ -22,7 +22,7 @@ import { safeDecode } from "../../src/core/uri.ts";
 import { AGENTS_NOTE } from "../../src/core/noteRoles.ts";
 import { accessOn, type SharedAccess, type ShareRole } from "./grants.ts";
 import { limit } from "./limits.ts";
-import { addShare, linkToken, listShares, removeShare, ShareError, updateShare, type Share, type Target } from "./shares.ts";
+import { addShare, agentLinksAllowed, linkToken, listShares, removeShare, ShareError, updateShare, type Share, type Target } from "./shares.ts";
 import { Calendar } from "../../src/core/calendar.ts";
 import { assertPublicUrl } from "../../src/core/unfurl.ts";
 import { feedsFor } from "./demo-calendar.ts";
@@ -426,12 +426,15 @@ export class Workspace extends DurableObject<Env> {
     return { note: id };
   }
 
-  /** The MCP sharing tools, for an agent working as `user` (its role already decided which it gets, and whether it sees links' URLs). */
+  /**
+   * The MCP sharing tools, for an agent working as `user` (its role already decided which it gets).
+   * It sees links' URLs only if it could make a link itself: a URL hands out the link, as making one does.
+   */
   private agentSharing(wsId: string, user: string, origin: string, canManage: boolean) {
     const line = (s: Share & { url: string | null }) =>
       `- ${s.kind === "link" ? `Anyone with the link${s.url ? `: ${origin}${s.url}` : ""}` : `${s.name ? `${s.name} <${s.email}>` : `${s.email} (by email)`}`} — ${s.role}${s.expiresAt ? `, until ${new Date(s.expiresAt).toISOString().slice(0, 10)}` : ""} (id ${s.id})`;
     const describe = async (target: Target | undefined) => {
-      const d = await this.describeShares(wsId, target, canManage);
+      const d = await this.describeShares(wsId, target, canManage && (await agentLinksAllowed(this.env.DB, wsId)));
       const what = d.path ?? (target?.folder ? `${target.folder}/` : "this workspace");
       if (!d.shares.length && !d.inherited.length) return `${what} isn't shared with anyone outside the workspace.`;
       return [`${what} is shared with:`, ...d.shares.map(line), ...(d.inherited.length ? ["Through its folders:", ...d.inherited.map(line)] : [])].join("\n");
