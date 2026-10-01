@@ -174,6 +174,15 @@ test("a viewer's CLI reads but can't write, and a grant for one workspace stays 
   assert.deepEqual(one.json(["workspaces"]).workspaces.map((w: { name: string }) => w.name), ["Team"]);
   assert.equal(one.run(["ls"]).status, 0);
   assert.equal(one.run(["ls", team, "Editor's notes"]).status, 3);
+  // Nor its settings: a grant for one workspace (an MCP client's, which reaches /mcp/cli with the same token) is to its notes.
+  const owner = cli();
+  await login(owner, people.owner, people.id);
+  assert.equal(owner.run(["ls"]).status, 0);
+  for (const args of [["invite", "--role", "editor"], ["members"], ["workspace", "rename", "Mine"]]) {
+    const refused = owner.run(args);
+    assert.equal(refused.status, 6, args.join(" "));
+    assert.match(refused.stderr, /needs a sign-in for all your workspaces/);
+  }
 });
 
 test("sharing from the CLI: by email, listed, stopped; links wait for the owner's setting, as an agent's do, and a viewer only lists", async () => {
@@ -188,6 +197,14 @@ test("sharing from the CLI: by email, listed, stopped; links wait for the owner'
   const link = editor.run(["share", "Shared from the CLI", "--link", "--role", "viewer", ...team]);
   assert.equal(link.status, 6);
   assert.match(link.stderr, /^Agents can't share by link or for editing in this workspace\./);
+  // Nor does it get the URL of a link made in the app (anyone with it could join), until that's allowed.
+  const made = await cloud.call(people.owner, "POST", `${people.base}/shares`, { path: "Shared from the CLI.md", link: true, role: "viewer" });
+  const linkLine = () => editor.run(["shares", "Shared from the CLI", ...team]).stdout.split("\n").find((l) => l.includes("Anyone with the link"))!;
+  assert.match(linkLine(), /^- Anyone with the link — viewer/);
+  await cloud.call(people.owner, "POST", `${people.base}/workspace/settings`, { agentLinks: true });
+  assert.match(linkLine(), /^- Anyone with the link: http\S+\/s\/[a-f0-9]{64} — viewer/);
+  await cloud.call(people.owner, "POST", `${people.base}/workspace/settings`, { agentLinks: false });
+  await cloud.call(people.owner, "POST", `${people.base}/shares/remove`, { id: made.shares.find((s: { kind: string }) => s.kind === "link").id });
   const viewer = cli();
   await login(viewer, people.viewer);
   assert.match(viewer.run(["shares", "Shared from the CLI", ...team]).stdout, /cli-guest@example\.com/);

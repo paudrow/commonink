@@ -2,8 +2,8 @@
 // out anywhere. New accounts are gated: someone Google hasn't seen here before needs the sign-up code
 // (SIGNUP_CODE) or a valid invite link.
 import {
-  createSession, createWorkspace, endSession, failedSignups, hasUser, inviteIsValid, recordFailedSignup,
-  sessionUser, touchSession, upsertUser, type User,
+  createSession, createWorkspace, endSession, forgiveSignupTry, hasUser, inviteIsValid, sessionUser,
+  takeSignupTry, touchSession, upsertUser, type User,
 } from "./directory.ts";
 import type { Env } from "./env.ts";
 import { hasPendingShare } from "./shares.ts";
@@ -227,12 +227,11 @@ export async function handleAuth(
       if (!code) return signupPage(ticket, "closed", [cancel]);
       if (req.method !== "POST") return signupPage(ticket, "ask");
       if (req.headers.get("Origin") !== url.origin) return text(403, "Cross-origin request refused");
-      if ((await failedSignups(env.DB, ticket.sub, Date.now() - 86400_000)) >= SIGNUP_TRIES) return signupPage(ticket, "locked", [cancel]);
+      const attempt = await takeSignupTry(env.DB, ticket.sub, Date.now() - 86400_000, SIGNUP_TRIES);
+      if (attempt === null) return signupPage(ticket, "locked", [cancel]);
       const form = await req.formData().catch(() => null);
-      if (!(await codeMatches(String(form?.get("code") ?? ""), code))) {
-        await recordFailedSignup(env.DB, ticket.sub);
-        return signupPage(ticket, "wrong");
-      }
+      if (!(await codeMatches(String(form?.get("code") ?? ""), code))) return signupPage(ticket, "wrong");
+      await forgiveSignupTry(env.DB, attempt);
       const { user, isNew } = await upsertUser(env.DB, ticket.sub, ticket.profile);
       return startSession(user, isNew, ticket.next, [cancel]);
     }

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { diffLine, parseFence, setFenceLang, setFenceWrap, toggleWrap, wraps } from "../src/core/fence.ts";
+import { diffLine, hasFencedCode, parseFence, setFenceLang, setFenceWrap, toggleWrap, wraps } from "../src/core/fence.ts";
 import { cpuMs } from "./helpers.ts";
 
 const plain = (info: string) => {
@@ -51,4 +51,18 @@ test("a hostile info string parses in linear time and bounded space", () => {
   const f = parseFence(info);
   assert.equal(f.highlight.size, 0, "settings past the first 500 characters are ignored");
   assert.equal(parseFence("ts {1-99999999}").highlight.size, 5000);
+});
+
+test("a note has a fenced code block when a line opens one with ``` or ~~~", () => {
+  for (const md of ["```\ncode\n```", "Text\n\n```ts nowrap\nx\n```", "~~~\nx\n~~~", "- item\n  ```sh\n  ls\n  ```", "> ```\n> x", "1. ```", "Unclosed:\n```js\nx"]) {
+    assert.ok(hasFencedCode(md), md);
+  }
+  for (const md of ["", "# Plain\n\nJust words with `inline` code.", "```inline```", "``two``", "Some ``` in a sentence"]) {
+    assert.ok(!hasFencedCode(md), md);
+  }
+});
+
+test("checking a long note for a code block stays fast", () => {
+  const md = `${"> ".repeat(50_000)}\n${"`".repeat(50_000)}x\`\n${"word ".repeat(200_000)}`;
+  assert.ok(cpuMs(() => hasFencedCode(md)) < 200, "fast");
 });

@@ -23,6 +23,8 @@ function fakeApp(over: Partial<SettingsApp> = {}) {
     setVimDisplayLines: (on) => ((app.vimDisplayLines = on), log.push(`vimDisplayLines:${on}`)),
     sidebarPinned: {},
     setSidebarPinned: (item, on) => ((app.sidebarPinned = { ...app.sidebarPinned, [item]: on }), log.push(`sidebar:${item}:${on}`)),
+    shortcutTips: true,
+    setShortcutTips: (on) => ((app.shortcutTips = on), log.push(`shortcutTips:${on}`)),
     localVault: { projectRoot: "/code/commonink", vault: "/notes" },
     shortcuts: () => log.push("shortcuts"),
     connectAgent: () => log.push("connectAgent"),
@@ -35,7 +37,7 @@ const titles = (q: string, app: SettingsApp) => matchSettings(q, appSettings(app
 
 test("search finds settings by every word, across title, description, section and keywords", () => {
   const { app } = fakeApp();
-  assert.deepEqual(titles("", app), ["Theme", "Always show Contacts", "Always show Calendar", "Always show Assets", "Always show Smart folders", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Connect an agent"]);
+  assert.deepEqual(titles("", app), ["Theme", "Always show Contacts", "Always show Calendar", "Always show Assets", "Always show Smart folders", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Shortcut tips", "Connect an agent"]);
   assert.deepEqual(titles("dark", app), ["Theme"]);
   assert.deepEqual(titles("VIM", app), ["Line numbers", "Vim keys", "Vim: j and k by screen line"]);
   assert.deepEqual(titles("vim gj", app), ["Vim: j and k by screen line"]);

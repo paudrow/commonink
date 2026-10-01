@@ -34,6 +34,11 @@ const server = http.createServer((req, res) => {
   if (p === "/private.ics") return res.writeHead(200).end(ics(OFFSITE));
   if (p === "/page") return res.writeHead(200, { "Content-Type": "text/html" }).end("<title>Hi</title>");
   if (p === "/big.ics") return res.writeHead(200).end(`BEGIN:VCALENDAR\r\n${"X".repeat(2048)}`);
+  // Over 1 KB in bytes but not in characters, sent in chunks (no Content-Length to go by).
+  if (p === "/big-accents.ics") {
+    res.writeHead(200).write(`BEGIN:VCALENDAR\r\nX-WR-CALNAME:${"é".repeat(600)}\r\n`);
+    return res.end("END:VCALENDAR\r\n");
+  }
   res.writeHead(404).end();
 });
 before(async () => {
@@ -92,6 +97,7 @@ test("webcal addresses are https, and a feed that can't be read isn't kept", asy
       await refused(`${base}/page`),
       await refused(`${base}/nothing.ics`),
       await refused(`${base}/big.ics`),
+      await refused(`${base}/big-accents.ics`),
       await refused("ftp://example.com/cal.ics"),
       await refused("http://user:pw@example.com/cal.ics"),
       await refused("not a url"),
@@ -101,6 +107,7 @@ test("webcal addresses are https, and a feed that can't be read isn't kept", asy
       "That address isn't a calendar feed (no BEGIN:VCALENDAR)",
       "The feed answered 404 (not found)",
       "That feed is over 1 KB",
+      "That feed is over 1 KB",
       "Calendar feeds are http, https or webcal addresses",
       "Leave the name and password out of the address",
       "That isn't a web address. Paste the calendar's ICS or webcal link.",
@@ -109,6 +116,19 @@ test("webcal addresses are https, and a feed that can't be read isn't kept", asy
   assert.deepEqual(cal.sources(ME), []);
   await cal.addIcs({ url: `${base}/team.ics`, name: "Mine" }, ME, "you");
   assert.equal(await refused(`${base}/team.ics`), 'That feed is already here, as "Mine"');
+});
+
+test("searching events ignores case, accented letters too", async () => {
+  const { cal } = setup();
+  const sync = (uid: string, day: string, title: string) => vevent(uid, [`DTSTART:202610${day}T150000Z`, `DTEND:202610${day}T153000Z`, `SUMMARY:${title}`]);
+  team = ics(STANDUP, OFFSITE, sync("e1", "08", "Équipe Sync"), sync("e2", "09", "ÉQUIPE planning"), sync("e3", "10", "Café"));
+  await cal.addIcs({ url: `${base}/team.ics` }, ME, "you");
+  const titles = (q: string, limit?: number) => cal.events(ME, { ...OCT, q, limit }).map((e) => e.title);
+  assert.deepEqual(titles("équipe"), ["Équipe Sync", "ÉQUIPE planning"]);
+  assert.deepEqual(titles("Équipe"), ["Équipe Sync", "ÉQUIPE planning"]);
+  assert.deepEqual(titles("équipe", 1), ["Équipe Sync"]);
+  assert.deepEqual(titles("SYNC"), ["Équipe Sync"]);
+  assert.deepEqual(titles("standup", 2), ["Standup", "Standup"]);
 });
 
 test("reading a feed again updates its events in place: IDs stay, gone events go, meeting notes stay linked", async () => {

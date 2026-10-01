@@ -10,7 +10,7 @@ import { VaultError } from "./paths.ts";
 import { fillTemplate } from "./templates.ts";
 import type { Vault } from "./vault.ts";
 import type { SqlDb } from "./store.ts";
-import { fetchGuarded, readCapped, type UrlGuard } from "./unfurl.ts";
+import { fetchGuarded, readCappedBytes, type UrlGuard } from "./unfurl.ts";
 
 export type SourceKind = "ics" | "google" | "local";
 export type SyncStatus = "pending" | "ok" | "error";
@@ -281,8 +281,8 @@ export async function fetchFeed(url: string, last: { etag: string | null; modifi
     await res.body?.cancel();
     throw new Error(`feed:That feed is over ${size(max)}`);
   }
-  const text = await readCapped(res, max + 1);
-  if (text.length > max) throw new Error(`feed:That feed is over ${size(max)}`);
+  const { text, bytes } = await readCappedBytes(res, max + 1);
+  if (bytes > max) throw new Error(`feed:That feed is over ${size(max)}`);
   if (!looksLikeIcs(text)) throw new Error("feed:That address isn't a calendar feed (no BEGIN:VCALENDAR)");
   return { status: "ok", text, etag: res.headers.get("etag"), modified: res.headers.get("last-modified") };
 }
@@ -579,14 +579,19 @@ export class Calendar {
   events(viewer: { user: string }, range: { from: number; to: number; zone?: string; q?: string; limit?: number; source?: string }): CalendarEvent[] {
     const { from, to } = range;
     const q = range.q?.trim().toLowerCase();
+    const limit = Math.min(range.limit ?? 2000, 5000);
+    // SQLite's lower() only knows ASCII, so a search with other letters ("équipe") is matched here
+    // instead: the database narrows to titles with a non-ASCII character, the only ones it can match.
+    const wide = !!q && /[^\x00-\x7f]/.test(q);
     const rows = this.db.all<ItemRow>(
       `${Calendar.SELECT}
        WHERE (s.owner IS NULL OR s.owner = ?) AND i.kind = 'event'
          AND i.start_ms < ? + (1 - i.abs) * ? AND i.end_ms > ? - (1 - i.abs) * ?
-         AND (? IS NULL OR i.source = ?) AND (? IS NULL OR instr(lower(i.title), ?) > 0)
+         AND (? IS NULL OR i.source = ?) AND (? IS NULL OR instr(lower(i.title), ?) > 0) AND (? IS NULL OR i.title GLOB ?)
        ORDER BY i.start_ms, i.title LIMIT ?`,
-      viewer.user, to, ZONE_SLOP, from, ZONE_SLOP, range.source ?? null, range.source ?? null, q || null, q || null, Math.min(range.limit ?? 2000, 5000),
-    );
+      viewer.user, to, ZONE_SLOP, from, ZONE_SLOP, range.source ?? null, range.source ?? null,
+      wide ? null : q || null, wide ? null : q || null, wide ? 1 : null, "*[^\u0001-\u007f]*", wide ? -1 : limit,
+    ).filter((r) => !wide || r.title.toLowerCase().includes(q!)).slice(0, limit);
     const zone = range.zone && validZone(range.zone);
     const inZone = (t: string) => msOf(t) - (zone ? offsetAt(msOf(t), zone) : 0);
     return rows

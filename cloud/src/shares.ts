@@ -117,7 +117,8 @@ export async function addShare(
   const targetCol = o.target.note ? "note_id" : "folder";
   const target = o.target.note ?? o.target.folder;
   const existing = await db
-    .prepare(`SELECT id FROM shares WHERE workspace_id = ? AND ${targetCol} = ? AND principal_type = ? AND principal IS ?`)
+    // Not one they kept by joining a link: that goes with the link, and this one is theirs.
+    .prepare(`SELECT id FROM shares WHERE workspace_id = ? AND ${targetCol} = ? AND principal_type = ? AND principal IS ? AND via_share IS NULL`)
     .bind(o.workspaceId, target, kind, principal)
     .first<{ id: string }>();
   const id = existing?.id ?? newId();
@@ -133,19 +134,30 @@ export async function addShare(
   return { id, kind, url: o.link ? `/s/${await linkToken(secret, id)}` : null };
 }
 
-/** Change a share's role or expiry (in this workspace only). */
+/** Change a share's role or expiry (in this workspace only). Those who kept a link by joining it get no more than it gives now. */
 export async function updateShare(db: D1Database, workspaceId: string, id: string, o: { role?: ShareRole; expiresAt?: number | null }) {
   const row = await db
-    .prepare("UPDATE shares SET role = COALESCE(?1, role), expires_at = CASE WHEN ?2 THEN ?3 ELSE expires_at END WHERE id = ?4 AND workspace_id = ?5 RETURNING id")
+    .prepare("UPDATE shares SET role = COALESCE(?1, role), expires_at = CASE WHEN ?2 THEN ?3 ELSE expires_at END WHERE id = ?4 AND workspace_id = ?5 RETURNING role, expires_at AS expiresAt")
     .bind(o.role ?? null, o.expiresAt !== undefined ? 1 : 0, o.expiresAt ?? null, id, workspaceId)
-    .first();
+    .first<{ role: ShareRole; expiresAt: number | null }>();
   if (!row) throw new ShareError("That share isn't in this workspace", 404);
+  await db
+    .prepare(
+      `UPDATE shares SET role = CASE WHEN ?1 = 'viewer' THEN 'viewer' ELSE role END,
+       expires_at = CASE WHEN ?2 IS NOT NULL AND (expires_at IS NULL OR expires_at > ?2) THEN ?2 ELSE expires_at END
+       WHERE via_share = ?3 AND workspace_id = ?4`,
+    )
+    .bind(row.role, row.expiresAt, id, workspaceId)
+    .run();
 }
 
-/** Stop sharing (in this workspace only). */
+/** Stop sharing (in this workspace only); for a link, everyone who kept it by joining it loses it too. */
 export async function removeShare(db: D1Database, workspaceId: string, id: string) {
-  const row = await db.prepare("DELETE FROM shares WHERE id = ? AND workspace_id = ? RETURNING id").bind(id, workspaceId).first();
-  if (!row) throw new ShareError("That share isn't in this workspace", 404);
+  const [, removed] = await db.batch([
+    db.prepare("DELETE FROM shares WHERE via_share = ? AND workspace_id = ?").bind(id, workspaceId),
+    db.prepare("DELETE FROM shares WHERE id = ? AND workspace_id = ? RETURNING id").bind(id, workspaceId),
+  ]);
+  if (!removed.results.length) throw new ShareError("That share isn't in this workspace", 404);
 }
 
 /** Whether someone new has been shared something by email: a member vouched for them, so they may sign up. */
@@ -153,21 +165,26 @@ export async function hasPendingShare(db: D1Database, email: string) {
   return !!(await db.prepare(`SELECT 1 FROM shares WHERE principal_type = 'email' AND principal = ? AND ${live}`).bind(email.toLowerCase(), Date.now()).first());
 }
 
-/** A link visitor who signed in keeps the note: the link's share, as their own, until the link would have run out. */
+/**
+ * A link visitor who signed in keeps the note: the link's share, as their own, until the link would
+ * have run out and only while the link lasts (its `via_share`). A share made out to them directly
+ * stays as it is; a link that gives more is kept beside it, so removing the link leaves theirs.
+ */
 export async function joinLink(db: D1Database, share: { id: string; workspaceId: string; expiresAt: number | null } & Grant, userId: string) {
   const col = share.note ? "note_id" : "folder";
   const target = share.note ?? share.folder;
-  const mine = await db
-    .prepare(`SELECT id, role FROM shares WHERE workspace_id = ? AND ${col} = ? AND principal_type = 'user' AND principal = ?`)
+  const { results: mine } = await db
+    .prepare(`SELECT id, role, via_share AS via FROM shares WHERE workspace_id = ? AND ${col} = ? AND principal_type = 'user' AND principal = ?`)
     .bind(share.workspaceId, target, userId)
-    .first<{ id: string; role: ShareRole }>();
-  if (mine && (mine.role === "editor" || share.role === "viewer")) return;
-  if (mine) await db.prepare("UPDATE shares SET role = ?, expires_at = ? WHERE id = ?").bind(share.role, share.expiresAt, mine.id).run();
+    .all<{ id: string; role: ShareRole; via: string | null }>();
+  if (mine.length && (mine.some((s) => s.role === "editor") || share.role === "viewer")) return;
+  const joined = mine.find((s) => s.via);
+  if (joined) await db.prepare("UPDATE shares SET role = ?, expires_at = ?, via_share = ? WHERE id = ?").bind(share.role, share.expiresAt, share.id, joined.id).run();
   else {
     const creator = await db.prepare("SELECT created_by FROM shares WHERE id = ?").bind(share.id).first<{ created_by: string }>();
     await db
-      .prepare(`INSERT INTO shares(id, workspace_id, note_id, folder, principal_type, principal, role, token_hash, expires_at, created_by, created_at) VALUES (?,?,?,?,'user',?,?,NULL,?,?,?)`)
-      .bind(newId(), share.workspaceId, share.note, share.folder, userId, share.role, share.expiresAt, creator!.created_by, Date.now())
+      .prepare(`INSERT INTO shares(id, workspace_id, note_id, folder, principal_type, principal, role, token_hash, expires_at, created_by, created_at, via_share) VALUES (?,?,?,?,'user',?,?,NULL,?,?,?,?)`)
+      .bind(newId(), share.workspaceId, share.note, share.folder, userId, share.role, share.expiresAt, creator!.created_by, Date.now(), share.id)
       .run();
   }
 }

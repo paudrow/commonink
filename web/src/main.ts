@@ -16,6 +16,7 @@ import { createState, lineNumbersFor, lineNumbersSlot, openLinkToSide, remote, s
 import { linkTargetAt } from "./editor/linkAt.ts";
 import { bumpEmbeds, codeRange, editorContext } from "./editor/blocks.ts";
 import { codeWrapByDefault, setCodeWrapByDefault } from "./code.ts";
+import { hasFencedCode } from "../../src/core/fence.ts";
 import { foldAll, foldAt, foldCount } from "./editor/details.ts";
 import { clearFlash, flashChanges } from "./editor/agentFlash.ts";
 import { editsBetween, merge3 } from "./merge.ts";
@@ -38,8 +39,10 @@ import type { Theme } from "./settings.ts";
 import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./account.ts";
 import { appCommands } from "./commands.ts";
 import { toggleShortcuts } from "./shortcuts.ts";
+import { NO_TIPS, tipText, watchTips, type TipsState } from "./shortcutTips.ts";
 import { did, vaultEvents } from "./events.ts";
 import { guideMessage, startGuide } from "./onboarding.ts";
+import { watchTodayCleared } from "./todayCleared.ts";
 import { store } from "./store.ts";
 import { changeVerb, groupChanges } from "../../src/core/format.ts";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
@@ -1327,6 +1330,7 @@ function onUpdate(s: Session, docChanged: boolean, fromRemote: boolean, state: E
     }
   }
   if (s.retitle) retitleSoon(s, state);
+  if (docChanged && s.kind === "md") renderCodeWrapSoon(); // either pane: a code block may have come or gone
   if (s.pane !== active) return;
   renderStatusSoon(state);
   if (docChanged) renderOutlineSoon();
@@ -2331,6 +2335,9 @@ function attachVim() {
   const cm = getCM(active.view);
   const node = $("#vim-mode");
   const toggle = $("#vim-toggle");
+  // Only while Vim is on: then it says so beside the mode and turns it off in one click. Settings
+  // and ⌘⇧P turn it on, so someone who never uses Vim never sees it.
+  toggle.hidden = !prefs.vim;
   setPressed(toggle, prefs.vim);
   toggle.textContent = `Vim keys: ${prefs.vim ? "on" : "off"}`;
   if (!cm || !prefs.vim) {
@@ -2703,14 +2710,25 @@ function setCodeWrap(on: boolean) {
   for (const p of panes) bumpEmbeds(p.view);
 }
 
-/** The Wrap code chip: only where there's a note to have code in. mobile.css hides it on phones. */
+/**
+ * The Wrap code chip: only while an open note has a code block for it to change, so a note of
+ * plain prose doesn't show a switch that does nothing there. Settings has it always. mobile.css
+ * hides it on phones.
+ */
 function renderCodeWrap() {
   const on = codeWrapByDefault();
   const chip = $("#codewrap-toggle");
-  chip.hidden = !panes.some((p) => p.session?.kind === "md");
+  chip.hidden = !panes.some((p) => p.session?.kind === "md" && hasFencedCode(p.view.state.doc.toString()));
   setPressed(chip, on);
   chip.textContent = `Wrap code: ${on ? "on" : "off"}`;
   chip.title = on ? "Long lines in code blocks wrap. Click to scroll them instead." : "Long lines in code blocks scroll. Click to wrap them.";
+}
+
+/** As you type: a moment after the last keystroke, so typing or deleting a fence shows or hides the chip. */
+let codeWrapTimer = 0;
+function renderCodeWrapSoon() {
+  clearTimeout(codeWrapTimer);
+  codeWrapTimer = window.setTimeout(renderCodeWrap, 300);
 }
 
 /** Local vaults: where the vault and the `commonink` command are, for connecting an agent. Online, null. */
@@ -2732,6 +2750,8 @@ function openSettings() {
         setVim,
         vimDisplayLines: prefs.vimDisplayLines,
         setVimDisplayLines: (on) => on !== prefs.vimDisplayLines && toggleVimDisplayLines(),
+        shortcutTips: !tipsState().off,
+        setShortcutTips: (on) => store.set("shortcutTips", { ...tipsState(), off: !on }),
         localVault,
         sidebarPinned: prefs.sidebarPinned,
         setSidebarPinned,
@@ -2750,6 +2770,18 @@ function setSidebarPinned(item: OptionalItem, on: boolean) {
 }
 
 const connectAgent = () => void import("./agentsPage.ts").then((m) => m.showAgents());
+
+/** Shortcut tips (shortcutTips.ts): the third click on a button with a shortcut says, once, which keys do it. */
+const tipsState = (): TipsState => ({ ...NO_TIPS, ...store.get<Partial<TipsState>>("shortcutTips", {}) });
+function setupShortcutTips() {
+  watchTips({
+    load: tipsState,
+    save: (s) => store.set("shortcutTips", s),
+    // The palette's box is always there, hidden with it; a dialog that's showing isn't inside anything hidden.
+    busy: () => [...document.querySelectorAll('[aria-modal="true"], .qa-float')].some((n) => !n.closest("[hidden]")),
+    show: (tip) => toast({ icon: "keyboard", text: tipText(tip), actionLabel: "Show all shortcuts", action: () => toggleShortcuts(commands(), { vim: prefs.vim }) }),
+  });
+}
 
 // ------------------------------------------------------------------ split view
 
@@ -2972,6 +3004,7 @@ async function boot() {
   $("#vim-toggle").addEventListener("click", toggleVim);
   $("#settings-btn").addEventListener("click", () => openSettings());
   setLabel($("#settings-btn"), `Settings (${formatKeys("Mod-,")})`);
+  setupShortcutTips();
   attachVim(); // the toggle's label, before any note opens
   $("#html-toggle").addEventListener("click", (e) => {
     const mode = (e.target as HTMLElement).closest("button")?.dataset.mode as "preview" | "source" | undefined;
@@ -3045,6 +3078,7 @@ async function boot() {
     }
   });
   if (!viewer) void startGuide({ archive: (path) => void archivePath(path), flush: () => flushSave() });
+  if (!viewer) watchTodayCleared();
 
   void refreshTaskCount();
   // Home is the notes list; a note's URL (or the tasks, history or assets page) opens that instead.
