@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { contactFromNote, contactNote, duplicateContacts, handlesOf, parseContactsCsv, parseVCards, type Contact } from "../src/core/contacts.ts";
-import { openTempVault } from "./helpers.ts";
+import { cpuMs, openTempVault } from "./helpers.ts";
 
 const JANE = `---
 email: jane@acme.com
@@ -45,6 +45,18 @@ test("writing a contact keeps the note's words and any frontmatter it doesn't kn
   assert.match(contactNote({ name: "Q", email: [], phone: [], company: "Smith, Jones & Co: Law", role: "", links: [], aliases: [], tags: [] }), /company: "Smith, Jones & Co: Law"/);
 });
 
+test("writing a contact keeps a comment before the first key and keys with spaces or accents", () => {
+  const md = "---\n# my comment\nemail: a@b.com\nDate Created: 2024-01-01\ntítulo: x\nnotes: x\n---\n# Jane\nbody\n";
+  const c = contactFromNote("People/Jane.md", md);
+  assert.deepEqual(c.email, ["a@b.com"]);
+  assert.equal(
+    contactNote({ ...c, phone: ["+1 555"] }, md),
+    "---\nemail: a@b.com\nphone: +1 555\n# my comment\nDate Created: 2024-01-01\ntítulo: x\nnotes: x\n---\n# Jane\nbody\n",
+  );
+  // Removing the email removes only its line.
+  assert.equal(contactNote({ ...c, email: [] }, md), "---\n# my comment\nDate Created: 2024-01-01\ntítulo: x\nnotes: x\n---\n# Jane\nbody\n");
+});
+
 test("vCards: folded lines, several emails and phones, organization, title, nickname, categories", () => {
   const vcf = [
     "BEGIN:VCARD",
@@ -75,12 +87,27 @@ test("vCards: folded lines, several emails and phones, organization, title, nick
   assert.deepEqual(sam.email, ["sam@x.org"], "a folded line continues the one before");
 });
 
+test("vCards: an escaped backslash stays one backslash, before an n or a separator", () => {
+  const vcf = ["BEGIN:VCARD", "FN:Kim", "ORG:A\\\\;Dept", "NICKNAME:x\\\\,y", "NOTE:Path C:\\\\new\\\\Notes\\nnext", "END:VCARD"].join("\n");
+  const [kim] = parseVCards(vcf);
+  assert.equal(kim.notes, "Path C:\\new\\Notes\nnext");
+  assert.equal(kim.company, "A\\", "the semicolon after an escaped backslash separates");
+  assert.deepEqual(kim.aliases, ["x\\", "y"]);
+});
+
 test("CSV: Google's and Outlook's column names, first and last name, lists in one cell", () => {
   const google = 'Name,Given Name,Family Name,E-mail 1 - Value,E-mail 2 - Value,Phone 1 - Value,Organization 1 - Name,Organization 1 - Title,Labels,Website 1 - Value\nJane Doe,Jane,Doe,jane@acme.com,jd@home.org,+1 555 0100,Acme,CTO,client ::: * myContacts,https://jane.dev\n';
   assert.deepEqual(parseContactsCsv(google), [{ name: "Jane Doe", email: ["jane@acme.com", "jd@home.org"], phone: ["+1 555 0100"], company: "Acme", role: "CTO", links: ["https://jane.dev"], aliases: [], tags: ["client"], notes: "" }]);
   const outlook = "First Name,Last Name,E-mail Address,Company,Job Title,Mobile Phone,Categories\nSam,Lee,sam@x.org,Globex,PM,555-0101,vendor;friend\n,,,,,,\n";
   assert.deepEqual(parseContactsCsv(outlook), [{ name: "Sam Lee", email: ["sam@x.org"], phone: ["555-0101"], company: "Globex", role: "PM", links: [], aliases: [], tags: ["vendor", "friend"], notes: "" }]);
   assert.throws(() => parseContactsCsv("colour,size\nred,L\n"), /no column for a name or an email/);
+});
+
+test("a hostile CSV cell (a long run of spaces between two words) parses in linear time", () => {
+  const csv = `Name,Email\na,x${" ".repeat(100_000)}y\n`;
+  assert.ok(cpuMs(() => parseContactsCsv(csv)) < 300, "fast");
+  assert.deepEqual(parseContactsCsv(csv)[0].email, [`x${" ".repeat(100_000)}y`]);
+  assert.deepEqual(parseContactsCsv("Name,Email\na, x@y.org ;  ; z@y.org ::: w@y.org\n")[0].email, ["x@y.org", "z@y.org", "w@y.org"]);
 });
 
 test("duplicates: contacts that share an email, or a name (aliases count)", () => {

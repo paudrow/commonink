@@ -47,7 +47,7 @@ const blank = (freq: Freq, interval = 1, from: Rule["from"] = "due"): Rule => ({
 /** A plain gap (every N days, weeks…) rather than a calendar rule. */
 export const isInterval = (r: Rule) => !r.byDay.length && !r.byMonthDay.length && !r.byMonth.length && !r.byYearDay.length;
 const ordinalOf = (s: string) => (s === "last" ? -1 : parseInt(s, 10));
-export const nth = (n: number) => (n === -1 ? "last" : `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] ?? "th"}`);
+export const nth = (n: number): string => (n === -1 ? "last" : n < 0 ? `${nth(-n)}-to-last` : `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] ?? "th"}`);
 
 /** A `rec:` value as a rule, or null if it isn't one. */
 export function parseRule(raw: string): Rule | null {
@@ -225,21 +225,32 @@ export function ruleLabel(r: Rule, long = false): string {
   /** The `n`th day before the last day (0: the last day itself). */
   const fromEnd = (n: number, full: boolean) => (!full ? (n ? `Last day − ${n}` : "Last day") : n === 0 ? "last day" : n === 1 ? "day before the last day" : `${nth(n)} day before the last day`);
   const monthDays = (full: boolean) => (full ? andList : ampList)(r.byMonthDay.map((d) => (d < 0 ? fromEnd(-d - 1, full) : nth(d))));
+  /** Days of the year: "day 50", or from its end ("last day of the year"). */
+  const yearDays = (full: boolean) => {
+    const ahead = r.byYearDay.filter((n) => n > 0).map(String);
+    const back = r.byYearDay.filter((n) => n < 0).map((n) => `${full ? "the " : ""}${nth(n)} day of the year`);
+    const list = full && !back.length ? andList : (xs: string[]) => xs.join(", ");
+    return (full ? andList : ampList)([...(ahead.length ? [`day ${list(ahead)}`] : []), ...back]);
+  };
+  /** A weekday that has to fall on a day of the month too ("Friday the 13th"). */
+  const dayOnDate = (full: boolean) => `${dayPart(full)} the ${monthDays(true)}`;
   const months = (full: boolean) => andList(r.byMonth.map((m) => (full ? MONTH_NAMES[m - 1] : MONTH_NAMES[m - 1].slice(0, 3))));
   const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
   if (!long) {
     const prefix = r.interval > 1 ? `Every ${r.interval} ${SHORT_UNIT[r.freq]}: ` : "";
     let body: string;
-    if (r.byYearDay.length) body = `Day ${r.byYearDay.join(", ")}`;
+    if (r.byYearDay.length) body = cap(yearDays(false));
     else if (r.byMonth.length && r.byMonthDay.length) body = `${months(false)} ${r.byMonthDay.join(", ")}`;
     else if (r.byMonth.length && r.byDay.length) body = `${cap(dayPart(false))} of ${months(false)}`;
+    else if (r.byMonthDay.length && r.byDay.length) body = cap(dayOnDate(false));
     else if (r.byMonthDay.length) body = monthDays(false);
     else body = cap(dayPart(false));
     return prefix + body;
   }
-  if (r.byYearDay.length) return `${every} on day ${andList(r.byYearDay.map(String))}`;
+  if (r.byYearDay.length) return `${every} on ${yearDays(true)}`;
   if (r.byMonth.length && r.byMonthDay.length) return `${every} on ${months(true)} ${andList(r.byMonthDay.map(String))}`;
   if (r.byMonth.length && r.byDay.length) return `${every} on the ${dayPart(true)} of ${months(true)}`;
+  if (r.byMonthDay.length && r.byDay.length) return `${every} on ${days ? "" : "the "}${dayOnDate(true)}`;
   if (r.byMonthDay.length) return `${every} on the ${monthDays(true)}`;
   return `${every} on ${days ? "" : "the "}${dayPart(true)}`;
 }
@@ -274,7 +285,10 @@ function period(r: Rule, anchor: number, k: number): number[] {
   const monthFilter = (xs: number[]) => (r.byMonth.length ? xs.filter((x) => r.byMonth.includes(partsOf(x).m)) : xs);
   if (r.freq === "day") {
     const x = anchor + k * r.interval;
-    const ok = (!r.byDay.length || r.byDay.some((d) => d.day === weekday(x))) && (!r.byMonthDay.length || r.byMonthDay.includes(partsOf(x).d));
+    const p = partsOf(x);
+    // A negative day of the month counts back from that month's last day (-1: the last day).
+    const onDay = (n: number) => (n > 0 ? n : daysIn(p.y, p.m) + n + 1) === p.d;
+    const ok = (!r.byDay.length || r.byDay.some((d) => d.day === weekday(x))) && (!r.byMonthDay.length || r.byMonthDay.some(onDay));
     return ok ? monthFilter([x]) : [];
   }
   if (r.freq === "week") {
@@ -292,7 +306,9 @@ function period(r: Rule, anchor: number, k: number): number[] {
     return monthFilter(r.byYearDay.filter((n) => Math.abs(n) <= len).map((n) => (n > 0 ? dayNumber(y, 1, n) : dayNumber(y + 1, 1, 1) + n)));
   }
   if (!r.byMonth.length && r.byDay.length) return r.byDay.flatMap((d) => weekdaysBetween(dayNumber(y, 1, 1), dayNumber(y, 12, 31), d.n, d.day));
-  return (r.byMonth.length ? r.byMonth : [a.m]).flatMap((m) => inMonth(r, y, m, a.d));
+  // Days of the month with no months named happen in every month (RFC 5545); otherwise it's the anchor's month.
+  const months = r.byMonth.length ? r.byMonth : r.byMonthDay.length ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] : [a.m];
+  return months.flatMap((m) => inMonth(r, y, m, a.d));
 }
 
 /** The rule's dates in one month: its days of the month and/or its weekdays (both: where they agree), else the anchor's day. */

@@ -29,4 +29,4 @@ Off a Mac, read `⌘` as `Ctrl`. Press `?` for every shortcut.
 - `⌘K` search and jump between notes, `⌘⇧F` all your notes
 - `⌘⇧E` archive a note (it keeps its links, and you can undo)
 - `⌘Z` takes back the last change in a note, an agent's included
-- Vim keys: toggle them in the status bar
+- Vim keys: turn them on in Settings (`⌘,`) or with "Turn vim keys on" in `⌘⇧P`

@@ -16,6 +16,7 @@ import { createState, lineNumbersFor, lineNumbersSlot, openLinkToSide, remote, s
 import { linkTargetAt } from "./editor/linkAt.ts";
 import { bumpEmbeds, codeRange, editorContext } from "./editor/blocks.ts";
 import { codeWrapByDefault, setCodeWrapByDefault } from "./code.ts";
+import { hasFencedCode } from "../../src/core/fence.ts";
 import { foldAll, foldAt, foldCount } from "./editor/details.ts";
 import { clearFlash, flashChanges } from "./editor/agentFlash.ts";
 import { editsBetween, merge3 } from "./merge.ts";
@@ -38,8 +39,10 @@ import type { Theme } from "./settings.ts";
 import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./account.ts";
 import { appCommands } from "./commands.ts";
 import { toggleShortcuts } from "./shortcuts.ts";
+import { NO_TIPS, tipText, watchTips, type TipsState } from "./shortcutTips.ts";
 import { did, vaultEvents } from "./events.ts";
 import { guideMessage, startGuide } from "./onboarding.ts";
+import { watchTodayCleared } from "./todayCleared.ts";
 import { inkState, setInk, startInks } from "./inkUnlocks.ts";
 import { store } from "./store.ts";
 import { changeVerb, groupChanges } from "../../src/core/format.ts";
@@ -59,7 +62,8 @@ import { showShareDialog } from "./shareDialog.ts";
 import { CapturePage, registerWorker } from "./capture.ts";
 import { AGENTS_BLURB, isAgentsNote } from "./agentsNote.ts";
 import { closeDrawer, setupMobileNav } from "./mobileNav.ts";
-import { nameField, plusMark, sectionHint, sidebarTags } from "./sidebar.ts";
+import { nameField, plusMark, sectionHint, shownItems, sidebarTags, type OptionalItem } from "./sidebar.ts";
+import { PEOPLE } from "../../src/core/contacts.ts";
 import type { CalendarPage } from "./calendar/page.ts";
 import { calendarChanged, calendars, setCalendarContext } from "./calendar/data.ts";
 import { calendarTarget, OPEN_CALENDAR } from "./links.ts";
@@ -126,6 +130,8 @@ const prefs = {
   tagsOpen: new Set<string>(store.get<string[]>("tagsOpen", [])),
   /** Sidebar sections folded away from their header. Folders start folded: the sidebar leads with tags. */
   folded: { favorites: false, smart: false, folders: true, tags: false, ...store.get<Record<string, boolean>>("folded", {}) } as Record<string, boolean>,
+  /** Contacts, Calendar, Assets and Smart folders kept in the sidebar before they're in use (Settings, Sidebar). */
+  sidebarPinned: store.get<Partial<Record<OptionalItem, boolean>>>("sidebarPinned", {}),
 };
 taskInputPrefs.vim = prefs.vim; // every task input (quick-add, inline edit, a card) types with the editor's keys
 
@@ -137,6 +143,10 @@ let changes: Change[] = [];
 let tags: TagCount[] = [];
 /** Your smart folders (the workspace's shared ones and your own), with live counts. */
 let smartFolders: SmartFolder[] = [];
+/** You see a calendar here: a subscription, a Google calendar, or the workspace's own, which its first event makes. */
+let hasCalendars = false;
+/** Optional sidebar items asked for from ⌘K this visit (New smart folder), kept showing until you reload. */
+const revealed = new Set<OptionalItem>();
 
 const layoutKey = () => `layout:${workspaceId || "local"}`;
 /** How the window was split, and each pane's trail; read again once the workspace is known (see boot). */
@@ -291,6 +301,7 @@ function commands() {
     newBoard: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : "", `\n${NEW_BOARD}\n`),
     newFolder: startNewFolder,
     newTag: startNewTag,
+    newSmartFolder: newSmartFolderFromPalette,
     go: (page) => {
       if (page === "notes" || page === "archive" || page === "trash") void showNotes({ tab: page, query: {} });
       else void { tasks: showTasks, calendar: showCalendar, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory, shared: showShared }[page]();
@@ -1320,6 +1331,7 @@ function onUpdate(s: Session, docChanged: boolean, fromRemote: boolean, state: E
     }
   }
   if (s.retitle) retitleSoon(s, state);
+  if (docChanged && s.kind === "md") renderCodeWrapSoon(); // either pane: a code block may have come or gone
   if (s.pane !== active) return;
   renderStatusSoon(state);
   if (docChanged) renderOutlineSoon();
@@ -1538,6 +1550,7 @@ function onMessage(m: ServerMsg) {
     case "calendar":
       calendarChanged();
       void calendarPage?.refresh();
+      void learnCalendars();
       return;
     case "tree":
       notesPage.refreshSoon();
@@ -1565,6 +1578,13 @@ async function refreshNotes() {
   tagsPage?.refresh();
 }
 const refreshNotesSoon = debounce(refreshNotes, 120);
+/** Whether there's a calendar, so Calendar shows in the sidebar. A failed read leaves it as it was. */
+async function learnCalendars() {
+  const list = await calendars().catch(() => null);
+  if (!list || (list.length > 0) === hasCalendars) return;
+  hasCalendars = list.length > 0;
+  renderTree();
+}
 const refreshTagsSoon = debounce(async () => {
   tags = await api.tags().catch(() => tags);
   tagsPage?.refresh();
@@ -1613,6 +1633,13 @@ function saveSmartFolder(query: string, name: string, anchor: HTMLElement) {
       toast({ icon: "folderSearch", text: `Saved ${saved.name}`, detail: local ? undefined : saved.shared ? "Everyone in the workspace sees it in their sidebar." : "Only you see it." });
     },
   });
+}
+
+/** A new smart folder from ⌘K: the Smart folders section shows (it waits for a first one otherwise), and the form opens under its +. */
+function newSmartFolderFromPalette() {
+  revealed.add("smart");
+  renderTree();
+  newSmartFolder($("#new-smart-folder"));
 }
 
 /** A new smart folder from scratch (the Smart folders header, or its empty row). Saving opens it. */
@@ -1874,6 +1901,22 @@ function renderTree() {
   notesPage.named((showing && smartFolders.find((f) => f.query === showing)?.name) || null);
   const assetCount = notes.filter((n) => n.kind === "asset" && !isArchived(n.path)).length;
   $("#assets-count").textContent = assetCount ? String(assetCount) : "";
+  // Contacts, Calendar, Assets and Smart folders wait until they're in use, or until you're on one.
+  const here = new Set<OptionalItem>(revealed);
+  if (page === "contacts" || page === "calendar" || page === "assets") here.add(page);
+  const shown = shownItems(
+    {
+      contacts: notes.some((n) => n.kind === "md" && n.path.startsWith(`${PEOPLE}/`) && !isArchived(n.path)), // what api.contacts() lists
+      calendar: hasCalendars,
+      assets: assetCount > 0,
+      smart: smartFolders.length > 0,
+    },
+    prefs.sidebarPinned,
+    here,
+  );
+  for (const item of ["contacts", "calendar", "assets"] as const) $(`#${item}-btn`).hidden = !shown[item];
+  $('.tree-head[data-section="smart"]').hidden = !shown.smart;
+  $("#smart-folders").hidden = !shown.smart || !!prefs.folded.smart;
   setCurrent($("#notes-btn"), showing === "" || page === "archive" || page === "trash"); // Archive and Trash are tabs of Notes
   const shownTag = showing === null ? "" : (parseQuery(showing).tag ?? "");
   renderTagTree(shownTag && showing === formatQuery({ tag: shownTag }) ? shownTag.toLowerCase() : ""); // a tag alone, like a folder alone
@@ -2092,7 +2135,7 @@ function setupSections() {
       const folded = !!prefs.folded[section];
       toggle.setAttribute("aria-expanded", String(!folded));
       head.classList.toggle("is-folded", folded);
-      body.hidden = folded;
+      body.hidden = folded || head.hidden; // a section the sidebar leaves out until it's in use (Smart folders) stays out
     };
     toggle.addEventListener("click", () => {
       prefs.folded[section] = !prefs.folded[section];
@@ -2293,6 +2336,9 @@ function attachVim() {
   const cm = getCM(active.view);
   const node = $("#vim-mode");
   const toggle = $("#vim-toggle");
+  // Only while Vim is on: then it says so beside the mode and turns it off in one click. Settings
+  // and ⌘⇧P turn it on, so someone who never uses Vim never sees it.
+  toggle.hidden = !prefs.vim;
   setPressed(toggle, prefs.vim);
   toggle.textContent = `Vim keys: ${prefs.vim ? "on" : "off"}`;
   if (!cm || !prefs.vim) {
@@ -2665,14 +2711,25 @@ function setCodeWrap(on: boolean) {
   for (const p of panes) bumpEmbeds(p.view);
 }
 
-/** The Wrap code chip: only where there's a note to have code in. mobile.css hides it on phones. */
+/**
+ * The Wrap code chip: only while an open note has a code block for it to change, so a note of
+ * plain prose doesn't show a switch that does nothing there. Settings has it always. mobile.css
+ * hides it on phones.
+ */
 function renderCodeWrap() {
   const on = codeWrapByDefault();
   const chip = $("#codewrap-toggle");
-  chip.hidden = !panes.some((p) => p.session?.kind === "md");
+  chip.hidden = !panes.some((p) => p.session?.kind === "md" && hasFencedCode(p.view.state.doc.toString()));
   setPressed(chip, on);
   chip.textContent = `Wrap code: ${on ? "on" : "off"}`;
   chip.title = on ? "Long lines in code blocks wrap. Click to scroll them instead." : "Long lines in code blocks scroll. Click to wrap them.";
+}
+
+/** As you type: a moment after the last keystroke, so typing or deleting a fence shows or hides the chip. */
+let codeWrapTimer = 0;
+function renderCodeWrapSoon() {
+  clearTimeout(codeWrapTimer);
+  codeWrapTimer = window.setTimeout(renderCodeWrap, 300);
 }
 
 /** Local vaults: where the vault and the `commonink` command are, for connecting an agent. Online, null. */
@@ -2698,7 +2755,11 @@ function openSettings(query?: string) {
           setVim,
           vimDisplayLines: prefs.vimDisplayLines,
           setVimDisplayLines: (on) => on !== prefs.vimDisplayLines && toggleVimDisplayLines(),
+          shortcutTips: !tipsState().off,
+          setShortcutTips: (on) => store.set("shortcutTips", { ...tipsState(), off: !on }),
           localVault,
+          sidebarPinned: prefs.sidebarPinned,
+          setSidebarPinned,
           shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
           connectAgent,
         }),
@@ -2707,7 +2768,26 @@ function openSettings(query?: string) {
   );
 }
 
+/** Keep an optional sidebar item showing even before it's in use (Settings, Sidebar), or let it wait again. */
+function setSidebarPinned(item: OptionalItem, on: boolean) {
+  prefs.sidebarPinned = { ...prefs.sidebarPinned, [item]: on };
+  store.set("sidebarPinned", prefs.sidebarPinned);
+  renderTree();
+}
+
 const connectAgent = () => void import("./agentsPage.ts").then((m) => m.showAgents());
+
+/** Shortcut tips (shortcutTips.ts): the third click on a button with a shortcut says, once, which keys do it. */
+const tipsState = (): TipsState => ({ ...NO_TIPS, ...store.get<Partial<TipsState>>("shortcutTips", {}) });
+function setupShortcutTips() {
+  watchTips({
+    load: tipsState,
+    save: (s) => store.set("shortcutTips", s),
+    // The palette's box is always there, hidden with it; a dialog that's showing isn't inside anything hidden.
+    busy: () => [...document.querySelectorAll('[aria-modal="true"], .qa-float')].some((n) => !n.closest("[hidden]")),
+    show: (tip) => toast({ icon: "keyboard", text: tipText(tip), actionLabel: "Show all shortcuts", action: () => toggleShortcuts(commands(), { vim: prefs.vim }) }),
+  });
+}
 
 // ------------------------------------------------------------------ split view
 
@@ -2930,6 +3010,7 @@ async function boot() {
   $("#vim-toggle").addEventListener("click", toggleVim);
   $("#settings-btn").addEventListener("click", () => openSettings());
   setLabel($("#settings-btn"), `Settings (${formatKeys("Mod-,")})`);
+  setupShortcutTips();
   attachVim(); // the toggle's label, before any note opens
   $("#html-toggle").addEventListener("click", (e) => {
     const mode = (e.target as HTMLElement).closest("button")?.dataset.mode as "preview" | "source" | undefined;
@@ -2991,6 +3072,7 @@ async function boot() {
   tags = tagList;
   smartFolders = smart;
   changes = recent;
+  void learnCalendars();
   renderActivity();
   renderPresence();
   connect(onMessage, (up) => {
@@ -3002,6 +3084,7 @@ async function boot() {
     }
   });
   if (!viewer) void startGuide({ archive: (path) => void archivePath(path), flush: () => flushSave() });
+  if (!viewer) watchTodayCleared();
   startInks({ choose: () => openSettings("ink") });
 
   void refreshTaskCount();
