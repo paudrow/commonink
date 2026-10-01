@@ -47,8 +47,8 @@ export function sidebarTags(tags: TagCount[]): TagCount[] {
 
 /**
  * The sidebar items most people don't need on day one. Each waits until it's in use (a contact, a
- * calendar, a file, a smart folder), so a new workspace's sidebar is Notes, Tasks, History and the
- * sections everyone uses. ⌘K and their addresses reach them all along.
+ * calendar, a file, a smart folder), so a new workspace's sidebar is Today, Notes, Tasks, History
+ * and the sections everyone uses. ⌘K and their addresses reach them all along.
  */
 export type OptionalItem = "contacts" | "calendar" | "assets" | "smart";
 export const OPTIONAL_ITEMS: OptionalItem[] = ["contacts", "calendar", "assets", "smart"];
