@@ -40,7 +40,7 @@
   /* The vim chip keeps its look; its tap area grows to 44px. */
   #statusbar .chip-btn { position: relative; }
   #statusbar .chip-btn::after { content: ""; position: absolute; inset: -12px -6px; }
-  #sidebar .search-pill, #sidebar .nav-item, #sidebar .ghost-btn, #sidebar .tree-row, .acct-btn, .acct-item { height: auto; min-height: 44px; }
+  #sidebar .search-pill, #sidebar .nav-item, #sidebar .ghost-btn, #sidebar .tree-row, #sidebar .streak-chip, .acct-btn, .acct-item { height: auto; min-height: 44px; }
   #sidebar .tree-head { margin-top: 0; }
   #sidebar .section-toggle { min-height: 44px; }
   #sidebar :is(.tree-row, .tree-hint) .chev { width: 32px; margin: 0 -8px 0 -10px; }
