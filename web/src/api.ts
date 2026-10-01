@@ -3,6 +3,7 @@ import type { GuideAction, GuideState } from "../../src/core/guide.ts";
 import { did } from "./events.ts";
 import type { NoteRole } from "../../src/core/noteRoles.ts";
 import type { Contact, ContactFields, TimelineItem } from "../../src/core/contacts.ts";
+import type { SyncResult as GoogleContactsResult, SyncStatus as GoogleContactsStatus } from "../../src/core/googleContacts.ts";
 import { safeDecode } from "../../src/core/uri.ts";
 import type { FillOptions, TemplateInfo } from "../../src/core/templates.ts";
 import type { CalendarEvent, EventDraft, Source as CalendarSource, SourceColor } from "../../src/core/calendar.ts";
@@ -167,8 +168,9 @@ export type EventInput = Omit<EventDraft, "attendees"> & { attendees: Array<{ na
 /** Google Calendar on this server (cloud/src/connections.ts): "mock" is the Preview stand-in, "off" not set up. */
 export interface GoogleStatus {
   mode: "real" | "mock" | "off";
-  connection: { account: string; canWrite: boolean; connectedAt: number } | null;
+  connection: { account: string; canWrite: boolean; contacts: "none" | "read" | "write"; connectedAt: number } | null;
 }
+export type { SyncResult as GoogleContactsResult, SyncStatus as GoogleContactsStatus } from "../../src/core/googleContacts.ts";
 /** One of the person's Google calendars. */
 export interface GoogleCalendar {
   id: string;
@@ -201,6 +203,8 @@ export function useWorkspace(base: string, live: string) {
   LIVE = live;
   resolveCache.clear();
 }
+/** The workspace the API is for, online ("" locally). */
+export const currentWorkspace = () => BASE.match(/^\/api\/w\/([^/]+)/)?.[1] ?? "";
 export const fileUrl = (path: string) => `${BASE}/files/${path.split("/").map(encodeURIComponent).join("/")}`;
 
 export interface Me {
@@ -534,6 +538,10 @@ export const api = {
   /** Online: whether Google Calendar works on this server, and your connection to it (404 locally). */
   google: () => j<GoogleStatus>("/api/google"),
   googleCalendars: () => j<GoogleCalendar[]>("/api/google/calendars"),
+  /** Online, where Google is set up: your Google Contacts here (404 otherwise). */
+  googleContacts: () => j<GoogleContactsStatus>(`${BASE}/contacts/google`),
+  /** Bring your Google Contacts into People/, and send edits made here back (when allowed). */
+  syncGoogleContacts: () => j<GoogleContactsResult>(`${BASE}/contacts/google/sync`, send("POST", {})),
   /** Google forgets the grant, and your Google calendars leave every workspace. */
   disconnectGoogle: () => j<{ ok: true }>("/api/google/disconnect", send("POST", {})),
   unsubscribe: (id: string) => j<{ ok: true }>(`${BASE}/calendar/sources/remove`, send("POST", { id })),

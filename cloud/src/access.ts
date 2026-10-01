@@ -38,6 +38,7 @@ export const WORKSPACE_ROUTES = {
   "GET /guide": "viewer",
   "GET /contacts": "viewer",
   "GET /contact": "viewer",
+  "GET /contacts/google": "viewer",
   "GET /templates": "viewer",
   // Filling a template in only reads it; inserting the text is an edit to the note.
   "POST /templates/render": "viewer",
@@ -73,6 +74,8 @@ export const WORKSPACE_ROUTES = {
   "POST /contacts/update": "editor",
   "POST /contacts/merge": "editor",
   "POST /contacts/import": "editor",
+  // Your own Google account's contacts, written into the workspace's People/.
+  "POST /contacts/google/sync": "editor",
   "POST /notes/from-template": "editor",
   "POST /archive": "editor",
   "POST /unarchive": "editor",

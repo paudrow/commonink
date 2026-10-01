@@ -100,6 +100,9 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /contacts", send: (w) => ["POST", "/contacts", { name: `Contact ${w}` }], expect: EDIT },
   { route: "POST /contacts/update", send: (w) => ["POST", "/contacts/update", { path: `People/Update ${w}.md`, patch: { role: "Tester" } }], expect: EDIT },
   { route: "POST /contacts/merge", send: (w) => ["POST", "/contacts/merge", { keep: `People/Keep ${w}.md`, drop: `People/Drop ${w}.md` }], expect: EDIT },
+  { route: "GET /contacts/google", send: () => ["GET", "/contacts/google"], expect: READ },
+  // Nobody here has connected Google Contacts: an editor is let through, and told to connect.
+  { route: "POST /contacts/google/sync", send: () => ["POST", "/contacts/google/sync", {}], expect: [401, 404, 403, 400, 400] },
   { route: "POST /contacts/import", send: (w) => ["POST", "/contacts/import", { format: "csv", text: `Name\nImported ${w}\n` }], expect: EDIT },
   { route: "GET /templates", send: () => ["GET", "/templates"], expect: READ },
   { route: "POST /templates/render", send: () => ["POST", "/templates/render", { template: "Access template" }], expect: READ },

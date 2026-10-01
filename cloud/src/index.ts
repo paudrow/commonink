@@ -17,7 +17,7 @@ import { timeZoneNamed } from "../../src/core/tasks.ts";
 import type { Env } from "./env.ts";
 import { fetchAsset, secure } from "./headers.ts";
 import { limit } from "./limits.ts";
-import { connectionInfo, disconnectGoogle, googleApi, googleAuth, googleMode } from "./connections.ts";
+import { connectionInfo, disconnectGoogle, googleApi, googleAuth, googleMode, mockContactsPage } from "./connections.ts";
 
 export { Workspace } from "./workspace.ts";
 
@@ -49,6 +49,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
   if (url.pathname === SANDBOX_PATH) return sandboxPage();
   if (url.pathname === "/authorize") return authorize(req, env, url);
   if (url.pathname.startsWith("/auth/google/calendar")) return googleAuth(req, env, url);
+  if (url.pathname === "/auth/google/contacts/mock") return mockContactsPage(req, env, url);
   if (url.pathname.startsWith("/auth/")) {
     const ip = req.headers.get("CF-Connecting-IP") ?? "unknown";
     const tooMany = url.pathname !== "/auth/logout" && (await limit(env.DB, "signIn", ip, "text"));
@@ -145,7 +146,8 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
       return json({ error: e instanceof Error ? e.message.replace(/^feed:/, "") : "Couldn't reach Google Calendar" }, 502);
     }
   },
-  // Google forgets the grant, the connection goes, and so do this person's Google calendars in every workspace.
+  // Google forgets the grant, the connection goes, and so do this person's Google calendars in every
+  // workspace. Notes synced from Google Contacts stay (they're the workspace's), unsynced from then on.
   "POST /api/google/disconnect": async ({ env, user }) => {
     await disconnectGoogle(env, user.id);
     await Promise.all((await workspacesOf(env.DB, user.id)).map((w) => env.WORKSPACE.get(env.WORKSPACE.idFromName(w.id)).dropCalendarsOf(user.id, "google")));

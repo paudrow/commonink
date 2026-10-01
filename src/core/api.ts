@@ -1,5 +1,6 @@
 // The note API, written against the web-standard Request/Response so the same routes run in the
 // local Node server and in a Cloudflare workspace Durable Object.
+import type { GoogleContactsSync } from "./googleContacts.ts";
 import { cleanPath, VaultError } from "./paths.ts";
 import type { ArchiveScope, Change, Vault } from "./vault.ts";
 import type { TaskPatch } from "./tasks.ts";
@@ -38,6 +39,8 @@ export interface ApiHost {
   fileBytes?(rel: string): Promise<Uint8Array | null>;
   /** The workspace's members (online); a local vault has none. */
   members?(): Promise<Member[]>;
+  /** Online, with Google configured: the person's Google Contacts (see googleContacts.ts). */
+  googleContacts?: GoogleContactsSync;
 }
 
 /** Someone with an account in the workspace. A contact with the same email is them (see contacts.ts). */
@@ -323,6 +326,17 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       if (body.length > MAX_IMPORT) throw new VaultError("That file is too big to import at once; split it up");
       const r = vault.importContacts(body, format, actor);
       for (const p of [...r.created, ...r.updated]) host.written(p, vault.files.read(p), vault.meta(p)?.version ?? "", null);
+      if (r.created.length) host.tree();
+      return json(r);
+    }
+    // Google Contacts (online): where it isn't set up, it isn't here at all.
+    case "GET /contacts/google":
+      if (!host.googleContacts) return json({ error: "Google Contacts isn't available here" }, 404);
+      return json(await host.googleContacts.status());
+    case "POST /contacts/google/sync": {
+      if (!host.googleContacts) return json({ error: "Google Contacts isn't available here" }, 404);
+      const r = await host.googleContacts.sync(actor);
+      for (const p of new Set([...r.created, ...r.linked, ...r.updated, ...r.unlinked, ...r.conflicts.map((c) => c.path)])) host.written(p, vault.files.read(p), vault.meta(p)?.version ?? "", null);
       if (r.created.length) host.tree();
       return json(r);
     }

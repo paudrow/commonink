@@ -2,7 +2,8 @@
 import { VaultError } from "../paths.ts";
 import { fmtContact, fmtContactLine } from "../format.ts";
 import { matchContacts } from "../contacts.ts";
-import { command, list, localFiles, str } from "./types.ts";
+import { fmtSync, type GoogleContactsSync } from "../googleContacts.ts";
+import { command, list, localFiles, str, type CommandHost } from "./types.ts";
 
 const WHO = "Their name or their note's path";
 
@@ -23,6 +24,11 @@ const given = <T extends object>(fields: T) => Object.fromEntries(Object.entries
 const imported = (r: { created: string[]; updated: string[]; unchanged: string[] }) => {
   const line = (label: string, paths: string[]) => (paths.length ? [`${label} ${paths.length}: ${paths.join(", ")}`] : []);
   return [...line("Created", r.created), ...line("Updated", r.updated), ...line("Unchanged", r.unchanged)].join("\n") || "No contacts in that file.";
+};
+
+const googleOf = (h: CommandHost): GoogleContactsSync => {
+  if (!h.googleContacts) throw new VaultError("Google Contacts is only in hosted workspaces where Google is set up");
+  return h.googleContacts;
 };
 
 export const contacts = [
@@ -139,6 +145,47 @@ export const contacts = [
       const text = a.text ?? new TextDecoder().decode(file?.bytes);
       const r = vault.importContacts(text, format, source);
       return { text: imported(r), data: r };
+    },
+  }),
+  command({
+    cli: "contacts google",
+    mcp: "google_contacts_status",
+    route: "GET /contacts/google",
+    title: "Google Contacts status",
+    summary: "Whether your Google Contacts are connected here, may be edited, and when they last synced",
+    description:
+      "Your Google Contacts in this workspace: the Google account, whether Common Ink may edit your contacts (else edits here stay here), " +
+      "how many notes in People/ are linked to a contact (their `google:` frontmatter), and when they last synced. Connecting is in the app.",
+    examples: ["commonink contacts google", "commonink contacts google --json"],
+    readOnly: true,
+    needs: "googleContacts",
+    args: {},
+    run: async (h) => {
+      const s = await googleOf(h).status();
+      const when = s.lastSync ? new Date(s.lastSync).toISOString().replace(/\.\d+Z$/, "Z") : "never";
+      const text = s.connection
+        ? `Google Contacts: ${s.connection.account}${s.connection.canWrite ? " (edits here go to Google)" : " (read only: edits here stay here)"}. ${s.linked} linked, last synced ${when}.`
+        : "Google Contacts isn't connected. Connect it from the Contacts page in the app.";
+      return { text, data: s };
+    },
+  }),
+  command({
+    cli: "contacts sync",
+    mcp: "sync_google_contacts",
+    route: "POST /contacts/google/sync",
+    title: "Sync Google Contacts",
+    summary: "Bring your Google Contacts into People/, and send edits made here back (when allowed)",
+    description:
+      "Google Contacts is the truth for how to reach someone: each contact's emails, phones, company, role, links and nicknames go into " +
+      "its note in People/ (made if it's new; someone already here with the same email or name is linked, with `google:` in the frontmatter). " +
+      "A note's words and tags are never sent to Google. Edits made here to those fields go back to Google when the person allowed editing; " +
+      "a field changed on both sides takes Google's value (the note's History keeps the old one). A contact deleted in Google keeps its note.",
+    examples: ["commonink contacts sync", "commonink contacts sync --json"],
+    needs: "googleContacts",
+    args: {},
+    run: async (h) => {
+      const r = await googleOf(h).sync(h.source);
+      return { text: fmtSync(r), data: r };
     },
   }),
 ];
