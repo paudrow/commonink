@@ -1,7 +1,7 @@
 //   ::query{folder=Projects limit=5 label="Active projects"}      ::query{tag=meeting sort=title}      ::query{q="mcp"}
 // A live list of notes matching a search, folder or tag. Updates as notes (and agents) change.
 import { api, type FeedItem } from "../api.ts";
-import { el, escapeHtml, icon, timeAgo } from "../dom.ts";
+import { el, escapeHtml, icon, markTerms, timeAgo } from "../dom.ts";
 import { onVaultChange } from "../events.ts";
 import type { Field, WidgetSpec } from "./core.ts";
 import { formatQuery, toQuery } from "../../../src/core/query.ts";
@@ -90,7 +90,5 @@ function firstLine(md: string): string {
 }
 
 function highlight(text: string, q: string): string {
-  const terms = q.split(/\s+/).filter((t) => t.length > 1).map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  const safe = escapeHtml(text.replace(/^[#>\-*+\s]+/, ""));
-  return terms.length ? safe.replace(new RegExp(`(${terms.join("|")})`, "gi"), "<mark>$1</mark>") : safe;
+  return markTerms(text.replace(/^[#>\-*+\s]+/, ""), q);
 }

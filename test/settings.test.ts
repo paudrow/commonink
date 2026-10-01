@@ -11,6 +11,8 @@ function fakeApp(over: Partial<SettingsApp> = {}) {
   const app: SettingsApp = {
     theme: "system",
     setTheme: (t) => ((app.theme = t), log.push(`theme:${t}`)),
+    ink: { current: "indigo", earned: ["indigo", "viridian"], stats: { guideFinished: false, notes: 12, ticked: 12, agentEdited: false, days: null } },
+    setInk: (i) => ((app.ink.current = i), log.push(`ink:${i}`)),
     lineNumbers: false,
     setLineNumbers: (on) => ((app.lineNumbers = on), log.push(`lineNumbers:${on}`)),
     codeWrap: true,
@@ -21,6 +23,10 @@ function fakeApp(over: Partial<SettingsApp> = {}) {
     setVim: (on) => ((app.vim = on), log.push(`vim:${on}`)),
     vimDisplayLines: false,
     setVimDisplayLines: (on) => ((app.vimDisplayLines = on), log.push(`vimDisplayLines:${on}`)),
+    shortcutTips: true,
+    setShortcutTips: (on) => ((app.shortcutTips = on), log.push(`shortcutTips:${on}`)),
+    sidebarPinned: {},
+    setSidebarPinned: (item, on) => ((app.sidebarPinned = { ...app.sidebarPinned, [item]: on }), log.push(`sidebar:${item}:${on}`)),
     localVault: { projectRoot: "/code/commonink", vault: "/notes" },
     shortcuts: () => log.push("shortcuts"),
     connectAgent: () => log.push("connectAgent"),
@@ -33,12 +39,13 @@ const titles = (q: string, app: SettingsApp) => matchSettings(q, appSettings(app
 
 test("search finds settings by every word, across title, description, section and keywords", () => {
   const { app } = fakeApp();
-  assert.deepEqual(titles("", app), ["Theme", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Connect an agent"]);
+  assert.deepEqual(titles("", app), ["Theme", "Ink", "Always show Contacts", "Always show Calendar", "Always show Assets", "Always show Smart folders", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Shortcut tips", "Connect an agent"]);
   assert.deepEqual(titles("dark", app), ["Theme"]);
   assert.deepEqual(titles("VIM", app), ["Line numbers", "Vim keys", "Vim: j and k by screen line"]);
   assert.deepEqual(titles("vim gj", app), ["Vim: j and k by screen line"]);
   assert.deepEqual(titles("wrap", app), ["Wrap code", "Vim: j and k by screen line"]);
   assert.deepEqual(titles("mcp", app), ["Connect an agent"]);
+  assert.deepEqual(titles("sidebar events", app), ["Always show Calendar"]);
   assert.deepEqual(titles("editor", app), ["Line numbers", "Wrap code", "HTML notes"]);
   assert.deepEqual(titles("zzz", app), []);
 });
@@ -63,7 +70,7 @@ test("the dialog: labelled controls, search as you type, changes that apply at o
   const search = dialog.querySelector<HTMLInputElement>("input[type=search]")!;
   assert.equal(document.activeElement, search);
   assert.equal(search.getAttribute("aria-label"), "Search settings");
-  assert.deepEqual([...dialog.querySelectorAll("h3")].map((h) => h.textContent), ["Appearance", "Editor", "Keyboard", "Agents"]);
+  assert.deepEqual([...dialog.querySelectorAll("h3")].map((h) => h.textContent), ["Appearance", "Sidebar", "Editor", "Keyboard", "Agents"]);
   for (const control of dialog.querySelectorAll<HTMLElement>("input[type=checkbox], select")) {
     const label = dialog.querySelector(`label[for="${control.id}"]`);
     assert.ok(label?.textContent, `${control.id} has a label`);
@@ -91,12 +98,49 @@ test("the dialog: labelled controls, search as you type, changes that apply at o
 
   search.value = "";
   search.dispatchEvent(new window.Event("input"));
+  const contacts = dialog.querySelector<HTMLInputElement>("#st-sidebar-contacts")!;
+  assert.equal(contacts.checked, false);
+  contacts.checked = true;
+  contacts.dispatchEvent(new window.Event("change", { bubbles: true }));
+  await Promise.resolve();
+  assert.equal(dialog.querySelector<HTMLInputElement>("#st-sidebar-contacts")!.checked, true, "the redrawn toggle stays on");
   const theme = dialog.querySelector<HTMLSelectElement>("#st-theme")!;
   theme.value = "dark";
   theme.dispatchEvent(new window.Event("change", { bubbles: true }));
-  assert.deepEqual(log, ["vim:true", "theme:dark"]);
+  assert.deepEqual(log, ["vim:true", "sidebar:contacts:true", "theme:dark"]);
 
   document.activeElement!.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   assert.equal(document.querySelector("#settings"), null);
   assert.equal(document.activeElement, before, "the focus goes back where it was");
+});
+
+test("Ink: a radio group of swatches; locked ones say what earns them and can't be picked", () => {
+  const { app, log } = fakeApp();
+  openSettings(() => appSettings(app), { query: "ink" });
+  const group = document.querySelector<HTMLElement>("#settings [role=radiogroup]")!;
+  assert.equal(document.getElementById(group.getAttribute("aria-labelledby")!)?.textContent, "Ink");
+  const radios = [...group.querySelectorAll<HTMLButtonElement>("[role=radio]")];
+  assert.deepEqual(radios.map((r) => r.querySelector(".ink-name")!.textContent), ["Indigo", "Sepia", "Viridian", "Vermilion", "Cobalt", "Iron gall"]);
+  assert.deepEqual(radios.map((r) => r.getAttribute("aria-checked")), ["true", "false", "false", "false", "false", "false"]);
+  assert.deepEqual(radios.map((r) => r.tabIndex), [0, -1, -1, -1, -1, -1], "one stop in the tab order, on the ink in use");
+  const vermilion = radios[3];
+  assert.equal(vermilion.getAttribute("aria-disabled"), "true");
+  const described = vermilion.getAttribute("aria-describedby")!.split(" ").map((id) => document.getElementById(id)?.textContent);
+  assert.deepEqual(described, ["Tick 25 tasks", "12 of 25"]);
+  assert.equal(vermilion.title, "Vermilion: Tick 25 tasks (12 of 25)");
+  assert.equal(radios[1].querySelector(".ink-goal")?.textContent, "Finish Getting started", "a yes-or-no goal has no count");
+  assert.equal(radios[5].querySelector(".ink-goal")?.textContent, "Write on 7 different days", "nor does one not counted yet");
+
+  vermilion.click();
+  assert.deepEqual(log, [], "a locked ink isn't picked");
+  radios[0].focus();
+  radios[0].dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+  assert.equal(document.activeElement, radios[1], "the arrows reach a locked ink, to read its goal");
+  assert.deepEqual(log, []);
+  radios[1].dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+  assert.deepEqual(log, ["ink:viridian"], "and pick an earned one");
+  assert.deepEqual(radios.map((r) => r.getAttribute("aria-checked")), ["false", "false", "true", "false", "false", "false"]);
+  radios[0].click();
+  assert.deepEqual(log, ["ink:viridian", "ink:indigo"]);
+  document.activeElement!.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
 });

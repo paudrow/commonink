@@ -6,6 +6,7 @@
 import { api, type TodayView } from "../api.ts";
 import { el, icon } from "../dom.ts";
 import { onVaultChange } from "../events.ts";
+import { store } from "../store.ts";
 import type { WidgetSpec } from "./core.ts";
 import { today } from "../taskChips.ts";
 import { redrawRows, taskRow } from "../taskRow.ts";
@@ -30,6 +31,8 @@ export const todayWidget: WidgetSpec = {
     let events: Array<Extract<Item, { kind: "event" }>> | null = null;
     let problem = "";
     let alive = true;
+    /** Today listed tasks while this was open, so an empty Today now means they were done. */
+    let had = false;
     const list = el("div", { class: "td-list" });
     body.append(list);
 
@@ -63,7 +66,11 @@ export const todayWidget: WidgetSpec = {
       const rowEnv = { open: env.open, openTag: env.openTag, openPerson: env.openPerson, reload: () => void load() };
       // On the Tasks page (`compact`) a section with nothing in it isn't shown; the journal row always is.
       const compact = env.args.compact === "true";
-      const nothing = v.sections.every((s) => !s.tasks.length) && !events?.length;
+      const noTasks = v.sections.every((s) => !s.tasks.length);
+      const nothing = noTasks && !events?.length;
+      // Emptied today (while this was open, or by the tick that cleared it): say so, rather than show a blank.
+      had ||= !noTasks;
+      const done = noTasks && (had || store.get("todayCleared", "") === v.date);
       redrawRows(list, () => list.replaceChildren(
         journal(v),
         events && (events.length || !compact) ? agenda(events, v.date) : "",
@@ -75,7 +82,11 @@ export const todayWidget: WidgetSpec = {
             ...(s.tasks.length ? s.tasks.map((t) => taskRow(t, rowEnv, t.title)) : [el("div", { class: "td-none" }, EMPTY[s.id] ?? "Nothing here.")]),
           ),
         ),
-        nothing && !compact ? el("div", { class: "td-clear" }, icon("check", 14), "A clear day. Add a task above, or pick one from Tasks.") : "",
+        done
+          ? el("div", { class: "td-clear" }, icon("check", 14), "All done for today.")
+          : nothing && !compact
+            ? el("div", { class: "td-clear" }, icon("check", 14), "A clear day. Add a task above, or pick one from Tasks.")
+            : "",
       ));
       env.remeasure();
     }
