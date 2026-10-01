@@ -139,3 +139,20 @@ test("a rule says what it does, short for a chip and long for the editor", () =>
   assert.deepEqual(both("2w"), ["Every 2 weeks", "Every 2 weeks"]);
   assert.deepEqual(both("RRULE:FREQ=MONTHLY;INTERVAL=2;BYDAY=2WE"), ["Every 2 mos: 2nd Wed", "Every 2 months on the 2nd Wednesday"]);
 });
+
+test("RRULE days counted from the end, and month days in a yearly rule with no month, follow RFC 5545", () => {
+  // A negative day of the month in a daily rule is that month's day counted from its end.
+  assert.deepEqual(three("RRULE:FREQ=DAILY;BYMONTHDAY=-1", "2026-09-30"), ["2026-10-31", "2026-11-30", "2026-12-31"]);
+  assert.deepEqual(three("RRULE:FREQ=DAILY;BYMONTHDAY=-2", "2027-01-01"), ["2027-01-30", "2027-02-27", "2027-03-30"]);
+  // Yearly on a day of the month with no month named is every month, as a calendar reads it.
+  assert.deepEqual(three("RRULE:FREQ=YEARLY;BYMONTHDAY=1", "2026-10-01"), ["2026-11-01", "2026-12-01", "2027-01-01"]);
+  assert.deepEqual(three("RRULE:FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=1", "2026-10-01"), ["2027-03-01", "2028-03-01", "2029-03-01"]);
+});
+
+test("labels read naturally for days from the end and a weekday on a date", () => {
+  const both = (t: string) => [ruleLabel(parseRule(t)!), ruleLabel(parseRule(t)!, true)];
+  assert.deepEqual(both("RRULE:FREQ=MONTHLY;BYDAY=-2FR"), ["2nd-to-last Fri", "Every month on the 2nd-to-last Friday"]);
+  assert.deepEqual(both("RRULE:FREQ=YEARLY;BYYEARDAY=-1"), ["Last day of the year", "Every year on the last day of the year"]);
+  assert.deepEqual(both("RRULE:FREQ=YEARLY;BYYEARDAY=1,-2"), ["Day 1 & 2nd-to-last day of the year", "Every year on day 1 and the 2nd-to-last day of the year"]);
+  assert.deepEqual(both("RRULE:FREQ=MONTHLY;BYDAY=FR;BYMONTHDAY=13"), ["Fri the 13th", "Every month on Friday the 13th"]);
+});
