@@ -343,8 +343,8 @@ test("an agent shares a note as its person, lists who it's shared with, and stop
   assert.equal((await owner.call("list_shares", { path: "Plan to share" })).text, "Plan to share.md isn't shared with anyone outside the workspace.");
   const viewing = await owner.call("share_note", { path: "Plan to share", email: "reader@example.com", role: "viewer" });
   assert.match(viewing.text, /- reader@example\.com \(by email\) — viewer/, "a viewer by email needs no setting");
-  assert.deepEqual(await cloud.call(people.owner, "GET", `${people.base}/workspace/settings`), { agentLinks: false });
-  assert.deepEqual(await cloud.call(people.owner, "POST", `${people.base}/workspace/settings`, { agentLinks: true }), { agentLinks: true });
+  assert.deepEqual(await cloud.call(people.owner, "GET", `${people.base}/workspace/settings`), { agentLinks: false, gamified: true });
+  assert.deepEqual(await cloud.call(people.owner, "POST", `${people.base}/workspace/settings`, { agentLinks: true }), { agentLinks: true, gamified: true });
   const [logged] = await cloud.call(people.owner, "GET", `${people.base}/workspace/log`);
   assert.deepEqual([logged.action, logged.detail], ["settings", "agentLinks: on"]);
   const shared = await owner.call("share_note", { path: "Plan to share", email: "guest@example.com", role: "editor", expires_in_days: 7 });

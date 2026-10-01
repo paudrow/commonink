@@ -9,8 +9,8 @@ import { button } from "./widgets/core.ts";
 import type { OptionalItem } from "./sidebar.ts";
 import { INKS, progressText, type InkId, type InkStats } from "./inks.ts";
 
-export type Section = "Appearance" | "Sidebar" | "Editor" | "Keyboard" | "Agents";
-export const SECTIONS: Section[] = ["Appearance", "Sidebar", "Editor", "Keyboard", "Agents"];
+export type Section = "Appearance" | "Sidebar" | "Editor" | "Keyboard" | "Agents" | "Workspace";
+export const SECTIONS: Section[] = ["Appearance", "Sidebar", "Editor", "Keyboard", "Agents", "Workspace"];
 
 export type Theme = "system" | "light" | "dark";
 
@@ -54,6 +54,9 @@ export interface SettingsApp {
   /** The sidebar items kept showing before they're in use. */
   sidebarPinned: Partial<Record<OptionalItem, boolean>>;
   setSidebarPinned(item: OptionalItem, on: boolean): void;
+  /** Whether the workspace is gamified (gamify.ts), and whether you may change that: its owners online, and you locally. */
+  gamified: { on: boolean; canChange: boolean };
+  setGamified(on: boolean): void;
   /** Locally, where the vault and the `commonink` command are, for the agent setup; online, null. */
   localVault: { vault?: string; projectRoot?: string } | null;
   shortcuts(): void;
@@ -69,8 +72,10 @@ const WAITING: Array<{ item: OptionalItem; name: string; when: string; keywords:
 ];
 
 export function appSettings(app: SettingsApp): Setting[] {
+  const game = app.gamified.on;
   // A new workspace's sidebar leaves these out until they're in use; each can stay there from the start instead.
-  const sidebar = WAITING.map(
+  // Not gamified, the sidebar has them all from the start, so there's nothing to pin.
+  const sidebar = !game ? [] : WAITING.map(
     ({ item, name, when, keywords }): Setting => ({
       id: `sidebar-${item}`,
       section: "Sidebar",
@@ -103,7 +108,7 @@ export function appSettings(app: SettingsApp): Setting[] {
       id: "ink",
       section: "Appearance",
       title: "Ink",
-      description: "The color of links, ticks and highlights. Indigo is yours from the start; use the app to earn the others.",
+      description: game ? "The color of links, ticks and highlights. Indigo is yours from the start; use the app to earn the others." : "The color of links, ticks and highlights.",
       keywords: "accent color colour palette unlock sepia viridian vermilion cobalt iron gall",
       control: { kind: "custom", render: () => [inkPicker(app)] },
     },
@@ -164,14 +169,14 @@ export function appSettings(app: SettingsApp): Setting[] {
       keywords: "keys keybindings hotkeys cheat sheet help",
       control: { kind: "button", label: "Show shortcuts", run: app.shortcuts },
     },
-    {
+    ...(!game ? [] : [{
       id: "shortcut-tips",
       section: "Keyboard",
       title: "Shortcut tips",
       description: "When you've clicked a button that has a keyboard shortcut a few times, a tip says once which keys do the same.",
       keywords: "keys hints hotkeys learn toast",
       control: { kind: "toggle", on: app.shortcutTips, set: app.setShortcutTips },
-    },
+    } satisfies Setting]),
     app.localVault
       ? {
           id: "connect-agent",
@@ -189,6 +194,17 @@ export function appSettings(app: SettingsApp): Setting[] {
           keywords: "agent mcp claude cursor connect ai assistant revoke",
           control: { kind: "button", label: "Connected agents…", run: app.connectAgent },
         },
+    {
+      id: "gamified",
+      section: "Workspace",
+      title: "Unlock as you go",
+      description: app.gamified.canChange
+        ? "For everyone in this workspace. On, the sidebar grows as you use it, inks are earned, tips teach shortcuts and clearing Today gets a small celebration. Off, everything is there from the start, with nothing to unlock and no celebrations."
+        : `${game ? "On" : "Off"} for this workspace: ${game ? "the sidebar grows as you use it, inks are earned, and tips and small celebrations show up" : "everything is there from the start"}. Only an owner can change it.`,
+      keywords: "gamification gamified game progressive disclosure unlock earn rewards celebrate streak tips beginner simple everything admin owner",
+      disabled: !app.gamified.canChange,
+      control: { kind: "toggle", on: game, set: app.setGamified },
+    },
   ];
 }
 
@@ -290,7 +306,12 @@ function row(s: Setting): HTMLElement {
   return el("div", { class: `st-row${s.disabled ? " is-disabled" : ""}`, "data-setting": s.id }, ...body);
 }
 
-let current: { focus(): void } | null = null;
+let current: { focus(): void; render(): void } | null = null;
+
+/** Redraw Settings, if it's open: for a change that applies once the server has it (a workspace's setting). */
+export function refreshSettings() {
+  current?.render();
+}
 
 /** Open Settings (or, when it's open, go to its search box), with `query` in the search box. */
 export function openSettings(settings: () => Setting[], opts: { query?: string } = {}) {
@@ -356,6 +377,6 @@ export function openSettings(settings: () => Setting[], opts: { query?: string }
   render();
   // On a touch screen, don't bring up the keyboard until you tap the search box.
   (matchMedia("(pointer: coarse)").matches ? box : search).focus();
-  current = { focus: () => search.focus() };
+  current = { focus: () => search.focus(), render: () => render() };
 }
 
