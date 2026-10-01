@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 161
 title: Google Contacts
 ---
 1. Open **Contacts**. The bar at the top says **Google Contacts**: click **Connect**, then **Allow** on the stand-in's consent page (Previews have no real Google). You come back to Contacts and it syncs.
