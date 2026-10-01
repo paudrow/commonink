@@ -672,11 +672,12 @@ function showStage(which: "editor" | "html" | "notes" | "tasks" | "calendar" | "
 }
 
 /**
- * A page you went to (Notes, Tasks…): its address, and a place in the main pane's trail, so back
- * comes to it. A page shown for you (at start, or after its note went away) isn't a place you went.
+ * A page showing in the main pane (Notes, Tasks…) is a place in its trail, so back from a note you
+ * opened from it comes back to it, however you got there. `push`: you went to it, so the address
+ * bar moves too; shown from the address bar (at start, a reload, back and forward), it's already there.
  */
-function wentTo(url: string) {
-  setUrl(url);
+function wentTo(url: string, push = true) {
+  if (push) setUrl(url);
   panes[0].trail = visit(panes[0].trail, pageEntry(url));
   saveLayout();
   renderPaneBars();
@@ -707,8 +708,8 @@ async function showNotes(opts: { tab?: NotesTab; filter?: boolean; folder?: stri
   showStage("notes");
   notesPage.show(opts);
   const tab = notesPage.tab; // a viewer asking for Trash gets Notes
-  if (opts.push !== false) wentTo(`/${tab}`);
-  else if (tab !== opts.tab && opts.tab) setUrl(`/${tab}`, "replace");
+  if (opts.push === false && opts.tab && tab !== opts.tab) setUrl(`/${tab}`, "replace");
+  wentTo(`/${tab}`, opts.push !== false);
   document.title = `${PAGE_LABEL[tab]} · Common Ink`;
   renderChrome();
   renderTree();
@@ -723,7 +724,7 @@ async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean
     void (calendarTarget(path) !== null ? openTarget(path) : openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }));
   unmountTasks = renderTasksPage($("#tasks-view"), { open, tags: () => tags, me: workspaceId ? "Tasks with your @name" : "Tasks with @me" }, { tag: opts.tag, assignee: opts.assignee });
   $("#tasks-view").focus({ preventScroll: true });
-  if (opts.push !== false) wentTo("/tasks");
+  wentTo("/tasks", opts.push !== false);
   document.title = "Tasks · Common Ink";
   renderChrome();
   renderTree();
@@ -735,7 +736,7 @@ async function showCalendar(opts: { event?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("calendar");
   const page = await loadCalendar();
-  if (opts.push !== false) wentTo(opts.event ? `/calendar/${opts.event}` : "/calendar");
+  wentTo(opts.event ? `/calendar/${opts.event}` : "/calendar", opts.push !== false);
   document.title = "Calendar · Common Ink";
   renderChrome();
   renderTree();
@@ -788,7 +789,7 @@ async function showHistory(opts: { note?: string | null; select?: number; label?
   showStage("history");
   await (await loadHistory()).show({ note: opts.note ?? null, select: opts.select, label: opts.label });
   const id = opts.note ? notes.find((n) => n.path === opts.note)?.id : undefined;
-  if (opts.push !== false) wentTo(id ? `/history?note=${id}` : "/history");
+  wentTo(id ? `/history?note=${id}` : "/history", opts.push !== false);
   document.title = `${opts.note ? `${displayName(opts.note)} · ` : ""}History · Common Ink`;
   renderChrome();
   renderTree();
@@ -815,7 +816,7 @@ async function showTags(opts: { push?: boolean } = {}) {
   showStage("tags");
   (await loadTags()).show();
   refreshTagsSoon();
-  if (opts.push !== false) wentTo("/tags");
+  wentTo("/tags", opts.push !== false);
   document.title = "Tags · Common Ink";
   renderChrome();
   renderTree();
@@ -829,7 +830,7 @@ async function showContacts(opts: { contact?: string | null; push?: boolean } = 
   const page = await loadContacts();
   await page.show(opts.contact ?? null);
   const name = opts.contact ? notes.find((n) => n.id === opts.contact)?.title : undefined;
-  if (opts.push !== false) setUrl(name ? `/contacts?c=${opts.contact}` : "/contacts");
+  wentTo(name ? `/contacts?c=${opts.contact}` : "/contacts", opts.push !== false);
   document.title = `${name ? `${name} · ` : ""}Contacts · Common Ink`;
   renderChrome();
   renderTree();
@@ -872,7 +873,7 @@ async function showShared(opts: { push?: boolean } = {}) {
   showStage("shared");
   const root = $("#shared-view");
   root.replaceChildren(el("div", { class: "trash" }, el("div", { class: "tr-head" }, el("div", { class: "tr-title" }, el("h1", {}, "Shared with me")), el("p", {}, "Notes people outside your workspaces have shared with you. Each opens on its own page."))));
-  if (opts.push !== false) setUrl("/shared");
+  wentTo("/shared", opts.push !== false);
   document.title = "Shared with me · Common Ink";
   renderChrome();
   renderTree();
@@ -939,7 +940,7 @@ async function showAssets(opts: { open?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("assets");
   (await loadAssets()).show({ open: opts.open });
-  if (opts.push !== false) wentTo("/assets");
+  wentTo("/assets", opts.push !== false);
   document.title = "Assets · Common Ink";
   renderChrome();
   renderTree();
