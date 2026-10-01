@@ -5,13 +5,17 @@ import fs from "node:fs";
 
 const html = fs.readFileSync(new URL("../web/index.html", import.meta.url), "utf8");
 document.body.innerHTML = html.slice(html.indexOf("<body>") + 6, html.indexOf("</body>")).replace(/<script[\s\S]*?<\/script>/g, "");
-(globalThis as any).matchMedia = () => ({ matches: true, addEventListener() {} });
-const { closeDrawer, setupMobileNav } = await import("../web/src/mobileNav.ts");
+// A phone, until a test says it's a computer.
+let touch = true;
+(globalThis as any).matchMedia = () => ({ get matches() { return touch; }, addEventListener() {} });
+const { closeDrawer, renderMore, setupMobileNav } = await import("../web/src/mobileNav.ts");
 setupMobileNav();
 
 const $ = (sel: string) => document.querySelector(sel) as HTMLElement;
 const key = (target: Element, k: string, shiftKey = false) => target.dispatchEvent(new window.KeyboardEvent("keydown", { key: k, shiftKey, bubbles: true, cancelable: true }));
-const focused = () => document.activeElement?.id || document.activeElement?.textContent;
+const focused = () => document.activeElement?.id || document.activeElement?.querySelector("span")?.textContent;
+/** More's items, each as its name, and its shortcut or place after a bar when it has one. */
+const moreItems = () => [...document.querySelectorAll("#more-menu [role=menuitem]")].map((n) => [...n.querySelectorAll("span")].map((s) => s.textContent).join(" | "));
 
 test("the menu button opens the sidebar as a modal drawer, and Esc closes it back to the button", () => {
   $("#menu-btn").click();
@@ -56,11 +60,10 @@ test("the scrim closes the drawer; going somewhere closes it and leaves the focu
   assert.deepEqual([$("#menu-btn").getAttribute("aria-expanded"), focused()], ["false", "tasks-view"]);
 });
 
-test("More lists the showing overflow buttons by their titles, and an item presses the real button", () => {
+test("More lists the showing overflow buttons by their titles, with their shortcuts, and an item presses the real button", () => {
   $("#move-btn").hidden = true;
   $("#more-btn").click();
-  const items = [...document.querySelectorAll("#more-menu [role=menuitem]")].map((n) => n.textContent);
-  assert.deepEqual(items, ["History of this note", "Archive note", "Delete note", "Focus mode", "Toggle side panel"]);
+  assert.deepEqual(moreItems(), ["History of this note", "Archive note | ⌘⇧E", "Delete note", "Focus mode | ⌘⇧↵", "Toggle side panel | ⌘\\"]);
   assert.deepEqual([$("#more-btn").getAttribute("aria-expanded"), focused()], ["true", "History of this note"]);
   let pressed = "";
   $("#archive-btn").addEventListener("click", () => (pressed = "archive"), { once: true });
@@ -73,7 +76,7 @@ test("More offers the HTML view it isn't showing", () => {
   $("#html-toggle").hidden = false;
   $('#html-toggle [data-mode="preview"]').classList.add("is-on");
   $("#more-btn").click();
-  const items = [...document.querySelectorAll("#more-menu [role=menuitem]")].map((n) => n.textContent);
+  const items = moreItems();
   assert.equal(items.at(-1), "Show source");
   assert.equal(items.includes("Show preview"), false);
   key(document.activeElement!, "Escape");
@@ -102,4 +105,33 @@ test("the top-bar search and the floating new-note button press the sidebar's ow
   $("#search-top").click();
   $("#fab-new").click();
   assert.deepEqual(pressed, ["search", "new"]);
+});
+
+test("on a computer, More holds only a note's occasional buttons, and shows only when one of them does", () => {
+  touch = false;
+  const set = (id: string, attr: Record<string, string>) => Object.entries(attr).forEach(([k, v]) => $(id).setAttribute(k, v));
+  set("#move-btn", { title: "In Projects / Work · Move to another folder" });
+  set("#archive-btn", { title: "Unarchive note (⌘⇧E)" });
+  set("#split-btn", { title: "Split view (⌘⌥\\)" });
+  renderMore();
+  $("#more-btn").click();
+  assert.deepEqual(moreItems(), ["History of this note", "Move to another folder | In Projects / Work", "Unarchive note | ⌘⇧E", "Split view | ⌘⌥\\", "Delete note"]);
+  key(document.activeElement!, "Escape");
+
+  // A viewer has no Delete; an open split's lit button is in the bar, not here.
+  $("#delete-btn").hidden = true;
+  $("#split-btn").classList.add("is-on");
+  $("#more-btn").click();
+  assert.deepEqual(moreItems(), ["History of this note", "Move to another folder | In Projects / Work", "Unarchive note | ⌘⇧E"]);
+  key(document.activeElement!, "Escape");
+
+  // No note open: nothing to tuck away, so no More.
+  for (const id of ["#note-history-btn", "#move-btn", "#archive-btn"]) $(id).hidden = true;
+  renderMore();
+  assert.equal($(".more-wrap").hidden, true);
+  for (const id of ["#note-history-btn", "#move-btn", "#archive-btn", "#delete-btn"]) $(id).hidden = false;
+  $("#split-btn").classList.remove("is-on");
+  renderMore();
+  assert.equal($(".more-wrap").hidden, false);
+  touch = true;
 });
