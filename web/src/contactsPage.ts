@@ -3,7 +3,9 @@
 // what the notes say about them: when they were last mentioned, and where. The list searches and
 // filters by tag and company, says who looks like the same person twice (and merges them), and
 // imports vCard and CSV exports. Online, members of the workspace with no contact are listed too.
-import { api, ApiError, type Contact, type Member, type TimelineItem } from "./api.ts";
+// Online with Google set up, a bar connects Google Contacts and syncs it (src/core/googleContacts.ts):
+// Google is the truth for how to reach someone, and the notes stay the workspace's own.
+import { api, ApiError, currentWorkspace, type Contact, type GoogleContactsStatus, type Member, type TimelineItem } from "./api.ts";
 import { avatar, el, icon } from "./dom.ts";
 import { emptyState } from "./emptyState.ts";
 import { ask } from "./trash.ts";
@@ -26,6 +28,9 @@ interface Hooks {
   toast(t: { text: string; icon?: string }): void;
 }
 
+/** A synced contact's page on Google Contacts (as googleUrl in src/core/googleContacts.ts, which needs Node). */
+const googleUrl = (resource: string) => `https://contacts.google.com/person/${resource.replace(/^people\//, "")}`;
+
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 /** "Sep 20", or "Sep 20, 2025" for another year. */
 export function shortDay(day: string, today = new Date()): string {
@@ -45,6 +50,9 @@ export class ContactsPage {
   private company = el("select", { class: "ct-select", "aria-label": "Company" });
   private body = el("div", { class: "ct-body" });
   private loaded = false;
+  /** Google Contacts here: null where this server has none (locally, or Google not set up). */
+  private google: GoogleContactsStatus | null = null;
+  private syncing = false;
 
   constructor(
     root: HTMLElement,
@@ -88,10 +96,86 @@ export class ContactsPage {
   }
 
   private async load() {
-    const [contacts, members] = await Promise.all([api.contacts().catch(() => this.contacts), api.members().catch(() => [])]);
+    const [contacts, members, google] = await Promise.all([
+      api.contacts().catch(() => this.contacts),
+      api.members().catch(() => []),
+      currentWorkspace() ? api.googleContacts().catch(() => null) : null,
+    ]);
     this.contacts = contacts;
     this.members = members;
+    this.google = google;
     this.loaded = true;
+    await this.backFromGoogle();
+  }
+
+  /** Back from connecting (/contacts?google=connected|denied|failed): say so, and sync straight away. */
+  private async backFromGoogle() {
+    const url = new URL(location.href);
+    const outcome = url.searchParams.get("google");
+    if (!outcome) return;
+    url.searchParams.delete("google");
+    url.searchParams.delete("w");
+    history.replaceState(history.state, "", url.pathname + url.search);
+    if (outcome === "connected" && this.google?.connection) await this.syncGoogle();
+    else this.hooks.toast({ text: outcome === "denied" ? "Google Contacts wasn't connected: access wasn't allowed" : "Couldn't connect Google Contacts. Try again." });
+  }
+
+  /** Leave for Google's consent page (or the stand-in's), coming back here. `write` also asks to edit contacts. */
+  private connectGoogle(write: boolean) {
+    location.assign(`/auth/google/calendar?for=contacts&w=${encodeURIComponent(currentWorkspace())}${write ? "&write=1" : ""}`);
+  }
+
+  private async syncGoogle() {
+    if (this.syncing) return;
+    this.syncing = true;
+    this.renderList();
+    try {
+      const r = await api.syncGoogleContacts();
+      const parts = [
+        r.created.length && `${r.created.length} new`,
+        r.linked.length && `${r.linked.length} linked`,
+        r.updated.length && `${r.updated.length} updated`,
+        r.pushed.length && `${r.pushed.length} sent to Google`,
+      ].filter(Boolean);
+      const extra = [r.conflicts.length && `${r.conflicts.length} changed on both sides (Google's kept)`, r.kept.length && `${r.kept.length} edited here only`].filter(Boolean);
+      this.hooks.toast({ text: `Google Contacts: ${parts.length ? parts.join(", ") : "up to date"}${extra.length ? `; ${extra.join(", ")}` : ""}`, icon: "user" });
+    } catch (e) {
+      this.hooks.toast({ text: e instanceof ApiError ? e.message : "Couldn't sync Google Contacts" });
+    } finally {
+      this.syncing = false;
+      await this.load();
+      if (!this.shown) this.renderList();
+    }
+  }
+
+  /** The list's Google Contacts bar: connect, or who's synced, when, and Sync. */
+  private googleBar(canEdit: boolean): HTMLElement | string {
+    const g = this.google;
+    if (!g || !canEdit) return "";
+    if (!g.connection) {
+      return el(
+        "div",
+        { class: "ct-google", role: "region", "aria-label": "Google Contacts" },
+        icon("user", 15),
+        el("span", {}, el("b", {}, "Google Contacts"), " as the source of truth: each contact becomes a note here, for your notes about them. Everyone in this workspace sees People/."),
+        el("button", { type: "button", class: "qw-btn", onclick: () => this.connectGoogle(false) }, "Connect"),
+      );
+    }
+    const when = g.lastSync ? `synced ${new Date(g.lastSync).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}` : "not synced yet";
+    return el(
+      "div",
+      { class: "ct-google", role: "region", "aria-label": "Google Contacts" },
+      icon("user", 15),
+      el(
+        "span",
+        {},
+        el("b", {}, "Google Contacts"),
+        ` · ${g.connection.account} · ${g.linked} linked, ${when}`,
+        g.connection.canWrite ? " · edits here go to Google" : " · read only",
+      ),
+      g.connection.canWrite ? null : el("button", { type: "button", class: "qw-btn", title: "Let edits to emails, phones, company and role here go back to Google", onclick: () => this.connectGoogle(true) }, "Allow editing"),
+      el("button", { type: "button", class: "qw-btn primary", disabled: this.syncing, onclick: () => void this.syncGoogle() }, icon("refresh", 14), this.syncing ? "Syncing…" : "Sync"),
+    );
   }
 
   // ---------------------------------------------------------------- the list
@@ -140,6 +224,7 @@ export class ContactsPage {
     this.body.replaceChildren(
       head,
       el("div", { class: "ct-filters" }, el("label", { class: "feed-search ct-search" }, icon("search", 16), this.search), this.tag, this.company),
+      this.googleBar(canEdit),
       ...dupes.map((g) => this.dupeBanner(g)),
       rows,
       loose.length && !filtering ? this.membersBlock(loose, canEdit) : "",
@@ -238,6 +323,7 @@ export class ContactsPage {
       ...field("Links", join(c.links.filter((l) => /^https?:\/\//i.test(l)).map((l) => link(l, l.replace(/^https?:\/\/(www\.)?/i, ""))))),
       ...field("Also", c.aliases.length ? [c.aliases.join(", ")] : []),
       ...field("Tags", c.tags.length ? [el("span", { class: "ct-taglist" }, ...c.tags.map((t) => el("span", { class: "tag" }, `#${t}`)))] : []),
+      ...field("Synced", c.google ? [link(googleUrl(c.google), "Google Contacts")] : []),
     );
     const mentions = timeline.filter((t) => t.kind === "note");
     this.body.replaceChildren(
