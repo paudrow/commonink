@@ -38,6 +38,7 @@ import type { Theme } from "./settings.ts";
 import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./account.ts";
 import { appCommands } from "./commands.ts";
 import { toggleShortcuts } from "./shortcuts.ts";
+import { NO_TIPS, tipText, watchTips, type TipsState } from "./shortcutTips.ts";
 import { did, vaultEvents } from "./events.ts";
 import { guideMessage, startGuide } from "./onboarding.ts";
 import { store } from "./store.ts";
@@ -2693,6 +2694,8 @@ function openSettings() {
         setVim,
         vimDisplayLines: prefs.vimDisplayLines,
         setVimDisplayLines: (on) => on !== prefs.vimDisplayLines && toggleVimDisplayLines(),
+        shortcutTips: !tipsState().off,
+        setShortcutTips: (on) => store.set("shortcutTips", { ...tipsState(), off: !on }),
         localVault,
         shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
         connectAgent,
@@ -2702,6 +2705,18 @@ function openSettings() {
 }
 
 const connectAgent = () => void import("./agentsPage.ts").then((m) => m.showAgents());
+
+/** Shortcut tips (shortcutTips.ts): the third click on a button with a shortcut says, once, which keys do it. */
+const tipsState = (): TipsState => ({ ...NO_TIPS, ...store.get<Partial<TipsState>>("shortcutTips", {}) });
+function setupShortcutTips() {
+  watchTips({
+    load: tipsState,
+    save: (s) => store.set("shortcutTips", s),
+    // The palette's box is always there, hidden with it; a dialog that's showing isn't inside anything hidden.
+    busy: () => [...document.querySelectorAll('[aria-modal="true"], .qa-float')].some((n) => !n.closest("[hidden]")),
+    show: (tip) => toast({ icon: "keyboard", text: tipText(tip), actionLabel: "Show all shortcuts", action: () => toggleShortcuts(commands(), { vim: prefs.vim }) }),
+  });
+}
 
 // ------------------------------------------------------------------ split view
 
@@ -2924,6 +2939,7 @@ async function boot() {
   $("#vim-toggle").addEventListener("click", toggleVim);
   $("#settings-btn").addEventListener("click", () => openSettings());
   setLabel($("#settings-btn"), `Settings (${formatKeys("Mod-,")})`);
+  setupShortcutTips();
   attachVim(); // the toggle's label, before any note opens
   $("#html-toggle").addEventListener("click", (e) => {
     const mode = (e.target as HTMLElement).closest("button")?.dataset.mode as "preview" | "source" | undefined;
