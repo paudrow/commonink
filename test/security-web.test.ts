@@ -181,3 +181,31 @@ test("the web-link marker runs after sanitizing: it can't bring back a bad href,
     {},
   ]);
 });
+
+test("a search's matches are marked in the text, never inside its escaped < > & \" '", async () => {
+  const { api } = await import("../web/src/api.ts");
+  const { query } = await import("../web/src/widgets/query.ts");
+  const line = `if a < b && c > "d" it's <b>bold</b>`;
+  const feed = api.feed;
+  api.feed = (async () => ({ items: [{ path: "a.md", title: "A", kind: "md", mtime: 0, excerpt: "", lines: [{ line: 1, text: line }] }], total: 1 })) as unknown as typeof api.feed;
+  try {
+    const shown = async (q: string) => {
+      const body = document.createElement("div");
+      const stop = query.mount(body, { args: { q }, note: "n.md", remeasure() {}, open() {} } as never, body);
+      await new Promise((r) => setTimeout(r, 0));
+      stop();
+      return body.querySelector(".qq-preview")!;
+    };
+    for (const q of ["lt", "gt", "amp", "quot", "39"]) {
+      const p = await shown(q);
+      assert.equal(p.textContent, line, q);
+      assert.equal(p.querySelector("mark"), null, q);
+    }
+    const p = await shown("bold it");
+    assert.equal(p.textContent, line);
+    assert.deepEqual([...p.querySelectorAll("mark")].map((m) => m.textContent), ["it", "bold"]);
+    assert.equal(p.querySelector("b"), null, "the note's own HTML stays text");
+  } finally {
+    api.feed = feed;
+  }
+});
