@@ -21,6 +21,8 @@ function fakeApp(over: Partial<SettingsApp> = {}) {
     setVim: (on) => ((app.vim = on), log.push(`vim:${on}`)),
     vimDisplayLines: false,
     setVimDisplayLines: (on) => ((app.vimDisplayLines = on), log.push(`vimDisplayLines:${on}`)),
+    sidebarPinned: {},
+    setSidebarPinned: (item, on) => ((app.sidebarPinned = { ...app.sidebarPinned, [item]: on }), log.push(`sidebar:${item}:${on}`)),
     shortcutTips: true,
     setShortcutTips: (on) => ((app.shortcutTips = on), log.push(`shortcutTips:${on}`)),
     localVault: { projectRoot: "/code/commonink", vault: "/notes" },
@@ -35,12 +37,13 @@ const titles = (q: string, app: SettingsApp) => matchSettings(q, appSettings(app
 
 test("search finds settings by every word, across title, description, section and keywords", () => {
   const { app } = fakeApp();
-  assert.deepEqual(titles("", app), ["Theme", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Shortcut tips", "Connect an agent"]);
+  assert.deepEqual(titles("", app), ["Theme", "Always show Contacts", "Always show Calendar", "Always show Assets", "Always show Smart folders", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Shortcut tips", "Connect an agent"]);
   assert.deepEqual(titles("dark", app), ["Theme"]);
   assert.deepEqual(titles("VIM", app), ["Line numbers", "Vim keys", "Vim: j and k by screen line"]);
   assert.deepEqual(titles("vim gj", app), ["Vim: j and k by screen line"]);
   assert.deepEqual(titles("wrap", app), ["Wrap code", "Vim: j and k by screen line"]);
   assert.deepEqual(titles("mcp", app), ["Connect an agent"]);
+  assert.deepEqual(titles("sidebar events", app), ["Always show Calendar"]);
   assert.deepEqual(titles("editor", app), ["Line numbers", "Wrap code", "HTML notes"]);
   assert.deepEqual(titles("zzz", app), []);
 });
@@ -65,7 +68,7 @@ test("the dialog: labelled controls, search as you type, changes that apply at o
   const search = dialog.querySelector<HTMLInputElement>("input[type=search]")!;
   assert.equal(document.activeElement, search);
   assert.equal(search.getAttribute("aria-label"), "Search settings");
-  assert.deepEqual([...dialog.querySelectorAll("h3")].map((h) => h.textContent), ["Appearance", "Editor", "Keyboard", "Agents"]);
+  assert.deepEqual([...dialog.querySelectorAll("h3")].map((h) => h.textContent), ["Appearance", "Sidebar", "Editor", "Keyboard", "Agents"]);
   for (const control of dialog.querySelectorAll<HTMLElement>("input[type=checkbox], select")) {
     const label = dialog.querySelector(`label[for="${control.id}"]`);
     assert.ok(label?.textContent, `${control.id} has a label`);
@@ -93,10 +96,16 @@ test("the dialog: labelled controls, search as you type, changes that apply at o
 
   search.value = "";
   search.dispatchEvent(new window.Event("input"));
+  const contacts = dialog.querySelector<HTMLInputElement>("#st-sidebar-contacts")!;
+  assert.equal(contacts.checked, false);
+  contacts.checked = true;
+  contacts.dispatchEvent(new window.Event("change", { bubbles: true }));
+  await Promise.resolve();
+  assert.equal(dialog.querySelector<HTMLInputElement>("#st-sidebar-contacts")!.checked, true, "the redrawn toggle stays on");
   const theme = dialog.querySelector<HTMLSelectElement>("#st-theme")!;
   theme.value = "dark";
   theme.dispatchEvent(new window.Event("change", { bubbles: true }));
-  assert.deepEqual(log, ["vim:true", "theme:dark"]);
+  assert.deepEqual(log, ["vim:true", "sidebar:contacts:true", "theme:dark"]);
 
   document.activeElement!.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   assert.equal(document.querySelector("#settings"), null);

@@ -1,5 +1,6 @@
 // What the sidebar's sections share, so they read alike: the line under an empty section, the
-// name field a section's + opens, and which tags the Tags section lists.
+// name field a section's + opens, which tags the Tags section lists, and which of the items a new
+// workspace doesn't need yet are showing.
 import { unusedTag, type TagCount } from "./api.ts";
 import { el, icon } from "./dom.ts";
 import { tagMatches } from "../../src/core/tags.ts";
@@ -42,4 +43,24 @@ export function nameField(section: HTMLElement, opts: { icon: string; placeholde
 export function sidebarTags(tags: TagCount[]): TagCount[] {
   const listed = (t: TagCount) => t.notes > 0 || unusedTag(t);
   return tags.filter((t) => tags.some((c) => tagMatches(c.tag, t.tag) && listed(c)));
+}
+
+/**
+ * The sidebar items most people don't need on day one. Each waits until it's in use (a contact, a
+ * calendar, a file, a smart folder), so a new workspace's sidebar is Notes, Tasks, History and the
+ * sections everyone uses. ⌘K and their addresses reach them all along.
+ */
+export type OptionalItem = "contacts" | "calendar" | "assets" | "smart";
+export const OPTIONAL_ITEMS: OptionalItem[] = ["contacts", "calendar", "assets", "smart"];
+
+/**
+ * Which optional items the sidebar shows: those in use, those you're on (or asked for from ⌘K, as
+ * New smart folder does), and those Settings keeps there always.
+ */
+export function shownItems(
+  inUse: Record<OptionalItem, boolean>,
+  pinned: Partial<Record<OptionalItem, boolean>>,
+  here: ReadonlySet<OptionalItem>,
+): Record<OptionalItem, boolean> {
+  return Object.fromEntries(OPTIONAL_ITEMS.map((i) => [i, inUse[i] || !!pinned[i] || here.has(i)])) as Record<OptionalItem, boolean>;
 }
