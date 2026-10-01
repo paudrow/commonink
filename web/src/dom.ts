@@ -217,6 +217,23 @@ export function timeAgo(ts: number): string {
 export const escapeHtml = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
+/** A search's words (two letters or more) as a regex alternation, or "" if there are none. */
+export const searchTerms = (q: string) =>
+  q.split(/\s+/).filter((t) => t.length > 1).map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+
+/**
+ * `text` as HTML with a search's words in <mark>. The words are found in the text and each piece
+ * escaped after, so searching "lt" or "amp" doesn't match inside an escaped `&lt;` or `&amp;`.
+ */
+export function markTerms(text: string, q: string): string {
+  const terms = searchTerms(q);
+  if (!terms) return escapeHtml(text);
+  return text
+    .split(new RegExp(`(${terms})`, "gi"))
+    .map((part, i) => (i % 2 ? `<mark>${escapeHtml(part)}</mark>` : escapeHtml(part)))
+    .join("");
+}
+
 /** Whether a key pressed here is someone typing: a field, a text area, or the editor. */
 export function typingIn(target: EventTarget | null): boolean {
   const t = target as HTMLElement | null;
