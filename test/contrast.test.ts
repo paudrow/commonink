@@ -3,11 +3,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { DEFAULT_INK, INK_IDS } from "../web/src/inks.ts";
 
 const css = readFileSync(new URL("../web/src/styles.css", import.meta.url), "utf8");
 
+/** The custom properties a rule sets, whether `selector` is the rule's only selector or one of a list. */
 function tokens(selector: string): Record<string, string> {
-  const start = css.indexOf(`${selector} {`);
+  const at = [`${selector} {`, `${selector},\n`].map((s) => css.indexOf(s)).filter((i) => i >= 0);
+  const start = at.length ? Math.min(...at) : -1;
   assert.ok(start >= 0, `styles.css has a ${selector} block`);
   const body = css.slice(start, css.indexOf("}", start));
   return Object.fromEntries([...body.matchAll(/--([\w-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]));
@@ -64,22 +67,44 @@ test("the system dark theme repeats the explicit dark theme", () => {
   assert.deepEqual(system, dark);
 });
 
-for (const [name, t] of Object.entries(themes)) {
-  test(`${name} text tokens reach 4.5:1 on every surface`, () => {
-    const failures = pairs.flatMap(({ text, on }) =>
-      text.flatMap((token) =>
-        on.flatMap((surface) => {
-          const ratio = contrast(parse(t[token]), surfaces[surface](t));
-          return ratio < 4.5 ? [`--${token} on ${surface}: ${ratio.toFixed(2)}`] : [];
-        }),
-      ),
-    );
-    assert.deepEqual(failures, []);
-  });
+/** Text tokens under 4.5:1 on a surface they sit on, and --on-accent if it's under 4.5:1 on --accent. */
+function failures(t: Theme): string[] {
+  const text = pairs.flatMap(({ text, on }) =>
+    text.flatMap((token) =>
+      on.flatMap((surface) => {
+        const ratio = contrast(parse(t[token]), surfaces[surface](t));
+        return ratio < 4.5 ? [`--${token} on ${surface}: ${ratio.toFixed(2)}`] : [];
+      }),
+    ),
+  );
+  const onAccent = contrast(parse(t["on-accent"]), parse(t.accent));
+  return onAccent < 4.5 ? [...text, `--on-accent on --accent: ${onAccent.toFixed(2)}`] : text;
+}
 
-  test(`${name} --on-accent reaches 4.5:1 on --accent`, () => {
-    const ratio = contrast(parse(t["on-accent"]), parse(t.accent));
-    assert.ok(ratio >= 4.5, `--on-accent on --accent is ${ratio.toFixed(2)}`);
+for (const [name, t] of Object.entries(themes)) {
+  test(`${name} text tokens reach 4.5:1 on every surface, and --on-accent on --accent`, () => {
+    assert.deepEqual(failures(t), []);
+  });
+}
+
+// Inks (web/src/inks.ts) swap the accent tokens. Each must pass the same checks in both themes, its
+// system-dark rule must repeat its dark one, and its swatch in Settings must show its own colors.
+const ACCENT = ["accent", "accent-ink", "accent-soft", "accent-line", "selection"];
+const accentOf = (t: Theme) => Object.fromEntries(ACCENT.map((k) => [k, t[k]]));
+for (const ink of INK_IDS) {
+  test(`the ${ink} ink reads at 4.5:1 in light and dark, and its swatch shows it`, () => {
+    const own =
+      ink === DEFAULT_INK
+        ? { light: accentOf(light), dark: accentOf(dark) }
+        : { light: tokens(`:root[data-ink="${ink}"]`), dark: tokens(`:root[data-theme="dark"][data-ink="${ink}"]`) };
+    assert.deepEqual(Object.keys(own.light), ACCENT);
+    assert.deepEqual(Object.keys(own.dark), ACCENT);
+    if (ink !== DEFAULT_INK) assert.deepEqual(tokens(`:root:not([data-theme="light"])[data-ink="${ink}"]`), own.dark);
+    assert.deepEqual(tokens(`.ink-option[data-ink="${ink}"]`), own.light);
+    assert.deepEqual(tokens(`:root[data-theme="dark"] .ink-option[data-ink="${ink}"]`), own.dark);
+    assert.deepEqual(tokens(`:root:not([data-theme="light"]) .ink-option[data-ink="${ink}"]`), own.dark);
+    assert.deepEqual(failures({ ...light, ...own.light }), [], "light");
+    assert.deepEqual(failures({ ...light, ...dark, ...own.dark }), [], "dark");
   });
 }
 
