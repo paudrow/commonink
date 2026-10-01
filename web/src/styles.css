@@ -1642,6 +1642,15 @@ body.is-resizing iframe { pointer-events: none; }
 .td-section.is-overdue .qt-note { color: var(--bad-ink); }
 .td-none { padding: 2px 0 4px; font-size: 13px; color: var(--muted); }
 .td-clear { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: var(--hover); font-size: 13px; color: var(--ink-2); }
+/* Clearing Today: a ring and eight drops of ink spread from the box you ticked, then fade (todayCleared.ts). */
+.td-burst { position: fixed; z-index: 90; width: 0; height: 0; pointer-events: none; }
+.td-burst::before, .td-burst::after { content: ""; position: absolute; border-radius: 50%; animation: td-burst 0.6s cubic-bezier(0.2, 0.7, 0.3, 1) forwards; }
+.td-burst::before { left: -14px; top: -14px; width: 28px; height: 28px; border: 2px solid var(--accent); }
+.td-burst::after {
+  left: -2px; top: -2px; width: 4px; height: 4px; /* no dot of its own, only the drops around it */
+  box-shadow: 0 -18px var(--accent), 13px -13px var(--accent), 18px 0 var(--accent), 13px 13px var(--accent), 0 18px var(--accent), -13px 13px var(--accent), -18px 0 var(--accent), -13px -13px var(--accent);
+}
+@keyframes td-burst { from { opacity: 1; transform: scale(0.35); } 55% { opacity: 0.85; } to { opacity: 0; transform: scale(1.3); } }
 .td-journal { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; margin: 0 -6px; border-radius: 7px; font-size: 14px; color: var(--ink); text-align: left; }
 .td-journal:hover { background: var(--hover); }
 .td-journal svg { color: var(--muted); }
