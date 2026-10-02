@@ -2793,7 +2793,7 @@ function setupShortcutTips() {
 
 // ------------------------------------------------------------------ split view
 
-/** The divider, the drop zone at the right edge, the split button, and focus following clicks into a pane. */
+/** The divider, the drop zone on the right half, the split button, and focus following clicks into a pane. */
 function setupPanes() {
   const stage = $("#stage");
   const divider = $("#pane-divider");
@@ -2825,13 +2825,24 @@ function setupPanes() {
     saveLayout();
   });
 
-  // Drag a note (a sidebar row, a Notes card, a task) or a link (in a note, a board's link card) to
-  // the right edge to open it there. Inside a board, its columns take the drag first.
+  // Drag a note (a sidebar row, a Notes card, a task) or a link (in a note, a board's link card) onto
+  // the right half of the window to open it in a split, or onto the side pane once split. The zone
+  // shows where the side pane will be. Inside a board, its columns take the drag first.
   const zone = $("#side-drop");
-  const atEdge = (x: number) => x > stage.getBoundingClientRect().right - Math.max(96, stage.clientWidth * 0.18);
+  const atEdge = (x: number) => {
+    const r = stage.getBoundingClientRect();
+    return x > r.right - r.width * (split ? layout.side : 0.5);
+  };
+  const show = (on: boolean) => {
+    if (on && zone.hidden) {
+      stage.style.setProperty("--side", `${layout.side * 100}%`);
+      zone.lastChild!.textContent = split ? "Open here" : "Open in a split";
+    }
+    zone.hidden = !on;
+  };
   const edge = (e: DragEvent) => !!e.dataTransfer?.types.some((t) => t === NOTE_DRAG || t === LINK_DRAG) && atEdge(e.clientX);
   stage.addEventListener("dragover", (e) => {
-    zone.hidden = !edge(e);
+    show(edge(e));
     if (!zone.hidden) e.preventDefault();
   });
   stage.addEventListener("dragleave", (e) => !stage.contains(e.relatedTarget as Node) && (zone.hidden = true));
@@ -2854,7 +2865,7 @@ function setupPanes() {
   // A [[link]] dragged in the editor (a pointer drag, see dragLink in editor/setup.ts).
   window.addEventListener(LINK_DRAG, (ev) => {
     const d = (ev as CustomEvent<LinkDrag>).detail;
-    zone.hidden = d.phase === "drop" || !atEdge(d.x);
+    show(d.phase !== "drop" && atEdge(d.x));
     if (d.phase === "drop" && atEdge(d.x)) void openTarget(d.target, d.from, panes[1]);
   });
 

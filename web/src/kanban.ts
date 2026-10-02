@@ -356,7 +356,7 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
         e.stopPropagation();
         dragging = { path: host.path, board: at, column: c, card: i, text: card.text };
         e.dataTransfer!.setData(CARD_DRAG, card.text);
-        // Out of the board, at the right edge of the window, a link card opens its note to the side.
+        // Out of the board, on the right half of the window, a link card opens its note to the side.
         if (link) e.dataTransfer!.setData(LINK_DRAG, JSON.stringify({ target: link.target, from: host.path }));
         e.dataTransfer!.effectAllowed = "move";
         requestAnimationFrame(() => node.classList.add("is-dragging"));

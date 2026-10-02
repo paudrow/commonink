@@ -501,7 +501,7 @@ body.is-split #stage > :is(#editor-host, #html-preview, #notes-view, #tasks-view
 #pane-divider:hover, #pane-divider:focus-visible, body.is-resizing #pane-divider { background: linear-gradient(to right, transparent 3px, var(--accent-line) 3px, var(--accent-line) 6px, transparent 6px); outline: none; }
 body.is-resizing { cursor: col-resize; user-select: none; }
 body.is-resizing iframe { pointer-events: none; }
-#side-drop { position: absolute; top: 12px; right: 12px; bottom: 12px; width: min(40%, 360px); z-index: 20; display: flex; align-items: center; justify-content: center; gap: 8px; border: 2px dashed var(--accent); border-radius: 14px; background: color-mix(in srgb, var(--accent) 10%, var(--bg)); color: var(--accent-ink); font-weight: 600; pointer-events: none; }
+#side-drop { position: absolute; top: 12px; right: 12px; bottom: 12px; width: calc(var(--side, 50%) - 24px); z-index: 20; display: flex; align-items: center; justify-content: center; gap: 8px; border: 2px dashed var(--accent); border-radius: 14px; background: color-mix(in srgb, var(--accent) 10%, var(--bg)); color: var(--accent-ink); font-weight: 600; pointer-events: none; }
 #side-drop[hidden] { display: none; }
 #split-btn.is-on, #share-btn.is-on { color: var(--accent); }
 
