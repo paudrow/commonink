@@ -2,7 +2,7 @@
 import { VaultError } from "../paths.ts";
 import { fmtBoards, fmtFavorites, fmtList, fmtSmartFolders, fmtTags, fmtWrite } from "../format.ts";
 import { parseQuery } from "../query.ts";
-import { ARCHIVE, type Vault } from "../vault.ts";
+import { isArchiveFolder, type Vault } from "../vault.ts";
 import { bool, command, list, num, str, UsageError } from "./types.ts";
 
 const BOARD_HELP =
@@ -112,7 +112,8 @@ export const tags = [
     summary: "Every tag, nested, with how many notes, tasks and assets carry it",
     description:
       "Every tag in the vault as a tree (tags nest with /), with how many notes, tasks and assets carry each one or a tag under it. " +
-      "Use the names with the `tag` filter of search_notes and list_notes.",
+      "Use the names with the `tag` filter of search_notes and list_notes (notes that carry the tag themselves) and of list_tasks " +
+      "(tasks whose line carries it): a tag on a task tags that task, not its note.",
     examples: ["commonink tags", "commonink tags --json"],
     readOnly: true,
     args: {},
@@ -193,14 +194,17 @@ export const smartFolders = [
     mcp: "save_smart_folder",
     route: "POST /smart-folders",
     title: "Save smart folder",
-    summary: 'Save a note query (q="…" folder=… tag=… sort=title) as a smart folder',
+    summary: 'Save a note query (q="…" folder=… tag=… sort=date) as a smart folder',
     description:
       "Create a smart folder (a saved note query in the sidebar), or change one by id. The query uses ::query's keys: " +
-      'q="words" folder=Projects tag=work sort=title limit=10 (all optional; a tag includes the tags under it). Only save one the user asked for.',
-    examples: ["commonink smart-save Planning tag=plan --just-me", 'commonink smart-save Launch folder=Projects q="launch"'],
+      'q="words" folder=Projects tag=work sort=title limit=10 (all optional; a tag includes the tags under it). Several tags (tag=work,plan or ' +
+      "tag=work tag=plan) means notes with all of them. sort is modified (last changed first, the default), date (the note's own date: " +
+      "frontmatter date/created, else a YYYY-MM-DD in its name, newest first), oldest (the same, oldest first) or title. Quote a value " +
+      'with spaces (folder="Health and Fitness"). Only save one the user asked for.',
+    examples: ["commonink smart-save Planning tag=plan --just-me", 'commonink smart-save Launch folder=Projects q="launch"', "commonink smart-save Journal tag=journal,health sort=date"],
     args: {
       name: str({ required: true, pos: 0 }),
-      query: str({ mcpRequired: true, pos: "rest", describe: "The query, e.g. tag=work sort=title (none: every note)" }),
+      query: str({ mcpRequired: true, pos: "rest", describe: "The query, e.g. tag=work,plan sort=date (none: every note)" }),
       just_me: bool({ describe: "Keep it the user's own instead of sharing it with the workspace" }),
       id: str({ describe: "Change this smart folder instead of creating one" }),
     },
@@ -334,7 +338,7 @@ export const folders = [
     },
     run: ({ vault, source }, a) => {
       const dir = a.folder.replace(/^\/+|\/+$/g, "");
-      if (dir === ARCHIVE.slice(0, -1)) throw new VaultError("Archive isn't a folder you can delete; unarchive or delete its notes instead");
+      if (isArchiveFolder(dir)) throw new VaultError(`${dir} is the archive, not a folder you can delete; unarchive or delete its notes instead`);
       const r = vault.deleteFolder(dir, a.notes as "trash" | "lift", source);
       const trashed = r.deleted.map(({ id, path }) => ({ id, path }));
       const moved = r.moved.map((m) => ({ from: m.from, to: m.path }));

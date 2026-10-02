@@ -1,12 +1,13 @@
 // Notes: find, read, write, move, archive and delete them.
 import { kindOf, VaultError } from "../paths.ts";
-import { fmtBacklinks, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtWrite } from "../format.ts";
+import { fmtBacklinks, fmtFavorites, fmtList, fmtMissingLinks, fmtRead, fmtSearch, fmtWrite } from "../format.ts";
 import { parseQuery } from "../query.ts";
 import { TRASH_DAYS } from "../vault.ts";
 import { fmtImport, MAX_IMPORT_NOTES, ON_EXISTING, pairsImport, readImport, writeImport, type OnExisting } from "../import.ts";
 import { bool, command, list, localFiles, num, pairs, str } from "./types.ts";
 
-const TAG = "Only notes with this tag or a tag under it: work matches #work and #work/acme";
+const TAG = "Only notes with this tag or a tag under it: work matches #work and #work/acme. Several (work,plan): notes with all of them";
+const ONE_TAG = "Only notes with this tag or a tag under it: work matches #work and #work/acme";
 const NOTE = "A path, a path without .md, a [[wikilink]] name, a note ID or a note URL";
 const scopeOf = (a: { include_archived?: boolean; archived?: boolean }) => (a.archived ? "archived" : a.include_archived ? "all" : "active") as "archived" | "all" | "active";
 
@@ -32,7 +33,7 @@ export const notes = [
       limit: num({ min: 1, max: 50, describe: "Max results (default 10)" }),
       include_archived: bool({ flag: "all", describe: "Also search archived notes" }),
       archived: bool({ only: "cli", describe: "Only archived notes" }),
-      tag: str({ describe: TAG }),
+      tag: str({ describe: ONE_TAG }),
     },
     run: ({ vault }, a) => {
       const hits = vault.search(a.query, a.limit ?? 10, scopeOf(a), a.tag);
@@ -68,7 +69,8 @@ export const notes = [
     summary: "Notes in the vault or a folder, with a tag, the most recent, starred, or in a smart folder",
     description:
       "List notes in the vault or a folder, the notes and assets with a tag, the most recently modified notes, or the user's " +
-      "starred notes (favorites, in their order). Archived notes (under Archive/) are excluded unless requested.",
+      "starred notes (favorites, in their order). Archived notes (in Archive/, or the workspace's own archive folder like " +
+      '"4. Archive/") are excluded unless requested.',
     examples: ["commonink ls Projects", "commonink ls --tag work", "commonink ls --recent 5", "commonink ls --starred"],
     readOnly: true,
     args: {
@@ -99,13 +101,41 @@ export const notes = [
     route: "GET /backlinks",
     title: "Backlinks",
     summary: "Notes that link to or embed a note, with the linking line",
-    description: "List notes that link to or embed the given note, with the linking line.",
-    examples: ["commonink backlinks Roadmap"],
+    description:
+      "List notes that link to or embed the given note, with the linking line. Links from archived notes are left out " +
+      "unless include_archived is set (or the note itself is archived).",
+    examples: ["commonink backlinks Roadmap", "commonink backlinks Roadmap --all"],
     readOnly: true,
-    args: { path: str({ required: true, pos: 0, label: "note", describe: NOTE }) },
+    args: {
+      path: str({ required: true, pos: 0, label: "note", describe: NOTE }),
+      include_archived: bool({ flag: "all", describe: "Also links from archived notes" }),
+      archived: bool({ only: "cli", describe: "Only links from archived notes" }),
+    },
     run: ({ vault }, a) => {
-      const links = vault.backlinks(a.path);
-      return { text: fmtBacklinks(a.path, links), data: links };
+      const scope = scopeOf(a);
+      const links = vault.backlinks(a.path, scope);
+      const hidden = scope === "active" ? vault.backlinks(a.path, "all").length - links.length : 0;
+      return { text: fmtBacklinks(a.path, links, hidden), data: links };
+    },
+  }),
+  command({
+    cli: "missing-links",
+    mcp: "missing_links",
+    route: "GET /links/missing",
+    title: "Missing links",
+    summary: "Links to notes that aren't here (never written, deleted, or left out of an import), and where each is",
+    description:
+      "Links to notes or files that aren't in the vault, grouped by what they point to, the most-linked first, with each linking line. " +
+      "After an import, these are the notes that didn't come over: create them, fix the link with edit_note, or leave them as a to-do.",
+    examples: ["commonink missing-links", "commonink missing-links Projects --json"],
+    readOnly: true,
+    args: {
+      folder: str({ pos: 0, describe: "Only links in notes in this folder" }),
+      include_archived: bool({ flag: "all", describe: "Also links in archived notes" }),
+    },
+    run: ({ vault }, a) => {
+      const missing = vault.missingLinks({ folder: a.folder, scope: a.include_archived ? "all" : "active" });
+      return { text: fmtMissingLinks(missing), data: missing };
     },
   }),
   command({
@@ -113,16 +143,26 @@ export const notes = [
     mcp: "create_note",
     route: "POST /note",
     title: "Create note",
-    summary: "Create a note; its content from the argument, or stdin with - (or none)",
-    description: "Create a new note. `.md` is added if no extension is given. Fails if the note exists.",
-    examples: ['commonink create Ideas/Pricing "# Pricing"', "printf '# Log\\n' | commonink create Log -"],
+    summary: "Create a note; its content from the argument, or stdin with - (or none). --overwrite replaces one that's there",
+    description:
+      "Create a new note. `.md` is added if no extension is given. Fails if the note exists, unless overwrite is set: then its whole " +
+      "text is replaced (the old text stays in its history). Good for re-running an import.",
+    examples: ['commonink create Ideas/Pricing "# Pricing"', "printf '# Log\\n' | commonink create Log -", "commonink create Ideas/Pricing - --overwrite < pricing.md"],
     args: {
       path: str({ required: true, pos: 0 }),
       content: str({ required: true, pos: "rest", stdin: true }),
+      overwrite: bool({ describe: "If the note exists, replace its text instead of failing" }),
     },
     run: ({ vault, source }, a) => {
-      const r = vault.create(a.path, a.content, source);
-      return { text: fmtWrite(r, "Created"), data: r };
+      try {
+        const r = vault.create(a.path, a.content, source);
+        return { text: fmtWrite(r, "Created"), data: r };
+      } catch (e) {
+        if (!a.overwrite || !(e instanceof VaultError) || e.code !== "exists") throw e;
+        const rel = (e.data as { path: string }).path;
+        const r = { ...vault.save(rel, a.content, { source }), path: rel };
+        return { text: fmtWrite(r, r.change ? "Replaced" : "No change to"), data: r };
+      }
     },
   }),
   command({
@@ -239,10 +279,12 @@ export const notes = [
     mcp: "archive_note",
     route: "POST /archive",
     title: "Archive note",
-    summary: "Move notes to Archive/, out of search and listings (links keep working)",
+    summary: "Move notes to the archive folder, out of search, listings and backlinks (links keep working)",
     description:
-      "Archive notes that are done or no longer active: moves each under Archive/ (keeping its path) so it drops out of " +
-      "search and listings. Links to it keep working, and unarchive_note reverses it.",
+      "Archive notes that are done or no longer active: moves each into the archive folder (keeping its path) so it drops " +
+      "out of search, listings and backlinks. The archive folder is the workspace's own top-level one when it has one " +
+      '(a folder named Archive or Archives, numbered or not, like "4. Archive"), else Archive/. Everything in such a ' +
+      "folder counts as archived. Links to it keep working, and unarchive_note reverses it.",
     examples: ["commonink archive Ideas/Old-plan"],
     args: { paths: list({ required: true, pos: "rest", label: "note" }) },
     run: ({ vault, source }, a) => {
@@ -256,7 +298,7 @@ export const notes = [
     route: "POST /unarchive",
     title: "Unarchive note",
     summary: "Move archived notes back to where they were",
-    description: "Move archived notes back to where they were.",
+    description: "Move archived notes back to where they were: out of the archive folder, keeping the rest of their path.",
     examples: ["commonink unarchive Archive/Ideas/Old-plan.md"],
     args: { paths: list({ required: true, pos: "rest", label: "note" }) },
     run: ({ vault, source }, a) => {

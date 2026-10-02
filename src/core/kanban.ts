@@ -169,7 +169,7 @@ function readCards(lines: string[], prose: Set<number>, from: number, to: number
       else stray.push({ from: i, to: i + 1 });
       continue;
     }
-    const task = parseTask(line);
+    const task = parseTask(bulleted(line));
     const card: Card = { from: i, to: i + 1, checked: task ? task.done : null, text: task ? task.text : item[4], details: [] };
     cards.push(card);
     open = { card, indent: item[1].length };
@@ -200,6 +200,15 @@ function split(md: string) {
 
 /** Rewrite one line's text, keeping its `\r`. */
 const retext = (line: string, fn: (text: string) => string) => (line.endsWith("\r") ? `${fn(line.slice(0, -1))}\r` : fn(line));
+
+// The task tools read only `-`, `*` and `+` tasks, so a numbered one (`1. [ ] text`) goes to them
+// as `- [ ] text` and gets its number back after.
+const NUMBERED_TASK = /^(\s*)(\d{1,9}[.)])(?=[ \t]+\[[ xX]\][ \t])/;
+const bulleted = (t: string) => t.replace(NUMBERED_TASK, "$1-");
+function asTask(t: string, fn: (text: string) => string) {
+  const number = t.match(NUMBERED_TASK)?.[2];
+  return number ? fn(bulleted(t)).replace(/^(\s*)-/, `$1${number}`) : fn(t);
+}
 
 function locate(boards: Board[], line: number) {
   for (const [b, board] of boards.entries()) {
@@ -238,10 +247,10 @@ function slot(raw: string[], column: Column, index: number, skip?: Card): number
  * checkbox gets one when it's ticked, so it counts as done like any other card.
  */
 function tick(line: string, checked: boolean, today: string) {
-  return retext(line, (t) => {
+  return retext(line, (text) => asTask(text, (t) => {
     const boxed = TASK_LINE.test(t) || !checked ? t : t.replace(ITEM, (_m, indent, bullet, gap, rest) => `${indent}${/\d/.test(bullet) ? "-" : bullet}${gap}[ ] ${rest}`);
     return editTask(boxed, { checked, done: checked ? today : null });
-  });
+  }));
 }
 
 /**
@@ -277,7 +286,7 @@ export function moveCard(md: string, line: number, to: Place, index: number, tod
   const block = raw.slice(card.from, card.to).map((l) => (l.startsWith(pad) ? l.slice(pad.length) : l));
   const flips = dest.done !== from.done && !!card.checked !== dest.done && (card.checked !== null || dest.done);
   if (flips) block[0] = tick(block[0], dest.done, today);
-  const following = flips && dest.done ? next(block[0].replace(/\r$/, ""), today) : null;
+  const following = flips && dest.done ? next(bulleted(block[0].replace(/\r$/, "")), today) : null;
   let at = slot(raw, dest, index, card);
   raw.splice(card.from, block.length);
   if (at > card.from) at -= block.length;
@@ -303,7 +312,7 @@ export function editCard(md: string, line: number, text: string): string {
   const { card } = locate(boardsIn(md), line);
   const [first, ...rest] = text.replace(/\s+$/, "").split("\n");
   const head = raw[card.from].replace(/\r$/, "");
-  const prefix = head.match(TASK_LINE) ? head.match(TASK_LINE)!.slice(1, 4).join("") : head.match(ITEM)!.slice(1, 4).join("");
+  const prefix = asTask(head, (h) => (h.match(TASK_LINE) ?? h.match(ITEM)!).slice(1, 4).join(""));
   const block = [retext(raw[card.from], () => prefix + first.trim())];
   const details = dedent(rest);
   if (details.join("\n") === card.details.join("\n")) block.push(...raw.slice(card.from + 1, card.to));
@@ -324,7 +333,7 @@ export function checkCard(md: string, line: number, checked: boolean, today: str
   const { raw, cr } = split(md);
   const { card, place } = locate(boardsIn(md), line);
   raw[card.from] = tick(raw[card.from], checked, today);
-  const following = checked && !card.checked ? nextOccurrence(raw[card.from].replace(/\r$/, ""), today) : null;
+  const following = checked && !card.checked ? nextOccurrence(bulleted(raw[card.from].replace(/\r$/, "")), today) : null;
   return withNext(raw, cr, place.board, following);
 }
 
@@ -332,7 +341,7 @@ export function checkCard(md: string, line: number, checked: boolean, today: str
 export function patchCard(md: string, line: number, patch: TaskPatch): string {
   const { raw } = split(md);
   const { card } = locate(boardsIn(md), line);
-  raw[card.from] = retext(raw[card.from], (t) => editTask(t, patch));
+  raw[card.from] = retext(raw[card.from], (t) => asTask(t, (t) => editTask(t, patch)));
   return raw.join("\n");
 }
 

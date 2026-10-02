@@ -9,6 +9,7 @@
 //     - https://github.com/jane
 //   aliases: [JD]
 //   tags: [client]
+//   check_in: every 2 weeks         (how often to be in touch: weekly, monthly, 3m…)
 //   ---
 //   # Jane Doe
 //
@@ -33,6 +34,8 @@ export interface ContactFields {
   links: string[];
   aliases: string[];
   tags: string[];
+  /** How often to be in touch ("every 2 weeks", "monthly", "3m"), as the note says it; "" for no rhythm. See checkInEvery. */
+  checkIn: string;
 }
 
 /** A contact as a note: its fields, and where it is. */
@@ -47,6 +50,8 @@ export interface Contact extends ContactNote {
   mentions: number;
   /** The day of the latest of them (YYYY-MM-DD), or null. */
   lastContacted: string | null;
+  /** With a check-in rhythm, the day the next is due (YYYY-MM-DD): that long after the last mention, or today if none. Else null. */
+  checkInDue: string | null;
 }
 
 /** A contact read from an import: its fields, and any note that came with it (a vCard's NOTE). */
@@ -68,9 +73,62 @@ export interface TimelineItem {
 const LISTS = ["email", "phone", "links", "aliases", "tags"] as const;
 type ListField = (typeof LISTS)[number];
 /** The fields in the order they're written. */
-const KEYS = ["email", "phone", "company", "role", "links", "aliases", "tags"] as const;
+const KEYS = ["email", "phone", "company", "role", "links", "aliases", "tags", "checkIn"] as const;
+/** A field's frontmatter key, where it isn't the field's own name. */
+const KEY_IN_NOTE: Partial<Record<(typeof KEYS)[number], string>> = { checkIn: "check_in" };
+const keyInNote = (k: (typeof KEYS)[number]) => KEY_IN_NOTE[k] ?? k;
 
-export const emptyContact = (name: string): ContactFields => ({ name, email: [], phone: [], company: "", role: "", links: [], aliases: [], tags: [] });
+export const emptyContact = (name: string): ContactFields => ({ name, email: [], phone: [], company: "", role: "", links: [], aliases: [], tags: [], checkIn: "" });
+
+// ---------------------------------------------------------------- check-ins
+
+export type CheckInUnit = "day" | "week" | "month" | "year";
+export interface CheckInEvery {
+  n: number;
+  unit: CheckInUnit;
+}
+
+const WORDS: Record<string, CheckInEvery> = {
+  daily: { n: 1, unit: "day" },
+  weekly: { n: 1, unit: "week" },
+  biweekly: { n: 2, unit: "week" },
+  fortnightly: { n: 2, unit: "week" },
+  monthly: { n: 1, unit: "month" },
+  bimonthly: { n: 2, unit: "month" },
+  quarterly: { n: 3, unit: "month" },
+  yearly: { n: 1, unit: "year" },
+  annually: { n: 1, unit: "year" },
+};
+const UNITS: Record<string, CheckInUnit> = { d: "day", day: "day", w: "week", wk: "week", week: "week", m: "month", mo: "month", month: "month", y: "year", yr: "year", year: "year" };
+
+/** A check-in rhythm from words: weekly, every 2 weeks, every month, 3m, 6 months, yearly… Null if it isn't one. */
+export function checkInEvery(text: string): CheckInEvery | null {
+  const t = text.trim().toLowerCase().replace(/^every\s+/, "");
+  if (WORDS[t]) return WORDS[t];
+  const m = t.match(/^(\d{1,3})?\s*([a-z]+?)s?$/);
+  const unit = m && UNITS[m[2]];
+  const n = m?.[1] ? Number(m[1]) : 1;
+  return unit && n > 0 && (m![1] || /^every\s/i.test(text.trim())) ? { n, unit } : null;
+}
+
+/** A rhythm in words: "every week", "every 3 months". */
+export const describeCheckIn = (e: CheckInEvery) => (e.n === 1 ? `every ${e.unit}` : `every ${e.n} ${e.unit}s`);
+
+/** The day `every` after `day` (YYYY-MM-DD); a month on from Jan 31 is the last day of February. */
+export function addCheckIn(day: string, e: CheckInEvery): string {
+  const [y, m, d] = day.split("-").map(Number);
+  if (e.unit === "day" || e.unit === "week") return new Date(Date.UTC(y, m - 1, d + e.n * (e.unit === "week" ? 7 : 1))).toISOString().slice(0, 10);
+  const months = e.n * (e.unit === "year" ? 12 : 1);
+  const last = new Date(Date.UTC(y, m - 1 + months + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(y, m - 1 + months, Math.min(d, last))).toISOString().slice(0, 10);
+}
+
+/** When a contact's next check-in is due: `every` after they were last mentioned, today if never. Null with no rhythm. */
+export function checkInDue(c: Pick<ContactFields, "checkIn">, lastContacted: string | null, today: string): string | null {
+  const every = checkInEvery(c.checkIn);
+  if (!every) return null;
+  return lastContacted ? addCheckIn(lastContacted, every) : today;
+}
 
 /** A note's title as the index reads it (see titleOf in parse.ts): `title:`, else its first `# heading`, else its file name. */
 function titleIn(path: string, md: string): string {
@@ -87,6 +145,7 @@ export function contactFromNote(path: string, md: string): ContactNote {
   for (const e of frontmatterEntries(md).entries) {
     if ((LISTS as readonly string[]).includes(e.key)) c[e.key as ListField] = listOf(e);
     else if (e.key === "company" || e.key === "role") c[e.key] = scalarOf(e);
+    else if (e.key === "check_in") c.checkIn = scalarOf(e);
   }
   return c;
 }
@@ -107,7 +166,7 @@ export function contactNote(c: ContactFields, existing?: string): string {
   for (const key of KEYS) {
     const v = c[key];
     if (typeof v === "string") {
-      if (v.trim()) out.push({ key, lines: [`${key}: ${yamlValue(v.trim())}`] });
+      if (v.trim()) out.push({ key: keyInNote(key), lines: [`${keyInNote(key)}: ${yamlValue(v.trim())}`] });
     } else if (v.length) {
       const items = v.map((x) => x.trim()).filter(Boolean);
       if (key === "links") out.push({ key, lines: ["links:", ...items.map((x) => `  - ${yamlValue(x)}`)] });
@@ -115,7 +174,7 @@ export function contactNote(c: ContactFields, existing?: string): string {
       else out.push({ key, lines: [`${key}: [${items.map(yamlValue).join(", ")}]`] });
     }
   }
-  out.push(...had.filter((e) => !(KEYS as readonly string[]).includes(e.key)));
+  out.push(...had.filter((e) => !KEYS.some((k) => keyInNote(k) === e.key)));
   // A blank line that ended the old frontmatter doesn't end the new one.
   const last = out.at(-1)?.lines;
   while (last && last.length > 1 && !last.at(-1)!.trim()) last.pop();
@@ -162,6 +221,7 @@ export function fillContact(into: ContactFields, from: ContactFields): ContactFi
     links: unionOf(into.links, from.links),
     aliases: unionOf(into.aliases, [from.name, ...from.aliases].filter((n) => n.trim() && !same(n))),
     tags: unionOf(into.tags, from.tags),
+    checkIn: into.checkIn || from.checkIn,
   };
 }
 
@@ -187,7 +247,7 @@ export function duplicateContacts<T extends ContactFields>(list: T[]): T[][] {
   return [...groups.values()].filter((g) => g.length > 1);
 }
 
-const HANDLE = /^[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*$/u;
+const HANDLE = /^[\p{L}_][\p{L}\p{N}_-]*(?:\.[\p{L}\p{N}_-]+)*$/u;
 
 /** What `@name` on a task can say for this contact: its name with dashes for spaces, and any one-word alias. */
 export function handlesOf(c: Pick<ContactFields, "name" | "aliases">): string[] {
@@ -374,7 +434,7 @@ export function parseContactsCsv(text: string): ContactInput[] {
       else if (role === "name") c.name = v;
       else if (role === "company" || role === "role" || role === "notes") c[role] ||= v;
       else if (role === "tags") c.tags = unionOf(c.tags, tidyTags(items));
-      else c[role] = unionOf(c[role], items);
+      else if (role !== "checkIn") c[role] = unionOf(c[role], items);
     });
     c.name ||= [first, last].filter(Boolean).join(" ") || nameFromEmail(c.email[0] ?? "");
     if (c.name) out.push(c);

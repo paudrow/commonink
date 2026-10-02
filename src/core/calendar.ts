@@ -518,13 +518,18 @@ export class Calendar {
 
   /** Put a source's items in place of what it had: changed rows are written, gone ones deleted, links to notes kept. */
   private async store(source: string, events: Occurrence[]) {
+    // Some feeds reuse a UID for separate one-off events: the latest keeps the usual ID, the others are told apart by their start.
+    const lastOneOff = new Map<string, Occurrence>();
+    for (const o of events) if (o.recurrenceId === null) lastOneOff.set(o.uid, o);
     const rows = await Promise.all(
       events.map(async (o) => {
+        const last = o.recurrenceId === null ? lastOneOff.get(o.uid) : undefined;
+        const key = last && last !== o && last.start !== o.start ? `@${o.start}` : o.recurrenceId;
         const data = JSON.stringify({
           allDay: o.allDay, timeZone: o.timeZone, location: o.location, description: o.description, url: o.url,
           organizer: o.organizer, attendees: o.attendees, status: o.status, recurring: o.recurring, uid: o.uid, instance: o.recurrenceId,
         });
-        return { id: await itemId(source, o.uid, o.recurrenceId), o, data, hash: hex(await sha256(`${o.title}\n${o.start}\n${o.end}\n${data}`)) };
+        return { id: await itemId(source, o.uid, key), o, data, hash: hex(await sha256(`${o.title}\n${o.start}\n${o.end}\n${data}`)) };
       }),
     );
     const seen = new Map(rows.map((r) => [r.id, r])); // an instance listed twice counts once

@@ -6,7 +6,6 @@ import { EditorSelection, EditorState, Facet, Prec, StateEffect, StateField, Tra
 import { Decoration, EditorView, keymap, WidgetType, type DecorationSet } from "@codemirror/view";
 import { api, assetUrl } from "../api.ts";
 import { el, icon } from "../dom.ts";
-import { noteTarget } from "../noteLinks.ts";
 import { currentScheme, embedKindOf, renderMarkdown, sandboxFrame, sectionOf, type EmbedKind } from "../render.ts";
 import { providerFrame, resolveEmbed } from "../embeds/providers.ts";
 import { newId, parseDirective, serializeDirective, type Directive } from "../widgets/args.ts";
@@ -30,8 +29,7 @@ import { Vim, type ActionFn } from "@replit/codemirror-vim";
 import { safeDecode } from "../../../src/core/uri.ts";
 import { foldDecorations, setFold } from "./details.ts";
 import { htmlImageBlock } from "./gfm.ts";
-import { followInPage } from "../gfm.ts";
-import { calendarTarget } from "../links.ts";
+import { followRenderedLink, leftToBrowser } from "../gfm.ts";
 
 export interface EditorContext {
   path: string;
@@ -233,14 +231,12 @@ class EmbedWidget extends WidgetType {
           const a = (e.target as HTMLElement).closest("a");
           if (!a) return;
           e.preventDefault();
-          const href = a.getAttribute("href") ?? "";
-          const target = noteTarget(href);
-          if (target !== null) ctx.openTarget(target, path);
-          else if (/^https?:/i.test(href)) window.open(href, "_blank", "noopener");
-          else if (calendarTarget(href) !== null) ctx.openTarget(href, path);
-          else followInPage(body, href); // a footnote, or a #heading in the embedded note
+          followRenderedLink(a.getAttribute("href") ?? "", body, (target) => ctx.openTarget(target, path));
         });
-        body.addEventListener("click", (e) => (e.target as HTMLElement).closest("a") && e.preventDefault()); // opened on mousedown
+        body.addEventListener("click", (e) => {
+          const a = (e.target as HTMLElement).closest("a");
+          if (a && !leftToBrowser(a.getAttribute("href") ?? "")) e.preventDefault(); // opened on mousedown
+        });
       }
       settle();
     })().catch(() => {
@@ -738,7 +734,7 @@ class PropertiesWidget extends WidgetType {
 }
 
 const EMBED_LINE = /^\s*!\[\[([^\]]+?)\]\]\s*$/;
-const IMAGE_LINE = /^\s*!\[([^\]]*)\]\(<?([^)\s>]+)>?(?:\s+"[^"]*")?\)\s*$/;
+const IMAGE_LINE = /^\s*!\[([^\]]*)\]\((?:<([^<>]+)>|([^()\s<>]+))(?:\s+"[^"]*")?\)\s*$/;
 /** A URL alone on its line (what you get by pasting a link). `<url>` opts out and stays a plain link. */
 const BARE_URL = /^\s*(https?:\/\/[^\s<>]+)\s*$/;
 
@@ -871,7 +867,7 @@ function buildBlocks(state: EditorState): DecorationSet {
           const img = wiki ? null : line.text.match(IMAGE_LINE);
           const bare = wiki || img ? null : line.text.match(BARE_URL);
           if (!wiki && !img && !bare) continue;
-          const target = wiki ? wiki[1].split("|")[0].trim() : img ? safeDecode(img[2]) : bare![1];
+          const target = wiki ? wiki[1].split("|")[0].trim() : img ? safeDecode(img[2] ?? img[3]) : bare![1];
           const kind = wiki ? embedKindOf(target) : img ? (embedKindOf(target) === "note" ? "image" : embedKindOf(target)) : embedKindOf(target, true);
           place(new EmbedWidget(target, kind, from, embedRev));
         }

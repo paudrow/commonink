@@ -6,9 +6,9 @@ import type { TagCount } from "../web/src/api.ts";
 
 const tag = (t: string, notes: number, tasks = 0, assets = 0): TagCount => ({ tag: t, display: t, notes, tasks, assets });
 
-test("Tags lists tags on notes and tags added by name, with their parents, but not tags only on assets", () => {
-  const tags = [tag("brand", 0, 0, 2), tag("home", 1), tag("work", 0), tag("work/clients", 0), tag("work/logo", 0, 0, 1)];
-  assert.deepEqual(sidebarTags(tags).map((t) => t.tag), ["home", "work", "work/clients"]);
+test("Tags lists tags on notes or tasks and tags added by name, with their parents, but not tags only on assets", () => {
+  const tags = [tag("brand", 0, 0, 2), tag("home", 1), tag("podcast", 0, 3), tag("work", 0), tag("work/clients", 0), tag("work/logo", 0, 0, 1)];
+  assert.deepEqual(sidebarTags(tags).map((t) => t.tag), ["home", "podcast", "work", "work/clients"]);
 });
 
 test("an empty section's line keeps the rows' chevron column, so it starts where their icons do", () => {
@@ -46,4 +46,10 @@ test("Contacts, Calendar, Assets and Smart folders show once in use, while you'r
   assert.deepEqual(shown(shownItems(none, {}, new Set(["contacts"]))), ["contacts"], "opened by URL or from ⌘K, it shows while you're on it");
   assert.deepEqual(shown(shownItems(none, { calendar: true, assets: false }, new Set())), ["calendar"]);
   assert.deepEqual(shown(shownItems({ ...none, assets: true }, { assets: false }, new Set())), ["assets"], "turning the setting off only lets it wait again");
+});
+
+test("a workspace that isn't gamified shows every optional item from the start", () => {
+  const none = { contacts: false, calendar: false, assets: false, smart: false };
+  assert.deepEqual(shownItems(none, {}, new Set(), true), { contacts: true, calendar: true, assets: true, smart: true });
+  assert.deepEqual(shownItems(none, {}, new Set()), none);
 });
