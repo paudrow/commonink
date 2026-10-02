@@ -433,7 +433,7 @@ export class Assets {
       el(
         "aside",
         { class: "ap-info" },
-        el("div", { class: "ap-top" }, el("h2", {}, nameOf(meta)), el("button", { type: "button", class: "icon-btn", title: "Close (Esc)", onclick: close }, icon("close", 16))),
+        el("div", { class: "ap-top" }, el("h2", {}, nameOf(meta)), el("button", { type: "button", class: "icon-btn", title: "Close (Esc)", "aria-label": "Close", onclick: close }, icon("close", 16))),
         el(
           "dl",
           { class: "ap-facts" },
