@@ -36,11 +36,11 @@ const settle = () => new Promise((r) => setTimeout(r, 20));
 const shown = (sel: string) => !root.querySelector<HTMLElement>(sel)!.hidden;
 const button = (label: string) => [...root.querySelectorAll("button")].find((b) => b.textContent === label)!;
 
-test("an empty vault offers a new note and hides the filters and keys it can't use, but not the tabs", async () => {
+test("an empty vault offers a new note and hides the keys it can't use, but keeps the search and tabs where they always are", async () => {
   page.show();
   await settle();
   assert.equal(root.querySelector(".empty-state b")!.textContent, "No notes yet");
-  assert.deepEqual([shown(".feed-search"), shown(".feed-sort"), shown(".feed-keys"), shown(".feed-scope")], [false, false, false, true]);
+  assert.deepEqual([shown(".feed-search"), shown(".feed-sort"), shown(".feed-keys"), shown(".feed-scope")], [true, true, false, true]);
   button("New note").click();
   assert.equal(created, 1);
 });

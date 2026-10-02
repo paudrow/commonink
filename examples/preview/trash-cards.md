@@ -11,3 +11,4 @@ Trash now lists the same cards as Notes and Archive, with the same filters, keys
 5. Select two cards with `x`: the bar offers **Restore** and **Delete forever** for both. Hover a card for the same two as icons.
 6. **Empty trash** sits at the end of the filters. Online, only workspace owners see Delete forever and Empty trash.
 7. Restore everything you deleted here, then type "cooking" on the Trash tab: the line under the list says "Also 2 in Notes."
+8. Click between **Notes**, **Archive** and **Trash**, with Trash empty too: the search box, filters and the line under the tabs stay where they are, so nothing on the page jumps.

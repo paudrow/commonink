@@ -67,7 +67,7 @@ const titles = () => [...root.querySelectorAll(".feed-card .fc-title")].map((n) 
 const press = (key: string) => root.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
 const button = (label: string, within: ParentNode = root) => [...within.querySelectorAll("button")].find((b) => b.textContent === label || b.title === label)!;
 
-test("the tabs are Notes, Archive and Trash, and Archive and Trash each say what they hold", async () => {
+test("the tabs are Notes, Archive and Trash, each says what it holds, and the search stays on each", async () => {
   page.show({ tab: "archive" });
   await settle();
   assert.deepEqual(tabs(), ["Notes", "Archive*", "Trash"]);
@@ -78,7 +78,7 @@ test("the tabs are Notes, Archive and Trash, and Archive and Trash each say what
   assert.deepEqual(titles(), ["Launch plan", "Groceries"]);
   page.show({ tab: "notes" });
   await settle();
-  assert.equal(root.querySelector<HTMLElement>(".feed-about")!.hidden, true);
+  assert.equal(text(".feed-about"), "Notes you're working on. Archive one you're done with, or delete one you don't need.");
 });
 
 test("a search names its matches in the other tabs, and a click goes there with the search kept", async () => {
@@ -131,6 +131,7 @@ test("in Trash, x selects and the bulk bar restores; r restores the focused card
   await settle();
   assert.deepEqual([titles(), toasts.at(-1)], [[], "Restored C"]);
   assert.equal(root.querySelector(".empty-state b")!.textContent, "Trash is empty");
+  assert.equal(root.querySelector<HTMLElement>(".feed-search")!.hidden, false, "an empty Trash keeps the search where Notes has it");
 });
 
 test("Delete forever asks first, and only whoever may delete for good gets it", async () => {

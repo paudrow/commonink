@@ -61,7 +61,7 @@ const PAGE = 40;
 export type NotesTab = "notes" | "archive" | "trash";
 /** Each tab's name, and the one line that says what's in it. */
 const TABS: Record<NotesTab, { label: string; about: string }> = {
-  notes: { label: "Notes", about: "" },
+  notes: { label: "Notes", about: "Notes you're working on. Archive one you're done with, or delete one you don't need." },
   archive: { label: "Archive", about: "Out of your way but kept. Links to them still work." },
   trash: { label: "Trash", about: "Deleted notes. Each is removed for good 30 days after you delete it." },
 };
@@ -317,12 +317,8 @@ export class NotesPage {
     this.hooks.filtersChanged();
     const q = this.input.value.trim();
     const top = this.root.scrollTop;
-    // With no notes at all there's nothing to filter, and with none listed nothing to move through.
-    // The tabs stay: Trash may still hold something.
+    // The search and filters stay put on every tab, empty or not, so switching tabs doesn't move the page.
     const filtered = Boolean(q || this.folder || this.tag);
-    const bare = !filtered && page.counts.active + page.counts.archived === 0;
-    this.search.hidden = this.tagBar.hidden = this.sortSel.hidden = bare;
-    this.folderBar.hidden = bare || (!page.folders.length && !this.folder);
     this.list.replaceChildren(...(this.items.length ? this.items.map((item, i) => this.card(item, i, q)) : [this.empty(q, filtered)]));
     const other: NotesTab = this.tab === "notes" ? "archive" : "notes";
     this.renderElsewhere(filtered ? [[other, other === "archive" ? page.counts.archived : page.counts.active], ["trash", this.inTrash]] : []);
@@ -373,9 +369,6 @@ export class NotesPage {
     const q = this.input.value.trim();
     const top = this.root.scrollTop;
     const filtered = Boolean(q || this.folder || this.tag);
-    const bare = !filtered && !items.length;
-    this.search.hidden = this.tagBar.hidden = this.sortSel.hidden = bare;
-    this.folderBar.hidden = bare || (!folders.length && !this.folder);
     this.list.replaceChildren(...(this.trashShown.length ? this.trashShown.map((t, i) => this.trashCard(t, i, trash)) : [this.trashEmpty(q, filtered)]));
     const page = this.trashFeed;
     this.renderElsewhere(filtered && page ? [["notes", page.counts.active], ["archive", page.counts.archived]] : []);
