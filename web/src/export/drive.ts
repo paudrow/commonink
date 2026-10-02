@@ -9,7 +9,7 @@ import { api, ApiError } from "../api.ts";
 import { el } from "../dom.ts";
 import { store } from "../store.ts";
 import { toast } from "../toast.ts";
-import { ask } from "../trash.ts";
+import { ask } from "../modal.ts";
 import { calendarWorkspace } from "../calendar/data.ts";
 import { relink, type LinkPlan } from "../../../src/core/export.ts";
 import { notePath } from "../../../src/core/ids.ts";
