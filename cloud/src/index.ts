@@ -16,7 +16,8 @@ import { acceptInvite, inviteInfo, createWorkspace, endSessionsOf, locateNote, m
 import { timeZoneNamed } from "../../src/core/tasks.ts";
 import type { Env } from "./env.ts";
 import { fetchAsset, secure } from "./headers.ts";
-import { limit, ROUTE_LIMITS } from "./limits.ts";
+import { limit, limited, ROUTE_LIMITS } from "./limits.ts";
+import { landingPage } from "./landing.ts";
 import { connectionInfo, disconnectGoogle, googleApi, googleAuth, googleMode } from "./connections.ts";
 
 export { Workspace } from "./workspace.ts";
@@ -67,6 +68,8 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
   }
   // A share the service worker didn't catch (it wasn't set up yet): the capture screen says so.
   if (url.pathname === "/share" && req.method === "POST") return Response.redirect(new URL("/capture?share=none", url).href, 303);
+  // The front page: what Common Ink is, for anyone not signed in; the app for everyone who is.
+  if (url.pathname === "/" && (req.method === "GET" || req.method === "HEAD") && !(await readSessionOf(req, env))) return landingPage(url, env.DEV_LOGIN === "1");
   return fetchAsset(env.ASSETS, req, url);
 }
 
@@ -114,7 +117,7 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
       await unfurl(target, (u) => {
         assertPublicUrl(u);
         if (u.hostname.replace(/\.$/, "") === url.hostname) throw new Error("self"); // "commonink.app." too
-      }),
+      }, { githubToken: env.GITHUB_TOKEN || undefined }),
     );
   },
   "GET /api/note-ids/*": async ({ env, url, user }) => {
@@ -246,17 +249,19 @@ async function shared(req: Request, env: Env, url: URL, user: User, session: { i
 
 /**
  * A shared link, `/api/s/<token>/…`: no sign-in needed to read what it shares, and nothing else of
- * its workspace. Lookups are limited per address, so tokens can't be guessed by volume (they're 256
- * bits anyway). Signed in, `join` keeps it in your Shared with me, with the link's role.
+ * its workspace. Lookups that find no live link are limited per address, so tokens can't be guessed
+ * by volume (they're 256 bits anyway); a working link's page makes many requests, and none count.
+ * Signed in, `join` keeps it in your Shared with me, with the link's role.
  */
 async function shareLink(req: Request, env: Env, url: URL): Promise<Response> {
   const [, , , token = "", ...rest] = url.pathname.split("/");
   const route = `/${rest.join("/")}`;
-  const tooMany = await limit(env.DB, "shareLink", req.headers.get("CF-Connecting-IP") ?? "unknown");
+  const ip = req.headers.get("CF-Connecting-IP") ?? "unknown";
+  // Past the limit, every link is refused, so a right guess reads the same as a wrong one.
+  const tooMany = await limited(env.DB, "shareLink", ip);
   if (tooMany) return tooMany;
   const share = await linkShare(env.DB, token);
-  const gone = () => json({ error: "This link doesn't work any more, or never did" }, 404);
-  if (!share) return gone();
+  if (!share) return (await limit(env.DB, "shareLink", ip)) ?? json({ error: "This link doesn't work any more, or never did" }, 404);
   if (route === "/join" && req.method === "POST") {
     const session = await readSessionOf(req, env);
     if (!session) return json({ error: "Sign in first", devLogin: env.DEV_LOGIN === "1" }, 401);

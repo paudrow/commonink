@@ -2,7 +2,7 @@
 //   - [ ] Send invoice to Acme due:2026-10-01 rec:monthly #work/clients @jane !high
 // The line stays the source of truth. This reads the tokens and rewrites one at a time in place, so
 // an edit never touches the rest of the line. No Node imports: the editor uses this too.
-import { findSection, withoutCodeOrLinks } from "./prose.ts";
+import { findSection, frontmatterLines, withoutCodeOrLinks } from "./prose.ts";
 import { daysBetween, formatRule, nextDue, parseRule, ruleProblem, shiftDate, type Rule } from "./recurrence.ts";
 import { cleanTag, normalizeTag, tagsInLine } from "./tags.ts";
 
@@ -51,8 +51,11 @@ interface Token {
   to: number;
 }
 
-const PERSON = "[\\p{L}\\p{N}_-]+(?:\\.[\\p{L}\\p{N}_-]+)*";
-/** A person ends where the word does, so `@jane,` and `@jane.` count and `@jane's` doesn't. */
+const PERSON = "[\\p{L}_][\\p{L}\\p{N}_-]*(?:\\.[\\p{L}\\p{N}_-]+)*";
+/**
+ * A person ends where the word does, so `@jane,` and `@jane.` count and `@jane's` doesn't. A name
+ * starts with a letter, so `@3pm` and `@2x` stay words, and `\@home` (escaped) is never a person.
+ */
 const WORD = new RegExp(`(?<!\\S)(due|start|scheduled|done|rec|until|times):(\\S+)|(?<!\\S)!(high|low)(?!\\S)|(?<!\\S)@(${PERSON})(?=$|[\\s,.;:!?)\\]])`, "giu");
 const DATE = /^(\d{4})-(\d{2})-(\d{2})(?:T([01]\d|2[0-3]):[0-5]\d)?$/;
 
@@ -313,21 +316,55 @@ function insertToken(text: string, field: Field, token: string): string {
 }
 
 /**
- * A test for due dates from an expression like `<=today`, `>2026-10-01` or `tomorrow` (no operator
- * means that day), or null if it isn't one. `today` is the day it's evaluated on. A task with no
- * due date never matches.
+ * The day a filter word means: today, tomorrow, yesterday, a date, or a span from today (`+7d`,
+ * `-2w`, `+1m`, `+1y`). Null if it isn't one.
  */
-export function dueFilter(expr: string, today: string): ((due: string | null) => boolean) | null {
-  const m = expr.trim().match(/^(<=|>=|<|>|=)?\s*(today|tomorrow|yesterday|\d{4}-\d{2}-\d{2})$/i);
-  if (!m || (/^\d/.test(m[2]) && !isDate(m[2]))) return null;
-  const shift = { today: 0, tomorrow: 1, yesterday: -1 }[m[2].toLowerCase()];
-  const day = shift === undefined ? m[2] : addDays(today, shift);
-  const op = m[1] ?? "=";
-  return (due) => {
-    if (!due) return false;
-    const d = due.slice(0, 10);
-    return op === "<" ? d < day : op === "<=" ? d <= day : op === ">" ? d > day : op === ">=" ? d >= day : d === day;
-  };
+export function dayFrom(word: string, today: string): string | null {
+  const w = word.toLowerCase();
+  if (w === "today" || w === "tomorrow" || w === "yesterday") return addDays(today, { today: 0, tomorrow: 1, yesterday: -1 }[w]);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(w)) return isDate(w) ? w : null;
+  const m = w.match(/^([+-])(\d{1,4})([dwmy])$/);
+  if (!m) return null;
+  const n = Number(m[2]) * (m[1] === "-" ? -1 : 1);
+  return m[3] === "d" ? addDays(today, n) : m[3] === "w" ? addDays(today, 7 * n) : addMonths(today, m[3] === "m" ? n : 12 * n);
+}
+
+/** What a date filter takes, for messages. */
+export const DATE_FILTER_HELP =
+  'today, tomorrow, yesterday, a date, or a span from today like +7d, -2w or +1m, optionally after <, <=, > or >=; two make a range (">=today <=+7d")';
+
+/**
+ * A test for one of a task's dates (due:, start: or done:) from a filter: one or more comparisons,
+ * all of which must hold, like `<=today`, `>=today <=+7d` (the coming week), `>=-7d` or `tomorrow`
+ * (no operator means that day). Spaces or commas separate them. Null if it isn't one. `today` is
+ * the day it's evaluated on. A task without that date never matches.
+ */
+export function dateFilter(expr: string, today: string): ((date: string | null) => boolean) | null {
+  // An operator may have a space after it (">= tomorrow"): it still goes with the word that follows.
+  const parts = expr.trim().replace(/(<=|>=|<|>|=)\s+/g, "$1").split(/[\s,]+/).filter(Boolean);
+  if (!parts.length || parts.length > 4) return null;
+  const tests: Array<(d: string) => boolean> = [];
+  for (const part of parts) {
+    const m = part.match(/^(<=|>=|<|>|=)?(.+)$/)!;
+    const day = dayFrom(m[2], today);
+    if (!day) return null;
+    const op = m[1] ?? "=";
+    tests.push((d) => (op === "<" ? d < day : op === "<=" ? d <= day : op === ">" ? d > day : op === ">=" ? d >= day : d === day));
+  }
+  return (date) => !!date && tests.every((t) => t(date.slice(0, 10)));
+}
+
+/** A due date filter (the name it had before start: and done: could be filtered too). */
+export const dueFilter = dateFilter;
+
+/**
+ * A test for a task's priority from a filter: high, low or none (no priority), or several with
+ * commas (`high,none`). `!high` works too, the way the token is written. Null if it isn't one.
+ */
+export function priorityFilter(expr: string): ((p: Priority | null) => boolean) | null {
+  const want = expr.toLowerCase().split(/[\s,]+/).filter(Boolean).map((w) => w.replace(/^!/, ""));
+  if (!want.length || want.some((w) => w !== "high" && w !== "low" && w !== "none")) return null;
+  return (p) => want.includes(p ?? "none");
 }
 
 /** The day `n` days after `day` (both YYYY-MM-DD). */
@@ -337,10 +374,50 @@ export function addDays(day: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** The day `n` months after `day`, on the month's last day if that month is shorter (Jan 31 + 1m is Feb 28). */
+export function addMonths(day: string, n: number): string {
+  const [y, m, d] = day.split("-").map(Number);
+  const months = y * 12 + (m - 1) + n;
+  const year = Math.floor(months / 12);
+  const month = months - year * 12;
+  const last = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  return `${String(year).padStart(4, "0")}-${String(month + 1).padStart(2, "0")}-${String(Math.min(d, last)).padStart(2, "0")}`;
+}
+
+const RULE = /^ {0,3}([-*_])[ \t]*(?:\1[ \t]*){2,}$/;
+const FOOTNOTE = /^ {0,3}\[\^[^\]\s]+\]:/;
+
+/**
+ * Where a note's footer starts (a 0-based line), or `lines.length` if it has none. A footer is what
+ * closes the note under its last section: a `---` rule (after a blank line, so not a heading's
+ * underline) with no heading below it, or the footnote definitions at its end.
+ */
+export function footerStart(lines: string[]): number {
+  const fm = frontmatterLines(lines.join("\n"));
+  let fence: string | null = null;
+  let rule = -1;
+  for (let i = fm; i < lines.length; i++) {
+    const f = lines[i].match(/^\s{0,3}(`{3,}|~{3,})/)?.[1];
+    if (f && (!fence || (f[0] === fence[0] && f.length >= fence.length))) fence = fence ? null : f;
+    if (fence || f) continue;
+    if (/^ {0,3}#{1,6}(\s|$)/.test(lines[i])) rule = -1;
+    else if (rule < 0 && RULE.test(lines[i]) && (i === fm || !lines[i - 1].trim())) rule = i;
+  }
+  if (rule >= 0 && !fence) return rule;
+  // Footnotes: the definitions at the very end, with their indented or blank continuation lines.
+  let notes = lines.length;
+  for (let i = lines.length - 1; i >= fm; i--) {
+    if (FOOTNOTE.test(lines[i])) notes = i;
+    else if (lines[i].trim() && !/^( {2,}|\t)/.test(lines[i])) break;
+  }
+  return fence ? lines.length : notes;
+}
+
 /**
  * A note with task lines added: at the end of its "Tasks" section (a heading named Tasks, at any
  * level), or, without one, at the end of the note, under a new `## Tasks` heading if `heading`
- * (a daily note) or right after the last line otherwise. `line` is where the first one landed.
+ * (a journal note) or right after the last line otherwise. A footer (see footerStart) stays last, so
+ * "the end" is just above it. `line` is where the first one landed.
  */
 export function withTasksAdded(original: string, added: string[], heading: boolean): { content: string; line: number } {
   // Worked out on "\n" lines, and put back with the note's own line endings.
@@ -351,6 +428,10 @@ export function withTasksAdded(original: string, added: string[], heading: boole
   while (last > 0 && content[last - 1] === "\n") last--; // a loop: /\n+$/ is quadratic on many blank lines
   const lines = content.slice(0, last).split("\n");
   if (lines.length === 1 && lines[0] === "") lines.pop();
+  // The footer comes off while the tasks go in, and back after them with a blank line between.
+  const foot = footerStart(lines);
+  const footer = lines.splice(foot);
+  while (footer.length && lines.length && !lines[lines.length - 1].trim()) lines.pop();
   const { section, end } = findSection(lines, "Tasks");
   let at: number;
   if (section >= 0) {
@@ -372,6 +453,7 @@ export function withTasksAdded(original: string, added: string[], heading: boole
     at = lines.length;
     lines.push(...block);
   }
+  if (footer.length) lines.push(...(lines.length ? [""] : []), ...footer);
   const out = lines.join("\n") + "\n";
   return { content: crlf ? out.replace(/\n/g, "\r\n") : out, line: at + 1 };
 }

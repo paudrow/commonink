@@ -55,6 +55,8 @@ export class History {
   private items: Item[] = [];
   private note: string | null = null;
   private by = savedBy();
+  /** Only changes after this change id ("While you were away" opens History on that span), or 0 for all. */
+  private since = 0;
   /** The agents in the change log, for the per-agent filter. */
   private agentNames: string[] = [];
   /** Selected items, by their latest change id. */
@@ -97,11 +99,24 @@ export class History {
     return this.note;
   }
 
-  /** Open the page, optionally for one note and with a change (by id) selected. */
-  async show(opts: { note?: string | null; select?: number; label?: string } = {}) {
+  /**
+   * Open the page, optionally for one note and with a change (by id) selected. `since` (a change id)
+   * shows only agents' changes after it, all selected, so the right side shows everything they did.
+   */
+  async show(opts: { note?: string | null; select?: number; label?: string; since?: number } = {}) {
     this.root.hidden = false;
     const note = opts.note ?? null;
-    if (note !== this.note || !this.raw.length) {
+    if (opts.since) {
+      [this.since, this.by, this.note, this.label] = [opts.since, "ai", null, null];
+      await this.load();
+      this.selected = new Set(this.items.map((it) => it.id));
+      this.focus = this.anchor = 0;
+      this.render();
+      this.root.focus({ preventScroll: true });
+      return;
+    }
+    if (note !== this.note || !this.raw.length || this.since) {
+      this.since = 0;
       this.note = note;
       this.selected.clear();
       this.label = null;
@@ -123,7 +138,7 @@ export class History {
   refreshSoon = debounce(() => this.visible && void this.refresh().then(() => this.renderList()), 400);
 
   private async refresh() {
-    const [fresh, labels] = await Promise.all([api.history({ limit: PAGE, path: this.note ?? undefined, by: this.by || undefined }).catch(() => null), api.labels(this.note ?? undefined).catch(() => null)]);
+    const [fresh, labels] = await Promise.all([api.history({ limit: PAGE, path: this.note ?? undefined, by: this.by || undefined, after: this.since || undefined }).catch(() => null), api.labels(this.note ?? undefined).catch(() => null)]);
     if (labels) this.setLabels(labels);
     if (!fresh) return;
     const older = this.raw.filter((c) => c.id < (fresh.at(-1)?.id ?? 0));
@@ -135,7 +150,7 @@ export class History {
     const seq = ++this.seq;
     const before = older ? this.raw.at(-1)?.id : undefined;
     const [page, labels] = await Promise.all([
-      api.history({ limit: PAGE, before, path: this.note ?? undefined, by: this.by || undefined }).catch(() => null),
+      api.history({ limit: PAGE, before, path: this.note ?? undefined, by: this.by || undefined, after: this.since || undefined }).catch(() => null),
       older ? null : api.labels(this.note ?? undefined).catch(() => null),
     ]);
     if (labels) this.setLabels(labels);
@@ -165,6 +180,16 @@ export class History {
     try {
       localStorage.setItem(BY_KEY, by);
     } catch {}
+    this.selected.clear();
+    await this.load();
+    if (this.items.length) this.selectOnly(0);
+    else this.render();
+  }
+
+  /** Back from the "While you were away" span to the whole timeline. */
+  private async clearSince() {
+    this.since = 0;
+    this.by = savedBy();
     this.selected.clear();
     await this.load();
     if (this.items.length) this.selectOnly(0);
@@ -242,6 +267,9 @@ export class History {
     );
     const note = this.note;
     this.filtersEl.replaceChildren(
+      ...(this.since
+        ? [el("span", { class: "chip is-on hist-note-chip" }, icon("clock", 12), "While you were away", el("button", { type: "button", title: "Show every change", onclick: () => void this.clearSince() }, icon("close", 12)))]
+        : []),
       ...(note
         ? [el("span", { class: "chip is-on hist-note-chip" }, icon("file", 12), displayName(note), el("button", { type: "button", title: "Show every note", onclick: () => void this.show({ note: null }) }, icon("close", 12)))]
         : []),

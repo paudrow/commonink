@@ -107,6 +107,8 @@ export interface Sharing {
   list(target: { path?: string; folder?: string }): Promise<string>;
   share(o: { path?: string; folder?: string; email?: string; link?: boolean; role: "viewer" | "editor"; expiresInDays?: number }): Promise<string>;
   unshare(id: string): Promise<string>;
+  /** A folder was renamed or moved: its shares go with it, as a note's do. */
+  folderMoved?(from: string, to: string): Promise<void>;
 }
 
 /**

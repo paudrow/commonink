@@ -26,6 +26,7 @@ import {
 import { parseTask } from "../../src/core/tasks.ts";
 import { scanTags } from "../../src/core/tags.ts";
 import { saveChain } from "./saveChain.ts";
+import { toast } from "./toast.ts";
 
 export interface BoardHost {
   /** The editor the board is shown in: note names and tags for suggestions, and opening notes, tags and people. */
@@ -318,7 +319,7 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
           "div",
           { class: "kb-actions" },
           act("edit", "Edit (Enter)", () => openEdit(c, i, card)),
-          link ? act("split", "Open to the side", () => host.ctx.openTarget(link.target, host.path, { side: true })) : act("file", "Open as note", () => void openAsNote(c, i, card.text)),
+          link ? act("split", "Open in split view", () => host.ctx.openTarget(link.target, host.path, { side: true })) : act("file", "Open as note", () => void openAsNote(c, i, card.text)),
           act("trash", "Delete (⌫)", () => remove(c, i, card.text)),
         );
     const node = el(
@@ -564,7 +565,7 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
     try {
       await api.create(`${dir}${name}.md`, cardAsNote(card, name).body);
     } catch (e) {
-      return alert(e instanceof ApiError ? e.message : `Couldn't create ${name}`);
+      return toast({ error: true, text: e instanceof ApiError ? e.message : `Couldn't create ${name}` });
     }
     const now = cardNow(c, i, text);
     if (now) change((md) => editCard(md, now.from, cardAsNote(now, name).text));

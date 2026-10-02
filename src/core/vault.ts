@@ -1,3 +1,4 @@
+import { ARCHIVE, homeOf, isArchived } from "./archive.ts";
 import { actorOf, authorWhere, type Actor, type AuthorFilter } from "./actor.ts";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -9,7 +10,7 @@ import { headingName, headingText, mapOutsideCode, proseLines } from "./prose.ts
 import { dateOf, extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
-import { dueFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
+import { DATE_FILTER_HELP, dateFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, priorityFilter, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
 import { parseQuickAdd } from "./quickAdd.ts";
 import { formatQuery, parseQuery, queryProblem, tagList, type NoteQuery } from "./query.ts";
 import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
@@ -19,8 +20,9 @@ import {
   checkInDue, checkInEvery, contactFromNote, contactNote, dayOfNote, emptyContact, fillContact, parseContactsCsv, parseVCards, PEOPLE, peopleDirectory, personFor, sameFields, samePerson,
   type Contact, type ContactFields, type ContactInput, type ContactNote, type MemberRef, type TimelineItem,
 } from "./contacts.ts";
-import { cleanTitle, DAILY_TEMPLATE, fillTemplate, localNow, TEMPLATES, templateInfo, type FillOptions, type TemplateInfo } from "./templates.ts";
+import { cleanTitle, fillTemplate, JOURNAL_TEMPLATES, localNow, TEMPLATES, templateInfo, type FillOptions, type TemplateInfo } from "./templates.ts";
 import { frontmatterEntries } from "./frontmatter.ts";
+import { taskChanges, type AwaySummary } from "./away.ts";
 
 export interface NoteMeta {
   /** Stable across renames, moves and archiving; see ids.ts. */
@@ -95,9 +97,9 @@ export interface MissingLink {
   from: Backlink[];
 }
 
-/** Archiving moves a note under Archive/, keeping its original path: Archive/Projects/Old plan.md */
-export const ARCHIVE = "Archive/";
-export const isArchived = (p: string) => p.startsWith(ARCHIVE);
+export { ARCHIVE, archiveRootOf, homeOf, isArchived, isArchiveFolder } from "./archive.ts";
+/** isArchived() in SQL, for the path column `col`. ltrim() drops the number in front, as ARCHIVE_DIR does. */
+const archivedSql = (col: string) => `lower(ltrim(substr(${col}, 1, instr(${col}, '/')), '0123456789 ._-')) IN ('archive/', 'archives/')`;
 export type ArchiveScope = "active" | "archived" | "all";
 
 /**
@@ -261,7 +263,7 @@ const CHANGE_COLS = "id, ts, path, op, source, version, summary, from_path, note
 const META_COLS = "id, path, kind, title, version, mtime, size";
 const TRASH = ".trash";
 /** Notes whose tasks are tasks: not archived, and not templates (a template's `- [ ]` is for the notes made from it). */
-const TASK_NOTES = `substr(t.path, 1, 8) != 'Archive/' AND substr(t.path, 1, ${TEMPLATES.length + 1}) != '${TEMPLATES}/'`;
+const TASK_NOTES = `NOT ${archivedSql("t.path")} AND substr(t.path, 1, ${TEMPLATES.length + 1}) != '${TEMPLATES}/'`;
 /** How long Trash keeps what's deleted. */
 export const TRASH_DAYS = 30;
 const TRASH_ID = /^(\d{1,15})-(\d{1,15})$/;
@@ -305,7 +307,12 @@ export interface TaskQuery {
   assignee?: string;
   /** Any of these `@name`s: one person's every name. */
   assignees?: string[];
+  /** Date filters, like `<=today` or `>=today <=+7d` (see dateFilter). */
   due?: string;
+  start?: string;
+  done?: string;
+  /** high, low or none, or several with commas (see priorityFilter). */
+  priority?: string;
   today?: string;
 }
 
@@ -593,14 +600,14 @@ export class Vault {
   // ---------------------------------------------------------------- reading
 
   /**
-   * All notes, or one folder's, or the ones carrying `tag` (or a tag under it). Archived notes are
-   * left out unless asked for (or you list Archive/).
+   * All notes, or one folder's, or the ones carrying `tag` (or a tag under it) themselves, not just
+   * on a task. Archived notes are left out unless asked for (or you list Archive/).
    */
   list(folder?: string, scope: ArchiveScope = "active", tag?: string): NoteMeta[] {
     let rows = this.db.all<NoteMeta>(`SELECT ${META_COLS} FROM notes ORDER BY path COLLATE NOCASE`);
     // Several tags (`work,plan`): the notes with every one.
     for (const t of tag === undefined ? [] : tagList(tag).length ? tagList(tag) : [tag]) {
-      const on = new Set(this.tagged(t).map((r) => r.path));
+      const on = new Set(this.tagged(t).filter((r) => r.kind !== "task").map((r) => r.path));
       rows = rows.filter((r) => on.has(r.path));
     }
     if (!folder) return rows.filter((r) => inScope(r.path, scope));
@@ -610,7 +617,7 @@ export class Vault {
 
   recent(limit = 20): NoteMeta[] {
     return this.db.all(
-      `SELECT ${META_COLS} FROM notes WHERE kind != 'asset' AND path NOT LIKE 'Archive/%' ORDER BY mtime DESC LIMIT ?`,
+      `SELECT ${META_COLS} FROM notes WHERE kind != 'asset' AND NOT ${archivedSql("path")} ORDER BY mtime DESC LIMIT ?`,
       limit,
     );
   }
@@ -691,8 +698,8 @@ export class Vault {
               rank AS score
        FROM notes_fts JOIN notes n ON n.path = notes_fts.path
        WHERE notes_fts MATCH ? AND rank MATCH 'bm25(4.0, 8.0, 1.0)'
-         AND (? = 'all' OR (n.path LIKE 'Archive/%') = (? = 'archived'))
-         AND (? IS NULL OR n.path IN (SELECT path FROM tags WHERE ${UNDER}))
+         AND (? = 'all' OR (${archivedSql("n.path")}) = (? = 'archived'))
+         AND (? IS NULL OR n.path IN (SELECT path FROM tags WHERE kind != 'task' AND ${UNDER}))
        ORDER BY rank LIMIT ?`,
       ftsQuery(terms), scope, scope, key, ...under(key ?? ""), limit,
     );
@@ -720,7 +727,6 @@ export class Vault {
     const terms = searchTerms(opts.q ?? "");
     const all = this.feedRows();
     let rows = this.matching(opts, all);
-    const home = (p: string) => (isArchived(p) ? p.slice(ARCHIVE.length) : p);
     const counts = { active: rows.filter((r) => !isArchived(r.path)).length, archived: rows.filter((r) => isArchived(r.path)).length };
     rows = rows.filter((r) => inScope(r.path, scope));
     const starts = new Set(this.db.all<{ path: string }>("SELECT DISTINCT path FROM tags WHERE tag = ?", START_TAG).map((r) => r.path));
@@ -739,7 +745,7 @@ export class Vault {
       const marks = paths.map(() => "?").join(",");
       for (const t of this.db.all<{ path: string; display: string }>(
         `SELECT t.path, coalesce(n.display, t.tag) AS display FROM tags t LEFT JOIN tag_names n ON n.tag = t.tag
-         WHERE t.path IN (${marks}) GROUP BY t.path, t.tag ORDER BY t.path, min(t.line), min(t.rowid)`,
+         WHERE t.path IN (${marks}) AND t.kind != 'task' GROUP BY t.path, t.tag ORDER BY t.path, min(t.line), min(t.rowid)`,
         ...paths,
       )) {
         if (!tags.has(t.path)) tags.set(t.path, []);
@@ -770,7 +776,7 @@ export class Vault {
         role: roleOf(r.path),
       };
     });
-    return { items, total: rows.length, counts, folders: [...new Set(all.map((n) => home(n.path)).filter((p) => p.includes("/")).map((p) => p.split("/")[0]))].sort() };
+    return { items, total: rows.length, counts, folders: [...new Set(all.map((n) => homeOf(n.path)).filter((p) => p.includes("/")).map((p) => p.split("/")[0]))].sort() };
   }
 
   /** Every note (not assets), archived ones included, newest first: what matching() narrows. */
@@ -786,12 +792,11 @@ export class Vault {
       const hits = new Set(this.db.all("SELECT path FROM notes_fts WHERE notes_fts MATCH ?", ftsQuery(terms)).map((r) => r.path));
       rows = rows.filter((r) => hits.has(r.path));
     }
-    const home = (p: string) => (isArchived(p) ? p.slice(ARCHIVE.length) : p);
-    if (query.folder) rows = rows.filter((r) => home(r.path).startsWith(query.folder!.replace(/\/?$/, "/")));
+    if (query.folder) rows = rows.filter((r) => homeOf(r.path).startsWith(query.folder!.replace(/\/?$/, "/")));
     // Every tag, each with the tags under it: `work,plan` is the notes with both.
     for (const tag of tagList(query.tag)) {
       const key = normalizeTag(tag);
-      const on = new Set(key ? this.db.all<{ path: string }>(`SELECT DISTINCT path FROM tags WHERE ${UNDER}`, ...under(key)).map((r) => r.path) : []);
+      const on = new Set(key ? this.db.all<{ path: string }>(`SELECT DISTINCT path FROM tags WHERE kind != 'task' AND ${UNDER}`, ...under(key)).map((r) => r.path) : []);
       rows = rows.filter((r) => on.has(r.path));
     }
     if (query.sort === "title") rows = [...rows].sort((a, b) => a.title.localeCompare(b.title));
@@ -804,8 +809,14 @@ export class Vault {
     return rows;
   }
 
-  backlinks(target: string): Backlink[] {
+  /**
+   * The notes linking to `target`. `scope` "active" leaves out links from archived notes (old copies
+   * shouldn't sit beside the live ones), unless `target` is archived itself. Renames and deletes need
+   * them all, which is the default.
+   */
+  backlinks(target: string, scope: ArchiveScope = "all"): Backlink[] {
     const rel = this.mustResolve(target);
+    if (scope === "active" && isArchived(rel)) scope = "all";
     const stem = stemOf(rel);
     const rows = this.db.all(
       `SELECT DISTINCT l.src AS path, n.title, l.kind, l.line FROM links l JOIN notes n ON n.path = l.src
@@ -815,6 +826,7 @@ export class Vault {
     const cache = new Map<string, string[]>();
     const resolve = this.resolver();
     return rows
+      .filter((r) => inScope(r.path, scope))
       .filter((r) => this.linksAt(r.path, r.line, cache).some((l) => linkStem(l.key) === stem && resolve(l.target, r.path) === rel))
       .map((r) => ({ ...r, text: (cache.get(r.path)?.[r.line - 1] ?? "").trim().slice(0, 200) }));
   }
@@ -822,12 +834,13 @@ export class Vault {
   /**
    * Links to notes and files that aren't here: not yet written, deleted, or not brought over in an
    * import. Grouped by target, the most-linked first. Links in archived notes count only with
-   * `scope` "all"; `folder` narrows it to the notes linking from there.
+   * `scope` "all"; `folder` narrows it to the notes linking from there. A target is spelled as the
+   * first note by path writes it, so the answer doesn't change with which note was saved last.
    */
   missingLinks(opts: { folder?: string; scope?: ArchiveScope } = {}): MissingLink[] {
     const folder = opts.folder ? cleanPath(opts.folder).replace(/\/?$/, "/") : "";
     const rows = this.db.all<{ path: string; title: string; line: number }>(
-      "SELECT DISTINCT l.src AS path, n.title, l.line FROM links l JOIN notes n ON n.path = l.src ORDER BY n.mtime DESC, l.src, l.line",
+      "SELECT DISTINCT l.src AS path, n.title, l.line FROM links l JOIN notes n ON n.path = l.src ORDER BY l.src, l.line",
     ).filter((r) => r.path.startsWith(folder) && inScope(r.path, opts.scope ?? "active"));
     const cache = new Map<string, string[]>();
     const resolve = this.resolver();
@@ -905,6 +918,41 @@ export class Vault {
       this.db.get(`SELECT ${CHANGE_COLS} FROM changes WHERE path = ? AND version = ? AND ts > ? ORDER BY id DESC LIMIT 1`, rel, version, this.now() - withinMs) ??
       null
     );
+  }
+
+  /**
+   * What agents did since `person` last changed anything themselves (and after change `after`, the
+   * last one they dismissed): see away.ts. Null when agents did nothing in that time.
+   */
+  awaySummary(person: string, after = 0): AwaySummary | null {
+    const own = this.db.get<{ id: number | null }>("SELECT MAX(id) AS id FROM changes WHERE person = ? AND agent IS NULL", person)?.id ?? 0;
+    const start = Math.max(own, after);
+    const theirs = this.db.all<Change>(`SELECT ${CHANGE_COLS} FROM changes WHERE id > ? AND agent IS NOT NULL ORDER BY id LIMIT 500`, start);
+    if (!theirs.length) return null;
+    const by = new Map<string, number>();
+    for (const c of theirs) by.set(c.agent!, (by.get(c.agent!) ?? 0) + 1);
+    const key = (c: Change) => c.note_id ?? c.path;
+    const created = new Set(theirs.filter((c) => c.op === "create").map(key));
+    const edited = new Set(theirs.filter((c) => c.op !== "create" && !created.has(key(c))).map(key));
+    let tasksAdded = 0;
+    let tasksDone = 0;
+    for (const run of this.diffSet(theirs.map((c) => c.id)).flatMap((f) => f.runs)) {
+      if (!run.after) continue;
+      const t = taskChanges(run.before, run.after);
+      tasksAdded += t.added;
+      tasksDone += t.done;
+    }
+    return {
+      agents: [...by].sort((a, b) => b[1] - a[1]).map(([name]) => name),
+      created: created.size,
+      edited: edited.size,
+      tasksAdded,
+      tasksDone,
+      after: start,
+      last: theirs.at(-1)!.id,
+      from: theirs[0].ts,
+      to: theirs.at(-1)!.ts,
+    };
   }
 
   /** The agents that appear in the change log, by name, for filtering History by one. */
@@ -1365,7 +1413,10 @@ export class Vault {
 
   // ---------------------------------------------------------------- tags
 
-  /** Every tag in active notes, tasks and assets, and every tag added by name, parents included, by tag. */
+  /**
+   * Every tag in active notes, tasks and assets, and every tag added by name, parents included, by tag.
+   * A tag on a task line counts for the task, not its note: `notes` is the notes that carry it themselves.
+   */
   tags(): TagCount[] {
     const shown = new Map(this.db.all<{ tag: string; display: string }>("SELECT tag, display FROM tag_names").map((r) => [r.tag, r.display]));
     const uses = new Map<string, { notes: Set<string>; tasks: Set<string>; assets: Set<string> }>();
@@ -1375,13 +1426,14 @@ export class Vault {
       return u;
     };
     const rows = this.db.all<TagUse & { tag: string }>(
-      "SELECT t.tag, t.kind, t.path, t.line FROM tags t JOIN notes n ON n.path = t.path WHERE substr(t.path, 1, 8) != 'Archive/'",
+      `SELECT t.tag, t.kind, t.path, t.line FROM tags t JOIN notes n ON n.path = t.path WHERE NOT ${archivedSql("t.path")}`,
     );
     for (const r of rows) {
       for (const tag of withParents(r.tag)) {
         const u = use(tag);
-        (r.kind === "asset" ? u.assets : u.notes).add(r.path);
-        if (r.kind === "task") u.tasks.add(`${r.path}:${r.line}`);
+        if (r.kind === "asset") u.assets.add(r.path);
+        else if (r.kind === "task") u.tasks.add(`${r.path}:${r.line}`);
+        else u.notes.add(r.path);
       }
     }
     for (const { tag } of this.db.all<{ tag: string }>("SELECT tag FROM added_tags")) withParents(tag).forEach(use);
@@ -1406,7 +1458,7 @@ export class Vault {
   }
 
   private addUnused(tag: string) {
-    const used = this.db.get(`SELECT 1 FROM tags t JOIN notes n ON n.path = t.path WHERE ${UNDER} AND substr(t.path, 1, 8) != 'Archive/' LIMIT 1`, ...under(tag));
+    const used = this.db.get(`SELECT 1 FROM tags t JOIN notes n ON n.path = t.path WHERE ${UNDER} AND NOT ${archivedSql("t.path")} LIMIT 1`, ...under(tag));
     if (!used) this.db.run("INSERT OR IGNORE INTO added_tags(tag) VALUES (?)", tag);
   }
 
@@ -1427,7 +1479,7 @@ export class Vault {
   private tagInUse(tag: string): TagFavorite | null {
     const notes = this.db.get<{ n: number }>(
       `SELECT count(DISTINCT t.path) AS n FROM tags t JOIN notes n ON n.path = t.path
-       WHERE ${UNDER} AND t.kind != 'asset' AND substr(t.path, 1, 8) != 'Archive/'`,
+       WHERE ${UNDER} AND t.kind = 'note' AND NOT ${archivedSql("t.path")}`,
       ...under(tag),
     )!.n;
     if (!notes) return null;
@@ -1627,8 +1679,9 @@ export class Vault {
   /**
    * Checkbox tasks across the vault (active notes), in note order, with the heading each sits under.
    * `tag` keeps the tasks whose line carries it (or a tag under it), `assignee` the ones with that
-   * @person, and `due` the ones whose due date passes a filter like `<=today` (see dueFilter).
-   * `today` (YYYY-MM-DD) is the day that filter means by today; the default is the core's clock.
+   * @person, and `due`, `start` and `done` the ones whose date passes a filter like `<=today` or
+   * `>=today <=+7d` (see dateFilter). `priority` is high, low or none (see priorityFilter).
+   * `today` (YYYY-MM-DD) is the day those filters mean by today; the default is the core's clock.
    */
   tasks(opts: TaskQuery = {}): Task[] {
     const only = opts.note ? this.resolve(opts.note) : null;
@@ -1636,8 +1689,16 @@ export class Vault {
     const prefix = opts.folder ? opts.folder.replace(/^\/+|\/+$/g, "") + "/" : "";
     const tagged = opts.tag === undefined ? null : new Set(this.tagged(opts.tag).filter((r) => r.kind === "task").map((r) => `${r.path}:${r.line}`));
     if (opts.today && !isDate(opts.today)) throw new VaultError(`"today" must be a date like 2026-10-01, not "${opts.today}"`);
-    const due = opts.due ? dueFilter(opts.due, opts.today ?? this.day()) : null;
-    if (opts.due && !due) throw new VaultError(`Bad due filter "${opts.due}": use a date or today/tomorrow/yesterday, optionally after <, <=, > or >=`);
+    const dated = (["due", "start", "done"] as const).flatMap((field) => {
+      const expr = opts[field];
+      if (!expr) return [];
+      const test = dateFilter(expr, opts.today ?? this.day());
+      if (!test) throw new VaultError(`Bad ${field} filter "${expr}": use ${DATE_FILTER_HELP}`);
+      return [(t: Task) => test(t.meta[field])];
+    });
+    const priority = opts.priority ? priorityFilter(opts.priority) : null;
+    if (opts.priority && !priority) throw new VaultError(`Bad priority filter "${opts.priority}": use high, low or none (or several, like high,none)`);
+    const passes = (t: Task) => dated.every((test) => test(t)) && (!priority || priority(t.meta.priority));
     // `assignees` (any of them) is a person's every name; `assignee` one name, as written.
     const names = new Set([...(opts.assignees ?? []), ...(opts.assignee ? [opts.assignee] : [])].map((a) => a.replace(/^@/, "").toLowerCase()));
     // The query narrows to the note, or to notes with the tag on a task (the lines are checked below).
@@ -1650,7 +1711,7 @@ export class Vault {
     return rows
       .filter((r) => (!prefix || r.path.startsWith(prefix)) && (!tagged || tagged.has(`${r.path}:${r.line}`)))
       .map(toTask)
-      .filter((t) => (!due || due(t.meta.due)) && (!names.size || t.meta.assignees.some((a) => names.has(a.toLowerCase()))));
+      .filter((t) => passes(t) && (!names.size || t.meta.assignees.some((a) => names.has(a.toLowerCase()))));
   }
 
   /**
@@ -1785,10 +1846,10 @@ export class Vault {
 
   /**
    * Add a task typed the way you'd say it ("Pay rent every month on the 1st #home"; see
-   * quickAdd.ts). It goes under `## Tasks` in today's daily note (`Journal/YYYY-MM-DD.md`, made if
+   * quickAdd.ts). It goes under `## Tasks` in today's journal note (`Journal/YYYY-MM-DD.md`, made if
    * needed), or in the note named with `→ [[Note]]`: at the end of its Tasks section, or of the note.
    * `today` is the person's day; `ignore` holds phrases they chose to keep as words; `to` is a note
-   * to use instead of the daily note (the one the bar was opened from), which `→ [[Note]]` overrides.
+   * to use instead of the journal (the one the bar was opened from), which `→ [[Note]]` overrides.
    */
   addTask(input: string, source: string, opts: { today?: string; ignore?: string[]; to?: string } = {}) {
     const today = opts.today ?? this.day();
@@ -1829,7 +1890,7 @@ export class Vault {
     };
   }
 
-  /** Today's journal note (`Journal/YYYY-MM-DD.md`), made from the daily template if it's missing. */
+  /** Today's journal note (`Journal/YYYY-MM-DD.md`), made from the journal template if it's missing. */
   dailyNote(date: string, source: string) {
     if (!isDate(date)) throw new VaultError(`"today" must be a date like 2026-10-01, not "${date}"`);
     const rel = `Journal/${date}.md`;
@@ -1838,9 +1899,9 @@ export class Vault {
     return { path: rel, created: true, version: r.version, change: r.change };
   }
 
-  /** A new daily note: `Templates/Daily note.md`, filled in as of `date` (see templates.ts), or a plain one with Tasks and Log. */
+  /** A new journal note: `Templates/Journal.md` (or `Templates/Daily note.md`, its old name), filled in as of `date` (see templates.ts), or a plain one with Tasks and Log. */
   private dailyTemplate(date: string): string {
-    const template = this.files.read(DAILY_TEMPLATE);
+    const template = JOURNAL_TEMPLATES.map((t) => this.files.read(t)).find((t) => t !== null) ?? null;
     return template !== null ? fillTemplate(template, { at: `${date}T${localNow(this.now(), this.timeZone).split("T")[1]}`, title: date }).text : `# ${date}\n\n## Tasks\n\n## Log\n`;
   }
 
@@ -1959,17 +2020,29 @@ export class Vault {
     return { ...meta, change };
   }
 
-  /** Archive a note: move it under Archive/ (links keep working: they resolve by name). */
+  /** Archive a note: move it into the archive folder (links keep working: they resolve by name). */
   archive(target: string, source: string) {
     const rel = this.mustResolve(target);
     if (isArchived(rel)) throw new VaultError(`${rel} is already archived`);
-    return this.move(rel, this.freePath(ARCHIVE + rel), source, "archive");
+    return this.move(rel, this.freePath(this.archiveFolder() + rel), source, "archive");
   }
 
   unarchive(target: string, source: string) {
     const rel = this.mustResolve(target);
     if (!isArchived(rel)) throw new VaultError(`${rel} isn't archived`);
-    return this.move(rel, this.freePath(rel.slice(ARCHIVE.length)), source, "unarchive");
+    return this.move(rel, this.freePath(homeOf(rel)), source, "unarchive");
+  }
+
+  /**
+   * Where archiving puts notes: the workspace's own archive folder ("4. Archive/") when it has one,
+   * so there's one archive rather than two, else Archive/. With several, the one holding most notes.
+   */
+  archiveFolder(): string {
+    const roots = this.db.all<{ dir: string; n: number }>(
+      `SELECT substr(path, 1, instr(path, '/')) AS dir, count(*) AS n FROM notes WHERE ${archivedSql("path")} GROUP BY dir`,
+    );
+    const own = roots.filter((r) => r.dir !== ARCHIVE).sort((a, b) => b.n - a.n || a.dir.localeCompare(b.dir));
+    return own[0]?.dir ?? ARCHIVE;
   }
 
   // ---------------------------------------------------------------- trash
@@ -2027,6 +2100,48 @@ export class Vault {
       return this.move(rel, this.freePath(parent === "." ? rest : `${parent}/${rest}`), source);
     });
     return { deleted: [], moved };
+  }
+
+  /**
+   * Rename a folder, or move it under another: everything in it (its archived notes, in Archive,
+   * too) moves to `to`, every link to them rewritten as a note's move does, and smart folders
+   * narrowed to it follow. It can't land on a folder that has anything in it already, and nothing
+   * moves unless all of it can.
+   */
+  moveFolder(folder: string, to: string, source: string): { from: string; path: string; moved: Array<ReturnType<Vault["move"]>> } {
+    const [from, dest] = [folder, to].map((f) => cleanPath(f).replace(/\/+$/, ""));
+    for (const [dir, what] of [[ARCHIVE.slice(0, -1), "Archive"], [PEOPLE, "Contacts"], [TEMPLATES, "Templates"]] as const) {
+      if (from === dir) throw new VaultError(`${dir} is where ${what === "Archive" ? "archived notes go" : `${what} live`}, so it keeps its name`);
+    }
+    if (isArchived(`${from}/`) || isArchived(`${dest}/`)) throw new VaultError("Folders in Archive move with their notes: unarchive them instead");
+    if (dest === from) return { from, path: dest, moved: [] };
+    if (dest.startsWith(`${from}/`)) throw new VaultError(`${from} can't move into itself`);
+    const rels = [...this.under(from), ...this.under(`${ARCHIVE}${from}`)];
+    if (!rels.length) throw new VaultError(`There's nothing in ${from}`, "not_found");
+    // Only the case changing ("ideas" to "Ideas"): a case-insensitive disk would keep the folder's old
+    // spelling under renamed files, so it goes by way of another name.
+    if (dest.toLowerCase() === from.toLowerCase()) {
+      let via = `${from} (renaming)`;
+      for (let i = 2; this.files.listUnder(via).length; i++) via = `${from} (renaming ${i})`;
+      const first = this.moveFolder(from, via, source);
+      const r = this.moveFolder(via, dest, source);
+      const was = new Map(first.moved.map((m) => [m.path, m.from]));
+      return { ...r, from, moved: r.moved.map((m) => ({ ...m, from: was.get(m.from) ?? m.from })) };
+    }
+    if (this.under(dest).length || this.files.listUnder(dest).length) throw new VaultError(`There's already a folder named ${dest}`, "exists");
+    const target = (rel: string) => (isArchived(rel) ? `${ARCHIVE}${dest}${rel.slice(ARCHIVE.length + from.length)}` : `${dest}${rel.slice(from.length)}`);
+    const clash = rels.find((rel) => this.files.stat(target(rel)));
+    if (clash) throw new VaultError(`${target(clash)} already exists`, "exists");
+    const moved = rels.map((rel) => this.move(rel, target(rel), source));
+    for (const f of this.db.all<{ id: string; query: string }>("SELECT id, query FROM smart_folders")) {
+      const q = parseQuery(f.query);
+      if (q.folder === from || q.folder?.startsWith(`${from}/`)) {
+        this.db.run("UPDATE smart_folders SET query = ? WHERE id = ?", formatQuery({ ...q, folder: dest + q.folder.slice(from.length) }), f.id);
+      }
+    }
+    this.files.prune?.(from);
+    this.files.prune?.(`${ARCHIVE}${from}`);
+    return { from, path: dest, moved };
   }
 
   /** The ids of what's in Trash, newest first. */

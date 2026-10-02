@@ -66,6 +66,7 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "GET /links/missing", send: () => ["GET", "/links/missing"], expect: READ },
   { route: "GET /changes", send: () => ["GET", "/changes?by=ai"], expect: READ },
   { route: "GET /changes/agents", send: () => ["GET", "/changes/agents"], expect: READ },
+  { route: "GET /changes/away", send: () => ["GET", "/changes/away"], expect: READ },
   { route: "GET /diffs", send: () => ["GET", "/diffs?ids=1-3"], expect: READ },
   { route: "GET /diffstats", send: () => ["GET", "/diffstats?sets=1-3;4"], expect: READ },
   { route: "GET /diff", send: () => ["GET", "/diff?from=1"], expect: READ },
@@ -90,6 +91,7 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /smart-folders/delete", send: (w) => ["POST", "/smart-folders/delete", { id: folderIds[w] ?? "nope" }], expect: READ },
   { route: "PUT /note", send: (w) => ["PUT", "/note", { path: `put-${w}.md`, content: "# Put\n" }], expect: EDIT },
   { route: "POST /note", send: (w) => ["POST", "/note", { path: `new-${w}.md`, content: "# New\n" }], expect: EDIT },
+  { route: "POST /import", send: (w) => ["POST", "/import", { notes: { [`imported-${w}.md`]: "# Imported\n" } }], expect: EDIT },
   { route: "POST /tasks/set", send: (w) => ["POST", "/tasks/set", { path: `tasks-${w}.md`, line: 1, text: "Do it", done: true }], expect: EDIT },
   { route: "POST /tasks/update", send: (w) => ["POST", "/tasks/update", { path: `update-${w}.md`, line: 1, text: "Change me", patch: { due: "2026-10-01" } }], expect: EDIT },
   { route: "POST /tasks/add", send: (w) => ["POST", "/tasks/add", { text: `Call ${w} tomorrow → [[Getting started]]` }], expect: EDIT },
@@ -121,6 +123,7 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /unarchive", send: (w) => ["POST", "/unarchive", { paths: [`Archive/unarch-${w}.md`] }], expect: EDIT },
   { route: "GET /delete-check", send: (w) => ["GET", `/delete-check?path=tasks-${w}.md`], expect: EDIT },
   { route: "POST /delete", send: (w) => ["POST", "/delete", { paths: [`del-${w}.md`] }], expect: EDIT },
+  { route: "POST /folders/rename", send: (w) => ["POST", "/folders/rename", { folder: `renfolder-${w}`, to: `renamed-${w}` }], expect: EDIT },
   { route: "POST /delete-folder", send: (w) => ["POST", "/delete-folder", { folder: `folder-${w}`, notes: "lift" }], expect: EDIT },
   { route: "GET /trash", send: () => ["GET", "/trash"], expect: EDIT },
   { route: "POST /trash/restore", send: (w) => ["POST", "/trash/restore", { ids: [trashIds[w].restore] }], expect: EDIT },
@@ -211,6 +214,7 @@ before(async () => {
     await note(`People/Drop ${w}.md`, `# Drop ${w}\n`);
     if (w === "signedOut") await note("Templates/Access template.md", "# {{title}}\n");
     await note(`folder-${w}/Inside.md`);
+    await note(`renfolder-${w}/Inside.md`);
     await note(`trash-restore-${w}.md`);
     await note(`trash-purge-${w}.md`);
     const [restore, purge] = (await cloud.call(owner, "POST", `${base}/delete`, { paths: [`trash-restore-${w}.md`, `trash-purge-${w}.md`] })).trashed.map((t: { id: string }) => t.id);

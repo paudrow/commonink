@@ -2,6 +2,7 @@
 
 import { api, type Me } from "./api.ts";
 import { $, el, icon } from "./dom.ts";
+import { askText, confirmAction, copyLink } from "./modal.ts";
 import { formatKeys } from "./keys.ts";
 
 const GOOGLE_G =
@@ -78,7 +79,7 @@ function accountActions(me: Me, current: Me["workspaces"][number], toast: (t: { 
       label: "New team workspace…",
       icon: "plus",
       run: async () => {
-        const name = prompt("Name your team workspace", "My team")?.trim();
+        const name = await askText({ title: "Name your team workspace", label: "Workspace name", value: "My team", action: "Create" });
         if (!name) return;
         const { id } = await api.createWorkspace(name);
         switchTo(id);
@@ -91,8 +92,7 @@ function accountActions(me: Me, current: Me["workspaces"][number], toast: (t: { 
             icon: "link",
             run: async () => {
               const { url } = await api.invite("editor");
-              await navigator.clipboard.writeText(url).catch(() => prompt("Invite link (one person, 7 days)", url));
-              toast({ icon: "link", text: "Invite link copied. It works once, for 7 days." });
+              if (await copyLink(url, { title: "Invite link", note: "It works once, for one person, for 7 days." })) toast({ icon: "link", text: "Invite link copied. It works once, for 7 days." });
             },
           },
         ]
@@ -118,7 +118,13 @@ function accountActions(me: Me, current: Me["workspaces"][number], toast: (t: { 
       icon: "open",
       session: true,
       run: async () => {
-        if (!confirm("Sign out of Common Ink on every device and browser, including this one, and disconnect your agents?")) return;
+        const sure = await confirmAction({
+          title: "Sign out everywhere?",
+          body: "This signs you out of Common Ink on every device and browser, including this one, and disconnects your agents.",
+          action: "Sign out everywhere",
+          danger: true,
+        });
+        if (!sure) return;
         await api.signOutEverywhere();
         location.href = "/";
       },

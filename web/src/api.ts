@@ -7,6 +7,7 @@ import { encodeTarget, safeDecode } from "../../src/core/uri.ts";
 import type { FillOptions, TemplateInfo } from "../../src/core/templates.ts";
 import type { CalendarEvent, EventDraft, Source as CalendarSource, SourceColor } from "../../src/core/calendar.ts";
 import type { QuerySort } from "../../src/core/query.ts";
+import type { AwaySummary } from "../../src/core/away.ts";
 
 /** The reader's day, which task writes and due filters go by (the server may be in another time zone). */
 const today = () => localDate(Date.now());
@@ -101,7 +102,7 @@ export interface FeedPage {
   counts: { active: number; archived: number };
   folders: string[];
 }
-export const isArchived = (p: string) => p.startsWith("Archive/");
+export { isArchived } from "../../src/core/archive.ts";
 /** A saved note query in the sidebar, with how many active notes match it now. */
 export interface SmartFolder {
   id: string;
@@ -388,7 +389,7 @@ export const api = {
   feed: (p: { q?: string; scope?: Scope; folder?: string; tag?: string; sort?: QuerySort; offset?: number; limit?: number }) =>
     j<FeedPage>(`${BASE}/feed?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
   /** `assignee`: someone's name (every @name that's theirs) or "me"; `by: "me"`: tasks you gave someone else, in your notes. */
-  tasks: (p: { folder?: string; note?: string; tag?: string; assignee?: string; by?: "me"; due?: string; today?: string }) =>
+  tasks: (p: { folder?: string; note?: string; tag?: string; assignee?: string; by?: "me"; due?: string; start?: string; done?: string; priority?: string; today?: string }) =>
     j<Task[]>(`${BASE}/tasks?${new URLSearchParams(Object.entries(p).filter(([, v]) => v).map(([k, v]) => [k, String(v)]))}`),
   /** How many tasks are still open across the workspace (the Tasks badge). */
   openTasks: () => j<{ open: number }>(`${BASE}/tasks/count`).then((r) => r.open),
@@ -410,7 +411,7 @@ export const api = {
   updateTask: (t: Task, patch: TaskPatch) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/update`, send("POST", { path: t.path, line: t.line, text: t.text, patch, today: today() })),
   /** The day at a glance for `day` (the viewer's today). */
   today: (day: string) => j<TodayView>(`${BASE}/today?today=${encodeURIComponent(day)}`),
-  /** Today's journal note, made from the daily template if it's missing. */
+  /** Today's journal note, made from the journal template if it's missing. */
   dailyNote: (day: string) => j<{ path: string; created: boolean }>(`${BASE}/today/journal`, send("POST", { today: day })),
   /** Add a task written in words (see src/core/quickAdd.ts); `ignore` holds phrases kept as words. */
   addTask: (text: string, ignore: string[] = [], to?: string) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/add`, send("POST", { text, ignore, to, today: today() })),
@@ -437,12 +438,16 @@ export const api = {
   delete: (paths: string[]) => j<{ trashed: Trashed[] }>(`${BASE}/delete`, send("POST", { paths })),
   deleteFolder: (folder: string, notes: "trash" | "lift") =>
     j<{ trashed: Trashed[]; moved: Array<{ from: string; to: string }> }>(`${BASE}/delete-folder`, send("POST", { folder, notes })),
+  /** Rename a folder (or move it under another): everything in it moves, links rewritten. */
+  renameFolder: (folder: string, to: string) =>
+    j<{ from: string; path: string; moved: Array<{ from: string; to: string }> }>(`${BASE}/folders/rename`, send("POST", { folder, to })),
   trash: () => j<TrashItem[]>(`${BASE}/trash`),
   restoreTrash: (ids: string[]) => j<{ restored: string[] }>(`${BASE}/trash/restore`, send("POST", { ids })),
   purgeTrash: (ids: string[]) => j<{ deleted: string[] }>(`${BASE}/trash/delete`, send("POST", { ids })),
   emptyTrash: () => j<{ deleted: string[] }>(`${BASE}/trash/empty`, send("POST", {})),
   unarchive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/unarchive`, send("POST", { paths })),
-  backlinks: (path: string) => j<Backlink[]>(`${BASE}/backlinks?path=${enc(path)}`),
+  /** Links to `path`; "all" brings the ones from archived notes too. */
+  backlinks: (path: string, scope: "active" | "all" = "active") => j<Backlink[]>(`${BASE}/backlinks?path=${enc(path)}&scope=${scope}`),
   /** The workspace's contacts (notes in People/), by name. */
   contacts: () => j<Contact[]>(`${BASE}/contacts?today=${today()}`),
   /** One contact, and the notes that mention them, newest first. */
@@ -451,6 +456,9 @@ export const api = {
   updateContact: (path: string, patch: Partial<Omit<ContactFields, "name">>) => j<{ path: string; version: string }>(`${BASE}/contacts/update`, send("POST", { path, patch })),
   /** `keep` gains `drop`'s details and links; `drop` goes to Trash (`trashed` restores it). */
   mergeContacts: (keep: string, drop: string) => j<{ path: string; updated: string[]; trashed: Trashed[] }>(`${BASE}/contacts/merge`, send("POST", { keep, drop })),
+  /** Many notes at once, path → text; ones already there are left alone (or replaced). */
+  importNotes: (notes: Record<string, string>, existing: "skip" | "replace" = "skip") =>
+    j<{ created: string[]; replaced: string[]; skipped: string[] }>(`${BASE}/import`, send("POST", { notes, existing })),
   importContacts: (format: "vcard" | "csv", text: string) => j<{ created: string[]; updated: string[]; unchanged: string[] }>(`${BASE}/contacts/import`, send("POST", { format, text })),
   /** The note templates (notes in Templates/), by name. */
   templates: () => j<TemplateInfo[]>(`${BASE}/templates`),
@@ -460,8 +468,10 @@ export const api = {
   fromTemplate: (template: string, o: FillOptions & { folder?: string }) =>
     j<{ path: string; version: string; cursor: number | null; unfilled: string[] }>(`${BASE}/notes/from-template`, send("POST", { template, ...o })),
   /** A page of the change log, newest first; `before` pages further back. */
-  history: (p: { limit?: number; before?: number; path?: string; by?: string }) =>
+  history: (p: { limit?: number; before?: number; after?: number; path?: string; by?: string }) =>
     j<Change[]>(`${BASE}/changes?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
+  /** What agents did since your own last change, and after change `after` (the last one dismissed); null if nothing. */
+  away: (after = 0) => j<AwaySummary | null>(`${BASE}/changes/away?after=${after}`),
   /** The agents in the change log, for filtering History by one. */
   changeAgents: () => j<string[]>(`${BASE}/changes/agents`),
   /** What a set of changes did, note by note. `ids` is ranges like "12-18,20". */

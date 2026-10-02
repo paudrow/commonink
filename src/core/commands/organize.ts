@@ -2,7 +2,7 @@
 import { VaultError } from "../paths.ts";
 import { fmtBoards, fmtFavorites, fmtList, fmtSmartFolders, fmtTags, fmtWrite } from "../format.ts";
 import { parseQuery } from "../query.ts";
-import { ARCHIVE, type Vault } from "../vault.ts";
+import { isArchiveFolder, type Vault } from "../vault.ts";
 import { bool, command, list, num, str, UsageError } from "./types.ts";
 
 const BOARD_HELP =
@@ -112,7 +112,8 @@ export const tags = [
     summary: "Every tag, nested, with how many notes, tasks and assets carry it",
     description:
       "Every tag in the vault as a tree (tags nest with /), with how many notes, tasks and assets carry each one or a tag under it. " +
-      "Use the names with the `tag` filter of search_notes and list_notes.",
+      "Use the names with the `tag` filter of search_notes and list_notes (notes that carry the tag themselves) and of list_tasks " +
+      "(tasks whose line carries it): a tag on a task tags that task, not its note.",
     examples: ["commonink tags", "commonink tags --json"],
     readOnly: true,
     args: {},
@@ -322,6 +323,30 @@ export const folders = [
     },
   }),
   command({
+    cli: "folder rename",
+    mcp: "rename_folder",
+    route: "POST /folders/rename",
+    title: "Rename / move folder",
+    summary: "Rename a folder, or move it under another, rewriting every link to what's in it",
+    description:
+      "Rename a folder or move it under another (to=Projects/Old moves it into Projects). Everything in it moves, archived notes included, " +
+      "every link to them is rewritten, and smart folders narrowed to it follow. It can't land on a folder that already has notes. Only when the user asks.",
+    examples: ["commonink folder rename Ideas 'Ideas 2026'", "commonink folder rename 'Projects/Ideas' 'Projects/Ideas 2026'"],
+    args: {
+      folder: str({ required: true, pos: 0 }),
+      to: str({ required: true, pos: 1, label: "new-path", describe: "Its whole new path: Projects/Ideas 2026, not just the new name" }),
+    },
+    run: async ({ vault, source, sharing }, a) => {
+      const r = vault.moveFolder(a.folder, a.to, source);
+      await sharing?.folderMoved?.(r.from, r.path);
+      const updated = [...new Set(r.moved.flatMap((m) => m.updated))].filter((p) => !r.moved.some((m) => m.path === p || m.from === p));
+      return {
+        text: `Moved ${r.from}/ to ${r.path}/ (${r.moved.length} file${r.moved.length === 1 ? "" : "s"}).${updated.length ? ` Updated links in: ${updated.join(", ")}` : ""}`,
+        data: { from: r.from, path: r.path, moved: r.moved.map((m) => ({ from: m.from, to: m.path })), updated },
+      };
+    },
+  }),
+  command({
     cli: "folder delete",
     mcp: "delete_folder",
     route: "POST /delete-folder",
@@ -337,7 +362,7 @@ export const folders = [
     },
     run: ({ vault, source }, a) => {
       const dir = a.folder.replace(/^\/+|\/+$/g, "");
-      if (dir === ARCHIVE.slice(0, -1)) throw new VaultError("Archive isn't a folder you can delete; unarchive or delete its notes instead");
+      if (isArchiveFolder(dir)) throw new VaultError(`${dir} is the archive, not a folder you can delete; unarchive or delete its notes instead`);
       const r = vault.deleteFolder(dir, a.notes as "trash" | "lift", source);
       const trashed = r.deleted.map(({ id, path }) => ({ id, path }));
       const moved = r.moved.map((m) => ({ from: m.from, to: m.path }));

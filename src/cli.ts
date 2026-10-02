@@ -2,6 +2,7 @@
 // shell, and for you. `--json` prints any result as JSON; the exit code says how it went (EXIT).
 import fs from "node:fs";
 import path from "node:path";
+import { zipSync } from "fflate";
 import { LOCAL_USER, openVault, type LocalVault } from "./core/local.ts";
 import { VaultError } from "./core/paths.ts";
 import { agentSource } from "./core/actor.ts";
@@ -24,12 +25,29 @@ const io: Io = {
   },
   readFile(p) {
     try {
+      // A folder comes as a .zip of what's in it (hidden folders like .obsidian and .git left out), for import.
+      if (fs.statSync(p).isDirectory()) return { name: `${path.basename(path.resolve(p))}.zip`, bytes: zipFolder(p) };
       return { name: path.basename(p), bytes: new Uint8Array(fs.readFileSync(p)) };
     } catch {
       throw new VaultError(`There's no file at ${p}`, "not_found");
     }
   },
 };
+
+/** A folder's files as a .zip, at their paths inside it; hidden files and folders aren't read. */
+function zipFolder(dir: string): Uint8Array {
+  const files: Record<string, [Uint8Array, { level: 0 }]> = {};
+  const walk = (rel: string) => {
+    for (const e of fs.readdirSync(path.join(dir, rel), { withFileTypes: true })) {
+      if (e.name.startsWith(".")) continue;
+      const sub = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) walk(sub);
+      else if (e.isFile()) files[sub] = [new Uint8Array(fs.readFileSync(path.join(dir, sub))), { level: 0 }];
+    }
+  };
+  walk("");
+  return zipSync(files);
+}
 
 /** The local vault, and who's writing. */
 function localHost(q: LocalVault, agent: string | undefined): CommandHost {
@@ -39,7 +57,7 @@ function localHost(q: LocalVault, agent: string | undefined): CommandHost {
     source: agent ? agentSource(agent, LOCAL_USER) : LOCAL_USER,
     canEditShared: true,
     // Feeds come from public addresses only, as link previews do.
-    calendar: new Calendar(q.db, (url, last) => fetchFeed(url, last, assertPublic)),
+    calendar: new Calendar(q.db, (url, last) => fetchFeed(url, last, assertPublic), { vault: q }),
     // Loaded when it's used: the web page and Word renderers are big.
     exporter: async (target, format) => (await import("./server/export.ts")).localExporter(q)(target, format),
     bytes: {

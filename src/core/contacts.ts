@@ -150,8 +150,13 @@ export function contactFromNote(path: string, md: string): ContactNote {
   return c;
 }
 
-/** A value as YAML that reads back the same: quoted if it could be read as something else. */
-function yamlValue(v: string): string {
+/**
+ * A value as YAML that reads back the same: quoted if it could be read as something else. A line
+ * break (from a CSV cell or a vCard) becomes a space, so the value stays on its line and can't end
+ * the frontmatter.
+ */
+export function yamlValue(v: string): string {
+  v = v.replace(/\s*[\r\n]+\s*/g, " ");
   return /^[\s[\]{}#&*!|>'"%@`,-]|[,:]\s|,|\s#|\s$|^$/.test(v) ? `"${v.replace(/(["\\])/g, "\\$1")}"` : v;
 }
 
@@ -247,7 +252,7 @@ export function duplicateContacts<T extends ContactFields>(list: T[]): T[][] {
   return [...groups.values()].filter((g) => g.length > 1);
 }
 
-const HANDLE = /^[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*$/u;
+const HANDLE = /^[\p{L}_][\p{L}\p{N}_-]*(?:\.[\p{L}\p{N}_-]+)*$/u;
 
 /** What `@name` on a task can say for this contact: its name with dashes for spaces, and any one-word alias. */
 export function handlesOf(c: Pick<ContactFields, "name" | "aliases">): string[] {

@@ -1,7 +1,7 @@
 //   ::today   ::today{label="My day"}
-// The day at a glance: today's journal note (open it, or start it from the daily template), today's
+// The day at a glance: today's journal note (open it, or start it from the journal template), today's
 // events from the workspace's calendars, then open tasks overdue, due today and starting today. The
-// top of the Tasks page is this widget, with empty sections left out. Task sections come from the
+// Today page is this widget, with empty sections left out. Task sections come from the
 // core (Vault.today), so new kinds slot in there.
 import { api, type TodayView } from "../api.ts";
 import { el, icon } from "../dom.ts";
@@ -64,7 +64,7 @@ export const todayWidget: WidgetSpec = {
         return env.remeasure();
       }
       const rowEnv = { open: env.open, openTag: env.openTag, openPerson: env.openPerson, reload: () => void load() };
-      // On the Tasks page (`compact`) a section with nothing in it isn't shown; the journal row always is.
+      // On the Today page (`compact`) a section with nothing in it isn't shown; the journal row always is.
       const compact = env.args.compact === "true";
       const noTasks = v.sections.every((s) => !s.tasks.length);
       const nothing = noTasks && !events?.length;
@@ -84,7 +84,7 @@ export const todayWidget: WidgetSpec = {
         ),
         done
           ? el("div", { class: "td-clear" }, icon("check", 14), "All done for today.")
-          : nothing && !compact
+          : nothing
             ? el("div", { class: "td-clear" }, icon("check", 14), "A clear day. Add a task above, or pick one from Tasks.")
             : "",
       ));
@@ -104,7 +104,7 @@ export const todayWidget: WidgetSpec = {
       );
     }
 
-    /** Today's journal note: open it, or start it from the daily template. */
+    /** Today's journal note: open it, or start it from the journal template. */
     function journal(v: TodayView) {
       const open = async () => {
         if (!v.journal.exists) await api.dailyNote(v.date).catch(() => null);
@@ -118,7 +118,7 @@ export const todayWidget: WidgetSpec = {
           "button",
           { type: "button", class: "td-journal", onmousedown: (e: Event) => e.preventDefault(), onclick: () => void open() },
           icon(v.journal.exists ? "file" : "plus", 14),
-          el("span", {}, v.journal.exists ? "Open today's note" : "Start today's note"),
+          el("span", {}, v.journal.exists ? "Open today's journal" : "Start today's journal"),
           el("span", { class: "td-path" }, v.journal.path.replace(/\.md$/, "")),
         ),
       );

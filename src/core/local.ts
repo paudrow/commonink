@@ -2,7 +2,7 @@
 import { dataFolder } from "../legacy.ts"; // first: it reads the env vars below under their legacy names too
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import fs from "node:fs";
-import { randomBytes } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -95,7 +95,7 @@ export class FsContent implements Content {
     // Named by the process and a few random bytes, not the note, so a name near the disk's limit still
     // has room for its temp file. The process ID alone isn't enough: two containers sharing a vault
     // can both be PID 1, and one's rename would move the other's bytes into its note.
-    const tmp = path.join(path.dirname(abs), `.${process.pid}-${randomBytes(4).toString("hex")}.tmp`);
+    const tmp = path.join(path.dirname(abs), `.${process.pid}-${randomUUID().slice(0, 8)}.tmp`);
     onDisk(() => {
       fs.mkdirSync(path.dirname(abs), { recursive: true });
       fs.writeFileSync(tmp, text);
@@ -174,6 +174,26 @@ export class FsContent implements Content {
     };
     walk(dir);
     return out;
+  }
+  /** Take away the folder `dir`, and the folders in it, if no file is left in them (a folder renamed away). */
+  prune(dir: string) {
+    const walk = (rel: string): boolean => {
+      let ents: fs.Dirent[];
+      try {
+        ents = fs.readdirSync(this.abs(rel), { withFileTypes: true });
+      } catch {
+        return false;
+      }
+      const left = ents.filter((ent) => !(ent.isDirectory() && walk(`${rel}/${ent.name}`)));
+      if (left.length) return false;
+      try {
+        fs.rmdirSync(this.abs(rel));
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    walk(dir);
   }
 }
 

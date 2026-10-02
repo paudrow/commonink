@@ -21,6 +21,7 @@ import type { BoardHost, mountBoard } from "../kanban.ts";
 import { editsBetween } from "../merge.ts";
 import { codeWrapByDefault, copyCode, hydrateCode, renderCodeBlock } from "../code.ts";
 import { hydrateMath } from "../math.ts";
+import { fetchUnfurl, githubCardBody, hydrateGithubLinks } from "../github.ts";
 import { drawDiagram, lookOf } from "../diagram.ts";
 import { blockTex, inlineTex, MathWidget } from "./mathWidgets.ts";
 import { matchKeys } from "../keys.ts";
@@ -33,6 +34,8 @@ import { followRenderedLink, leftToBrowser } from "../gfm.ts";
 
 export interface EditorContext {
   path: string;
+  /** The note's stable ID, which it keeps through renames and moves: what's kept per note in this browser is keyed by it. */
+  id?: string;
   /** Open a note. `side`: to the side of this one (Cmd/Ctrl-click). */
   openTarget(target: string, from: string, opts?: { side?: boolean }): void;
   createNote(name: string): void;
@@ -49,6 +52,8 @@ export interface EditorContext {
   saveSmartFolder(query: string, name: string, anchor: HTMLElement): void;
   /** Show a person's tasks. */
   openPerson(name: string): void;
+  /** Show Notes narrowed to a folder (the folder line above a note). */
+  openFolder?(folder: string): void;
   /** This note's address in the app (`/notes/<title>-<id>`), for a link to one of its headings. */
   noteUrl?(): string;
 }
@@ -222,6 +227,7 @@ class EmbedWidget extends WidgetType {
         hydrateDataEmbeds(body, path, settle);
         hydrateCode(body);
         hydrateMath(body);
+        hydrateGithubLinks(body, settle);
         body.querySelectorAll("input").forEach((i) => (i.disabled = true));
         if (body.querySelector(".kb-slot[data-board]")) {
           void import("../kanban.ts").then((m) => ((outer as any).stopBoards = m.hydrateBoards(body, path, { ctx, readOnly: view.state.readOnly, resized: settle })));
@@ -289,9 +295,15 @@ function bookmark(view: EditorView, wrap: HTMLElement, url: string, settle: () =
   card.addEventListener("click", () => window.open(url, "_blank", "noopener"));
   wrap.replaceChildren(card, edit);
   settle();
-  fetch(`/api/unfurl?url=${encodeURIComponent(url)}`)
-    .then((r) => r.json())
-    .then((meta: { title: string | null; description: string | null; image: string | null; siteName: string | null; favicon: string | null }) => {
+  fetchUnfurl(url)
+    .then((meta) => {
+      if (!meta) return;
+      if (meta.github) {
+        // A GitHub issue or pull request: its live state, labels and activity (github.ts).
+        card.classList.add("gh-card");
+        card.replaceChildren(...githubCardBody(meta.github));
+        return settle();
+      }
       const favicon = meta.favicon ? el("img", { class: "bm-favicon", src: meta.favicon, alt: "", referrerpolicy: "no-referrer" }) : null;
       favicon?.addEventListener("error", () => favicon.remove());
       const thumb = meta.image ? el("div", { class: "bm-thumb" }, el("img", { src: meta.image, alt: "", referrerpolicy: "no-referrer", onload: settle })) : null;

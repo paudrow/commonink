@@ -77,6 +77,8 @@ class Counter {
       stat: (rel) => inner.stat(rel),
       list: () => inner.list(),
       listUnder: (dir) => inner.listUnder(dir),
+      same: (a, b) => inner.same(a, b),
+      prune: (dir) => inner.prune?.(dir),
     };
   }
 }

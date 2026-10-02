@@ -1,7 +1,7 @@
 // Click a task's chip to change just that token: priority from a menu, a date with quick picks, a
 // repeat from quick picks or the full rule form, a person from the people already on tasks. Each sends one patch, and
 // the core's one writer (editTask) changes that token in place and leaves the rest of the line.
-import { api, type Task, type TaskPatch } from "./api.ts";
+import { api, isArchived, type Task, type TaskPatch } from "./api.ts";
 import { cleanTag, normalizeTag } from "../../src/core/tags.ts";
 import { avatar, el, icon } from "./dom.ts";
 import { addDays, endsOf, skipPatch } from "../../src/core/tasks.ts";
@@ -78,7 +78,8 @@ const saving = (close: () => void, ctx: ChipContext, patch: TaskPatch, run = () 
     close();
   } catch (e) {
     close();
-    alert(e instanceof Error ? e.message : "Couldn't change the task");
+    const text = e instanceof Error ? e.message : "Couldn't change the task";
+    void import("./toast.ts").then((m) => m.toast({ error: true, text })); // loaded on use: the editor's task tools load without a page in tests
   }
 };
 
@@ -575,7 +576,7 @@ function movePicker(anchor: HTMLElement, ctx: ChipContext) {
   render();
   void api
     .notes()
-    .then((all) => ((notes = all.filter((n) => n.kind === "md" && !n.path.startsWith("Archive/")).sort((a, b) => b.mtime - a.mtime)), render()))
+    .then((all) => ((notes = all.filter((n) => n.kind === "md" && !isArchived(n.path)).sort((a, b) => b.mtime - a.mtime)), render()))
     .catch(() => {});
   input.focus();
 }

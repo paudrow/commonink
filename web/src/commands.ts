@@ -28,7 +28,10 @@ export interface Command {
   run: () => unknown;
 }
 
-export type Page = "notes" | "tasks" | "calendar" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash" | "shared";
+export type Page = "today" | "notes" | "tasks" | "calendar" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash" | "shared";
+
+/** The kinds of thing ⌘K's Rename… can rename. */
+export type Renamable = "note" | "folder" | "tag" | "smart folder" | "file";
 
 /** What the registry needs from the app: a snapshot of its state, and the actions to run. */
 export interface App {
@@ -58,6 +61,8 @@ export interface App {
   canConnectGoogle: boolean;
   /** How many collapsible sections the focused note has. */
   folds: number;
+  /** What ⌘K's Rename… renames: the open note, the folder, tag or smart folder Notes shows, or the file Assets previews. Null for nothing. */
+  renames: Renamable | null;
   /** Online, the account menu's actions; locally, none. */
   account: Array<{ label: string; icon: string; run: () => unknown; workspace?: boolean; current?: boolean }>;
   newNote(): void;
@@ -107,6 +112,8 @@ export interface App {
   exportAs(how: "print" | "pdf" | "md" | "html" | "docx"): void;
   /** Every note and file, as a .zip. */
   exportWorkspace(): void;
+  /** Markdown files or a .zip of them (an Obsidian vault, an export), brought in at once. */
+  importNotes(): void;
   settings(): void;
   /** Online, the Connected agents dialog; locally, how to connect one to this vault. */
   connectAgent(): void;
@@ -131,6 +138,7 @@ export function appCommands(app: App): Command[] {
     { id: "new-tag", title: "New tag", keywords: "create add label hashtag", icon: "hash", available: app.canDelete, run: app.newTag },
     { id: "new-smart-folder", title: "New smart folder", keywords: "create add saved search query filter view", icon: "folderSearch", run: app.newSmartFolder },
     { id: "quick-add", title: "Add a task", keywords: "quick add todo new task", icon: "task", keys: ["Mod-Shift-."], area: "Tasks", run: app.quickAdd },
+    go("today", "Today", "sun", "day agenda due overdue journal streak writing"),
     go("notes", "Notes", "feed", "home all"),
     { id: "filter-notes", title: "Filter notes", keywords: "search find notes page", icon: "search", keys: ["Mod-Shift-f"], run: app.filterNotes },
     go("tasks", "Tasks", "task", "todo checklist"),
@@ -157,14 +165,22 @@ export function appCommands(app: App): Command[] {
       run: app.toggleVimDisplayLines,
     },
     { id: "line-numbers", title: app.lineNumbers ? "Hide line numbers" : "Show line numbers", keywords: "line numbers gutter nu number", icon: "list", run: app.toggleLineNumbers },
-    { id: "panel", title: "Toggle side panel", keywords: "outline backlinks activity sidebar", icon: "panel", keys: ["Mod-\\"], run: app.togglePanel },
+    { id: "panel", title: "Toggle info panel", keywords: "outline backlinks activity sidebar side panel", icon: "panel", keys: ["Mod-\\"], run: app.togglePanel },
     { id: "focus", title: app.focusMode ? "Leave focus mode" : "Focus mode", keywords: "zen full screen distraction", icon: app.focusMode ? "unfocus" : "focus", keys: ["Mod-Shift-Enter"], available: text || app.focusMode, run: app.toggleFocus },
-    { id: "split", title: app.split ? "Close this pane" : "Open to the side", keywords: "split view pane side by side", icon: "split", keys: ["Mod-Alt-\\"], area: "Split view", run: app.toggleSplit },
+    { id: "split", title: app.split ? "Close split view" : "Open split view", keywords: "pane side by side to the side", icon: "split", keys: ["Mod-Alt-\\"], area: "Split view", run: app.toggleSplit },
     { id: "star", title: note?.starred ? "Unstar note" : "Star note", keywords: "star favorite favourite", icon: note?.starred ? "starred" : "star", available: !!note, run: app.star },
     { id: "archive", title: note?.archived ? "Unarchive note" : "Archive note", keywords: "archive remove hide", icon: note?.archived ? "unarchive" : "archive", keys: ["Mod-Shift-e"], available: !!note, run: app.archive },
     { id: "delete", title: "Delete note", keywords: "delete remove trash bin", icon: "trash", available: !!note && app.canDelete, run: app.delete },
     { id: "move", title: "Move to folder…", keywords: "move note folder file", icon: "move", available: !!note, run: app.move },
-    { id: "rename", title: "Rename note…", keywords: "rename name title heading file", icon: "edit", available: !!note && app.canDelete, run: app.rename },
+    {
+      id: "rename",
+      title: `Rename ${app.renames ?? "note"}…`,
+      keywords: "rename name title heading file folder tag F2",
+      icon: "edit",
+      keys: ["F2"],
+      available: !!app.renames && app.canDelete,
+      run: app.rename,
+    },
     { id: "share", title: "Share…", keywords: "share link copy print export download pdf markdown html word send", icon: "share", keys: ["Mod-Shift-s"], available: text, run: app.share },
     { id: "share-people", title: "Share with people…", keywords: "share people link invite collaborate public email", icon: "share-people", available: !!note && app.online, run: app.shareWithPeople },
     { id: "copy-link", title: "Copy link to this note", keywords: "share url address copy", icon: "link", available: text, run: app.copyLink },
@@ -174,6 +190,7 @@ export function appCommands(app: App): Command[] {
     { id: "export-html", title: "Export as web page (HTML)", keywords: "save download html web page file", icon: "html", available: note?.kind === "md", run: () => app.exportAs("html") },
     { id: "export-docx", title: "Export as Word", keywords: "save download docx word document office google docs", icon: "file", available: note?.kind === "md", run: () => app.exportAs("docx") },
     { id: "export-workspace", title: "Export all notes (.zip)", keywords: "export download backup zip everything workspace vault obsidian take out", icon: "download", run: app.exportWorkspace },
+    { id: "import-notes", title: "Import notes (.md or .zip)…", keywords: "import upload bring in migrate move obsidian vault zip markdown files bulk many", icon: "upload", available: app.canDelete, run: app.importNotes },
     { id: "back", title: "Go back", keywords: "previous history return last note ctrl-o", icon: "back", keys: ["Mod-["], available: app.canBack, run: app.back },
     { id: "forward", title: "Go forward", keywords: "next history ctrl-i", icon: "chevron", keys: ["Mod-]"], available: app.canForward, run: app.forward },
     { id: "follow-link", title: "Follow link", keywords: "open link under the cursor gd go to", icon: "link", area: "Editor", available: app.onLink, run: app.followLink },
@@ -211,10 +228,12 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: ["j", "k"], label: "Next / previous note", area: "Notes page" },
   { keys: ["g", "G"], label: "First / last note", area: "Notes page" },
   { keys: ["Enter"], label: "Expand the note's preview", area: "Notes page" },
+  { keys: ["n"], label: "New note (in the folder you're looking at)", area: "Notes page" },
   { keys: ["o"], label: "Open the note", area: "Notes page" },
   { keys: ["s"], label: "Star or unstar", area: "Notes page" },
   { keys: ["e"], label: "Archive (the selected notes, or this one)", area: "Notes page" },
   { keys: ["x"], label: "Select", area: "Notes page" },
+  { keys: ["F2"], label: "Rename the note (in the sidebar: the folder, tag or note in focus; double-click works too)", area: "Notes page" },
   { keys: ["Delete", "Backspace"], label: "Delete (the selected notes, or this one)", area: "Notes page" },
   { keys: ["/"], label: "Filter", area: "Notes page" },
   { keys: ["Escape"], label: "Clear the selection", area: "Notes page" },
@@ -223,14 +242,14 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: ["Mod-Shift-z"], label: "Redo", area: "Editor" },
   { keys: ["Mod-f"], label: "Find in the note", area: "Editor" },
   { keys: ["[["], label: "Link a note", area: "Editor" },
-  { keys: ["Mod-Alt-Enter"], label: "Open the linked note to the side", area: "Editor" },
+  { keys: ["Mod-Alt-Enter"], label: "Open the linked note in split view", area: "Editor" },
   { keys: ["Mod-."], label: "Open the task's ⚙ menu", area: "Editor" },
   { keys: ["Tab"], label: "Right after an underlined date or repeat on a task line (\"tomorrow\"), make it a token now; typed at the end, it becomes one when you leave the line", area: "Editor" },
   { keys: ["Tab", "Shift-Tab"], label: "Indent / outdent", area: "Editor" },
   { keys: ["Mod-Alt-s"], label: "Wrap the selection in a collapsible section", area: "Editor" },
   { keys: ["Space"], label: "On a section's summary line: fold or unfold it", area: "Editor" },
   { keys: ["gd", "gf"], label: "Follow the link under the cursor", area: "Vim" },
-  { keys: ["gs", "gD"], label: "Open the link to the side", area: "Vim" },
+  { keys: ["gs", "gD"], label: "Open the link in split view", area: "Vim" },
   { keys: ["Ctrl-o", "Ctrl-i"], label: "Back / forward through the notes this pane showed", area: "Vim" },
   { keys: ["za", "zo", "zc"], label: "Toggle / open / close the section under the cursor", area: "Vim" },
   { keys: ["zM", "zR"], label: "Fold / unfold every section", area: "Vim" },
@@ -242,18 +261,19 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: [":move folder"], label: "Move the note to a folder (:move alone picks one)", area: "Vim" },
   { keys: [":trash"], label: "Delete the note (to Trash)", area: "Vim" },
   { keys: [":notes"], label: "Go to Notes", area: "Vim" },
+  { keys: [":today"], label: "Go to Today", area: "Vim" },
   { keys: [":tasks", ":calendar", ":contacts"], label: "Go to Tasks / Calendar / Contacts", area: "Vim" },
   { keys: [":tags", ":assets", ":history"], label: "Go to Tags / Assets / History", area: "Vim" },
   { keys: [":focus"], label: "Focus mode", area: "Vim" },
   { keys: [":set nu", ":set nonu"], label: "Show / hide line numbers", area: "Vim" },
-  { keys: [":vs name"], label: "Open a note to the side", area: "Vim" },
+  { keys: [":vs name"], label: "Open a note in split view", area: "Vim" },
   { keys: [":only", ":close"], label: "Close the other pane / this pane", area: "Vim" },
   { keys: ["Tab"], label: "In quick-add, send it to the open note", area: "Tasks" },
   { keys: ["Space", "Enter"], label: "Tick the focused task", area: "Tasks" },
   { keys: ["Enter", "Escape"], label: "Save / cancel a task you're editing", area: "Tasks" },
   { keys: ["Mod-Alt-[", "Mod-Alt-]"], label: "Focus the left / right pane", area: "Split view" },
-  { keys: ["Mod-Enter"], label: "In quick open, open the note to the side", area: "Split view" },
-  { keys: ["Mod-click"], label: "Open a link, card or task to the side", area: "Split view" },
+  { keys: ["Mod-Enter"], label: "In quick open, open the note in split view", area: "Split view" },
+  { keys: ["Mod-click"], label: "Open a link, card or task in split view", area: "Split view" },
 ];
 
 /** The shortcut sheet: the fixed shortcuts (quick open leads), then the commands', by area. */

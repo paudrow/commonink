@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addDays, dueFilter, editTask, editTaskLines, parseTask, patchProblem, skipPatch, todaySection, withTasksAdded } from "../src/core/tasks.ts";
+import { addDays, dateFilter, dayFrom, dueFilter, editTask, editTaskLines, parseTask, patchProblem, priorityFilter, skipPatch, todaySection, withTasksAdded } from "../src/core/tasks.ts";
 import { recLabel } from "../src/core/recurrence.ts";
 import { openTempVault } from "./helpers.ts";
 
@@ -186,12 +186,35 @@ test("a task added to a note goes at the end of its Tasks section, or at the end
   assert.equal(add("# Day\n\n## Tasks\n\n- [ ] Old\n\n## Log\n\n- 09:00 hi\n"), "# Day\n\n## Tasks\n\n- [ ] Old\n- [ ] New\n\n## Log\n\n- 09:00 hi\n");
   assert.equal(add("# Day\n\n## tasks\n\n## Log\n"), "# Day\n\n## tasks\n\n- [ ] New\n\n## Log\n");
   assert.equal(add("# Day\n\n## Tasks\n- [ ] Old\n  - [ ] Sub"), "# Day\n\n## Tasks\n- [ ] Old\n  - [ ] Sub\n- [ ] New\n");
-  // No Tasks section: a daily note gets one; any other note gets the task at its end.
+  // No Tasks section: a journal note gets one; any other note gets the task at its end.
   assert.equal(add("# Day\n\n## Log\n\n- 09:00 hi\n", true), "# Day\n\n## Log\n\n- 09:00 hi\n\n## Tasks\n\n- [ ] New\n");
   assert.equal(add("# Launch\n\nNotes.\n"), "# Launch\n\nNotes.\n\n- [ ] New\n");
   assert.equal(add("# Launch\n\n- [ ] Old\n"), "# Launch\n\n- [ ] Old\n- [ ] New\n");
   // A heading inside fenced code isn't the section.
   assert.equal(add("# N\n\n```\n## Tasks\n```\n"), "# N\n\n```\n## Tasks\n```\n\n- [ ] New\n");
+});
+
+test("a task added to a note goes above its footer: a closing --- rule, or its footnotes", () => {
+  const add = (content: string, heading = false) => withTasksAdded(content, ["- [ ] New"], heading);
+  const footer = "# Launch\n\n- [ ] Old\n\n---\n\nSource: Things export · [[Index]]\n";
+  assert.deepEqual(add(footer), { content: "# Launch\n\n- [ ] Old\n- [ ] New\n\n---\n\nSource: Things export · [[Index]]\n", line: 4 });
+  assert.equal(add("# Launch\n\nNotes.\n\n***\n_Imported_\n").content, "# Launch\n\nNotes.\n\n- [ ] New\n\n***\n_Imported_\n");
+  // In the Tasks section when it runs into the footer, and a daily note's new section goes above it too.
+  assert.equal(add("# N\n\n## Tasks\n\n- [ ] Old\n\n---\nfooter\n").content, "# N\n\n## Tasks\n\n- [ ] Old\n- [ ] New\n\n---\nfooter\n");
+  assert.equal(add("# Day\n\n---\nfooter\n", true).content, "# Day\n\n## Tasks\n\n- [ ] New\n\n---\nfooter\n");
+  assert.equal(add("# N\n\nSee this.[^1]\n\n[^1]: A source,\n    on two lines.\n").content, "# N\n\nSee this.[^1]\n\n- [ ] New\n\n[^1]: A source,\n    on two lines.\n");
+  // Not a footer: a rule with a section after it, a heading's underline, frontmatter, or a rule in code.
+  assert.equal(add("# N\n\n---\n\n## More\n\ntext\n").content, "# N\n\n---\n\n## More\n\ntext\n\n- [ ] New\n");
+  assert.equal(add("# N\n\nTitle\n---\ntext\n").content, "# N\n\nTitle\n---\ntext\n\n- [ ] New\n");
+  assert.equal(add("---\ntags: [a]\n---\n# N\n").content, "---\ntags: [a]\n---\n# N\n\n- [ ] New\n");
+  assert.equal(add("# N\n\n```\n\n---\nx\n```\n").content, "# N\n\n```\n\n---\nx\n```\n\n- [ ] New\n");
+});
+
+test("@ names a person only when a letter follows it: @3pm stays a word, and \\@home is escaped", () => {
+  assert.deepEqual(parseTask("- [ ] Call the bank @3pm @2x")!.meta.assignees, []);
+  assert.deepEqual(parseTask("- [ ] Pack bag \\@home")!.meta.assignees, []);
+  assert.deepEqual(parseTask("- [ ] Ask @jane, then @sam_2 @_bot")!.meta.assignees, ["jane", "sam_2", "_bot"]);
+  assert.equal(editTask("- [ ] Call @3pm", { assignees: ["jane"] }), "- [ ] Call @3pm @jane");
 });
 
 test("a task is in one Today section at most: overdue, then due today, then starting today", () => {
@@ -269,6 +292,27 @@ test("a due filter compares dates, with today, tomorrow and yesterday relative t
   assert.deepEqual(["2026-09-29", "2026-09-30"].map((d) => due(">yesterday", d)), [false, false]);
   assert.equal(due(">=2026-09-01", "2026-09-01"), true);
   assert.deepEqual(["soon", "<=2026-02-31x", "2026-13-01"].map((e) => dueFilter(e, "2026-10-01")), [null, null, null]);
+});
+
+test("a date filter takes spans from today and ranges of two comparisons", () => {
+  const passes = (expr: string, d: string | null) => dateFilter(expr, "2026-10-01")!(d);
+  // The coming week, today included.
+  assert.deepEqual(["2026-09-30", "2026-10-01", "2026-10-08", "2026-10-09", null].map((d) => passes(">=today <=+7d", d)), [false, true, true, false, false]);
+  assert.deepEqual(["2026-09-24", "2026-09-23"].map((d) => passes(">=-7d", d)), [true, false]);
+  assert.equal(passes(">= today, <= +1w", "2026-10-08"), true);
+  assert.equal(passes("-2w", "2026-09-17"), true);
+  assert.equal(passes("+1y", "2027-10-01"), true);
+  assert.deepEqual([dayFrom("+1m", "2026-01-31"), dayFrom("-1m", "2026-03-31"), dayFrom("+13m", "2026-12-15"), dayFrom("+1M", "2026-10-01")], ["2026-02-28", "2026-02-28", "2028-01-15", "2026-11-01"]);
+  assert.deepEqual(["+7", "7d", "+7x", ">=today <=soon", ""].map((e) => dateFilter(e, "2026-10-01")), [null, null, null, null, null]);
+});
+
+test("a priority filter takes high, low or none, several with commas, and the token's own spelling", () => {
+  const passes = (expr: string) => (["high", "low", null] as const).map((p) => priorityFilter(expr)!(p));
+  assert.deepEqual(passes("high"), [true, false, false]);
+  assert.deepEqual(passes("!high"), [true, false, false]);
+  assert.deepEqual(passes("high,none"), [true, false, true]);
+  assert.deepEqual(passes("NONE"), [false, false, true]);
+  assert.deepEqual(["urgent", "", "high,soon"].map(priorityFilter), [null, null, null]);
 });
 
 test("a task that moved is found among the note's tasks, never in a code block's example of one", () => {

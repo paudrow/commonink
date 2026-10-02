@@ -1,5 +1,6 @@
 //   ::tasks{folder=Projects label="Launch"}   ::tasks{note="Common Ink roadmap" status=all}   ::tasks{tag=work due<=today group=due}
-// Every checkbox across the vault (or a folder, a note, a tag, a person, a due date), grouped by note
+//   ::tasks{due>=today due<=+7d priority=high}   ::tasks{done>=-7d}
+// Every checkbox across the vault (or a folder, a note, a tag, a person, a priority, a date range), grouped by note
 // or by due date, priority, tag or person. Ticking one, or changing its details, edits the note it
 // lives in, so agents and people can add tasks anywhere and clear them in one place.
 import { api, type Task } from "../api.ts";
@@ -73,19 +74,21 @@ export const tasks: WidgetSpec = {
     { key: "note", label: "Note", type: "text", placeholder: "Just one note (optional)" },
     { key: "tag", label: "Tag", type: "text", placeholder: "e.g. work (includes work/…)" },
     { key: "assignee", label: "Person", type: "text", placeholder: "e.g. jane, or me" },
-    { key: "due", label: "Due", type: "text", placeholder: "<=today, tomorrow, >=2026-10-01" },
+    { key: "due", label: "Due", type: "text", placeholder: "<=today, tomorrow, >=today <=+7d" },
+    { key: "start", label: "Starts", type: "text", placeholder: ">=today <=+7d, or a date" },
+    { key: "done", label: "Done", type: "text", placeholder: ">=-7d for the last week" },
+    { key: "priority", label: "Priority", type: "text", placeholder: "high, low or none" },
     { key: "group", label: "Group", type: "text", placeholder: "note, due, priority, tag or person" },
   ],
 
   mount(body, env) {
-    let show: Show = (["open", "done", "all"] as const).find((s) => s === env.args.status) ?? "open";
+    // A done-date filter (done>=-7d) is about finished tasks, so it shows those first.
+    let show: Show = (["open", "done", "all"] as const).find((s) => s === env.args.status) ?? (env.args.done ? "done" : "open");
     let group: Group = Object.hasOwn(GROUPS, env.args.group ?? "") ? (env.args.group as Group) : "note";
     let sort: Sort = Object.hasOwn(SORTS, env.args.sort ?? "") ? (env.args.sort as Sort) : "note";
     let all: Task[] = [];
     /** Who each @name is, for grouping by person. */
     let people: Person[] = [];
-    /** Tasks were found, counting the ones `skip` leaves out. */
-    let found = false;
     let problem = "";
     let expanded = false;
     let alive = true;
@@ -111,12 +114,12 @@ export const tasks: WidgetSpec = {
       try {
         const by = env.args.by === "me" ? ("me" as const) : undefined;
         const [t, who] = await Promise.all([
-          api.tasks({ folder: env.args.folder, note: env.args.note, tag: env.args.tag, assignee: env.args.assignee, by, due: env.args.due, today: today() }),
+          api.tasks({ folder: env.args.folder, note: env.args.note, tag: env.args.tag, assignee: env.args.assignee, by, due: env.args.due, start: env.args.start, done: env.args.done, priority: env.args.priority, today: today() }),
           group === "person" ? assignees().then((a) => a.directory).catch(() => people) : Promise.resolve(people),
         ]);
         people = who;
         if (!alive) return;
-        [all, problem, found] = [env.skip ? t.filter((x) => !env.skip!(x)) : t, "", t.length > 0];
+        [all, problem] = [t, ""];
       } catch (e) {
         if (!alive) return;
         [all, problem] = [[], e instanceof Error ? e.message : "Couldn't load tasks"];
@@ -128,7 +131,7 @@ export const tasks: WidgetSpec = {
       const now = today();
       const done = all.filter((t) => t.done).length;
       summary.textContent = all.length ? `${done} of ${all.length} done` : "No tasks yet";
-      const blank = !found && !problem && !!env.empty;
+      const blank = !all.length && !problem && !!env.empty;
       top.hidden = progress.hidden = blank;
       bar.style.width = `${all.length ? (done / all.length) * 100 : 0}%`;
       seg.replaceChildren(
@@ -136,8 +139,8 @@ export const tasks: WidgetSpec = {
           el("button", { type: "button", class: s === show ? "is-on" : "", "aria-pressed": String(s === show), onmousedown: prevent, onclick: () => ((show = s), render()) }, s[0].toUpperCase() + s.slice(1)),
         ),
       );
-      // Open tasks that start later stay out of the way until then; All shows them.
-      const later = (t: Task) => !!t.meta.start && t.meta.start.slice(0, 10) > now;
+      // Open tasks that start later stay out of the way until then; All shows them, and so does a start filter, which asks for them.
+      const later = (t: Task) => !env.args.start && !!t.meta.start && t.meta.start.slice(0, 10) > now;
       const order = new Map(all.map((t, i) => [t, i]));
       const visible = all
         .filter((t) => (show === "all" || (show === "done") === t.done) && !(show === "open" && later(t)))
