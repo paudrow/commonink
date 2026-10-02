@@ -937,7 +937,7 @@ export class Vault {
     const names = this.namesOf(rel);
     const candidates = new Set<string>();
     for (const name of names) {
-      const terms = searchTerms(name);
+      const terms = [...name.matchAll(/[\p{L}\p{N}_]+/gu)].map((m) => m[0]).slice(0, 12);
       if (!terms.length) continue;
       const phrase = `"${terms.join(" ")}"`;
       for (const r of this.db.all<{ path: string }>("SELECT path FROM notes_fts WHERE notes_fts MATCH ? ORDER BY rank LIMIT 50", phrase)) candidates.add(r.path);
@@ -2699,11 +2699,6 @@ function findColumn(boards: Board[], ref: string, path: string, board?: number):
   throw new VaultError(`No column "${ref}" on the board${boards.length === 1 ? "" : "s"} in ${path}. Columns: ${names}`, "not_found");
 }
 
-
-/** The words in a name, for a full-text phrase (unlinkedMentions). */
-function searchTerms(q: string): string[] {
-  return [...q.matchAll(/[\p{L}\p{N}_]+/gu)].map((m) => m[0]).slice(0, 12);
-}
 
 /** The start of a note's body for previews: without the title heading, cut at a line boundary. */
 function excerptOf(body: string, title: string, max = 700): string {
