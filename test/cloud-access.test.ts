@@ -110,6 +110,7 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /today/journal", send: () => ["POST", "/today/journal", { today: "2026-10-01" }], expect: EDIT },
   { route: "POST /tags", send: (w) => ["POST", "/tags", { tag: `added-${w}` }], expect: EDIT },
   { route: "POST /tags/delete", send: (w) => ["POST", "/tags/delete", { tag: `added-${w}` }], expect: EDIT },
+  { route: "POST /replace", send: (w) => ["POST", "/replace", { find: `nothing-${w}`, replace: "x", dryRun: true }], expect: EDIT },
   { route: "POST /tags/rename", send: (w) => ["POST", "/tags/rename", { from: `old-${w}`, to: `new-${w}` }], expect: EDIT },
   { route: "PUT /asset-tags", send: (w) => ["PUT", "/asset-tags", { path: "assets/margin.svg", tags: [`asset-${w}`] }], expect: EDIT },
   { route: "POST /move", send: (w) => ["POST", "/move", { from: `move-${w}.md`, to: `moved-${w}.md` }], expect: EDIT },

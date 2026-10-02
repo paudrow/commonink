@@ -22,6 +22,7 @@ import {
 } from "./contacts.ts";
 import { cleanTitle, DAILY_TEMPLATE, fillTemplate, localNow, TEMPLATES, templateInfo, type FillOptions, type TemplateInfo } from "./templates.ts";
 import { frontmatterEntries } from "./frontmatter.ts";
+import { replaceIn, type ReplacedLine, type ReplaceOptions } from "./replace.ts";
 
 export interface NoteMeta {
   /** Stable across renames, moves and archiving; see ids.ts. */
@@ -87,6 +88,14 @@ export interface Backlink {
   kind: string;
   line: number;
   text: string;
+}
+
+/** A note find and replace changes (see Vault.replaceAcross): how many places, and its first changed lines. */
+export interface ReplacedNote {
+  path: string;
+  title: string;
+  count: number;
+  lines: ReplacedLine[];
 }
 
 /** A link to a note or file that isn't in the vault, and every place that has it. */
@@ -1495,6 +1504,32 @@ export class Vault {
     const sorted = Object.fromEntries(Object.entries(map).sort(([a], [b]) => (a < b ? -1 : 1)));
     this.files.write(ASSET_TAGS, `${JSON.stringify(sorted, null, 2)}\n`);
     this.indexAssetTags(sorted);
+  }
+
+  /**
+   * Find and replace plain text in every active Markdown note (HTML notes are left alone), or those in `folder`.
+   * `dryRun` only says what would change. Otherwise each note that changes is its own change, as
+   * in renameTag, so Undo can restore them one by one without writing over a later edit.
+   */
+  replaceAcross(find: string, replace: string, opts: ReplaceOptions & { folder?: string; dryRun?: boolean }, source: string) {
+    if (!find) throw new VaultError("Say what to find");
+    if (find.includes("\n") || replace.includes("\n")) throw new VaultError("Find and replace work a line at a time: leave out line breaks");
+    const folder = opts.folder ? cleanPath(opts.folder).replace(/\/?$/, "/") : "";
+    const rows = this.db.all<{ path: string; title: string }>("SELECT path, title FROM notes WHERE kind = 'md' ORDER BY path");
+    const notes: ReplacedNote[] = [];
+    const edits: Array<{ path: string; content: string; version: string; change: Change }> = [];
+    for (const r of rows) {
+      if (isArchived(r.path) || !r.path.startsWith(folder)) continue;
+      const before = this.files.read(r.path);
+      if (before === null) continue;
+      const done = replaceIn(before, find, replace, opts);
+      if (done.content === before) continue;
+      notes.push({ path: r.path, title: r.title, count: done.count, lines: done.lines.slice(0, 20) });
+      if (opts.dryRun) continue;
+      const c = this.commit(r.path, before, done.content, source, "edit");
+      if (c.change) edits.push({ path: r.path, content: done.content, version: c.version, change: c.change });
+    }
+    return { notes, edits };
   }
 
   /**

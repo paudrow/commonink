@@ -36,7 +36,7 @@ test("the server lists every tool", async () => {
     "delete_folder", "delete_note", "delete_smart_folder", "diff_versions", "edit_card", "edit_note", "export_note", "get_event", "get_today",
     "import_contacts", "import_notes", "label_version", "list_contacts", "list_events", "list_folders", "list_labels", "list_notes", "list_smart_folders", "list_tags",
     "list_tasks", "list_templates", "list_trash", "merge_contacts", "missing_links", "move_card", "move_note", "move_task", "open_journal", "order_favorites",
-    "read_board", "read_contact", "read_note", "recent_changes", "remove_task", "rename_tag", "restore_change", "restore_from_trash", "restore_label",
+    "read_board", "read_contact", "read_note", "recent_changes", "remove_task", "rename_tag", "replace_text", "restore_change", "restore_from_trash", "restore_label",
     "save_smart_folder", "search_notes", "set_asset_tags", "show_change", "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag",
     "update_contact", "update_task", "write_note",
   ]);
@@ -213,4 +213,14 @@ test("agents list templates and make notes from them, told what's left to fill i
 test("list_templates says what kind of answer each question takes", async () => {
   await call("create_note", { path: "Templates/Typed", content: "{{ask:Who|people}} {{ask:Due|date}} {{ask:Size|choice:S,M,L}} {{ask:Note}}\n" });
   assert.match((await call("list_templates", {})).text, /^Templates\/Typed\.md — Typed · asks: Who \(people\), Due \(date\), Size \(one of S, M, L\), Note$/m);
+});
+
+test("replace_text won't run without dry_run said outright, and previews with dry_run true", async () => {
+  await call("create_note", { path: "Typos", content: "# Typos\n\nrecieve the parcel\n" });
+  assert.equal((await call("replace_text", { find: "recieve", replace: "receive" })).isError, true);
+  const dry = await call("replace_text", { find: "recieve", replace: "receive", dry_run: true });
+  assert.match(dry.text, /^Would replace 1 place in 1 note\nTypos\.md \(1\)/);
+  assert.equal(fs.readFileSync(path.join(vault, "Typos.md"), "utf8"), "# Typos\n\nrecieve the parcel\n");
+  assert.match((await call("replace_text", { find: "recieve", replace: "receive", dry_run: false })).text, /^Replaced 1 place/);
+  assert.equal(fs.readFileSync(path.join(vault, "Typos.md"), "utf8"), "# Typos\n\nreceive the parcel\n");
 });
