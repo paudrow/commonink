@@ -246,7 +246,9 @@ test("backlinks leave out archived notes when asked, unless the note itself is a
   // An agent asking over MCP hears that some were left out, and how to see them.
   const run = (args: Record<string, unknown>) => notes.find((c) => c.mcp === "backlinks")!.run({ vault, source: "t" } as never, args as never) as { text: string };
   assert.equal(run({ path: "Plan" }).text, "- Notes/Live.md:3 (wikilink) [[Plan]]\n1 more from archived note (include_archived to see them).");
-  assert.match(run({ path: "Plan", include_archived: true }).text, /Plan copy.md[^]*Live.md/);
+  // Newest first, so the order follows file times; check each line is there rather than the order.
+  const all = run({ path: "Plan", include_archived: true }).text.split("\n").sort();
+  assert.deepEqual(all, ["- Archive/Plan copy.md:3 (wikilink) [[Plan]] and [[Old]]", "- Notes/Live.md:3 (wikilink) [[Plan]]"]);
 });
 
 test("restore puts a note back the way it was before a change", () => {

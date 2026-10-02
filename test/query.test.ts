@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { dayFrom, dayPasses, formatQuery, ftsAny, ftsQuery, parseQuery, parseSearch, queryProblem, searchWords, toQuery, type NoteQuery } from "../src/core/query.ts";
+import { dayFrom, dayPasses, formatQuery, parseQuery, queryProblem, toQuery, type NoteQuery } from "../src/core/query.ts";
+import { format, parse, textWords, toFts } from "../src/core/queryGrammar.ts";
 import { openTempVault } from "./helpers.ts";
 import { openVault } from "../src/core/local.ts";
 import { propsOf } from "../src/core/frontmatter.ts";
@@ -67,43 +68,36 @@ test("sort is modified, date, oldest or title, and modified goes unsaid", () => 
 const DAY = 86_400_000;
 
 test("plain words read the way they always did: each one a prefix, all of them needed", () => {
-  const s = parseSearch("launch plan e-mail");
-  assert.deepEqual(s.all.map((c) => c.map((t) => t.words.join(" "))), [["launch"], ["plan"], ["e"], ["mail"]]);
-  assert.equal(ftsQuery(s), '"launch"* "plan"* "e"* "mail"*');
-  assert.deepEqual(s.none, []);
+  const s = parse("launch plan e-mail");
+  assert.equal(format(s.expr), "launch plan e mail");
+  assert.equal(toFts(s.expr), '"launch"* "plan"* "e"* "mail"*');
   // A lone dash and a quote that never closes are just words. (a=b is a property filter.)
-  assert.equal(ftsQuery(parseSearch('a=b - "open')), '"open"*');
-  assert.equal(ftsQuery(parseSearch("don't stop")), '"don"* "t"* "stop"*');
+  assert.equal(toFts(parse('a=b - "open').expr), '"open"*');
+  assert.equal(toFts(parse("don't stop").expr), '"don"* "t"* "stop"*');
+  assert.equal(parse('a=b - "open').error, null);
 });
 
 test('-word, OR and "phrase" in the words', () => {
-  const s = parseSearch('"launch plan" budget OR costs -draft -"old idea"');
-  assert.equal(ftsQuery(s), '"launch plan" ("budget"* OR "costs"*)');
-  assert.deepEqual(s.none, [
-    { words: ["draft"], phrase: false },
-    { words: ["old", "idea"], phrase: true },
-  ]);
-  assert.equal(ftsAny(s.none), '("draft"* OR "old idea")');
-  assert.deepEqual(searchWords(s), ["launch", "plan", "budget", "costs"]);
+  // OR goes after AND, so a group keeps budget OR costs together.
+  const s = parse('"launch plan" (budget OR costs) -draft -"old idea"');
+  assert.equal(toFts(s.expr), '("launch plan" ("budget"* OR "costs"*)) NOT ("draft"* OR "old idea")');
+  assert.deepEqual(textWords(s.expr), ["launch", "plan", "budget", "costs"]);
   // Single quotes make a phrase too: that's how a ::query or smart folder writes one inside q="…".
-  assert.equal(ftsQuery(parseSearch("'launch plan'")), '"launch plan"');
-  // OR with nothing on one side is just the word, and a lowercase or is a word.
-  assert.equal(ftsQuery(parseSearch("OR plan OR")), '"OR"* "plan"* "OR"*');
-  assert.equal(ftsQuery(parseSearch("plan or")), '"plan"* "or"*');
+  assert.equal(toFts(parse("'launch plan'").expr), '"launch plan"');
+  // OR with nothing on one side is a mistake, said with where it is; the rest still reads.
+  assert.equal(parse("OR plan OR").error?.message, "Nothing before OR at character 1: put a word or filter on each side");
+  assert.equal(toFts(parse("OR plan OR").expr), '"plan"*');
+  // A lowercase or is a word.
+  assert.equal(toFts(parse("plan or").expr), '"plan"* "or"*');
 });
 
 test("tag=, -tag= and dates in the words are filters, not words", () => {
-  const s = parseSearch("plan tag=#Work -tag=draft,old modified>-7d created<=2026-09-01");
-  assert.equal(ftsQuery(s), '"plan"*');
-  assert.deepEqual(s.tags, ["Work"]);
-  assert.deepEqual(s.notTags, ["draft", "old"]);
-  assert.deepEqual(s.dates, [
-    { field: "modified", op: ">", day: "-7d" },
-    { field: "created", op: "<=", day: "2026-09-01" },
-  ]);
-  assert.equal(s.problem, null);
-  assert.match(parseSearch("modified>lastweek").problem!, /isn't a day/);
-  assert.match(parseSearch("tag=27").problem!, /isn't a tag/);
+  const s = parse("plan tag=#Work -tag=draft,old modified>-7d created<=2026-09-01");
+  assert.equal(toFts(s.expr), '"plan"*');
+  assert.equal(format(s.expr), "plan tag=Work -tag=draft -tag=old modified>-7d created<=2026-09-01");
+  assert.equal(s.error, null);
+  assert.match(parse("modified>lastweek").error!.message, /isn't a day/);
+  assert.match(parse("tag=27").error!.message, /isn't a tag/);
 });
 
 test("days count back from today: days, weeks, months and years", () => {
@@ -130,7 +124,7 @@ test("filters written as keys of their own join q, so a query has one place for 
   assert.equal(queryProblem('q="launch" modified>-7d -tag=draft sort=created'), null);
   assert.match(queryProblem("modified>someday")!, /isn't a day/);
   assert.match(queryProblem('q="plan -tag=27"')!, /isn't a tag/);
-  assert.equal(queryProblem("size>3"), "Only modified and created compare with < and >: write size=…");
+  assert.equal(queryProblem("size>3"), "Only modified and created compare with < and >: write size=… (at character 1)");
 });
 
 test("the feed runs the grammar: words left out, OR, phrases, tags left out, dates and sort=created", () => {
@@ -199,19 +193,13 @@ test("a note's properties: lowercase keys, one row per list item, tags and title
 });
 
 test("status=draft, -status=done and has=due in the words are property filters", () => {
-  const s = parseSearch("plan Status=Draft -status=done has=due,owner -has=archived tags=work 'x y'");
-  assert.deepEqual(s.props, [
-    { key: "status", value: "Draft", not: false },
-    { key: "status", value: "done", not: true },
-    { key: "due", value: null, not: false },
-    { key: "owner", value: null, not: false },
-    { key: "archived", value: null, not: true },
-  ]);
-  assert.deepEqual(s.tags, ["work"]);
-  assert.equal(ftsQuery(s), '"plan"* "x y"');
-  assert.deepEqual(parseSearch("stage='in review'").props, [{ key: "stage", value: "in review", not: false }]);
-  assert.match(parseSearch("status>draft").problem!, /Only modified and created compare/);
-  assert.match(parseSearch("-modified=today").problem!, /can't leave out/);
+  const s = parse("plan Status=Draft -status=done has=due,owner -has=archived tags=work 'x y'");
+  assert.equal(format(s.expr), `plan status=Draft -status=done has=due has=owner -has=archived tag=work "x y"`);
+  assert.equal(toFts(s.expr), '"plan"* "x y"');
+  assert.deepEqual(parse("stage='in review'").expr, { kind: "prop", key: "stage", value: "in review" });
+  assert.match(parse("status>draft").error!.message, /Only modified and created compare/);
+  // A dash leaves out a date range too, like any other term.
+  assert.deepEqual(parse("-modified=today").expr, { kind: "not", item: { kind: "date", field: "modified", op: "=", day: "today" } });
   // Written as keys of their own (a smart folder, a ::query), they join q; a widget's own args don't.
   assert.deepEqual(parseQuery('folder=Projects status=draft stage="in review" -has=due'), { q: "status=draft stage='in review' -has=due", folder: "Projects" });
   assert.deepEqual(toQuery({ label: "Drafts", id: "x1", view: "table", cols: "status", status: "draft" }), { q: "status=draft" });
