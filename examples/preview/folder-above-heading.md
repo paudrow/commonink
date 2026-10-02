@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 295
 title: The folder above a note (a trial)
 ---
 A trial: a note in a folder shows that folder in small grey text above its heading. It's meant to be quiet. Judge whether it earns its place, since #148 took the breadcrumb out on purpose.
