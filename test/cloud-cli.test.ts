@@ -141,6 +141,23 @@ test("files go up to R2 and come back down, byte for byte", async () => {
   assert.deepEqual([...fs.readFileSync(out)], [...bytes]);
 });
 
+test("commonink import brings a folder of notes and its pictures into a hosted workspace in one go", async () => {
+  const c = cli();
+  await login(c, people.owner);
+  const here = fs.mkdtempSync(path.join(os.tmpdir(), "commonink-import-"));
+  fs.mkdirSync(path.join(here, "Areas"));
+  fs.writeFileSync(path.join(here, "Areas/Health.md"), "# Health\n\n![[scan.png]]\n");
+  fs.writeFileSync(path.join(here, "Areas/scan.png"), Buffer.from([137, 80, 78, 71]));
+  fs.writeFileSync(path.join(here, "Inbox.md"), "# Inbox\n");
+  const r = c.json(["import", here, "--folder", "Moved", "--workspace", "Team"]);
+  assert.deepEqual(r.created, ["Moved/Areas/Health.md", "Moved/Inbox.md"]);
+  assert.deepEqual(r.files, ["Moved/Areas/scan.png"]);
+  assert.match(c.run(["read", "Moved/Areas/Health", "--workspace", "Team"]).stdout, /# Health/);
+  const out = path.join(here, "back.png");
+  assert.equal(c.run(["download", "Moved/Areas/scan.png", "--workspace", "Team", "--out", out]).status, 0);
+  assert.deepEqual([...fs.readFileSync(out)], [137, 80, 78, 71]);
+});
+
 test("contacts, labels, tasks --by me and export work in a hosted workspace too", async () => {
   const c = cli();
   await login(c, people.owner);

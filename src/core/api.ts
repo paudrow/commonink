@@ -8,6 +8,7 @@ import type { FillOptions, PersonPick } from "./templates.ts";
 import { agentSource, parseAuthorFilter } from "./actor.ts";
 import { findStartNote, GUIDE, parseGuideAction, runGuide } from "./guide.ts";
 import { exportZip, type ExportWhat } from "./export.ts";
+import { ON_EXISTING, pairsImport, writeImport, type OnExisting } from "./import.ts";
 import type { Calendar, EventDraft } from "./calendar.ts";
 import { notePath } from "./ids.ts";
 
@@ -361,6 +362,19 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       host.written(r.path, content, r.version, r.change);
       host.tree();
       return json({ path: r.path, version: r.version });
+    }
+    // Many notes at once (the app's Import notes; files' bytes go through /upload).
+    case "POST /import": {
+      const notes = (raw as Record<string, unknown>).notes;
+      if (typeof notes !== "object" || notes === null || Array.isArray(notes) || !Object.values(notes).every((v) => typeof v === "string")) {
+        throw new VaultError(`"notes" must be an object of path → text`);
+      }
+      const existing = optStr("existing");
+      if (existing !== undefined && !ON_EXISTING.includes(existing as OnExisting)) throw new VaultError(`"existing" must be ${ON_EXISTING.join(" or ")}`);
+      const r = await writeImport(vault, pairsImport(notes as Record<string, string>, optStr("folder")), { existing: existing as OnExisting | undefined, source: actor });
+      for (const p of [...r.created, ...r.replaced]) host.written(p, vault.files.read(p), vault.meta(p)?.version ?? "", null);
+      if (r.created.length) host.tree();
+      return json(r);
     }
     case "POST /tasks/set": {
       const r = vault.setTask(str("path"), int("line"), str("text"), flag("done"), actor, optStr("today")); // done: gets the person's day
