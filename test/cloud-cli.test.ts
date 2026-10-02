@@ -69,7 +69,8 @@ test("commonink login signs in through the browser and keeps its tokens where on
   const { status, out, html } = await login(c, people.owner);
   assert.equal(status, 0);
   assert.match(html, /Connect commonink CLI to Common Ink\?/);
-  assert.match(html, /<strong>All your workspaces<\/strong>/);
+  // Offered to the CLI, which gets its answer on this computer, but not picked for you.
+  assert.match(html, /<input type="radio" name="workspace" value="\*">\s*<span><strong>All your workspaces<\/strong>/);
   assert.match(out, /^Signed in to http:\/\/\S+ as Owner Dev\. Workspaces: Owner's notes \(owner\), Team \(owner\)\. Pick one with commonink workspaces use <name>, or --workspace\.\n$/);
   const file = path.join(c.config, "credentials.json");
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
@@ -213,28 +214,43 @@ test("sharing from the CLI: by email, listed, stopped; links wait for the owner'
   assert.equal(editor.run(["shares", "Shared from the CLI", ...team]).stdout, "Shared from the CLI.md isn't shared with anyone outside the workspace.\n");
 });
 
-test("only an app that asks for every workspace can be given every workspace", async () => {
-  // An MCP client asks for no scope: an answer of "all of them" (a forged form) is refused.
-  const reg = await cloud.server.fetch(new URL("/oauth/register", cloud.origin), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ client_name: "Some Agent", redirect_uris: ["http://127.0.0.1:9/callback"], token_endpoint_auth_method: "none" }),
-  });
-  const { client_id } = (await reg.json()) as { client_id: string };
-  const query = new URLSearchParams({ response_type: "code", client_id, redirect_uri: "http://127.0.0.1:9/callback", code_challenge: "x".repeat(43), code_challenge_method: "S256", state: "s" });
-  const page = await cloud.request(people.owner, "GET", `/authorize?${query}`);
-  const html = await page.text();
-  assert.doesNotMatch(html, /All your workspaces/);
-  const handle = html.match(/name="handle" value="([^"]+)"/)![1];
-  const binding = page.headers.getSetCookie().map((x) => x.split(";")[0]).join("; ");
-  const answer = await cloud.server.fetch(new URL("/authorize", cloud.origin), {
-    method: "POST",
-    redirect: "manual",
-    headers: { "content-type": "application/x-www-form-urlencoded", cookie: `${people.owner}; ${binding}`, origin: cloud.origin },
-    body: new URLSearchParams({ handle, decision: "allow", workspace: "*" }).toString(),
-  });
-  assert.equal(answer.status, 400);
-  assert.match(await answer.text(), /Pick one of your workspaces/);
+test("only an app on your computer that asks for every workspace can be given every workspace", async () => {
+  const consent = async (redirect: string, scope?: string) => {
+    const reg = await cloud.server.fetch(new URL("/oauth/register", cloud.origin), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ client_name: "Some Agent", redirect_uris: [redirect], token_endpoint_auth_method: "none" }),
+    });
+    const { client_id } = (await reg.json()) as { client_id: string };
+    const query = new URLSearchParams({ response_type: "code", client_id, redirect_uri: redirect, code_challenge: "x".repeat(43), code_challenge_method: "S256", state: "s", ...(scope ? { scope } : {}) });
+    const page = await cloud.request(people.owner, "GET", `/authorize?${query}`);
+    const html = await page.text();
+    const handle = html.match(/name="handle" value="([^"]+)"/)![1];
+    const binding = page.headers.getSetCookie().map((x) => x.split(";")[0]).join("; ");
+    const answer = (workspace: string) =>
+      cloud.server.fetch(new URL("/authorize", cloud.origin), {
+        method: "POST",
+        redirect: "manual",
+        headers: { "content-type": "application/x-www-form-urlencoded", cookie: `${people.owner}; ${binding}`, origin: cloud.origin },
+        body: new URLSearchParams({ handle, decision: "allow", workspace }).toString(),
+      });
+    return { html, answer };
+  };
+  // An MCP client asks for no scope, and a website gets no more for asking: it isn't offered, and an
+  // answer of "all of them" (a forged form) is refused.
+  for (const [redirect, scope] of [["http://127.0.0.1:9/callback"], ["https://look-alike.example/cb", "workspaces"]]) {
+    const { html, answer } = await consent(redirect!, scope);
+    assert.doesNotMatch(html, /All your workspaces/);
+    const forged = await answer("*");
+    assert.equal(forged.status, 400);
+    assert.match(await forged.text(), /Pick one of your workspaces/);
+  }
+  // A workspace that isn't yours is refused without using up the answer, so a right one still goes through.
+  const { answer } = await consent("https://look-alike.example/cb", "workspaces");
+  assert.equal((await answer("not-mine")).status, 400);
+  const fixed = await answer(people.id);
+  assert.equal(fixed.status, 302);
+  assert.match(fixed.headers.get("location")!, /^https:\/\/look-alike\.example\/cb\?code=/);
 });
 
 test("a workspace's settings from the CLI: invite links, members and roles, a new name, leaving", async () => {
