@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 294
 title: A table view for note lists
 ---
 A `::query` list can now show its notes as a table, with a column for each property you name. This uses the sample notes from the properties PR: [[Pricing page]], [[Onboarding emails]] and [[Logo refresh]].
