@@ -1852,8 +1852,15 @@ export class Vault {
     const block = cutTask(lines, findTask(lines, line, text, note.path));
     const there = this.read(dest);
     const added = withTasksAdded(there.content, block, false);
-    const cut = this.commit(note.path, note.content, lines.join("\n"), source, "edit");
+    // Into the other note first: if that write fails, the task is still where it was.
     const r = this.commit(dest, there.content, added.content, source, "edit");
+    let cut;
+    try {
+      cut = this.commit(note.path, note.content, lines.join("\n"), source, "edit");
+    } catch (e) {
+      this.commit(dest, added.content, there.content, source, "edit");
+      throw e;
+    }
     // The note it left, too, so a caller can tell whoever shows that note.
     return { ...r, cut, line: added.line, text: block[0].match(TASK_LINE)![4] };
   }

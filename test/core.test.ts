@@ -673,6 +673,15 @@ test("moving a task takes its line and the lines nested under it to another note
   assert.throws(() => vault.moveTask("Inbox", 3, "stale", "Offsite", "t"), /isn't in Inbox\.md any more/);
 });
 
+test("a task that can't go into the other note stays where it was", () => {
+  const big = `# Offsite\n\n${"x".repeat(960)}\n`;
+  const { dir, vault } = openTempVault({ "Inbox.md": "# Inbox\n\n- [ ] Plan the offsite with everyone on the team\n", "Offsite.md": big }, { maxNoteBytes: 1000 });
+  const read = (p: string) => fs.readFileSync(path.join(dir, p), "utf8");
+  assert.throws(() => vault.moveTask("Inbox", 3, "Plan the offsite with everyone on the team", "Offsite", "t"), /Offsite\.md would be over/);
+  assert.equal(read("Inbox.md"), "# Inbox\n\n- [ ] Plan the offsite with everyone on the team\n");
+  assert.equal(read("Offsite.md"), big);
+});
+
 test("ticking a repeating task in its note adds the next one below, from any surface that ticks", () => {
   const { dir, vault } = openTempVault({ "Bills.md": "# Bills\n\n- [ ] Pay rent due:2026-10-06 rec:6th\n" });
   const r = vault.updateTask("Bills", 3, "Pay rent due:2026-10-06 rec:6th", { checked: true }, "t", "2026-10-04");
