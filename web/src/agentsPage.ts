@@ -17,7 +17,7 @@ export async function showAgents() {
     if (back?.isConnected) back.focus({ preventScroll: true });
   };
   const how = local
-    ? el("div", { class: "agents-how qw-guide-how" }, el("p", {}, "Agents on this computer read and edit this vault over MCP. Their edits show up here live, with their names on them."), ...localSteps(local))
+    ? el("div", { class: "agents-how qw-guide-how" }, el("p", {}, "Agents on this computer read and edit this workspace over MCP. Their edits show up here live, with their names on them."), ...localSteps(local))
     : el(
         "p",
         { class: "agents-how" },

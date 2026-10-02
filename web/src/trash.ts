@@ -219,7 +219,7 @@ export class TrashPage {
   private async purge(t: TrashItem) {
     const ok = await ask({
       title: `Delete ${displayName(t.path)} forever?`,
-      body: [`It can't be restored after this, and its earlier versions go from History too${t.labels ? `, with its ${plural(t.labels, "label")}` : ""}.`],
+      body: [`It can't be restored after this, and its earlier versions go from History too${t.labels ? `, with its ${plural(t.labels, "named version")}` : ""}.`],
       actions: [{ label: "Delete forever", value: "yes", kind: "danger" }],
     });
     if (!ok) return;
@@ -231,7 +231,7 @@ export class TrashPage {
     const labels = this.items.reduce((n, t) => n + (t.labels ?? 0), 0);
     const ok = await ask({
       title: `Empty Trash?`,
-      body: [`${plural(this.items.length, "item")} will be deleted for good. They can't be restored after this, and their earlier versions go from History too${labels ? `, with ${plural(labels, "label")}` : ""}.`],
+      body: [`${plural(this.items.length, "item")} will be deleted for good. They can't be restored after this, and their earlier versions go from History too${labels ? `, with ${plural(labels, "named version")}` : ""}.`],
       actions: [{ label: "Empty trash", value: "yes", kind: "danger" }],
     });
     if (!ok) return;

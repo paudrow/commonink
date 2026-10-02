@@ -1,8 +1,8 @@
 // History: every change, newest first, and what any selection of them did. Click one to see it,
 // ⌘-click to add or skip changes, shift-click to take a whole range. The diff on the right is
 // note by note; a change left out on the same note splits that note into separate diffs.
-// Labels (labels.ts) stand among the changes as pins: click one to compare it with now or
-// with another label, and to restore to it.
+// Named versions (labels.ts) stand among the changes as pins: click one to compare it with now or
+// with another named version, and to restore to it.
 import { api, fileUrl, type Change, type DiffFile, type DiffRun, type Label } from "./api.ts";
 import { $, authorAvatar, authorName, displayName, el, icon, isSelf } from "./dom.ts";
 import { renderDiff } from "./diff.ts";
@@ -246,9 +246,9 @@ export class History {
         ? [el("span", { class: "chip is-on hist-note-chip" }, icon("file", 12), displayName(note), el("button", { type: "button", title: "Show every note", onclick: () => void this.show({ note: null }) }, icon("close", 12)))]
         : []),
       ...(note && !this.hooks.readOnly
-        ? [el("button", { type: "button", class: "chip hist-label-btn", title: "Name the note as it is now, to compare with or go back to later", onclick: () => void labelVersion(note, { toast: this.hooks.toast }).then((l) => l && this.afterLabel(l)) }, icon("label", 12), "Label this version…")]
+        ? [el("button", { type: "button", class: "chip hist-label-btn", title: "Name the note as it is now, to compare with or go back to later", onclick: () => void labelVersion(note, { toast: this.hooks.toast }).then((l) => l && this.afterLabel(l)) }, icon("label", 12), "Name this version…")]
         : []),
-      el("span", { class: "hist-by", role: "group", "aria-label": "Whose changes" }, chip("", "Everyone"), chip("people", "People", "user"), chip("ai", "AI", "bot")),
+      el("span", { class: "hist-by", role: "group", "aria-label": "Whose changes" }, chip("", "Everyone"), chip("people", "People", "user"), chip("ai", "Agents", "bot")),
       ...(this.agentNames.length > 1 ? [agentPick] : []),
     );
     let day = "";
@@ -311,7 +311,7 @@ export class History {
         "span",
         { class: "hist-label-body" },
         el("span", { class: "hist-label-line" }, el("b", {}, m.name), m.current ? el("span", { class: "hist-label-now" }, "now") : null, this.note ? null : el("span", { class: "hist-note" }, m.path ? displayName(m.path) : "in Trash")),
-        el("span", { class: "hist-meta" }, `Labeled ${labeledBy(m)}`),
+        el("span", { class: "hist-meta" }, `Named ${labeledBy(m)}`),
         m.description ? el("span", { class: "hist-label-desc" }, m.description) : null,
       ),
     );
@@ -370,13 +370,13 @@ export class History {
         icon("label", 15),
         el("b", {}, m.name),
         m.path ? el("button", { type: "button", class: "link-btn", title: "Open this note", onclick: () => this.hooks.open(m.path!) }, displayName(m.path)) : el("span", {}, "in Trash"),
-        el("span", {}, `Labeled ${labeledBy(m)}`),
+        el("span", {}, `Named ${labeledBy(m)}`),
       ),
       el("span", { class: "spacer" }),
       el("label", { class: "hist-compare-label" }, "Compare with ", compare),
       restore,
-      canEdit ? el("button", { type: "button", class: "icon-btn small", title: "Rename", "aria-label": "Rename this label", onclick: () => void this.renameLabel(m) }, icon("edit", 14)) : null,
-      canEdit ? el("button", { type: "button", class: "icon-btn small", title: "Delete this label", "aria-label": "Delete this label", onclick: () => void this.deleteLabel(m) }, icon("trash", 14)) : null,
+      canEdit ? el("button", { type: "button", class: "icon-btn small", title: "Rename", "aria-label": "Rename this version", onclick: () => void this.renameLabel(m) }, icon("edit", 14)) : null,
+      canEdit ? el("button", { type: "button", class: "icon-btn small", title: "Remove this name", "aria-label": "Remove this name", onclick: () => void this.deleteLabel(m) }, icon("trash", 14)) : null,
     ].filter((n): n is HTMLElement => !!n);
     this.summaryEl.replaceChildren(...parts);
   }
@@ -487,7 +487,7 @@ export class History {
       : null;
     // Name the version these changes left the note at ("that one was the good one").
     const label = r.after !== null && r.op !== "delete" && !isAsset(f.path) && !this.hooks.readOnly
-      ? el("button", { type: "button", class: "hist-restore", title: "Give the version right after these changes a name, to come back to", onclick: () => void labelVersion(f.path, { toast: this.hooks.toast }, r.to).then((l) => l && this.afterLabel(l)) }, icon("label", 13), "Label this version…")
+      ? el("button", { type: "button", class: "hist-restore", title: "Give the version right after these changes a name, to come back to", onclick: () => void labelVersion(f.path, { toast: this.hooks.toast }, r.to).then((l) => l && this.afterLabel(l)) }, icon("label", 13), "Name this version…")
       : null;
     restore?.addEventListener("click", async () => {
       const res = await api.restore(r.from).catch(() => null);
