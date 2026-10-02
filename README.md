@@ -45,7 +45,7 @@ Everything the MCP tools do, from a shell, for scripts, agents and you: `bin/com
 - Content comes from stdin with `-`, or piped in. `--base <version>` (from `commonink read`) makes `edit`, `append`, `write` and `restore` refuse a note that changed since.
 - `COMMONINK_AGENT=<name>` (or `--agent`) attributes writes to that agent, "<agent> for you" in History.
 - `commonink upload` and `commonink download` move files in and out; they're CLI-only, since MCP tools carry text.
-- `commonink import` brings many notes in at once: `.md` files, a folder, or a `.zip` (an Obsidian vault, an export), folders and pictures kept. Over MCP, `import_notes` takes up to 2000 notes as path → markdown in one call.
+- `commonink import` brings many notes in at once: `.md` files, a folder, or a `.zip` (an Obsidian vault, an export), folders and pictures kept. Other apps' exports are converted (`src/core/convert.ts`): a Notion export loses the ids in its names and links, Evernote `.enex` files become notes with their tags, dates and pictures, and `--from apple-notes` makes Apple Notes' HTML or text into markdown (`osascript -l JavaScript scripts/export-apple-notes.js` saves every note first). The app's **Import notes…** and **Import from Apple Notes…** do the same. Over MCP, `import_notes` takes up to 2000 notes as path → markdown in one call.
 - `commonink completion bash|zsh|fish` prints a completion script: `source <(commonink completion zsh)`.
 - Packaged for npm as `commonink` (`npx commonink …`, or `npm i -g commonink` for `commonink`), built into one file by `npm run build:cli`. Installed that way, the vault is `$COMMONINK_VAULT` or `~/Common Ink`.
 
