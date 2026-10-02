@@ -28,6 +28,7 @@ const app = (over: Partial<App> = {}): App => {
     folds: 0,
     tag: null,
     notesFiltered: false,
+    renames: null,
     account: [],
     newNote: run("newNote"),
     newFromTemplate: run("newFromTemplate"),
@@ -69,7 +70,9 @@ const app = (over: Partial<App> = {}): App => {
     shortcuts: run("shortcuts"),
     share: run("share"),
     copyLink: run("copyLink"),
+    replaceAcross: run("replaceAcross"),
     exportAs: (how) => void ran.push(`export:${how}`),
+    saveToDrive: run("saveToDrive"),
     exportWorkspace: run("exportWorkspace"),
     importNotes: run("importNotes"),
     settings: run("settings"),
@@ -111,12 +114,15 @@ test("commands follow the app: vim's state, the open note, Getting started, and 
   assert.deepEqual(titles("star", app({ note: { kind: "md", starred: true, archived: false } })).slice(0, 2), ["Star or unstar a tag…", "Unstar note"]);
   assert.deepEqual(titles("html", app({ note: { kind: "html", starred: false, archived: false }, htmlMode: "preview" })), ["Show HTML source", "Share…"]);
   assert.deepEqual(titles("go back", app()), [], "nowhere to go back to");
-  assert.deepEqual(titles("rename", app()), ["Rename tag…", "Go to Tags"], "no note to rename");
-  assert.deepEqual(titles("rename", app({ note: { kind: "md", starred: false, archived: false }, canDelete: false })), ["Go to Tags"], "a viewer can't rename");
-  const rename = matchCommands("rename", appCommands(app({ note: { kind: "html", starred: false, archived: false } })));
-  assert.deepEqual(rename.map((c) => c.title), ["Rename tag…", "Rename note…", "Go to Tags"]);
-  rename[1].ask!();
+  assert.deepEqual(titles("rename", app()), ["Rename a tag…", "Go to Tags"], "nothing showing to rename, but a tag can be picked");
+  assert.deepEqual(titles("rename", app({ renames: "note", canDelete: false })), ["Go to Tags"], "a viewer can't rename");
+  const rename = matchCommands("rename", appCommands(app({ renames: "note" })));
+  assert.deepEqual(rename.map((c) => c.title), ["Rename note…", "Rename a tag…", "Go to Tags"]);
+  assert.deepEqual(rename[0].keys, ["F2"]);
+  rename[0].ask!();
   assert.equal(ran.at(-1), "rename");
+  // One Rename… for whatever is showing: Notes narrowed to a folder renames the folder, and so on.
+  for (const what of ["folder", "tag", "smart folder", "file"] as const) assert.ok(titles("rename", app({ renames: what })).includes(`Rename ${what}…`));
   const moving = appCommands(app({ canBack: true, canForward: true, onLink: true, note: { kind: "md", starred: false, archived: false } })).filter((c) => ["back", "forward", "follow-link"].includes(c.id));
   assert.deepEqual(moving.map((c) => [c.title, c.keys?.[0]]), [["Go back", "Mod-["], ["Go forward", "Mod-]"], ["Follow link", undefined]]);
   moving.forEach((c) => c.run!());
@@ -143,7 +149,7 @@ test("the sheet lists each area's shortcuts, the commands' included, whether or 
   const global = sheet.find((s) => s.area === "Global")!.shortcuts;
   assert.deepEqual(global.slice(0, 2).map((s) => s.keys), [["Mod-p", "Mod-k"], ["Mod-Shift-p"]]);
   assert.deepEqual(global.find((s) => s.label === "Archive note")?.keys, ["Mod-Shift-e"]);
-  assert.deepEqual(sheet.find((s) => s.area === "Split view")!.shortcuts.find((s) => s.label === "Open to the side")?.keys, ["Mod-Alt-\\"]);
+  assert.deepEqual(sheet.find((s) => s.area === "Split view")!.shortcuts.find((s) => s.label === "Open split view")?.keys, ["Mod-Alt-\\"]);
 });
 
 // ------------------------------------------------------------------ the palette and the sheet, in a page
@@ -427,7 +433,9 @@ test("the tag in view can be starred and renamed from the palette, or a tag pick
   assert.deepEqual(titles("star tag", app()).slice(0, 1), ["Star or unstar a tag…"]);
   assert.deepEqual(titles("star", app({ tag: { name: "work", starred: false } })).filter((t) => t.includes("#")), ["Star #work"]);
   assert.deepEqual(titles("unstar", app({ tag: { name: "work", starred: true } })).slice(0, 1), ["Unstar #work"]);
-  assert.deepEqual(titles("rename tag", app({ tag: { name: "work", starred: false } })).slice(0, 1), ["Rename #work…"]);
+  // With a tag in view, Rename… renames it; Rename tag… (pick one) steps aside.
+  assert.deepEqual(titles("rename", app({ tag: { name: "work", starred: false }, renames: "tag" })).filter((t) => t.startsWith("Rename")), ["Rename tag…"]);
+  assert.equal(matchCommands("rename", appCommands(app({ tag: { name: "work", starred: false }, renames: "tag" }))).find((c) => c.title === "Rename tag…")!.id, "rename");
   assert.deepEqual(titles("rename tag", app({ canDelete: false })).filter((t) => t.startsWith("Rename")), []);
 });
 
@@ -438,7 +446,7 @@ test("saving filters as a smart folder is offered only when Notes has filters on
 
 test("a note can go back to a labeled version, and archive turns into unarchive on an archived note", () => {
   const note = { kind: "md" as const, starred: false, archived: true };
-  assert.deepEqual(titles("restore version", app({ note })).slice(0, 1), ["Restore to a version…"]);
+  assert.deepEqual(titles("restore version", app({ note })).slice(0, 1), ["Restore to a named version…"]);
   assert.deepEqual(titles("restore version", app({ note, canDelete: false })).filter((t) => t.startsWith("Restore")), []);
   assert.deepEqual(titles("unarchive", app({ note })).slice(0, 1), ["Unarchive note"]);
 });
@@ -473,6 +481,10 @@ const IN_PALETTE: Record<string, string> = {
   "contacts import": "import-contacts",
   tags: "go:tags",
   "tag rename": "rename-tag",
+  "folder rename": "rename",
+  replace: "replace-across",
+  checkup: "go:checkup",
+  "save-to-drive": "save-to-drive",
   "smart-save": "save-filters",
   star: "star",
   unstar: "star",

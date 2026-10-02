@@ -102,6 +102,11 @@ test("tasks lists open tasks, and task changes one's tokens or ticks it", () => 
   commonink(vault, ["task", "Roadmap", "8", "--due", "none", "--assignee", "none", "--done"]);
   assert.match(fs.readFileSync(path.join(vault, "Projects/Roadmap.md"), "utf8"), /\n- \[x\] Ship the importer done:\d{4}-\d{2}-\d{2}\n/);
   assert.equal(commonink(vault, ["task", "Roadmap", "3"]).stderr, "There's no task on line 3 of Roadmap\n");
+  // --done-date lists what was ticked in that span, done tasks without --all.
+  assert.match(commonink(vault, ["tasks", "--done-date", ">=-7d"]).stdout, /^- \[x\] Ship the importer done:/);
+  assert.equal(commonink(vault, ["tasks", "--done-date", ">=+1d"]).stdout, commonink(vault, ["tasks", "--done-date", "<-7d"]).stdout);
+  assert.equal(commonink(vault, ["tasks", "--priority", "high", "--all"]).stdout, "No tasks match.\n");
+  assert.match(commonink(vault, ["tasks", "--due", ">=today <=soon"]).stderr, /^Bad due filter ">=today <=soon": use today, tomorrow/);
 });
 
 test("board shows a note's boards, and card adds, moves and edits cards", () => {
