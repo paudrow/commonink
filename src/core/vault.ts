@@ -2075,7 +2075,8 @@ export class Vault {
     }
     if (dest === from) return { path: dest, from, version: this.meta(from)?.version ?? "", change: null, updated: [] as string[], edits: [] };
     // On a case-insensitive disk, "notes.md" is there when renaming "Notes.md" to it: the same file.
-    const caseOnly = dest.toLowerCase() === from.toLowerCase() && !this.meta(dest);
+    // On a case-sensitive one it can be another file, not yet indexed, that the rename would replace.
+    const caseOnly = dest.toLowerCase() === from.toLowerCase() && this.files.same(from, dest);
     if (!caseOnly && this.files.stat(dest)) throw new VaultError(`${dest} already exists`, "exists");
     // Read before it moves: after, a name can lead to another note. Its own links to itself
     // ([[Guide#Setup]] in Guide) move with it.

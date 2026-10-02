@@ -129,6 +129,14 @@ export class FsContent implements Content {
       return null;
     }
   }
+  same(a: string, b: string) {
+    try {
+      const [x, y] = [a, b].map((rel) => fs.statSync(this.abs(rel)));
+      return x.dev === y.dev && x.ino === y.ino;
+    } catch {
+      return false;
+    }
+  }
   list() {
     const out: Array<{ path: string } & FileStat> = [];
     const walk = (dir: string) => {

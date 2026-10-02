@@ -26,6 +26,8 @@ export interface Content {
   remove(rel: string): void;
   rename(from: string, to: string): void;
   stat(rel: string): FileStat | null;
+  /** Whether two paths name one existing file (on a case-insensitive disk, "Notes.md" and "notes.md" do). */
+  same(a: string, b: string): boolean;
   /** Every note and asset, hidden paths excluded. */
   list(): Array<{ path: string } & FileStat>;
   /** Every file under the folder `dir`, hidden or not (Trash lives in one). */
