@@ -400,6 +400,17 @@ test("an endless rule over a long window returns promptly and capped", () => {
   assert.ok(neverMs < 500, `took ${neverMs}ms`);
 });
 
+test("a VTIMEZONE of many long-ended rules returns promptly and keeps their last offset", () => {
+  const block = ["BEGIN:STANDARD", "DTSTART:16010101T000000", "TZOFFSETFROM:+0000", "TZOFFSETTO:+0100", "RRULE:FREQ=DAILY;UNTIL=20200101T000000Z", "END:STANDARD"];
+  const zone = ["BEGIN:VTIMEZONE", "TZID:Evil", ...Array.from({ length: 100 }, () => block).flat(), "END:VTIMEZONE"];
+  const text = cal(...zone, event("UID:e", "DTSTART;TZID=Evil:20261005T100000", "RRULE:FREQ=MONTHLY"));
+  let events: Occurrence[] = [];
+  const ms = cpuMs(() => (events = read(text, "2025-10-01T00:00:00Z", "2028-10-01T00:00:00Z")));
+  assert.equal(events.length, 24);
+  assert.equal(events[0].start, "2026-10-05T09:00:00Z");
+  assert.ok(ms < 500, `took ${ms}ms`);
+});
+
 test("garbage doesn't throw and keeps what's valid", () => {
   const good = event("UID:good", "SUMMARY:Good", "DTSTART:20261005T150000Z");
   assert.deepEqual(read("not a calendar"), []);
