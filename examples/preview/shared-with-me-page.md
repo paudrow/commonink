@@ -1,4 +1,5 @@
 ---
+pr: 262
 title: Shared with me looks like the other pages
 ---
 This Preview shares [[Plan for Sam]] (editor), [[Read only for Sam]] (viewer) and the folder **Shared folder** with a second person, Sam Dev.
