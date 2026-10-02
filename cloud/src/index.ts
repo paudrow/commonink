@@ -16,7 +16,7 @@ import { acceptInvite, inviteInfo, createWorkspace, endSessionsOf, locateNote, m
 import { timeZoneNamed } from "../../src/core/tasks.ts";
 import type { Env } from "./env.ts";
 import { fetchAsset, secure } from "./headers.ts";
-import { limit, limited } from "./limits.ts";
+import { limit, limited, ROUTE_LIMITS } from "./limits.ts";
 import { connectionInfo, disconnectGoogle, googleApi, googleAuth, googleMode } from "./connections.ts";
 
 export { Workspace } from "./workspace.ts";
@@ -208,12 +208,9 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
   const settings = await adminRoute(req, env, url, user, ws, route, () => body(req));
   if (settings) return settings;
 
-  if (isUpload) {
-    const tooMany = await limit(env.DB, "upload", user.id);
-    if (tooMany) return tooMany;
-  }
-  if (req.method === "POST" && (route === "/calendar/sources" || route === "/calendar/refresh")) {
-    const tooMany = await limit(env.DB, "calendar", user.id);
+  const limited = ROUTE_LIMITS[`${req.method} ${route}`];
+  if (limited) {
+    const tooMany = await limit(env.DB, limited, user.id);
     if (tooMany) return tooMany;
   }
 

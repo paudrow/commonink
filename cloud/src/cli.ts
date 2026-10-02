@@ -10,7 +10,7 @@ import { CLI_ROUTE, fromWire, toWire, type RunRequest, type RunResponse } from "
 import { access } from "./access.ts";
 import { adminRoute } from "./admin.ts";
 import { getUser, timeZoneFor, workspacesOf, type User, type WorkspaceRef } from "./directory.ts";
-import { limit } from "./limits.ts";
+import { limit, ROUTE_LIMITS } from "./limits.ts";
 import type { AgentProps, OAuthEnv } from "./agents.ts";
 
 /** A grant for every workspace the person is in (the CLI asks for it with the `workspaces` scope). */
@@ -39,8 +39,9 @@ export async function serveCli(req: Request, env: OAuthEnv, props: AgentProps): 
   if (access(ws.role, ...(command.route.split(" ") as [string, string])) !== "allowed") {
     return fail(ws.role === "viewer" ? `You can view ${ws.name} but not edit it` : "Only the workspace's owner can do that", "forbidden");
   }
-  if (command.cli === "upload") {
-    const tooMany = await limit(env.DB, "upload", user.id);
+  const limited = ROUTE_LIMITS[command.route];
+  if (limited) {
+    const tooMany = await limit(env.DB, limited, user.id);
     if (tooMany) return tooMany;
   }
   if (command.settings) {
@@ -57,7 +58,11 @@ export async function serveCli(req: Request, env: OAuthEnv, props: AgentProps): 
       throw e;
     }
   }
-  const agent = typeof body.agent === "string" && body.agent.trim() ? body.agent.trim().slice(0, 40) : null;
+  // A grant for one workspace is an MCP client's (or an app's that asked for one): what it writes is
+  // that client's, by the name it registered, whatever it says. Only the CLI's grant for every workspace
+  // writes as its person, or names the agent writing for them.
+  const named = typeof body.agent === "string" && body.agent.trim() ? body.agent.trim().slice(0, 40) : null;
+  const agent = props.workspaceId === ALL_WORKSPACES ? named : props.client;
   const actor = agent ? agentSource(agent, user.name) : user.name;
   const stub = env.WORKSPACE.get(env.WORKSPACE.idFromName(ws.id));
   const out = await stub.runCommand(command.cli, fromWire(body.input) as Record<string, unknown>, {

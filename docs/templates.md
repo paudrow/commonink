@@ -27,7 +27,8 @@ In a note under `Templates/`, type `{{` for a menu of placeholders.
 | `MM` | 09 | `mm` | 05 |
 | `M` | 9 | `m` | 5 |
 | `DD` | 09 | `ss` | 00 |
-| `D` | 9 | `s` | 0 |
+| `Do` | 9th | `s` | 0 |
+| `D` | 9 | | |
 | `dddd` | Tuesday | `A` | PM |
 | `ddd` | Tue | `a` | pm |
 
