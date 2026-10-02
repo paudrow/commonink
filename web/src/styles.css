@@ -1768,6 +1768,9 @@ a.gh-card:hover { border-color: var(--line-strong); }
 .acct-item { display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 8px; border-radius: 7px; font-size: 13px; color: var(--ink-2); text-align: left; }
 .acct-item:hover { background: var(--hover); color: var(--ink-strong); }
 .acct-item svg { color: var(--muted); flex: none; }
+.acct-item kbd { margin-left: auto; }
+.sidebar-foot .nav-item { width: 100%; }
+.sidebar-foot .nav-item kbd.n { font-weight: 500; }
 .acct-item.is-current { color: var(--accent-ink); font-weight: 600; }
 .acct-item.is-current svg { color: var(--accent); }
 .acct-sep { height: 1px; background: var(--line); margin: 6px 2px; }
