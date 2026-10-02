@@ -5,6 +5,7 @@ import path from "node:path";
 import { cleanPath } from "../src/core/paths.ts";
 import { openVault } from "../src/core/local.ts";
 import { openTempVault } from "./helpers.ts";
+import { parseQuery } from "../src/core/query.ts";
 import type { Favorite, NoteMeta } from "../src/core/vault.ts";
 
 const notesOf = (list: Favorite[]) => list.map((n) => (n as NoteMeta).path);
@@ -50,6 +51,18 @@ test("a path typed in another case is the note's own path, not a second note", (
   assert.deepEqual(vault.list(undefined, "all").map((n) => n.path), ["assets/chart.svg", "Dashboards/Stats.html", "Projects/Roadmap.md", "Welcome.md"]);
   assert.deepEqual(vault.tasks().map((t) => `${t.path}:${t.text}`), ["Projects/Roadmap.md:Ship it", "Projects/Roadmap.md:Write the parser"]);
   assert.deepEqual(vault.changes().map((c) => c.path), ["Projects/Roadmap.md"]);
+});
+
+test("renaming a note to another case never replaces a different file with that name", () => {
+  const { dir, vault } = openTempVault({ "Notes.md": "# Mine\nimportant" });
+  vault.move("Notes.md", "NOTES.md", "t");
+  assert.equal(vault.read("NOTES.md").path, "NOTES.md");
+  const sensitive = !fs.existsSync(path.join(dir, "notes.md"));
+  if (!sensitive) return; // on a case-insensitive disk the two names are one file
+  fs.writeFileSync(path.join(dir, "notes.md"), "# Other\nexternal data");
+  assert.throws(() => vault.move("NOTES.md", "notes.md", "t"), /already exists/);
+  assert.equal(fs.readFileSync(path.join(dir, "notes.md"), "utf8"), "# Other\nexternal data");
+  assert.equal(fs.readFileSync(path.join(dir, "NOTES.md"), "utf8"), "# Mine\nimportant");
 });
 
 test("a file named in decomposed Unicode is the note a link or path in composed Unicode means", () => {
@@ -159,7 +172,7 @@ test("renaming a note can change just the case of its name", () => {
 test("creating a second top-level note with the same title leaves the first as it was", () => {
   const { dir, vault } = openTempVault({});
   vault.create("Idea", "# Idea\n\nThe first one.\n", "t");
-  assert.throws(() => vault.create("Idea", "# Idea\n\nThe second one.\n", "t"), /Idea\.md already exists; use edit_note instead/);
+  assert.throws(() => vault.create("Idea", "# Idea\n\nThe second one.\n", "t"), /Idea\.md already exists\. To replace it, create it again with overwrite/);
   assert.equal(fs.readFileSync(path.join(dir, "Idea.md"), "utf8"), "# Idea\n\nThe first one.\n");
   assert.deepEqual(vault.list().map((n) => n.path), ["Idea.md"]);
 });
@@ -722,6 +735,24 @@ test("smart folders are saved queries, shared with the workspace or one person's
   assert.deepEqual(vault.deleteSmartFolder("ana", "client work", true), []);
 });
 
+test("a smart folder can need several tags, a folder with spaces, and sort by each note's own date", () => {
+  const { vault } = openTempVault({});
+  vault.create("Health and Fitness/Run log", "---\ndate: 2024-03-01\n---\n# Run log\n\n#health #journal\n", "t");
+  vault.create("Health and Fitness/2025-06-10 Swim", "# Swim\n\n#health #journal\n", "t");
+  vault.create("Health and Fitness/Gym plan", "---\ncreated: 2023-01-05\n---\n# Gym plan\n\n#health\n", "t");
+  vault.create("Journal/2024-12-24", "#journal/daily\n", "t");
+  const both = vault.saveSmartFolder("ana", { name: "Health journal", query: "tag=health tag=journal sort=date", shared: true }, true);
+  assert.equal(both.query, 'tag="health,journal" sort=date');
+  assert.equal(both.count, 2);
+  const titles = (query: string) => vault.feed({ ...parseQuery(query), limit: 50 }).items.map((i) => i.title);
+  assert.deepEqual(titles(both.query), ["Swim", "Run log"]);
+  assert.deepEqual(titles("folder=Health and Fitness sort=oldest"), ["Gym plan", "Run log", "Swim"]);
+  // A nested tag counts toward its parent, as it does for one tag.
+  assert.deepEqual(titles("tag=journal sort=date"), ["Swim", "2024-12-24", "Run log"]);
+  assert.equal(vault.saveSmartFolder("ana", { name: "Health", query: 'folder="Health and Fitness"', shared: true }, true).count, 3);
+  assert.deepEqual(vault.list(undefined, "active", "health,journal").map((n) => n.title), ["Swim", "Run log"]);
+});
+
 test("starring and unstarring a tag only touches Favorites, never a smart folder with that tag's query", () => {
   const { vault } = openTempVault(TAGGED);
   const folder = vault.saveSmartFolder("ana", { name: "Billing", query: "tag=billing", shared: false }, true);
@@ -739,6 +770,12 @@ test("a smart folder name means your own before a shared one, a saved query keep
   assert.throws(() => vault.saveSmartFolder("bo", { name: "x".repeat(81), query: "", shared: false }, true), /80 characters/);
   for (let i = 0; i < 50; i++) vault.saveSmartFolder("cy", { name: `f${i}`, query: "", shared: false }, true);
   assert.throws(() => vault.saveSmartFolder("cy", { name: "one more", query: "", shared: false }, true), /50 smart folders/);
+});
+
+test("an index from before note dates learns each note's date on the next start", () => {
+  const { dir, vault } = openTempVault({ "Old.md": "---\ndate: 2020-02-02\n---\n# Old\n", "New.md": "---\ndate: 2025-05-05\n---\n# New\n" });
+  vault.db.exec("ALTER TABLE notes DROP COLUMN date");
+  assert.deepEqual(openVault(dir).feed({ sort: "oldest" }).items.map((i) => i.title), ["Old", "New"]);
 });
 
 test("an index from before tags learns every note's tags on the next start", () => {
