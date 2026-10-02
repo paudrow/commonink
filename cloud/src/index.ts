@@ -17,6 +17,7 @@ import { timeZoneNamed } from "../../src/core/tasks.ts";
 import type { Env } from "./env.ts";
 import { fetchAsset, secure } from "./headers.ts";
 import { limit } from "./limits.ts";
+import { landingPage } from "./landing.ts";
 import { connectionInfo, disconnectGoogle, googleApi, googleAuth, googleMode } from "./connections.ts";
 
 export { Workspace } from "./workspace.ts";
@@ -67,6 +68,8 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
   }
   // A share the service worker didn't catch (it wasn't set up yet): the capture screen says so.
   if (url.pathname === "/share" && req.method === "POST") return Response.redirect(new URL("/capture?share=none", url).href, 303);
+  // The front page: what Common Ink is, for anyone not signed in; the app for everyone who is.
+  if (url.pathname === "/" && (req.method === "GET" || req.method === "HEAD") && !(await readSessionOf(req, env))) return landingPage(url, env.DEV_LOGIN === "1");
   return fetchAsset(env.ASSETS, req, url);
 }
 
