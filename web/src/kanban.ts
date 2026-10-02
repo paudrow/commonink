@@ -319,7 +319,7 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
           "div",
           { class: "kb-actions" },
           act("edit", "Edit (Enter)", () => openEdit(c, i, card)),
-          link ? act("split", "Open to the side", () => host.ctx.openTarget(link.target, host.path, { side: true })) : act("file", "Open as note", () => void openAsNote(c, i, card.text)),
+          link ? act("split", "Open in split view", () => host.ctx.openTarget(link.target, host.path, { side: true })) : act("file", "Open as note", () => void openAsNote(c, i, card.text)),
           act("trash", "Delete (⌫)", () => remove(c, i, card.text)),
         );
     const node = el(
