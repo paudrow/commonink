@@ -1,6 +1,8 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { startCloud, team, type Cloud } from "./cloud.ts";
+import { readUpTo } from "../cloud/src/body.ts";
+import { MAX_UPLOAD } from "../src/core/paths.ts";
 
 let cloud: Cloud;
 before(async () => (cloud = await startCloud()));
@@ -52,4 +54,30 @@ test("OAuth client registrations are limited per network address", async () => {
       body: JSON.stringify({ client_name: "Spam", redirect_uris: ["http://127.0.0.1:9/cb"], token_endpoint_auth_method: "none" }),
     });
   assert.equal(await statuses(21, register), "201×20, 429×1");
+});
+
+/** A body sent without a length: `mb` megabytes, then the end, or (with `forever`) nothing more, ever. */
+function chunked(mb: number, forever = false) {
+  const chunk = new Uint8Array(1024 * 1024).fill(120);
+  let sent = 0;
+  return new ReadableStream<Uint8Array>({ pull: (c) => (sent++ < mb ? c.enqueue(chunk) : forever ? new Promise(() => {}) : c.close()) });
+}
+
+test("an upload is counted as it arrives, so one without a length stops at 50 MB", async () => {
+  const post = (body: ReadableStream<Uint8Array>) => new Request("https://workspace/upload", { method: "POST", body, duplex: "half" } as never);
+  // Reading all of a body that never ends before checking its size would never finish.
+  const stillReading = new Promise((r) => setTimeout(r, 5000, "still reading").unref());
+  assert.equal(await Promise.race([readUpTo(post(chunked(51, true)), MAX_UPLOAD), stillReading]), null);
+  assert.equal((await readUpTo(post(chunked(50)), MAX_UPLOAD))?.byteLength, MAX_UPLOAD);
+
+  const me = await cloud.signIn("streamer");
+  const { id } = await cloud.call(me, "POST", "/api/workspaces", { name: "Streams" });
+  const upload = (name: string, body: ReadableStream<Uint8Array>) =>
+    cloud.server.fetch(new URL(`/api/w/${id}/upload?name=${name}`, cloud.origin), { method: "POST", headers: { cookie: me, origin: cloud.origin }, body, duplex: "half" } as never);
+  const small = await upload("small.txt", chunked(1));
+  assert.equal(small.status, 200);
+  assert.equal(((await small.json()) as { size: number }).size, 1024 * 1024);
+  const big = await upload("big.txt", chunked(51));
+  assert.equal(big.status, 413);
+  assert.deepEqual(await big.json(), { error: "That file is over 50 MB" });
 });
