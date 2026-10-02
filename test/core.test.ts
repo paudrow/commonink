@@ -662,9 +662,19 @@ test("tasks carry their tokens, filter by due date and person, and ticking one s
   assert.deepEqual(vault.tasks({ due: "<=today", today: "2026-10-03" }).map((t) => t.summary), ["Send invoice", "Draft the deck"]);
   assert.deepEqual(vault.tasks({ assignee: "@Sam" }).map((t) => t.summary), ["Draft the deck"]);
   assert.throws(() => vault.tasks({ due: "soon" }), /due filter/);
+  // Ranges, spans from today, priority, and the other dates.
+  assert.deepEqual(vault.tasks({ due: ">=today <=+7d" }).map((t) => t.summary), ["Draft the deck"]);
+  assert.deepEqual(vault.tasks({ priority: "high" }).map((t) => t.summary), ["Send invoice"]);
+  assert.deepEqual(vault.tasks({ priority: "none" }).map((t) => t.summary), ["Draft the deck", "Someday"]);
+  assert.deepEqual(vault.tasks({ start: "<=today" }), []);
+  assert.throws(() => vault.tasks({ priority: "urgent" }), /priority filter/);
+  assert.throws(() => vault.tasks({ done: ">=last week" }), /Bad done filter/);
 
   vault.setTask("Plan", 3, invoice.text, true, "t");
   assert.equal(fs.readFileSync(path.join(dir, "Plan.md"), "utf8").split("\n")[2], "- [x] Send invoice due:2026-09-30 @jane !high #billing done:2026-10-01");
+  // What was done in the last week: a weekly review.
+  assert.deepEqual(vault.tasks({ done: ">=-7d" }).map((t) => t.summary), ["Send invoice"]);
+  assert.deepEqual(vault.tasks({ done: ">=-7d", today: "2026-10-09" }), []);
   now += 86_400_000;
   vault.setTask("Plan", 3, vault.tasks()[0].text, false, "t");
   assert.equal(fs.readFileSync(path.join(dir, "Plan.md"), "utf8").split("\n")[2], "- [ ] Send invoice due:2026-09-30 @jane !high #billing");
@@ -721,7 +731,7 @@ test("today is overdue, due today and starting today, in sections, with today's 
   assert.throws(() => vault.today("Monday"), /"today" must be a date/);
 });
 
-test("today's journal note is made from Templates/Daily note.md, or a plain one without it", () => {
+test("today's journal note is made from Templates/Journal.md, else its old name Daily note.md, else a plain one", () => {
   const { dir, vault } = openTempVault({ "Welcome.md": "# Welcome\n" });
   const read = (p: string) => fs.readFileSync(path.join(dir, p), "utf8");
   const plain = vault.dailyNote("2026-09-28", "t");
@@ -737,6 +747,11 @@ test("today's journal note is made from Templates/Daily note.md, or a plain one 
   // Quick-add into a day with no note yet uses the same template.
   vault.addTask("Stretch", "t", { today: "2026-09-30" });
   assert.equal(read("Journal/2026-09-30.md"), "# 2026-09-30\n\n## Plan\n\n## Tasks\n\n- [ ] Stretch\n\n## Notes\n");
+  // Templates/Journal.md wins over the old name when both are there.
+  fs.writeFileSync(path.join(dir, "Templates/Journal.md"), "# {{date}}\n\n## Journal\n");
+  vault.sync();
+  vault.dailyNote("2026-10-01", "t");
+  assert.equal(read("Journal/2026-10-01.md"), "# 2026-10-01\n\n## Journal\n");
 });
 
 test("quick-add can go to a note it's given, and removing a task takes it (and what's nested) back out", () => {

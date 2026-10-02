@@ -66,4 +66,4 @@ Off a Mac, read `⌘` as `Ctrl`. Press `?` for every shortcut.
 - Vim keys: turn them on in Settings (`⌘,`) or with "Turn vim keys on" in `⌘⇧P`
 - `/` inserts tools and widgets, `@` links a note, `[[` completes note names
 - `gd` follows the link under the cursor (vim), `:w` saves, `:e name` opens a note
-- `⌘\` toggles the side panel; `⌘E` flips an HTML note between preview and source
+- `⌘\` toggles the info panel (outline, backlinks and activity); `⌘E` flips an HTML note between preview and source

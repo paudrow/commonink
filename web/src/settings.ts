@@ -3,7 +3,7 @@
 // supplies the values and what changing each one does; a change applies at once and the list redraws.
 import { el, icon } from "./dom.ts";
 import { formatKeys } from "./keys.ts";
-import { trapKeys } from "./modal.ts";
+import { openModal } from "./modal.ts";
 import { localSteps } from "./connectAgent.ts";
 import { button } from "./widgets/core.ts";
 import type { OptionalItem } from "./sidebar.ts";
@@ -182,7 +182,7 @@ export function appSettings(app: SettingsApp): Setting[] {
           id: "connect-agent",
           section: "Agents",
           title: "Connect an agent",
-          description: "Let Claude Code, Claude Desktop, Cursor or another MCP client read and edit this vault. Its edits show up here live.",
+          description: "Let Claude Code, Claude Desktop, Cursor or another MCP client read and edit this workspace. Its edits show up here live.",
           keywords: "agent mcp claude cursor connect ai assistant",
           control: { kind: "custom", render: () => localSteps(app.localVault!) },
         }
@@ -316,7 +316,6 @@ export function refreshSettings() {
 /** Open Settings (or, when it's open, go to its search box), with `query` in the search box. */
 export function openSettings(settings: () => Setting[], opts: { query?: string } = {}) {
   if (current) return current.focus();
-  const back = document.activeElement as HTMLElement | null;
   const search = el("input", {
     type: "search",
     class: "st-search",
@@ -352,31 +351,21 @@ export function openSettings(settings: () => Setting[], opts: { query?: string }
     list.querySelector<HTMLElement>("input, select, button, summary")?.focus();
   });
 
-  const close = () => {
-    page.remove();
-    current = null;
-    if (back?.isConnected) back.focus({ preventScroll: true });
-  };
-  const box = el(
-    "div",
-    { class: "st-box", role: "dialog", "aria-modal": "true", "aria-labelledby": "st-title", tabindex: "-1" },
-    el(
-      "div",
-      { class: "st-head" },
-      icon("gear", 16),
-      el("h2", { id: "st-title" }, "Settings"),
-      el("kbd", { class: "st-keys", "aria-hidden": "true" }, formatKeys("Mod-,")),
-      el("button", { class: "icon-btn small", type: "button", "aria-label": "Close", title: "Close (Esc)", onclick: close }, icon("close", 15)),
-    ),
-    el("div", { class: "st-bar" }, search, found),
-    list,
-  );
-  const page = el("div", { id: "settings", onmousedown: (e: Event) => e.target === page && close() }, box);
-  trapKeys(page, box, close);
-  document.body.append(page);
+  openModal({
+    title: "Settings",
+    icon: "gear",
+    head: [el("kbd", { class: "st-keys", "aria-hidden": "true" }, formatKeys("Mod-,"))],
+    content: [el("div", { class: "st-bar" }, search, found), list],
+    id: "settings",
+    pageClass: "",
+    boxClass: "st-box",
+    headClass: "st-head",
+    titleId: "st-title",
+    // On a touch screen, don't bring up the keyboard until you tap the search box.
+    focus: matchMedia("(pointer: coarse)").matches ? undefined : search,
+    onClose: () => (current = null),
+  });
   render();
-  // On a touch screen, don't bring up the keyboard until you tap the search box.
-  (matchMedia("(pointer: coarse)").matches ? box : search).focus();
   current = { focus: () => search.focus(), render: () => render() };
 }
 

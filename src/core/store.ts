@@ -32,6 +32,8 @@ export interface Content {
   list(): Array<{ path: string } & FileStat>;
   /** Every file under the folder `dir`, hidden or not (Trash lives in one). */
   listUnder(dir: string): Array<{ path: string } & FileStat>;
+  /** Take away the folder `dir` and those in it if they hold no files, where folders exist apart from files (on disk). */
+  prune?(dir: string): void;
 }
 
 const SCHEMA = [
