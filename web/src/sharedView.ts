@@ -84,9 +84,11 @@ export async function mountSharedView(where: Where) {
     for (const a of root.querySelectorAll<HTMLAnchorElement>(NOTE_LINKS)) {
       const target = noteTarget(a.getAttribute("href")!)!.split("#")[0];
       const embed = a.textContent?.startsWith("↳ ");
-      const hit = await call<SharedNote | { noAccess: true }>(`${base}/resolve?target=${encodeURIComponent(target)}&from=${note.id}`).catch(() => ({ noAccess: true as const }));
+      const hit = await call<SharedNote | { noAccess: true; busy?: boolean }>(`${base}/resolve?target=${encodeURIComponent(target)}&from=${note.id}`).catch((e) => ({ noAccess: true as const, busy: e instanceof ApiError && e.status === 429 }));
       if ("noAccess" in hit) {
-        a.replaceWith(embed ? noAccess() : el("span", { class: "sv-dead", title: "Not shared with you" }, a.textContent ?? ""));
+        // Too many requests from this network isn't "not shared": say to come back later.
+        const why = hit.busy ? "Couldn't check this link just now. Try again later." : "Not shared with you";
+        a.replaceWith(embed ? (hit.busy ? el("div", { class: "sv-noaccess" }, why) : noAccess()) : el("span", { class: "sv-dead", title: why }, a.textContent ?? ""));
         continue;
       }
       a.href = "link" in where ? `/s/${where.link}?note=${hit.id}` : `/shared/${"workspace" in where ? where.workspace : ""}/${hit.id}`;
