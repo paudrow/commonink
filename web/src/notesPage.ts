@@ -122,8 +122,9 @@ export class NotesPage {
     this.bulk = el("div", { class: "feed-bulk", hidden: true });
     this.list = el("div", { class: "feed-list", role: "list" });
     this.more = el("div", { class: "feed-more" });
-    this.search = el("label", { class: "feed-search" }, icon("search", 16), this.input, el("kbd", {}, "/"));
-    this.filters = el("div", { class: "feed-filters" }, this.scopeBar, this.tagBar, this.folderSel, this.saveBtn, this.sortSel);
+    // The sort sits in the search box, so the filters fit on one row.
+    this.search = el("label", { class: "feed-search" }, icon("search", 16), this.input, this.sortSel, el("kbd", {}, "/"));
+    this.filters = el("div", { class: "feed-filters" }, this.scopeBar, this.tagBar, this.folderSel, this.saveBtn);
     this.keys = el(
       "footer",
       { class: "feed-keys" },

@@ -1322,7 +1322,7 @@ body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .feed-search:focus-within { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
-.feed-search input { flex: 1; border: 0; outline: 0; background: none; font: 15px var(--ui); color: var(--ink-strong); }
+.feed-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font: 15px var(--ui); color: var(--ink-strong); }
 .feed-search input::placeholder { color: var(--muted); }
 .feed-filters { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .qt-select.feed-folder { max-width: 220px; height: 26px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--ink-2); }
@@ -1441,7 +1441,7 @@ body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view
 .toast-body { flex: 1; min-width: 0; }
 .toast-action { font-weight: 650; font-size: 12.5px; color: var(--accent-ink); padding: 5px 10px; border-radius: 7px; margin-left: 4px; }
 .toast-action:hover { background: var(--accent-soft); }
-@media (max-width: 760px) { .feed { padding: 16px 16px 60px; } }
+@media (max-width: 760px) { .feed { padding: 16px 16px 60px; } .feed-search kbd { display: none; } }
 
 /* ------------------------------------------------------------------ tasks widget */
 /* Too narrow for one row, the Open/Done/All toggle drops whole to a second row, still at the right. */
@@ -2206,7 +2206,8 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .sf-just-me input { margin: 0; }
 .sf-just-me .sf-hint { color: var(--muted); font-size: 12px; }
 .sf-editor .qw-config-foot .qw-btn:first-child svg { color: var(--bad); }
-.feed-sort { margin-left: auto; }
+.feed-sort { flex: none; }
+#notes-view[data-tab="trash"] .feed-sort { display: none; }
 
 /* shared settings fields: selects, pickers, and the smart folder editor's live count */
 .qw-select { height: 32px; width: 100%; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-elev); color: var(--ink-strong); padding: 0 8px; font: 14px var(--ui); outline: none; }
