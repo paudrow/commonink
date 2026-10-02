@@ -20,6 +20,7 @@ export const WORKSPACE_ROUTES = {
   "GET /search": "viewer",
   "GET /feed": "viewer",
   "GET /backlinks": "viewer",
+  "GET /links/missing": "viewer",
   "GET /changes": "viewer",
   "GET /changes/agents": "viewer",
   "GET /diffs": "viewer",

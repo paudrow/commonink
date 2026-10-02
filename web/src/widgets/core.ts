@@ -4,6 +4,7 @@
 import type { TagCount } from "../api.ts";
 import { el, icon } from "../dom.ts";
 import { tagPicker } from "../tagPicker.ts";
+import { tagList } from "../../../src/core/query.ts";
 import { formatDuration, parseDuration, serializeDirective } from "./args.ts";
 import type { EditorContext } from "../editor/blocks.ts";
 import { calendars, colorVar } from "../calendar/data.ts";
@@ -254,7 +255,16 @@ export function fieldRows(fields: Field[], values: Record<string, string>, chang
           class: "qw-pick",
           title: "Pick a tag",
           onmousedown: (e: Event) => e.preventDefault(),
-          onclick: () => tagPicker(button, { tags: sources.tags().filter((t) => t.notes > 0), count: (t) => t.notes, onPick: pick }),
+          // A picked tag joins the ones already there: a note needs them all.
+          onclick: () =>
+            tagPicker(button, {
+              tags: sources.tags().filter((t) => t.notes > 0),
+              count: (t) => t.notes,
+              onPick: (t) => {
+                const had = tagList(input.value);
+                pick(had.some((x) => x.replace(/^#/, "").toLowerCase() === t.toLowerCase()) ? input.value : [...had, t].join(", "));
+              },
+            }),
         },
         icon("hash", 13),
       );

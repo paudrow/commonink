@@ -2,6 +2,7 @@
 import { dataFolder } from "../legacy.ts"; // first: it reads the env vars below under their legacy names too
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import fs from "node:fs";
+import { randomBytes } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -91,8 +92,10 @@ export class FsContent implements Content {
   }
   write(rel: string, text: string | Uint8Array): FileStat {
     const abs = this.abs(rel);
-    // Named by the process alone, so a name near the disk's limit still has room for its temp file.
-    const tmp = path.join(path.dirname(abs), `.${process.pid}.tmp`);
+    // Named by the process and a few random bytes, not the note, so a name near the disk's limit still
+    // has room for its temp file. The process ID alone isn't enough: two containers sharing a vault
+    // can both be PID 1, and one's rename would move the other's bytes into its note.
+    const tmp = path.join(path.dirname(abs), `.${process.pid}-${randomBytes(4).toString("hex")}.tmp`);
     onDisk(() => {
       fs.mkdirSync(path.dirname(abs), { recursive: true });
       fs.writeFileSync(tmp, text);
@@ -127,6 +130,14 @@ export class FsContent implements Content {
       return st.isFile() ? { mtime: st.mtimeMs, size: st.size } : null;
     } catch {
       return null;
+    }
+  }
+  same(a: string, b: string) {
+    try {
+      const [x, y] = [a, b].map((rel) => fs.statSync(this.abs(rel)));
+      return x.dev === y.dev && x.ino === y.ino;
+    } catch {
+      return false;
     }
   }
   list() {

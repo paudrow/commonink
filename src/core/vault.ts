@@ -6,17 +6,17 @@ import { chainBefore, dropBefores, readBefore } from "./changeTexts.ts";
 import type { Content, SqlDb } from "./store.ts";
 import { cleanPath, isHidden, kindOf, linkKey, VaultError, stemOf, type NoteKind } from "./paths.ts";
 import { headingName, headingText, mapOutsideCode, proseLines } from "./prose.ts";
-import { extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
+import { dateOf, extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
 import { dueFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
 import { parseQuickAdd } from "./quickAdd.ts";
-import { formatQuery, parseQuery, queryProblem, type NoteQuery } from "./query.ts";
+import { formatQuery, parseQuery, queryProblem, tagList, type NoteQuery } from "./query.ts";
 import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
 import { safeDecode } from "./uri.ts";
 import { AGENTS_NOTE, START_TAG, type NoteRole } from "./noteRoles.ts";
 import {
-  contactFromNote, contactNote, dayOfNote, emptyContact, fillContact, parseContactsCsv, parseVCards, PEOPLE, peopleDirectory, personFor, sameFields, samePerson,
+  checkInDue, checkInEvery, contactFromNote, contactNote, dayOfNote, emptyContact, fillContact, parseContactsCsv, parseVCards, PEOPLE, peopleDirectory, personFor, sameFields, samePerson,
   type Contact, type ContactFields, type ContactInput, type ContactNote, type MemberRef, type TimelineItem,
 } from "./contacts.ts";
 import { cleanTitle, DAILY_TEMPLATE, fillTemplate, localNow, TEMPLATES, templateInfo, type FillOptions, type TemplateInfo } from "./templates.ts";
@@ -76,12 +76,24 @@ export const isTagFavorite = (f: Favorite): f is TagFavorite => "tag" in f;
  */
 const tagKey = (tag: string) => `#${tag}`;
 
+/** Refuse a contact's check-in rhythm that doesn't read as one ("" clears it). */
+function checkRhythm(text: string | undefined) {
+  if (text?.trim() && !checkInEvery(text)) throw new VaultError(`"${text}" isn't a check-in rhythm. Say weekly, every 2 weeks, monthly, every 3 months, 6m or yearly.`);
+}
+
 export interface Backlink {
   path: string;
   title: string;
   kind: string;
   line: number;
   text: string;
+}
+
+/** A link to a note or file that isn't in the vault, and every place that has it. */
+export interface MissingLink {
+  /** What the links say, as the first of them spells it. */
+  target: string;
+  from: Backlink[];
 }
 
 /** Archiving moves a note under Archive/, keeping its original path: Archive/Projects/Old plan.md */
@@ -379,7 +391,7 @@ export class Vault {
   }
 
   /** Today, as YYYY-MM-DD, in this core's time zone. */
-  private day(): string {
+  day(): string {
     return localDate(this.now(), this.timeZone);
   }
 
@@ -436,6 +448,7 @@ export class Vault {
     let version: string;
     let title: string;
     let body = "";
+    let date: string | null = null;
     if (kind === "asset") {
       version = versionOf(`${st.size}:${st.mtime}`);
       title = path.posix.basename(rel);
@@ -444,6 +457,7 @@ export class Vault {
       version = versionOf(content);
       title = titleOf(content, kind, rel);
       body = searchableText(content, kind);
+      date = dateOf(content, kind, rel);
     }
     const known = this.db.get<IndexedRow>("SELECT id, kind, fts FROM notes WHERE path = ?", rel);
     const noteId: string = known?.id ?? id ?? this.renamedId(rel, kind, version, st.size) ?? newNoteId();
@@ -451,10 +465,10 @@ export class Vault {
       this.dropText(rel, known);
       const fts = kind === "asset" ? null : this.db.run("INSERT INTO notes_fts(path, title, body) VALUES (?,?,?)", rel, title, body).lastId;
       this.db.run(
-        `INSERT INTO notes(path, kind, title, stem, version, mtime, size, id, fts) VALUES (?,?,?,?,?,?,?,?,?)
+        `INSERT INTO notes(path, kind, title, stem, version, mtime, size, id, fts, date) VALUES (?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(path) DO UPDATE SET kind=excluded.kind, title=excluded.title, stem=excluded.stem,
-           version=excluded.version, mtime=excluded.mtime, size=excluded.size, fts=excluded.fts`,
-        rel, kind, title, stemOf(rel), version, st.mtime, st.size, noteId, fts,
+           version=excluded.version, mtime=excluded.mtime, size=excluded.size, fts=excluded.fts, date=excluded.date`,
+        rel, kind, title, stemOf(rel), version, st.mtime, st.size, noteId, fts, date,
       );
       this.db.run("DELETE FROM links WHERE src = ?", rel);
       this.db.run("DELETE FROM tags WHERE path = ? AND kind != 'asset'", rel);
@@ -583,8 +597,9 @@ export class Vault {
    */
   list(folder?: string, scope: ArchiveScope = "active", tag?: string): NoteMeta[] {
     let rows = this.db.all<NoteMeta>(`SELECT ${META_COLS} FROM notes ORDER BY path COLLATE NOCASE`);
-    if (tag !== undefined) {
-      const on = new Set(this.tagged(tag).map((r) => r.path));
+    // Several tags (`work,plan`): the notes with every one.
+    for (const t of tag === undefined ? [] : tagList(tag).length ? tagList(tag) : [tag]) {
+      const on = new Set(this.tagged(t).map((r) => r.path));
       rows = rows.filter((r) => on.has(r.path));
     }
     if (!folder) return rows.filter((r) => inScope(r.path, scope));
@@ -709,7 +724,7 @@ export class Vault {
     rows = rows.filter((r) => inScope(r.path, scope));
     const starts = new Set(this.db.all<{ path: string }>("SELECT DISTINCT path FROM tags WHERE tag = ?", START_TAG).map((r) => r.path));
     const roleOf = (p: string): NoteRole | null => (p === AGENTS_NOTE ? "agents" : starts.has(p) && !isArchived(p) ? "start" : null);
-    if (opts.sort !== "title") {
+    if (!opts.sort || opts.sort === "modified") {
       const rank = (p: string) => ({ start: 0, agents: 2, none: 1 })[roleOf(p) ?? "none"];
       rows = [...rows].sort((a, b) => rank(a.path) - rank(b.path));
     }
@@ -758,8 +773,8 @@ export class Vault {
   }
 
   /** Every note (not assets), archived ones included, newest first: what matching() narrows. */
-  private feedRows(): Array<{ id: string; path: string; kind: NoteKind; title: string; mtime: number }> {
-    return this.db.all("SELECT id, path, kind, title, mtime FROM notes WHERE kind != 'asset' ORDER BY mtime DESC");
+  private feedRows(): Array<{ id: string; path: string; kind: NoteKind; title: string; mtime: number; date: string | null }> {
+    return this.db.all("SELECT id, path, kind, title, mtime, date FROM notes WHERE kind != 'asset' ORDER BY mtime DESC");
   }
 
   /** The notes a query matches, archived ones included, in its order. The part of the feed smart folder counts need. */
@@ -772,12 +787,19 @@ export class Vault {
     }
     const home = (p: string) => (isArchived(p) ? p.slice(ARCHIVE.length) : p);
     if (query.folder) rows = rows.filter((r) => home(r.path).startsWith(query.folder!.replace(/\/?$/, "/")));
-    if (query.tag) {
-      const key = normalizeTag(query.tag);
+    // Every tag, each with the tags under it: `work,plan` is the notes with both.
+    for (const tag of tagList(query.tag)) {
+      const key = normalizeTag(tag);
       const on = new Set(key ? this.db.all<{ path: string }>(`SELECT DISTINCT path FROM tags WHERE ${UNDER}`, ...under(key)).map((r) => r.path) : []);
       rows = rows.filter((r) => on.has(r.path));
     }
     if (query.sort === "title") rows = [...rows].sort((a, b) => a.title.localeCompare(b.title));
+    if (query.sort === "date" || query.sort === "oldest") {
+      // A note's own date, else the day it last changed; the same day goes by when it changed.
+      const day = (r: (typeof rows)[number]) => r.date ?? new Date(r.mtime).toISOString().slice(0, 10);
+      const dir = query.sort === "date" ? -1 : 1;
+      rows = [...rows].sort((a, b) => dir * (day(a).localeCompare(day(b)) || a.mtime - b.mtime));
+    }
     return rows;
   }
 
@@ -794,6 +816,35 @@ export class Vault {
     return rows
       .filter((r) => this.linksAt(r.path, r.line, cache).some((l) => linkStem(l.key) === stem && resolve(l.target, r.path) === rel))
       .map((r) => ({ ...r, text: (cache.get(r.path)?.[r.line - 1] ?? "").trim().slice(0, 200) }));
+  }
+
+  /**
+   * Links to notes and files that aren't here: not yet written, deleted, or not brought over in an
+   * import. Grouped by target, the most-linked first. Links in archived notes count only with
+   * `scope` "all"; `folder` narrows it to the notes linking from there.
+   */
+  missingLinks(opts: { folder?: string; scope?: ArchiveScope } = {}): MissingLink[] {
+    const folder = opts.folder ? cleanPath(opts.folder).replace(/\/?$/, "/") : "";
+    const rows = this.db.all<{ path: string; title: string; line: number }>(
+      "SELECT DISTINCT l.src AS path, n.title, l.line FROM links l JOIN notes n ON n.path = l.src ORDER BY n.mtime DESC, l.src, l.line",
+    ).filter((r) => r.path.startsWith(folder) && inScope(r.path, opts.scope ?? "active"));
+    const cache = new Map<string, string[]>();
+    const resolve = this.resolver();
+    const groups = new Map<string, MissingLink>();
+    for (const r of rows) {
+      for (const l of this.linksAt(r.path, r.line, cache)) {
+        const name = l.target.replace(/[#|].*$/, "").trim();
+        // [[#Heading]] is this note; /calendar links open the calendar.
+        if (!name || /^\/?calendar(\/|$)/.test(name) || resolve(l.target, r.path)) continue;
+        const key = linkKey(name);
+        const group = groups.get(key) ?? { target: name, from: [] };
+        groups.set(key, group);
+        if (!group.from.some((f) => f.path === r.path && f.line === r.line)) {
+          group.from.push({ path: r.path, title: r.title, kind: l.kind, line: r.line, text: (cache.get(r.path)?.[r.line - 1] ?? "").trim().slice(0, 200) });
+        }
+      }
+    }
+    return [...groups.values()].sort((a, b) => b.from.length - a.from.length || a.target.localeCompare(b.target));
   }
 
   /**
@@ -1511,7 +1562,7 @@ export class Vault {
     if (!kindOf(rel)) rel += ".md";
     const kind = kindOf(rel);
     if (kind === "asset") throw new VaultError("Only .md and .html notes can be created");
-    if (this.files.stat(rel)) throw new VaultError(`${rel} already exists; use edit_note instead`, "exists", { path: rel });
+    if (this.files.stat(rel)) throw new VaultError(`${rel} already exists. To replace it, create it again with overwrite (--overwrite); to change part of it, use edit_note`, "exists", { path: rel });
     return this.commit(rel, null, content, source, "create");
   }
 
@@ -2076,7 +2127,8 @@ export class Vault {
     }
     if (dest === from) return { path: dest, from, version: this.meta(from)?.version ?? "", change: null, updated: [] as string[], edits: [] };
     // On a case-insensitive disk, "notes.md" is there when renaming "Notes.md" to it: the same file.
-    const caseOnly = dest.toLowerCase() === from.toLowerCase() && !this.meta(dest);
+    // On a case-sensitive one it can be another file, not yet indexed, that the rename would replace.
+    const caseOnly = dest.toLowerCase() === from.toLowerCase() && this.files.same(from, dest);
     if (!caseOnly && this.files.stat(dest)) throw new VaultError(`${dest} already exists`, "exists");
     // Read before it moves: after, a name can lead to another note. Its own links to itself
     // ([[Guide#Setup]] in Guide) move with it.
@@ -2276,23 +2328,25 @@ export class Vault {
   // ---------------------------------------------------------------- contacts
 
   /** Every contact (a note in People/, not archived), by name, with how often and when last other notes mention them. */
-  contacts(): Contact[] {
+  contacts(today = this.day()): Contact[] {
     return this.list(PEOPLE)
       .filter((n) => n.kind === "md")
-      .map((n) => {
-        const mentions = this.mentionsOf(n.path);
-        return { ...contactFromNote(n.path, this.files.read(n.path) ?? ""), id: n.id, mentions: mentions.length, lastContacted: mentions[0]?.date ?? null };
-      })
+      .map((n) => this.contactOf(n.path, n.id, this.mentionsOf(n.path), today))
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
   }
 
   /** One contact and its timeline: the notes that mention them, newest first. */
-  contact(target: string): { contact: Contact; timeline: TimelineItem[] } {
+  contact(target: string, today = this.day()): { contact: Contact; timeline: TimelineItem[] } {
     const rel = this.contactPath(target);
-    const meta = this.meta(rel)!;
     const timeline = this.mentionsOf(rel);
-    const contact = { ...contactFromNote(rel, this.files.read(rel) ?? ""), id: meta.id, mentions: timeline.length, lastContacted: timeline[0]?.date ?? null };
-    return { contact, timeline };
+    return { contact: this.contactOf(rel, this.meta(rel)!.id, timeline, today), timeline };
+  }
+
+  private contactOf(rel: string, id: string, mentions: TimelineItem[], today: string): Contact {
+    if (!isDate(today)) throw new VaultError(`"today" must be a date like 2026-10-01, not "${today}"`);
+    const c = contactFromNote(rel, this.files.read(rel) ?? "");
+    const lastContacted = mentions[0]?.date ?? null;
+    return { ...c, id, mentions: mentions.length, lastContacted, checkInDue: checkInDue(c, lastContacted, today) };
   }
 
   /** The note `target` names, if it's a contact (a note in People/). */
@@ -2323,6 +2377,7 @@ export class Vault {
     const rel = cleanPath(`${PEOPLE}/${name}.md`);
     const taken = this.list(PEOPLE, "all").find((n) => n.path.toLowerCase() === rel.toLowerCase()) ?? (this.files.stat(rel) ? { path: rel } : null);
     if (taken) throw new VaultError(`${taken.path} already exists`, "exists", { path: taken.path });
+    checkRhythm(input.checkIn);
     const fields = { ...emptyContact(name), ...input, name };
     const notes = input.notes?.trim();
     return this.commit(rel, null, contactNote(fields) + (notes ? `\n${notes}\n` : ""), source, "create");
@@ -2331,6 +2386,7 @@ export class Vault {
   /** Change a contact's fields (any of them but its name, which is its note's). Its words and other frontmatter stay. */
   updateContact(target: string, patch: Partial<Omit<ContactFields, "name">>, source: string) {
     const rel = this.contactPath(target);
+    checkRhythm(patch.checkIn);
     const before = this.files.read(rel) ?? "";
     const after = contactNote({ ...contactFromNote(rel, before), ...patch }, before);
     return after === before ? { ...this.meta(rel)!, change: null } : this.commit(rel, before, after, source, "edit");

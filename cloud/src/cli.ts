@@ -57,7 +57,11 @@ export async function serveCli(req: Request, env: OAuthEnv, props: AgentProps): 
       throw e;
     }
   }
-  const agent = typeof body.agent === "string" && body.agent.trim() ? body.agent.trim().slice(0, 40) : null;
+  // A grant for one workspace is an MCP client's (or an app's that asked for one): what it writes is
+  // that client's, by the name it registered, whatever it says. Only the CLI's grant for every workspace
+  // writes as its person, or names the agent writing for them.
+  const named = typeof body.agent === "string" && body.agent.trim() ? body.agent.trim().slice(0, 40) : null;
+  const agent = props.workspaceId === ALL_WORKSPACES ? named : props.client;
   const actor = agent ? agentSource(agent, user.name) : user.name;
   const stub = env.WORKSPACE.get(env.WORKSPACE.idFromName(ws.id));
   const out = await stub.runCommand(command.cli, fromWire(body.input) as Record<string, unknown>, {

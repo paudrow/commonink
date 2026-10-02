@@ -74,6 +74,9 @@ export class SqlContent implements Content {
   stat(rel: string): FileStat | null {
     return this.db.get<FileStat>("SELECT mtime, size FROM files WHERE path = ?", rel) ?? null;
   }
+  same(a: string, b: string) {
+    return a === b && !!this.stat(a);
+  }
   list() {
     return this.db.all<{ path: string } & FileStat>("SELECT path, mtime, size FROM files WHERE path NOT LIKE '.%' AND path NOT LIKE '%/.%'");
   }

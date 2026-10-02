@@ -10,12 +10,8 @@ import { countByDay, daysText, heatmapWeeks, inFolder, level, streakOf, thisWeek
 /** What counts, said once wherever the streak shows. */
 export const COUNTS = "Days you created or edited a note yourself. Agent edits, moves and archiving don't count.";
 
-/**
- * Whether the streak shows at all. A workspace owner will be able to turn the app's rewards off
- * (PR #180's "Unlock as you go" switch, web/src/gamify.ts there); once that's in, this becomes its
- * `gamified()`. Until then the streak always shows.
- */
-export const gamified = () => true;
+/** Whether the streak shows at all: off when a workspace owner turns the app's rewards off (gamify.ts). */
+export { gamified } from "./gamify.ts";
 
 const PAGE = 500;
 /** At most this many pages of the log are read for the 12 weeks; a busier log shows its latest. */
