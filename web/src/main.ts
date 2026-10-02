@@ -2301,9 +2301,16 @@ function openMovePicker(anchor: HTMLElement) {
 
 function setSaveStatus(state: "saved" | "editing" | "saving" | "error") {
   const labels = { saved: "Saved", editing: "Edited", saving: "Saving…", error: "Not saved" };
+  const hints = {
+    saved: "All changes to this note are saved",
+    editing: "Your changes save automatically in a moment",
+    saving: "Saving your latest changes…",
+    error: "Your latest changes aren't saved yet. Keep this tab open: they're retried automatically, or on your next edit",
+  };
   const node = $("#save-status");
   node.dataset.state = state;
   node.textContent = labels[state];
+  node.title = hints[state];
 }
 
 let statusTimer = 0;
