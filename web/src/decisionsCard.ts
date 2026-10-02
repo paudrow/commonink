@@ -1,9 +1,10 @@
 // The Today page's Decisions card: questions agents asked with ask_decision (src/core/decisions.ts),
 // one at a time, each in its own shape: pick one, pick many, yes or no, a choice for each row,
 // pictures side by side, an order, a scale, or words. Every question can be answered in your own
-// words (all but rank and scale), commented on, skipped (S) or not decided. Decide (Enter) writes the
-// answer into today's daily note and brings up the next one. ← and → move between them, back through
-// the ones answered today too, where the answer can be changed (its lines in the note are rewritten).
+// words (all but rank and scale), commented on, or skipped (S) to come back to. Decide (Enter) writes the
+// answer into today's daily note and brings up the next one. ← and → move between all of them, the
+// skipped ones and the ones answered today too, where the answer can be changed (its lines in the note
+// are rewritten).
 // With nothing waiting or answered today the card isn't there at all.
 import { api, assetUrl, type Decision } from "./api.ts";
 import type { DecisionValue } from "../../src/core/decisions.ts";
@@ -81,19 +82,24 @@ export function mountDecisions(host: HTMLElement, page: HTMLElement, hooks: Deci
   let loaded = false;
   /** How many were settled here, so clearing the last one can say so. */
   let settled = 0;
-  /** Skipped for now: shown again once only skipped ones are left, if you ask. */
+  /** Skipped for now: Decide and Skip pass them by, ← and → still reach them. */
   const skipped = new Set<string>();
   const drafts = new Map<string, Draft>();
 
   const isOpen = (d: Decision) => d.status === "open";
   const waiting = () => list.filter((d) => isOpen(d) && !skipped.has(d.id));
-  /** What ← and → step through: today's answered ones, then the open ones not skipped. */
-  const shown = () => list.filter((d) => !isOpen(d) || !skipped.has(d.id));
+  /** What ← and → step through: today's answered ones, then the open ones. */
+  const shown = () => list;
   const current = () => shown()[at] as Decision | undefined;
-  /** The first open one (or the end, with none left). */
-  const firstOpen = () => {
-    const i = shown().findIndex(isOpen);
-    return i < 0 ? shown().length : i;
+  /** The first one waiting (open, not skipped) from `from` on, round to the start; the end with none. */
+  const firstOpen = (from = 0) => {
+    const all = shown();
+    const n = all.length;
+    for (let k = 0; k < n; k++) {
+      const i = (from + k) % n;
+      if (isOpen(all[i]) && !skipped.has(all[i].id)) return i;
+    }
+    return n;
   };
   const sorted = (all: Decision[]) => {
     const day = today();
@@ -149,31 +155,30 @@ export function mountDecisions(host: HTMLElement, page: HTMLElement, hooks: Deci
     if (!d) return;
     if (!isOpen(d)) return go(at + 1);
     skipped.add(d.id);
-    const i = shown().findIndex((x, k) => k >= at && isOpen(x));
-    at = i >= 0 ? i : firstOpen();
+    at = firstOpen(at + 1);
     render();
     focusCard();
   };
 
-  const decide = async (dismiss = false) => {
+  const decide = async () => {
     const d = current();
     if (!d || busy) return;
     const dr = draft(d);
     const value = valueOf(d, dr);
-    if (!dismiss && !value) return;
+    if (!value) return;
     busy = true;
     render();
     const change = !isOpen(d);
     try {
       const comment = dr.comment.trim() || undefined;
-      const done = await api.answerDecision(d.id, dismiss ? { dismiss: true, comment, change } : { value: value!, comment, change });
+      const done = await api.answerDecision(d.id, { value, comment, change });
       settled++;
       drafts.delete(d.id);
       list = sorted(list.map((x) => (x.id === d.id ? done : x)));
       // A new answer brings up the next one waiting; a changed one stays put to see it.
       at = change ? shown().findIndex((x) => x.id === d.id) : firstOpen();
       const said = (done.answer ?? "").length > 60 ? `${done.answer!.slice(0, 57)}…` : done.answer;
-      toast({ icon: "check", text: dismiss ? "Not deciding that one; noted in today's note" : `${change ? "Changed to" : "Decided"}: ${said}`, actionLabel: "Today's note", action: () => done.journal && hooks.open(done.journal) });
+      toast({ icon: "check", text: `${change ? "Changed to" : "Decided"}: ${said}`, actionLabel: "Today's note", action: () => done.journal && hooks.open(done.journal) });
     } catch (e) {
       toast({ text: `Couldn't record that: ${(e as Error).message}` });
       void load();
@@ -191,7 +196,7 @@ export function mountDecisions(host: HTMLElement, page: HTMLElement, hooks: Deci
 
   const countText = () => {
     const n = shown().length;
-    const left = waiting().length;
+    const left = list.filter(isOpen).length;
     return n > 1 && at < n ? `${at + 1} of ${n}${left && left < n ? ` · ${left} left` : ""}` : "";
   };
 
@@ -228,7 +233,7 @@ export function mountDecisions(host: HTMLElement, page: HTMLElement, hooks: Deci
                 "div",
                 { class: "td-clear" },
                 icon("flag", 14),
-                `${later} skipped for now.`,
+                `${later} skipped for now. ← goes back to them.`,
                 el("button", { type: "button", class: "dc-again", onclick: () => (skipped.clear(), (at = firstOpen()), render(), focusCard()) }, "Show them again"),
               ),
             )
@@ -459,7 +464,6 @@ export function mountDecisions(host: HTMLElement, page: HTMLElement, hooks: Deci
             { class: "dc-actions" },
             el("button", { type: "button", class: "qw-btn primary dc-decide", disabled: busy || !valueOf(d, dr), onclick: () => void decide() }, busy ? "Saving…" : open ? "Decide" : "Change answer"),
             open ? el("button", { type: "button", class: "qw-btn", title: "Leave it for later (S)", onclick: skip }, "Skip") : "",
-            d.status === "dismissed" ? "" : el("button", { type: "button", class: "dc-dismiss", title: "Close it without an answer; today's note says you didn't decide", onclick: () => void decide(true) }, "Not deciding"),
             el("span", { class: "dc-hint" }, hint),
           ),
         ),
