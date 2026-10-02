@@ -5,46 +5,12 @@ import { api, ApiError, type TrashItem } from "./api.ts";
 import { authorAvatar, authorName, displayName, el, icon, timeAgo } from "./dom.ts";
 import type { ToastSpec } from "./toast.ts";
 import { emptyState } from "./emptyState.ts";
+import { ask } from "./modal.ts";
 
 export interface DeleteHooks {
   toast(t: ToastSpec): void;
   /** Notes changed: fetch the list again (and anything showing it). */
   changed(): Promise<void>;
-}
-
-/**
- * A small modal with a message and buttons. Resolves to the chosen button's value, or null on
- * Escape or a click outside. `focus` takes the keyboard first (a field in `body`); else the main button.
- */
-export function ask(o: { title: string; body: Array<string | HTMLElement>; actions: Array<{ label: string; value: string; kind?: "primary" | "danger" }>; focus?: HTMLElement }): Promise<string | null> {
-  return new Promise((resolve) => {
-    const done = (v: string | null) => {
-      overlay.remove();
-      document.removeEventListener("keydown", onKey, true);
-      resolve(v);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      e.stopPropagation();
-      done(null);
-    };
-    const buttons = o.actions.map((a) => el("button", { type: "button", class: `qw-btn${a.kind ? ` ${a.kind}` : ""}`, onclick: () => done(a.value) }, a.label));
-    const overlay = el(
-      "div",
-      { class: "ask", onmousedown: (e: MouseEvent) => e.target === overlay && done(null) },
-      el(
-        "div",
-        { class: "ask-box", role: "alertdialog", "aria-modal": "true", "aria-label": o.title },
-        el("h2", {}, o.title),
-        ...o.body.map((b) => (typeof b === "string" ? el("p", {}, b) : b)),
-        el("div", { class: "ask-actions" }, el("button", { type: "button", class: "qw-btn", onclick: () => done(null) }, "Cancel"), ...buttons),
-      ),
-    );
-    document.body.append(overlay);
-    document.addEventListener("keydown", onKey, true);
-    (o.focus ?? buttons.find((b) => b.classList.contains("primary")) ?? buttons[0])?.focus();
-  });
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
