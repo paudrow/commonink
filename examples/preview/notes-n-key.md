@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 278
 title: n for a new note on Notes
 ---
 1. Click Notes in the sidebar. The key line at the bottom of the page now starts with `j k move` and `n new`.
