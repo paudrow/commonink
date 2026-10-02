@@ -1314,7 +1314,7 @@ body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view
 .sidebar-foot .nav-item { margin: 0 0 4px; }
 .new-note-row { display: flex; align-items: center; gap: 4px; }
 .new-note-row .ghost-btn { flex: 1; }
-/* Your writing days (streak.ts): the heatmap the Today page's Writing streak and the ::streak widget show. */
+/* Your writing days (streak.ts): the heatmap the Today page's week card and the ::streak widget show. */
 .wd { --cell: 12px; --gap: 3px; display: flex; flex-direction: column; gap: 10px; }
 .wd-map { display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; gap: 4px 6px; justify-content: start; font-size: 10.5px; color: var(--muted); }
 .wd-months { display: grid; grid-auto-flow: column; grid-auto-columns: var(--cell); gap: var(--gap); height: 13px; }
@@ -1821,9 +1821,14 @@ body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view
 .td-title svg { flex: none; color: var(--warn); }
 /* On the Today page a card's title is its own: inset like the body under it, its icon centred on the title's line. */
 .qw.is-standalone > .td-title { margin: 0; padding: 14px 14px 4px; line-height: 16px; }
-/* The Today page's Writing streak, under the day. */
-.td-streak { margin-top: 18px; }
-.wd-card .td-title svg { color: var(--accent); }
+/* The Today page's week card, under the day (weekRecapCard.ts): the week in lines, then the writing heatmap. */
+.td-week { margin-top: 18px; }
+.wr-card .td-title svg { color: var(--accent); }
+.wr-close { margin-left: auto; margin-top: -6px; margin-bottom: -6px; }
+.wr-lines { margin: 0 0 14px; padding-left: 18px; font-size: 13.5px; line-height: 1.6; }
+.wr-note { padding: 0; border: 0; background: none; font: inherit; color: var(--accent); cursor: pointer; }
+.wr-note:hover { text-decoration: underline; }
+.wr-actions { display: flex; gap: 8px; margin: -4px 0 16px; }
 .wd-what { margin: 10px 0 0; font-size: 12.5px; color: var(--muted); }
 .td-section + .td-section { margin-top: 10px; }
 .td-section.is-overdue .qt-note { color: var(--bad-ink); }
