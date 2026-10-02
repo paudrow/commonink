@@ -2307,9 +2307,16 @@ function openMovePicker(anchor: HTMLElement) {
 
 function setSaveStatus(state: "saved" | "editing" | "saving" | "error") {
   const labels = { saved: "Saved", editing: "Edited", saving: "Saving…", error: "Not saved" };
+  const hints = {
+    saved: "All changes to this note are saved",
+    editing: "Your changes save automatically in a moment",
+    saving: "Saving your latest changes…",
+    error: "Your latest changes aren't saved yet. Keep this tab open: they're retried automatically, or on your next edit",
+  };
   const node = $("#save-status");
   node.dataset.state = state;
   node.textContent = labels[state];
+  node.title = hints[state];
 }
 
 let statusTimer = 0;
@@ -3093,8 +3100,12 @@ async function boot() {
   renderActivity();
   renderPresence();
   connect(onMessage, (up) => {
-    $("#conn").dataset.up = String(up);
-    $("#conn").title = up ? "Live: watching the vault for agent edits" : "Reconnecting…";
+    const conn = $("#conn");
+    conn.dataset.up = String(up);
+    conn.title = up
+      ? "Connected: changes from agents, other tabs and collaborators show up live"
+      : "Offline, reconnecting… Your edits are kept and saved once the connection is back";
+    conn.setAttribute("aria-label", conn.title);
     if (up) {
       refreshNotesSoon();
       void flushSave(); // what couldn't be saved while the connection was down
