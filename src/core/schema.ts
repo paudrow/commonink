@@ -7,6 +7,7 @@
 // Notes may carry any property of their own: only the ones listed are checked. The settings file is
 // stricter, since a misspelled setting would silently do nothing. No Node imports: the web app uses it too.
 import { frontmatterEntries, frontmatterText } from "./frontmatter.ts";
+import { PRESETS, type PresetId } from "./presets.ts";
 
 /** The folder that holds the workspace's own configuration. */
 export const CONFIG = "Config";
@@ -106,6 +107,11 @@ export const SETTINGS_SCHEMA: ObjectSchema = {
       default: true,
       description:
         "Unlock as you go, for everyone here. true: the sidebar grows as you use it, inks are earned, tips teach shortcuts and clearing Today gets a small celebration. false: everything is there from the start.",
+    },
+    organizing: {
+      type: "string",
+      enum: PRESETS.map((p) => p.id),
+      description: `How this vault is organized, which agents follow: ${PRESETS.map((p) => `${p.id} (${p.name})`).join(", ")}. Changing it in Settings rewrites the Organizing section of Config/AGENTS.md.`,
     },
   },
   additionalProperties: false,
@@ -361,13 +367,17 @@ export function describeProblems(md: string, problems: Problem[]): string {
 
 export interface WorkspaceSettings {
   gamified?: boolean;
+  organizing?: PresetId;
 }
 
 /** The settings `md` sets, leaving out any it doesn't or that aren't valid. */
 export function readSettings(md: string): WorkspaceSettings {
   const out: WorkspaceSettings = {};
   for (const f of scanFrontmatter(md)?.fields ?? []) {
-    if (f.key === "gamified" && f.value.kind === "scalar" && !f.value.quoted && /^(true|false)$/i.test(f.value.text) && out.gamified === undefined) out.gamified = f.value.text.toLowerCase() === "true";
+    const v = f.value;
+    if (v.kind !== "scalar") continue;
+    if (f.key === "gamified" && !v.quoted && /^(true|false)$/i.test(v.text) && out.gamified === undefined) out.gamified = v.text.toLowerCase() === "true";
+    if (f.key === "organizing" && PRESETS.some((p) => p.id === v.text) && out.organizing === undefined) out.organizing = v.text as PresetId;
   }
   return out;
 }
@@ -377,6 +387,7 @@ export function settingsNote(s: WorkspaceSettings = {}): string {
   return [
     "---",
     `gamified: ${s.gamified ?? true}`,
+    ...(s.organizing ? [`organizing: ${s.organizing}`] : []),
     "---",
     "",
     "# Settings",
@@ -387,7 +398,7 @@ export function settingsNote(s: WorkspaceSettings = {}): string {
 }
 
 /** `md` with `key` set to `value`, every other line kept as it was. */
-export function withSetting(md: string, key: keyof WorkspaceSettings, value: boolean): string {
+export function withSetting<K extends keyof WorkspaceSettings>(md: string, key: K, value: NonNullable<WorkspaceSettings[K]>): string {
   if (!md.trim()) return settingsNote({ [key]: value });
   const { entries, body, had } = frontmatterEntries(md);
   const line = `${key}: ${value}`;

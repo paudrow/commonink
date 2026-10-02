@@ -66,3 +66,26 @@ test("an agent that writes bad properties is told what's wrong, line by line", a
   assert.doesNotMatch(run("edit", { path: SETTINGS_NOTE, old_string: "gamified: no\ntheme: dark", new_string: "gamified: false" }), /problems/);
   assert.doesNotMatch(run("create", { path: "Ideas.md", content: "---\nmood: fine\n---\n# Ideas\n" }), /problems/);
 });
+
+test("an organizing style writes its own section of AGENTS.md, and changing it replaces only that section", async () => {
+  const { withOrganizing } = await import("../src/core/presets.ts");
+  const mine = "# Workspace conventions\n\n- Be brief.\n";
+  const para = withOrganizing(mine, "para");
+  assert.match(para, /^# Workspace conventions\n\n- Be brief\.\n\n<!-- organizing:[^\n]*-->\n## Organizing: PARA\n/);
+  const zk = withOrganizing(para, "zettelkasten");
+  assert.equal(zk.match(/## Organizing/g)!.length, 1);
+  assert.match(zk, /## Organizing: Zettelkasten/);
+  assert.equal(withOrganizing(zk, "none"), mine);
+  assert.match(withOrganizing("", "simple"), /^# Workspace conventions\n\n<!-- organizing/);
+  assert.deepEqual(readSettings("---\norganizing: para\n---\n"), { organizing: "para" });
+  assert.deepEqual(messages("---\norganizing: gtd\n---\n", SETTINGS_NOTE), ['error: organizing is one of para, zettelkasten, journal, simple, none, not "gtd".']);
+});
+
+test("agents read Config/AGENTS.md, or the root AGENTS.md of a vault from before Config/", async () => {
+  const { agentsText, isAgentsNote } = await import("../src/core/noteRoles.ts");
+  const files: Record<string, string> = { "AGENTS.md": "old" };
+  assert.equal(agentsText((p) => files[p]), "old");
+  files["Config/AGENTS.md"] = "new";
+  assert.equal(agentsText((p) => files[p]), "new");
+  assert.deepEqual(["AGENTS.md", "Config/AGENTS.md", "Notes/AGENTS.md"].map(isAgentsNote), [true, true, false]);
+});

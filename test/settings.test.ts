@@ -30,6 +30,8 @@ function fakeApp(over: Partial<SettingsApp> = {}) {
     gamified: { on: true, canChange: true },
     setGamified: (on) => ((app.gamified = { ...app.gamified, on }), log.push(`gamified:${on}`)),
     openSettingsFile: () => log.push("openSettingsFile"),
+    organizing: null,
+    setOrganizing: (id) => ((app.organizing = id), log.push(`organizing:${id}`)),
     showConfig: false,
     setShowConfig: (on) => ((app.showConfig = on), log.push(`showConfig:${on}`)),
     localVault: { projectRoot: "/code/commonink", vault: "/notes" },
@@ -44,7 +46,7 @@ const titles = (q: string, app: SettingsApp) => matchSettings(q, appSettings(app
 
 test("search finds settings by every word, across title, description, section and keywords", () => {
   const { app } = fakeApp();
-  assert.deepEqual(titles("", app), ["Theme", "Ink", "Always show Contacts", "Always show Calendar", "Always show Assets", "Always show Smart folders", "Show the Config folder", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Shortcut tips", "Connect an agent", "Unlock as you go", "Settings file"]);
+  assert.deepEqual(titles("", app), ["Theme", "Ink", "Always show Contacts", "Always show Calendar", "Always show Assets", "Always show Smart folders", "Show the Config folder", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Shortcut tips", "Connect an agent", "Unlock as you go", "Organizing style", "Settings file"]);
   assert.deepEqual(titles("dark", app), ["Theme"]);
   assert.deepEqual(titles("VIM", app), ["Line numbers", "Vim keys", "Vim: j and k by screen line"]);
   assert.deepEqual(titles("vim gj", app), ["Vim: j and k by screen line"]);
@@ -67,7 +69,7 @@ test("online, Agents opens the Connected agents dialog; Vim's j and k wait for V
 
 test("a workspace that isn't gamified has nothing to pin or earn and no tips; a viewer can't turn it back on", () => {
   const { app, log } = fakeApp({ gamified: { on: false, canChange: true } });
-  assert.deepEqual(titles("", app), ["Theme", "Ink", "Show the Config folder", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Connect an agent", "Unlock as you go", "Settings file"]);
+  assert.deepEqual(titles("", app), ["Theme", "Ink", "Show the Config folder", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Connect an agent", "Unlock as you go", "Organizing style", "Settings file"]);
   assert.deepEqual(titles("gamification", app), ["Unlock as you go"]);
   assert.deepEqual(titles("progressive disclosure", app), ["Unlock as you go"]);
   const setting = appSettings(app).find((s) => s.id === "gamified")!;

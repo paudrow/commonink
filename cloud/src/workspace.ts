@@ -19,7 +19,7 @@ import { SEED_FILES, SEED_NOTES } from "./seed.ts";
 import { membersOf } from "./admin.ts";
 import type { Env } from "./env.ts";
 import { safeDecode } from "../../src/core/uri.ts";
-import { AGENTS_NOTE } from "../../src/core/noteRoles.ts";
+import { isAgentsNote } from "../../src/core/noteRoles.ts";
 import { accessOn, type SharedAccess, type ShareRole } from "./grants.ts";
 import { readUpTo } from "./body.ts";
 import { limit } from "./limits.ts";
@@ -409,8 +409,9 @@ export class Workspace extends DurableObject<Env> {
 
   /** Every member's agent follows AGENTS.md, so no one outside the workspace may edit it. */
   private refuseEditingAgentsNote(target: Target, role: ShareRole | undefined) {
-    if (role === "editor" && target.note && this.vault.pathOf(target.note) === AGENTS_NOTE) {
-      throw new ShareError(`${AGENTS_NOTE} can't be shared for editing: every connected agent follows it. Share it as a viewer.`);
+    const path = target.note ? this.vault.pathOf(target.note) : null;
+    if (role === "editor" && path && isAgentsNote(path)) {
+      throw new ShareError(`AGENTS.md can't be shared for editing: every connected agent follows it. Share it as a viewer.`);
     }
   }
 

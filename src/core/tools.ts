@@ -8,7 +8,8 @@ import type { Vault } from "./vault.ts";
 import type { Calendar } from "./calendar.ts";
 import type { MemberRef } from "./contacts.ts";
 import type { Exporter } from "./export.ts";
-import { AGENTS_NOTE } from "./noteRoles.ts";
+import { agentsText } from "./noteRoles.ts";
+import { NOTE_SCHEMA, PERSON_SCHEMA, SETTINGS_NOTE, SETTINGS_SCHEMA, TEMPLATE_SCHEMA } from "./schema.ts";
 import { COMMANDS, toolName, type ArgSpec, type Command, type Sharing } from "./commands/index.ts";
 
 export interface ToolHost {
@@ -94,7 +95,7 @@ function fileResult(file: { name: string; bytes: Uint8Array; mime?: string }): R
 
 export function createMcpServer(host: ToolHost): McpServer {
   const { vault, user } = host;
-  const agentsMd = vault.files.read(AGENTS_NOTE) ?? "";
+  const agentsMd = agentsText((p) => vault.files.read(p));
   const mcp = new McpServer(
     { name: "commonink", version: "0.1.0" },
     {
@@ -102,12 +103,21 @@ export function createMcpServer(host: ToolHost): McpServer {
         "Common Ink is the user's markdown notes vault. Notes are plain .md files (some .html notes); paths are vault-relative.",
         "Find before you write: search_notes, then read_note. Change existing notes with edit_note (small exact replacements); create_note is for new notes.",
         "Link notes with [[Note name]] and embed with ![[Note name]]. The user may be editing at the same time; if an edit fails, re-read and retry.",
+        `Workspace settings are the frontmatter of ${SETTINGS_NOTE}; commonink://config/schema lists every property the app reads, and commonink://config/agents re-reads the conventions below.`,
         agentsMd && `\nVault conventions (AGENTS.md):\n${agentsMd}`,
       ]
         .filter(Boolean)
         .join("\n"),
     },
   );
+
+  // The vault's conventions and what its front matter means, to re-read mid-session (schema.ts).
+  mcp.registerResource("agents", "commonink://config/agents", { title: "Agent instructions (AGENTS.md)", description: "How agents should work in this vault and how it's organized", mimeType: "text/markdown" }, (uri) => ({
+    contents: [{ uri: uri.href, mimeType: "text/markdown", text: agentsText((p) => (vault.sync(), vault.files.read(p))) }],
+  }));
+  mcp.registerResource("schema", "commonink://config/schema", { title: "Front matter and settings schema", description: `The front matter properties Common Ink reads, and the workspace settings in ${SETTINGS_NOTE}, as JSON Schema`, mimeType: "application/json" }, (uri) => ({
+    contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify({ note: NOTE_SCHEMA, template: TEMPLATE_SCHEMA, person: PERSON_SCHEMA, settings: SETTINGS_SCHEMA }, null, 2) }],
+  }));
 
   for (const c of COMMANDS) {
     const name = toolName(c);

@@ -47,6 +47,8 @@ import { watchTodayCleared } from "./todayCleared.ts";
 import { inkState, setInk, startInks } from "./inkUnlocks.ts";
 import { gamified, loadGamified, onGamified, setGamified } from "./gamify.ts";
 import { CONFIG, SETTINGS_NOTE, settingsNote } from "../../src/core/schema.ts";
+import { askOrganizingIfNew, organizing, setOrganizing } from "./organizing.ts";
+import { PRESETS, type PresetId } from "../../src/core/presets.ts";
 import { store } from "./store.ts";
 import { changeVerb, groupChanges } from "../../src/core/format.ts";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
@@ -1510,7 +1512,8 @@ async function undoChange(c: Change, after: string | null) {
 function onMessage(m: ServerMsg) {
   guideMessage(m);
   if (m.type !== "change") vaultEvents.dispatchEvent(new Event("change"));
-  if ((m.type === "note" || m.type === "removed") && m.path === SETTINGS_NOTE) void loadGamified(); // the settings file changed, here or anywhere
+  // The settings file changed, here or anywhere.
+  if ((m.type === "note" || m.type === "removed") && m.path === SETTINGS_NOTE) void Promise.all([loadGamified(), organizing().then((id) => (organizingNow = id))]);
   switch (m.type) {
     case "note": {
       const meta = notes.find((n) => n.path === m.path);
@@ -2802,6 +2805,12 @@ function openSettings(query?: string) {
           setSidebarPinned,
           gamified: { on: gamified(), canChange: !viewer },
           openSettingsFile,
+          organizing: organizingNow,
+          setOrganizing: (id) =>
+            void setOrganizing(id, gamified()).then(
+              () => ((organizingNow = id), m.refreshSettings(), toast({ icon: "check", text: "Organizing style saved", detail: "The Organizing section of Config/AGENTS.md now says how agents file notes." })),
+              (e) => toast({ text: e instanceof Error ? e.message : "That didn't work" }),
+            ),
           showConfig: prefs.showConfig,
           setShowConfig: (on) => (store.set("showConfig", (prefs.showConfig = on)), renderTree()),
           setGamified: (on) =>
@@ -2816,6 +2825,9 @@ function openSettings(query?: string) {
     ),
   );
 }
+
+/** How agents are told to organize this workspace (organizing.ts), as Settings shows it; null until picked. */
+let organizingNow: PresetId | null = null;
 
 /** Open the workspace's settings file (schema.ts), writing it first if this workspace has none yet. */
 async function openSettingsFile() {
@@ -3138,6 +3150,14 @@ async function boot() {
   void learnCalendars();
   renderActivity();
   renderPresence();
+  void organizing().then((id) => (organizingNow = id));
+  void askOrganizingIfNew({
+    workspace: workspaceId || "local",
+    notes: notes.filter((n) => n.kind !== "asset").length,
+    canEdit: !viewer,
+    gamified: gamified(),
+    done: (id) => ((organizingNow = id), toast({ icon: "check", text: `Your agents will organize notes ${id === "none" ? "however you ask" : `the ${PRESETS.find((p) => p.id === id)!.name} way`}`, detail: "Change it any time in Settings → Organizing style." })),
+  });
   connect(onMessage, (up) => {
     const conn = $("#conn");
     conn.dataset.up = String(up);

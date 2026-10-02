@@ -8,6 +8,7 @@ import { localSteps } from "./connectAgent.ts";
 import { button } from "./widgets/core.ts";
 import type { OptionalItem } from "./sidebar.ts";
 import { INKS, progressText, type InkId, type InkStats } from "./inks.ts";
+import { PRESETS, type PresetId } from "../../src/core/presets.ts";
 
 export type Section = "Appearance" | "Sidebar" | "Editor" | "Keyboard" | "Agents" | "Workspace";
 export const SECTIONS: Section[] = ["Appearance", "Sidebar", "Editor", "Keyboard", "Agents", "Workspace"];
@@ -59,6 +60,9 @@ export interface SettingsApp {
   setGamified(on: boolean): void;
   /** Open Config/Settings.md, where the workspace's settings are kept (schema.ts). */
   openSettingsFile(): void;
+  /** How agents are told to organize the vault (presets.ts), or null if it hasn't been picked. */
+  organizing: PresetId | null;
+  setOrganizing(id: PresetId): void;
   /** Whether Config/ shows among the sidebar's folders. */
   showConfig: boolean;
   setShowConfig(on: boolean): void;
@@ -217,6 +221,20 @@ export function appSettings(app: SettingsApp): Setting[] {
       keywords: "gamification gamified game progressive disclosure unlock earn rewards celebrate streak tips beginner simple everything admin owner",
       disabled: !app.gamified.canChange,
       control: { kind: "toggle", on: game, set: app.setGamified },
+    },
+    {
+      id: "organizing",
+      section: "Workspace",
+      title: "Organizing style",
+      description: `How your agents file notes: ${PRESETS.filter((p) => p.rules).map((p) => p.name).join(", ")}, or no rules. Changing it rewrites the Organizing section of Config/AGENTS.md and leaves the rest of that note alone.`,
+      keywords: "para second brain zettelkasten journal folders organize organization agents.md preset structure",
+      disabled: !app.gamified.canChange,
+      control: {
+        kind: "choice",
+        value: app.organizing ?? "none",
+        options: PRESETS.map((p) => ({ value: p.id, label: p.id === "none" ? "No rules" : p.name })),
+        set: (v) => app.setOrganizing(v as PresetId),
+      },
     },
     {
       id: "settings-file",

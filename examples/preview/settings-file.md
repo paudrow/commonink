@@ -8,3 +8,5 @@ title: Settings file and property help
 4. Open Settings again and turn **Unlock as you go** back on. The file's `gamified:` line changes to `true` while it's open.
 5. Open [[Properties with mistakes]]. The strip says it has three problems, and the card marks the rows; `status: draft` is fine, since a note can have properties of its own.
 6. `Config` isn't among the sidebar's folders. Settings → Sidebar → **Show the Config folder** puts it there.
+7. Settings → Workspace → **Organizing style**: pick PARA. Open Config/AGENTS.md (⌘K, "AGENTS"): it has an Organizing section telling agents how to file notes. Pick Zettelkasten, and only that section changes.
+8. To see what a new workspace is asked, use the workspace menu → **New team workspace…**: it opens with "How do you like to organize?"
