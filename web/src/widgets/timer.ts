@@ -25,7 +25,7 @@ export const timer: WidgetSpec = {
   keywords: "timer countdown pomodoro alarm",
   defaults: { duration: "5m" },
   fields: [
-    { key: "label", label: "Label", type: "text", placeholder: "Tea, Focus, Standup…" },
+    { key: "label", label: "Title", type: "text", placeholder: "Tea, Focus, Standup…" },
     { key: "duration", label: "Duration", type: "duration", placeholder: "25m", presets: ["1m", "5m", "10m", "15m", "25m", "45m", "1h"] },
     { key: "sound", label: "Chime when done", type: "toggle", off: "off" },
   ],

@@ -1,8 +1,8 @@
 // History: every change, newest first, and what any selection of them did. Click one to see it,
 // ⌘-click to add or skip changes, shift-click to take a whole range. The diff on the right is
 // note by note; a change left out on the same note splits that note into separate diffs.
-// Labels (labels.ts) stand among the changes as pins: click one to compare it with now or
-// with another label, and to restore to it.
+// Named versions (labels.ts) stand among the changes as pins: click one to compare it with now or
+// with another named version, and to restore to it.
 import { api, fileUrl, type Change, type DiffFile, type DiffRun, type Label } from "./api.ts";
 import { $, authorAvatar, authorName, displayName, el, icon, isSelf } from "./dom.ts";
 import { renderDiff } from "./diff.ts";
@@ -55,6 +55,8 @@ export class History {
   private items: Item[] = [];
   private note: string | null = null;
   private by = savedBy();
+  /** Only changes after this change id ("While you were away" opens History on that span), or 0 for all. */
+  private since = 0;
   /** The agents in the change log, for the per-agent filter. */
   private agentNames: string[] = [];
   /** Selected items, by their latest change id. */
@@ -97,11 +99,24 @@ export class History {
     return this.note;
   }
 
-  /** Open the page, optionally for one note and with a change (by id) selected. */
-  async show(opts: { note?: string | null; select?: number; label?: string } = {}) {
+  /**
+   * Open the page, optionally for one note and with a change (by id) selected. `since` (a change id)
+   * shows only agents' changes after it, all selected, so the right side shows everything they did.
+   */
+  async show(opts: { note?: string | null; select?: number; label?: string; since?: number } = {}) {
     this.root.hidden = false;
     const note = opts.note ?? null;
-    if (note !== this.note || !this.raw.length) {
+    if (opts.since) {
+      [this.since, this.by, this.note, this.label] = [opts.since, "ai", null, null];
+      await this.load();
+      this.selected = new Set(this.items.map((it) => it.id));
+      this.focus = this.anchor = 0;
+      this.render();
+      this.root.focus({ preventScroll: true });
+      return;
+    }
+    if (note !== this.note || !this.raw.length || this.since) {
+      this.since = 0;
       this.note = note;
       this.selected.clear();
       this.label = null;
@@ -123,7 +138,7 @@ export class History {
   refreshSoon = debounce(() => this.visible && void this.refresh().then(() => this.renderList()), 400);
 
   private async refresh() {
-    const [fresh, labels] = await Promise.all([api.history({ limit: PAGE, path: this.note ?? undefined, by: this.by || undefined }).catch(() => null), api.labels(this.note ?? undefined).catch(() => null)]);
+    const [fresh, labels] = await Promise.all([api.history({ limit: PAGE, path: this.note ?? undefined, by: this.by || undefined, after: this.since || undefined }).catch(() => null), api.labels(this.note ?? undefined).catch(() => null)]);
     if (labels) this.setLabels(labels);
     if (!fresh) return;
     const older = this.raw.filter((c) => c.id < (fresh.at(-1)?.id ?? 0));
@@ -135,7 +150,7 @@ export class History {
     const seq = ++this.seq;
     const before = older ? this.raw.at(-1)?.id : undefined;
     const [page, labels] = await Promise.all([
-      api.history({ limit: PAGE, before, path: this.note ?? undefined, by: this.by || undefined }).catch(() => null),
+      api.history({ limit: PAGE, before, path: this.note ?? undefined, by: this.by || undefined, after: this.since || undefined }).catch(() => null),
       older ? null : api.labels(this.note ?? undefined).catch(() => null),
     ]);
     if (labels) this.setLabels(labels);
@@ -165,6 +180,16 @@ export class History {
     try {
       localStorage.setItem(BY_KEY, by);
     } catch {}
+    this.selected.clear();
+    await this.load();
+    if (this.items.length) this.selectOnly(0);
+    else this.render();
+  }
+
+  /** Back from the "While you were away" span to the whole timeline. */
+  private async clearSince() {
+    this.since = 0;
+    this.by = savedBy();
     this.selected.clear();
     await this.load();
     if (this.items.length) this.selectOnly(0);
@@ -242,13 +267,16 @@ export class History {
     );
     const note = this.note;
     this.filtersEl.replaceChildren(
+      ...(this.since
+        ? [el("span", { class: "chip is-on hist-note-chip" }, icon("clock", 12), "While you were away", el("button", { type: "button", title: "Show every change", onclick: () => void this.clearSince() }, icon("close", 12)))]
+        : []),
       ...(note
         ? [el("span", { class: "chip is-on hist-note-chip" }, icon("file", 12), displayName(note), el("button", { type: "button", title: "Show every note", onclick: () => void this.show({ note: null }) }, icon("close", 12)))]
         : []),
       ...(note && !this.hooks.readOnly
-        ? [el("button", { type: "button", class: "chip hist-label-btn", title: "Name the note as it is now, to compare with or go back to later", onclick: () => void labelVersion(note, { toast: this.hooks.toast }).then((l) => l && this.afterLabel(l)) }, icon("label", 12), "Label this version…")]
+        ? [el("button", { type: "button", class: "chip hist-label-btn", title: "Name the note as it is now, to compare with or go back to later", onclick: () => void labelVersion(note, { toast: this.hooks.toast }).then((l) => l && this.afterLabel(l)) }, icon("label", 12), "Name this version…")]
         : []),
-      el("span", { class: "hist-by", role: "group", "aria-label": "Whose changes" }, chip("", "Everyone"), chip("people", "People", "user"), chip("ai", "AI", "bot")),
+      el("span", { class: "hist-by", role: "group", "aria-label": "Whose changes" }, chip("", "Everyone"), chip("people", "People", "user"), chip("ai", "Agents", "bot")),
       ...(this.agentNames.length > 1 ? [agentPick] : []),
     );
     let day = "";
@@ -311,7 +339,7 @@ export class History {
         "span",
         { class: "hist-label-body" },
         el("span", { class: "hist-label-line" }, el("b", {}, m.name), m.current ? el("span", { class: "hist-label-now" }, "now") : null, this.note ? null : el("span", { class: "hist-note" }, m.path ? displayName(m.path) : "in Trash")),
-        el("span", { class: "hist-meta" }, `Labeled ${labeledBy(m)}`),
+        el("span", { class: "hist-meta" }, `Named ${labeledBy(m)}`),
         m.description ? el("span", { class: "hist-label-desc" }, m.description) : null,
       ),
     );
@@ -370,13 +398,13 @@ export class History {
         icon("label", 15),
         el("b", {}, m.name),
         m.path ? el("button", { type: "button", class: "link-btn", title: "Open this note", onclick: () => this.hooks.open(m.path!) }, displayName(m.path)) : el("span", {}, "in Trash"),
-        el("span", {}, `Labeled ${labeledBy(m)}`),
+        el("span", {}, `Named ${labeledBy(m)}`),
       ),
       el("span", { class: "spacer" }),
       el("label", { class: "hist-compare-label" }, "Compare with ", compare),
       restore,
-      canEdit ? el("button", { type: "button", class: "icon-btn small", title: "Rename", "aria-label": "Rename this label", onclick: () => void this.renameLabel(m) }, icon("edit", 14)) : null,
-      canEdit ? el("button", { type: "button", class: "icon-btn small", title: "Delete this label", "aria-label": "Delete this label", onclick: () => void this.deleteLabel(m) }, icon("trash", 14)) : null,
+      canEdit ? el("button", { type: "button", class: "icon-btn small", title: "Rename", "aria-label": "Rename this version", onclick: () => void this.renameLabel(m) }, icon("edit", 14)) : null,
+      canEdit ? el("button", { type: "button", class: "icon-btn small", title: "Remove this name", "aria-label": "Remove this name", onclick: () => void this.deleteLabel(m) }, icon("trash", 14)) : null,
     ].filter((n): n is HTMLElement => !!n);
     this.summaryEl.replaceChildren(...parts);
   }
@@ -487,7 +515,7 @@ export class History {
       : null;
     // Name the version these changes left the note at ("that one was the good one").
     const label = r.after !== null && r.op !== "delete" && !isAsset(f.path) && !this.hooks.readOnly
-      ? el("button", { type: "button", class: "hist-restore", title: "Give the version right after these changes a name, to come back to", onclick: () => void labelVersion(f.path, { toast: this.hooks.toast }, r.to).then((l) => l && this.afterLabel(l)) }, icon("label", 13), "Label this version…")
+      ? el("button", { type: "button", class: "hist-restore", title: "Give the version right after these changes a name, to come back to", onclick: () => void labelVersion(f.path, { toast: this.hooks.toast }, r.to).then((l) => l && this.afterLabel(l)) }, icon("label", 13), "Name this version…")
       : null;
     restore?.addEventListener("click", async () => {
       const res = await api.restore(r.from).catch(() => null);
