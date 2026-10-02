@@ -42,10 +42,11 @@ import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./
 import { appCommands } from "./commands.ts";
 import { toggleShortcuts } from "./shortcuts.ts";
 import { NO_TIPS, tipText, watchTips, type TipsState } from "./shortcutTips.ts";
-import { did, vaultEvents } from "./events.ts";
+import { did, didFirst, vaultEvents } from "./events.ts";
 import { guideMessage, startGuide } from "./onboarding.ts";
 import { watchTodayCleared } from "./todayCleared.ts";
 import { inkState, setInk, startInks } from "./inkUnlocks.ts";
+import { startSeals } from "./sealUnlocks.ts";
 import { gamified, loadGamified, onGamified, setGamified } from "./gamify.ts";
 import { store } from "./store.ts";
 import { changeVerb, groupChanges } from "../../src/core/format.ts";
@@ -304,7 +305,7 @@ function commands() {
     account,
     newNote: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
     newFromTemplate: () => void newFromTemplate(undefined, onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
-    newBoard: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : "", `\n${NEW_BOARD}\n`),
+    newBoard: () => (didFirst("madeBoard"), void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : "", `\n${NEW_BOARD}\n`)),
     newFolder: startNewFolder,
     newTag: startNewTag,
     newSmartFolder: newSmartFolderFromPalette,
@@ -1216,6 +1217,7 @@ async function newFromTemplate(template?: TemplateInfo, folder = "") {
   const clipboard = t.clipboard ? await navigator.clipboard?.readText().catch(() => undefined) : undefined;
   try {
     const r = await api.fromTemplate(t.path, { at: localNow(), title: asked.title, answers: asked.answers, picks: asked.picks, clipboard, folder: t.folder ? undefined : folder || undefined });
+    didFirst("usedTemplate");
     await refreshNotes();
     await openNote(r.path);
     const at = Math.min(r.cursor ?? active.view.state.doc.length, active.view.state.doc.length);
@@ -2472,7 +2474,7 @@ async function refreshBacklinks() {
   const row = (b: Backlink) =>
     el(
       "div",
-      { class: `backlink${isArchived(b.path) ? " is-archived" : ""}`, onclick: (e: MouseEvent) => openNote(b.path, { line: b.line, pane: sideClick(e) ? sideOf(active) : active }) },
+      { class: `backlink${isArchived(b.path) ? " is-archived" : ""}`, onclick: (e: MouseEvent) => (didFirst("followedBacklink"), openNote(b.path, { line: b.line, pane: sideClick(e) ? sideOf(active) : active })) },
       el("div", { class: "bl-title" }, icon(b.kind === "embed" ? "open" : "link", 12), b.title),
       el("div", { class: "bl-text", html: highlightLink(b.text) }),
     );
@@ -3196,6 +3198,7 @@ async function boot() {
   if (!viewer) void startGuide({ archive: (path) => void archivePath(path), flush: () => flushSave() });
   if (!viewer) watchTodayCleared();
   startInks({ choose: () => openSettings("ink") });
+  startSeals({ online: () => !!workspaceId, openToday: () => void showToday() });
 
   void refreshTaskCount();
   // Home is the notes list; a note's URL (or the tasks, history or assets page) opens that instead.

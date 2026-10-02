@@ -19,7 +19,7 @@ import { wrapInDetails } from "../../../src/core/details.ts";
 import { taskTokenSource } from "./taskComplete.ts";
 import { inTaskText } from "./taskEdit.ts";
 import { emojiMatches } from "../../../src/core/emoji.ts";
-import { did } from "../events.ts";
+import { did, didFirst } from "../events.ts";
 import { slashUsed } from "./lineHint.ts";
 import { assigneeOptions, assignees, contactLink, ensureContact, people, rankPeople } from "../people.ts";
 import { toast } from "../toast.ts";
@@ -410,7 +410,7 @@ const TOOLS: Tool[] = [
     section: "Blocks",
     run: (v, f, t) => insert(v, f, t, wrapInDetails(""), { cursor: "<details>\n<summary>".length, select: "Details".length, block: true }),
   },
-  { title: "Kanban board", hint: "Columns of cards", icon: "kanban", keywords: "kanban board columns cards pipeline trello", section: "Widgets", run: (v, f, t) => insert(v, f, t, NEW_BOARD, { own: true }) },
+  { title: "Kanban board", hint: "Columns of cards", icon: "kanban", keywords: "kanban board columns cards pipeline trello", section: "Widgets", run: (v, f, t) => (didFirst("madeBoard"), insert(v, f, t, NEW_BOARD, { own: true })) },
   widgetTool("kanban", "kanban board embed another note", "Kanban from another note"),
   {
     title: "Diagram",
