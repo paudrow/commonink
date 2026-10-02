@@ -63,6 +63,7 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "GET /search", send: () => ["GET", "/search?q=welcome"], expect: READ },
   { route: "GET /feed", send: () => ["GET", "/feed"], expect: READ },
   { route: "GET /backlinks", send: () => ["GET", "/backlinks?path=Getting%20started.md"], expect: READ },
+  { route: "GET /links/missing", send: () => ["GET", "/links/missing"], expect: READ },
   { route: "GET /changes", send: () => ["GET", "/changes?by=ai"], expect: READ },
   { route: "GET /changes/agents", send: () => ["GET", "/changes/agents"], expect: READ },
   { route: "GET /diffs", send: () => ["GET", "/diffs?ids=1-3"], expect: READ },
@@ -360,6 +361,26 @@ test("an upload deleted for good takes its bytes out of R2; one in Trash keeps t
   await cloud.request(owner, "POST", `${base}/trash/delete`, { ids: [trashed[0].id] });
   await new Promise((r) => setTimeout(r, 50)); // the delete runs after the response
   assert.equal(await keys(), before - 1);
+});
+
+test("CLI uploads with the same name at once each keep their file, and nothing is left behind in R2", async () => {
+  const env = await cloud.server.getWorker().getEnv();
+  const stub = env.WORKSPACE.get(env.WORKSPACE.idFromName(people.id));
+  const keys = async () => (await env.FILES.list()).objects.length;
+  const before = await keys();
+  const who = { workspace: people.id, user: "u", actor: "CLI", role: "owner", timeZone: "UTC" };
+  const upload = (fill: number, size: number) => stub.runCommand("upload", { files: [{ name: "same.pdf", bytes: new Uint8Array(size).fill(fill) }] }, who);
+  // A big one, and small ones arriving while its bytes are still going into R2.
+  const later = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const outs = (await Promise.all([upload(0, 10 * 1024 * 1024), ...[1, 2, 3, 4, 5, 6, 7, 8].map((i) => later(i * 25).then(() => upload(i, 10)))])) as Array<{ data: Array<{ path: string }> }>;
+  const paths = outs.map((o) => o.data[0].path);
+  assert.equal(new Set(paths).size, paths.length, `each under its own name: ${paths}`);
+  const owner = await cloud.signIn("owner");
+  for (const [i, p] of paths.entries()) {
+    const got = new Uint8Array(await (await cloud.request(owner, "GET", `${people.base}/files/${p.split("/").map(encodeURIComponent).join("/")}`)).arrayBuffer());
+    assert.equal(got[0], i, `${p} has its own bytes`);
+  }
+  assert.equal(await keys(), before + paths.length);
 });
 
 test("online, an exported note's link to a note left out goes to the app's own address", async () => {

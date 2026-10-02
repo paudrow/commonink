@@ -2,15 +2,17 @@
 // things (a note changes, you tick a task), it counts what the locked inks need from the API the
 // app already has, and a toast says when one is earned, with a button to use it. Only the locked
 // inks are counted, so once every ink is yours it stops asking. Earned inks are kept per browser.
+// In a workspace that isn't gamified (gamify.ts) every ink is yours, and nothing is counted or said.
 import { api } from "./api.ts";
 import { didEvents, onVaultChange } from "./events.ts";
 import { isSelf } from "./dom.ts";
 import { store } from "./store.ts";
 import { toast } from "./toast.ts";
 import { watchGuide } from "./onboarding.ts";
+import { gamified, onGamified } from "./gamify.ts";
 import { GUIDE } from "../../src/core/guide.ts";
 import { localDate } from "../../src/core/tasks.ts";
-import { DEFAULT_INK, distinctDays, earnedInks, INK_IDS, isInk, unlockToast, type InkId, type InkStats } from "./inks.ts";
+import { DEFAULT_INK, distinctDays, earnedInks, faviconSvg, INK_IDS, isInk, unlockToast, type InkId, type InkStats } from "./inks.ts";
 
 /** Iron gall's goal, and how far back the change log is read for it (pages of 500 of your changes). */
 const DAYS = 7;
@@ -28,7 +30,7 @@ let countedDay: string | null = null;
 let ready = false;
 let hooks = { choose() {} };
 
-const owned = (): InkId[] => earned ?? [DEFAULT_INK];
+const owned = (): InkId[] => (!gamified() ? [...INK_IDS] : (earned ?? [DEFAULT_INK]));
 const locked = (id: InkId) => !owned().includes(id);
 
 /** The ink in use, as index.html applied it before the page drew. */
@@ -45,6 +47,18 @@ export function setInk(id: InkId) {
   } catch {}
   if (id === DEFAULT_INK) delete document.documentElement.dataset.ink;
   else document.documentElement.dataset.ink = id;
+  showMark();
+}
+
+/**
+ * The tab's icon in the ink in use, as the sidebar's logo already is (styles.css, --ink-mark).
+ * Indigo keeps the icon file; the others draw it in their own color.
+ */
+function showMark() {
+  const link = document.querySelector<HTMLLinkElement>('link[rel="icon"][type="image/svg+xml"]');
+  const color = getComputedStyle(document.documentElement).getPropertyValue("--ink-mark").trim();
+  if (!link || !color) return;
+  link.href = currentInk() === DEFAULT_INK ? "/favicon.svg" : `data:image/svg+xml,${encodeURIComponent(faviconSvg(color))}`;
 }
 
 /** What Settings shows: the ink in use, those earned, and the counts toward the rest. */
@@ -53,16 +67,18 @@ export const inkState = () => ({ current: currentInk(), earned: INK_IDS.filter((
 /** Start counting. `choose` opens Settings at the Ink setting, for the toast that names several. */
 export function startInks(h: typeof hooks) {
   hooks = h;
+  showMark();
   let timer = 0;
   onVaultChange(() => void count(), 1500);
   didEvents.addEventListener("tick", () => {
     clearTimeout(timer);
     timer = window.setTimeout(() => void count(), 1500);
   });
+  onGamified((on) => on && void count()); // back on: what you've done since earns its inks
   watchGuide((s) => {
     if (!s) return; // gone (archived, say): what it last said stands
     stats.guideFinished = s.finished;
-    if (ready) award();
+    if (ready && gamified()) award();
   });
   void count();
 }
@@ -72,7 +88,7 @@ let counting = false;
 let again = false;
 async function count(): Promise<void> {
   if (counting) return void (again = true);
-  if (!INK_IDS.some(locked)) return;
+  if (!gamified() || !INK_IDS.some(locked)) return;
   counting = true;
   try {
     await Promise.allSettled([

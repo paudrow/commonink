@@ -10,6 +10,7 @@ import { findStartNote, GUIDE, parseGuideAction, runGuide } from "./guide.ts";
 import { exportZip, type ExportWhat } from "./export.ts";
 import type { Calendar, EventDraft } from "./calendar.ts";
 import { notePath } from "./ids.ts";
+import { isSort } from "./query.ts";
 
 export interface ApiHost {
   vault: Vault;
@@ -110,7 +111,7 @@ function contactFields(v: unknown, withName: boolean): Partial<ContactFields> {
     if (x === undefined) continue;
     const ok =
       CONTACT_LISTS.includes(k) ? Array.isArray(x) && x.every((s) => typeof s === "string")
-      : k === "company" || k === "role" || (k === "name" && withName) || (k === "notes" && withName) ? typeof x === "string"
+      : k === "company" || k === "role" || k === "checkIn" || (k === "name" && withName) || (k === "notes" && withName) ? typeof x === "string"
       : false;
     if (!ok) throw new VaultError(`"${k}" isn't a contact field or has the wrong type`);
     out[k] = x;
@@ -245,13 +246,15 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
           scope: qScope(),
           folder: q("folder") || undefined,
           tag: q("tag") || undefined,
-          sort: q("sort") === "title" ? "title" : "modified",
+          sort: [q("sort")].find(isSort) ?? "modified",
           offset: qCount("offset", 0, Infinity),
           limit: qCount("limit", 30, Infinity), // the feed re-fetches everything it has shown
         }),
       );
     case "GET /backlinks":
-      return json(vault.backlinks(q("path")));
+      return json(vault.backlinks(q("path"), qScope()));
+    case "GET /links/missing":
+      return json(vault.missingLinks({ folder: q("folder") || undefined, scope: qScope() }));
     case "GET /changes":
       return json(vault.changes({ limit: qCount("limit", 50, 500), before: qCount("before", 0, Infinity) || undefined, path: q("path") || undefined, by: parseAuthorFilter(q("by")) }));
     case "GET /changes/agents":
@@ -292,9 +295,9 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     case "GET /diff":
       return json(vault.diff(qInt("from"), q("to") ? qInt("to") : qInt("from")));
     case "GET /contacts":
-      return json(vault.contacts());
+      return json(vault.contacts(q("today") || undefined));
     case "GET /contact":
-      return json(vault.contact(q("path")));
+      return json(vault.contact(q("path"), q("today") || undefined));
     case "GET /members":
       return json(host.members ? await host.members() : []);
     case "POST /contacts": {

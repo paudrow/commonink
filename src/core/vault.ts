@@ -1,3 +1,4 @@
+import { ARCHIVE, homeOf, isArchived } from "./archive.ts";
 import { actorOf, authorWhere, type Actor, type AuthorFilter } from "./actor.ts";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -6,17 +7,17 @@ import { chainBefore, dropBefores, readBefore } from "./changeTexts.ts";
 import type { Content, SqlDb } from "./store.ts";
 import { cleanPath, isHidden, kindOf, linkKey, VaultError, stemOf, type NoteKind } from "./paths.ts";
 import { headingName, headingText, mapOutsideCode, proseLines } from "./prose.ts";
-import { extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
+import { dateOf, extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
 import { dueFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
 import { parseQuickAdd } from "./quickAdd.ts";
-import { formatQuery, parseQuery, queryProblem, type NoteQuery } from "./query.ts";
+import { formatQuery, parseQuery, queryProblem, tagList, type NoteQuery } from "./query.ts";
 import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
 import { safeDecode } from "./uri.ts";
 import { AGENTS_NOTE, START_TAG, type NoteRole } from "./noteRoles.ts";
 import {
-  contactFromNote, contactNote, dayOfNote, emptyContact, fillContact, parseContactsCsv, parseVCards, PEOPLE, peopleDirectory, personFor, sameFields, samePerson,
+  checkInDue, checkInEvery, contactFromNote, contactNote, dayOfNote, emptyContact, fillContact, parseContactsCsv, parseVCards, PEOPLE, peopleDirectory, personFor, sameFields, samePerson,
   type Contact, type ContactFields, type ContactInput, type ContactNote, type MemberRef, type TimelineItem,
 } from "./contacts.ts";
 import { cleanTitle, DAILY_TEMPLATE, fillTemplate, localNow, TEMPLATES, templateInfo, type FillOptions, type TemplateInfo } from "./templates.ts";
@@ -75,6 +76,11 @@ export const isTagFavorite = (f: Favorite): f is TagFavorite => "tag" in f;
  */
 const tagKey = (tag: string) => `#${tag}`;
 
+/** Refuse a contact's check-in rhythm that doesn't read as one ("" clears it). */
+function checkRhythm(text: string | undefined) {
+  if (text?.trim() && !checkInEvery(text)) throw new VaultError(`"${text}" isn't a check-in rhythm. Say weekly, every 2 weeks, monthly, every 3 months, 6m or yearly.`);
+}
+
 export interface Backlink {
   path: string;
   title: string;
@@ -83,9 +89,16 @@ export interface Backlink {
   text: string;
 }
 
-/** Archiving moves a note under Archive/, keeping its original path: Archive/Projects/Old plan.md */
-export const ARCHIVE = "Archive/";
-export const isArchived = (p: string) => p.startsWith(ARCHIVE);
+/** A link to a note or file that isn't in the vault, and every place that has it. */
+export interface MissingLink {
+  /** What the links say, as the first of them spells it. */
+  target: string;
+  from: Backlink[];
+}
+
+export { ARCHIVE, archiveRootOf, homeOf, isArchived, isArchiveFolder } from "./archive.ts";
+/** isArchived() in SQL, for the path column `col`. ltrim() drops the number in front, as ARCHIVE_DIR does. */
+const archivedSql = (col: string) => `lower(ltrim(substr(${col}, 1, instr(${col}, '/')), '0123456789 ._-')) IN ('archive/', 'archives/')`;
 export type ArchiveScope = "active" | "archived" | "all";
 
 /**
@@ -249,7 +262,7 @@ const CHANGE_COLS = "id, ts, path, op, source, version, summary, from_path, note
 const META_COLS = "id, path, kind, title, version, mtime, size";
 const TRASH = ".trash";
 /** Notes whose tasks are tasks: not archived, and not templates (a template's `- [ ]` is for the notes made from it). */
-const TASK_NOTES = `substr(t.path, 1, 8) != 'Archive/' AND substr(t.path, 1, ${TEMPLATES.length + 1}) != '${TEMPLATES}/'`;
+const TASK_NOTES = `NOT ${archivedSql("t.path")} AND substr(t.path, 1, ${TEMPLATES.length + 1}) != '${TEMPLATES}/'`;
 /** How long Trash keeps what's deleted. */
 export const TRASH_DAYS = 30;
 const TRASH_ID = /^(\d{1,15})-(\d{1,15})$/;
@@ -329,12 +342,14 @@ function cutTask(lines: string[], i: number): string[] {
 
 /**
  * The index of the task on `line` (1-based) whose text is `text`, or, if the note moved it, of the
- * nearest line with that text. Throws if it's gone (the note changed under the caller).
+ * nearest line with that text, outside code. Throws if it's gone (the note changed under the caller).
  */
 function findTask(lines: string[], line: number, text: string, notePath: string): number {
+  // Only prose lines hold tasks: a checkbox inside a code block is an example, not one to tick.
+  const prose = proseLines(lines.join("\n")).map(([n]) => n - 1);
   const matches = (i: number) => lines[i]?.match(TASK_LINE)?.[4] === text;
-  if (matches(line - 1)) return line - 1;
-  const near = lines.map((_, j) => j).filter(matches).sort((a, b) => Math.abs(a - (line - 1)) - Math.abs(b - (line - 1)));
+  if (prose.includes(line - 1) && matches(line - 1)) return line - 1;
+  const near = prose.filter(matches).sort((a, b) => Math.abs(a - (line - 1)) - Math.abs(b - (line - 1)));
   if (!near.length) throw new VaultError(`That task isn't in ${notePath} any more`, "conflict");
   return near[0];
 }
@@ -378,7 +393,7 @@ export class Vault {
   }
 
   /** Today, as YYYY-MM-DD, in this core's time zone. */
-  private day(): string {
+  day(): string {
     return localDate(this.now(), this.timeZone);
   }
 
@@ -435,6 +450,7 @@ export class Vault {
     let version: string;
     let title: string;
     let body = "";
+    let date: string | null = null;
     if (kind === "asset") {
       version = versionOf(`${st.size}:${st.mtime}`);
       title = path.posix.basename(rel);
@@ -443,6 +459,7 @@ export class Vault {
       version = versionOf(content);
       title = titleOf(content, kind, rel);
       body = searchableText(content, kind);
+      date = dateOf(content, kind, rel);
     }
     const known = this.db.get<IndexedRow>("SELECT id, kind, fts FROM notes WHERE path = ?", rel);
     const noteId: string = known?.id ?? id ?? this.renamedId(rel, kind, version, st.size) ?? newNoteId();
@@ -450,10 +467,10 @@ export class Vault {
       this.dropText(rel, known);
       const fts = kind === "asset" ? null : this.db.run("INSERT INTO notes_fts(path, title, body) VALUES (?,?,?)", rel, title, body).lastId;
       this.db.run(
-        `INSERT INTO notes(path, kind, title, stem, version, mtime, size, id, fts) VALUES (?,?,?,?,?,?,?,?,?)
+        `INSERT INTO notes(path, kind, title, stem, version, mtime, size, id, fts, date) VALUES (?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(path) DO UPDATE SET kind=excluded.kind, title=excluded.title, stem=excluded.stem,
-           version=excluded.version, mtime=excluded.mtime, size=excluded.size, fts=excluded.fts`,
-        rel, kind, title, stemOf(rel), version, st.mtime, st.size, noteId, fts,
+           version=excluded.version, mtime=excluded.mtime, size=excluded.size, fts=excluded.fts, date=excluded.date`,
+        rel, kind, title, stemOf(rel), version, st.mtime, st.size, noteId, fts, date,
       );
       this.db.run("DELETE FROM links WHERE src = ?", rel);
       this.db.run("DELETE FROM tags WHERE path = ? AND kind != 'asset'", rel);
@@ -582,8 +599,9 @@ export class Vault {
    */
   list(folder?: string, scope: ArchiveScope = "active", tag?: string): NoteMeta[] {
     let rows = this.db.all<NoteMeta>(`SELECT ${META_COLS} FROM notes ORDER BY path COLLATE NOCASE`);
-    if (tag !== undefined) {
-      const on = new Set(this.tagged(tag).filter((r) => r.kind !== "task").map((r) => r.path));
+    // Several tags (`work,plan`): the notes with every one.
+    for (const t of tag === undefined ? [] : tagList(tag).length ? tagList(tag) : [tag]) {
+      const on = new Set(this.tagged(t).filter((r) => r.kind !== "task").map((r) => r.path));
       rows = rows.filter((r) => on.has(r.path));
     }
     if (!folder) return rows.filter((r) => inScope(r.path, scope));
@@ -593,7 +611,7 @@ export class Vault {
 
   recent(limit = 20): NoteMeta[] {
     return this.db.all(
-      `SELECT ${META_COLS} FROM notes WHERE kind != 'asset' AND path NOT LIKE 'Archive/%' ORDER BY mtime DESC LIMIT ?`,
+      `SELECT ${META_COLS} FROM notes WHERE kind != 'asset' AND NOT ${archivedSql("path")} ORDER BY mtime DESC LIMIT ?`,
       limit,
     );
   }
@@ -623,7 +641,7 @@ export class Vault {
     const base = key.split("/").pop()!;
     const rows = this.db.all("SELECT path FROM notes WHERE stem = ?", base)
       .map((r) => r.path as string)
-      .filter((p) => linkKey(p).endsWith(key));
+      .filter((p) => linkKey(p) === key || linkKey(p).endsWith(`/${key}`));
     if (!rows.length) return null;
     const dir = from ? path.posix.dirname(from) : null;
     rows.sort((a, b) => Number(path.posix.dirname(b) === dir) - Number(path.posix.dirname(a) === dir) || a.length - b.length);
@@ -674,7 +692,7 @@ export class Vault {
               rank AS score
        FROM notes_fts JOIN notes n ON n.path = notes_fts.path
        WHERE notes_fts MATCH ? AND rank MATCH 'bm25(4.0, 8.0, 1.0)'
-         AND (? = 'all' OR (n.path LIKE 'Archive/%') = (? = 'archived'))
+         AND (? = 'all' OR (${archivedSql("n.path")}) = (? = 'archived'))
          AND (? IS NULL OR n.path IN (SELECT path FROM tags WHERE kind != 'task' AND ${UNDER}))
        ORDER BY rank LIMIT ?`,
       ftsQuery(terms), scope, scope, key, ...under(key ?? ""), limit,
@@ -703,12 +721,11 @@ export class Vault {
     const terms = searchTerms(opts.q ?? "");
     const all = this.feedRows();
     let rows = this.matching(opts, all);
-    const home = (p: string) => (isArchived(p) ? p.slice(ARCHIVE.length) : p);
     const counts = { active: rows.filter((r) => !isArchived(r.path)).length, archived: rows.filter((r) => isArchived(r.path)).length };
     rows = rows.filter((r) => inScope(r.path, scope));
     const starts = new Set(this.db.all<{ path: string }>("SELECT DISTINCT path FROM tags WHERE tag = ?", START_TAG).map((r) => r.path));
     const roleOf = (p: string): NoteRole | null => (p === AGENTS_NOTE ? "agents" : starts.has(p) && !isArchived(p) ? "start" : null);
-    if (opts.sort !== "title") {
+    if (!opts.sort || opts.sort === "modified") {
       const rank = (p: string) => ({ start: 0, agents: 2, none: 1 })[roleOf(p) ?? "none"];
       rows = [...rows].sort((a, b) => rank(a.path) - rank(b.path));
     }
@@ -753,12 +770,12 @@ export class Vault {
         role: roleOf(r.path),
       };
     });
-    return { items, total: rows.length, counts, folders: [...new Set(all.map((n) => home(n.path)).filter((p) => p.includes("/")).map((p) => p.split("/")[0]))].sort() };
+    return { items, total: rows.length, counts, folders: [...new Set(all.map((n) => homeOf(n.path)).filter((p) => p.includes("/")).map((p) => p.split("/")[0]))].sort() };
   }
 
   /** Every note (not assets), archived ones included, newest first: what matching() narrows. */
-  private feedRows(): Array<{ id: string; path: string; kind: NoteKind; title: string; mtime: number }> {
-    return this.db.all("SELECT id, path, kind, title, mtime FROM notes WHERE kind != 'asset' ORDER BY mtime DESC");
+  private feedRows(): Array<{ id: string; path: string; kind: NoteKind; title: string; mtime: number; date: string | null }> {
+    return this.db.all("SELECT id, path, kind, title, mtime, date FROM notes WHERE kind != 'asset' ORDER BY mtime DESC");
   }
 
   /** The notes a query matches, archived ones included, in its order. The part of the feed smart folder counts need. */
@@ -769,19 +786,31 @@ export class Vault {
       const hits = new Set(this.db.all("SELECT path FROM notes_fts WHERE notes_fts MATCH ?", ftsQuery(terms)).map((r) => r.path));
       rows = rows.filter((r) => hits.has(r.path));
     }
-    const home = (p: string) => (isArchived(p) ? p.slice(ARCHIVE.length) : p);
-    if (query.folder) rows = rows.filter((r) => home(r.path).startsWith(query.folder!.replace(/\/?$/, "/")));
-    if (query.tag) {
-      const key = normalizeTag(query.tag);
+    if (query.folder) rows = rows.filter((r) => homeOf(r.path).startsWith(query.folder!.replace(/\/?$/, "/")));
+    // Every tag, each with the tags under it: `work,plan` is the notes with both.
+    for (const tag of tagList(query.tag)) {
+      const key = normalizeTag(tag);
       const on = new Set(key ? this.db.all<{ path: string }>(`SELECT DISTINCT path FROM tags WHERE kind != 'task' AND ${UNDER}`, ...under(key)).map((r) => r.path) : []);
       rows = rows.filter((r) => on.has(r.path));
     }
     if (query.sort === "title") rows = [...rows].sort((a, b) => a.title.localeCompare(b.title));
+    if (query.sort === "date" || query.sort === "oldest") {
+      // A note's own date, else the day it last changed; the same day goes by when it changed.
+      const day = (r: (typeof rows)[number]) => r.date ?? new Date(r.mtime).toISOString().slice(0, 10);
+      const dir = query.sort === "date" ? -1 : 1;
+      rows = [...rows].sort((a, b) => dir * (day(a).localeCompare(day(b)) || a.mtime - b.mtime));
+    }
     return rows;
   }
 
-  backlinks(target: string): Backlink[] {
+  /**
+   * The notes linking to `target`. `scope` "active" leaves out links from archived notes (old copies
+   * shouldn't sit beside the live ones), unless `target` is archived itself. Renames and deletes need
+   * them all, which is the default.
+   */
+  backlinks(target: string, scope: ArchiveScope = "all"): Backlink[] {
     const rel = this.mustResolve(target);
+    if (scope === "active" && isArchived(rel)) scope = "all";
     const stem = stemOf(rel);
     const rows = this.db.all(
       `SELECT DISTINCT l.src AS path, n.title, l.kind, l.line FROM links l JOIN notes n ON n.path = l.src
@@ -791,8 +820,38 @@ export class Vault {
     const cache = new Map<string, string[]>();
     const resolve = this.resolver();
     return rows
+      .filter((r) => inScope(r.path, scope))
       .filter((r) => this.linksAt(r.path, r.line, cache).some((l) => linkStem(l.key) === stem && resolve(l.target, r.path) === rel))
       .map((r) => ({ ...r, text: (cache.get(r.path)?.[r.line - 1] ?? "").trim().slice(0, 200) }));
+  }
+
+  /**
+   * Links to notes and files that aren't here: not yet written, deleted, or not brought over in an
+   * import. Grouped by target, the most-linked first. Links in archived notes count only with
+   * `scope` "all"; `folder` narrows it to the notes linking from there.
+   */
+  missingLinks(opts: { folder?: string; scope?: ArchiveScope } = {}): MissingLink[] {
+    const folder = opts.folder ? cleanPath(opts.folder).replace(/\/?$/, "/") : "";
+    const rows = this.db.all<{ path: string; title: string; line: number }>(
+      "SELECT DISTINCT l.src AS path, n.title, l.line FROM links l JOIN notes n ON n.path = l.src ORDER BY n.mtime DESC, l.src, l.line",
+    ).filter((r) => r.path.startsWith(folder) && inScope(r.path, opts.scope ?? "active"));
+    const cache = new Map<string, string[]>();
+    const resolve = this.resolver();
+    const groups = new Map<string, MissingLink>();
+    for (const r of rows) {
+      for (const l of this.linksAt(r.path, r.line, cache)) {
+        const name = l.target.replace(/[#|].*$/, "").trim();
+        // [[#Heading]] is this note; /calendar links open the calendar.
+        if (!name || /^\/?calendar(\/|$)/.test(name) || resolve(l.target, r.path)) continue;
+        const key = linkKey(name);
+        const group = groups.get(key) ?? { target: name, from: [] };
+        groups.set(key, group);
+        if (!group.from.some((f) => f.path === r.path && f.line === r.line)) {
+          group.from.push({ path: r.path, title: r.title, kind: l.kind, line: r.line, text: (cache.get(r.path)?.[r.line - 1] ?? "").trim().slice(0, 200) });
+        }
+      }
+    }
+    return [...groups.values()].sort((a, b) => b.from.length - a.from.length || a.target.localeCompare(b.target));
   }
 
   /**
@@ -1026,26 +1085,23 @@ export class Vault {
 
   /** Put a note back the way it was before change #id; with `baseVersion`, only if the note is still at it. */
   restore(id: number, source: string, baseVersion?: string) {
-    const row = this.db.get("SELECT path, op FROM changes WHERE id = ?", id);
+    const row = this.db.get("SELECT path, op, note_id FROM changes WHERE id = ?", id);
     if (!row) throw new VaultError(`No change #${id}`, "not_found");
     // A note deleted by this change is still in Trash: bring it back from there, ID and all.
     const trashed = row.op === "delete" ? this.trashIds().find((t) => t.endsWith(`-${id}`)) : undefined;
     if (trashed) return this.untrash([trashed], source)[0];
     const before = readBefore(this.db, id);
     if (before === null) throw new VaultError(`Change #${id} (${row.op} ${row.path}) has no earlier text to restore`);
-    // The note may have been renamed or archived since: restore it where it lives now.
-    let at = row.path as string;
-    let since = id;
-    for (let moved; (moved = this.db.get("SELECT id, path FROM changes WHERE from_path = ? AND id > ? ORDER BY id LIMIT 1", at, since)); ) {
-      at = moved.path;
-      since = moved.id;
-    }
-    // Deleted since, and still in Trash? Bring that note back first, so the old text lands on it
-    // (its ID, favorite and labels) rather than on a new note beside it.
-    const last = this.db.get("SELECT id, op FROM changes WHERE path = ? AND id > ? ORDER BY id DESC LIMIT 1", at, since);
-    const inTrash = last?.op === "delete" ? this.trashIds().find((t) => t.endsWith(`-${last.id}`)) : undefined;
-    if (inTrash) {
-      at = this.untrash([inTrash], source)[0].path;
+    // Find the note by its ID, wherever it lives now (renamed, archived), never a different note
+    // that took its path since.
+    const noteId = row.note_id as string | null;
+    let at = noteId ? this.pathOf(noteId) : (row.path as string);
+    if (!at) {
+      // Deleted since, and still in Trash? Bring that note back first, so the old text lands on it
+      // (its ID, favorite and labels) rather than on a new note beside it. Gone for good: a new
+      // note at a free name.
+      const inTrash = this.trashIds().find((t) => this.db.get("SELECT 1 FROM changes WHERE id = ? AND note_id = ?", Number(t.split("-")[1]), noteId));
+      at = inTrash ? this.untrash([inTrash], source)[0].path : this.freePath(row.path);
       baseVersion = undefined; // the note wasn't there to have changed
     }
     return { ...this.save(at, before, { source, baseVersion }), path: at };
@@ -1328,7 +1384,7 @@ export class Vault {
       return u;
     };
     const rows = this.db.all<TagUse & { tag: string }>(
-      "SELECT t.tag, t.kind, t.path, t.line FROM tags t JOIN notes n ON n.path = t.path WHERE substr(t.path, 1, 8) != 'Archive/'",
+      `SELECT t.tag, t.kind, t.path, t.line FROM tags t JOIN notes n ON n.path = t.path WHERE NOT ${archivedSql("t.path")}`,
     );
     for (const r of rows) {
       for (const tag of withParents(r.tag)) {
@@ -1360,7 +1416,7 @@ export class Vault {
   }
 
   private addUnused(tag: string) {
-    const used = this.db.get(`SELECT 1 FROM tags t JOIN notes n ON n.path = t.path WHERE ${UNDER} AND substr(t.path, 1, 8) != 'Archive/' LIMIT 1`, ...under(tag));
+    const used = this.db.get(`SELECT 1 FROM tags t JOIN notes n ON n.path = t.path WHERE ${UNDER} AND NOT ${archivedSql("t.path")} LIMIT 1`, ...under(tag));
     if (!used) this.db.run("INSERT OR IGNORE INTO added_tags(tag) VALUES (?)", tag);
   }
 
@@ -1381,7 +1437,7 @@ export class Vault {
   private tagInUse(tag: string): TagFavorite | null {
     const notes = this.db.get<{ n: number }>(
       `SELECT count(DISTINCT t.path) AS n FROM tags t JOIN notes n ON n.path = t.path
-       WHERE ${UNDER} AND t.kind = 'note' AND substr(t.path, 1, 8) != 'Archive/'`,
+       WHERE ${UNDER} AND t.kind = 'note' AND NOT ${archivedSql("t.path")}`,
       ...under(tag),
     )!.n;
     if (!notes) return null;
@@ -1398,21 +1454,28 @@ export class Vault {
     );
   }
 
-  /** Each tagged asset's tags, as written, from the asset tags file. A file that isn't valid JSON reads as none. */
-  assetTags(): Record<string, string[]> {
+  /**
+   * Each tagged asset's tags, as written, from the asset tags file. A file that isn't a JSON object
+   * reads as none, unless it's read `forWrite`: writing back would drop every other asset's tags,
+   * so that refuses until the file is fixed.
+   */
+  assetTags(forWrite = false): Record<string, string[]> {
     let data: unknown;
     try {
       data = JSON.parse(this.files.read(ASSET_TAGS) ?? "{}");
     } catch {
+      data = null;
+    }
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      if (forWrite) throw new VaultError(`${ASSET_TAGS} isn't a valid tags file (a JSON object): fix it before changing asset tags`, "conflict");
       return {};
     }
-    const out: Record<string, string[]> = {};
-    if (!data || typeof data !== "object" || Array.isArray(data)) return out;
-    for (const [rel, list] of Object.entries(data)) {
-      const tags = Array.isArray(list) ? uniqueTags(list.filter((t): t is string => typeof t === "string"), false) : [];
-      if (tags.length) out[rel] = tags;
-    }
-    return out;
+    // fromEntries, not assignment, so a "__proto__" key stays a plain entry.
+    return Object.fromEntries(
+      Object.entries(data)
+        .map(([rel, list]) => [rel, Array.isArray(list) ? uniqueTags(list.filter((t): t is string => typeof t === "string"), false) : []] as const)
+        .filter(([, tags]) => tags.length),
+    );
   }
 
   /** Set an asset's tags (an empty list clears them). Returns them as stored: tidied, each once. */
@@ -1420,7 +1483,7 @@ export class Vault {
     const meta = this.metaOf(target);
     if (meta.kind !== "asset") throw new VaultError(`${meta.path} is a note: tag it with #tags in its text`);
     const clean = uniqueTags(tags, true);
-    const map = this.assetTags();
+    const map = this.assetTags(true);
     if (clean.length) map[meta.path] = clean;
     else delete map[meta.path];
     this.writeAssetTags(map);
@@ -1443,6 +1506,7 @@ export class Vault {
     const next = cleanTag(to);
     if (!old) throw new VaultError(`"${from}" isn't a tag`);
     if (!next) throw new VaultError(`"${to}" isn't a tag: use letters, numbers, - and _, nested with /`);
+    const map = this.assetTags(true);
     const edits: Array<{ path: string; content: string; version: string; change: Change }> = [];
     for (const rel of new Set(this.tagged(old).filter((r) => r.kind !== "asset").map((r) => r.path))) {
       const before = this.files.read(rel);
@@ -1451,7 +1515,6 @@ export class Vault {
       const r = this.commit(rel, before, after, source, "edit");
       edits.push({ path: rel, content: after, version: r.version, change: r.change });
     }
-    const map = this.assetTags();
     const assets: Record<string, string[]> = {};
     for (const [rel, tags] of Object.entries(map)) {
       if (!tags.some((t) => tagMatches(t.toLowerCase(), old))) continue;
@@ -1514,7 +1577,7 @@ export class Vault {
     if (!kindOf(rel)) rel += ".md";
     const kind = kindOf(rel);
     if (kind === "asset") throw new VaultError("Only .md and .html notes can be created");
-    if (this.files.stat(rel)) throw new VaultError(`${rel} already exists; use edit_note instead`, "exists", { path: rel });
+    if (this.files.stat(rel)) throw new VaultError(`${rel} already exists. To replace it, create it again with overwrite (--overwrite); to change part of it, use edit_note`, "exists", { path: rel });
     return this.commit(rel, null, content, source, "create");
   }
 
@@ -1788,7 +1851,7 @@ export class Vault {
   /** A new daily note: `Templates/Daily note.md`, filled in as of `date` (see templates.ts), or a plain one with Tasks and Log. */
   private dailyTemplate(date: string): string {
     const template = this.files.read(DAILY_TEMPLATE);
-    return template !== null ? fillTemplate(template, { at: `${date}T${localNow(this.now()).split("T")[1]}`, title: date }).text : `# ${date}\n\n## Tasks\n\n## Log\n`;
+    return template !== null ? fillTemplate(template, { at: `${date}T${localNow(this.now(), this.timeZone).split("T")[1]}`, title: date }).text : `# ${date}\n\n## Tasks\n\n## Log\n`;
   }
 
   // ---------------------------------------------------------------- templates
@@ -1819,7 +1882,7 @@ export class Vault {
   renderTemplate(target: string, opts: FillOptions = {}) {
     const rel = this.templatePath(target);
     const { body } = frontmatterEntries(this.files.read(rel) ?? "");
-    return { path: rel, ...fillTemplate(body, { at: localNow(this.now()), ...opts }) };
+    return { path: rel, ...fillTemplate(body, { at: localNow(this.now(), this.timeZone), ...opts }) };
   }
 
   /**
@@ -1831,7 +1894,7 @@ export class Vault {
     const rel = this.templatePath(target);
     const md = this.files.read(rel) ?? "";
     const info = templateInfo(rel, md);
-    const fill = { at: localNow(this.now()), ...opts };
+    const fill = { at: localNow(this.now(), this.timeZone), ...opts };
     const title = cleanTitle(opts.title ?? (info.title ? fillTemplate(info.title, fill).text : "")) || info.name;
     const folderText = opts.folder ?? (info.folder ? fillTemplate(info.folder, fill).text : "");
     const folder = folderText.split("/").map(cleanTitle).filter(Boolean).join("/");
@@ -1856,8 +1919,15 @@ export class Vault {
     const block = cutTask(lines, findTask(lines, line, text, note.path));
     const there = this.read(dest);
     const added = withTasksAdded(there.content, block, false);
-    const cut = this.commit(note.path, note.content, lines.join("\n"), source, "edit");
+    // Into the other note first: if that write fails, the task is still where it was.
     const r = this.commit(dest, there.content, added.content, source, "edit");
+    let cut;
+    try {
+      cut = this.commit(note.path, note.content, lines.join("\n"), source, "edit");
+    } catch (e) {
+      this.commit(dest, added.content, there.content, source, "edit");
+      throw e;
+    }
     // The note it left, too, so a caller can tell whoever shows that note.
     return { ...r, cut, line: added.line, text: block[0].match(TASK_LINE)![4] };
   }
@@ -1899,17 +1969,29 @@ export class Vault {
     return { ...meta, change };
   }
 
-  /** Archive a note: move it under Archive/ (links keep working: they resolve by name). */
+  /** Archive a note: move it into the archive folder (links keep working: they resolve by name). */
   archive(target: string, source: string) {
     const rel = this.mustResolve(target);
     if (isArchived(rel)) throw new VaultError(`${rel} is already archived`);
-    return this.move(rel, this.freePath(ARCHIVE + rel), source, "archive");
+    return this.move(rel, this.freePath(this.archiveFolder() + rel), source, "archive");
   }
 
   unarchive(target: string, source: string) {
     const rel = this.mustResolve(target);
     if (!isArchived(rel)) throw new VaultError(`${rel} isn't archived`);
-    return this.move(rel, this.freePath(rel.slice(ARCHIVE.length)), source, "unarchive");
+    return this.move(rel, this.freePath(homeOf(rel)), source, "unarchive");
+  }
+
+  /**
+   * Where archiving puts notes: the workspace's own archive folder ("4. Archive/") when it has one,
+   * so there's one archive rather than two, else Archive/. With several, the one holding most notes.
+   */
+  archiveFolder(): string {
+    const roots = this.db.all<{ dir: string; n: number }>(
+      `SELECT substr(path, 1, instr(path, '/')) AS dir, count(*) AS n FROM notes WHERE ${archivedSql("path")} GROUP BY dir`,
+    );
+    const own = roots.filter((r) => r.dir !== ARCHIVE).sort((a, b) => b.n - a.n || a.dir.localeCompare(b.dir));
+    return own[0]?.dir ?? ARCHIVE;
   }
 
   // ---------------------------------------------------------------- trash
@@ -1936,12 +2018,12 @@ export class Vault {
     return rels.map((rel) => {
       const meta = this.meta(rel) ?? this.indexFile(rel);
       if (!meta) throw new VaultError(`No note matches "${rel}"`, "not_found");
+      const tags = meta.kind === "asset" ? this.assetTags(true) : {};
       const text = meta.kind === "asset" ? null : (this.files.read(rel) ?? "");
       const summary = meta.kind === "asset" ? fmtBytes(meta.size) : diffstat(text!, "");
       const change = this.recordChange({ path: rel, op: "delete", source, version: null, summary, from_path: null }, text);
       const id = `${change.ts}-${change.id}`;
       this.files.rename(rel, `${TRASH}/${id}/${rel}`);
-      const tags = this.assetTags();
       if (tags[rel]) {
         this.files.write(`${TRASH}/${id}/${TRASH_TAGS}`, JSON.stringify(tags[rel]));
         delete tags[rel];
@@ -2006,11 +2088,12 @@ export class Vault {
       if (!f) throw new VaultError("That's no longer in Trash", "not_found");
       const noteId = this.db.get("SELECT note_id FROM changes WHERE id = ?", Number(id.split("-")[1]))?.note_id;
       const dest = this.freePath(f.path);
-      this.files.rename(f.at, dest);
       const tagsAt = `${TRASH}/${id}/${TRASH_TAGS}`;
       const kept = this.files.read(tagsAt);
+      const tags = kept ? this.assetTags(true) : {};
+      this.files.rename(f.at, dest);
       if (kept) {
-        this.writeAssetTags({ ...this.assetTags(), [dest]: JSON.parse(kept) });
+        this.writeAssetTags({ ...tags, [dest]: JSON.parse(kept) });
         this.files.remove(tagsAt);
       }
       const free = noteId && !this.db.get("SELECT 1 FROM notes WHERE id = ?", noteId);
@@ -2079,18 +2162,19 @@ export class Vault {
     }
     if (dest === from) return { path: dest, from, version: this.meta(from)?.version ?? "", change: null, updated: [] as string[], edits: [] };
     // On a case-insensitive disk, "notes.md" is there when renaming "Notes.md" to it: the same file.
-    const caseOnly = dest.toLowerCase() === from.toLowerCase() && !this.meta(dest);
+    // On a case-sensitive one it can be another file, not yet indexed, that the rename would replace.
+    const caseOnly = dest.toLowerCase() === from.toLowerCase() && this.files.same(from, dest);
     if (!caseOnly && this.files.stat(dest)) throw new VaultError(`${dest} already exists`, "exists");
     // Read before it moves: after, a name can lead to another note. Its own links to itself
     // ([[Guide#Setup]] in Guide) move with it.
     const pointing = this.linksTo(from, [from, ...this.backlinks(from).map((b) => b.path)]);
 
     const id = this.meta(from)?.id;
+    const assetTags = kindOf(from) === "asset" ? this.assetTags(true) : {};
     this.files.rename(from, dest);
     this.unindex(from);
     const meta = this.indexFile(dest, undefined, id)!;
     const change = this.recordChange({ path: dest, op, source, version: meta.version, summary: `from ${from}`, from_path: from });
-    const assetTags = meta.kind === "asset" ? this.assetTags() : {};
     if (assetTags[from]) {
       assetTags[dest] = assetTags[from];
       delete assetTags[from];
@@ -2150,23 +2234,25 @@ export class Vault {
   // ---------------------------------------------------------------- contacts
 
   /** Every contact (a note in People/, not archived), by name, with how often and when last other notes mention them. */
-  contacts(): Contact[] {
+  contacts(today = this.day()): Contact[] {
     return this.list(PEOPLE)
       .filter((n) => n.kind === "md")
-      .map((n) => {
-        const mentions = this.mentionsOf(n.path);
-        return { ...contactFromNote(n.path, this.files.read(n.path) ?? ""), id: n.id, mentions: mentions.length, lastContacted: mentions[0]?.date ?? null };
-      })
+      .map((n) => this.contactOf(n.path, n.id, this.mentionsOf(n.path), today))
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
   }
 
   /** One contact and its timeline: the notes that mention them, newest first. */
-  contact(target: string): { contact: Contact; timeline: TimelineItem[] } {
+  contact(target: string, today = this.day()): { contact: Contact; timeline: TimelineItem[] } {
     const rel = this.contactPath(target);
-    const meta = this.meta(rel)!;
     const timeline = this.mentionsOf(rel);
-    const contact = { ...contactFromNote(rel, this.files.read(rel) ?? ""), id: meta.id, mentions: timeline.length, lastContacted: timeline[0]?.date ?? null };
-    return { contact, timeline };
+    return { contact: this.contactOf(rel, this.meta(rel)!.id, timeline, today), timeline };
+  }
+
+  private contactOf(rel: string, id: string, mentions: TimelineItem[], today: string): Contact {
+    if (!isDate(today)) throw new VaultError(`"today" must be a date like 2026-10-01, not "${today}"`);
+    const c = contactFromNote(rel, this.files.read(rel) ?? "");
+    const lastContacted = mentions[0]?.date ?? null;
+    return { ...c, id, mentions: mentions.length, lastContacted, checkInDue: checkInDue(c, lastContacted, today) };
   }
 
   /** The note `target` names, if it's a contact (a note in People/). */
@@ -2183,7 +2269,7 @@ export class Vault {
     for (const b of this.backlinks(rel)) {
       if (seen.has(b.path)) continue;
       seen.add(b.path);
-      const date = dayOfNote(b.path, this.files.read(b.path) ?? "") ?? localDate(this.meta(b.path)?.mtime ?? this.now());
+      const date = dayOfNote(b.path, this.files.read(b.path) ?? "") ?? localDate(this.meta(b.path)?.mtime ?? this.now(), this.timeZone);
       out.push({ kind: "note", path: b.path, title: b.title, date, line: b.line, text: b.text });
     }
     return out.sort((a, b) => b.date.localeCompare(a.date) || a.path.localeCompare(b.path));
@@ -2197,6 +2283,7 @@ export class Vault {
     const rel = cleanPath(`${PEOPLE}/${name}.md`);
     const taken = this.list(PEOPLE, "all").find((n) => n.path.toLowerCase() === rel.toLowerCase()) ?? (this.files.stat(rel) ? { path: rel } : null);
     if (taken) throw new VaultError(`${taken.path} already exists`, "exists", { path: taken.path });
+    checkRhythm(input.checkIn);
     const fields = { ...emptyContact(name), ...input, name };
     const notes = input.notes?.trim();
     return this.commit(rel, null, contactNote(fields) + (notes ? `\n${notes}\n` : ""), source, "create");
@@ -2205,6 +2292,7 @@ export class Vault {
   /** Change a contact's fields (any of them but its name, which is its note's). Its words and other frontmatter stay. */
   updateContact(target: string, patch: Partial<Omit<ContactFields, "name">>, source: string) {
     const rel = this.contactPath(target);
+    checkRhythm(patch.checkIn);
     const before = this.files.read(rel) ?? "";
     const after = contactNote({ ...contactFromNote(rel, before), ...patch }, before);
     return after === before ? { ...this.meta(rel)!, change: null } : this.commit(rel, before, after, source, "edit");

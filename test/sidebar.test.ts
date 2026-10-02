@@ -47,3 +47,9 @@ test("Contacts, Calendar, Assets and Smart folders show once in use, while you'r
   assert.deepEqual(shown(shownItems(none, { calendar: true, assets: false }, new Set())), ["calendar"]);
   assert.deepEqual(shown(shownItems({ ...none, assets: true }, { assets: false }, new Set())), ["assets"], "turning the setting off only lets it wait again");
 });
+
+test("a workspace that isn't gamified shows every optional item from the start", () => {
+  const none = { contacts: false, calendar: false, assets: false, smart: false };
+  assert.deepEqual(shownItems(none, {}, new Set(), true), { contacts: true, calendar: true, assets: true, smart: true });
+  assert.deepEqual(shownItems(none, {}, new Set()), none);
+});
