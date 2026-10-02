@@ -27,7 +27,8 @@ In a note under `Templates/`, type `{{` for a menu of placeholders.
 | `MM` | 09 | `mm` | 05 |
 | `M` | 9 | `m` | 5 |
 | `DD` | 09 | `ss` | 00 |
-| `D` | 9 | `s` | 0 |
+| `Do` | 9th | `s` | 0 |
+| `D` | 9 | | |
 | `dddd` | Tuesday | `A` | PM |
 | `ddd` | Tue | `a` | pm |
 
@@ -82,7 +83,7 @@ tags: [meeting]
 
 ## Daily notes
 
-Today's journal note (Tasks → Today), quick-add's journal, quick capture, and the calendar widget over `Journal/` make a new day's note from `Templates/Daily note.md`, with the same placeholders. `{{date}}` is that day, so `# {{date:dddd, MMMM D}}` heads it with the weekday.
+Today's journal note (on the Today page), quick-add's journal, quick capture, and the calendar widget over `Journal/` make a new day's note from `Templates/Daily note.md`, with the same placeholders. `{{date}}` is that day, so `# {{date:dddd, MMMM D}}` heads it with the weekday.
 
 ## Meeting notes
 

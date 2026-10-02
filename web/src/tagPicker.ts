@@ -4,6 +4,7 @@ import type { TagCount } from "./api.ts";
 import { el, icon } from "./dom.ts";
 import { fuzzyScore } from "./fuzzy.ts";
 import { cleanTag } from "../../src/core/tags.ts";
+import { tagList } from "../../src/core/query.ts";
 
 /** A clickable `#tag`. A span, since it often sits inside a card that is itself a button. */
 export function tagChip(display: string, onClick: () => void): HTMLElement {
@@ -21,7 +22,10 @@ export function tagChip(display: string, onClick: () => void): HTMLElement {
  */
 export function tagFilter(opts: { current: string; tags: () => TagCount[]; count: (t: TagCount) => number; onChange(tag: string): void }): HTMLElement {
   if (opts.current) {
-    const display = opts.tags().find((t) => t.tag === opts.current.toLowerCase())?.display ?? opts.current;
+    // A smart folder can need several tags at once (`work,plan`).
+    const display = tagList(opts.current)
+      .map((c) => opts.tags().find((t) => t.tag === c.toLowerCase())?.display ?? c)
+      .join(" + #");
     return el(
       "span",
       { class: "chip tag-filter is-on" },

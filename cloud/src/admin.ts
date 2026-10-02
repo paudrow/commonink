@@ -8,7 +8,6 @@ import { revokeAgentsIn } from "./agents.ts";
 import { createInvite, type User, type WorkspaceRef } from "./directory.ts";
 import type { Env } from "./env.ts";
 import { limit } from "./limits.ts";
-import { agentLinksAllowed } from "./shares.ts";
 
 const ROLES: Role[] = ["owner", "editor", "viewer"];
 const fail = (error: string, status = 400) => json({ error }, status);
@@ -27,17 +26,27 @@ export async function membersOf(env: Env, ws: string): Promise<Member[]> {
   return results;
 }
 
-const owners = async (env: Env, ws: string) =>
-  (await env.DB.prepare("SELECT COUNT(*) AS n FROM members WHERE workspace_id = ? AND role = 'owner'").bind(ws).first<{ n: number }>())?.n ?? 0;
+/**
+ * Ends an UPDATE or DELETE of one member (?1 the workspace) so it applies only if they aren't an
+ * owner or another owner stays. Checked in the same statement, so two owners demoting each other
+ * (or both leaving) at once can't leave the workspace with none.
+ */
+const KEEPS_AN_OWNER = "AND (role <> 'owner' OR (SELECT COUNT(*) FROM members WHERE workspace_id = ?1 AND role = 'owner') > 1)";
+
+/** Someone's unused invite links here, once they aren't an owner (so they can't let themselves back in). */
+const dropInvites = (env: Env, ws: string, userId: string) => env.DB.prepare("DELETE FROM invites WHERE workspace_id = ? AND created_by = ? AND used_at IS NULL").bind(ws, userId);
 
 /**
  * Someone leaves (or is removed): their membership, their agents' access here, their open tabs, their
- * own calendars here and anything here shared with them (by account or email) all go.
+ * own calendars here, their unused invite links and anything here shared with them (by account or email) all go.
+ * False, and nothing changes, if they're the last owner.
  */
 async function drop(env: Env, url: URL, ws: string, userId: string) {
+  const { meta } = await env.DB.prepare(`DELETE FROM members WHERE workspace_id = ?1 AND user_id = ?2 ${KEEPS_AN_OWNER}`).bind(ws, userId).run();
+  if (!meta.changes) return false;
   const email = (await env.DB.prepare("SELECT email FROM users WHERE id = ?").bind(userId).first<{ email: string }>())?.email.toLowerCase() ?? "";
   await env.DB.batch([
-    env.DB.prepare("DELETE FROM members WHERE workspace_id = ? AND user_id = ?").bind(ws, userId),
+    dropInvites(env, ws, userId),
     env.DB.prepare("DELETE FROM shares WHERE workspace_id = ? AND ((principal_type = 'user' AND principal = ?) OR (principal_type = 'email' AND principal = ?))").bind(ws, userId, email),
   ]);
   await revokeAgentsIn(env, url, userId, ws);
@@ -45,6 +54,7 @@ async function drop(env: Env, url: URL, ws: string, userId: string) {
   await stub.disconnect(userId);
   await stub.sharingChanged();
   await stub.dropCalendarsOf(userId); // their own calendars there (Google's) go with them
+  return true;
 }
 
 /** The settings routes, or null if `route` isn't one (it goes on to the workspace). */
@@ -62,8 +72,9 @@ export async function adminRoute(req: Request, env: Env, url: URL, user: User, w
       const current = (await membersOf(env, ws.id)).find((m) => m.id === target);
       if (!current) return fail("They aren't in this workspace", 404);
       if (current.role === role) return json({ ok: true });
-      if (current.role === "owner" && (await owners(env, ws.id)) === 1) return fail("A workspace needs an owner. Make someone else an owner first.", 409);
-      await env.DB.prepare("UPDATE members SET role = ? WHERE workspace_id = ? AND user_id = ?").bind(role, ws.id, target).run();
+      const { meta } = await env.DB.prepare(`UPDATE members SET role = ?3 WHERE workspace_id = ?1 AND user_id = ?2 ${KEEPS_AN_OWNER}`).bind(ws.id, target, role).run();
+      if (!meta.changes) return fail("A workspace needs an owner. Make someone else an owner first.", 409);
+      if (current.role === "owner") await dropInvites(env, ws.id, target).run();
       // Their agents connected with the old role; they reconnect to get the new one.
       await revokeAgentsIn(env, url, target, ws.id);
       await log(env, ws.id, user.id, "role", target, `${current.role} → ${role}`);
@@ -75,16 +86,14 @@ export async function adminRoute(req: Request, env: Env, url: URL, user: User, w
       const current = (await membersOf(env, ws.id)).find((m) => m.id === target);
       if (!current) return fail("They aren't in this workspace", 404);
       if (target === user.id) return fail("To leave, use Leave workspace", 400);
-      if (current.role === "owner" && (await owners(env, ws.id)) === 1) return fail("A workspace needs an owner. Make someone else an owner first.", 409);
-      await drop(env, url, ws.id, target);
+      if (!(await drop(env, url, ws.id, target))) return fail("A workspace needs an owner. Make someone else an owner first.", 409);
       await log(env, ws.id, user.id, "remove", target, current.role);
       return json({ ok: true });
     }
 
     case "POST /leave": {
       if (ws.kind === "personal") return fail("Your own workspace is yours to keep. Rename it instead.", 409);
-      if (ws.role === "owner" && (await owners(env, ws.id)) === 1) return fail("You're its only owner. Make someone else an owner first, or delete the workspace.", 409);
-      await drop(env, url, ws.id, user.id);
+      if (!(await drop(env, url, ws.id, user.id))) return fail("You're its only owner. Make someone else an owner first, or delete the workspace.", 409);
       await log(env, ws.id, user.id, "leave", user.id, ws.role);
       return json({ ok: true });
     }
@@ -139,14 +148,25 @@ export async function adminRoute(req: Request, env: Env, url: URL, user: User, w
     }
 
     case "GET /workspace/settings":
-      return json({ agentLinks: await agentLinksAllowed(env.DB, ws.id) });
+      return json(await workspaceSettings(env.DB, ws.id));
 
+    // Each setting is optional, so changing one leaves the others as they are.
     case "POST /workspace/settings": {
-      const { agentLinks } = await body();
-      if (typeof agentLinks !== "boolean") return fail('"agentLinks" must be true or false');
-      await env.DB.prepare("UPDATE workspaces SET agent_links = ? WHERE id = ?").bind(agentLinks ? 1 : 0, ws.id).run();
-      await log(env, ws.id, user.id, "settings", null, `agentLinks: ${agentLinks ? "on" : "off"}`);
-      return json({ agentLinks });
+      const { agentLinks, gamified } = await body();
+      if (agentLinks !== undefined && typeof agentLinks !== "boolean") return fail('"agentLinks" must be true or false');
+      if (gamified !== undefined && typeof gamified !== "boolean") return fail('"gamified" must be true or false');
+      if (agentLinks === undefined && gamified === undefined) return fail('Send "agentLinks" or "gamified"');
+      const changes: string[] = [];
+      if (typeof agentLinks === "boolean") {
+        await env.DB.prepare("UPDATE workspaces SET agent_links = ? WHERE id = ?").bind(agentLinks ? 1 : 0, ws.id).run();
+        changes.push(`agentLinks: ${agentLinks ? "on" : "off"}`);
+      }
+      if (typeof gamified === "boolean") {
+        await env.DB.prepare("UPDATE workspaces SET gamified = ? WHERE id = ?").bind(gamified ? 1 : 0, ws.id).run();
+        changes.push(`gamified: ${gamified ? "on" : "off"}`);
+      }
+      await log(env, ws.id, user.id, "settings", null, changes.join(", "));
+      return json(await workspaceSettings(env.DB, ws.id));
     }
 
     case "POST /workspace/delete": {
@@ -177,4 +197,10 @@ async function deleteWorkspace(env: Env, url: URL, ws: string) {
     ].map((sql) => env.DB.prepare(sql).bind(ws)),
   );
   await env.WORKSPACE.get(env.WORKSPACE.idFromName(ws)).destroy(ws);
+}
+
+/** What GET /workspace/settings answers: whether agents may share by link, and whether the workspace is gamified. */
+async function workspaceSettings(db: D1Database, ws: string) {
+  const row = await db.prepare("SELECT agent_links, gamified FROM workspaces WHERE id = ?").bind(ws).first<{ agent_links: number; gamified: number }>();
+  return { agentLinks: row?.agent_links === 1, gamified: row?.gamified !== 0 };
 }

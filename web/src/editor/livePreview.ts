@@ -1,10 +1,11 @@
 // Inline live preview: markup hides itself unless the selection touches it (Obsidian-style).
 import { syntaxTree } from "@codemirror/language";
 import { noteTree } from "./tree.ts";
-import type { EditorState, Range, Text } from "@codemirror/state";
+import { StateEffect, type EditorState, type Range, type Text } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { scanTags, type TagSpan } from "../../../src/core/tags.ts";
-import { calendarTarget, externalTitle, linkKind } from "../links.ts";
+import { calendarTarget, externalTitle, linkKind, missingNote } from "../links.ts";
+import { editorContext } from "./blocks.ts";
 import { lineTokens, TASK_LINE } from "../../../src/core/tasks.ts";
 import { MAX_CONTAINERS } from "../../../src/core/depth.ts";
 import { today, tokenChip } from "../taskChips.ts";
@@ -301,9 +302,11 @@ function build(view: EditorView): DecorationSet {
             const bar = inner.indexOf("|");
             const target = bar >= 0 ? inner.slice(0, bar) : inner;
             const active = touches(state, ref.from, ref.to);
-            const cls = name === "Embed" ? "cm-wikilink cm-embed-inline" : "cm-wikilink";
-            const mark = (a: number, b: number, extra = "") =>
-              b > a && out.push(Decoration.mark({ class: cls + extra, attributes: { "data-target": target } }).range(a, b));
+            const notes = state.facet(editorContext)?.notes();
+            const missing = name === "WikiLink" && !!notes?.length && missingNote(target, notes);
+            const cls = (name === "Embed" ? "cm-wikilink cm-embed-inline" : "cm-wikilink") + (missing ? " is-missing" : "");
+            const attributes: Record<string, string> = missing ? { "data-target": target, title: "Not in your notes yet. Click to create it." } : { "data-target": target };
+            const mark = (a: number, b: number, extra = "") => b > a && out.push(Decoration.mark({ class: cls + extra, attributes }).range(a, b));
             if (active) {
               mark(ref.from, ref.to, " is-raw");
             } else {
@@ -414,6 +417,9 @@ function build(view: EditorView): DecorationSet {
   return Decoration.set(out, true);
 }
 
+/** Dispatch when the list of notes changes, so [[links]] to notes that came or went redraw. */
+export const notesChanged = StateEffect.define<null>();
+
 export const livePreview = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet;
@@ -421,7 +427,10 @@ export const livePreview = ViewPlugin.fromClass(
       this.decorations = build(view);
     }
     update(u: ViewUpdate) {
-      if (u.docChanged || u.viewportChanged || u.selectionSet || syntaxTree(u.startState) !== syntaxTree(u.state)) {
+      if (
+        u.docChanged || u.viewportChanged || u.selectionSet || syntaxTree(u.startState) !== syntaxTree(u.state) ||
+        u.transactions.some((t) => t.effects.some((e) => e.is(notesChanged)))
+      ) {
         this.decorations = build(u.view);
       }
     }
