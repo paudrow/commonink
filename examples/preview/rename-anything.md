@@ -1,4 +1,5 @@
 ---
+pr: 266
 title: Rename folders and files, and everything the same way
 ---
 Folders and files (images, PDFs and other assets) couldn't be renamed at all, and the things that could each did it a different way. Now anything with a name in a list renames the same way: press **F2** on it or double-click it, or use its ✎ button where its row has buttons. **⌘K → Rename…** renames whatever is showing. Links to what you renamed are updated everywhere.
