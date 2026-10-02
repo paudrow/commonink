@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 189
 title: Import fixes
 ---
 1. Open [[Moved over]]. **Weekly review** and **Q3 planning** are links to notes that were never brought in: they're grey with a dashed underline, and hovering one says so. Click **Weekly review** to create it, then go back: that link looks like every other link now.
