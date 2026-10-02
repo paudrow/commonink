@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 283
 title: Your own events are notes
 ---
 Events you make in the app now live as notes in an `Events/` folder. Subscribed feeds and Google calendars work as before.
