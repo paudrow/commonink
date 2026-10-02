@@ -191,7 +191,7 @@ function editWords(t: Task, words: HTMLElement, save: (patch: TaskPatch) => Prom
     words.innerHTML = inline(patch.summary ?? t.summary); // show it now; the reload confirms it
     void save(patch).catch((e) => {
       words.innerHTML = inline(t.summary);
-      alert(e instanceof Error ? e.message : "Couldn't change the task");
+      toast({ error: true, text: e instanceof Error ? e.message : "Couldn't change the task" });
     });
   };
   const input = taskInput({ value: t.summary, compact: true, submit: () => finish(true), cancel: () => finish(false), blur: () => finish(true) });

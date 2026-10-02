@@ -4,6 +4,7 @@
 // can be deleted too.
 import { api, unusedTag, type TagCount } from "./api.ts";
 import { el, icon } from "./dom.ts";
+import { confirmAction } from "./modal.ts";
 import type { ToastSpec } from "./toast.ts";
 import { cleanTag, tagMatches } from "../../src/core/tags.ts";
 
@@ -133,7 +134,7 @@ export class TagsPage {
   private async rename(t: TagCount, to: string): Promise<boolean> {
     const all = this.hooks.tags();
     const into = all.find((x) => x.tag === to.toLowerCase() && x.tag !== t.tag);
-    if (into && !confirm(`#${into.display} already exists. Merge #${t.display} into it? Everything tagged #${t.display} will be tagged #${into.display}.`)) return false;
+    if (into && !(await confirmAction({ title: `Merge #${t.display} into #${into.display}?`, body: `#${into.display} already exists. Everything tagged #${t.display} will be tagged #${into.display}.`, action: "Merge" }))) return false;
     // Tags added by name under it move with it; Undo moves them back.
     const waiting = all.filter((x) => tagMatches(x.tag, t.tag) && unusedTag(x) && !all.some((c) => c.tag.startsWith(`${x.tag}/`)));
     const movedTo = (x: TagCount) => (into?.tag ?? to.toLowerCase()) + x.tag.slice(t.tag.length);

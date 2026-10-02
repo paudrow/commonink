@@ -6,7 +6,7 @@
 import { api, ApiError, type CalendarSource, type GoogleCalendar, type GoogleStatus } from "../api.ts";
 import { el, icon } from "../dom.ts";
 import { toast } from "../toast.ts";
-import { ask } from "../trash.ts";
+import { ask } from "../modal.ts";
 import { calendarChanged, calendarWorkspace } from "./data.ts";
 
 let loading: Promise<GoogleStatus | null> | null = null;
