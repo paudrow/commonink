@@ -62,7 +62,7 @@ export class Workspace extends DurableObject<Env> {
         assertPublicUrl(u);
         if (this.selfOrigin && u.hostname.replace(/\.$/, "") === new URL(this.selfOrigin).hostname) throw new Error("self");
       }),
-      { readers: googleMode(env) === "off" ? {} : { google: googleReader(env, db) } },
+      { readers: googleMode(env) === "off" ? {} : { google: googleReader(env, db) }, vault: this.vault },
     );
     // Keep-alives are answered without waking the object.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));

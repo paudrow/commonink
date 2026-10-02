@@ -1574,6 +1574,8 @@ function onMessage(m: ServerMsg) {
           openNote(m.change.path, { push: false, pane, trail: false, focus: pane === active });
         }
       }
+      // The workspace's own events are notes in Events/: one changed anywhere (an agent, the editor) is a calendar change.
+      if ([m.change.path, m.change.from_path].some((p) => p?.startsWith("Events/"))) eventNotesChanged();
       notesPage.refreshSoon();
       historyPage?.refreshSoon();
       renderActivity();
@@ -1622,6 +1624,11 @@ async function refreshNotes() {
   for (const p of panes) if (p.session?.kind === "md") p.view.dispatch({ effects: notesChanged.of(null) });
 }
 const refreshNotesSoon = debounce(refreshNotes, 120);
+const eventNotesChanged = debounce(() => {
+  calendarChanged();
+  void calendarPage?.refresh();
+  void learnCalendars();
+}, 300);
 /** Whether there's a calendar, so Calendar shows in the sidebar. A failed read leaves it as it was. */
 async function learnCalendars() {
   const list = await calendars().catch(() => null);

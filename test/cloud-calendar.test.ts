@@ -64,6 +64,30 @@ test("a meeting note is made once per event, attributed to whoever made it, and 
   await cloud.call(owner, "POST", `${base}/calendar/sources/remove`, { id: cal.id });
 });
 
+test("online, the workspace's own events are notes in Events/ too: made, changed and deleted from the API, and by writing a note", async () => {
+  const { base, editor, owner, viewer } = people;
+  const draft = { source: "local", title: "Planning", start: "2026-10-06T15:00:00Z", end: "2026-10-06T16:00:00Z", timeZone: "UTC", location: "Room 2" };
+  const { event } = await cloud.call(editor, "POST", `${base}/calendar/events`, draft);
+  const path = "Events/2026-10-06 Planning.md";
+  assert.equal(event.file.path, path);
+  const note = await cloud.call(viewer, "GET", `${base}/note?path=${encodeURIComponent(path)}`);
+  assert.equal(note.content, "---\nstart: 2026-10-06T15:00Z\nend: 2026-10-06T16:00Z\nwhere: Room 2\n---\n# Planning\n");
+  assert.equal((await cloud.call(owner, "GET", `${base}/changes?path=${encodeURIComponent(path)}`))[0].person, "Editor Dev");
+
+  await cloud.call(editor, "POST", `${base}/calendar/events/update`, { id: event.id, start: "2026-10-06T17:00:00Z", end: "2026-10-06T18:00:00Z" });
+  assert.match((await cloud.call(viewer, "GET", `${base}/note?path=${encodeURIComponent(path)}`)).content, /start: 2026-10-06T17:00Z\nend: 2026-10-06T18:00Z/);
+  assert.equal((await cloud.request(viewer, "POST", `${base}/calendar/events/update`, { id: event.id, title: "Mine" })).status, 403);
+
+  // An agent (or anyone who can edit notes) makes an event by writing its note.
+  await cloud.call(editor, "POST", `${base}/note`, { path: "Events/2026-10-08 Retro.md", content: "---\nstart: 2026-10-08T20:00Z\n---\n" });
+  const week: Array<{ id: string; title: string; start: string }> = await cloud.call(viewer, "GET", `${base}/calendar/events?${WEEK}`);
+  assert.deepEqual(week.map((e) => [e.title, e.start]), [["Planning", "2026-10-06T17:00:00Z"], ["Retro", "2026-10-08T20:00:00Z"]]);
+
+  for (const e of week) await cloud.call(editor, "POST", `${base}/calendar/events/delete`, { id: e.id });
+  assert.deepEqual(await cloud.call(viewer, "GET", `${base}/calendar/events?${WEEK}`), []);
+  assert.equal((await cloud.request(viewer, "GET", `${base}/note?path=${encodeURIComponent(path)}`)).status, 404);
+});
+
 test("the demo feed is only on Previews: elsewhere its address goes through the public-host rules like any other", async () => {
   const blocked = (u: URL) => {
     throw new Error(`blocked ${u.hostname}`);
