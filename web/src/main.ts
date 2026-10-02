@@ -47,7 +47,7 @@ import { guideMessage, startGuide } from "./onboarding.ts";
 import { watchTodayCleared } from "./todayCleared.ts";
 import { inkState, setInk, startInks } from "./inkUnlocks.ts";
 import { gamified, loadGamified, onGamified, setGamified } from "./gamify.ts";
-import { store } from "./store.ts";
+import { isTestSite, store } from "./store.ts";
 import { changeVerb, groupChanges } from "../../src/core/format.ts";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
 import { clampSide, forget, historyStep, IS_MAC, newLayout, pageEntry, pageOf, parseLayout, rememberPlace, SIDE_CLICK, sideClick, step, trailAhead, visit, type PaneTrail, type Place } from "./panes.ts";
@@ -122,8 +122,8 @@ try {
 } catch {}
 
 const prefs = {
-  /** Off until you turn it on: in Vim, a stray Esc then `dd` deletes a line. */
-  vim: store.get("vim", false),
+  /** Off until you turn it on (in Vim, a stray Esc then `dd` deletes a line); on where we test it. */
+  vim: store.get("vim", isTestSite()),
   /** In vim, j and k move by the line on screen (gj, gk), not the line in the file. */
   vimDisplayLines: store.get("vimDisplayLines", false),
   lineNumbers: store.get("lineNumbers", false),
@@ -2405,12 +2405,6 @@ const vimWatched = new WeakSet<object>();
 function attachVim() {
   const cm = getCM(active.view);
   const node = $("#vim-mode");
-  const toggle = $("#vim-toggle");
-  // Only while Vim is on: then it says so beside the mode and turns it off in one click. Settings
-  // and ⌘⇧P turn it on, so someone who never uses Vim never sees it.
-  toggle.hidden = !prefs.vim;
-  setPressed(toggle, prefs.vim);
-  toggle.textContent = `Vim keys: ${prefs.vim ? "on" : "off"}`;
   if (!cm || !prefs.vim) {
     node.textContent = "";
     node.dataset.mode = "";
@@ -3110,7 +3104,6 @@ async function boot() {
   $("#theme-toggle").addEventListener("click", toggleTheme);
   renderCodeWrap();
   $("#codewrap-toggle").addEventListener("click", () => setCodeWrap(!codeWrapByDefault()));
-  $("#vim-toggle").addEventListener("click", toggleVim);
   $("#settings-btn").addEventListener("click", () => openSettings());
   setLabel($("#settings-btn"), `Settings (${formatKeys("Mod-,")})`);
   setupShortcutTips();
