@@ -12,7 +12,7 @@ import { captureBlock, withCaptured, type Shared } from "../../src/core/capture.
 /** Where the service worker keeps shares (see web/public/sw.js). */
 const SHARES = "commonink-shares";
 const INBOX = "Inbox.md";
-/** The last place picked, kept per browser: today's note unless you chose otherwise. */
+/** The last place picked, kept per browser: today's journal unless you chose otherwise. */
 const WHERE = "commonink.capture";
 
 export type Where = { kind: "today" } | { kind: "inbox" } | { kind: "note"; name: string };
@@ -168,7 +168,7 @@ export class CapturePage {
       "fieldset",
       { class: "cap-where" },
       el("legend", {}, "Add it to"),
-      radio("today", "Today's note", `Journal/${today()}, under Captured`),
+      radio("today", "Today's journal", `Journal/${today()}, under Captured`),
       radio("inbox", "Inbox", "Inbox, under Captured"),
       el("div", { class: "cap-choice cap-other" }, radio("note", "Another note"), other, list),
     );

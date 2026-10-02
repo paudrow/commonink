@@ -76,6 +76,7 @@
         <nav id="tag-tree" aria-label="Tags"></nav>
         </div>
         <div class="sidebar-foot">
+          <button id="settings-btn" class="nav-item" type="button" hidden><span class="ico" data-icon="gear"></span><span>Settings</span><kbd class="n">⌘,</kbd></button>
           <div class="new-note-row">
             <button id="new-note" class="ghost-btn" type="button"><span class="ico" data-icon="plus"></span>New note</button>
             <button id="new-from-template" class="icon-btn small" type="button" title="New note from template…" aria-label="New note from template…"><span class="ico" data-icon="file" data-size="15"></span></button>
@@ -87,7 +88,6 @@
         <header id="topbar">
           <div class="spacer"></div>
           <div id="agents" title="Agents active in the last 15 minutes"></div>
-          <div id="save-status"></div>
           <div id="html-toggle" class="seg" role="group" aria-label="Show as" hidden>
             <button data-mode="preview" type="button">Preview</button><button data-mode="source" type="button">Source</button>
           </div>
@@ -97,9 +97,9 @@
           <button id="move-btn" class="icon-btn" type="button" title="Move to another folder" aria-label="Move to another folder"><span class="ico" data-icon="move"></span></button>
           <button id="archive-btn" class="icon-btn" type="button" title="Archive note (⌘⇧E)" aria-label="Archive note (⌘⇧E)"><span class="ico" data-icon="archive"></span></button>
           <button id="delete-btn" class="icon-btn" type="button" title="Delete note (to Trash)" aria-label="Delete note (to Trash)"><span class="ico" data-icon="trash"></span></button>
-          <button id="split-btn" class="icon-btn" type="button" title="Split view (⌘⌥\)" aria-label="Split view (⌘⌥\)"><span class="ico" data-icon="split"></span></button>
+          <button id="split-btn" class="icon-btn" type="button" title="Open split view (⌘⌥\)" aria-label="Open split view (⌘⌥\)"><span class="ico" data-icon="split"></span></button>
           <button id="focus-btn" class="icon-btn" type="button" title="Focus mode (⌘⇧↵)" aria-label="Focus mode (⌘⇧↵)"><span class="ico" data-icon="focus"></span></button>
-          <button id="panel-btn" class="icon-btn" type="button" title="Toggle side panel (⌘\)" aria-label="Toggle side panel (⌘\)"><span class="ico" data-icon="panel"></span></button>
+          <button id="panel-btn" class="icon-btn" type="button" title="Toggle info panel (⌘\)" aria-label="Toggle info panel (⌘\)"><span class="ico" data-icon="panel"></span></button>
         </header>
         <div id="stage">
           <div id="main-bar" class="pane-bar" hidden></div>
@@ -117,24 +117,23 @@
           <div id="shared-view" hidden tabindex="-1"></div>
           <div id="capture-view" hidden tabindex="-1"></div>
           <div id="pane-divider" role="separator" aria-orientation="vertical" aria-label="Resize the panes" tabindex="0" hidden></div>
-          <section id="side-pane" aria-label="Side pane" hidden>
+          <section id="side-pane" aria-label="Split view, right pane" hidden>
             <div id="side-bar" class="pane-bar"></div>
             <div id="side-banner" class="banner" hidden></div>
             <div id="side-host"></div>
             <div id="side-preview" hidden></div>
           </section>
-          <div id="side-drop" hidden><span class="ico" data-icon="split"></span>Open to the side</div>
+          <div id="side-drop" hidden><span class="ico" data-icon="split"></span>Open in split view</div>
         </div>
         <footer id="statusbar">
           <span id="vim-mode" class="mode"></span>
           <span id="cursor-pos"></span>
           <span id="word-count"></span>
           <span class="spacer"></span>
-          <span id="conn" class="conn" role="status" title="Connecting to the server…" aria-label="Connecting to the server…"></span>
+          <span id="save-status" class="health" hidden></span>
+          <span id="conn" class="health"></span>
           <button id="codewrap-toggle" class="chip-btn" type="button" aria-pressed="false" hidden>Wrap code: on</button>
-          <button id="vim-toggle" class="chip-btn" type="button" title="Vim keybindings in the editor" aria-pressed="false" hidden>Vim keys: off</button>
           <button id="theme-toggle" class="icon-btn small" type="button" title="Toggle theme" aria-label="Toggle theme"><span class="ico" data-icon="moon"></span></button>
-          <button id="settings-btn" class="icon-btn small" type="button" title="Settings (⌘,)" aria-label="Settings (⌘,)"><span class="ico" data-icon="gear"></span></button>
         </footer>
       </main>
 
@@ -158,7 +157,7 @@
       <div class="palette-box" role="dialog" aria-modal="true" aria-label="Search notes and commands">
         <div class="palette-input"><span class="ico" data-icon="search"></span><input id="palette-input" role="combobox" aria-label="Search notes and commands" aria-controls="palette-results" aria-expanded="true" aria-autocomplete="list" placeholder="Find a note, or type > for commands…" autocomplete="off" spellcheck="false" /></div>
         <div id="palette-results" role="listbox" aria-label="Results"></div>
-        <div class="palette-foot"><span><kbd data-keys="ArrowUp">↑</kbd><kbd data-keys="ArrowDown">↓</kbd> move</span><span><kbd data-keys="Enter">↵</kbd> open</span><span><kbd data-keys="Mod-Enter">⌘↵</kbd> open to the side</span><span><kbd data-keys="Shift-Enter">⇧↵</kbd> create</span><span><kbd data-keys="Mod-p">⌘P</kbd> notes</span><span><kbd data-keys="Mod-Shift-p">⌘⇧P</kbd> or <kbd data-keys="&gt;">&gt;</kbd> commands</span><span><kbd data-keys="Escape">Esc</kbd> close</span></div>
+        <div class="palette-foot"><span><kbd data-keys="ArrowUp">↑</kbd><kbd data-keys="ArrowDown">↓</kbd> move</span><span><kbd data-keys="Enter">↵</kbd> open</span><span><kbd data-keys="Mod-Enter">⌘↵</kbd> open in split view</span><span><kbd data-keys="Shift-Enter">⇧↵</kbd> create</span><span><kbd data-keys="Mod-p">⌘P</kbd> notes</span><span><kbd data-keys="Mod-Shift-p">⌘⇧P</kbd> or <kbd data-keys="&gt;">&gt;</kbd> commands</span><span><kbd data-keys="Escape">Esc</kbd> close</span></div>
       </div>
     </div>
     <div id="toasts" role="region" aria-label="Notifications"></div>

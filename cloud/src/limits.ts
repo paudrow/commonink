@@ -20,6 +20,8 @@ export const LIMITS = {
   share: { max: 200, per: 60 * MINUTE, message: "That's a lot of sharing for one hour." },
   // Each subscription or refresh fetches a feed from somewhere else on the internet.
   calendar: { max: 60, per: 60 * MINUTE, message: "That's a lot of calendar subscribing and refreshing for one hour." },
+  // Each one uploads a note to Google Drive, and a PDF takes Drive four calls.
+  drive: { max: 60, per: 60 * MINUTE, message: "That's a lot of saving to Google Drive for one hour." },
 } as const;
 
 /**
