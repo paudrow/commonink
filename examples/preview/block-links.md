@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 293
 title: Block links
 ---
 Link to, and embed, one paragraph or list item of a note, the way Obsidian does.
