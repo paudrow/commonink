@@ -87,7 +87,6 @@
         <header id="topbar">
           <div class="spacer"></div>
           <div id="agents" title="Agents active in the last 15 minutes"></div>
-          <div id="save-status"></div>
           <div id="html-toggle" class="seg" role="group" aria-label="Show as" hidden>
             <button data-mode="preview" type="button">Preview</button><button data-mode="source" type="button">Source</button>
           </div>
@@ -130,7 +129,8 @@
           <span id="cursor-pos"></span>
           <span id="word-count"></span>
           <span class="spacer"></span>
-          <span id="conn" class="conn" role="status" title="Connecting to the server…" aria-label="Connecting to the server…"></span>
+          <span id="save-status" class="health" hidden></span>
+          <span id="conn" class="health"></span>
           <button id="codewrap-toggle" class="chip-btn" type="button" aria-pressed="false" hidden>Wrap code: on</button>
           <button id="theme-toggle" class="icon-btn small" type="button" title="Toggle theme" aria-label="Toggle theme"><span class="ico" data-icon="moon"></span></button>
           <button id="settings-btn" class="icon-btn small" type="button" title="Settings (⌘,)" aria-label="Settings (⌘,)"><span class="ico" data-icon="gear"></span></button>

@@ -214,10 +214,13 @@ export function atMinutes(day: Day, minutes: number): Date {
 const iso = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
 export const timesOf = (start: Date, end: Date, allDay: boolean): Times => (allDay ? { start: dayKey(start), end: dayKey(end), allDay } : { start: iso(start), end: iso(end), allDay });
 
-/** Where a new event starts, half an hour long: the next half hour today, or 9 in the morning on another day. */
+/**
+ * Where a new event starts, half an hour long: the next half hour today, or 9 in the morning on a day
+ * ahead. Never in the past: a day gone by (focused earlier, or still showing from yesterday) means today.
+ */
 export function defaultSlot(now: Date, day?: Day): { start: Date; end: Date } {
   const today = dayKey(now);
-  const start = !day || day === today ? atMinutes(today, Math.floor(clockMinutes(now) / 30) * 30 + 30) : atMinutes(day, 9 * 60);
+  const start = !day || day <= today ? atMinutes(today, Math.floor(clockMinutes(now) / 30) * 30 + 30) : atMinutes(day, 9 * 60);
   return { start, end: new Date(start.getTime() + 30 * MINUTE_MS) };
 }
 

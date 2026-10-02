@@ -10,7 +10,7 @@ import { headingName, headingText, mapOutsideCode, proseLines } from "./prose.ts
 import { dateOf, extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
-import { dueFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
+import { DATE_FILTER_HELP, dateFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, priorityFilter, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
 import { parseQuickAdd } from "./quickAdd.ts";
 import { formatQuery, parseQuery, queryProblem, tagList, type NoteQuery } from "./query.ts";
 import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
@@ -22,6 +22,7 @@ import {
 } from "./contacts.ts";
 import { cleanTitle, fillTemplate, JOURNAL_TEMPLATES, localNow, TEMPLATES, templateInfo, type FillOptions, type TemplateInfo } from "./templates.ts";
 import { frontmatterEntries } from "./frontmatter.ts";
+import { taskChanges, type AwaySummary } from "./away.ts";
 
 export interface NoteMeta {
   /** Stable across renames, moves and archiving; see ids.ts. */
@@ -310,7 +311,12 @@ export interface TaskQuery {
   assignee?: string;
   /** Any of these `@name`s: one person's every name. */
   assignees?: string[];
+  /** Date filters, like `<=today` or `>=today <=+7d` (see dateFilter). */
   due?: string;
+  start?: string;
+  done?: string;
+  /** high, low or none, or several with commas (see priorityFilter). */
+  priority?: string;
   today?: string;
 }
 
@@ -916,6 +922,41 @@ export class Vault {
       this.db.get(`SELECT ${CHANGE_COLS} FROM changes WHERE path = ? AND version = ? AND ts > ? ORDER BY id DESC LIMIT 1`, rel, version, this.now() - withinMs) ??
       null
     );
+  }
+
+  /**
+   * What agents did since `person` last changed anything themselves (and after change `after`, the
+   * last one they dismissed): see away.ts. Null when agents did nothing in that time.
+   */
+  awaySummary(person: string, after = 0): AwaySummary | null {
+    const own = this.db.get<{ id: number | null }>("SELECT MAX(id) AS id FROM changes WHERE person = ? AND agent IS NULL", person)?.id ?? 0;
+    const start = Math.max(own, after);
+    const theirs = this.db.all<Change>(`SELECT ${CHANGE_COLS} FROM changes WHERE id > ? AND agent IS NOT NULL ORDER BY id LIMIT 500`, start);
+    if (!theirs.length) return null;
+    const by = new Map<string, number>();
+    for (const c of theirs) by.set(c.agent!, (by.get(c.agent!) ?? 0) + 1);
+    const key = (c: Change) => c.note_id ?? c.path;
+    const created = new Set(theirs.filter((c) => c.op === "create").map(key));
+    const edited = new Set(theirs.filter((c) => c.op !== "create" && !created.has(key(c))).map(key));
+    let tasksAdded = 0;
+    let tasksDone = 0;
+    for (const run of this.diffSet(theirs.map((c) => c.id)).flatMap((f) => f.runs)) {
+      if (!run.after) continue;
+      const t = taskChanges(run.before, run.after);
+      tasksAdded += t.added;
+      tasksDone += t.done;
+    }
+    return {
+      agents: [...by].sort((a, b) => b[1] - a[1]).map(([name]) => name),
+      created: created.size,
+      edited: edited.size,
+      tasksAdded,
+      tasksDone,
+      after: start,
+      last: theirs.at(-1)!.id,
+      from: theirs[0].ts,
+      to: theirs.at(-1)!.ts,
+    };
   }
 
   /** The agents that appear in the change log, by name, for filtering History by one. */
@@ -1642,8 +1683,9 @@ export class Vault {
   /**
    * Checkbox tasks across the vault (active notes), in note order, with the heading each sits under.
    * `tag` keeps the tasks whose line carries it (or a tag under it), `assignee` the ones with that
-   * @person, and `due` the ones whose due date passes a filter like `<=today` (see dueFilter).
-   * `today` (YYYY-MM-DD) is the day that filter means by today; the default is the core's clock.
+   * @person, and `due`, `start` and `done` the ones whose date passes a filter like `<=today` or
+   * `>=today <=+7d` (see dateFilter). `priority` is high, low or none (see priorityFilter).
+   * `today` (YYYY-MM-DD) is the day those filters mean by today; the default is the core's clock.
    */
   tasks(opts: TaskQuery = {}): Task[] {
     const only = opts.note ? this.resolve(opts.note) : null;
@@ -1651,8 +1693,16 @@ export class Vault {
     const prefix = opts.folder ? opts.folder.replace(/^\/+|\/+$/g, "") + "/" : "";
     const tagged = opts.tag === undefined ? null : new Set(this.tagged(opts.tag).filter((r) => r.kind === "task").map((r) => `${r.path}:${r.line}`));
     if (opts.today && !isDate(opts.today)) throw new VaultError(`"today" must be a date like 2026-10-01, not "${opts.today}"`);
-    const due = opts.due ? dueFilter(opts.due, opts.today ?? this.day()) : null;
-    if (opts.due && !due) throw new VaultError(`Bad due filter "${opts.due}": use a date or today/tomorrow/yesterday, optionally after <, <=, > or >=`);
+    const dated = (["due", "start", "done"] as const).flatMap((field) => {
+      const expr = opts[field];
+      if (!expr) return [];
+      const test = dateFilter(expr, opts.today ?? this.day());
+      if (!test) throw new VaultError(`Bad ${field} filter "${expr}": use ${DATE_FILTER_HELP}`);
+      return [(t: Task) => test(t.meta[field])];
+    });
+    const priority = opts.priority ? priorityFilter(opts.priority) : null;
+    if (opts.priority && !priority) throw new VaultError(`Bad priority filter "${opts.priority}": use high, low or none (or several, like high,none)`);
+    const passes = (t: Task) => dated.every((test) => test(t)) && (!priority || priority(t.meta.priority));
     // `assignees` (any of them) is a person's every name; `assignee` one name, as written.
     const names = new Set([...(opts.assignees ?? []), ...(opts.assignee ? [opts.assignee] : [])].map((a) => a.replace(/^@/, "").toLowerCase()));
     // The query narrows to the note, or to notes with the tag on a task (the lines are checked below).
@@ -1665,7 +1715,7 @@ export class Vault {
     return rows
       .filter((r) => (!prefix || r.path.startsWith(prefix)) && (!tagged || tagged.has(`${r.path}:${r.line}`)))
       .map(toTask)
-      .filter((t) => (!due || due(t.meta.due)) && (!names.size || t.meta.assignees.some((a) => names.has(a.toLowerCase()))));
+      .filter((t) => passes(t) && (!names.size || t.meta.assignees.some((a) => names.has(a.toLowerCase()))));
   }
 
   /**

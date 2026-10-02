@@ -1,8 +1,8 @@
 // Notes: every note as a stream of cards, newest first — the app's home. Click a card to read
 // the whole note in place; Edit opens it in the editor. Filter as you type, triage from the
-// keyboard (j/k, Enter to expand, o to open, e to archive, x to select, Delete to delete), and
-// archive or delete in bulk. Its tabs are where notes go: Notes, Archive and Trash. Trash lists
-// the same cards with the same filters and keys, with Restore and Delete forever for its actions.
+// keyboard (j/k, Enter to expand, o to open, e to archive, x to select, Delete to delete, n for a
+// new note), and archive or delete in bulk. Its tabs are where notes go: Notes, Archive and Trash.
+// Trash lists the same cards with the same filters and keys, with Restore and Delete forever for its actions.
 import { api, isArchived, type FeedItem, type FeedPage, type TagCount, type Task, type TrashItem } from "./api.ts";
 import { filterTrash, trashFolders, trashTags, type Trash } from "./trash.ts";
 import { fmtBytes } from "./assetKinds.ts";
@@ -50,8 +50,8 @@ interface Hooks {
   rename(path: string): void;
   toast(t: ToastSpec): void;
   changed(): void;
-  /** The sidebar's New note. */
-  newNote(): void;
+  /** The sidebar's New note: in the folder the page is narrowed to, if any. */
+  newNote(folder: string): void;
   /** Show another tab (its address changes with it). */
   goTab(tab: NotesTab): void;
   /** What's in Trash and what restoring and deleting for good need, or null for someone who has no Trash (a viewer, online). */
@@ -75,7 +75,7 @@ const SORTS: Record<"notes" | "trash", Array<[QuerySort, string]>> = {
 };
 /** The keys each tab's footer lists. */
 const KEYS: Record<"notes" | "trash", string[][]> = {
-  notes: [["j k", "move"], ["↵", "expand"], ["o", "open"], ["s", "star"], ["e", "archive"], ["⌫", "delete"], ["x", "select"], ["/", "filter"]],
+  notes: [["j k", "move"], ["n", "new"], ["↵", "expand"], ["o", "open"], ["s", "star"], ["e", "archive"], ["⌫", "delete"], ["x", "select"], ["/", "filter"]],
   trash: [["j k", "move"], ["r", "restore"], ["⌫", "delete forever"], ["x", "select"], ["/", "filter"]],
 };
 
@@ -366,7 +366,7 @@ export class NotesPage {
       icon: "file",
       title: "No notes yet",
       text: ["Notes are plain markdown that you and your agents can both read and edit."],
-      action: this.hooks.readOnly() ? null : { label: "New note", icon: "plus", run: () => this.hooks.newNote() },
+      action: this.hooks.readOnly() ? null : { label: "New note", icon: "plus", run: () => this.hooks.newNote(this.folder ?? "") },
     });
   }
 
@@ -887,6 +887,7 @@ export class NotesPage {
         o: () => item && this.hooks.open(item.path),
         s: () => item && this.hooks.toggleStar(item.path),
         F2: () => item && !this.hooks.readOnly() && this.hooks.rename(item.path),
+        n: () => !this.hooks.readOnly() && this.hooks.newNote(this.folder ?? ""),
         e: () => void this.archive(this.selected.size ? [...this.selected] : item ? [item.path] : []),
         x: () => item && this.toggle(item.path),
         Delete: () => void this.delete(this.selected.size ? [...this.selected] : item ? [item.path] : []),

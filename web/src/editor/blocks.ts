@@ -52,6 +52,8 @@ export interface EditorContext {
   saveSmartFolder(query: string, name: string, anchor: HTMLElement): void;
   /** Show a person's tasks. */
   openPerson(name: string): void;
+  /** Show Notes narrowed to a folder (the folder line above a note). */
+  openFolder?(folder: string): void;
   /** This note's address in the app (`/notes/<title>-<id>`), for a link to one of its headings. */
   noteUrl?(): string;
 }
