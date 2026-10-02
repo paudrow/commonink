@@ -65,10 +65,11 @@
 }
 
 @media (hover: none) {
-  /* No hover to reveal them: a sidebar row's actions (a folder's New note and Delete, a favorite's
+  /* No hover to reveal them: a sidebar row's actions (a folder's New note and ⋯, a favorite's
      Open to the side and Unstar) always show, 44px to tap, as they would under the pointer. */
   #sidebar .row-actions { display: flex; margin-right: -8px; }
   #sidebar .row-act { width: 44px; height: 44px; }
+  #sidebar .row-act.row-more { display: grid; } /* no right-click here: a folder's menu is behind ⋯ */
   #sidebar .tree-row .agent-dot, #sidebar .tree-row .fav-mark { display: none; }
   .tags-row .row-act { visibility: visible; }
   /* A task row's buttons show too, rather than waiting invisibly under a finger. A Notes card's
