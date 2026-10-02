@@ -73,6 +73,8 @@ export interface SettingsApp {
   localVault: { vault?: string; projectRoot?: string } | null;
   shortcuts(): void;
   connectAgent(): void;
+  /** Open the note every agent reads first (Config/AGENTS.md, or a root AGENTS.md from before Config/). */
+  agentInstructions(): void;
 }
 
 /** Each sidebar item that waits until it's in use: its name, and what puts it in the sidebar by itself. */
@@ -224,6 +226,14 @@ export function appSettings(app: SettingsApp): Setting[] {
           keywords: "agent mcp claude cursor connect ai assistant revoke",
           control: { kind: "button", label: "Connected agents…", run: app.connectAgent },
         },
+    {
+      id: "agent-instructions",
+      section: "Workspace",
+      title: "Agent instructions",
+      description: "What every agent here reads before it works in this workspace: how to file, name and write notes. It's AGENTS.md in the Config folder, a note you edit like any other.",
+      keywords: "agents.md agent ai instructions conventions rules claude cursor mcp prompt heuristics",
+      control: { kind: "button", label: "Open AGENTS.md", run: app.agentInstructions },
+    },
     {
       id: "gamified",
       key: "gamified",

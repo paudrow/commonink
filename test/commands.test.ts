@@ -67,6 +67,7 @@ const app = (over: Partial<App> = {}): App => {
     settings: run("settings"),
     userSettingsFile: run("userSettingsFile"),
     workspaceSettingsFile: run("workspaceSettingsFile"),
+    agentInstructions: run("agentInstructions"),
     connectAgent: run("connectAgent"),
     back: run("back"),
     forward: run("forward"),
@@ -82,7 +83,7 @@ test("commands match fuzzily, by name or by what they're about, and none alone l
   assert.deepEqual(titles("archive", app({ note: { kind: "md", starred: false, archived: false } })).slice(0, 2), ["Archive note", "Go to Archive"]);
   assert.deepEqual(titles("zzz", app()), []);
   assert.deepEqual(titles("kanban", app()), ["New board"]);
-  assert.deepEqual(titles("preferences", app()), ["Open settings"]);
+  assert.deepEqual(titles("preferences", app()), ["Open settings", "Open your settings file", "Open workspace settings file"]);
   assert.deepEqual(titles("settings", app()).slice(0, 1), ["Open settings"]);
   assert.deepEqual(titles("connect", app()), ["Connect an agent"]);
   assert.deepEqual(titles("mcp", app()), ["Connect an agent"]);

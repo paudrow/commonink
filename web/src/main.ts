@@ -48,6 +48,7 @@ import { watchTodayCleared } from "./todayCleared.ts";
 import { inkState, setInk, startInks } from "./inkUnlocks.ts";
 import { gamified, loadGamified, onGamified, setGamified } from "./gamify.ts";
 import { CONFIG, SETTINGS_NOTE, settingsNote, userSettingsPath } from "../../src/core/schema.ts";
+import { AGENTS_NOTE, ROOT_AGENTS_NOTE } from "../../src/core/noteRoles.ts";
 import { applyUserFile, ensureUserFile, keepInFile, setupUserSettings, userSettingsFile, type Personal } from "./userSettings.ts";
 import type { InkId } from "./inks.ts";
 import { askOrganizingIfNew, organizing, setOrganizing } from "./organizing.ts";
@@ -358,6 +359,7 @@ function commands() {
     settings: openSettings,
     userSettingsFile: () => void openUserSettingsFile(),
     workspaceSettingsFile: () => void openSettingsFile(),
+    agentInstructions: () => void openAgentsNote(),
     connectAgent,
     back: () => void stepPane(active, "back"),
     forward: () => void stepPane(active, "forward"),
@@ -2893,6 +2895,7 @@ function openSettings(query?: string) {
             ),
           shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
           connectAgent,
+          agentInstructions: () => void openAgentsNote(),
         }),
       { query, openFile: (scope) => void (scope === "user" ? openUserSettingsFile() : openSettingsFile()) },
     ),
@@ -2934,6 +2937,19 @@ async function openUserSettingsFile() {
   await refreshNotes();
   await openNote(userSettingsFile());
 }
+
+/** Open the note agents read first: Config/AGENTS.md, a root AGENTS.md from before Config/, or a new Config/AGENTS.md. */
+async function openAgentsNote() {
+  const path = [AGENTS_NOTE, ROOT_AGENTS_NOTE].find((p) => notes.some((n) => n.path === p));
+  if (path) return openNote(path);
+  if (viewer) return toast({ text: "This workspace has no agent instructions yet, and you can view it but not change it." });
+  await api.create(AGENTS_NOTE, AGENTS_STARTER).catch((e) => {
+    if (!(e instanceof ApiError && e.status === 409)) throw e;
+  });
+  await refreshNotes();
+  await openNote(AGENTS_NOTE);
+}
+const AGENTS_STARTER = "# Workspace conventions\n\nEvery agent working in this workspace reads this note first. Write down how you'd like notes filed, named and written, and they'll follow it.\n";
 
 /** How agents are told to organize this workspace (organizing.ts), as Settings shows it; null until picked. */
 let organizingNow: PresetId | null = null;

@@ -12,3 +12,4 @@ title: Settings file and property help
 8. To see what a new workspace is asked, use the workspace menu → **New team workspace…**: it opens with "How do you like to organize?"
 9. Settings → **User** tab → **Open settings file**. It opens `Config/Users/<your name>.md` with every personal setting written out (`theme`, `ink`, `vim`, `line_numbers`, …). Change `theme: system` to `theme: dark`: the app goes dark at once. Turn **Line numbers** on in Settings, and the file's `line_numbers:` line changes to `true`.
 10. In that file, delete the `vim:` line. It shows up under **You can also set** below the card; click **Add** to put it back. Click the card, put the cursor at the end of a line and press Enter: the settings you haven't set are suggested.
+11. Settings → **Workspace** tab: the first row is **Agent instructions**, which says what the note is for. Click **Open AGENTS.md** to open the note every agent reads first. ⌘K "AGENTS" finds **Open AGENTS.md** too.
