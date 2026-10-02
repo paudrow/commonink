@@ -194,6 +194,29 @@ test("a task added to a note goes at the end of its Tasks section, or at the end
   assert.equal(add("# N\n\n```\n## Tasks\n```\n"), "# N\n\n```\n## Tasks\n```\n\n- [ ] New\n");
 });
 
+test("a task added to a note goes above its footer: a closing --- rule, or its footnotes", () => {
+  const add = (content: string, heading = false) => withTasksAdded(content, ["- [ ] New"], heading);
+  const footer = "# Launch\n\n- [ ] Old\n\n---\n\nSource: Things export · [[Index]]\n";
+  assert.deepEqual(add(footer), { content: "# Launch\n\n- [ ] Old\n- [ ] New\n\n---\n\nSource: Things export · [[Index]]\n", line: 4 });
+  assert.equal(add("# Launch\n\nNotes.\n\n***\n_Imported_\n").content, "# Launch\n\nNotes.\n\n- [ ] New\n\n***\n_Imported_\n");
+  // In the Tasks section when it runs into the footer, and a daily note's new section goes above it too.
+  assert.equal(add("# N\n\n## Tasks\n\n- [ ] Old\n\n---\nfooter\n").content, "# N\n\n## Tasks\n\n- [ ] Old\n- [ ] New\n\n---\nfooter\n");
+  assert.equal(add("# Day\n\n---\nfooter\n", true).content, "# Day\n\n## Tasks\n\n- [ ] New\n\n---\nfooter\n");
+  assert.equal(add("# N\n\nSee this.[^1]\n\n[^1]: A source,\n    on two lines.\n").content, "# N\n\nSee this.[^1]\n\n- [ ] New\n\n[^1]: A source,\n    on two lines.\n");
+  // Not a footer: a rule with a section after it, a heading's underline, frontmatter, or a rule in code.
+  assert.equal(add("# N\n\n---\n\n## More\n\ntext\n").content, "# N\n\n---\n\n## More\n\ntext\n\n- [ ] New\n");
+  assert.equal(add("# N\n\nTitle\n---\ntext\n").content, "# N\n\nTitle\n---\ntext\n\n- [ ] New\n");
+  assert.equal(add("---\ntags: [a]\n---\n# N\n").content, "---\ntags: [a]\n---\n# N\n\n- [ ] New\n");
+  assert.equal(add("# N\n\n```\n\n---\nx\n```\n").content, "# N\n\n```\n\n---\nx\n```\n\n- [ ] New\n");
+});
+
+test("@ names a person only when a letter follows it: @3pm stays a word, and \\@home is escaped", () => {
+  assert.deepEqual(parseTask("- [ ] Call the bank @3pm @2x")!.meta.assignees, []);
+  assert.deepEqual(parseTask("- [ ] Pack bag \\@home")!.meta.assignees, []);
+  assert.deepEqual(parseTask("- [ ] Ask @jane, then @sam_2 @_bot")!.meta.assignees, ["jane", "sam_2", "_bot"]);
+  assert.equal(editTask("- [ ] Call @3pm", { assignees: ["jane"] }), "- [ ] Call @3pm @jane");
+});
+
 test("a task is in one Today section at most: overdue, then due today, then starting today", () => {
   const at = (line: string) => todaySection(parseTask(line)!.meta, "2026-09-28");
   assert.deepEqual(
