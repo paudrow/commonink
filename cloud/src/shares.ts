@@ -123,7 +123,8 @@ export async function addShare(
     .first<{ id: string }>();
   const id = existing?.id ?? newId();
   if (existing) {
-    await db.prepare("UPDATE shares SET role = ?, expires_at = ? WHERE id = ?").bind(o.role, o.expiresAt ?? null, id).run();
+    // As changing it does: those who kept a link by joining it get no more than it gives now.
+    await updateShare(db, o.workspaceId, id, { role: o.role, expiresAt: o.expiresAt ?? null });
   } else {
     const token = o.link ? await sha256(await linkToken(secret, id)) : null;
     await db

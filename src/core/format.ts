@@ -2,10 +2,10 @@
 // Agents read markdown far more cheaply than JSON, so this is the default output.
 import { authorLabel } from "./actor.ts";
 import { createTwoFilesPatch } from "diff";
-import { isTagFavorite, type Backlink, type Change, type Favorite, type Label, type Note, type NoteMeta, type Vault, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView, type TrashItem } from "./vault.ts";
+import { isTagFavorite, type Backlink, type Change, type Favorite, type Label, type MissingLink, type Note, type NoteMeta, type Vault, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView, type TrashItem } from "./vault.ts";
 import type { Board } from "./kanban.ts";
 import type { TemplateInfo } from "./templates.ts";
-import type { Contact, TimelineItem } from "./contacts.ts";
+import { checkInEvery, describeCheckIn, type Contact, type TimelineItem } from "./contacts.ts";
 import { localDate } from "./tasks.ts";
 
 export function fmtSearch(q: string, hits: SearchHit[]): string {
@@ -70,6 +70,11 @@ export function fmtTags(tags: TagCount[]): string {
 export function fmtBacklinks(target: string, links: Backlink[]): string {
   if (!links.length) return `Nothing links to ${target}.`;
   return links.map((b) => `- ${b.path}:${b.line} (${b.kind}) ${b.text}`).join("\n");
+}
+
+export function fmtMissingLinks(missing: MissingLink[]): string {
+  if (!missing.length) return "Every link goes to a note that's here.";
+  return missing.map((m) => `[[${m.target}]] (${m.from.length})\n${m.from.map((b) => `  - ${b.path}:${b.line} ${b.text}`).join("\n")}`).join("\n");
 }
 
 const folderOf = (path: string) => path.slice(0, path.lastIndexOf("/") + 1);
@@ -191,11 +196,17 @@ export function fmtTemplate(t: TemplateInfo): string {
   return `${t.path} — ${t.name}${asks}${where}`;
 }
 
+const checkInWords = (c: Contact) => {
+  const every = checkInEvery(c.checkIn);
+  return every ? describeCheckIn(every) : c.checkIn;
+};
+
 /** One contact on a line: path, name, role and company, emails and tags, and when they were last mentioned. */
 export function fmtContactLine(c: Contact): string {
   const tags = c.tags.map((t) => `#${t}`).join(" ");
   const seen = c.lastContacted ? `last mentioned ${c.lastContacted} (${c.mentions} note${c.mentions === 1 ? "" : "s"})` : "not mentioned yet";
-  return `${c.path} — ${[c.name, [c.role, c.company].filter(Boolean).join(", "), [c.email.join(", "), tags].filter(Boolean).join(" "), seen].filter(Boolean).join(" · ")}`;
+  const checkIn = c.checkInDue ? `check in ${checkInWords(c)} (next ${c.checkInDue})` : "";
+  return `${c.path} — ${[c.name, [c.role, c.company].filter(Boolean).join(", "), [c.email.join(", "), tags].filter(Boolean).join(" "), seen, checkIn].filter(Boolean).join(" · ")}`;
 }
 
 /** A contact's details, then the notes that mention them. */
@@ -208,6 +219,7 @@ export function fmtContact({ contact: c, timeline }: { contact: Contact; timelin
     ["links", c.links.join(", ")],
     ["aliases", c.aliases.join(", ")],
     ["tags", c.tags.map((t) => `#${t}`).join(" ")],
+    ["check in", c.checkInDue ? `${checkInWords(c)}, next by ${c.checkInDue}` : c.checkIn],
   ];
   const head = [`# ${c.name} (${c.path})`, ...fields.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`)];
   const seen = timeline.length ? ["Mentioned in:", ...timeline.map((t) => `- ${t.date} ${t.path}:${t.line} ${t.text}`)] : ["Not mentioned in any note yet."];
