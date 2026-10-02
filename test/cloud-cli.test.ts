@@ -119,6 +119,25 @@ test("the workspace's calendar from the CLI: events, and a meeting note made and
   await cloud.call(people.owner, "POST", `${people.base}/calendar/sources/remove`, { id: cal.id });
 });
 
+test("subscribing and refreshing calendars from the CLI is limited per person, as in the app", async () => {
+  const c = cli();
+  await login(c, people.editor);
+  const { accessToken } = JSON.parse(fs.readFileSync(path.join(c.config, "credentials.json"), "utf8"));
+  const refresh = async () => {
+    const res = await fetch(new URL("/mcp/cli/run", cloud.origin), {
+      method: "POST",
+      headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ command: "calendars refresh", input: {}, workspace: "Team" }),
+    });
+    await res.body?.cancel();
+    return res.status;
+  };
+  const seen: number[] = [];
+  for (let i = 0; i < 61; i++) seen.push(await refresh());
+  assert.deepEqual([seen.slice(0, 60).every((s) => s === 200), seen[60]], [true, 429]);
+  assert.match(c.run(["calendars", "add", "https://demo.commonink.invalid/more.ics", "--workspace", "Team"]).stderr, /a lot of calendar subscribing/);
+});
+
 test("a CLI's today is its person's day, in the time zone their browser reported", async () => {
   const zone = "Pacific/Kiritimati"; // UTC+14: a day ahead of UTC for most of it
   const c = cli();
