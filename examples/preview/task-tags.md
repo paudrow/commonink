@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 186
 title: A task's tag tags the task, not its note
 ---
 1. In the sidebar's Tags, click **#areas/podcast** (open **areas** first). Notes lists [[Podcast plan]] only. [[Open tasks]] isn't there, though one of its tasks carries the tag, and its card shows no tag chips.
