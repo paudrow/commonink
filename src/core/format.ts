@@ -176,7 +176,7 @@ export function fmtBoards(path: string, boards: Board[], unclosed: number | null
       .map((b, i) => {
         const columns = b.columns.map((c) =>
           [
-            `## ${c.title}${c.done ? " (done column)" : ""}${c.color ? ` {color=${c.color}}` : ""}`,
+            `## ${c.title}${c.done ? " (done column)" : ""}${c.folded ? " (folded)" : ""}${c.color ? ` {color=${c.color}}` : ""}`,
             ...c.cards.flatMap((k) => [`- ${k.checked === null ? "" : `[${k.checked ? "x" : " "}] `}${k.text} — L${k.from + 1}`, ...k.details.map((d) => (d ? `    ${d}` : ""))]),
           ].join("\n"),
         );

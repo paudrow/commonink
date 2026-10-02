@@ -5,6 +5,7 @@
 // workspace's own people come from the same member list and roles as Workspace settings (#76).
 import { api, ApiError, type Share, type ShareList, type ShareTarget, type WorkspaceMember } from "./api.ts";
 import { displayName, el, icon } from "./dom.ts";
+import { copyLink, openModal } from "./modal.ts";
 
 const EXPIRY: Array<[label: string, days: number | null]> = [
   ["Doesn't expire", null],
@@ -17,28 +18,9 @@ export async function showShareDialog(
   target: ShareTarget,
   opts: { canShare: boolean; toast(t: { text: string; icon?: string }): void; changed(): void; workspaceSettings(): void },
 ) {
-  document.querySelector("#share-dialog")?.remove();
   const name = "folder" in target ? `the folder ${displayName(target.folder)}` : displayName(target.path);
   const body = el("div", { class: "sh-body" }, el("p", { class: "agents-empty" }, "Loading…"));
-  const close = () => (overlay.remove(), document.removeEventListener("keydown", onKey, true));
-  const onKey = (e: KeyboardEvent) => {
-    if (e.key !== "Escape") return;
-    e.preventDefault();
-    e.stopPropagation();
-    close();
-  };
-  const overlay = el(
-    "div",
-    { id: "share-dialog", class: "ask", onmousedown: (e: MouseEvent) => e.target === overlay && close() },
-    el(
-      "div",
-      { class: "ask-box sh-box", role: "dialog", "aria-modal": "true", "aria-label": `Share ${name}` },
-      el("div", { class: "agents-head" }, icon("link", 16), el("h2", {}, `Share ${name}`), el("button", { class: "icon-btn small", type: "button", title: "Close", "aria-label": "Close", onclick: close }, icon("close", 15))),
-      body,
-    ),
-  );
-  document.body.append(overlay);
-  document.addEventListener("keydown", onKey, true);
+  const { close } = openModal({ title: `Share ${name}`, icon: "link", content: [body], id: "share-dialog", boxClass: "ask-box sh-box", headClass: "agents-head" });
 
   const failed = (e: unknown) => opts.toast({ text: e instanceof ApiError ? e.message : "That didn't work" });
   const members: WorkspaceMember[] = await api.members().catch(() => []);
@@ -105,7 +87,7 @@ export async function showShareDialog(
       // The link's URL lets anyone in with its role, so the server gives it only to those who could make one.
       const url = link.url && `${location.origin}${link.url}`;
       const copy = url
-        ? el("button", { type: "button", class: "qw-btn primary", onclick: () => void navigator.clipboard.writeText(url).then(() => opts.toast({ icon: "copy", text: "Link copied" }), () => prompt("The link", url)) }, icon("copy", 14), "Copy link")
+        ? el("button", { type: "button", class: "qw-btn primary", onclick: async () => (await copyLink(url, { title: "The link" })) && opts.toast({ icon: "copy", text: "Link copied" }) }, icon("copy", 14), "Copy link")
         : el("span", { class: "agents-meta" }, "Only editors can copy this link");
       const expiry = el(
         "select",

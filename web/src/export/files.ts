@@ -52,9 +52,14 @@ export async function exportZip(what: { paths?: string[]; folder?: string; all?:
 
 /** The note as a Word document: its static render, pictures and diagrams drawn in. */
 export async function exportDocx(note: Printable, opts: { frontmatter?: boolean } = {}) {
+  download(fileName(note.path, "docx"), await docxFile(note, opts));
+}
+
+/** The note as a Word document, to download or to send to Google Drive (drive.ts). */
+export async function docxFile(note: Printable, opts: { frontmatter?: boolean } = {}): Promise<Blob> {
   const [{ toDocx }, body] = await Promise.all([import("./docx.ts"), renderStatic(note.path, note.content, appSources(staticDoc(), { images: true }), { ...opts, math: "katex" })]);
   const data = await toDocx(note.title, body, { raster: rasterize });
-  download(fileName(note.path, "docx"), new Blob([data as Uint8Array<ArrayBuffer>], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
+  return new Blob([data as Uint8Array<ArrayBuffer>], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
 }
 
 /** An SVG drawn as a PNG, at twice its size for sharpness, for Word (which wants a picture it can show anywhere). */
