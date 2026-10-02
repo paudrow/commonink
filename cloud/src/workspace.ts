@@ -245,9 +245,10 @@ export class Workspace extends DurableObject<Env> {
         const text = this.files.read(rel);
         return text === null ? null : new TextEncoder().encode(text);
       },
-      add: async (rel, bytes, source) => {
+      add: async (free, bytes, source) => {
+        const rel = free();
         if (bytes.byteLength > MAX_UPLOAD) throw new VaultError(`${rel} is over 50 MB`);
-        await this.storeFile(wsId, rel, bytes, source);
+        return (await this.storeFile(wsId, rel, bytes, source, free)).rel;
       },
     };
   }
