@@ -97,10 +97,15 @@ for (const ink of INK_IDS) {
       ink === DEFAULT_INK
         ? { light: accentOf(light), dark: accentOf(dark) }
         : { light: tokens(`:root[data-ink="${ink}"]`), dark: tokens(`:root[data-theme="dark"][data-ink="${ink}"]`) };
+    // The logo (--ink-mark) is the ink's light accent, in either theme.
+    if (ink !== DEFAULT_INK) {
+      assert.equal(own.light["ink-mark"], own.light.accent);
+      delete own.light["ink-mark"];
+    }
     assert.deepEqual(Object.keys(own.light), ACCENT);
     assert.deepEqual(Object.keys(own.dark), ACCENT);
     if (ink !== DEFAULT_INK) assert.deepEqual(tokens(`:root:not([data-theme="light"])[data-ink="${ink}"]`), own.dark);
-    assert.deepEqual(tokens(`.ink-option[data-ink="${ink}"]`), own.light);
+    assert.deepEqual(tokens(`.ink-option[data-ink="${ink}"]`), ink === DEFAULT_INK ? own.light : { ...own.light, "ink-mark": own.light.accent });
     assert.deepEqual(tokens(`:root[data-theme="dark"] .ink-option[data-ink="${ink}"]`), own.dark);
     assert.deepEqual(tokens(`:root:not([data-theme="light"]) .ink-option[data-ink="${ink}"]`), own.dark);
     assert.deepEqual(failures({ ...light, ...own.light }), [], "light");
