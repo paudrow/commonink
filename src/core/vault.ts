@@ -1,3 +1,4 @@
+import { ARCHIVE, homeOf, isArchived } from "./archive.ts";
 import { actorOf, authorWhere, type Actor, type AuthorFilter } from "./actor.ts";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -83,9 +84,9 @@ export interface Backlink {
   text: string;
 }
 
-/** Archiving moves a note under Archive/, keeping its original path: Archive/Projects/Old plan.md */
-export const ARCHIVE = "Archive/";
-export const isArchived = (p: string) => p.startsWith(ARCHIVE);
+export { ARCHIVE, archiveRootOf, homeOf, isArchived, isArchiveFolder } from "./archive.ts";
+/** isArchived() in SQL, for the path column `col`. ltrim() drops the number in front, as ARCHIVE_DIR does. */
+const archivedSql = (col: string) => `lower(ltrim(substr(${col}, 1, instr(${col}, '/')), '0123456789 ._-')) IN ('archive/', 'archives/')`;
 export type ArchiveScope = "active" | "archived" | "all";
 
 /**
@@ -249,7 +250,7 @@ const CHANGE_COLS = "id, ts, path, op, source, version, summary, from_path, note
 const META_COLS = "id, path, kind, title, version, mtime, size";
 const TRASH = ".trash";
 /** Notes whose tasks are tasks: not archived, and not templates (a template's `- [ ]` is for the notes made from it). */
-const TASK_NOTES = `substr(t.path, 1, 8) != 'Archive/' AND substr(t.path, 1, ${TEMPLATES.length + 1}) != '${TEMPLATES}/'`;
+const TASK_NOTES = `NOT ${archivedSql("t.path")} AND substr(t.path, 1, ${TEMPLATES.length + 1}) != '${TEMPLATES}/'`;
 /** How long Trash keeps what's deleted. */
 export const TRASH_DAYS = 30;
 const TRASH_ID = /^(\d{1,15})-(\d{1,15})$/;
@@ -593,7 +594,7 @@ export class Vault {
 
   recent(limit = 20): NoteMeta[] {
     return this.db.all(
-      `SELECT ${META_COLS} FROM notes WHERE kind != 'asset' AND path NOT LIKE 'Archive/%' ORDER BY mtime DESC LIMIT ?`,
+      `SELECT ${META_COLS} FROM notes WHERE kind != 'asset' AND NOT ${archivedSql("path")} ORDER BY mtime DESC LIMIT ?`,
       limit,
     );
   }
@@ -674,7 +675,7 @@ export class Vault {
               rank AS score
        FROM notes_fts JOIN notes n ON n.path = notes_fts.path
        WHERE notes_fts MATCH ? AND rank MATCH 'bm25(4.0, 8.0, 1.0)'
-         AND (? = 'all' OR (n.path LIKE 'Archive/%') = (? = 'archived'))
+         AND (? = 'all' OR (${archivedSql("n.path")}) = (? = 'archived'))
          AND (? IS NULL OR n.path IN (SELECT path FROM tags WHERE ${UNDER}))
        ORDER BY rank LIMIT ?`,
       ftsQuery(terms), scope, scope, key, ...under(key ?? ""), limit,
@@ -703,7 +704,6 @@ export class Vault {
     const terms = searchTerms(opts.q ?? "");
     const all = this.feedRows();
     let rows = this.matching(opts, all);
-    const home = (p: string) => (isArchived(p) ? p.slice(ARCHIVE.length) : p);
     const counts = { active: rows.filter((r) => !isArchived(r.path)).length, archived: rows.filter((r) => isArchived(r.path)).length };
     rows = rows.filter((r) => inScope(r.path, scope));
     const starts = new Set(this.db.all<{ path: string }>("SELECT DISTINCT path FROM tags WHERE tag = ?", START_TAG).map((r) => r.path));
@@ -753,7 +753,7 @@ export class Vault {
         role: roleOf(r.path),
       };
     });
-    return { items, total: rows.length, counts, folders: [...new Set(all.map((n) => home(n.path)).filter((p) => p.includes("/")).map((p) => p.split("/")[0]))].sort() };
+    return { items, total: rows.length, counts, folders: [...new Set(all.map((n) => homeOf(n.path)).filter((p) => p.includes("/")).map((p) => p.split("/")[0]))].sort() };
   }
 
   /** Every note (not assets), archived ones included, newest first: what matching() narrows. */
@@ -769,8 +769,7 @@ export class Vault {
       const hits = new Set(this.db.all("SELECT path FROM notes_fts WHERE notes_fts MATCH ?", ftsQuery(terms)).map((r) => r.path));
       rows = rows.filter((r) => hits.has(r.path));
     }
-    const home = (p: string) => (isArchived(p) ? p.slice(ARCHIVE.length) : p);
-    if (query.folder) rows = rows.filter((r) => home(r.path).startsWith(query.folder!.replace(/\/?$/, "/")));
+    if (query.folder) rows = rows.filter((r) => homeOf(r.path).startsWith(query.folder!.replace(/\/?$/, "/")));
     if (query.tag) {
       const key = normalizeTag(query.tag);
       const on = new Set(key ? this.db.all<{ path: string }>(`SELECT DISTINCT path FROM tags WHERE ${UNDER}`, ...under(key)).map((r) => r.path) : []);
@@ -780,8 +779,14 @@ export class Vault {
     return rows;
   }
 
-  backlinks(target: string): Backlink[] {
+  /**
+   * The notes linking to `target`. `scope` "active" leaves out links from archived notes (old copies
+   * shouldn't sit beside the live ones), unless `target` is archived itself. Renames and deletes need
+   * them all, which is the default.
+   */
+  backlinks(target: string, scope: ArchiveScope = "all"): Backlink[] {
     const rel = this.mustResolve(target);
+    if (scope === "active" && isArchived(rel)) scope = "all";
     const stem = stemOf(rel);
     const rows = this.db.all(
       `SELECT DISTINCT l.src AS path, n.title, l.kind, l.line FROM links l JOIN notes n ON n.path = l.src
@@ -791,6 +796,7 @@ export class Vault {
     const cache = new Map<string, string[]>();
     const resolve = this.resolver();
     return rows
+      .filter((r) => inScope(r.path, scope))
       .filter((r) => this.linksAt(r.path, r.line, cache).some((l) => linkStem(l.key) === stem && resolve(l.target, r.path) === rel))
       .map((r) => ({ ...r, text: (cache.get(r.path)?.[r.line - 1] ?? "").trim().slice(0, 200) }));
   }
@@ -1325,7 +1331,7 @@ export class Vault {
       return u;
     };
     const rows = this.db.all<TagUse & { tag: string }>(
-      "SELECT t.tag, t.kind, t.path, t.line FROM tags t JOIN notes n ON n.path = t.path WHERE substr(t.path, 1, 8) != 'Archive/'",
+      `SELECT t.tag, t.kind, t.path, t.line FROM tags t JOIN notes n ON n.path = t.path WHERE NOT ${archivedSql("t.path")}`,
     );
     for (const r of rows) {
       for (const tag of withParents(r.tag)) {
@@ -1356,7 +1362,7 @@ export class Vault {
   }
 
   private addUnused(tag: string) {
-    const used = this.db.get(`SELECT 1 FROM tags t JOIN notes n ON n.path = t.path WHERE ${UNDER} AND substr(t.path, 1, 8) != 'Archive/' LIMIT 1`, ...under(tag));
+    const used = this.db.get(`SELECT 1 FROM tags t JOIN notes n ON n.path = t.path WHERE ${UNDER} AND NOT ${archivedSql("t.path")} LIMIT 1`, ...under(tag));
     if (!used) this.db.run("INSERT OR IGNORE INTO added_tags(tag) VALUES (?)", tag);
   }
 
@@ -1377,7 +1383,7 @@ export class Vault {
   private tagInUse(tag: string): TagFavorite | null {
     const notes = this.db.get<{ n: number }>(
       `SELECT count(DISTINCT t.path) AS n FROM tags t JOIN notes n ON n.path = t.path
-       WHERE ${UNDER} AND t.kind != 'asset' AND substr(t.path, 1, 8) != 'Archive/'`,
+       WHERE ${UNDER} AND t.kind != 'asset' AND NOT ${archivedSql("t.path")}`,
       ...under(tag),
     )!.n;
     if (!notes) return null;
@@ -1895,17 +1901,29 @@ export class Vault {
     return { ...meta, change };
   }
 
-  /** Archive a note: move it under Archive/ (links keep working: they resolve by name). */
+  /** Archive a note: move it into the archive folder (links keep working: they resolve by name). */
   archive(target: string, source: string) {
     const rel = this.mustResolve(target);
     if (isArchived(rel)) throw new VaultError(`${rel} is already archived`);
-    return this.move(rel, this.freePath(ARCHIVE + rel), source, "archive");
+    return this.move(rel, this.freePath(this.archiveFolder() + rel), source, "archive");
   }
 
   unarchive(target: string, source: string) {
     const rel = this.mustResolve(target);
     if (!isArchived(rel)) throw new VaultError(`${rel} isn't archived`);
-    return this.move(rel, this.freePath(rel.slice(ARCHIVE.length)), source, "unarchive");
+    return this.move(rel, this.freePath(homeOf(rel)), source, "unarchive");
+  }
+
+  /**
+   * Where archiving puts notes: the workspace's own archive folder ("4. Archive/") when it has one,
+   * so there's one archive rather than two, else Archive/. With several, the one holding most notes.
+   */
+  archiveFolder(): string {
+    const roots = this.db.all<{ dir: string; n: number }>(
+      `SELECT substr(path, 1, instr(path, '/')) AS dir, count(*) AS n FROM notes WHERE ${archivedSql("path")} GROUP BY dir`,
+    );
+    const own = roots.filter((r) => r.dir !== ARCHIVE).sort((a, b) => b.n - a.n || a.dir.localeCompare(b.dir));
+    return own[0]?.dir ?? ARCHIVE;
   }
 
   // ---------------------------------------------------------------- trash

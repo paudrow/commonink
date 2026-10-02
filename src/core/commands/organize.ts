@@ -2,7 +2,7 @@
 import { VaultError } from "../paths.ts";
 import { fmtBoards, fmtFavorites, fmtList, fmtSmartFolders, fmtTags, fmtWrite } from "../format.ts";
 import { parseQuery } from "../query.ts";
-import { ARCHIVE, type Vault } from "../vault.ts";
+import { isArchiveFolder, type Vault } from "../vault.ts";
 import { bool, command, list, num, str, UsageError } from "./types.ts";
 
 const BOARD_HELP =
@@ -334,7 +334,7 @@ export const folders = [
     },
     run: ({ vault, source }, a) => {
       const dir = a.folder.replace(/^\/+|\/+$/g, "");
-      if (dir === ARCHIVE.slice(0, -1)) throw new VaultError("Archive isn't a folder you can delete; unarchive or delete its notes instead");
+      if (isArchiveFolder(dir)) throw new VaultError(`${dir} is the archive, not a folder you can delete; unarchive or delete its notes instead`);
       const r = vault.deleteFolder(dir, a.notes as "trash" | "lift", source);
       const trashed = r.deleted.map(({ id, path }) => ({ id, path }));
       const moved = r.moved.map((m) => ({ from: m.from, to: m.path }));

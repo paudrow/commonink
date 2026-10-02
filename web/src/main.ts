@@ -4,7 +4,7 @@ import "./mobile.css";
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, type EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
-import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, unusedTag, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
+import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, unusedTag, useWorkspace, whoAmI, ApiError, type Backlink, type Change, type Favorite, type NoteMeta, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
 import { cleanTag, normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
@@ -2392,23 +2392,35 @@ function highlightOutline(line: number) {
 }
 
 // backlinks
+// Links from archived notes wait behind a toggle, so old copies don't sit beside the live ones
+// (an archived note shows all its links: there they're the context).
+let archivedBacklinksShown = false;
 async function refreshBacklinks() {
   const s = active.session;
   if (!s) return;
-  const links = await api.backlinks(s.path).catch(() => []);
+  const all = await api.backlinks(s.path, "all").catch(() => []);
   if (s !== active.session) return;
+  const fromArchive = isArchived(s.path) ? [] : all.filter((b) => isArchived(b.path));
+  const links = all.filter((b) => !fromArchive.includes(b));
+  const row = (b: Backlink) =>
+    el(
+      "div",
+      { class: `backlink${isArchived(b.path) ? " is-archived" : ""}`, onclick: (e: MouseEvent) => openNote(b.path, { line: b.line, pane: sideClick(e) ? sideOf(active) : active }) },
+      el("div", { class: "bl-title" }, icon(b.kind === "embed" ? "open" : "link", 12), b.title),
+      el("div", { class: "bl-text", html: highlightLink(b.text) }),
+    );
+  const toggle = fromArchive.length
+    ? el(
+        "button",
+        { type: "button", class: "bl-archived-toggle", onclick: () => ((archivedBacklinksShown = !archivedBacklinksShown), void refreshBacklinks()) },
+        archivedBacklinksShown ? "Hide links from archived notes" : `${fromArchive.length} more from archived ${fromArchive.length === 1 ? "note" : "notes"}`,
+      )
+    : null;
   $("#backlink-count").textContent = links.length ? String(links.length) : "";
   $("#backlinks").replaceChildren(
-    ...(links.length
-      ? links.map((b) =>
-          el(
-            "div",
-            { class: "backlink", onclick: (e: MouseEvent) => openNote(b.path, { line: b.line, pane: sideClick(e) ? sideOf(active) : active }) },
-            el("div", { class: "bl-title" }, icon(b.kind === "embed" ? "open" : "link", 12), b.title),
-            el("div", { class: "bl-text", html: highlightLink(b.text) }),
-          ),
-        )
-      : [el("div", { class: "panel-empty" }, "No backlinks yet")]),
+    ...(links.length ? links.map(row) : [el("div", { class: "panel-empty" }, fromArchive.length ? "No backlinks from active notes" : "No backlinks yet")]),
+    ...(toggle ? [toggle] : []),
+    ...(archivedBacklinksShown ? fromArchive.map(row) : []),
   );
 }
 const refreshBacklinksSoon = debounce(refreshBacklinks, 300);

@@ -480,7 +480,7 @@ export class Assets {
     document.addEventListener("keydown", onKey, true);
 
     void api
-      .backlinks(path)
+      .backlinks(path, "all")
       .then((links) => {
         if (this.previewing !== path) return;
         const notes = [...new Map(links.map((l) => [l.path, l])).values()];

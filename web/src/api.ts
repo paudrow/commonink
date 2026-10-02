@@ -100,7 +100,7 @@ export interface FeedPage {
   counts: { active: number; archived: number };
   folders: string[];
 }
-export const isArchived = (p: string) => p.startsWith("Archive/");
+export { isArchived } from "../../src/core/archive.ts";
 /** A saved note query in the sidebar, with how many active notes match it now. */
 export interface SmartFolder {
   id: string;
@@ -438,7 +438,8 @@ export const api = {
   purgeTrash: (ids: string[]) => j<{ deleted: string[] }>(`${BASE}/trash/delete`, send("POST", { ids })),
   emptyTrash: () => j<{ deleted: string[] }>(`${BASE}/trash/empty`, send("POST", {})),
   unarchive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/unarchive`, send("POST", { paths })),
-  backlinks: (path: string) => j<Backlink[]>(`${BASE}/backlinks?path=${enc(path)}`),
+  /** Links to `path`; "all" brings the ones from archived notes too. */
+  backlinks: (path: string, scope: "active" | "all" = "active") => j<Backlink[]>(`${BASE}/backlinks?path=${enc(path)}&scope=${scope}`),
   /** The workspace's contacts (notes in People/), by name. */
   contacts: () => j<Contact[]>(`${BASE}/contacts`),
   /** One contact, and the notes that mention them, newest first. */
