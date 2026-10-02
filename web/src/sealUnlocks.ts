@@ -17,12 +17,12 @@ const kept = (): SealId[] | null => {
 };
 let earned = kept();
 let ready = false;
-let hooks = { online: () => false, openToday() {} };
+let hooks = { online: () => false, openSeals() {} };
 const listeners = new Set<() => void>();
 
 const has = (id: SealId) => !!earned?.includes(id);
 
-/** What the Today page shows: the seals there are here, those earned, and the counts toward the rest. */
+/** What Your seals (sealsPage.ts) shows: the seals there are here, those earned, and the counts toward the rest. */
 export const sealState = () => ({ online: hooks.online(), earned: SEAL_IDS.filter(has), stats: ready ? stats : null });
 
 /** Call `fn` when a seal is earned or the counts change. Returns a function that stops listening. */
@@ -38,7 +38,7 @@ function sealFirst(what: First | "linked") {
   award();
 }
 
-/** Start counting. `online` says whether sharing is here; `openToday` is the toast's button. */
+/** Start counting. `online` says whether sharing is here; `openSeals` is the toast's button. */
 export function startSeals(h: typeof hooks) {
   hooks = h;
   didEvents.addEventListener("link", () => sealFirst("linked"));
@@ -89,5 +89,5 @@ function award() {
   store.set("seals", earned);
   notify();
   const said = sealToast(fresh);
-  if (said) toast({ ...said, icon: "spark", actionLabel: "See seals", action: () => hooks.openToday() });
+  if (said) toast({ ...said, icon: "spark", actionLabel: "See seals", action: () => hooks.openSeals() });
 }

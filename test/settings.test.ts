@@ -32,6 +32,7 @@ function fakeApp(over: Partial<SettingsApp> = {}) {
     localVault: { projectRoot: "/code/commonink", vault: "/notes" },
     shortcuts: () => log.push("shortcuts"),
     connectAgent: () => log.push("connectAgent"),
+    seals: () => log.push("seals"),
     ...over,
   };
   return { app, log };
@@ -41,7 +42,7 @@ const titles = (q: string, app: SettingsApp) => matchSettings(q, appSettings(app
 
 test("search finds settings by every word, across title, description, section and keywords", () => {
   const { app } = fakeApp();
-  assert.deepEqual(titles("", app), ["Theme", "Ink", "Always show Contacts", "Always show Calendar", "Always show Assets", "Always show Smart folders", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Shortcut tips", "Connect an agent", "Unlock as you go"]);
+  assert.deepEqual(titles("", app), ["Theme", "Ink", "Always show Contacts", "Always show Calendar", "Always show Assets", "Always show Smart folders", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Shortcut tips", "Connect an agent", "Unlock as you go", "Your seals"]);
   assert.deepEqual(titles("dark", app), ["Theme"]);
   assert.deepEqual(titles("VIM", app), ["Line numbers", "Vim keys", "Vim: j and k by screen line"]);
   assert.deepEqual(titles("vim gj", app), ["Vim: j and k by screen line"]);
@@ -66,6 +67,7 @@ test("a workspace that isn't gamified has nothing to pin or earn and no tips; on
   assert.deepEqual(titles("", app), ["Theme", "Ink", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Connect an agent", "Unlock as you go"]);
   assert.deepEqual(titles("gamification", app), ["Unlock as you go"]);
   assert.deepEqual(titles("progressive disclosure", app), ["Unlock as you go"]);
+  assert.ok(!titles("seals", app).length, "no seals while not gamified");
   const setting = appSettings(app).find((s) => s.id === "gamified")!;
   assert.equal(setting.disabled, false);
   if (setting.control.kind === "toggle") setting.control.set(true);

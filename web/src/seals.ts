@@ -1,7 +1,7 @@
 // Seals: a small wax mark for the first time you do each thing worth knowing, from your first link
-// between notes to your tenth edit kept from an agent. They're the long-term part of the Today page
-// (the day is its ring, the week its recap): earned seals in ink, the rest greyed with a line on how,
-// so each grey seal points at a feature. This is the rules and the counting, with nothing to fetch or
+// between notes to your tenth edit kept from an agent. They're the long-term part beside the Today
+// ring (the day) and the weekly recap (the week), kept in Your seals (sealsPage.ts): earned seals in
+// ink, the rest greyed with a line on how, so each grey seal points at a feature. This is the rules and the counting, with nothing to fetch or
 // draw, so it can be tested; sealUnlocks.ts gathers the numbers and says when one is earned.
 import { GUIDE } from "../../src/core/guide.ts";
 import { formatKeys } from "./keys.ts";
@@ -114,5 +114,5 @@ export function sealToast(ids: SealId[]): { text: string; detail: string } | nul
   if (!seals.length) return null;
   if (seals.length === 1) return { text: `New seal: ${seals[0].name}`, detail: seals[0].earned };
   const names = seals.map((s) => s.name);
-  return { text: `New seals: ${names.slice(0, -1).join(", ")} and ${names.at(-1)}`, detail: "They're on the Today page." };
+  return { text: `New seals: ${names.slice(0, -1).join(", ")} and ${names.at(-1)}`, detail: "They're in Your seals." };
 }

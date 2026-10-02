@@ -42,6 +42,6 @@ test("a task is an agent's when it's assigned to one by name", () => {
 
 test("one seal gets its own toast; several at once, one that names them all", () => {
   assert.deepEqual(sealToast(["board"]), { text: "New seal: First board", detail: "You made a kanban board." });
-  assert.deepEqual(sealToast(["link", "template", "agent-edit"]), { text: "New seals: First link, First template and First agent edit", detail: "They're on the Today page." });
+  assert.deepEqual(sealToast(["link", "template", "agent-edit"]), { text: "New seals: First link, First template and First agent edit", detail: "They're in Your seals." });
   assert.equal(sealToast([]), null);
 });

@@ -351,6 +351,8 @@ function commands() {
     importNotes: () => void importNotes(),
     settings: openSettings,
     connectAgent,
+    gamified: gamified(),
+    seals: openSeals,
     back: () => void stepPane(active, "back"),
     forward: () => void stepPane(active, "forward"),
     followLink: () => followLinkAtCursor(),
@@ -2868,6 +2870,7 @@ function openSettings(query?: string) {
             ),
           shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
           connectAgent,
+          seals: openSeals,
         }),
       { query },
     ),
@@ -2882,6 +2885,7 @@ function setSidebarPinned(item: OptionalItem, on: boolean) {
 }
 
 const connectAgent = () => void import("./agentsPage.ts").then((m) => m.showAgents());
+const openSeals = () => void import("./sealsPage.ts").then((m) => m.showSeals());
 
 /** Shortcut tips (shortcutTips.ts): the third click on a button with a shortcut says, once, which keys do it. */
 const tipsState = (): TipsState => ({ ...NO_TIPS, ...store.get<Partial<TipsState>>("shortcutTips", {}) });
@@ -3198,7 +3202,7 @@ async function boot() {
   if (!viewer) void startGuide({ archive: (path) => void archivePath(path), flush: () => flushSave() });
   if (!viewer) watchTodayCleared();
   startInks({ choose: () => openSettings("ink") });
-  startSeals({ online: () => !!workspaceId, openToday: () => void showToday() });
+  startSeals({ online: () => !!workspaceId, openSeals });
 
   void refreshTaskCount();
   // Home is the notes list; a note's URL (or the tasks, history or assets page) opens that instead.

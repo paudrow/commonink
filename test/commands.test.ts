@@ -66,6 +66,8 @@ const app = (over: Partial<App> = {}): App => {
     importNotes: run("importNotes"),
     settings: run("settings"),
     connectAgent: run("connectAgent"),
+    gamified: true,
+    seals: run("seals"),
     back: run("back"),
     forward: run("forward"),
     followLink: run("followLink"),
