@@ -612,6 +612,15 @@ body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view
 .bl-archived-toggle:hover { color: var(--ink); text-decoration: underline; }
 .bl-text { font-size: 12px; color: var(--muted); margin-top: 3px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .bl-text b { color: var(--accent-ink); font-weight: 600; }
+.bl-unlinked { margin-top: 6px; }
+.bl-unlinked > summary { padding: 4px 10px 8px; color: var(--muted); font-size: 12.5px; cursor: pointer; border-radius: 6px; }
+.bl-unlinked > summary:hover { color: var(--ink); }
+.bl-unlinked > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.bl-unlinked .count { margin-left: 4px; }
+.bl-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bl-link { margin-left: auto; flex: none; background: none; border: 1px solid var(--line); border-radius: 6px; padding: 1px 8px; font: inherit; font-size: 11.5px; font-weight: 600; color: var(--accent-ink); cursor: pointer; }
+.bl-link:hover, .bl-link:focus-visible { background: var(--accent-soft); border-color: var(--accent); }
+.backlink.is-mention .bl-text b { color: var(--ink); background: var(--accent-soft); border-radius: 3px; }
 .act { display: flex; gap: 10px; padding: 7px 6px; border-radius: 8px; }
 .act:hover { background: var(--hover); }
 .act-body { min-width: 0; flex: 1; }

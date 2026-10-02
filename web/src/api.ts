@@ -80,6 +80,16 @@ export interface Backlink {
   line: number;
   text: string;
 }
+/** A note's name written as plain text in another note (Vault.unlinkedMentions). */
+export interface UnlinkedMention {
+  path: string;
+  title: string;
+  line: number;
+  from: number;
+  to: number;
+  text: string;
+  context: string;
+}
 export type Scope = "active" | "archived" | "all";
 export interface FeedItem {
   id: string;
@@ -449,6 +459,11 @@ export const api = {
   unarchive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/unarchive`, send("POST", { paths })),
   /** Links to `path`; "all" brings the ones from archived notes too. */
   backlinks: (path: string, scope: "active" | "all" = "active") => j<Backlink[]>(`${BASE}/backlinks?path=${enc(path)}&scope=${scope}`),
+  /** Where other notes write this note's name without linking it. */
+  mentions: (path: string) => j<UnlinkedMention[]>(`${BASE}/mentions?path=${enc(path)}`),
+  /** Turn one of them into a link to `target`: one change, restored by `restore(change, version)`. */
+  linkMention: (target: string, m: UnlinkedMention) =>
+    j<{ path: string; version: string; change: number | null }>(`${BASE}/mentions/link`, send("POST", { target, path: m.path, line: m.line, from: m.from, to: m.to, text: m.text })),
   /** The workspace's contacts (notes in People/), by name. */
   contacts: () => j<Contact[]>(`${BASE}/contacts?today=${today()}`),
   /** One contact, and the notes that mention them, newest first. */
