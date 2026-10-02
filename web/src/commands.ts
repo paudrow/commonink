@@ -165,8 +165,8 @@ export function appCommands(app: App): Command[] {
       icon: app.tag?.starred ? "starred" : "star",
       run: app.starTag,
     },
-    // With a tag in view, Rename… renames it; this picks one.
-    { id: "rename-tag", title: "Rename tag…", keywords: "rename merge tag hashtag everywhere", icon: "hash", available: app.canDelete && !app.tag, run: app.renameTag },
+    // Picks a tag to rename. With a tag, folder or the like in view, Rename… renames that instead.
+    { id: "rename-tag", title: "Rename a tag…", keywords: "rename merge tag hashtag everywhere", icon: "hash", available: app.canDelete && !app.tag && (!app.renames || app.renames === "note"), run: app.renameTag },
     { id: "new-contact", title: "New contact…", keywords: "create add person people contact crm", icon: "user", available: app.canDelete, run: app.newContact },
     { id: "import-contacts", title: "Import contacts (.vcf or .csv)…", keywords: "import upload vcard vcf csv google outlook people contacts", icon: "upload", available: app.canDelete, run: app.importContacts },
     { id: "quick-add", title: "Add a task", keywords: "quick add todo new task", icon: "task", keys: ["Mod-Shift-."], area: "Tasks", run: app.quickAdd },

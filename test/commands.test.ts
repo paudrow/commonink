@@ -114,12 +114,12 @@ test("commands follow the app: vim's state, the open note, Getting started, and 
   assert.deepEqual(titles("star", app({ note: { kind: "md", starred: true, archived: false } })).slice(0, 2), ["Star or unstar a tag…", "Unstar note"]);
   assert.deepEqual(titles("html", app({ note: { kind: "html", starred: false, archived: false }, htmlMode: "preview" })), ["Show HTML source", "Share…"]);
   assert.deepEqual(titles("go back", app()), [], "nowhere to go back to");
-  assert.deepEqual(titles("rename", app()), ["Rename tag…", "Go to Tags"], "nothing showing to rename, but a tag can be picked");
+  assert.deepEqual(titles("rename", app()), ["Rename a tag…", "Go to Tags"], "nothing showing to rename, but a tag can be picked");
   assert.deepEqual(titles("rename", app({ renames: "note", canDelete: false })), ["Go to Tags"], "a viewer can't rename");
   const rename = matchCommands("rename", appCommands(app({ renames: "note" })));
-  assert.deepEqual(rename.map((c) => c.title), ["Rename tag…", "Rename note…", "Go to Tags"]);
-  assert.deepEqual(rename[1].keys, ["F2"]);
-  rename[1].run();
+  assert.deepEqual(rename.map((c) => c.title), ["Rename note…", "Rename a tag…", "Go to Tags"]);
+  assert.deepEqual(rename[0].keys, ["F2"]);
+  rename[0].run();
   assert.equal(ran.at(-1), "rename");
   // One Rename… for whatever is showing: Notes narrowed to a folder renames the folder, and so on.
   for (const what of ["folder", "tag", "smart folder", "file"] as const) assert.ok(titles("rename", app({ renames: what })).includes(`Rename ${what}…`));
