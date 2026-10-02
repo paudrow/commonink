@@ -29,6 +29,9 @@ function fakeApp(over: Partial<SettingsApp> = {}) {
     setSidebarPinned: (item, on) => ((app.sidebarPinned = { ...app.sidebarPinned, [item]: on }), log.push(`sidebar:${item}:${on}`)),
     gamified: { on: true, canChange: true },
     setGamified: (on) => ((app.gamified = { ...app.gamified, on }), log.push(`gamified:${on}`)),
+    openSettingsFile: () => log.push("openSettingsFile"),
+    showConfig: false,
+    setShowConfig: (on) => ((app.showConfig = on), log.push(`showConfig:${on}`)),
     localVault: { projectRoot: "/code/commonink", vault: "/notes" },
     shortcuts: () => log.push("shortcuts"),
     connectAgent: () => log.push("connectAgent"),
@@ -41,7 +44,7 @@ const titles = (q: string, app: SettingsApp) => matchSettings(q, appSettings(app
 
 test("search finds settings by every word, across title, description, section and keywords", () => {
   const { app } = fakeApp();
-  assert.deepEqual(titles("", app), ["Theme", "Ink", "Always show Contacts", "Always show Calendar", "Always show Assets", "Always show Smart folders", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Shortcut tips", "Connect an agent", "Unlock as you go"]);
+  assert.deepEqual(titles("", app), ["Theme", "Ink", "Always show Contacts", "Always show Calendar", "Always show Assets", "Always show Smart folders", "Show the Config folder", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Shortcut tips", "Connect an agent", "Unlock as you go", "Settings file"]);
   assert.deepEqual(titles("dark", app), ["Theme"]);
   assert.deepEqual(titles("VIM", app), ["Line numbers", "Vim keys", "Vim: j and k by screen line"]);
   assert.deepEqual(titles("vim gj", app), ["Vim: j and k by screen line"]);
@@ -49,6 +52,7 @@ test("search finds settings by every word, across title, description, section an
   assert.deepEqual(titles("mcp", app), ["Connect an agent"]);
   assert.deepEqual(titles("sidebar events", app), ["Always show Calendar"]);
   assert.deepEqual(titles("editor", app), ["Line numbers", "Wrap code", "HTML notes"]);
+  assert.deepEqual(titles("yaml", app), ["Show the Config folder", "Settings file"]);
   assert.deepEqual(titles("zzz", app), []);
 });
 
@@ -61,9 +65,9 @@ test("online, Agents opens the Connected agents dialog; Vim's j and k wait for V
   assert.equal(jk(true), false);
 });
 
-test("a workspace that isn't gamified has nothing to pin or earn and no tips; only an owner can turn it back on", () => {
+test("a workspace that isn't gamified has nothing to pin or earn and no tips; a viewer can't turn it back on", () => {
   const { app, log } = fakeApp({ gamified: { on: false, canChange: true } });
-  assert.deepEqual(titles("", app), ["Theme", "Ink", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Connect an agent", "Unlock as you go"]);
+  assert.deepEqual(titles("", app), ["Theme", "Ink", "Show the Config folder", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Connect an agent", "Unlock as you go", "Settings file"]);
   assert.deepEqual(titles("gamification", app), ["Unlock as you go"]);
   assert.deepEqual(titles("progressive disclosure", app), ["Unlock as you go"]);
   const setting = appSettings(app).find((s) => s.id === "gamified")!;
@@ -72,7 +76,7 @@ test("a workspace that isn't gamified has nothing to pin or earn and no tips; on
   assert.deepEqual(log, ["gamified:true"]);
   const member = appSettings(fakeApp({ gamified: { on: true, canChange: false } }).app).find((s) => s.id === "gamified")!;
   assert.equal(member.disabled, true);
-  assert.match(member.description, /Only an owner can change it/);
+  assert.match(member.description, /You can view this workspace but not change it/);
 });
 
 test("the dialog: labelled controls, search as you type, changes that apply at once, Esc to close", async () => {

@@ -54,9 +54,14 @@ export interface SettingsApp {
   /** The sidebar items kept showing before they're in use. */
   sidebarPinned: Partial<Record<OptionalItem, boolean>>;
   setSidebarPinned(item: OptionalItem, on: boolean): void;
-  /** Whether the workspace is gamified (gamify.ts), and whether you may change that: its owners online, and you locally. */
+  /** Whether the workspace is gamified (gamify.ts), and whether you may change that: anyone who can edit its notes. */
   gamified: { on: boolean; canChange: boolean };
   setGamified(on: boolean): void;
+  /** Open Config/Settings.md, where the workspace's settings are kept (schema.ts). */
+  openSettingsFile(): void;
+  /** Whether Config/ shows among the sidebar's folders. */
+  showConfig: boolean;
+  setShowConfig(on: boolean): void;
   /** Locally, where the vault and the `commonink` command are, for the agent setup; online, null. */
   localVault: { vault?: string; projectRoot?: string } | null;
   shortcuts(): void;
@@ -112,6 +117,14 @@ export function appSettings(app: SettingsApp): Setting[] {
       control: { kind: "custom", render: () => [inkPicker(app)] },
     },
     ...sidebar,
+    {
+      id: "show-config",
+      section: "Sidebar",
+      title: "Show the Config folder",
+      description: "Config holds this workspace's settings file. It stays out of the sidebar's folders unless this is on; Settings and ⌘K reach it either way.",
+      keywords: "config folder hidden settings.md yaml sidebar show",
+      control: { kind: "toggle", on: app.showConfig, set: app.setShowConfig },
+    },
     {
       id: "line-numbers",
       section: "Editor",
@@ -200,10 +213,18 @@ export function appSettings(app: SettingsApp): Setting[] {
       title: "Unlock as you go",
       description: app.gamified.canChange
         ? "For everyone in this workspace. On, the sidebar grows as you use it, inks are earned, tips teach shortcuts and clearing Today gets a small celebration. Off, everything is there from the start, with nothing to unlock and no celebrations."
-        : `${game ? "On" : "Off"} for this workspace: ${game ? "the sidebar grows as you use it, inks are earned, and tips and small celebrations show up" : "everything is there from the start"}. Only an owner can change it.`,
+        : `${game ? "On" : "Off"} for this workspace: ${game ? "the sidebar grows as you use it, inks are earned, and tips and small celebrations show up" : "everything is there from the start"}. You can view this workspace but not change it.`,
       keywords: "gamification gamified game progressive disclosure unlock earn rewards celebrate streak tips beginner simple everything admin owner",
       disabled: !app.gamified.canChange,
       control: { kind: "toggle", on: game, set: app.setGamified },
+    },
+    {
+      id: "settings-file",
+      section: "Workspace",
+      title: "Settings file",
+      description: "This workspace's settings are kept in Config/Settings.md, so you and your agents can change them there too. It suggests settings as you type and points out mistakes.",
+      keywords: "yaml config configuration front matter properties file settings.md agents",
+      control: { kind: "button", label: "Open Settings.md", run: () => (closeSettings(), app.openSettingsFile()) },
     },
   ];
 }
@@ -306,11 +327,16 @@ function row(s: Setting): HTMLElement {
   return el("div", { class: `st-row${s.disabled ? " is-disabled" : ""}`, "data-setting": s.id }, ...body);
 }
 
-let current: { focus(): void; render(): void } | null = null;
+let current: { focus(): void; render(): void; close(): void } | null = null;
 
 /** Redraw Settings, if it's open: for a change that applies once the server has it (a workspace's setting). */
 export function refreshSettings() {
   current?.render();
+}
+
+/** Close Settings, if it's open. */
+export function closeSettings() {
+  current?.close();
 }
 
 /** Open Settings (or, when it's open, go to its search box), with `query` in the search box. */
@@ -377,6 +403,6 @@ export function openSettings(settings: () => Setting[], opts: { query?: string }
   render();
   // On a touch screen, don't bring up the keyboard until you tap the search box.
   (matchMedia("(pointer: coarse)").matches ? box : search).focus();
-  current = { focus: () => search.focus(), render: () => render() };
+  current = { focus: () => search.focus(), render: () => render(), close };
 }
 

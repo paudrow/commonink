@@ -4,6 +4,7 @@ import { fmtBacklinks, fmtFavorites, fmtList, fmtMissingLinks, fmtRead, fmtSearc
 import { parseQuery } from "../query.ts";
 import { TRASH_DAYS } from "../vault.ts";
 import { bool, command, list, num, str } from "./types.ts";
+import { describeProblems, frontmatterProblems } from "../schema.ts";
 
 const TAG = "Only notes with this tag or a tag under it: work matches #work and #work/acme. Several (work,plan): notes with all of them";
 const ONE_TAG = "Only notes with this tag or a tag under it: work matches #work and #work/acme";
@@ -15,6 +16,16 @@ function checkBase(host: { vault: { read(t: string): { path: string; version: st
   if (!base) return;
   const note = host.vault.read(target);
   if (note.version !== base) throw new VaultError(`${note.path} is at version ${note.version}, not ${base}. Re-read it and retry.`, "conflict", { version: note.version });
+}
+
+/** What's wrong with a note's properties after a write (schema.ts), as lines for whoever wrote it; "" if nothing is. */
+function propertyProblems(vault: { read(t: string): { path: string; content: string } }, path: string): string {
+  try {
+    const n = vault.read(path);
+    return describeProblems(n.content, frontmatterProblems(n.content, n.path));
+  } catch {
+    return "";
+  }
 }
 
 export const notes = [
@@ -146,12 +157,12 @@ export const notes = [
     run: ({ vault, source }, a) => {
       try {
         const r = vault.create(a.path, a.content, source);
-        return { text: fmtWrite(r, "Created"), data: r };
+        return { text: fmtWrite(r, "Created") + propertyProblems(vault, r.path), data: r };
       } catch (e) {
         if (!a.overwrite || !(e instanceof VaultError) || e.code !== "exists") throw e;
         const rel = (e.data as { path: string }).path;
         const r = { ...vault.save(rel, a.content, { source }), path: rel };
-        return { text: fmtWrite(r, r.change ? "Replaced" : "No change to"), data: r };
+        return { text: fmtWrite(r, r.change ? "Replaced" : "No change to") + propertyProblems(vault, rel), data: r };
       }
     },
   }),
@@ -174,7 +185,7 @@ export const notes = [
     },
     run: ({ vault, source }, a) => {
       const r = vault.edit(a.path, { oldString: a.old_string, newString: a.new_string, replaceAll: a.replace_all, baseVersion: a.base_version }, source);
-      return { text: fmtWrite(r, "Edited"), data: r };
+      return { text: fmtWrite(r, "Edited") + propertyProblems(vault, r.path), data: r };
     },
   }),
   command({
@@ -215,7 +226,7 @@ export const notes = [
       if (!a.content.trim()) throw new VaultError("That would leave the note empty. To remove it, use delete.");
       const rel = vault.resolve(a.path) ?? (kindOf(a.path) ? a.path : `${a.path}.md`);
       const r = vault.save(rel, a.content, { baseVersion: a.base_version, source });
-      return { text: fmtWrite({ ...r, path: rel }, r.change ? "Wrote" : "No change to"), data: { ...r, path: rel } };
+      return { text: fmtWrite({ ...r, path: rel }, r.change ? "Wrote" : "No change to") + propertyProblems(vault, rel), data: { ...r, path: rel } };
     },
   }),
   command({

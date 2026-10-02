@@ -910,6 +910,17 @@ body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view
 .prop { display: flex; gap: 12px; align-items: baseline; }
 .prop-key { color: var(--muted); width: 72px; flex: none; font-size: 12px; }
 .prop-val { display: flex; gap: 6px; flex-wrap: wrap; color: var(--ink); }
+.prop.is-bad .prop-key { color: var(--bad-ink); text-decoration: underline wavy var(--bad); text-underline-offset: 3px; }
+/* Properties help (editor/properties.ts): the strip above a note whose properties have a problem, and hover help. */
+.cm-panels-top { border-top: none !important; border-bottom: 1px solid var(--line); }
+.prop-problems { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 14px; border: 0; background: color-mix(in srgb, var(--warn) 10%, transparent); color: var(--warn-ink); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
+.prop-problems.is-error { background: color-mix(in srgb, var(--bad) 9%, transparent); color: var(--bad-ink); }
+.prop-problems:hover { text-decoration: underline; }
+.prop-info { max-width: 340px; padding: 8px 10px; font-size: 12.5px; line-height: 1.45; color: var(--ink); }
+.prop-info p { margin: 4px 0 0; }
+.prop-info-head { display: flex; gap: 8px; align-items: baseline; }
+.prop-info-head span, .prop-info-more { color: var(--muted); }
+.cm-tooltip-lint .cm-diagnostic { font-size: 12.5px; max-width: 360px; }
 
 /* vim */
 /* The block cursor takes the width of the glyph under it; in a proportional font that makes it

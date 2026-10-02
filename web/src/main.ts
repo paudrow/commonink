@@ -46,6 +46,7 @@ import { guideMessage, startGuide } from "./onboarding.ts";
 import { watchTodayCleared } from "./todayCleared.ts";
 import { inkState, setInk, startInks } from "./inkUnlocks.ts";
 import { gamified, loadGamified, onGamified, setGamified } from "./gamify.ts";
+import { CONFIG, SETTINGS_NOTE, settingsNote } from "../../src/core/schema.ts";
 import { store } from "./store.ts";
 import { changeVerb, groupChanges } from "../../src/core/format.ts";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
@@ -136,6 +137,8 @@ const prefs = {
   folded: { favorites: false, smart: false, folders: true, tags: false, ...store.get<Record<string, boolean>>("folded", {}) } as Record<string, boolean>,
   /** Contacts, Calendar, Assets and Smart folders kept in the sidebar before they're in use (Settings, Sidebar). */
   sidebarPinned: store.get<Partial<Record<OptionalItem, boolean>>>("sidebarPinned", {}),
+  /** Config/ (the workspace's settings and conventions) in the sidebar's folders: off, it's reached from Settings. */
+  showConfig: store.get("showConfig", false),
 };
 taskInputPrefs.vim = prefs.vim; // every task input (quick-add, inline edit, a card) types with the editor's keys
 
@@ -1507,6 +1510,7 @@ async function undoChange(c: Change, after: string | null) {
 function onMessage(m: ServerMsg) {
   guideMessage(m);
   if (m.type !== "change") vaultEvents.dispatchEvent(new Event("change"));
+  if ((m.type === "note" || m.type === "removed") && m.path === SETTINGS_NOTE) void loadGamified(); // the settings file changed, here or anywhere
   switch (m.type) {
     case "note": {
       const meta = notes.find((n) => n.path === m.path);
@@ -1952,7 +1956,7 @@ function renderTree() {
     el("button", { type: "button", class: "row-act", title, onclick: (e: Event) => (e.stopPropagation(), fn()) }, icon(ico, 14));
   const walk = (parent: string, depth: number): HTMLElement[] =>
     folders
-      .filter((f) => parentOf(f) === parent)
+      .filter((f) => parentOf(f) === parent && (prefs.showConfig || f !== CONFIG))
       .flatMap((path) => {
         const subs = folders.some((f) => parentOf(f) === path);
         const open = subs && prefs.expanded.has(path);
@@ -2796,7 +2800,10 @@ function openSettings(query?: string) {
           localVault,
           sidebarPinned: prefs.sidebarPinned,
           setSidebarPinned,
-          gamified: { on: gamified(), canChange: owner },
+          gamified: { on: gamified(), canChange: !viewer },
+          openSettingsFile,
+          showConfig: prefs.showConfig,
+          setShowConfig: (on) => (store.set("showConfig", (prefs.showConfig = on)), renderTree()),
           setGamified: (on) =>
             void setGamified(on).then(
               () => (m.refreshSettings(), toast({ icon: "check", text: on ? "Unlock as you go is on" : "Everything is unlocked", detail: "For everyone in this workspace, from their next visit." })),
@@ -2808,6 +2815,17 @@ function openSettings(query?: string) {
       { query },
     ),
   );
+}
+
+/** Open the workspace's settings file (schema.ts), writing it first if this workspace has none yet. */
+async function openSettingsFile() {
+  if (!notes.some((n) => n.path === SETTINGS_NOTE)) {
+    await api.create(SETTINGS_NOTE, settingsNote({ gamified: gamified() })).catch((e) => {
+      if (!(e instanceof ApiError && e.status === 409)) throw e;
+    });
+    await refreshNotes();
+  }
+  await openNote(SETTINGS_NOTE);
 }
 
 /** Keep an optional sidebar item showing even before it's in use (Settings, Sidebar), or let it wait again. */
