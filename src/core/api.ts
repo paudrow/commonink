@@ -283,6 +283,9 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
           assignee,
           by,
           due: q("due") || undefined,
+          start: q("start") || undefined,
+          done: q("done") || undefined,
+          priority: q("priority") || undefined,
           today: q("today") || undefined, // the browser's day, so "today" means the reader's today
         }),
       );

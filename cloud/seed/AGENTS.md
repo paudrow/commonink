@@ -19,7 +19,7 @@ These notes belong to people. You are a guest editor.
 - In a shell, the `commonink` CLI does what the tools do: `commonink help` lists its commands, and `commonink help <command>` shows one with examples. Add `--json` for data and check the exit code (3: no such note; 4: the note changed since you read it, so read it again and retry). Pipe content in with `-`, and pass `--base <version>` from `commonink read` when you rewrite a note.
 - Your changes show in History as yours, "<your name> for <person>", for whoever connected you. If you use the `commonink` CLI (signed in with `commonink login --server <this app's address>`), set `COMMONINK_AGENT=<your name>` (or pass `--agent <your name>`) so they do.
 - Widgets are single lines. Leave any `id=` value, and any `<!-- guide:… -->` marker at the end of a task, as it is.
-  - `::tasks{folder=Projects}` (or `tag=work`, `assignee=jane`, `due<=today`) collects checkbox tasks from those notes.
+  - `::tasks{folder=Projects}` (or `tag=work`, `assignee=jane`, `due<=today`, `due>=today due<=+7d`, `priority=high`, `done>=-7d`) collects checkbox tasks from those notes.
   - `::query{folder=Projects tag=meeting limit=5}` is a live list of matching notes.
   - `::today` is the day at a glance: overdue, due today, starting today, and today's journal note. `get_today` gives agents the same.
   - `::calendar{folder=Journal}` shows a month of daily notes (`Journal/YYYY-MM-DD.md`).

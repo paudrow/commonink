@@ -388,7 +388,7 @@ export const api = {
   feed: (p: { q?: string; scope?: Scope; folder?: string; tag?: string; sort?: QuerySort; offset?: number; limit?: number }) =>
     j<FeedPage>(`${BASE}/feed?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
   /** `assignee`: someone's name (every @name that's theirs) or "me"; `by: "me"`: tasks you gave someone else, in your notes. */
-  tasks: (p: { folder?: string; note?: string; tag?: string; assignee?: string; by?: "me"; due?: string; today?: string }) =>
+  tasks: (p: { folder?: string; note?: string; tag?: string; assignee?: string; by?: "me"; due?: string; start?: string; done?: string; priority?: string; today?: string }) =>
     j<Task[]>(`${BASE}/tasks?${new URLSearchParams(Object.entries(p).filter(([, v]) => v).map(([k, v]) => [k, String(v)]))}`),
   /** How many tasks are still open across the workspace (the Tasks badge). */
   openTasks: () => j<{ open: number }>(`${BASE}/tasks/count`).then((r) => r.open),

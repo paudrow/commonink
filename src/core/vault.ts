@@ -10,7 +10,7 @@ import { headingName, headingText, mapOutsideCode, proseLines } from "./prose.ts
 import { dateOf, extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
-import { dueFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
+import { DATE_FILTER_HELP, dateFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, priorityFilter, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
 import { parseQuickAdd } from "./quickAdd.ts";
 import { formatQuery, parseQuery, queryProblem, tagList, type NoteQuery } from "./query.ts";
 import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
@@ -306,7 +306,12 @@ export interface TaskQuery {
   assignee?: string;
   /** Any of these `@name`s: one person's every name. */
   assignees?: string[];
+  /** Date filters, like `<=today` or `>=today <=+7d` (see dateFilter). */
   due?: string;
+  start?: string;
+  done?: string;
+  /** high, low or none, or several with commas (see priorityFilter). */
+  priority?: string;
   today?: string;
 }
 
@@ -1638,8 +1643,9 @@ export class Vault {
   /**
    * Checkbox tasks across the vault (active notes), in note order, with the heading each sits under.
    * `tag` keeps the tasks whose line carries it (or a tag under it), `assignee` the ones with that
-   * @person, and `due` the ones whose due date passes a filter like `<=today` (see dueFilter).
-   * `today` (YYYY-MM-DD) is the day that filter means by today; the default is the core's clock.
+   * @person, and `due`, `start` and `done` the ones whose date passes a filter like `<=today` or
+   * `>=today <=+7d` (see dateFilter). `priority` is high, low or none (see priorityFilter).
+   * `today` (YYYY-MM-DD) is the day those filters mean by today; the default is the core's clock.
    */
   tasks(opts: TaskQuery = {}): Task[] {
     const only = opts.note ? this.resolve(opts.note) : null;
@@ -1647,8 +1653,16 @@ export class Vault {
     const prefix = opts.folder ? opts.folder.replace(/^\/+|\/+$/g, "") + "/" : "";
     const tagged = opts.tag === undefined ? null : new Set(this.tagged(opts.tag).filter((r) => r.kind === "task").map((r) => `${r.path}:${r.line}`));
     if (opts.today && !isDate(opts.today)) throw new VaultError(`"today" must be a date like 2026-10-01, not "${opts.today}"`);
-    const due = opts.due ? dueFilter(opts.due, opts.today ?? this.day()) : null;
-    if (opts.due && !due) throw new VaultError(`Bad due filter "${opts.due}": use a date or today/tomorrow/yesterday, optionally after <, <=, > or >=`);
+    const dated = (["due", "start", "done"] as const).flatMap((field) => {
+      const expr = opts[field];
+      if (!expr) return [];
+      const test = dateFilter(expr, opts.today ?? this.day());
+      if (!test) throw new VaultError(`Bad ${field} filter "${expr}": use ${DATE_FILTER_HELP}`);
+      return [(t: Task) => test(t.meta[field])];
+    });
+    const priority = opts.priority ? priorityFilter(opts.priority) : null;
+    if (opts.priority && !priority) throw new VaultError(`Bad priority filter "${opts.priority}": use high, low or none (or several, like high,none)`);
+    const passes = (t: Task) => dated.every((test) => test(t)) && (!priority || priority(t.meta.priority));
     // `assignees` (any of them) is a person's every name; `assignee` one name, as written.
     const names = new Set([...(opts.assignees ?? []), ...(opts.assignee ? [opts.assignee] : [])].map((a) => a.replace(/^@/, "").toLowerCase()));
     // The query narrows to the note, or to notes with the tag on a task (the lines are checked below).
@@ -1661,7 +1675,7 @@ export class Vault {
     return rows
       .filter((r) => (!prefix || r.path.startsWith(prefix)) && (!tagged || tagged.has(`${r.path}:${r.line}`)))
       .map(toTask)
-      .filter((t) => (!due || due(t.meta.due)) && (!names.size || t.meta.assignees.some((a) => names.has(a.toLowerCase()))));
+      .filter((t) => passes(t) && (!names.size || t.meta.assignees.some((a) => names.has(a.toLowerCase()))));
   }
 
   /**

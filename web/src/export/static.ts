@@ -38,7 +38,7 @@ export interface StaticSources {
   /** Just the web address of the note `target` names (a link), or null. */
   url(target: string, from: string): Promise<string | null>;
   /** Tasks, as `::tasks` asks for them. */
-  tasks(q: { folder?: string; note?: string; tag?: string; assignee?: string; due?: string }): Promise<Task[]>;
+  tasks(q: { folder?: string; note?: string; tag?: string; assignee?: string; due?: string; start?: string; done?: string; priority?: string }): Promise<Task[]>;
   /** Notes, as `::query` asks for them. */
   feed(q: NoteQuery & { limit: number }): Promise<FeedItem[]>;
   today(): Promise<TodayView>;
@@ -190,8 +190,8 @@ async function snapshot(d: Directive, path: string, src: StaticSources): Promise
   const label = a.label ? ` · ${a.label}` : "";
   switch (d.name) {
     case "tasks": {
-      const show = a.status === "done" || a.status === "all" ? a.status : "open";
-      const all = await src.tasks({ folder: a.folder, note: a.note, tag: a.tag, assignee: a.assignee, due: a.due }).catch(() => [] as Task[]);
+      const show = a.status === "done" || a.status === "all" ? a.status : a.done ? "done" : "open";
+      const all = await src.tasks({ folder: a.folder, note: a.note, tag: a.tag, assignee: a.assignee, due: a.due, start: a.start, done: a.done, priority: a.priority }).catch(() => [] as Task[]);
       const tasks = all.filter((t) => show === "all" || t.done === (show === "done")).slice(0, MAX_ROWS);
       return box(`Tasks${label}`, tasks.length ? taskGroups(tasks, a.group === "none" ? null : "note") : empty(show === "done" ? "No finished tasks." : "Nothing to do."));
     }

@@ -22,7 +22,7 @@ These notes belong to a person. You are a guest editor.
 - When you do something worth remembering, add a line to today's journal under `## Log`: `- HH:MM — what you did ([[Note]])`.
 - HTML notes are self-contained: inline CSS and JS only.
 - Widgets are single lines. Leave any `id=` value, and any `<!-- guide:… -->` marker at the end of a task, as it is.
-  - `::tasks{folder=Projects}`, `::tasks{note="Common Ink roadmap"}` or `::tasks{tag=work assignee=jane due<=today}`: live checklist of tasks from those notes. Add tasks to the notes themselves (`- [ ] …`); the widget collects them.
+  - `::tasks{folder=Projects}`, `::tasks{note="Common Ink roadmap"}` or `::tasks{tag=work assignee=jane due<=today}`: live checklist of tasks from those notes. Add tasks to the notes themselves (`- [ ] …`); the widget collects them. Ranges, spans from today and priority work too: `::tasks{due>=today due<=+7d priority=high}`, `::tasks{done>=-7d}`.
   - `::query{folder=Projects tag=meeting q="words" limit=5}`: live list of matching notes.
   - `::today` is the day at a glance: overdue, due today, starting today, and today's journal note. `get_today` gives agents the same.
   - `::calendar{folder=Journal}`: month of daily notes.
