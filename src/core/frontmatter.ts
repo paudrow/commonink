@@ -70,3 +70,28 @@ export function listOf(e: Entry | undefined): string[] {
   }
   return e.lines.slice(1).flatMap((l) => l.match(/^\s*-\s+(.*)$/)?.[1] ?? []).map(unquote).filter(Boolean);
 }
+
+/**
+ * Frontmatter keys the app gives a meaning of its own, left out of a note's properties: `tags` are
+ * tags (the tags index has them), and `title` is the note's title.
+ */
+export const OWN_KEYS: ReadonlySet<string> = new Set(["tags", "title"]);
+
+/**
+ * A note's frontmatter properties, for the properties index: each key in lowercase with its values.
+ * A list (`[a, b]`, or one `- a` per line) has one per item; anything else is one value as written,
+ * commas and all. Empty values and the keys in OWN_KEYS are left out.
+ */
+export function propsOf(md: string): Array<{ key: string; value: string }> {
+  const out: Array<{ key: string; value: string }> = [];
+  const seen = new Set<string>();
+  for (const e of frontmatterEntries(md).entries) {
+    const key = e.key.toLowerCase();
+    if (!key || OWN_KEYS.has(key)) continue;
+    const inline = e.lines[0].replace(/^[^:]*:/, "").trim();
+    for (const value of !inline || /^\[.*\]$/.test(inline) ? listOf(e) : [scalarOf(e)]) {
+      if (value && !seen.has(`${key}\0${value}`)) seen.add(`${key}\0${value}`), out.push({ key, value });
+    }
+  }
+  return out;
+}

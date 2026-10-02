@@ -28,10 +28,11 @@ export interface NoteQuery {
 const KEYS = ["q", "folder", "tag", "sort", "limit"] as const;
 const SORTS: readonly QuerySort[] = ["modified", "date", "oldest", "title", "created"];
 /**
- * Filters that can also be written as keys of their own (`::query{modified>-7d -tag=draft}`). They
- * live in `q` with the words, so a query has one place for them however it was written.
+ * A ::query widget's own args, which aren't part of its query. Any other key that isn't one of KEYS
+ * is a filter (`modified>-7d`, `-tag=draft`, `status=draft`): it lives in `q` with the words, so a
+ * query has one place for its filters however it was written.
  */
-const IN_Q = ["modified", "created", "-tag"] as const;
+const WIDGET_ARGS = ["label", "id", "view", "cols"];
 const LIMIT = /^[1-9]\d{0,3}$/;
 
 export const isSort = (s: string | undefined): s is QuerySort => (SORTS as readonly string[]).includes(s ?? "");
@@ -51,7 +52,8 @@ export function toQuery(args: Record<string, string>): NoteQuery {
     const t = cleanTag(raw);
     if (t && !tags.some((x) => x.toLowerCase() === t.toLowerCase())) tags.push(t);
   }
-  const q = [args.q?.trim(), ...IN_Q.flatMap((k) => (args[k] ? [filterText(k, args[k])] : []))].filter(Boolean).join(" ");
+  const filters = Object.keys(args).filter((k) => !(KEYS as readonly string[]).includes(k) && !WIDGET_ARGS.includes(k) && args[k]);
+  const q = [args.q?.trim(), ...filters.map((k) => filterText(k, args[k]))].filter(Boolean).join(" ");
   if (q) out.q = q;
   if (folder) out.folder = folder;
   if (tags.length) out.tag = tags.join(",");
@@ -86,7 +88,7 @@ function readQuery(src: string): { args: Record<string, string>; bare: string | 
     }
     const value = m[3] ?? m[4] ?? m[5];
     // A filter that lives in `q` joins the words there, so it can be given twice (`modified>-30d modified<-7d`).
-    if ((IN_Q as readonly string[]).includes(m[1])) filters.push(filterText(m[1], m[2] === "=" ? value : `${m[2]}${value}`));
+    if (!(KEYS as readonly string[]).includes(m[1])) filters.push(filterText(m[1], m[2] === "=" ? value : `${m[2]}${value}`));
     else if (m[2] !== "=") args[m[1]] = `${m[2]}${value}`;
     else if (m[1] === "tag") tags.push(value);
     else args[m[1]] = value;
@@ -99,8 +101,15 @@ function readQuery(src: string): { args: Record<string, string>; bare: string | 
 
 export const parseQuery = (src: string) => toQuery(readQuery(src).args);
 
-/** A filter key and its value as `q` holds it: `modified` and `>-7d` are `modified>-7d`, `-tag` and `x` are `-tag=x`. */
-const filterText = (key: string, value: string) => `${key}${/^(<=|>=|<|>)/.test(value) ? "" : "="}${value}`;
+/**
+ * A filter key and its value as `q` holds it: `modified` and `>-7d` are `modified>-7d`, `-tag` and
+ * `x` are `-tag=x`, and `status` and `in progress` are `status='in progress'`.
+ */
+function filterText(key: string, value: string): string {
+  const op = value.match(/^(<=|>=|<|>)/)?.[0] ?? "=";
+  const v = op === "=" ? value : value.slice(op.length);
+  return `${key}${op}${/^[^\s"']+$/.test(v) ? v : `'${v.replace(/'/g, "")}'`}`;
+}
 
 /** A query as text. Sorting by modified is the default, so it's left out. */
 export function formatQuery(q: NoteQuery): string {
@@ -113,7 +122,6 @@ export function queryProblem(src: string): string | null {
   const { args, bare } = readQuery(src);
   if (bare) return `Give "${bare}" a value, like ${bare === "tag" ? "tag=work" : `${bare}=…`}`;
   for (const [k, v] of Object.entries(args)) {
-    if (!(KEYS as readonly string[]).includes(k)) return `Unknown query key "${k}": use ${KEYS.slice(0, -1).join(", ")} or ${KEYS.at(-1)}`;
     if (k === "sort" && !isSort(v)) return `"sort" is ${SORTS.slice(0, -1).join(", ")} or ${SORTS.at(-1)}, not "${v}"`;
     if (k === "limit" && !LIMIT.test(v)) return `"limit" is a whole number above 0, not "${v}"`;
     if (k === "q" && parseSearch(v).problem) return parseSearch(v).problem;
@@ -150,13 +158,25 @@ export interface Search {
   tags: string[];
   notTags: string[];
   dates: DateFilter[];
+  props: PropFilter[];
   /** What's wrong with a filter in it, or null. */
   problem: string | null;
 }
 
+/**
+ * A frontmatter property filter: `status=draft` is { key: "status", value: "draft", not: false };
+ * `has=due` is { key: "due", value: null }. Keys are lowercase on the index's side; values compare
+ * in any case.
+ */
+export interface PropFilter {
+  key: string;
+  value: string | null;
+  not: boolean;
+}
+
 const MAX_WORDS = 12;
 const wordsOf = (s: string) => [...s.matchAll(/[\p{L}\p{N}_]+/gu)].map((m) => m[0]);
-const emptySearch = (): Search => ({ all: [], none: [], tags: [], notTags: [], dates: [], problem: null });
+const emptySearch = (): Search => ({ all: [], none: [], tags: [], notTags: [], dates: [], props: [], problem: null });
 
 /**
  * Read the words in a query's `q`. Plain words must all be in a note (found as prefixes), the way
@@ -168,7 +188,9 @@ const emptySearch = (): Search => ({ all: [], none: [], tags: [], notTags: [], d
  *   modified>-7d, created<2026-09-01, modified>=yesterday
  *                               by day: a date, today, yesterday, or days, weeks, months or years
  *                               back (-7d, -2w, -1m, -1y). `modified>-7d` is the last seven days.
- * Any other `key=value` is just words, as it always was.
+ *   status=draft, -status=done  a frontmatter property has (or hasn't) this value, any case; a list
+ *                               matches if any item does. title=… is the note's title.
+ *   has=due, -has=due           a property is (or isn't) set
  */
 export function parseSearch(q: string): Search {
   const out = emptySearch();
@@ -187,7 +209,8 @@ export function parseSearch(q: string): Search {
     if (key !== undefined) {
       const op = m[3] as DateFilter["op"];
       const value = m[4].replace(/^["']|["']$/g, "");
-      if (key === "tag" && op === "=") {
+      // `tags:` in frontmatter are tags, so tags=x is tag=x.
+      if ((key === "tag" || key === "tags") && op === "=") {
         for (const t of value.split(/[\s,+]+/).filter(Boolean)) {
           const tag = cleanTag(t);
           if (!tag) out.problem ??= `"${t}" isn't a tag: use letters, numbers, - and _, nested with /`;
@@ -195,11 +218,24 @@ export function parseSearch(q: string): Search {
         }
         return;
       }
-      if ((key === "modified" || key === "created") && !not) {
-        if (dayFrom(value, "2000-01-01") === null) out.problem ??= `"${value}" isn't a day: use a date like 2026-09-01, today, yesterday, or -7d, -2w, -1m`;
+      if (key === "modified" || key === "created") {
+        if (not) out.problem ??= `"-${key}" can't leave out: write ${key}<… or ${key}>… instead`;
+        else if (dayFrom(value, "2000-01-01") === null) out.problem ??= `"${value}" isn't a day: use a date like 2026-09-01, today, yesterday, or -7d, -2w, -1m`;
         else out.dates.push({ field: key, op, day: value });
         return;
       }
+      if (op !== "=") {
+        out.problem ??= `Only modified and created compare with < and >: write ${key}=…`;
+        return;
+      }
+      if (!value) {
+        out.problem ??= `Give "${key}" a value, like ${key}=…`;
+        return;
+      }
+      // has=due: notes whose frontmatter gives `due` a value (-has=due: notes without one).
+      if (key === "has") for (const k of value.split(",").map((x) => x.trim().toLowerCase()).filter(Boolean)) out.props.push({ key: k, value: null, not });
+      else out.props.push({ key, value, not });
+      return;
     }
     const phrase = m[5] !== undefined || m[6] !== undefined;
     if (m[0] === "OR") {

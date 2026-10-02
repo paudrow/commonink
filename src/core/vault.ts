@@ -21,7 +21,7 @@ import {
   type Contact, type ContactFields, type ContactInput, type ContactNote, type MemberRef, type TimelineItem,
 } from "./contacts.ts";
 import { cleanTitle, DAILY_TEMPLATE, fillTemplate, localNow, TEMPLATES, templateInfo, type FillOptions, type TemplateInfo } from "./templates.ts";
-import { frontmatterEntries } from "./frontmatter.ts";
+import { frontmatterEntries, propsOf } from "./frontmatter.ts";
 
 export interface NoteMeta {
   /** Stable across renames, moves and archiving; see ids.ts. */
@@ -475,7 +475,9 @@ export class Vault {
       this.db.run("DELETE FROM links WHERE src = ?", rel);
       this.db.run("DELETE FROM tags WHERE path = ? AND kind != 'asset'", rel);
       this.db.run("DELETE FROM tasks WHERE path = ?", rel);
+      this.db.run("DELETE FROM props WHERE path = ?", rel);
       if (kind === "md" && content) {
+        insertRows(this.db, "INSERT INTO props(path, key, value)", propsOf(content).map((p) => [rel, p.key, p.value]));
         const tasks = tasksIn(content).map(({ line, done, ...task }) => [rel, line, done ? 1 : 0, task.meta.due, task.meta.start, JSON.stringify(task)]);
         insertRows(this.db, "INSERT INTO tasks(path, line, done, due, start, task)", tasks);
         insertRows(this.db, "INSERT INTO links(src, key, kind, line)", extractLinks(content).map((l) => [rel, linkStem(l.key), l.kind, l.line]));
@@ -568,6 +570,7 @@ export class Vault {
       this.db.run("DELETE FROM links WHERE src = ?", rel);
       this.db.run("DELETE FROM tags WHERE path = ? AND kind != 'asset'", rel);
       this.db.run("DELETE FROM tasks WHERE path = ?", rel);
+      this.db.run("DELETE FROM props WHERE path = ?", rel);
     });
   }
 
@@ -818,6 +821,16 @@ export class Vault {
     for (const tag of words.notTags) {
       const on = tagged(tag);
       rows = rows.filter((r) => !on.has(r.path));
+    }
+    // Frontmatter properties: a note matches status=draft if any of its status values is "draft", in any case.
+    for (const p of words.props) {
+      const want = p.value?.toLowerCase();
+      const on =
+        p.key === "title"
+          ? null
+          : new Set(this.db.all<{ path: string; value: string }>("SELECT path, value FROM props WHERE key = ?", p.key).filter((r) => want === undefined || r.value.toLowerCase() === want).map((r) => r.path));
+      const hit = (r: (typeof rows)[number]) => (on ? on.has(r.path) : want === undefined || r.title.toLowerCase() === want);
+      rows = rows.filter((r) => hit(r) !== p.not);
     }
     // Dates go by day, in this core's time zone (see dayPasses).
     const created = words.dates.some((f) => f.field === "created") || query.sort === "created" ? this.createdTimes() : null;

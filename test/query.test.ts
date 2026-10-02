@@ -4,6 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { dayFrom, dayPasses, formatQuery, ftsAny, ftsQuery, parseQuery, parseSearch, queryProblem, searchWords, toQuery, type NoteQuery } from "../src/core/query.ts";
 import { openTempVault } from "./helpers.ts";
+import { openVault } from "../src/core/local.ts";
+import { propsOf } from "../src/core/frontmatter.ts";
 
 test("a note query is the ::query widget's args: q, folder, tag, sort and limit", () => {
   const src = 'q="launch plan" folder=Projects tag=work/acme sort=title limit=5';
@@ -21,7 +23,7 @@ test("a widget's other args (label, id) aren't part of its query", () => {
 test("a saved query is checked key by key", () => {
   assert.equal(queryProblem("tag=work sort=title"), null);
   assert.equal(queryProblem(""), null);
-  assert.equal(queryProblem("colour=red"), 'Unknown query key "colour": use q, folder, tag, sort or limit');
+  assert.equal(queryProblem("colour=red"), null); // a frontmatter property
   assert.equal(queryProblem("sort=size"), '"sort" is modified, date, oldest, title or created, not "size"');
   assert.equal(queryProblem("limit=0"), '"limit" is a whole number above 0, not "0"');
   assert.equal(queryProblem("tag=27"), '"27" isn\'t a tag: use letters, numbers, - and _, nested with /');
@@ -69,8 +71,8 @@ test("plain words read the way they always did: each one a prefix, all of them n
   assert.deepEqual(s.all.map((c) => c.map((t) => t.words.join(" "))), [["launch"], ["plan"], ["e"], ["mail"]]);
   assert.equal(ftsQuery(s), '"launch"* "plan"* "e"* "mail"*');
   assert.deepEqual(s.none, []);
-  // Words with an = in them, a lone dash and a quote that never closes are just words too.
-  assert.equal(ftsQuery(parseSearch('a=b - "open')), '"a"* "b"* "open"*');
+  // A lone dash and a quote that never closes are just words. (a=b is a property filter.)
+  assert.equal(ftsQuery(parseSearch('a=b - "open')), '"open"*');
   assert.equal(ftsQuery(parseSearch("don't stop")), '"don"* "t"* "stop"*');
 });
 
@@ -128,7 +130,7 @@ test("filters written as keys of their own join q, so a query has one place for 
   assert.equal(queryProblem('q="launch" modified>-7d -tag=draft sort=created'), null);
   assert.match(queryProblem("modified>someday")!, /isn't a day/);
   assert.match(queryProblem('q="plan -tag=27"')!, /isn't a tag/);
-  assert.equal(queryProblem("size>3"), 'Unknown query key "size": use q, folder, tag, sort or limit');
+  assert.equal(queryProblem("size>3"), "Only modified and created compare with < and >: write size=…");
 });
 
 test("the feed runs the grammar: words left out, OR, phrases, tags left out, dates and sort=created", () => {
@@ -179,4 +181,72 @@ test("a note query's old forms find what they always found", () => {
   assert.deepEqual(paths({ q: "launch, plan!" }), ["A.md", "B.md"]);
   assert.deepEqual(paths({ q: "pla", tag: "work" }), ["B.md"]);
   assert.deepEqual(paths({ q: "" }), ["A.md", "B.md", "C.md"]);
+});
+
+// ---------------------------------------------------------------- frontmatter properties
+
+test("a note's properties: lowercase keys, one row per list item, tags and title left out", () => {
+  const md = "---\nStatus: Draft\ntitle: Ignored\ntags: [a, b]\nowners: [Ana, \"Bo, Jr\"]\nsteps:\n  - one\n  - two\nnote: a, b\nempty:\n---\n# Body\n";
+  assert.deepEqual(propsOf(md), [
+    { key: "status", value: "Draft" },
+    { key: "owners", value: "Ana" },
+    { key: "owners", value: "Bo, Jr" },
+    { key: "steps", value: "one" },
+    { key: "steps", value: "two" },
+    { key: "note", value: "a, b" },
+  ]);
+  assert.deepEqual(propsOf("# No frontmatter\n"), []);
+});
+
+test("status=draft, -status=done and has=due in the words are property filters", () => {
+  const s = parseSearch("plan Status=Draft -status=done has=due,owner -has=archived tags=work 'x y'");
+  assert.deepEqual(s.props, [
+    { key: "status", value: "Draft", not: false },
+    { key: "status", value: "done", not: true },
+    { key: "due", value: null, not: false },
+    { key: "owner", value: null, not: false },
+    { key: "archived", value: null, not: true },
+  ]);
+  assert.deepEqual(s.tags, ["work"]);
+  assert.equal(ftsQuery(s), '"plan"* "x y"');
+  assert.deepEqual(parseSearch("stage='in review'").props, [{ key: "stage", value: "in review", not: false }]);
+  assert.match(parseSearch("status>draft").problem!, /Only modified and created compare/);
+  assert.match(parseSearch("-modified=today").problem!, /can't leave out/);
+  // Written as keys of their own (a smart folder, a ::query), they join q; a widget's own args don't.
+  assert.deepEqual(parseQuery('folder=Projects status=draft stage="in review" -has=due'), { q: "status=draft stage='in review' -has=due", folder: "Projects" });
+  assert.deepEqual(toQuery({ label: "Drafts", id: "x1", view: "table", cols: "status", status: "draft" }), { q: "status=draft" });
+  assert.equal(formatQuery(parseQuery('stage="in review"')), `q="stage='in review'"`);
+  assert.equal(queryProblem("status=draft -has=due"), null);
+});
+
+test("the feed filters on frontmatter properties", () => {
+  const { vault } = openTempVault({
+    "A.md": "---\nstatus: draft\ndue: 2026-10-10\n---\n# A\n",
+    "B.md": "---\nStatus: Done\nowners: [Ana, Bo]\n---\n# B\n",
+    "C.md": "---\nstatus: [draft, review]\ntags: [work]\n---\n# C\n",
+    "D.md": "# D\n",
+  });
+  const paths = (src: string) => vault.feed(parseQuery(src)).items.map((i) => i.path).sort();
+  assert.deepEqual(paths("status=draft"), ["A.md", "C.md"]);
+  assert.deepEqual(paths("STATUS=DONE"), ["B.md"]);
+  assert.deepEqual(paths("-status=done"), ["A.md", "C.md", "D.md"]);
+  assert.deepEqual(paths("status=review"), ["C.md"]);
+  assert.deepEqual(paths("owners=bo"), ["B.md"]);
+  assert.deepEqual(paths("has=due"), ["A.md"]);
+  assert.deepEqual(paths("-has=status"), ["D.md"]);
+  assert.deepEqual(paths("tags=work"), ["C.md"]);
+  assert.deepEqual(paths("title=d"), ["D.md"]);
+  assert.deepEqual(paths("status=draft -has=due"), ["C.md"]);
+  // The index follows edits.
+  vault.edit("A", { oldString: "status: draft", newString: "status: done" }, "t");
+  assert.deepEqual(paths("status=done"), ["A.md", "B.md"]);
+  vault.delete(["B"], "t");
+  assert.deepEqual(paths("status=done"), ["A.md"]);
+});
+
+test("an index from before properties reads every note again to fill them in", () => {
+  const { dir, vault } = openTempVault({ "A.md": "---\nstatus: draft\n---\n# A\n" });
+  vault.db.exec("DROP TABLE props");
+  const again = openVault(dir);
+  assert.deepEqual(again.feed(parseQuery("status=draft")).items.map((i) => i.path), ["A.md"]);
 });

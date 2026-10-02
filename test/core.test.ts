@@ -819,7 +819,7 @@ test("smart folders are saved queries, shared with the workspace or one person's
   const own = vault.saveSmartFolder("vi", { name: "Mine", query: "folder=Ideas", shared: false }, false);
   assert.equal(own.count, 1);
   assert.throws(() => vault.saveSmartFolder("ana", { id: own.id, name: "Taken", query: "", shared: false }, true), /No smart folder/);
-  assert.throws(() => vault.saveSmartFolder("ana", { name: "Bad", query: "colour=red", shared: true }, true), /Unknown query key "colour"/);
+  assert.throws(() => vault.saveSmartFolder("ana", { name: "Bad", query: "colour>red", shared: true }, true), /Only modified and created compare/);
   assert.throws(() => vault.saveSmartFolder("ana", { name: " ", query: "", shared: true }, true), /name/);
   assert.deepEqual(vault.deleteSmartFolder("ana", "client work", true), []);
 });
