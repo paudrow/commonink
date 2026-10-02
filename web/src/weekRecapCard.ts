@@ -75,7 +75,7 @@ export function mountWeekRecap(host: HTMLElement, open: (path: string) => void):
     body.replaceChildren(
       el("ul", { class: "wr-lines" }, ...recapLines(r).map((l) => el("li", {}, l)), revisited),
       showLast ? el("div", { class: "wr-actions" }, el("button", { type: "button", class: "qw-btn primary", onclick: () => void save() }, "Save as journal note")) : "",
-      heatmap(got.days, day),
+      el("div", { class: "wd" }, heatmap(got.days, day)), // .wd sizes its cells
       el("p", { class: "wd-what" }, COUNTS),
     );
   };
