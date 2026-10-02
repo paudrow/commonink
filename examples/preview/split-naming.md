@@ -1,4 +1,5 @@
 ---
+pr: 265
 title: Split view and the info panel have their own names
 ---
 1. Open [[Tips]]. Hover the panel button at the top bar's right end: it says **Toggle info panel (⌘\)**, and its icon is a window with a column of lines. Press ⌘\ to hide and show the outline, backlinks and activity.
