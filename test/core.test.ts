@@ -5,6 +5,7 @@ import path from "node:path";
 import { cleanPath } from "../src/core/paths.ts";
 import { openVault } from "../src/core/local.ts";
 import { openTempVault } from "./helpers.ts";
+import { notes } from "../src/core/commands/notes.ts";
 import type { Favorite, NoteMeta } from "../src/core/vault.ts";
 
 const notesOf = (list: Favorite[]) => list.map((n) => (n as NoteMeta).path);
@@ -222,6 +223,10 @@ test("backlinks leave out archived notes when asked, unless the note itself is a
   assert.deepEqual(from("Plan"), ["Archive/Plan copy.md", "Notes/Live.md"]);
   assert.deepEqual(from("Plan", "active"), ["Notes/Live.md"]);
   assert.deepEqual(from("Old", "active"), ["Archive/Plan copy.md", "Projects/Plan.md"]);
+  // An agent asking over MCP hears that some were left out, and how to see them.
+  const run = (args: Record<string, unknown>) => notes.find((c) => c.mcp === "backlinks")!.run({ vault, source: "t" } as never, args as never) as { text: string };
+  assert.equal(run({ path: "Plan" }).text, "- Notes/Live.md:3 (wikilink) [[Plan]]\n1 more from archived note (include_archived to see them).");
+  assert.match(run({ path: "Plan", include_archived: true }).text, /Plan copy.md[^]*Live.md/);
 });
 
 test("restore puts a note back the way it was before a change", () => {

@@ -67,9 +67,11 @@ export function fmtTags(tags: TagCount[]): string {
     .join("\n");
 }
 
-export function fmtBacklinks(target: string, links: Backlink[]): string {
-  if (!links.length) return `Nothing links to ${target}.`;
-  return links.map((b) => `- ${b.path}:${b.line} (${b.kind}) ${b.text}`).join("\n");
+/** `hidden`: how many links from archived notes were left out. */
+export function fmtBacklinks(target: string, links: Backlink[], hidden = 0): string {
+  const more = hidden ? `${hidden} more from archived ${hidden === 1 ? "note" : "notes"} (include_archived to see them).` : "";
+  if (!links.length) return hidden ? `Nothing active links to ${target}. ${more}` : `Nothing links to ${target}.`;
+  return [...links.map((b) => `- ${b.path}:${b.line} (${b.kind}) ${b.text}`), ...(more ? [more] : [])].join("\n");
 }
 
 const folderOf = (path: string) => path.slice(0, path.lastIndexOf("/") + 1);

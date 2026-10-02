@@ -110,8 +110,10 @@ export const notes = [
       archived: bool({ only: "cli", describe: "Only links from archived notes" }),
     },
     run: ({ vault }, a) => {
-      const links = vault.backlinks(a.path, scopeOf(a));
-      return { text: fmtBacklinks(a.path, links), data: links };
+      const scope = scopeOf(a);
+      const links = vault.backlinks(a.path, scope);
+      const hidden = scope === "active" ? vault.backlinks(a.path, "all").length - links.length : 0;
+      return { text: fmtBacklinks(a.path, links, hidden), data: links };
     },
   }),
   command({
