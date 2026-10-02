@@ -3,7 +3,8 @@
 // duplicates (links follow) and imports vCard and CSV.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { contactFromNote, contactNote, duplicateContacts, handlesOf, parseContactsCsv, parseVCards, type Contact } from "../src/core/contacts.ts";
+import { addCheckIn, checkInEvery, contactFromNote, contactNote, describeCheckIn, duplicateContacts, handlesOf, parseContactsCsv, parseVCards, type Contact } from "../src/core/contacts.ts";
+import { COMMANDS } from "../src/core/commands/index.ts";
 import { cpuMs, openTempVault } from "./helpers.ts";
 
 const JANE = `---
@@ -39,10 +40,10 @@ test("writing a contact keeps the note's words and any frontmatter it doesn't kn
   const out = contactNote({ ...c, role: "CEO", email: ["jane@acme.com", "jd@home.org"], tags: [] }, JANE);
   assert.match(out, /^---\nemail: \[jane@acme.com, jd@home.org\]\nphone: \[\+1 555 0100, \+1 555 0199\]\ncompany: Acme\nrole: CEO\nlinks:\n  - https:\/\/github.com\/jane\n  - https:\/\/jane.dev\naliases: \[JD\]\nbirthday: 1990-04-01\n---\n# Jane Doe\n\nMet at the Acme offsite.\n$/);
   // A new contact: its fields, then its name as the title.
-  assert.equal(contactNote({ name: "Sam Lee", email: ["sam@x.org"], phone: [], company: "", role: "", links: [], aliases: [], tags: [] }), "---\nemail: sam@x.org\n---\n# Sam Lee\n");
-  assert.equal(contactNote({ name: "Nobody", email: [], phone: [], company: "", role: "", links: [], aliases: [], tags: [] }), "# Nobody\n");
+  assert.equal(contactNote({ name: "Sam Lee", email: ["sam@x.org"], phone: [], company: "", role: "", links: [], aliases: [], tags: [], checkIn: "" }), "---\nemail: sam@x.org\n---\n# Sam Lee\n");
+  assert.equal(contactNote({ name: "Nobody", email: [], phone: [], company: "", role: "", links: [], aliases: [], tags: [], checkIn: "" }), "# Nobody\n");
   // A value that YAML would misread is quoted.
-  assert.match(contactNote({ name: "Q", email: [], phone: [], company: "Smith, Jones & Co: Law", role: "", links: [], aliases: [], tags: [] }), /company: "Smith, Jones & Co: Law"/);
+  assert.match(contactNote({ name: "Q", email: [], phone: [], company: "Smith, Jones & Co: Law", role: "", links: [], aliases: [], tags: [], checkIn: "" }), /company: "Smith, Jones & Co: Law"/);
 });
 
 test("writing a contact keeps a comment before the first key and keys with spaces or accents", () => {
@@ -82,7 +83,7 @@ test("vCards: folded lines, several emails and phones, organization, title, nick
     "",
   ].join("\r\n");
   const [jane, sam] = parseVCards(vcf);
-  assert.deepEqual(jane, { name: "Jane Doe", email: ["jane@acme.com", "jd@home.org"], phone: ["+1 555 0100"], company: "Acme, Inc.", role: "CTO", links: ["https://jane.dev"], aliases: ["JD", "Janey"], tags: ["client", "board"], notes: "Met at the offsite\nLikes tea" });
+  assert.deepEqual(jane, { name: "Jane Doe", email: ["jane@acme.com", "jd@home.org"], phone: ["+1 555 0100"], company: "Acme, Inc.", role: "CTO", links: ["https://jane.dev"], aliases: ["JD", "Janey"], tags: ["client", "board"], checkIn: "", notes: "Met at the offsite\nLikes tea" });
   assert.equal(sam.name, "Sam Lee", "no FN: the N field's given and family names");
   assert.deepEqual(sam.email, ["sam@x.org"], "a folded line continues the one before");
 });
@@ -97,9 +98,9 @@ test("vCards: an escaped backslash stays one backslash, before an n or a separat
 
 test("CSV: Google's and Outlook's column names, first and last name, lists in one cell", () => {
   const google = 'Name,Given Name,Family Name,E-mail 1 - Value,E-mail 2 - Value,Phone 1 - Value,Organization 1 - Name,Organization 1 - Title,Labels,Website 1 - Value\nJane Doe,Jane,Doe,jane@acme.com,jd@home.org,+1 555 0100,Acme,CTO,client ::: * myContacts,https://jane.dev\n';
-  assert.deepEqual(parseContactsCsv(google), [{ name: "Jane Doe", email: ["jane@acme.com", "jd@home.org"], phone: ["+1 555 0100"], company: "Acme", role: "CTO", links: ["https://jane.dev"], aliases: [], tags: ["client"], notes: "" }]);
+  assert.deepEqual(parseContactsCsv(google), [{ name: "Jane Doe", email: ["jane@acme.com", "jd@home.org"], phone: ["+1 555 0100"], company: "Acme", role: "CTO", links: ["https://jane.dev"], aliases: [], tags: ["client"], checkIn: "", notes: "" }]);
   const outlook = "First Name,Last Name,E-mail Address,Company,Job Title,Mobile Phone,Categories\nSam,Lee,sam@x.org,Globex,PM,555-0101,vendor;friend\n,,,,,,\n";
-  assert.deepEqual(parseContactsCsv(outlook), [{ name: "Sam Lee", email: ["sam@x.org"], phone: ["555-0101"], company: "Globex", role: "PM", links: [], aliases: [], tags: ["vendor", "friend"], notes: "" }]);
+  assert.deepEqual(parseContactsCsv(outlook), [{ name: "Sam Lee", email: ["sam@x.org"], phone: ["555-0101"], company: "Globex", role: "PM", links: [], aliases: [], tags: ["vendor", "friend"], checkIn: "", notes: "" }]);
   assert.throws(() => parseContactsCsv("colour,size\nred,L\n"), /no column for a name or an email/);
 });
 
@@ -189,4 +190,52 @@ test("importing fills in contacts that exist (same email or name) and creates th
   const v = vault.importContacts("BEGIN:VCARD\nFN:Ann Bee\nNOTE:Tennis on Thursdays\nEND:VCARD\n", "vcard", "you");
   assert.deepEqual(v.created, ["People/Ann Bee.md"]);
   assert.equal(vault.read("People/Ann Bee").content, "# Ann Bee\n\nTennis on Thursdays\n");
+});
+
+test("check-in rhythms read from words, and count on from a day", () => {
+  const read = (t: string) => {
+    const e = checkInEvery(t);
+    return e && describeCheckIn(e);
+  };
+  assert.deepEqual(
+    ["weekly", "Every 2 weeks", "every week", "biweekly", "monthly", "3m", "6 months", "every 3 months", "quarterly", "yearly", "10d", "1y"].map(read),
+    ["every week", "every 2 weeks", "every week", "every 2 weeks", "every month", "every 3 months", "every 6 months", "every 3 months", "every 3 months", "every year", "every 10 days", "every year"],
+  );
+  assert.deepEqual(["", "soon", "weeks", "0w", "every blue moon", "2 fortnights"].map(read), [null, null, null, null, null, null]);
+  assert.equal(addCheckIn("2026-09-20", { n: 2, unit: "week" }), "2026-10-04");
+  assert.equal(addCheckIn("2026-01-31", { n: 1, unit: "month" }), "2026-02-28");
+  assert.equal(addCheckIn("2026-11-15", { n: 3, unit: "month" }), "2027-02-15");
+  assert.equal(addCheckIn("2024-02-29", { n: 1, unit: "year" }), "2025-02-28");
+});
+
+test("a contact's check_in sets when they're next due: that long after the last mention, or today if never", () => {
+  const { vault } = openTempVault({
+    "People/Jane Doe.md": "---\ncheck_in: every 2 weeks\n---\n# Jane Doe\n",
+    "People/Sam Lee.md": "---\ncheck_in: monthly\n---\n# Sam Lee\n",
+    "People/Ola.md": "# Ola\n",
+    "Journal/2026-09-20.md": "# Sep 20\n\nCalled [[People/Jane Doe]].\n",
+    "Journal/2026-09-25.md": "# Sep 25\n\nLunch with [[Ola]].\n",
+  });
+  assert.deepEqual(vault.contacts("2026-10-02").map((c) => [c.name, c.checkIn, c.checkInDue]), [
+    ["Jane Doe", "every 2 weeks", "2026-10-04"],
+    ["Ola", "", null],
+    ["Sam Lee", "monthly", "2026-10-02"],
+  ]);
+  assert.equal(vault.contact("Sam Lee", "2026-10-02").contact.checkInDue, "2026-10-02");
+  assert.throws(() => vault.contacts("tomorrow"), /must be a date/);
+
+  // Set one, change one, clear one; a rhythm that doesn't read as one is refused.
+  vault.updateContact("Ola", { checkIn: "weekly" }, "you");
+  assert.equal(vault.read("People/Ola").content, "---\ncheck_in: weekly\n---\n# Ola\n");
+  vault.updateContact("Sam Lee", { checkIn: "" }, "you");
+  assert.equal(vault.read("People/Sam Lee").content, "# Sam Lee\n");
+  assert.throws(() => vault.updateContact("Ola", { checkIn: "now and then" }, "you"), /isn't a check-in rhythm/);
+  assert.throws(() => vault.createContact({ name: "Kim", checkIn: "sometimes" }, "you"), /isn't a check-in rhythm/);
+  assert.equal(vault.read(vault.createContact({ name: "Kim", checkIn: "3m" }, "you").path).content, "---\ncheck_in: 3m\n---\n# Kim\n");
+
+  // list_contacts --check-in-due: who's due by the day, the longest overdue first.
+  const list = COMMANDS.find((c) => c.cli === "contacts")!;
+  const due = (today: string) => (list.run({ vault } as never, { check_in_due: true, today } as never) as { data: Contact[] }).data.map((c) => [c.name, c.checkInDue]);
+  assert.deepEqual(due("2026-10-02"), [["Kim", "2026-10-02"], ["Ola", "2026-10-02"]]);
+  assert.deepEqual(due("2026-10-05"), [["Ola", "2026-10-02"], ["Jane Doe", "2026-10-04"], ["Kim", "2026-10-05"]]);
 });

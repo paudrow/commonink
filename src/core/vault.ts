@@ -16,7 +16,7 @@ import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type B
 import { safeDecode } from "./uri.ts";
 import { AGENTS_NOTE, START_TAG, type NoteRole } from "./noteRoles.ts";
 import {
-  contactFromNote, contactNote, dayOfNote, emptyContact, fillContact, parseContactsCsv, parseVCards, PEOPLE, peopleDirectory, personFor, sameFields, samePerson,
+  checkInDue, checkInEvery, contactFromNote, contactNote, dayOfNote, emptyContact, fillContact, parseContactsCsv, parseVCards, PEOPLE, peopleDirectory, personFor, sameFields, samePerson,
   type Contact, type ContactFields, type ContactInput, type ContactNote, type MemberRef, type TimelineItem,
 } from "./contacts.ts";
 import { cleanTitle, DAILY_TEMPLATE, fillTemplate, localNow, TEMPLATES, templateInfo, type FillOptions, type TemplateInfo } from "./templates.ts";
@@ -75,12 +75,24 @@ export const isTagFavorite = (f: Favorite): f is TagFavorite => "tag" in f;
  */
 const tagKey = (tag: string) => `#${tag}`;
 
+/** Refuse a contact's check-in rhythm that doesn't read as one ("" clears it). */
+function checkRhythm(text: string | undefined) {
+  if (text?.trim() && !checkInEvery(text)) throw new VaultError(`"${text}" isn't a check-in rhythm. Say weekly, every 2 weeks, monthly, every 3 months, 6m or yearly.`);
+}
+
 export interface Backlink {
   path: string;
   title: string;
   kind: string;
   line: number;
   text: string;
+}
+
+/** A link to a note or file that isn't in the vault, and every place that has it. */
+export interface MissingLink {
+  /** What the links say, as the first of them spells it. */
+  target: string;
+  from: Backlink[];
 }
 
 /** Archiving moves a note under Archive/, keeping its original path: Archive/Projects/Old plan.md */
@@ -378,7 +390,7 @@ export class Vault {
   }
 
   /** Today, as YYYY-MM-DD, in this core's time zone. */
-  private day(): string {
+  day(): string {
     return localDate(this.now(), this.timeZone);
   }
 
@@ -803,6 +815,35 @@ export class Vault {
     return rows
       .filter((r) => this.linksAt(r.path, r.line, cache).some((l) => linkStem(l.key) === stem && resolve(l.target, r.path) === rel))
       .map((r) => ({ ...r, text: (cache.get(r.path)?.[r.line - 1] ?? "").trim().slice(0, 200) }));
+  }
+
+  /**
+   * Links to notes and files that aren't here: not yet written, deleted, or not brought over in an
+   * import. Grouped by target, the most-linked first. Links in archived notes count only with
+   * `scope` "all"; `folder` narrows it to the notes linking from there.
+   */
+  missingLinks(opts: { folder?: string; scope?: ArchiveScope } = {}): MissingLink[] {
+    const folder = opts.folder ? cleanPath(opts.folder).replace(/\/?$/, "/") : "";
+    const rows = this.db.all<{ path: string; title: string; line: number }>(
+      "SELECT DISTINCT l.src AS path, n.title, l.line FROM links l JOIN notes n ON n.path = l.src ORDER BY n.mtime DESC, l.src, l.line",
+    ).filter((r) => r.path.startsWith(folder) && inScope(r.path, opts.scope ?? "active"));
+    const cache = new Map<string, string[]>();
+    const resolve = this.resolver();
+    const groups = new Map<string, MissingLink>();
+    for (const r of rows) {
+      for (const l of this.linksAt(r.path, r.line, cache)) {
+        const name = l.target.replace(/[#|].*$/, "").trim();
+        // [[#Heading]] is this note; /calendar links open the calendar.
+        if (!name || /^\/?calendar(\/|$)/.test(name) || resolve(l.target, r.path)) continue;
+        const key = linkKey(name);
+        const group = groups.get(key) ?? { target: name, from: [] };
+        groups.set(key, group);
+        if (!group.from.some((f) => f.path === r.path && f.line === r.line)) {
+          group.from.push({ path: r.path, title: r.title, kind: l.kind, line: r.line, text: (cache.get(r.path)?.[r.line - 1] ?? "").trim().slice(0, 200) });
+        }
+      }
+    }
+    return [...groups.values()].sort((a, b) => b.from.length - a.from.length || a.target.localeCompare(b.target));
   }
 
   /**
@@ -1520,7 +1561,7 @@ export class Vault {
     if (!kindOf(rel)) rel += ".md";
     const kind = kindOf(rel);
     if (kind === "asset") throw new VaultError("Only .md and .html notes can be created");
-    if (this.files.stat(rel)) throw new VaultError(`${rel} already exists; use edit_note instead`, "exists", { path: rel });
+    if (this.files.stat(rel)) throw new VaultError(`${rel} already exists. To replace it, create it again with overwrite (--overwrite); to change part of it, use edit_note`, "exists", { path: rel });
     return this.commit(rel, null, content, source, "create");
   }
 
@@ -2156,23 +2197,25 @@ export class Vault {
   // ---------------------------------------------------------------- contacts
 
   /** Every contact (a note in People/, not archived), by name, with how often and when last other notes mention them. */
-  contacts(): Contact[] {
+  contacts(today = this.day()): Contact[] {
     return this.list(PEOPLE)
       .filter((n) => n.kind === "md")
-      .map((n) => {
-        const mentions = this.mentionsOf(n.path);
-        return { ...contactFromNote(n.path, this.files.read(n.path) ?? ""), id: n.id, mentions: mentions.length, lastContacted: mentions[0]?.date ?? null };
-      })
+      .map((n) => this.contactOf(n.path, n.id, this.mentionsOf(n.path), today))
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
   }
 
   /** One contact and its timeline: the notes that mention them, newest first. */
-  contact(target: string): { contact: Contact; timeline: TimelineItem[] } {
+  contact(target: string, today = this.day()): { contact: Contact; timeline: TimelineItem[] } {
     const rel = this.contactPath(target);
-    const meta = this.meta(rel)!;
     const timeline = this.mentionsOf(rel);
-    const contact = { ...contactFromNote(rel, this.files.read(rel) ?? ""), id: meta.id, mentions: timeline.length, lastContacted: timeline[0]?.date ?? null };
-    return { contact, timeline };
+    return { contact: this.contactOf(rel, this.meta(rel)!.id, timeline, today), timeline };
+  }
+
+  private contactOf(rel: string, id: string, mentions: TimelineItem[], today: string): Contact {
+    if (!isDate(today)) throw new VaultError(`"today" must be a date like 2026-10-01, not "${today}"`);
+    const c = contactFromNote(rel, this.files.read(rel) ?? "");
+    const lastContacted = mentions[0]?.date ?? null;
+    return { ...c, id, mentions: mentions.length, lastContacted, checkInDue: checkInDue(c, lastContacted, today) };
   }
 
   /** The note `target` names, if it's a contact (a note in People/). */
@@ -2203,6 +2246,7 @@ export class Vault {
     const rel = cleanPath(`${PEOPLE}/${name}.md`);
     const taken = this.list(PEOPLE, "all").find((n) => n.path.toLowerCase() === rel.toLowerCase()) ?? (this.files.stat(rel) ? { path: rel } : null);
     if (taken) throw new VaultError(`${taken.path} already exists`, "exists", { path: taken.path });
+    checkRhythm(input.checkIn);
     const fields = { ...emptyContact(name), ...input, name };
     const notes = input.notes?.trim();
     return this.commit(rel, null, contactNote(fields) + (notes ? `\n${notes}\n` : ""), source, "create");
@@ -2211,6 +2255,7 @@ export class Vault {
   /** Change a contact's fields (any of them but its name, which is its note's). Its words and other frontmatter stay. */
   updateContact(target: string, patch: Partial<Omit<ContactFields, "name">>, source: string) {
     const rel = this.contactPath(target);
+    checkRhythm(patch.checkIn);
     const before = this.files.read(rel) ?? "";
     const after = contactNote({ ...contactFromNote(rel, before), ...patch }, before);
     return after === before ? { ...this.meta(rel)!, change: null } : this.commit(rel, before, after, source, "edit");

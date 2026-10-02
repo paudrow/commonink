@@ -160,7 +160,7 @@ test("renaming a note can change just the case of its name", () => {
 test("creating a second top-level note with the same title leaves the first as it was", () => {
   const { dir, vault } = openTempVault({});
   vault.create("Idea", "# Idea\n\nThe first one.\n", "t");
-  assert.throws(() => vault.create("Idea", "# Idea\n\nThe second one.\n", "t"), /Idea\.md already exists; use edit_note instead/);
+  assert.throws(() => vault.create("Idea", "# Idea\n\nThe second one.\n", "t"), /Idea\.md already exists\. To replace it, create it again with overwrite/);
   assert.equal(fs.readFileSync(path.join(dir, "Idea.md"), "utf8"), "# Idea\n\nThe first one.\n");
   assert.deepEqual(vault.list().map((n) => n.path), ["Idea.md"]);
 });

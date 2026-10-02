@@ -101,7 +101,7 @@ test("commands run in the workspace you name, attributed to you or to the agent 
   const nowhere = c.run(["ls", "--workspace", "Nowhere"]);
   assert.equal(nowhere.status, 3);
   // Exit codes and --json errors are the same as for a local vault.
-  assert.deepEqual(JSON.parse(c.run(["create", "Hello", "again", "--json"]).stdout), { error: "Hello.md already exists; use edit_note instead", code: "exists", exit: 5 });
+  assert.deepEqual(JSON.parse(c.run(["create", "Hello", "again", "--json"]).stdout), { error: "Hello.md already exists. To replace it, create it again with overwrite (--overwrite); to change part of it, use edit_note", code: "exists", exit: 5 });
   assert.equal(c.run(["edit", "Hello", "--old", "by hand", "--new", "x", "--base", "000000000000"]).status, 4);
 });
 
