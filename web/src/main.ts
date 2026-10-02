@@ -2011,6 +2011,7 @@ async function removeFolder(path: string) {
  */
 function renderTagTree(active: string) {
   const shown = sidebarTags(tags);
+  const onlyTasks = (t: TagCount) => !t.notes && !t.assets && t.tasks > 0;
   const parent = (t: string) => (t.includes("/") ? t.slice(0, t.lastIndexOf("/")) : "");
   const walk = (under: string, depth: number): HTMLElement[] =>
     shown
@@ -2026,8 +2027,9 @@ function renderTagTree(active: string) {
             "aria-current": t.tag === active && "page",
             style: { "--depth": String(depth) },
             "data-tag": t.tag,
-            title: unusedTag(t) ? `No note has #${t.display} yet` : `Notes tagged #${t.display}`,
-            ...opens(() => openTag(t.display)),
+            // A tag only tasks carry opens its tasks: no note is tagged with it.
+            title: unusedTag(t) ? `No note has #${t.display} yet` : onlyTasks(t) ? `Tasks tagged #${t.display}` : `Notes tagged #${t.display}`,
+            ...opens(() => openTag(t.display, onlyTasks(t) ? "tasks" : "notes")),
           },
           subs
             ? el(
@@ -2051,12 +2053,13 @@ function renderTagTree(active: string) {
           icon("hash", 14),
           el("span", { class: "tree-name" }, t.display.split("/").pop()!),
           isTagStarred(t.display) ? el("span", { class: "fav-mark", title: "In Favorites" }, icon("starred", 11)) : null,
-          unusedTag(t) ? null : el("span", { class: "n" }, String(t.notes)),
+          unusedTag(t) ? null : el("span", { class: "n" }, String(onlyTasks(t) ? t.tasks : t.notes)),
           el(
             "span",
             { class: "row-actions" },
-            // A tag nothing carries yet can't be a favorite (it would show no notes), but it can go again.
-            !unusedTag(t) ? tagStarButton(t.display, "row")
+            // A tag no note carries can't be a favorite (it would show no notes); one nothing carries yet can go again.
+            onlyTasks(t) ? null
+            : !unusedTag(t) ? tagStarButton(t.display, "row")
             : viewer ? null
             : el("button", { type: "button", class: "row-act", title: `Delete #${t.display}`, onclick: (e: Event) => (e.stopPropagation(), void deleteTag(t)) }, icon("trash", 14)),
           ),

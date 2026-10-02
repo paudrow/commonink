@@ -187,7 +187,7 @@ export function duplicateContacts<T extends ContactFields>(list: T[]): T[][] {
   return [...groups.values()].filter((g) => g.length > 1);
 }
 
-const HANDLE = /^[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*$/u;
+const HANDLE = /^[\p{L}_][\p{L}\p{N}_-]*(?:\.[\p{L}\p{N}_-]+)*$/u;
 
 /** What `@name` on a task can say for this contact: its name with dashes for spaces, and any one-word alias. */
 export function handlesOf(c: Pick<ContactFields, "name" | "aliases">): string[] {

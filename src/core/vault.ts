@@ -577,13 +577,13 @@ export class Vault {
   // ---------------------------------------------------------------- reading
 
   /**
-   * All notes, or one folder's, or the ones carrying `tag` (or a tag under it). Archived notes are
-   * left out unless asked for (or you list Archive/).
+   * All notes, or one folder's, or the ones carrying `tag` (or a tag under it) themselves, not just
+   * on a task. Archived notes are left out unless asked for (or you list Archive/).
    */
   list(folder?: string, scope: ArchiveScope = "active", tag?: string): NoteMeta[] {
     let rows = this.db.all<NoteMeta>(`SELECT ${META_COLS} FROM notes ORDER BY path COLLATE NOCASE`);
     if (tag !== undefined) {
-      const on = new Set(this.tagged(tag).map((r) => r.path));
+      const on = new Set(this.tagged(tag).filter((r) => r.kind !== "task").map((r) => r.path));
       rows = rows.filter((r) => on.has(r.path));
     }
     if (!folder) return rows.filter((r) => inScope(r.path, scope));
@@ -675,7 +675,7 @@ export class Vault {
        FROM notes_fts JOIN notes n ON n.path = notes_fts.path
        WHERE notes_fts MATCH ? AND rank MATCH 'bm25(4.0, 8.0, 1.0)'
          AND (? = 'all' OR (n.path LIKE 'Archive/%') = (? = 'archived'))
-         AND (? IS NULL OR n.path IN (SELECT path FROM tags WHERE ${UNDER}))
+         AND (? IS NULL OR n.path IN (SELECT path FROM tags WHERE kind != 'task' AND ${UNDER}))
        ORDER BY rank LIMIT ?`,
       ftsQuery(terms), scope, scope, key, ...under(key ?? ""), limit,
     );
@@ -722,7 +722,7 @@ export class Vault {
       const marks = paths.map(() => "?").join(",");
       for (const t of this.db.all<{ path: string; display: string }>(
         `SELECT t.path, coalesce(n.display, t.tag) AS display FROM tags t LEFT JOIN tag_names n ON n.tag = t.tag
-         WHERE t.path IN (${marks}) GROUP BY t.path, t.tag ORDER BY t.path, min(t.line), min(t.rowid)`,
+         WHERE t.path IN (${marks}) AND t.kind != 'task' GROUP BY t.path, t.tag ORDER BY t.path, min(t.line), min(t.rowid)`,
         ...paths,
       )) {
         if (!tags.has(t.path)) tags.set(t.path, []);
@@ -773,7 +773,7 @@ export class Vault {
     if (query.folder) rows = rows.filter((r) => home(r.path).startsWith(query.folder!.replace(/\/?$/, "/")));
     if (query.tag) {
       const key = normalizeTag(query.tag);
-      const on = new Set(key ? this.db.all<{ path: string }>(`SELECT DISTINCT path FROM tags WHERE ${UNDER}`, ...under(key)).map((r) => r.path) : []);
+      const on = new Set(key ? this.db.all<{ path: string }>(`SELECT DISTINCT path FROM tags WHERE kind != 'task' AND ${UNDER}`, ...under(key)).map((r) => r.path) : []);
       rows = rows.filter((r) => on.has(r.path));
     }
     if (query.sort === "title") rows = [...rows].sort((a, b) => a.title.localeCompare(b.title));
@@ -1315,7 +1315,10 @@ export class Vault {
 
   // ---------------------------------------------------------------- tags
 
-  /** Every tag in active notes, tasks and assets, and every tag added by name, parents included, by tag. */
+  /**
+   * Every tag in active notes, tasks and assets, and every tag added by name, parents included, by tag.
+   * A tag on a task line counts for the task, not its note: `notes` is the notes that carry it themselves.
+   */
   tags(): TagCount[] {
     const shown = new Map(this.db.all<{ tag: string; display: string }>("SELECT tag, display FROM tag_names").map((r) => [r.tag, r.display]));
     const uses = new Map<string, { notes: Set<string>; tasks: Set<string>; assets: Set<string> }>();
@@ -1330,8 +1333,9 @@ export class Vault {
     for (const r of rows) {
       for (const tag of withParents(r.tag)) {
         const u = use(tag);
-        (r.kind === "asset" ? u.assets : u.notes).add(r.path);
-        if (r.kind === "task") u.tasks.add(`${r.path}:${r.line}`);
+        if (r.kind === "asset") u.assets.add(r.path);
+        else if (r.kind === "task") u.tasks.add(`${r.path}:${r.line}`);
+        else u.notes.add(r.path);
       }
     }
     for (const { tag } of this.db.all<{ tag: string }>("SELECT tag FROM added_tags")) withParents(tag).forEach(use);
@@ -1377,7 +1381,7 @@ export class Vault {
   private tagInUse(tag: string): TagFavorite | null {
     const notes = this.db.get<{ n: number }>(
       `SELECT count(DISTINCT t.path) AS n FROM tags t JOIN notes n ON n.path = t.path
-       WHERE ${UNDER} AND t.kind != 'asset' AND substr(t.path, 1, 8) != 'Archive/'`,
+       WHERE ${UNDER} AND t.kind = 'note' AND substr(t.path, 1, 8) != 'Archive/'`,
       ...under(tag),
     )!.n;
     if (!notes) return null;
