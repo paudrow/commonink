@@ -43,6 +43,13 @@ test("resolve accepts paths, extensionless paths and wikilink names", () => {
   assert.equal(vault.resolve("../../etc/passwd"), null);
 });
 
+test("a folder-qualified name matches whole folder names, not the end of another folder's", () => {
+  const { vault } = openTempVault({ "MyIdeas/Pricing.md": "# Pricing\n", "Work/Ideas/Plan.md": "# Plan\n", "A.md": "[[Ideas/Pricing]]\n" });
+  assert.equal(vault.resolve("Ideas/Pricing"), null);
+  assert.equal(vault.resolve("Ideas/Plan"), "Work/Ideas/Plan.md");
+  assert.deepEqual(vault.backlinks("MyIdeas/Pricing").map((b) => b.path), []);
+});
+
 test("a path typed in another case is the note's own path, not a second note", () => {
   const { vault } = openTempVault();
   assert.equal(vault.resolve("projects/roadmap"), "Projects/Roadmap.md");
@@ -563,6 +570,24 @@ test("asset tags live in one vault file, follow the asset when it moves, and rel
   assert.equal(fs.readFileSync(path.join(dir, "assets/.tags.json"), "utf8"), "{}\n");
 });
 
+test("a hand-edited asset tags file that doesn't parse is left alone rather than overwritten", () => {
+  const { dir, vault } = openTempVault(TAGGED);
+  const file = path.join(dir, "assets/.tags.json");
+  vault.setAssetTags("assets/logo.svg", ["brand"]);
+  const broken = fs.readFileSync(file, "utf8").replace(/\]\n\}/, "],\n}");
+  fs.writeFileSync(file, broken);
+  assert.deepEqual(vault.assetTags(), {});
+  assert.throws(() => vault.setAssetTags("assets/logo.svg", ["photo"]), /assets\/\.tags\.json isn't a valid tags file/);
+  assert.throws(() => vault.renameTag("brand", "logo", "t"), /isn't a valid tags file/);
+  assert.throws(() => vault.move("assets/logo.svg", "assets/brand/logo.svg", "t"), /isn't a valid tags file/);
+  assert.throws(() => vault.delete(["assets/logo.svg"], "t"), /isn't a valid tags file/);
+  assert.ok(fs.existsSync(path.join(dir, "assets/logo.svg")));
+  assert.equal(fs.readFileSync(file, "utf8"), broken);
+  fs.writeFileSync(file, '{"__proto__": ["odd"], "assets/logo.svg": ["brand"]}');
+  vault.setAssetTags("assets/logo.svg", ["brand", "photo"]);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), JSON.parse('{"__proto__": ["odd"], "assets/logo.svg": ["brand", "photo"]}'));
+});
+
 test("tasks carry their tokens, filter by due date and person, and ticking one stamps the day it was done", () => {
   let now = Date.UTC(2026, 9, 1, 12);
   const { dir, vault } = openTempVault(
@@ -684,6 +709,15 @@ test("moving a task takes its line and the lines nested under it to another note
   assert.equal(vault.tasks({ note: "Offsite" }).length, 3);
   assert.throws(() => vault.moveTask("Offsite", 6, "Plan the offsite @jane", "Offsite", "t"), /already in Offsite\.md/);
   assert.throws(() => vault.moveTask("Inbox", 3, "stale", "Offsite", "t"), /isn't in Inbox\.md any more/);
+});
+
+test("a task that can't go into the other note stays where it was", () => {
+  const big = `# Offsite\n\n${"x".repeat(960)}\n`;
+  const { dir, vault } = openTempVault({ "Inbox.md": "# Inbox\n\n- [ ] Plan the offsite with everyone on the team\n", "Offsite.md": big }, { maxNoteBytes: 1000 });
+  const read = (p: string) => fs.readFileSync(path.join(dir, p), "utf8");
+  assert.throws(() => vault.moveTask("Inbox", 3, "Plan the offsite with everyone on the team", "Offsite", "t"), /Offsite\.md would be over/);
+  assert.equal(read("Inbox.md"), "# Inbox\n\n- [ ] Plan the offsite with everyone on the team\n");
+  assert.equal(read("Offsite.md"), big);
 });
 
 test("ticking a repeating task in its note adds the next one below, from any surface that ticks", () => {

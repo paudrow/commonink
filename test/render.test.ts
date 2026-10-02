@@ -19,3 +19,15 @@ test("links outside code still render, on the same line as code and after a fenc
   assert.equal(renderMarkdown("An unclosed ` backtick and [[E]]", "a.md"), '<p>An unclosed ` backtick and <a href="commonink:E">E</a></p>\n');
   assert.equal(renderMarkdown("| Note | Why |\n| - | - |\n| [[F|the F]] | `[[G]]` |", "a.md").replace(/\n/g, ""), '<table><thead><tr><th>Note</th><th>Why</th></tr></thead><tbody><tr><td><a href="commonink:F">the F</a></td><td><code>[[G]]</code></td></tr></tbody></table>');
 });
+
+test("relative images with a title, angle brackets or a data: URL render where the editor shows them", () => {
+  assert.equal(renderMarkdown('![a](pic.png "A title")', "n/a.md"), '<p><img src="/api/file-resolve?target=pic.png&amp;from=n%2Fa.md" alt="a" title="A title"></p>\n');
+  assert.equal(renderMarkdown("![a](<my pic.png>)", "a.md"), '<p><img src="/api/file-resolve?target=my%20pic.png&amp;from=a.md" alt="a"></p>\n');
+  assert.equal(renderMarkdown("![a](data:image/png;base64,iVBORw0KGgo=)", "a.md"), '<p><img src="data:image/png;base64,iVBORw0KGgo=" alt="a"></p>\n');
+});
+
+test("a link or embed target with a parenthesis stays whole", () => {
+  assert.equal(renderMarkdown("[[a)b]]", "a.md"), '<p><a href="commonink:a%29b">a)b</a></p>\n');
+  assert.equal(renderMarkdown("![[weird).png]]", "a.md"), '<p><img src="/api/file-resolve?target=weird%29.png&amp;from=a.md" alt="weird).png"></p>\n');
+  assert.equal(renderMarkdown("![[(note]]", "a.md"), '<p><a href="commonink:%28note">↳ (note</a></p>\n');
+});
