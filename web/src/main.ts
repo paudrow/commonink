@@ -61,6 +61,7 @@ import { safeDecode } from "../../src/core/uri.ts";
 import { deleteFolder, deletePaths, TrashPage, type DeleteHooks } from "./trash.ts";
 import { mountSharedView, sharedRoute } from "./sharedView.ts";
 import { showShareDialog } from "./shareDialog.ts";
+import { renderSharedList, sharedPage } from "./sharedPage.ts";
 import { CapturePage, registerWorker } from "./capture.ts";
 import { AGENTS_BLURB, isAgentsNote } from "./agentsNote.ts";
 import { closeDrawer, renderMore, setupMobileNav } from "./mobileNav.ts";
@@ -885,40 +886,19 @@ function openShareDialog(target: { path: string } | { folder: string }) {
 async function showShared(opts: { push?: boolean } = {}) {
   await leaveNote();
   showStage("shared");
-  const root = $("#shared-view");
-  root.replaceChildren(el("div", { class: "trash" }, el("div", { class: "tr-head" }, el("div", { class: "tr-title" }, el("h1", {}, "Shared with me")), el("p", {}, "Notes people outside your workspaces have shared with you. Each opens on its own page."))));
+  const { page, body } = sharedPage();
+  $("#shared-view").replaceChildren(page);
   wentTo("/shared", opts.push !== false);
   document.title = "Shared with me · Common Ink";
   renderChrome();
   renderTree();
   renderOutline();
-  const groups = await api.sharedWithMe().catch(() => []);
-  $("#shared-count").textContent = String(groups.reduce((n, g) => n + g.notes.length, 0) || "");
-  const box = root.querySelector(".trash")!;
-  box.append(
-    ...(groups.length
-      ? groups.map((g) =>
-          el(
-            "section",
-            { class: "sh-section" },
-            el("h3", {}, g.workspace.name),
-            el(
-              "div",
-              { class: "tr-list" },
-              ...g.notes.map((n) =>
-                el(
-                  "a",
-                  { class: "tr-row sh-link", href: `/shared/${g.workspace.id}/${n.id}` },
-                  el("span", { class: "tr-icon" }, icon(n.kind === "asset" ? "image" : n.kind === "html" ? "html" : "file", 16)),
-                  el("div", { class: "tr-main" }, el("div", { class: "tr-name" }, n.title, el("span", { class: "tr-path" }, n.path))),
-                  el("span", { class: "sh-badge" }, n.role === "editor" ? "Can edit" : "View only"),
-                ),
-              ),
-            ),
-          ),
-        )
-      : [el("div", { class: "as-empty" }, icon("share", 26), el("b", {}, "Nothing shared with you yet"), el("span", {}, "When someone shares a note with your email, or you keep a shared link, it shows up here."))]),
-  );
+  const load = async () => {
+    const groups = await api.sharedWithMe().catch(() => null);
+    if (groups) $("#shared-count").textContent = String(groups.reduce((n, g) => n + g.notes.length, 0) || "");
+    if (page.isConnected) renderSharedList(body, groups, () => void load());
+  };
+  await load();
 }
 
 /**
