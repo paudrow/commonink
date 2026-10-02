@@ -604,7 +604,7 @@ function renderPaneBars() {
       arrows.el,
       el("span", { class: "spacer" }),
       ...(s && s.kind !== "asset" ? [btn(starred ? "starred" : "star", starred ? "Unstar" : "Star", () => void toggleStar(s.path), starred ? "is-on" : "")] : []),
-      btn("close", `Close this pane (${formatKeys("Mod-Alt-\\")})`, () => void closePane(p)),
+      btn("close", `Close split view, keep the other note (${formatKeys("Mod-Alt-\\")})`, () => void closePane(p)),
     );
     focused?.focus({ preventScroll: true }); // moving the arrows back in drops their focus
     p.bar.classList.toggle("is-focused", p === active);
@@ -2277,7 +2277,7 @@ function renderChrome() {
   $("#note-history-btn").hidden = !s || s.kind === "asset";
   $("#focus-btn").hidden = !s || s.kind === "asset";
   $("#split-btn").hidden = !split && (!s || s.kind === "asset");
-  setLabel($("#split-btn"), `${split ? "Close the side pane" : "Split view"} (${formatKeys("Mod-Alt-\\")})`);
+  setLabel($("#split-btn"), `${split ? "Close split view" : "Open split view"} (${formatKeys("Mod-Alt-\\")})`);
   $("#split-btn").classList.toggle("is-on", split);
   $("#save-status").hidden = !s;
   renderCodeWrap();
@@ -3044,7 +3044,7 @@ async function boot() {
   $("#new-note").addEventListener("click", () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""));
   $("#new-from-template").addEventListener("click", () => void newFromTemplate(undefined, onPage() === "notes" ? (notesPage.query.folder ?? "") : ""));
   $("#panel-btn").addEventListener("click", () => togglePanel());
-  setLabel($("#panel-btn"), `Toggle side panel (${formatKeys("Mod-\\")})`);
+  setLabel($("#panel-btn"), `Toggle info panel (${formatKeys("Mod-\\")})`);
   setupPanes();
   $("#stage").addEventListener("mousedown", () => document.body.classList.remove("panel-overlay"));
   $("#theme-toggle").addEventListener("click", toggleTheme);
