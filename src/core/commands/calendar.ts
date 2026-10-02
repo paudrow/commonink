@@ -1,4 +1,4 @@
-// Calendar events: linked records from the workspace's calendar feeds (not notes), and the meeting
+// Calendar events: records from the workspace's calendar feeds and Google, notes in Events/ for its own, and the meeting
 // notes made from them. They need the host's calendars (CommandHost.calendar).
 import { dayRange, fmtEvent, fmtEvents, fmtSources, type Calendar } from "../calendar.ts";
 import { notePath } from "../ids.ts";
@@ -23,7 +23,7 @@ export const calendar = [
     summary: "Calendar events, soonest first (default: the next 7 days); feeds that are due are read first",
     description:
       "Events from the calendars this workspace subscribes to (and the user's own), soonest first, for a range of days. Each has an id " +
-      "for get_event and create_meeting_note, and the meeting note it's linked to, if any. Events are records, not notes.",
+      "for get_event and create_meeting_note, and the meeting note it's linked to, if any. Feed and Google events are records; the workspace's own are notes in Events/ (create one there to add an event).",
     examples: ["commonink events", "commonink events --from 2026-10-05 --days 1 --tz America/Los_Angeles", "commonink events --query standup --json"],
     readOnly: true,
     needs: "calendar",
@@ -68,7 +68,7 @@ export const calendar = [
     summary: "The event's meeting note in Meetings/, made and linked if new",
     description:
       "The event's meeting note: a new note in Meetings/ (from Templates/Meeting note.md if there is one) with its time, place, " +
-      "attendees, agenda and a link back to the event, linked to the event. If the event already has one, returns that note instead.",
+      "attendees, agenda and a link back to the event, linked to the event (its frontmatter `event:` names the event). If the event already has one, returns that note instead.",
     examples: ["commonink meeting-note k3m9x2p7q4rt", "commonink meeting-note k3m9x2p7q4rt --tz Europe/Berlin"],
     needs: "calendar",
     args: { id: str({ required: true, pos: 0, describe: "The event's id from list_events (commonink events)" }), time_zone: str(ZONE) },
