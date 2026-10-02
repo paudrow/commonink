@@ -5,6 +5,7 @@ import { parseQuery } from "../query.ts";
 import { TRASH_DAYS } from "../vault.ts";
 import { fmtImport, MAX_IMPORT_NOTES, ON_EXISTING, pairsImport, readImport, writeImport, type OnExisting } from "../import.ts";
 import { bool, command, list, localFiles, num, pairs, str } from "./types.ts";
+import { checkup, fmtCheckup, STALE_DAYS } from "../checkup.ts";
 
 const TAG = "Only notes with this tag or a tag under it: work matches #work and #work/acme. Several (work,plan): notes with all of them";
 const ONE_TAG = "Only notes with this tag or a tag under it: work matches #work and #work/acme";
@@ -136,6 +137,25 @@ export const notes = [
     run: ({ vault }, a) => {
       const missing = vault.missingLinks({ folder: a.folder, scope: a.include_archived ? "all" : "active" });
       return { text: fmtMissingLinks(missing), data: missing };
+    },
+  }),
+  command({
+    cli: "checkup",
+    mcp: "workspace_checkup",
+    route: "GET /checkup",
+    title: "Check up on this workspace",
+    summary: "What may need tending: dead links, duplicate contacts, empty notes, notes nothing links to, long-overdue tasks",
+    description:
+      "A check-up of the workspace. Dead links (as missing_links has them), people with two contact notes (merge_contacts joins them), " +
+      "notes with nothing but a title, top-level notes with no links to them, no tag and no star (maybe ready to archive), " +
+      `and open tasks due more than ${STALE_DAYS} days ago that don't repeat. Each list holds only what's there. Archived notes are left out. ` +
+      "Suggest fixes to the person rather than making them all yourself: an unlinked note may be just fine.",
+    examples: ["commonink checkup", "commonink checkup --json"],
+    readOnly: true,
+    args: {},
+    run: ({ vault, user }) => {
+      const c = checkup(vault, user);
+      return { text: fmtCheckup(c), data: c };
     },
   }),
   command({

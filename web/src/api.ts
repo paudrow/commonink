@@ -7,6 +7,7 @@ import { encodeTarget, safeDecode } from "../../src/core/uri.ts";
 import type { FillOptions, TemplateInfo } from "../../src/core/templates.ts";
 import type { CalendarEvent, EventDraft, Source as CalendarSource, SourceColor } from "../../src/core/calendar.ts";
 import type { QuerySort } from "../../src/core/query.ts";
+import type { Checkup } from "../../src/core/checkup.ts";
 
 /** The reader's day, which task writes and due filters go by (the server may be in another time zone). */
 const today = () => localDate(Date.now());
@@ -466,6 +467,8 @@ export const api = {
   /** A page of the change log, newest first; `before` pages further back. */
   history: (p: { limit?: number; before?: number; path?: string; by?: string }) =>
     j<Change[]>(`${BASE}/changes?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
+  /** What may need tending in the workspace (src/core/checkup.ts). */
+  checkup: () => j<Checkup>(`${BASE}/checkup`),
   /** The agents in the change log, for filtering History by one. */
   changeAgents: () => j<string[]>(`${BASE}/changes/agents`),
   /** What a set of changes did, note by note. `ids` is ranges like "12-18,20". */
