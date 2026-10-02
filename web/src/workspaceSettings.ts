@@ -31,7 +31,7 @@ export async function showWorkspaceSettings(ws: Workspace, me: Me["user"], toast
     el(
       "div",
       { class: "agents-box", role: "dialog", "aria-label": "Workspace settings" },
-      el("div", { class: "agents-head" }, icon("sliders", 16), el("h2", {}, ws.name), el("button", { class: "icon-btn small", type: "button", title: "Close", onclick: close }, icon("close", 15))),
+      el("div", { class: "agents-head" }, icon("sliders", 16), el("h2", {}, ws.name), el("button", { class: "icon-btn small", type: "button", title: "Close", "aria-label": "Close", onclick: close }, icon("close", 15))),
       body,
     ),
   );

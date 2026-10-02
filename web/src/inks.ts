@@ -49,6 +49,10 @@ export const INKS: Ink[] = [
 export const inkById = (id: string): Ink | undefined => INKS.find((i) => i.id === id);
 export const isInk = (id: unknown): id is InkId => typeof id === "string" && !!inkById(id);
 
+/** The browser tab's icon in an ink's color: the logo, a white drop on a rounded square of it. */
+export const faviconSvg = (color: string) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="24" fill="${color}"/><path d="M50 14.5C50 14.5 25 43.5 25 60.5a25 25 0 0 0 50 0C75 43.5 50 14.5 50 14.5Z" fill="#fff"/><path d="M37 60.5a13 13 0 0 0 9 12" stroke="${color}" stroke-width="5" stroke-linecap="round" fill="none"/></svg>`;
+
 /** The inks `stats` earn, Indigo always among them. */
 export function earnedInks(s: InkStats): InkId[] {
   return INKS.filter((ink) => {

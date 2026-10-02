@@ -12,7 +12,7 @@ import { watchGuide } from "./onboarding.ts";
 import { gamified, onGamified } from "./gamify.ts";
 import { GUIDE } from "../../src/core/guide.ts";
 import { localDate } from "../../src/core/tasks.ts";
-import { DEFAULT_INK, distinctDays, earnedInks, INK_IDS, isInk, unlockToast, type InkId, type InkStats } from "./inks.ts";
+import { DEFAULT_INK, distinctDays, earnedInks, faviconSvg, INK_IDS, isInk, unlockToast, type InkId, type InkStats } from "./inks.ts";
 
 /** Iron gall's goal, and how far back the change log is read for it (pages of 500 of your changes). */
 const DAYS = 7;
@@ -47,6 +47,18 @@ export function setInk(id: InkId) {
   } catch {}
   if (id === DEFAULT_INK) delete document.documentElement.dataset.ink;
   else document.documentElement.dataset.ink = id;
+  showMark();
+}
+
+/**
+ * The tab's icon in the ink in use, as the sidebar's logo already is (styles.css, --ink-mark).
+ * Indigo keeps the icon file; the others draw it in their own color.
+ */
+function showMark() {
+  const link = document.querySelector<HTMLLinkElement>('link[rel="icon"][type="image/svg+xml"]');
+  const color = getComputedStyle(document.documentElement).getPropertyValue("--ink-mark").trim();
+  if (!link || !color) return;
+  link.href = currentInk() === DEFAULT_INK ? "/favicon.svg" : `data:image/svg+xml,${encodeURIComponent(faviconSvg(color))}`;
 }
 
 /** What Settings shows: the ink in use, those earned, and the counts toward the rest. */
@@ -55,6 +67,7 @@ export const inkState = () => ({ current: currentInk(), earned: INK_IDS.filter((
 /** Start counting. `choose` opens Settings at the Ink setting, for the toast that names several. */
 export function startInks(h: typeof hooks) {
   hooks = h;
+  showMark();
   let timer = 0;
   onVaultChange(() => void count(), 1500);
   didEvents.addEventListener("tick", () => {
