@@ -90,6 +90,7 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /smart-folders/delete", send: (w) => ["POST", "/smart-folders/delete", { id: folderIds[w] ?? "nope" }], expect: READ },
   { route: "PUT /note", send: (w) => ["PUT", "/note", { path: `put-${w}.md`, content: "# Put\n" }], expect: EDIT },
   { route: "POST /note", send: (w) => ["POST", "/note", { path: `new-${w}.md`, content: "# New\n" }], expect: EDIT },
+  { route: "POST /import", send: (w) => ["POST", "/import", { notes: { [`imported-${w}.md`]: "# Imported\n" } }], expect: EDIT },
   { route: "POST /tasks/set", send: (w) => ["POST", "/tasks/set", { path: `tasks-${w}.md`, line: 1, text: "Do it", done: true }], expect: EDIT },
   { route: "POST /tasks/update", send: (w) => ["POST", "/tasks/update", { path: `update-${w}.md`, line: 1, text: "Change me", patch: { due: "2026-10-01" } }], expect: EDIT },
   { route: "POST /tasks/add", send: (w) => ["POST", "/tasks/add", { text: `Call ${w} tomorrow → [[Getting started]]` }], expect: EDIT },

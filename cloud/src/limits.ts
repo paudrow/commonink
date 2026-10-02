@@ -14,7 +14,7 @@ export const LIMITS = {
   unfurl: { max: 120, per: MINUTE, message: "Too many link previews at once." },
   workspace: { max: 10, per: 60 * MINUTE, message: "That's a lot of new workspaces for one hour." },
   register: { max: 20, per: 60 * MINUTE, message: "Too many apps registered from your network." },
-  shareLink: { max: 300, per: 10 * MINUTE, message: "Too many shared-link requests from your network." },
+  shareLink: { max: 300, per: 10 * MINUTE, message: "Too many tries at links that don't work from your network." },
   share: { max: 200, per: 60 * MINUTE, message: "That's a lot of sharing for one hour." },
   // Each subscription or refresh fetches a feed from somewhere else on the internet.
   calendar: { max: 60, per: 60 * MINUTE, message: "That's a lot of calendar subscribing and refreshing for one hour." },
@@ -35,7 +35,6 @@ export const ROUTE_LIMITS: Record<string, keyof typeof LIMITS> = {
  * `as` picks the 429's form: JSON for the API, plain text for the sign-in pages.
  */
 export async function limit(db: D1Database, action: keyof typeof LIMITS, who: string, as: "json" | "text" = "json"): Promise<Response | null> {
-  const { max, per, message } = LIMITS[action];
   const now = Date.now();
   // SQLite computes every SET from the row as it was, so both columns see the old `started`.
   const row = await db
@@ -45,12 +44,24 @@ export async function limit(db: D1Database, action: keyof typeof LIMITS, who: st
          started = CASE WHEN started <= ?2 - ?3 THEN ?2 ELSE started END
        RETURNING hits, started`,
     )
-    .bind(`${action}:${who}`, now, per)
+    .bind(`${action}:${who}`, now, LIMITS[action].per)
     .first<{ hits: number; started: number }>();
   // Windows last an hour at most, so a day-old counter is dead. Clearing them now and then is enough.
   if (Math.random() < 0.01) await db.prepare("DELETE FROM rate_limits WHERE started < ?").bind(now - 86400_000).run();
-  if (row!.hits <= max) return null;
-  const wait = Math.ceil((row!.started + per - now) / 1000);
+  return refusal(action, row!, now, as);
+}
+
+/** Whether `who` is over the limit for `action` already, without counting this as one: the 429 if so. */
+export async function limited(db: D1Database, action: keyof typeof LIMITS, who: string): Promise<Response | null> {
+  const now = Date.now();
+  const row = await db.prepare("SELECT hits, started FROM rate_limits WHERE key = ? AND started > ?").bind(`${action}:${who}`, now - LIMITS[action].per).first<{ hits: number; started: number }>();
+  return row ? refusal(action, row, now, "json") : null;
+}
+
+function refusal(action: keyof typeof LIMITS, row: { hits: number; started: number }, now: number, as: "json" | "text") {
+  const { max, per, message } = LIMITS[action];
+  if (row.hits <= max) return null;
+  const wait = Math.ceil((row.started + per - now) / 1000);
   const error = `${message} Try again in ${wait < 90 ? `${wait} seconds` : `${Math.ceil(wait / 60)} minutes`}.`;
   const res = as === "json" ? json({ error }, 429) : new Response(error, { status: 429, headers: { "Content-Type": "text/plain; charset=utf-8" } });
   res.headers.set("Retry-After", String(wait));
