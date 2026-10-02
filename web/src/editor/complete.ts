@@ -3,7 +3,7 @@ import { autocompletion, startCompletion, type Completion, type CompletionContex
 import { noteTree } from "./tree.ts";
 import type { EditorState, Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { fileUrl, type NoteMeta, type TagCount } from "../api.ts";
+import { fileUrl, isArchived, type NoteMeta, type TagCount } from "../api.ts";
 import { assetIcon, assetType } from "../assetKinds.ts";
 import { displayName, icon } from "../dom.ts";
 import { fuzzyScore } from "../fuzzy.ts";
@@ -55,7 +55,7 @@ function linkName(n: NoteMeta, all: NoteMeta[]): string {
 
 /** Best matches first; archived notes always after active ones. */
 function rankNotes(notes: NoteMeta[], query: string): NoteMeta[] {
-  const archivedLast = (a: NoteMeta, b: NoteMeta) => Number(a.path.startsWith("Archive/")) - Number(b.path.startsWith("Archive/"));
+  const archivedLast = (a: NoteMeta, b: NoteMeta) => Number(isArchived(a.path)) - Number(isArchived(b.path));
   if (!query) return [...notes].sort((a, b) => archivedLast(a, b) || b.mtime - a.mtime);
   return notes
     .map((n) => ({ n, s: Math.max(fuzzyScore(query, n.title), fuzzyScore(query, displayName(n.path)), fuzzyScore(query, n.path) - 40) }))
@@ -402,6 +402,7 @@ const TOOLS: Tool[] = [
   widgetTool("agenda", "agenda events calendar meetings schedule upcoming"),
   widgetTool("timer", "timer countdown pomodoro alarm"),
   widgetTool("stopwatch", "stopwatch count up laps"),
+  widgetTool("streak", "streak writing days habit heatmap"),
   {
     title: "Collapsible section",
     hint: `<details> · ${formatKeys("Mod-Alt-s")} wraps a selection`,

@@ -151,6 +151,13 @@
 /* Inks (web/src/inks.ts): the accent in another color, earned by using the app. Indigo, above, is the
    one you start with; index.html puts the one you picked on <html> as data-ink before the page draws.
    Each swatch in Settings (.ink-option) takes its own ink's colors the same way. */
+/* The logo is the ink you picked, too: a white drop on a square of its color. It keeps the light
+   theme's shade in dark as well, as the indigo logo always has (each ink's --ink-mark is in its light
+   rule below). The drop's highlight is cut out of it, so the square's color shows through there. */
+:root {
+  --ink-mark: #5b5bd6;
+  --mark-drop: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cmask id='m'%3E%3Crect width='100' height='100' fill='%23fff'/%3E%3Cpath d='M37 60.5a13 13 0 0 0 9 12' stroke='%23000' stroke-width='5' stroke-linecap='round' fill='none'/%3E%3C/mask%3E%3Cpath d='M50 14.5C50 14.5 25 43.5 25 60.5a25 25 0 0 0 50 0C75 43.5 50 14.5 50 14.5Z' fill='%23fff' mask='url(%23m)'/%3E%3C/svg%3E");
+}
 .ink-option[data-ink="indigo"] {
   --accent: #5b5bd6;
   --accent-ink: #4545b8;
@@ -165,6 +172,7 @@
   --accent-soft: rgba(143, 91, 44, 0.11);
   --accent-line: rgba(143, 91, 44, 0.35);
   --selection: rgba(143, 91, 44, 0.18);
+  --ink-mark: #8f5b2c;
 }
 :root[data-ink="viridian"],
 .ink-option[data-ink="viridian"] {
@@ -173,6 +181,7 @@
   --accent-soft: rgba(27, 122, 94, 0.11);
   --accent-line: rgba(27, 122, 94, 0.35);
   --selection: rgba(27, 122, 94, 0.18);
+  --ink-mark: #1b7a5e;
 }
 :root[data-ink="vermilion"],
 .ink-option[data-ink="vermilion"] {
@@ -181,6 +190,7 @@
   --accent-soft: rgba(192, 58, 34, 0.11);
   --accent-line: rgba(192, 58, 34, 0.35);
   --selection: rgba(192, 58, 34, 0.18);
+  --ink-mark: #c03a22;
 }
 :root[data-ink="cobalt"],
 .ink-option[data-ink="cobalt"] {
@@ -189,6 +199,7 @@
   --accent-soft: rgba(33, 96, 196, 0.11);
   --accent-line: rgba(33, 96, 196, 0.35);
   --selection: rgba(33, 96, 196, 0.18);
+  --ink-mark: #2160c4;
 }
 :root[data-ink="iron-gall"],
 .ink-option[data-ink="iron-gall"] {
@@ -197,6 +208,7 @@
   --accent-soft: rgba(77, 59, 102, 0.11);
   --accent-line: rgba(77, 59, 102, 0.35);
   --selection: rgba(77, 59, 102, 0.18);
+  --ink-mark: #4d3b66;
 }
 :root[data-theme="dark"] .ink-option[data-ink="indigo"] {
   --accent: #9090f7;
@@ -342,8 +354,8 @@ body.panel-closed #panel { opacity: 0; pointer-events: none; }
   width: 26px;
   height: 26px;
   border-radius: 24%;
-  background: url("/favicon.svg") center / contain no-repeat;
-  box-shadow: 0 2px 6px -1px rgba(75, 75, 196, 0.45);
+  background: var(--mark-drop) center / contain no-repeat, var(--ink-mark);
+  box-shadow: 0 2px 6px -1px color-mix(in srgb, var(--ink-mark) 45%, transparent);
   flex: none;
 }
 .brand-text { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
@@ -385,7 +397,7 @@ body.panel-closed #panel { opacity: 0; pointer-events: none; }
 .tree-row svg { color: var(--muted); flex: none; }
 .tree-row.is-active { background: var(--active); color: var(--ink-strong); font-weight: 550; }
 .tree-row.is-active svg { color: var(--accent); }
-.tree-row:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
+.tree-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 /* A section's empty line keeps the rows' chevron column, so it starts where their icons do. */
 .tree-hint { display: flex; gap: 7px; padding: 4px 8px 6px; font-size: 12px; color: var(--muted); }
 .tree-hint svg { vertical-align: -2px; }
@@ -500,7 +512,7 @@ body.is-split .banner-text { flex-basis: 140px; }
 
 /* ------------------------------------------------------------------ split view */
 /* The main pane's views make room for the side pane (its width is --side) and a bar on top. */
-body.is-split #stage > :is(#editor-host, #html-preview, #notes-view, #tasks-view, #calendar-view, #history-view, #assets-view, #tags-view) { top: 34px; right: var(--side, 50%); }
+body.is-split #stage > :is(#editor-host, #html-preview, #notes-view, #today-view, #tasks-view, #calendar-view, #history-view, #assets-view, #tags-view) { top: 34px; right: var(--side, 50%); }
 body.is-split #stage > :is(#editor-host, #html-preview) { top: calc(34px + var(--main-banner, 0px)); }
 .pane-bar { display: flex; align-items: center; gap: 2px; height: 34px; padding: 0 6px 0 8px; border-bottom: 1px solid var(--line); background: var(--bg); font-size: 12.5px; color: var(--muted); }
 #main-bar { position: absolute; top: 0; left: 0; right: var(--side, 50%); }
@@ -600,6 +612,9 @@ body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view
 .backlink:hover { background: var(--bg-elev); border-color: var(--line); }
 .bl-title { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--ink); }
 .bl-title svg { color: var(--muted); }
+.backlink.is-archived { opacity: 0.7; }
+.bl-archived-toggle { background: none; border: 0; padding: 4px 10px 8px; color: var(--muted); font: inherit; font-size: 12.5px; cursor: pointer; }
+.bl-archived-toggle:hover { color: var(--ink); text-decoration: underline; }
 .bl-text { font-size: 12px; color: var(--muted); margin-top: 3px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .bl-text b { color: var(--accent-ink); font-weight: 600; }
 .act { display: flex; gap: 10px; padding: 7px 6px; border-radius: 8px; }
@@ -1310,6 +1325,22 @@ body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view
 .sidebar-foot .nav-item { margin: 0 0 4px; }
 .new-note-row { display: flex; align-items: center; gap: 4px; }
 .new-note-row .ghost-btn { flex: 1; }
+/* Your writing days (streak.ts): the heatmap the Today page's Writing streak and the ::streak widget show. */
+.wd { --cell: 12px; --gap: 3px; display: flex; flex-direction: column; gap: 10px; }
+.wd-map { display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; gap: 4px 6px; justify-content: start; font-size: 10.5px; color: var(--muted); }
+.wd-months { display: grid; grid-auto-flow: column; grid-auto-columns: var(--cell); gap: var(--gap); height: 13px; }
+.wd-month { white-space: nowrap; overflow: visible; line-height: 13px; }
+.wd-weekdays { display: grid; grid-template-rows: repeat(7, var(--cell)); gap: var(--gap); line-height: var(--cell); }
+.wd-grid { display: grid; grid-template-rows: repeat(7, var(--cell)); grid-auto-flow: column; grid-auto-columns: var(--cell); gap: var(--gap); }
+.wd-day { border-radius: 3px; background: var(--hover); }
+.wd-day.is-future { background: none; }
+.wd-day.l1 { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+.wd-day.l2 { background: color-mix(in srgb, var(--accent) 55%, transparent); }
+.wd-day.l3 { background: color-mix(in srgb, var(--accent) 75%, transparent); }
+.wd-day.l4 { background: var(--accent); }
+.wd-day.is-today { outline: 1.5px solid var(--ink-2); outline-offset: 1px; }
+.wd-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--ink-2); }
+.wd-best { color: var(--muted); }
 
 .banner.is-info { background: color-mix(in srgb, var(--accent) 9%, var(--bg-elev)); border-color: var(--accent-line); }
 .banner.is-info svg { color: var(--accent); }
@@ -1662,7 +1693,7 @@ body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view
   display: inline-block;
   width: 52px;
   height: 52px;
-  box-shadow: 0 6px 18px -4px rgba(75, 75, 196, 0.55);
+  box-shadow: 0 6px 18px -4px color-mix(in srgb, var(--ink-mark) 55%, transparent);
 }
 .signin-card h1 { margin: 18px 0 6px; font-size: 28px; letter-spacing: -0.025em; color: var(--heading); }
 .signin-tag { margin: 0 0 26px; color: var(--ink-2); font-size: 15px; line-height: 1.5; }
@@ -1794,14 +1825,17 @@ body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view
 
 .qw.is-standalone { margin: 0; }
 
-/* ------------------------------------------------------------------ tasks page */
-#tasks-view { position: absolute; inset: 0; overflow: auto; outline: none; }
-/* Today: today's journal note, then sections of task rows (the top of Tasks, and ::today) */
-.td-block { margin-bottom: 18px; }
+/* ------------------------------------------------------------------ tasks and today pages */
+#tasks-view, #today-view { position: absolute; inset: 0; overflow: auto; outline: none; }
+/* Today: today's journal note, then sections of task rows (the Today page, and ::today) */
 .td-title { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; font-size: 13px; font-weight: 600; color: var(--ink-strong); }
 .td-title svg { flex: none; color: var(--warn); }
-/* On Tasks the title is the card's own: inset like the body under it (Journal, Overdue), its icon centred on the title's line. */
-.qw-today.is-standalone > .td-title { margin: 0; padding: 14px 14px 4px; line-height: 16px; }
+/* On the Today page a card's title is its own: inset like the body under it, its icon centred on the title's line. */
+.qw.is-standalone > .td-title { margin: 0; padding: 14px 14px 4px; line-height: 16px; }
+/* The Today page's Writing streak, under the day. */
+.td-streak { margin-top: 18px; }
+.wd-card .td-title svg { color: var(--accent); }
+.wd-what { margin: 10px 0 0; font-size: 12.5px; color: var(--muted); }
 .td-section + .td-section { margin-top: 10px; }
 .td-section.is-overdue .qt-note { color: var(--bad-ink); }
 .td-none { padding: 2px 0 4px; font-size: 13px; color: var(--muted); }
@@ -1825,7 +1859,7 @@ body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view
 
 /* ------------------------------------------------------------------ activity: diffs */
 .act { cursor: pointer; }
-.act:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
+.act:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .cv-note { padding: 18px; color: var(--muted); font-size: 14px; }
 .cv-note code { font: 12px var(--mono); background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
 .cv-diff { font-size: 14px; line-height: 1.65; }
@@ -1860,7 +1894,7 @@ body.is-focus #stage { margin-top: 0; }
 body.is-focus :is(#editor-host, #side-host) .cm-editor { font-size: 19px; }
 body.is-focus :is(#editor-host, #side-host) .cm-content { max-width: 700px; padding-top: 16vh; }
 body.is-focus #statusbar { border-top-color: transparent; opacity: 0.45; transition: opacity 0.2s; }
-body.is-focus #statusbar:hover { opacity: 1; }
+body.is-focus #statusbar:is(:hover, :focus-within) { opacity: 1; }
 body.is-focus #banner { margin-top: 12px; }
 .fc-body { overflow-wrap: anywhere; }
 
@@ -1965,7 +1999,7 @@ body:has(#history-view:not([hidden])) #panel { opacity: 0; pointer-events: none;
 .as-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 14px; }
 .as-card { display: flex; flex-direction: column; min-width: 0; padding: 0 0 10px; text-align: left; border-radius: 12px; border: 1px solid var(--line); background: var(--bg-elev); overflow: hidden; transition: border-color 0.12s, box-shadow 0.12s, transform 0.12s; }
 .as-card:hover { border-color: var(--line-strong); box-shadow: var(--shadow-sm); transform: translateY(-1px); }
-.as-card:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+.as-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .as-thumb {
   aspect-ratio: 4 / 3;
   display: grid;
@@ -2197,7 +2231,7 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .qa-cm .cm-content { padding: 0; line-height: 40px; caret-color: var(--ink-strong); color: var(--ink-strong); }
 .qa-cm .cm-line { padding: 0; line-height: 40px; }
 .qa-cm .cm-fat-cursor { background: var(--accent-soft) !important; }
-.qa-cm .cm-placeholder { color: var(--faint); }
+.qa-cm .cm-placeholder { color: var(--muted); }
 /* In a row or a card: the text's own size, as tall as its lines. */
 .qa-compact .cm-editor { height: auto; font: inherit; }
 .qa-compact .cm-scroller, .qa-compact .cm-content, .qa-compact .cm-line { line-height: 1.5; }
@@ -2291,7 +2325,7 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .hint-icon { display: inline-grid; place-items: center; width: 16px; height: 16px; border: 1px solid var(--line-strong); border-radius: 4px; vertical-align: -3px; color: var(--muted); }
 .section-toggle { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; margin-left: -4px; padding: 3px 4px; border-radius: 5px; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; }
 .section-toggle:hover { color: var(--ink-2); background: var(--hover); }
-.section-toggle:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 0; }
+.section-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
 .section-toggle .ico { transition: transform 0.15s; transform: rotate(90deg); }
 .tree-head.is-folded .section-toggle .ico { transform: rotate(0); }
 .tree-head.is-folded + nav { display: none; }
@@ -2346,7 +2380,7 @@ body.is-link-dragging, body.is-link-dragging * { cursor: grabbing !important; us
 .tr-icon { flex: none; margin-top: 2px; color: var(--muted); }
 .tr-main { flex: 1; min-width: 0; display: grid; gap: 4px; }
 .tr-name { display: flex; align-items: baseline; gap: 8px; font-weight: 600; color: var(--ink-strong); min-width: 0; }
-.tr-path { font-weight: 400; font-size: 12px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr-path { font-weight: 400; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tr-excerpt { font-size: 13px; color: var(--ink-2); white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .tr-meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .tr-meta .avatar { box-shadow: none; }
@@ -2377,9 +2411,9 @@ body.is-link-dragging, body.is-link-dragging * { cursor: grabbing !important; us
 .ct-dupe b { color: var(--ink-strong); }
 .ct-members { margin-top: 28px; }
 .ct-members h2, .ct-timeline h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 12px; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
-.ct-timeline h2 .n { font-weight: 500; color: var(--faint); letter-spacing: 0; }
+.ct-timeline h2 .n { font-weight: 500; color: var(--muted); letter-spacing: 0; }
 .ct-timeline + .ct-timeline { margin-top: 26px; }
-.ct-handle { font: 500 12px var(--mono); letter-spacing: 0; text-transform: none; color: var(--faint); }
+.ct-handle { font: 500 12px var(--mono); letter-spacing: 0; text-transform: none; color: var(--muted); }
 .ct-tasks .qw { margin: 0; }
 .tk-whose { margin-right: 4px; }
 .ct-member { display: grid; grid-template-columns: 24px auto minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 40px; padding: 4px 10px; }
@@ -2403,7 +2437,7 @@ body.is-link-dragging, body.is-link-dragging * { cursor: grabbing !important; us
 .ct-event-text { display: grid; gap: 2px; min-width: 0; font-size: 13.5px; }
 .ct-event-text b { font-weight: 600; color: var(--ink-strong); }
 .ct-event-text span { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ct-soon { margin-top: 18px; font-size: 12.5px; color: var(--faint); }
+.ct-soon { margin-top: 18px; font-size: 12.5px; color: var(--muted); }
 .ct-form { display: grid; gap: 8px; margin-bottom: 4px; }
 .ct-form input, .ask-box > input { width: 100%; height: 36px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg); color: var(--ink-strong); font: 14px var(--ui); outline: none; box-sizing: border-box; }
 .ct-form input:focus, .ask-box > input:focus { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }

@@ -3,7 +3,8 @@ import { kindOf, VaultError } from "../paths.ts";
 import { fmtBacklinks, fmtFavorites, fmtList, fmtMissingLinks, fmtRead, fmtSearch, fmtWrite } from "../format.ts";
 import { parseQuery } from "../query.ts";
 import { TRASH_DAYS } from "../vault.ts";
-import { bool, command, list, num, str } from "./types.ts";
+import { fmtImport, MAX_IMPORT_NOTES, ON_EXISTING, pairsImport, readImport, writeImport, type OnExisting } from "../import.ts";
+import { bool, command, list, localFiles, num, pairs, str } from "./types.ts";
 import { describeProblems, frontmatterProblems } from "../schema.ts";
 
 const TAG = "Only notes with this tag or a tag under it: work matches #work and #work/acme. Several (work,plan): notes with all of them";
@@ -79,7 +80,8 @@ export const notes = [
     summary: "Notes in the vault or a folder, with a tag, the most recent, starred, or in a smart folder",
     description:
       "List notes in the vault or a folder, the notes and assets with a tag, the most recently modified notes, or the user's " +
-      "starred notes (favorites, in their order). Archived notes (under Archive/) are excluded unless requested.",
+      "starred notes (favorites, in their order). Archived notes (in Archive/, or the workspace's own archive folder like " +
+      '"4. Archive/") are excluded unless requested.',
     examples: ["commonink ls Projects", "commonink ls --tag work", "commonink ls --recent 5", "commonink ls --starred"],
     readOnly: true,
     args: {
@@ -110,13 +112,21 @@ export const notes = [
     route: "GET /backlinks",
     title: "Backlinks",
     summary: "Notes that link to or embed a note, with the linking line",
-    description: "List notes that link to or embed the given note, with the linking line.",
-    examples: ["commonink backlinks Roadmap"],
+    description:
+      "List notes that link to or embed the given note, with the linking line. Links from archived notes are left out " +
+      "unless include_archived is set (or the note itself is archived).",
+    examples: ["commonink backlinks Roadmap", "commonink backlinks Roadmap --all"],
     readOnly: true,
-    args: { path: str({ required: true, pos: 0, label: "note", describe: NOTE }) },
+    args: {
+      path: str({ required: true, pos: 0, label: "note", describe: NOTE }),
+      include_archived: bool({ flag: "all", describe: "Also links from archived notes" }),
+      archived: bool({ only: "cli", describe: "Only links from archived notes" }),
+    },
     run: ({ vault }, a) => {
-      const links = vault.backlinks(a.path);
-      return { text: fmtBacklinks(a.path, links), data: links };
+      const scope = scopeOf(a);
+      const links = vault.backlinks(a.path, scope);
+      const hidden = scope === "active" ? vault.backlinks(a.path, "all").length - links.length : 0;
+      return { text: fmtBacklinks(a.path, links, hidden), data: links };
     },
   }),
   command({
@@ -164,6 +174,35 @@ export const notes = [
         const r = { ...vault.save(rel, a.content, { source }), path: rel };
         return { text: fmtWrite(r, r.change ? "Replaced" : "No change to") + propertyProblems(vault, rel), data: r };
       }
+    },
+  }),
+  command({
+    cli: "import",
+    mcp: "import_notes",
+    route: "POST /import",
+    title: "Import notes",
+    summary: "Create many notes in one go: .md files, a folder, or a .zip (an Obsidian vault or an export), folders kept",
+    description:
+      "Create many notes in one call, instead of create_note for each. `notes` maps each note's path to its markdown " +
+      `(up to ${MAX_IMPORT_NOTES} at once); \`.md\` is added to a path with no extension. \`folder\` puts them all under a folder. ` +
+      "A note that's already there is left as it is, or replaced with `existing: \"replace\"` (History keeps what it was). " +
+      "Every path is checked before anything is written, so one bad path refuses the whole import. " +
+      "On the CLI, give .md files, a folder or a .zip: folders inside are kept, and pictures and other files come along.",
+    examples: [
+      "commonink import notes.zip",
+      "commonink import ~/Obsidian/Vault --folder Imported",
+      "commonink import *.md --folder Inbox --existing replace",
+    ],
+    args: {
+      files: localFiles({ required: true, pos: "rest", label: "file", describe: ".md or .html files, folders, or .zip files on this computer" }),
+      notes: pairs({ required: true, only: "mcp", describe: "Each note's path (\"Projects/Plan.md\") → its markdown" }),
+      folder: str({ describe: "Put everything under this folder (default: where its paths say)" }),
+      existing: str({ enum: ON_EXISTING, describe: "A note already at a path: skip it (default) or replace it" }),
+    },
+    run: async ({ vault, source, bytes }, a) => {
+      const set = a.notes ? pairsImport(a.notes, a.folder) : readImport(a.files ?? [], a.folder);
+      const r = await writeImport(vault, set, { existing: a.existing as OnExisting | undefined, source, bytes });
+      return { text: fmtImport(r), data: r };
     },
   }),
   command({
@@ -251,10 +290,12 @@ export const notes = [
     mcp: "archive_note",
     route: "POST /archive",
     title: "Archive note",
-    summary: "Move notes to Archive/, out of search and listings (links keep working)",
+    summary: "Move notes to the archive folder, out of search, listings and backlinks (links keep working)",
     description:
-      "Archive notes that are done or no longer active: moves each under Archive/ (keeping its path) so it drops out of " +
-      "search and listings. Links to it keep working, and unarchive_note reverses it.",
+      "Archive notes that are done or no longer active: moves each into the archive folder (keeping its path) so it drops " +
+      "out of search, listings and backlinks. The archive folder is the workspace's own top-level one when it has one " +
+      '(a folder named Archive or Archives, numbered or not, like "4. Archive"), else Archive/. Everything in such a ' +
+      "folder counts as archived. Links to it keep working, and unarchive_note reverses it.",
     examples: ["commonink archive Ideas/Old-plan"],
     args: { paths: list({ required: true, pos: "rest", label: "note" }) },
     run: ({ vault, source }, a) => {
@@ -268,7 +309,7 @@ export const notes = [
     route: "POST /unarchive",
     title: "Unarchive note",
     summary: "Move archived notes back to where they were",
-    description: "Move archived notes back to where they were.",
+    description: "Move archived notes back to where they were: out of the archive folder, keeping the rest of their path.",
     examples: ["commonink unarchive Archive/Ideas/Old-plan.md"],
     args: { paths: list({ required: true, pos: "rest", label: "note" }) },
     run: ({ vault, source }, a) => {

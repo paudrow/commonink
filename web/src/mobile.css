@@ -116,7 +116,7 @@
   .feed-card:not(.is-focused, .is-expanded) .fc-action { display: none; }
 
   /* Split view: one pane at a time, the focused one. Its bar's close button brings back the other. */
-  body.is-split #stage > :is(#editor-host, #html-preview, #notes-view, #tasks-view, #calendar-view, #history-view, #assets-view, #tags-view), #main-bar, #banner { right: 0; }
+  body.is-split #stage > :is(#editor-host, #html-preview, #notes-view, #today-view, #tasks-view, #calendar-view, #history-view, #assets-view, #tags-view), #main-bar, #banner { right: 0; }
   #side-pane { left: 0; width: auto; border-left: 0; z-index: 6; }
   #pane-divider { display: none; }
   body:has(#main-bar.is-focused) #side-pane { display: none; }
