@@ -1,28 +1,76 @@
 // Quick open (⌘P, or ⌘K): fuzzy jump by name + full-text search (SQLite FTS5 on the server), in one
-// list. A leading `>` (or ⌘⇧P, which types it) lists the app's commands instead.
-import { api, isArchived, type NoteMeta, type SearchHit } from "./api.ts";
+// list. A leading `>` (or ⌘⇧P, which types it) lists the app's commands instead, and a few other
+// prefixes narrow it to one kind of place: `#` the open note's headings, `@` people, `tag:` tags,
+// `/` (or `folder:`) folders and smart folders.
+import { api, isArchived, type NoteMeta, type SearchHit, type TagCount } from "./api.ts";
 import { matchCommands, type Command } from "./commands.ts";
 import { $, displayName, el, icon, markTerms, searchTerms } from "./dom.ts";
 import { fuzzyScore } from "./fuzzy.ts";
 import { agentsBadge, isAgentsNote } from "./agentsNote.ts";
 import { paletteEnter } from "./panes.ts";
 import { kbd, matchKeys } from "./keys.ts";
+import { people, rankPeople, type Person } from "./people.ts";
+
+/** What the prefixes list, and what picking one does. */
+export interface PaletteScopes {
+  /** The open note's headings (none off a markdown note). */
+  headings: () => Array<{ level: number; text: string; line: number }>;
+  goToHeading: (line: number) => void;
+  tags: () => TagCount[];
+  openTag: (tag: string) => void;
+  folders: () => string[];
+  smartFolders: () => Array<{ name: string; query: string }>;
+  openFolder: (path: string) => void;
+  openSmartFolder: (query: string) => void;
+  openPerson: (person: Person) => void;
+}
+
+type Scope = "headings" | "people" | "tags" | "folders";
+
+/** The prefix `q` starts with, if any, and what's typed after it. */
+export function scopeOf(q: string): { scope: Scope; rest: string } | null {
+  const m = q.match(/^(#|@|tag:|folder:|\/)\s*/i);
+  if (!m) return null;
+  const p = m[1].toLowerCase();
+  const scope: Scope = p === "#" ? "headings" : p === "@" ? "people" : p === "tag:" ? "tags" : "folders";
+  const rest = q.slice(m[0].length).trim();
+  return { scope, rest: scope === "tags" ? rest.replace(/^#/, "") : rest };
+}
 
 type Item =
   | { type: "note"; note: NoteMeta; archived?: boolean }
   | { type: "hit"; hit: SearchHit }
   | { type: "command"; command: Command }
-  | { type: "create"; name: string };
+  | { type: "create"; name: string }
+  | { type: "heading"; text: string; level: number; line: number }
+  | { type: "person"; person: Person }
+  | { type: "tag"; tag: TagCount }
+  | { type: "folder"; path: string }
+  | { type: "smart"; name: string; query: string };
+
+const SECTION: Partial<Record<Item["type"], string>> = { heading: "Headings in this note", person: "People", tag: "Tags", folder: "Folders", smart: "Smart folders" };
 
 const kindIcon = (kind: string) => (kind === "html" ? "html" : kind === "asset" ? "image" : "file");
 
 const sectionOf = (item: Item, q: string) =>
-  item.type === "note" ? (item.archived ? "Archived" : q ? "Notes" : "Recent") : item.type === "hit" ? "In content" : item.type === "command" ? "Commands" : "";
+  SECTION[item.type] ??
+  (item.type === "note" ? (item.archived ? "Archived" : q ? "Notes" : "Recent") : item.type === "hit" ? "In content" : item.type === "command" ? "Commands" : "");
+
+/** Best match first, dropping what doesn't match; with nothing typed, all of them in their order. */
+function ranked<T>(rest: string, items: T[], ...names: Array<(t: T) => string>): T[] {
+  if (!rest) return items;
+  return items
+    .map((item) => ({ item, s: Math.max(...names.map((name) => fuzzyScore(rest, name(item)))) }))
+    .filter((x) => x.s >= 0)
+    .sort((a, b) => b.s - a.s)
+    .map((x) => x.item);
+}
 
 export class Palette {
   private root = $("#palette");
   private input = $<HTMLInputElement>("#palette-input");
   private list = $("#palette-results");
+  private hint = $("#palette-hint");
   private items: Item[] = [];
   private active = 0;
   private seq = 0;
@@ -36,6 +84,7 @@ export class Palette {
     private onOpen: (path: string, line?: number, side?: boolean) => void,
     private onCreate: (name: string) => void,
     private commands: () => Command[],
+    private scopes: PaletteScopes,
   ) {
     document.querySelectorAll<HTMLElement>("kbd[data-keys]").forEach((k) => k.replaceChildren(...kbd(k.dataset.keys!).childNodes));
     this.input.addEventListener("input", () => this.query());
@@ -83,6 +132,8 @@ export class Palette {
         q,
       );
     }
+    const scoped = scopeOf(q);
+    if (scoped) return this.scoped(scoped.scope, scoped.rest, q, seq);
     const score = (note: NoteMeta) => (q ? Math.max(fuzzyScore(q, note.title), fuzzyScore(q, note.path) - 50) : note.mtime);
     const archived = q
       ? this.notes()
@@ -113,7 +164,31 @@ export class Palette {
     }, 70);
   }
 
+  /** A prefix's list: one kind of place, matched by name. */
+  private scoped(scope: Scope, rest: string, q: string, seq: number) {
+    const s = this.scopes;
+    if (scope === "headings") {
+      const items = ranked(rest, s.headings(), (h) => h.text).map((h): Item => ({ type: "heading", ...h }));
+      return this.render(items, q);
+    }
+    if (scope === "tags") {
+      const tags = ranked(rest, s.tags(), (t) => t.display).slice(0, 30);
+      return this.render(tags.map((tag): Item => ({ type: "tag", tag })), q);
+    }
+    if (scope === "folders") {
+      const smart = ranked(rest, s.smartFolders(), (f) => f.name).slice(0, 6).map((f): Item => ({ type: "smart", ...f }));
+      const folders = ranked(rest, s.folders(), (f) => f.slice(f.lastIndexOf("/") + 1), (f) => f).slice(0, 30);
+      return this.render([...folders.map((path): Item => ({ type: "folder", path })), ...smart], q);
+    }
+    this.render(this.items.filter((i) => i.type === "person"), q); // the last list while people load
+    void people().then(({ contacts, members }) => {
+      if (seq !== this.seq) return;
+      this.render(rankPeople(rest, contacts, members, { contacts: 20, members: 8 }).map((person): Item => ({ type: "person", person })), q);
+    });
+  }
+
   private render(items: Item[], q: string) {
+    this.hint.hidden = q !== "";
     this.items = items;
     this.active = Math.min(this.active, Math.max(0, items.length - 1));
     if (!q || q === ">") this.active = 0;
@@ -139,12 +214,19 @@ export class Palette {
       if (group) group.append(row);
       else rows.push(row);
     });
-    if (!items.length) rows.push(el("div", { class: "palette-empty" }, q.startsWith(">") ? "No command matches" : "Nothing found"));
+    if (!items.length) rows.push(el("div", { class: "palette-empty" }, q.startsWith(">") ? "No command matches" : emptyText(q)));
     this.list.replaceChildren(...rows);
     this.setActive(this.active);
   }
 
   private row(item: Item, q: string): HTMLElement {
+    const place = (ico: string, title: string, detail = "") =>
+      el("div", { class: "palette-item", role: "option" }, icon(ico, 15), el("span", { class: "pi-title" }, title), detail ? el("span", { class: "pi-path" }, detail) : null);
+    if (item.type === "heading") return place("heading", item.text, "#".repeat(item.level));
+    if (item.type === "person") return place("user", item.person.name, item.person.kind === "member" ? `${item.person.detail} · no contact yet` : item.person.detail);
+    if (item.type === "tag") return place("hash", item.tag.display, String(item.tag.notes || item.tag.tasks || ""));
+    if (item.type === "folder") return place("folder", item.path.slice(item.path.lastIndexOf("/") + 1), item.path.includes("/") ? item.path : "");
+    if (item.type === "smart") return place("folderSearch", item.name, item.query);
     if (item.type === "command") {
       const c = item.command;
       return el(
@@ -207,6 +289,13 @@ export class Palette {
     this.close();
     if (item?.type === "command") return void item.command.run();
     if (q.startsWith(">")) return;
+    const s = this.scopes;
+    if (item?.type === "heading") return s.goToHeading(item.line);
+    if (item?.type === "person") return s.openPerson(item.person);
+    if (item?.type === "tag") return s.openTag(item.tag.display);
+    if (item?.type === "folder") return s.openFolder(item.path);
+    if (item?.type === "smart") return s.openSmartFolder(item.query);
+    if (scopeOf(q)) return; // Shift-Enter doesn't make a note called "#…" or "@…"
     if (how === "create" || item?.type === "create") return q && this.onCreate(q);
     if (!item) return;
     if (item.type === "note") this.onOpen(item.note.path, undefined, how === "side");
@@ -231,4 +320,14 @@ export class Palette {
       e.preventDefault(); // the field is all there is to focus in here
     }
   }
+}
+
+/** What an empty list says, by prefix. */
+function emptyText(q: string): string {
+  const scope = scopeOf(q)?.scope;
+  if (scope === "headings") return "No headings match in this note";
+  if (scope === "people") return "No one matches";
+  if (scope === "tags") return "No tag matches";
+  if (scope === "folders") return "No folder matches";
+  return "Nothing found";
 }

@@ -1,12 +1,13 @@
 // Sign-in: Google OAuth (authorization code + PKCE), and sessions kept in D1 so they can be signed
 // out anywhere. New accounts are gated: someone Google hasn't seen here before needs the sign-up code
-// (SIGNUP_CODE) or a valid invite link.
+// (SIGNUP_CODE) or a valid invite link, unless sign-up is open (OPEN_SIGNUP=1), when they only confirm.
 import {
   createSession, createWorkspace, endSession, forgiveSignupTry, hasUser, inviteIsValid, sessionUser,
   takeSignupTry, touchSession, upsertUser, type User,
 } from "./directory.ts";
 import type { Env } from "./env.ts";
 import { hasPendingShare } from "./shares.ts";
+import { limit } from "./limits.ts";
 
 // __Host- cookies must be Secure, for this exact host and path "/", so a sibling subdomain can't set
 // or overwrite them.
@@ -223,6 +224,15 @@ export async function handleAuth(
       // The other signed cookies share the format, so check it's really a ticket.
       if (!ticket?.sub || !ticket.profile?.email) return redirect("/");
       const cancel = setCookie(SIGNUP, "", 0);
+      if (env.OPEN_SIGNUP === "1") {
+        // Open: one click to agree to the Terms and make the account, no code.
+        if (req.method !== "POST") return signupPage(ticket, "open");
+        if (req.headers.get("Origin") !== url.origin) return text(403, "Cross-origin request refused");
+        const tooMany = await limit(env.DB, "signUp", req.headers.get("CF-Connecting-IP") ?? "unknown", "text");
+        if (tooMany) return tooMany;
+        const { user, isNew } = await upsertUser(env.DB, ticket.sub, ticket.profile);
+        return startSession(user, isNew, ticket.next, [cancel]);
+      }
       const code = signupCode(env);
       if (!code) return signupPage(ticket, "closed", [cancel]);
       if (req.method !== "POST") return signupPage(ticket, "ask");
@@ -308,8 +318,20 @@ export function page(status: number, body: string, cookies: string[] = []) {
   );
 }
 
-function signupPage(ticket: PendingSignup, state: "ask" | "wrong" | "locked" | "closed", cookies: string[] = []) {
+function signupPage(ticket: PendingSignup, state: "ask" | "wrong" | "locked" | "closed" | "open", cookies: string[] = []) {
   const who = `<p class="muted">Signed in with Google as ${escapeHtml(ticket.profile.email)}. <a href="/auth/logout">Not you?</a></p>`;
+  if (state === "open") {
+    return page(
+      200,
+      `<h1>Welcome to Common Ink</h1>${who}
+       <p>Make your account to get a workspace of your own, with a short guide to start.</p>
+       <form method="post" action="/auth/signup">
+         <button type="submit">Create my account</button>
+       </form>
+       <p class="muted" style="margin-top:12px;font-size:13px">By creating an account you agree to the <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>`,
+      cookies,
+    );
+  }
   if (state === "closed") {
     return page(403, `<h1>Common Ink isn't open to new accounts yet</h1>${who}<p>If someone invited you, open their invite link again.</p>`, cookies);
   }

@@ -50,7 +50,7 @@ export const query: WidgetSpec = {
     run: (args, env, anchor) => env.saveSmartFolder(formatQuery(toQuery(args)), args.label ?? "", anchor),
   },
   fields: [
-    { key: "label", label: "Label", type: "text", placeholder: "Active projects, Meetings…" },
+    { key: "label", label: "Title", type: "text", placeholder: "Active projects, Meetings…" },
     ...QUERY_FIELDS,
     { key: "view", label: "View", type: "select", options: [["list", "List"], ["table", "Table"]] },
     { key: "cols", label: "Columns", type: "text", placeholder: "For a table: status, due (properties), tags, folder, modified" },

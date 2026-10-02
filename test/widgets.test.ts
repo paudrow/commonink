@@ -305,6 +305,15 @@ test("a widget arg can compare with <, <=, > or >= and round-trips through its m
   assert.equal(serializeDirective({ name: "tasks", args: { due: ">= tomorrow", label: "a<b c" } }), '::tasks{due>=tomorrow label="a<b c"}');
 });
 
+test("a key that compares twice is a range, and start and done compare too", () => {
+  const line = "::tasks{due>=today due<=+7d priority=high start<-1m done>=-7d}";
+  const d = parseDirective(line)!;
+  assert.deepEqual(d.args, { due: ">=today <=+7d", priority: "high", start: "<-1m", done: ">=-7d" });
+  assert.equal(serializeDirective(d), line);
+  // A board's done column is a name, not a comparison: it stays one value.
+  assert.equal(serializeDirective({ name: "kanban", args: { done: "Shipped today" } }), '::kanban{done="Shipped today"}');
+});
+
 test("only a key that compares is written with its operator; any other value starting with < or > is quoted", () => {
   const d = { name: "query", args: { label: "<3 launch", q: ">foo" } };
   assert.equal(serializeDirective(d), '::query{label="<3 launch" q=">foo"}');
