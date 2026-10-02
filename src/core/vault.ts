@@ -1510,7 +1510,7 @@ export class Vault {
     if (!kindOf(rel)) rel += ".md";
     const kind = kindOf(rel);
     if (kind === "asset") throw new VaultError("Only .md and .html notes can be created");
-    if (this.files.stat(rel)) throw new VaultError(`${rel} already exists; use edit_note instead`, "exists", { path: rel });
+    if (this.files.stat(rel)) throw new VaultError(`${rel} already exists. To replace it, create it again with overwrite (--overwrite); to change part of it, use edit_note`, "exists", { path: rel });
     return this.commit(rel, null, content, source, "create");
   }
 

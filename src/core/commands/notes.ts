@@ -112,16 +112,26 @@ export const notes = [
     mcp: "create_note",
     route: "POST /note",
     title: "Create note",
-    summary: "Create a note; its content from the argument, or stdin with - (or none)",
-    description: "Create a new note. `.md` is added if no extension is given. Fails if the note exists.",
-    examples: ['commonink create Ideas/Pricing "# Pricing"', "printf '# Log\\n' | commonink create Log -"],
+    summary: "Create a note; its content from the argument, or stdin with - (or none). --overwrite replaces one that's there",
+    description:
+      "Create a new note. `.md` is added if no extension is given. Fails if the note exists, unless overwrite is set: then its whole " +
+      "text is replaced (the old text stays in its history). Good for re-running an import.",
+    examples: ['commonink create Ideas/Pricing "# Pricing"', "printf '# Log\\n' | commonink create Log -", "commonink create Ideas/Pricing - --overwrite < pricing.md"],
     args: {
       path: str({ required: true, pos: 0 }),
       content: str({ required: true, pos: "rest", stdin: true }),
+      overwrite: bool({ describe: "If the note exists, replace its text instead of failing" }),
     },
     run: ({ vault, source }, a) => {
-      const r = vault.create(a.path, a.content, source);
-      return { text: fmtWrite(r, "Created"), data: r };
+      try {
+        const r = vault.create(a.path, a.content, source);
+        return { text: fmtWrite(r, "Created"), data: r };
+      } catch (e) {
+        if (!a.overwrite || !(e instanceof VaultError) || e.code !== "exists") throw e;
+        const rel = (e.data as { path: string }).path;
+        const r = { ...vault.save(rel, a.content, { source }), path: rel };
+        return { text: fmtWrite(r, r.change ? "Replaced" : "No change to"), data: r };
+      }
     },
   }),
   command({
