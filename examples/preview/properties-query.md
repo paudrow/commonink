@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 287
 title: Filter notes by their properties
 ---
 Notes can now be filtered by the properties in their frontmatter, like `status: draft`. Three sample notes have some: [[Pricing page]], [[Onboarding emails]] and [[Logo refresh]].
