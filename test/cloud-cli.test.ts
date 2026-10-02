@@ -3,13 +3,12 @@
 // pick, attributed, and limited by their role there.
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { startCloud, team, type Cloud } from "./cloud.ts";
+import { cli, login as loginTo } from "./cli-login.ts";
 
-const BIN = path.resolve(import.meta.dirname, "../bin/commonink");
 let cloud: Cloud;
 let people: Awaited<ReturnType<typeof team>>;
 
@@ -19,50 +18,8 @@ before(async () => {
 });
 after(() => cloud.close());
 
-/** A CLI with its own config folder (where login keeps its tokens), and no local vault in the way. */
-function cli() {
-  const config = fs.mkdtempSync(path.join(os.tmpdir(), "commonink-config-"));
-  const env: NodeJS.ProcessEnv = { ...process.env, COMMONINK_CONFIG_DIR: config };
-  delete env.COMMONINK_VAULT;
-  delete env.COMMONINK_AGENT;
-  delete env.COMMONINK_WORKSPACE;
-  const run = (args: string[], input?: string) => {
-    const r = spawnSync(BIN, args, { env, input, encoding: "utf8" });
-    return { status: r.status, stdout: r.stdout, stderr: r.stderr };
-  };
-  return { config, env, run, json: (args: string[]) => JSON.parse(run([...args, "--json"]).stdout) };
-}
-
 /** `commonink login`, with `cookie`'s person in the browser allowing it for `workspace` ("*" for all of them). */
-async function login(c: ReturnType<typeof cli>, cookie: string, workspace = "*") {
-  const child = spawn(BIN, ["login", "--server", cloud.origin, "--no-browser"], { env: c.env, stdio: ["ignore", "pipe", "pipe"] });
-  let out = "";
-  let err = "";
-  child.stdout.on("data", (d) => (out += d));
-  const url = await new Promise<string>((resolve) =>
-    child.stderr.on("data", (d) => {
-      err += d;
-      const m = err.match(/(http\S+\/authorize\?\S+)/);
-      if (m) resolve(m[1]);
-    }),
-  );
-  const page = await cloud.request(cookie, "GET", new URL(url).pathname + new URL(url).search);
-  assert.equal(page.status, 200);
-  const html = await page.text();
-  const handle = html.match(/name="handle" value="([^"]+)"/)![1];
-  const binding = page.headers.getSetCookie().map((x) => x.split(";")[0]).join("; ");
-  const answer = await cloud.server.fetch(new URL("/authorize", cloud.origin), {
-    method: "POST",
-    redirect: "manual",
-    headers: { "content-type": "application/x-www-form-urlencoded", cookie: `${cookie}; ${binding}`, origin: cloud.origin },
-    body: new URLSearchParams({ handle, decision: "allow", workspace }).toString(),
-  });
-  assert.equal(answer.status, 302);
-  // The browser follows the redirect to the CLI's loopback address.
-  await fetch(answer.headers.get("location")!);
-  const status = await new Promise<number | null>((resolve) => child.on("exit", resolve));
-  return { status, out, err, html };
-}
+const login = (c: ReturnType<typeof cli>, cookie: string, workspace = "*") => loginTo(cloud, c, cookie, workspace);
 
 test("commonink login signs in through the browser and keeps its tokens where only you can read them", async () => {
   const c = cli();
@@ -363,32 +320,4 @@ test("logout ends the sign-in on the server too; then commands say to log in, or
   assert.equal(r.status, 7);
   assert.match(r.stderr, /run commonink login first/);
   assert.equal(c.run(["workspaces"]).status, 7);
-});
-
-test("commands run at once as the sign-in runs out all refresh it, and the next command still works", async () => {
-  const c = cli();
-  await login(c, people.viewer);
-  const file = path.join(c.config, "credentials.json");
-  const run = (args: string[]) =>
-    new Promise<{ status: number | null; stderr: string }>((resolve) => {
-      const child = spawn(BIN, args, { env: c.env, stdio: ["ignore", "ignore", "pipe"] });
-      let stderr = "";
-      child.stderr.on("data", (d) => (stderr += d));
-      child.on("exit", (status) => resolve({ status, stderr }));
-    });
-  const expire = () => {
-    const creds = JSON.parse(fs.readFileSync(file, "utf8"));
-    fs.writeFileSync(file, JSON.stringify({ ...creds, expiresAt: Date.now() - 1000 }), { mode: 0o600 });
-  };
-  for (let round = 0; round < 3; round++) {
-    expire();
-    const all = await Promise.all(Array.from({ length: 8 }, () => run(["ls", "--workspace", "Team"])));
-    for (const r of all) assert.equal(r.status, 0, r.stderr);
-    // The token kept is one the server still takes: the next refresh works.
-    expire();
-    const later = c.run(["ls", "--workspace", "Team"]);
-    assert.equal(later.status, 0, later.stderr);
-  }
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
-  assert.deepEqual(fs.readdirSync(c.config), ["credentials.json"]);
 });
