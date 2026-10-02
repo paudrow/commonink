@@ -1394,21 +1394,28 @@ export class Vault {
     );
   }
 
-  /** Each tagged asset's tags, as written, from the asset tags file. A file that isn't valid JSON reads as none. */
-  assetTags(): Record<string, string[]> {
+  /**
+   * Each tagged asset's tags, as written, from the asset tags file. A file that isn't a JSON object
+   * reads as none, unless it's read `forWrite`: writing back would drop every other asset's tags,
+   * so that refuses until the file is fixed.
+   */
+  assetTags(forWrite = false): Record<string, string[]> {
     let data: unknown;
     try {
       data = JSON.parse(this.files.read(ASSET_TAGS) ?? "{}");
     } catch {
+      data = null;
+    }
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      if (forWrite) throw new VaultError(`${ASSET_TAGS} isn't a valid tags file (a JSON object): fix it before changing asset tags`, "conflict");
       return {};
     }
-    const out: Record<string, string[]> = {};
-    if (!data || typeof data !== "object" || Array.isArray(data)) return out;
-    for (const [rel, list] of Object.entries(data)) {
-      const tags = Array.isArray(list) ? uniqueTags(list.filter((t): t is string => typeof t === "string"), false) : [];
-      if (tags.length) out[rel] = tags;
-    }
-    return out;
+    // fromEntries, not assignment, so a "__proto__" key stays a plain entry.
+    return Object.fromEntries(
+      Object.entries(data)
+        .map(([rel, list]) => [rel, Array.isArray(list) ? uniqueTags(list.filter((t): t is string => typeof t === "string"), false) : []] as const)
+        .filter(([, tags]) => tags.length),
+    );
   }
 
   /** Set an asset's tags (an empty list clears them). Returns them as stored: tidied, each once. */
@@ -1416,7 +1423,7 @@ export class Vault {
     const meta = this.metaOf(target);
     if (meta.kind !== "asset") throw new VaultError(`${meta.path} is a note: tag it with #tags in its text`);
     const clean = uniqueTags(tags, true);
-    const map = this.assetTags();
+    const map = this.assetTags(true);
     if (clean.length) map[meta.path] = clean;
     else delete map[meta.path];
     this.writeAssetTags(map);
@@ -1439,6 +1446,7 @@ export class Vault {
     const next = cleanTag(to);
     if (!old) throw new VaultError(`"${from}" isn't a tag`);
     if (!next) throw new VaultError(`"${to}" isn't a tag: use letters, numbers, - and _, nested with /`);
+    const map = this.assetTags(true);
     const edits: Array<{ path: string; content: string; version: string; change: Change }> = [];
     for (const rel of new Set(this.tagged(old).filter((r) => r.kind !== "asset").map((r) => r.path))) {
       const before = this.files.read(rel);
@@ -1447,7 +1455,6 @@ export class Vault {
       const r = this.commit(rel, before, after, source, "edit");
       edits.push({ path: rel, content: after, version: r.version, change: r.change });
     }
-    const map = this.assetTags();
     const assets: Record<string, string[]> = {};
     for (const [rel, tags] of Object.entries(map)) {
       if (!tags.some((t) => tagMatches(t.toLowerCase(), old))) continue;
@@ -1932,12 +1939,12 @@ export class Vault {
     return rels.map((rel) => {
       const meta = this.meta(rel) ?? this.indexFile(rel);
       if (!meta) throw new VaultError(`No note matches "${rel}"`, "not_found");
+      const tags = meta.kind === "asset" ? this.assetTags(true) : {};
       const text = meta.kind === "asset" ? null : (this.files.read(rel) ?? "");
       const summary = meta.kind === "asset" ? fmtBytes(meta.size) : diffstat(text!, "");
       const change = this.recordChange({ path: rel, op: "delete", source, version: null, summary, from_path: null }, text);
       const id = `${change.ts}-${change.id}`;
       this.files.rename(rel, `${TRASH}/${id}/${rel}`);
-      const tags = this.assetTags();
       if (tags[rel]) {
         this.files.write(`${TRASH}/${id}/${TRASH_TAGS}`, JSON.stringify(tags[rel]));
         delete tags[rel];
@@ -2002,11 +2009,12 @@ export class Vault {
       if (!f) throw new VaultError("That's no longer in Trash", "not_found");
       const noteId = this.db.get("SELECT note_id FROM changes WHERE id = ?", Number(id.split("-")[1]))?.note_id;
       const dest = this.freePath(f.path);
-      this.files.rename(f.at, dest);
       const tagsAt = `${TRASH}/${id}/${TRASH_TAGS}`;
       const kept = this.files.read(tagsAt);
+      const tags = kept ? this.assetTags(true) : {};
+      this.files.rename(f.at, dest);
       if (kept) {
-        this.writeAssetTags({ ...this.assetTags(), [dest]: JSON.parse(kept) });
+        this.writeAssetTags({ ...tags, [dest]: JSON.parse(kept) });
         this.files.remove(tagsAt);
       }
       const free = noteId && !this.db.get("SELECT 1 FROM notes WHERE id = ?", noteId);
@@ -2082,11 +2090,11 @@ export class Vault {
     const pointing = this.linksTo(from, [from, ...this.backlinks(from).map((b) => b.path)]);
 
     const id = this.meta(from)?.id;
+    const assetTags = kindOf(from) === "asset" ? this.assetTags(true) : {};
     this.files.rename(from, dest);
     this.unindex(from);
     const meta = this.indexFile(dest, undefined, id)!;
     const change = this.recordChange({ path: dest, op, source, version: meta.version, summary: `from ${from}`, from_path: from });
-    const assetTags = meta.kind === "asset" ? this.assetTags() : {};
     if (assetTags[from]) {
       assetTags[dest] = assetTags[from];
       delete assetTags[from];

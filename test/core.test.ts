@@ -550,6 +550,24 @@ test("asset tags live in one vault file, follow the asset when it moves, and rel
   assert.equal(fs.readFileSync(path.join(dir, "assets/.tags.json"), "utf8"), "{}\n");
 });
 
+test("a hand-edited asset tags file that doesn't parse is left alone rather than overwritten", () => {
+  const { dir, vault } = openTempVault(TAGGED);
+  const file = path.join(dir, "assets/.tags.json");
+  vault.setAssetTags("assets/logo.svg", ["brand"]);
+  const broken = fs.readFileSync(file, "utf8").replace(/\]\n\}/, "],\n}");
+  fs.writeFileSync(file, broken);
+  assert.deepEqual(vault.assetTags(), {});
+  assert.throws(() => vault.setAssetTags("assets/logo.svg", ["photo"]), /assets\/\.tags\.json isn't a valid tags file/);
+  assert.throws(() => vault.renameTag("brand", "logo", "t"), /isn't a valid tags file/);
+  assert.throws(() => vault.move("assets/logo.svg", "assets/brand/logo.svg", "t"), /isn't a valid tags file/);
+  assert.throws(() => vault.delete(["assets/logo.svg"], "t"), /isn't a valid tags file/);
+  assert.ok(fs.existsSync(path.join(dir, "assets/logo.svg")));
+  assert.equal(fs.readFileSync(file, "utf8"), broken);
+  fs.writeFileSync(file, '{"__proto__": ["odd"], "assets/logo.svg": ["brand"]}');
+  vault.setAssetTags("assets/logo.svg", ["brand", "photo"]);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), JSON.parse('{"__proto__": ["odd"], "assets/logo.svg": ["brand", "photo"]}'));
+});
+
 test("tasks carry their tokens, filter by due date and person, and ticking one stamps the day it was done", () => {
   let now = Date.UTC(2026, 9, 1, 12);
   const { dir, vault } = openTempVault(
