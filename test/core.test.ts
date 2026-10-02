@@ -5,6 +5,7 @@ import path from "node:path";
 import { cleanPath } from "../src/core/paths.ts";
 import { openVault } from "../src/core/local.ts";
 import { openTempVault } from "./helpers.ts";
+import { parseQuery } from "../src/core/query.ts";
 import type { Favorite, NoteMeta } from "../src/core/vault.ts";
 
 const notesOf = (list: Favorite[]) => list.map((n) => (n as NoteMeta).path);
@@ -722,6 +723,23 @@ test("smart folders are saved queries, shared with the workspace or one person's
   assert.deepEqual(vault.deleteSmartFolder("ana", "client work", true), []);
 });
 
+test("a smart folder can need several tags, a folder with spaces, and sort by each note's own date", () => {
+  const { vault } = openTempVault({});
+  vault.create("Health and Fitness/Run log", "---\ndate: 2024-03-01\n---\n# Run log\n\n#health #journal\n", "t");
+  vault.create("Health and Fitness/2025-06-10 Swim", "# Swim\n\n#health #journal\n", "t");
+  vault.create("Health and Fitness/Gym plan", "---\ncreated: 2023-01-05\n---\n# Gym plan\n\n#health\n", "t");
+  vault.create("Journal/2024-12-24", "#journal/daily\n", "t");
+  const both = vault.saveSmartFolder("ana", { name: "Health journal", query: "tag=health tag=journal sort=date", shared: true }, true);
+  assert.equal(both.query, "tag=health,journal sort=date");
+  assert.equal(both.count, 2);
+  const titles = (query: string) => vault.feed({ ...parseQuery(query), limit: 50 }).items.map((i) => i.title);
+  assert.deepEqual(titles(both.query), ["Swim", "Run log"]);
+  assert.deepEqual(titles("folder=Health and Fitness sort=oldest"), ["Gym plan", "Run log", "Swim"]);
+  // A nested tag counts toward its parent, as it does for one tag.
+  assert.deepEqual(titles("tag=journal sort=date"), ["Swim", "2024-12-24", "Run log"]);
+  assert.equal(vault.saveSmartFolder("ana", { name: "Health", query: 'folder="Health and Fitness"', shared: true }, true).count, 3);
+});
+
 test("starring and unstarring a tag only touches Favorites, never a smart folder with that tag's query", () => {
   const { vault } = openTempVault(TAGGED);
   const folder = vault.saveSmartFolder("ana", { name: "Billing", query: "tag=billing", shared: false }, true);
@@ -739,6 +757,12 @@ test("a smart folder name means your own before a shared one, a saved query keep
   assert.throws(() => vault.saveSmartFolder("bo", { name: "x".repeat(81), query: "", shared: false }, true), /80 characters/);
   for (let i = 0; i < 50; i++) vault.saveSmartFolder("cy", { name: `f${i}`, query: "", shared: false }, true);
   assert.throws(() => vault.saveSmartFolder("cy", { name: "one more", query: "", shared: false }, true), /50 smart folders/);
+});
+
+test("an index from before note dates learns each note's date on the next start", () => {
+  const { dir, vault } = openTempVault({ "Old.md": "---\ndate: 2020-02-02\n---\n# Old\n", "New.md": "---\ndate: 2025-05-05\n---\n# New\n" });
+  vault.db.exec("ALTER TABLE notes DROP COLUMN date");
+  assert.deepEqual(openVault(dir).feed({ sort: "oldest" }).items.map((i) => i.title), ["Old", "New"]);
 });
 
 test("an index from before tags learns every note's tags on the next start", () => {

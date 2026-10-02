@@ -40,7 +40,7 @@ export function serializeAttrs(args: Record<string, string>): string {
     .map((k) => {
       const op = COMPARES.has(k) ? args[k].match(/^(<=|>=|<|>)\s*/) : null;
       const value = op ? args[k].slice(op[0].length) : args[k];
-      return `${k}${op ? op[1] : "="}${/^[\w.:/+-]+$/.test(value) ? value : `"${value.replace(/"/g, "'")}"`}`;
+      return `${k}${op ? op[1] : "="}${/^[\w.:/+,-]+$/.test(value) ? value : `"${value.replace(/"/g, "'")}"`}`;
     });
   return parts.join(" ");
 }
