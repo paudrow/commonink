@@ -190,7 +190,7 @@ const notesPage = new NotesPage({
     api.clearResolveCache();
     void refreshNotes();
   },
-  newNote: () => void newNote(),
+  newNote: (folder) => void newNote(folder),
   goTab: (tab) => void showNotes({ tab }),
   trash: () => (viewer ? null : (trashPage ??= new TrashPage({ ...deleteHooks, canPurge: () => owner, open: (path) => fromPage(path) }))),
 });

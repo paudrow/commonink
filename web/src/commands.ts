@@ -215,6 +215,7 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: ["j", "k"], label: "Next / previous note", area: "Notes page" },
   { keys: ["g", "G"], label: "First / last note", area: "Notes page" },
   { keys: ["Enter"], label: "Expand the note's preview", area: "Notes page" },
+  { keys: ["n"], label: "New note (in the folder you're looking at)", area: "Notes page" },
   { keys: ["o"], label: "Open the note", area: "Notes page" },
   { keys: ["s"], label: "Star or unstar", area: "Notes page" },
   { keys: ["e"], label: "Archive (the selected notes, or this one)", area: "Notes page" },
