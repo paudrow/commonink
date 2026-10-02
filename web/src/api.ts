@@ -91,6 +91,13 @@ export interface UnlinkedMention {
   text: string;
   context: string;
 }
+/** A note find and replace changes: how many places, and its first changed lines (Vault.replaceAcross). */
+export interface ReplacedNote {
+  path: string;
+  title: string;
+  count: number;
+  lines: Array<{ line: number; before: string; after: string }>;
+}
 export type Scope = "active" | "archived" | "all";
 export interface FeedItem {
   id: string;
@@ -417,6 +424,9 @@ export const api = {
   addTag: (tag: string) => j<TagCount[]>(`${BASE}/tags`, send("POST", { tag })),
   deleteTag: (tag: string) => j<TagCount[]>(`${BASE}/tags/delete`, send("POST", { tag })),
   /** Rename (or merge) a tag everywhere. Restoring `changes` and setting `assets` back undoes it. */
+  /** Find and replace across notes. `dryRun` only says what would change; else `restore(changes[i], versions[i])` undoes each note. */
+  replace: (find: string, replace: string, opts: { matchCase?: boolean; wholeWord?: boolean; folder?: string; dryRun?: boolean } = {}) =>
+    j<{ notes: ReplacedNote[]; changes: number[]; versions: string[] }>(`${BASE}/replace`, send("POST", { find, replace, ...opts })),
   renameTag: (from: string, to: string) => j<{ changes: number[]; versions: string[]; assets: Record<string, string[]> }>(`${BASE}/tags/rename`, send("POST", { from, to })),
   setTask: (t: Task, done: boolean) => (done && did("tick"), j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/set`, send("POST", { path: t.path, line: t.line, text: t.text, done, today: today() }))),
   /** Change a task's tokens in its note; the rest of its line stays as written. */

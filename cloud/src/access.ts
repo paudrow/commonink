@@ -66,6 +66,7 @@ export const WORKSPACE_ROUTES = {
   "POST /tags/delete": "editor",
   "POST /tags/rename": "editor",
   "POST /mentions/link": "editor",
+  "POST /replace": "editor",
   "PUT /asset-tags": "editor",
   "POST /move": "editor",
   "POST /restore": "editor",

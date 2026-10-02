@@ -219,6 +219,7 @@ let historyPage: History | null = null;
 let assetsPage: Assets | null = null;
 let tagsPage: TagsPage | null = null;
 let checkupPage: CheckupPage | null = null;
+let replacePage: import("./replacePage.ts").ReplacePage | null = null;
 let contactsPage: import("./contactsPage.ts").ContactsPage | null = null;
 let calendarPage: CalendarPage | null = null;
 const once = <T>(load: () => Promise<T>) => {
@@ -381,6 +382,7 @@ function commands() {
     shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
     share: openShare,
     copyLink: () => void copyLink(),
+    replaceAcross: () => void showReplace(),
     exportAs: (how) => void exportNote(how),
     saveToDrive: () => void saveNoteToDrive(),
     exportWorkspace: () => void exportZip({ all: true }),
@@ -705,10 +707,20 @@ function setUrl(url: string, how: "push" | "replace" = "push") {
   else history.replaceState({ i: historyAt }, "", url);
 }
 
+const loadReplace = once(async () =>
+  (replacePage = new (await import("./replacePage.ts")).ReplacePage($("#replace-view"), {
+    folders: () => allFolders(),
+    open: (path, line, side) => void openNote(path, { line, pane: side ? sideOf(active) : active }),
+    refresh: () => refreshNotes(),
+    readOnly: () => viewer,
+    toast: (t) => toast(t),
+  })),
+);
+
 let unmountTasks: (() => void) | null = null;
 let unmountToday: (() => void) | null = null;
 
-function showStage(which: "editor" | "html" | "notes" | "today" | "tasks" | "calendar" | "contacts" | "history" | "assets" | "tags" | "checkup" | "shared" | "capture") {
+function showStage(which: "editor" | "html" | "notes" | "today" | "tasks" | "calendar" | "contacts" | "history" | "assets" | "tags" | "checkup" | "replace" | "shared" | "capture") {
   closeDrawer();
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
@@ -720,6 +732,7 @@ function showStage(which: "editor" | "html" | "notes" | "today" | "tasks" | "cal
   $("#history-view").hidden = which !== "history";
   $("#tags-view").hidden = which !== "tags";
   $("#checkup-view").hidden = which !== "checkup";
+  $("#replace-view").hidden = which !== "replace";
   $("#contacts-view").hidden = which !== "contacts";
   $("#shared-view").hidden = which !== "shared";
   $("#capture-view").hidden = which !== "capture";
@@ -889,6 +902,18 @@ async function labelCurrent(name?: string) {
   if (label) toast({ icon: "label", text: `Named this version “${label.name}”`, actionLabel: "Show", action: () => showLabel(label) });
 }
 
+/** Replace across notes: find and replace in every note, with a preview, as one Undo. */
+async function showReplace(opts: { push?: boolean } = {}) {
+  await leaveNote();
+  showStage("replace");
+  (await loadReplace()).show();
+  wentTo("/replace", opts.push !== false);
+  document.title = "Replace across notes · Common Ink";
+  renderChrome();
+  renderTree();
+  renderOutline();
+}
+
 async function showTags(opts: { push?: boolean } = {}) {
   await leaveNote();
   showStage("tags");
@@ -1049,7 +1074,7 @@ function pickFiles(accept?: string): Promise<File[]> {
   });
 }
 
-const PAGE_LABEL = { today: "Today", notes: "Notes", archive: "Archive", trash: "Trash", tasks: "Tasks", calendar: "Calendar", contacts: "Contacts", history: "History", assets: "Assets", tags: "Tags", checkup: "Check-up", shared: "Shared with me", capture: "Capture" } as const;
+const PAGE_LABEL = { today: "Today", notes: "Notes", archive: "Archive", trash: "Trash", tasks: "Tasks", calendar: "Calendar", contacts: "Contacts", history: "History", assets: "Assets", tags: "Tags", checkup: "Check-up", replace: "Replace across notes", shared: "Shared with me", capture: "Capture" } as const;
 
 /** The page showing (the Notes page by its tab), or null while a note is. */
 const onPage = () =>
@@ -1062,6 +1087,7 @@ const onPage = () =>
   : assetsPage?.visible ? "assets"
   : tagsPage?.visible ? "tags"
   : checkupPage?.visible ? "checkup"
+  : replacePage?.visible ? "replace"
   : !$("#shared-view").hidden ? "shared"
   : !$("#capture-view").hidden ? "capture"
   : null;
@@ -1633,6 +1659,7 @@ function onMessage(m: ServerMsg) {
       if ([m.change.path, m.change.from_path].some((p) => p?.startsWith("Events/"))) eventNotesChanged();
       notesPage.refreshSoon();
       historyPage?.refreshSoon();
+      replacePage?.refresh();
       renderActivity();
       renderPresence();
       renderTree();
@@ -3283,7 +3310,7 @@ function setupPanes() {
   // Clicking or tabbing into a pane gives it the focus.
   // (Not from a pane bar's buttons: redrawing the bar on mousedown would swallow their click.)
   const follow = (p: Pane) => (e: Event) => p !== active && split && !(e.target as Element).closest?.(".pane-bar button") && focusPane(p);
-  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#today-view", "#tasks-view", "#calendar-view", "#contacts-view", "#history-view", "#assets-view", "#tags-view"]], [panes[1], ["#side-pane"]]] as const) {
+  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#today-view", "#tasks-view", "#calendar-view", "#contacts-view", "#history-view", "#assets-view", "#tags-view", "#replace-view"]], [panes[1], ["#side-pane"]]] as const) {
     for (const sel of nodes) {
       $(sel).addEventListener("focusin", follow(p));
       $(sel).addEventListener("mousedown", follow(p));
@@ -3347,6 +3374,7 @@ async function route() {
   }
   if (at === "/tags") return showTags({ push: false });
   if (at === "/checkup") return showCheckup({ push: false });
+  if (at === "/replace") return showReplace({ push: false });
   if (at === "/history") {
     const id = new URLSearchParams(location.search).get("note");
     return showHistory({ note: id && NOTE_ID.test(id) ? (notes.find((n) => n.id === id)?.path ?? null) : null, push: false });

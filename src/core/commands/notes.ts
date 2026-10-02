@@ -237,6 +237,37 @@ export const notes = [
     },
   }),
   command({
+    cli: "replace",
+    mcp: "replace_text",
+    route: "POST /replace",
+    title: "Replace across notes",
+    summary: "Find and replace plain text in every note (or a folder's); --dry-run shows what would change",
+    description:
+      "Find and replace plain text (not a pattern) in every active Markdown note, or only those in a folder: any case unless match_case, " +
+      "and only whole words with whole_word. Over MCP, dry_run is required: pass true first, show the user the notes and lines it lists, and only " +
+      "run it again with dry_run false when they ask for it. Each changed note is its own change, so restore_change can undo any of them.",
+    examples: ["commonink replace 'Acme Corp' 'Acme Inc' --dry-run", "commonink replace colour color --whole-word --folder Projects"],
+    destructive: true,
+    args: {
+      find: str({ required: true, pos: 0, describe: "The text to find, as written (one line)" }),
+      replace: str({ required: true, pos: 1, allowEmpty: true, describe: "What replaces it ('' to remove it)" }),
+      folder: str({ describe: "Only notes in this folder (and its subfolders)" }),
+      match_case: bool({ describe: "Only where the case matches too" }),
+      whole_word: bool({ describe: "Only whole words, not inside longer ones" }),
+      // Over MCP an agent must say which it means, so a vault-wide edit is never what it gets by leaving this out.
+      dry_run: bool({ mcpRequired: true, describe: "Only say what would change. Over MCP, required: true to preview, false to write" }),
+    },
+    run: ({ vault, source }, a) => {
+      const r = vault.replaceAcross(a.find, a.replace, { folder: a.folder, matchCase: a.match_case, wholeWord: a.whole_word, dryRun: a.dry_run }, source);
+      const places = r.notes.reduce((n, x) => n + x.count, 0);
+      const head = !r.notes.length
+        ? `No note has "${a.find}"`
+        : `${a.dry_run ? "Would replace" : "Replaced"} ${places} place${places === 1 ? "" : "s"} in ${r.notes.length} note${r.notes.length === 1 ? "" : "s"}`;
+      const body = r.notes.flatMap((n) => [`${n.path} (${n.count})`, ...n.lines.flatMap((l) => [`  ${l.line}- ${l.before.trim()}`, `  ${l.line}+ ${l.after.trim()}`])]);
+      return { text: [head, ...body].join("\n"), data: { notes: r.notes, changes: r.edits.map((e) => e.change.id) } };
+    },
+  }),
+  command({
     cli: "append",
     mcp: "append_to_note",
     route: "PUT /note",

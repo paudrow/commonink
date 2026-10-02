@@ -460,6 +460,15 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       host.tree();
       return json(tags);
     }
+    case "POST /replace": {
+      // Find and replace across notes. With dryRun, only what would change; else each changed note is
+      // its own change, and restoring each while its note is still at `versions` undoes the lot.
+      const r = vault.replaceAcross(str("find"), str("replace"), {
+        folder: optStr("folder"), matchCase: flag("matchCase"), wholeWord: flag("wholeWord"), dryRun: flag("dryRun"),
+      }, actor);
+      for (const e of r.edits) host.written(e.path, e.content, e.version, e.change);
+      return json({ notes: r.notes, changes: r.edits.map((e) => e.change.id), versions: r.edits.map((e) => e.version) });
+    }
     case "POST /tags/rename": {
       const r = vault.renameTag(str("from"), str("to"), actor);
       for (const e of r.edits) host.written(e.path, e.content, e.version, e.change);
