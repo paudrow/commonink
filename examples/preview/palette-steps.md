@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 301
 title: Commands ask in the palette
 ---
 A command that needs something from you now asks for it right in ⌘⇧P, the way Raycast does, instead of sending you to the sidebar or a form. The command's name stands before the field. Enter answers, Esc (or Backspace in an empty field) goes back a step, and when it's done the palette closes and you're back where you were.
