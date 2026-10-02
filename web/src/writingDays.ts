@@ -1,5 +1,5 @@
 // "Your writing days": which days you wrote, and how many days in a row. Pure date math, so it can
-// be tested without a browser: the Today page's Writing streak and the `::streak` widget (streak.ts)
+// be tested without a browser: the Today page's week card and the `::streak` widget (streak.ts)
 // draw what this works out. Days are calendar days where you are (localDate), and stepping from one to
 // the next goes by date, not by 24 hours, so a clock change never skips or doubles a day.
 import { addDays, localDate } from "../../src/core/tasks.ts";

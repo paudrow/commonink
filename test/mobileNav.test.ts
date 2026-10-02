@@ -63,7 +63,7 @@ test("the scrim closes the drawer; going somewhere closes it and leaves the focu
 test("More lists the showing overflow buttons by their titles, with their shortcuts, and an item presses the real button", () => {
   $("#move-btn").hidden = true;
   $("#more-btn").click();
-  assert.deepEqual(moreItems(), ["History of this note", "Archive note | ⌘⇧E", "Delete note", "Focus mode | ⌘⇧↵", "Toggle side panel | ⌘\\"]);
+  assert.deepEqual(moreItems(), ["History of this note", "Archive note | ⌘⇧E", "Delete note", "Focus mode | ⌘⇧↵", "Toggle info panel | ⌘\\"]);
   assert.deepEqual([$("#more-btn").getAttribute("aria-expanded"), focused()], ["true", "History of this note"]);
   let pressed = "";
   $("#archive-btn").addEventListener("click", () => (pressed = "archive"), { once: true });
@@ -89,9 +89,9 @@ test("arrow keys, Home and End move through More's items, wrapping; Esc closes i
   const walk = (k: string) => (key(document.activeElement!, k), focused());
   assert.deepEqual([walk("ArrowDown"), walk("End"), walk("ArrowDown"), walk("ArrowUp"), walk("Home")], [
     "Move to another folder",
-    "Toggle side panel",
+    "Toggle info panel",
     "History of this note",
-    "Toggle side panel",
+    "Toggle info panel",
     "History of this note",
   ]);
   key(document.activeElement!, "Escape");
@@ -112,10 +112,10 @@ test("on a computer, More holds only a note's occasional buttons, and shows only
   const set = (id: string, attr: Record<string, string>) => Object.entries(attr).forEach(([k, v]) => $(id).setAttribute(k, v));
   set("#move-btn", { title: "In Projects / Work · Move to another folder" });
   set("#archive-btn", { title: "Unarchive note (⌘⇧E)" });
-  set("#split-btn", { title: "Split view (⌘⌥\\)" });
+  set("#split-btn", { title: "Open split view (⌘⌥\\)" });
   renderMore();
   $("#more-btn").click();
-  assert.deepEqual(moreItems(), ["History of this note", "Move to another folder | In Projects / Work", "Unarchive note | ⌘⇧E", "Split view | ⌘⌥\\", "Delete note"]);
+  assert.deepEqual(moreItems(), ["History of this note", "Move to another folder | In Projects / Work", "Unarchive note | ⌘⇧E", "Open split view | ⌘⌥\\", "Delete note"]);
   key(document.activeElement!, "Escape");
 
   // A viewer has no Delete; an open split's lit button is in the bar, not here.
