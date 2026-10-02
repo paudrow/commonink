@@ -101,7 +101,22 @@ export function mountDecisions(host: HTMLElement, page: HTMLElement, hooks: Deci
     return [...done, ...all.filter(isOpen)];
   };
   const draft = (d: Decision) => drafts.get(d.id) ?? (drafts.set(d.id, draftOf(d)), drafts.get(d.id)!);
-  const focusCard = () => host.querySelector<HTMLElement>(".dc-card")?.focus({ preventScroll: true });
+  /** The agent's suggested words for a text question, while they still stand as the answer. */
+  const suggested = (d: Decision) => {
+    const r = d.recommended;
+    return d.kind === "text" && isOpen(d) && r && "text" in r && draft(d).other === r.text ? r.text : null;
+  };
+  /** Back on the card after a step. A text question puts you in its answer instead, selected (the agent's suggestion, or your answer): Enter takes it, typing replaces it. */
+  const focusCard = () => {
+    const d = current();
+    const box = d?.kind === "text" ? host.querySelector<HTMLTextAreaElement>(".dc-other-input") : null;
+    if (box) {
+      box.focus({ preventScroll: true });
+      box.select();
+      return;
+    }
+    host.querySelector<HTMLElement>(".dc-card")?.focus({ preventScroll: true });
+  };
 
   const load = async () => {
     const next = await Promise.all([api.decisions(), api.decisions("settled")]).catch(() => null);
@@ -379,12 +394,14 @@ export function mountDecisions(host: HTMLElement, page: HTMLElement, hooks: Deci
           type: "text",
           rows: d.kind === "text" ? "2" : undefined,
           placeholder: d.kind === "text" ? "Your answer…" : "Or answer in your own words…",
+          onfocus: (e: Event) => suggested(d) && (e.target as HTMLTextAreaElement).select(),
           "aria-label": d.kind === "text" ? "Your answer" : "Your own answer",
           oninput: (e: Event) => {
             const was = !!dr.other.trim();
             dr.other = (e.target as HTMLInputElement).value;
             // Typing your own answer sets the options aside, and clearing it brings them back.
             if (was !== !!dr.other.trim()) host.querySelector(".dc-card")?.classList.toggle("is-own", !!dr.other.trim());
+            host.querySelector(".dc-suggested")?.remove();
             ready();
           },
         })
@@ -409,6 +426,7 @@ export function mountDecisions(host: HTMLElement, page: HTMLElement, hooks: Deci
       d.kind === "yes_no" ? `Y or N, ${enter}`
       : d.kind === "one" || d.kind === "compare" || d.kind === "many" ? `1–${Math.min(9, n)} to ${d.kind === "many" ? "tick" : "pick"}, ${enter}`
       : d.kind === "scale" && d.max! <= 9 ? `${d.min}–${d.max} to pick, ${enter}`
+      : d.kind === "text" ? `O to type, ${enter}`
       : enter;
     // One answered already says so, and when; the same controls change it.
     const was = open
@@ -434,7 +452,7 @@ export function mountDecisions(host: HTMLElement, page: HTMLElement, hooks: Deci
           el("div", { class: "dc-meta" }, authorAvatar({ source: d.asked_by, agent: d.agent }, 16), `Asked by ${d.agent ?? d.asked_by} · ${timeAgo(d.asked_at)}`, about),
           context,
           media,
-          el("div", { class: "dc-answer" }, body, other),
+          el("div", { class: "dc-answer" }, body, other, suggested(d) ? el("p", { class: "dc-note dc-suggested" }, "Suggested. Enter takes it; type to answer your own way.") : ""),
           comment,
           el(
             "div",

@@ -24,7 +24,7 @@ export const decisions = [
       "- compare: pick one of a few shown side by side; give each a picture in `images` and a line in `details`.\n" +
       "- rank: put the options in order, best first.\n" +
       "- scale: a number from `min` to `max` (1 to 5 by default), with `labels` for the two ends.\n" +
-      "- text (the default without options): an answer in words.\n" +
+      "- text (the default without options): an answer in words. A `recommended` answer is filled in for them: Enter takes it, typing replaces it.\n" +
       "`media` shows pictures with the question (https:// addresses or files in the vault). `recommended` is what you would answer, " +
       "written as an answer: an option's number or words; several for many and rank; one per row, or Row=Option, for rows; a number " +
       "for scale. Then carry on with other work and read the answer later with list_decisions (status settled, or ids). Withdraw it " +
@@ -47,7 +47,7 @@ export const decisions = [
       min: num({ describe: "many: the fewest picks; scale: its low end (default 1)" }),
       max: num({ describe: "many: the most picks; scale: its high end (default 5)" }),
       labels: list({ label: "low,high", describe: "scale: words for its two ends" }),
-      recommended: list({ label: "answer", describe: "What you'd answer: an option's number or words (several for many and rank, one per row for rows), or a number for scale" }),
+      recommended: list({ label: "answer", describe: "What you'd answer: an option's number or words (several for many and rank, one per row for rows), a number for scale, or for text the words to fill in" }),
       context: str({ describe: "What they need to know to decide: tradeoffs, what you found (Markdown)" }),
       note: str({ describe: "A note this is about (path, name or ID): the picker links to it" }),
     },

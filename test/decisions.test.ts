@@ -86,6 +86,11 @@ test("changing an answer rewrites its lines where they were recorded", () => {
   assert.throws(() => vault.answerDecision(name.id, { value: { choice: 0 } }, "you"), /already answered: No/, "changing needs asking for it");
 });
 
+test("a text question can carry the agent's suggested words, commas and all", () => {
+  assert.deepEqual(askSpec({ question: "Name it?", recommended: ["Common Ink", "the app"] }).recommended, { text: "Common Ink, the app" });
+  assert.deepEqual(askSpec({ question: "Name it?", recommended: { text: "Ink" } }).recommended, { text: "Ink" });
+});
+
 test("bad questions are refused, and withdrawn ones leave the list", () => {
   const { vault } = openTempVault({});
   assert.throws(() => vault.askDecision({ question: " " }, AGENT), /Say what the question is/);

@@ -285,7 +285,7 @@ async function decisions() {
     { question: "What should go in the 1.0 release notes?", kind: "many", options: ["Today page", "Decisions", "Smart folders", "Vim mode", "Sharing"], max: 3 },
     { question: "Put next week's work in order", kind: "rank", options: ["Fix sync conflicts", "Write the docs", "Record a demo"] },
     { question: "How ready does the beta feel?", kind: "scale", labels: ["Not at all", "Ship it"], recommended: ["4"] },
-    { question: "What should the CLI be called on npm?", context: "`commonink` is taken by an empty package; `ink` is a React library." },
+    { question: "What should the CLI be called on npm?", context: "`commonink` is taken by an empty package; `ink` is a React library.", recommended: ["@commonink/cli"] },
   ];
   for (const a of asks) await must("POST", `${api}/decisions`, a);
 }
