@@ -3,7 +3,7 @@
 // keyboard (j/k, Enter to expand, o to open, e to archive, x to select, Delete to delete), and
 // archive or delete in bulk. Its tabs are where notes go: Notes, Archive and Trash. Trash lists
 // the same cards with the same filters and keys, with Restore and Delete forever for its actions.
-import { api, type FeedItem, type FeedPage, type TagCount, type Task, type TrashItem } from "./api.ts";
+import { api, isArchived, type FeedItem, type FeedPage, type TagCount, type Task, type TrashItem } from "./api.ts";
 import { filterTrash, trashFolders, trashTags, type Trash } from "./trash.ts";
 import { fmtBytes } from "./assetKinds.ts";
 import { $, authorAvatar, authorName, displayName, el, icon, markTerms, NOTE_DRAG, timeAgo } from "./dom.ts";
@@ -424,7 +424,7 @@ export class NotesPage {
           "div",
           { class: "fc-head" },
           el("span", { class: "fc-title", title: t.path }, t.title),
-          t.path.startsWith("Archive/") ? el("span", { class: "fc-badge" }, "Archived") : null,
+          isArchived(t.path) ? el("span", { class: "fc-badge" }, "Archived") : null,
           el("span", { class: "spacer" }),
           action("Restore (r)", "reset", () => void this.restore([t])),
           trash.canPurge ? action("Delete forever (⌫)", "trash", () => void this.purge([t])) : null,
@@ -731,7 +731,7 @@ export class NotesPage {
       );
       return;
     }
-    const allArchived = [...this.selected].every((p) => p.startsWith("Archive/"));
+    const allArchived = [...this.selected].every(isArchived);
     this.bulk.replaceChildren(
       el("span", {}, `${n} selected`),
       el("span", { class: "spacer" }),
@@ -798,7 +798,7 @@ export class NotesPage {
   /** Archive (or unarchive, if they're all archived) — with Undo. */
   async archive(paths: string[]) {
     if (!paths.length) return;
-    const restore = paths.every((p) => p.startsWith("Archive/"));
+    const restore = paths.every(isArchived);
     const r = await (restore ? api.unarchive(paths) : api.archive(paths)).catch(() => null);
     if (!r) return this.hooks.toast({ text: "Couldn't archive that" });
     this.selected.clear();

@@ -9,7 +9,7 @@ import { insertNewline } from "@codemirror/commands";
 import { EditorState, Prec, StateEffect, StateField } from "@codemirror/state";
 import { Decoration, EditorView, keymap, placeholder, type DecorationSet } from "@codemirror/view";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
-import { api } from "./api.ts";
+import { api, isArchived } from "./api.ts";
 import { displayName, el } from "./dom.ts";
 import { parseQuickAdd, type QuickAdd, type QuickSpan } from "../../src/core/quickAdd.ts";
 import { formatRule, parseRule, type Rule } from "../../src/core/recurrence.ts";
@@ -84,7 +84,7 @@ let peopleLoaded: Promise<unknown> = Promise.resolve();
 function loadPools() {
   void api.tags().then((t) => (pools.tags = t.map((x) => x.display))).catch(() => {});
   peopleLoaded = assignees().then((p) => (pools.people = p)).catch(() => {});
-  void api.notes().then((n) => (pools.notes = n.filter((x) => x.kind === "md" && !x.path.startsWith("Archive/")).map((x) => displayName(x.path)))).catch(() => {});
+  void api.notes().then((n) => (pools.notes = n.filter((x) => x.kind === "md" && !isArchived(x.path)).map((x) => displayName(x.path)))).catch(() => {});
 }
 
 async function suggest(ctx: CompletionContext): Promise<CompletionResult | null> {

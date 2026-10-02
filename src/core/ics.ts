@@ -54,12 +54,13 @@ const MAX_WALL = Date.UTC(9999, 11, 31, 23, 59, 59);
 /** Parse and expand every event whose occurrence overlaps [from, to). Cancelled occurrences are left out. Sorted by start. */
 export function readIcs(text: string, window: { from: Date; to: Date }, limits: { perEvent?: number; total?: number } = {}): { feed: IcsFeed; events: Occurrence[] } {
   const doc = lex(text);
-  const zones = zoneBook(doc.timezones, doc.timeZone);
+  const budget = { left: FEED_BUDGET };
+  const zones = zoneBook(doc.timezones, doc.timeZone, budget);
   const feed: IcsFeed = { name: doc.name, timeZone: zones.floating.name };
   const from = window.from.getTime();
   const to = window.to.getTime();
   if (!(from < to)) return { feed, events: [] };
-  const ctx: Ctx = { from, to, floating: zones.floating, perEvent: limits.perEvent ?? 1000, total: limits.total ?? 20_000, budget: { left: FEED_BUDGET }, out: [] };
+  const ctx: Ctx = { from, to, floating: zones.floating, perEvent: limits.perEvent ?? 1000, total: limits.total ?? 20_000, budget, out: [] };
   const groups = new Map<string, EventDef[]>();
   for (const comp of doc.events) {
     const def = readEvent(comp, zones);
@@ -612,7 +613,7 @@ interface ZoneBook {
 }
 
 /** Resolves TZIDs: by name, else by the feed's own VTIMEZONE, else X-WR-TIMEZONE, else UTC. */
-function zoneBook(timezones: Component[], feedTz: string | null): ZoneBook {
+function zoneBook(timezones: Component[], feedTz: string | null, budget: { left: number }): ZoneBook {
   const floating = (feedTz && namedZone(feedTz)) || UTC;
   const defined = new Map<string, Component>();
   for (const tz of timezones) {
@@ -627,7 +628,7 @@ function zoneBook(timezones: Component[], feedTz: string | null): ZoneBook {
       if (cached) return cached;
       const def = defined.get(tzid.trim());
       const location = def?.props.find((p) => p.name === "X-LIC-LOCATION")?.value;
-      const zone = namedZone(tzid) ?? (location ? namedZone(location) : null) ?? (def ? definedZone(def) : null) ?? floating;
+      const zone = namedZone(tzid) ?? (location ? namedZone(location) : null) ?? (def ? definedZone(def, budget) : null) ?? floating;
       const clock: Clock = { kind: "zoned", zone };
       clocks.set(tzid, clock);
       return clock;
@@ -645,10 +646,14 @@ interface Observance {
   rdates: number[];
 }
 
-/** A zone defined only by the feed's VTIMEZONE, following its STANDARD and DAYLIGHT rules. */
-function definedZone(tz: Component): Zone | null {
+/** STANDARD and DAYLIGHT blocks read per VTIMEZONE, and periods its rules may walk across every year asked; real zones need far fewer. */
+const MAX_OBSERVANCES = 50;
+const ZONE_BUDGET = 20_000;
+
+/** A zone defined only by the feed's VTIMEZONE, following its STANDARD and DAYLIGHT rules. Expanding them spends the feed's budget. */
+function definedZone(tz: Component, budget: { left: number }): Zone | null {
   const observances: Observance[] = [];
-  for (const block of tz.children) {
+  for (const block of tz.children.slice(0, MAX_OBSERVANCES)) {
     const first = (name: string) => block.props.find((p) => p.name === name);
     const start = first("DTSTART") && readStamp(first("DTSTART")!.value);
     const from = first("TZOFFSETFROM") && readOffset(first("TZOFFSETFROM")!.value);
@@ -665,12 +670,19 @@ function definedZone(tz: Component): Zone | null {
   if (!observances.length) return null;
   const earliest = observances.reduce((a, b) => (b.start - b.from < a.start - a.from ? b : a));
   const years = new Map<number, Array<[number, number]>>();
+  let zoneLeft = ZONE_BUDGET;
   return {
     name: null,
     offsetAt(utc) {
       const year = new Date(utc).getUTCFullYear();
       let list = years.get(year);
-      if (!list) years.set(year, (list = transitionsIn(observances, year, earliest.from)));
+      if (!list) {
+        const spend = { left: Math.min(zoneLeft, budget.left) };
+        const before = spend.left;
+        years.set(year, (list = transitionsIn(observances, year, earliest.from, spend)));
+        zoneLeft -= before - spend.left;
+        budget.left -= before - spend.left;
+      }
       let offset = list[0][1];
       for (const [at, to] of list) {
         if (at > utc) break;
@@ -682,20 +694,17 @@ function definedZone(tz: Component): Zone | null {
 }
 
 /** The offset in force as a year starts, then each change during it, as [instant, offset] pairs. */
-function transitionsIn(observances: Observance[], year: number, fallback: number): Array<[number, number]> {
+function transitionsIn(observances: Observance[], year: number, fallback: number, budget: { left: number }): Array<[number, number]> {
   const start = Date.UTC(year, 0, 1);
   const end = Date.UTC(year + 1, 0, 1);
   let base: [number, number] = [-Infinity, fallback];
   let baseAt = -Infinity;
   const within: Array<[number, number]> = [];
   for (const o of observances) {
-    const onsets = (skipTo: number) => {
-      const budget = { left: MAX_PERIODS };
-      const walls = o.rule ? [...ruleWalls(o.rule, o.start, o.until, skipTo, end + o.from, budget)] : [o.start];
-      return [...walls, ...o.rdates].sort((a, b) => a - b);
-    };
-    // A rule that ended before this year has no onset near it: walk it from its start instead.
-    const walls = onsets(o.until !== null && o.until < start + o.from ? -Infinity : start + o.from - 800 * DAY);
+    // Walk only the periods near this year's start, or near the rule's end if it ended earlier.
+    const skipTo = Math.min(o.until ?? Infinity, start + o.from) - 800 * DAY;
+    const ruled = o.rule ? [...ruleWalls(o.rule, o.start, o.until, skipTo, end + o.from, budget)] : [o.start];
+    const walls = [...ruled, ...o.rdates].sort((a, b) => a - b);
     for (const wall of walls) {
       const at = wall - o.from;
       if (at < start && at > baseAt) [baseAt, base] = [at, [-Infinity, o.to]];
