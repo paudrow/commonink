@@ -73,6 +73,8 @@ export interface WidgetSpec {
   defaults: Record<string, string>;
   /** A button in the settings form that does something with the args being edited (not yet saved). */
   configAction?: { label: string; icon: string; run(args: Record<string, string>, env: WidgetEnv, anchor: HTMLElement): void };
+  /** The args as the settings form shows them, when that differs from how they're written (see ::query). */
+  formArgs?(args: Record<string, string>): Record<string, string>;
   /** Build the widget body; return a cleanup function. */
   mount(body: HTMLElement, env: WidgetEnv, card: HTMLElement): () => void;
 }
@@ -152,7 +154,7 @@ function configForm(
   on: { save(args: Record<string, string>): void; cancel(): void },
 ): HTMLElement {
   const args = env.args;
-  const values: Record<string, string> = { ...spec.defaults, ...args };
+  const values: Record<string, string> = { ...spec.defaults, ...(spec.formArgs?.(args) ?? args) };
   const preview = el("code", { class: "qw-md" });
   const save = el("button", { class: "qw-btn primary", type: "submit" }, "Save");
 
