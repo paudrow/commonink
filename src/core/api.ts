@@ -257,7 +257,12 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     case "GET /links/missing":
       return json(vault.missingLinks({ folder: q("folder") || undefined, scope: qScope() }));
     case "GET /changes":
-      return json(vault.changes({ limit: qCount("limit", 50, 500), before: qCount("before", 0, Infinity) || undefined, path: q("path") || undefined, by: parseAuthorFilter(q("by")) }));
+      return json(
+        vault.changes({ limit: qCount("limit", 50, 500), before: qCount("before", 0, Infinity) || undefined, since: qCount("after", 0, Infinity) || undefined, path: q("path") || undefined, by: parseAuthorFilter(q("by")) }),
+      );
+    case "GET /changes/away":
+      // What agents did since this person's own last change (and after the change they last dismissed).
+      return json(vault.awaySummary(host.actor, qCount("after", 0, Infinity)));
     case "GET /changes/agents":
       return json(vault.agents());
     case "GET /diffs":

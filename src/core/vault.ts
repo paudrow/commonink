@@ -22,6 +22,7 @@ import {
 } from "./contacts.ts";
 import { cleanTitle, DAILY_TEMPLATE, fillTemplate, localNow, TEMPLATES, templateInfo, type FillOptions, type TemplateInfo } from "./templates.ts";
 import { frontmatterEntries } from "./frontmatter.ts";
+import { taskChanges, type AwaySummary } from "./away.ts";
 
 export interface NoteMeta {
   /** Stable across renames, moves and archiving; see ids.ts. */
@@ -912,6 +913,41 @@ export class Vault {
       this.db.get(`SELECT ${CHANGE_COLS} FROM changes WHERE path = ? AND version = ? AND ts > ? ORDER BY id DESC LIMIT 1`, rel, version, this.now() - withinMs) ??
       null
     );
+  }
+
+  /**
+   * What agents did since `person` last changed anything themselves (and after change `after`, the
+   * last one they dismissed): see away.ts. Null when agents did nothing in that time.
+   */
+  awaySummary(person: string, after = 0): AwaySummary | null {
+    const own = this.db.get<{ id: number | null }>("SELECT MAX(id) AS id FROM changes WHERE person = ? AND agent IS NULL", person)?.id ?? 0;
+    const start = Math.max(own, after);
+    const theirs = this.db.all<Change>(`SELECT ${CHANGE_COLS} FROM changes WHERE id > ? AND agent IS NOT NULL ORDER BY id LIMIT 500`, start);
+    if (!theirs.length) return null;
+    const by = new Map<string, number>();
+    for (const c of theirs) by.set(c.agent!, (by.get(c.agent!) ?? 0) + 1);
+    const key = (c: Change) => c.note_id ?? c.path;
+    const created = new Set(theirs.filter((c) => c.op === "create").map(key));
+    const edited = new Set(theirs.filter((c) => c.op !== "create" && !created.has(key(c))).map(key));
+    let tasksAdded = 0;
+    let tasksDone = 0;
+    for (const run of this.diffSet(theirs.map((c) => c.id)).flatMap((f) => f.runs)) {
+      if (!run.after) continue;
+      const t = taskChanges(run.before, run.after);
+      tasksAdded += t.added;
+      tasksDone += t.done;
+    }
+    return {
+      agents: [...by].sort((a, b) => b[1] - a[1]).map(([name]) => name),
+      created: created.size,
+      edited: edited.size,
+      tasksAdded,
+      tasksDone,
+      after: start,
+      last: theirs.at(-1)!.id,
+      from: theirs[0].ts,
+      to: theirs.at(-1)!.ts,
+    };
   }
 
   /** The agents that appear in the change log, by name, for filtering History by one. */

@@ -76,6 +76,7 @@ The client opens Common Ink in your browser: sign in, pick the workspace it may 
 
 - **Edits are exact-string replacements** with an optional `base_version`. A stale edit fails with a clear message instead of clobbering anything.
 - **Every write is attributed.** MCP writes carry the client's name, CLI writes use `--as`, and anything else (vim in a terminal, `sed`) is logged as `external` by the file watcher.
+- **While you were away.** When agents changed things since your own last change, Notes and Today open with one line saying what they did ("Claude edited 4 notes and added 6 tasks while you were away"). **See changes** opens History on just those changes, all selected, so the right side shows everything at once; × dismisses it until an agent does more. "Your own last change" is kept in the change log, so it's the same on every browser and device; a dismissal is per browser. The app asks when it opens and when you come back to its tab (`src/core/away.ts`, `GET /api/changes/away`; History takes `after=<change id>`).
 - **Changes on disk land in the editor as a diff**, so your cursor, undo history and vim mode survive. If you have unsaved typing, it does a three-way merge. Overlapping edits get a banner with Keep mine, Use theirs and Compare, which shows the two versions as a diff first; either choice comes with an Undo. An agent's edit comes with a toast whose Undo takes out just that edit and keeps what you've typed since. For a note that isn't open, Undo puts the note back only if nothing has changed it since.
 
 ## Editor

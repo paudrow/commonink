@@ -7,6 +7,7 @@ import { encodeTarget, safeDecode } from "../../src/core/uri.ts";
 import type { FillOptions, TemplateInfo } from "../../src/core/templates.ts";
 import type { CalendarEvent, EventDraft, Source as CalendarSource, SourceColor } from "../../src/core/calendar.ts";
 import type { QuerySort } from "../../src/core/query.ts";
+import type { AwaySummary } from "../../src/core/away.ts";
 
 /** The reader's day, which task writes and due filters go by (the server may be in another time zone). */
 const today = () => localDate(Date.now());
@@ -464,8 +465,10 @@ export const api = {
   fromTemplate: (template: string, o: FillOptions & { folder?: string }) =>
     j<{ path: string; version: string; cursor: number | null; unfilled: string[] }>(`${BASE}/notes/from-template`, send("POST", { template, ...o })),
   /** A page of the change log, newest first; `before` pages further back. */
-  history: (p: { limit?: number; before?: number; path?: string; by?: string }) =>
+  history: (p: { limit?: number; before?: number; after?: number; path?: string; by?: string }) =>
     j<Change[]>(`${BASE}/changes?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
+  /** What agents did since your own last change, and after change `after` (the last one dismissed); null if nothing. */
+  away: (after = 0) => j<AwaySummary | null>(`${BASE}/changes/away?after=${after}`),
   /** The agents in the change log, for filtering History by one. */
   changeAgents: () => j<string[]>(`${BASE}/changes/agents`),
   /** What a set of changes did, note by note. `ids` is ranges like "12-18,20". */

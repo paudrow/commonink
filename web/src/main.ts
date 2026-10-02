@@ -45,6 +45,7 @@ import { NO_TIPS, tipText, watchTips, type TipsState } from "./shortcutTips.ts";
 import { did, vaultEvents } from "./events.ts";
 import { guideMessage, startGuide } from "./onboarding.ts";
 import { watchTodayCleared } from "./todayCleared.ts";
+import { awayStrip, startAway } from "./away.ts";
 import { inkState, setInk, startInks } from "./inkUnlocks.ts";
 import { gamified, loadGamified, onGamified, setGamified } from "./gamify.ts";
 import { store } from "./store.ts";
@@ -729,6 +730,7 @@ async function showNotes(opts: { tab?: NotesTab; filter?: boolean; folder?: stri
   await leaveNote();
   showStage("notes");
   notesPage.show(opts);
+  $("#notes-view .feed")?.prepend(awayStrip());
   const tab = notesPage.tab; // a viewer asking for Trash gets Notes
   if (opts.push === false && opts.tab && tab !== opts.tab) setUrl(`/${tab}`, "replace");
   wentTo(`/${tab}`, opts.push !== false);
@@ -743,6 +745,7 @@ async function showToday(opts: { push?: boolean } = {}) {
   await leaveNote();
   showStage("today");
   unmountToday = renderTodayPage($("#today-view"), { open: openFromPage, openTag: (tag) => openTag(tag, "tasks"), openPerson: (assignee) => void showTasks({ assignee }) });
+  $("#today-view .page")?.prepend(awayStrip());
   $("#today-view").focus({ preventScroll: true });
   wentTo("/today", opts.push !== false);
   document.title = "Today · Common Ink";
@@ -820,10 +823,10 @@ async function refreshCalendars() {
 }
 
 /** History, optionally for one note, with a change selected (e.g. from the activity list). */
-async function showHistory(opts: { note?: string | null; select?: number; label?: string; push?: boolean } = {}) {
+async function showHistory(opts: { note?: string | null; select?: number; label?: string; since?: number; push?: boolean } = {}) {
   await leaveNote();
   showStage("history");
-  await (await loadHistory()).show({ note: opts.note ?? null, select: opts.select, label: opts.label });
+  await (await loadHistory()).show({ note: opts.note ?? null, select: opts.select, label: opts.label, since: opts.since });
   const id = opts.note ? notes.find((n) => n.path === opts.note)?.id : undefined;
   wentTo(id ? `/history?note=${id}` : "/history", opts.push !== false);
   document.title = `${opts.note ? `${displayName(opts.note)} · ` : ""}History · Common Ink`;
@@ -3195,6 +3198,7 @@ async function boot() {
   });
   if (!viewer) void startGuide({ archive: (path) => void archivePath(path), flush: () => flushSave() });
   if (!viewer) watchTodayCleared();
+  if (!viewer) startAway({ seeChanges: (after) => void showHistory({ since: after }), workspace: () => workspaceId });
   startInks({ choose: () => openSettings("ink") });
 
   void refreshTaskCount();
