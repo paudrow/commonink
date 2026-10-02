@@ -9,5 +9,5 @@ Templates are notes in `Templates/`. Open [[Meeting]] to see one: `{{date:dddd, 
 3. Open the Meetings folder in Notes and click **New note**: it starts from Meeting, because the template applies to `Meetings/`.
 4. In [[Launch notes]], type `/template` on the empty line and pick **Decision**. Answer "Ship in two steps": the decision block goes in with today's date and a revisit date four weeks out, and the cursor is at "Why".
 5. Leave Attendees blank next time: `{{ask:Attendees}}` stays in the note, and a toast lists what's left to fill in.
-6. Today's journal note (Tasks → Today → Start today's note) and the calendar widget use `Templates/Daily note.md` through the same engine.
+6. Today's journal note (Tasks → Today → Start today's journal) and the calendar widget use `Templates/Journal.md` through the same engine.
 7. Agents use `list_templates` and `create_from_template` (with `variables`), and the CLI `commonink new --template Meeting --var Client=Acme`.

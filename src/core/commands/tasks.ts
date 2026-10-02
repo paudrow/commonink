@@ -73,11 +73,11 @@ export const tasks = [
     mcp: "add_task",
     route: "POST /tasks/add",
     title: "Add task",
-    summary: "Add a task in words: dates and repeats become tokens; it goes to today's daily note or → [[Note]]",
+    summary: "Add a task in words: dates and repeats become tokens; it goes to today's journal note or → [[Note]]",
     description:
       "Add a task written the way you'd say it: dates and repeats in words become tokens (\"Pay rent every month on the 1st #home\" → " +
       "due:… rec:1st #home; \"call mom tomorrow\", \"next fri\", \"oct 3\", \"in 2 weeks\", \"every other week\", \"last friday of the month\", " +
-      "\"every 3 days after done\"). Tokens (due:, !high, @person, #tag) pass through. It goes under ## Tasks in today's daily note " +
+      "\"every 3 days after done\"). Tokens (due:, !high, @person, #tag) pass through. It goes under ## Tasks in today's journal note " +
       "(Journal/YYYY-MM-DD.md, created if needed), or into the note named with → [[Note]].",
     examples: ['commonink task add "Pay rent every month on the 1st #home"', 'commonink task add "Review the PR next fri → [[Launch]] @sam"'],
     args: {
@@ -174,8 +174,8 @@ export const tasks = [
     mcp: "open_journal",
     route: "POST /today/journal",
     title: "Open journal",
-    summary: "Today's journal note, made from the daily template if it's missing",
-    description: "Today's journal note (Journal/YYYY-MM-DD.md): its path, made from Templates/Daily note.md (or a plain one) if it doesn't exist yet.",
+    summary: "Today's journal note, made from the journal template if it's missing",
+    description: "Today's journal note (Journal/YYYY-MM-DD.md): its path, made from Templates/Journal.md (or Templates/Daily note.md, its old name, or a plain one) if it doesn't exist yet.",
     examples: ["commonink journal", "commonink journal --date 2026-10-01"],
     args: { today: str({ flag: "date", describe: "The day, YYYY-MM-DD; default the user's today" }) },
     run: ({ vault, source }, a) => {
