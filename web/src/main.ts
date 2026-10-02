@@ -53,7 +53,8 @@ import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
 import { clampSide, forget, historyStep, IS_MAC, newLayout, pageEntry, pageOf, parseLayout, rememberPlace, SIDE_CLICK, sideClick, step, trailAhead, visit, type PaneTrail, type Place } from "./panes.ts";
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { headingMatches } from "../../src/core/gfm.ts";
-import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
+import { formatQuery, parseQuery, tagList, type NoteQuery } from "../../src/core/query.ts";
+import { tagPicker } from "./tagPicker.ts";
 import { NEW_BOARD } from "../../src/core/kanban.ts";
 import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
@@ -284,7 +285,12 @@ let account: AccountAction[] = [];
 /** Everything ⌘K can do right now, and every shortcut the sheet lists. */
 function commands() {
   const s = active.session;
+  const onNotes = onPage() === "notes";
+  const tagNames = onNotes ? tagList(notesPage.query.tag) : [];
+  const tag = tagNames.length === 1 ? tagNames[0] : null;
   return appCommands({
+    tag: tag ? { name: tag, starred: isTagStarred(tag) } : null,
+    notesFiltered: onNotes && notesPage.tab === "notes" && !!formatQuery(notesPage.query),
     note: s ? { kind: s.kind, starred: isStarred(s.id), archived: isArchived(s.path) } : null,
     vim: prefs.vim,
     vimDisplayLines: prefs.vimDisplayLines,
@@ -308,6 +314,18 @@ function commands() {
     newFolder: startNewFolder,
     newTag: startNewTag,
     newSmartFolder: newSmartFolderFromPalette,
+    saveFilters: () => notesPage.saveFilters(),
+    starTag: () => (tag ? void toggleTagStar(tag) : pickTag("Star or unstar a tag…", (t) => void toggleTagStar(t))),
+    renameTag: () => (tag ? void renameTagOnPage(tag) : pickTag("Rename which tag?", (t) => void renameTagOnPage(t))),
+    newContact: async () => {
+      await showContacts();
+      void contactsPage?.newContact();
+    },
+    importContacts: async () => {
+      await showContacts();
+      contactsPage?.importFile();
+    },
+    restoreVersion: () => void restoreVersion(),
     go: (page) => {
       if (page === "notes" || page === "archive" || page === "trash") void showNotes({ tab: page, query: {} });
       else void { today: showToday, tasks: showTasks, calendar: showCalendar, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory, shared: showShared }[page]();
@@ -845,6 +863,29 @@ async function labelCurrent(name?: string) {
   if (!name) return void (await import("./labels.ts")).labelVersion(s.path, { toast, show: showLabel });
   const label = await api.label(s.path, name).catch((e: Error) => (toast({ text: e.message }), null));
   if (label) toast({ icon: "label", text: `Labeled this version “${label.name}”`, actionLabel: "Show", action: () => showLabel(label) });
+}
+
+/** From ⌘⇧P: the focused note's History, its latest label compared with now and ready to restore (or a word on how to make one). */
+async function restoreVersion() {
+  const s = active.session;
+  if (!s || s.kind === "asset") return;
+  await flushSave();
+  const labels = await api.labels(s.path).catch(() => null);
+  const latest = labels?.sort((a, b) => b.ts - a.ts)[0];
+  if (latest) return showLabel(latest);
+  await showHistory({ note: s.path });
+  toast({ icon: "label", text: "No labeled versions yet", detail: "Pick a change in History to restore it, or Label this version to name one for later." });
+}
+
+/** Ask which tag (from ⌘⇧P, with no tag in view), under the search button. */
+function pickTag(placeholder: string, onPick: (tag: string) => void) {
+  tagPicker($("#search-btn"), { tags: tags.filter((t) => !unusedTag(t)), count: (t) => t.notes + t.tasks + t.assets, onPick, placeholder });
+}
+
+/** Tags, with `tag`'s row ready to rename (or merge). */
+async function renameTagOnPage(tag: string) {
+  await showTags();
+  tagsPage?.renameTag(tag);
 }
 
 async function showTags(opts: { push?: boolean } = {}) {
