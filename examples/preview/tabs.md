@@ -1,4 +1,5 @@
 ---
+pr: 302
 title: Tabs
 ---
 1. Open [[Tab one]]. Press ⌘K, type "Tab two" and press ⌥↵ (Alt+Enter): it opens in a new tab, and the tabs show in the top bar.
