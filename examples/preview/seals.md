@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 277
 title: Seals for firsts
 ---
 This Preview's sample notes and its guide may already have earned a seal or two, so the first toast can name several. For a clean start, clear `commonink.seals` from local storage and reload.
