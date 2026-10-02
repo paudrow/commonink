@@ -2960,13 +2960,15 @@ button.cal-src-color:hover { background: var(--hover); }
 .today-ring-wrap { display: inline-flex; align-items: center; gap: 8px; }
 .today-ring-wrap[hidden] { display: none; }
 .nav-item .today-ring-wrap { margin-left: auto; }
-svg.today-ring { flex: none; width: 14px; height: 14px; transform: rotate(-90deg); overflow: visible; }
+svg.today-ring { flex: none; width: 16px; height: 16px; transform: rotate(-90deg); overflow: visible; }
 .today-ring circle { fill: none; stroke-width: 2.25; }
-.today-ring-track { stroke: var(--line-strong); }
+.today-ring-track { stroke: color-mix(in srgb, var(--muted) 35%, transparent); } /* visible on a lit row too, so a part-filled ring reads as progress, not a spinner */
 .today-ring-fill { stroke: var(--accent); stroke-linecap: round; transition: stroke-dasharray 0.45s cubic-bezier(0.3, 0.7, 0.4, 1); }
 .today-ring-fill[stroke-dasharray^="0 "] { visibility: hidden; } /* no dot before the first tick */
 .today-ring-wrap.is-closed .today-ring-fill { stroke-linecap: butt; }
 .today-ring-wrap.is-closed .today-ring-track { fill: var(--accent-soft); stroke: var(--accent); }
+.today-ring-tick { fill: none; stroke: var(--accent); stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; visibility: hidden; }
+.today-ring-wrap.is-closed .today-ring-tick { visibility: visible; }
 .td-sub { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; }
 .today-ring-wrap.is-big svg.today-ring { width: 26px; height: 26px; }
 .today-ring-wrap.is-big .today-ring circle { stroke-width: 1.75; }

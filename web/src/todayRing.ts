@@ -24,6 +24,11 @@ function ring(big: boolean) {
   };
   circle("today-ring-track");
   const fill = circle("today-ring-fill");
+  // A tick inside, shown once the ring closes, so a full ring reads as done rather than empty.
+  // Turned back a quarter, since the whole ring is turned so it fills from the top.
+  const tick = document.createElementNS(NS, "path");
+  for (const [k, v] of Object.entries({ class: "today-ring-tick", d: "M5.3 8.2 7.2 10 10.7 6.2", transform: "rotate(90 8 8)" })) tick.setAttribute(k, v);
+  svg.append(tick);
   // What a screen reader hears; the ring itself is a picture of it. The big one shows it too.
   const label = document.createElement("span");
   label.className = big ? "today-ring-text" : "sr-only";
