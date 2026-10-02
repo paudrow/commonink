@@ -84,8 +84,6 @@ export const tasks: WidgetSpec = {
     let all: Task[] = [];
     /** Who each @name is, for grouping by person. */
     let people: Person[] = [];
-    /** Tasks were found, counting the ones `skip` leaves out. */
-    let found = false;
     let problem = "";
     let expanded = false;
     let alive = true;
@@ -116,7 +114,7 @@ export const tasks: WidgetSpec = {
         ]);
         people = who;
         if (!alive) return;
-        [all, problem, found] = [env.skip ? t.filter((x) => !env.skip!(x)) : t, "", t.length > 0];
+        [all, problem] = [t, ""];
       } catch (e) {
         if (!alive) return;
         [all, problem] = [[], e instanceof Error ? e.message : "Couldn't load tasks"];
@@ -128,7 +126,7 @@ export const tasks: WidgetSpec = {
       const now = today();
       const done = all.filter((t) => t.done).length;
       summary.textContent = all.length ? `${done} of ${all.length} done` : "No tasks yet";
-      const blank = !found && !problem && !!env.empty;
+      const blank = !all.length && !problem && !!env.empty;
       top.hidden = progress.hidden = blank;
       bar.style.width = `${all.length ? (done / all.length) * 100 : 0}%`;
       seg.replaceChildren(
