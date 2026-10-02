@@ -3001,3 +3001,12 @@ button.cal-src-color:hover { background: var(--hover); }
 .lb-menu { min-width: 260px; }
 .lb-when { flex: none; font-size: 11.5px; color: var(--muted); }
 .lb-when.is-now { color: var(--accent-ink); font-weight: 600; }
+
+/* "While you were away" at the top of Notes and Today (away.ts). */
+.away { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding: 7px 8px 7px 12px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 9%, var(--bg-elev)); border: 1px solid var(--accent-line); font-size: 13px; color: var(--ink); }
+.away[hidden] { display: none; }
+.away > svg { color: var(--accent); flex: none; }
+.away-text { flex: 1; min-width: 0; }
+.away-see { flex: none; font-weight: 550; }
+.away-x { flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; color: var(--muted); }
+.away-x:hover { background: var(--hover); color: var(--ink); }
