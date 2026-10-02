@@ -55,7 +55,7 @@ export const contacts = [
       const today = a.today ?? vault.day();
       let hits = matchContacts(all, a);
       if (a.check_in_due) hits = hits.filter((c) => c.checkInDue && c.checkInDue <= today).sort((x, y) => x.checkInDue!.localeCompare(y.checkInDue!));
-      if (a.check_in_due && !hits.length) return { text: "No one is due a check-in. Give a contact a rhythm with `commonink contact <name> --check-in monthly`.", data: hits };
+      if (a.check_in_due && !hits.length) return { text: "No one is due a check-in. Give a contact a rhythm with update_contact check_in (CLI: --check-in monthly).", data: hits };
       return { text: hits.length ? hits.map(fmtContactLine).join("\n") : "No contacts match. People are notes in People/; `commonink contact add <name>` makes one.", data: hits };
     },
   }),
