@@ -2,6 +2,7 @@
 // filter by type or tag, sort, and search (with suggestions as you type). Drop files anywhere on the
 // page to upload them; click one for a big preview, its tags, where it's used, and what you can do with it.
 // Select several with their checkboxes (or x on one) to delete them together; Delete deletes the one in focus.
+// F2 (or Rename in the preview) renames one, as F2 renames a note or a folder.
 import { api, fileUrl, isArchived, type NoteMeta, type TagCount } from "./api.ts";
 import { $, el, icon } from "./dom.ts";
 import { tagChip, tagFilter, tagPicker } from "./tagPicker.ts";
@@ -21,6 +22,10 @@ interface Hooks {
   archive(path: string): Promise<void>;
   /** Send assets to Trash (asking first if notes embed them). Resolves to the paths that went. */
   delete(paths: string[]): Promise<string[]>;
+  /** Ask for a new name and rename the asset, links to it rewritten. Resolves to its new path, or null. */
+  rename(path: string): Promise<string | null>;
+  /** A viewer (online) can't rename, archive or delete. */
+  readOnly(): boolean;
   embedName(path: string): string;
   tags(): TagCount[];
   /** Asset tags changed: fetch the tag list again. */
@@ -104,6 +109,7 @@ export class Assets {
       if (!path || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "Delete" || e.key === "Backspace") void this.delete(this.selected.size ? [...this.selected] : [path]);
       else if (e.key === "x") this.toggle(path);
+      else if (e.key === "F2") void this.rename(path);
       else return;
       e.preventDefault();
     });
@@ -336,6 +342,21 @@ export class Assets {
     if (done.length) this.hooks.toast({ icon: "upload", text: done.length === 1 ? `Uploaded ${files[0].name}` : `Uploaded ${done.length} files` });
   }
 
+  /** The asset the preview shows, if it's open. */
+  get previewed(): string | null {
+    return this.previewing;
+  }
+
+  /** Rename an asset (F2, the preview's Rename, ⌘K), then show it again under its new name if it was showing. */
+  async rename(path: string) {
+    if (this.hooks.readOnly()) return;
+    const shown = this.previewing === path;
+    if (shown) document.querySelector<HTMLElement>("#asset-preview .ap-close")?.click(); // the name dialog goes over the page, not the preview
+    const to = await this.hooks.rename(path);
+    if (shown) this.preview(to ?? path);
+    else if (to) this.grid.querySelector<HTMLElement>(`.as-card[data-path="${CSS.escape(to)}"]`)?.focus();
+  }
+
   // ---------------------------------------------------------------- preview
 
   preview(path: string) {
@@ -419,6 +440,7 @@ export class Assets {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).closest?.("input, textarea, .ap-text-body")) return;
       if (e.key === "Escape") close();
+      else if (e.key === "F2") void this.rename(path);
       else if (e.key === "Delete" || e.key === "Backspace") void (close(), this.delete([path]));
       else if (e.key === "ArrowRight") step(1);
       else if (e.key === "ArrowLeft") step(-1);
@@ -433,7 +455,7 @@ export class Assets {
       el(
         "aside",
         { class: "ap-info" },
-        el("div", { class: "ap-top" }, el("h2", {}, nameOf(meta)), el("button", { type: "button", class: "icon-btn", title: "Close (Esc)", "aria-label": "Close", onclick: close }, icon("close", 16))),
+        el("div", { class: "ap-top" }, el("h2", {}, nameOf(meta)), el("button", { type: "button", class: "icon-btn ap-close", title: "Close (Esc)", "aria-label": "Close", onclick: close }, icon("close", 16))),
         el(
           "dl",
           { class: "ap-facts" },
@@ -462,6 +484,7 @@ export class Assets {
           ),
           el("a", { class: "qw-btn", href: src, target: "_blank", rel: "noopener" }, icon("open", 14), "Open"),
           el("a", { class: "qw-btn", href: src, download: nameOf(meta) }, icon("download", 14), "Download"),
+          this.hooks.readOnly() ? null : el("button", { type: "button", class: "qw-btn", title: "Rename (F2)", onclick: () => void this.rename(path) }, icon("edit", 14), "Rename"),
           el(
             "button",
             { type: "button", class: "qw-btn", onclick: async () => (close(), await this.hooks.archive(path)) },

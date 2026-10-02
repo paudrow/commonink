@@ -86,13 +86,13 @@ async function mcp(token: string) {
 const VIEWER_TOOLS = [
   "backlinks", "delete_smart_folder", "diff_versions", "export_note", "get_event", "get_today", "list_contacts", "list_events", "list_folders",
   "list_labels", "list_notes", "list_shares", "list_smart_folders", "list_tags", "list_tasks", "list_templates", "missing_links", "order_favorites", "read_board", "read_contact",
-  "read_note", "recent_changes", "save_smart_folder", "search_notes", "show_change", "star_note", "star_tag", "unstar_note", "unstar_tag",
+  "read_note", "recent_changes", "save_smart_folder", "save_to_drive", "search_notes", "show_change", "star_note", "star_tag", "unstar_note", "unstar_tag", "workspace_checkup",
 ];
 const ALL_TOOLS = [
   ...VIEWER_TOOLS,
   "add_card", "add_task", "append_to_note", "archive_note", "create_contact", "create_from_template", "create_meeting_note", "create_note", "delete_folder",
   "delete_note", "edit_card", "edit_note", "import_contacts", "import_notes", "label_version", "list_trash", "merge_contacts", "move_card", "move_note",
-  "move_task", "open_journal", "remove_task", "rename_tag", "restore_change", "restore_from_trash", "restore_label", "set_asset_tags", "share_note", "unarchive_note", "unshare_note",
+  "move_task", "open_journal", "remove_task", "rename_folder", "rename_tag", "restore_change", "restore_from_trash", "restore_label", "set_asset_tags", "share_note", "unarchive_note", "unshare_note",
   "update_contact", "update_task", "write_note",
 ].sort();
 
@@ -175,6 +175,26 @@ test("online, an agent exports Markdown and a .zip; a web page and Word come fro
   const word = await raw({ target: "Getting started", format: "docx" });
   assert.equal(word.isError, true);
   assert.match(word.content[0].text!, /drawn by the app: use Share → Export as/);
+  await viewer.client.close();
+});
+
+test("an agent saves a note to its person's Google Drive once they've allowed it in the app (the stand-in here)", async () => {
+  const viewer = await mcp((await connect(people.viewer, people.id, await reusedClient())).access);
+  const early = await viewer.call("save_to_drive", { note: "Getting started" });
+  assert.deepEqual([early.isError, /Google Drive isn't connected yet/.test(early.text)], [true, true]);
+  // The person allows it, the way the app's dialog sends them: Google's (stand-in's) consent page, and back.
+  const start = await cloud.request(people.viewer, "GET", "/auth/google/drive?next=/notes&as=doc");
+  const both = `${people.viewer}; ${start.headers.getSetCookie().map((c) => c.split(";")[0]).find((c) => c.startsWith("__Host-ci_gcal="))}`;
+  const consent = new URL(start.headers.get("location")!);
+  const allowed = await cloud.server.fetch(new URL(consent.pathname + consent.search, cloud.origin), { method: "POST", redirect: "manual", headers: { cookie: both, origin: cloud.origin, "content-type": "application/x-www-form-urlencoded" }, body: "decision=allow" });
+  const callback = new URL(allowed.headers.get("location")!);
+  assert.equal((await cloud.request(both, "GET", callback.pathname + callback.search)).status, 302);
+  const doc = await viewer.call("save_to_drive", { note: "Getting started" });
+  assert.equal(doc.isError, false, doc.text);
+  assert.match(doc.text, /^Saved Getting started\.md to Google Drive as Getting started: http.*\/auth\/google\/drive\/mock\/file\?/);
+  assert.match(decodeURIComponent(doc.text), /as=Google\+Doc&from=text\/markdown/, "agents send the note's markdown; Drive converts it");
+  const pdf = await viewer.call("save_to_drive", { note: "Getting started", format: "pdf" });
+  assert.match(pdf.text, /^Saved Getting started\.md to Google Drive as Getting started\.pdf: /);
   await viewer.client.close();
 });
 

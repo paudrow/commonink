@@ -47,7 +47,7 @@ const YMD = /(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)/;
 
 /**
  * A note's own date as YYYY-MM-DD, or null: a `date:` (or `created:`…) in its frontmatter, else a
- * date in its title or file name (a daily note's `2026-10-01`). What `sort=date` orders by; notes
+ * date in its title or file name (a journal note's `2026-10-01`). What `sort=date` orders by; notes
  * moved in from elsewhere all changed just now, so when they last changed doesn't tell them apart.
  */
 export function dateOf(content: string, kind: NoteKind, p: string): string | null {

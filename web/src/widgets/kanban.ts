@@ -13,7 +13,7 @@ export const kanban: WidgetSpec = {
   keywords: "kanban board columns cards embed",
   defaults: {},
   fields: [
-    { key: "label", label: "Label", type: "text", placeholder: "Launch, Hiring…" },
+    { key: "label", label: "Title", type: "text", placeholder: "Launch, Hiring…" },
     { key: "note", label: "Note", type: "text", placeholder: "The note the board is in" },
     { key: "board", label: "Board", type: "text", placeholder: "1 for its first board, 2 for the next…" },
   ],

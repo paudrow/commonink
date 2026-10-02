@@ -1,5 +1,5 @@
-// "Your writing days": a 12-week heatmap of the days you wrote, with how many days in a row, on the
-// Today page (its Writing streak section) and in the `::streak` widget. It counts your own notes made
+// "Your writing days": a 12-week heatmap of the days you wrote, under the Today page's week card
+// (weekRecapCard.ts), and with how many days in a row in the `::streak` widget. It counts your own notes made
 // and edited (not an agent's work for you, nor moves and archiving), from the change log the History
 // page reads; the date math is in writingDays.ts. A widget can narrow it to a folder or a tag.
 import { api, type Change } from "./api.ts";

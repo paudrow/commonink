@@ -7,6 +7,8 @@ import { encodeTarget, safeDecode } from "../../src/core/uri.ts";
 import type { FillOptions, TemplateInfo } from "../../src/core/templates.ts";
 import type { CalendarEvent, EventDraft, Source as CalendarSource, SourceColor } from "../../src/core/calendar.ts";
 import type { QuerySort } from "../../src/core/query.ts";
+import type { AwaySummary } from "../../src/core/away.ts";
+import type { Checkup } from "../../src/core/checkup.ts";
 
 /** The reader's day, which task writes and due filters go by (the server may be in another time zone). */
 const today = () => localDate(Date.now());
@@ -78,6 +80,16 @@ export interface Backlink {
   kind: string;
   line: number;
   text: string;
+}
+/** A note's name written as plain text in another note (Vault.unlinkedMentions). */
+export interface UnlinkedMention {
+  path: string;
+  title: string;
+  line: number;
+  from: number;
+  to: number;
+  text: string;
+  context: string;
 }
 export type Scope = "active" | "archived" | "all";
 export interface FeedItem {
@@ -168,7 +180,8 @@ export type EventInput = Omit<EventDraft, "attendees"> & { attendees: Array<{ na
 /** Google Calendar on this server (cloud/src/connections.ts): "mock" is the Preview stand-in, "off" not set up. */
 export interface GoogleStatus {
   mode: "real" | "mock" | "off";
-  connection: { account: string; canWrite: boolean; connectedAt: number } | null;
+  /** `calendar`: its calendars were allowed; `drive`: saving notes to Drive was (each is asked for the first time it's used). */
+  connection: { account: string; calendar: boolean; canWrite: boolean; drive: boolean; connectedAt: number } | null;
 }
 /** One of the person's Google calendars. */
 export interface GoogleCalendar {
@@ -388,7 +401,7 @@ export const api = {
   feed: (p: { q?: string; scope?: Scope; folder?: string; tag?: string; sort?: QuerySort; offset?: number; limit?: number }) =>
     j<FeedPage>(`${BASE}/feed?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
   /** `assignee`: someone's name (every @name that's theirs) or "me"; `by: "me"`: tasks you gave someone else, in your notes. */
-  tasks: (p: { folder?: string; note?: string; tag?: string; assignee?: string; by?: "me"; due?: string; today?: string }) =>
+  tasks: (p: { folder?: string; note?: string; tag?: string; assignee?: string; by?: "me"; due?: string; start?: string; done?: string; priority?: string; today?: string }) =>
     j<Task[]>(`${BASE}/tasks?${new URLSearchParams(Object.entries(p).filter(([, v]) => v).map(([k, v]) => [k, String(v)]))}`),
   /** How many tasks are still open across the workspace (the Tasks badge). */
   openTasks: () => j<{ open: number }>(`${BASE}/tasks/count`).then((r) => r.open),
@@ -410,7 +423,7 @@ export const api = {
   updateTask: (t: Task, patch: TaskPatch) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/update`, send("POST", { path: t.path, line: t.line, text: t.text, patch, today: today() })),
   /** The day at a glance for `day` (the viewer's today). */
   today: (day: string) => j<TodayView>(`${BASE}/today?today=${encodeURIComponent(day)}`),
-  /** Today's journal note, made from the daily template if it's missing. */
+  /** Today's journal note, made from the journal template if it's missing. */
   dailyNote: (day: string) => j<{ path: string; created: boolean }>(`${BASE}/today/journal`, send("POST", { today: day })),
   /** Add a task written in words (see src/core/quickAdd.ts); `ignore` holds phrases kept as words. */
   addTask: (text: string, ignore: string[] = [], to?: string) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/add`, send("POST", { text, ignore, to, today: today() })),
@@ -437,6 +450,9 @@ export const api = {
   delete: (paths: string[]) => j<{ trashed: Trashed[] }>(`${BASE}/delete`, send("POST", { paths })),
   deleteFolder: (folder: string, notes: "trash" | "lift") =>
     j<{ trashed: Trashed[]; moved: Array<{ from: string; to: string }> }>(`${BASE}/delete-folder`, send("POST", { folder, notes })),
+  /** Rename a folder (or move it under another): everything in it moves, links rewritten. */
+  renameFolder: (folder: string, to: string) =>
+    j<{ from: string; path: string; moved: Array<{ from: string; to: string }> }>(`${BASE}/folders/rename`, send("POST", { folder, to })),
   trash: () => j<TrashItem[]>(`${BASE}/trash`),
   restoreTrash: (ids: string[]) => j<{ restored: string[] }>(`${BASE}/trash/restore`, send("POST", { ids })),
   purgeTrash: (ids: string[]) => j<{ deleted: string[] }>(`${BASE}/trash/delete`, send("POST", { ids })),
@@ -444,6 +460,11 @@ export const api = {
   unarchive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/unarchive`, send("POST", { paths })),
   /** Links to `path`; "all" brings the ones from archived notes too. */
   backlinks: (path: string, scope: "active" | "all" = "active") => j<Backlink[]>(`${BASE}/backlinks?path=${enc(path)}&scope=${scope}`),
+  /** Where other notes write this note's name without linking it. */
+  mentions: (path: string) => j<UnlinkedMention[]>(`${BASE}/mentions?path=${enc(path)}`),
+  /** Turn one of them into a link to `target`: one change, restored by `restore(change, version)`. */
+  linkMention: (target: string, m: UnlinkedMention) =>
+    j<{ path: string; version: string; change: number | null }>(`${BASE}/mentions/link`, send("POST", { target, path: m.path, line: m.line, from: m.from, to: m.to, text: m.text })),
   /** The workspace's contacts (notes in People/), by name. */
   contacts: () => j<Contact[]>(`${BASE}/contacts?today=${today()}`),
   /** One contact, and the notes that mention them, newest first. */
@@ -464,8 +485,12 @@ export const api = {
   fromTemplate: (template: string, o: FillOptions & { folder?: string }) =>
     j<{ path: string; version: string; cursor: number | null; unfilled: string[] }>(`${BASE}/notes/from-template`, send("POST", { template, ...o })),
   /** A page of the change log, newest first; `before` pages further back. */
-  history: (p: { limit?: number; before?: number; path?: string; by?: string }) =>
+  history: (p: { limit?: number; before?: number; after?: number; path?: string; by?: string }) =>
     j<Change[]>(`${BASE}/changes?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
+  /** What agents did since your own last change, and after change `after` (the last one dismissed); null if nothing. */
+  away: (after = 0) => j<AwaySummary | null>(`${BASE}/changes/away?after=${after}`),
+  /** What may need tending in the workspace (src/core/checkup.ts). */
+  checkup: () => j<Checkup>(`${BASE}/checkup`),
   /** The agents in the change log, for filtering History by one. */
   changeAgents: () => j<string[]>(`${BASE}/changes/agents`),
   /** What a set of changes did, note by note. `ids` is ranges like "12-18,20". */
@@ -544,6 +569,9 @@ export const api = {
   googleCalendars: () => j<GoogleCalendar[]>("/api/google/calendars"),
   /** Google forgets the grant, and your Google calendars leave every workspace. */
   disconnectGoogle: () => j<{ ok: true }>("/api/google/disconnect", send("POST", {})),
+  /** Save a note to your Google Drive, sent as Word or markdown, as a Google Doc, a PDF or a markdown file. Where it went, to open. */
+  saveToDrive: (as: "doc" | "pdf" | "md", title: string, file: Blob) =>
+    j<{ id: string; name: string; url: string }>(`/api/google/drive?${new URLSearchParams({ as, title })}`, { method: "POST", headers: { "Content-Type": file.type }, body: file }),
   unsubscribe: (id: string) => j<{ ok: true }>(`${BASE}/calendar/sources/remove`, send("POST", { id })),
   /** Read one calendar again, or all of them (each at most once a minute). */
   refreshCalendars: (id?: string) => j<CalendarSource[]>(`${BASE}/calendar/refresh`, send("POST", { id })),
