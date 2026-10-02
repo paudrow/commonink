@@ -7,6 +7,8 @@ import { renderDiff } from "./diff.ts";
 import { hideBanner, onBannerGone, showAlert } from "./banner.ts";
 
 export interface Conflict {
+  /** The banner of the pane the note is in. */
+  banner: HTMLElement;
   /** Who made the other change: "Claude for Audrow", "Another window". */
   who: string;
   /** "this note", or its name when two notes are open. */
@@ -24,15 +26,18 @@ const USE_TITLE = "Put their version in the editor. Undo brings yours back.";
 let open: HTMLDialogElement | null = null;
 
 export function showConflict(c: Conflict) {
-  const keep = () => (hideBanner(), c.keepMine());
-  const use = () => (hideBanner(), c.useTheirs());
+  const keep = () => (hideBanner(c.banner), c.keepMine());
+  const use = () => (hideBanner(c.banner), c.useTheirs());
   showAlert(
     `${c.who} changed ${c.where} while you were typing, and the edits overlap.`,
-    ["Compare", () => compare(c, keep, use), "Show how the two versions differ"],
-    ["Keep mine", keep, KEEP_TITLE],
-    ["Use theirs", use, USE_TITLE],
+    [
+      ["Compare", () => compare(c, keep, use), "Show how the two versions differ"],
+      ["Keep mine", keep, KEEP_TITLE],
+      ["Use theirs", use, USE_TITLE],
+    ],
+    { in: c.banner },
   );
-  onBannerGone(closeCompare);
+  onBannerGone(closeCompare, c.banner);
 }
 
 function closeCompare() {

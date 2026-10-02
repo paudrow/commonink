@@ -47,10 +47,13 @@ export async function connectionInfo(env: Env, user: string): Promise<Connection
   return r ? { account: r.account, canWrite: r.scopes.split(" ").includes(SCOPES.write), connectedAt: r.created_at } : null;
 }
 
-async function save(env: Env, user: string, g: Grant, account: string) {
+async function sealGrant(env: Env, user: string, g: Grant) {
   const key = await keyOf(env);
-  const access = await encrypt(key, g.access, context(user, "access"));
-  const refresh = g.refresh ? await encrypt(key, g.refresh, context(user, "refresh")) : null;
+  return { access: await encrypt(key, g.access, context(user, "access")), refresh: g.refresh ? await encrypt(key, g.refresh, context(user, "refresh")) : null };
+}
+
+async function save(env: Env, user: string, g: Grant, account: string) {
+  const { access, refresh } = await sealGrant(env, user, g);
   await env.DB.prepare(
     `INSERT INTO connections(user_id, provider, account, scopes, access_enc, refresh_enc, expires_at, created_at) VALUES (?, 'google', ?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id, provider) DO UPDATE SET account = excluded.account, scopes = excluded.scopes, access_enc = excluded.access_enc,
@@ -80,8 +83,14 @@ export async function accessToken(env: Env, user: string): Promise<string> {
     if (e instanceof GoogleError && (e.status === 400 || e.status === 401)) throw new Error("feed:Google Calendar access was taken back. Connect it again from Calendars.");
     throw new Error("feed:Couldn't reach Google Calendar");
   }
-  // Refreshing doesn't say which scopes it covers when they're unchanged.
-  await save(env, user, { ...g, scopes: g.scopes.length ? g.scopes : r.scopes.split(" ") }, r.account);
+  // Refreshing doesn't say which scopes it covers when they're unchanged. Only this same connection is
+  // updated: one disconnected (or made again) while the refresh was in flight stays as it is now.
+  const { access, refresh: sealed } = await sealGrant(env, user, g);
+  await env.DB.prepare(
+    "UPDATE connections SET scopes = ?, access_enc = ?, refresh_enc = COALESCE(?, refresh_enc), expires_at = ? WHERE user_id = ? AND provider = 'google' AND created_at = ?",
+  )
+    .bind((g.scopes.length ? g.scopes : r.scopes.split(" ")).join(" "), access, sealed, g.expiresAt, user, r.created_at)
+    .run();
   return g.access;
 }
 

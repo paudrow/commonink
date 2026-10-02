@@ -246,6 +246,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
   }
   // The web app asks who's signed in to tell online from local: here, nobody signs in.
   if (route === "/me") return send(res, json({ local: true }));
+  if (route === "/workspace/settings" && (req.method === "GET" || req.method === "POST")) return send(res, await localSettings(req.method === "POST" ? await readJson(req) : undefined));
   if (route.startsWith("/files/")) return asset(res, decodePath(route.slice("/files/".length)));
   if (route === "/file-resolve") {
     const rel = vault.resolve(url.searchParams.get("target") ?? "", url.searchParams.get("from") ?? undefined);
@@ -262,6 +263,42 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
   if (!request) return tooLarge(res, "Request body is over 20 MB");
   const response = await handleApi(host, request, route);
   send(res, response ?? json({ error: `No route ${req.method} ${url.pathname}` }, 404));
+}
+
+// ------------------------------------------------------------------ workspace settings
+
+/**
+ * The workspace's settings, which online are an owner's (cloud/src/admin.ts). A local vault's one
+ * person is its owner, so here they're theirs to change, kept beside the index. Only whether the
+ * app is gamified (web/src/gamify.ts) applies locally: agents' share links are an online thing.
+ */
+const SETTINGS_FILE = path.join(files.root, ".commonink", "settings.json");
+
+function readSettings(): { gamified: boolean } {
+  try {
+    const saved = JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8"));
+    return { gamified: saved?.gamified !== false };
+  } catch {
+    return { gamified: true };
+  }
+}
+
+async function localSettings(body: unknown): Promise<Response> {
+  if (body === undefined) return json(readSettings());
+  const gamified = (body as { gamified?: unknown } | null)?.gamified;
+  if (typeof gamified !== "boolean") return json({ error: '"gamified" must be true or false' }, 400);
+  const next = { ...readSettings(), gamified };
+  await fs.promises.writeFile(SETTINGS_FILE, JSON.stringify(next, null, 2) + "\n");
+  return json(next);
+}
+
+async function readJson(req: http.IncomingMessage): Promise<unknown> {
+  const body = await readBody(req, 64 * 1024);
+  try {
+    return body ? JSON.parse(new TextDecoder().decode(body)) : null;
+  } catch {
+    return null;
+  }
 }
 
 function decodePath(s: string): string {

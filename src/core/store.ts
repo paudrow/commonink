@@ -26,6 +26,8 @@ export interface Content {
   remove(rel: string): void;
   rename(from: string, to: string): void;
   stat(rel: string): FileStat | null;
+  /** Whether two paths name one existing file (on a case-insensitive disk, "Notes.md" and "notes.md" do). */
+  same(a: string, b: string): boolean;
   /** Every note and asset, hidden paths excluded. */
   list(): Array<{ path: string } & FileStat>;
   /** Every file under the folder `dir`, hidden or not (Trash lives in one). */
@@ -35,7 +37,7 @@ export interface Content {
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS notes(
      path TEXT PRIMARY KEY, kind TEXT NOT NULL, title TEXT NOT NULL, stem TEXT NOT NULL,
-     version TEXT NOT NULL, mtime REAL NOT NULL, size INTEGER NOT NULL, id TEXT)`,
+     version TEXT NOT NULL, mtime REAL NOT NULL, size INTEGER NOT NULL, id TEXT, date TEXT)`,
   `CREATE INDEX IF NOT EXISTS notes_stem ON notes(stem)`,
   // A file new to the index looks for the note it was renamed from by content.
   `CREATE INDEX IF NOT EXISTS notes_version ON notes(version)`,
@@ -150,6 +152,11 @@ export function migrate(db: SqlDb, opts: { local?: boolean } = {}) {
     }
   });
   db.exec("CREATE INDEX IF NOT EXISTS changes_agent ON changes(agent, id)");
+  // Each note's own date (see dateOf), for sort=date. An index from before it reads every note again.
+  try {
+    db.exec("ALTER TABLE notes ADD COLUMN date TEXT");
+    db.run("UPDATE notes SET mtime = -1");
+  } catch {}
   // Older local indexes predate the `before` column.
   try {
     db.exec("ALTER TABLE changes ADD COLUMN before TEXT");
