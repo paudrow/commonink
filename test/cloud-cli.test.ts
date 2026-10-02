@@ -69,8 +69,8 @@ test("commonink login signs in through the browser and keeps its tokens where on
   const { status, out, html } = await login(c, people.owner);
   assert.equal(status, 0);
   assert.match(html, /Connect commonink CLI to Common Ink\?/);
-  // Offered to the CLI, which gets its answer on this computer, but not picked for you.
-  assert.match(html, /<input type="radio" name="workspace" value="\*">\s*<span><strong>All your workspaces<\/strong>/);
+  // Offered, and picked, for the CLI, which gets its answer on this computer.
+  assert.match(html, /<input type="radio" name="workspace" value="\*" checked>\s*<span><strong>All your workspaces<\/strong>/);
   assert.match(out, /^Signed in to http:\/\/\S+ as Owner Dev\. Workspaces: Owner's notes \(owner\), Team \(owner\)\. Pick one with commonink workspaces use <name>, or --workspace\.\n$/);
   const file = path.join(c.config, "credentials.json");
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);

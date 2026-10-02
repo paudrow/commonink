@@ -161,14 +161,14 @@ function consentPage(details: ConsentDescription, handle: string, user: User, wo
   const name = escapeHtml(clientName(details.clientName));
   // A CLI asks for all of them: you pick which one each command runs in, with your role there.
   const all = offerAll
-    ? `<label class="ws"><input type="radio" name="workspace" value="${ALL_WORKSPACES}">
+    ? `<label class="ws"><input type="radio" name="workspace" value="${ALL_WORKSPACES}" checked>
         <span><strong>All your workspaces</strong><br><span class="muted">Each command says which one, and it can do there what your role allows, now and as it changes, including inviting people and managing members.</span></span></label>`
     : "";
   const choices =
     all +
     workspaces
       .map(
-        (w, i) => `<label class="ws"><input type="radio" name="workspace" value="${escapeHtml(w.id)}"${i === 0 ? " checked" : ""}>
+        (w, i) => `<label class="ws"><input type="radio" name="workspace" value="${escapeHtml(w.id)}"${i === 0 && !offerAll ? " checked" : ""}>
         <span><strong>${escapeHtml(w.name)}</strong><br><span class="muted">You're ${w.role === "owner" ? "the owner" : `a${w.role === "editor" ? "n" : ""} ${w.role}`}: it can ${CAN[w.role]}.</span></span></label>`,
       )
       .join("");
