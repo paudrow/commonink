@@ -2210,6 +2210,7 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .qa-where { margin-left: 6px; font-size: 12px; color: var(--muted); }
 .qa-hint { color: var(--muted); font-size: 12.5px; }
 .qa-hint kbd { margin: 0 3px 0 8px; padding: 0 5px; border: 1px solid var(--line-strong); border-radius: 4px; font: 11px var(--mono); }
+.qa-hint.is-short kbd:first-child { margin-left: 0; }
 .qa-done { display: inline-flex; align-items: center; gap: 6px; color: var(--ok-ink); }
 .qa-link { color: var(--accent-ink); }
 .qa-link:hover { text-decoration: underline; }

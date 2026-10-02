@@ -20,8 +20,6 @@ type Item = Change & { count: number; first: number };
 interface Hooks {
   open(path: string): void;
   toast(t: ToastSpec): void;
-  /** The sidebar's New note (none for a viewer). */
-  newNote?(): void;
   /** The person can read this workspace but not change it: no labeling or restoring. */
   readOnly?: boolean;
 }
@@ -321,12 +319,10 @@ export class History {
     if (this.by) {
       return emptyState({ icon: "history", title: "No changes like that yet", text: ["History can show everyone's changes, or just people's, agents' or one agent's."], action: { label: "Show every change", run: () => void this.setBy("") } });
     }
-    const newNote = this.hooks.newNote;
     return emptyState({
       icon: "history",
       title: "No changes yet",
-      text: ["Every edit to a note shows up here with who made it, a person or an agent. You can put any note back the way it was."],
-      action: newNote && !this.note ? { label: "New note", icon: "plus", run: () => newNote() } : null,
+      text: ["Edit a note and its changes show up here, with who made them, a person or an agent. You can put any note back the way it was."],
     });
   }
 
