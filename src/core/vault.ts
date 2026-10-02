@@ -822,12 +822,13 @@ export class Vault {
   /**
    * Links to notes and files that aren't here: not yet written, deleted, or not brought over in an
    * import. Grouped by target, the most-linked first. Links in archived notes count only with
-   * `scope` "all"; `folder` narrows it to the notes linking from there.
+   * `scope` "all"; `folder` narrows it to the notes linking from there. A target is spelled as the
+   * first note by path writes it, so the answer doesn't change with which note was saved last.
    */
   missingLinks(opts: { folder?: string; scope?: ArchiveScope } = {}): MissingLink[] {
     const folder = opts.folder ? cleanPath(opts.folder).replace(/\/?$/, "/") : "";
     const rows = this.db.all<{ path: string; title: string; line: number }>(
-      "SELECT DISTINCT l.src AS path, n.title, l.line FROM links l JOIN notes n ON n.path = l.src ORDER BY n.mtime DESC, l.src, l.line",
+      "SELECT DISTINCT l.src AS path, n.title, l.line FROM links l JOIN notes n ON n.path = l.src ORDER BY l.src, l.line",
     ).filter((r) => r.path.startsWith(folder) && inScope(r.path, opts.scope ?? "active"));
     const cache = new Map<string, string[]>();
     const resolve = this.resolver();
