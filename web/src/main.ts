@@ -50,6 +50,7 @@ import { gamified, loadGamified, onGamified, setGamified } from "./gamify.ts";
 import { store } from "./store.ts";
 import { changeVerb, groupChanges } from "../../src/core/format.ts";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
+import { closeTab, openTab, parseTabs, stepTab } from "./tabs.ts";
 import { clampSide, forget, historyStep, IS_MAC, newLayout, pageEntry, pageOf, parseLayout, rememberPlace, SIDE_CLICK, sideClick, step, trailAhead, visit, type PaneTrail, type Place } from "./panes.ts";
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { headingMatches } from "../../src/core/gfm.ts";
@@ -112,6 +113,9 @@ interface Pane {
   /** The strip over its note, for something about that note (archived, a conflict…). */
   banner: HTMLElement;
   trail: PaneTrail;
+  /** The notes open in it as tabs (by ID), and the one it shows, or showed last if a page is showing now (tabs.ts). */
+  tabs: string[];
+  tab: string | null;
   /** Counts what the pane was asked to show, so a note that loads after a later request doesn't replace it. */
   opens: number;
 }
@@ -165,6 +169,8 @@ const makePane = (index: 0 | 1, host: HTMLElement, preview: HTMLElement, bar: HT
   bar,
   banner,
   trail: layout.panes[index],
+  tabs: [],
+  tab: null,
   opens: 0,
 });
 const panes: [Pane, Pane] = [makePane(0, $("#editor-host"), $("#html-preview"), $("#main-bar"), $("#banner")), makePane(1, $("#side-host"), $("#side-preview"), $("#side-bar"), $("#side-banner"))];
@@ -175,6 +181,7 @@ const other = (p: Pane) => panes[1 - p.index];
 const fromPage = (path: string, line?: number, side = false) => void openNote(path, { line, pane: split || side ? panes[1] : panes[0] });
 const notesPage = new NotesPage({
   open: fromPage,
+  openInTab: (path) => openInNewTab(path, split ? panes[1] : panes[0]),
   starred: (id) => isStarred(id),
   toggleStar: (path) => void toggleStar(path),
   filtersChanged: () => renderTree(),
@@ -265,16 +272,19 @@ const loadCalendar = once(async () =>
     setUrl: (url) => setUrl(url, "replace"),
   })),
 );
-/** The palette's next pick opens to the side (⌘⌥\ with nothing to show there yet). */
-let paletteToSide = false;
+/** Where the palette's next pick opens: to the side (⌘⌥\ with nothing to show there yet), in a new tab (the tab strip's +), or in place. */
+let paletteHow: "open" | "side" | "tab" = "open";
 const palette = new Palette(
   () => notes,
-  (path, line, side) => openNote(path, { line, pane: side || paletteToSide ? sideOf(active) : active }),
+  (path, line, how) => {
+    const to = how === "open" ? paletteHow : how;
+    return openNote(path, { line, pane: to === "side" ? sideOf(active) : active, newTab: to === "tab" });
+  },
   (name) => createNote(name),
   () => commands(),
 );
 function openPalette(side = false) {
-  paletteToSide = side;
+  paletteHow = side ? "side" : "open";
   did("search");
   palette.open();
 }
@@ -290,6 +300,7 @@ function commands() {
     vimDisplayLines: prefs.vimDisplayLines,
     lineNumbers: prefs.lineNumbers,
     split,
+    tabs: active.tabs.filter((t) => tabNote(t)).length,
     focusMode,
     htmlMode: prefs.htmlMode,
     hasStart: tags.some((t) => t.tag === "start" && t.notes > 0),
@@ -328,6 +339,8 @@ function commands() {
     togglePanel: () => togglePanel(),
     toggleFocus: () => void setFocusMode(!focusMode),
     toggleSplit: () => void (split ? closePane(active) : openSplit()),
+    newTab: () => newTab(),
+    closeTab: () => void (shownTab(active) && closeTabIn(active, shownTab(active)!)),
     toggleHtml: () => setHtmlMode(prefs.htmlMode === "preview" ? "source" : "preview"),
     star: () => s && void toggleStar(s.path),
     archive: () => void archiveCurrent(),
@@ -388,7 +401,7 @@ function keepPlace(p: Pane) {
  * Open a note in a pane (the focused one by default). A note shows in one pane at a time: if the
  * other pane has it, that pane takes the focus instead. `trail: false` is a step back or forward.
  */
-async function openNote(path: string, opts: { line?: number; heading?: string; push?: boolean; pane?: Pane; trail?: boolean; focus?: boolean } = {}) {
+async function openNote(path: string, opts: { line?: number; heading?: string; push?: boolean; pane?: Pane; trail?: boolean; focus?: boolean; newTab?: boolean } = {}) {
   const pane = opts.pane ?? active;
   const beside = other(pane);
   if ((split || pane.index === 1) && beside.session?.path === path) {
@@ -469,6 +482,9 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   }
   if (note.kind === "md") next.heading = nameLine(pane.view.state.doc).text;
   pane.session = next;
+  pane.tabs = openTab(pane.tabs, pane.tab, note.id, !!opts.newTab);
+  pane.tab = note.id;
+  saveTabs();
   pane.trail = opts.trail === false ? { ...pane.trail, note: note.id } : visit(pane.trail, note.id);
   resetVimJumps();
   // Split, the banner is over this pane only: Unarchive puts back this pane's note, whichever has the focus.
@@ -531,7 +547,12 @@ function setSplit(on: boolean) {
   $("#main-bar").hidden = !on;
   if (!on) hideBanner(panes[1].banner);
   $("#stage").style.setProperty("--side", `${layout.side * 100}%`);
-  if (!on) panes[1].session = null;
+  if (!on) {
+    panes[1].session = null;
+    panes[1].tabs = [];
+    panes[1].tab = null;
+    saveTabs();
+  }
   renderPaneBars();
   for (const p of panes) p.view.requestMeasure();
 }
@@ -542,6 +563,8 @@ async function closePane(p: Pane) {
   const side = panes[1];
   await flushSave();
   const moving = p.index === 0 ? side.session : null;
+  // Closing the main pane, its tabs go with it and the side pane's come over.
+  if (moving) [panes[0].tabs, panes[0].tab] = [side.tabs, side.tab];
   keepPlace(side);
   setSplit(false);
   if (moving) await openNote(moving.path, { pane: panes[0], push: false });
@@ -591,9 +614,119 @@ function navState(p: Pane) {
 const topArrows = navArrows((dir, steps) => stepPane(active, dir, steps));
 const paneArrows: NavArrows[] = [];
 
+// ------------------------------------------------------------------ tabs
+
+const tabsKey = () => `tabs:${workspaceId || "local"}`;
+function saveTabs() {
+  store.set(tabsKey(), [panes[0].tabs, panes[1].tabs]);
+}
+/** A tab's note, while it's still there. */
+const tabNote = (id: string) => notes.find((n) => n.id === id && n.kind !== "asset");
+/** The note a pane shows as a tab right now (the main pane's none while it shows a page). */
+const shownTab = (p: Pane) => (p.index === 0 && onPage() !== null ? null : (p.session?.id ?? null));
+
+/** Open a note in a new tab of `p`, keeping the one it shows. */
+const openInNewTab = (path: string, p: Pane = active) => void openNote(path, { pane: p, newTab: true });
+
+/** Close a tab; if it was showing, the one after it (else before) shows instead. */
+async function closeTabIn(p: Pane, id: string) {
+  const { tabs, next } = closeTab(p.tabs, id);
+  p.tabs = tabs;
+  if (p.tab === id) p.tab = next;
+  saveTabs();
+  const to = next ? tabNote(next) : undefined;
+  if (shownTab(p) === id && to) await openNote(to.path, { pane: p });
+  else renderPaneBars();
+}
+
+/** Step through a pane's tabs (vim's gt and gT). */
+function stepTabIn(p: Pane, by: number) {
+  const live = p.tabs.filter((t) => tabNote(t));
+  const to = stepTab(live, shownTab(p) ?? p.tab, by);
+  const n = to ? tabNote(to) : undefined;
+  if (n && n.id !== shownTab(p)) void openNote(n.path, { pane: p });
+}
+
+/**
+ * A pane's tab strip: in the top bar, or split, in the pane's bar. It shows once the pane has two
+ * tabs; with one it's an empty stretch you can drop a note on to open a second.
+ */
+function tabStrip(p: Pane): HTMLElement {
+  const live = p.tabs.filter((t) => tabNote(t));
+  const shown = shownTab(p);
+  const strip = el("div", { class: "tabs", role: "tablist", "aria-label": p.index === 0 ? "Tabs" : "Tabs in the side pane" });
+  if (live.length > 1) {
+    for (const id of live) {
+      const n = tabNote(id)!;
+      const on = id === shown;
+      const close = (e: Event) => (e.stopPropagation(), void closeTabIn(p, id));
+      strip.append(
+        el(
+          "div",
+          {
+            class: `tab${on ? " is-on" : ""}`,
+            role: "tab",
+            "aria-selected": String(on),
+            tabindex: on ? "0" : "-1",
+            title: n.path,
+            draggable: "true",
+            onclick: () => !on && void openNote(n.path, { pane: p }),
+            onauxclick: (e: MouseEvent) => e.button === 1 && close(e), // a middle-click closes it, as in a browser
+            onkeydown: (e: KeyboardEvent) => {
+              if (e.key === "Enter" || e.key === " ") (e.preventDefault(), !on && void openNote(n.path, { pane: p }));
+              else if (e.key === "Delete" || e.key === "Backspace") close(e);
+              else if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+                e.preventDefault();
+                const sib = (e.currentTarget as HTMLElement)[e.key === "ArrowRight" ? "nextElementSibling" : "previousElementSibling"] as HTMLElement | null;
+                sib?.classList.contains("tab") && sib.focus();
+              }
+            },
+            ondragstart: (e: DragEvent) => {
+              e.dataTransfer!.setData(NOTE_DRAG, n.path); // to the other pane's strip, a split, a folder…
+              e.dataTransfer!.effectAllowed = "copyMove";
+            },
+          },
+          el("span", { class: "tab-name" }, displayName(n.path)),
+          el("button", { type: "button", class: "tab-x", tabindex: "-1", title: "Close tab", "aria-label": `Close ${displayName(n.path)}`, onclick: close }, icon("close", 12)),
+        ),
+      );
+    }
+    strip.append(el("button", { type: "button", class: "icon-btn small tab-new", title: `New tab (${formatKeys("Mod-Alt-t")})`, "aria-label": "New tab", onclick: () => newTab(p) }, icon("plus", 13)));
+  }
+  // A note dropped on the strip opens in a new tab.
+  strip.addEventListener("dragover", (e) => {
+    if (!e.dataTransfer?.types.includes(NOTE_DRAG)) return;
+    e.preventDefault();
+    strip.classList.add("is-drop");
+  });
+  strip.addEventListener("dragleave", (e) => !strip.contains(e.relatedTarget as Node) && strip.classList.remove("is-drop"));
+  strip.addEventListener("drop", (e) => {
+    strip.classList.remove("is-drop");
+    const path = e.dataTransfer?.getData(NOTE_DRAG);
+    if (!path || !tabNote(notes.find((n) => n.path === path)?.id ?? "")) return;
+    e.preventDefault();
+    openInNewTab(path, p);
+  });
+  return strip;
+}
+
+/** Quick open, to open what you pick in a new tab of `p`. */
+function newTab(p: Pane = active) {
+  if (p !== active) focusPane(p);
+  paletteHow = "tab";
+  did("search");
+  palette.open();
+}
+
+function renderTabs() {
+  // The top bar's strip is the main pane's (split, each pane's bar has its own).
+  $("#top-tabs").replaceChildren(...(split ? [] : [tabStrip(panes[0])]));
+}
+
 /** The bars over the panes while split: back and forward, star, close. The top bar's arrows follow the focused pane. */
 function renderPaneBars() {
   topArrows.update(navState(active));
+  renderTabs();
   if (!split) return;
   for (const p of panes) {
     const s = p.session;
@@ -605,6 +738,7 @@ function renderPaneBars() {
     const focused = arrows.el.contains(document.activeElement) ? (document.activeElement as HTMLElement) : null;
     p.bar.replaceChildren(
       arrows.el,
+      tabStrip(p),
       el("span", { class: "spacer" }),
       ...(s && s.kind !== "asset" ? [btn(starred ? "starred" : "star", starred ? "Unstar" : "Star", () => void toggleStar(s.path), starred ? "is-on" : "")] : []),
       btn("close", `Close this pane (${formatKeys("Mod-Alt-\\")})`, () => void closePane(p)),
@@ -1170,13 +1304,13 @@ async function deleteCurrent() {
   if (went.length) await showNotes();
 }
 
-async function openTarget(target: string, from?: string, pane = active) {
+async function openTarget(target: string, from?: string, pane = active, newTab = false) {
   const event = calendarTarget(target);
   if (event !== null) return showCalendar({ event: event || undefined });
   const [name, anchor] = target.split("#");
   const path = name ? await api.resolve(name, from) : from;
   const line = anchor?.match(/^L(\d+)$/)?.[1]; // Note#L12 → line 12 (used by widgets)
-  if (path) openNote(path, { pane, ...(line ? { line: Number(line) } : { heading: anchor }) });
+  if (path) openNote(path, { pane, newTab, ...(line ? { line: Number(line) } : { heading: anchor }) });
   else createNote(name);
 }
 
@@ -1832,6 +1966,9 @@ function renderFavorites() {
         title: f.path,
         draggable: "true",
         ...opens((e) => void openNote(f.path, { pane: e && sideClick(e) ? sideOf(active) : active })),
+        // A middle-click opens it in a new tab, as in a browser.
+        onmousedown: (e: MouseEvent) => e.button === 1 && e.preventDefault(),
+        onauxclick: (e: MouseEvent) => e.button === 1 && (e.preventDefault(), openInNewTab(f.path)),
         ondragstart: (e: DragEvent) => {
           e.dataTransfer!.setData(FAVORITE, f.path);
           e.dataTransfer!.setData(NOTE_DRAG, f.path); // so it can go to a folder too
@@ -2617,6 +2754,18 @@ Vim.defineEx("vsplit", "vs", (_cm: unknown, params: { args?: string[] }) => {
   if (arg) void openTarget(arg, active.session?.path, sideOf(active));
   else if (!split) void openSplit();
 });
+// :tabnew and :tabedit (:tabe) open a note in a new tab (alone, quick open picks one).
+for (const [name, short] of [["tabnew", "tabnew"], ["tabedit", "tabe"]])
+  Vim.defineEx(name, short, (_cm: unknown, params: { args?: string[] }) => {
+    const arg = params.args?.join(" ");
+    if (arg) void openTarget(arg, active.session?.path, active, true);
+    else newTab();
+  });
+Vim.defineEx("tabclose", "tabc", () => void (shownTab(active) && closeTabIn(active, shownTab(active)!)));
+Vim.defineEx("tabnext", "tabn", () => stepTabIn(active, 1));
+Vim.defineEx("tabprevious", "tabp", () => stepTabIn(active, -1));
+Vim.map("gt", ":tabnext<CR>", "normal");
+Vim.map("gT", ":tabprevious<CR>", "normal");
 Vim.defineEx("only", "on", () => split && void closePane(other(active)));
 Vim.defineEx("close", "clo", () => void closePane(active));
 // `ic`, the inner code block: the code between a fenced block's fences, for yic, dic, cic and vic.
@@ -2683,7 +2832,7 @@ window.addEventListener(
       void stepPane(active, back ? "back" : "forward");
     } else if (quickOpen || is("Mod-Shift-p")) {
       e.preventDefault();
-      paletteToSide = false;
+      paletteHow = "open";
       if (quickOpen && !palette.isOpen) did("search");
       palette.toggle(quickOpen ? "" : ">");
     } else if (is("Mod-,")) {
@@ -2710,6 +2859,9 @@ window.addEventListener(
     } else if (is("Mod-Alt-\\")) {
       e.preventDefault();
       void (split ? closePane(active) : openSplit());
+    } else if (is("Mod-Alt-t")) {
+      e.preventDefault();
+      newTab();
     } else if ((is("Mod-Alt-[") || is("Mod-Alt-]")) && split) {
       e.preventDefault();
       const p = panes[is("Mod-Alt-[") ? 0 : 1];
@@ -3134,7 +3286,7 @@ async function boot() {
   $("#new-smart-folder").addEventListener("click", () => newSmartFolder($("#new-smart-folder")));
   setupSections();
   $("#note-history-btn").addEventListener("click", () => active.session && void showHistory({ note: active.session.path }));
-  $("#topbar > .spacer").before(topArrows.el);
+  $("#top-tabs").before(topArrows.el);
   $("#archive-btn").addEventListener("click", () => void archiveCurrent());
   $("#delete-btn").addEventListener("click", () => void deleteCurrent());
   $("#shared-btn").addEventListener("click", () => void showShared());
@@ -3204,6 +3356,11 @@ async function boot() {
   layout = parseLayout(JSON.stringify(store.get(layoutKey(), null)));
   panes[0].trail = layout.panes[0];
   panes[1].trail = layout.panes[1];
+  // Tabs as you left them; the tab each pane was on is the note it had.
+  parseTabs(store.get(tabsKey(), null)).forEach((tabs, i) => {
+    panes[i].tabs = tabs;
+    panes[i].tab = tabs.includes(layout.panes[i].note ?? "") ? layout.panes[i].note : (tabs.at(-1) ?? null);
+  });
   const beside = layout.split ? notes.find((n) => n.id === layout.panes[1].note && n.kind !== "asset") : undefined;
   if (beside) await openNote(beside.path, { pane: panes[1], focus: false, trail: false });
   if (beside && parseNotePath(location.pathname)?.id === beside.id) {

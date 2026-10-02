@@ -26,6 +26,8 @@ import { notePath } from "../../src/core/ids.ts";
 interface Hooks {
   /** `side`: to the side (a Cmd-click; Ctrl-click off a Mac). */
   open(path: string, line?: number, side?: boolean): void;
+  /** In a new tab (a middle-click). */
+  openInTab?(path: string): void;
   starred(id: string): boolean;
   toggleStar(path: string): void;
   /** The filters changed (the sidebar marks the folder or smart folder being shown). */
@@ -464,6 +466,13 @@ export class NotesPage {
       // Reading an open card (selecting text, ticking tasks) shouldn't fold it back up.
       if (t.closest("input, .fc-full") || String(getSelection() ?? "")) return;
       this.toggleExpand(i);
+    });
+    // A middle-click opens it in a new tab, as in a browser.
+    node.addEventListener("mousedown", (e) => e.button === 1 && !(e.target as Element).closest("a, button") && e.preventDefault()); // not the page's autoscroll
+    node.addEventListener("auxclick", (e) => {
+      if (e.button !== 1 || (e.target as Element).closest("a, button")) return;
+      e.preventDefault();
+      this.hooks.openInTab?.(item.path);
     });
     node.addEventListener("mousemove", () => this.setFocus(i, false));
     node.addEventListener("focusin", () => this.setFocus(i, false));

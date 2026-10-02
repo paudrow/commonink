@@ -24,10 +24,12 @@ export const SIDE_CLICK = IS_MAC ? "⌘-click" : "Ctrl-click";
 
 /**
  * What Enter does in the palette (⌘K): open the pick in place, open it to the side (⌘Enter on a
- * Mac, Ctrl+Enter elsewhere), or make a note of what's typed even if notes match (Shift+Enter).
+ * Mac, Ctrl+Enter elsewhere), open it in a new tab (Alt+Enter), or make a note of what's typed
+ * even if notes match (Shift+Enter).
  */
-export function paletteEnter(e: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }, mac = IS_MAC): "open" | "side" | "create" {
+export function paletteEnter(e: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey?: boolean }, mac = IS_MAC): "open" | "side" | "tab" | "create" {
   if (e.shiftKey) return "create";
+  if (e.altKey && !e.metaKey && !e.ctrlKey) return "tab";
   return (mac ? e.metaKey : e.ctrlKey) ? "side" : "open";
 }
 

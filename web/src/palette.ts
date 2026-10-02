@@ -32,8 +32,8 @@ export class Palette {
 
   constructor(
     private notes: () => NoteMeta[],
-    /** `side`: open it to the side (⌘Enter). */
-    private onOpen: (path: string, line?: number, side?: boolean) => void,
+    /** `how`: in place, to the side (⌘Enter), or in a new tab (⌥Enter). */
+    private onOpen: (path: string, line: number | undefined, how: "open" | "side" | "tab") => void,
     private onCreate: (name: string) => void,
     private commands: () => Command[],
   ) {
@@ -209,8 +209,8 @@ export class Palette {
     if (q.startsWith(">")) return;
     if (how === "create" || item?.type === "create") return q && this.onCreate(q);
     if (!item) return;
-    if (item.type === "note") this.onOpen(item.note.path, undefined, how === "side");
-    else if (item.type === "hit") this.onOpen(item.hit.path, item.hit.lines[0]?.line, how === "side");
+    if (item.type === "note") this.onOpen(item.note.path, undefined, how);
+    else if (item.type === "hit") this.onOpen(item.hit.path, item.hit.lines[0]?.line, how);
   }
 
   private key(e: KeyboardEvent) {

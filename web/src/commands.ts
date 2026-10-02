@@ -39,6 +39,8 @@ export interface App {
   vimDisplayLines: boolean;
   lineNumbers: boolean;
   split: boolean;
+  /** How many tabs the focused pane has. */
+  tabs: number;
   focusMode: boolean;
   htmlMode: "preview" | "source";
   /** A note tagged `start` exists. */
@@ -85,6 +87,8 @@ export interface App {
   togglePanel(): void;
   toggleFocus(): void;
   toggleSplit(): void;
+  newTab(): void;
+  closeTab(): void;
   toggleHtml(): void;
   star(): void;
   archive(): void;
@@ -163,6 +167,8 @@ export function appCommands(app: App): Command[] {
     { id: "panel", title: "Toggle side panel", keywords: "outline backlinks activity sidebar", icon: "panel", keys: ["Mod-\\"], run: app.togglePanel },
     { id: "focus", title: app.focusMode ? "Leave focus mode" : "Focus mode", keywords: "zen full screen distraction", icon: app.focusMode ? "unfocus" : "focus", keys: ["Mod-Shift-Enter"], available: text || app.focusMode, run: app.toggleFocus },
     { id: "split", title: app.split ? "Close this pane" : "Open to the side", keywords: "split view pane side by side", icon: "split", keys: ["Mod-Alt-\\"], area: "Split view", run: app.toggleSplit },
+    { id: "new-tab", title: "New tab…", keywords: "tab open another note keep", icon: "plus", keys: ["Mod-Alt-t"], area: "Split view", run: app.newTab },
+    { id: "close-tab", title: "Close tab", keywords: "tab close", icon: "close", available: app.tabs > 1, area: "Split view", run: app.closeTab },
     { id: "star", title: note?.starred ? "Unstar note" : "Star note", keywords: "star favorite favourite", icon: note?.starred ? "starred" : "star", available: !!note, run: app.star },
     { id: "archive", title: note?.archived ? "Unarchive note" : "Archive note", keywords: "archive remove hide", icon: note?.archived ? "unarchive" : "archive", keys: ["Mod-Shift-e"], available: !!note, run: app.archive },
     { id: "delete", title: "Delete note", keywords: "delete remove trash bin", icon: "trash", available: !!note && app.canDelete, run: app.delete },
@@ -253,11 +259,15 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: [":set nu", ":set nonu"], label: "Show / hide line numbers", area: "Vim" },
   { keys: [":vs name"], label: "Open a note to the side", area: "Vim" },
   { keys: [":only", ":close"], label: "Close the other pane / this pane", area: "Vim" },
+  { keys: [":tabnew name", ":tabclose"], label: "Open a note in a new tab / close this tab", area: "Vim" },
+  { keys: ["gt", "gT"], label: "Next / previous tab", area: "Vim" },
   { keys: ["Tab"], label: "In quick-add, send it to the open note", area: "Tasks" },
   { keys: ["Space", "Enter"], label: "Tick the focused task", area: "Tasks" },
   { keys: ["Enter", "Escape"], label: "Save / cancel a task you're editing", area: "Tasks" },
   { keys: ["Mod-Alt-[", "Mod-Alt-]"], label: "Focus the left / right pane", area: "Split view" },
   { keys: ["Mod-Enter"], label: "In quick open, open the note to the side", area: "Split view" },
+  { keys: ["Alt-Enter"], label: "In quick open, open the note in a new tab", area: "Split view" },
+  { keys: ["Middle-click"], label: "Open a starred note or Notes card in a new tab; close a tab", area: "Split view" },
   { keys: ["Mod-click"], label: "Open a link, card or task to the side", area: "Split view" },
 ];
 
