@@ -530,7 +530,8 @@ body.is-resizing iframe { pointer-events: none; }
 .mode[data-mode="insert"] { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok-ink); }
 .mode[data-mode="visual"] { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn-ink); }
 .mode[data-mode="replace"] { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad-ink); }
-.conn { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+.conn { position: relative; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); cursor: help; }
+.conn::before { content: ""; position: absolute; inset: -8px; } /* a hover target bigger than the dot */
 .conn[data-up="true"] { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent); }
 .chip-btn {
   font: 600 11px/1 var(--mono);

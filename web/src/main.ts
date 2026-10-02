@@ -3079,8 +3079,12 @@ async function boot() {
   renderActivity();
   renderPresence();
   connect(onMessage, (up) => {
-    $("#conn").dataset.up = String(up);
-    $("#conn").title = up ? "Live: watching the vault for agent edits" : "Reconnecting…";
+    const conn = $("#conn");
+    conn.dataset.up = String(up);
+    conn.title = up
+      ? "Connected: changes from agents, other tabs and collaborators show up live"
+      : "Offline, reconnecting… Your edits are kept and saved once the connection is back";
+    conn.setAttribute("aria-label", conn.title);
     if (up) {
       refreshNotesSoon();
       void flushSave(); // what couldn't be saved while the connection was down
