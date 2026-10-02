@@ -180,6 +180,8 @@ Online, **Workspace settings…** in the account menu (**Members…** if you are
 
 ## Who can sign up
 
+Signed out, `commonink.app/` is the landing page (`cloud/src/landing.ts`): what Common Ink is, and Get started, which is Google sign-in. It's one page with its styles inline and no script. Signed in, `/` is the app, and every other address (notes, invites, shared links) works as before.
+
 Online, new accounts are invite-only. Anyone can sign in with Google, but someone new gets an account only after they enter the sign-up code, or when they arrive through a workspace invite link. People who already have an account sign in as usual. The code is a Worker secret. Case and extra spaces don't matter, so it can be a phrase you say out loud:
 
 ```bash
@@ -209,7 +211,7 @@ The tests run the real surfaces against throwaway vaults: the core and the share
 
 ## Pull request previews
 
-Every pull request gets its own copy of the online app at `https://pr-<number>-commonink.<subdomain>.workers.dev`. CI deploys it with [Worker Previews](https://developers.cloudflare.com/workers/previews/), links it from one comment on the PR that each push updates (and from the PR's "View deployment" button), and deletes it when the PR closes. A Preview opens already signed in as a developer, so there's no Google step. `scripts/preview-demo.ts` fills it with the sample vault, a note with history across a rename, favorites where the branch has them, and a **Try this PR** note on top with the PR's description. Each Preview has its own Durable Objects, so its own notes. The directory and uploads use preview-only D1 (`commonink-preview`) and R2 (`commonink-preview-files`), never production's. Previews are public, so put nothing real in them.
+Every pull request gets its own copy of the online app at `https://pr-<number>-commonink.<subdomain>.workers.dev`. CI deploys it with [Worker Previews](https://developers.cloudflare.com/workers/previews/), links it from one comment on the PR that each push updates (and from the PR's "View deployment" button), and deletes it when the PR closes. A Preview's front page is the landing page; Get started (or any other page) signs you in as a developer, so there's no Google step. `scripts/preview-demo.ts` fills it with the sample vault, a note with history across a rename, favorites where the branch has them, and a **Try this PR** note on top with the PR's description. Each Preview has its own Durable Objects, so its own notes. The directory and uploads use preview-only D1 (`commonink-preview`) and R2 (`commonink-preview-files`), never production's. Previews are public, so put nothing real in them.
 
 ```bash
 npm run cloud:preview -- --name my-branch                  # deploy one by hand
