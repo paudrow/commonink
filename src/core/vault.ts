@@ -640,7 +640,7 @@ export class Vault {
     const base = key.split("/").pop()!;
     const rows = this.db.all("SELECT path FROM notes WHERE stem = ?", base)
       .map((r) => r.path as string)
-      .filter((p) => linkKey(p).endsWith(key));
+      .filter((p) => linkKey(p) === key || linkKey(p).endsWith(`/${key}`));
     if (!rows.length) return null;
     const dir = from ? path.posix.dirname(from) : null;
     rows.sort((a, b) => Number(path.posix.dirname(b) === dir) - Number(path.posix.dirname(a) === dir) || a.length - b.length);
