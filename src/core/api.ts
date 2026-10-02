@@ -9,7 +9,7 @@ import { agentSource, parseAuthorFilter } from "./actor.ts";
 import { findStartNote, GUIDE, parseGuideAction, runGuide } from "./guide.ts";
 import { exportZip, type ExportWhat } from "./export.ts";
 import { ON_EXISTING, pairsImport, writeImport, type OnExisting } from "./import.ts";
-import type { Calendar, EventDraft } from "./calendar.ts";
+import type { Calendar, EventDraft, NoteWrite } from "./calendar.ts";
 import { notePath } from "./ids.ts";
 import { isSort } from "./query.ts";
 
@@ -30,6 +30,8 @@ export interface ApiHost {
   removed(rel: string, change: Change): void;
   /** The set of notes changed. */
   tree(): void;
+  /** A folder was renamed or moved (online: its shares go with it). */
+  folderMoved?(from: string, to: string): Promise<void>;
   /** The workspace's calendars, where the host can sync them (both hosts today). */
   calendar?: Calendar;
   /** Calendars or their events changed: tell connected clients (and reschedule syncing). */
@@ -257,7 +259,12 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     case "GET /links/missing":
       return json(vault.missingLinks({ folder: q("folder") || undefined, scope: qScope() }));
     case "GET /changes":
-      return json(vault.changes({ limit: qCount("limit", 50, 500), before: qCount("before", 0, Infinity) || undefined, path: q("path") || undefined, by: parseAuthorFilter(q("by")) }));
+      return json(
+        vault.changes({ limit: qCount("limit", 50, 500), before: qCount("before", 0, Infinity) || undefined, since: qCount("after", 0, Infinity) || undefined, path: q("path") || undefined, by: parseAuthorFilter(q("by")) }),
+      );
+    case "GET /changes/away":
+      // What agents did since this person's own last change (and after the change they last dismissed).
+      return json(vault.awaySummary(host.actor, qCount("after", 0, Infinity)));
     case "GET /changes/agents":
       return json(vault.agents());
     case "GET /diffs":
@@ -283,6 +290,9 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
           assignee,
           by,
           due: q("due") || undefined,
+          start: q("start") || undefined,
+          done: q("done") || undefined,
+          priority: q("priority") || undefined,
           today: q("today") || undefined, // the browser's day, so "today" means the reader's today
         }),
       );
@@ -511,6 +521,16 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       host.tree();
       return json({ trashed: out });
     }
+    case "POST /folders/rename": {
+      const r = vault.moveFolder(str("folder"), str("to"), actor);
+      for (const m of r.moved) {
+        for (const e of m.edits) host.written(e.path, e.content, e.version, e.change);
+        host.moved(m.from, m.path, m.version, m.change);
+      }
+      await host.folderMoved?.(r.from, r.path);
+      host.tree();
+      return json({ from: r.from, path: r.path, moved: r.moved.map((m) => ({ from: m.from, to: m.path })) });
+    }
     case "POST /delete-folder": {
       const notes = str("notes");
       if (notes !== "trash" && notes !== "lift") throw new VaultError(`"notes" must be "trash" or "lift"`);
@@ -581,6 +601,19 @@ async function calendarRoute(host: ApiHost, cal: Calendar, key: string, input: R
   const { str, optStr, optBool, q, qCount } = input;
   const viewer = { user: host.user, canEdit: host.canEditShared };
   const changed = <T>(out: T) => (host.calendarChanged?.(), json(out));
+  // The workspace's own events are notes: what an event change wrote, clients hear about as any note change.
+  const writes: NoteWrite[] = [];
+  const wrote = () => {
+    for (const w of writes) {
+      if (w.op === "written") host.written(w.path, host.vault.files.read(w.path), w.version, w.change);
+      else if (w.op === "removed") host.removed(w.path, w.change);
+      else {
+        for (const e of w.edits) host.written(e.path, e.content, e.version, e.change);
+        host.moved(w.from, w.path, w.version, w.change);
+      }
+    }
+    if (writes.length) host.tree();
+  };
   switch (key) {
     case "GET /calendar/sources":
       return json(cal.sources(viewer));
@@ -607,7 +640,8 @@ async function calendarRoute(host: ApiHost, cal: Calendar, key: string, input: R
     }
     // Events made and changed in the app: in the workspace's own calendar ("local"), or a Google one.
     case "POST /calendar/events": {
-      const ev = await cal.createEvent(str("source"), draftOf(input, true) as EventDraft, viewer, host.actor, optStr("note"));
+      const ev = await cal.createEvent(str("source"), draftOf(input, true) as EventDraft, viewer, host.actor, optStr("note"), writes);
+      wrote();
       host.calendarChanged?.();
       if (!optBool("meetingNote")) return json({ event: ev, note: null });
       const r = cal.meetingNote(host.vault, ev.id, viewer, { timeZone: optStr("timeZone"), source: host.actor });
@@ -617,10 +651,14 @@ async function calendarRoute(host: ApiHost, cal: Calendar, key: string, input: R
       }
       return json({ event: cal.event(ev.id, viewer), note: { path: r.path } });
     }
-    case "POST /calendar/events/update":
-      return changed(await cal.updateEvent(str("id"), draftOf(input, false), viewer, host.actor));
+    case "POST /calendar/events/update": {
+      const ev = await cal.updateEvent(str("id"), draftOf(input, false), viewer, host.actor, writes);
+      wrote();
+      return changed(ev);
+    }
     case "POST /calendar/events/delete":
-      await cal.deleteEvent(str("id"), viewer, host.actor);
+      await cal.deleteEvent(str("id"), viewer, host.actor, writes);
+      wrote();
       return changed({ ok: true });
     case "POST /calendar/meeting-note": {
       const id = str("id");

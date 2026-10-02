@@ -85,11 +85,11 @@ test("Trash says when an item went and when it goes for good in the machine's ti
   assert.equal(onMachineIn("America/Chicago", () => fmtTrash([item])), "1-1  Old.md — deleted 2026-09-29 21:00, gone for good 2026-10-29");
 });
 
-test("at 9pm in Chicago, notes made from templates and the daily note have Chicago's date and time, on a server in UTC", () => {
+test("at 9pm in Chicago, notes made from templates and the journal note have Chicago's date and time, on a server in UTC", () => {
   const { vault } = openTempVault(
     {
       "Templates/Standup.md": '---\ntitle: "{{date}} Standup"\n---\n# Standup {{date}} {{time}}\n',
-      "Templates/Daily note.md": "# {{date}} at {{time}}\n",
+      "Templates/Journal.md": "# {{date}} at {{time}}\n",
     },
     { now: () => CHICAGO_EVENING, timeZone: "America/Chicago" },
   );

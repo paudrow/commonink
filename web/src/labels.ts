@@ -5,7 +5,7 @@
 // restore, rename and unname (history.ts). They live in the change log (core).
 import { api, ApiError, type Label } from "./api.ts";
 import { authorName, el, timeAgo } from "./dom.ts";
-import { ask } from "./trash.ts";
+import { ask } from "./modal.ts";
 import type { ToastSpec } from "./toast.ts";
 
 /** The longest name a label takes (core LABEL_NAME_MAX). */
