@@ -13,3 +13,8 @@ The Notes filter, smart folders and `::query` lists understand a few new words. 
 7. In ⌘K, choose "New smart folder" and type `q="launch -draft" sort=created`. Save it and open it: the launch notes are there without [[Launch plan]], the newest note first.
 8. In any note, add a line `::query{q="launch -tag=draft" modified>-7d}`. It lists the launch notes without the draft. With the Matching field empty, its placeholder in the settings lists the new words.
 9. Try a typo in a smart folder, like `modified>someday`. The editor says it isn't a day and shows what to write.
+10. Back in the Notes filter, type `(tag=draft OR tag=fun) launch`. You see [[Launch plan]] and [[Launch party]]: the parentheses keep the OR together, and `launch` applies to both.
+11. Type `tag=draft OR tag=fun -tag=launch`. You see [[Launch plan]]: AND goes before OR, so this reads `tag=draft OR (tag=fun -tag=launch)`. Now add parentheses, `(tag=draft OR tag=fun) -tag=launch`, and the list is empty, since both notes have #launch.
+12. Type `launch -(tag=draft OR tag=fun) folder=Try`. Only [[Launch budget]] is left: `-( … )` leaves out the whole group, and `folder=` keeps notes in that folder or under it.
+13. Type `(launch OR budget` and stop. A red line under the box says `Missing ")" for the "(" at character 1`. Add the `)` and it goes away.
+14. Click the **?** at the right of the filter box. The Query syntax page lists every operator and field with an example. Click an example, like `budget OR costs`, and Notes opens filtered by it. The same **?** is beside Matching in a `::query`'s settings and in the smart folder editor.

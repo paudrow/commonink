@@ -12,7 +12,8 @@ import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
 import { dueFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
 import { parseQuickAdd } from "./quickAdd.ts";
-import { dayPasses, formatQuery, ftsAny, ftsQuery, parseQuery, parseSearch, queryProblem, searchWords, tagList, type NoteQuery } from "./query.ts";
+import { formatQuery, parseQuery, queryProblem, tagList, type NoteQuery } from "./query.ts";
+import { dayPasses, evaluate, folderList, inFolders, parse, termsOf, textWords, toFts, type Term } from "./queryGrammar.ts";
 import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
 import { safeDecode } from "./uri.ts";
 import { AGENTS_NOTE, START_TAG, type NoteRole } from "./noteRoles.ts";
@@ -681,15 +682,15 @@ export class Vault {
 
   /**
    * Full-text search, optionally only among notes carrying `tag` (or a tag under it). The words
-   * read the way a note query's do (`-word`, `OR`, "a phrase"; see parseSearch), but its filters
-   * (`tag=`, `modified>`) are for note queries (feed): a search leaves them out.
+   * read the way a note query's do (AND, OR, -, ( ), "a phrase"; see queryGrammar.ts), but its
+   * filters (`tag=`, `modified>`) are for note queries (feed): a search leaves them out.
    */
   search(query: string, limit = 20, scope: ArchiveScope = "active", tag?: string): SearchHit[] {
-    const words = parseSearch(query);
-    const terms = searchWords(words);
+    const { expr } = parse(query);
+    const terms = textWords(expr);
+    const match = toFts(expr);
     const key = tag === undefined ? null : normalizeTag(tag);
-    if (!terms.length || (tag !== undefined && !key)) return [];
-    const match = words.none.length ? `(${ftsQuery(words)}) NOT ${ftsAny(words.none)}` : ftsQuery(words);
+    if (!match || !terms.length || (tag !== undefined && !key)) return [];
     // Ordered by rank, the full-text index hands hits over best first, so the query stops at `limit`
     // and makes snippets only for the hits it returns (a 1 MB note's snippet can take 200 ms).
     const rows = this.db.all(
@@ -724,7 +725,10 @@ export class Vault {
    */
   feed(opts: Omit<NoteQuery, "limit"> & { scope?: ArchiveScope; offset?: number; limit?: number } = {}) {
     const scope = opts.scope ?? "active";
-    const terms = searchWords(parseSearch(opts.q ?? ""));
+    const words = parse(opts.q ?? "");
+    const terms = textWords(words.expr);
+    // A sort= among the words is the list's order.
+    opts = { ...opts, sort: words.sort ?? opts.sort };
     const all = this.feedRows();
     let rows = this.matching(opts, all);
     const counts = { active: rows.filter((r) => !isArchived(r.path)).length, archived: rows.filter((r) => isArchived(r.path)).length };
@@ -794,45 +798,48 @@ export class Vault {
 
   /** The notes a query matches, archived ones included, in its order. The part of the feed smart folder counts need. */
   private matching(query: NoteQuery, all = this.feedRows()): ReturnType<Vault["feedRows"]> {
-    const words = parseSearch(query.q ?? "");
+    const { expr, sort: sortInQ } = parse(query.q ?? "");
+    const sort = sortInQ ?? query.sort;
     let rows = all;
-    const found = (match: string) => new Set(this.db.all<{ path: string }>("SELECT path FROM notes_fts WHERE notes_fts MATCH ?", match).map((r) => r.path));
-    if (words.all.length) {
-      const hits = found(ftsQuery(words));
-      rows = rows.filter((r) => hits.has(r.path));
+    // The folder key (`A|B` is either) and tag key (`work,plan` is the notes with both) narrow the rows first.
+    if (query.folder) {
+      const folders = folderList(query.folder);
+      rows = rows.filter((r) => inFolders(homeOf(r.path), folders));
     }
-    if (words.none.length) {
-      const out = found(ftsAny(words.none));
-      rows = rows.filter((r) => !out.has(r.path));
-    }
-    if (query.folder) rows = rows.filter((r) => homeOf(r.path).startsWith(query.folder!.replace(/\/?$/, "/")));
-    // Every tag, each with the tags under it: `work,plan` is the notes with both. A tag left out (`-tag=x`) takes the tags under it too.
+    // A tag takes the tags under it too, whether it's wanted or left out.
     const tagged = (tag: string) => {
       const key = normalizeTag(tag);
       return new Set(key ? this.db.all<{ path: string }>(`SELECT DISTINCT path FROM tags WHERE kind != 'task' AND ${UNDER}`, ...under(key)).map((r) => r.path) : []);
     };
-    for (const tag of [...tagList(query.tag), ...words.tags]) {
+    for (const tag of tagList(query.tag)) {
       const on = tagged(tag);
       rows = rows.filter((r) => on.has(r.path));
     }
-    for (const tag of words.notTags) {
-      const on = tagged(tag);
-      rows = rows.filter((r) => !on.has(r.path));
-    }
     // Dates go by day, in this core's time zone (see dayPasses).
-    const created = words.dates.some((f) => f.field === "created") || query.sort === "created" ? this.createdTimes() : null;
+    const created = termsOf(expr).some((t) => t.kind === "date" && t.field === "created") || sort === "created" ? this.createdTimes() : null;
     const createdOf = (r: (typeof rows)[number]) => Math.min(created?.get(r.id) ?? r.mtime, r.mtime);
-    if (words.dates.length) {
+    if (expr) {
+      // Each term's notes, found once: words through the full-text index, tags through the tags table.
+      const sets = new Map<Term, Set<string>>();
+      const setOf = (t: Term) => {
+        if (!sets.has(t)) {
+          const match = t.kind === "text" ? toFts(t) : null;
+          sets.set(t, t.kind === "tag" ? tagged(t.tag) : new Set(match ? this.db.all<{ path: string }>("SELECT path FROM notes_fts WHERE notes_fts MATCH ?", match).map((r) => r.path) : []));
+        }
+        return sets.get(t)!;
+      };
       const today = this.day();
       const dayOf = dayFormat(this.timeZone);
-      rows = rows.filter((r) => words.dates.every((f) => dayPasses(dayOf(f.field === "created" ? createdOf(r) : r.mtime), f, today)));
+      const test = (r: (typeof rows)[number]) => (t: Term) =>
+        t.kind === "folder" ? inFolders(homeOf(r.path), t.folders) : t.kind === "date" ? dayPasses(dayOf(t.field === "created" ? createdOf(r) : r.mtime), t, today) : setOf(t).has(r.path);
+      rows = rows.filter((r) => evaluate(expr, test(r)));
     }
-    if (query.sort === "created") rows = [...rows].sort((a, b) => createdOf(b) - createdOf(a));
-    if (query.sort === "title") rows = [...rows].sort((a, b) => a.title.localeCompare(b.title));
-    if (query.sort === "date" || query.sort === "oldest") {
+    if (sort === "created") rows = [...rows].sort((a, b) => createdOf(b) - createdOf(a));
+    if (sort === "title") rows = [...rows].sort((a, b) => a.title.localeCompare(b.title));
+    if (sort === "date" || sort === "oldest") {
       // A note's own date, else the day it last changed; the same day goes by when it changed.
       const day = (r: (typeof rows)[number]) => r.date ?? new Date(r.mtime).toISOString().slice(0, 10);
-      const dir = query.sort === "date" ? -1 : 1;
+      const dir = sort === "date" ? -1 : 1;
       rows = [...rows].sort((a, b) => dir * (day(a).localeCompare(day(b)) || a.mtime - b.mtime));
     }
     return rows;
