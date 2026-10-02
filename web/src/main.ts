@@ -62,7 +62,7 @@ import { safeDecode } from "../../src/core/uri.ts";
 import { deleteFolder, deletePaths, TrashPage, type DeleteHooks } from "./trash.ts";
 import { mountSharedView, sharedRoute } from "./sharedView.ts";
 import { showShareDialog } from "./shareDialog.ts";
-import { openRowMenu, rowMenu, type RowMenuItem } from "./rowMenu.ts";
+import { rowMenu, type RowMenuItem } from "./rowMenu.ts";
 import { CapturePage, registerWorker } from "./capture.ts";
 import { AGENTS_BLURB, isAgentsNote } from "./agentsNote.ts";
 import { closeDrawer, renderMore, setupMobileNav } from "./mobileNav.ts";
@@ -1744,9 +1744,15 @@ const opens = (go: (e?: MouseEvent) => void) => ({
 function renderSmartFolders(active: string | null) {
   const rows = smartFolders.map((f) => {
     const edit = el("button", { type: "button", class: "row-act", title: "Edit or delete" }, icon("sliders", 14));
-    edit.addEventListener("click", (e) => {
-      e.stopPropagation();
-      smartFolderEditor(edit, f, {
+    const editable = !(f.shared && viewer);
+    const remove = async () => {
+      if (!confirm(`Delete the smart folder ${f.name}${f.shared && !local ? " for everyone in the workspace" : ""}? Its notes don't change.`)) return;
+      smartFolders = await api.deleteSmartFolder(f.id);
+      renderTree();
+      toast({ icon: "folderSearch", text: `Deleted ${f.name}` });
+    };
+    const openEditor = (anchor: HTMLElement) =>
+      smartFolderEditor(anchor, f, {
         canShare: !viewer,
         alone: local,
         sources: fieldSources,
@@ -1755,30 +1761,35 @@ function renderSmartFolders(active: string | null) {
           smartFolders = await api.smartFolders();
           renderTree();
         },
-        remove: async () => {
-          if (!confirm(`Delete the smart folder ${f.name}${f.shared && !local ? " for everyone in the workspace" : ""}? Its notes don't change.`)) return;
-          smartFolders = await api.deleteSmartFolder(f.id);
-          renderTree();
-          toast({ icon: "folderSearch", text: `Deleted ${f.name}` });
-        },
+        remove,
       });
+    edit.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openEditor(edit);
     });
-    return el(
+    const show = () => void showNotes({ tab: "notes", query: parseQuery(f.query) });
+    const row = el(
       "div",
       {
         class: `tree-row is-file${f.query === active ? " is-active" : ""}`,
         "aria-current": f.query === active && "page",
         style: { "--depth": "0" },
         title: `${f.query || "Every note"}${f.shared ? "" : " (just you)"}`,
-        ...opens(() => void showNotes({ tab: "notes", query: parseQuery(f.query) })),
+        ...opens(show),
       },
       el("span", { class: "chev is-leaf" }), // the chevron column Folders and Tags rows have, so icons and names line up
       icon("folderSearch", 14),
       el("span", { class: "tree-name" }, f.name),
       f.shared ? null : el("span", { class: "sf-mine", title: "Just you" }, icon("user", 11)),
       el("span", { class: "n" }, String(f.count)),
-      f.shared && viewer ? null : el("span", { class: "row-actions" }, edit),
+      editable ? el("span", { class: "row-actions" }, edit) : null,
     );
+    rowMenu(row, f.name, () => [
+      { label: "Show notes", icon: "folderSearch", run: show },
+      editable ? { label: "Edit…", icon: "sliders", run: () => openEditor(edit.isConnected ? edit : row) } : null,
+      editable ? { label: "Delete…", icon: "trash", danger: true, run: remove } : null,
+    ]);
+    return row;
   });
   // Empty: one quiet line pointing at the header's +, the one way to add one from here.
   $("#smart-folders").replaceChildren(...(rows.length ? rows : [sectionHint("Click ", plusMark(), " to save a search here.")]));
@@ -1788,7 +1799,7 @@ const FAVORITE = "application/x-common-ink-favorite";
 
 /** A starred tag in Favorites: it opens Notes narrowed to the tag, like the tag's row under Tags. */
 function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
-  return el(
+  const row = el(
     "div",
     {
       class: `tree-row is-tag${active ? " is-active" : ""}`,
@@ -1809,6 +1820,19 @@ function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
     el("span", { class: "n" }, String(f.notes)),
     el("span", { class: "row-actions" }, tagStarButton(f.display, "row")),
   );
+  rowMenu(row, `#${f.display}`, () => tagMenu(f.display, true));
+  return row;
+}
+
+/** A tag's menu, on its row under Tags or in Favorites. `used`: some note carries it (else it can be deleted). */
+function tagMenu(tag: string, used: boolean, t?: TagCount): (RowMenuItem | null)[] {
+  const starred = isTagStarred(tag);
+  return [
+    { label: "Show notes", icon: "file", run: () => openTag(tag) },
+    { label: "Show tasks", icon: "task", run: () => openTag(tag, "tasks") },
+    used ? { label: starred ? "Remove from Favorites" : "Add to Favorites", icon: starred ? "starred" : "star", run: () => toggleTagStar(tag) } : null,
+    !used && t && !viewer ? { label: "Delete…", icon: "trash", danger: true, run: () => deleteTag(t) } : null,
+  ];
 }
 
 /** Starred notes and tags, in your order: drag one to reorder, or drag a card in from Notes to star it. */
@@ -1851,6 +1875,11 @@ function renderFavorites() {
         el("button", { type: "button", class: "row-act fav-star", title: "Remove from Favorites", onclick: (e: Event) => (e.stopPropagation(), void toggleStar(f.path)) }, icon("starred", 14)),
       ),
     );
+    rowMenu(row, displayName(f.path), () => [
+      { label: "Open", icon: "edit", run: () => openNote(f.path) },
+      { label: "Open to the side", icon: "split", run: () => openNote(f.path, { pane: sideOf(active) }) },
+      { label: "Remove from Favorites", icon: "starred", run: () => toggleStar(f.path) },
+    ]);
     favoriteDrop(row, "is-drop-before", f.path);
     return row;
   });
@@ -2037,9 +2066,7 @@ function renderTree() {
             "span",
             { class: "row-actions" },
             action(`New note in ${path}`, "plus", () => void newNote(path)),
-            // Export, Share and Delete are in the folder's menu (right-click, Shift+F10); a touch
-            // screen has neither, so there it gets ⋯ (mobile.css).
-            el("button", { type: "button", class: "row-act row-more", title: `More for ${path}`, "aria-haspopup": "menu", onclick: (e: Event) => (e.stopPropagation(), openRowMenu(row, path, folderMenu(path))) }, icon("more", 14)),
+            // Export, Share and Delete are in the folder's menu: right-click, Shift+F10, or ⋯ on touch.
           ),
         );
         rowMenu(row, path, () => folderMenu(path));
@@ -2131,6 +2158,7 @@ function renderTagTree(active: string) {
             : el("button", { type: "button", class: "row-act", title: `Delete #${t.display}`, onclick: (e: Event) => (e.stopPropagation(), void deleteTag(t)) }, icon("trash", 14)),
           ),
         );
+        rowMenu(row, `#${t.display}`, () => tagMenu(t.display, !unusedTag(t), t));
         return [row, ...(open ? walk(t.tag, depth + 1) : [])];
       });
   const rows = walk("", 0);

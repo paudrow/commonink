@@ -1,7 +1,8 @@
-// A sidebar row's menu: a folder's occasional actions (Export as .zip, Share, Delete) live here rather
-// than as buttons on the row. It opens on right-click, from the keyboard with the row focused
-// (Shift+F10 or the Menu key), and from the row's ⋯ button on a touch screen, which has neither.
-// It looks like the Share menu (share.ts) and moves the same way: arrows, Home/End, Escape.
+// The right-click menu on a thing in a list: a sidebar row (folder, tag, smart folder, favorite) or a
+// card in Notes, listing what you can do to it. Occasional actions live here rather than as buttons on
+// the row. It opens on right-click, from the keyboard with the row focused (Shift+F10 or the Menu
+// key), and from the row's ⋯ button on a touch screen, which has neither. It looks like the Share
+// menu (share.ts) and moves the same way: arrows, Home/End, Escape.
 import { el, icon } from "./dom.ts";
 
 export interface RowMenuItem {
@@ -21,9 +22,9 @@ export function rowMenuOpenFor(anchor: HTMLElement) {
 
 /**
  * Open the menu for `anchor` (the row), at the pointer when there is one, else under the row. Focus
- * goes to the first item, and back to the row when Escape closes it.
+ * goes to the first item, and back to `returnTo` (the row, unless it can't take focus) when Escape closes it.
  */
-export function openRowMenu(anchor: HTMLElement, label: string, entries: (RowMenuItem | null)[], at?: { x: number; y: number }) {
+export function openRowMenu(anchor: HTMLElement, label: string, entries: (RowMenuItem | null)[], at?: { x: number; y: number }, returnTo: HTMLElement = anchor) {
   open?.close(false);
   const list = entries.filter((e): e is RowMenuItem => !!e);
   if (!list.length) return;
@@ -75,7 +76,7 @@ export function openRowMenu(anchor: HTMLElement, label: string, entries: (RowMen
     document.removeEventListener("pointerdown", outside, true);
     window.removeEventListener("blur", away);
     window.removeEventListener("resize", away);
-    if (refocus && anchor.isConnected) anchor.focus({ preventScroll: true });
+    if (refocus && returnTo.isConnected) returnTo.focus({ preventScroll: true });
   }
   document.body.append(menu);
   place(menu, anchor, at);
@@ -103,6 +104,15 @@ function place(menu: HTMLElement, anchor: HTMLElement, at?: { x: number; y: numb
  * so it's what applies now.
  */
 export function rowMenu(row: HTMLElement, label: string, entries: () => (RowMenuItem | null)[]) {
+  // On a touch screen, ⋯ in the row's actions (shown there by mobile.css; hidden under a pointer).
+  const actions = row.querySelector(".row-actions") ?? row.appendChild(el("span", { class: "row-actions" }));
+  actions.append(
+    el(
+      "button",
+      { type: "button", class: "row-act row-more", title: `More for ${label}`, "aria-haspopup": "menu", onclick: (e: Event) => (e.stopPropagation(), openRowMenu(row, label, entries())) },
+      icon("more", 14),
+    ),
+  );
   row.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     e.stopPropagation();
