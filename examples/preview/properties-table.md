@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 304
 title: Properties as a table
 ---
 1. Open [[Weekly sync]]. Its properties are a table: `date` has a date picker, `draft` a checkbox, `tags` and `people` are chips, and `status` is a text field.
