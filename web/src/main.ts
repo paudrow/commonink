@@ -23,6 +23,7 @@ import { clearFlash, flashChanges } from "./editor/agentFlash.ts";
 import { editsBetween, merge3 } from "./merge.ts";
 import { sandboxFrame } from "./render.ts";
 import { Palette } from "./palette.ts";
+import { ensureContact } from "./people.ts";
 import { NotesPage, type NotesTab } from "./notesPage.ts";
 import { folderPicker } from "./folderPicker.ts";
 import type { History } from "./history.ts";
@@ -272,6 +273,23 @@ const palette = new Palette(
   (path, line, side) => openNote(path, { line, pane: side || paletteToSide ? sideOf(active) : active }),
   (name) => createNote(name),
   () => commands(),
+  {
+    headings: () => noteHeadings(),
+    goToHeading: (line) => (goToLine(active, line), active.view.focus()),
+    tags: () => tags.filter((t) => !unusedTag(t)),
+    // A tag only tasks carry opens in Tasks, as its sidebar row does.
+    openTag: (tag) => openTag(tag, tags.some((t) => t.display === tag && !t.notes && !t.assets && t.tasks > 0) ? "tasks" : "notes"),
+    folders: () => allFolders(),
+    smartFolders: () => smartFolders,
+    openFolder: (folder) => void showNotes({ tab: "notes", query: { folder } }),
+    openSmartFolder: (query) => void showNotes({ tab: "notes", query: parseQuery(query) }),
+    openPerson: async (p) => {
+      // A member with no contact gets one, as `@` does when you mention them.
+      const path = p.contact?.path ?? (await ensureContact(p.name, p.member?.email).catch(() => null));
+      const id = p.contact?.id ?? (path && (await api.contacts().catch(() => [])).find((c) => c.path === path)?.id);
+      if (id) void showContacts({ contact: id });
+    },
+  },
 );
 function openPalette(side = false) {
   paletteToSide = side;
@@ -2427,16 +2445,20 @@ function attachVim() {
 
 // outline
 let outlineHeadings: Array<{ level: number; text: string; line: number }> = [];
+/** The open note's headings, for the outline and quick open's `#`. */
+function noteHeadings(): Array<{ level: number; text: string; line: number }> {
+  const out: Array<{ level: number; text: string; line: number }> = [];
+  if (active.session?.kind !== "md") return out;
+  for (const [i, t] of proseLines(active.view.state.doc.toString())) {
+    const m = t.match(/^(#{1,6})[ \t]+(.+)$/);
+    const words = m && headingText(m[2]);
+    if (words) out.push({ level: m[1].length, text: (headingName(words) || words).replace(/[*_`~]|\[\[|\]\]/g, ""), line: i });
+  }
+  return out;
+}
 function renderOutline() {
   const box = $("#outline");
-  outlineHeadings = [];
-  if (active.session?.kind === "md") {
-    for (const [i, t] of proseLines(active.view.state.doc.toString())) {
-      const m = t.match(/^(#{1,6})[ \t]+(.+)$/);
-      const words = m && headingText(m[2]);
-      if (words) outlineHeadings.push({ level: m[1].length, text: (headingName(words) || words).replace(/[*_`~]|\[\[|\]\]/g, ""), line: i });
-    }
-  }
+  outlineHeadings = noteHeadings();
   const min = Math.min(...outlineHeadings.map((h) => h.level));
   box.replaceChildren(
     ...(outlineHeadings.length
