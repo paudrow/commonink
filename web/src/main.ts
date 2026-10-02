@@ -8,7 +8,7 @@ import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, unusedT
 import { cleanTag, normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
-import { setShareState, setShareWithPeople, SHARE_KEYS, toggleShareMenu, type ShareNote } from "./share.ts";
+import { setSaveToDrive, setShareState, setShareWithPeople, SHARE_KEYS, toggleShareMenu, type ShareNote } from "./share.ts";
 import type { Label } from "./api.ts";
 import { hideBanner, showBanner } from "./banner.ts";
 import { showConflict as conflictBanner } from "./conflict.ts";
@@ -293,7 +293,7 @@ function commands() {
     canDelete: !viewer,
     online: !!workspaceId,
     canSubscribe: !viewer,
-    canConnectGoogle: !!googleKnown() && googleKnown()!.mode !== "off" && !googleKnown()!.connection,
+    canConnectGoogle: !!googleKnown() && googleKnown()!.mode !== "off" && !googleKnown()!.connection?.calendar,
     folds: s?.kind === "md" ? foldCount(active.view.state) : 0,
     account,
     newNote: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
@@ -340,6 +340,7 @@ function commands() {
     share: openShare,
     copyLink: () => void copyLink(),
     exportAs: (how) => void exportNote(how),
+    saveToDrive: () => void saveNoteToDrive(),
     exportWorkspace: () => void exportZip({ all: true }),
     settings: openSettings,
     connectAgent,
@@ -1076,6 +1077,25 @@ function shareNote(): ShareNote | null {
   if (!s || s.kind === "asset") return null;
   const view = active.view;
   return { path: s.path, title: s.title, kind: s.kind, url: `${location.origin}${notePath(s.title, s.id)}`, content: () => view.state.doc.toString() };
+}
+
+/** Save to Google Drive… (online): the dialog that picks a Google Doc, a PDF or the markdown file (export/drive.ts). */
+async function saveNoteToDrive(note: ShareNote | null = shareNote(), as?: "doc" | "pdf" | "md") {
+  if (!note || note.kind !== "md") return;
+  await (await import("./export/drive.ts")).openSaveToDrive({ path: note.path, title: note.title, content: note.content() }, as);
+}
+
+/** Back from letting Common Ink save to Google Drive (?drive=connected|denied|failed): the dialog again, at the format picked, or why not. */
+async function backFromDrive(outcome: string, as: string | null) {
+  const url = new URL(location.href);
+  url.searchParams.delete("drive");
+  url.searchParams.delete("as");
+  history.replaceState(history.state, "", url.pathname + url.search + url.hash);
+  const said = (await import("./export/drive.ts")).driveOutcome(outcome, as);
+  if (!said) return;
+  if ("text" in said) return toast({ icon: "drive", text: said.text, alert: true });
+  if (shareNote()?.kind === "md") await saveNoteToDrive(shareNote(), said.again);
+  else toast({ icon: "drive", text: "Google Drive is connected: save a note from its Share menu" });
 }
 
 /** The Share menu, under the Share button (or under More, where a phone keeps the button). */
@@ -2970,6 +2990,8 @@ async function boot() {
   registerWorker(); // installable, and the share target (web/public/sw.js)
   // Read before the workspace is picked: picking one tidies the address, this included.
   const fromGoogle = new URLSearchParams(location.search).get("google");
+  const fromDrive = new URLSearchParams(location.search).get("drive");
+  const driveAs = new URLSearchParams(location.search).get("as");
   // Online, the note API is per workspace and needs a signed-in person; locally it's just /api.
   const who = await whoAmI();
   // Where developer sign-in is on (local `cloud:dev`, and Previews) there's nothing to choose: go straight in.
@@ -2989,6 +3011,7 @@ async function boot() {
     account = renderAccount(who.me, ws, (t) => toast(t));
     $("#shared-btn").hidden = false;
     setShareWithPeople({ label: "Share with people…", icon: "share-people", run: (note) => openShareDialog({ path: note.path }) });
+    setSaveToDrive({ label: "Save to Google Drive…", icon: "drive", run: (note) => void saveNoteToDrive(note) });
     void refreshShares();
     void api.sharedWithMe().then((g) => ($("#shared-count").textContent = String(g.reduce((n, x) => n + x.notes.length, 0) || "")), () => {});
   }
@@ -3108,6 +3131,7 @@ async function boot() {
     if (spot.line || spot.heading) await openNote(beside.path, { pane: panes[1], ...spot });
   } else await route();
   if (fromGoogle) await backFromGoogle(fromGoogle);
+  if (fromDrive && !local) await backFromDrive(fromDrive, driveAs);
 }
 
 boot();

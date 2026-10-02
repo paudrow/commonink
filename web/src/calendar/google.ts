@@ -74,10 +74,10 @@ export function googleSection(hooks: { changed(): Promise<void> }) {
     }
   };
 
-  const disconnect = async (account: string) => {
+  const disconnect = async (account: string, drive: boolean) => {
     const sure = await ask({
       title: "Disconnect Google Calendar?",
-      body: [`Common Ink stops reading ${account}, and your Google calendars leave every workspace you added them to. Meeting notes you made from their events stay.`],
+      body: [`Common Ink stops reading ${account}, and your Google calendars leave every workspace you added them to. Meeting notes you made from their events stay.${drive ? " Saving notes to Google Drive stops too; what you saved there stays." : ""}`],
       actions: [{ label: "Disconnect", value: "go", kind: "danger" }],
     });
     if (sure !== "go") return;
@@ -140,7 +140,7 @@ export function googleSection(hooks: { changed(): Promise<void> }) {
     if (status.mode === "off") return body.replaceChildren(el("p", { class: "cal-g-note" }, "Google isn't configured on this server"));
     const privacy = el("p", { class: "cal-g-note" }, icon("user", 13), "Your Google calendars show only to you here, not to others in this workspace.");
     const c = status.connection;
-    if (!c) {
+    if (!c?.calendar) {
       return body.replaceChildren(
         privacy,
         el("p", { class: "cal-g-note" }, "Common Ink reads them. Only if you turn it on for a calendar, it adds a link to your meeting note to the event, never the note's text."),
@@ -151,7 +151,7 @@ export function googleSection(hooks: { changed(): Promise<void> }) {
       "div",
       { class: "cal-g-account" },
       el("span", {}, "Connected as ", el("b", {}, c.account)),
-      el("button", { type: "button", class: "qw-btn", onclick: () => void disconnect(c.account) }, "Disconnect"),
+      el("button", { type: "button", class: "qw-btn", onclick: () => void disconnect(c.account, c.drive) }, "Disconnect"),
     );
     let calendars: GoogleCalendar[];
     try {

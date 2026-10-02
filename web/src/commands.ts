@@ -105,6 +105,8 @@ export interface App {
   share(): void;
   copyLink(): void;
   exportAs(how: "print" | "pdf" | "md" | "html" | "docx"): void;
+  /** Online: save the note to Google Drive (export/drive.ts). */
+  saveToDrive(): void;
   /** Every note and file, as a .zip. */
   exportWorkspace(): void;
   settings(): void;
@@ -173,6 +175,7 @@ export function appCommands(app: App): Command[] {
     { id: "export-md", title: "Export as Markdown", keywords: "save download md markdown file", icon: "file", available: note?.kind === "md", run: () => app.exportAs("md") },
     { id: "export-html", title: "Export as web page (HTML)", keywords: "save download html web page file", icon: "html", available: note?.kind === "md", run: () => app.exportAs("html") },
     { id: "export-docx", title: "Export as Word", keywords: "save download docx word document office google docs", icon: "file", available: note?.kind === "md", run: () => app.exportAs("docx") },
+    { id: "save-to-drive", title: "Save to Google Drive…", keywords: "google drive docs doc pdf upload cloud save", icon: "drive", available: note?.kind === "md" && app.online, run: app.saveToDrive },
     { id: "export-workspace", title: "Export all notes (.zip)", keywords: "export download backup zip everything workspace vault obsidian take out", icon: "download", run: app.exportWorkspace },
     { id: "back", title: "Go back", keywords: "previous history return last note ctrl-o", icon: "back", keys: ["Mod-["], available: app.canBack, run: app.back },
     { id: "forward", title: "Go forward", keywords: "next history ctrl-i", icon: "chevron", keys: ["Mod-]"], available: app.canForward, run: app.forward },

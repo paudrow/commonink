@@ -1,10 +1,10 @@
 // History, Trash, and files moving in and out of the vault.
 import { createTwoFilesPatch } from "diff";
-import { VaultError } from "../paths.ts";
+import { kindOf, VaultError } from "../paths.ts";
 import { fmtChanges, fmtTrash, fmtWrite } from "../format.ts";
 import { TRASH_DAYS } from "../vault.ts";
 import { parseAuthorFilter } from "../actor.ts";
-import { EXPORT_FORMATS, type ExportFormat } from "../export.ts";
+import { EXPORT_FORMATS, SAVE_FORMATS, type ExportFormat, type SaveFormat } from "../export.ts";
 import { command, list, localFiles, num, str } from "./types.ts";
 
 export const history = [
@@ -184,6 +184,35 @@ export const files = [
         data: { name: file.name, bytes: file.data.byteLength, mime: file.mime },
         save: { name: file.name, bytes: file.data, mime: file.mime },
       };
+    },
+  }),
+  command({
+    cli: "save-to-drive",
+    mcp: "save_to_drive",
+    // It reads the note, as export does; what it writes is in the person's own Drive, not the workspace.
+    route: "GET /export",
+    title: "Save a note to Google Drive",
+    summary: "Save a note to your Google Drive as a Google Doc, a PDF or its markdown file (also: export <note> --to drive)",
+    description:
+      "Save a note to the Google Drive of the person you work for, in a folder named Common Ink: `doc` (the default) a Google Doc they can edit, " +
+      "`pdf` a PDF, `md` the markdown file. Links to other notes become links to their web address. Hosted workspaces only, and only once the " +
+      "person has connected Google Drive in the app (Share, then Save to Google Drive). Answers with the file's Drive link.",
+    examples: ["commonink save-to-drive Welcome", "commonink export Welcome --to drive --format pdf"],
+    needs: "drive",
+    openWorld: true,
+    args: {
+      note: str({ required: true, pos: 0, describe: "The note (path, name or ID)" }),
+      format: str({ enum: SAVE_FORMATS, describe: "doc (a Google Doc, the default), pdf, or md (the markdown file)" }),
+      to: str({ only: "cli", enum: ["drive"], describe: "Where to save it: drive (Google Drive, the only place for now)" }),
+    },
+    run: async ({ vault, drive }, a) => {
+      if (!drive) throw new VaultError("Saving to Google Drive works in a hosted workspace with Google set up: run commonink login, then pass --workspace");
+      const rel = vault.resolve(a.note);
+      if (!rel || kindOf(rel) === "asset") throw new VaultError(`No note matches "${a.note}". Try search_notes to find it.`, "not_found");
+      if (kindOf(rel) !== "md") throw new VaultError(`${rel} is an HTML note: only markdown notes save to ${drive.name} for now`);
+      const format = (a.format ?? "doc") as SaveFormat;
+      const file = await drive.save(rel, format);
+      return { text: `Saved ${rel} to ${drive.name} as ${file.name}: ${file.url}`, data: { path: rel, format, name: file.name, url: file.url } };
     },
   }),
 ];
