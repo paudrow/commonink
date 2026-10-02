@@ -84,3 +84,22 @@ test("Trash says when an item went and when it goes for good in the machine's ti
   const item = { id: "1-1", path: "Old.md", kind: "md" as const, size: 1, deletedAt: CHICAGO_EVENING, expiresAt: CHICAGO_EVENING + 30 * 86_400_000, by: null, excerpt: "" };
   assert.equal(onMachineIn("America/Chicago", () => fmtTrash([item])), "1-1  Old.md — deleted 2026-09-29 21:00, gone for good 2026-10-29");
 });
+
+test("at 9pm in Chicago, notes made from templates and the daily note have Chicago's date and time, on a server in UTC", () => {
+  const { vault } = openTempVault(
+    {
+      "Templates/Standup.md": '---\ntitle: "{{date}} Standup"\n---\n# Standup {{date}} {{time}}\n',
+      "Templates/Daily note.md": "# {{date}} at {{time}}\n",
+    },
+    { now: () => CHICAGO_EVENING, timeZone: "America/Chicago" },
+  );
+  onMachineIn("UTC", () => {
+    assert.equal(vault.renderTemplate("Standup").text, "# Standup 2026-09-29 21:00\n");
+    const made = vault.createFromTemplate("Standup", {}, "agent");
+    assert.equal(made.path, "2026-09-29 Standup.md");
+    assert.match(vault.read(made.path).content, /# Standup 2026-09-29 21:00/);
+    const daily = vault.dailyNote(vault.today().date, "agent");
+    assert.equal(daily.path, "Journal/2026-09-29.md");
+    assert.match(vault.read(daily.path).content, /# 2026-09-29 at 21:00/);
+  });
+});

@@ -202,3 +202,14 @@ test("a file written behind the server's back is logged as an external change", 
   }
   assert.deepEqual(change && { path: change.path, op: change.op, source: change.source }, { path: "Dropped.md", op: "create", source: "external" });
 });
+
+test("locally the vault's person owns its settings: it's gamified until they turn that off, and it stays off", async () => {
+  const get = async () => JSON.parse((await request("GET", "/api/workspace/settings")).body);
+  assert.deepEqual(await get(), { gamified: true });
+  assert.equal((await jsonWrite("POST", "/api/workspace/settings", { gamified: "off" })).status, 400);
+  assert.equal((await jsonWrite("POST", "/api/workspace/settings", { gamified: false })).status, 200);
+  assert.deepEqual(await get(), { gamified: false });
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(vault, ".commonink", "settings.json"), "utf8")), { gamified: false });
+  await jsonWrite("POST", "/api/workspace/settings", { gamified: true });
+  assert.deepEqual(await get(), { gamified: true });
+});

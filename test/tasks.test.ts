@@ -270,3 +270,12 @@ test("a due filter compares dates, with today, tomorrow and yesterday relative t
   assert.equal(due(">=2026-09-01", "2026-09-01"), true);
   assert.deepEqual(["soon", "<=2026-02-31x", "2026-13-01"].map((e) => dueFilter(e, "2026-10-01")), [null, null, null]);
 });
+
+test("a task that moved is found among the note's tasks, never in a code block's example of one", () => {
+  const { vault } = openTempVault({ "N.md": "# N\nintro\n```md\n- [ ] Buy milk\n```\n- [ ] Buy milk\n" });
+  // The list said line 5 before "intro" went in above; line 5 is now the fence's closing line.
+  vault.updateTask("N", 5, "Buy milk", { checked: true }, "test", "2026-10-02");
+  assert.equal(vault.read("N").content, "# N\nintro\n```md\n- [ ] Buy milk\n```\n- [x] Buy milk done:2026-10-02\n");
+  // The one in the fence is an example, even when asked for by its own line.
+  assert.throws(() => vault.updateTask("N", 4, "Buy milk", { checked: true }, "test", "2026-10-02"), /any more/);
+});

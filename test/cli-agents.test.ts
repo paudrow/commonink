@@ -59,6 +59,19 @@ test("--json prints each command's result as data", () => {
   assert.equal(created.change.op, "create");
 });
 
+test("create --overwrite replaces a note that's there, and still creates one that isn't", () => {
+  const vault = tempVault();
+  const replaced = json(vault, ["create", "Welcome", "# Welcome back", "--overwrite"]);
+  assert.equal(replaced.status, 0);
+  assert.equal(replaced.data.path, "Welcome.md");
+  assert.equal(replaced.data.change.op, "edit");
+  assert.equal(fs.readFileSync(path.join(vault, "Welcome.md"), "utf8"), "# Welcome back");
+  assert.equal(json(vault, ["create", "Welcome", "# Welcome back", "--overwrite"]).data.change, null);
+  const fresh = json(vault, ["create", "Brand/New", "# New", "--overwrite"]);
+  assert.equal(fresh.data.change.op, "create");
+  assert.equal(fs.readFileSync(path.join(vault, "Brand/New.md"), "utf8"), "# New");
+});
+
 test("content comes from stdin (- or piped), and --base guards write, append and edit", () => {
   const vault = tempVault();
   assert.equal(commonink(vault, ["create", "Log"], "# Log\n").status, 0);

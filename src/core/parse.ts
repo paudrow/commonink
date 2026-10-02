@@ -42,6 +42,30 @@ export function titleOf(content: string, kind: NoteKind, p: string): string {
   return fallback;
 }
 
+const DATE_KEYS = ["date", "created", "created_at", "createdAt", "date_created", "published"];
+const YMD = /(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)/;
+
+/**
+ * A note's own date as YYYY-MM-DD, or null: a `date:` (or `created:`…) in its frontmatter, else a
+ * date in its title or file name (a daily note's `2026-10-01`). What `sort=date` orders by; notes
+ * moved in from elsewhere all changed just now, so when they last changed doesn't tell them apart.
+ */
+export function dateOf(content: string, kind: NoteKind, p: string): string | null {
+  const valid = (s: string | undefined) => {
+    const m = s?.match(YMD);
+    return m && Number(m[2]) >= 1 && Number(m[2]) <= 12 && Number(m[3]) >= 1 && Number(m[3]) <= 31 ? m[0] : null;
+  };
+  if (kind === "md") {
+    const { data } = splitFrontmatter(content);
+    for (const k of DATE_KEYS) {
+      const d = valid(data[k]);
+      if (d) return d;
+    }
+  }
+  if (kind === "asset") return null;
+  return valid(titleOf(content, kind, p)) ?? valid(path.posix.basename(p));
+}
+
 /** The inside of the first `<open …>…close` in `html` (case-insensitive), or null. */
 function between(html: string, open: string, close: string): string | null {
   const lower = html.toLowerCase();
