@@ -6,6 +6,7 @@
 // workspace's. Syncing is async (it fetches), so it runs outside the note core: on a timer or alarm
 // the host sets, and when someone asks. No Node imports: the Worker runs this too.
 import { looksLikeIcs, readIcs, type Occurrence, type Person } from "./ics.ts";
+import { frontmatterEntries, frontmatterText, scalarOf, type Entry } from "./frontmatter.ts";
 import { VaultError } from "./paths.ts";
 import { fillTemplate } from "./templates.ts";
 import type { Vault } from "./vault.ts";
@@ -605,6 +606,7 @@ export class Calendar {
   }
 
   event(id: string, viewer: { user: string }): CalendarEvent | null {
+    this.relink(id);
     const r = this.db.get<ItemRow>(`${Calendar.SELECT} WHERE i.id = ? AND (s.owner IS NULL OR s.owner = ?)`, id, viewer.user);
     return r ? this.event_(r) : null;
   }
@@ -679,8 +681,38 @@ export class Calendar {
     const ev = this.event(id, viewer);
     if (!ev) throw new VaultError("That event doesn't exist, or you can't see it", "not_found");
     const src = this.target(ev.source, viewer, by);
-    const { uid, instance } = JSON.parse(this.db.get<{ data: string }>("SELECT data FROM external_items WHERE id = ?", id)!.data) as { uid?: string; instance?: string | null };
-    return { src, ev, uid: uid ?? id, instance: instance ?? null };
+    return { src, ev, ...this.uidOf(id) };
+  }
+
+  /** What the event's calendar calls it: its uid, and which one of a series it is (null for a one-off). */
+  private uidOf(id: string): { uid: string; instance: string | null } {
+    const { uid, instance } = JSON.parse(this.db.get<{ data: string }>("SELECT data FROM external_items WHERE id = ?", id)?.data ?? "{}") as { uid?: string; instance?: string | null };
+    return { uid: uid ?? id, instance: instance ?? null };
+  }
+
+  /**
+   * Link an event to its meeting note again when the link in the database is gone but the note is
+   * there: a workspace brought back from an export, or a calendar subscribed to again. The note says
+   * which event it's for in its frontmatter (see withEventKeys); older ones name the event's ID.
+   */
+  private relink(id: string) {
+    if (!this.db.get("SELECT 1 FROM external_items i LEFT JOIN notes n ON n.id = i.note_id WHERE i.id = ? AND n.id IS NULL", id)) return;
+    const { uid, instance } = this.uidOf(id);
+    for (const key of new Set([uid, id])) {
+      // The search index narrows it to notes with those words; the frontmatter decides.
+      const words = key.match(/[\p{L}\p{N}]+/gu)?.slice(0, 16);
+      if (!words) continue;
+      const hits = this.db.all<{ id: string; body: string }>(
+        "SELECT n.id, f.body FROM notes_fts f JOIN notes n ON n.path = f.path WHERE notes_fts MATCH ? AND n.kind = 'md' AND n.id IS NOT NULL ORDER BY n.path LIMIT 50",
+        `body:"${words.join(" ")}"`,
+      );
+      const found = hits.find((h) => {
+        const { entries } = frontmatterEntries(h.body);
+        const value = (k: string) => scalarOf(entries.find((e) => e.key === k));
+        return value("event") === key && (key === id || (value("occurrence") || null) === instance);
+      });
+      if (found) return void this.db.run("UPDATE external_items SET note_id = ? WHERE id = ?", found.id, id);
+    }
   }
 
   /** Read the source again so a write there shows here, and return the event it made or changed. */
@@ -717,7 +749,9 @@ export class Calendar {
     const when = describeWhen(ev, zone);
     const title = ev.title.replace(/[\\/:*?"<>|#^[\]]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "Meeting";
     const rel = vault.freePath(`Meetings/${when.date} ${title}.md`);
-    const content = meetingTemplate(vault.files.read("Templates/Meeting note.md"), ev, when);
+    const { uid, instance } = this.uidOf(id);
+    const calendar = this.db.get<{ name: string }>("SELECT name FROM sources WHERE id = ?", ev.source)?.name ?? null;
+    const content = withEventKeys(meetingTemplate(vault.files.read("Templates/Meeting note.md"), ev, when), uid, instance, calendar);
     const r = vault.create(rel, content, opts.source);
     const noteId = this.db.get<{ id: string }>("SELECT id FROM notes WHERE path = ?", r.path)?.id ?? null;
     this.db.run("UPDATE external_items SET note_id = ? WHERE id = ?", noteId, id);
@@ -910,6 +944,21 @@ function plain(s: string): string {
 
 const who = (p: Person) => plain(p.name ?? p.email ?? "");
 
+/** The frontmatter keys that tie a meeting note to its event. */
+const EVENT_KEYS = ["event", "occurrence", "calendar"];
+
+/**
+ * A meeting note with frontmatter saying which event it's for, so the link survives an export and
+ * agents can read it: `event:` its uid in the calendar, `occurrence:` which one of a series, and
+ * `calendar:` the calendar's name. They replace the same keys from a template; its other keys stay.
+ */
+function withEventKeys(md: string, uid: string, instance: string | null, calendar: string | null): string {
+  const { entries, body } = frontmatterEntries(md);
+  const line = (key: string, value: string): Entry => ({ key, lines: [`${key}: ${/^\w[\w .@+\/-]*$/.test(value) && !value.endsWith(" ") ? value : JSON.stringify(value)}`] });
+  const ours = [line("event", uid), ...(instance ? [line("occurrence", instance)] : []), ...(calendar ? [line("calendar", calendar)] : [])];
+  return frontmatterText([...entries.filter((e) => !EVENT_KEYS.includes(e.key)), ...ours]) + body;
+}
+
 /** A new meeting note: the template's {{placeholders}} filled in, or the default layout. */
 function meetingTemplate(template: string | null, ev: CalendarEvent, when: { date: string; start: string; text: string }): string {
   const people = ev.attendees.map(who).filter(Boolean).join(", ");
@@ -929,9 +978,6 @@ function meetingTemplate(template: string | null, ev: CalendarEvent, when: { dat
     return fillTemplate(template, { at: `${date}T${when.start}`, title, vars }).text;
   }
   return [
-    "---",
-    `event: ${ev.id}`,
-    "---",
     `# ${fields.title}`,
     "",
     `**When:** ${fields.when}  `,

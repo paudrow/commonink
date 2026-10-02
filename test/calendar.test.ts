@@ -210,7 +210,9 @@ test("a meeting note has the event's time in the reader's zone, its people and a
     vault.files.read(r.path),
     [
       "---",
-      `event: ${standup.id}`,
+      "event: standup",
+      "occurrence: 20261005T163000Z",
+      "calendar: Team",
       "---",
       "# Standup",
       "",
@@ -244,10 +246,36 @@ test("a meeting note follows Templates/Meeting note.md when there is one, and a 
   await cal.addIcs({ url: `${base}/team.ics` }, ME, "you");
   const [ev] = cal.events(ME, OCT);
   const r = cal.meetingNote(vault, ev.id, ME, { timeZone: "UTC", source: "you" });
-  assert.equal(vault.files.read(r.path), `# Standup on 2026-10-05 (Monday, 16:30)\n\nMon, Oct 5, 2026, 4:30 PM to 4:45 PM UTC · [Standup](/calendar/${ev.id})\n{{unknown}} {{title}}\n`);
+  assert.equal(
+    vault.files.read(r.path),
+    `---\nevent: standup\noccurrence: 20261005T163000Z\ncalendar: Team\n---\n# Standup on 2026-10-05 (Monday, 16:30)\n\nMon, Oct 5, 2026, 4:30 PM to 4:45 PM UTC · [Standup](/calendar/${ev.id})\n{{unknown}} {{title}}\n`,
+  );
   vault.delete([r.path], "you");
   const again = cal.meetingNote(vault, ev.id, ME, { source: "you" });
   assert.deepEqual([again.path, again.created, cal.event(ev.id, ME)?.note?.path], [r.path, true, r.path]);
+});
+
+test("a meeting note's frontmatter names its event, so the link comes back when the database has lost it", async () => {
+  // A template's own frontmatter stays; the event's keys replace any it has.
+  const { cal, vault } = setup({ "Templates/Meeting note.md": "---\ntags: [meeting]\nevent: x\n---\n# {{title}}\n" });
+  team = ics(STANDUP, OFFSITE);
+  await cal.addIcs({ url: `${base}/team.ics` }, ME, "you");
+  const [first, second, , offsite] = cal.events(ME, OCT);
+  const r = cal.meetingNote(vault, first.id, ME, { source: "you" });
+  assert.equal(vault.files.read(r.path), "---\ntags: [meeting]\nevent: standup\noccurrence: 20261005T163000Z\ncalendar: Team\n---\n# Standup\n");
+  const one = cal.meetingNote(vault, offsite.id, ME, { source: "you" });
+  assert.match(vault.files.read(one.path)!, /^---\ntags: \[meeting\]\nevent: offsite\ncalendar: Team\n---\n/);
+  // The links go (an export brought back, a calendar subscribed to again); the notes are moved, too.
+  vault.move(r.path, "Archive/Standup notes.md", "you");
+  vault.db.run("UPDATE external_items SET note_id = NULL");
+  assert.equal(cal.event(first.id, ME)?.note?.path, "Archive/Standup notes.md");
+  assert.equal(cal.event(offsite.id, ME)?.note?.path, one.path);
+  // Another day of the same series has no note of its own, so a new one is made.
+  assert.equal(cal.event(second.id, ME)?.note, null);
+  assert.deepEqual(cal.meetingNote(vault, first.id, ME, { source: "you" }), { path: "Archive/Standup notes.md", created: false });
+  // A note made before, with the event's ID as `event:`, is found the same way.
+  const older = vault.create("Meetings/Older.md", `---\nevent: ${second.id}\n---\n# Older\n`, "you").path;
+  assert.equal(cal.event(second.id, ME)?.note?.path, older);
 });
 
 test("only editors change the workspace's calendars, and only they see a feed's address", async () => {
