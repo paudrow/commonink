@@ -30,14 +30,18 @@ export async function membersOf(env: Env, ws: string): Promise<Member[]> {
 const owners = async (env: Env, ws: string) =>
   (await env.DB.prepare("SELECT COUNT(*) AS n FROM members WHERE workspace_id = ? AND role = 'owner'").bind(ws).first<{ n: number }>())?.n ?? 0;
 
+/** Someone's unused invite links here, once they aren't an owner (so they can't let themselves back in). */
+const dropInvites = (env: Env, ws: string, userId: string) => env.DB.prepare("DELETE FROM invites WHERE workspace_id = ? AND created_by = ? AND used_at IS NULL").bind(ws, userId);
+
 /**
  * Someone leaves (or is removed): their membership, their agents' access here, their open tabs, their
- * own calendars here and anything here shared with them (by account or email) all go.
+ * own calendars here, their unused invite links and anything here shared with them (by account or email) all go.
  */
 async function drop(env: Env, url: URL, ws: string, userId: string) {
   const email = (await env.DB.prepare("SELECT email FROM users WHERE id = ?").bind(userId).first<{ email: string }>())?.email.toLowerCase() ?? "";
   await env.DB.batch([
     env.DB.prepare("DELETE FROM members WHERE workspace_id = ? AND user_id = ?").bind(ws, userId),
+    dropInvites(env, ws, userId),
     env.DB.prepare("DELETE FROM shares WHERE workspace_id = ? AND ((principal_type = 'user' AND principal = ?) OR (principal_type = 'email' AND principal = ?))").bind(ws, userId, email),
   ]);
   await revokeAgentsIn(env, url, userId, ws);
@@ -64,6 +68,7 @@ export async function adminRoute(req: Request, env: Env, url: URL, user: User, w
       if (current.role === role) return json({ ok: true });
       if (current.role === "owner" && (await owners(env, ws.id)) === 1) return fail("A workspace needs an owner. Make someone else an owner first.", 409);
       await env.DB.prepare("UPDATE members SET role = ? WHERE workspace_id = ? AND user_id = ?").bind(role, ws.id, target).run();
+      if (current.role === "owner") await dropInvites(env, ws.id, target).run();
       // Their agents connected with the old role; they reconnect to get the new one.
       await revokeAgentsIn(env, url, target, ws.id);
       await log(env, ws.id, user.id, "role", target, `${current.role} → ${role}`);
