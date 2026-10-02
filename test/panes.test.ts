@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EditorState } from "@codemirror/state";
-import { forget, linkClick, paletteEnter, parseLayout, sideClick, step, visit } from "../web/src/panes.ts";
+import { dropDock, forget, linkClick, paletteEnter, parseLayout, sideClick, step, visit } from "../web/src/panes.ts";
 import { markdownWithFrontmatter } from "../web/src/editor/language.ts";
 import { noteLinkAt } from "../web/src/editor/linkAt.ts";
 
@@ -58,9 +58,19 @@ test("a note that's gone drops out of a pane's trail", () => {
 });
 
 test("a stored layout comes back as it was; anything missing or malformed is one pane", () => {
-  const saved = { split: true, side: 0.35, focus: 1, panes: [{ note: "a", back: ["x"], forward: [] }, { note: "b", back: [], forward: ["y"] }] };
+  const saved = { split: true, at: "bottom", side: 0.35, focus: 1, panes: [{ note: "a", back: ["x"], forward: [] }, { note: "b", back: [], forward: ["y"] }] };
   assert.deepEqual(parseLayout(JSON.stringify(saved)), saved);
-  const one = { split: false, side: 0.5, focus: 0, panes: [{ note: null, back: [], forward: [] }, { note: null, back: [], forward: [] }] };
+  const one = { split: false, at: "right", side: 0.5, focus: 0, panes: [{ note: null, back: [], forward: [] }, { note: null, back: [], forward: [] }] };
   for (const raw of [null, "", "not json", "42", '{"panes":7}']) assert.deepEqual(parseLayout(raw), one, String(raw));
+  assert.equal(parseLayout('{"at":"middle"}').at, "right");
   assert.deepEqual(parseLayout('{"split":true,"side":3,"focus":1,"panes":[{"note":"a"},{}]}'), { ...one, side: 0.8, panes: [{ note: "a", back: [], forward: [] }, one.panes[1]] });
+});
+
+test("a note dropped near the top or bottom edge splits above or below, elsewhere beside it", () => {
+  assert.equal(dropDock(0.7, 0.5), "right");
+  assert.equal(dropDock(0.3, 0.5), "left");
+  assert.equal(dropDock(0.5, 0.1), "top");
+  assert.equal(dropDock(0.5, 0.9), "bottom");
+  assert.equal(dropDock(0.05, 0.1), "left"); // a corner goes to the nearer edge
+  assert.equal(dropDock(0.9, 0.95), "bottom");
 });

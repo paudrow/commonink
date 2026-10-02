@@ -50,7 +50,7 @@ import { gamified, loadGamified, onGamified, setGamified } from "./gamify.ts";
 import { store } from "./store.ts";
 import { changeVerb, groupChanges } from "../../src/core/format.ts";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
-import { clampSide, forget, historyStep, IS_MAC, newLayout, pageEntry, pageOf, parseLayout, rememberPlace, SIDE_CLICK, sideClick, step, trailAhead, visit, type PaneTrail, type Place } from "./panes.ts";
+import { clampSide, dropDock, forget, historyStep, IS_MAC, newLayout, pageEntry, pageOf, parseLayout, rememberPlace, SIDE_CLICK, sideClick, step, trailAhead, visit, type Dock, type PaneTrail, type Place } from "./panes.ts";
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { headingMatches } from "../../src/core/gfm.ts";
 import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
@@ -518,7 +518,7 @@ function focusPane(p: Pane, how: "push" | "replace" = "replace") {
 }
 
 function saveLayout() {
-  layout = { split, side: layout.side, focus: active.index, panes: [panes[0].trail, panes[1].trail] };
+  layout = { split, at: layout.at, side: layout.side, focus: active.index, panes: [panes[0].trail, panes[1].trail] };
   store.set(layoutKey(), layout);
 }
 
@@ -526,6 +526,8 @@ function saveLayout() {
 function setSplit(on: boolean) {
   split = on;
   document.body.classList.toggle("is-split", on);
+  document.body.dataset.dock = layout.at;
+  $("#pane-divider").setAttribute("aria-orientation", layout.at === "top" || layout.at === "bottom" ? "horizontal" : "vertical");
   $("#side-pane").hidden = !on;
   $("#pane-divider").hidden = !on;
   $("#main-bar").hidden = !on;
@@ -534,6 +536,13 @@ function setSplit(on: boolean) {
   if (!on) panes[1].session = null;
   renderPaneBars();
   for (const p of panes) p.view.requestMeasure();
+}
+
+/** Where the side pane goes when the window next splits (an open split stays where it is). */
+function dockAt(at: Dock) {
+  if (split) return;
+  layout.at = at;
+  document.body.dataset.dock = at;
 }
 
 /** Close a pane, back to one. Closing the main pane moves the side pane's note into it. */
@@ -2612,11 +2621,14 @@ Vim.defineEx("share", "sha", () => openShare());
 // :label names the note's version as it is now (:label v1); with no name, it asks for one.
 Vim.defineEx("label", "label", (_cm: unknown, params: { args?: string[] }) => void labelCurrent(params.args?.join(" ").trim() || undefined));
 Vim.defineEx("focus", "foc", () => void setFocusMode(!focusMode));
-Vim.defineEx("vsplit", "vs", (_cm: unknown, params: { args?: string[] }) => {
-  const arg = params.args?.join(" ");
-  if (arg) void openTarget(arg, active.session?.path, sideOf(active));
-  else if (!split) void openSplit();
-});
+// :vsplit opens the side pane beside, :split below (as in vim, where :split stacks windows).
+for (const [name, short, at] of [["vsplit", "vs", "right"], ["split", "sp", "bottom"]] as const)
+  Vim.defineEx(name, short, (_cm: unknown, params: { args?: string[] }) => {
+    dockAt(at);
+    const arg = params.args?.join(" ");
+    if (arg) void openTarget(arg, active.session?.path, sideOf(active));
+    else if (!split) void openSplit();
+  });
 Vim.defineEx("only", "on", () => split && void closePane(other(active)));
 Vim.defineEx("close", "clo", () => void closePane(active));
 // `ic`, the inner code block: the code between a fenced block's fences, for yic, dic, cic and vic.
@@ -2897,13 +2909,17 @@ function setupShortcutTips() {
 
 // ------------------------------------------------------------------ split view
 
-/** The divider, the drop zone on the right half, the split button, and focus following clicks into a pane. */
+/** The divider, the drop zones, the split button, and focus following clicks into a pane. */
 function setupPanes() {
   const stage = $("#stage");
   const divider = $("#pane-divider");
-  const resize = (clientX: number) => {
+  /** The side pane's share of the stage with the divider at (x, y), for where it's docked. */
+  const shareAt = (x: number, y: number) => {
     const r = stage.getBoundingClientRect();
-    layout.side = clampSide((r.right - clientX) / r.width);
+    return { right: (r.right - x) / r.width, left: (x - r.left) / r.width, top: (y - r.top) / r.height, bottom: (r.bottom - y) / r.height }[layout.at];
+  };
+  const resize = (x: number, y: number) => {
+    layout.side = clampSide(shareAt(x, y));
     stage.style.setProperty("--side", `${layout.side * 100}%`);
     for (const p of panes) p.view.requestMeasure();
   };
@@ -2911,7 +2927,7 @@ function setupPanes() {
     e.preventDefault();
     divider.setPointerCapture(e.pointerId);
     document.body.classList.add("is-resizing");
-    const move = (ev: PointerEvent) => resize(ev.clientX);
+    const move = (ev: PointerEvent) => resize(ev.clientX, ev.clientY);
     const up = () => {
       divider.removeEventListener("pointermove", move);
       document.body.classList.remove("is-resizing");
@@ -2921,56 +2937,87 @@ function setupPanes() {
     divider.addEventListener("pointerup", up, { once: true });
   });
   divider.addEventListener("keydown", (e) => {
-    const by = e.key === "ArrowLeft" ? 0.05 : e.key === "ArrowRight" ? -0.05 : 0;
+    // The arrow toward the main pane grows the side pane.
+    const grow = { right: "ArrowLeft", left: "ArrowRight", top: "ArrowDown", bottom: "ArrowUp" }[layout.at];
+    const shrink = { right: "ArrowRight", left: "ArrowLeft", top: "ArrowUp", bottom: "ArrowDown" }[layout.at];
+    const by = e.key === grow ? 0.05 : e.key === shrink ? -0.05 : 0;
     if (!by) return;
     e.preventDefault();
     layout.side = clampSide(layout.side + by);
     stage.style.setProperty("--side", `${layout.side * 100}%`);
+    for (const p of panes) p.view.requestMeasure();
     saveLayout();
   });
 
   // Drag a note (a sidebar row, a Notes card, a task) or a link (in a note, a board's link card) onto
-  // the right half of the window to open it in a split, or onto the side pane once split. The zone
-  // shows where the side pane will be. Inside a board, its columns take the drag first.
+  // the notes to open it in a split: on the left or right half it opens beside, near the top or
+  // bottom edge above or below (see dropDock). Once split, a drop on a pane opens it there (on the
+  // main pane, while it shows a note). The zone outlines where it'll go. Inside a board, its columns
+  // take the drag first.
   const zone = $("#side-drop");
-  const atEdge = (x: number) => {
+  type Drop = { pane: Pane; at?: Dock; label: string; box: { x: number; y: number; w: number; h: number } };
+  const dropAt = (x: number, y: number): Drop | null => {
     const r = stage.getBoundingClientRect();
-    return x > r.right - r.width * (split ? layout.side : 0.5);
-  };
-  const show = (on: boolean) => {
-    if (on && zone.hidden) {
-      stage.style.setProperty("--side", `${layout.side * 100}%`);
-      zone.lastChild!.textContent = split ? "Open here" : "Open in a split";
+    if (x < r.left || x > r.right || y < r.top || y > r.bottom) return null;
+    const rel = (b: DOMRect) => ({ x: b.left - r.left, y: b.top - r.top, w: b.width, h: b.height });
+    if (split) {
+      const side = $("#side-pane").getBoundingClientRect();
+      if (x >= side.left && x <= side.right && y >= side.top && y <= side.bottom) return { pane: panes[1], label: "Open here", box: rel(side) };
+      if (onPage() || !panes[0].session) return null; // a page in the main pane keeps its own drops (a Notes card to a folder)
+      const main = $("#editor-host").getBoundingClientRect();
+      return { pane: panes[0], label: "Open here", box: rel(main.width ? main : $("#html-preview").getBoundingClientRect()) };
     }
-    zone.hidden = !on;
+    const at = dropDock((x - r.left) / r.width, (y - r.top) / r.height);
+    const s = layout.side;
+    const box = {
+      right: { x: r.width * (1 - s), y: 0, w: r.width * s, h: r.height },
+      left: { x: 0, y: 0, w: r.width * s, h: r.height },
+      top: { x: 0, y: 0, w: r.width, h: r.height * s },
+      bottom: { x: 0, y: r.height * (1 - s), w: r.width, h: r.height * s },
+    }[at];
+    return { pane: panes[1], at, label: { right: "Open on the right", left: "Open on the left", top: "Open above", bottom: "Open below" }[at], box };
   };
-  const edge = (e: DragEvent) => !!e.dataTransfer?.types.some((t) => t === NOTE_DRAG || t === LINK_DRAG) && atEdge(e.clientX);
+  const show = (d: Drop | null) => {
+    zone.hidden = !d;
+    if (!d) return;
+    const pad = 8;
+    Object.assign(zone.style, { left: `${d.box.x + pad}px`, top: `${d.box.y + pad}px`, width: `${Math.max(0, d.box.w - 2 * pad)}px`, height: `${Math.max(0, d.box.h - 2 * pad)}px` });
+    zone.lastChild!.textContent = d.label;
+  };
+  /** Open the drop's note where it says, splitting on its edge first. */
+  const land = (d: Drop, open: (pane: Pane) => void) => {
+    if (d.at) dockAt(d.at);
+    open(d.pane);
+  };
+  const dragging = (e: DragEvent) => !!e.dataTransfer?.types.some((t) => t === NOTE_DRAG || t === LINK_DRAG);
   stage.addEventListener("dragover", (e) => {
-    show(edge(e));
-    if (!zone.hidden) e.preventDefault();
+    const d = dragging(e) ? dropAt(e.clientX, e.clientY) : null;
+    show(d);
+    if (d) e.preventDefault();
   });
   stage.addEventListener("dragleave", (e) => !stage.contains(e.relatedTarget as Node) && (zone.hidden = true));
   stage.addEventListener("drop", (e) => {
-    const on = !zone.hidden;
+    const d = !zone.hidden && dragging(e) ? dropAt(e.clientX, e.clientY) : null;
     zone.hidden = true;
-    if (!on) return;
+    if (!d) return;
     const link = e.dataTransfer!.getData(LINK_DRAG);
     const path = e.dataTransfer!.getData(NOTE_DRAG);
     if (link) {
       e.preventDefault();
       const { target, from } = JSON.parse(link) as { target: string; from: string };
-      return void openTarget(target, from, panes[1]);
+      return land(d, (pane) => void openTarget(target, from, pane));
     }
     if (!path || notes.find((n) => n.path === path)?.kind === "asset") return;
     e.preventDefault();
-    void openNote(path, { pane: panes[1] });
+    land(d, (pane) => void openNote(path, { pane }));
   });
   document.addEventListener("dragend", () => (zone.hidden = true));
   // A [[link]] dragged in the editor (a pointer drag, see dragLink in editor/setup.ts).
   window.addEventListener(LINK_DRAG, (ev) => {
-    const d = (ev as CustomEvent<LinkDrag>).detail;
-    show(d.phase !== "drop" && atEdge(d.x));
-    if (d.phase === "drop" && atEdge(d.x)) void openTarget(d.target, d.from, panes[1]);
+    const l = (ev as CustomEvent<LinkDrag>).detail;
+    const d = dropAt(l.x, l.y);
+    show(l.phase === "drop" ? null : d);
+    if (l.phase === "drop" && d) land(d, (pane) => void openTarget(l.target, l.from, pane));
   });
 
   $("#split-btn").addEventListener("click", () => void (split ? closePane(panes[1]) : openSplit()));
