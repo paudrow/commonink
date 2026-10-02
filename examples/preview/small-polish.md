@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 291
 title: A shorter quick-add hint, and a calmer empty History
 ---
 Two small things that got in the way once you know the app.
