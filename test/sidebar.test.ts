@@ -6,9 +6,9 @@ import type { TagCount } from "../web/src/api.ts";
 
 const tag = (t: string, notes: number, tasks = 0, assets = 0): TagCount => ({ tag: t, display: t, notes, tasks, assets });
 
-test("Tags lists tags on notes and tags added by name, with their parents, but not tags only on assets", () => {
-  const tags = [tag("brand", 0, 0, 2), tag("home", 1), tag("work", 0), tag("work/clients", 0), tag("work/logo", 0, 0, 1)];
-  assert.deepEqual(sidebarTags(tags).map((t) => t.tag), ["home", "work", "work/clients"]);
+test("Tags lists tags on notes or tasks and tags added by name, with their parents, but not tags only on assets", () => {
+  const tags = [tag("brand", 0, 0, 2), tag("home", 1), tag("podcast", 0, 3), tag("work", 0), tag("work/clients", 0), tag("work/logo", 0, 0, 1)];
+  assert.deepEqual(sidebarTags(tags).map((t) => t.tag), ["home", "podcast", "work", "work/clients"]);
 });
 
 test("an empty section's line keeps the rows' chevron column, so it starts where their icons do", () => {

@@ -4,7 +4,7 @@ import "./mobile.css";
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, type EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
-import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, unusedTag, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
+import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, unusedTag, useWorkspace, whoAmI, ApiError, type Backlink, type Change, type Favorite, type NoteMeta, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
 import { cleanTag, normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
@@ -347,6 +347,7 @@ function commands() {
     copyLink: () => void copyLink(),
     exportAs: (how) => void exportNote(how),
     exportWorkspace: () => void exportZip({ all: true }),
+    importNotes: () => void importNotes(),
     settings: openSettings,
     connectAgent,
     back: () => void stepPane(active, "back"),
@@ -743,7 +744,7 @@ async function showToday(opts: { push?: boolean } = {}) {
   showStage("today");
   unmountToday = renderTodayPage($("#today-view"), { open: openFromPage, openTag: (tag) => openTag(tag, "tasks"), openPerson: (assignee) => void showTasks({ assignee }) });
   $("#today-view").focus({ preventScroll: true });
-  if (opts.push !== false) wentTo("/today");
+  wentTo("/today", opts.push !== false);
   document.title = "Today · Common Ink";
   renderChrome();
   renderTree();
@@ -1005,9 +1006,9 @@ async function uploadFiles(files?: File[]): Promise<string[]> {
   return done.map(embedName);
 }
 
-function pickFiles(): Promise<File[]> {
+function pickFiles(accept?: string): Promise<File[]> {
   return new Promise((resolve) => {
-    const input = el("input", { type: "file", multiple: true });
+    const input = el("input", { type: "file", multiple: true, ...(accept ? { accept } : {}) });
     input.addEventListener("change", () => resolve([...(input.files ?? [])]));
     input.addEventListener("cancel", () => resolve([]));
     input.click();
@@ -1127,6 +1128,21 @@ async function exportZip(what: { paths?: string[]; folder?: string; all?: boolea
     toast({ icon: "check", text: `Exported ${name}` });
   } catch (e) {
     toast({ text: `Couldn't export: ${e instanceof Error ? e.message : String(e)}` });
+  }
+}
+
+/** Pick .md files or a .zip and bring them all in (see importNotes.ts). */
+async function importNotes() {
+  const picked = await pickFiles(".md,.markdown,.html,.htm,.zip,application/zip,text/markdown");
+  if (!picked.length) return;
+  toast({ icon: "upload", text: "Importing…" });
+  try {
+    const r = await (await import("./importNotes.ts")).importNotes(picked, new Set(notes.map((n) => n.path.toLowerCase())));
+    await refreshNotes();
+    toast({ icon: "check", text: r });
+  } catch (e) {
+    await refreshNotes();
+    toast({ text: `Couldn't import: ${e instanceof Error ? e.message : String(e)}` });
   }
 }
 
@@ -1717,6 +1733,7 @@ function tagStarButton(tag: string, where: "row" | "chip"): HTMLElement {
 /** How a sidebar row opens what it names: a click, or Enter while the row (not a button in it) has the keyboard. */
 const opens = (go: (e?: MouseEvent) => void) => ({
   tabindex: "0",
+  role: "link",
   onclick: (e: MouseEvent) => go(e),
   onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && go(),
 });
@@ -1998,6 +2015,8 @@ function renderTree() {
                   type: "button",
                   class: "chev",
                   title: open ? "Hide subfolders" : "Show subfolders",
+                  "aria-label": `${open ? "Hide" : "Show"} the folders in ${path}`,
+                  "aria-expanded": String(open),
                   onclick: (e: Event) => {
                     e.stopPropagation();
                     setExpanded(path, !open);
@@ -2044,6 +2063,7 @@ async function removeFolder(path: string) {
  */
 function renderTagTree(active: string) {
   const shown = sidebarTags(tags);
+  const onlyTasks = (t: TagCount) => !t.notes && !t.assets && t.tasks > 0;
   const parent = (t: string) => (t.includes("/") ? t.slice(0, t.lastIndexOf("/")) : "");
   const walk = (under: string, depth: number): HTMLElement[] =>
     shown
@@ -2059,8 +2079,9 @@ function renderTagTree(active: string) {
             "aria-current": t.tag === active && "page",
             style: { "--depth": String(depth) },
             "data-tag": t.tag,
-            title: unusedTag(t) ? `No note has #${t.display} yet` : `Notes tagged #${t.display}`,
-            ...opens(() => openTag(t.display)),
+            // A tag only tasks carry opens its tasks: no note is tagged with it.
+            title: unusedTag(t) ? `No note has #${t.display} yet` : onlyTasks(t) ? `Tasks tagged #${t.display}` : `Notes tagged #${t.display}`,
+            ...opens(() => openTag(t.display, onlyTasks(t) ? "tasks" : "notes")),
           },
           subs
             ? el(
@@ -2069,6 +2090,8 @@ function renderTagTree(active: string) {
                   type: "button",
                   class: "chev",
                   title: open ? "Hide nested tags" : "Show nested tags",
+                  "aria-label": `${open ? "Hide" : "Show"} the tags under #${t.tag}`,
+                  "aria-expanded": String(open),
                   onclick: (e: Event) => {
                     e.stopPropagation();
                     if (open) prefs.tagsOpen.delete(t.tag);
@@ -2084,12 +2107,13 @@ function renderTagTree(active: string) {
           icon("hash", 14),
           el("span", { class: "tree-name" }, t.display.split("/").pop()!),
           isTagStarred(t.display) ? el("span", { class: "fav-mark", title: "In Favorites" }, icon("starred", 11)) : null,
-          unusedTag(t) ? null : el("span", { class: "n" }, String(t.notes)),
+          unusedTag(t) ? null : el("span", { class: "n" }, String(onlyTasks(t) ? t.tasks : t.notes)),
           el(
             "span",
             { class: "row-actions" },
-            // A tag nothing carries yet can't be a favorite (it would show no notes), but it can go again.
-            !unusedTag(t) ? tagStarButton(t.display, "row")
+            // A tag no note carries can't be a favorite (it would show no notes); one nothing carries yet can go again.
+            onlyTasks(t) ? null
+            : !unusedTag(t) ? tagStarButton(t.display, "row")
             : viewer ? null
             : el("button", { type: "button", class: "row-act", title: `Delete #${t.display}`, onclick: (e: Event) => (e.stopPropagation(), void deleteTag(t)) }, icon("trash", 14)),
           ),
@@ -2342,6 +2366,8 @@ function setSaveStatus(state: "saved" | "editing" | "saving" | "error") {
     error: "Your latest changes aren't saved yet. Keep this tab open: they're retried automatically, or on your next edit",
   };
   const node = $("#save-status");
+  // Screen readers hear only a failed save, not "Edited… Saving… Saved" at every pause in typing.
+  if (state === "error" && node.dataset.state !== "error") $("#toast-alert").textContent = "Not saved";
   node.dataset.state = state;
   node.textContent = labels[state];
   node.title = hints[state];
@@ -2433,23 +2459,35 @@ function highlightOutline(line: number) {
 }
 
 // backlinks
+// Links from archived notes wait behind a toggle, so old copies don't sit beside the live ones
+// (an archived note shows all its links: there they're the context).
+let archivedBacklinksShown = false;
 async function refreshBacklinks() {
   const s = active.session;
   if (!s) return;
-  const links = await api.backlinks(s.path).catch(() => []);
+  const all = await api.backlinks(s.path, "all").catch(() => []);
   if (s !== active.session) return;
+  const fromArchive = isArchived(s.path) ? [] : all.filter((b) => isArchived(b.path));
+  const links = all.filter((b) => !fromArchive.includes(b));
+  const row = (b: Backlink) =>
+    el(
+      "div",
+      { class: `backlink${isArchived(b.path) ? " is-archived" : ""}`, onclick: (e: MouseEvent) => openNote(b.path, { line: b.line, pane: sideClick(e) ? sideOf(active) : active }) },
+      el("div", { class: "bl-title" }, icon(b.kind === "embed" ? "open" : "link", 12), b.title),
+      el("div", { class: "bl-text", html: highlightLink(b.text) }),
+    );
+  const toggle = fromArchive.length
+    ? el(
+        "button",
+        { type: "button", class: "bl-archived-toggle", onclick: () => ((archivedBacklinksShown = !archivedBacklinksShown), void refreshBacklinks()) },
+        archivedBacklinksShown ? "Hide links from archived notes" : `${fromArchive.length} more from archived ${fromArchive.length === 1 ? "note" : "notes"}`,
+      )
+    : null;
   $("#backlink-count").textContent = links.length ? String(links.length) : "";
   $("#backlinks").replaceChildren(
-    ...(links.length
-      ? links.map((b) =>
-          el(
-            "div",
-            { class: "backlink", onclick: (e: MouseEvent) => openNote(b.path, { line: b.line, pane: sideClick(e) ? sideOf(active) : active }) },
-            el("div", { class: "bl-title" }, icon(b.kind === "embed" ? "open" : "link", 12), b.title),
-            el("div", { class: "bl-text", html: highlightLink(b.text) }),
-          ),
-        )
-      : [el("div", { class: "panel-empty" }, "No backlinks yet")]),
+    ...(links.length ? links.map(row) : [el("div", { class: "panel-empty" }, fromArchive.length ? "No backlinks from active notes" : "No backlinks yet")]),
+    ...(toggle ? [toggle] : []),
+    ...(archivedBacklinksShown ? fromArchive.map(row) : []),
   );
 }
 const refreshBacklinksSoon = debounce(refreshBacklinks, 300);

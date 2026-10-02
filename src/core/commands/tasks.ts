@@ -48,7 +48,8 @@ export const tasks = [
     summary: "Checkbox tasks across the vault, with their tokens, filtered by tag, person or due date",
     description:
       "Checkbox tasks across the vault (not archived notes), as their markdown lines with path:line. A task's metadata is tokens in " +
-      "its text: due:YYYY-MM-DD, start:YYYY-MM-DD, rec:… (how it repeats), #tag, @person, !high or !low, and done:YYYY-MM-DD once ticked.",
+      "its text: due:YYYY-MM-DD, start:YYYY-MM-DD, rec:… (how it repeats), #tag, @person, !high or !low, and done:YYYY-MM-DD once ticked. " +
+      "A tag on a task tags the task, not its note. @ followed by a letter is a person; write \\@word for an @ that isn't one.",
     examples: ["commonink tasks", "commonink tasks --tag work --due '<=today'", "commonink tasks --assignee jane --all --json", "commonink tasks --assignee me", "commonink tasks --by me"],
     readOnly: true,
     args: {
@@ -78,7 +79,7 @@ export const tasks = [
       "Add a task written the way you'd say it: dates and repeats in words become tokens (\"Pay rent every month on the 1st #home\" → " +
       "due:… rec:1st #home; \"call mom tomorrow\", \"next fri\", \"oct 3\", \"in 2 weeks\", \"every other week\", \"last friday of the month\", " +
       "\"every 3 days after done\"). Tokens (due:, !high, @person, #tag) pass through. It goes under ## Tasks in today's daily note " +
-      "(Journal/YYYY-MM-DD.md, created if needed), or into the note named with → [[Note]].",
+      "(Journal/YYYY-MM-DD.md, created if needed), or into the note named with → [[Note]] (at the end of its Tasks section, or of the note, above a footer).",
     examples: ['commonink task add "Pay rent every month on the 1st #home"', 'commonink task add "Review the PR next fri → [[Launch]] @sam"'],
     args: {
       text: str({ required: true, pos: "rest", stdin: true, missing: 'Say what the task is: commonink task add "Call mom tomorrow"', describe: 'The task, e.g. "Review the PR next fri → [[Launch]] @sam"' }),

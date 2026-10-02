@@ -39,9 +39,9 @@ export function nameField(section: HTMLElement, opts: { icon: string; placeholde
   input.addEventListener("blur", () => finish(true));
 }
 
-/** The tags the Tags section lists: ones on notes and ones added by name that nothing carries yet, with their parents. */
+/** The tags the Tags section lists: ones on notes or tasks and ones added by name that nothing carries yet, with their parents. */
 export function sidebarTags(tags: TagCount[]): TagCount[] {
-  const listed = (t: TagCount) => t.notes > 0 || unusedTag(t);
+  const listed = (t: TagCount) => t.notes > 0 || t.tasks > 0 || unusedTag(t);
   return tags.filter((t) => tags.some((c) => tagMatches(c.tag, t.tag) && listed(c)));
 }
 

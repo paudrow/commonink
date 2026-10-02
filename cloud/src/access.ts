@@ -53,6 +53,7 @@ export const WORKSPACE_ROUTES = {
   "POST /smart-folders/delete": "viewer",
   "PUT /note": "editor",
   "POST /note": "editor",
+  "POST /import": "editor",
   "POST /tasks/set": "editor",
   "POST /tasks/update": "editor",
   "POST /tasks/add": "editor",
