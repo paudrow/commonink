@@ -23,7 +23,7 @@ export const todayWidget: WidgetSpec = {
   hint: "Overdue, due today and starting today, and today's journal note",
   keywords: "today day agenda brief morning journal due overdue",
   defaults: {},
-  fields: [{ key: "label", label: "Label", type: "text", placeholder: "My day" }],
+  fields: [{ key: "label", label: "Title", type: "text", placeholder: "My day" }],
 
   mount(body, env) {
     let view: TodayView | null = null;

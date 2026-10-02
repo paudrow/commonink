@@ -64,9 +64,11 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "GET /feed", send: () => ["GET", "/feed"], expect: READ },
   { route: "GET /backlinks", send: () => ["GET", "/backlinks?path=Getting%20started.md"], expect: READ },
   { route: "GET /links/missing", send: () => ["GET", "/links/missing"], expect: READ },
+  { route: "GET /mentions", send: () => ["GET", "/mentions?path=Getting%20started.md"], expect: READ },
   { route: "GET /changes", send: () => ["GET", "/changes?by=ai"], expect: READ },
   { route: "GET /changes/agents", send: () => ["GET", "/changes/agents"], expect: READ },
   { route: "GET /changes/away", send: () => ["GET", "/changes/away"], expect: READ },
+  { route: "GET /checkup", send: () => ["GET", "/checkup"], expect: READ },
   { route: "GET /diffs", send: () => ["GET", "/diffs?ids=1-3"], expect: READ },
   { route: "GET /diffstats", send: () => ["GET", "/diffstats?sets=1-3;4"], expect: READ },
   { route: "GET /diff", send: () => ["GET", "/diff?from=1"], expect: READ },
@@ -111,6 +113,8 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /today/journal", send: () => ["POST", "/today/journal", { today: "2026-10-01" }], expect: EDIT },
   { route: "POST /tags", send: (w) => ["POST", "/tags", { tag: `added-${w}` }], expect: EDIT },
   { route: "POST /tags/delete", send: (w) => ["POST", "/tags/delete", { tag: `added-${w}` }], expect: EDIT },
+  { route: "POST /mentions/link", send: (w) => ["POST", "/mentions/link", { target: "Getting started.md", path: `mention-${w}.md`, line: 3, from: 5, to: 20, text: "Getting started" }], expect: EDIT },
+  { route: "POST /replace", send: (w) => ["POST", "/replace", { find: `nothing-${w}`, replace: "x", dryRun: true }], expect: EDIT },
   { route: "POST /tags/rename", send: (w) => ["POST", "/tags/rename", { from: `old-${w}`, to: `new-${w}` }], expect: EDIT },
   { route: "PUT /asset-tags", send: (w) => ["PUT", "/asset-tags", { path: "assets/margin.svg", tags: [`asset-${w}`] }], expect: EDIT },
   { route: "POST /move", send: (w) => ["POST", "/move", { from: `move-${w}.md`, to: `moved-${w}.md` }], expect: EDIT },
@@ -180,6 +184,8 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "GET /api/google", send: () => ["GET", "/api/google"], expect: SIGNED_IN },
   // No one here connected Google.
   { route: "GET /api/google/calendars", send: () => ["GET", "/api/google/calendars"], expect: [401, 409, 409, 409, 409] },
+  // No one here allowed saving to Drive.
+  { route: "POST /api/google/drive", send: () => ["POST", "/api/google/drive?as=doc&title=x", {}], expect: [401, 409, 409, 409, 409] },
   { route: "POST /api/google/disconnect", send: () => ["POST", "/api/google/disconnect", {}], expect: SIGNED_IN },
   // Last: it ends everyone's sessions.
   { route: "POST /api/sign-out-everywhere", send: () => ["POST", "/api/sign-out-everywhere", {}], expect: SIGNED_IN },
@@ -199,6 +205,7 @@ before(async () => {
     await note(`task-rm-${w}.md`, "- [ ] Remove me\n");
     await note(`tag-${w}.md`, `# Tagged\n\n#old-${w}\n`);
     await note(`move-${w}.md`);
+    await note(`mention-${w}.md`, "# Mention\n\nRead Getting started first.\n");
     await note(`arch-${w}.md`);
     await note(`unarch-${w}.md`);
     await cloud.call(owner, "POST", `${base}/archive`, { paths: [`unarch-${w}.md`] });

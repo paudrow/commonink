@@ -25,6 +25,11 @@ export interface Env {
    * deployment give it no private repos. Unset, cards read public repos only.
    */
   GITHUB_TOKEN?: string;
+  /**
+   * "1" lets anyone with a Google account make one, no code needed (a var: `wrangler.jsonc` or the
+   * dashboard). They still confirm on a page that names the Terms and Privacy Policy first.
+   */
+  OPEN_SIGNUP?: string;
   /** "1" in local development and pull request Previews only: signs people in without Google. */
   DEV_LOGIN?: string;
 }

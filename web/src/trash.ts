@@ -177,7 +177,7 @@ export class Trash {
     const labels = items.reduce((n, t) => n + (t.labels ?? 0), 0);
     const ok = await ask({
       title: one ? `Delete ${items[0].title} forever?` : `Delete ${plural(items.length, "item")} forever?`,
-      body: [`${one ? "It" : "They"} can't be restored after this, and ${one ? "its" : "their"} earlier versions go from History too${labels ? `, with ${one ? "its " : ""}${plural(labels, "label")}` : ""}.`],
+      body: [`${one ? "It" : "They"} can't be restored after this, and ${one ? "its" : "their"} earlier versions go from History too${labels ? `, with ${one ? "its " : ""}${plural(labels, "named version")}` : ""}.`],
       actions: [{ label: "Delete forever", value: "yes", kind: "danger" }],
     });
     if (!ok) return false;
@@ -190,7 +190,7 @@ export class Trash {
     const labels = items.reduce((n, t) => n + (t.labels ?? 0), 0);
     const ok = await ask({
       title: `Empty Trash?`,
-      body: [`${plural(items.length, "item")} will be deleted for good. They can't be restored after this, and their earlier versions go from History too${labels ? `, with ${plural(labels, "label")}` : ""}.`],
+      body: [`${plural(items.length, "item")} will be deleted for good. They can't be restored after this, and their earlier versions go from History too${labels ? `, with ${plural(labels, "named version")}` : ""}.`],
       actions: [{ label: "Empty trash", value: "yes", kind: "danger" }],
     });
     if (!ok) return false;

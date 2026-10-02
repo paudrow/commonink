@@ -28,7 +28,7 @@ export interface Command {
   run: () => unknown;
 }
 
-export type Page = "today" | "notes" | "tasks" | "calendar" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash" | "shared";
+export type Page = "today" | "notes" | "tasks" | "calendar" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash" | "shared" | "checkup";
 
 /** The kinds of thing ⌘K's Rename… can rename. */
 export type Renamable = "note" | "folder" | "tag" | "smart folder" | "file";
@@ -109,7 +109,11 @@ export interface App {
   /** The Share menu (share.ts). */
   share(): void;
   copyLink(): void;
+  /** The Replace across notes page. */
+  replaceAcross(): void;
   exportAs(how: "print" | "pdf" | "md" | "html" | "docx"): void;
+  /** Online: save the note to Google Drive (export/drive.ts). */
+  saveToDrive(): void;
   /** Every note and file, as a .zip. */
   exportWorkspace(): void;
   /** Markdown files or a .zip of them (an Obsidian vault, an export), brought in at once. */
@@ -135,10 +139,10 @@ export function appCommands(app: App): Command[] {
     { id: "new-from-template", title: "New note from template…", keywords: "template meeting create add from boilerplate", icon: "file", available: app.canDelete, run: app.newFromTemplate },
     { id: "new-board", title: "New board", keywords: "create add kanban columns cards trello project", icon: "kanban", run: app.newBoard },
     { id: "new-folder", title: "New folder", keywords: "create add directory", icon: "folderPlus", run: app.newFolder },
-    { id: "new-tag", title: "New tag", keywords: "create add label hashtag", icon: "hash", available: app.canDelete, run: app.newTag },
+    { id: "new-tag", title: "New tag", keywords: "create add hashtag", icon: "hash", available: app.canDelete, run: app.newTag },
     { id: "new-smart-folder", title: "New smart folder", keywords: "create add saved search query filter view", icon: "folderSearch", run: app.newSmartFolder },
     { id: "quick-add", title: "Add a task", keywords: "quick add todo new task", icon: "task", keys: ["Mod-Shift-."], area: "Tasks", run: app.quickAdd },
-    go("today", "Today", "sun", "day agenda due overdue journal streak writing"),
+    go("today", "Today", "sun", "day agenda due overdue journal streak writing week recap"),
     go("notes", "Notes", "feed", "home all"),
     { id: "filter-notes", title: "Filter notes", keywords: "search find notes page", icon: "search", keys: ["Mod-Shift-f"], run: app.filterNotes },
     go("tasks", "Tasks", "task", "todo checklist"),
@@ -151,6 +155,7 @@ export function appCommands(app: App): Command[] {
     go("tags", "Tags", "hash", "rename merge"),
     go("assets", "Assets", "grid", "files images uploads attachments"),
     go("history", "History", "history", "changes activity versions"),
+    { id: "go:checkup", title: "Check up on this workspace", keywords: "checkup health tidy clean garden dead broken links empty duplicate orphan overdue maintenance", icon: "check", run: () => app.go("checkup") },
     go("archive", "Archive", "archive", "archived"),
     { ...go("trash", "Trash", "trash", "deleted restore bin recycle"), available: app.canDelete },
     { ...go("shared", "Shared with me", "share", "shared others people"), available: app.online },
@@ -183,12 +188,14 @@ export function appCommands(app: App): Command[] {
     },
     { id: "share", title: "Share…", keywords: "share link copy print export download pdf markdown html word send", icon: "share", keys: ["Mod-Shift-s"], available: text, run: app.share },
     { id: "share-people", title: "Share with people…", keywords: "share people link invite collaborate public email", icon: "share-people", available: !!note && app.online, run: app.shareWithPeople },
+    { id: "replace-across", title: "Replace across notes…", keywords: "find replace search text everywhere all notes bulk change substitute", icon: "search", available: app.canDelete, run: app.replaceAcross },
     { id: "copy-link", title: "Copy link to this note", keywords: "share url address copy", icon: "link", available: text, run: app.copyLink },
     { id: "print", title: "Print…", keywords: "print paper pdf", icon: "printer", available: note?.kind === "md", run: () => app.exportAs("print") },
     { id: "export-pdf", title: "Export as PDF", keywords: "save download pdf print", icon: "pdf", available: note?.kind === "md", run: () => app.exportAs("pdf") },
     { id: "export-md", title: "Export as Markdown", keywords: "save download md markdown file", icon: "file", available: note?.kind === "md", run: () => app.exportAs("md") },
     { id: "export-html", title: "Export as web page (HTML)", keywords: "save download html web page file", icon: "html", available: note?.kind === "md", run: () => app.exportAs("html") },
     { id: "export-docx", title: "Export as Word", keywords: "save download docx word document office google docs", icon: "file", available: note?.kind === "md", run: () => app.exportAs("docx") },
+    { id: "save-to-drive", title: "Save to Google Drive…", keywords: "google drive docs doc pdf upload cloud save", icon: "drive", available: note?.kind === "md" && app.online, run: app.saveToDrive },
     { id: "export-workspace", title: "Export all notes (.zip)", keywords: "export download backup zip everything workspace vault obsidian take out", icon: "download", run: app.exportWorkspace },
     { id: "import-notes", title: "Import notes (.md or .zip)…", keywords: "import upload bring in migrate move obsidian vault zip markdown files bulk many", icon: "upload", available: app.canDelete, run: app.importNotes },
     { id: "back", title: "Go back", keywords: "previous history return last note ctrl-o", icon: "back", keys: ["Mod-["], available: app.canBack, run: app.back },
@@ -196,8 +203,8 @@ export function appCommands(app: App): Command[] {
     { id: "follow-link", title: "Follow link", keywords: "open link under the cursor gd go to", icon: "link", area: "Editor", available: app.onLink, run: app.followLink },
     { id: "fold-all", title: "Fold all sections", keywords: "collapse close details collapsible zM", icon: "chevron", available: text && app.folds > 0, run: () => app.foldAll(false) },
     { id: "unfold-all", title: "Unfold all sections", keywords: "expand open details collapsible zR", icon: "chevron", available: text && app.folds > 0, run: () => app.foldAll(true) },
-    { id: "label-version", title: "Label this version…", keywords: "name version milestone snapshot tag save point v1 checkpoint", icon: "label", available: text && app.canDelete, run: app.labelVersion },
-    { id: "note-labels", title: "Labels of this note", keywords: "versions compare restore label tag release history", icon: "label", available: text, run: app.noteLabels },
+    { id: "label-version", title: "Name this version…", keywords: "label name version milestone snapshot save point v1 checkpoint", icon: "label", available: text && app.canDelete, run: app.labelVersion },
+    { id: "note-labels", title: "Versions of this note", keywords: "named versions compare restore label release history", icon: "label", available: text, run: app.noteLabels },
     { id: "note-history", title: "History of this note", keywords: "versions changes diff restore", icon: "history", available: !!note, run: app.noteHistory },
     {
       id: "html-mode",
