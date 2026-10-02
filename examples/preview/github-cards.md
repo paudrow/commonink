@@ -1,4 +1,5 @@
 ---
+pr: 228
 title: GitHub cards
 ---
 1. Open [[GitHub links]]. Each GitHub issue or pull request link on its own line is a card: an icon and pill for its state (green open, purple merged or done, red closed, grey draft or not planned), its title and number, the repo, who opened it, its comments, when it last changed, and its labels in GitHub's colors.
