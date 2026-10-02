@@ -83,6 +83,13 @@ export interface Backlink {
   text: string;
 }
 
+/** A link to a note or file that isn't in the vault, and every place that has it. */
+export interface MissingLink {
+  /** What the links say, as the first of them spells it. */
+  target: string;
+  from: Backlink[];
+}
+
 /** Archiving moves a note under Archive/, keeping its original path: Archive/Projects/Old plan.md */
 export const ARCHIVE = "Archive/";
 export const isArchived = (p: string) => p.startsWith(ARCHIVE);
@@ -793,6 +800,35 @@ export class Vault {
     return rows
       .filter((r) => this.linksAt(r.path, r.line, cache).some((l) => linkStem(l.key) === stem && resolve(l.target, r.path) === rel))
       .map((r) => ({ ...r, text: (cache.get(r.path)?.[r.line - 1] ?? "").trim().slice(0, 200) }));
+  }
+
+  /**
+   * Links to notes and files that aren't here: not yet written, deleted, or not brought over in an
+   * import. Grouped by target, the most-linked first. Links in archived notes count only with
+   * `scope` "all"; `folder` narrows it to the notes linking from there.
+   */
+  missingLinks(opts: { folder?: string; scope?: ArchiveScope } = {}): MissingLink[] {
+    const folder = opts.folder ? cleanPath(opts.folder).replace(/\/?$/, "/") : "";
+    const rows = this.db.all<{ path: string; title: string; line: number }>(
+      "SELECT DISTINCT l.src AS path, n.title, l.line FROM links l JOIN notes n ON n.path = l.src ORDER BY n.mtime DESC, l.src, l.line",
+    ).filter((r) => r.path.startsWith(folder) && inScope(r.path, opts.scope ?? "active"));
+    const cache = new Map<string, string[]>();
+    const resolve = this.resolver();
+    const groups = new Map<string, MissingLink>();
+    for (const r of rows) {
+      for (const l of this.linksAt(r.path, r.line, cache)) {
+        const name = l.target.replace(/[#|].*$/, "").trim();
+        // [[#Heading]] is this note; /calendar links open the calendar.
+        if (!name || /^\/?calendar(\/|$)/.test(name) || resolve(l.target, r.path)) continue;
+        const key = linkKey(name);
+        const group = groups.get(key) ?? { target: name, from: [] };
+        groups.set(key, group);
+        if (!group.from.some((f) => f.path === r.path && f.line === r.line)) {
+          group.from.push({ path: r.path, title: r.title, kind: l.kind, line: r.line, text: (cache.get(r.path)?.[r.line - 1] ?? "").trim().slice(0, 200) });
+        }
+      }
+    }
+    return [...groups.values()].sort((a, b) => b.from.length - a.from.length || a.target.localeCompare(b.target));
   }
 
   /**

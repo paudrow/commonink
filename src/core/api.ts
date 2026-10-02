@@ -252,6 +252,8 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       );
     case "GET /backlinks":
       return json(vault.backlinks(q("path")));
+    case "GET /links/missing":
+      return json(vault.missingLinks({ folder: q("folder") || undefined, scope: qScope() }));
     case "GET /changes":
       return json(vault.changes({ limit: qCount("limit", 50, 500), before: qCount("before", 0, Infinity) || undefined, path: q("path") || undefined, by: parseAuthorFilter(q("by")) }));
     case "GET /changes/agents":

@@ -12,6 +12,7 @@ import { setShareState, setShareWithPeople, SHARE_KEYS, toggleShareMenu, type Sh
 import type { Label } from "./api.ts";
 import { hideBanner, showBanner } from "./banner.ts";
 import { showConflict as conflictBanner } from "./conflict.ts";
+import { notesChanged } from "./editor/livePreview.ts";
 import { createState, lineNumbersFor, lineNumbersSlot, openLinkToSide, remote, setVimDisplayLines, vimSlot } from "./editor/setup.ts";
 import { linkTargetAt } from "./editor/linkAt.ts";
 import { bumpEmbeds, codeRange, editorContext } from "./editor/blocks.ts";
@@ -1576,6 +1577,7 @@ async function refreshNotes() {
   renderTree();
   assetsPage?.refresh();
   tagsPage?.refresh();
+  for (const p of panes) if (p.session?.kind === "md") p.view.dispatch({ effects: notesChanged.of(null) });
 }
 const refreshNotesSoon = debounce(refreshNotes, 120);
 /** Whether there's a calendar, so Calendar shows in the sidebar. A failed read leaves it as it was. */

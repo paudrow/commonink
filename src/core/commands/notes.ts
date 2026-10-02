@@ -1,6 +1,6 @@
 // Notes: find, read, write, move, archive and delete them.
 import { kindOf, VaultError } from "../paths.ts";
-import { fmtBacklinks, fmtFavorites, fmtList, fmtRead, fmtSearch, fmtWrite } from "../format.ts";
+import { fmtBacklinks, fmtFavorites, fmtList, fmtMissingLinks, fmtRead, fmtSearch, fmtWrite } from "../format.ts";
 import { parseQuery } from "../query.ts";
 import { TRASH_DAYS } from "../vault.ts";
 import { bool, command, list, num, str } from "./types.ts";
@@ -105,6 +105,26 @@ export const notes = [
     run: ({ vault }, a) => {
       const links = vault.backlinks(a.path);
       return { text: fmtBacklinks(a.path, links), data: links };
+    },
+  }),
+  command({
+    cli: "missing-links",
+    mcp: "missing_links",
+    route: "GET /links/missing",
+    title: "Missing links",
+    summary: "Links to notes that aren't here (never written, deleted, or left out of an import), and where each is",
+    description:
+      "Links to notes or files that aren't in the vault, grouped by what they point to, the most-linked first, with each linking line. " +
+      "After an import, these are the notes that didn't come over: create them, fix the link with edit_note, or leave them as a to-do.",
+    examples: ["commonink missing-links", "commonink missing-links Projects --json"],
+    readOnly: true,
+    args: {
+      folder: str({ pos: 0, describe: "Only links in notes in this folder" }),
+      include_archived: bool({ flag: "all", describe: "Also links in archived notes" }),
+    },
+    run: ({ vault }, a) => {
+      const missing = vault.missingLinks({ folder: a.folder, scope: a.include_archived ? "all" : "active" });
+      return { text: fmtMissingLinks(missing), data: missing };
     },
   }),
   command({

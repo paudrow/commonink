@@ -2,7 +2,7 @@
 // Agents read markdown far more cheaply than JSON, so this is the default output.
 import { authorLabel } from "./actor.ts";
 import { createTwoFilesPatch } from "diff";
-import { isTagFavorite, type Backlink, type Change, type Favorite, type Label, type Note, type NoteMeta, type Vault, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView, type TrashItem } from "./vault.ts";
+import { isTagFavorite, type Backlink, type Change, type Favorite, type Label, type MissingLink, type Note, type NoteMeta, type Vault, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView, type TrashItem } from "./vault.ts";
 import type { Board } from "./kanban.ts";
 import type { TemplateInfo } from "./templates.ts";
 import type { Contact, TimelineItem } from "./contacts.ts";
@@ -70,6 +70,11 @@ export function fmtTags(tags: TagCount[]): string {
 export function fmtBacklinks(target: string, links: Backlink[]): string {
   if (!links.length) return `Nothing links to ${target}.`;
   return links.map((b) => `- ${b.path}:${b.line} (${b.kind}) ${b.text}`).join("\n");
+}
+
+export function fmtMissingLinks(missing: MissingLink[]): string {
+  if (!missing.length) return "Every link goes to a note that's here.";
+  return missing.map((m) => `[[${m.target}]] (${m.from.length})\n${m.from.map((b) => `  - ${b.path}:${b.line} ${b.text}`).join("\n")}`).join("\n");
 }
 
 const folderOf = (path: string) => path.slice(0, path.lastIndexOf("/") + 1);
