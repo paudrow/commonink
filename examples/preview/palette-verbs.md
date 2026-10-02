@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 290
 title: More verbs in the command palette
 ---
 1. Press ⌘⇧P (Ctrl+Shift+P off a Mac) and type `star tag`. Pick **Star or unstar a tag…**. A tag list opens under the search box. Pick `#tour`: it shows up under Favorites. Do it again to take it off.
