@@ -1,9 +1,10 @@
 // Online-only: a workspace's settings. Everyone sees who's in it and can leave a team; owners also
-// rename it, change roles, remove people, make and revoke invite links, read what changed, and
-// delete a team workspace (typing its name first).
+// rename it, change roles, remove people, make and revoke invite links, turn Unlock as you go
+// (gamify.ts) on and off, read what changed, and delete a team workspace (typing its name first).
 import { api, type Me, type WorkspaceInvite, type WorkspaceLogEntry, type WorkspaceMember } from "./api.ts";
 import { el, icon, timeAgo } from "./dom.ts";
 import { ask, copyLink } from "./modal.ts";
+import { gamified, setGamified } from "./gamify.ts";
 
 type Workspace = Me["workspaces"][number];
 
@@ -42,7 +43,7 @@ export async function showWorkspaceSettings(ws: Workspace, me: Me["user"], toast
   const render = async () => {
     const [members, invites, log] = await Promise.all([api.members(), owner && team ? api.invites() : Promise.resolve([]), owner ? api.workspaceLog() : Promise.resolve([])]);
     body.replaceChildren(
-      ...(owner ? [nameSection()] : []),
+      ...(owner ? [nameSection(), gameSection()] : []),
       section("Members", el("div", { class: "ws-list" }, ...members.map((m) => memberRow(m)))),
       ...(owner && team ? [section("Invite links", inviteSection(invites))] : []),
       ...(owner && log.length ? [section("Activity", el("ul", { class: "agents-changes ws-log" }, ...log.slice(0, 15).map(logLine)))] : []),
@@ -68,6 +69,28 @@ export async function showWorkspaceSettings(ws: Workspace, me: Me["user"], toast
     } }, "Rename");
     input.addEventListener("keydown", (e) => e.key === "Enter" && save.click());
     return section("Name", el("div", { class: "ws-row" }, input, save));
+  }
+
+  /** Unlock as you go, for everyone here: the same setting as Settings → Workspace. */
+  function gameSection() {
+    const box = el("input", { type: "checkbox", id: "ws-gamified", checked: gamified(), onchange: async () => {
+      box.disabled = true;
+      await setGamified(box.checked).then(
+        () => toast({ icon: "check", text: `${box.checked ? "Unlock as you go is on" : "Everything is unlocked"} for everyone here, from their next visit` }),
+        failed,
+      );
+      box.checked = gamified();
+      box.disabled = false;
+    } });
+    return section(
+      "Unlock as you go",
+      el(
+        "label",
+        { class: "ws-row", for: "ws-gamified" },
+        box,
+        el("span", { class: "agents-how" }, "On, the sidebar grows as people use it, inks are earned, tips teach shortcuts and clearing Today gets a small celebration. Off, everyone has everything from the start, with nothing to unlock and no celebrations."),
+      ),
+    );
   }
 
   function memberRow(m: WorkspaceMember) {
@@ -129,6 +152,7 @@ export async function showWorkspaceSettings(ws: Workspace, me: Me["user"], toast
       leave: `${who} left`,
       invite: `${who} made a${l.detail === "editor" ? "n" : ""} ${l.detail} invite link`,
       "revoke-invite": `${who} revoked a${l.detail === "editor" ? "n" : ""} ${l.detail} invite link`,
+      settings: `${who} changed the workspace's settings (${l.detail})`,
     }[l.action];
     return el("li", {}, el("span", {}, text), el("span", { class: "agents-when" }, timeAgo(l.at)));
   }

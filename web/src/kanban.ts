@@ -10,6 +10,7 @@ import { onVaultChange } from "./events.ts";
 import { IS_MAC, sideClick } from "./panes.ts";
 import { matchKeys } from "./keys.ts";
 import { renderMarkdown } from "./render.ts";
+import { followRenderedLink } from "./gfm.ts";
 import { hydrateCode } from "./code.ts";
 import { hydrateMath } from "./math.ts";
 import { endTags, metaChips, today } from "./taskChips.ts";
@@ -346,7 +347,13 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
       if (tag) return host.ctx.openTag(tag, "tasks");
       if (chip) return void (!host.readOnly && openChipEditor(chip, chipContext(c, i, card, task)));
       if (link && target.closest(".kb-link-name")) return host.ctx.openTarget(link.target, host.path, { side: sideClick(e) });
-      if (target.closest(".kb-actions, a")) return;
+      if (target.closest(".kb-actions")) return;
+      const a = target.closest("a");
+      if (a) {
+        const side = sideClick(e);
+        if (followRenderedLink(a.getAttribute("href") ?? "", node, (t) => host.ctx.openTarget(t, host.path, { side }))) e.preventDefault();
+        return;
+      }
       if (host.readOnly) return link && host.ctx.openTarget(link.target, host.path, { side: sideClick(e) });
       openEdit(c, i, card);
     });

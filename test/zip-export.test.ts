@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { strFromU8, unzipSync } from "fflate";
-import { exportZip, relink } from "../src/core/export.ts";
+import { coreExporter, exportZip, relink } from "../src/core/export.ts";
 import { openTempVault } from "./helpers.ts";
 
 const VAULT: Record<string, string> = {
@@ -55,6 +55,16 @@ test("selected notes, and the whole workspace with its archive, export too", asy
   const all = await exportZip(host, { all: true });
   assert.equal(all.name, "My notes.zip");
   assert.ok(all.files.includes("Archive/Old.md") && all.files.includes("assets/unused.png"));
+});
+
+test("exporting a name as a zip takes the folder of that name over a note found elsewhere by name", async () => {
+  const { vault } = openTempVault({ "Projects/A.md": "# A\n", "Projects/B.md": "# B\n", "Areas/Projects.md": "# Projects hub\n" });
+  const ex = coreExporter({ vault, origin: "https://ink.test", bytes: async () => null });
+  const names = async (target: string) => { const f = await ex(target, "zip"); return [f.name, Object.keys(unzipSync(f.data)).sort()]; };
+  assert.deepEqual(await names("Projects"), ["Projects.zip", ["Projects/A.md", "Projects/B.md"]]);
+  assert.deepEqual(await names("Projects/"), ["Projects.zip", ["Projects/A.md", "Projects/B.md"]]);
+  assert.deepEqual(await names("Areas/Projects"), ["Projects.zip", ["Areas/Projects.md"]], "a note's own path is the note");
+  assert.deepEqual(await names("Projects/A"), ["A.zip", ["Projects/A.md"]]);
 });
 
 test("a missing note or folder, or an export too big to build, is a clear error", async () => {
