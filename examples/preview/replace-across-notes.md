@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 297
 title: Replace across notes
 ---
 Find and replace in every note at once, with a preview first and one Undo.

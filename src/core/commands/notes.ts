@@ -224,7 +224,7 @@ export const notes = [
     summary: "Find and replace plain text in every note (or a folder's); --dry-run shows what would change",
     description:
       "Find and replace plain text (not a pattern) in every active Markdown note, or only those in a folder: any case unless match_case, " +
-      "and only whole words with whole_word. dry_run is required: pass true first, show the user the notes and lines it lists, and only " +
+      "and only whole words with whole_word. Over MCP, dry_run is required: pass true first, show the user the notes and lines it lists, and only " +
       "run it again with dry_run false when they ask for it. Each changed note is its own change, so restore_change can undo any of them.",
     examples: ["commonink replace 'Acme Corp' 'Acme Inc' --dry-run", "commonink replace colour color --whole-word --folder Projects"],
     destructive: true,
