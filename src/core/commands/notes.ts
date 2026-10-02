@@ -1,7 +1,7 @@
 // Notes: find, read, write, move, archive and delete them.
 import { kindOf, VaultError } from "../paths.ts";
 import { fmtBacklinks, fmtFavorites, fmtList, fmtMissingLinks, fmtRead, fmtSearch, fmtWrite } from "../format.ts";
-import { parseQuery } from "../query.ts";
+import { parseQuery, queryProblem } from "../query.ts";
 import { TRASH_DAYS } from "../vault.ts";
 import { fmtImport, MAX_IMPORT_NOTES, ON_EXISTING, pairsImport, readImport, writeImport, type OnExisting } from "../import.ts";
 import { bool, command, list, localFiles, num, pairs, str } from "./types.ts";
@@ -25,8 +25,10 @@ export const notes = [
     route: "GET /search",
     title: "Search notes",
     summary: "Full-text search (prefix matching), with the lines that match",
-    description: "Full-text search across the vault (titles, paths, bodies; prefix matching). Returns paths with matching line numbers.",
-    examples: ["commonink search launch plan", "commonink search invoice --tag work --json"],
+    description:
+      "Full-text search across the vault (titles, paths, bodies; prefix matching). Every word must match; " +
+      '-word leaves out notes with it, a OR b matches either, and "exact phrase" matches the words together. Returns paths with matching line numbers.',
+    examples: ["commonink search launch plan", "commonink search invoice --tag work --json", `commonink search '"launch plan" -draft'`],
     readOnly: true,
     args: {
       query: str({ required: true, pos: "rest", describe: "Words to search for" }),
@@ -71,7 +73,7 @@ export const notes = [
       "List notes in the vault or a folder, the notes and assets with a tag, the most recently modified notes, or the user's " +
       "starred notes (favorites, in their order). Archived notes (in Archive/, or the workspace's own archive folder like " +
       '"4. Archive/") are excluded unless requested.',
-    examples: ["commonink ls Projects", "commonink ls --tag work", "commonink ls --recent 5", "commonink ls --starred"],
+    examples: ["commonink ls Projects", "commonink ls --tag work", "commonink ls --recent 5", "commonink ls --starred", `commonink ls --query 'q="launch -draft" modified>-7d sort=created'`],
     readOnly: true,
     args: {
       folder: str({ pos: 0 }),
@@ -79,6 +81,10 @@ export const notes = [
       recent: num({ min: 1, max: 100, describe: "If set, list this many most recently modified notes" }),
       starred: bool({ describe: "If set, list the user's favorites instead" }),
       smart_folder: str({ flag: "smart", describe: "If set, list the notes in this smart folder (name or ID) instead" }),
+      query: str({
+        describe:
+          'If set, list the notes this note query matches instead, written as a smart folder or ::query writes it: q="launch -draft" folder=Projects tag=work modified>-7d -tag=done sort=created',
+      }),
       include_archived: bool({ flag: "all", describe: "Also archived notes" }),
       archived: bool({ only: "cli", describe: "Only archived notes" }),
     },
@@ -89,6 +95,12 @@ export const notes = [
       }
       if (a.smart_folder) {
         const items = vault.feed({ ...parseQuery(vault.findSmartFolder(user, a.smart_folder).query), limit: Infinity }).items;
+        return { text: fmtList(items), data: items };
+      }
+      if (a.query) {
+        const problem = queryProblem(a.query);
+        if (problem) throw new VaultError(problem);
+        const items = vault.feed({ ...parseQuery(a.query), scope: scopeOf(a), limit: Infinity }).items;
         return { text: fmtList(items), data: items };
       }
       const notes = a.recent ? vault.recent(a.recent) : vault.list(a.folder, scopeOf(a), a.tag);

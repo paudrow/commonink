@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { formatQuery, parseQuery, queryProblem, toQuery } from "../src/core/query.ts";
+import fs from "node:fs";
+import path from "node:path";
+import { dayFrom, dayPasses, formatQuery, ftsAny, ftsQuery, parseQuery, parseSearch, queryProblem, searchWords, toQuery, type NoteQuery } from "../src/core/query.ts";
+import { openTempVault } from "./helpers.ts";
 
 test("a note query is the ::query widget's args: q, folder, tag, sort and limit", () => {
   const src = 'q="launch plan" folder=Projects tag=work/acme sort=title limit=5';
@@ -19,7 +22,7 @@ test("a saved query is checked key by key", () => {
   assert.equal(queryProblem("tag=work sort=title"), null);
   assert.equal(queryProblem(""), null);
   assert.equal(queryProblem("colour=red"), 'Unknown query key "colour": use q, folder, tag, sort or limit');
-  assert.equal(queryProblem("sort=size"), '"sort" is modified, date, oldest or title, not "size"');
+  assert.equal(queryProblem("sort=size"), '"sort" is modified, date, oldest, title or created, not "size"');
   assert.equal(queryProblem("limit=0"), '"limit" is a whole number above 0, not "0"');
   assert.equal(queryProblem("tag=27"), '"27" isn\'t a tag: use letters, numbers, - and _, nested with /');
   assert.equal(queryProblem("limit=99999999999999999999"), '"limit" is a whole number above 0, not "99999999999999999999"');
@@ -55,4 +58,125 @@ test("sort is modified, date, oldest or title, and modified goes unsaid", () => 
   assert.equal(formatQuery(parseQuery("sort=oldest")), "sort=oldest");
   assert.equal(formatQuery(parseQuery("sort=modified")), "");
   assert.deepEqual(toQuery({ tag: "work,plan", sort: "date" }), { tag: "work,plan", sort: "date" });
+});
+
+// ---------------------------------------------------------------- the words in q (grammar v2)
+
+const DAY = 86_400_000;
+
+test("plain words read the way they always did: each one a prefix, all of them needed", () => {
+  const s = parseSearch("launch plan e-mail");
+  assert.deepEqual(s.all.map((c) => c.map((t) => t.words.join(" "))), [["launch"], ["plan"], ["e"], ["mail"]]);
+  assert.equal(ftsQuery(s), '"launch"* "plan"* "e"* "mail"*');
+  assert.deepEqual(s.none, []);
+  // Words with an = in them, a lone dash and a quote that never closes are just words too.
+  assert.equal(ftsQuery(parseSearch('a=b - "open')), '"a"* "b"* "open"*');
+  assert.equal(ftsQuery(parseSearch("don't stop")), '"don"* "t"* "stop"*');
+});
+
+test('-word, OR and "phrase" in the words', () => {
+  const s = parseSearch('"launch plan" budget OR costs -draft -"old idea"');
+  assert.equal(ftsQuery(s), '"launch plan" ("budget"* OR "costs"*)');
+  assert.deepEqual(s.none, [
+    { words: ["draft"], phrase: false },
+    { words: ["old", "idea"], phrase: true },
+  ]);
+  assert.equal(ftsAny(s.none), '("draft"* OR "old idea")');
+  assert.deepEqual(searchWords(s), ["launch", "plan", "budget", "costs"]);
+  // Single quotes make a phrase too: that's how a ::query or smart folder writes one inside q="…".
+  assert.equal(ftsQuery(parseSearch("'launch plan'")), '"launch plan"');
+  // OR with nothing on one side is just the word, and a lowercase or is a word.
+  assert.equal(ftsQuery(parseSearch("OR plan OR")), '"OR"* "plan"* "OR"*');
+  assert.equal(ftsQuery(parseSearch("plan or")), '"plan"* "or"*');
+});
+
+test("tag=, -tag= and dates in the words are filters, not words", () => {
+  const s = parseSearch("plan tag=#Work -tag=draft,old modified>-7d created<=2026-09-01");
+  assert.equal(ftsQuery(s), '"plan"*');
+  assert.deepEqual(s.tags, ["Work"]);
+  assert.deepEqual(s.notTags, ["draft", "old"]);
+  assert.deepEqual(s.dates, [
+    { field: "modified", op: ">", day: "-7d" },
+    { field: "created", op: "<=", day: "2026-09-01" },
+  ]);
+  assert.equal(s.problem, null);
+  assert.match(parseSearch("modified>lastweek").problem!, /isn't a day/);
+  assert.match(parseSearch("tag=27").problem!, /isn't a tag/);
+});
+
+test("days count back from today: days, weeks, months and years", () => {
+  assert.equal(dayFrom("today", "2026-10-02"), "2026-10-02");
+  assert.equal(dayFrom("yesterday", "2026-10-02"), "2026-10-01");
+  assert.equal(dayFrom("-7d", "2026-10-02"), "2026-09-25");
+  assert.equal(dayFrom("-2w", "2026-10-02"), "2026-09-18");
+  assert.equal(dayFrom("-1m", "2026-03-31"), "2026-02-28");
+  assert.equal(dayFrom("-1y", "2026-10-02"), "2025-10-02");
+  assert.equal(dayFrom("+3d", "2026-10-02"), "2026-10-05");
+  assert.equal(dayFrom("2026-02-30", "2026-10-02"), null);
+  assert.equal(dayFrom("soon", "2026-10-02"), null);
+  // modified>-7d is the last seven days, today included.
+  const f = { field: "modified", op: ">", day: "-7d" } as const;
+  assert.equal(dayPasses("2026-09-26", f, "2026-10-02"), true);
+  assert.equal(dayPasses("2026-09-25", f, "2026-10-02"), false);
+});
+
+test("filters written as keys of their own join q, so a query has one place for them", () => {
+  assert.deepEqual(parseQuery("folder=Projects modified>-7d modified<-1d -tag=draft -tag=old"), { q: "modified>-7d modified<-1d -tag=draft -tag=old", folder: "Projects" });
+  assert.deepEqual(toQuery({ q: "launch", modified: ">-7d", "-tag": "draft", label: "Recent" }), { q: "launch modified>-7d -tag=draft" });
+  assert.equal(formatQuery(parseQuery('q="launch -draft" created>=2026-09-01 sort=created')), 'q="launch -draft created>=2026-09-01" sort=created');
+  assert.deepEqual(parseQuery('q="launch plan" -tag=draft'), { q: "launch plan -tag=draft" });
+  assert.equal(queryProblem('q="launch" modified>-7d -tag=draft sort=created'), null);
+  assert.match(queryProblem("modified>someday")!, /isn't a day/);
+  assert.match(queryProblem('q="plan -tag=27"')!, /isn't a tag/);
+  assert.equal(queryProblem("size>3"), 'Unknown query key "size": use q, folder, tag, sort or limit');
+});
+
+test("the feed runs the grammar: words left out, OR, phrases, tags left out, dates and sort=created", () => {
+  let now = Date.parse("2026-10-02T12:00:00Z");
+  const { dir, vault } = openTempVault({}, { now: () => now, timeZone: "UTC" });
+  now -= 40 * DAY;
+  vault.create("Old plan", "# Old plan\n\nThe launch plan, first draft. #work\n", "t");
+  now += 30 * DAY;
+  vault.create("Launch", "# Launch\n\nThe launch plan for real. #work #draft\n", "t");
+  now += 5 * DAY;
+  vault.create("Costs", "# Costs\n\nBudget for the plan launch. #work/acme\n", "t");
+  now += 5 * DAY;
+  const at = (rel: string, daysAgo: number) => fs.utimesSync(path.join(dir, rel), new Date(now - daysAgo * DAY), new Date(now - daysAgo * DAY));
+  at("Old plan.md", 40);
+  at("Launch.md", 10);
+  at("Costs.md", 2);
+  vault.sync();
+  const titles = (src: string) => vault.feed(parseQuery(src)).items.map((i) => i.title);
+  assert.deepEqual(titles('q="plan"'), ["Costs", "Launch", "Old plan"]);
+  assert.deepEqual(titles('q="plan -draft"'), ["Costs"]);
+  assert.deepEqual(titles(`q="'launch plan'"`), ["Launch", "Old plan"]);
+  assert.deepEqual(titles('q="budget OR first"'), ["Costs", "Old plan"]);
+  assert.deepEqual(titles("q=-draft"), ["Costs"]);
+  assert.deepEqual(titles("tag=work -tag=draft"), ["Costs", "Old plan"]);
+  assert.deepEqual(titles("-tag=work/acme"), ["Launch", "Old plan"]);
+  assert.deepEqual(titles('q="tag=work tag=draft"'), ["Launch"]);
+  assert.deepEqual(titles("modified>-7d"), ["Costs"]);
+  assert.deepEqual(titles("modified<-7d modified>-30d"), ["Launch"]);
+  assert.deepEqual(titles("modified<2026-09-01"), ["Old plan"]);
+  // Created goes by each note's first change in History.
+  assert.deepEqual(titles("created>=-5d"), ["Costs"]);
+  assert.deepEqual(titles("sort=created"), ["Costs", "Launch", "Old plan"]);
+  assert.deepEqual(titles("sort=created q=plan created<-20d"), ["Old plan"]);
+  // A file added outside the app has no History: it goes by when its file last changed.
+  fs.writeFileSync(path.join(dir, "Dropped in.md"), "# Dropped in\n");
+  at("Dropped in.md", 1);
+  vault.sync();
+  assert.deepEqual(titles("created>-3d"), ["Dropped in"]);
+  // Search reads the words the same way.
+  assert.deepEqual(vault.search("plan -draft").map((h) => h.title), ["Costs"]);
+  assert.deepEqual(vault.search('"plan for"').map((h) => h.title), ["Launch"]);
+});
+
+test("a note query's old forms find what they always found", () => {
+  const { vault } = openTempVault({ "A.md": "# A\n\nlaunch plan\n", "B.md": "# B\n\nlaunching plans #work\n", "C.md": "# C\n\nplan only\n" });
+  const paths = (q: NoteQuery) => vault.feed(q).items.map((i) => i.path).sort();
+  assert.deepEqual(paths({ q: "launch plan" }), ["A.md", "B.md"]);
+  assert.deepEqual(paths({ q: "launch, plan!" }), ["A.md", "B.md"]);
+  assert.deepEqual(paths({ q: "pla", tag: "work" }), ["B.md"]);
+  assert.deepEqual(paths({ q: "" }), ["A.md", "B.md", "C.md"]);
 });

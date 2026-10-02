@@ -110,7 +110,7 @@ export class NotesPage {
     this.trashHost = el("div", { class: "feed-trash" });
     this.folderBar = el("div", { class: "feed-folders", role: "group", "aria-label": "Folder" });
     this.tagBar = el("div", { class: "feed-folders" });
-    this.sortSel = el("select", { class: "qt-select feed-sort", "aria-label": "Sort" }, el("option", { value: "modified" }, "Recently changed"), el("option", { value: "date" }, "Newest by date"), el("option", { value: "oldest" }, "Oldest by date"), el("option", { value: "title" }, "By title"));
+    this.sortSel = el("select", { class: "qt-select feed-sort", "aria-label": "Sort" }, el("option", { value: "modified" }, "Recently changed"), el("option", { value: "date" }, "Newest by date"), el("option", { value: "oldest" }, "Oldest by date"), el("option", { value: "title" }, "By title"), el("option", { value: "created" }, "Newest created"));
     this.sortSel.addEventListener("change", () => ((this.sort = this.sortSel.value as QuerySort), (this.focus = 0), this.reload()));
     this.saveBtn = el(
       "button",
