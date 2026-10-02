@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 285
 title: Task queries with ranges, priority and done dates
 ---
 1. Open [[Weekly review]]. Its three task lists are empty for now, because its tasks have no dates yet.
