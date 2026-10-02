@@ -18,6 +18,18 @@ export interface Env {
    * no one new can join except through an invite link. Developer sign-in skips it.
    */
   SIGNUP_CODE?: string;
+  /**
+   * Optional, for GitHub issue and PR cards: a token sent only to api.github.com, which raises
+   * GitHub's limit past 60 requests an hour and reaches the private repos it can read
+   * (`wrangler secret put GITHUB_TOKEN`). Anyone signed in can see what it reads, so on a shared
+   * deployment give it no private repos. Unset, cards read public repos only.
+   */
+  GITHUB_TOKEN?: string;
+  /**
+   * "1" lets anyone with a Google account make one, no code needed (a var: `wrangler.jsonc` or the
+   * dashboard). They still confirm on a page that names the Terms and Privacy Policy first.
+   */
+  OPEN_SIGNUP?: string;
   /** "1" in local development and pull request Previews only: signs people in without Google. */
   DEV_LOGIN?: string;
 }

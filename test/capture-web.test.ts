@@ -67,7 +67,7 @@ function server(start: Record<string, string>, o: { conflicts?: number; role?: "
 
 const hooks = (names: string[] = []) => ({ notes: () => [], upload: async () => names });
 
-test("by default a share goes to today's note, made from the daily template, under Captured", async () => {
+test("by default a share goes to today's journal note, made from the journal template, under Captured", async () => {
   const s = server({});
   const r = await saveCapture({ kind: "today" }, { title: "Rust 2027", url: "https://example.com/rust" }, [], hooks());
   const day = today();

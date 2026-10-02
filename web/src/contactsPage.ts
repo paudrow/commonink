@@ -6,7 +6,7 @@
 import { api, ApiError, type Contact, type Member, type TimelineItem } from "./api.ts";
 import { avatar, el, icon } from "./dom.ts";
 import { emptyState } from "./emptyState.ts";
-import { ask } from "./trash.ts";
+import { ask } from "./modal.ts";
 import { fuzzyScore } from "./fuzzy.ts";
 import { memberOf, membersWithoutContact, refreshPeople } from "./people.ts";
 import { onVaultChange } from "./events.ts";

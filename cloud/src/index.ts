@@ -17,7 +17,9 @@ import { timeZoneNamed } from "../../src/core/tasks.ts";
 import type { Env } from "./env.ts";
 import { fetchAsset, secure } from "./headers.ts";
 import { limit, limited, ROUTE_LIMITS } from "./limits.ts";
-import { connectionInfo, disconnectGoogle, googleApi, googleAuth, googleMode } from "./connections.ts";
+import { landingPage } from "./landing.ts";
+import { connectionInfo, disconnectGoogle, driveApi, googleApi, googleAuth, googleMode } from "./connections.ts";
+import { DRIVE_FORMATS, driveProblem, MAX_DRIVE_BYTES, MIME, saveToDrive, type DriveFormat } from "./drive.ts";
 
 export { Workspace } from "./workspace.ts";
 
@@ -48,7 +50,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
   }
   if (url.pathname === SANDBOX_PATH) return sandboxPage();
   if (url.pathname === "/authorize") return authorize(req, env, url);
-  if (url.pathname.startsWith("/auth/google/calendar")) return googleAuth(req, env, url);
+  if (url.pathname.startsWith("/auth/google/calendar") || url.pathname.startsWith("/auth/google/drive")) return googleAuth(req, env, url);
   if (url.pathname.startsWith("/auth/")) {
     const ip = req.headers.get("CF-Connecting-IP") ?? "unknown";
     const tooMany = url.pathname !== "/auth/logout" && (await limit(env.DB, "signIn", ip, "text"));
@@ -67,6 +69,8 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
   }
   // A share the service worker didn't catch (it wasn't set up yet): the capture screen says so.
   if (url.pathname === "/share" && req.method === "POST") return Response.redirect(new URL("/capture?share=none", url).href, 303);
+  // The front page: what Common Ink is, for anyone not signed in; the app for everyone who is.
+  if (url.pathname === "/" && (req.method === "GET" || req.method === "HEAD") && !(await readSessionOf(req, env))) return landingPage(url, env.DEV_LOGIN === "1");
   return fetchAsset(env.ASSETS, req, url);
 }
 
@@ -114,7 +118,7 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
       await unfurl(target, (u) => {
         assertPublicUrl(u);
         if (u.hostname.replace(/\.$/, "") === url.hostname) throw new Error("self"); // "commonink.app." too
-      }),
+      }, { githubToken: env.GITHUB_TOKEN || undefined }),
     );
   },
   "GET /api/note-ids/*": async ({ env, url, user }) => {
@@ -138,11 +142,35 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
   "GET /api/google/calendars": async ({ env, user }) => {
     const tooMany = await limit(env.DB, "calendar", user.id);
     if (tooMany) return tooMany;
-    if (!(await connectionInfo(env, user.id))) return json({ error: "Connect Google Calendar first" }, 409);
+    if (!(await connectionInfo(env, user.id))?.calendar) return json({ error: "Connect Google Calendar first" }, 409);
     try {
       return json(await googleApi(env, user.id).calendars());
     } catch (e) {
       return json({ error: e instanceof Error ? e.message.replace(/^feed:/, "") : "Couldn't reach Google Calendar" }, 502);
+    }
+  },
+  // Save a note to the person's Google Drive (drive.ts): the app sends it as Word (its static render)
+  // or markdown, `as` says what it becomes there, and `title` names it. It's their own Drive, so no
+  // workspace is involved: what's sent is what the app already showed them.
+  "POST /api/google/drive": async ({ req, env, url, user }) => {
+    if (googleMode(env) === "off") return json({ error: "Google isn't configured on this server" }, 503);
+    const tooMany = await limit(env.DB, "drive", user.id);
+    if (tooMany) return tooMany;
+    const as = url.searchParams.get("as") ?? "doc";
+    if (!(DRIVE_FORMATS as readonly string[]).includes(as)) return json({ error: `"as" must be one of ${DRIVE_FORMATS.join(", ")}` }, 400);
+    if (!(await connectionInfo(env, user.id))?.drive) return json({ error: "Allow Common Ink to save to your Google Drive first", connect: true }, 409);
+    const type = String(req.headers.get("Content-Type")).split(";")[0].trim().toLowerCase();
+    const kind = type === MIME.docx ? "docx" : type === MIME.md ? "md" : null;
+    if (!kind) return json({ error: "Send the note as Word (.docx) or markdown" }, 415);
+    const data = new Uint8Array(await req.arrayBuffer());
+    if (!data.byteLength) return json({ error: "That note is empty" }, 400);
+    if (data.byteLength > MAX_DRIVE_BYTES) return json({ error: "That note is over 50 MB with its pictures: Google Drive won't convert it" }, 413);
+    if (as === "md" && kind !== "md") return json({ error: "A markdown file needs the note's markdown" }, 400);
+    try {
+      return json(await saveToDrive(driveApi(env, user.id, url.origin), { title: url.searchParams.get("title") ?? "", type: kind, data }, as as DriveFormat));
+    } catch (e) {
+      const error = driveProblem(e);
+      return json({ error, connect: /^Allow Common Ink|connect/i.test(error) }, 502);
     }
   },
   // Google forgets the grant, the connection goes, and so do this person's Google calendars in every workspace.
@@ -184,10 +212,12 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
   const isWrite = req.method !== "GET" && req.method !== "HEAD";
   const upgrade = req.headers.get("Upgrade") === "websocket";
   if ((isWrite || upgrade) && req.headers.get("Origin") !== url.origin) return json({ error: "Cross-origin request refused" }, 403);
-  // Uploads are raw bytes; everything else that writes must be JSON.
+  // Uploads and a note on its way to Drive are raw bytes; everything else that writes must be JSON.
   const isUpload = req.method === "POST" && /^\/api\/w\/[a-z0-9]+\/upload$/.test(url.pathname);
+  const isDrive = req.method === "POST" && url.pathname === "/api/google/drive";
   if (isUpload && Number(req.headers.get("Content-Length") ?? 0) > MAX_UPLOAD) return json({ error: "That file is over 50 MB" }, 413);
-  if (isWrite && !isUpload && !String(req.headers.get("Content-Type")).startsWith("application/json")) return json({ error: "JSON only" }, 415);
+  if (isDrive && Number(req.headers.get("Content-Length") ?? 0) > MAX_DRIVE_BYTES) return json({ error: "That note is over 50 MB with its pictures: Google Drive won't convert it" }, 413);
+  if (isWrite && !isUpload && !isDrive && !String(req.headers.get("Content-Type")).startsWith("application/json")) return json({ error: "JSON only" }, 415);
 
   const key = routeKey(req.method, url.pathname);
   if (isAccountRoute(key)) return ACCOUNT[key]({ req, env, url, user });

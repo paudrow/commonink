@@ -45,12 +45,12 @@ export const tasks = [
     mcp: "list_tasks",
     route: "GET /tasks",
     title: "List tasks",
-    summary: "Checkbox tasks across the vault, with their tokens, filtered by tag, person or due date",
+    summary: "Checkbox tasks across the vault, with their tokens, filtered by tag, person, priority or date",
     description:
       "Checkbox tasks across the vault (not archived notes), as their markdown lines with path:line. A task's metadata is tokens in " +
       "its text: due:YYYY-MM-DD, start:YYYY-MM-DD, rec:… (how it repeats), #tag, @person, !high or !low, and done:YYYY-MM-DD once ticked. " +
       "A tag on a task tags the task, not its note. @ followed by a letter is a person; write \\@word for an @ that isn't one.",
-    examples: ["commonink tasks", "commonink tasks --tag work --due '<=today'", "commonink tasks --assignee jane --all --json", "commonink tasks --assignee me", "commonink tasks --by me"],
+    examples: ["commonink tasks", "commonink tasks --tag work --due '<=today'", "commonink tasks --due '>=today <=+7d' --priority high", "commonink tasks --done-date '>=-7d'","commonink tasks --assignee jane --all --json", "commonink tasks --assignee me", "commonink tasks --by me"],
     readOnly: true,
     args: {
       status: str({ enum: ["open", "done", "all"], presets: { done: "done", all: "all" }, describe: "Default open" }),
@@ -59,10 +59,14 @@ export const tasks = [
       tag: str({ describe: "Only tasks with this tag or a tag under it" }),
       assignee: str({ describe: 'Only tasks for this person (every @name that\'s theirs), or "me" for the tasks of the person you work for (@me locally)' }),
       by: str({ enum: ["me"], describe: '"me": tasks your person gave someone else, in notes they made' }),
-      due: str({ describe: "A due date filter: <=today (overdue or due today), tomorrow, >=2026-10-01…" }),
+      due: str({ describe: 'A due date filter: <=today (overdue or due today), tomorrow, >=2026-10-01, or a range like ">=today <=+7d" (+7d, -2w, +1m count from today)' }),
+      start: str({ describe: 'A start date filter, the same way as due: ">=today <=+7d" for the tasks starting this week' }),
+      done: str({ flag: "done-date", describe: 'A done date filter, the same way as due: ">=-7d" for what was ticked in the last week (lists done tasks unless a status is given)' }),
+      priority: str({ describe: "high, low or none, or several with commas (high,none)" }),
     },
     run: async ({ vault, user, source, members }, { status, by, ...filters }) => {
-      const want = status ?? "open";
+      // Asking when tasks were done means the done ones, unless the status says otherwise.
+      const want = status ?? (filters.done ? "done" : "open");
       const people = filters.assignee || by ? ((await members?.()) ?? []) : [];
       const person = actorOf(source).person ?? user;
       const found = vault.tasksFor({ user, person, members: people }, { ...filters, by: by as "me" | undefined }).filter((t) => want === "all" || t.done === (want === "done"));
@@ -74,11 +78,11 @@ export const tasks = [
     mcp: "add_task",
     route: "POST /tasks/add",
     title: "Add task",
-    summary: "Add a task in words: dates and repeats become tokens; it goes to today's daily note or → [[Note]]",
+    summary: "Add a task in words: dates and repeats become tokens; it goes to today's journal note or → [[Note]]",
     description:
       "Add a task written the way you'd say it: dates and repeats in words become tokens (\"Pay rent every month on the 1st #home\" → " +
       "due:… rec:1st #home; \"call mom tomorrow\", \"next fri\", \"oct 3\", \"in 2 weeks\", \"every other week\", \"last friday of the month\", " +
-      "\"every 3 days after done\"). Tokens (due:, !high, @person, #tag) pass through. It goes under ## Tasks in today's daily note " +
+      "\"every 3 days after done\"). Tokens (due:, !high, @person, #tag) pass through. It goes under ## Tasks in today's journal note " +
       "(Journal/YYYY-MM-DD.md, created if needed), or into the note named with → [[Note]] (at the end of its Tasks section, or of the note, above a footer).",
     examples: ['commonink task add "Pay rent every month on the 1st #home"', 'commonink task add "Review the PR next fri → [[Launch]] @sam"'],
     args: {
@@ -175,8 +179,8 @@ export const tasks = [
     mcp: "open_journal",
     route: "POST /today/journal",
     title: "Open journal",
-    summary: "Today's journal note, made from the daily template if it's missing",
-    description: "Today's journal note (Journal/YYYY-MM-DD.md): its path, made from Templates/Daily note.md (or a plain one) if it doesn't exist yet.",
+    summary: "Today's journal note, made from the journal template if it's missing",
+    description: "Today's journal note (Journal/YYYY-MM-DD.md): its path, made from Templates/Journal.md (or Templates/Daily note.md, its old name, or a plain one) if it doesn't exist yet.",
     examples: ["commonink journal", "commonink journal --date 2026-10-01"],
     args: { today: str({ flag: "date", describe: "The day, YYYY-MM-DD; default the user's today" }) },
     run: ({ vault, source }, a) => {

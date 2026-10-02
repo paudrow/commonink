@@ -2,7 +2,7 @@ import "./dom.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { appCommands, matchCommands, shortcutSheet, type App } from "../web/src/commands.ts";
-import { Palette } from "../web/src/palette.ts";
+import { Palette, scopeOf, type PaletteScopes } from "../web/src/palette.ts";
 import { toggleShortcuts } from "../web/src/shortcuts.ts";
 import type { NoteMeta } from "../web/src/api.ts";
 
@@ -28,6 +28,7 @@ const app = (over: Partial<App> = {}): App => {
     folds: 0,
     tag: null,
     notesFiltered: false,
+    renames: null,
     account: [],
     newNote: run("newNote"),
     newFromTemplate: run("newFromTemplate"),
@@ -69,7 +70,9 @@ const app = (over: Partial<App> = {}): App => {
     shortcuts: run("shortcuts"),
     share: run("share"),
     copyLink: run("copyLink"),
+    replaceAcross: run("replaceAcross"),
     exportAs: (how) => void ran.push(`export:${how}`),
+    saveToDrive: run("saveToDrive"),
     exportWorkspace: run("exportWorkspace"),
     importNotes: run("importNotes"),
     settings: run("settings"),
@@ -111,12 +114,15 @@ test("commands follow the app: vim's state, the open note, Getting started, and 
   assert.deepEqual(titles("star", app({ note: { kind: "md", starred: true, archived: false } })).slice(0, 2), ["Star or unstar a tag…", "Unstar note"]);
   assert.deepEqual(titles("html", app({ note: { kind: "html", starred: false, archived: false }, htmlMode: "preview" })), ["Show HTML source", "Share…"]);
   assert.deepEqual(titles("go back", app()), [], "nowhere to go back to");
-  assert.deepEqual(titles("rename", app()), ["Rename tag…", "Go to Tags"], "no note to rename");
-  assert.deepEqual(titles("rename", app({ note: { kind: "md", starred: false, archived: false }, canDelete: false })), ["Go to Tags"], "a viewer can't rename");
-  const rename = matchCommands("rename", appCommands(app({ note: { kind: "html", starred: false, archived: false } })));
+  assert.deepEqual(titles("rename", app()), ["Rename tag…", "Go to Tags"], "nothing showing to rename, but a tag can be picked");
+  assert.deepEqual(titles("rename", app({ renames: "note", canDelete: false })), ["Go to Tags"], "a viewer can't rename");
+  const rename = matchCommands("rename", appCommands(app({ renames: "note" })));
   assert.deepEqual(rename.map((c) => c.title), ["Rename tag…", "Rename note…", "Go to Tags"]);
+  assert.deepEqual(rename[1].keys, ["F2"]);
   rename[1].run();
   assert.equal(ran.at(-1), "rename");
+  // One Rename… for whatever is showing: Notes narrowed to a folder renames the folder, and so on.
+  for (const what of ["folder", "tag", "smart folder", "file"] as const) assert.ok(titles("rename", app({ renames: what })).includes(`Rename ${what}…`));
   const moving = appCommands(app({ canBack: true, canForward: true, onLink: true, note: { kind: "md", starred: false, archived: false } })).filter((c) => ["back", "forward", "follow-link"].includes(c.id));
   assert.deepEqual(moving.map((c) => [c.title, c.keys?.[0]]), [["Go back", "Mod-["], ["Go forward", "Mod-]"], ["Follow link", undefined]]);
   moving.forEach((c) => c.run());
@@ -143,7 +149,7 @@ test("the sheet lists each area's shortcuts, the commands' included, whether or 
   const global = sheet.find((s) => s.area === "Global")!.shortcuts;
   assert.deepEqual(global.slice(0, 2).map((s) => s.keys), [["Mod-p", "Mod-k"], ["Mod-Shift-p"]]);
   assert.deepEqual(global.find((s) => s.label === "Archive note")?.keys, ["Mod-Shift-e"]);
-  assert.deepEqual(sheet.find((s) => s.area === "Split view")!.shortcuts.find((s) => s.label === "Open to the side")?.keys, ["Mod-Alt-\\"]);
+  assert.deepEqual(sheet.find((s) => s.area === "Split view")!.shortcuts.find((s) => s.label === "Open split view")?.keys, ["Mod-Alt-\\"]);
 });
 
 // ------------------------------------------------------------------ the palette and the sheet, in a page
@@ -156,15 +162,34 @@ const readOut = (n: Element) => {
 };
 const note = (title: string): NoteMeta => ({ id: title, path: `${title}.md`, kind: "md", title, version: "1", mtime: 1, size: 1 });
 
+const went: string[] = [];
+const scopes: PaletteScopes = {
+  headings: () => [
+    { level: 1, text: "Plan", line: 1 },
+    { level: 2, text: "Budget", line: 4 },
+  ],
+  goToHeading: (line) => void went.push(`line ${line}`),
+  tags: () => [
+    { tag: "work", display: "work", notes: 3, tasks: 0, assets: 0 },
+    { tag: "home", display: "home", notes: 1, tasks: 2, assets: 0 },
+  ],
+  openTag: (tag) => void went.push(`tag ${tag}`),
+  folders: () => ["Projects", "Projects/Launch", "Recipes"],
+  smartFolders: () => [{ name: "Launch notes", query: "q=launch" }],
+  openFolder: (path) => void went.push(`folder ${path}`),
+  openSmartFolder: (query) => void went.push(`smart ${query}`),
+  openPerson: (p) => void went.push(`person ${p.name}`),
+};
+
 function page(notes: NoteMeta[], onCreate: (name: string) => void = () => {}) {
   document.body.innerHTML = `
     <button id="before">before</button>
     <div id="palette" hidden><div class="palette-box" role="dialog" aria-modal="true">
       <input id="palette-input" role="combobox" /><div id="palette-results" role="listbox"></div>
-      <kbd class="palette-side"></kbd>
+      <div id="palette-hint"></div><kbd class="palette-side"></kbd>
     </div></div>`;
   const opened: string[] = [];
-  const palette = new Palette(() => notes, (path) => void opened.push(path), onCreate, () => appCommands(app()));
+  const palette = new Palette(() => notes, (path) => void opened.push(path), onCreate, () => appCommands(app()), scopes);
   const input = document.querySelector<HTMLInputElement>("#palette-input")!;
   const type = (text: string) => {
     input.value = text;
@@ -221,6 +246,52 @@ test("after >, Shift+Enter makes no note and Escape closes, handing focus back",
   p.press("Escape");
   assert.equal(p.palette.isOpen, false);
   assert.equal(document.activeElement?.id, "before");
+});
+
+test("quick open's prefixes: # headings, tag: tags, / or folder: folders and smart folders, @ people", () => {
+  assert.deepEqual(scopeOf("#bud"), { scope: "headings", rest: "bud" });
+  assert.deepEqual(scopeOf("@ ana"), { scope: "people", rest: "ana" });
+  assert.deepEqual(scopeOf("Tag:#work"), { scope: "tags", rest: "work" });
+  assert.deepEqual(scopeOf("/proj"), { scope: "folders", rest: "proj" });
+  assert.deepEqual(scopeOf("folder:"), { scope: "folders", rest: "" });
+  assert.equal(scopeOf("theme"), null);
+  assert.equal(scopeOf("tags are fun"), null, "tag: needs its colon");
+
+  went.length = 0;
+  const created: string[] = [];
+  const p = page([note("Budget")], (name) => void created.push(name));
+  const hint = document.querySelector<HTMLElement>("#palette-hint")!;
+  assert.equal(hint.hidden, false, "the empty palette says which prefixes there are");
+  p.type("#");
+  assert.equal(hint.hidden, true);
+  assert.deepEqual(p.sections(), ["Headings in this note"]);
+  assert.deepEqual(p.options(), ["Plan#", "Budget##"]);
+  p.type("#budg");
+  assert.deepEqual(p.options(), ["Budget##"]);
+  p.press("Enter");
+  assert.deepEqual(went, ["line 4"]);
+
+  p.palette.open("tag:");
+  assert.deepEqual(p.options(), ["work3", "home1"]);
+  p.type("tag:ho");
+  p.press("Enter");
+  assert.equal(went.at(-1), "tag home");
+
+  p.palette.open("/");
+  assert.deepEqual(p.sections(), ["Folders", "Smart folders"]);
+  p.type("folder:launch");
+  assert.deepEqual(p.options(), ["LaunchProjects/Launch", "Launch notesq=launch"]);
+  p.press("Enter");
+  assert.equal(went.at(-1), "folder Projects/Launch");
+  p.palette.open("/launch");
+  p.press("ArrowDown");
+  p.press("Enter");
+  assert.equal(went.at(-1), "smart q=launch");
+
+  p.palette.open("#nothing");
+  assert.deepEqual(p.options(), []);
+  p.input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", shiftKey: true, bubbles: true }));
+  assert.deepEqual(created, [], "Shift+Enter doesn't make a note called #nothing");
 });
 
 test("the shortcut sheet is a labelled modal dialog: Ctrl off a Mac, vim folded while off, Tab stays inside, Esc closes", () => {
@@ -294,7 +365,9 @@ test("the tag in view can be starred and renamed from the palette, or a tag pick
   assert.deepEqual(titles("star tag", app()).slice(0, 1), ["Star or unstar a tag…"]);
   assert.deepEqual(titles("star", app({ tag: { name: "work", starred: false } })).filter((t) => t.includes("#")), ["Star #work"]);
   assert.deepEqual(titles("unstar", app({ tag: { name: "work", starred: true } })).slice(0, 1), ["Unstar #work"]);
-  assert.deepEqual(titles("rename tag", app({ tag: { name: "work", starred: false } })).slice(0, 1), ["Rename #work…"]);
+  // With a tag in view, Rename… renames it; Rename tag… (pick one) steps aside.
+  assert.deepEqual(titles("rename", app({ tag: { name: "work", starred: false }, renames: "tag" })).filter((t) => t.startsWith("Rename")), ["Rename tag…"]);
+  assert.equal(matchCommands("rename", appCommands(app({ tag: { name: "work", starred: false }, renames: "tag" }))).find((c) => c.title === "Rename tag…")!.id, "rename");
   assert.deepEqual(titles("rename tag", app({ canDelete: false })).filter((t) => t.startsWith("Rename")), []);
 });
 
@@ -305,7 +378,7 @@ test("saving filters as a smart folder is offered only when Notes has filters on
 
 test("a note can go back to a labeled version, and archive turns into unarchive on an archived note", () => {
   const note = { kind: "md" as const, starred: false, archived: true };
-  assert.deepEqual(titles("restore version", app({ note })).slice(0, 1), ["Restore to a version…"]);
+  assert.deepEqual(titles("restore version", app({ note })).slice(0, 1), ["Restore to a named version…"]);
   assert.deepEqual(titles("restore version", app({ note, canDelete: false })).filter((t) => t.startsWith("Restore")), []);
   assert.deepEqual(titles("unarchive", app({ note })).slice(0, 1), ["Unarchive note"]);
 });
@@ -340,6 +413,10 @@ const IN_PALETTE: Record<string, string> = {
   "contacts import": "import-contacts",
   tags: "go:tags",
   "tag rename": "rename-tag",
+  "folder rename": "rename",
+  replace: "replace-across",
+  checkup: "go:checkup",
+  "save-to-drive": "save-to-drive",
   "smart-save": "save-filters",
   star: "star",
   unstar: "star",
