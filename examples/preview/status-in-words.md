@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 279
 title: No dots when all is well
 ---
 The save dot in the top bar and the connection dot in the status bar are gone. While your notes are saved and the app can reach the server, the status bar says nothing. When something is off, it says so in words.
