@@ -11,8 +11,10 @@ export interface NoteQuery {
   /** Words to find (full-text, prefix matching). */
   q?: string;
   folder?: string;
-  /** This tag or any tag under it. Several, joined with commas (`work,plan`): a note needs each one. */
+  /** This tag or any tag under it. Several, joined with commas (`work,plan`): a note needs each one, or with match=any, one of them. */
   tag?: string;
+  /** With several tags: all (the default) or any. */
+  match?: "all" | "any";
   /**
    * modified: last changed first (the default). date: the note's own date first (a `date:` or
    * `created:` in its frontmatter, else a YYYY-MM-DD in its name, else when it last changed), newest
@@ -23,7 +25,7 @@ export interface NoteQuery {
   limit?: number;
 }
 
-const KEYS = ["q", "folder", "tag", "sort", "limit"] as const;
+const KEYS = ["q", "folder", "tag", "match", "sort", "limit"] as const;
 const SORTS: readonly QuerySort[] = ["modified", "date", "oldest", "title"];
 const LIMIT = /^[1-9]\d{0,3}$/;
 
@@ -47,6 +49,7 @@ export function toQuery(args: Record<string, string>): NoteQuery {
   if (args.q) out.q = args.q;
   if (folder) out.folder = folder;
   if (tags.length) out.tag = tags.join(",");
+  if (args.match === "any" && tags.length > 1) out.match = "any";
   if (isSort(args.sort)) out.sort = args.sort;
   if (LIMIT.test(args.limit ?? "")) out.limit = Number(args.limit);
   return out;
@@ -88,7 +91,7 @@ export const parseQuery = (src: string) => toQuery(readQuery(src).args);
 
 /** A query as text. Sorting by modified is the default, so it's left out. */
 export function formatQuery(q: NoteQuery): string {
-  return serializeAttrs({ q: q.q ?? "", folder: q.folder ?? "", tag: q.tag ?? "", sort: q.sort && q.sort !== "modified" ? q.sort : "", limit: q.limit ? String(q.limit) : "" });
+  return serializeAttrs({ q: q.q ?? "", folder: q.folder ?? "", tag: q.tag ?? "", match: q.match === "any" ? "any" : "", sort: q.sort && q.sort !== "modified" ? q.sort : "", limit: q.limit ? String(q.limit) : "" });
 }
 
 /** What's wrong with a query someone wants to save, or null. Stricter than toQuery, which drops what it can't use. */
@@ -99,6 +102,7 @@ export function queryProblem(src: string): string | null {
   for (const [k, v] of Object.entries(args)) {
     if (!(KEYS as readonly string[]).includes(k)) return `Unknown query key "${k}": use ${KEYS.slice(0, -1).join(", ")} or ${KEYS.at(-1)}`;
     if (k === "sort" && !isSort(v)) return `"sort" is ${SORTS.slice(0, -1).join(", ")} or ${SORTS.at(-1)}, not "${v}"`;
+    if (k === "match" && v !== "all" && v !== "any") return `"match" is all or any, not "${v}"`;
     if (k === "limit" && !LIMIT.test(v)) return `"limit" is a whole number above 0, not "${v}"`;
     if (k === "tag") {
       const wrong = tagList(v).find((t) => !cleanTag(t));

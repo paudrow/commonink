@@ -774,12 +774,12 @@ export class Vault {
     }
     const home = (p: string) => (isArchived(p) ? p.slice(ARCHIVE.length) : p);
     if (query.folder) rows = rows.filter((r) => home(r.path).startsWith(query.folder!.replace(/\/?$/, "/")));
-    // Every tag, each with the tags under it: `work,plan` is the notes with both.
-    for (const tag of tagList(query.tag)) {
+    // Each tag with the tags under it: `work,plan` is the notes with both, or with match=any, either.
+    const tagged = tagList(query.tag).map((tag) => {
       const key = normalizeTag(tag);
-      const on = new Set(key ? this.db.all<{ path: string }>(`SELECT DISTINCT path FROM tags WHERE ${UNDER}`, ...under(key)).map((r) => r.path) : []);
-      rows = rows.filter((r) => on.has(r.path));
-    }
+      return new Set(key ? this.db.all<{ path: string }>(`SELECT DISTINCT path FROM tags WHERE ${UNDER}`, ...under(key)).map((r) => r.path) : []);
+    });
+    if (tagged.length) rows = rows.filter((r) => (query.match === "any" ? tagged.some((s) => s.has(r.path)) : tagged.every((s) => s.has(r.path))));
     if (query.sort === "title") rows = [...rows].sort((a, b) => a.title.localeCompare(b.title));
     if (query.sort === "date" || query.sort === "oldest") {
       // A note's own date, else the day it last changed; the same day goes by when it changed.

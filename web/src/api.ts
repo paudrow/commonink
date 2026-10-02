@@ -385,7 +385,7 @@ export const api = {
   notes: () => j<NoteMeta[]>(`${BASE}/notes`),
   note: (path: string) => j<Note>(`${BASE}/note?path=${enc(path)}`),
   search: (q: string, scope: Scope = "active") => j<SearchHit[]>(`${BASE}/search?q=${enc(q)}&limit=20&scope=${scope}`),
-  feed: (p: { q?: string; scope?: Scope; folder?: string; tag?: string; sort?: QuerySort; offset?: number; limit?: number }) =>
+  feed: (p: { q?: string; scope?: Scope; folder?: string; tag?: string; match?: "all" | "any"; sort?: QuerySort; offset?: number; limit?: number }) =>
     j<FeedPage>(`${BASE}/feed?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
   /** `assignee`: someone's name (every @name that's theirs) or "me"; `by: "me"`: tasks you gave someone else, in your notes. */
   tasks: (p: { folder?: string; note?: string; tag?: string; assignee?: string; by?: "me"; due?: string; today?: string }) =>

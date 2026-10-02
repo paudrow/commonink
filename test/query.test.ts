@@ -18,7 +18,7 @@ test("a widget's other args (label, id) aren't part of its query", () => {
 test("a saved query is checked key by key", () => {
   assert.equal(queryProblem("tag=work sort=title"), null);
   assert.equal(queryProblem(""), null);
-  assert.equal(queryProblem("colour=red"), 'Unknown query key "colour": use q, folder, tag, sort or limit');
+  assert.equal(queryProblem("colour=red"), 'Unknown query key "colour": use q, folder, tag, match, sort or limit');
   assert.equal(queryProblem("sort=size"), '"sort" is modified, date, oldest or title, not "size"');
   assert.equal(queryProblem("limit=0"), '"limit" is a whole number above 0, not "0"');
   assert.equal(queryProblem("tag=27"), '"27" isn\'t a tag: use letters, numbers, - and _, nested with /');
@@ -55,4 +55,12 @@ test("sort is modified, date, oldest or title, and modified goes unsaid", () => 
   assert.equal(formatQuery(parseQuery("sort=oldest")), "sort=oldest");
   assert.equal(formatQuery(parseQuery("sort=modified")), "");
   assert.deepEqual(toQuery({ tag: "work,plan", sort: "date" }), { tag: "work,plan", sort: "date" });
+});
+
+test("match=any makes several tags an or, and is dropped with fewer than two", () => {
+  assert.deepEqual(parseQuery("tag=work,plan match=any"), { tag: "work,plan", match: "any" });
+  assert.equal(formatQuery(parseQuery("tag=work tag=plan match=any")), 'tag="work,plan" match=any');
+  assert.deepEqual(parseQuery("tag=work match=any"), { tag: "work" });
+  assert.equal(formatQuery(parseQuery("tag=work,plan match=all")), 'tag="work,plan"');
+  assert.equal(queryProblem("tag=a,b match=some"), '"match" is all or any, not "some"');
 });

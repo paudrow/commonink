@@ -246,6 +246,7 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
           scope: qScope(),
           folder: q("folder") || undefined,
           tag: q("tag") || undefined,
+          match: q("match") === "any" ? "any" : undefined,
           sort: [q("sort")].find(isSort) ?? "modified",
           offset: qCount("offset", 0, Infinity),
           limit: qCount("limit", 30, Infinity), // the feed re-fetches everything it has shown

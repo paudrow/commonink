@@ -17,6 +17,7 @@ export const QUERY_FIELDS: Field[] = [
   { key: "q", label: "Matching", type: "text", placeholder: "Search words (optional)" },
   { key: "folder", label: "Folder", type: "text", placeholder: "e.g. Projects", picker: "folder" },
   { key: "tag", label: "Tags", type: "text", placeholder: "e.g. meeting (includes meeting/…), or meeting, client for both", picker: "tag" },
+  { key: "match", label: "Combine", type: "select", options: [["all", "Match all of them"], ["any", "Match any of them"]] },
   { key: "sort", label: "Sort", type: "select", options: [["modified", "Recently changed"], ["date", "Newest by date"], ["oldest", "Oldest by date"], ["title", "By title"]] },
 ];
 
