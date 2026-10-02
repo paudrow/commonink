@@ -341,12 +341,14 @@ function cutTask(lines: string[], i: number): string[] {
 
 /**
  * The index of the task on `line` (1-based) whose text is `text`, or, if the note moved it, of the
- * nearest line with that text. Throws if it's gone (the note changed under the caller).
+ * nearest line with that text, outside code. Throws if it's gone (the note changed under the caller).
  */
 function findTask(lines: string[], line: number, text: string, notePath: string): number {
+  // Only prose lines hold tasks: a checkbox inside a code block is an example, not one to tick.
+  const prose = proseLines(lines.join("\n")).map(([n]) => n - 1);
   const matches = (i: number) => lines[i]?.match(TASK_LINE)?.[4] === text;
-  if (matches(line - 1)) return line - 1;
-  const near = lines.map((_, j) => j).filter(matches).sort((a, b) => Math.abs(a - (line - 1)) - Math.abs(b - (line - 1)));
+  if (prose.includes(line - 1) && matches(line - 1)) return line - 1;
+  const near = prose.filter(matches).sort((a, b) => Math.abs(a - (line - 1)) - Math.abs(b - (line - 1)));
   if (!near.length) throw new VaultError(`That task isn't in ${notePath} any more`, "conflict");
   return near[0];
 }
