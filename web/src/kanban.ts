@@ -25,6 +25,7 @@ import {
 import { parseTask } from "../../src/core/tasks.ts";
 import { scanTags } from "../../src/core/tags.ts";
 import { saveChain } from "./saveChain.ts";
+import { toast } from "./toast.ts";
 
 export interface BoardHost {
   /** The editor the board is shown in: note names and tags for suggestions, and opening notes, tags and people. */
@@ -557,7 +558,7 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
     try {
       await api.create(`${dir}${name}.md`, cardAsNote(card, name).body);
     } catch (e) {
-      return alert(e instanceof ApiError ? e.message : `Couldn't create ${name}`);
+      return toast({ error: true, text: e instanceof ApiError ? e.message : `Couldn't create ${name}` });
     }
     const now = cardNow(c, i, text);
     if (now) change((md) => editCard(md, now.from, cardAsNote(now, name).text));

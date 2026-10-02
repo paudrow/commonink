@@ -4,7 +4,7 @@
 import { api, type ConnectedAgent } from "./api.ts";
 import { localSteps } from "./connectAgent.ts";
 import { el, icon, timeAgo } from "./dom.ts";
-import { trapKeys } from "./modal.ts";
+import { confirmAction, trapKeys } from "./modal.ts";
 
 export async function showAgents() {
   document.querySelector("#agents-page")?.remove();
@@ -58,7 +58,7 @@ function row(a: ConnectedAgent, refresh: () => Promise<void>) {
     class: "ghost-btn agents-revoke",
     type: "button",
     onclick: async () => {
-      if (!confirm(`Disconnect ${a.client}? It stops working right away. Its past changes stay.`)) return;
+      if (!(await confirmAction({ title: `Disconnect ${a.client}?`, body: "It stops working right away. Its past changes stay.", action: "Disconnect", danger: true }))) return;
       await api.revokeAgent(a.id);
       await refresh();
     },

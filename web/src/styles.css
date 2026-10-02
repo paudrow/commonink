@@ -1257,6 +1257,8 @@ body.is-resizing iframe { pointer-events: none; }
 .toast-icon { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); flex: none; }
 .toast.is-alert { border-left: 3px solid var(--ok); }
 .toast.is-alert .toast-icon { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+.toast.is-error { border-left: 3px solid var(--bad); }
+.toast.is-error .toast-icon { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
 
 .cm-title-placeholder { color: var(--muted); pointer-events: none; }
 .cm-line-hint { color: var(--muted); font-style: italic; pointer-events: none; user-select: none; }

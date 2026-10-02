@@ -57,6 +57,7 @@ import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
 import { safeDecode } from "../../src/core/uri.ts";
 import { deleteFolder, deletePaths, TrashPage, type DeleteHooks } from "./trash.ts";
+import { confirmAction } from "./modal.ts";
 import { mountSharedView, sharedRoute } from "./sharedView.ts";
 import { showShareDialog } from "./shareDialog.ts";
 import { CapturePage, registerWorker } from "./capture.ts";
@@ -1709,7 +1710,8 @@ function renderSmartFolders(active: string | null) {
           renderTree();
         },
         remove: async () => {
-          if (!confirm(`Delete the smart folder ${f.name}${f.shared && !local ? " for everyone in the workspace" : ""}? Its notes don't change.`)) return;
+          const everyone = f.shared && !local ? " for everyone in the workspace" : "";
+          if (!(await confirmAction({ title: `Delete the smart folder ${f.name}${everyone}?`, body: "Its notes don't change.", action: "Delete", danger: true }))) return;
           smartFolders = await api.deleteSmartFolder(f.id);
           renderTree();
           toast({ icon: "folderSearch", text: `Deleted ${f.name}` });

@@ -5,6 +5,7 @@
 // workspace's own people come from the same member list and roles as Workspace settings (#76).
 import { api, ApiError, type Share, type ShareList, type ShareTarget, type WorkspaceMember } from "./api.ts";
 import { displayName, el, icon } from "./dom.ts";
+import { copyLink } from "./modal.ts";
 
 const EXPIRY: Array<[label: string, days: number | null]> = [
   ["Doesn't expire", null],
@@ -22,7 +23,7 @@ export async function showShareDialog(
   const body = el("div", { class: "sh-body" }, el("p", { class: "agents-empty" }, "Loading…"));
   const close = () => (overlay.remove(), document.removeEventListener("keydown", onKey, true));
   const onKey = (e: KeyboardEvent) => {
-    if (e.key !== "Escape") return;
+    if (e.key !== "Escape" || document.querySelector(".ask:not(#share-dialog)")) return; // a dialog over this one takes its own Esc
     e.preventDefault();
     e.stopPropagation();
     close();
@@ -105,7 +106,7 @@ export async function showShareDialog(
       // The link's URL lets anyone in with its role, so the server gives it only to those who could make one.
       const url = link.url && `${location.origin}${link.url}`;
       const copy = url
-        ? el("button", { type: "button", class: "qw-btn primary", onclick: () => void navigator.clipboard.writeText(url).then(() => opts.toast({ icon: "copy", text: "Link copied" }), () => prompt("The link", url)) }, icon("copy", 14), "Copy link")
+        ? el("button", { type: "button", class: "qw-btn primary", onclick: async () => (await copyLink(url, { title: "The link" })) && opts.toast({ icon: "copy", text: "Link copied" }) }, icon("copy", 14), "Copy link")
         : el("span", { class: "agents-meta" }, "Only editors can copy this link");
       const expiry = el(
         "select",

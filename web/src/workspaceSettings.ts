@@ -3,7 +3,7 @@
 // delete a team workspace (typing its name first).
 import { api, type Me, type WorkspaceInvite, type WorkspaceLogEntry, type WorkspaceMember } from "./api.ts";
 import { el, icon, timeAgo } from "./dom.ts";
-import { ask } from "./trash.ts";
+import { ask, copyLink } from "./modal.ts";
 
 type Workspace = Me["workspaces"][number];
 
@@ -101,8 +101,7 @@ export async function showWorkspaceSettings(ws: Workspace, me: Me["user"], toast
     const make = el("button", { type: "button", class: "qw-btn primary", onclick: async () => {
       const r = await api.invite(role.value as "editor" | "viewer").catch(failed);
       if (!r) return;
-      await navigator.clipboard.writeText(r.url).catch(() => prompt("Invite link (one person, 7 days)", r.url));
-      toast({ icon: "link", text: "Invite link copied. It works once, for 7 days." });
+      if (await copyLink(r.url, { title: "Invite link", note: "It works once, for one person, for 7 days." })) toast({ icon: "link", text: "Invite link copied. It works once, for 7 days." });
       await render();
     } }, icon("link", 14), "Copy a new link");
     const now = Date.now();

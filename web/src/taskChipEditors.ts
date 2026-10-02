@@ -78,7 +78,8 @@ const saving = (close: () => void, ctx: ChipContext, patch: TaskPatch, run = () 
     close();
   } catch (e) {
     close();
-    alert(e instanceof Error ? e.message : "Couldn't change the task");
+    const text = e instanceof Error ? e.message : "Couldn't change the task";
+    void import("./toast.ts").then((m) => m.toast({ error: true, text })); // loaded on use: the editor's task tools load without a page in tests
   }
 };
 
