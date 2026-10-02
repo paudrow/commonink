@@ -514,15 +514,30 @@ export class Workspace extends DurableObject<Env> {
     return !!meta && !!accessOn(share, meta);
   }
 
+  /**
+   * A change as a share hears it: where the note came from only if the share reaches it there too,
+   * so moving a note into a shared folder doesn't name the folder it left. (Its summary says it.)
+   */
+  private changeFor(share: SharedAccess, change: Change): Change {
+    if (!change.from_path || "member" in share) return change;
+    const id = change.note_id ?? this.vault.meta(change.path)?.id ?? null;
+    return accessOn(share, { id, path: change.from_path }) ? change : { ...change, from_path: null, summary: null };
+  }
+
   private broadcast(msg: Record<string, unknown>) {
     const data = JSON.stringify(msg);
+    const change = msg.change as Change | null | undefined;
     const now = Date.now();
     for (const ws of this.ctx.getWebSockets()) {
       try {
         const { expires, share } = (ws.deserializeAttachment() ?? {}) as { expires?: number; share?: SharedAccess };
         if (expires && expires < now) ws.close(4001, "Session expired");
         else if (share && "grants" in share && share.grants.some((g) => g.expiresAt && g.expiresAt < now)) ws.close(4003, "Sharing changed");
-        else if (!share || this.mayHear(share, msg)) ws.send(data);
+        else if (!share) ws.send(data);
+        else if (this.mayHear(share, msg)) {
+          const heard = change ? this.changeFor(share, change) : change;
+          ws.send(heard === change ? data : JSON.stringify({ ...msg, change: heard }));
+        }
       } catch {}
     }
   }
