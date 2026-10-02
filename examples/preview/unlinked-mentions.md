@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 288
 title: Unlinked mentions
 ---
 The side panel now finds notes that write this note's name without linking to it.
