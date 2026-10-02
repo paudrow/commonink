@@ -104,6 +104,8 @@ export interface App {
   /** The Share menu (share.ts). */
   share(): void;
   copyLink(): void;
+  /** Copy [[Note#^id]] for the block at the cursor, giving it an ID if it has none. */
+  copyBlockLink(): void;
   exportAs(how: "print" | "pdf" | "md" | "html" | "docx"): void;
   /** Every note and file, as a .zip. */
   exportWorkspace(): void;
@@ -171,6 +173,7 @@ export function appCommands(app: App): Command[] {
     { id: "share", title: "Share…", keywords: "share link copy print export download pdf markdown html word send", icon: "share", keys: ["Mod-Shift-s"], available: text, run: app.share },
     { id: "share-people", title: "Share with people…", keywords: "share people link invite collaborate public email", icon: "share-people", available: !!note && app.online, run: app.shareWithPeople },
     { id: "copy-link", title: "Copy link to this note", keywords: "share url address copy", icon: "link", available: text, run: app.copyLink },
+    { id: "copy-block-link", title: "Copy link to this block", keywords: "block reference ref anchor ^ paragraph line copy embed", icon: "link", available: note?.kind === "md", run: app.copyBlockLink },
     { id: "print", title: "Print…", keywords: "print paper pdf", icon: "printer", available: note?.kind === "md", run: () => app.exportAs("print") },
     { id: "export-pdf", title: "Export as PDF", keywords: "save download pdf print", icon: "pdf", available: note?.kind === "md", run: () => app.exportAs("pdf") },
     { id: "export-md", title: "Export as Markdown", keywords: "save download md markdown file", icon: "file", available: note?.kind === "md", run: () => app.exportAs("md") },

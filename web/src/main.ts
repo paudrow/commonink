@@ -53,6 +53,7 @@ import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
 import { clampSide, forget, historyStep, IS_MAC, newLayout, pageEntry, pageOf, parseLayout, rememberPlace, SIDE_CLICK, sideClick, step, trailAhead, visit, type PaneTrail, type Place } from "./panes.ts";
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { headingMatches } from "../../src/core/gfm.ts";
+import { blockAt, blocksOf, findBlock } from "../../src/core/blocks.ts";
 import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
 import { NEW_BOARD } from "../../src/core/kanban.ts";
 import { smartFolderEditor } from "./smartFolderEditor.ts";
@@ -345,6 +346,7 @@ function commands() {
     shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
     share: openShare,
     copyLink: () => void copyLink(),
+    copyBlockLink: () => void copyBlockLink(),
     exportAs: (how) => void exportNote(how),
     exportWorkspace: () => void exportZip({ all: true }),
     importNotes: () => void importNotes(),
@@ -1120,6 +1122,33 @@ async function copyLink() {
   toast({ icon: "link", text: "Link copied" });
 }
 
+/**
+ * ⌘K "Copy link to this block": `[[Note#^id]]` for the paragraph or list item at the cursor. A block
+ * with no ID gets a short one first (` ^k3x9q2` at its end), as Obsidian writes them.
+ */
+async function copyBlockLink() {
+  const s = active.session;
+  if (s?.kind !== "md") return;
+  const view = s.pane.view;
+  const doc = view.state.doc;
+  const md = doc.toString();
+  const block = blockAt(md, doc.lineAt(view.state.selection.main.head).number);
+  if (!block) return void toast({ text: "Put the cursor in a paragraph or list item first" });
+  let id = block.id;
+  if (block.id === null) {
+    if (viewer) return void toast({ text: "This block has no ID yet, and you can't edit this note" });
+    const taken = new Set(blocksOf(md).map((b) => b.id.toLowerCase()));
+    do id = Math.random().toString(36).slice(2, 8);
+    while (taken.has(id) || !/[a-z]/.test(id));
+    view.dispatch({ changes: { from: doc.line(block.at).to, insert: block.insert.replace("{id}", id) }, userEvent: "input.block-id" });
+  }
+  // The note's name, or its path when another note has the same name.
+  const name = displayName(s.path);
+  const unique = notes.filter((n) => displayName(n.path).toLowerCase() === name.toLowerCase()).length <= 1;
+  await navigator.clipboard.writeText(`[[${unique ? name : s.path.replace(/\.(md|markdown)$/i, "")}#^${id}]]`);
+  toast({ icon: "link", text: "Block link copied" });
+}
+
 /** Notes as a .zip: a folder, some notes, or everything. */
 async function exportZip(what: { paths?: string[]; folder?: string; all?: boolean }) {
   toast({ icon: "download", text: "Making the .zip…" });
@@ -1343,8 +1372,9 @@ async function renameNote() {
   }
 }
 
-/** The line of the heading `anchor` names (its words, or GitHub's slug of them), outside code. */
+/** The line of the heading `anchor` names (its words, or GitHub's slug of them), outside code; or of the block a `^id` names. */
 function headingLine(pane: Pane, anchor: string): number | undefined {
+  if (anchor.startsWith("^")) return findBlock(pane.view.state.doc.toString(), anchor)?.from;
   for (const [n, text] of proseLines(pane.view.state.doc.toString())) {
     const m = text.match(/^#{1,6}[ \t]+(.*)$/);
     if (m && headingMatches(headingName(headingText(m[1])), anchor)) return n;
