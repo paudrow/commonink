@@ -6,6 +6,7 @@ import { cleanPath } from "../src/core/paths.ts";
 import { openVault } from "../src/core/local.ts";
 import { openTempVault } from "./helpers.ts";
 import { parseQuery } from "../src/core/query.ts";
+import { notes } from "../src/core/commands/notes.ts";
 import type { Favorite, NoteMeta } from "../src/core/vault.ts";
 
 const notesOf = (list: Favorite[]) => list.map((n) => (n as NoteMeta).path);
@@ -208,6 +209,46 @@ test("archive and unarchive round-trip a note and keep it out of listings", () =
   assert.deepEqual(vault.search("importer"), []);
   assert.equal(vault.resolve("Roadmap"), "Archive/Projects/Roadmap.md");
   assert.equal(vault.unarchive("Roadmap", "t").path, "Projects/Roadmap.md");
+});
+
+test("a workspace's own archive folder is the archive: archiving goes there and what's in it is archived", () => {
+  const { vault } = openTempVault({
+    "4. Archive/Old plan.md": "# Old plan\n\nSee [[Plan]]\n\n- [ ] Old task\n",
+    "Projects/Plan.md": "# Plan\n\nThe plan\n",
+    "Notes/Live.md": "# Live\n\nSee [[Plan]]\n",
+  });
+  assert.deepEqual(vault.list().map((n) => n.path), ["Notes/Live.md", "Projects/Plan.md"]);
+  assert.deepEqual(vault.list(undefined, "archived").map((n) => n.path), ["4. Archive/Old plan.md"]);
+  assert.deepEqual(vault.search("old").map((h) => h.path), []);
+  assert.deepEqual(vault.search("old", 10, "archived").map((h) => h.path), ["4. Archive/Old plan.md"]);
+  assert.deepEqual(vault.tasks(), []);
+  assert.equal(vault.archiveFolder(), "4. Archive/");
+  assert.equal(vault.archive("Live", "t").path, "4. Archive/Notes/Live.md");
+  assert.equal(vault.unarchive("Live", "t").path, "Notes/Live.md");
+  // Archive/ made by the app before doesn't win over the workspace's own folder.
+  vault.archive("Plan", "t");
+  vault.move("4. Archive/Projects/Plan.md", "Archive/Projects/Plan.md", "t");
+  assert.equal(vault.archiveFolder(), "4. Archive/");
+  assert.equal(vault.unarchive("Plan", "t").path, "Projects/Plan.md");
+});
+
+test("backlinks leave out archived notes when asked, unless the note itself is archived", () => {
+  const { vault } = openTempVault({
+    "Archive/Plan copy.md": "# Plan copy\n\n[[Plan]] and [[Old]]\n",
+    "Archives/Old.md": "# Old\n\nGone\n",
+    "Projects/Plan.md": "# Plan\n\n[[Old]]\n",
+    "Notes/Live.md": "# Live\n\n[[Plan]]\n",
+  });
+  const from = (target: string, scope?: "active" | "all") => vault.backlinks(target, scope).map((b) => b.path).sort();
+  assert.deepEqual(from("Plan"), ["Archive/Plan copy.md", "Notes/Live.md"]);
+  assert.deepEqual(from("Plan", "active"), ["Notes/Live.md"]);
+  assert.deepEqual(from("Old", "active"), ["Archive/Plan copy.md", "Projects/Plan.md"]);
+  // An agent asking over MCP hears that some were left out, and how to see them.
+  const run = (args: Record<string, unknown>) => notes.find((c) => c.mcp === "backlinks")!.run({ vault, source: "t" } as never, args as never) as { text: string };
+  assert.equal(run({ path: "Plan" }).text, "- Notes/Live.md:3 (wikilink) [[Plan]]\n1 more from archived note (include_archived to see them).");
+  // Newest first, so which comes first depends on when each note was last saved.
+  const all = run({ path: "Plan", include_archived: true }).text.split("\n").sort();
+  assert.deepEqual(all, ["- Archive/Plan copy.md:3 (wikilink) [[Plan]] and [[Old]]", "- Notes/Live.md:3 (wikilink) [[Plan]]"]);
 });
 
 test("restore puts a note back the way it was before a change", () => {
@@ -462,23 +503,39 @@ test("one index answers everything under a tag across notes, tasks and assets", 
   );
   const counts = Object.fromEntries(vault.tags().map((t) => [t.tag, [t.notes, t.tasks, t.assets]]));
   assert.deepEqual(counts, {
-    billing: [1, 1, 0],
+    billing: [0, 1, 0], // only on a task: the task carries it, not its note
     design: [0, 0, 1],
     work: [3, 1, 1],
     "work/brand": [0, 0, 1],
     "work/clients": [2, 0, 0],
     "work/clients/acme": [1, 0, 0],
     "work/clients/beta": [1, 0, 0],
-    "work/meetings": [1, 1, 0],
+    "work/meetings": [0, 1, 0],
     workshop: [1, 0, 0],
   });
 });
 
-test("tag counts leave out only Archive/, and tags outside the Basic Multilingual Plane match their children", () => {
-  const { vault } = openTempVault({ "archive/n.md": "# N\n\n#t\n", "Work/m.md": "# M\n\n#t #𝐀lpha/beta\n" });
+test("tag counts leave out exactly the archive folders, and tags outside the Basic Multilingual Plane match their children", () => {
+  const { vault } = openTempVault({ "archive/n.md": "# N\n\n#t\n", "Old/Archive/o.md": "# O\n\n#t\n", "Work/m.md": "# M\n\n#t #𝐀lpha/beta\n" });
   assert.deepEqual(vault.tags().map((t) => `${t.tag} ${t.notes}`), ["t 2", "𝐀lpha 1", "𝐀lpha/beta 1"]);
   assert.deepEqual(vault.tagged("𝐀lpha").map((r) => r.path), ["Work/m.md"]);
   assert.deepEqual(vault.search("m", 10, "active", "𝐀lpha").map((h) => h.path), ["Work/m.md"]);
+});
+
+test("a tag on a task tags the task, not its note: tag filters on notes leave the note out", () => {
+  const { vault } = openTempVault({
+    "Open tasks.md": "# Open tasks\n\n- [ ] Book the studio #areas/podcast\n- [ ] Renew the lease #areas/home\n",
+    "Areas/Podcast.md": "# Podcast\n\n#areas/podcast\n\n- [ ] Edit EP26 #areas/podcast\n",
+  });
+  const notes = (tag: string) => vault.feed({ tag }).items.map((i) => i.path);
+  assert.deepEqual(notes("areas/podcast"), ["Areas/Podcast.md"]);
+  assert.deepEqual(notes("areas/home"), []);
+  assert.deepEqual(vault.search("podcast", 10, "active", "areas").map((h) => h.path), ["Areas/Podcast.md"]);
+  assert.deepEqual(vault.list(undefined, "active", "areas").map((n) => n.path), ["Areas/Podcast.md"]);
+  assert.deepEqual(vault.feed({}).items.find((i) => i.path === "Open tasks.md")?.tags, []);
+  // The tasks keep their tags, and the tag list counts them as tasks.
+  assert.deepEqual(vault.tasks({ tag: "areas" }).map((t) => t.path).sort(), ["Areas/Podcast.md", "Open tasks.md", "Open tasks.md"]);
+  assert.deepEqual(vault.tags().filter((t) => t.tag.startsWith("areas")).map((t) => `${t.tag} ${t.notes}/${t.tasks}`), ["areas 1/3", "areas/home 0/1", "areas/podcast 1/2"]);
 });
 
 test("a tag is shown the way it was first written, whatever case later notes use", () => {
@@ -493,13 +550,13 @@ test("the index follows edits, and the Notes feed, search, lists and tasks filte
   const feed = (tag: string) => vault.feed({ tag }).items.map((i) => i.path).sort();
   assert.deepEqual(feed("work/clients"), ["Journal/2026-09-27.md", "Projects/Acme.md"]);
   assert.deepEqual(vault.feed({ tag: "work/clients/acme" }).items.map((i) => [i.path, i.tags.map((t) => t.toLowerCase())]), [
-    ["Projects/Acme.md", ["work/clients/acme", "billing", "work/meetings"]],
+    ["Projects/Acme.md", ["work/clients/acme"]],
   ]);
   vault.edit("Ideas/Workshop", { oldString: "not #work", newString: "not work" }, "t");
   assert.deepEqual(feed("work"), ["Journal/2026-09-27.md", "Projects/Acme.md"]);
   assert.deepEqual(vault.search("idea", 10, "active", "workshop").map((h) => h.path), ["Ideas/Workshop.md"]);
   assert.deepEqual(vault.search("idea", 10, "active", "work").map((h) => h.path), []);
-  assert.deepEqual(vault.list(undefined, "active", "billing").map((n) => n.path), ["Projects/Acme.md"]);
+  assert.deepEqual(vault.list(undefined, "active", "work/clients").map((n) => n.path), ["Journal/2026-09-27.md", "Projects/Acme.md"]);
   assert.deepEqual(vault.tasks({ tag: "work" }).map((t) => t.text), ["Kickoff #Work/meetings"]);
   vault.archive("Projects/Acme", "t");
   assert.equal(vault.tags().some((t) => t.tag === "billing"), false);
@@ -789,10 +846,10 @@ test("a smart folder can need several tags, a folder with spaces, and sort by ea
 
 test("starring and unstarring a tag only touches Favorites, never a smart folder with that tag's query", () => {
   const { vault } = openTempVault(TAGGED);
-  const folder = vault.saveSmartFolder("ana", { name: "Billing", query: "tag=billing", shared: false }, true);
-  vault.starTag("ana", "billing");
-  assert.deepEqual(vault.unstarTag("ana", "billing"), []);
-  assert.deepEqual(vault.smartFolders("ana").map((f) => [f.id, f.query]), [[folder.id, "tag=billing"]]);
+  const folder = vault.saveSmartFolder("ana", { name: "Workshop", query: "tag=workshop", shared: false }, true);
+  vault.starTag("ana", "workshop");
+  assert.deepEqual(vault.unstarTag("ana", "workshop"), []);
+  assert.deepEqual(vault.smartFolders("ana").map((f) => [f.id, f.query]), [[folder.id, "tag=workshop"]]);
 });
 
 test("a smart folder name means your own before a shared one, a saved query keeps no limit, and there's a cap", () => {

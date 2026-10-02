@@ -33,6 +33,8 @@ import { followRenderedLink, leftToBrowser } from "../gfm.ts";
 
 export interface EditorContext {
   path: string;
+  /** The note's stable ID, which it keeps through renames and moves: what's kept per note in this browser is keyed by it. */
+  id?: string;
   /** Open a note. `side`: to the side of this one (Cmd/Ctrl-click). */
   openTarget(target: string, from: string, opts?: { side?: boolean }): void;
   createNote(name: string): void;
