@@ -184,3 +184,14 @@ test("the link line and a push leave everything else as it was", () => {
   assert.deepEqual(p.organizations, [{ name: "Acme", title: "CEO", department: "Eng" }]);
   assert.deepEqual(p.names, JANE.names);
 });
+
+test("of two notes with the contact's email, the one with their name is linked", async () => {
+  const { google, sync, read } = setup({
+    "People/J. Doe.md": "---\nemail: jane@acme.example\n---\n# J. Doe\n",
+    "People/Jane Doe.md": "---\nemail: jane@acme.example\n---\n# Jane Doe\n",
+  });
+  google.add(JANE);
+  const r = await sync.sync("s");
+  assert.deepEqual(r.linked, ["People/Jane Doe.md"]);
+  assert.equal(linkOf(read("People/J. Doe.md")), null);
+});

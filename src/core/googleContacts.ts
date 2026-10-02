@@ -284,7 +284,10 @@ export class GoogleContactsSync {
       }
       const google = syncedOf(person);
       // Not linked yet: someone here with an email or a name in common, else a new note.
-      const target = note ?? notes.find((n) => !claimed.has(n.path) && samePerson(n, { ...emptyContact(nameOf(person)), ...google }));
+      // Of two notes with their email (J. Doe and Jane Doe), the one with their name.
+      const free = notes.filter((n) => !claimed.has(n.path) && samePerson(n, { ...emptyContact(nameOf(person)), ...google }));
+      const named = (n: ContactNote) => n.name.trim().toLowerCase() === nameOf(person).toLowerCase();
+      const target = note ?? free.find(named) ?? free[0];
       if (!target) {
         const name = nameOf(person);
         if (!name) {

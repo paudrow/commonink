@@ -27,6 +27,8 @@ interface Hooks {
   /** Whether this person may change contacts (not a viewer). */
   canEdit(): boolean;
   toast(t: { text: string; icon?: string }): void;
+  /** Settings → Integrations, at Google: what's connected, Allow editing, Disconnect. */
+  manageGoogle(): void;
 }
 
 /** A synced contact's page on Google Contacts (as googleUrl in src/core/googleContacts.ts, which needs Node). */
@@ -165,11 +167,12 @@ export class ContactsPage {
         "span",
         {},
         el("b", {}, "Google Contacts"),
-        ` · ${g.connection.account} · ${g.linked} linked, ${when}`,
-        g.connection.canWrite ? " · edits here go to Google" : " · read only",
+        ` · ${g.connection.account}`,
+        el("br", {}),
+        el("span", { class: "ct-google-sub" }, `${g.linked} linked, ${when}. ${g.connection.canWrite ? "Edits here go back to Google." : "Read only: edits here stay here."}`),
       ),
-      g.connection.canWrite ? null : el("button", { type: "button", class: "qw-btn", title: "Let edits to emails, phones, company and role here go back to Google", onclick: () => this.connectGoogle(true) }, "Allow editing"),
-      el("button", { type: "button", class: "qw-btn", disabled: this.syncing, onclick: () => void this.syncGoogle() }, this.syncing ? "Syncing…" : "Sync now"),
+      el("button", { type: "button", class: "qw-btn", title: "Allow editing, or disconnect", onclick: () => this.hooks.manageGoogle() }, icon("gear", 14), "Manage"),
+      el("button", { type: "button", class: "qw-btn", disabled: this.syncing, onclick: () => void this.syncGoogle() }, icon("refresh", 14), this.syncing ? "Syncing…" : "Sync now"),
     );
   }
 
@@ -186,7 +189,7 @@ export class ContactsPage {
         ? el(
             "div",
             { class: "ct-actions" },
-            el("button", { type: "button", class: "qw-btn", onclick: () => this.importFile() }, icon("upload", 14), "Import"),
+            el("button", { type: "button", class: "qw-btn", title: "Add people from a vCard (.vcf) or CSV file: Apple, Outlook or a Google Contacts export", onclick: () => this.importFile() }, icon("upload", 14), "Import file…"),
             el("button", { type: "button", class: "qw-btn primary", onclick: () => void this.newContact() }, icon("plus", 14), "New contact"),
           )
         : null,
@@ -338,6 +341,8 @@ export class ContactsPage {
           { class: "ct-actions" },
           el("button", { type: "button", class: "qw-btn", onclick: () => this.hooks.open(c.path) }, icon("edit", 14), canEdit ? "Edit note" : "Open note"),
           canEdit && this.contacts.length > 1 ? el("button", { type: "button", class: "qw-btn", onclick: () => void this.pickMerge(c) }, icon("user", 14), "Merge…") : null,
+          // Synced: their details can be changed in Google too (Edit note changes them here).
+          c.google ? el("a", { class: "qw-btn", href: googleUrl(c.google), target: "_blank", rel: "noopener" }, icon("open", 14), "Open in Google") : null,
         ),
       ),
       details.childElementCount ? details : el("p", { class: "ct-none" }, canEdit ? "No details yet. Edit the note to add an email, phone, company or role." : "No details yet."),

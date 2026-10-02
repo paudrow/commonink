@@ -2346,6 +2346,7 @@ body.is-link-dragging, body.is-link-dragging * { cursor: grabbing !important; us
 .ct-google > svg { flex: none; }
 .ct-google > span { flex: 1 1 240px; }
 .ct-google b { color: var(--ink-strong); }
+.ct-google-sub { color: var(--ink-3, var(--ink-2)); font-size: 12.5px; }
 .ct-dupe { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--warn) 10%, transparent); font-size: 13.5px; color: var(--ink-2); }
 .ct-dupe > svg { color: var(--warn); flex: none; }
 .ct-dupe > span { flex: 1 1 240px; }

@@ -241,6 +241,7 @@ const loadContacts = once(async () =>
     navigate: (c) => (c ? (setUrl(`/contacts?c=${c.id}`), (document.title = `${c.name} · Contacts · Common Ink`)) : void showContacts()),
     canEdit: () => !viewer,
     toast: (t) => toast(t),
+    manageGoogle: () => openSettings("google"),
   })),
 );
 const loadTags = once(async () =>
