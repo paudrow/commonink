@@ -2,7 +2,7 @@
 // place a task is typed uses (taskInput.ts): phrases light up, the chips below show what will be
 // written, and a click on a lit phrase keeps it as words. The same parser (src/core/quickAdd.ts)
 // runs here as you type and on the server when the task is written. Opened from a note, Tab
-// switches where the task goes between today's daily note and that note.
+// switches where the task goes between today's journal note and that note.
 import { api } from "./api.ts";
 import { el, icon } from "./dom.ts";
 import { today } from "./taskChips.ts";
@@ -17,7 +17,7 @@ export interface QuickAddOptions {
   open(path: string, line?: number): void;
   /** Escape out of the bar (the floating one closes). */
   escape?(): void;
-  /** The note it was opened from: Tab sends the task there instead of today's daily note. */
+  /** The note it was opened from: Tab sends the task there instead of today's journal note. */
   note?: string;
 }
 

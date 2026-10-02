@@ -1,5 +1,5 @@
 //   ::calendar{folder=Journal}   ::calendar{events=off}   ::calendar{calendars="k3x9q2mfab"}
-// A month of daily notes (Journal/YYYY-MM-DD.md), shaded by how much you wrote, with a dot for each
+// A month of journal notes (Journal/YYYY-MM-DD.md), shaded by how much you wrote, with a dot for each
 // of the day's events (in its calendar's color; their titles in the day's tooltip), from every
 // calendar or the ones picked in its settings. Click a day to
 // open it, or to start it if it doesn't exist yet.
@@ -20,11 +20,11 @@ export const calendar: WidgetSpec = {
   name: "calendar",
   title: "Journal",
   icon: "calendar",
-  hint: "Month of daily notes and events; click a day to open it",
+  hint: "Month of journal notes and events; click a day to open it",
   keywords: "calendar journal daily notes month diary",
   defaults: { folder: "Journal" },
   fields: [
-    { key: "label", label: "Label", type: "text", placeholder: "Optional" },
+    { key: "label", label: "Title", type: "text", placeholder: "Optional" },
     { key: "folder", label: "Folder", type: "text", placeholder: "Journal" },
     { key: "events", label: "Show events", type: "toggle", off: "off" },
     { key: "calendars", label: "Calendars", type: "calendars" },
@@ -126,7 +126,7 @@ export const calendar: WidgetSpec = {
 
     async function openDay(date: string) {
       const path = `${folder}/${date}.md`;
-      // A journal day is made from the daily template (Templates/Daily note.md), as Today and quick-add make it.
+      // A journal day is made from the journal template (Templates/Journal.md), as Today and quick-add make it.
       if (!days.has(date)) await (folder === "Journal" ? api.dailyNote(date) : api.create(path, `# ${date}\n\n## Log\n\n`)).catch(() => {});
       env.open(path);
     }
