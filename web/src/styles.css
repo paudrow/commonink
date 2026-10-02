@@ -1288,8 +1288,9 @@ body.is-resizing iframe { pointer-events: none; }
 /* ------------------------------------------------------------------ notes page */
 #notes-view { position: absolute; inset: 0; overflow: auto; outline: none; }
 .feed { max-width: 780px; margin: 0 auto; padding: 28px 32px 80px; }
-.feed-head { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 12px 0 14px; margin-bottom: 4px; }
-.feed-head h1 { font-size: 26px; letter-spacing: -0.02em; margin: 0 0 14px; color: var(--heading); }
+.feed > h1 { font-size: 26px; letter-spacing: -0.02em; margin: 12px 0 4px; color: var(--heading); }
+/* Only the search and one row of filters stick, so most of the page is cards. */
+.feed-head { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 10px 0 10px; margin-bottom: 4px; }
 .feed-search {
   display: flex;
   align-items: center;
@@ -1305,7 +1306,10 @@ body.is-resizing iframe { pointer-events: none; }
 .feed-search:focus-within { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
 .feed-search input { flex: 1; border: 0; outline: 0; background: none; font: 15px var(--ui); color: var(--ink-strong); }
 .feed-search input::placeholder { color: var(--muted); }
-.feed-filters { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.feed-filters { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.qt-select.feed-folder { max-width: 220px; height: 26px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--ink-2); }
+.qt-select.feed-folder:hover { border-color: var(--line-strong); }
+.qt-select.feed-folder.is-on { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); }
 .feed-scope button { display: inline-flex; gap: 6px; align-items: center; }
 .feed-about { margin: 10px 0 0; font-size: 13px; color: var(--muted); }
 .feed-elsewhere { padding: 14px 0 0; text-align: center; font-size: 13px; color: var(--muted); }
@@ -1313,13 +1317,10 @@ body.is-resizing iframe { pointer-events: none; }
 #notes-view[data-tab="trash"] :is(.feed-bulk, .feed-list, .feed-elsewhere, .feed-more, .feed-keys, .feed-filters > :not(.feed-scope)) { display: none; }
 #notes-view:not([data-tab="trash"]) .feed-trash { display: none; }
 .feed-folders { display: flex; gap: 6px; flex-wrap: wrap; }
-.feed-folders .chip { height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--line); font-size: 12px; color: var(--ink-2); }
-.feed-folders .chip:hover { border-color: var(--line-strong); }
-.feed-folders .chip.is-on { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); }
 
 .feed-bulk {
   position: sticky;
-  top: 150px;
+  top: var(--feed-head, 0px);
   z-index: 2;
   display: flex;
   align-items: center;
@@ -1855,7 +1856,8 @@ body:has(#history-view:not([hidden])) #panel { opacity: 0; pointer-events: none;
 .hist-agent.is-on { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); }
 .hist-note-chip button { display: grid; place-items: center; margin-right: -4px; width: 18px; height: 18px; border-radius: 50%; color: inherit; }
 .hist-note-chip button:hover { background: var(--accent-soft); }
-.hist-list { flex: 1; overflow: auto; padding: 0 8px 12px; }
+/* Room for the sticky day heading, so j and k don't move a row under it. */
+.hist-list { flex: 1; overflow: auto; padding: 0 8px 12px; scroll-padding-top: 36px; }
 .hist-day { position: sticky; top: 0; z-index: 1; background: var(--bg); padding: 12px 10px 6px; font: 650 10.5px/1 var(--ui); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .hist-row { display: flex; align-items: flex-start; gap: 10px; padding: 7px 10px; border-radius: 8px; cursor: pointer; user-select: none; }
 .hist-row:hover { background: var(--hover); }

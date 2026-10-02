@@ -70,7 +70,7 @@ export class NotesPage {
   private input: HTMLInputElement;
   private list: HTMLElement;
   private scopeBar: HTMLElement;
-  private folderBar: HTMLElement;
+  private folderSel: HTMLSelectElement;
   private tagBar: HTMLElement;
   private sortSel: HTMLSelectElement;
   private saveBtn: HTMLButtonElement;
@@ -109,7 +109,8 @@ export class NotesPage {
     this.about = el("p", { class: "feed-about" });
     this.elsewhere = el("div", { class: "feed-elsewhere" });
     this.trashHost = el("div", { class: "feed-trash" });
-    this.folderBar = el("div", { class: "feed-folders", role: "group", "aria-label": "Folder" });
+    this.folderSel = el("select", { class: "qt-select feed-folder", "aria-label": "Folder" });
+    this.folderSel.addEventListener("change", () => ((this.folder = this.folderSel.value), (this.focus = 0), this.reload()));
     this.tagBar = el("div", { class: "feed-folders" });
     this.sortSel = el("select", { class: "qt-select feed-sort", "aria-label": "Sort" }, el("option", { value: "modified" }, "Newest"), el("option", { value: "title" }, "By title"));
     this.sortSel.addEventListener("change", () => ((this.sort = this.sortSel.value as "modified" | "title"), (this.focus = 0), this.reload()));
@@ -123,20 +124,33 @@ export class NotesPage {
     this.list = el("div", { class: "feed-list", role: "list" });
     this.more = el("div", { class: "feed-more" });
     this.search = el("label", { class: "feed-search" }, icon("search", 16), this.input, el("kbd", {}, "/"));
-    this.filters = el("div", { class: "feed-filters" }, this.scopeBar, this.tagBar, this.folderBar, this.sortSel, this.saveBtn);
+    this.filters = el("div", { class: "feed-filters" }, this.scopeBar, this.tagBar, this.folderSel, this.saveBtn, this.sortSel);
     this.keys = el(
       "footer",
       { class: "feed-keys" },
       ...[["j k", "move"], ["↵", "expand"], ["o", "open"], ["s", "star"], ["e", "archive"], ["⌫", "delete"], ["x", "select"], ["/", "filter"]].map(([k, t]) => el("span", {}, el("kbd", {}, k), t)),
     );
+    // The heading scrolls away; the search and filters stay at the top, and the list scrolls clear of them.
+    const head = el("header", { class: "feed-head" }, this.search, this.filters, this.about);
     this.root.append(
-      el("div", { class: "feed" }, el("header", { class: "feed-head" }, this.heading, this.search, this.filters, this.about), this.bulk, this.list, this.elsewhere, this.more, this.trashHost, this.keys),
+      el("div", { class: "feed" }, this.heading, head, this.bulk, this.list, this.elsewhere, this.more, this.trashHost, this.keys),
     );
     this.input.addEventListener("input", () => {
       clearTimeout(this.timer);
       this.timer = window.setTimeout(() => this.reload(), 90);
     });
     this.root.addEventListener("keydown", (e) => this.key(e));
+    // j and k scroll a card into view below the sticky header (and the bulk bar, when it shows), not under it.
+    const clear = () => {
+      const bar = this.bulk.hidden ? 0 : this.bulk.offsetHeight + 10;
+      this.root.style.setProperty("--feed-head", `${head.offsetHeight}px`);
+      this.root.style.scrollPaddingTop = `${head.offsetHeight + bar + 8}px`;
+    };
+    if (typeof ResizeObserver !== "undefined") {
+      const ro = new ResizeObserver(clear);
+      ro.observe(head);
+      ro.observe(this.bulk);
+    }
     this.root.addEventListener("scroll", () => {
       if (!this.root.hidden) this.scrollTop = this.root.scrollTop;
       if (this.root.scrollTop + this.root.clientHeight > this.root.scrollHeight - 600) void this.loadMore();
@@ -259,12 +273,12 @@ export class NotesPage {
 
   private render() {
     const page = this.page!;
-    this.folderBar.replaceChildren(
-      // A subfolder picked in the sidebar gets a chip too, so it shows as the filter in use.
-      ...["", ...page.folders, ...(this.folder && !page.folders.includes(this.folder) ? [this.folder] : [])].map((f) =>
-        el("button", { type: "button", class: `chip${f === this.folder ? " is-on" : ""}`, "aria-pressed": String(f === this.folder), onclick: () => ((this.folder = f), (this.focus = 0), this.reload()) }, f || "All folders"),
-      ),
+    this.folderSel.replaceChildren(
+      // A subfolder picked in the sidebar is listed too, so it shows as the filter in use.
+      ...["", ...page.folders, ...(this.folder && !page.folders.includes(this.folder) ? [this.folder] : [])].map((f) => el("option", { value: f }, f || "All folders")),
     );
+    this.folderSel.value = this.folder;
+    this.folderSel.classList.toggle("is-on", !!this.folder);
     this.tagBar.replaceChildren(tagFilter({ current: this.tag, tags: this.hooks.tags, count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }), this.tag ? this.hooks.starButton(this.tag) : "");
     this.sortSel.value = this.sort;
     this.saveBtn.hidden = !formatQuery(this.query);
@@ -276,7 +290,7 @@ export class NotesPage {
     const filtered = Boolean(q || this.folder || this.tag);
     const bare = !filtered && page.counts.active + page.counts.archived === 0;
     this.search.hidden = this.tagBar.hidden = this.sortSel.hidden = bare;
-    this.folderBar.hidden = bare || (!page.folders.length && !this.folder);
+    this.folderSel.hidden = bare || (!page.folders.length && !this.folder);
     this.keys.hidden = !this.items.length;
     this.list.replaceChildren(...(this.items.length ? this.items.map((item, i) => this.card(item, i, q)) : [this.empty(q, filtered)]));
     this.renderElsewhere(page, filtered);
