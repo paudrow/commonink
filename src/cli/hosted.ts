@@ -57,8 +57,44 @@ export function loadCredentials(): Credentials | null {
 export function saveCredentials(c: Credentials) {
   fs.mkdirSync(configDir(), { recursive: true, mode: 0o700 });
   const file = credentialsFile();
-  fs.writeFileSync(file, `${JSON.stringify(c, null, 2)}\n`, { mode: 0o600 });
-  fs.chmodSync(file, 0o600);
+  // Written beside it and renamed over it, so a command running at the same time never reads half a file.
+  const temp = `${file}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
+  try {
+    fs.writeFileSync(temp, `${JSON.stringify(c, null, 2)}\n`, { mode: 0o600 });
+    fs.chmodSync(temp, 0o600);
+    fs.renameSync(temp, file);
+  } catch (e) {
+    fs.rmSync(temp, { force: true });
+    throw e;
+  }
+}
+
+/**
+ * Run `fn` while no other command on this computer is refreshing the sign-in. A refresh token is
+ * replaced each time it's used, so two commands refreshing at once could keep one the server has
+ * already dropped. Best effort: a lock left by a command that died is taken over after a while.
+ */
+async function refreshing<T>(fn: () => Promise<T>): Promise<T> {
+  const lock = `${credentialsFile()}.lock`;
+  let held = false;
+  for (const start = Date.now(); Date.now() - start < 15_000; ) {
+    try {
+      fs.closeSync(fs.openSync(lock, "wx", 0o600));
+      held = true;
+      break;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") break;
+      try {
+        if (Date.now() - fs.statSync(lock).mtimeMs > 30_000) fs.rmSync(lock, { force: true });
+      } catch {}
+      await new Promise((r) => setTimeout(r, 25 + Math.random() * 50));
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    if (held) fs.rmSync(lock, { force: true });
+  }
 }
 
 export const forgetCredentials = () => fs.rmSync(credentialsFile(), { force: true });
@@ -199,12 +235,20 @@ export async function logout(): Promise<string | null> {
 /** The access token, refreshed first if it's about to run out. */
 async function fresh(c: Credentials, force = false): Promise<Credentials> {
   if (!force && c.expiresAt > Date.now() + 60_000) return c;
-  const meta = await discover(c.server);
-  const res = await call(meta.token_endpoint, form({ grant_type: "refresh_token", refresh_token: c.refreshToken, client_id: c.clientId }));
-  if (!res.ok) throw new CliError(`Your sign-in to ${c.server} has ended. Run commonink login.`, "auth", EXIT.auth);
-  const next = tokens(c, await res.json());
-  saveCredentials(next);
-  return next;
+  return refreshing(async () => {
+    // Another command may have refreshed it already, while this one waited: its tokens are the ones that work.
+    const saved = loadCredentials();
+    const same = saved?.server === c.server && saved.clientId === c.clientId ? saved : null;
+    const newer = same && same.refreshToken !== c.refreshToken ? same : null;
+    if (newer && newer.expiresAt > Date.now() + 60_000) return { ...c, accessToken: newer.accessToken, refreshToken: newer.refreshToken, expiresAt: newer.expiresAt };
+    const meta = await discover(c.server);
+    const res = await call(meta.token_endpoint, form({ grant_type: "refresh_token", refresh_token: (newer ?? c).refreshToken, client_id: c.clientId }));
+    if (!res.ok) throw new CliError(`Your sign-in to ${c.server} has ended. Run commonink login.`, "auth", EXIT.auth);
+    const next = tokens(c, await res.json());
+    // What else the file says now (a default workspace picked meanwhile, say) stays.
+    saveCredentials({ ...(same ?? c), accessToken: next.accessToken, refreshToken: next.refreshToken, expiresAt: next.expiresAt });
+    return next;
+  });
 }
 
 /** A request to the CLI's API with the signed-in person's token; once more with a fresh one on a 401. */

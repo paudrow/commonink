@@ -3,7 +3,7 @@ import type { GuideAction, GuideState } from "../../src/core/guide.ts";
 import { did } from "./events.ts";
 import type { NoteRole } from "../../src/core/noteRoles.ts";
 import type { Contact, ContactFields, TimelineItem } from "../../src/core/contacts.ts";
-import { safeDecode } from "../../src/core/uri.ts";
+import { encodeTarget, safeDecode } from "../../src/core/uri.ts";
 import type { FillOptions, TemplateInfo } from "../../src/core/templates.ts";
 import type { CalendarEvent, EventDraft, Source as CalendarSource, SourceColor } from "../../src/core/calendar.ts";
 import type { QuerySort } from "../../src/core/query.ts";
@@ -452,9 +452,9 @@ export const api = {
   unarchive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/unarchive`, send("POST", { paths })),
   backlinks: (path: string) => j<Backlink[]>(`${BASE}/backlinks?path=${enc(path)}`),
   /** The workspace's contacts (notes in People/), by name. */
-  contacts: () => j<Contact[]>(`${BASE}/contacts`),
+  contacts: () => j<Contact[]>(`${BASE}/contacts?today=${today()}`),
   /** One contact, and the notes that mention them, newest first. */
-  contact: (path: string) => j<{ contact: Contact; timeline: TimelineItem[] }>(`${BASE}/contact?path=${enc(path)}`),
+  contact: (path: string) => j<{ contact: Contact; timeline: TimelineItem[] }>(`${BASE}/contact?path=${enc(path)}&today=${today()}`),
   createContact: (c: Partial<ContactFields> & { name: string; notes?: string }) => j<{ path: string; version: string }>(`${BASE}/contacts`, send("POST", c)),
   updateContact: (path: string, patch: Partial<Omit<ContactFields, "name">>) => j<{ path: string; version: string }>(`${BASE}/contacts/update`, send("POST", { path, patch })),
   /** `keep` gains `drop`'s details and links; `drop` goes to Trash (`trashed` restores it). */
@@ -570,8 +570,8 @@ export const api = {
 };
 
 export function assetUrl(target: string, from?: string): string {
-  if (/^https?:\/\//i.test(target)) return target;
-  return `${BASE}/file-resolve?target=${enc(target)}${from ? `&from=${enc(from)}` : ""}`;
+  if (/^(?:https?:\/\/|data:image\/)/i.test(target)) return target;
+  return `${BASE}/file-resolve?target=${encodeTarget(target)}${from ? `&from=${encodeTarget(from)}` : ""}`;
 }
 
 export function connect(onMessage: (m: ServerMsg) => void, onStatus: (up: boolean) => void) {

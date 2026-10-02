@@ -6,10 +6,9 @@ import { api, type FeedItem, type FeedPage, type TagCount, type Task } from "./a
 import type { TrashPage } from "./trash.ts";
 import { $, authorAvatar, authorName, displayName, el, icon, markTerms, NOTE_DRAG, timeAgo } from "./dom.ts";
 import { renderMarkdown, sandboxFrame } from "./render.ts";
-import { noteTarget } from "./noteLinks.ts";
 import { hydrateCode } from "./code.ts";
 import { hydrateMath } from "./math.ts";
-import { followInPage } from "./gfm.ts";
+import { followRenderedLink } from "./gfm.ts";
 import { hydrateDataEmbeds } from "./textPreview.ts";
 import { parseDirective } from "./widgets/args.ts";
 import { WIDGETS } from "./widgets/index.ts";
@@ -459,12 +458,9 @@ export class NotesPage {
       const a = t.closest("a");
       const side = sideClick(e);
       if (a) {
-        e.preventDefault();
-        const href = a.getAttribute("href") ?? "";
-        if (/^https?:/i.test(href)) window.open(href, "_blank", "noopener");
-        else if (noteTarget(href) !== null) void api.resolve(noteTarget(href)!, item.path).then((p) => p && this.hooks.open(p, undefined, side));
-        else if (calendarTarget(href) !== null) openCalendarLink(href);
-        else followInPage(node, href); // a footnote, or a #heading in the note
+        const open = (target: string) =>
+          calendarTarget(target) !== null ? openCalendarLink(target) : void api.resolve(target, item.path).then((p) => p && this.hooks.open(p, undefined, side));
+        if (followRenderedLink(a.getAttribute("href") ?? "", node, open)) e.preventDefault();
         return;
       }
       if (side && !t.closest("button, input")) return this.hooks.open(item.path, undefined, true);

@@ -17,6 +17,12 @@ test("dates and times, with Moment-style formats and day or week offsets", () =>
   assert.equal(formatDate(new Date(2026, 0, 5, 9, 7), "YYYY-M-D H:m [at] hh:mm a"), "2026-1-5 9:7 at 09:07 am");
 });
 
+test("Do gives the day of the month as an ordinal", () => {
+  const ord = (day: number) => formatDate(new Date(2026, 9, day), "Do");
+  assert.deepEqual([1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 24, 31].map(ord), ["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd", "23rd", "24th", "31st"]);
+  assert.equal(fillTemplate("{{date:dddd, MMMM Do, YYYY}}", { at: "2026-10-02T09:00" }).text, "Friday, October 2nd, 2026");
+});
+
 test("a template's frontmatter keeps a leading comment and keys with spaces when its own keys go", () => {
   const tpl = "---\n# made by me\nfolder: Meetings\nDate Created: {{date}}\nkind: meeting\n---\n# {{title}}\n";
   assert.equal(fillTemplate(tpl, { at: AT, title: "Sync" }).text, "---\n# made by me\nDate Created: 2026-09-29\nkind: meeting\n---\n# Sync\n");
