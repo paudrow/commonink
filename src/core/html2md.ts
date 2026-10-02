@@ -262,6 +262,7 @@ export function htmlToMarkdown(html: string, opts: ToMarkdownOptions = {}): stri
     if (lines[i].startsWith("```")) fenced = !fenced;
     else if (!fenced && /^ [^ ]/.test(lines[i])) lines[i] = lines[i].slice(1);
   }
-  const md = lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  // Evernote puts each to-do in its own <div>: one after another, they're one list.
+  const md = lines.join("\n").replace(/\n{3,}/g, "\n\n").replace(/^(- \[[ x]\] .*)\n\n(?=- \[[ x]\] )/gm, "$1\n").trim();
   return md ? `${md}\n` : "";
 }

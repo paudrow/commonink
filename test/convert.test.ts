@@ -17,7 +17,7 @@ test("HTML reads as the markdown that looks like it", () => {
     "## Plan\n\nShip **this** and *that*, ~~not~~ [this link](https://x.com/a%20b).\n");
   assert.equal(htmlToMarkdown("<ul><li>One<ul><li>Nested</li></ul></li><li>Two</li></ul><ol start='3'><li>Three</li></ol>"),
     "- One\n  - Nested\n- Two\n\n3. Three\n");
-  assert.equal(htmlToMarkdown("<div><en-todo checked=\"true\"/>Done</div><div><en-todo/>Open</div>"), "- [x] Done\n\n- [ ] Open\n");
+  assert.equal(htmlToMarkdown("<div><en-todo checked=\"true\"/>Done</div><div><en-todo/>Open</div>"), "- [x] Done\n- [ ] Open\n");
   assert.equal(htmlToMarkdown("<ul class='checklist'><li class='checked'>Milk</li><li>Eggs</li></ul>"), "- [x] Milk\n- [ ] Eggs\n");
   assert.equal(htmlToMarkdown("<blockquote><p>Quote</p></blockquote><pre><code>a &lt; b\n  c</code></pre><hr>"), "> Quote\n\n```\na < b\n  c\n```\n\n---\n");
   assert.equal(htmlToMarkdown("<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>x|y</td></tr></table>"), "| A | B |\n| --- | --- |\n| 1 | x\\|y |\n");
@@ -108,16 +108,23 @@ test("an .enex opens as notes with their dates, tags, source and pictures", () =
   assert.equal(safeName("..hidden/x"), "hidden-x");
 });
 
-test("Apple Notes' HTML and text become markdown notes, only when asked", () => {
+test("Apple Notes' HTML and text become markdown notes, told from the export with no --from", () => {
   const files = [{ name: "Notes.zip", bytes: zipOf({ "Work/Standup.html": "<div><h1>Standup</h1></div><div>Notes <b>here</b></div>", "Recipes/Bread.txt": "Flour\nWater\n" }) }];
-  const set = readImport(files, "Apple Notes", "apple-notes");
-  assert.deepEqual(set.notes.map((n) => n.path).sort(), ["Apple Notes/Recipes/Bread.md", "Apple Notes/Work/Standup.md"]);
-  assert.equal(note(set, "Apple Notes/Work/Standup.md"), "# Standup\n\nNotes **here**\n");
-  assert.equal(note(set, "Apple Notes/Recipes/Bread.md"), "Flour\nWater\n");
-  // Without it, HTML stays an HTML note and text a file, as before.
-  const plain = readImport(files);
-  assert.deepEqual(plain.notes.map((n) => n.path), ["Work/Standup.html"]);
-  assert.deepEqual(plain.files.map((f) => f.path), ["Recipes/Bread.txt"]);
+  for (const from of ["auto", "apple-notes"] as const) {
+    const set = readImport(files, "Apple Notes", from);
+    assert.equal(set.from, "apple-notes", from);
+    assert.deepEqual(set.notes.map((n) => n.path).sort(), ["Apple Notes/Recipes/Bread.md", "Apple Notes/Work/Standup.md"]);
+    assert.equal(note(set, "Apple Notes/Work/Standup.md"), "# Standup\n\nNotes **here**\n");
+    assert.equal(note(set, "Apple Notes/Recipes/Bread.md"), "Flour\nWater\n");
+  }
+  // The export script's folder says so too, whatever the HTML looks like.
+  assert.equal(readImport([{ name: "x.zip", bytes: zipOf({ "AppleNotesExport/Work/A.html": "<p>Hi</p>" }) }]).from, "apple-notes");
+  // A saved web page, or HTML beside markdown, stays an HTML note, and text a file, as before.
+  const page = readImport([{ name: "Page.html", bytes: strToU8("<!doctype html><html><body><div>Saved page</div></body></html>") }]);
+  assert.deepEqual(page.notes.map((n) => n.path), ["Page.html"]);
+  const mixed = readImport([{ name: "m.zip", bytes: zipOf({ "A.md": "# A", "Work/Standup.html": "<div>Hi</div>", "Bread.txt": "Flour" }) }]);
+  assert.deepEqual(mixed.notes.map((n) => n.path).sort(), ["A.md", "Work/Standup.html"]);
+  assert.deepEqual(mixed.files.map((f) => f.path), ["Bread.txt"]);
 });
 
 test("an Evernote import is written, links and tags working, and says where it came from", async () => {
@@ -131,4 +138,85 @@ test("an Evernote import is written, links and tags working, and says where it c
     assert.match(fmtImport(r), /^From Evernote: imported 2 new notes, added 1 file\./);
     assert.ok(vault.files.read("Travel/Trip- Lisbon - Porto.md")!.includes("tags: [travel, to-do]"));
   }
+});
+
+test("an Obsidian vault: links to an alias, comments, block ids and the Tasks plugin's emoji become what Common Ink reads", () => {
+  const set = readImport([{
+    name: "vault.zip",
+    bytes: zipOf({
+      "Vault/.obsidian/app.json": "{}",
+      "Vault/Home.md": "---\naliases: [Start here]\n---\n# Home\n\nSee [[Plan#^decision]] and [[Plan#Ideas|ideas]].\n\n%% hidden %%\n",
+      "Vault/Plan.md": [
+        "# Plan",
+        "",
+        "Back to [[Start here]] or the [[Start here|start page]]; ![[sketch.png|300]] stays.",
+        "",
+        "We keep the tree. ^decision",
+        "",
+        "- [ ] Measure 📅 2026-10-10 ⏫",
+        "- [x] Pick ✅ 2026-09-30",
+        "- [ ] Water 🔁 every day 🛫 2026-10-01 🔽",
+        "",
+        "```",
+        "%% code %% [[Start here]] ^kept",
+        "```",
+        "",
+      ].join("\n"),
+      "Vault/sketch.png": new Uint8Array([137, 80, 78, 71]),
+    }),
+  }]);
+  assert.equal(set.from, "obsidian");
+  assert.deepEqual(set.notes.map((n) => n.path).sort(), ["Vault/Home.md", "Vault/Plan.md"], ".obsidian/ is passed over");
+  assert.equal(note(set, "Vault/Home.md"), "---\naliases: [Start here]\n---\n# Home\n\nSee [[Plan]] and [[Plan#Ideas|ideas]].\n\n<!-- hidden -->\n");
+  assert.equal(note(set, "Vault/Plan.md"), [
+    "# Plan",
+    "",
+    "Back to [[Home|Start here]] or the [[Home|start page]]; ![[sketch.png|300]] stays.",
+    "",
+    "We keep the tree.",
+    "",
+    "- [ ] Measure due:2026-10-10 !high",
+    "- [x] Pick done:2026-09-30",
+    "- [ ] Water rec:daily start:2026-10-01 !low",
+    "",
+    "```",
+    "%% code %% [[Start here]] ^kept",
+    "```",
+    "",
+  ].join("\n"));
+});
+
+test("the Preview's sample exports are up to date, and each imports as it should", async () => {
+  const { buildSamples, OUT } = await import("../scripts/import-samples.ts");
+  const fs = await import("node:fs");
+  const { unzipSync } = await import("fflate");
+  const built = buildSamples();
+  assert.deepEqual([...built.keys()], fs.readdirSync(OUT).sort(), "run npm run import-samples");
+  for (const [name, bytes] of built) {
+    const want = unzipSync(bytes);
+    const have = unzipSync(new Uint8Array(fs.readFileSync(`${OUT}/${name}`)));
+    assert.deepEqual(Object.keys(have).sort(), Object.keys(want).sort(), `${name}: run npm run import-samples`);
+    for (const k of Object.keys(want)) assert.ok(Buffer.from(have[k]).equals(Buffer.from(want[k])), `${name} ${k}: run npm run import-samples`);
+  }
+  const read = (name: string, from?: Parameters<typeof readImport>[2]) => readImport([{ name, bytes: built.get(name)! }], undefined, from);
+
+  const obsidian = read("Obsidian vault.zip");
+  assert.equal(obsidian.from, "obsidian");
+  assert.equal(obsidian.notes.length, 5);
+  assert.deepEqual(obsidian.files.map((f) => f.path).sort(), ["Obsidian vault/attachments/Garden plan.pdf", "Obsidian vault/attachments/Garden sketch.png", "Obsidian vault/attachments/shed.jpg"]);
+  assert.match(note(obsidian, "Obsidian vault/Projects/Garden redesign.md")!, /\[\[Home\|start page\]\][^]*- \[ \] Measure the beds due:2026-10-10/);
+
+  const notion = read("Notion export.zip");
+  assert.equal(notion.from, "notion");
+  assert.deepEqual(notion.notes.map((n) => n.path).sort(), ["Notion export/Garden.md", "Notion export/Garden/Plant list.md", "Notion export/Garden/Seeds/Basil.md", "Notion export/Garden/Seeds/Tomato.md", "Notion export/Reading list.md"]);
+  assert.match(note(notion, "Notion export/Garden.md")!, /\[Plant list\]\(Garden\/Plant%20list\.md\)/);
+
+  const evernote = read("Evernote export.zip");
+  assert.equal(evernote.from, "evernote");
+  assert.match(note(evernote, "Evernote export/Home projects/Shed repairs.md")!, /tags: \[garden, home\][^]*- \[x\] Replace the hinge\n- \[ \] Paint the door\n[^]*!\[\[attachments\/shed\.jpg\]\]/);
+
+  const apple = read("AppleNotesExport.zip");
+  assert.equal(apple.from, "apple-notes", "told from its folder, with no --from");
+  assert.deepEqual(apple.notes.map((n) => n.path).sort(), ["AppleNotesExport/Notes/Gift ideas.md", "AppleNotesExport/Notes/Trip to Lisbon.md", "AppleNotesExport/Recipes/Pancakes.md"]);
+  assert.match(note(apple, "AppleNotesExport/Notes/Trip to Lisbon.md")!, /- \[x\] Passport\n- \[ \] Adapter/);
 });

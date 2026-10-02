@@ -1,11 +1,14 @@
 // Moving in from another notes app: what each one's export looks like, turned into the plain
-// markdown notes and files Common Ink keeps. Obsidian vaults need nothing (wikilinks, embeds and
-// callouts already work); Notion's export names every page "Title <32 hex>" and links by those
+// markdown notes and files Common Ink keeps. Obsidian vaults mostly need nothing (wikilinks, embeds,
+// attachments, front matter and callouts already work): links to a note's alias, %% comments %%,
+// block ids and the Tasks plugin's emoji are made what Common Ink reads; Notion's export names every page "Title <32 hex>" and links by those
 // names; Evernote's .enex is XML holding each note's HTML and its pictures in base64; Apple Notes
 // comes out as HTML (scripts/export-apple-notes.js saves it) or plain text. No Node or DOM imports beyond
 // path, so the CLI, the Worker and the app all convert the same way.
 import path from "node:path";
+import { frontmatterEntries, listOf } from "./frontmatter.ts";
 import { htmlToMarkdown, decodeEntities, type HtmlElement } from "./html2md.ts";
+import { mapOutsideCode } from "./prose.ts";
 
 /** One file of an import, at its path inside it, before it's sorted into notes and files. */
 export interface ImportEntry {
@@ -13,7 +16,7 @@ export interface ImportEntry {
   bytes: Uint8Array;
 }
 
-/** Where an import comes from. "auto" tells Notion's export by its names, and always reads .enex files. */
+/** Where an import comes from. "auto" tells each app's export by what's in it (see `detectFrom`). */
 export type ImportFrom = "auto" | "obsidian" | "notion" | "evernote" | "apple-notes";
 export const IMPORT_FROM: ImportFrom[] = ["auto", "obsidian", "notion", "evernote", "apple-notes"];
 
@@ -26,9 +29,22 @@ const NOTION_ID = /\s+[0-9a-f]{32}(?=(_all)?(\.[A-Za-z0-9]+)?$)/;
 /** Which app made these files, when `from` is "auto". */
 export function detectFrom(entries: ImportEntry[]): Exclude<ImportFrom, "auto"> {
   if (entries.some((e) => /\.enex$/i.test(e.path))) return "evernote";
+  if (looksLikeAppleNotes(entries)) return "apple-notes";
   const notes = entries.filter((e) => /\.(md|csv)$/i.test(e.path));
   const ided = notes.filter((e) => NOTION_ID.test(path.posix.basename(e.path))).length;
   return ided && ided * 2 >= notes.length ? "notion" : "obsidian";
+}
+
+/**
+ * Apple Notes, as scripts/export-apple-notes.js saves it: anything in its AppleNotesExport folder,
+ * or HTML with no markdown beside it where every page is a bare fragment (Notes' note bodies are
+ * `<div>`s, with no `<html>` or `<body>`; a saved web page has them, and stays an .html note).
+ */
+function looksLikeAppleNotes(entries: ImportEntry[]): boolean {
+  if (entries.some((e) => e.path.split("/").some((seg) => /^AppleNotesExport$/i.test(seg)))) return true;
+  if (entries.some((e) => /\.(md|markdown)$/i.test(e.path))) return false;
+  const html = entries.filter((e) => /\.html?$/i.test(e.path));
+  return html.length > 0 && html.every((e) => /^\s*<div[\s>]/i.test(dec.decode(e.bytes.subarray(0, 512))) && !/<(html|body|head)[\s>]/i.test(dec.decode(e.bytes)));
 }
 
 /** The entries as Common Ink notes and files: Notion's ids out of names and links, .enex files opened, Apple Notes' HTML and text made markdown. */
@@ -38,6 +54,7 @@ export function convertEntries(entries: ImportEntry[], from: ImportFrom): { entr
   let out = entries.flatMap((e) => (/\.enex$/i.test(e.path) ? enexEntries(e) : [e]));
   if (src === "notion") out = notionEntries(out);
   if (src === "apple-notes") out = out.map(appleNotesEntry);
+  if (src === "obsidian") out = obsidianEntries(out);
   return { entries: out, from: src };
 }
 
@@ -83,6 +100,80 @@ function notionEntries(entries: ImportEntry[]): ImportEntry[] {
     });
     return { path: to, bytes: enc.encode(md) };
   });
+}
+
+// ── Obsidian ────────────────────────────────────────────────────────────────────────────────────
+
+const stem = (p: string) => path.posix.basename(p).replace(/\.md$/i, "");
+
+/** The Tasks plugin's emoji, as Common Ink's task tokens. */
+const TASK_EMOJI: Array<[RegExp, (m: string[]) => string]> = [
+  [/📅\uFE0F? *(\d{4}-\d{2}-\d{2})/gu, (m) => `due:${m[1]}`],
+  [/(?:🛫|⏳)\uFE0F? *(\d{4}-\d{2}-\d{2})/gu, (m) => `start:${m[1]}`],
+  [/✅\uFE0F? *(\d{4}-\d{2}-\d{2})/gu, (m) => `done:${m[1]}`],
+  [/🔁\uFE0F? *every (day|week|month|year)\b/gu, (m) => `rec:${m[1] === "day" ? "daily" : `${m[1]}ly`}`],
+  [/(?:🔺|⏫|🔼)\uFE0F?/gu, () => "!high"],
+  [/(?:🔽|⏬)\uFE0F?/gu, () => "!low"],
+  [/➕\uFE0F? *\d{4}-\d{2}-\d{2}/gu, () => ""],
+];
+const TASK_LINE = /^(\s*(?:[-*+]|\d+[.)])\s+\[.\]\s)(.*)$/;
+
+/**
+ * What Obsidian reads that Common Ink doesn't, made what it does: a link to a note by one of its
+ * `aliases` goes to the note (showing the alias), `%% comments %%` become HTML comments (hidden
+ * either way), block ids (` ^id` at a line's end, `[[Note#^id]]`) go, the link going to the note,
+ * and the Tasks plugin's 📅 ✅ 🛫 ⏫ 🔁 become due:, done:, start:, !high and rec:. Nothing in code.
+ */
+function obsidianEntries(entries: ImportEntry[]): ImportEntry[] {
+  const notes = entries.filter((e) => /\.md$/i.test(e.path));
+  const names = new Set(notes.map((e) => stem(e.path).toLowerCase()));
+  const alias = new Map<string, string>();
+  for (const e of notes) {
+    const fm = frontmatterEntries(dec.decode(e.bytes)).entries;
+    for (const a of fm.filter((x) => /^alias(es)?$/i.test(x.key)).flatMap(listOf)) {
+      const key = a.trim().toLowerCase();
+      if (key && !names.has(key) && !alias.has(key)) alias.set(key, stem(e.path));
+    }
+  }
+  return entries.map((e) => {
+    if (!/\.md$/i.test(e.path)) return e;
+    const md = dec.decode(e.bytes);
+    // Comments first, across lines (outside code they can span several).
+    let out = md.replace(/%%([\s\S]*?)%%/g, (m, inner: string, at: number) => (inFence(md, at) ? m : `<!--${inner.replace(/--/g, "- -")}-->`));
+    out = mapOutsideCode(out, (text) =>
+      text
+        .replace(/(!?)\[\[([^[\]|#\n]+)(#[^[\]|\n]*)?(\|[^[\]\n]*)?\]\]/g, (m, bang: string, target: string, hash = "", label = "") => {
+          const to = alias.get(target.trim().toLowerCase());
+          const h = hash.startsWith("#^") ? "" : hash;
+          if (!to && h === hash) return m;
+          return `${bang}[[${to ?? target}${h}${label || (to && !bang ? `|${target.trim()}` : "")}]]`;
+        })
+        .replace(/\s\^[A-Za-z0-9-]+$/, ""),
+    );
+    out = out
+      .split("\n")
+      .map((line) => {
+        const t = line.match(TASK_LINE);
+        if (!t) return line;
+        let rest = t[2];
+        for (const [re, to] of TASK_EMOJI) rest = rest.replace(re, (...m) => to(m as string[]));
+        return t[1] + rest.replace(/[ \t]{2,}/g, " ").trimEnd();
+      })
+      .join("\n");
+    return out === md ? e : { path: e.path, bytes: enc.encode(out) };
+  });
+}
+
+/** Whether `at` in `md` is inside a ``` or ~~~ fence. */
+function inFence(md: string, at: number): boolean {
+  let open: string | null = null;
+  for (const line of md.slice(0, at).split("\n").slice(0, -1)) {
+    const f = line.match(/^\s{0,3}(`{3,}|~{3,})/)?.[1];
+    if (!f) continue;
+    if (!open) open = f;
+    else if (f[0] === open[0] && f.length >= open.length) open = null;
+  }
+  return open !== null;
 }
 
 // ── Apple Notes ─────────────────────────────────────────────────────────────────────────────────

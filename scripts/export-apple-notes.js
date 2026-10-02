@@ -1,6 +1,6 @@
 // Save every note in Apple Notes as an HTML file, a folder per Notes folder, for Common Ink's
-// importer: `commonink import ~/Desktop/AppleNotesExport --from apple-notes`, or Import from Apple
-// Notes… in the app with the folder zipped. Apple Notes has no export of its own, so this asks it
+// importer: `commonink import ~/Desktop/AppleNotesExport`, or Import notes… in the app with the
+// folder zipped (the AppleNotesExport folder is how the importer knows it's Apple Notes). Apple Notes has no export of its own, so this asks it
 // for each note's HTML. Run it on a Mac (Notes will ask once to let it be controlled):
 //
 //   osascript -l JavaScript scripts/export-apple-notes.js
