@@ -743,7 +743,7 @@ async function showToday(opts: { push?: boolean } = {}) {
   showStage("today");
   unmountToday = renderTodayPage($("#today-view"), { open: openFromPage, openTag: (tag) => openTag(tag, "tasks"), openPerson: (assignee) => void showTasks({ assignee }) });
   $("#today-view").focus({ preventScroll: true });
-  if (opts.push !== false) wentTo("/today");
+  wentTo("/today", opts.push !== false);
   document.title = "Today · Common Ink";
   renderChrome();
   renderTree();
