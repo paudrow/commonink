@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 276
 title: Your week on Today
 ---
 This Preview's notes were all made today, so last week's recap counts the three tasks [[Last week's errands]] ticked a week ago. In a workspace you used last week it also counts the notes you made and edited, agents' edits for you, your busiest day and the note you came back to most.
