@@ -39,6 +39,7 @@ import { navArrows, type Dir, type NavArrows } from "./navArrows.ts";
 import { cleanName, fixedName, nameFromHeading, nameLine, renamedPath } from "./noteName.ts";
 import { taskInputPrefs } from "./taskInput.ts";
 import type { TagsPage } from "./tagsPage.ts";
+import type { CheckupPage } from "./checkupPage.ts";
 import type { Theme } from "./settings.ts";
 import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./account.ts";
 import { appCommands, type Renamable } from "./commands.ts";
@@ -217,6 +218,7 @@ let capturePage: CapturePage | null = null;
 let historyPage: History | null = null;
 let assetsPage: Assets | null = null;
 let tagsPage: TagsPage | null = null;
+let checkupPage: CheckupPage | null = null;
 let contactsPage: import("./contactsPage.ts").ContactsPage | null = null;
 let calendarPage: CalendarPage | null = null;
 const once = <T>(load: () => Promise<T>) => {
@@ -265,6 +267,15 @@ const loadTags = once(async () =>
     deleteTag: (t) => deleteTag(t),
     readOnly: () => viewer,
     toast: (t) => toast(t),
+  })),
+);
+const loadCheckup = once(async () =>
+  (checkupPage = new (await import("./checkupPage.ts")).CheckupPage($("#checkup-view"), {
+    open: (path, line) => fromPage(path, line),
+    contacts: () => void showContacts(),
+    delete: (path) => deletePaths([path], deleteHooks),
+    archive: (path) => archivePath(path),
+    readOnly: () => viewer,
   })),
 );
 const loadCalendar = once(async () =>
@@ -336,7 +347,7 @@ function commands() {
     newSmartFolder: newSmartFolderFromPalette,
     go: (page) => {
       if (page === "notes" || page === "archive" || page === "trash") void showNotes({ tab: page, query: {} });
-      else void { today: showToday, tasks: showTasks, calendar: showCalendar, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory, shared: showShared }[page]();
+      else void { today: showToday, tasks: showTasks, calendar: showCalendar, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory, shared: showShared, checkup: showCheckup }[page]();
     },
     subscribeCalendar: () => void subscribeCalendar(),
     refreshCalendars: () => void refreshCalendars(),
@@ -698,7 +709,7 @@ function setUrl(url: string, how: "push" | "replace" = "push") {
 let unmountTasks: (() => void) | null = null;
 let unmountToday: (() => void) | null = null;
 
-function showStage(which: "editor" | "html" | "notes" | "today" | "tasks" | "calendar" | "contacts" | "history" | "assets" | "tags" | "shared" | "capture") {
+function showStage(which: "editor" | "html" | "notes" | "today" | "tasks" | "calendar" | "contacts" | "history" | "assets" | "tags" | "checkup" | "shared" | "capture") {
   closeDrawer();
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
@@ -709,6 +720,7 @@ function showStage(which: "editor" | "html" | "notes" | "today" | "tasks" | "cal
   $("#calendar-view").hidden = which !== "calendar";
   $("#history-view").hidden = which !== "history";
   $("#tags-view").hidden = which !== "tags";
+  $("#checkup-view").hidden = which !== "checkup";
   $("#contacts-view").hidden = which !== "contacts";
   $("#shared-view").hidden = which !== "shared";
   $("#capture-view").hidden = which !== "capture";
@@ -890,6 +902,19 @@ async function showTags(opts: { push?: boolean } = {}) {
   renderOutline();
 }
 
+/** Check-up: what may need tending in the workspace, each with its fix (checkupPage.ts). */
+async function showCheckup(opts: { push?: boolean } = {}) {
+  await leaveNote();
+  showStage("checkup");
+  await (await loadCheckup()).show();
+  $("#checkup-view").focus({ preventScroll: true });
+  wentTo("/checkup", opts.push !== false);
+  document.title = "Check-up · Common Ink";
+  renderChrome();
+  renderTree();
+  renderOutline();
+}
+
 /** Contacts: the people in the notes, or one person's page (`contact`: its note ID). */
 async function showContacts(opts: { contact?: string | null; push?: boolean } = {}) {
   await leaveNote();
@@ -1025,7 +1050,7 @@ function pickFiles(accept?: string): Promise<File[]> {
   });
 }
 
-const PAGE_LABEL = { today: "Today", notes: "Notes", archive: "Archive", trash: "Trash", tasks: "Tasks", calendar: "Calendar", contacts: "Contacts", history: "History", assets: "Assets", tags: "Tags", shared: "Shared with me", capture: "Capture" } as const;
+const PAGE_LABEL = { today: "Today", notes: "Notes", archive: "Archive", trash: "Trash", tasks: "Tasks", calendar: "Calendar", contacts: "Contacts", history: "History", assets: "Assets", tags: "Tags", checkup: "Check-up", shared: "Shared with me", capture: "Capture" } as const;
 
 /** The page showing (the Notes page by its tab), or null while a note is. */
 const onPage = () =>
@@ -1037,6 +1062,7 @@ const onPage = () =>
   : historyPage?.visible ? "history"
   : assetsPage?.visible ? "assets"
   : tagsPage?.visible ? "tags"
+  : checkupPage?.visible ? "checkup"
   : !$("#shared-view").hidden ? "shared"
   : !$("#capture-view").hidden ? "capture"
   : null;
@@ -3321,6 +3347,7 @@ async function route() {
     return showNotes({ tab, push: false });
   }
   if (at === "/tags") return showTags({ push: false });
+  if (at === "/checkup") return showCheckup({ push: false });
   if (at === "/history") {
     const id = new URLSearchParams(location.search).get("note");
     return showHistory({ note: id && NOTE_ID.test(id) ? (notes.find((n) => n.id === id)?.path ?? null) : null, push: false });

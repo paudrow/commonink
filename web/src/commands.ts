@@ -28,7 +28,7 @@ export interface Command {
   run: () => unknown;
 }
 
-export type Page = "today" | "notes" | "tasks" | "calendar" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash" | "shared";
+export type Page = "today" | "notes" | "tasks" | "calendar" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash" | "shared" | "checkup";
 
 /** The kinds of thing ⌘K's Rename… can rename. */
 export type Renamable = "note" | "folder" | "tag" | "smart folder" | "file";
@@ -153,6 +153,7 @@ export function appCommands(app: App): Command[] {
     go("tags", "Tags", "hash", "rename merge"),
     go("assets", "Assets", "grid", "files images uploads attachments"),
     go("history", "History", "history", "changes activity versions"),
+    { id: "go:checkup", title: "Check up on this workspace", keywords: "checkup health tidy clean garden dead broken links empty duplicate orphan overdue maintenance", icon: "check", run: () => app.go("checkup") },
     go("archive", "Archive", "archive", "archived"),
     { ...go("trash", "Trash", "trash", "deleted restore bin recycle"), available: app.canDelete },
     { ...go("shared", "Shared with me", "share", "shared others people"), available: app.online },

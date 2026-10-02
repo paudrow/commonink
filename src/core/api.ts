@@ -12,6 +12,7 @@ import { ON_EXISTING, pairsImport, writeImport, type OnExisting } from "./import
 import type { Calendar, EventDraft, NoteWrite } from "./calendar.ts";
 import { notePath } from "./ids.ts";
 import { isSort } from "./query.ts";
+import { checkup } from "./checkup.ts";
 
 export interface ApiHost {
   vault: Vault;
@@ -256,6 +257,8 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       );
     case "GET /backlinks":
       return json(vault.backlinks(q("path"), qScope()));
+    case "GET /checkup":
+      return json(checkup(vault, host.user));
     case "GET /links/missing":
       return json(vault.missingLinks({ folder: q("folder") || undefined, scope: qScope() }));
     case "GET /mentions":

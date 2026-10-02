@@ -86,7 +86,7 @@ async function mcp(token: string) {
 const VIEWER_TOOLS = [
   "backlinks", "delete_smart_folder", "diff_versions", "export_note", "get_event", "get_today", "list_contacts", "list_events", "list_folders",
   "list_labels", "list_notes", "list_shares", "list_smart_folders", "list_tags", "list_tasks", "list_templates", "missing_links", "order_favorites", "read_board", "read_contact",
-  "read_note", "recent_changes", "save_smart_folder", "save_to_drive", "search_notes", "show_change", "star_note", "star_tag", "unstar_note", "unstar_tag",
+  "read_note", "recent_changes", "save_smart_folder", "save_to_drive", "search_notes", "show_change", "star_note", "star_tag", "unstar_note", "unstar_tag", "workspace_checkup",
 ];
 const ALL_TOOLS = [
   ...VIEWER_TOOLS,
