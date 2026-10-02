@@ -101,6 +101,16 @@ export class TagsPage {
     return node;
   }
 
+  /** Put a tag's row in rename mode (from ⌘⇧P), with the filter cleared so its row is there. */
+  renameTag(tag: string) {
+    const t = this.hooks.tags().find((x) => x.tag === tag.toLowerCase());
+    if (!t || this.hooks.readOnly()) return;
+    this.input.value = "";
+    this.render();
+    const node = this.list.querySelector<HTMLElement>(`.tags-row[data-tag="${CSS.escape(t.tag)}"]`);
+    if (node) this.startRename(node, t);
+  }
+
   private startRename(node: HTMLElement, t: TagCount) {
     const input = el("input", { class: "tag-rename", value: t.display, spellcheck: "false", "aria-label": `New name for #${t.display}` });
     node.replaceChildren(icon("hash", 14), input, el("span", { class: "tags-uses" }, "Enter to rename, Esc to cancel"));
