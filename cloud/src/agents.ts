@@ -100,11 +100,13 @@ export async function authorize(req: Request, env: Env, url: URL): Promise<Respo
         return new Response(null, { status: 302, headers: denied.headers });
       }
       const picked = String(form.get("workspace") ?? "");
+      // Checked before the answer is used up, so a wrong pick can be fixed and sent again.
+      const one = picked === ALL_WORKSPACES ? null : await membership(env.DB, user.id, picked);
+      if (picked !== ALL_WORKSPACES && !one) return text(400, "Pick one of your workspaces, then try again.");
       const approved = await oauth.approveConsent(req, handle);
-      // Every workspace only when the app asked for it (the CLI does), so no form can add it for another.
-      const every = picked === ALL_WORKSPACES && approved.request.scope.includes(WORKSPACES_SCOPE);
-      const ws = every ? { id: ALL_WORKSPACES } : await membership(env.DB, user.id, picked);
-      if (!ws) return text(400, "Pick one of your workspaces, then try again.");
+      // Every workspace only when the page offered it, so no form can add it for another app.
+      const ws = picked === ALL_WORKSPACES ? (offersAll(approved.request) ? { id: ALL_WORKSPACES } : null) : one;
+      if (!ws) return text(400, "Pick one of your workspaces, then start connecting from your app again.");
       const client = clientName((await oauth.lookupClient(approved.request.clientId))?.clientName);
       // Connecting again to the same workspace replaces that connection; other workspaces keep theirs.
       for (const g of await grantsOf(oauth, user.id)) {
@@ -124,13 +126,28 @@ export async function authorize(req: Request, env: Env, url: URL): Promise<Respo
     const request = await oauth.parseAuthRequest(req);
     const details = await oauth.describeConsent(request);
     const consent = await oauth.beginConsent(request);
-    const res = consentPage(details, consent.handle, user, await workspacesOf(env.DB, user.id), request.scope.includes(WORKSPACES_SCOPE));
+    const res = consentPage(details, consent.handle, user, await workspacesOf(env.DB, user.id), offersAll(request));
     for (const [k, v] of consent.headers) if (k.toLowerCase() === "set-cookie") res.headers.append(k, v);
     return res;
   } catch (e) {
     if (e instanceof AuthorizationError && e.redirectTo) return Response.redirect(e.redirectTo, 302);
     if (e instanceof AuthorizationError) return text(400, `${e.description} Start connecting from your app again.`);
     throw e;
+  }
+}
+
+/**
+ * Every workspace goes only to an app that asks for it and gets its answer on this computer, as the
+ * CLI does: it can also invite people and manage members, more than a website should get from one
+ * click on a page that looks like ours.
+ */
+function offersAll(request: { scope: string[]; redirectUri: string }) {
+  if (!request.scope.includes(WORKSPACES_SCOPE)) return false;
+  try {
+    const url = new URL(request.redirectUri);
+    return url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
+  } catch {
+    return false;
   }
 }
 
@@ -145,7 +162,7 @@ function consentPage(details: ConsentDescription, handle: string, user: User, wo
   // A CLI asks for all of them: you pick which one each command runs in, with your role there.
   const all = offerAll
     ? `<label class="ws"><input type="radio" name="workspace" value="${ALL_WORKSPACES}" checked>
-        <span><strong>All your workspaces</strong><br><span class="muted">Each command says which one, and it can do there what your role allows, now and as it changes.</span></span></label>`
+        <span><strong>All your workspaces</strong><br><span class="muted">Each command says which one, and it can do there what your role allows, now and as it changes, including inviting people and managing members.</span></span></label>`
     : "";
   const choices =
     all +

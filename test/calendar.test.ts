@@ -147,6 +147,22 @@ test("reading a feed again updates its events in place: IDs stay, gone events go
   assert.equal(cal.source(s.id, ME).events, 3);
 });
 
+test("two events sharing a UID both show, and the one already there keeps its ID", async () => {
+  const { cal, tick } = setup();
+  const copy = (day: string, title: string) => vevent("dup", [`DTSTART:202610${day}T150000Z`, `DTEND:202610${day}T153000Z`, `SUMMARY:${title}`]);
+  team = ics(copy("09", "Review"));
+  await cal.addIcs({ url: `${base}/team.ics` }, ME, "you");
+  const [review] = cal.events(ME, OCT);
+
+  team = ics(copy("08", "Review prep"), copy("09", "Review"));
+  tick(SYNC_EVERY);
+  assert.equal(await cal.syncDue(), 1);
+  const both = cal.events(ME, OCT);
+  assert.deepEqual(both.map((e) => e.title), ["Review prep", "Review"]);
+  assert.equal(both[1].id, review.id);
+  assert.notEqual(both[0].id, review.id);
+});
+
 test("an unchanged feed (304) isn't read again, and a failing one backs off", async () => {
   const { cal, tick } = setup();
   team = ics(STANDUP);

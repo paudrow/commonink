@@ -2,14 +2,13 @@
 // the whole note in place; Edit opens it in the editor. Filter as you type, triage from the
 // keyboard (j/k, Enter to expand, o to open, e to archive, x to select, Delete to delete), and
 // archive or delete in bulk. Its tabs are where notes go: Notes, Archive and Trash.
-import { api, type FeedItem, type FeedPage, type TagCount, type Task } from "./api.ts";
+import { api, isArchived, type FeedItem, type FeedPage, type TagCount, type Task } from "./api.ts";
 import type { TrashPage } from "./trash.ts";
 import { $, authorAvatar, authorName, displayName, el, icon, markTerms, NOTE_DRAG, timeAgo } from "./dom.ts";
 import { renderMarkdown, sandboxFrame } from "./render.ts";
-import { noteTarget } from "./noteLinks.ts";
 import { hydrateCode } from "./code.ts";
 import { hydrateMath } from "./math.ts";
-import { followInPage } from "./gfm.ts";
+import { followRenderedLink } from "./gfm.ts";
 import { hydrateDataEmbeds } from "./textPreview.ts";
 import { parseDirective } from "./widgets/args.ts";
 import { WIDGETS } from "./widgets/index.ts";
@@ -456,12 +455,9 @@ export class NotesPage {
       const a = t.closest("a");
       const side = sideClick(e);
       if (a) {
-        e.preventDefault();
-        const href = a.getAttribute("href") ?? "";
-        if (/^https?:/i.test(href)) window.open(href, "_blank", "noopener");
-        else if (noteTarget(href) !== null) void api.resolve(noteTarget(href)!, item.path).then((p) => p && this.hooks.open(p, undefined, side));
-        else if (calendarTarget(href) !== null) openCalendarLink(href);
-        else followInPage(node, href); // a footnote, or a #heading in the note
+        const open = (target: string) =>
+          calendarTarget(target) !== null ? openCalendarLink(target) : void api.resolve(target, item.path).then((p) => p && this.hooks.open(p, undefined, side));
+        if (followRenderedLink(a.getAttribute("href") ?? "", node, open)) e.preventDefault();
         return;
       }
       if (side && !t.closest("button, input")) return this.hooks.open(item.path, undefined, true);
@@ -584,7 +580,7 @@ export class NotesPage {
     const n = this.selected.size;
     this.bulk.hidden = n === 0;
     if (!n) return;
-    const allArchived = [...this.selected].every((p) => p.startsWith("Archive/"));
+    const allArchived = [...this.selected].every(isArchived);
     this.bulk.replaceChildren(
       el("span", {}, `${n} selected`),
       el("span", { class: "spacer" }),
@@ -624,7 +620,7 @@ export class NotesPage {
   /** Archive (or unarchive, if they're all archived) — with Undo. */
   async archive(paths: string[]) {
     if (!paths.length) return;
-    const restore = paths.every((p) => p.startsWith("Archive/"));
+    const restore = paths.every(isArchived);
     const r = await (restore ? api.unarchive(paths) : api.archive(paths)).catch(() => null);
     if (!r) return this.hooks.toast({ text: "Couldn't archive that" });
     this.selected.clear();
