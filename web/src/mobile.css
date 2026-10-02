@@ -43,7 +43,7 @@
 @media (pointer: coarse), (max-width: 760px) {
   #topbar .icon-btn, #statusbar .icon-btn, #sidebar .tree-head .icon-btn { width: 44px; height: 44px; flex: none; }
   #statusbar { height: 44px; }
-  /* The vim chip keeps its look; its tap area grows to 44px. */
+  /* A chip keeps its look; its tap area grows to 44px. */
   #statusbar .chip-btn { position: relative; }
   #statusbar .chip-btn::after { content: ""; position: absolute; inset: -12px -6px; }
   #sidebar .search-pill, #sidebar .nav-item, #sidebar .ghost-btn, #sidebar .tree-row, .acct-btn, .acct-item { height: auto; min-height: 44px; }
@@ -123,7 +123,7 @@
 }
 
 @media (max-width: 760px) and (pointer: coarse) {
-  #vim-toggle:not(.is-on), #codewrap-toggle { display: none; }
+  #codewrap-toggle { display: none; }
 }
 
 /* Settings: the whole screen on a phone, and 44px controls on touch. */
