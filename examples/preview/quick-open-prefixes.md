@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 280
 title: Quick open prefixes
 ---
 Quick open (⌘K) can now jump to headings, people, tags and folders, not just notes.
