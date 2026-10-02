@@ -47,7 +47,9 @@ import { guideMessage, startGuide } from "./onboarding.ts";
 import { watchTodayCleared } from "./todayCleared.ts";
 import { inkState, setInk, startInks } from "./inkUnlocks.ts";
 import { gamified, loadGamified, onGamified, setGamified } from "./gamify.ts";
-import { CONFIG, SETTINGS_NOTE, settingsNote } from "../../src/core/schema.ts";
+import { CONFIG, SETTINGS_NOTE, settingsNote, userSettingsPath } from "../../src/core/schema.ts";
+import { applyUserFile, ensureUserFile, keepInFile, setupUserSettings, userSettingsFile, type Personal } from "./userSettings.ts";
+import type { InkId } from "./inks.ts";
 import { askOrganizingIfNew, organizing, setOrganizing } from "./organizing.ts";
 import { PRESETS, type PresetId } from "../../src/core/presets.ts";
 import { store } from "./store.ts";
@@ -354,6 +356,8 @@ function commands() {
     exportWorkspace: () => void exportZip({ all: true }),
     importNotes: () => void importNotes(),
     settings: openSettings,
+    userSettingsFile: () => void openUserSettingsFile(),
+    workspaceSettingsFile: () => void openSettingsFile(),
     connectAgent,
     back: () => void stepPane(active, "back"),
     forward: () => void stepPane(active, "forward"),
@@ -1551,6 +1555,7 @@ async function undoChange(c: Change, after: string | null) {
 function onMessage(m: ServerMsg) {
   guideMessage(m);
   if (m.type !== "change") vaultEvents.dispatchEvent(new Event("change"));
+  if ((m.type === "note" || m.type === "removed") && m.path === userSettingsFile()) void applyUserFile();
   // The settings file changed, here or anywhere.
   if ((m.type === "note" || m.type === "removed") && m.path === SETTINGS_NOTE) void Promise.all([loadGamified(), organizing().then((id) => (organizingNow = id))]);
   switch (m.type) {
@@ -2568,6 +2573,7 @@ function renderHtmlPreview(pane = active) {
 function setHtmlMode(mode: "preview" | "source") {
   prefs.htmlMode = mode;
   store.set("htmlMode", mode);
+  keepInFile("html_notes", mode);
   for (const p of panes) if (p.session?.kind === "html") showNoteIn(p);
   if (active.session?.kind !== "html") return;
   if (mode === "source") active.view.focus();
@@ -2762,6 +2768,7 @@ function togglePanel(force?: boolean) {
 function setVim(on: boolean) {
   prefs.vim = on;
   store.set("vim", on);
+  keepInFile("vim", on);
   taskInputPrefs.vim = on;
   for (const p of panes) p.view.dispatch({ effects: vimSlot.reconfigure(on ? vim() : []) });
   attachVim();
@@ -2775,6 +2782,7 @@ function toggleVim() {
 function toggleVimDisplayLines() {
   prefs.vimDisplayLines = !prefs.vimDisplayLines;
   store.set("vimDisplayLines", prefs.vimDisplayLines);
+  keepInFile("vim_display_lines", prefs.vimDisplayLines);
   setVimDisplayLines(prefs.vimDisplayLines);
 }
 
@@ -2782,6 +2790,7 @@ function setLineNumbers(on: boolean) {
   if (on === prefs.lineNumbers) return;
   prefs.lineNumbers = on;
   store.set("lineNumbers", on);
+  keepInFile("line_numbers", on);
   for (const p of panes) p.view.dispatch({ effects: lineNumbersSlot.reconfigure(lineNumbersFor(on)) });
 }
 const toggleLineNumbers = () => setLineNumbers(!prefs.lineNumbers);
@@ -2799,6 +2808,7 @@ function setTheme(next: Theme) {
   } catch {}
   if (next === "system") delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = next;
+  keepInFile("theme", next);
   renderTheme();
 }
 
@@ -2813,6 +2823,7 @@ function renderTheme() {
 /** Whether long lines in code blocks wrap, for blocks that don't say (```ts nowrap / wrap do). */
 function setCodeWrap(on: boolean) {
   setCodeWrapByDefault(on);
+  keepInFile("wrap_code", on);
   renderCodeWrap();
   for (const p of panes) bumpEmbeds(p.view);
 }
@@ -2850,7 +2861,7 @@ function openSettings(query?: string) {
           theme: theme(),
           setTheme,
           ink: inkState(),
-          setInk,
+          setInk: pickInk,
           lineNumbers: prefs.lineNumbers,
           setLineNumbers,
           codeWrap: codeWrapByDefault(),
@@ -2862,12 +2873,11 @@ function openSettings(query?: string) {
           vimDisplayLines: prefs.vimDisplayLines,
           setVimDisplayLines: (on) => on !== prefs.vimDisplayLines && toggleVimDisplayLines(),
           shortcutTips: !tipsState().off,
-          setShortcutTips: (on) => store.set("shortcutTips", { ...tipsState(), off: !on }),
+          setShortcutTips,
           localVault,
           sidebarPinned: prefs.sidebarPinned,
           setSidebarPinned,
           gamified: { on: gamified(), canChange: !viewer },
-          openSettingsFile,
           organizing: organizingNow,
           setOrganizing: (id) =>
             void setOrganizing(id, gamified()).then(
@@ -2875,7 +2885,7 @@ function openSettings(query?: string) {
               (e) => toast({ text: e instanceof Error ? e.message : "That didn't work" }),
             ),
           showConfig: prefs.showConfig,
-          setShowConfig: (on) => (store.set("showConfig", (prefs.showConfig = on)), renderTree()),
+          setShowConfig,
           setGamified: (on) =>
             void setGamified(on).then(
               () => (m.refreshSettings(), toast({ icon: "check", text: on ? "Unlock as you go is on" : "Everything is unlocked", detail: "For everyone in this workspace, from their next visit." })),
@@ -2884,9 +2894,45 @@ function openSettings(query?: string) {
           shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
           connectAgent,
         }),
-      { query },
+      { query, openFile: (scope) => void (scope === "user" ? openUserSettingsFile() : openSettingsFile()) },
     ),
   );
+}
+
+// Each person's own settings, which their settings file can hold (userSettings.ts), by its keys there.
+const alwaysShown = () => (Object.entries(prefs.sidebarPinned) as Array<[OptionalItem, boolean]>).filter(([, on]) => on).map(([k]) => k);
+function pickInk(id: InkId) {
+  setInk(id);
+  keepInFile("ink", id);
+}
+function setShortcutTips(on: boolean) {
+  store.set("shortcutTips", { ...tipsState(), off: !on });
+  keepInFile("shortcut_tips", on);
+}
+function setShowConfig(on: boolean) {
+  store.set("showConfig", (prefs.showConfig = on));
+  keepInFile("show_config_folder", on);
+  renderTree();
+}
+const personalSettings = (): Personal[] => [
+  { key: "theme", get: theme, set: (v) => setTheme(v as Theme) },
+  { key: "ink", get: () => inkState().current, set: (v) => inkState().earned.includes(v as InkId) && pickInk(v as InkId) },
+  { key: "vim", get: () => prefs.vim, set: (v) => setVim(v as boolean) },
+  { key: "vim_display_lines", get: () => prefs.vimDisplayLines, set: (v) => v !== prefs.vimDisplayLines && toggleVimDisplayLines() },
+  { key: "line_numbers", get: () => prefs.lineNumbers, set: (v) => setLineNumbers(v as boolean) },
+  { key: "wrap_code", get: codeWrapByDefault, set: (v) => setCodeWrap(v as boolean) },
+  { key: "html_notes", get: () => prefs.htmlMode, set: (v) => setHtmlMode(v as "preview" | "source") },
+  { key: "shortcut_tips", get: () => !tipsState().off, set: (v) => setShortcutTips(v as boolean) },
+  { key: "show_config_folder", get: () => prefs.showConfig, set: (v) => setShowConfig(v as boolean) },
+  { key: "always_show", get: alwaysShown, set: (v) => setAlwaysShow(Object.fromEntries((v as string[]).map((k) => [k, true]))) },
+];
+
+/** Open your own settings file, writing it first, with every setting as it is now, if you have none yet. */
+async function openUserSettingsFile() {
+  if (viewer) return toast({ text: "You can view this workspace but not change it, so your settings stay in this browser." });
+  await ensureUserFile();
+  await refreshNotes();
+  await openNote(userSettingsFile());
 }
 
 /** How agents are told to organize this workspace (organizing.ts), as Settings shows it; null until picked. */
@@ -2905,8 +2951,13 @@ async function openSettingsFile() {
 
 /** Keep an optional sidebar item showing even before it's in use (Settings, Sidebar), or let it wait again. */
 function setSidebarPinned(item: OptionalItem, on: boolean) {
-  prefs.sidebarPinned = { ...prefs.sidebarPinned, [item]: on };
-  store.set("sidebarPinned", prefs.sidebarPinned);
+  setAlwaysShow({ ...prefs.sidebarPinned, [item]: on });
+}
+
+function setAlwaysShow(pinned: Partial<Record<OptionalItem, boolean>>) {
+  prefs.sidebarPinned = pinned;
+  store.set("sidebarPinned", pinned);
+  keepInFile("always_show", alwaysShown());
   renderTree();
 }
 
@@ -3017,6 +3068,8 @@ function debounce<A extends unknown[]>(fn: (...a: A) => unknown, ms: number) {
 }
 
 let workspaceId = "";
+/** Your name, for your settings file's: "Me" in a local vault, which has one person. */
+let myName = "Me";
 /** A local vault: just you, so there's no one to share a smart folder with. */
 let local = true;
 /** You can view this workspace but not edit it: you keep smart folders of your own but can't change shared ones. */
@@ -3116,6 +3169,7 @@ async function boot() {
     owner = ws.role === "owner";
     useWorkspace(`/api/w/${ws.id}`, `/api/w/${ws.id}/live`);
     setSelfName(who.me.user.name);
+    myName = who.me.user.name;
     api.reportTimeZone().catch(() => {}); // unreported, agents use the owner's zone, or UTC
     account = renderAccount(who.me, ws, (t) => toast(t));
     $("#shared-btn").hidden = false;
@@ -3213,6 +3267,8 @@ async function boot() {
   renderActivity();
   renderPresence();
   void organizing().then((id) => (organizingNow = id));
+  setupUserSettings(userSettingsPath(myName), personalSettings());
+  void applyUserFile();
   void askOrganizingIfNew({
     workspace: workspaceId || "local",
     notes: notes.filter((n) => n.kind !== "asset").length,

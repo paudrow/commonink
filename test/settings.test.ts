@@ -29,7 +29,6 @@ function fakeApp(over: Partial<SettingsApp> = {}) {
     setSidebarPinned: (item, on) => ((app.sidebarPinned = { ...app.sidebarPinned, [item]: on }), log.push(`sidebar:${item}:${on}`)),
     gamified: { on: true, canChange: true },
     setGamified: (on) => ((app.gamified = { ...app.gamified, on }), log.push(`gamified:${on}`)),
-    openSettingsFile: () => log.push("openSettingsFile"),
     organizing: null,
     setOrganizing: (id) => ((app.organizing = id), log.push(`organizing:${id}`)),
     showConfig: false,
@@ -46,7 +45,7 @@ const titles = (q: string, app: SettingsApp) => matchSettings(q, appSettings(app
 
 test("search finds settings by every word, across title, description, section and keywords", () => {
   const { app } = fakeApp();
-  assert.deepEqual(titles("", app), ["Theme", "Ink", "Always show Contacts", "Always show Calendar", "Always show Assets", "Always show Smart folders", "Show the Config folder", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Shortcut tips", "Connect an agent", "Unlock as you go", "Organizing style", "Settings file"]);
+  assert.deepEqual(titles("", app), ["Theme", "Ink", "Always show Contacts", "Always show Calendar", "Always show Assets", "Always show Smart folders", "Show the Config folder", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Shortcut tips", "Connect an agent", "Unlock as you go", "Organizing style"]);
   assert.deepEqual(titles("dark", app), ["Theme"]);
   assert.deepEqual(titles("VIM", app), ["Line numbers", "Vim keys", "Vim: j and k by screen line"]);
   assert.deepEqual(titles("vim gj", app), ["Vim: j and k by screen line"]);
@@ -54,7 +53,7 @@ test("search finds settings by every word, across title, description, section an
   assert.deepEqual(titles("mcp", app), ["Connect an agent"]);
   assert.deepEqual(titles("sidebar events", app), ["Always show Calendar"]);
   assert.deepEqual(titles("editor", app), ["Line numbers", "Wrap code", "HTML notes"]);
-  assert.deepEqual(titles("yaml", app), ["Show the Config folder", "Settings file"]);
+  assert.deepEqual(titles("yaml", app), ["Show the Config folder"]);
   assert.deepEqual(titles("zzz", app), []);
 });
 
@@ -69,7 +68,7 @@ test("online, Agents opens the Connected agents dialog; Vim's j and k wait for V
 
 test("a workspace that isn't gamified has nothing to pin or earn and no tips; a viewer can't turn it back on", () => {
   const { app, log } = fakeApp({ gamified: { on: false, canChange: true } });
-  assert.deepEqual(titles("", app), ["Theme", "Ink", "Show the Config folder", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Connect an agent", "Unlock as you go", "Organizing style", "Settings file"]);
+  assert.deepEqual(titles("", app), ["Theme", "Ink", "Show the Config folder", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Connect an agent", "Unlock as you go", "Organizing style"]);
   assert.deepEqual(titles("gamification", app), ["Unlock as you go"]);
   assert.deepEqual(titles("progressive disclosure", app), ["Unlock as you go"]);
   const setting = appSettings(app).find((s) => s.id === "gamified")!;
@@ -92,7 +91,13 @@ test("the dialog: labelled controls, search as you type, changes that apply at o
   const search = dialog.querySelector<HTMLInputElement>("input[type=search]")!;
   assert.equal(document.activeElement, search);
   assert.equal(search.getAttribute("aria-label"), "Search settings");
-  assert.deepEqual([...dialog.querySelectorAll("h3")].map((h) => h.textContent), ["Appearance", "Sidebar", "Editor", "Keyboard", "Agents", "Workspace"]);
+  assert.deepEqual([...dialog.querySelectorAll("h3")].map((h) => h.textContent), ["Appearance", "Sidebar", "Editor", "Keyboard", "Agents"]);
+  const tabs = [...dialog.querySelectorAll<HTMLElement>(".st-tab")];
+  assert.deepEqual(tabs.map((t) => [t.textContent, t.getAttribute("aria-selected")]), [["User", "true"], ["Workspace", "false"]]);
+  assert.equal(dialog.querySelector("#st-theme")?.closest(".st-row")?.querySelector(".st-key")?.textContent, "theme", "each setting names its key in the file");
+  tabs[1].click();
+  assert.deepEqual([...dialog.querySelectorAll("h3")].map((h) => h.textContent), ["Workspace"]);
+  tabs[0].click();
   for (const control of dialog.querySelectorAll<HTMLElement>("input[type=checkbox], select")) {
     const label = dialog.querySelector(`label[for="${control.id}"]`);
     assert.ok(label?.textContent, `${control.id} has a label`);
@@ -165,4 +170,18 @@ test("Ink: a radio group of swatches; locked ones say what earns them and can't 
   radios[0].click();
   assert.deepEqual(log, ["ink:viridian", "ink:indigo"]);
   document.activeElement!.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+});
+
+test("Open settings file opens the file for the tab you're on, as VS Code's does", () => {
+  const { app } = fakeApp();
+  const opened: string[] = [];
+  const open = (tab: number) => {
+    openSettings(() => appSettings(app), { openFile: (scope) => opened.push(scope) });
+    document.querySelectorAll<HTMLElement>("#settings .st-tab")[tab].click();
+    document.querySelector<HTMLElement>("#settings .st-file")!.click();
+    assert.equal(document.querySelector("#settings"), null, "Settings closes for the file");
+  };
+  open(0);
+  open(1);
+  assert.deepEqual(opened, ["user", "workspace"]);
 });

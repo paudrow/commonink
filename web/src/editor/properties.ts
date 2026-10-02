@@ -6,7 +6,7 @@ import type { CompletionContext, CompletionResult } from "@codemirror/autocomple
 import { startCompletion } from "@codemirror/autocomplete";
 import { linter, type Diagnostic } from "@codemirror/lint";
 import { EditorSelection, StateField, type EditorState, type Extension } from "@codemirror/state";
-import { EditorView, hoverTooltip, showPanel, type Panel } from "@codemirror/view";
+import { Decoration, EditorView, hoverTooltip, showPanel, WidgetType, type DecorationSet, type Panel } from "@codemirror/view";
 import { frontmatterProblems, scanFrontmatter, schemaFor, type Problem, type PropSchema } from "../../../src/core/schema.ts";
 import { el, icon } from "../dom.ts";
 import { editorContext } from "./blocks.ts";
@@ -17,7 +17,7 @@ const pathOf = (state: EditorState) => state.facet(editorContext)?.path ?? "";
 function typeText(p: PropSchema): string {
   if (p.enum) return p.enum.join(" | ");
   if (p.type === "boolean") return "true | false";
-  if (p.type === "array") return "list";
+  if (p.type === "array") return p.items?.enum ? `list of ${p.items.enum.join(" | ")}` : "list";
   return p.format === "date" ? "date" : "text";
 }
 
@@ -49,7 +49,8 @@ export function propertySource(ctx: CompletionContext): CompletionResult | null 
   const before = line.text.slice(0, ctx.pos - line.from);
   const key = before.match(/^([\w-]*)$/);
   if (key) {
-    if (!key[1] && !ctx.explicit) return null;
+    // On an empty line, only when asked (Ctrl-Space), or in a settings file, where a new line offers what's left to set.
+    if (!key[1] && !ctx.explicit && schema.additionalProperties) return null;
     const used = new Set(scan.fields.filter((f) => f.from !== line.from).map((f) => f.key));
     const options = Object.entries(schema.properties)
       .filter(([k]) => !used.has(k))
@@ -118,6 +119,82 @@ function problemsPanel(view: EditorView): Panel {
 
 const problemsStrip = showPanel.from(problemsField, (problems) => (problems.length ? problemsPanel : null));
 
+/** A settings file (one whose schema lists every key it may have). */
+const strict = (state: EditorState) => !schemaFor(pathOf(state)).additionalProperties;
+
+/** In a settings file, a new line in the properties offers the settings not set yet, so nobody has to know their names. */
+const offerOnNewLine = EditorView.updateListener.of((u) => {
+  if (!u.docChanged || !u.transactions.some((t) => t.isUserEvent("input")) || !strict(u.state)) return;
+  const head = u.state.selection.main.head;
+  const line = u.state.doc.lineAt(head);
+  if (line.text.trim() || !inFrontmatter(u.state, head)) return;
+  let newline = false;
+  u.changes.iterChanges((_a, _b, _c, _d, text) => (newline ||= text.toString().includes("\n")));
+  if (newline) setTimeout(() => startCompletion(u.view), 0);
+});
+
+/**
+ * Under a settings file's properties, the settings it doesn't set yet, each with what it does and
+ * an Add button: like VS Code's default settings, what you can set is in front of you.
+ */
+class AvailableWidget extends WidgetType {
+  constructor(
+    readonly rows: Array<[string, PropSchema]>,
+    readonly at: number,
+  ) {
+    super();
+  }
+  eq(o: AvailableWidget) {
+    return o.at === this.at && o.rows.map(([k]) => k).join() === this.rows.map(([k]) => k).join();
+  }
+  ignoreEvent() {
+    return true;
+  }
+  toDOM(view: EditorView) {
+    const add = (key: string, p: PropSchema) => {
+      const value = p.default !== undefined ? String(p.default) : p.enum ? "" : p.type === "array" ? "[]" : "";
+      const insert = `${key}: ${value}`;
+      view.dispatch({ changes: { from: this.at, insert: `${insert}\n` }, selection: { anchor: this.at + insert.length }, userEvent: "input.complete" });
+      view.focus();
+      if (!value && (p.enum || p.type === "boolean")) setTimeout(() => startCompletion(view), 0);
+    };
+    return el(
+      "div",
+      { class: "prop-available" },
+      el("div", { class: "prop-available-head" }, "You can also set"),
+      ...this.rows.map(([k, p]) =>
+        el(
+          "div",
+          { class: "prop-available-row" },
+          el("code", {}, k),
+          el("span", { class: "prop-available-type" }, typeText(p)),
+          el("span", { class: "prop-available-desc" }, p.description),
+          el("button", { type: "button", class: "qw-btn", onmousedown: (e: Event) => (e.preventDefault(), add(k, p)) }, "Add"),
+        ),
+      ),
+    );
+  }
+}
+
+const SKIP = new Set(["title", "tags"]);
+function available(state: EditorState): DecorationSet {
+  if (!strict(state)) return Decoration.none;
+  const scan = scanFrontmatter(state.doc.toString());
+  if (!scan) return Decoration.none;
+  const used = new Set(scan.fields.map((f) => f.key));
+  const rows = Object.entries(schemaFor(pathOf(state)).properties).filter(([k]) => !used.has(k) && !SKIP.has(k));
+  if (!rows.length) return Decoration.none;
+  // After the closing --- line.
+  const close = state.doc.lineAt(Math.min(scan.to, state.doc.length));
+  return Decoration.set([Decoration.widget({ block: true, side: 1, widget: new AvailableWidget(rows, close.from) }).range(close.to)]);
+}
+
+const availableField = StateField.define<DecorationSet>({
+  create: available,
+  update: (value, tr) => (tr.docChanged ? available(tr.state) : value),
+  provide: (f) => EditorView.decorations.from(f),
+});
+
 export function propertyHelp(): Extension {
-  return [problemsField, propertyLint, propertyHover, problemsStrip];
+  return [problemsField, propertyLint, propertyHover, problemsStrip, offerOnNewLine, availableField];
 }

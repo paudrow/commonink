@@ -20,7 +20,7 @@ export interface PropSchema {
   enum?: string[];
   /** "date": YYYY-MM-DD, the form the app sorts by. */
   format?: "date";
-  items?: { type: "string" };
+  items?: { type: "string"; enum?: string[] };
   default?: unknown;
   /** Shown in completions as what a typical value looks like. */
   examples?: string[];
@@ -117,9 +117,45 @@ export const SETTINGS_SCHEMA: ObjectSchema = {
   additionalProperties: false,
 };
 
+/** Where each person's own settings file is: Config/Users/<their name>.md. */
+export const USERS = `${CONFIG}/Users`;
+export const userSettingsPath = (name: string) => `${USERS}/${name.replace(/[\\/:*?"<>|#^[\]]/g, "").trim() || "Me"}.md`;
+
+const BOOL = (description: string, dflt: boolean): PropSchema => ({ type: "boolean", default: dflt, description });
+
+/** One person's settings: how the app looks and behaves for them. Settings → User changes the same values. */
+export const USER_SCHEMA: ObjectSchema = {
+  $schema: JSON_SCHEMA,
+  $id: "commonink:user",
+  title: "Your settings",
+  description: "How the app looks and behaves for you. Settings (⌘,) → User changes the same values.",
+  type: "object",
+  properties: {
+    title: TITLE,
+    tags: TAGS,
+    theme: { type: "string", enum: ["system", "light", "dark"], default: "system", description: "Light, dark, or whichever your system uses." },
+    ink: { type: "string", enum: ["indigo", "sepia", "viridian", "vermilion", "cobalt", "iron-gall"], default: "indigo", description: "The color of links, ticks and highlights. With Unlock as you go on, an ink is yours once you've earned it." },
+    vim: BOOL("Vim keys in the editor.", false),
+    vim_display_lines: BOOL("With Vim keys, j and k move by the line on screen (gj, gk), not the line in the file.", false),
+    line_numbers: BOOL("Number the lines beside a note's text.", false),
+    wrap_code: BOOL("Long lines in code blocks wrap; false: they scroll. A block can say otherwise (```ts nowrap).", true),
+    html_notes: { type: "string", enum: ["preview", "source"], default: "preview", description: "Open HTML notes as the page they make, or as their source." },
+    shortcut_tips: BOOL("The third click on a button with a shortcut says, once, which keys do it.", true),
+    show_config_folder: BOOL("Show Config among the sidebar's folders.", false),
+    always_show: {
+      type: "array",
+      items: { type: "string", enum: ["contacts", "calendar", "assets", "smart"] },
+      description: "Sidebar items to show even before they're in use (with Unlock as you go on): contacts, calendar, assets, smart (Smart folders).",
+      examples: ["[calendar, contacts]"],
+    },
+  },
+  additionalProperties: false,
+};
+
 /** The schema for the note at `path`: the settings file's, a template's, a contact's, or any note's. */
 export function schemaFor(path: string): ObjectSchema {
   if (path === SETTINGS_NOTE) return SETTINGS_SCHEMA;
+  if (path.startsWith(`${USERS}/`)) return USER_SCHEMA;
   if (path.startsWith("Templates/")) return TEMPLATE_SCHEMA;
   if (path.startsWith("People/")) return PERSON_SCHEMA;
   return NOTE_SCHEMA;
@@ -312,6 +348,9 @@ export function frontmatterProblems(md: string, path: string): Problem[] {
     if (template && md.slice(v.from, v.to).includes("{{")) continue;
     if (prop.type === "array") {
       if (v.kind === "map") out.push({ ...there, severity: "error", message: `${f.key} is a list: write [a, b] or one - item per line.` });
+      const allowed = prop.items?.enum;
+      if (allowed && v.kind === "list")
+        for (const item of v.items) if (!allowed.includes(item.text)) out.push({ from: item.from, to: item.to, key: f.key, severity: "error", message: `${f.key} can hold ${allowed.join(", ")}, not ${JSON.stringify(item.text)}.` });
       continue;
     }
     if (v.kind === "list" || v.kind === "map") {
@@ -363,7 +402,53 @@ export function describeProblems(md: string, problems: Problem[]): string {
   return `\n\nIts front matter (properties) has problems; fix them with edit_note:\n${problems.map((p) => `- line ${lineOf(p.from)}: ${p.message}`).join("\n")}`;
 }
 
-// ------------------------------------------------------------------ the settings file
+// ------------------------------------------------------------------ the settings files
+
+export type SettingValue = boolean | string | string[];
+
+/** The valid values a settings file sets for `schema`'s properties (the first, if one is set twice). Invalid ones are left out. */
+export function readValues(md: string, schema: ObjectSchema): Record<string, SettingValue> {
+  const out: Record<string, SettingValue> = {};
+  for (const f of scanFrontmatter(md)?.fields ?? []) {
+    const prop = schema.properties[f.key];
+    if (!prop || f.key in out) continue;
+    const v = f.value;
+    if (prop.type === "array" && (v.kind === "list" || v.kind === "empty")) {
+      const items = v.kind === "list" ? v.items.map((i) => i.text) : [];
+      if (!prop.items?.enum || items.every((i) => prop.items!.enum!.includes(i))) out[f.key] = items;
+    } else if (v.kind === "scalar" && prop.type === "boolean" && !v.quoted && /^(true|false)$/i.test(v.text)) out[f.key] = v.text.toLowerCase() === "true";
+    else if (v.kind === "scalar" && prop.type === "string" && (!prop.enum || prop.enum.includes(v.text))) out[f.key] = v.text;
+  }
+  return out;
+}
+
+/** A value as YAML on a key's line. */
+const yamlOf = (v: SettingValue) => (Array.isArray(v) ? `[${v.join(", ")}]` : String(v));
+
+/** `md` with `key` set to `value`, every other line kept as it was; the front matter is made if there's none. */
+export function withValue(md: string, key: string, value: SettingValue): string {
+  const { entries, body, had } = frontmatterEntries(md);
+  const line = `${key}: ${yamlOf(value)}`;
+  const i = entries.findIndex((e) => e.key === key);
+  if (i >= 0) entries[i] = { key, lines: [line] };
+  else entries.push({ key, lines: [line] });
+  return frontmatterText(entries) + (had ? body : md ? `\n${md}` : "");
+}
+
+/** A new settings file for `schema`: every setting it has, with `values` (or its default), then a line on how to use it. */
+export function settingsFileFor(schema: ObjectSchema, values: Record<string, SettingValue>, intro: string): string {
+  const keys = Object.entries(schema.properties).filter(([k, p]) => k !== "title" && k !== "tags" && (k in values || p.default !== undefined));
+  return [
+    "---",
+    ...keys.map(([k, p]) => `${k}: ${yamlOf(values[k] ?? (p.default as SettingValue))}`),
+    "---",
+    "",
+    "# Settings",
+    "",
+    intro,
+    "",
+  ].join("\n");
+}
 
 export interface WorkspaceSettings {
   gamified?: boolean;
@@ -382,20 +467,13 @@ export function readSettings(md: string): WorkspaceSettings {
   return out;
 }
 
-/** A new settings file. */
-export function settingsNote(s: WorkspaceSettings = {}): string {
-  return [
-    "---",
-    `gamified: ${s.gamified ?? true}`,
-    ...(s.organizing ? [`organizing: ${s.organizing}`] : []),
-    "---",
-    "",
-    "# Settings",
-    "",
-    "This workspace's settings, for everyone in it and for your agents. Settings (⌘,) changes the same values. To see what else you can set, start typing on a new line in the properties above; hover a setting to read what it does. Anything you write down here is yours.",
-    "",
-  ].join("\n");
-}
+/** A new workspace settings file. */
+export const settingsNote = (s: WorkspaceSettings = {}): string =>
+  settingsFileFor(SETTINGS_SCHEMA, { ...s }, "This workspace's settings, for everyone in it and for your agents. Settings (⌘,) → Workspace changes the same values. Hover a setting to read what it does; on a new line in the properties, the ones you haven't set are suggested. Anything you write down here is yours.");
+
+/** A new settings file of your own. */
+export const userSettingsNote = (values: Record<string, SettingValue>): string =>
+  settingsFileFor(USER_SCHEMA, values, "Your own settings: how Common Ink looks and behaves for you here. Settings (⌘,) → User changes the same values. Hover a setting to read what it does. Anything you write down here is yours.");
 
 /** `md` with `key` set to `value`, every other line kept as it was. */
 export function withSetting<K extends keyof WorkspaceSettings>(md: string, key: K, value: NonNullable<WorkspaceSettings[K]>): string {

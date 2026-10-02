@@ -65,6 +65,8 @@ const app = (over: Partial<App> = {}): App => {
     exportWorkspace: run("exportWorkspace"),
     importNotes: run("importNotes"),
     settings: run("settings"),
+    userSettingsFile: run("userSettingsFile"),
+    workspaceSettingsFile: run("workspaceSettingsFile"),
     connectAgent: run("connectAgent"),
     back: run("back"),
     forward: run("forward"),

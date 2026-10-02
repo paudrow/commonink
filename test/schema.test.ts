@@ -89,3 +89,20 @@ test("agents read Config/AGENTS.md, or the root AGENTS.md of a vault from before
   assert.equal(agentsText((p) => files[p]), "new");
   assert.deepEqual(["AGENTS.md", "Config/AGENTS.md", "Notes/AGENTS.md"].map(isAgentsNote), [true, true, false]);
 });
+
+test("your own settings file lists every setting, reads back what it wrote, and checks each value", async () => {
+  const { readValues, withValue, userSettingsNote, userSettingsPath, USER_SCHEMA } = await import("../src/core/schema.ts");
+  const path = userSettingsPath("Ada/L");
+  assert.equal(path, "Config/Users/AdaL.md");
+  assert.equal(userSettingsPath(""), "Config/Users/Me.md");
+  const md = userSettingsNote({ theme: "dark", always_show: ["contacts"] });
+  for (const key of Object.keys(USER_SCHEMA.properties).filter((k) => k !== "title" && k !== "tags")) assert.match(md, new RegExp(`^${key}: `, "m"), `${key} is listed`);
+  assert.deepEqual(messages(md, path), []);
+  const values = readValues(md, USER_SCHEMA);
+  assert.equal(values.theme, "dark");
+  assert.deepEqual(values.always_show, ["contacts"]);
+  assert.equal(values.wrap_code, true, "an unset setting is written with its default");
+  assert.equal(readValues(withValue(md, "vim", true), USER_SCHEMA).vim, true);
+  assert.deepEqual(messages("---\nalways_show: [contacts, mail]\n---\n", path).length, 1);
+  assert.deepEqual(messages("---\ntheme: blue\n---\n", path), ['error: theme is one of system, light, dark, not "blue".']);
+});
