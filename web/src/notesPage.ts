@@ -653,6 +653,7 @@ export class NotesPage {
       { label: this.expanded.has(item.path) ? "Collapse" : "Expand", icon: "chevron", run: () => this.toggleExpand(i) },
       { label: starred ? "Unstar" : "Star", icon: starred ? "starred" : "star", run: () => this.hooks.toggleStar(item.path) },
       { label: this.selected.has(item.path) ? "Deselect" : "Select", icon: "check", run: () => this.toggle(item.path) },
+      readOnly ? null : { label: "Rename…", icon: "edit", run: () => this.hooks.rename(item.path) },
       { label: "Export as .zip", icon: "download", run: () => this.exportPaths([item.path]) },
       { label: item.archived ? "Unarchive" : "Archive", icon: item.archived ? "unarchive" : "archive", run: () => this.archive([item.path]) },
       readOnly ? null : { label: "Delete", icon: "trash", danger: true, run: () => this.delete([item.path]) },

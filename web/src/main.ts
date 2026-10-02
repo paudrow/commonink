@@ -2040,12 +2040,14 @@ function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
 }
 
 /** A tag's menu, on its row under Tags or in Favorites. `used`: some note carries it (else it can be deleted). */
-function tagMenu(tag: string, used: boolean, t?: TagCount): (RowMenuItem | null)[] {
+function tagMenu(tag: string, used: boolean, t = tags.find((x) => x.display === tag)): (RowMenuItem | null)[] {
   const starred = isTagStarred(tag);
+  const notesToo = !t || !!t.notes || !!t.assets || !t.tasks; // a tag only tasks carry can't be a favorite (it would show no notes)
   return [
     { label: "Show notes", icon: "file", run: () => openTag(tag) },
     { label: "Show tasks", icon: "task", run: () => openTag(tag, "tasks") },
-    used ? { label: starred ? "Remove from Favorites" : "Add to Favorites", icon: starred ? "starred" : "star", run: () => toggleTagStar(tag) } : null,
+    used && (notesToo || starred) ? { label: starred ? "Remove from Favorites" : "Add to Favorites", icon: starred ? "starred" : "star", run: () => toggleTagStar(tag) } : null,
+    t && !viewer ? { label: "Rename…", icon: "edit", run: () => renameTag(t) } : null,
     !used && t && !viewer ? { label: "Delete…", icon: "trash", danger: true, run: () => deleteTag(t) } : null,
   ];
 }
@@ -2094,6 +2096,7 @@ function renderFavorites() {
     rowMenu(row, displayName(f.path), () => [
       { label: "Open", icon: "edit", run: () => openNote(f.path) },
       { label: "Open to the side", icon: "split", run: () => openNote(f.path, { pane: sideOf(active) }) },
+      viewer ? null : { label: "Rename…", icon: "edit", run: () => renamePath(f.path) },
       { label: "Remove from Favorites", icon: "starred", run: () => toggleStar(f.path) },
     ]);
     favoriteDrop(row, "is-drop-before", f.path);
@@ -2299,7 +2302,7 @@ function folderMenu(path: string): (RowMenuItem | null)[] {
     { label: "New note here", icon: "plus", run: () => newNote(path) },
     { label: "Export as .zip", icon: "download", run: () => exportZip({ folder: path }) },
     workspaceId ? { label: "Share…", icon: "share", run: () => openShareDialog({ folder: path }) } : null,
-    viewer ? null : { label: "Rename… (F2)", icon: "edit", run: () => renameFolder(path) },
+    viewer ? null : { label: "Rename…", icon: "edit", run: () => renameFolder(path) },
     viewer ? null : { label: "Delete…", icon: "trash", danger: true, run: () => removeFolder(path) },
   ];
 }
