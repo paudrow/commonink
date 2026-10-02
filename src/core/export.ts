@@ -159,7 +159,7 @@ export function coreExporter(host: ExportHost, render?: (rel: string, format: "h
     const rel = t && t !== "/" ? vault.resolve(t) : null;
     const note = rel && kindOf(rel) !== "asset" ? rel : null;
     if (format === "zip") {
-      const out = await exportZip(host, !t || t === "/" ? { all: true } : note ? { paths: [note] } : { folder: t });
+      const out = await exportZip(host, !t || t === "/" ? { all: true } : note && !asFolder(vault, t, note) ? { paths: [note] } : { folder: t });
       return { name: out.name, mime: "application/zip", data: out.zip };
     }
     if (!note) throw new VaultError(`No note matches "${target}". A folder, or "/" for everything, exports as a zip (format "zip").`, "not_found");
@@ -176,9 +176,27 @@ export function coreExporter(host: ExportHost, render?: (rel: string, format: "h
   };
 }
 
+/**
+ * Whether a zip of `target` means the folder of that name rather than the note it resolves to: a
+ * trailing "/" says so, and so does a folder with notes in it when `target` isn't the note's own path
+ * ("Projects" is the folder, not Areas/Projects.md found by name).
+ */
+function asFolder(vault: Vault, target: string, note: string): boolean {
+  if (/[\\/]$/.test(target)) return true;
+  let folder: string;
+  try {
+    folder = cleanPath(target);
+  } catch {
+    return false;
+  }
+  const fold = (p: string) => p.normalize("NFC").toLowerCase();
+  if ([folder, `${folder}.md`].some((p) => fold(p) === fold(note))) return false;
+  return vault.list(folder).length > 0;
+}
+
 function zipName(what: ExportWhat, paths: string[], workspace = "Workspace"): string {
   if ("all" in what) return workspace;
-  if ("folder" in what) return cleanPath(what.folder).split("/").pop() || workspace;
+  if ("folder" in what) return cleanPath(what.folder).split("/").filter(Boolean).pop() || workspace;
   if (paths.length === 1) return paths[0].split("/").pop()!.replace(/\.(md|html?)$/i, "");
   return "Notes";
 }
