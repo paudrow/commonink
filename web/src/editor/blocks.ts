@@ -738,7 +738,7 @@ class PropertiesWidget extends WidgetType {
 }
 
 const EMBED_LINE = /^\s*!\[\[([^\]]+?)\]\]\s*$/;
-const IMAGE_LINE = /^\s*!\[([^\]]*)\]\(<?([^)\s>]+)>?(?:\s+"[^"]*")?\)\s*$/;
+const IMAGE_LINE = /^\s*!\[([^\]]*)\]\((?:<([^<>]+)>|([^()\s<>]+))(?:\s+"[^"]*")?\)\s*$/;
 /** A URL alone on its line (what you get by pasting a link). `<url>` opts out and stays a plain link. */
 const BARE_URL = /^\s*(https?:\/\/[^\s<>]+)\s*$/;
 
@@ -871,7 +871,7 @@ function buildBlocks(state: EditorState): DecorationSet {
           const img = wiki ? null : line.text.match(IMAGE_LINE);
           const bare = wiki || img ? null : line.text.match(BARE_URL);
           if (!wiki && !img && !bare) continue;
-          const target = wiki ? wiki[1].split("|")[0].trim() : img ? safeDecode(img[2]) : bare![1];
+          const target = wiki ? wiki[1].split("|")[0].trim() : img ? safeDecode(img[2] ?? img[3]) : bare![1];
           const kind = wiki ? embedKindOf(target) : img ? (embedKindOf(target) === "note" ? "image" : embedKindOf(target)) : embedKindOf(target, true);
           place(new EmbedWidget(target, kind, from, embedRev));
         }
