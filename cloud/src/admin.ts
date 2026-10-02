@@ -33,16 +33,22 @@ export async function membersOf(env: Env, ws: string): Promise<Member[]> {
  */
 const KEEPS_AN_OWNER = "AND (role <> 'owner' OR (SELECT COUNT(*) FROM members WHERE workspace_id = ?1 AND role = 'owner') > 1)";
 
+/** Someone's unused invite links here, once they aren't an owner (so they can't let themselves back in). */
+const dropInvites = (env: Env, ws: string, userId: string) => env.DB.prepare("DELETE FROM invites WHERE workspace_id = ? AND created_by = ? AND used_at IS NULL").bind(ws, userId);
+
 /**
  * Someone leaves (or is removed): their membership, their agents' access here, their open tabs, their
- * own calendars here and anything here shared with them (by account or email) all go. False, and
- * nothing changes, if they're the last owner.
+ * own calendars here, their unused invite links and anything here shared with them (by account or email) all go.
+ * False, and nothing changes, if they're the last owner.
  */
 async function drop(env: Env, url: URL, ws: string, userId: string) {
   const { meta } = await env.DB.prepare(`DELETE FROM members WHERE workspace_id = ?1 AND user_id = ?2 ${KEEPS_AN_OWNER}`).bind(ws, userId).run();
   if (!meta.changes) return false;
   const email = (await env.DB.prepare("SELECT email FROM users WHERE id = ?").bind(userId).first<{ email: string }>())?.email.toLowerCase() ?? "";
-  await env.DB.prepare("DELETE FROM shares WHERE workspace_id = ? AND ((principal_type = 'user' AND principal = ?) OR (principal_type = 'email' AND principal = ?))").bind(ws, userId, email).run();
+  await env.DB.batch([
+    dropInvites(env, ws, userId),
+    env.DB.prepare("DELETE FROM shares WHERE workspace_id = ? AND ((principal_type = 'user' AND principal = ?) OR (principal_type = 'email' AND principal = ?))").bind(ws, userId, email),
+  ]);
   await revokeAgentsIn(env, url, userId, ws);
   const stub = env.WORKSPACE.get(env.WORKSPACE.idFromName(ws));
   await stub.disconnect(userId);
@@ -68,6 +74,7 @@ export async function adminRoute(req: Request, env: Env, url: URL, user: User, w
       if (current.role === role) return json({ ok: true });
       const { meta } = await env.DB.prepare(`UPDATE members SET role = ?3 WHERE workspace_id = ?1 AND user_id = ?2 ${KEEPS_AN_OWNER}`).bind(ws.id, target, role).run();
       if (!meta.changes) return fail("A workspace needs an owner. Make someone else an owner first.", 409);
+      if (current.role === "owner") await dropInvites(env, ws.id, target).run();
       // Their agents connected with the old role; they reconnect to get the new one.
       await revokeAgentsIn(env, url, target, ws.id);
       await log(env, ws.id, user.id, "role", target, `${current.role} → ${role}`);
