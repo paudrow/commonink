@@ -16,6 +16,7 @@ import { notesChanged } from "./editor/livePreview.ts";
 import { createState, lineNumbersFor, lineNumbersSlot, openLinkToSide, remote, setVimDisplayLines, vimSlot } from "./editor/setup.ts";
 import { linkTargetAt } from "./editor/linkAt.ts";
 import { bumpEmbeds, codeRange, editorContext } from "./editor/blocks.ts";
+import { refreshFolder } from "./editor/folderLine.ts";
 import { codeWrapByDefault, setCodeWrapByDefault } from "./code.ts";
 import { hasFencedCode } from "../../src/core/fence.ts";
 import { foldAll, foldAt, foldCount } from "./editor/details.ts";
@@ -464,6 +465,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
           folders: () => allFolders(),
           openTag,
           openPerson: (assignee) => void showTasks({ assignee }),
+          openFolder: (folder) => void showNotes({ folder }),
           saveSmartFolder,
           noteUrl: () => notePath(next.title, next.id),
         },
@@ -1395,6 +1397,7 @@ async function save(s: Session) {
       // It was renamed while this save was on its way, and the save followed it.
       view.state.facet(editorContext).path = r.path;
       s.path = r.path;
+      view.dispatch({ effects: refreshFolder.of(null) }); // it may be in another folder now
     }
     s.base = content;
     s.baseVersion = r.version;
