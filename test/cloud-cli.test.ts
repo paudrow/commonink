@@ -174,6 +174,11 @@ test("a viewer's CLI reads but can't write, and a grant for one workspace stays 
   assert.deepEqual(one.json(["workspaces"]).workspaces.map((w: { name: string }) => w.name), ["Team"]);
   assert.equal(one.run(["ls"]).status, 0);
   assert.equal(one.run(["ls", team, "Editor's notes"]).status, 3);
+  // What it writes is the client's, by its registered name, even when it names no agent or another one.
+  assert.equal(one.run(["create", "From one grant", "x"]).status, 0);
+  assert.equal(one.run(["append", "From one grant", "more", "--agent", "Someone else"]).status, 0);
+  const changes = await cloud.call(people.editor, "GET", `${people.base}/changes?path=${encodeURIComponent("From one grant.md")}`);
+  assert.deepEqual(changes.map((ch: { agent: string | null; person: string }) => [ch.agent, ch.person]), [["commonink CLI", "Editor Dev"], ["commonink CLI", "Editor Dev"]]);
   // Nor its settings: a grant for one workspace (an MCP client's, which reaches /mcp/cli with the same token) is to its notes.
   const owner = cli();
   await login(owner, people.owner, people.id);
