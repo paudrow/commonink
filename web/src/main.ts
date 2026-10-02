@@ -347,7 +347,7 @@ function commands() {
     copyLink: () => void copyLink(),
     exportAs: (how) => void exportNote(how),
     exportWorkspace: () => void exportZip({ all: true }),
-    importNotes: (from) => void importNotes(from),
+    importNotes: () => void importNotes(),
     settings: openSettings,
     connectAgent,
     back: () => void stepPane(active, "back"),
@@ -1131,13 +1131,13 @@ async function exportZip(what: { paths?: string[]; folder?: string; all?: boolea
   }
 }
 
-/** Pick .md files or a .zip and bring them all in (see importNotes.ts). */
-async function importNotes(from: "auto" | "apple-notes" = "auto") {
-  const picked = await pickFiles(from === "apple-notes" ? ".html,.htm,.txt,.zip,application/zip" : ".md,.markdown,.html,.htm,.zip,.enex,application/zip,text/markdown");
+/** Pick .md files or a .zip and bring them all in (see importNotes.ts): which app they're from is told from what's in them. */
+async function importNotes() {
+  const picked = await pickFiles(".md,.markdown,.html,.htm,.txt,.zip,.enex,application/zip,text/markdown");
   if (!picked.length) return;
   toast({ icon: "upload", text: "Importing…" });
   try {
-    const r = await (await import("./importNotes.ts")).importNotes(picked, new Set(notes.map((n) => n.path.toLowerCase())), from);
+    const r = await (await import("./importNotes.ts")).importNotes(picked, new Set(notes.map((n) => n.path.toLowerCase())));
     await refreshNotes();
     toast({ icon: "check", text: r });
   } catch (e) {

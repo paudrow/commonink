@@ -179,14 +179,14 @@ export const notes = [
       "Every path is checked before anything is written, so one bad path refuses the whole import. " +
       "On the CLI, give .md files, a folder or a .zip: folders inside are kept, and pictures and other files come along. " +
       "Other apps' exports are converted: Notion's (ids taken out of names and links), Evernote's .enex files (notes, tags, dates and pictures), " +
-      "and Apple Notes' (HTML or text, with `--from apple-notes`).",
+      "and Apple Notes' (the AppleNotesExport folder scripts/export-apple-notes.js saves). Which app is told from the files; `from` names it instead.",
     examples: [
       "commonink import notes.zip",
       "commonink import ~/Obsidian/Vault --folder Imported",
       "commonink import *.md --folder Inbox --existing replace",
       "commonink import Notion-Export.zip --folder Notion",
       "commonink import Evernote/*.enex",
-      "commonink import ~/Desktop/AppleNotesExport --from apple-notes",
+      "commonink import ~/Desktop/AppleNotesExport",
     ],
     args: {
       files: localFiles({ required: true, pos: "rest", label: "file", describe: ".md or .html files, folders, or .zip files on this computer" }),
