@@ -307,3 +307,31 @@ test("logout ends the sign-in on the server too; then commands say to log in, or
   assert.match(r.stderr, /run commonink login first/);
   assert.equal(c.run(["workspaces"]).status, 7);
 });
+
+test("commands run at once as the sign-in runs out all refresh it, and the next command still works", async () => {
+  const c = cli();
+  await login(c, people.viewer);
+  const file = path.join(c.config, "credentials.json");
+  const run = (args: string[]) =>
+    new Promise<{ status: number | null; stderr: string }>((resolve) => {
+      const child = spawn(BIN, args, { env: c.env, stdio: ["ignore", "ignore", "pipe"] });
+      let stderr = "";
+      child.stderr.on("data", (d) => (stderr += d));
+      child.on("exit", (status) => resolve({ status, stderr }));
+    });
+  const expire = () => {
+    const creds = JSON.parse(fs.readFileSync(file, "utf8"));
+    fs.writeFileSync(file, JSON.stringify({ ...creds, expiresAt: Date.now() - 1000 }), { mode: 0o600 });
+  };
+  for (let round = 0; round < 3; round++) {
+    expire();
+    const all = await Promise.all(Array.from({ length: 8 }, () => run(["ls", "--workspace", "Team"])));
+    for (const r of all) assert.equal(r.status, 0, r.stderr);
+    // The token kept is one the server still takes: the next refresh works.
+    expire();
+    const later = c.run(["ls", "--workspace", "Team"]);
+    assert.equal(later.status, 0, later.stderr);
+  }
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  assert.deepEqual(fs.readdirSync(c.config), ["credentials.json"]);
+});
