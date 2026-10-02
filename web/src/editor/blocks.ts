@@ -14,9 +14,9 @@ import { pendingConfig, WIDGETS } from "../widgets/index.ts";
 import type { NoteMeta, TagCount } from "../api.ts";
 import { touches } from "./livePreview.ts";
 import { dataEmbed, hydrateDataEmbeds } from "../textPreview.ts";
-import { scanTags } from "../../../src/core/tags.ts";
 import { boardsIn, unclosedBoard } from "../../../src/core/kanban.ts";
 import { frontmatterProblems } from "../../../src/core/schema.ts";
+import { propertyTable } from "./propertyTable.ts";
 // Boards load with the first note that has one.
 import type { BoardHost, mountBoard } from "../kanban.ts";
 import { editsBetween } from "../merge.ts";
@@ -689,58 +689,6 @@ class TableWidget extends WidgetType {
   }
 }
 
-class PropertiesWidget extends WidgetType {
-  /** `bad`: each property with a problem (schema.ts), and what it is. */
-  constructor(
-    readonly yaml: string,
-    readonly bad: Record<string, string>,
-  ) {
-    super();
-  }
-  eq(o: PropertiesWidget) {
-    return o.yaml === this.yaml && JSON.stringify(o.bad) === JSON.stringify(this.bad);
-  }
-  ignoreEvent() {
-    return true;
-  }
-  toDOM(view: EditorView) {
-    // Tags come from the index's own parser (so a block list works too) and filter Notes when clicked.
-    const tags = scanTags(`---\n${this.yaml}\n---\n`).filter((t) => t.frontmatter);
-    const tagChip = (display: string) => {
-      const chip = el("span", { class: "tag is-link", title: `Notes tagged #${display}` }, `#${display}`);
-      chip.addEventListener("mousedown", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        view.state.facet(editorContext).openTag(display);
-      });
-      return chip;
-    };
-    const rows = this.yaml
-      .split("\n")
-      .map((l) => l.match(/^([\w-]+):\s*(.*)$/))
-      .filter((m): m is RegExpMatchArray => !!m)
-      .map(([, k, v]) => {
-        const list = v.match(/^\[(.*)\]$/);
-        const values = list ? list[1].split(",").map((s) => s.trim()).filter(Boolean) : [v.replace(/^["']|["']$/g, "")];
-        const problem = this.bad[k];
-        return el(
-          "div",
-          { class: problem ? "prop is-bad" : "prop", title: problem ?? null },
-          el("span", { class: "prop-key" }, k),
-          k === "tags"
-            ? el("span", { class: "prop-val" }, ...tags.map((t) => tagChip(t.display)))
-            : el("span", { class: "prop-val" }, ...values.map((x) => el("span", { class: list ? "prop-item" : "" }, x))),
-        );
-      });
-    const wrap = el("div", { class: "cm-properties-block" }, el("div", { class: "cm-properties" }, ...rows));
-    wrap.addEventListener("mousedown", (e) => {
-      e.preventDefault();
-      reveal(view, wrap);
-    });
-    return wrap;
-  }
-}
-
 const EMBED_LINE = /^\s*!\[\[([^\]]+?)\]\]\s*$/;
 const IMAGE_LINE = /^\s*!\[([^\]]*)\]\((?:<([^<>]+)>|([^()\s<>]+))(?:\s+"[^"]*")?\)\s*$/;
 /** A URL alone on its line (what you get by pasting a link). `<url>` opts out and stays a plain link. */
@@ -783,7 +731,7 @@ function buildBlocks(state: EditorState): DecorationSet {
           const yaml = doc.sliceString(first.to + 1, Math.max(first.to + 1, last.from - 1));
           const bad: Record<string, string> = {};
           for (const p of frontmatterProblems(text, from)) if (p.key && !bad[p.key]) bad[p.key] = p.message;
-          out.push(Decoration.replace({ block: true, widget: new PropertiesWidget(yaml, bad) }).range(first.from, last.to));
+          out.push(Decoration.replace({ block: true, widget: propertyTable(yaml, from, bad) }).range(first.from, last.to));
         }
         return false;
       }

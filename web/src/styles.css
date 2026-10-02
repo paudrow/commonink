@@ -924,20 +924,55 @@ body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view
 .cm-properties-block { padding-bottom: 6px; white-space: normal; }
 .cm-properties {
   display: grid;
-  grid-template-columns: minmax(72px, max-content) 1fr;
-  gap: 6px 12px;
-  padding: 10px 14px;
+  grid-template-columns: minmax(72px, max-content) minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  padding: 8px 10px 6px 14px;
   border-radius: 10px;
   border: 1px solid var(--line);
   font-size: 13px;
-  cursor: text;
 }
-.cm-properties:hover { border-color: var(--line-strong); }
-/* Each row spans the card's two columns, so the values line up after the longest key. */
-.prop { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: baseline; }
-.prop-key { color: var(--muted); overflow-wrap: anywhere; font-size: 12px; }
-.prop-val { display: flex; gap: 6px; flex-wrap: wrap; color: var(--ink); }
+.cm-properties:hover, .cm-properties:focus-within { border-color: var(--line-strong); }
+/* The properties table (editor/propertyTable.ts): each row spans the card's three columns (key, value, remove), so values line up after the longest key. */
+.prop { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: start; min-height: 30px; }
+.prop-key { justify-self: start; padding: 7px 0 0; border: 0; background: none; color: var(--muted); overflow-wrap: anywhere; font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+button.prop-key:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+.prop-cell { min-width: 0; padding: 2px 0; }
+.prop-input, .prop-select, .prop-chip-input, .prop-add-input {
+  width: 100%; min-width: 0; padding: 3px 7px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--ink); font: inherit; font-size: 13px; color-scheme: light dark;
+}
+.prop-input:hover, .prop-select:hover { border-color: var(--line); }
+.prop-input:focus, .prop-select:focus, .prop-chip-input:focus, .prop-add-input:focus { border-color: var(--accent-line); background: var(--bg); outline: none; }
+.prop-select { width: auto; cursor: pointer; }
+.prop-select option { background: var(--bg); color: var(--ink); }
+.prop-date { width: auto; }
+.prop-check { width: 15px; height: 15px; margin: 7px 7px 0; accent-color: var(--accent); cursor: pointer; }
+.prop-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; padding-left: 7px; }
+.prop-chips .tag svg { flex: none; }
+.prop-chips .tag.is-unlinked { background: var(--hover); color: var(--ink-2); }
+.prop-chip-input { flex: 1; width: auto; min-width: 90px; padding: 2px 4px; }
+.prop-raw { padding-left: 7px; font: 12px var(--mono); color: var(--muted); white-space: pre-wrap; }
+.prop-remove { display: grid; place-items: center; width: 22px; height: 22px; margin-top: 4px; border-radius: 6px; color: var(--muted); opacity: 0; }
+.prop:hover .prop-remove, .prop:focus-within .prop-remove, .prop-remove:focus-visible { opacity: 1; }
+.prop-remove:hover { background: var(--hover); color: var(--ink); }
+.prop-problem { padding: 1px 7px 3px; color: var(--bad-ink); font-size: 12px; line-height: 1.4; }
 .prop.is-bad .prop-key { color: var(--bad-ink); text-decoration: underline wavy var(--bad); text-underline-offset: 3px; }
+.prop.is-bad .prop-input, .prop.is-bad .prop-select { border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+/* A settings file's settings that aren't set yet, under the ones that are. */
+.prop-unset-head { grid-column: 1 / -1; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+.prop.is-unset { padding: 4px 0; }
+.prop.is-unset + .prop.is-unset { border-top: 1px dashed var(--line); }
+.prop.is-unset .prop-key { font: 12px var(--mono); color: var(--ink-2); cursor: default; }
+.prop.is-unset .prop-cell { display: grid; gap: 1px; padding-left: 7px; font-size: 12.5px; }
+.prop-unset-type { color: var(--muted); font: 11.5px var(--mono); overflow-wrap: anywhere; }
+.prop-unset-desc { color: var(--ink-2); }
+.prop.is-unset .prop-key { padding-top: 1px; }
+.prop.is-unset .qw-btn { align-self: center; }
+.prop-foot { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px; padding-top: 4px; border-top: 1px solid var(--line); }
+.prop-add-wrap { flex: 1; max-width: 260px; }
+.prop-add, .prop-yaml { display: inline-flex; align-items: center; gap: 5px; padding: 3px 7px; border-radius: 6px; color: var(--muted); font-size: 12.5px; }
+.prop-add:hover, .prop-yaml:hover { background: var(--hover); color: var(--ink); }
+.prop-yaml { font-size: 12px; }
+.prop-suggest { width: 290px; }
 /* Properties help (editor/properties.ts): the strip above a note whose properties have a problem, and hover help. */
 .cm-editor .cm-panels.cm-panels-top { border-top: none; border-bottom: 1px solid var(--line); }
 .prop-problems { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 14px; border: 0; background: color-mix(in srgb, var(--warn) 10%, transparent); color: var(--warn-ink); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
@@ -2175,7 +2210,6 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .qt-row.is-done .qt-text .tag { opacity: 0.7; }
 .cm-tag { color: var(--accent-ink); background: var(--accent-soft); border-radius: 999px; padding: 0.05em 0.45em; cursor: pointer; font-size: 0.92em; }
 .cm-tag.is-raw { background: none; padding: 0; cursor: text; font-size: inherit; }
-.prop-val .prop-item { background: var(--hover); padding: 1px 8px; border-radius: 999px; font-size: 12px; }
 .chip.tag-filter { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border-radius: 999px; border: 1px dashed var(--line-strong); font-size: 12px; color: var(--ink-2); }
 .chip.tag-filter:hover { border-color: var(--accent-line); color: var(--accent-ink); }
 .chip.tag-filter.is-on { border-style: solid; background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); padding-right: 4px; }
@@ -2999,12 +3033,3 @@ button.cal-src-color:hover { background: var(--hover); }
 .org-option span { color: var(--muted); font-size: 12.5px; }
 .org-option:hover, .org-option:focus-visible { border-color: var(--accent-line); background: var(--accent-soft); outline: none; }
 
-/* Under a settings file's properties: what else it can set (editor/properties.ts). */
-.prop-available { margin: 2px 0 14px; padding: 10px 14px; border: 1px dashed var(--line-strong); border-radius: 10px; font-size: 12.5px; white-space: normal; }
-.prop-available-head { margin-bottom: 6px; color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; }
-.prop-available-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "key type add" "desc desc add"; gap: 2px 10px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--line); }
-.prop-available-head + .prop-available-row { border-top: 0; }
-.prop-available-row code { grid-area: key; font: 12px var(--mono); color: var(--ink-strong); }
-.prop-available-type { grid-area: type; color: var(--muted); font: 11.5px var(--mono); overflow-wrap: anywhere; }
-.prop-available-desc { grid-area: desc; color: var(--ink-2); }
-.prop-available-row .qw-btn { grid-area: add; align-self: center; }

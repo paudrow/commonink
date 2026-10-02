@@ -18,9 +18,9 @@ export interface PropSchema {
   type: "string" | "boolean" | "array";
   description: string;
   enum?: string[];
-  /** "date": YYYY-MM-DD, the form the app sorts by. */
-  format?: "date";
-  items?: { type: "string"; enum?: string[] };
+  /** "date": YYYY-MM-DD, the form the app sorts by. "person": a link to their contact, "[[People/Sam Lee]]". */
+  format?: "date" | "person";
+  items?: { type: "string"; enum?: string[]; format?: "person" };
   default?: unknown;
   /** Shown in completions as what a typical value looks like. */
   examples?: string[];
@@ -49,6 +49,12 @@ const NOTE_PROPS: Record<string, PropSchema> = {
   date: DATE("The note's date."),
   created: DATE("When the note was first written."),
   published: DATE("When the note was published."),
+  people: {
+    type: "array",
+    items: { type: "string", format: "person" },
+    description: "Who the note is about or with, as links to their contacts. The note shows on each of their contacts.",
+    examples: ['["[[People/Sam Lee]]"]'],
+  },
 };
 
 export const NOTE_SCHEMA: ObjectSchema = {
@@ -346,8 +352,11 @@ export function frontmatterProblems(md: string, path: string): Problem[] {
     const there = { from: v.from, to: Math.max(v.to, v.from), key: f.key };
     // A template's values may be placeholders, filled in when a note is made from it.
     if (template && md.slice(v.from, v.to).includes("{{")) continue;
+    const unlinked = (item: Item) =>
+      linkTarget(item.text) ? null : { from: item.from, to: item.to, key: f.key, severity: "warning" as const, message: `${item.text} isn't linked to a contact, so this note won't show on theirs. Pick them from the list, or write "[[People/${item.text}]]".` };
     if (prop.type === "array") {
       if (v.kind === "map") out.push({ ...there, severity: "error", message: `${f.key} is a list: write [a, b] or one - item per line.` });
+      if (prop.items?.format === "person" && v.kind === "list") for (const item of v.items) { const p = unlinked(item); if (p) out.push(p); }
       const allowed = prop.items?.enum;
       if (allowed && v.kind === "list")
         for (const item of v.items) if (!allowed.includes(item.text)) out.push({ from: item.from, to: item.to, key: f.key, severity: "error", message: `${f.key} can hold ${allowed.join(", ")}, not ${JSON.stringify(item.text)}.` });
@@ -365,6 +374,7 @@ export function frontmatterProblems(md: string, path: string): Problem[] {
     if (prop.type === "boolean" && (v.quoted || !/^(true|false)$/i.test(v.text)))
       out.push({ ...there, severity: "error", message: `${f.key} is true or false, not ${JSON.stringify(v.text)}.` });
     else if (prop.enum && !prop.enum.includes(v.text)) out.push({ ...there, severity: "error", message: `${f.key} is one of ${prop.enum.join(", ")}, not ${JSON.stringify(v.text)}.` });
+    else if (prop.format === "person" && unlinked(v)) out.push(unlinked(v)!);
     else if (prop.format === "date" && !isDate(v.text)) out.push({ ...there, severity: "warning", message: `Dates are read as YYYY-MM-DD, like 2026-10-02, so this note won't sort by its ${f.key}.` });
   }
   return out.sort((a, b) => a.from - b.from);
@@ -422,18 +432,62 @@ export function readValues(md: string, schema: ObjectSchema): Record<string, Set
   return out;
 }
 
-/** A value as YAML on a key's line. */
-const yamlOf = (v: SettingValue) => (Array.isArray(v) ? `[${v.join(", ")}]` : String(v));
+/** Text as a YAML value, quoted only when YAML would read it as something else. `inList`: an item of `[a, b]`, where commas and brackets count too. */
+export function yamlText(s: string, inList = false): string {
+  const plain = s === s.trim() && s !== "" && !/^[[\]{}&*!|>'"%@`#?:,-]/.test(s) && !/: |:$| #/.test(s) && !(inList && /[,[\]{}]/.test(s)) && !/^(true|false|null|~|yes|no)$/i.test(s);
+  return plain ? s : JSON.stringify(s);
+}
 
-/** `md` with `key` set to `value`, every other line kept as it was; the front matter is made if there's none. */
+/** A value as YAML on a key's line. */
+const yamlOf = (v: SettingValue) => (Array.isArray(v) ? `[${v.map((x) => yamlText(x, true)).join(", ")}]` : typeof v === "string" ? yamlText(v) : String(v));
+
+/**
+ * `md` with `key` set to `value`, every other line kept as it was; the front matter is made if
+ * there's none. A list written one `- item` per line stays that way.
+ */
 export function withValue(md: string, key: string, value: SettingValue): string {
   const { entries, body, had } = frontmatterEntries(md);
-  const line = `${key}: ${yamlOf(value)}`;
   const i = entries.findIndex((e) => e.key === key);
-  if (i >= 0) entries[i] = { key, lines: [line] };
-  else entries.push({ key, lines: [line] });
+  const indent = i >= 0 ? entries[i].lines.slice(1).find((l) => /^\s*-(\s|$)/.test(l))?.match(/^\s*/)?.[0] : undefined;
+  const lines =
+    Array.isArray(value) && indent !== undefined && value.length
+      ? [`${key}:`, ...value.map((x) => `${indent}- ${yamlText(x)}`)]
+      : [`${key}: ${yamlOf(value)}`.trimEnd()];
+  if (i >= 0) entries[i] = { key, lines };
+  else entries.push({ key, lines });
   return frontmatterText(entries) + (had ? body : md ? `\n${md}` : "");
 }
+
+/** `md` without `key` in its front matter, every other line kept as it was. */
+export function withoutValue(md: string, key: string): string {
+  const { entries, body, had } = frontmatterEntries(md);
+  if (!had) return md;
+  const kept = entries.filter((e) => e.key !== key);
+  return kept.some((e) => e.key) ? frontmatterText(kept) + body : body.replace(/^\r?\n/, "");
+}
+
+/** How a property is edited in the properties table: what its schema says, else what its value looks like. */
+export type PropKind = "boolean" | "enum" | "date" | "person" | "people" | "tags" | "choices" | "list" | "text" | "raw";
+
+export function propKind(key: string, prop: PropSchema | undefined, value: Value): PropKind {
+  if (value.kind === "map" || value.kind === "block") return "raw";
+  if (prop) {
+    if (key === "tags") return "tags";
+    if (prop.type === "boolean") return "boolean";
+    if (prop.type === "array") return prop.items?.format === "person" ? "people" : prop.items?.enum ? "choices" : "list";
+    if (prop.enum) return "enum";
+    if (prop.format === "date") return "date";
+    if (prop.format === "person") return "person";
+    return "text";
+  }
+  if (value.kind === "list") return "list";
+  if (value.kind === "scalar" && !value.quoted && /^(true|false)$/i.test(value.text)) return "boolean";
+  if (value.kind === "scalar" && /^\d{4}-\d{2}-\d{2}$/.test(value.text)) return "date";
+  return "text";
+}
+
+/** `[[People/Sam Lee]]` → `People/Sam Lee`; null if `s` isn't a link. */
+export const linkTarget = (s: string) => s.match(/^\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]$/)?.[1].trim() ?? null;
 
 /** A new settings file for `schema`: every setting it has, with `values` (or its default), then a line on how to use it. */
 export function settingsFileFor(schema: ObjectSchema, values: Record<string, SettingValue>, intro: string): string {

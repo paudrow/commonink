@@ -106,3 +106,32 @@ test("your own settings file lists every setting, reads back what it wrote, and 
   assert.deepEqual(messages("---\nalways_show: [contacts, mail]\n---\n", path).length, 1);
   assert.deepEqual(messages("---\ntheme: blue\n---\n", path), ['error: theme is one of system, light, dark, not "blue".']);
 });
+
+test("the properties table writes one property at a time and leaves the rest as written", async () => {
+  const { withValue, withoutValue, yamlText } = await import("../src/core/schema.ts");
+  const md = "---\ntitle: Plan # draft\npeople:\n  - \"[[People/Sam]]\"\nmood: good\n---\n# Plan\n";
+  // A list written one item per line stays that way; a person is a quoted link.
+  assert.equal(withValue(md, "people", ["[[People/Sam]]", "[[People/Ana Ruiz]]"]), '---\ntitle: Plan # draft\npeople:\n  - "[[People/Sam]]"\n  - "[[People/Ana Ruiz]]"\nmood: good\n---\n# Plan\n');
+  assert.equal(withValue(md, "tags", ["a", "b, c"]), `---\ntitle: Plan # draft\npeople:\n  - "[[People/Sam]]"\nmood: good\ntags: [a, "b, c"]\n---\n# Plan\n`);
+  assert.equal(withValue(md, "mood", "ok: fine"), '---\ntitle: Plan # draft\npeople:\n  - "[[People/Sam]]"\nmood: "ok: fine"\n---\n# Plan\n');
+  assert.equal(withoutValue(md, "people"), "---\ntitle: Plan # draft\nmood: good\n---\n# Plan\n");
+  // Removing the last one removes the front matter.
+  assert.equal(withoutValue("---\nmood: good\n---\n\n# Plan\n", "mood"), "# Plan\n");
+  assert.deepEqual(["work", "true", "#x", "a, b", ""].map((s) => yamlText(s)), ["work", '"true"', '"#x"', "a, b", '""']);
+});
+
+test("each property gets the control its type calls for", async () => {
+  const { propKind, NOTE_SCHEMA, USER_SCHEMA, PERSON_SCHEMA } = await import("../src/core/schema.ts");
+  const kinds = (md: string, schema = NOTE_SCHEMA) => scanFrontmatter(md)!.fields.map((f) => `${f.key}=${propKind(f.key, schema.properties[f.key], f.value)}`);
+  assert.deepEqual(kinds("---\ntags: [a]\ndate: 2026-10-02\npeople: []\ntitle: x\ndone: true\ndue: 2026-10-03\nlist: [a]\nmeta:\n  k: v\nmood: ok\n---\n"), [
+    "tags=tags", "date=date", "people=people", "title=text", "done=boolean", "due=date", "list=list", "meta=raw", "mood=text",
+  ]);
+  assert.deepEqual(kinds("---\ntheme: dark\nvim: false\nalways_show: [calendar]\n---\n", USER_SCHEMA), ["theme=enum", "vim=boolean", "always_show=choices"]);
+  assert.deepEqual(kinds("---\nemail: [a@b.c]\n---\n", PERSON_SCHEMA), ["email=list"]);
+});
+
+test("people are links to contacts, and a name that isn't is pointed out", () => {
+  assert.deepEqual(messages('---\npeople: ["[[People/Sam Lee]]", Ana]\n---\n'), [
+    'warning: Ana isn\'t linked to a contact, so this note won\'t show on theirs. Pick them from the list, or write "[[People/Ana]]".',
+  ]);
+});

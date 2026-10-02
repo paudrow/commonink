@@ -1,12 +1,12 @@
 // Help with a note's properties (its front matter), from the schemas in src/core/schema.ts: the
 // properties it can have as you start a line, their values after `key:`, what each does on hover,
-// and what's wrong, underlined where it is and named in a strip above the note. The rendered
-// properties card marks a row with a problem too (blocks.ts), so it shows without the YAML open.
+// and what's wrong, underlined where it is and named in a strip above the note. Out of the YAML,
+// the properties are a table you edit (propertyTable.ts), which shows the same problems on their rows.
 import type { CompletionContext, CompletionResult } from "@codemirror/autocomplete";
 import { startCompletion } from "@codemirror/autocomplete";
 import { linter, type Diagnostic } from "@codemirror/lint";
 import { EditorSelection, StateField, type EditorState, type Extension } from "@codemirror/state";
-import { Decoration, EditorView, hoverTooltip, showPanel, WidgetType, type DecorationSet, type Panel } from "@codemirror/view";
+import { EditorView, hoverTooltip, showPanel, type Panel } from "@codemirror/view";
 import { frontmatterProblems, scanFrontmatter, schemaFor, type Problem, type PropSchema } from "../../../src/core/schema.ts";
 import { el, icon } from "../dom.ts";
 import { editorContext } from "./blocks.ts";
@@ -14,7 +14,7 @@ import { editorContext } from "./blocks.ts";
 const pathOf = (state: EditorState) => state.facet(editorContext)?.path ?? "";
 
 /** A property's type as a word, for completions and hover. */
-function typeText(p: PropSchema): string {
+export function typeText(p: PropSchema): string {
   if (p.enum) return p.enum.join(" | ");
   if (p.type === "boolean") return "true | false";
   if (p.type === "array") return p.items?.enum ? `list of ${p.items.enum.join(" | ")}` : "list";
@@ -133,68 +133,6 @@ const offerOnNewLine = EditorView.updateListener.of((u) => {
   if (newline) setTimeout(() => startCompletion(u.view), 0);
 });
 
-/**
- * Under a settings file's properties, the settings it doesn't set yet, each with what it does and
- * an Add button: like VS Code's default settings, what you can set is in front of you.
- */
-class AvailableWidget extends WidgetType {
-  constructor(
-    readonly rows: Array<[string, PropSchema]>,
-    readonly at: number,
-  ) {
-    super();
-  }
-  eq(o: AvailableWidget) {
-    return o.at === this.at && o.rows.map(([k]) => k).join() === this.rows.map(([k]) => k).join();
-  }
-  ignoreEvent() {
-    return true;
-  }
-  toDOM(view: EditorView) {
-    const add = (key: string, p: PropSchema) => {
-      const value = p.default !== undefined ? String(p.default) : p.enum ? "" : p.type === "array" ? "[]" : "";
-      const insert = `${key}: ${value}`;
-      view.dispatch({ changes: { from: this.at, insert: `${insert}\n` }, selection: { anchor: this.at + insert.length }, userEvent: "input.complete" });
-      view.focus();
-      if (!value && (p.enum || p.type === "boolean")) setTimeout(() => startCompletion(view), 0);
-    };
-    return el(
-      "div",
-      { class: "prop-available" },
-      el("div", { class: "prop-available-head" }, "You can also set"),
-      ...this.rows.map(([k, p]) =>
-        el(
-          "div",
-          { class: "prop-available-row" },
-          el("code", {}, k),
-          el("span", { class: "prop-available-type" }, typeText(p)),
-          el("span", { class: "prop-available-desc" }, p.description),
-          el("button", { type: "button", class: "qw-btn", onmousedown: (e: Event) => (e.preventDefault(), add(k, p)) }, "Add"),
-        ),
-      ),
-    );
-  }
-}
-
-const SKIP = new Set(["title", "tags"]);
-function available(state: EditorState): DecorationSet {
-  if (!strict(state)) return Decoration.none;
-  const scan = scanFrontmatter(state.doc.toString());
-  if (!scan) return Decoration.none;
-  const used = new Set(scan.fields.map((f) => f.key));
-  const rows = Object.entries(schemaFor(pathOf(state)).properties).filter(([k]) => !used.has(k) && !SKIP.has(k));
-  if (!rows.length) return Decoration.none;
-  // After the closing --- line.
-  const close = state.doc.lineAt(Math.min(scan.to, state.doc.length));
-  return Decoration.set([Decoration.widget({ block: true, side: 1, widget: new AvailableWidget(rows, close.from) }).range(close.to)]);
-}
-
-const availableField = StateField.define<DecorationSet>({
-  create: available,
-  update: (value, tr) => (tr.docChanged ? available(tr.state) : value),
-  provide: (f) => EditorView.decorations.from(f),
-});
-
 export function propertyHelp(): Extension {
-  return [problemsField, propertyLint, propertyHover, problemsStrip, offerOnNewLine, availableField];
+  return [problemsField, propertyLint, propertyHover, problemsStrip, offerOnNewLine];
 }
