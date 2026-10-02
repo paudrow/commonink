@@ -44,6 +44,7 @@ import { did, vaultEvents } from "./events.ts";
 import { guideMessage, startGuide } from "./onboarding.ts";
 import { watchTodayCleared } from "./todayCleared.ts";
 import { inkState, setInk, startInks } from "./inkUnlocks.ts";
+import { gamified, loadGamified, onGamified, setGamified } from "./gamify.ts";
 import { store } from "./store.ts";
 import { changeVerb, groupChanges } from "../../src/core/format.ts";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
@@ -1916,6 +1917,7 @@ function renderTree() {
     },
     prefs.sidebarPinned,
     here,
+    !gamified(),
   );
   for (const item of ["contacts", "calendar", "assets"] as const) $(`#${item}-btn`).hidden = !shown[item];
   $('.tree-head[data-section="smart"]').hidden = !shown.smart;
@@ -2766,6 +2768,12 @@ function openSettings(query?: string) {
           localVault,
           sidebarPinned: prefs.sidebarPinned,
           setSidebarPinned,
+          gamified: { on: gamified(), canChange: owner },
+          setGamified: (on) =>
+            void setGamified(on).then(
+              () => (m.refreshSettings(), toast({ icon: "check", text: on ? "Unlock as you go is on" : "Everything is unlocked", detail: "For everyone in this workspace, from their next visit." })),
+              (e) => toast({ text: e instanceof Error ? e.message : "That didn't work" }),
+            ),
           shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
           connectAgent,
         }),
@@ -2787,7 +2795,8 @@ const connectAgent = () => void import("./agentsPage.ts").then((m) => m.showAgen
 const tipsState = (): TipsState => ({ ...NO_TIPS, ...store.get<Partial<TipsState>>("shortcutTips", {}) });
 function setupShortcutTips() {
   watchTips({
-    load: tipsState,
+    // Not gamified: tips are off, whatever this browser says (and it keeps what it said for if they're back).
+    load: () => (gamified() ? tipsState() : { ...tipsState(), off: true }),
     save: (s) => store.set("shortcutTips", s),
     // The palette's box is always there, hidden with it; a dialog that's showing isn't inside anything hidden.
     busy: () => [...document.querySelectorAll('[aria-modal="true"], .qa-float')].some((n) => !n.closest("[hidden]")),
@@ -3071,7 +3080,8 @@ async function boot() {
     renderPresence();
   }, 30_000);
 
-  const [info, list, starred, recent, tagList, smart] = await Promise.all([api.info(), api.notes(), api.favorites(), api.changes(), api.tags(), api.smartFolders()]);
+  const [info, list, starred, recent, tagList, smart] = await Promise.all([api.info(), api.notes(), api.favorites(), api.changes(), api.tags(), api.smartFolders(), loadGamified()]);
+  onGamified(() => renderTree()); // an owner flipped it here: the sidebar shows everything, or waits again
   $("#vault-name").textContent = info.name;
   if (info.mode === "local") localVault = info;
   notes = list;

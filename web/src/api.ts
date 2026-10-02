@@ -375,6 +375,9 @@ export const api = {
   leave: () => j<{ ok: true }>(`${BASE}/leave`, send("POST", {})),
   invites: () => j<WorkspaceInvite[]>(`${BASE}/invites`),
   revokeInvite: (id: string) => j<{ ok: true }>(`${BASE}/invites/revoke`, send("POST", { id })),
+  /** Whether agents may share by link (online only), and whether the workspace is gamified (web/src/gamify.ts). Owners change them; locally, you do. */
+  workspaceSettings: () => j<{ agentLinks?: boolean; gamified: boolean }>(`${BASE}/workspace/settings`),
+  setWorkspaceSettings: (s: { agentLinks?: boolean; gamified?: boolean }) => j<{ agentLinks?: boolean; gamified: boolean }>(`${BASE}/workspace/settings`, send("POST", s)),
   workspaceLog: () => j<WorkspaceLogEntry[]>(`${BASE}/workspace/log`),
   renameWorkspace: (name: string) => j<{ ok: true; name: string }>(`${BASE}/workspace/rename`, send("POST", { name })),
   deleteWorkspace: (confirm: string) => j<{ ok: true }>(`${BASE}/workspace/delete`, send("POST", { confirm })),

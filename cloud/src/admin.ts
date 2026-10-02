@@ -8,7 +8,6 @@ import { revokeAgentsIn } from "./agents.ts";
 import { createInvite, type User, type WorkspaceRef } from "./directory.ts";
 import type { Env } from "./env.ts";
 import { limit } from "./limits.ts";
-import { agentLinksAllowed } from "./shares.ts";
 
 const ROLES: Role[] = ["owner", "editor", "viewer"];
 const fail = (error: string, status = 400) => json({ error }, status);
@@ -142,14 +141,25 @@ export async function adminRoute(req: Request, env: Env, url: URL, user: User, w
     }
 
     case "GET /workspace/settings":
-      return json({ agentLinks: await agentLinksAllowed(env.DB, ws.id) });
+      return json(await workspaceSettings(env.DB, ws.id));
 
+    // Each setting is optional, so changing one leaves the others as they are.
     case "POST /workspace/settings": {
-      const { agentLinks } = await body();
-      if (typeof agentLinks !== "boolean") return fail('"agentLinks" must be true or false');
-      await env.DB.prepare("UPDATE workspaces SET agent_links = ? WHERE id = ?").bind(agentLinks ? 1 : 0, ws.id).run();
-      await log(env, ws.id, user.id, "settings", null, `agentLinks: ${agentLinks ? "on" : "off"}`);
-      return json({ agentLinks });
+      const { agentLinks, gamified } = await body();
+      if (agentLinks !== undefined && typeof agentLinks !== "boolean") return fail('"agentLinks" must be true or false');
+      if (gamified !== undefined && typeof gamified !== "boolean") return fail('"gamified" must be true or false');
+      if (agentLinks === undefined && gamified === undefined) return fail('Send "agentLinks" or "gamified"');
+      const changes: string[] = [];
+      if (typeof agentLinks === "boolean") {
+        await env.DB.prepare("UPDATE workspaces SET agent_links = ? WHERE id = ?").bind(agentLinks ? 1 : 0, ws.id).run();
+        changes.push(`agentLinks: ${agentLinks ? "on" : "off"}`);
+      }
+      if (typeof gamified === "boolean") {
+        await env.DB.prepare("UPDATE workspaces SET gamified = ? WHERE id = ?").bind(gamified ? 1 : 0, ws.id).run();
+        changes.push(`gamified: ${gamified ? "on" : "off"}`);
+      }
+      await log(env, ws.id, user.id, "settings", null, changes.join(", "));
+      return json(await workspaceSettings(env.DB, ws.id));
     }
 
     case "POST /workspace/delete": {
@@ -180,4 +190,10 @@ async function deleteWorkspace(env: Env, url: URL, ws: string) {
     ].map((sql) => env.DB.prepare(sql).bind(ws)),
   );
   await env.WORKSPACE.get(env.WORKSPACE.idFromName(ws)).destroy(ws);
+}
+
+/** What GET /workspace/settings answers: whether agents may share by link, and whether the workspace is gamified. */
+async function workspaceSettings(db: D1Database, ws: string) {
+  const row = await db.prepare("SELECT agent_links, gamified FROM workspaces WHERE id = ?").bind(ws).first<{ agent_links: number; gamified: number }>();
+  return { agentLinks: row?.agent_links === 1, gamified: row?.gamified !== 0 };
 }

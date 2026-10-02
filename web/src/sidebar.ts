@@ -55,12 +55,14 @@ export const OPTIONAL_ITEMS: OptionalItem[] = ["contacts", "calendar", "assets",
 
 /**
  * Which optional items the sidebar shows: those in use, those you're on (or asked for from ⌘K, as
- * New smart folder does), and those Settings keeps there always.
+ * New smart folder does), and those Settings keeps there always. In a workspace that isn't
+ * gamified (gamify.ts), `all` is set and every one shows from the start.
  */
 export function shownItems(
   inUse: Record<OptionalItem, boolean>,
   pinned: Partial<Record<OptionalItem, boolean>>,
   here: ReadonlySet<OptionalItem>,
+  all = false,
 ): Record<OptionalItem, boolean> {
-  return Object.fromEntries(OPTIONAL_ITEMS.map((i) => [i, inUse[i] || !!pinned[i] || here.has(i)])) as Record<OptionalItem, boolean>;
+  return Object.fromEntries(OPTIONAL_ITEMS.map((i) => [i, all || inUse[i] || !!pinned[i] || here.has(i)])) as Record<OptionalItem, boolean>;
 }
