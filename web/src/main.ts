@@ -2796,6 +2796,7 @@ function setTheme(next: Theme) {
 
 function renderTheme() {
   $("#theme-toggle").replaceChildren(icon(isDark() ? "sun" : "moon", 15));
+  setLabel($("#theme-toggle"), isDark() ? "Switch to the light theme" : "Switch to the dark theme");
   for (const p of panes) {
     if (p.session?.kind === "html") renderHtmlPreview(p);
     if (p.session?.kind === "md") bumpEmbeds(p.view);
@@ -3107,6 +3108,14 @@ async function boot() {
   setupPanes();
   $("#stage").addEventListener("mousedown", () => document.body.classList.remove("panel-overlay"));
   $("#theme-toggle").addEventListener("click", toggleTheme);
+  // The skip link lands on what the main area shows: the page that's open, or the note's text.
+  $("#skip-link").addEventListener("click", (e) => {
+    const page = document.querySelector<HTMLElement>('#stage > [id$="-view"]:not([hidden])');
+    if (!page && !active.session) return; // nothing open: the link's own #stage will do
+    e.preventDefault();
+    if (page) page.focus();
+    else active.view.focus();
+  });
   renderCodeWrap();
   $("#codewrap-toggle").addEventListener("click", () => setCodeWrap(!codeWrapByDefault()));
   $("#vim-toggle").addEventListener("click", toggleVim);
