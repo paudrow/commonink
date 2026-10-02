@@ -1,0 +1,63 @@
+<!doctype html>
+<!-- Built by scripts/docs.ts from docs/guide/faq.md: edit that, then npm run docs. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Questions · Common Ink docs</title>
+    <meta name="description" content="What's free, where your notes live, what agents can see, and how to leave." />
+    <meta property="og:title" content="Questions · Common Ink docs" />
+    <meta property="og:description" content="What's free, where your notes live, what agents can see, and how to leave." />
+    <meta property="og:image" content="/social.png" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/docs/docs.css" />
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="/"><img src="/favicon.svg" alt="" />Common Ink</a>
+      <span class="section">Docs</span>
+      <a class="open" href="/">Open Common Ink</a>
+    </header>
+    <div class="layout">
+      <nav aria-label="Docs">
+        <a href="/docs/">Getting started</a>
+        <a href="/docs/import">Moving in</a>
+        <a href="/docs/agents">Connect an agent</a>
+        <a href="/docs/notes">Writing notes</a>
+        <a href="/docs/sharing">Sharing and teams</a>
+        <a href="/docs/cli">The command line</a>
+        <a href="/docs/faq" aria-current="page">Questions</a>
+      </nav>
+      <main>
+<h1>Questions</h1>
+<h2 id="is-there-ai-inside-common-ink"><a class="anchor" href="#is-there-ai-inside-common-ink">Is there AI inside Common Ink?</a></h2>
+<p>No. Common Ink has no model of its own. You bring the agents you already use (Claude, Cursor, your own scripts), and they work in your notes from the outside, through MCP, the command line or the files. Nothing you write is sent to a model unless you connect one.</p>
+<h2 id="what-does-it-cost"><a class="anchor" href="#what-does-it-cost">What does it cost?</a></h2>
+<p>The hosted app is free while it&#39;s in preview. The local app, the command line and the MCP server are free.</p>
+<h2 id="where-do-my-notes-live"><a class="anchor" href="#where-do-my-notes-live">Where do my notes live?</a></h2>
+<p>Online, in your workspace on Cloudflare&#39;s infrastructure, readable only by the people and agents you let in. Locally, in a folder of markdown files on your computer. Either way, ⌘⇧P, then <strong>Export all notes (.zip)</strong>, gives you everything as plain markdown at any time.</p>
+<h2 id="can-i-use-it-with-obsidian"><a class="anchor" href="#can-i-use-it-with-obsidian">Can I use it with Obsidian?</a></h2>
+<p>Yes. Common Ink reads Obsidian&#39;s links, embeds, tags and callouts, so a vault imports as it is, and an export opens in Obsidian. Locally, you can point Common Ink at your vault folder and use both.</p>
+<h2 id="what-can-a-connected-agent-see"><a class="anchor" href="#what-can-a-connected-agent-see">What can a connected agent see?</a></h2>
+<p>The workspace you picked when you allowed it, with your role there. It can&#39;t see your other workspaces, and a viewer&#39;s agent can only read. <strong>Connected agents</strong> in the account menu shows what each one changed lately, and <strong>Revoke</strong> cuts it off.</p>
+<h2 id="what-if-an-agent-makes-a-mess"><a class="anchor" href="#what-if-an-agent-makes-a-mess">What if an agent makes a mess?</a></h2>
+<p>Every change is signed and kept. Undo an agent&#39;s edit from its toast, or restore any earlier version from the note&#39;s History. Agents can&#39;t delete anything for good: deleted notes wait in Trash for 30 days.</p>
+<h2 id="does-it-work-on-my-phone"><a class="anchor" href="#does-it-work-on-my-phone">Does it work on my phone?</a></h2>
+<p>The web app works in a phone&#39;s browser, and you can add it to your home screen. Share to Common Ink from other apps to capture a link or a picture.</p>
+<h2 id="how-do-i-move-my-notes-in"><a class="anchor" href="#how-do-i-move-my-notes-in">How do I move my notes in?</a></h2>
+<p>See <a href="/docs/import">Moving in</a>: Obsidian, Notion, Evernote, Apple Notes and markdown files.</p>
+<h2 id="how-do-i-delete-my-account"><a class="anchor" href="#how-do-i-delete-my-account">How do I delete my account?</a></h2>
+<p>Write to <a href="mailto:support@commonink.app">support@commonink.app</a> and we&#39;ll delete your account, notes and files. Export them first if you want a copy.</p>
+<h2 id="something39s-wrong-who-do-i-tell"><a class="anchor" href="#something39s-wrong-who-do-i-tell">Something&#39;s wrong. Who do I tell?</a></h2>
+<p><a href="mailto:support@commonink.app">support@commonink.app</a>, or open an issue on <a href="https://github.com/paudrow/commonink/issues">GitHub</a>.</p>
+
+        <footer>
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+          <a href="https://github.com/paudrow/commonink">GitHub</a>
+          <a href="mailto:support@commonink.app">support@commonink.app</a>
+        </footer>
+      </main>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,98 @@
+<!doctype html>
+<!-- Built by scripts/docs.ts from docs/guide/index.md: edit that, then npm run docs. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Getting started · Common Ink docs</title>
+    <meta name="description" content="What Common Ink is, and your first ten minutes with it." />
+    <meta property="og:title" content="Getting started · Common Ink docs" />
+    <meta property="og:description" content="What Common Ink is, and your first ten minutes with it." />
+    <meta property="og:image" content="/social.png" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/docs/docs.css" />
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="/"><img src="/favicon.svg" alt="" />Common Ink</a>
+      <span class="section">Docs</span>
+      <a class="open" href="/">Open Common Ink</a>
+    </header>
+    <div class="layout">
+      <nav aria-label="Docs">
+        <a href="/docs/" aria-current="page">Getting started</a>
+        <a href="/docs/import">Moving in</a>
+        <a href="/docs/agents">Connect an agent</a>
+        <a href="/docs/notes">Writing notes</a>
+        <a href="/docs/sharing">Sharing and teams</a>
+        <a href="/docs/cli">The command line</a>
+        <a href="/docs/faq">Questions</a>
+      </nav>
+      <main>
+<h1>Getting started</h1>
+<p>Common Ink is a notes app that your AI agents can work in. Your notes are plain markdown. Claude, Cursor or any script reads and edits them through MCP, a command line or the files themselves, and every change an agent makes shows up live in the editor, highlighted and signed with its name.</p>
+<h2 id="sign-in"><a class="anchor" href="#sign-in">Sign in</a></h2>
+<p>Open <a href="https://commonink.app">commonink.app</a> and sign in with Google. You get a personal workspace with a <strong>Welcome</strong> note and <strong>Getting started</strong>, a short guide that walks you through the app (it&#39;s on the Notes page, marked Start here).</p>
+<p>Prefer your own computer? The same app runs locally on a folder of markdown files, free. See <a href="/docs/cli#local">the command line</a>.</p>
+<h2 id="your-first-ten-minutes"><a class="anchor" href="#your-first-ten-minutes">Your first ten minutes</a></h2>
+<ol>
+<li><strong>Write a note.</strong> ⌘⇧P (Ctrl+Shift+P off a Mac), then <strong>New note</strong>, makes one. Its first <code># heading</code> is its name: change the heading and the note is renamed, with links to it updated.</li>
+<li><strong>Link notes.</strong> Type <code>[[</code> and pick a note, or <code>@</code> to link a note or a person. <code>![[Note]]</code> shows another note inline.</li>
+<li><strong>Add a task.</strong> A line like <code>- [ ] Send invoice due:friday #work</code> is a task. ⌘⇧. adds one from anywhere, the way you&#39;d say it: &quot;Pay rent every month on the 1st #home&quot;. <strong>Tasks</strong> shows them all, with <strong>Today</strong> on top.</li>
+<li><strong>Bring your notes in.</strong> ⌘⇧P, then <strong>Import notes…</strong> takes markdown, an Obsidian vault, a Notion export or Evernote files. See <a href="/docs/import">Moving in</a>.</li>
+<li><strong>Connect an agent.</strong> Add <code>https://commonink.app/mcp</code> as a connector in Claude, Claude Code or Cursor, and ask it to do something in your notes. Watch the edit land. See <a href="/docs/agents">Connect an agent</a>.</li>
+</ol>
+<h2 id="find-your-way-around"><a class="anchor" href="#find-your-way-around">Find your way around</a></h2>
+<table>
+<thead>
+<tr>
+<th>Keys</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>⌘K or ⌘P</td>
+<td>Find a note by name or by what&#39;s in it</td>
+</tr>
+<tr>
+<td>⌘⇧P</td>
+<td>Every command, by name</td>
+</tr>
+<tr>
+<td>⌘⇧.</td>
+<td>Add a task</td>
+</tr>
+<tr>
+<td>⌘⇧F</td>
+<td>Notes, the home page</td>
+</tr>
+<tr>
+<td>⌘,</td>
+<td>Settings</td>
+</tr>
+<tr>
+<td>?</td>
+<td>Every keyboard shortcut (outside the editor)</td>
+</tr>
+</tbody></table>
+<p>Off a Mac, ⌘ is Ctrl. Shortcuts follow the character you type, so they work on any keyboard layout. Vim keys are in Settings.</p>
+<h2 id="what-else-is-in-here"><a class="anchor" href="#what-else-is-in-here">What else is in here</a></h2>
+<ul>
+<li><a href="/docs/notes">Writing notes</a>: links, tags, tasks, boards, templates, widgets.</li>
+<li><a href="/docs/import">Moving in</a>: from Obsidian, Notion, Evernote, Apple Notes or markdown files.</li>
+<li><a href="/docs/agents">Connect an agent</a>: Claude, Claude Code, Cursor and others, and seeing what they did.</li>
+<li><a href="/docs/sharing">Sharing and teams</a>: workspaces, roles, share links, export and history.</li>
+<li><a href="/docs/cli">The command line</a>: <code>commonink</code> for scripts, agents and you.</li>
+<li><a href="/docs/faq">Questions</a>: what&#39;s free, where your notes live, and more.</li>
+</ul>
+
+        <footer>
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+          <a href="https://github.com/paudrow/commonink">GitHub</a>
+          <a href="mailto:support@commonink.app">support@commonink.app</a>
+        </footer>
+      </main>
+    </div>
+  </body>
+</html>
