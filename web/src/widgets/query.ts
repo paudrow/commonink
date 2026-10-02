@@ -4,7 +4,7 @@ import { api, type FeedItem } from "../api.ts";
 import { el, escapeHtml, icon, markTerms, timeAgo } from "../dom.ts";
 import { onVaultChange } from "../events.ts";
 import type { Field, WidgetSpec } from "./core.ts";
-import { formatQuery, toQuery } from "../../../src/core/query.ts";
+import { formatQuery, parseSearch, searchWords, toQuery } from "../../../src/core/query.ts";
 import { sideClick } from "../panes.ts";
 
 const prevent = (e: Event) => e.preventDefault();
@@ -14,11 +14,11 @@ const prevent = (e: Event) => e.preventDefault();
  * folder editor both use this list, so a query term added here shows up in both.
  */
 export const QUERY_FIELDS: Field[] = [
-  { key: "q", label: "Matching", type: "text", placeholder: "Search words (optional)" },
+  { key: "q", label: "Matching", type: "text", placeholder: 'Words, "a phrase", -leave out, modified>-7d' },
   { key: "folder", label: "Folder", type: "text", placeholder: "e.g. Projects", picker: "folder" },
   { key: "tag", label: "Tags", type: "text", placeholder: "e.g. meeting (includes meeting/…), or meeting, client for both", picker: "tag" },
   { key: "match", label: "Combine", type: "select", options: [["all", "Match all of them"], ["any", "Match any of them"]] },
-  { key: "sort", label: "Sort", type: "select", options: [["modified", "Recently changed"], ["date", "Newest by date"], ["oldest", "Oldest by date"], ["title", "By title"]] },
+  { key: "sort", label: "Sort", type: "select", options: [["modified", "Recently changed"], ["date", "Newest by date"], ["oldest", "Oldest by date"], ["title", "By title"], ["created", "Newest created"]] },
 ];
 
 export const query: WidgetSpec = {
@@ -28,6 +28,8 @@ export const query: WidgetSpec = {
   hint: "Live list of notes by search, folder or tag",
   keywords: "query list notes dashboard recent folder tag search",
   defaults: { limit: "6" },
+  // Filters written as keys of their own (modified>-7d, -tag=x) show in Matching, so saving the form keeps them.
+  formArgs: (args) => ({ ...args, q: toQuery(args).q ?? "" }),
   configAction: {
     label: "Save as smart folder",
     icon: "folderSearch",
@@ -91,5 +93,5 @@ function firstLine(md: string): string {
 }
 
 function highlight(text: string, q: string): string {
-  return markTerms(text.replace(/^[#>\-*+\s]+/, ""), q);
+  return markTerms(text.replace(/^[#>\-*+\s]+/, ""), searchWords(parseSearch(q)).join(" "));
 }
