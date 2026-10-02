@@ -47,7 +47,7 @@ test("writing a contact keeps the note's words and any frontmatter it doesn't kn
 });
 
 test("a field with a line break (from a CSV or vCard) is written on one line and can't end the frontmatter", () => {
-  const md = contactNote({ name: "Q", email: ["q@x.org"], phone: [], company: "Acme\r\nInc", role: "x\n---\nevil: 1", links: [], aliases: ["A\nB"], tags: [] });
+  const md = contactNote({ name: "Q", email: ["q@x.org"], phone: [], company: "Acme\r\nInc", role: "x\n---\nevil: 1", links: [], aliases: ["A\nB"], tags: [], checkIn: "" });
   assert.equal(md, "---\nemail: q@x.org\ncompany: Acme Inc\nrole: \"x --- evil: 1\"\naliases: [A B]\n---\n# Q\n");
   const c = contactFromNote("People/Q.md", md);
   assert.deepEqual({ company: c.company, role: c.role, aliases: c.aliases }, { company: "Acme Inc", role: "x --- evil: 1", aliases: ["A B"] });
