@@ -61,7 +61,7 @@ const app = (over: Partial<App> = {}): App => {
     shortcuts: run("shortcuts"),
     share: run("share"),
     copyLink: run("copyLink"),
-    copyBlockLink: run("copyBlockLink"),
+    copyBlockLink: (embed) => void ran.push(embed ? "copyBlockEmbed" : "copyBlockLink"),
     exportAs: (how) => void ran.push(`export:${how}`),
     exportWorkspace: run("exportWorkspace"),
     importNotes: run("importNotes"),

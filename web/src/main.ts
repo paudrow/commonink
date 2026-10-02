@@ -2,6 +2,7 @@ import "./styles.css";
 import "./motion.css";
 import "./mobile.css";
 import { EditorView } from "@codemirror/view";
+import { isolateHistory } from "@codemirror/commands";
 import { EditorSelection, type EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
 import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, unusedTag, useWorkspace, whoAmI, ApiError, type Backlink, type Change, type Favorite, type NoteMeta, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
@@ -53,7 +54,7 @@ import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
 import { clampSide, forget, historyStep, IS_MAC, newLayout, pageEntry, pageOf, parseLayout, rememberPlace, SIDE_CLICK, sideClick, step, trailAhead, visit, type PaneTrail, type Place } from "./panes.ts";
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { headingMatches } from "../../src/core/gfm.ts";
-import { blockAt, blocksOf, findBlock } from "../../src/core/blocks.ts";
+import { blockLinkTarget, findBlock, newBlockId, noteLink } from "../../src/core/blocks.ts";
 import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
 import { NEW_BOARD } from "../../src/core/kanban.ts";
 import { smartFolderEditor } from "./smartFolderEditor.ts";
@@ -63,7 +64,7 @@ import { safeDecode } from "../../src/core/uri.ts";
 import { deleteFolder, deletePaths, TrashPage, type DeleteHooks } from "./trash.ts";
 import { mountSharedView, sharedRoute } from "./sharedView.ts";
 import { showShareDialog } from "./shareDialog.ts";
-import { rowMenu, type RowMenuItem } from "./rowMenu.ts";
+import { openRowMenu, rowMenu, rowMenuOpenFor, type RowMenuItem } from "./rowMenu.ts";
 import { CapturePage, registerWorker } from "./capture.ts";
 import { AGENTS_BLURB, isAgentsNote } from "./agentsNote.ts";
 import { closeDrawer, renderMore, setupMobileNav } from "./mobileNav.ts";
@@ -170,6 +171,7 @@ const makePane = (index: 0 | 1, host: HTMLElement, preview: HTMLElement, bar: HT
   opens: 0,
 });
 const panes: [Pane, Pane] = [makePane(0, $("#editor-host"), $("#html-preview"), $("#main-bar"), $("#banner")), makePane(1, $("#side-host"), $("#side-preview"), $("#side-bar"), $("#side-banner"))];
+for (const p of panes) wireEditorMenu(p);
 let active = panes[0];
 let split = false;
 const other = (p: Pane) => panes[1 - p.index];
@@ -347,7 +349,7 @@ function commands() {
     shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
     share: openShare,
     copyLink: () => void copyLink(),
-    copyBlockLink: () => void copyBlockLink(),
+    copyBlockLink: (embed) => void copyBlockLink(embed),
     exportAs: (how) => void exportNote(how),
     exportWorkspace: () => void exportZip({ all: true }),
     importNotes: () => void importNotes(),
@@ -1124,31 +1126,123 @@ async function copyLink() {
   toast({ icon: "link", text: "Link copied" });
 }
 
+/** How `[[…]]` names the note at `path`: its name, or its path when another note has the same name. */
+function linkName(path: string) {
+  const name = displayName(path);
+  const unique = notes.filter((n) => displayName(n.path).toLowerCase() === name.toLowerCase()).length <= 1;
+  return unique ? name : path.replace(/\.(md|markdown)$/i, "");
+}
+
+/** What a link from the cursor's line points at (see blockLinkTarget). Not the heading that names the note: that's a link to the note. */
+function cursorTarget(view: EditorView) {
+  const line = view.state.doc.lineAt(view.state.selection.main.head).number;
+  const target = blockLinkTarget(view.state.doc.toString(), line);
+  return target?.kind === "heading" && line === nameLine(view.state.doc).line ? null : target;
+}
+
 /**
- * ⌘K "Copy link to this block": `[[Note#^id]]` for the paragraph or list item at the cursor. A block
- * with no ID gets a short one first (` ^k3x9q2` at its end), as Obsidian writes them.
+ * Copy a link to what's at the cursor in `pane`: `[[Note#Heading]]` on a heading, else `[[Note#^id]]`
+ * for the paragraph, list item, table or quote (`![[…]]` with `embed`). A block with no ID gets a
+ * short one first (` ^k3x9q2` at its end, as Obsidian writes them), as one step Undo takes back.
  */
-async function copyBlockLink() {
-  const s = active.session;
+async function copyBlockLink(embed = false, pane = active) {
+  const s = pane.session;
   if (s?.kind !== "md") return;
-  const view = s.pane.view;
+  const view = pane.view;
   const doc = view.state.doc;
   const md = doc.toString();
-  const block = blockAt(md, doc.lineAt(view.state.selection.main.head).number);
-  if (!block) return void toast({ text: "Put the cursor in a paragraph or list item first" });
-  let id = block.id;
-  if (block.id === null) {
-    if (viewer) return void toast({ text: "This block has no ID yet, and you can't edit this note" });
-    const taken = new Set(blocksOf(md).map((b) => b.id.toLowerCase()));
-    do id = Math.random().toString(36).slice(2, 8);
-    while (taken.has(id) || !/[a-z]/.test(id));
-    view.dispatch({ changes: { from: doc.line(block.at).to, insert: block.insert.replace("{id}", id) }, userEvent: "input.block-id" });
+  const target = cursorTarget(view);
+  if (!target) return void toast({ text: "Put the cursor in a paragraph, list item or heading first" });
+  let anchor: string;
+  if (target.kind === "heading") anchor = target.heading;
+  else if (target.block.id !== null) anchor = `^${target.block.id}`;
+  else {
+    if (viewer || view.state.readOnly) return void toast({ text: `This ${target.kind} has no ID yet, and you can't edit this note` });
+    const id = newBlockId(md);
+    view.dispatch({ changes: { from: doc.line(target.block.at).to, insert: target.block.insert.replace("{id}", id) }, userEvent: "input.block-id", annotations: isolateHistory.of("full") });
+    anchor = `^${id}`;
   }
-  // The note's name, or its path when another note has the same name.
-  const name = displayName(s.path);
-  const unique = notes.filter((n) => displayName(n.path).toLowerCase() === name.toLowerCase()).length <= 1;
-  await navigator.clipboard.writeText(`[[${unique ? name : s.path.replace(/\.(md|markdown)$/i, "")}#^${id}]]`);
-  toast({ icon: "link", text: "Block link copied" });
+  await navigator.clipboard.writeText(noteLink(linkName(s.path), anchor, embed));
+  toast({ icon: "link", text: embed ? "Embed copied" : "Link copied" });
+}
+
+/**
+ * The note editor's right-click menu (also Shift+F10 and the Menu key): Cut and Copy for a selection,
+ * and links to the note and to the paragraph, list item or heading under the cursor. It's the
+ * sidebar's row menu (rowMenu.ts), so it looks and moves the same. Unlike a sidebar row, a selection
+ * opens it too, with Copy at the top. Shift+right-click, and a long press on a touch screen, keep the
+ * browser's own menu (spellcheck, paste).
+ */
+function wireEditorMenu(pane: Pane) {
+  const view = pane.view;
+  const content = view.contentDOM;
+  let touch = false;
+  content.addEventListener("pointerdown", (e) => (touch = e.pointerType === "touch"), true);
+  content.addEventListener("contextmenu", (e) => {
+    if (e.shiftKey || touch || pane.session?.kind !== "md" || (e.target as Element).closest?.("input, textarea, select")) return;
+    e.preventDefault();
+    if (rowMenuOpenFor(content)) return; // Shift+F10 opened it already
+    // From the keyboard (the Menu key) there's no pointer: Chrome and Firefox say so with 0, 0.
+    const pointer = e.clientX || e.clientY ? { x: e.clientX, y: e.clientY } : undefined;
+    if (pointer) {
+      // As in a text editor: a right-click outside the selection moves the cursor there first.
+      const pos = view.posAtCoords(pointer);
+      const sel = view.state.selection.main;
+      if (pos !== null && (sel.empty || pos < sel.from || pos > sel.to)) view.dispatch({ selection: { anchor: pos }, userEvent: "select.pointer" });
+    }
+    openEditorMenu(pane, pointer);
+  });
+  content.addEventListener("keydown", (e) => {
+    if (!((e.key === "F10" && e.shiftKey) || e.key === "ContextMenu") || pane.session?.kind !== "md") return;
+    e.preventDefault();
+    e.stopPropagation();
+    openEditorMenu(pane);
+  });
+}
+
+function openEditorMenu(pane: Pane, pointer?: { x: number; y: number }) {
+  const s = pane.session;
+  if (s?.kind !== "md") return;
+  const view = pane.view;
+  const sel = view.state.selection.main;
+  const selected = view.state.sliceDoc(sel.from, sel.to);
+  const editable = !viewer && !view.state.readOnly;
+  const target = cursorTarget(view);
+  // A block with no ID yet needs one written into the note, which a viewer can't do.
+  const linkable = !!target && (target.kind === "heading" || target.block.id !== null || editable);
+  const copy = (text: string, said: string) => {
+    view.focus();
+    void navigator.clipboard.writeText(text).then(() => toast({ icon: said === "Copied" ? "copy" : "link", text: said }));
+  };
+  const link = (embed: boolean) => {
+    view.focus();
+    void copyBlockLink(embed, pane);
+  };
+  // From the keyboard, it opens at the cursor.
+  const caret = view.coordsAtPos(sel.head);
+  const at = pointer ?? (caret ? { x: caret.left, y: caret.bottom + 2 } : undefined);
+  openRowMenu(
+    view.contentDOM,
+    "Note",
+    [
+      selected && editable
+        ? {
+            label: "Cut",
+            icon: "cut",
+            run: () => {
+              view.focus();
+              void navigator.clipboard.writeText(selected).then(() => view.dispatch({ changes: { from: sel.from, to: sel.to }, userEvent: "delete.cut" }));
+            },
+          }
+        : null,
+      selected ? { label: "Copy", icon: "copy", run: () => copy(selected, "Copied") } : null,
+      { label: "Copy link to this note", icon: "link", run: () => copy(noteLink(linkName(s.path)), "Link copied") },
+      linkable ? { label: `Copy link to this ${target.kind}`, icon: "link", run: () => link(false) } : null,
+      linkable && target.kind !== "heading" ? { label: `Copy embed of this ${target.kind}`, icon: "embed", run: () => link(true) } : null,
+    ],
+    at,
+    view.contentDOM,
+  );
 }
 
 /** Notes as a .zip: a folder, some notes, or everything. */

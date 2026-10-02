@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { blockAt, blocksOf, blockText, findBlock } from "../src/core/blocks.ts";
+import { blockAt, blockLinkTarget, blocksOf, blockText, findBlock, newBlockId, noteLink } from "../src/core/blocks.ts";
 import { openTempVault } from "./helpers.ts";
 
 const NOTE = [
@@ -70,4 +70,45 @@ test("a [[Note#^id]] link or embed is a backlink to the note, and isn't a missin
   });
   assert.deepEqual(vault.backlinks("Plan").map((b) => [b.path, b.kind]).sort(), [["A.md", "embed"], ["A.md", "wikilink"]]);
   assert.deepEqual(vault.missingLinks(), []);
+});
+
+test("blockLinkTarget: what the editor's menu links to from a line, and what it calls it", () => {
+  const md = ["---", "# not: a heading", "---", "# Plan {#plan}", "", "A paragraph", "", "- an item", "  under it", "", "> a quote", "", "| a |", "|---|"].join("\n");
+  assert.equal(blockLinkTarget(md, 2), null, "frontmatter");
+  assert.deepEqual(blockLinkTarget(md, 4), { kind: "heading", heading: "Plan" });
+  assert.equal(blockLinkTarget(md, 5), null, "a blank line");
+  assert.equal(blockLinkTarget(md, 6)?.kind, "paragraph");
+  const item = blockLinkTarget(md, 9);
+  assert.ok(item && item.kind === "list item");
+  assert.equal(item.block.from, 8, "a line under an item is that item");
+  assert.equal(blockLinkTarget(md, 11)?.kind, "quote");
+  assert.equal(blockLinkTarget(md, 14)?.kind, "table");
+  assert.deepEqual(blockLinkTarget(NOTE, 4), { kind: "paragraph", block: { id: "intro", from: 3, to: 4 } }, "one with an ID already");
+  assert.equal(blockLinkTarget(NOTE, 18), null, "code");
+});
+
+test("newBlockId is six letters and numbers, with a letter, that the note doesn't use yet", () => {
+  const id = newBlockId("Para", () => 0.123456789);
+  assert.match(id, /^[a-z0-9]{6}$/);
+  assert.match(id, /[a-z]/);
+  const rolls = [0.123456789, 0.987654321];
+  const next = newBlockId(`Para ^${id}`, () => rolls.shift()!);
+  assert.notEqual(next, id, "skips an ID the note already uses");
+  assert.match(next, /^[a-z0-9]{6}$/);
+});
+
+test("noteLink writes links and embeds, with or without an anchor", () => {
+  assert.equal(noteLink("Plan"), "[[Plan]]");
+  assert.equal(noteLink("Plan", "^ab12cd"), "[[Plan#^ab12cd]]");
+  assert.equal(noteLink("Plan", "^ab12cd", true), "![[Plan#^ab12cd]]");
+  assert.equal(noteLink("Plan", "Goals"), "[[Plan#Goals]]");
+});
+
+test("adding the ID where blockAt says gives the block that ID", () => {
+  const md = "Intro\n\n- one\n  more\n- two\n";
+  const at = blockAt(md, 4);
+  assert.ok(at && at.id === null);
+  const lines = md.split("\n");
+  lines[at.at - 1] += at.insert.replace("{id}", "x1y2z3");
+  assert.deepEqual(findBlock(lines.join("\n"), "x1y2z3"), { id: "x1y2z3", from: 3, to: 4, line: 3 });
 });

@@ -1,7 +1,7 @@
 // Block IDs: `[[Note#^id]]` links to one paragraph or list item, and `![[Note#^id]]` embeds it.
-// Used by the editor (following and embedding block links, "Copy link to this block") and by
+// Used by the editor (following and embedding block links, "Copy link to this paragraph" and the right-click menu) and by
 // exports. No Node imports: the web app runs this too.
-import { proseLines } from "./prose.ts";
+import { frontmatterLines, headingName, headingText, proseLines } from "./prose.ts";
 
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 
@@ -58,7 +58,7 @@ export function findBlock(md: string, id: string): Block | null {
 }
 
 /**
- * The block line `line` (from 1) is in, for "Copy link to this block": the block with an ID there,
+ * The block line `line` (from 1) is in, for "Copy link to this paragraph": the block with an ID there,
  * or else where an ID would go. `insert` is the text to add at the end of line `at`, with `{id}` for
  * the ID: ` ^{id}` at the end of a paragraph or list item, or `^{id}` on a line of its own after a
  * table or a quote (an ID on their last line would be read as part of them). Null on a blank line,
@@ -90,6 +90,43 @@ export function blockAt(md: string, line: number): { id: string; from: number; t
   const own = /^\s*[|>]/.test(lines[to - 1]);
   return { id: null, from, to, at: to, insert: own ? `\n\n^{id}${to < lines.length && lines[to].trim() ? "\n" : ""}` : " ^{id}" };
 }
+
+/** What a link to the line under the cursor points at, and how the editor's menu names it. */
+export type LinkTarget =
+  | { kind: "heading"; heading: string }
+  | { kind: "paragraph" | "list item" | "table" | "quote"; block: NonNullable<ReturnType<typeof blockAt>> };
+
+/**
+ * What "Copy link to this …" links to from line `line` (from 1): a heading (by its words, as
+ * `[[Note#Heading]]`), or the paragraph, list item, table or quote it's in (by its ID, as
+ * `[[Note#^id]]`, which it may not have yet). Null on a blank line, in code or frontmatter.
+ */
+export function blockLinkTarget(md: string, line: number): LinkTarget | null {
+  if (line <= frontmatterLines(md)) return null;
+  const prose = proseLines(md).find(([n]) => n === line);
+  const heading = prose?.[1].match(/^#{1,6}[ \t]+(.*)$/);
+  if (heading) {
+    const words = headingName(headingText(heading[1]));
+    return words ? { kind: "heading", heading: words } : null;
+  }
+  const block = blockAt(md, line);
+  if (!block) return null;
+  const first = md.split("\n")[block.from - 1] ?? "";
+  const kind = LIST_ITEM.test(first) ? "list item" : /^\s*\|/.test(first) ? "table" : /^\s*>/.test(first) ? "quote" : "paragraph";
+  return { kind, block };
+}
+
+/** A new block ID for `md`: six letters and digits (at least one letter), not one it already uses. */
+export function newBlockId(md: string, random = Math.random): string {
+  const taken = new Set(blocksOf(md).map((b) => b.id.toLowerCase()));
+  let id: string;
+  do id = random().toString(36).slice(2, 8);
+  while (id.length < 6 || taken.has(id) || !/[a-z]/.test(id));
+  return id;
+}
+
+/** `[[name]]`, `[[name#anchor]]`, or with `embed` the `![[…]]` that shows it in place. */
+export const noteLink = (name: string, anchor?: string, embed = false) => `${embed ? "!" : ""}[[${name}${anchor ? `#${anchor}` : ""}]]`;
 
 /** A block's text, without its ID: what `![[Note#^id]]` shows. */
 export function blockText(md: string, block: Block): string {
