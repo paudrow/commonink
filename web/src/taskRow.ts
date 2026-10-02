@@ -57,8 +57,8 @@ export function taskRow(t: Task, env: RowEnv, where: string | null): HTMLElement
   const menu = el("button", { type: "button", class: "qt-act", title: "Priority, due, repeat, person, tags…", "aria-label": "Task fields", onmousedown: prevent }, icon("sliders", 13));
   menu.addEventListener("click", () => openTaskMenu(menu, ctx));
   const go = el("button", { type: "button", class: "qt-act", title: "Go to note", "aria-label": `Go to ${t.title}, line ${t.line}`, onmousedown: prevent, onclick: (e: MouseEvent) => env.open(t.path, t.line, sideClick(e)) }, icon("open", 13));
-  const side = el("button", { type: "button", class: "qt-act", title: "Open to the side", "aria-label": `Open ${t.title} to the side`, onmousedown: prevent, onclick: () => env.open(t.path, t.line, true) }, icon("split", 13));
-  // A row dragged onto the notes opens its note in a split.
+  const side = el("button", { type: "button", class: "qt-act", title: "Open in split view", "aria-label": `Open ${t.title} in split view`, onmousedown: prevent, onclick: () => env.open(t.path, t.line, true) }, icon("split", 13));
+  // A row dragged onto the notes opens its note in split view.
   const row = el("div", { class: `qt-row${t.done ? " is-done" : ""}`, draggable: "true" }, box, text, where ? el("span", { class: "qt-where" }, where) : null, menu, go, side);
   row.addEventListener("dragstart", (e) => {
     if ((e.target as HTMLElement).closest(".qt-edit")) return e.preventDefault();
@@ -191,7 +191,7 @@ function editWords(t: Task, words: HTMLElement, save: (patch: TaskPatch) => Prom
     words.innerHTML = inline(patch.summary ?? t.summary); // show it now; the reload confirms it
     void save(patch).catch((e) => {
       words.innerHTML = inline(t.summary);
-      alert(e instanceof Error ? e.message : "Couldn't change the task");
+      toast({ error: true, text: e instanceof Error ? e.message : "Couldn't change the task" });
     });
   };
   const input = taskInput({ value: t.summary, compact: true, submit: () => finish(true), cancel: () => finish(false), blur: () => finish(true) });

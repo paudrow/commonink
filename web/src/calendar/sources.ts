@@ -5,7 +5,7 @@
 import { api } from "../api.ts";
 import { el, icon, timeAgo } from "../dom.ts";
 import { toast } from "../toast.ts";
-import { ask } from "../trash.ts";
+import { ask } from "../modal.ts";
 import { calendarChanged, calendars, canEditCalendars, COLORS, type CalendarSource, type SourceColor } from "./data.ts";
 import { dot } from "./ui.ts";
 import { googleSection } from "./google.ts";
