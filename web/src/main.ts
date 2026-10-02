@@ -347,6 +347,7 @@ function commands() {
     copyLink: () => void copyLink(),
     exportAs: (how) => void exportNote(how),
     exportWorkspace: () => void exportZip({ all: true }),
+    importNotes: () => void importNotes(),
     settings: openSettings,
     connectAgent,
     back: () => void stepPane(active, "back"),
@@ -1005,9 +1006,9 @@ async function uploadFiles(files?: File[]): Promise<string[]> {
   return done.map(embedName);
 }
 
-function pickFiles(): Promise<File[]> {
+function pickFiles(accept?: string): Promise<File[]> {
   return new Promise((resolve) => {
-    const input = el("input", { type: "file", multiple: true });
+    const input = el("input", { type: "file", multiple: true, ...(accept ? { accept } : {}) });
     input.addEventListener("change", () => resolve([...(input.files ?? [])]));
     input.addEventListener("cancel", () => resolve([]));
     input.click();
@@ -1127,6 +1128,21 @@ async function exportZip(what: { paths?: string[]; folder?: string; all?: boolea
     toast({ icon: "check", text: `Exported ${name}` });
   } catch (e) {
     toast({ text: `Couldn't export: ${e instanceof Error ? e.message : String(e)}` });
+  }
+}
+
+/** Pick .md files or a .zip and bring them all in (see importNotes.ts). */
+async function importNotes() {
+  const picked = await pickFiles(".md,.markdown,.html,.htm,.zip,application/zip,text/markdown");
+  if (!picked.length) return;
+  toast({ icon: "upload", text: "Importing…" });
+  try {
+    const r = await (await import("./importNotes.ts")).importNotes(picked, new Set(notes.map((n) => n.path.toLowerCase())));
+    await refreshNotes();
+    toast({ icon: "check", text: r });
+  } catch (e) {
+    await refreshNotes();
+    toast({ text: `Couldn't import: ${e instanceof Error ? e.message : String(e)}` });
   }
 }
 

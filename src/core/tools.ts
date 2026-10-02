@@ -100,7 +100,7 @@ export function createMcpServer(host: ToolHost): McpServer {
     {
       instructions: [
         "Common Ink is the user's markdown notes vault. Notes are plain .md files (some .html notes); paths are vault-relative.",
-        "Find before you write: search_notes, then read_note. Change existing notes with edit_note (small exact replacements); create_note is for new notes.",
+        "Find before you write: search_notes, then read_note. Change existing notes with edit_note (small exact replacements); create_note is for a new note, import_notes for many at once (moving notes in from elsewhere).",
         "Link notes with [[Note name]] and embed with ![[Note name]]. The user may be editing at the same time; if an edit fails, re-read and retry.",
         agentsMd && `\nVault conventions (AGENTS.md):\n${agentsMd}`,
       ]

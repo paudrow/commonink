@@ -452,6 +452,9 @@ export const api = {
   updateContact: (path: string, patch: Partial<Omit<ContactFields, "name">>) => j<{ path: string; version: string }>(`${BASE}/contacts/update`, send("POST", { path, patch })),
   /** `keep` gains `drop`'s details and links; `drop` goes to Trash (`trashed` restores it). */
   mergeContacts: (keep: string, drop: string) => j<{ path: string; updated: string[]; trashed: Trashed[] }>(`${BASE}/contacts/merge`, send("POST", { keep, drop })),
+  /** Many notes at once, path → text; ones already there are left alone (or replaced). */
+  importNotes: (notes: Record<string, string>, existing: "skip" | "replace" = "skip") =>
+    j<{ created: string[]; replaced: string[]; skipped: string[] }>(`${BASE}/import`, send("POST", { notes, existing })),
   importContacts: (format: "vcard" | "csv", text: string) => j<{ created: string[]; updated: string[]; unchanged: string[] }>(`${BASE}/contacts/import`, send("POST", { format, text })),
   /** The note templates (notes in Templates/), by name. */
   templates: () => j<TemplateInfo[]>(`${BASE}/templates`),

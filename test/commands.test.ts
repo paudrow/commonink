@@ -63,6 +63,7 @@ const app = (over: Partial<App> = {}): App => {
     copyLink: run("copyLink"),
     exportAs: (how) => void ran.push(`export:${how}`),
     exportWorkspace: run("exportWorkspace"),
+    importNotes: run("importNotes"),
     settings: run("settings"),
     connectAgent: run("connectAgent"),
     back: run("back"),
