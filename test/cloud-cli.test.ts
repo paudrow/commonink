@@ -8,6 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { startCloud, team, type Cloud } from "./cloud.ts";
+import { md5 } from "../src/core/convert.ts";
 
 const BIN = path.resolve(import.meta.dirname, "../bin/commonink");
 let cloud: Cloud;
@@ -39,13 +40,15 @@ async function login(c: ReturnType<typeof cli>, cookie: string, workspace = "*")
   let out = "";
   let err = "";
   child.stdout.on("data", (d) => (out += d));
-  const url = await new Promise<string>((resolve) =>
+  const url = await new Promise<string>((resolve, reject) => {
     child.stderr.on("data", (d) => {
       err += d;
       const m = err.match(/(http\S+\/authorize\?\S+)/);
       if (m) resolve(m[1]);
-    }),
-  );
+    });
+    // A login that can't start (a refused registration, say) fails the test instead of hanging it.
+    child.on("exit", (code) => reject(new Error(`commonink login exited (${code}) before asking to sign in: ${err}`)));
+  });
   const page = await cloud.request(cookie, "GET", new URL(url).pathname + new URL(url).search);
   assert.equal(page.status, 200);
   const html = await page.text();
@@ -159,11 +162,13 @@ test("files go up to R2 and come back down, byte for byte", async () => {
   const out = path.join(here, "back.png");
   assert.equal(c.run(["download", "assets/pixel.png", "--workspace", "Team", "--out", out]).status, 0);
   assert.deepEqual([...fs.readFileSync(out)], [...bytes]);
+
+  // commonink import brings a folder of notes and its pictures in one go. (With this sign-in: each
+  // new one registers a client, and registrations are limited per address, as a burst of tests is.)
+  importFolder(c);
 });
 
-test("commonink import brings a folder of notes and its pictures into a hosted workspace in one go", async () => {
-  const c = cli();
-  await login(c, people.owner);
+function importFolder(c: ReturnType<typeof cli>) {
   const here = fs.mkdtempSync(path.join(os.tmpdir(), "commonink-import-"));
   fs.mkdirSync(path.join(here, "Areas"));
   fs.writeFileSync(path.join(here, "Areas/Health.md"), "# Health\n\n![[scan.png]]\n");
@@ -176,7 +181,19 @@ test("commonink import brings a folder of notes and its pictures into a hosted w
   const out = path.join(here, "back.png");
   assert.equal(c.run(["download", "Moved/Areas/scan.png", "--workspace", "Team", "--out", out]).status, 0);
   assert.deepEqual([...fs.readFileSync(out)], [137, 80, 78, 71]);
-});
+  // An Evernote notebook is converted on the way in, its picture going to R2 beside it.
+  const pic = Buffer.from([137, 80, 78, 71, 9]);
+  fs.writeFileSync(
+    path.join(here, "Trips.enex"),
+    `<en-export><note><title>Lisbon</title><content><![CDATA[<en-note><div>Pack</div><en-media hash="${md5(pic)}" type="image/png"/></en-note>]]></content>` +
+      `<resource><data encoding="base64">${pic.toString("base64")}</data><mime>image/png</mime></resource></note></en-export>`,
+  );
+  const enex = c.json(["import", path.join(here, "Trips.enex"), "--workspace", "Team"]);
+  assert.equal(enex.from, "evernote");
+  assert.deepEqual(enex.created, ["Trips/Lisbon.md"]);
+  assert.equal(enex.files.length, 1);
+  assert.match(c.run(["read", "Trips/Lisbon", "--workspace", "Team"]).stdout, /1│Pack\n2│\n3│!\[\[attachments\/\w+\.png\]\]/);
+}
 
 test("contacts, labels, tasks --by me and export work in a hosted workspace too", async () => {
   const c = cli();
