@@ -721,7 +721,7 @@ test("today is overdue, due today and starting today, in sections, with today's 
   assert.throws(() => vault.today("Monday"), /"today" must be a date/);
 });
 
-test("today's journal note is made from Templates/Daily note.md, or a plain one without it", () => {
+test("today's journal note is made from Templates/Journal.md, else its old name Daily note.md, else a plain one", () => {
   const { dir, vault } = openTempVault({ "Welcome.md": "# Welcome\n" });
   const read = (p: string) => fs.readFileSync(path.join(dir, p), "utf8");
   const plain = vault.dailyNote("2026-09-28", "t");
@@ -737,6 +737,11 @@ test("today's journal note is made from Templates/Daily note.md, or a plain one 
   // Quick-add into a day with no note yet uses the same template.
   vault.addTask("Stretch", "t", { today: "2026-09-30" });
   assert.equal(read("Journal/2026-09-30.md"), "# 2026-09-30\n\n## Plan\n\n## Tasks\n\n- [ ] Stretch\n\n## Notes\n");
+  // Templates/Journal.md wins over the old name when both are there.
+  fs.writeFileSync(path.join(dir, "Templates/Journal.md"), "# {{date}}\n\n## Journal\n");
+  vault.sync();
+  vault.dailyNote("2026-10-01", "t");
+  assert.equal(read("Journal/2026-10-01.md"), "# 2026-10-01\n\n## Journal\n");
 });
 
 test("quick-add can go to a note it's given, and removing a task takes it (and what's nested) back out", () => {

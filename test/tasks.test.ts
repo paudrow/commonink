@@ -186,7 +186,7 @@ test("a task added to a note goes at the end of its Tasks section, or at the end
   assert.equal(add("# Day\n\n## Tasks\n\n- [ ] Old\n\n## Log\n\n- 09:00 hi\n"), "# Day\n\n## Tasks\n\n- [ ] Old\n- [ ] New\n\n## Log\n\n- 09:00 hi\n");
   assert.equal(add("# Day\n\n## tasks\n\n## Log\n"), "# Day\n\n## tasks\n\n- [ ] New\n\n## Log\n");
   assert.equal(add("# Day\n\n## Tasks\n- [ ] Old\n  - [ ] Sub"), "# Day\n\n## Tasks\n- [ ] Old\n  - [ ] Sub\n- [ ] New\n");
-  // No Tasks section: a daily note gets one; any other note gets the task at its end.
+  // No Tasks section: a journal note gets one; any other note gets the task at its end.
   assert.equal(add("# Day\n\n## Log\n\n- 09:00 hi\n", true), "# Day\n\n## Log\n\n- 09:00 hi\n\n## Tasks\n\n- [ ] New\n");
   assert.equal(add("# Launch\n\nNotes.\n"), "# Launch\n\nNotes.\n\n- [ ] New\n");
   assert.equal(add("# Launch\n\n- [ ] Old\n"), "# Launch\n\n- [ ] Old\n- [ ] New\n");
