@@ -21,6 +21,7 @@ import type { BoardHost, mountBoard } from "../kanban.ts";
 import { editsBetween } from "../merge.ts";
 import { codeWrapByDefault, copyCode, hydrateCode, renderCodeBlock } from "../code.ts";
 import { hydrateMath } from "../math.ts";
+import { fetchUnfurl, githubCardBody, hydrateGithubLinks } from "../github.ts";
 import { drawDiagram, lookOf } from "../diagram.ts";
 import { blockTex, inlineTex, MathWidget } from "./mathWidgets.ts";
 import { matchKeys } from "../keys.ts";
@@ -224,6 +225,7 @@ class EmbedWidget extends WidgetType {
         hydrateDataEmbeds(body, path, settle);
         hydrateCode(body);
         hydrateMath(body);
+        hydrateGithubLinks(body, settle);
         body.querySelectorAll("input").forEach((i) => (i.disabled = true));
         if (body.querySelector(".kb-slot[data-board]")) {
           void import("../kanban.ts").then((m) => ((outer as any).stopBoards = m.hydrateBoards(body, path, { ctx, readOnly: view.state.readOnly, resized: settle })));
@@ -291,9 +293,15 @@ function bookmark(view: EditorView, wrap: HTMLElement, url: string, settle: () =
   card.addEventListener("click", () => window.open(url, "_blank", "noopener"));
   wrap.replaceChildren(card, edit);
   settle();
-  fetch(`/api/unfurl?url=${encodeURIComponent(url)}`)
-    .then((r) => r.json())
-    .then((meta: { title: string | null; description: string | null; image: string | null; siteName: string | null; favicon: string | null }) => {
+  fetchUnfurl(url)
+    .then((meta) => {
+      if (!meta) return;
+      if (meta.github) {
+        // A GitHub issue or pull request: its live state, labels and activity (github.ts).
+        card.classList.add("gh-card");
+        card.replaceChildren(...githubCardBody(meta.github));
+        return settle();
+      }
       const favicon = meta.favicon ? el("img", { class: "bm-favicon", src: meta.favicon, alt: "", referrerpolicy: "no-referrer" }) : null;
       favicon?.addEventListener("error", () => favicon.remove());
       const thumb = meta.image ? el("div", { class: "bm-thumb" }, el("img", { src: meta.image, alt: "", referrerpolicy: "no-referrer", onload: settle })) : null;

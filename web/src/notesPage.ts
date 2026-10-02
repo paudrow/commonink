@@ -8,6 +8,7 @@ import { $, authorAvatar, authorName, displayName, el, icon, markTerms, NOTE_DRA
 import { renderMarkdown, sandboxFrame } from "./render.ts";
 import { hydrateCode } from "./code.ts";
 import { hydrateMath } from "./math.ts";
+import { hydrateGithubLinks } from "./github.ts";
 import { followRenderedLink } from "./gfm.ts";
 import { hydrateDataEmbeds } from "./textPreview.ts";
 import { parseDirective } from "./widgets/args.ts";
@@ -507,6 +508,7 @@ export class NotesPage {
     hydrateTaskChips(node, tasks);
     hydrateCode(node);
     hydrateMath(node);
+    hydrateGithubLinks(node);
     // A note can write its own <span class="tk-run">, so only the ones that name a real task count.
     node.querySelectorAll<HTMLElement>(".tk-run").forEach((run) => {
       const task = tasks[+run.dataset.task!];
