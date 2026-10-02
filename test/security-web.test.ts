@@ -67,7 +67,19 @@ test("a link in note content opens in a new tab, never in place of the app", () 
     [true, false, false, true],
   );
   assert.deepEqual(opened, ["https://evil.example/login"]);
+  // Nor does an SVG link, whose address is xlink:href.
+  document.body.innerHTML = '<svg><a xlink:href="https://evil.example/svg"><text>t</text></a></svg>';
+  const e = new window.MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+  document.querySelector("text")!.dispatchEvent(e);
+  document.body.innerHTML = "";
+  assert.equal(e.defaultPrevented, true);
+  assert.deepEqual(opened, ["https://evil.example/login", "https://evil.example/svg"]);
   window.open = realOpen;
+});
+
+test("a picture can't carry an image map, whose links nothing above would catch", () => {
+  const html = renderMarkdown('<img src="x.png" usemap="#user-content-m"><map name="m"><area shape="default" href="https://evil.example/login"></map>', "a.md");
+  assert.equal(/<(map|area)\b/.test(html), false, html);
 });
 
 test("a Mastodon-style embed, which can be any host, gets no forms, clipboard, full screen or unsandboxed popups", async () => {

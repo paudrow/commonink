@@ -10,7 +10,7 @@ import { isEmbeddable } from "./embeds/providers.ts";
 import { calendarTarget, externalTitle, linkKind } from "./links.ts";
 import { boardsIn } from "../../src/core/kanban.ts";
 import { SANDBOX_PATH } from "../../src/core/sandbox.ts";
-import { safeDecode } from "../../src/core/uri.ts";
+import { encodeTarget, safeDecode } from "../../src/core/uri.ts";
 import { headingName, headingText, mapOutsideCode } from "../../src/core/prose.ts";
 import { capHtmlDepth, tameMarkdown } from "../../src/core/depth.ts";
 import { gfmMarked, renderingFrom } from "./gfm.ts";
@@ -100,7 +100,7 @@ const SAFE_URI = /^(?:(?:https?|mailto|commonink|quire):|[^a-z]|[a-z+.-]+(?:[^a-
  */
 export const NOTE_HTML = {
   ALLOWED_URI_REGEXP: SAFE_URI,
-  FORBID_TAGS: ["style", "form", "button", "textarea", "select", "dialog"],
+  FORBID_TAGS: ["style", "form", "button", "textarea", "select", "dialog", "map", "area"],
   FORBID_ATTR: ["style", "popover", "popovertarget", "popovertargetaction"],
   SANITIZE_NAMED_PROPS: true,
 };
@@ -146,10 +146,15 @@ export function renderMarkdown(md: string, from: string, opts: { boards?: boolea
       .replace(/!\[\[([^[\]|]+)(?:\|[^[\]]*)?\]\]/g, (_m, target: string) => {
         const kind = embedKindOf(target);
         if (kind === "image") return `![${target}](${assetUrl(target, from)})`;
-        return `[↳ ${target}](commonink:${encodeURIComponent(target)})`;
+        return `[↳ ${target}](commonink:${encodeTarget(target)})`;
       })
-      .replace(/\[\[([^[\]|]+)(?:\|([^[\]]*))?\]\]/g, (_m, target: string, alias?: string) => `[${alias ?? target.replace(/#/, " › ")}](commonink:${encodeURIComponent(target)})`)
-      .replace(/!\[([^[\]]*)\]\((?!https?:|\/)([^()\s]+)\)/g, (_m, alt, src) => `![${alt}](${assetUrl(safeDecode(src), from)})`),
+      .replace(/\[\[([^[\]|]+)(?:\|([^[\]]*))?\]\]/g, (_m, target: string, alias?: string) => `[${alias ?? target.replace(/#/, " › ")}](commonink:${encodeTarget(target)})`)
+      // A relative image, bare or in <angle brackets>, maybe with a "title" (as the editor shows it). Any
+      // scheme (data:, https:) is left to the sanitizer's SAFE_URI.
+      .replace(
+        /!\[([^[\]]*)\]\((?:<(?![a-zA-Z][a-zA-Z0-9+.-]*:|\/)([^<>\n]+)>|(?![a-zA-Z][a-zA-Z0-9+.-]*:|\/)([^()\s<>]+))(\s+"[^"\n]*")?\)/g,
+        (_m, alt: string, angled?: string, bare?: string, title = "") => `![${alt}](${assetUrl(safeDecode(angled ?? bare!), from)}${title})`,
+      ),
   );
   // marked recurses once per nested quote, list and emphasis, and a DOM's serializer once per
   // element level: nesting past a sane depth reads flat (see src/core/depth.ts). DOMPurify stays last.
@@ -215,10 +220,20 @@ window.addEventListener("message", (e) => {
 // A link in note content never replaces the app (a look-alike sign-in page could stand in for it).
 // Where nothing else handled the click, an http(s) link opens in a new tab and any other kind
 // except mailto: does nothing.
+// SVG links count too: `a[href]` doesn't match their `xlink:href`.
+const XLINK = "http://www.w3.org/1999/xlink";
 document.addEventListener("click", (e) => {
   if (e.defaultPrevented || e.button !== 0) return;
-  const a = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
-  if (!a || a.target === "_blank" || a.protocol === "mailto:" || a.origin === location.origin) return;
+  const a = (e.target as Element | null)?.closest?.("a, area");
+  const href = a?.getAttribute("href") ?? a?.getAttributeNS(XLINK, "href");
+  if (!a || href == null || a.getAttribute("target") === "_blank") return;
+  let url: URL;
+  try {
+    url = new URL(href, location.href);
+  } catch {
+    return e.preventDefault();
+  }
+  if (url.protocol === "mailto:" || url.origin === location.origin) return;
   e.preventDefault();
-  if (/^https?:$/.test(a.protocol)) window.open(a.href, "_blank", "noopener,noreferrer");
+  if (/^https?:$/.test(url.protocol)) window.open(url.href, "_blank", "noopener,noreferrer");
 });
