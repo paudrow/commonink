@@ -150,8 +150,13 @@ export function contactFromNote(path: string, md: string): ContactNote {
   return c;
 }
 
-/** A value as YAML that reads back the same: quoted if it could be read as something else. */
+/**
+ * A value as YAML that reads back the same: quoted if it could be read as something else. A line
+ * break (from a CSV cell or a vCard) becomes a space, so the value stays on its line and can't end
+ * the frontmatter.
+ */
 function yamlValue(v: string): string {
+  v = v.replace(/\s*[\r\n]+\s*/g, " ");
   return /^[\s[\]{}#&*!|>'"%@`,-]|[,:]\s|,|\s#|\s$|^$/.test(v) ? `"${v.replace(/(["\\])/g, "\\$1")}"` : v;
 }
 
