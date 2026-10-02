@@ -1,6 +1,7 @@
 // Notes: every note as a stream of cards, newest first — the app's home. Click a card to read
 // the whole note in place; Edit opens it in the editor. Filter as you type, triage from the
-// keyboard (j/k, Enter to expand, o to open, e to archive, x to select, Delete to delete), and
+// keyboard (j/k, Enter to expand, o to open, e to archive, x to select, Delete to delete, n for a
+// new note), and
 // archive or delete in bulk. Its tabs are where notes go: Notes, Archive and Trash.
 import { api, isArchived, type FeedItem, type FeedPage, type TagCount, type Task } from "./api.ts";
 import type { TrashPage } from "./trash.ts";
@@ -48,8 +49,8 @@ interface Hooks {
   rename(path: string): void;
   toast(t: ToastSpec): void;
   changed(): void;
-  /** The sidebar's New note. */
-  newNote(): void;
+  /** The sidebar's New note: in the folder the page is narrowed to, if any. */
+  newNote(folder: string): void;
   /** Show another tab (its address changes with it). */
   goTab(tab: NotesTab): void;
   /** The Trash tab's list, or null for someone who has no Trash (a viewer, online). */
@@ -131,7 +132,7 @@ export class NotesPage {
     this.keys = el(
       "footer",
       { class: "feed-keys" },
-      ...[["j k", "move"], ["↵", "expand"], ["o", "open"], ["s", "star"], ["e", "archive"], ["⌫", "delete"], ["x", "select"], ["/", "filter"]].map(([k, t]) => el("span", {}, el("kbd", {}, k), t)),
+      ...[["j k", "move"], ["n", "new"], ["↵", "expand"], ["o", "open"], ["s", "star"], ["e", "archive"], ["⌫", "delete"], ["x", "select"], ["/", "filter"]].map(([k, t]) => el("span", {}, el("kbd", {}, k), t)),
     );
     // The heading scrolls away; the search and filters stay at the top, and the list scrolls clear of them.
     const head = el("header", { class: "feed-head" }, this.search, this.filters, this.about);
@@ -325,7 +326,7 @@ export class NotesPage {
       icon: "file",
       title: "No notes yet",
       text: ["Notes are plain markdown that you and your agents can both read and edit."],
-      action: this.hooks.readOnly() ? null : { label: "New note", icon: "plus", run: () => this.hooks.newNote() },
+      action: this.hooks.readOnly() ? null : { label: "New note", icon: "plus", run: () => this.hooks.newNote(this.folder ?? "") },
     });
   }
 
@@ -708,6 +709,7 @@ export class NotesPage {
       F2: () => item && !this.hooks.readOnly() && this.hooks.rename(item.path),
       e: () => void this.archive(this.selected.size ? [...this.selected] : item ? [item.path] : []),
       x: () => item && this.toggle(item.path),
+      n: () => !this.hooks.readOnly() && this.hooks.newNote(this.folder ?? ""),
       Delete: () => void this.delete(this.selected.size ? [...this.selected] : item ? [item.path] : []),
       Backspace: () => void this.delete(this.selected.size ? [...this.selected] : item ? [item.path] : []),
       "/": () => this.input.focus(),
