@@ -44,6 +44,8 @@ interface Hooks {
   shared?(item: FeedItem): boolean;
   /** Send notes to Trash (asking first if other notes link to them). Resolves to the paths that went. */
   delete(paths: string[]): Promise<string[]>;
+  /** Rename a note (F2 on its card), the way ⌘K's Rename does. */
+  rename(path: string): void;
   toast(t: ToastSpec): void;
   changed(): void;
   /** The sidebar's New note. */
@@ -703,6 +705,7 @@ export class NotesPage {
       Enter: () => this.toggleExpand(this.focus),
       o: () => item && this.hooks.open(item.path),
       s: () => item && this.hooks.toggleStar(item.path),
+      F2: () => item && !this.hooks.readOnly() && this.hooks.rename(item.path),
       e: () => void this.archive(this.selected.size ? [...this.selected] : item ? [item.path] : []),
       x: () => item && this.toggle(item.path),
       Delete: () => void this.delete(this.selected.size ? [...this.selected] : item ? [item.path] : []),

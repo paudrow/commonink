@@ -39,7 +39,7 @@ import { taskInputPrefs } from "./taskInput.ts";
 import type { TagsPage } from "./tagsPage.ts";
 import type { Theme } from "./settings.ts";
 import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./account.ts";
-import { appCommands } from "./commands.ts";
+import { appCommands, type Renamable } from "./commands.ts";
 import { toggleShortcuts } from "./shortcuts.ts";
 import { NO_TIPS, tipText, watchTips, type TipsState } from "./shortcutTips.ts";
 import { did, vaultEvents } from "./events.ts";
@@ -187,6 +187,7 @@ const notesPage = new NotesPage({
   readOnly: () => viewer,
   shared: (item) => !!workspaceId && isShared(item.id, item.path),
   delete: (paths) => deletePaths(paths, deleteHooks),
+  rename: (path) => void renamePath(path),
   toast: (t) => toast(t),
   changed: () => {
     api.clearResolveCache();
@@ -234,6 +235,8 @@ const loadAssets = once(async () =>
     open: (path) => fromPage(path),
     archive: (path) => archivePath(path),
     delete: (paths) => (viewer ? Promise.resolve([]) : deletePaths(paths, deleteHooks)),
+    rename: (path) => renameAsset(path),
+    readOnly: () => viewer,
     embedName: (path) => embedName(path),
     tags: () => tags,
     refreshTags: () => refreshNotes(),
@@ -303,6 +306,7 @@ function commands() {
     canSubscribe: !viewer,
     canConnectGoogle: !!googleKnown() && googleKnown()!.mode !== "off" && !googleKnown()!.connection,
     folds: s?.kind === "md" ? foldCount(active.view.state) : 0,
+    renames: renameTarget()?.what ?? null,
     account,
     newNote: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
     newFromTemplate: () => void newFromTemplate(undefined, onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
@@ -336,7 +340,7 @@ function commands() {
     delete: () => void deleteCurrent(),
     shareWithPeople: () => active.session && openShareDialog({ path: active.session.path }),
     move: () => openMovePicker($("#move-btn")),
-    rename: () => void renameNote(),
+    rename: () => renameTarget()?.run(),
     noteHistory: () => s && void showHistory({ note: s.path }),
     labelVersion: () => void labelCurrent(),
     noteLabels: () => s && void showHistory({ note: s.path }),
@@ -1750,6 +1754,7 @@ function renderSmartFolders(active: string | null) {
         class: `tree-row is-file${f.query === active ? " is-active" : ""}`,
         "aria-current": f.query === active && "page",
         style: { "--depth": "0" },
+        "data-smart": f.id,
         title: `${f.query || "Every note"}${f.shared ? "" : " (just you)"}`,
         ...opens(() => void showNotes({ tab: "notes", query: parseQuery(f.query) })),
       },
@@ -1776,6 +1781,7 @@ function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
       "aria-current": active && "page",
       style: { "--depth": "0" },
       title: `Notes tagged #${f.display}`,
+      "data-tag": f.tag,
       draggable: "true",
       ...opens(() => openTag(f.display)),
       ondragstart: (e: DragEvent) => {
@@ -1812,6 +1818,7 @@ function renderFavorites() {
         "aria-current": f.path === active.session?.path && "page",
         style: { "--depth": "0" },
         title: f.path,
+        "data-path": f.path,
         draggable: "true",
         ...opens((e) => void openNote(f.path, { pane: e && sideClick(e) ? sideOf(active) : active })),
         ondragstart: (e: DragEvent) => {
@@ -2020,6 +2027,7 @@ function renderTree() {
             action(`New note in ${path}`, "plus", () => void newNote(path)),
             action(`Export ${path} as a .zip`, "download", () => void exportZip({ folder: path })),
             workspaceId ? action(`Share ${path}…`, "share", () => openShareDialog({ folder: path })) : null,
+            viewer ? null : action(`Rename ${path}… (F2)`, "edit", () => void renameFolder(path)),
             viewer ? null : action(`Delete ${path}`, "trash", () => void removeFolder(path)),
           ),
         );
@@ -2038,6 +2046,131 @@ async function removeFolder(path: string) {
   setEmptyFolders(empty);
   if (notesPage.query.folder === path || notesPage.query.folder?.startsWith(`${path}/`)) await showNotes({ tab: "notes", query: {} });
   renderTree();
+}
+
+// ------------------------------------------------------------------ renaming
+// Everything with a name in a list renames the same way: F2 or a double-click on its row, its ✎
+// where a row has buttons, or ⌘K "Rename…" for what's showing. Each asks for the new name in the
+// same dialog, except a note named by its heading, whose heading is selected to type over.
+
+/** Rename a folder: everything in it moves (its archived notes too), links rewritten. Undo puts it back. */
+async function renameFolder(path: string) {
+  if (viewer) return;
+  const typed = await askName("Rename folder", path.split("/").pop()!);
+  const name = typed && cleanName(typed);
+  const to = name && (parentOf(path) ? `${parentOf(path)}/${name}` : name);
+  if (!to || to === path) return;
+  if (await moveFolder(path, to)) {
+    toast({ icon: "folder", text: `Renamed ${path} to ${to}`, actionLabel: "Undo", action: () => void moveFolder(to, path) });
+  }
+}
+
+/** Move a folder from `from` to `to` (an empty one only here, in this browser), and follow it in the sidebar and Notes. Whether it moved. */
+async function moveFolder(from: string, to: string): Promise<boolean> {
+  const inside = (p: string, dir: string) => p === dir || p.startsWith(`${dir}/`);
+  const moved = (p: string) => (inside(p, from) ? to + p.slice(from.length) : p);
+  if (notes.some((n) => inside(n.path, from) || inside(n.path, `Archive/${from}`))) {
+    await flushSave(); // an open note in it is saved under the name it has now
+    try {
+      await api.renameFolder(from, to);
+    } catch (e) {
+      toast({ text: e instanceof Error ? e.message : `Couldn't rename ${from}` });
+      return false;
+    }
+  } else if (to.toLowerCase() !== from.toLowerCase() && allFolders().some((f) => f.toLowerCase() === to.toLowerCase())) {
+    toast({ text: `There's already a folder named ${to}` });
+    return false;
+  }
+  setEmptyFolders(new Set([...emptyFolders()].map(moved)));
+  const open = [...prefs.expanded];
+  prefs.expanded.clear();
+  for (const f of open) prefs.expanded.add(moved(f));
+  store.set("expanded", [...prefs.expanded]);
+  if (parentOf(to)) setExpanded(parentOf(to), true);
+  await refreshNotes();
+  const shown = notesPage.visible ? notesPage.query.folder : undefined;
+  if (shown && inside(shown, from)) await showNotes({ tab: notesPage.tab, query: { ...notesPage.query, folder: moved(shown) }, push: false });
+  return true;
+}
+
+/** Rename an asset in the folder it's in, keeping its type. Its links follow; Undo puts the old name back. Resolves to its new path. */
+async function renameAsset(path: string): Promise<string | null> {
+  if (viewer) return null;
+  const file = path.split("/").pop()!;
+  const ext = file.match(/\.[^.]+$/)?.[0] ?? "";
+  const typed = await askName("Rename file", file.slice(0, file.length - ext.length));
+  const name = typed && cleanName(typed);
+  if (!name) return null;
+  let r;
+  try {
+    r = await api.move(path, `${path.slice(0, path.length - file.length)}${name}${ext}`);
+  } catch (e) {
+    toast({ text: e instanceof Error ? e.message : `Couldn't rename ${file}` });
+    return null;
+  }
+  await refreshNotes();
+  const others = r.updated.filter((p) => p !== r.path).length;
+  const to = r.path;
+  toast({
+    icon: "edit",
+    text: `Renamed to ${to.split("/").pop()}`,
+    detail: others ? `Updated links in ${others} note${others > 1 ? "s" : ""}` : undefined,
+    actionLabel: "Undo",
+    action: () => void api.move(to, path).then(refreshNotes, (e) => toast({ text: e instanceof Error ? e.message : `Couldn't rename it back` })),
+  });
+  return to;
+}
+
+/** Rename a note or asset from a list it's in (F2 or a double-click): a note opens, then renames as ⌘K's Rename note does. */
+async function renamePath(path: string) {
+  if (viewer) return;
+  if (notes.find((n) => n.path === path)?.kind === "asset") return void (await renameAsset(path));
+  if (active.session?.path !== path) await openNote(path);
+  if (active.session?.path === path) await renameNote();
+}
+
+/** Rename (or merge) a tag from the sidebar or ⌘K: the same rename, with Undo, the Tags page does. */
+async function renameTag(t: TagCount) {
+  if (viewer) return;
+  const typed = await askName("Rename tag", t.display);
+  if (!typed) return;
+  const to = cleanTag(typed);
+  if (!to) return toast({ text: "A tag is letters, numbers, - and _, nested with /" });
+  if (to !== t.display) await (await loadTags()).rename(t, to);
+}
+
+/** A smart folder's name is in its editor: renaming one opens that, from its row's sliders. */
+function editSmartFolder(id: string) {
+  if (prefs.folded.smart) $('[aria-controls="smart-folders"]').click();
+  $(`#smart-folders .tree-row[data-smart="${CSS.escape(id)}"] .row-act`)?.click();
+}
+
+/** Rename what a sidebar row names (F2 or a double-click on it). */
+function renameRow(row: HTMLElement) {
+  const { folder, tag, smart, path } = row.dataset;
+  const t = tag ? tags.find((x) => x.tag === tag) : undefined;
+  if (folder) void renameFolder(folder);
+  else if (t) void renameTag(t);
+  else if (smart) editSmartFolder(smart);
+  else if (path) void renamePath(path);
+}
+
+/** What ⌘K's Rename… (and F2 outside a list) renames: the file Assets previews, what Notes shows on its own (a folder, tag or smart folder), or the open note. */
+function renameTarget(): { what: Renamable; run(): void } | null {
+  if (viewer) return null;
+  const page = onPage();
+  const previewed = page === "assets" ? assetsPage?.previewed : null;
+  if (previewed) return { what: "file", run: () => void assetsPage?.rename(previewed) };
+  if (page === "notes") {
+    const q = notesPage.query;
+    const showing = formatQuery(q);
+    if (q.folder && showing === formatQuery({ folder: q.folder })) return { what: "folder", run: () => void renameFolder(q.folder!) };
+    const t = q.tag && showing === formatQuery({ tag: q.tag }) ? tags.find((x) => x.tag === normalizeTag(q.tag!)) : undefined;
+    if (t) return { what: "tag", run: () => void renameTag(t) };
+    const f = showing ? smartFolders.find((x) => x.query === showing) : undefined;
+    if (f) return { what: "smart folder", run: () => editSmartFolder(f.id) };
+  }
+  return !page && active.session ? { what: "note", run: () => void renameNote() } : null;
 }
 
 /**
@@ -2094,6 +2227,7 @@ function renderTagTree(active: string) {
           el(
             "span",
             { class: "row-actions" },
+            viewer ? null : el("button", { type: "button", class: "row-act", title: `Rename #${t.display}… (F2)`, onclick: (e: Event) => (e.stopPropagation(), void renameTag(t)) }, icon("edit", 14)),
             // A tag no note carries can't be a favorite (it would show no notes); one nothing carries yet can go again.
             onlyTasks(t) ? null
             : !unusedTag(t) ? tagStarButton(t.display, "row")
@@ -2183,6 +2317,14 @@ function setupSections() {
       apply();
     });
     apply();
+  });
+  // A double-click on a row renames what it names, as F2 does (not on its buttons, which do their own thing).
+  $("#sidebar").addEventListener("dblclick", (e) => {
+    const at = e.target as HTMLElement;
+    const row = at.closest<HTMLElement>(".tree-row");
+    if (!row || viewer || at.closest("button, input")) return;
+    e.preventDefault();
+    renameRow(row);
   });
 }
 
@@ -2700,6 +2842,16 @@ window.addEventListener(
       // ? where you aren't typing: the shortcut sheet (a character, whichever key types it).
       e.preventDefault();
       toggleShortcuts(commands(), { vim: prefs.vim });
+    } else if (e.key === "F2" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !(e.target as HTMLElement | null)?.closest?.("input, textarea, select, [role=dialog]")) {
+      // F2 renames: the sidebar row in focus, or (outside the lists that rename their own) what's showing.
+      const at = e.target as HTMLElement;
+      const row = at.closest?.<HTMLElement>(".tree-row");
+      const target = row ? null : at.closest?.("#notes-view, #assets-view, #asset-preview, #tags-view") ? null : renameTarget();
+      if (row || target) {
+        e.preventDefault();
+        if (row) renameRow(row);
+        else target!.run();
+      }
     } else if (is("Mod-e") && active.session?.kind === "html") {
       e.preventDefault();
       setHtmlMode(prefs.htmlMode === "preview" ? "source" : "preview");

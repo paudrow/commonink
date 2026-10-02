@@ -26,6 +26,7 @@ const app = (over: Partial<App> = {}): App => {
     canSubscribe: true,
     canConnectGoogle: false,
     folds: 0,
+    renames: null,
     account: [],
     newNote: run("newNote"),
     newFromTemplate: run("newFromTemplate"),
@@ -103,12 +104,15 @@ test("commands follow the app: vim's state, the open note, Getting started, and 
   assert.deepEqual(titles("star", app({ note: { kind: "md", starred: true, archived: false } })), ["Unstar note", "Subscribe to a calendar…"]);
   assert.deepEqual(titles("html", app({ note: { kind: "html", starred: false, archived: false }, htmlMode: "preview" })), ["Show HTML source", "Share…"]);
   assert.deepEqual(titles("go back", app()), [], "nowhere to go back to");
-  assert.deepEqual(titles("rename", app()), ["Go to Tags"], "no note to rename");
-  assert.deepEqual(titles("rename", app({ note: { kind: "md", starred: false, archived: false }, canDelete: false })), ["Go to Tags"], "a viewer can't rename");
-  const rename = matchCommands("rename", appCommands(app({ note: { kind: "html", starred: false, archived: false } })));
+  assert.deepEqual(titles("rename", app()), ["Go to Tags"], "nothing to rename");
+  assert.deepEqual(titles("rename", app({ renames: "note", canDelete: false })), ["Go to Tags"], "a viewer can't rename");
+  const rename = matchCommands("rename", appCommands(app({ renames: "note" })));
   assert.deepEqual(rename.map((c) => c.title), ["Rename note…", "Go to Tags"]);
+  assert.deepEqual(rename[0].keys, ["F2"]);
   rename[0].run();
   assert.equal(ran.at(-1), "rename");
+  // One Rename… for whatever is showing: Notes narrowed to a folder renames the folder, and so on.
+  for (const what of ["folder", "tag", "smart folder", "file"] as const) assert.equal(titles("rename", app({ renames: what }))[0], `Rename ${what}…`);
   const moving = appCommands(app({ canBack: true, canForward: true, onLink: true, note: { kind: "md", starred: false, archived: false } })).filter((c) => ["back", "forward", "follow-link"].includes(c.id));
   assert.deepEqual(moving.map((c) => [c.title, c.keys?.[0]]), [["Go back", "Mod-["], ["Go forward", "Mod-]"], ["Follow link", undefined]]);
   moving.forEach((c) => c.run());
