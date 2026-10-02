@@ -137,6 +137,8 @@ export interface TodayView {
   date: string;
   sections: Array<{ id: "overdue" | "due" | "starting"; title: string; tasks: Task[] }>;
   journal: { path: string; exists: boolean };
+  /** How many of today's tasks were ticked today (missing from an older server). */
+  done?: number;
 }
 
 export interface Task {

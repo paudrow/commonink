@@ -2954,3 +2954,24 @@ button.cal-src-color:hover { background: var(--hover); }
 .lb-menu { min-width: 260px; }
 .lb-when { flex: none; font-size: 11.5px; color: var(--muted); }
 .lb-when.is-now { color: var(--accent-ink); font-weight: 600; }
+
+/* The Today ring (todayRing.ts): fills as today's tasks are ticked, closes when Today is clear. A
+   small one at the right of Today in the sidebar, a larger one beside the date on the Today page. */
+.today-ring-wrap { display: inline-flex; align-items: center; gap: 8px; }
+.today-ring-wrap[hidden] { display: none; }
+.nav-item .today-ring-wrap { margin-left: auto; }
+svg.today-ring { flex: none; width: 14px; height: 14px; transform: rotate(-90deg); overflow: visible; }
+.today-ring circle { fill: none; stroke-width: 2.25; }
+.today-ring-track { stroke: var(--line-strong); }
+.today-ring-fill { stroke: var(--accent); stroke-linecap: round; transition: stroke-dasharray 0.45s cubic-bezier(0.3, 0.7, 0.4, 1); }
+.today-ring-fill[stroke-dasharray^="0 "] { visibility: hidden; } /* no dot before the first tick */
+.today-ring-wrap.is-closed .today-ring-fill { stroke-linecap: butt; }
+.today-ring-wrap.is-closed .today-ring-track { fill: var(--accent-soft); stroke: var(--accent); }
+.td-sub { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; }
+.today-ring-wrap.is-big svg.today-ring { width: 26px; height: 26px; }
+.today-ring-wrap.is-big .today-ring circle { stroke-width: 1.75; }
+.today-ring-text { font-size: 13px; font-weight: 550; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.today-ring-wrap.is-closed .today-ring-text { color: var(--accent-ink); }
+@media (prefers-reduced-motion: reduce) {
+  .today-ring-fill { transition: none; }
+}

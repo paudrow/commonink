@@ -7,6 +7,7 @@ import { onVaultChange } from "./events.ts";
 import { quickAddBar } from "./quickAdd.ts";
 import { COUNTS, gamified, writingDays, writingSummary } from "./streak.ts";
 import { today } from "./taskChips.ts";
+import { todayPageRing } from "./todayRing.ts";
 import { WIDGETS } from "./widgets/index.ts";
 
 export interface TodayHooks {
@@ -64,11 +65,12 @@ export function renderTodayPage(root: HTMLElement, hooks: TodayHooks): () => voi
   const date = new Date(`${today()}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
   const day = el("div");
   const streak = el("div", { class: "td-streak" });
+  const ring = gamified() ? todayPageRing() : null; // how much of today is ticked, as in the sidebar
   root.replaceChildren(
     el(
       "div",
       { class: "page" },
-      el("header", { class: "page-head" }, el("h1", {}, "Today"), el("p", { class: "page-sub" }, date)),
+      el("header", { class: "page-head" }, el("h1", {}, "Today"), el("p", { class: "page-sub td-sub" }, el("span", {}, date), ring?.root ?? "")),
       quickAddBar({ added: () => {}, open: hooks.open }).root, // the day below reloads when the note changes
       day,
       gamified() ? streak : "", // a workspace without rewards has no streak (see streak.ts)
@@ -76,5 +78,5 @@ export function renderTodayPage(root: HTMLElement, hooks: TodayHooks): () => voi
   );
   const unmountDay = mountDay(day, hooks);
   const unmountStreak = gamified() ? mountStreak(streak) : () => {};
-  return () => (unmountDay(), unmountStreak());
+  return () => (unmountDay(), unmountStreak(), ring?.stop());
 }
