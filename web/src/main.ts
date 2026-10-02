@@ -229,7 +229,6 @@ const loadHistory = once(async () =>
   (historyPage = new (await import("./history.ts")).History({
     open: (path) => fromPage(path),
     toast: (t) => toast(t),
-    newNote: viewer ? undefined : () => void newNote(),
     readOnly: viewer,
   })),
 );
