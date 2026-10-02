@@ -101,7 +101,7 @@ test("commands run in the workspace you name, attributed to you or to the agent 
   const nowhere = c.run(["ls", "--workspace", "Nowhere"]);
   assert.equal(nowhere.status, 3);
   // Exit codes and --json errors are the same as for a local vault.
-  assert.deepEqual(JSON.parse(c.run(["create", "Hello", "again", "--json"]).stdout), { error: "Hello.md already exists; use edit_note instead", code: "exists", exit: 5 });
+  assert.deepEqual(JSON.parse(c.run(["create", "Hello", "again", "--json"]).stdout), { error: "Hello.md already exists. To replace it, create it again with overwrite (--overwrite); to change part of it, use edit_note", code: "exists", exit: 5 });
   assert.equal(c.run(["edit", "Hello", "--old", "by hand", "--new", "x", "--base", "000000000000"]).status, 4);
 });
 
@@ -174,6 +174,11 @@ test("a viewer's CLI reads but can't write, and a grant for one workspace stays 
   assert.deepEqual(one.json(["workspaces"]).workspaces.map((w: { name: string }) => w.name), ["Team"]);
   assert.equal(one.run(["ls"]).status, 0);
   assert.equal(one.run(["ls", team, "Editor's notes"]).status, 3);
+  // What it writes is the client's, by its registered name, even when it names no agent or another one.
+  assert.equal(one.run(["create", "From one grant", "x"]).status, 0);
+  assert.equal(one.run(["append", "From one grant", "more", "--agent", "Someone else"]).status, 0);
+  const changes = await cloud.call(people.editor, "GET", `${people.base}/changes?path=${encodeURIComponent("From one grant.md")}`);
+  assert.deepEqual(changes.map((ch: { agent: string | null; person: string }) => [ch.agent, ch.person]), [["commonink CLI", "Editor Dev"], ["commonink CLI", "Editor Dev"]]);
   // Nor its settings: a grant for one workspace (an MCP client's, which reaches /mcp/cli with the same token) is to its notes.
   const owner = cli();
   await login(owner, people.owner, people.id);

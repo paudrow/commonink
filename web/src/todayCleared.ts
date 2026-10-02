@@ -1,7 +1,8 @@
 // Clearing Today. When a box you tick in this tab (in Tasks, the ::today widget, a note's card or
 // the editor) takes the last open task off Today, a small ink burst rings that box and a toast says
 // today's tasks are done. It happens at most once a day in this browser, never for someone else's
-// change arriving live, and with Reduce motion on there's only the toast.
+// change arriving live, and with Reduce motion on there's only the toast. A workspace that isn't
+// gamified (gamify.ts) doesn't celebrate.
 import { api } from "./api.ts";
 import { el } from "./dom.ts";
 import { didEvents, onVaultChange } from "./events.ts";
@@ -9,6 +10,7 @@ import { store } from "./store.ts";
 import { today } from "./taskChips.ts";
 import { toast } from "./toast.ts";
 import { cheer, openToday, shouldCelebrate } from "./todayDone.ts";
+import { gamified } from "./gamify.ts";
 
 const KEY = "todayCleared";
 const BOX = 'input[type="checkbox"], [role="checkbox"]';
@@ -33,7 +35,7 @@ export function watchTodayCleared() {
 
 function ticked() {
   const day = today();
-  if (store.get(KEY, "") === day) return;
+  if (!gamified() || store.get(KEY, "") === day) return; // no celebrations in a workspace that isn't gamified (gamify.ts)
   const spot = tickedBox();
   // Asked as the tick happens, before it reaches the note: how much Today had.
   const before = api.today(day).then(openToday, () => null);

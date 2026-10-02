@@ -91,7 +91,7 @@ test("typed questions: a people picker (members, or someone new), a date picker,
 });
 
 test("a people question offers the people @ knows, with the handle a task uses and a link to a contact's note", async () => {
-  const contact = (name: string, o: { email?: string[]; aliases?: string[] } = {}) => ({ ...emptyContact(name), ...o, path: `People/${name}.md`, id: name, mentions: 0, lastContacted: null });
+  const contact = (name: string, o: { email?: string[]; aliases?: string[] } = {}) => ({ ...emptyContact(name), ...o, path: `People/${name}.md`, id: name, mentions: 0, lastContacted: null, checkInDue: null });
   const member = (name: string, email: string) => ({ id: email, name, email });
   const offers = peopleOffers([contact("Jane Doe", { email: ["jane@acme.com"] }), contact("Tom Wu", { aliases: ["TW"] })], [member("Jane D.", "JANE@acme.com"), member("Sam Dev", "sam@x.org")]);
   // Jane is a member too (the same email): offered once, as her contact. Tom goes by his alias.

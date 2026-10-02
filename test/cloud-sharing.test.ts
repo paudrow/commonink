@@ -187,6 +187,24 @@ test("making a link view-only, or removing it, does the same for everyone who jo
   assert.deepEqual([await role(keeper), await role(direct)], [404, "viewer"]);
 });
 
+test("sharing a link again as view-only, or to run out sooner, does the same for everyone who joined it", async () => {
+  await cloud.call(t.owner, "POST", `${t.base}/note`, { path: "Reshared.md", content: "# Reshared\n" });
+  const made = await cloud.call(t.owner, "POST", `${t.base}/shares`, { path: "Reshared.md", link: true, role: "editor" });
+  const share = made.shares.find((s: { kind: string }) => s.kind === "link");
+  const keeper = await cloud.signIn("rekeeper");
+  await cloud.call(keeper, "POST", `/api/s/${share.url.split("/")[2]}/join`, {});
+  const id = (await cloud.call(t.owner, "GET", `${t.base}/notes`)).find((n: { path: string }) => n.path === "Reshared.md").id;
+  const role = async () => {
+    const r = await get(keeper, `${t.base}/shared/note?id=${id}`);
+    return r.status === 200 ? ((await r.json()) as { role: string }).role : r.status;
+  };
+  assert.equal(await role(), "editor");
+  await cloud.call(t.owner, "POST", `${t.base}/shares`, { path: "Reshared.md", link: true, role: "viewer" });
+  assert.equal(await role(), "viewer");
+  await cloud.call(t.owner, "POST", `${t.base}/shares`, { path: "Reshared.md", link: true, role: "viewer", expiresAt: Date.now() - 1000 });
+  assert.equal(await role(), 404);
+});
+
 test("an address several accounts share (Previews' developer sign-ins) is shared by address, and reaches whoever signs in with it", async () => {
   const twin = await cloud.signIn("twin");
   const env = await cloud.server.getWorker().getEnv();

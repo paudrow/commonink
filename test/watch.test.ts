@@ -48,3 +48,25 @@ for (const native of nativeHere ? [false, true] : [false]) {
     }
   });
 }
+
+test("with a watch on each folder, a folder deleted and made again at once is still watched", async () => {
+  const dir = tempVault({ "Notes/A.md": "# A\n" });
+  const r = recorder();
+  const w = watchTree(dir, (rel) => r.onChange(rel), false);
+  try {
+    await new Promise((ok) => setTimeout(ok, 100));
+    fs.rmSync(path.join(dir, "Notes"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "Notes"));
+    await new Promise((ok) => setTimeout(ok, 200));
+    fs.writeFileSync(path.join(dir, "Notes/B.md"), "# B\n");
+    assert.equal(await r.until("Notes/B.md"), true, "a note written into the new folder is seen");
+    fs.mkdirSync(path.join(dir, "Notes.new"));
+    fs.rmSync(path.join(dir, "Notes"), { recursive: true });
+    fs.renameSync(path.join(dir, "Notes.new"), path.join(dir, "Notes"));
+    await new Promise((ok) => setTimeout(ok, 200));
+    fs.writeFileSync(path.join(dir, "Notes/C.md"), "# C\n");
+    assert.equal(await r.until("Notes/C.md"), true, "and in a folder swapped in under the same name");
+  } finally {
+    w.close();
+  }
+});

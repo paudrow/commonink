@@ -100,9 +100,9 @@
           <button id="focus-btn" class="icon-btn" type="button" title="Focus mode (⌘⇧↵)" aria-label="Focus mode (⌘⇧↵)"><span class="ico" data-icon="focus"></span></button>
           <button id="panel-btn" class="icon-btn" type="button" title="Toggle side panel (⌘\)" aria-label="Toggle side panel (⌘\)"><span class="ico" data-icon="panel"></span></button>
         </header>
-        <div id="banner" hidden></div>
         <div id="stage">
           <div id="main-bar" class="pane-bar" hidden></div>
+          <div id="banner" class="banner" hidden></div>
           <div id="editor-host"></div>
           <div id="html-preview" hidden></div>
           <div id="notes-view" hidden tabindex="-1"></div>
@@ -117,6 +117,7 @@
           <div id="pane-divider" role="separator" aria-orientation="vertical" aria-label="Resize the panes" tabindex="0" hidden></div>
           <section id="side-pane" aria-label="Side pane" hidden>
             <div id="side-bar" class="pane-bar"></div>
+            <div id="side-banner" class="banner" hidden></div>
             <div id="side-host"></div>
             <div id="side-preview" hidden></div>
           </section>
@@ -127,7 +128,7 @@
           <span id="cursor-pos"></span>
           <span id="word-count"></span>
           <span class="spacer"></span>
-          <span id="conn" class="conn"></span>
+          <span id="conn" class="conn" role="status" title="Connecting to the server…" aria-label="Connecting to the server…"></span>
           <button id="codewrap-toggle" class="chip-btn" type="button" aria-pressed="false" hidden>Wrap code: on</button>
           <button id="vim-toggle" class="chip-btn" type="button" title="Vim keybindings in the editor" aria-pressed="false" hidden>Vim keys: off</button>
           <button id="theme-toggle" class="icon-btn small" type="button" title="Toggle theme" aria-label="Toggle theme"><span class="ico" data-icon="moon"></span></button>
