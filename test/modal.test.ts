@@ -1,10 +1,13 @@
-// The app's own dialogs in place of prompt(), confirm() and alert(): keys, focus, and what they resolve to.
+// The app's one modal shell, and its own dialogs in place of prompt(), confirm() and alert(): keys,
+// focus, and what they resolve to.
 import "./dom.ts";
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 
-const { askText, confirmAction, copyLink } = await import("../web/src/modal.ts");
+const { askText, confirmAction, copyLink, openModal } = await import("../web/src/modal.ts");
+const { pickTemplate } = await import("../web/src/templatePicker.ts");
 const { toast } = await import("../web/src/toast.ts");
+const { el } = await import("../web/src/dom.ts");
 
 const W = window as unknown as typeof globalThis & Window;
 const key = (k: string, init: KeyboardEventInit = {}) => (document.activeElement ?? document.body).dispatchEvent(new W.KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...init }));
@@ -12,14 +15,18 @@ const box = () => document.querySelector<HTMLElement>(".ask .ask-box");
 const button = (label: string) => [...box()!.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === label)!;
 const setClipboard = (writeText: (s: string) => Promise<void>) => Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
 
-afterEach(() => document.querySelectorAll(".ask, body > button").forEach((n) => n.remove()));
+afterEach(() => {
+  for (let i = 0; i < 5 && document.querySelector("[aria-modal]"); i++) key("Escape"); // each test's dialogs go, newest first
+  document.querySelectorAll("body > button").forEach((n) => n.remove());
+});
+const x = () => box()!.querySelector<HTMLButtonElement>(".modal-x")!;
 
 test("a confirm asks with a red button that has the focus; Esc calls it off and the focus goes back", async () => {
   const opener = document.body.appendChild(document.createElement("button"));
   opener.focus();
   const sure = confirmAction({ title: "Disconnect Claude?", body: "It stops working right away.", action: "Disconnect", danger: true });
   assert.equal(box()!.getAttribute("role"), "alertdialog");
-  assert.equal(box()!.getAttribute("aria-label"), "Disconnect Claude?");
+  assert.equal(document.getElementById(box()!.getAttribute("aria-labelledby")!)!.textContent, "Disconnect Claude?");
   assert.equal(document.getElementById(box()!.getAttribute("aria-describedby")!)!.textContent, "It stops working right away.");
   assert.equal(document.activeElement, button("Disconnect"));
   assert.ok(button("Disconnect").classList.contains("danger"));
@@ -32,8 +39,12 @@ test("a confirm asks with a red button that has the focus; Esc calls it off and 
 test("a confirm's button says yes; Tab goes round the dialog's buttons without leaving", async () => {
   const sure = confirmAction({ title: "Merge #a into #b?", action: "Merge" });
   assert.ok(button("Merge").classList.contains("primary"));
+  assert.deepEqual([...box()!.querySelectorAll(".ask-actions button")].map((b) => b.textContent), ["Cancel", "Merge"]);
+  key("Tab");
+  assert.equal(document.activeElement, x());
   key("Tab");
   assert.equal(document.activeElement, button("Cancel"));
+  key("Tab", { shiftKey: true });
   key("Tab", { shiftKey: true });
   assert.equal(document.activeElement, button("Merge"));
   button("Merge").click();
@@ -97,4 +108,45 @@ test("with a dialog over a dialog, Esc calls off only the one on top", async () 
   assert.equal(document.querySelectorAll(".ask").length, 1);
   key("Escape");
   assert.equal(await under, false);
+});
+
+test("every dialog closes with its X or a click outside, and gives the focus back", () => {
+  const opener = document.body.appendChild(document.createElement("button"));
+  opener.focus();
+  let closed = 0;
+  openModal({ title: "Keyboard shortcuts", content: [], onClose: () => closed++ });
+  assert.equal(box()!.getAttribute("role"), "dialog");
+  assert.equal(box()!.getAttribute("aria-modal"), "true");
+  assert.equal(document.activeElement, box());
+  assert.equal(box()!.querySelector(".ask-actions"), null, "nothing to do, no footer");
+  x().click();
+  assert.equal(box(), null);
+  assert.equal(document.activeElement, opener);
+  openModal({ title: "Settings", content: [], onClose: () => closed++ });
+  document.querySelector(".ask")!.dispatchEvent(new W.MouseEvent("mousedown", { bubbles: true }));
+  assert.equal(box(), null);
+  assert.equal(document.activeElement, opener);
+  assert.equal(closed, 2);
+});
+
+test("a dialog opened with the id of an open one takes its place, and the focus goes back where the first found it", () => {
+  const opener = document.body.appendChild(document.createElement("button"));
+  opener.focus();
+  openModal({ title: "Connected agents", content: [el("button", {}, "Revoke")], id: "agents-page" });
+  button("Revoke").focus();
+  openModal({ title: "Design", content: [], id: "agents-page" });
+  assert.deepEqual([...document.querySelectorAll("#agents-page h2")].map((h) => h.textContent), ["Design"]);
+  key("Escape");
+  assert.equal(document.querySelector("#agents-page"), null);
+  assert.equal(document.activeElement, opener);
+});
+
+test("the template picker is the same shell: an X, Esc calls it off, and Tab stays inside", async () => {
+  const picked = pickTemplate([], "New note from template");
+  assert.ok(x());
+  for (let i = 0; i < 4; i++) key("Tab");
+  assert.ok(box()!.contains(document.activeElement));
+  key("Escape");
+  assert.equal(await picked, null);
+  assert.equal(box(), null);
 });

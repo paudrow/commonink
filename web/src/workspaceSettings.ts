@@ -3,7 +3,7 @@
 // (gamify.ts) on and off, read what changed, and delete a team workspace (typing its name first).
 import { api, type Me, type WorkspaceInvite, type WorkspaceLogEntry, type WorkspaceMember } from "./api.ts";
 import { el, icon, timeAgo } from "./dom.ts";
-import { ask, copyLink } from "./modal.ts";
+import { ask, copyLink, openModal } from "./modal.ts";
 import { gamified, setGamified } from "./gamify.ts";
 
 type Workspace = Me["workspaces"][number];
@@ -19,24 +19,10 @@ function goHome() {
 const ROLE_NOTE = { owner: "can do everything, including inviting and removing people", editor: "can read and edit notes", viewer: "can read notes" };
 
 export async function showWorkspaceSettings(ws: Workspace, me: Me["user"], toast: (t: { text: string; icon?: string }) => void) {
-  document.querySelector("#agents-page")?.remove();
   const owner = ws.role === "owner";
   const team = ws.kind === "team";
   const body = el("div", { class: "ws-settings" }, el("p", { class: "agents-empty" }, "Loading…"));
-  const close = () => (page.remove(), document.removeEventListener("keydown", onKey));
-  const onKey = (e: KeyboardEvent) => e.key === "Escape" && !document.querySelector(".ask") && close();
-  const page = el(
-    "div",
-    { id: "agents-page", onmousedown: (e: Event) => e.target === page && close() },
-    el(
-      "div",
-      { class: "agents-box", role: "dialog", "aria-label": "Workspace settings" },
-      el("div", { class: "agents-head" }, icon("sliders", 16), el("h2", {}, ws.name), el("button", { class: "icon-btn small", type: "button", title: "Close", onclick: close }, icon("close", 15))),
-      body,
-    ),
-  );
-  document.addEventListener("keydown", onKey);
-  document.body.append(page);
+  const { page } = openModal({ title: ws.name, icon: "sliders", content: [body], id: "agents-page", pageClass: "", boxClass: "agents-box", headClass: "agents-head" });
 
   const failed = (e: unknown) => toast({ text: e instanceof Error ? e.message : "That didn't work" });
 

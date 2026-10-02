@@ -3,19 +3,13 @@
 // Locally: the command or JSON that connects one to this vault.
 import { api, type ConnectedAgent } from "./api.ts";
 import { localSteps } from "./connectAgent.ts";
-import { el, icon, timeAgo } from "./dom.ts";
-import { confirmAction, trapKeys } from "./modal.ts";
+import { el, timeAgo } from "./dom.ts";
+import { confirmAction, openModal } from "./modal.ts";
 
 export async function showAgents() {
-  document.querySelector("#agents-page")?.remove();
-  const back = document.activeElement as HTMLElement | null;
   const info = await api.info().catch(() => null);
   const local = info?.mode === "local" ? info : null;
   const list = el("div", { class: "agents-list" }, el("p", { class: "agents-empty" }, "Loading…"));
-  const close = () => {
-    page.remove();
-    if (back?.isConnected) back.focus({ preventScroll: true });
-  };
   const how = local
     ? el("div", { class: "agents-how qw-guide-how" }, el("p", {}, "Agents on this computer read and edit this vault over MCP. Their edits show up here live, with their names on them."), ...localSteps(local))
     : el(
@@ -25,23 +19,16 @@ export async function showAgents() {
         el("code", {}, `${location.origin}/mcp`),
         " as a custom connector (MCP server) in Claude, Cursor or any MCP client. It signs you in here and asks which workspace to use.",
       );
-  const box = el(
-    "div",
-    { class: "agents-box", role: "dialog", "aria-modal": "true", "aria-labelledby": "agents-title", tabindex: "-1" },
-    el(
-      "div",
-      { class: "agents-head" },
-      icon("link", 16),
-      el("h2", { id: "agents-title" }, local ? "Connect an agent" : "Connected agents"),
-      el("button", { class: "icon-btn small", type: "button", "aria-label": "Close", title: "Close (Esc)", onclick: close }, icon("close", 15)),
-    ),
-    how,
-    local ? null : list,
-  );
-  const page = el("div", { id: "agents-page", onmousedown: (e: Event) => e.target === page && close() }, box);
-  trapKeys(page, box, close);
-  document.body.append(page);
-  box.focus();
+  openModal({
+    title: local ? "Connect an agent" : "Connected agents",
+    icon: "link",
+    content: [how, local ? null : list],
+    id: "agents-page",
+    pageClass: "",
+    boxClass: "agents-box",
+    headClass: "agents-head",
+    titleId: "agents-title",
+  });
   if (local) return;
 
   const render = async () => {

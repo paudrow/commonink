@@ -1,7 +1,10 @@
-// Modal dialogs: the app's own ask, confirm, text prompt and "here's the link" in place of the
-// browser's prompt(), confirm() and alert(), so they look like the rest of the app, follow dark
-// mode, don't block the page, and work from the keyboard and with a screen reader. Esc or a click
-// outside calls a dialog off, Tab stays inside it, and the focus goes back where it was after.
+// Modal dialogs, all one shell: a title with an X in the header, Esc or a click outside closes it,
+// Tab and Shift-Tab stay inside it, the focus goes back where it was after, and a footer (when it
+// has one) is Cancel and then the main button. Settings, Shortcuts, Agents, Workspace settings,
+// Share, Calendar, the template picker, Print and the questions below are all this. The questions
+// are the app's own ask, confirm, text prompt and "here's the link", in place of the browser's
+// prompt(), confirm() and alert(): they look like the rest of the app, follow dark mode, don't
+// block the page, and work from the keyboard and with a screen reader.
 import { el, icon } from "./dom.ts";
 import { IS_MAC } from "./panes.ts";
 
@@ -16,15 +19,107 @@ function cycle(box: HTMLElement, e: KeyboardEvent) {
   stops[next]?.focus();
 }
 
-/** A modal dialog's keys: Esc closes it, and Tab and Shift-Tab go round its controls without leaving. */
-export function trapKeys(page: HTMLElement, box: HTMLElement, close: () => void) {
-  page.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
+export interface ModalOptions {
+  /** The header's title, and what a screen reader calls the dialog. */
+  title: string;
+  icon?: string;
+  /** More in the header, before the X (a shortcut, a help button). */
+  head?: Array<Node | null>;
+  content: Array<Node | null>;
+  /** The footer's buttons after Cancel, the main one last. With none, there's no footer: the X closes it. */
+  actions?: HTMLElement[];
+  /** Cancel's label ("Done" where there's nothing to call off). */
+  cancel?: string;
+  /** The backdrop's id. Opening a dialog with the id of one that's open replaces it. */
+  id?: string;
+  /** Each dialog's own look: the backdrop's, the box's and the header's classes. */
+  pageClass?: string;
+  boxClass?: string;
+  headClass?: string;
+  role?: "dialog" | "alertdialog";
+  titleId?: string;
+  describedBy?: string;
+  /** Takes the keyboard first; else the box itself. */
+  focus?: HTMLElement;
+  /** Escape here is the field's own (a rename being typed), not the dialog's. */
+  ownsEscape?(target: Element): boolean;
+  /** Called off: the X, Cancel, Esc or a click outside. Unless given, that just closes it. */
+  onDismiss?(): void;
+  /** It went, however it went. */
+  onClose?(): void;
+}
+
+export interface Modal {
+  page: HTMLElement;
+  box: HTMLElement;
+  close(): void;
+}
+
+interface Live extends Modal {
+  back: HTMLElement | null;
+}
+
+/** Open dialogs, the newest last: only the newest hears the keys. */
+const stack: Live[] = [];
+let made = 0;
+
+export function openModal(o: ModalOptions): Modal {
+  let back = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
+  const old = o.id ? stack.find((m) => m.page.id === o.id) : undefined;
+  if (old) {
+    back = old.back; // in its place, so the focus goes back where the first one found it
+    old.back = null;
+    old.close();
+  }
+  const titleId = o.titleId ?? `modal-title-${++made}`;
+  const dismiss = () => (o.onDismiss ? o.onDismiss() : me.close());
+  const onKey = (e: KeyboardEvent) => {
+    if (stack.at(-1) !== me) return; // a dialog over this one has the keys
+    if (e.key === "Escape" && !o.ownsEscape?.(e.target as Element)) {
       e.preventDefault();
       e.stopPropagation();
-      close();
-    } else if (e.key === "Tab") cycle(box, e);
-  });
+      dismiss();
+    } else if (e.key === "Tab") {
+      e.stopPropagation();
+      cycle(box, e);
+    }
+  };
+  const footer = o.actions?.length || o.cancel ? el("div", { class: "ask-actions" }, el("button", { type: "button", class: "qw-btn", onclick: dismiss }, o.cancel ?? "Cancel"), ...(o.actions ?? [])) : null;
+  const box = el(
+    "div",
+    { class: o.boxClass ?? "ask-box", role: o.role ?? "dialog", "aria-modal": "true", "aria-labelledby": titleId, "aria-describedby": o.describedBy, tabindex: "-1" },
+    el(
+      "div",
+      { class: o.headClass ?? "modal-head" },
+      o.icon ? icon(o.icon, 16) : null,
+      el("h2", { id: titleId }, o.title),
+      ...(o.head ?? []),
+      el("button", { class: "icon-btn small modal-x", type: "button", title: "Close (Esc)", "aria-label": "Close", onclick: dismiss }, icon("close", 15)),
+    ),
+    ...o.content,
+    footer,
+  );
+  const page = el("div", { id: o.id, class: o.pageClass ?? "ask", onmousedown: (e: MouseEvent) => e.target === page && dismiss() }, box);
+  const me: Live = {
+    page,
+    box,
+    back,
+    close() {
+      const at = stack.indexOf(me);
+      if (at < 0) return;
+      stack.splice(at, 1);
+      page.remove();
+      document.removeEventListener("keydown", onKey, true);
+      if (me.back?.isConnected) me.back.focus({ preventScroll: true });
+      o.onClose?.();
+    },
+  };
+  stack.push(me);
+  // Ours are the first keys to hear about: nothing under the dialog sees Esc or Tab while it's up.
+  document.addEventListener("keydown", onKey, true);
+  document.body.append(page);
+  (o.focus ?? box).focus();
+  return me;
 }
 
 export interface AskAction {
@@ -43,54 +138,30 @@ export interface AskOptions {
   cancel?: string;
 }
 
-let asked = 0;
-
 /** Draw an ask dialog; its buttons, and what it resolves to. */
-function open(o: AskOptions): { box: HTMLElement; buttons: HTMLButtonElement[]; result: Promise<string | null> } {
-  let done!: (v: string | null) => void;
-  const result = new Promise<string | null>((resolve) => {
-    const back = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    done = (v) => {
-      if (!overlay.isConnected) return;
-      overlay.remove();
-      document.removeEventListener("keydown", onKey, true);
-      if (back?.isConnected) back.focus();
-      resolve(v);
-    };
-  });
-  // Ours are the first keys to hear about: nothing under the dialog sees Esc or Tab while it's up.
-  // With a dialog over this one, they're the newer one's.
-  const onKey = (e: KeyboardEvent) => {
-    if (overlay !== [...document.querySelectorAll(".ask")].at(-1)) return;
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      done(null);
-    } else if (e.key === "Tab") {
-      e.stopPropagation();
-      cycle(box, e);
-    }
-  };
+function open(o: AskOptions & { extra?: HTMLElement[] }): { box: HTMLElement; buttons: HTMLButtonElement[]; result: Promise<string | null> } {
+  let resolve!: (v: string | null) => void;
+  const result = new Promise<string | null>((r) => (resolve = r));
+  const done = (v: string | null) => (m.close(), resolve(v));
   const buttons = o.actions.map((a) => el("button", { type: "button", class: `qw-btn${a.kind ? ` ${a.kind}` : ""}`, onclick: () => done(a.value) }, a.label));
   const said = o.body.find((b) => typeof b === "string");
-  const saidId = `ask-said-${++asked}`;
-  const box = el(
-    "div",
-    { class: "ask-box", role: "alertdialog", "aria-modal": "true", "aria-label": o.title, "aria-describedby": said ? saidId : undefined },
-    el("h2", {}, o.title),
-    ...o.body.map((b) => (typeof b === "string" ? el("p", { id: b === said ? saidId : undefined }, b) : b)),
-    el("div", { class: "ask-actions" }, el("button", { type: "button", class: "qw-btn", onclick: () => done(null) }, o.cancel ?? "Cancel"), ...buttons),
-  );
-  const overlay = el("div", { class: "ask", onmousedown: (e: MouseEvent) => e.target === overlay && done(null) }, box);
-  document.body.append(overlay);
-  document.addEventListener("keydown", onKey, true);
-  (o.focus ?? buttons.find((b) => b.classList.contains("primary")) ?? buttons[0])?.focus();
-  return { box, buttons, result };
+  const saidId = `ask-said-${++made}`;
+  const m = openModal({
+    title: o.title,
+    role: "alertdialog",
+    describedBy: said ? saidId : undefined,
+    content: o.body.map((b) => (typeof b === "string" ? el("p", { id: b === said ? saidId : undefined }, b) : b)),
+    actions: [...buttons, ...(o.extra ?? [])],
+    cancel: o.cancel ?? "Cancel",
+    focus: o.focus ?? buttons.find((b) => b.classList.contains("primary")) ?? buttons[0],
+    onDismiss: () => done(null),
+  });
+  return { box: m.box, buttons, result };
 }
 
 /**
  * A small modal with a message and buttons. Resolves to the chosen button's value, or null on
- * Cancel, Escape or a click outside.
+ * Cancel, the X, Escape or a click outside.
  */
 export function ask(o: AskOptions): Promise<string | null> {
   return open(o).result;
@@ -146,13 +217,12 @@ async function copyText(text: string, field?: HTMLInputElement): Promise<boolean
 export async function showLink(o: { title: string; url: string; note?: string }): Promise<void> {
   const field = el("input", { type: "text", value: o.url, readonly: true, "aria-label": "Link", spellcheck: "false", onfocus: () => field.select() });
   const copy = el("button", { type: "button", class: "qw-btn primary" }, icon("copy", 14), "Copy");
-  const { box, result } = open({ title: o.title, body: [...(o.note ? [o.note] : []), field], actions: [], cancel: "Done", focus: field });
-  box.querySelector(".ask-actions")!.append(copy);
   copy.addEventListener("click", async () => {
     const ok = await copyText(o.url, field);
     copy.replaceChildren(icon(ok ? "check" : "copy", 14), ok ? "Copied" : `Press ${IS_MAC ? "⌘C" : "Ctrl+C"} to copy`);
     if (!ok) field.select();
   });
+  const { result } = open({ title: o.title, body: [...(o.note ? [o.note] : []), field], actions: [], extra: [copy], cancel: "Done", focus: field });
   field.select();
   await result;
 }
