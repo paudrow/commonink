@@ -2506,8 +2506,24 @@ Vim.defineEx("edit", "e", (_cm: unknown, params: { args?: string[] }) => {
 Vim.defineEx("archive", "arch", () => void archiveCurrent());
 // Not :delete, which is Vim's own (:d deletes lines).
 Vim.defineEx("trash", "trash", () => void deleteCurrent());
+Vim.defineEx("unarchive", "unarch", () => active.session && isArchived(active.session.path) && void archiveCurrent());
 Vim.defineEx("notes", "note", () => void showNotes());
 Vim.defineEx("calendar", "cal", () => void showCalendar());
+Vim.defineEx("tasks", "tasks", () => void showTasks());
+Vim.defineEx("tags", "tags", () => void showTags());
+Vim.defineEx("history", "hist", () => void showHistory());
+Vim.defineEx("assets", "assets", () => void showAssets());
+Vim.defineEx("contacts", "con", () => void showContacts());
+// :move Projects/Acme files the note there (any case; / is the top level); :move alone opens the folder picker.
+Vim.defineEx("move", "mo", (_cm: unknown, params: { args?: string[] }) => {
+  const s = active.session;
+  if (!s) return;
+  const arg = params.args?.join(" ").trim().replace(/^\/+|\/+$/g, "");
+  if (arg === undefined) return void setTimeout(() => openMovePicker($("#move-btn")));
+  const folder = arg === "" ? "" : allFolders().find((f) => f.toLowerCase() === arg.toLowerCase());
+  if (folder === undefined) return void toast({ text: `No folder named ${arg}` });
+  void moveToFolder(s.path, folder);
+});
 // After vim puts the focus back in the editor, so the name prompt keeps it.
 Vim.defineEx("rename", "ren", () => setTimeout(() => void renameNote()));
 Vim.defineEx("star", "star", () => active.session && void toggleStar(active.session.path));
