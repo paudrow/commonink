@@ -36,7 +36,7 @@ test("several tags all have to match, however they're written", () => {
     assert.deepEqual(parseQuery(src), { tag: "work,plan" }, src);
     assert.equal(queryProblem(src), null, src);
   }
-  assert.equal(formatQuery(parseQuery("tag=work tag=Work tag=plan")), "tag=work,plan");
+  assert.equal(formatQuery(parseQuery("tag=work tag=Work tag=plan")), 'tag="work,plan"');
   assert.equal(queryProblem("tag=work,27"), '"27" isn\'t a tag: use letters, numbers, - and _, nested with /');
 });
 

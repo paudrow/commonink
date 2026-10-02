@@ -730,7 +730,7 @@ test("a smart folder can need several tags, a folder with spaces, and sort by ea
   vault.create("Health and Fitness/Gym plan", "---\ncreated: 2023-01-05\n---\n# Gym plan\n\n#health\n", "t");
   vault.create("Journal/2024-12-24", "#journal/daily\n", "t");
   const both = vault.saveSmartFolder("ana", { name: "Health journal", query: "tag=health tag=journal sort=date", shared: true }, true);
-  assert.equal(both.query, "tag=health,journal sort=date");
+  assert.equal(both.query, 'tag="health,journal" sort=date');
   assert.equal(both.count, 2);
   const titles = (query: string) => vault.feed({ ...parseQuery(query), limit: 50 }).items.map((i) => i.title);
   assert.deepEqual(titles(both.query), ["Swim", "Run log"]);
@@ -738,6 +738,7 @@ test("a smart folder can need several tags, a folder with spaces, and sort by ea
   // A nested tag counts toward its parent, as it does for one tag.
   assert.deepEqual(titles("tag=journal sort=date"), ["Swim", "2024-12-24", "Run log"]);
   assert.equal(vault.saveSmartFolder("ana", { name: "Health", query: 'folder="Health and Fitness"', shared: true }, true).count, 3);
+  assert.deepEqual(vault.list(undefined, "active", "health,journal").map((n) => n.title), ["Swim", "Run log"]);
 });
 
 test("starring and unstarring a tag only touches Favorites, never a smart folder with that tag's query", () => {

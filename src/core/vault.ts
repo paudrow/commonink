@@ -584,8 +584,9 @@ export class Vault {
    */
   list(folder?: string, scope: ArchiveScope = "active", tag?: string): NoteMeta[] {
     let rows = this.db.all<NoteMeta>(`SELECT ${META_COLS} FROM notes ORDER BY path COLLATE NOCASE`);
-    if (tag !== undefined) {
-      const on = new Set(this.tagged(tag).map((r) => r.path));
+    // Several tags (`work,plan`): the notes with every one.
+    for (const t of tag === undefined ? [] : tagList(tag).length ? tagList(tag) : [tag]) {
+      const on = new Set(this.tagged(t).map((r) => r.path));
       rows = rows.filter((r) => on.has(r.path));
     }
     if (!folder) return rows.filter((r) => inScope(r.path, scope));
