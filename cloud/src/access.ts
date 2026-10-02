@@ -155,6 +155,8 @@ export const ACCOUNT_ROUTES = [
   "GET /api/unfurl",
   "GET /api/note-ids/*",
   "POST /api/sign-out-everywhere",
+  "GET /api/me/delete",
+  "POST /api/me/delete",
   "GET /api/agents",
   "POST /api/agents/revoke",
   "GET /api/shared",

@@ -3086,7 +3086,7 @@ async function boot() {
     useWorkspace(`/api/w/${ws.id}`, `/api/w/${ws.id}/live`);
     setSelfName(who.me.user.name);
     api.reportTimeZone().catch(() => {}); // unreported, agents use the owner's zone, or UTC
-    account = renderAccount(who.me, ws, (t) => toast(t));
+    account = renderAccount(who.me, ws, (t) => toast(t), () => exportZip({ all: true }));
     $("#shared-btn").hidden = false;
     setShareWithPeople({ label: "Share with people…", icon: "share-people", run: (note) => openShareDialog({ path: note.path }) });
     void refreshShares();
