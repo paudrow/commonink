@@ -28,7 +28,7 @@ export interface Command {
   run: () => unknown;
 }
 
-export type Page = "notes" | "tasks" | "calendar" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash" | "shared";
+export type Page = "today" | "notes" | "tasks" | "calendar" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash" | "shared";
 
 /** What the registry needs from the app: a snapshot of its state, and the actions to run. */
 export interface App {
@@ -109,6 +109,8 @@ export interface App {
   saveToDrive(): void;
   /** Every note and file, as a .zip. */
   exportWorkspace(): void;
+  /** Markdown files or a .zip of them (an Obsidian vault, an export), brought in at once. */
+  importNotes(): void;
   settings(): void;
   /** Online, the Connected agents dialog; locally, how to connect one to this vault. */
   connectAgent(): void;
@@ -133,6 +135,7 @@ export function appCommands(app: App): Command[] {
     { id: "new-tag", title: "New tag", keywords: "create add label hashtag", icon: "hash", available: app.canDelete, run: app.newTag },
     { id: "new-smart-folder", title: "New smart folder", keywords: "create add saved search query filter view", icon: "folderSearch", run: app.newSmartFolder },
     { id: "quick-add", title: "Add a task", keywords: "quick add todo new task", icon: "task", keys: ["Mod-Shift-."], area: "Tasks", run: app.quickAdd },
+    go("today", "Today", "sun", "day agenda due overdue journal streak writing"),
     go("notes", "Notes", "feed", "home all"),
     { id: "filter-notes", title: "Filter notes", keywords: "search find notes page", icon: "search", keys: ["Mod-Shift-f"], run: app.filterNotes },
     go("tasks", "Tasks", "task", "todo checklist"),
@@ -177,6 +180,7 @@ export function appCommands(app: App): Command[] {
     { id: "export-docx", title: "Export as Word", keywords: "save download docx word document office google docs", icon: "file", available: note?.kind === "md", run: () => app.exportAs("docx") },
     { id: "save-to-drive", title: "Save to Google Drive…", keywords: "google drive docs doc pdf upload cloud save", icon: "drive", available: note?.kind === "md" && app.online, run: app.saveToDrive },
     { id: "export-workspace", title: "Export all notes (.zip)", keywords: "export download backup zip everything workspace vault obsidian take out", icon: "download", run: app.exportWorkspace },
+    { id: "import-notes", title: "Import notes (.md or .zip)…", keywords: "import upload bring in migrate move obsidian vault zip markdown files bulk many", icon: "upload", available: app.canDelete, run: app.importNotes },
     { id: "back", title: "Go back", keywords: "previous history return last note ctrl-o", icon: "back", keys: ["Mod-["], available: app.canBack, run: app.back },
     { id: "forward", title: "Go forward", keywords: "next history ctrl-i", icon: "chevron", keys: ["Mod-]"], available: app.canForward, run: app.forward },
     { id: "follow-link", title: "Follow link", keywords: "open link under the cursor gd go to", icon: "link", area: "Editor", available: app.onLink, run: app.followLink },
@@ -245,6 +249,7 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: [":move folder"], label: "Move the note to a folder (:move alone picks one)", area: "Vim" },
   { keys: [":trash"], label: "Delete the note (to Trash)", area: "Vim" },
   { keys: [":notes"], label: "Go to Notes", area: "Vim" },
+  { keys: [":today"], label: "Go to Today", area: "Vim" },
   { keys: [":tasks", ":calendar", ":contacts"], label: "Go to Tasks / Calendar / Contacts", area: "Vim" },
   { keys: [":tags", ":assets", ":history"], label: "Go to Tags / Assets / History", area: "Vim" },
   { keys: [":focus"], label: "Focus mode", area: "Vim" },

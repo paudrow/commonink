@@ -56,6 +56,18 @@ test("OAuth client registrations are limited per network address", async () => {
   assert.equal(await statuses(21, register), "201×20, 429×1");
 });
 
+test("a working share link isn't limited, however many requests its page makes; tries at links that don't work are", async () => {
+  const sharer = await cloud.signIn("sharer");
+  const { id } = await cloud.call(sharer, "POST", "/api/workspaces", { name: "Shared" });
+  await cloud.call(sharer, "POST", `/api/w/${id}/note`, { path: "Index.md", content: "# Index\n" });
+  const made = await cloud.call(sharer, "POST", `/api/w/${id}/shares`, { path: "Index.md", link: true, role: "viewer" });
+  const token: string = made.shares.find((s: { kind: string }) => s.kind === "link").url.split("/")[2];
+  const from = (t: string) => cloud.request(null, "GET", `/api/s/${t}/list`, undefined, { "CF-Connecting-IP": "203.0.113.80" });
+  assert.equal(await statuses(320, () => from(token)), "200×320", "one office opening a big index note, again and again");
+  assert.equal(await statuses(301, (i) => from(i.toString(16).padStart(64, "0"))), "404×300, 429×1");
+  assert.equal((await from(token)).status, 429, "past the limit, a working link is refused too, so a right guess looks like a wrong one");
+});
+
 /** A body sent without a length: `mb` megabytes, then the end, or (with `forever`) nothing more, ever. */
 function chunked(mb: number, forever = false) {
   const chunk = new Uint8Array(1024 * 1024).fill(120);

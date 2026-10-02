@@ -64,6 +64,7 @@ const app = (over: Partial<App> = {}): App => {
     exportAs: (how) => void ran.push(`export:${how}`),
     saveToDrive: run("saveToDrive"),
     exportWorkspace: run("exportWorkspace"),
+    importNotes: run("importNotes"),
     settings: run("settings"),
     connectAgent: run("connectAgent"),
     back: run("back"),
@@ -273,4 +274,11 @@ test("the calendar is a page to go to, a feed to subscribe to (not for viewers) 
   assert.deepEqual(ran.slice(-3), ["go:calendar", "subscribeCalendar", "refreshCalendars"]);
   const keys = shortcutSheet(appCommands(app())).find((s) => s.area === "Calendar")!.shortcuts.map((s) => s.keys.join(" "));
   assert.deepEqual(keys.slice(0, 4), ["t", "j n", "k p", "m w d a"]);
+});
+
+test("Today is a page to go to, from the palette or :today", () => {
+  assert.equal(titles("today", app())[0], "Go to Today");
+  appCommands(app()).find((c) => c.id === "go:today")!.run();
+  assert.equal(ran.at(-1), "go:today");
+  assert.ok(shortcutSheet(appCommands(app())).find((s) => s.area === "Vim")!.shortcuts.some((s) => s.keys.includes(":today")));
 });

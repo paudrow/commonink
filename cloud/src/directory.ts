@@ -148,11 +148,12 @@ export async function inviteIsValid(db: D1Database, token: string) {
   return !!(await inviteInfo(db, token));
 }
 
-/** What an invite link is for, if it's still good: the workspace and the role it gives. */
+/** What an invite link is for, if it's still good (and whoever made it still owns the workspace): the workspace and the role it gives. */
 export async function inviteInfo(db: D1Database, token: string) {
   return db
     .prepare(
       `SELECT i.workspace_id AS workspaceId, w.name AS workspaceName, i.role FROM invites i JOIN workspaces w ON w.id = i.workspace_id
+       JOIN members m ON m.workspace_id = i.workspace_id AND m.user_id = i.created_by AND m.role = 'owner'
        WHERE i.token = ? AND i.expires_at >= ? AND i.used_at IS NULL`,
     )
     .bind(await inviteKey(token), Date.now())
