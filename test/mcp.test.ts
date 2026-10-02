@@ -35,7 +35,7 @@ test("the server lists every tool", async () => {
     "add_card", "add_task", "append_to_note", "archive_note", "backlinks", "create_contact", "create_from_template", "create_meeting_note", "create_note",
     "delete_folder", "delete_note", "delete_smart_folder", "diff_versions", "edit_card", "edit_note", "export_note", "get_event", "get_today",
     "import_contacts", "label_version", "list_contacts", "list_events", "list_folders", "list_labels", "list_notes", "list_smart_folders", "list_tags",
-    "list_tasks", "list_templates", "list_trash", "merge_contacts", "move_card", "move_note", "move_task", "open_journal", "order_favorites",
+    "list_tasks", "list_templates", "list_trash", "merge_contacts", "missing_links", "move_card", "move_note", "move_task", "open_journal", "order_favorites",
     "read_board", "read_contact", "read_note", "recent_changes", "remove_task", "rename_tag", "restore_change", "restore_from_trash", "restore_label",
     "save_smart_folder", "search_notes", "set_asset_tags", "show_change", "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag",
     "update_contact", "update_task", "write_note",
@@ -146,7 +146,7 @@ test("agents save smart folders, list them with counts and list the notes in one
   const saved = await call("save_smart_folder", { name: "Q3", query: "tag=q3 sort=title" });
   assert.match(saved.text, /^- Q3 \(1 note, shared\): tag=q3 sort=title \[[a-z2-9]{8}\]$/);
   assert.equal((await call("list_notes", { smart_folder: "q3" })).text, "- Projects/Roadmap.md — Roadmap");
-  assert.equal((await call("save_smart_folder", { name: "Bad", query: "sort=size" })).text, '"sort" is modified or title, not "size"');
+  assert.equal((await call("save_smart_folder", { name: "Bad", query: "sort=size" })).text, '"sort" is modified, date, oldest or title, not "size"');
   assert.equal((await call("delete_smart_folder", { smart_folder: "Q3" })).text, "No smart folders.");
 });
 

@@ -72,8 +72,8 @@ export interface Output {
 /** The bytes of files in the vault, for the commands that move whole files in and out. */
 export interface VaultBytes {
   read(rel: string): Promise<Uint8Array | null>;
-  /** Store a new file's bytes at `rel`, index it, and log `source` as having added it. */
-  add(rel: string, bytes: Uint8Array, source: string): Promise<void>;
+  /** Store a new file's bytes at the free path `free()` picks (asked again if another upload took it meanwhile), index it, log `source` as having added it, and say where it went. */
+  add(free: () => string, bytes: Uint8Array, source: string): Promise<string>;
 }
 
 /** Where a command runs: the vault, and who's asking. */

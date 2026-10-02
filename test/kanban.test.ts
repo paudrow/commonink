@@ -176,6 +176,17 @@ test("a plain list item moved into Done gets a ticked box, so it counts as done"
   assert.equal(moveCard(one, 3, { board: 0, column: 1 }, 1, TODAY), `x\n:::kanban\n## To do\n## Done\n- [x] Call Sam done:${TODAY}\n- [x] Ship it done:${TODAY}\n:::\n`);
 });
 
+test("a numbered task is a card with its box: ticked and unticked in place, its number kept", () => {
+  const md = ":::kanban\n## Todo\n1. [ ] Num #work\n2) [x] Old\n## Done\n:::\n";
+  const [todo] = boardsIn(md)[0].columns;
+  assert.deepEqual(todo.cards.map((c) => [c.checked, c.text]), [[false, "Num #work"], [true, "Old"]]);
+  const done = moveCard(md, 2, { board: 0, column: 1 }, 0, TODAY);
+  assert.equal(done, `:::kanban\n## Todo\n2) [x] Old\n## Done\n1. [x] Num #work done:${TODAY}\n:::\n`);
+  assert.equal(moveCard(done, 4, { board: 0, column: 0 }, 0, TODAY), ":::kanban\n## Todo\n1. [ ] Num #work\n2) [x] Old\n## Done\n:::\n");
+  assert.equal(checkCard(md, 3, false, TODAY), ":::kanban\n## Todo\n1. [ ] Num #work\n2) [ ] Old\n## Done\n:::\n");
+  assert.equal(editCard(md, 2, "Renamed"), ":::kanban\n## Todo\n1. [ ] Renamed\n2) [x] Old\n## Done\n:::\n");
+});
+
 test("Windows line endings survive every change", () => {
   const crlf = NOTE.replace(/\n/g, "\r\n");
   const moved = moveCard(crlf, lineOf(crlf, "Stripe billing"), { board: 0, column: 2 }, 0, TODAY);
