@@ -4,7 +4,7 @@
 // that says one was earned. It redraws as seals are earned, and closes if an owner turns rewards off.
 import { el, icon } from "./dom.ts";
 import { gamified, onGamified } from "./gamify.ts";
-import { trapKeys } from "./modal.ts";
+import { openModal } from "./modal.ts";
 import { sealProgress, sealsFor } from "./seals.ts";
 import { onSeals, sealState } from "./sealUnlocks.ts";
 
@@ -28,30 +28,18 @@ function grid(): HTMLElement[] {
 }
 
 export function showSeals() {
-  document.querySelector("#seals-page")?.remove();
   if (!gamified()) return;
-  const back = document.activeElement as HTMLElement | null;
   const body = el("div", { class: "seal-body" }, ...grid());
-  const stop = [onSeals(() => body.replaceChildren(...grid())), onGamified((on) => !on && close())];
-  const close = () => {
-    stop.forEach((f) => f());
-    page.remove();
-    if (back?.isConnected) back.focus({ preventScroll: true });
-  };
-  const box = el(
-    "div",
-    { class: "agents-box", role: "dialog", "aria-modal": "true", "aria-labelledby": "seals-title", tabindex: "-1" },
-    el(
-      "div",
-      { class: "agents-head" },
-      icon("spark", 16),
-      el("h2", { id: "seals-title" }, "Your seals"),
-      el("button", { class: "icon-btn small", type: "button", "aria-label": "Close", title: "Close (Esc)", onclick: close }, icon("close", 15)),
-    ),
-    body,
-  );
-  const page = el("div", { id: "seals-page", onmousedown: (e: Event) => e.target === page && close() }, box);
-  trapKeys(page, box, close);
-  document.body.append(page);
-  box.focus();
+  const stop = [onSeals(() => body.replaceChildren(...grid())), onGamified((on) => !on && modal.close())];
+  const modal = openModal({
+    title: "Your seals",
+    icon: "spark",
+    content: [body],
+    id: "seals-page",
+    pageClass: "",
+    boxClass: "agents-box",
+    headClass: "agents-head",
+    titleId: "seals-title",
+    onClose: () => stop.forEach((f) => f()),
+  });
 }

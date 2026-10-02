@@ -3,6 +3,7 @@
 // the app's is. Each page carries the note's title and today's date at the top and its number at
 // the bottom. Options: the note's properties, and whether collapsed sections stay closed.
 import { el, icon } from "../dom.ts";
+import { openModal } from "../modal.ts";
 import { store } from "../store.ts";
 import { renderStatic } from "./static.ts";
 import { appSources } from "./sources.ts";
@@ -84,26 +85,19 @@ export function pageRules(title: string, date: Date): string {
 function askOptions(asks: { frontmatter: boolean; keepFolds: boolean }, saved: PrintOptions, pdf: boolean): Promise<PrintOptions | null> {
   return new Promise((resolve) => {
     const check = (id: string, label: string, on: boolean) => el("label", { class: "pr-opt" }, el("input", { type: "checkbox", id, checked: on }), el("span", {}, label));
-    const go = el("button", { class: "banner-btn is-primary", type: "submit" }, icon("printer", 14), pdf ? "Continue" : "Print");
-    const form = el(
-      "form",
-      { class: "pr-box", method: "dialog" },
-      el("h2", { id: "pr-title" }, pdf ? "Save as PDF" : "Print"),
-      pdf ? el("p", { class: "pr-hint" }, "In the print dialog, choose ", el("b", {}, "Save as PDF"), " as the destination.") : null,
-      asks.frontmatter ? check("pr-props", "Include the note's properties", saved.frontmatter) : null,
-      asks.keepFolds ? check("pr-folds", "Keep collapsed sections closed", saved.keepFolds) : null,
-      el("footer", { class: "pr-foot" }, el("button", { class: "banner-btn", type: "button", value: "cancel", onclick: () => dialog.close("cancel") }, "Cancel"), go),
-    );
-    const dialog = el("dialog", { class: "pr-dialog", "aria-labelledby": "pr-title" }, form);
-    dialog.addEventListener("close", () => {
-      const ok = dialog.returnValue !== "cancel" && dialog.returnValue !== "";
-      const read = (id: string, fallback: boolean) => form.querySelector<HTMLInputElement>(`#${id}`)?.checked ?? fallback;
-      dialog.remove();
-      resolve(ok ? { frontmatter: read("pr-props", saved.frontmatter), keepFolds: read("pr-folds", saved.keepFolds) } : null);
+    const read = (id: string, fallback: boolean) => m.box.querySelector<HTMLInputElement>(`#${id}`)?.checked ?? fallback;
+    const go = el("button", { class: "qw-btn primary", type: "button", onclick: () => (m.close(), resolve({ frontmatter: read("pr-props", saved.frontmatter), keepFolds: read("pr-folds", saved.keepFolds) })) }, icon("printer", 14), pdf ? "Continue" : "Print");
+    const m = openModal({
+      title: pdf ? "Save as PDF" : "Print",
+      content: [
+        pdf ? el("p", { class: "pr-hint" }, "In the print dialog, choose ", el("b", {}, "Save as PDF"), " as the destination.") : null,
+        asks.frontmatter ? check("pr-props", "Include the note's properties", saved.frontmatter) : null,
+        asks.keepFolds ? check("pr-folds", "Keep collapsed sections closed", saved.keepFolds) : null,
+      ],
+      actions: [go],
+      boxClass: "ask-box pr-box",
+      focus: go,
+      onDismiss: () => (m.close(), resolve(null)),
     });
-    go.value = "print";
-    document.body.append(dialog);
-    dialog.showModal();
-    go.focus();
   });
 }

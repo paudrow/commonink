@@ -9,6 +9,8 @@ const MINUTE = 60_000;
 /** What's limited, and how much. The key says per whom. */
 export const LIMITS = {
   signIn: { max: 60, per: 10 * MINUTE, message: "Too many sign-in attempts from your network." },
+  // With sign-up open, new accounts per address, so one network can't make them by the hundred.
+  signUp: { max: 10, per: 60 * MINUTE, message: "That's a lot of new accounts from your network." },
   invite: { max: 20, per: 60 * MINUTE, message: "That's a lot of invite links for one hour." },
   upload: { max: 120, per: 60 * MINUTE, message: "That's a lot of uploads for one hour." },
   unfurl: { max: 120, per: MINUTE, message: "Too many link previews at once." },
@@ -18,6 +20,8 @@ export const LIMITS = {
   share: { max: 200, per: 60 * MINUTE, message: "That's a lot of sharing for one hour." },
   // Each subscription or refresh fetches a feed from somewhere else on the internet.
   calendar: { max: 60, per: 60 * MINUTE, message: "That's a lot of calendar subscribing and refreshing for one hour." },
+  // Each one uploads a note to Google Drive, and a PDF takes Drive four calls.
+  drive: { max: 60, per: 60 * MINUTE, message: "That's a lot of saving to Google Drive for one hour." },
 } as const;
 
 /**
