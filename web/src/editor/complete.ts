@@ -401,6 +401,7 @@ const TOOLS: Tool[] = [
   widgetTool("agenda", "agenda events calendar meetings schedule upcoming"),
   widgetTool("timer", "timer countdown pomodoro alarm"),
   widgetTool("stopwatch", "stopwatch count up laps"),
+  widgetTool("streak", "streak writing days habit heatmap"),
   {
     title: "Collapsible section",
     hint: `<details> · ${formatKeys("Mod-Alt-s")} wraps a selection`,

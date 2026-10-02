@@ -28,6 +28,7 @@ import { folderPicker } from "./folderPicker.ts";
 import type { History } from "./history.ts";
 import type { Assets } from "./assets.ts";
 import { renderTasksPage } from "./tasksView.ts";
+import { renderTodayPage } from "./todayView.ts";
 import { askFor, askName, pickTemplate, templatePeople } from "./templatePicker.ts";
 import { localNow, type TemplateInfo } from "../../src/core/templates.ts";
 import { openQuickAdd, QUICK_ADD } from "./quickAdd.ts";
@@ -115,7 +116,7 @@ interface Pane {
   opens: number;
 }
 
-// This PR's first version stored a "Start on Today" choice; Today is the top of Tasks now.
+// An early Today page stored a "Start on Today" choice; the app always opens on Notes.
 try {
   localStorage.removeItem("commonink.startOnToday");
 } catch {}
@@ -309,7 +310,7 @@ function commands() {
     newSmartFolder: newSmartFolderFromPalette,
     go: (page) => {
       if (page === "notes" || page === "archive" || page === "trash") void showNotes({ tab: page, query: {} });
-      else void { tasks: showTasks, calendar: showCalendar, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory, shared: showShared }[page]();
+      else void { today: showToday, tasks: showTasks, calendar: showCalendar, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory, shared: showShared }[page]();
     },
     subscribeCalendar: () => void subscribeCalendar(),
     refreshCalendars: () => void refreshCalendars(),
@@ -665,13 +666,15 @@ function setUrl(url: string, how: "push" | "replace" = "push") {
 }
 
 let unmountTasks: (() => void) | null = null;
+let unmountToday: (() => void) | null = null;
 
-function showStage(which: "editor" | "html" | "notes" | "tasks" | "calendar" | "contacts" | "history" | "assets" | "tags" | "shared" | "capture") {
+function showStage(which: "editor" | "html" | "notes" | "today" | "tasks" | "calendar" | "contacts" | "history" | "assets" | "tags" | "shared" | "capture") {
   closeDrawer();
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
   $("#assets-view").hidden = which !== "assets";
   $("#notes-view").hidden = which !== "notes";
+  $("#today-view").hidden = which !== "today";
   $("#tasks-view").hidden = which !== "tasks";
   $("#calendar-view").hidden = which !== "calendar";
   $("#history-view").hidden = which !== "history";
@@ -682,6 +685,10 @@ function showStage(which: "editor" | "html" | "notes" | "tasks" | "calendar" | "
   if (which !== "tasks") {
     unmountTasks?.();
     unmountTasks = null;
+  }
+  if (which !== "today") {
+    unmountToday?.();
+    unmountToday = null;
   }
 }
 
@@ -730,13 +737,27 @@ async function showNotes(opts: { tab?: NotesTab; filter?: boolean; folder?: stri
   renderOutline();
 }
 
+/** Today: what's on today (events, and tasks overdue, due or starting today), today's journal note, and your writing streak. */
+async function showToday(opts: { push?: boolean } = {}) {
+  await leaveNote();
+  showStage("today");
+  unmountToday = renderTodayPage($("#today-view"), { open: openFromPage, openTag: (tag) => openTag(tag, "tasks"), openPerson: (assignee) => void showTasks({ assignee }) });
+  $("#today-view").focus({ preventScroll: true });
+  wentTo("/today", opts.push !== false);
+  document.title = "Today · Common Ink";
+  renderChrome();
+  renderTree();
+  renderOutline();
+}
+
+/** Something a page lists, opened: today's events on the Calendar page (/calendar/<id>), and everything else as a note. */
+const openFromPage = (path: string, line?: number, side?: boolean) =>
+  void (calendarTarget(path) !== null ? openTarget(path) : openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }));
+
 async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("tasks");
-  // Today's events open on the Calendar page (/calendar/<id>); everything else is a note.
-  const open = (path: string, line?: number, side?: boolean) =>
-    void (calendarTarget(path) !== null ? openTarget(path) : openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }));
-  unmountTasks = renderTasksPage($("#tasks-view"), { open, tags: () => tags, me: workspaceId ? "Tasks with your @name" : "Tasks with @me" }, { tag: opts.tag, assignee: opts.assignee });
+  unmountTasks = renderTasksPage($("#tasks-view"), { open: openFromPage, tags: () => tags, me: workspaceId ? "Tasks with your @name" : "Tasks with @me" }, { tag: opts.tag, assignee: opts.assignee });
   $("#tasks-view").focus({ preventScroll: true });
   wentTo("/tasks", opts.push !== false);
   document.title = "Tasks · Common Ink";
@@ -993,11 +1014,12 @@ function pickFiles(): Promise<File[]> {
   });
 }
 
-const PAGE_LABEL = { notes: "Notes", archive: "Archive", trash: "Trash", tasks: "Tasks", calendar: "Calendar", contacts: "Contacts", history: "History", assets: "Assets", tags: "Tags", shared: "Shared with me", capture: "Capture" } as const;
+const PAGE_LABEL = { today: "Today", notes: "Notes", archive: "Archive", trash: "Trash", tasks: "Tasks", calendar: "Calendar", contacts: "Contacts", history: "History", assets: "Assets", tags: "Tags", shared: "Shared with me", capture: "Capture" } as const;
 
 /** The page showing (the Notes page by its tab), or null while a note is. */
 const onPage = () =>
   notesPage.visible ? notesPage.tab
+  : !$("#today-view").hidden ? "today"
   : !$("#tasks-view").hidden ? "tasks"
   : calendarPage?.visible ? "calendar"
   : contactsPage?.visible ? "contacts"
@@ -1930,6 +1952,7 @@ function renderTree() {
   setCurrent($("#notes-btn"), showing === "" || page === "archive" || page === "trash"); // Archive and Trash are tabs of Notes
   const shownTag = showing === null ? "" : (parseQuery(showing).tag ?? "");
   renderTagTree(shownTag && showing === formatQuery({ tag: shownTag }) ? shownTag.toLowerCase() : ""); // a tag alone, like a folder alone
+  setCurrent($("#today-btn"), page === "today");
   setCurrent($("#tasks-btn"), page === "tasks");
   setCurrent($("#calendar-btn"), page === "calendar");
   setCurrent($("#contacts-btn"), page === "contacts");
@@ -2527,6 +2550,7 @@ Vim.defineEx("trash", "trash", () => void deleteCurrent());
 Vim.defineEx("unarchive", "unarch", () => active.session && isArchived(active.session.path) && void archiveCurrent());
 Vim.defineEx("notes", "note", () => void showNotes());
 Vim.defineEx("calendar", "cal", () => void showCalendar());
+Vim.defineEx("today", "tod", () => void showToday());
 Vim.defineEx("tasks", "tasks", () => void showTasks());
 Vim.defineEx("tags", "tags", () => void showTags());
 Vim.defineEx("history", "hist", () => void showHistory());
@@ -2903,7 +2927,7 @@ function setupPanes() {
   // Clicking or tabbing into a pane gives it the focus.
   // (Not from a pane bar's buttons: redrawing the bar on mousedown would swallow their click.)
   const follow = (p: Pane) => (e: Event) => p !== active && split && !(e.target as Element).closest?.(".pane-bar button") && focusPane(p);
-  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#tasks-view", "#calendar-view", "#contacts-view", "#history-view", "#assets-view", "#tags-view"]], [panes[1], ["#side-pane"]]] as const) {
+  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#today-view", "#tasks-view", "#calendar-view", "#contacts-view", "#history-view", "#assets-view", "#tags-view"]], [panes[1], ["#side-pane"]]] as const) {
     for (const sel of nodes) {
       $(sel).addEventListener("focusin", follow(p));
       $(sel).addEventListener("mousedown", follow(p));
@@ -2932,7 +2956,7 @@ let viewer = false;
 let owner = true;
 
 /**
- * Show whatever the address bar points at: /notes/<title>-<id>, /tasks, /calendar (or one event,
+ * Show whatever the address bar points at: /notes/<title>-<id>, /today, /tasks, /calendar (or one event,
  * /calendar/<id>), /history, /assets, or the notes list (/notes, /). Links from before paths (#/Projects/Plan.md, #tasks) still work and get rewritten.
  */
 async function route() {
@@ -2949,10 +2973,7 @@ async function route() {
   }
   const at = location.pathname.replace(/\/+$/, "") || "/";
   if (at === "/tasks") return showTasks({ push: false });
-  if (at === "/today") {
-    setUrl("/tasks", "replace"); // Today is the top of Tasks now
-    return showTasks({ push: false });
-  }
+  if (at === "/today") return showToday({ push: false });
   if (at === "/assets") return showAssets({ push: false });
   if (at === "/contacts") {
     const id = new URLSearchParams(location.search).get("c");
@@ -3063,6 +3084,7 @@ async function boot() {
   systemDark.addEventListener("change", () => theme() === "system" && renderTheme());
   window.addEventListener("popstate", (e) => void onPopState(e));
   $("#notes-btn").addEventListener("click", () => void showNotes({ tab: "notes", query: {} }));
+  $("#today-btn").addEventListener("click", () => void showToday());
   $("#tasks-btn").addEventListener("click", () => void showTasks());
   $("#calendar-btn").addEventListener("click", () => void showCalendar());
   window.addEventListener(OPEN_CALENDAR, (e) => void showCalendar({ event: (e as CustomEvent<string>).detail || undefined }));
@@ -3110,6 +3132,7 @@ async function boot() {
 
   const [info, list, starred, recent, tagList, smart] = await Promise.all([api.info(), api.notes(), api.favorites(), api.changes(), api.tags(), api.smartFolders(), loadGamified()]);
   onGamified(() => renderTree()); // an owner flipped it here: the sidebar shows everything, or waits again
+  onGamified(() => !$("#today-view").hidden && void showToday({ push: false })); // the Today page gains or drops its streak
   $("#vault-name").textContent = info.name;
   if (info.mode === "local") localVault = info;
   notes = list;
