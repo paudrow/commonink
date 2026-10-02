@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 282
 title: More ways to filter notes
 ---
 The Notes filter, smart folders and `::query` lists understand a few new words. Try them in the Notes filter (press `/` on Notes).
