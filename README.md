@@ -196,6 +196,8 @@ npx wrangler secret delete SIGNUP_CODE -c cloud/wrangler.jsonc # no new accounts
 
 With no code set, sign-ups are closed. Each Google account gets 5 wrong tries a day, so the code can't be guessed. Developer sign-in (local and Previews) skips the gate.
 
+To open sign-up to everyone, set the Worker var `OPEN_SIGNUP` to `1` (in `cloud/wrangler.jsonc`'s `vars`, or the dashboard). Someone new then sees one page, "Welcome to Common Ink", with their Google address, a **Create my account** button and a line naming the Terms and Privacy Policy, and no code. At most 10 accounts an hour are made from one network (`signUp` in `cloud/src/limits.ts`). Unset it to go back to codes and invites.
+
 ## Testing
 
 ```bash
