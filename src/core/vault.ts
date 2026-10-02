@@ -1834,7 +1834,7 @@ export class Vault {
   /** A new daily note: `Templates/Daily note.md`, filled in as of `date` (see templates.ts), or a plain one with Tasks and Log. */
   private dailyTemplate(date: string): string {
     const template = this.files.read(DAILY_TEMPLATE);
-    return template !== null ? fillTemplate(template, { at: `${date}T${localNow(this.now()).split("T")[1]}`, title: date }).text : `# ${date}\n\n## Tasks\n\n## Log\n`;
+    return template !== null ? fillTemplate(template, { at: `${date}T${localNow(this.now(), this.timeZone).split("T")[1]}`, title: date }).text : `# ${date}\n\n## Tasks\n\n## Log\n`;
   }
 
   // ---------------------------------------------------------------- templates
@@ -1865,7 +1865,7 @@ export class Vault {
   renderTemplate(target: string, opts: FillOptions = {}) {
     const rel = this.templatePath(target);
     const { body } = frontmatterEntries(this.files.read(rel) ?? "");
-    return { path: rel, ...fillTemplate(body, { at: localNow(this.now()), ...opts }) };
+    return { path: rel, ...fillTemplate(body, { at: localNow(this.now(), this.timeZone), ...opts }) };
   }
 
   /**
@@ -1877,7 +1877,7 @@ export class Vault {
     const rel = this.templatePath(target);
     const md = this.files.read(rel) ?? "";
     const info = templateInfo(rel, md);
-    const fill = { at: localNow(this.now()), ...opts };
+    const fill = { at: localNow(this.now(), this.timeZone), ...opts };
     const title = cleanTitle(opts.title ?? (info.title ? fillTemplate(info.title, fill).text : "")) || info.name;
     const folderText = opts.folder ?? (info.folder ? fillTemplate(info.folder, fill).text : "");
     const folder = folderText.split("/").map(cleanTitle).filter(Boolean).join("/");
@@ -2232,7 +2232,7 @@ export class Vault {
     for (const b of this.backlinks(rel)) {
       if (seen.has(b.path)) continue;
       seen.add(b.path);
-      const date = dayOfNote(b.path, this.files.read(b.path) ?? "") ?? localDate(this.meta(b.path)?.mtime ?? this.now());
+      const date = dayOfNote(b.path, this.files.read(b.path) ?? "") ?? localDate(this.meta(b.path)?.mtime ?? this.now(), this.timeZone);
       out.push({ kind: "note", path: b.path, title: b.title, date, line: b.line, text: b.text });
     }
     return out.sort((a, b) => b.date.localeCompare(a.date) || a.path.localeCompare(b.path));
