@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 275
 title: The Today ring
 ---
 A thin ring beside **Today** in the sidebar fills as you tick today's tasks (overdue, due or starting today) and closes when Today is clear.
