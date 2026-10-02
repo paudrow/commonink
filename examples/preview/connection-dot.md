@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 185
 title: Hover text for the connection dot
 ---
 1. Hover the small dot at the bottom right of the status bar, next to the theme button. It now says what it means: green is "Connected", so changes from agents, other tabs and collaborators show up live.
