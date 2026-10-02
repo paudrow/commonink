@@ -42,6 +42,13 @@ test("resolve accepts paths, extensionless paths and wikilink names", () => {
   assert.equal(vault.resolve("../../etc/passwd"), null);
 });
 
+test("a folder-qualified name matches whole folder names, not the end of another folder's", () => {
+  const { vault } = openTempVault({ "MyIdeas/Pricing.md": "# Pricing\n", "Work/Ideas/Plan.md": "# Plan\n", "A.md": "[[Ideas/Pricing]]\n" });
+  assert.equal(vault.resolve("Ideas/Pricing"), null);
+  assert.equal(vault.resolve("Ideas/Plan"), "Work/Ideas/Plan.md");
+  assert.deepEqual(vault.backlinks("MyIdeas/Pricing").map((b) => b.path), []);
+});
+
 test("a path typed in another case is the note's own path, not a second note", () => {
   const { vault } = openTempVault();
   assert.equal(vault.resolve("projects/roadmap"), "Projects/Roadmap.md");
