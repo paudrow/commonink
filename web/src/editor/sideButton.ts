@@ -11,7 +11,7 @@ export const linkSideButton = ViewPlugin.fromClass(
     timer = 0;
 
     constructor(readonly view: EditorView) {
-      this.button = el("button", { type: "button", class: "cm-side-btn", title: "Open to the side", "aria-label": "Open to the side", tabindex: "-1", hidden: true }, icon("split", 13));
+      this.button = el("button", { type: "button", class: "cm-side-btn", title: "Open in split view", "aria-label": "Open in split view", tabindex: "-1", hidden: true }, icon("split", 13));
       this.button.addEventListener("mousedown", (e) => {
         e.preventDefault();
         e.stopPropagation();
