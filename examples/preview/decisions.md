@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 230
 title: Decisions on the Today page
 ---
 1. Click **Today**. Under the quick-add bar, **Decisions** shows the first of three questions an agent asked (with `ask_decision`): the question, who asked, what they know, and the choices, with the one they'd pick already picked and marked **Recommended**.
