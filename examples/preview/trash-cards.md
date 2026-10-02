@@ -1,4 +1,5 @@
 ---
+pr: 263
 title: Trash looks and works like Notes and Archive
 ---
 Trash now lists the same cards as Notes and Archive, with the same filters, keys and bulk bar. Restore and Delete forever are its card and bulk actions.
