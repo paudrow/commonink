@@ -58,7 +58,7 @@ import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
 import { safeDecode } from "../../src/core/uri.ts";
-import { deleteFolder, deletePaths, TrashPage, type DeleteHooks } from "./trash.ts";
+import { deleteFolder, deletePaths, Trash, type DeleteHooks } from "./trash.ts";
 import { mountSharedView, sharedRoute } from "./sharedView.ts";
 import { showShareDialog } from "./shareDialog.ts";
 import { CapturePage, registerWorker } from "./capture.ts";
@@ -191,7 +191,7 @@ const notesPage = new NotesPage({
   },
   newNote: () => void newNote(),
   goTab: (tab) => void showNotes({ tab }),
-  trash: () => (viewer ? null : (trashPage ??= new TrashPage({ ...deleteHooks, canPurge: () => owner, open: (path) => fromPage(path) }))),
+  trash: () => (viewer ? null : (trash ??= new Trash({ ...deleteHooks, canPurge: () => owner, open: (path) => fromPage(path) }))),
 });
 /** What deleting (and restoring from Trash) needs: a toast, and everything that lists notes brought up to date. */
 const deleteHooks: DeleteHooks = {
@@ -201,10 +201,9 @@ const deleteHooks: DeleteHooks = {
     await refreshNotes();
     notesPage.refreshSoon();
     assetsPage?.refresh();
-    await trashPage?.refresh();
   },
 };
-let trashPage: TrashPage | null = null;
+let trash: Trash | null = null;
 let capturePage: CapturePage | null = null;
 // History, Assets and Tags load the first time they're opened (each is null until then).
 let historyPage: History | null = null;

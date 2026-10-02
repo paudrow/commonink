@@ -1,10 +1,11 @@
 // Deleting, and Trash. Everything deleted waits in Trash for 30 days: deleting comes with Undo, and
 // asks first only when other notes link to what's going, or when it's a whole folder. Trash, a tab
-// of the Notes page, lists what's there to restore, and (for whoever may) to delete for good.
-import { api, ApiError, type TrashItem } from "./api.ts";
-import { authorAvatar, authorName, displayName, el, icon, timeAgo } from "./dom.ts";
+// of the Notes page, lists what's there as cards to restore, and (for whoever may) to delete for good.
+import { api, ApiError, type TagCount, type TrashItem } from "./api.ts";
+import { displayName, el, icon } from "./dom.ts";
 import type { ToastSpec } from "./toast.ts";
-import { emptyState } from "./emptyState.ts";
+import { tagList, type NoteQuery } from "../../src/core/query.ts";
+import { tagMatches } from "../../src/core/tags.ts";
 
 export interface DeleteHooks {
   toast(t: ToastSpec): void;
@@ -125,117 +126,108 @@ export async function deleteFolder(folder: string, hooks: DeleteHooks): Promise<
   return true;
 }
 
-/** Does a Trash item have every word of `q` in its path or its opening lines? Trash isn't in the search index, so this is what finds it. */
+/** Where a Trash item's folder is, as Notes reads it: an archived note's is the one it was archived from. */
+const homeOf = (t: TrashItem) => t.path.replace(/^Archive\//, "");
+
+/** Does a Trash item have every word of `q` in its title, path, tags or opening lines? Trash isn't in the search index, so this is what finds it. */
 export function trashMatches(t: TrashItem, q: string): boolean {
-  const text = `${t.path} ${t.excerpt ?? ""}`.toLowerCase();
+  const text = `${t.title ?? ""} ${t.path} ${(t.tags ?? []).join(" ")} ${t.excerpt ?? ""}`.toLowerCase();
   return q.toLowerCase().split(/\s+/).every((w) => text.includes(w));
 }
 
-/** Trash, the Notes page's third tab: what's been deleted, newest first, to restore or (for whoever may) delete for good. */
-export class TrashPage {
-  readonly root = el("div", { class: "trash" });
-  private list = el("div", { class: "tr-list" });
-  private head = el("div", { class: "tr-head" });
-  private items: TrashItem[] = [];
-  private loaded = false;
-  /** The words Trash is narrowed to (the Notes page's filter). */
-  private q = "";
+/** What Trash lists for the Notes page's filters: its words, folder, tags (each, or a tag under it) and order. */
+export function filterTrash(items: TrashItem[], query: NoteQuery): TrashItem[] {
+  const folder = query.folder?.replace(/\/?$/, "/");
+  const tags = tagList(query.tag).map((t) => t.toLowerCase());
+  const shown = items.filter(
+    (t) =>
+      (!query.q || trashMatches(t, query.q)) &&
+      (!folder || homeOf(t).startsWith(folder)) &&
+      tags.every((f) => (t.tags ?? []).some((x) => tagMatches(x.toLowerCase(), f))),
+  );
+  // Trash keeps no note dates: newest and recently changed both mean most recently deleted.
+  if (query.sort === "oldest") return shown.sort((a, b) => a.deletedAt - b.deletedAt);
+  if (query.sort === "title") return shown.sort((a, b) => a.title.localeCompare(b.title));
+  return shown.sort((a, b) => b.deletedAt - a.deletedAt);
+}
 
-  constructor(private hooks: DeleteHooks & { canPurge(): boolean; open(path: string): void }) {
-    this.root.append(this.head, this.list);
+/** The top-level folders things in Trash came from, for the folder chips. */
+export const trashFolders = (items: TrashItem[]): string[] => [...new Set(items.map(homeOf).filter((p) => p.includes("/")).map((p) => p.split("/")[0]))].sort();
+
+/** The tags on things in Trash, with how many carry each (a tag under it counts too), for the tag filter. */
+export function trashTags(items: TrashItem[]): TagCount[] {
+  const tags = new Map<string, TagCount>();
+  for (const t of items) {
+    const names = new Set((t.tags ?? []).flatMap((display) => display.split("/").map((_, i, parts) => parts.slice(0, i + 1).join("/"))));
+    for (const name of names) {
+      const key = name.toLowerCase();
+      const c = tags.get(key) ?? { tag: key, display: name, notes: 0, tasks: 0, assets: 0 };
+      c.notes++;
+      tags.set(key, c);
+    }
+  }
+  return [...tags.values()].sort((a, b) => a.tag.localeCompare(b.tag));
+}
+
+/**
+ * Trash, the Notes page's third tab: what's been deleted, to restore or (for whoever may) delete for
+ * good. The Notes page lists it as cards, as it does notes; this fetches it and does what its buttons say.
+ */
+export class Trash {
+  constructor(private hooks: DeleteHooks & { canPurge(): boolean; open(path: string): void }) {}
+
+  /** Whoever may delete for good sees Delete forever and Empty trash. */
+  get canPurge() {
+    return this.hooks.canPurge();
   }
 
-  /** List what's in Trash with every word of `q`. */
-  async show(q = "") {
-    this.q = q;
-    this.render();
-    await this.load();
+  /** Everything in Trash, newest first. */
+  list(): Promise<TrashItem[]> {
+    return api.trash().catch(() => []);
   }
 
   /** How many things in Trash have every word of `q`. */
   async count(q: string): Promise<number> {
-    const items = await api.trash().catch(() => []);
-    return items.filter((t) => trashMatches(t, q)).length;
+    return (await this.list()).filter((t) => trashMatches(t, q)).length;
   }
 
-  /** Something may have been deleted or restored elsewhere. */
-  async refresh() {
-    if (this.root.isConnected && !this.root.closest("[hidden]")) await this.load();
-  }
-
-  private async load() {
-    this.items = await api.trash().catch(() => []);
-    this.loaded = true;
-    this.render();
-  }
-
-  private render() {
-    const purge = this.hooks.canPurge();
-    const shown = this.items.filter((t) => trashMatches(t, this.q));
-    this.head.replaceChildren(...(purge && this.items.length ? [el("button", { type: "button", class: "qw-btn danger", onclick: () => void this.empty() }, icon("trash", 14), "Empty trash")] : []));
-    this.list.replaceChildren(
-      ...(shown.length
-        ? shown.map((t) => this.row(t, purge))
-        : !this.loaded
-          ? []
-          : this.items.length
-            ? [emptyState({ icon: "search", title: `Nothing in Trash matches “${this.q}”`, text: ["Trash finds a note by its name, its folder or its first lines."] })]
-            : [emptyState({ icon: "trash", title: "Trash is empty", text: ["Delete a note from its top bar, from Notes with the Delete key, or with :trash in vim."] })]),
-    );
-  }
-
-  private row(t: TrashItem, purge: boolean): HTMLElement {
-    const days = Math.max(0, Math.ceil((t.expiresAt - Date.now()) / 86_400_000));
-    return el(
-      "div",
-      { class: "tr-row" },
-      el("span", { class: "tr-icon" }, icon(t.kind === "asset" ? "image" : t.kind === "html" ? "html" : "file", 16)),
-      el(
-        "div",
-        { class: "tr-main" },
-        el("div", { class: "tr-name" }, displayName(t.path), el("span", { class: "tr-path" }, t.path)),
-        t.excerpt ? el("div", { class: "tr-excerpt" }, t.excerpt) : null,
-        el(
-          "div",
-          { class: "tr-meta" },
-          t.by ? authorAvatar(t.by, 16) : null,
-          `Deleted ${timeAgo(t.deletedAt)}${t.by ? ` by ${authorName(t.by)}` : ""} · gone for good in ${plural(days, "day")}`,
-        ),
-      ),
-      el("button", { type: "button", class: "qw-btn", onclick: () => void this.restore(t) }, icon("reset", 14), "Restore"),
-      purge ? el("button", { type: "button", class: "qw-btn danger", title: "Delete forever", onclick: () => void this.purge(t) }, "Delete forever") : null,
-    );
-  }
-
-  private async restore(t: TrashItem) {
-    const r = await api.restoreTrash([t.id]).catch(() => null);
-    if (!r) return this.hooks.toast({ text: `Couldn't restore ${displayName(t.path)}` });
+  /** Put things back where they were. Resolves to whether they went. */
+  async restore(items: TrashItem[]): Promise<boolean> {
+    if (!items.length) return false;
+    const r = await api.restoreTrash(items.map((t) => t.id)).catch(() => null);
+    if (!r) return (this.hooks.toast({ text: `Couldn't restore ${items.length === 1 ? items[0].title : "those"}` }), false);
     await this.hooks.changed();
-    await this.load();
+    const [t] = items;
     const to = r.restored[0];
-    this.hooks.toast({ icon: "reset", text: to === t.path ? `Restored ${displayName(to)}` : `Restored ${displayName(t.path)} as ${to}`, actionLabel: "Open", action: () => this.hooks.open(to) });
+    if (items.length > 1) this.hooks.toast({ icon: "reset", text: `Restored ${plural(items.length, "item")}` });
+    else this.hooks.toast({ icon: "reset", text: to === t.path ? `Restored ${t.title}` : `Restored ${t.title} as ${to}`, actionLabel: "Open", action: () => this.hooks.open(to) });
+    return true;
   }
 
-  private async purge(t: TrashItem) {
+  /** Delete things for good, asking first. Resolves to whether they went. */
+  async purge(items: TrashItem[]): Promise<boolean> {
+    if (!items.length || !this.canPurge) return false;
+    const one = items.length === 1;
+    const labels = items.reduce((n, t) => n + (t.labels ?? 0), 0);
     const ok = await ask({
-      title: `Delete ${displayName(t.path)} forever?`,
-      body: [`It can't be restored after this, and its earlier versions go from History too${t.labels ? `, with its ${plural(t.labels, "label")}` : ""}.`],
+      title: one ? `Delete ${items[0].title} forever?` : `Delete ${plural(items.length, "item")} forever?`,
+      body: [`${one ? "It" : "They"} can't be restored after this, and ${one ? "its" : "their"} earlier versions go from History too${labels ? `, with ${one ? "its " : ""}${plural(labels, "label")}` : ""}.`],
       actions: [{ label: "Delete forever", value: "yes", kind: "danger" }],
     });
-    if (!ok) return;
-    await api.purgeTrash([t.id]).catch(() => this.hooks.toast({ text: "Couldn't delete that" }));
-    await this.load();
+    if (!ok) return false;
+    return (await api.purgeTrash(items.map((t) => t.id)).catch(() => (this.hooks.toast({ text: "Couldn't delete that" }), null))) !== null;
   }
 
-  private async empty() {
-    const labels = this.items.reduce((n, t) => n + (t.labels ?? 0), 0);
+  /** Delete everything in Trash for good, asking first. Resolves to whether it went. */
+  async empty(items: TrashItem[]): Promise<boolean> {
+    if (!items.length || !this.canPurge) return false;
+    const labels = items.reduce((n, t) => n + (t.labels ?? 0), 0);
     const ok = await ask({
       title: `Empty Trash?`,
-      body: [`${plural(this.items.length, "item")} will be deleted for good. They can't be restored after this, and their earlier versions go from History too${labels ? `, with ${plural(labels, "label")}` : ""}.`],
+      body: [`${plural(items.length, "item")} will be deleted for good. They can't be restored after this, and their earlier versions go from History too${labels ? `, with ${plural(labels, "label")}` : ""}.`],
       actions: [{ label: "Empty trash", value: "yes", kind: "danger" }],
     });
-    if (!ok) return;
-    await api.emptyTrash().catch(() => this.hooks.toast({ text: "Couldn't empty Trash" }));
-    await this.load();
+    if (!ok) return false;
+    return (await api.emptyTrash().catch(() => (this.hooks.toast({ text: "Couldn't empty Trash" }), null))) !== null;
   }
 }

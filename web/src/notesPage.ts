@@ -1,9 +1,11 @@
 // Notes: every note as a stream of cards, newest first — the app's home. Click a card to read
 // the whole note in place; Edit opens it in the editor. Filter as you type, triage from the
 // keyboard (j/k, Enter to expand, o to open, e to archive, x to select, Delete to delete), and
-// archive or delete in bulk. Its tabs are where notes go: Notes, Archive and Trash.
-import { api, type FeedItem, type FeedPage, type TagCount, type Task } from "./api.ts";
-import type { TrashPage } from "./trash.ts";
+// archive or delete in bulk. Its tabs are where notes go: Notes, Archive and Trash. Trash lists
+// the same cards with the same filters and keys, with Restore and Delete forever for its actions.
+import { api, type FeedItem, type FeedPage, type TagCount, type Task, type TrashItem } from "./api.ts";
+import { filterTrash, trashFolders, trashTags, type Trash } from "./trash.ts";
+import { fmtBytes } from "./assetKinds.ts";
 import { $, authorAvatar, authorName, displayName, el, icon, markTerms, NOTE_DRAG, timeAgo } from "./dom.ts";
 import { renderMarkdown, sandboxFrame } from "./render.ts";
 import { hydrateCode } from "./code.ts";
@@ -49,8 +51,8 @@ interface Hooks {
   newNote(): void;
   /** Show another tab (its address changes with it). */
   goTab(tab: NotesTab): void;
-  /** The Trash tab's list, or null for someone who has no Trash (a viewer, online). */
-  trash(): TrashPage | null;
+  /** What's in Trash and what restoring and deleting for good need, or null for someone who has no Trash (a viewer, online). */
+  trash(): Trash | null;
 }
 
 const PAGE = 40;
@@ -62,6 +64,16 @@ const TABS: Record<NotesTab, { label: string; about: string }> = {
   notes: { label: "Notes", about: "" },
   archive: { label: "Archive", about: "Out of your way but kept. Links to them still work." },
   trash: { label: "Trash", about: "Deleted notes. Each is removed for good 30 days after you delete it." },
+};
+/** The sort menu: Trash keeps no note dates, so its orders are by when things were deleted. */
+const SORTS: Record<"notes" | "trash", Array<[QuerySort, string]>> = {
+  notes: [["modified", "Recently changed"], ["date", "Newest by date"], ["oldest", "Oldest by date"], ["title", "By title"]],
+  trash: [["modified", "Recently deleted"], ["oldest", "Deleted longest ago"], ["title", "By title"]],
+};
+/** The keys each tab's footer lists. */
+const KEYS: Record<"notes" | "trash", string[][]> = {
+  notes: [["j k", "move"], ["↵", "expand"], ["o", "open"], ["s", "star"], ["e", "archive"], ["⌫", "delete"], ["x", "select"], ["/", "filter"]],
+  trash: [["j k", "move"], ["r", "restore"], ["⌫", "delete forever"], ["x", "select"], ["/", "filter"]],
 };
 
 export class NotesPage {
@@ -83,10 +95,15 @@ export class NotesPage {
   private about: HTMLElement;
   /** "Also 2 in Archive": the filter's matches in the other tabs. */
   private elsewhere: HTMLElement;
-  private trashHost: HTMLElement;
+  private emptyBtn: HTMLButtonElement;
   tab: NotesTab = "notes";
   /** How many notes the words match in Trash, for `elsewhere`. */
   private inTrash = 0;
+  /** Everything in Trash, and what of it the filters list (on the Trash tab; null till it's fetched). */
+  private trashed: TrashItem[] | null = null;
+  private trashShown: TrashItem[] = [];
+  /** On the Trash tab: what the filters find in Notes and Archive, for `elsewhere`. */
+  private trashFeed: FeedPage | null = null;
   private folder = "";
   /** The tag Notes is narrowed to ("" for any); its children count too. */
   private tag = "";
@@ -107,10 +124,9 @@ export class NotesPage {
     this.scopeBar = el("div", { class: "seg feed-scope", role: "group", "aria-label": "Notes, Archive or Trash" });
     this.about = el("p", { class: "feed-about" });
     this.elsewhere = el("div", { class: "feed-elsewhere" });
-    this.trashHost = el("div", { class: "feed-trash" });
     this.folderBar = el("div", { class: "feed-folders", role: "group", "aria-label": "Folder" });
     this.tagBar = el("div", { class: "feed-folders" });
-    this.sortSel = el("select", { class: "qt-select feed-sort", "aria-label": "Sort" }, el("option", { value: "modified" }, "Recently changed"), el("option", { value: "date" }, "Newest by date"), el("option", { value: "oldest" }, "Oldest by date"), el("option", { value: "title" }, "By title"));
+    this.sortSel = el("select", { class: "qt-select feed-sort", "aria-label": "Sort" });
     this.sortSel.addEventListener("change", () => ((this.sort = this.sortSel.value as QuerySort), (this.focus = 0), this.reload()));
     this.saveBtn = el(
       "button",
@@ -118,19 +134,14 @@ export class NotesPage {
       icon("folderSearch", 13),
       "Save as smart folder",
     );
+    this.emptyBtn = el("button", { type: "button", class: "qw-btn danger feed-empty-trash", hidden: true, onclick: () => void this.emptyTrash() }, icon("trash", 14), "Empty trash");
     this.bulk = el("div", { class: "feed-bulk", hidden: true });
     this.list = el("div", { class: "feed-list", role: "list" });
     this.more = el("div", { class: "feed-more" });
     this.search = el("label", { class: "feed-search" }, icon("search", 16), this.input, el("kbd", {}, "/"));
-    this.filters = el("div", { class: "feed-filters" }, this.scopeBar, this.tagBar, this.folderBar, this.sortSel, this.saveBtn);
-    this.keys = el(
-      "footer",
-      { class: "feed-keys" },
-      ...[["j k", "move"], ["↵", "expand"], ["o", "open"], ["s", "star"], ["e", "archive"], ["⌫", "delete"], ["x", "select"], ["/", "filter"]].map(([k, t]) => el("span", {}, el("kbd", {}, k), t)),
-    );
-    this.root.append(
-      el("div", { class: "feed" }, el("header", { class: "feed-head" }, this.heading, this.search, this.filters, this.about), this.bulk, this.list, this.elsewhere, this.more, this.trashHost, this.keys),
-    );
+    this.filters = el("div", { class: "feed-filters" }, this.scopeBar, this.tagBar, this.folderBar, this.sortSel, this.saveBtn, this.emptyBtn);
+    this.keys = el("footer", { class: "feed-keys" });
+    this.root.append(el("div", { class: "feed" }, el("header", { class: "feed-head" }, this.heading, this.search, this.filters, this.about), this.bulk, this.list, this.elsewhere, this.more, this.keys));
     this.input.addEventListener("input", () => {
       clearTimeout(this.timer);
       this.timer = window.setTimeout(() => this.reload(), 90);
@@ -161,7 +172,7 @@ export class NotesPage {
    */
   named(name: string | null) {
     this.heading.textContent = name ?? "Notes";
-    this.saveBtn.hidden = !!name || !formatQuery(this.query);
+    this.saveBtn.hidden = this.tab === "trash" || !!name || !formatQuery(this.query);
     if (this.visible) document.title = `${name ?? "Notes"} · Common Ink`;
   }
 
@@ -177,9 +188,13 @@ export class NotesPage {
     }
     const tab = opts.tab === "trash" && !this.hooks.trash() ? "notes" : opts.tab;
     if (tab && tab !== this.tab) {
+      // The other tab's cards and picks don't carry over.
       this.tab = tab;
       this.focus = 0;
       this.scrollTop = 0;
+      this.selected.clear();
+      this.list.replaceChildren();
+      this.bulk.hidden = true;
     }
     if (opts.folder !== undefined && opts.folder !== this.folder) {
       this.folder = opts.folder;
@@ -203,11 +218,7 @@ export class NotesPage {
     this.renderTabs();
     const q = this.input.value.trim();
     const trash = this.hooks.trash();
-    if (this.tab === "trash") {
-      this.hooks.filtersChanged();
-      this.trashHost.replaceChildren(trash!.root);
-      return trash!.show(q);
-    }
+    if (this.tab === "trash") return this.reloadTrash(seq, trash!);
     const keep = this.items[this.focus]?.path;
     const [page, inTrash] = await Promise.all([
       api.feed({ ...this.query, scope: this.scope, limit: Math.max(PAGE, this.items.length) }).catch(() => null),
@@ -223,10 +234,30 @@ export class NotesPage {
     this.render();
   }
 
+  /** The Trash tab's reload: everything in Trash, narrowed by the same filters, and what they find in Notes and Archive. */
+  private async reloadTrash(seq: number, trash: Trash) {
+    const keep = this.trashShown[this.focus]?.id;
+    const filtered = Boolean(this.input.value.trim() || this.folder || this.tag);
+    const [items, page] = await Promise.all([trash.list(), filtered ? api.feed({ ...this.query, scope: "active", limit: 1 }).catch(() => null) : null]);
+    if (seq !== this.seq) return;
+    this.trashed = items;
+    this.trashFeed = page;
+    this.trashShown = filterTrash(items, this.query);
+    const i = keep ? this.trashShown.findIndex((t) => t.id === keep) : -1;
+    this.focus = i >= 0 ? i : Math.min(this.focus, Math.max(0, this.trashShown.length - 1));
+    for (const id of [...this.selected]) if (!this.trashShown.some((t) => t.id === id)) this.selected.delete(id);
+    this.render();
+  }
+
   refreshSoon = debounce(() => this.visible && this.reload(), 250);
 
+  /** How many cards the tab lists. */
+  private get count() {
+    return this.tab === "trash" ? this.trashShown.length : this.items.length;
+  }
+
   private async loadMore() {
-    if (!this.page || this.items.length >= this.page.total || this.more.dataset.loading) return;
+    if (this.tab === "trash" || !this.page || this.items.length >= this.page.total || this.more.dataset.loading) return;
     this.more.dataset.loading = "1";
     const page = await api.feed({ ...this.query, scope: this.scope, offset: this.items.length, limit: PAGE }).catch(() => null);
     delete this.more.dataset.loading;
@@ -242,7 +273,7 @@ export class NotesPage {
 
   // ---------------------------------------------------------------- rendering
 
-  /** The tabs, the tab's line, and which half of the page shows: the cards, or Trash. */
+  /** The tabs and the tab's line. */
   private renderTabs() {
     const tabs = (Object.keys(TABS) as NotesTab[]).filter((t) => t !== "trash" || this.hooks.trash());
     this.scopeBar.replaceChildren(
@@ -253,20 +284,36 @@ export class NotesPage {
     this.about.textContent = TABS[this.tab].about;
     this.about.hidden = !TABS[this.tab].about;
     this.root.dataset.tab = this.tab;
-    if (this.tab === "trash") this.search.hidden = false;
   }
 
-  private render() {
-    const page = this.page!;
+  /** The folder chips: every folder, and a subfolder picked in the sidebar too, so it shows as the filter in use. */
+  private renderFolders(folders: string[]) {
     this.folderBar.replaceChildren(
-      // A subfolder picked in the sidebar gets a chip too, so it shows as the filter in use.
-      ...["", ...page.folders, ...(this.folder && !page.folders.includes(this.folder) ? [this.folder] : [])].map((f) =>
+      ...["", ...folders, ...(this.folder && !folders.includes(this.folder) ? [this.folder] : [])].map((f) =>
         el("button", { type: "button", class: `chip${f === this.folder ? " is-on" : ""}`, "aria-pressed": String(f === this.folder), onclick: () => ((this.folder = f), (this.focus = 0), this.reload()) }, f || "All folders"),
       ),
     );
+  }
+
+  /** The sort menu for the tab, and the footer listing its keys (none with nothing listed). */
+  private renderSortAndKeys() {
+    const which = this.tab === "trash" ? "trash" : "notes";
+    const sorts = SORTS[which];
+    this.sortSel.replaceChildren(...sorts.map(([v, label]) => el("option", { value: v }, label)));
+    this.sortSel.value = sorts.some(([v]) => v === this.sort) ? this.sort : "modified";
+    const keys = KEYS[which].filter(([k]) => which === "notes" || k !== "⌫" || this.hooks.trash()?.canPurge);
+    this.keys.replaceChildren(...keys.map(([k, t]) => el("span", {}, el("kbd", {}, k), t)));
+    this.keys.hidden = !this.count;
+  }
+
+  private render() {
+    if (this.tab === "trash") return this.renderTrash();
+    const page = this.page!;
+    this.renderFolders(page.folders);
     this.tagBar.replaceChildren(tagFilter({ current: this.tag, tags: this.hooks.tags, count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }), tagList(this.tag).length === 1 ? this.hooks.starButton(this.tag) : "");
-    this.sortSel.value = this.sort;
+    this.renderSortAndKeys();
     this.saveBtn.hidden = !formatQuery(this.query);
+    this.emptyBtn.hidden = true;
     this.hooks.filtersChanged();
     const q = this.input.value.trim();
     const top = this.root.scrollTop;
@@ -276,9 +323,9 @@ export class NotesPage {
     const bare = !filtered && page.counts.active + page.counts.archived === 0;
     this.search.hidden = this.tagBar.hidden = this.sortSel.hidden = bare;
     this.folderBar.hidden = bare || (!page.folders.length && !this.folder);
-    this.keys.hidden = !this.items.length;
     this.list.replaceChildren(...(this.items.length ? this.items.map((item, i) => this.card(item, i, q)) : [this.empty(q, filtered)]));
-    this.renderElsewhere(page, filtered);
+    const other: NotesTab = this.tab === "notes" ? "archive" : "notes";
+    this.renderElsewhere(filtered ? [[other, other === "archive" ? page.counts.archived : page.counts.active], ["trash", this.inTrash]] : []);
     this.root.scrollTop = top;
     this.more.textContent = this.items.length < page.total ? `Showing ${this.items.length} of ${page.total}` : "";
     this.renderBulk();
@@ -311,10 +358,101 @@ export class NotesPage {
     });
   }
 
+  /** Trash, drawn as Notes is: cards, filters, keys and the bulk bar, with Restore and Delete forever for actions. */
+  private renderTrash() {
+    const trash = this.hooks.trash();
+    const items = this.trashed;
+    if (!trash || !items) return;
+    const folders = trashFolders(items);
+    this.renderFolders(folders);
+    this.tagBar.replaceChildren(tagFilter({ current: this.tag, tags: () => trashTags(items), count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }));
+    this.renderSortAndKeys();
+    this.saveBtn.hidden = true;
+    this.emptyBtn.hidden = !trash.canPurge || !items.length;
+    this.hooks.filtersChanged();
+    const q = this.input.value.trim();
+    const top = this.root.scrollTop;
+    const filtered = Boolean(q || this.folder || this.tag);
+    const bare = !filtered && !items.length;
+    this.search.hidden = this.tagBar.hidden = this.sortSel.hidden = bare;
+    this.folderBar.hidden = bare || (!folders.length && !this.folder);
+    this.list.replaceChildren(...(this.trashShown.length ? this.trashShown.map((t, i) => this.trashCard(t, i, trash)) : [this.trashEmpty(q, filtered)]));
+    const page = this.trashFeed;
+    this.renderElsewhere(filtered && page ? [["notes", page.counts.active], ["archive", page.counts.archived]] : []);
+    this.root.scrollTop = top;
+    this.more.textContent = "";
+    this.renderBulk();
+  }
+
+  private trashEmpty(q: string, filtered: boolean): HTMLElement {
+    if (filtered) {
+      const where = `${this.tag ? ` tagged ${tagList(this.tag).map((t) => `#${t}`).join(" and ")}` : ""}${this.folder ? ` from ${this.folder}` : ""}`;
+      return emptyState({
+        icon: "search",
+        title: q ? `Nothing in Trash${where} matches “${q}”` : `Nothing in Trash${where}`,
+        text: ["Trash finds a note by its title, its folder, its tags or its first lines."],
+        action: { label: "Clear filters", icon: "close", run: () => this.clearFilters() },
+      });
+    }
+    return emptyState({ icon: "trash", title: "Trash is empty", text: ["Delete a note from its top bar, from Notes with the Delete key, or with :trash in vim."] });
+  }
+
+  /** A card for something in Trash: as a note's card, with Restore and Delete forever for its actions. */
+  private trashCard(t: TrashItem, i: number, trash: Trash): HTMLElement {
+    const folder = t.path.replace(/^Archive\//, "").split("/").slice(0, -1).join("/");
+    const days = Math.max(0, Math.ceil((t.expiresAt - Date.now()) / 86_400_000));
+    const action = (title: string, name: string, run: () => void) => {
+      const b = el("button", { type: "button", class: "fc-action", title }, icon(name, 15));
+      b.addEventListener("click", (e) => (e.stopPropagation(), run()));
+      return b;
+    };
+    const check = el("button", { type: "button", class: "fc-check", title: "Select (x)", "aria-pressed": String(this.selected.has(t.id)) }, icon("check", 12));
+    check.addEventListener("click", (e) => (e.stopPropagation(), this.toggle(t.id)));
+    let body: HTMLElement | null = null;
+    if (t.kind === "md" && t.excerpt) {
+      body = this.markdown(forPreview(t.excerpt), { path: t.path, archived: true }, "fc-body");
+      body.querySelectorAll("input").forEach((b) => (b.disabled = true));
+    } else if (t.kind !== "md") body = el("div", { class: "fc-body is-muted" }, t.kind === "html" ? "HTML note" : `File · ${fmtBytes(t.size)}`);
+    const node = el(
+      "article",
+      { class: `feed-card is-trashed${i === this.focus ? " is-focused" : ""}${this.selected.has(t.id) ? " is-selected" : ""}`, role: "listitem", "data-index": String(i) },
+      check,
+      el(
+        "div",
+        { class: "fc-main" },
+        el(
+          "div",
+          { class: "fc-head" },
+          el("span", { class: "fc-title", title: t.path }, t.title),
+          t.path.startsWith("Archive/") ? el("span", { class: "fc-badge" }, "Archived") : null,
+          el("span", { class: "spacer" }),
+          action("Restore (r)", "reset", () => void this.restore([t])),
+          trash.canPurge ? action("Delete forever (⌫)", "trash", () => void this.purge([t])) : null,
+        ),
+        el(
+          "div",
+          { class: "fc-meta" },
+          folder ? el("span", {}, folder) : null,
+          el("span", { class: "fc-who" }, t.by ? authorAvatar(t.by, 16) : null, `Deleted ${timeAgo(t.deletedAt)}${t.by ? ` by ${authorName(t.by)}` : ""}`),
+          el("span", {}, `Gone for good in ${days} ${days === 1 ? "day" : "days"}`),
+        ),
+        body,
+        t.tags.length ? el("div", { class: "fc-tags" }, ...t.tags.map((tag) => tagChip(tag, () => this.setTag(tag)))) : null,
+      ),
+    );
+    // A link in its text still goes where it points; nothing in Trash opens.
+    node.addEventListener("click", (e) => {
+      const a = (e.target as HTMLElement).closest("a");
+      if (a) this.followLink(e, a, node, t.path);
+    });
+    node.addEventListener("mousemove", () => this.setFocus(i, false));
+    node.addEventListener("focusin", () => this.setFocus(i, false));
+    return node;
+  }
+
   /** What the filters find in the other tabs, one click from each: the search reaches every note, wherever it is. */
-  private renderElsewhere(page: FeedPage, filtered: boolean) {
-    const other: NotesTab = this.tab === "notes" ? "archive" : "notes";
-    const found = ([[other, other === "archive" ? page.counts.archived : page.counts.active], ["trash", this.inTrash]] as Array<[NotesTab, number]>).filter(([, n]) => filtered && n);
+  private renderElsewhere(counts: Array<[NotesTab, number]>) {
+    const found = counts.filter(([, n]) => n);
     this.elsewhere.hidden = !found.length;
     this.elsewhere.replaceChildren(
       ...(found.length
@@ -454,12 +592,7 @@ export class NotesPage {
       }
       const a = t.closest("a");
       const side = sideClick(e);
-      if (a) {
-        const open = (target: string) =>
-          calendarTarget(target) !== null ? openCalendarLink(target) : void api.resolve(target, item.path).then((p) => p && this.hooks.open(p, undefined, side));
-        if (followRenderedLink(a.getAttribute("href") ?? "", node, open)) e.preventDefault();
-        return;
-      }
+      if (a) return this.followLink(e, a, node, item.path);
       if (side && !t.closest("button, input")) return this.hooks.open(item.path, undefined, true);
       // Reading an open card (selecting text, ticking tasks) shouldn't fold it back up.
       if (t.closest("input, .fc-full") || String(getSelection() ?? "")) return;
@@ -468,6 +601,13 @@ export class NotesPage {
     node.addEventListener("mousemove", () => this.setFocus(i, false));
     node.addEventListener("focusin", () => this.setFocus(i, false));
     return node;
+  }
+
+  /** A click on a link in a card's text: to the note (or calendar day) it names, relative to the card's note at `from`. */
+  private followLink(e: MouseEvent, a: HTMLAnchorElement, card: HTMLElement, from: string) {
+    const side = sideClick(e);
+    const open = (target: string) => (calendarTarget(target) !== null ? openCalendarLink(target) : void api.resolve(target, from).then((p) => p && this.hooks.open(p, undefined, side)));
+    if (followRenderedLink(a.getAttribute("href") ?? "", card, open)) e.preventDefault();
   }
 
   /** The whole note, for an expanded card. Shows the last text it had while fetching the latest. */
@@ -501,7 +641,7 @@ export class NotesPage {
   }
 
   /** A card's markdown, with each task's tokens drawn as chips after its words, as in Tasks. */
-  private markdown(md: string, item: FeedItem, cls: string): HTMLElement {
+  private markdown(md: string, item: { path: string; archived: boolean }, cls: string): HTMLElement {
     const { md: marked, tasks } = withTaskChips(md);
     const node = el("div", { class: `${cls}${this.hooks.readOnly() || item.archived ? " is-readonly" : ""}`, html: renderMarkdown(marked, item.path) });
     hydrateTaskChips(node, tasks);
@@ -580,6 +720,17 @@ export class NotesPage {
     const n = this.selected.size;
     this.bulk.hidden = n === 0;
     if (!n) return;
+    if (this.tab === "trash") {
+      const picked = this.trashShown.filter((t) => this.selected.has(t.id));
+      this.bulk.replaceChildren(
+        el("span", {}, `${n} selected`),
+        el("span", { class: "spacer" }),
+        el("button", { type: "button", class: "qw-btn primary", onclick: () => void this.restore(picked) }, icon("reset", 14), "Restore"),
+        ...(this.hooks.trash()?.canPurge ? [el("button", { type: "button", class: "qw-btn danger", onclick: () => void this.purge(picked) }, icon("trash", 14), "Delete forever")] : []),
+        el("button", { type: "button", class: "qw-btn", onclick: () => (this.selected.clear(), this.render()) }, "Clear"),
+      );
+      return;
+    }
     const allArchived = [...this.selected].every((p) => p.startsWith("Archive/"));
     this.bulk.replaceChildren(
       el("span", {}, `${n} selected`),
@@ -602,17 +753,44 @@ export class NotesPage {
   }
 
   private setFocus(i: number, scroll = true) {
-    if (!this.items.length) return;
-    this.focus = Math.max(0, Math.min(this.items.length - 1, i));
+    if (!this.count) return;
+    this.focus = Math.max(0, Math.min(this.count - 1, i));
     this.list.querySelectorAll(".feed-card").forEach((c) => c.classList.toggle("is-focused", Number((c as HTMLElement).dataset.index) === this.focus));
     if (scroll) this.list.querySelector(".feed-card.is-focused")?.scrollIntoView({ block: "nearest" });
-    if (this.focus >= this.items.length - 5) void this.loadMore();
+    if (this.focus >= this.count - 5) void this.loadMore();
   }
 
-  private toggle(path: string) {
-    if (this.selected.has(path)) this.selected.delete(path);
-    else this.selected.add(path);
+  /** Select or unselect a card: a note by its path, something in Trash by its Trash id. */
+  private toggle(key: string) {
+    if (this.selected.has(key)) this.selected.delete(key);
+    else this.selected.add(key);
     this.render();
+  }
+
+  // ---------------------------------------------------------------- Trash
+
+  /** Put things in Trash back where they were. */
+  private async restore(items: TrashItem[]) {
+    if (!(await this.hooks.trash()?.restore(items))) return;
+    for (const t of items) this.selected.delete(t.id);
+    await this.reload();
+  }
+
+  /** Delete things in Trash for good (it asks first). */
+  private async purge(items: TrashItem[]) {
+    const went = await this.hooks.trash()?.purge(items);
+    this.root.focus({ preventScroll: true }); // back from the dialog, the keys work again
+    if (!went) return;
+    for (const t of items) this.selected.delete(t.id);
+    await this.reload();
+  }
+
+  private async emptyTrash() {
+    const went = await this.hooks.trash()?.empty(this.trashed ?? []);
+    this.root.focus({ preventScroll: true });
+    if (!went) return;
+    this.selected.clear();
+    await this.reload();
   }
 
   // ---------------------------------------------------------------- archiving
@@ -653,11 +831,11 @@ export class NotesPage {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const inInput = e.target === this.input;
     if (inInput) {
-      if ((e.key === "ArrowDown" || e.key === "Enter") && this.tab !== "trash") {
+      if (e.key === "ArrowDown" || e.key === "Enter") {
         e.preventDefault();
         this.root.focus({ preventScroll: true });
         this.setFocus(0);
-        if (e.key === "Enter" && this.items[0] && !this.expanded.has(this.items[0].path)) this.toggleExpand(0);
+        if (e.key === "Enter" && this.tab !== "trash" && this.items[0] && !this.expanded.has(this.items[0].path)) this.toggleExpand(0);
       } else if (e.key === "Escape") {
         e.preventDefault();
         if (this.input.value) {
@@ -668,28 +846,15 @@ export class NotesPage {
       return;
     }
     if ((e.target as HTMLElement).closest("input, textarea")) return;
-    // Trash has its own buttons and no cards: of the card keys, only / (to filter) applies.
-    if (this.tab === "trash") {
-      if (e.key === "/") (e.preventDefault(), this.input.focus());
-      return;
-    }
     // Enter and Space on a link or button do what it says, not the card's shortcut.
     if ((e.key === "Enter" || e.key === " ") && (e.target as HTMLElement).closest("a, button, select")) return;
-    const item = this.items[this.focus];
-    const act: Record<string, () => void> = {
+    const common: Record<string, () => void> = {
       j: () => this.setFocus(this.focus + 1),
       ArrowDown: () => this.setFocus(this.focus + 1),
       k: () => this.setFocus(this.focus - 1),
       ArrowUp: () => this.setFocus(this.focus - 1),
       g: () => this.setFocus(0),
-      G: () => this.setFocus(this.items.length - 1),
-      Enter: () => this.toggleExpand(this.focus),
-      o: () => item && this.hooks.open(item.path),
-      s: () => item && this.hooks.toggleStar(item.path),
-      e: () => void this.archive(this.selected.size ? [...this.selected] : item ? [item.path] : []),
-      x: () => item && this.toggle(item.path),
-      Delete: () => void this.delete(this.selected.size ? [...this.selected] : item ? [item.path] : []),
-      Backspace: () => void this.delete(this.selected.size ? [...this.selected] : item ? [item.path] : []),
+      G: () => this.setFocus(this.count - 1),
       "/": () => this.input.focus(),
       Escape: () => {
         this.selected.clear();
@@ -697,6 +862,26 @@ export class NotesPage {
         this.render();
       },
     };
+    let act: Record<string, () => void>;
+    if (this.tab === "trash") {
+      // Trash's cards: r restores and ⌫ deletes for good, the selected ones or else the focused one.
+      const t = this.trashShown[this.focus];
+      const picked = () => (this.selected.size ? this.trashShown.filter((x) => this.selected.has(x.id)) : t ? [t] : []);
+      const purge = () => void this.purge(picked());
+      act = { ...common, x: () => t && this.toggle(t.id), r: () => void this.restore(picked()), ...(this.hooks.trash()?.canPurge && { Delete: purge, Backspace: purge }) };
+    } else {
+      const item = this.items[this.focus];
+      act = {
+        ...common,
+        Enter: () => this.toggleExpand(this.focus),
+        o: () => item && this.hooks.open(item.path),
+        s: () => item && this.hooks.toggleStar(item.path),
+        e: () => void this.archive(this.selected.size ? [...this.selected] : item ? [item.path] : []),
+        x: () => item && this.toggle(item.path),
+        Delete: () => void this.delete(this.selected.size ? [...this.selected] : item ? [item.path] : []),
+        Backspace: () => void this.delete(this.selected.size ? [...this.selected] : item ? [item.path] : []),
+      };
+    }
     const fn = act[e.key];
     if (fn) {
       e.preventDefault();

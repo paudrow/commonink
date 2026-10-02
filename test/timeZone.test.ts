@@ -81,7 +81,7 @@ test("locally, with no zone given, today is the machine's day", () => {
 });
 
 test("Trash says when an item went and when it goes for good in the machine's time", () => {
-  const item = { id: "1-1", path: "Old.md", kind: "md" as const, size: 1, deletedAt: CHICAGO_EVENING, expiresAt: CHICAGO_EVENING + 30 * 86_400_000, by: null, excerpt: "" };
+  const item = { id: "1-1", path: "Old.md", kind: "md" as const, title: "Old", tags: [], size: 1, deletedAt: CHICAGO_EVENING, expiresAt: CHICAGO_EVENING + 30 * 86_400_000, by: null, excerpt: "" };
   assert.equal(onMachineIn("America/Chicago", () => fmtTrash([item])), "1-1  Old.md — deleted 2026-09-29 21:00, gone for good 2026-10-29");
 });
 

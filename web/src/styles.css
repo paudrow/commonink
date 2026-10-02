@@ -1327,9 +1327,10 @@ body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view
 .feed-scope button { display: inline-flex; gap: 6px; align-items: center; }
 .feed-about { margin: 10px 0 0; font-size: 13px; color: var(--muted); }
 .feed-elsewhere { padding: 14px 0 0; text-align: center; font-size: 13px; color: var(--muted); }
-/* The Notes page shows its cards, or (on the Trash tab) Trash. */
-#notes-view[data-tab="trash"] :is(.feed-bulk, .feed-list, .feed-elsewhere, .feed-more, .feed-keys, .feed-filters > :not(.feed-scope)) { display: none; }
-#notes-view:not([data-tab="trash"]) .feed-trash { display: none; }
+/* Trash's cards: nothing in Trash opens, so its title isn't a link and the card isn't a button. */
+.feed-empty-trash { margin-left: auto; }
+.feed-card.is-trashed { cursor: default; }
+.feed-card.is-trashed .fc-title:hover { text-decoration: none; }
 .feed-folders { display: flex; gap: 6px; flex-wrap: wrap; }
 .feed-folders .chip { height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--line); font-size: 12px; color: var(--ink-2); }
 .feed-folders .chip:hover { border-color: var(--line-strong); }
