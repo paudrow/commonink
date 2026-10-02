@@ -49,6 +49,19 @@ test("restoring an older version of a note that's in Trash brings that note back
   assert.deepEqual(vault.changes({ path: "Welcome.md", limit: 2 }).map((c) => c.op), ["edit", "restore"]);
 });
 
+test("restoring an older version of a deleted note never writes over a new note at its old path", () => {
+  const { vault } = openTempVault();
+  const id = vault.meta("Welcome.md")!.id;
+  const edit = vault.save("Welcome.md", "# Welcome, edited\n", { source: "you" }).change!;
+  vault.delete(["Welcome"], "you");
+  const other = vault.create("Welcome.md", "# Someone else\n", "you");
+  const back = vault.restore(edit.id, "you");
+  assert.deepEqual(
+    [back.path, vault.pathOf(id), vault.read(back.path).content, vault.read("Welcome.md").content, vault.meta("Welcome.md")!.id, vault.trash()],
+    ["Welcome 2.md", "Welcome 2.md", "# Welcome\n\nStart with [[Roadmap]].\n\n![[chart.svg]]\n", "# Someone else\n", other.id, []],
+  );
+});
+
 test("an asset keeps its tags through Trash; deleting forever drops its bytes and its text in the log", () => {
   const { vault, dir } = openTempVault();
   vault.setAssetTags("chart.svg", ["charts"]);

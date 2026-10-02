@@ -39,14 +39,17 @@ export function googleReader(env: Env, db: SqlDb): SourceReader {
         got = await api.changes(calendar, null).catch((e2) => Promise.reject(problem(e2)));
       }
       if (token && !got.events.length && src.fresh) return { status: "unchanged" };
-      db.tx(() => {
+      const gone = db.tx(() => {
+        if (!db.get("SELECT 1 FROM sources WHERE id = ?", src.id)) return true; // removed while Google was being read
         if (!token) db.run("DELETE FROM google_events WHERE source = ?", src.id);
         for (const e of got.events) {
           // A deleted event comes back cancelled with no series; a cancelled instance still cancels its slot.
           if (e.status === "cancelled" && !e.recurringEventId) db.run("DELETE FROM google_events WHERE source = ? AND id = ?", src.id, e.id);
           else db.run("INSERT INTO google_events(source, id, data) VALUES (?,?,?) ON CONFLICT(source, id) DO UPDATE SET data = excluded.data", src.id, e.id, JSON.stringify(e));
         }
+        return false;
       });
+      if (gone) return { status: "unchanged" };
       const zone = got.zone ?? (src.state.zone as string | null) ?? null;
       return { status: "ok", text: eventsToIcs(kept(src.id), zone, got.name), state: { syncToken: got.syncToken, zone } };
     },

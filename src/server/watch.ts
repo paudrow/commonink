@@ -34,7 +34,7 @@ export function watchTree(root: string, onChange: (rel: string) => void, native 
     const abs = path.join(root, dir);
     let w: fs.FSWatcher;
     try {
-      w = fs.watch(abs, (_event, name) => {
+      w = fs.watch(abs, (event, name) => {
         if (!name) return;
         const rel = dir ? `${dir}/${name}` : name;
         let isDir = false;
@@ -43,6 +43,10 @@ export function watchTree(root: string, onChange: (rel: string) => void, native 
         } catch {
           unwatch(rel); // gone: stop watching it, and anything that was under it
         }
+        // A "rename" means the folder was made, deleted or moved here. If it is still there it may be a
+        // new folder under the old name (deleted and made again, or swapped in) that the old watch, on
+        // the folder that's gone, no longer sees; its number on disk can even be reused, so watch it again.
+        if (isDir && event === "rename") unwatch(rel);
         if (isDir && !skipped(name)) watchDir(rel);
         onChange(rel);
       });
