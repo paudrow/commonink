@@ -2,12 +2,14 @@
 // things (a note changes, you tick a task), it counts what the locked inks need from the API the
 // app already has, and a toast says when one is earned, with a button to use it. Only the locked
 // inks are counted, so once every ink is yours it stops asking. Earned inks are kept per browser.
+// In a workspace that isn't gamified (gamify.ts) every ink is yours, and nothing is counted or said.
 import { api } from "./api.ts";
 import { didEvents, onVaultChange } from "./events.ts";
 import { isSelf } from "./dom.ts";
 import { store } from "./store.ts";
 import { toast } from "./toast.ts";
 import { watchGuide } from "./onboarding.ts";
+import { gamified, onGamified } from "./gamify.ts";
 import { GUIDE } from "../../src/core/guide.ts";
 import { localDate } from "../../src/core/tasks.ts";
 import { DEFAULT_INK, distinctDays, earnedInks, faviconSvg, INK_IDS, isInk, unlockToast, type InkId, type InkStats } from "./inks.ts";
@@ -28,7 +30,7 @@ let countedDay: string | null = null;
 let ready = false;
 let hooks = { choose() {} };
 
-const owned = (): InkId[] => earned ?? [DEFAULT_INK];
+const owned = (): InkId[] => (!gamified() ? [...INK_IDS] : (earned ?? [DEFAULT_INK]));
 const locked = (id: InkId) => !owned().includes(id);
 
 /** The ink in use, as index.html applied it before the page drew. */
@@ -72,10 +74,11 @@ export function startInks(h: typeof hooks) {
     clearTimeout(timer);
     timer = window.setTimeout(() => void count(), 1500);
   });
+  onGamified((on) => on && void count()); // back on: what you've done since earns its inks
   watchGuide((s) => {
     if (!s) return; // gone (archived, say): what it last said stands
     stats.guideFinished = s.finished;
-    if (ready) award();
+    if (ready && gamified()) award();
   });
   void count();
 }
@@ -85,7 +88,7 @@ let counting = false;
 let again = false;
 async function count(): Promise<void> {
   if (counting) return void (again = true);
-  if (!INK_IDS.some(locked)) return;
+  if (!gamified() || !INK_IDS.some(locked)) return;
   counting = true;
   try {
     await Promise.allSettled([

@@ -15,7 +15,7 @@ import { parseDirective } from "./widgets/args.ts";
 import { WIDGETS } from "./widgets/index.ts";
 import { tagChip, tagFilter } from "./tagPicker.ts";
 import type { ToastSpec } from "./toast.ts";
-import { formatQuery, type NoteQuery } from "../../src/core/query.ts";
+import { formatQuery, tagList, type NoteQuery, type QuerySort } from "../../src/core/query.ts";
 import { hydrateTaskChips, withTaskChips } from "./taskChips.ts";
 import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
 import { linkClick, sideClick } from "./panes.ts";
@@ -91,7 +91,7 @@ export class NotesPage {
   private folder = "";
   /** The tag Notes is narrowed to ("" for any); its children count too. */
   private tag = "";
-  private sort: "modified" | "title" = "modified";
+  private sort: QuerySort = "modified";
   private items: FeedItem[] = [];
   private page: FeedPage | null = null;
   private focus = 0;
@@ -111,8 +111,8 @@ export class NotesPage {
     this.trashHost = el("div", { class: "feed-trash" });
     this.folderBar = el("div", { class: "feed-folders", role: "group", "aria-label": "Folder" });
     this.tagBar = el("div", { class: "feed-folders" });
-    this.sortSel = el("select", { class: "qt-select feed-sort", "aria-label": "Sort" }, el("option", { value: "modified" }, "Newest"), el("option", { value: "title" }, "By title"));
-    this.sortSel.addEventListener("change", () => ((this.sort = this.sortSel.value as "modified" | "title"), (this.focus = 0), this.reload()));
+    this.sortSel = el("select", { class: "qt-select feed-sort", "aria-label": "Sort" }, el("option", { value: "modified" }, "Recently changed"), el("option", { value: "date" }, "Newest by date"), el("option", { value: "oldest" }, "Oldest by date"), el("option", { value: "title" }, "By title"));
+    this.sortSel.addEventListener("change", () => ((this.sort = this.sortSel.value as QuerySort), (this.focus = 0), this.reload()));
     this.saveBtn = el(
       "button",
       { type: "button", class: "chip tag-filter", title: "Keep these filters in the sidebar", onclick: () => this.hooks.saveQuery(this.saveBtn, formatQuery(this.query)) },
@@ -153,7 +153,7 @@ export class NotesPage {
   /** What Notes shows, as a note query: the same thing a ::query widget or a smart folder holds. */
   get query(): NoteQuery {
     const q = this.input.value.trim();
-    return { ...(q && { q }), ...(this.folder && { folder: this.folder }), ...(this.tag && { tag: this.tag }), ...(this.sort === "title" && { sort: "title" as const }) };
+    return { ...(q && { q }), ...(this.folder && { folder: this.folder }), ...(this.tag && { tag: this.tag }), ...(this.sort !== "modified" && { sort: this.sort }) };
   }
 
   /**
@@ -265,7 +265,7 @@ export class NotesPage {
         el("button", { type: "button", class: `chip${f === this.folder ? " is-on" : ""}`, "aria-pressed": String(f === this.folder), onclick: () => ((this.folder = f), (this.focus = 0), this.reload()) }, f || "All folders"),
       ),
     );
-    this.tagBar.replaceChildren(tagFilter({ current: this.tag, tags: this.hooks.tags, count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }), this.tag ? this.hooks.starButton(this.tag) : "");
+    this.tagBar.replaceChildren(tagFilter({ current: this.tag, tags: this.hooks.tags, count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }), tagList(this.tag).length === 1 ? this.hooks.starButton(this.tag) : "");
     this.sortSel.value = this.sort;
     this.saveBtn.hidden = !formatQuery(this.query);
     this.hooks.filtersChanged();
@@ -288,7 +288,7 @@ export class NotesPage {
   private empty(q: string, filtered: boolean): HTMLElement {
     if (filtered) {
       const which = this.tab === "archive" ? "archived " : "";
-      const where = `${this.tag ? ` tagged #${this.tag}` : ""}${this.folder ? ` in ${this.folder}` : ""}`;
+      const where = `${this.tag ? ` tagged ${tagList(this.tag).map((t) => `#${t}`).join(" and ")}` : ""}${this.folder ? ` in ${this.folder}` : ""}`;
       return emptyState({
         icon: "search",
         title: q ? `No ${which}notes${where} match “${q}”` : `No ${which}notes${where}`,

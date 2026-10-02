@@ -8,7 +8,7 @@ import { peopleDirectory } from "../src/core/contacts.ts";
 import type { Contact, Member } from "../web/src/api.ts";
 
 const contact = (name: string, o: Partial<Contact> = {}): Contact => ({
-  path: `People/${name}.md`, id: name, name, email: [], phone: [], company: "", role: "", links: [], aliases: [], tags: [], mentions: 0, lastContacted: null, ...o,
+  path: `People/${name}.md`, id: name, name, email: [], phone: [], company: "", role: "", links: [], aliases: [], tags: [], checkIn: "", mentions: 0, lastContacted: null, checkInDue: null, ...o,
 });
 const member = (name: string, email: string, you = false): Member => ({ id: name, name, email, you });
 
@@ -50,4 +50,14 @@ test("@ on a task offers people by name or by any @name that's theirs, writes th
   // "jane" and "Priya" are people's names already; "bob" is only on tasks.
   assert.deepEqual(offer("b"), ["bob=@bob (on tasks)"]);
   assert.deepEqual(offer("").map((o) => o.split("=")[0]), ["Jane Doe", "Priya Shah", "Sam Dev", "You Dev", "bob"]);
+});
+
+test("a contact's check-in reads as its rhythm and when it's next due, or since when it's overdue", async () => {
+  const { checkInText, dueForCheckIn } = await import("../web/src/contactsPage.ts");
+  const at = (checkIn: string, checkInDue: string | null) => contact("Jane", { checkIn, checkInDue });
+  assert.equal(checkInText(at("every 2 weeks", "2026-10-04"), "2026-10-02"), "Every 2 weeks · next Oct 4");
+  assert.equal(checkInText(at("monthly", "2026-10-02"), "2026-10-02"), "Every month · due today");
+  assert.equal(checkInText(at("3m", "2026-09-20"), "2026-10-02"), "Every 3 months · due since Sep 20");
+  assert.equal(checkInText(at("", null)), "");
+  assert.deepEqual([at("weekly", "2026-10-02"), at("weekly", "2026-10-03"), at("", null)].map((c) => dueForCheckIn(c, "2026-10-02")), [true, false, false]);
 });
