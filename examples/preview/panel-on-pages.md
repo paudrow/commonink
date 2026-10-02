@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 193
 title: The side panel fits the page
 ---
 1. Open Notes, Tasks, Calendar or Tags with the side panel open (⌘\). The panel shows Activity only. It no longer shows empty Outline and Backlinks sections with a "—".
