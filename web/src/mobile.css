@@ -98,8 +98,6 @@
   /* The top bar is full on a phone: → shows only when there's somewhere to go forward, like a phone browser's. */
   #topbar .nav-arrow[data-dir="forward"][aria-disabled="true"] { display: none; }
   #topbar { padding-left: 4px; }
-  #save-status { flex: none; }
-  #save-status:not([data-state="error"]) { font-size: 0; min-width: 0; gap: 0; }
   #agents .avatar:nth-child(n + 2) { display: none; }
   /* Tasks, Tags and the other pages get the phone's width, as Notes does. A phone shows one pane,
      so a task's "Open to the side" (its last button) has no side to open. */

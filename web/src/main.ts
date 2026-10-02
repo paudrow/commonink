@@ -1378,7 +1378,7 @@ function onUpdate(s: Session, docChanged: boolean, fromRemote: boolean, state: E
   if (docChanged) renderOutlineSoon();
 }
 
-/** The save status in the top bar is the focused pane's. */
+/** The save status in the status bar is the focused pane's. */
 const status = (s: Session, state: Parameters<typeof setSaveStatus>[0]) => s.pane === active && setSaveStatus(state);
 
 function scheduleSave(s: Session, delay = 600) {
@@ -1415,7 +1415,6 @@ async function save(s: Session) {
     if (e instanceof ApiError && e.status === 409) {
       applyRemote({ path: s.path, content: e.data.content, version: e.data.version, source: e.data.source ?? "external" });
     } else {
-      status(s, "error");
       // Offline or a server error: keep trying, so the text is saved once it can be. A refusal
       // (an empty note, one too big) waits for the next edit instead.
       if (!(e instanceof ApiError) || e.status >= 500) {
@@ -1423,6 +1422,7 @@ async function save(s: Session) {
         clearTimeout(s.timer);
         s.timer = window.setTimeout(() => save(s), 5000);
       }
+      status(s, "error");
     }
   } finally {
     s.saving = false;
@@ -2357,20 +2357,54 @@ function openMovePicker(anchor: HTMLElement) {
   folderPicker(anchor, { folders: allFolders(), current: parentOf(s.path), onPick: (folder) => void moveToFolder(s.path, folder) });
 }
 
+/**
+ * The status bar says nothing while notes are saved and the server is reachable. It speaks up, in
+ * words, only when something is off: offline, a save that failed, or a save that's taking a while.
+ */
+let slowSave = 0;
 function setSaveStatus(state: "saved" | "editing" | "saving" | "error") {
-  const labels = { saved: "Saved", editing: "Edited", saving: "Saving…", error: "Not saved" };
-  const hints = {
-    saved: "All changes to this note are saved",
-    editing: "Your changes save automatically in a moment",
-    saving: "Saving your latest changes…",
-    error: "Your latest changes aren't saved yet. Keep this tab open: they're retried automatically, or on your next edit",
-  };
   const node = $("#save-status");
   // Screen readers hear only a failed save, not "Edited… Saving… Saved" at every pause in typing.
-  if (state === "error" && node.dataset.state !== "error") $("#toast-alert").textContent = "Not saved";
+  // Offline, they already heard that once, so a save failing for that reason stays quiet.
+  if (state === "error" && node.dataset.state !== "error" && !offline()) $("#toast-alert").textContent = "Not saved";
   node.dataset.state = state;
-  node.textContent = labels[state];
-  node.title = hints[state];
+  node.dataset.slow = "";
+  clearTimeout(slowSave);
+  // A quick save comes and goes without a word; one that takes over a second says so.
+  if (state === "saving") slowSave = window.setTimeout(() => ((node.dataset.slow = "true"), renderHealth()), 1000);
+  renderHealth();
+}
+
+const offline = () => $("#conn").dataset.up === "false";
+
+function renderHealth() {
+  const node = $("#save-status");
+  const state = node.dataset.state;
+  const retrying = !!active.session?.failed;
+  const [text, hint] = offline()
+    ? ["", ""] // the connection line already says changes will save when it's back
+    : state === "error"
+      ? retrying
+        ? ["Not saved · retrying", "Your latest changes aren't saved yet. Keep this tab open: they're retried every few seconds"]
+        : ["Not saved", "Your latest changes aren't saved yet. They're tried again on your next edit"]
+      : state === "saving" && node.dataset.slow
+        ? ["Saving…", "Saving your latest changes…"]
+        : ["", ""];
+  node.textContent = text;
+  node.title = hint;
+  node.classList.toggle("is-bad", state === "error");
+}
+
+function setOnline(up: boolean) {
+  const conn = $("#conn");
+  const was = conn.dataset.up;
+  conn.dataset.up = String(up);
+  conn.textContent = up ? "" : "Offline · changes will save when back";
+  conn.title = up ? "" : "Can't reach the server, reconnecting… Your edits are kept and saved once the connection is back";
+  // Said once each way, and nothing for the first connection.
+  if (!up && was !== "false") $("#toast-alert").textContent = "Offline. Changes will save when the connection is back";
+  if (up && was === "false") $("#toast-status").textContent = "Back online";
+  renderHealth();
 }
 
 let statusTimer = 0;
@@ -3182,12 +3216,7 @@ async function boot() {
   renderActivity();
   renderPresence();
   connect(onMessage, (up) => {
-    const conn = $("#conn");
-    conn.dataset.up = String(up);
-    conn.title = up
-      ? "Connected: changes from agents, other tabs and collaborators show up live"
-      : "Offline, reconnecting… Your edits are kept and saved once the connection is back";
-    conn.setAttribute("aria-label", conn.title);
+    setOnline(up);
     if (up) {
       refreshNotesSoon();
       void flushSave(); // what couldn't be saved while the connection was down
