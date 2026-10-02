@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 298
 title: Meeting notes say which event they're for
 ---
 A meeting note made from a calendar event now names the event in its frontmatter, so the link between them is in the file, not only in the app's database.
