@@ -97,6 +97,8 @@ Today's journal note (on the Today page), quick-add's journal, quick capture, an
 | `{{agenda}}` | Its description. |
 | `{{event}}` | A link back to the event. |
 
+The new note's frontmatter also says which event it's for: `event:` (its ID in the calendar), `occurrence:` (which one of a series) and `calendar:` (the calendar's name). They replace those keys if the template has them; its other frontmatter stays. They're how the event finds its note again after an export, so leave them be.
+
 ## For agents
 
 `list_templates` lists the templates and what each asks; `create_from_template` makes a note, with `variables` answering its questions by label (plain text, written as given). The reply says what's still unfilled. On the command line: `commonink templates`, and `commonink new --template Meeting --var Client=Acme --var "Attendees=@Sam @Lee"`.
