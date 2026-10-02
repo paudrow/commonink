@@ -841,6 +841,7 @@ test("a smart folder can need several tags, a folder with spaces, and sort by ea
   // A nested tag counts toward its parent, as it does for one tag.
   assert.deepEqual(titles("tag=journal sort=date"), ["Swim", "2024-12-24", "Run log"]);
   assert.equal(vault.saveSmartFolder("ana", { name: "Health", query: 'folder="Health and Fitness"', shared: true }, true).count, 3);
+  assert.deepEqual(titles('folder="Health and Fitness|Journal" sort=title'), ["2024-12-24", "Gym plan", "Run log", "Swim"]);
   assert.deepEqual(vault.list(undefined, "active", "health,journal").map((n) => n.title), ["Swim", "Run log"]);
   assert.deepEqual(titles("tag=health,journal match=any sort=title"), ["2024-12-24", "Gym plan", "Run log", "Swim"]);
 });

@@ -2259,7 +2259,7 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .sf-row { display: grid; grid-template-columns: 64px 1fr; gap: 12px; align-items: start; }
 .sf-label { padding-top: 8px; font-size: 13px; font-weight: 550; color: var(--ink-2); }
 .sf-control { display: grid; gap: 6px; min-width: 0; }
-.sf-folder, .sf-tag-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.sf-item { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .sf-pick { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg); font: 14px var(--ui); color: var(--ink-strong); text-align: left; }
 .sf-pick svg { flex: none; color: var(--muted); }
 .sf-pick:hover { border-color: var(--accent-line); }
@@ -2269,7 +2269,7 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .sf-crumb { color: var(--muted); white-space: nowrap; }
 .sf-crumb.is-last { color: var(--ink-strong); font-weight: 550; overflow: hidden; text-overflow: ellipsis; }
 .sf-crumb-sep { color: var(--faint); }
-.sf-tags { display: grid; gap: 6px; }
+.sf-rows { display: grid; gap: 6px; }
 .sf-join { flex: none; width: 26px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); text-align: right; }
 .sf-add { justify-self: start; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border-radius: 7px; font: 13px var(--ui); color: var(--accent-ink); }
 .sf-add:hover:not(:disabled) { background: var(--accent-soft); }
@@ -2287,6 +2287,11 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .sf-adv-body { display: grid; gap: 6px; padding-top: 8px; }
 .sf-dialog input.sf-query { font-family: var(--mono, ui-monospace, monospace); font-size: 13px; }
 .sf-hint { margin: 0; color: var(--muted); font-size: 12px; }
+.sf-syntax { display: grid; gap: 6px; font-size: 12px; color: var(--ink-2); }
+.sf-syntax dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; margin: 0; }
+.sf-syntax dt, .sf-syntax dd { margin: 0; overflow-wrap: anywhere; }
+.sf-syntax code { font-family: var(--mono, ui-monospace, monospace); font-size: 11.5px; color: var(--ink-strong); }
+.sf-syntax a { justify-self: start; color: var(--accent-ink); }
 .sf-pop-error { font-size: 12.5px; color: var(--bad-ink); }
 .sf-delete svg { color: var(--bad); }
 .qw-config-foot .qw-btn { white-space: nowrap; flex: none; }

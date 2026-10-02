@@ -202,7 +202,7 @@ export const smartFolders = [
       "frontmatter date/created, else a YYYY-MM-DD in its name, newest first), oldest (the same, oldest first), title or created (newest note first). " +
       'In q, -word leaves a word out, a OR b matches either, and \'exact phrase\' matches the words together; tag=x and -tag=x, and ' +
       "modified>-7d or created<2026-09-01 (a date, today, yesterday, or -7d, -2w, -1m back) filter too, and can also stand on their own. " +
-      'Quote a value with spaces (folder="Health and Fitness"). Only save one the user asked for.',
+      'Several folders (folder="Projects|Areas" or folder=Projects folder=Areas) means notes in any of them. Quote a value with spaces (folder="Health and Fitness"). Only save one the user asked for.',
     examples: ["commonink smart-save Planning tag=plan --just-me", 'commonink smart-save Launch folder=Projects q="launch"', "commonink smart-save Journal tag=journal,health sort=date"],
     args: {
       name: str({ required: true, pos: 0 }),

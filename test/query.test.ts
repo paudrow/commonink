@@ -188,3 +188,9 @@ test("a note query's old forms find what they always found", () => {
   assert.deepEqual(paths({ q: "pla", tag: "work" }), ["B.md"]);
   assert.deepEqual(paths({ q: "" }), ["A.md", "B.md", "C.md"]);
 });
+
+test("several folders are any of them, written with | or as folder= more than once", () => {
+  assert.deepEqual(parseQuery("folder=Projects folder=/Areas/Health and Fitness/"), { folder: "Projects|Areas/Health and Fitness" });
+  assert.equal(formatQuery(parseQuery('folder="Projects|Areas|Projects"')), 'folder="Projects|Areas"');
+  assert.equal(queryProblem('folder="Projects|Areas"'), null);
+});

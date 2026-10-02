@@ -1,4 +1,4 @@
-// The smart folder dialog: tags as rows that match all or any, a folder picked from a list, and
+// The smart folder dialog: words, folders and tags as rows (all or any), folders picked from a list, and
 // the query text under Advanced kept in step with the controls.
 import "./dom.ts";
 import { test } from "node:test";
@@ -31,22 +31,22 @@ test("tags are rows joined by and/or, the folder is picked, and Advanced shows t
   const anchor = document.body.appendChild(document.createElement("button"));
   smartFolderEditor(anchor, { name: "", query: "", shared: true }, { canShare: true, sources, save: async (f) => void (saved = f) });
   assert.ok($(".sf-modal .sf-dialog"), "opens as a dialog in the middle");
-  assert.equal($(".sf-tags").querySelectorAll(".sf-tag-row").length, 1);
+  assert.equal($(".sf-tags").querySelectorAll(".sf-item").length, 1);
   assert.equal($(".sf-tags select"), null, "no all/any choice with one tag");
 
-  byText(".sf-tag-row .sf-pick", "Any tag").click();
+  byText(".sf-tags .sf-item .sf-pick", "Any tag").click();
   pickItem("#health");
   byText(".sf-add", "Add a tag").click(); // opens the picker for the new row
   pickItem("#journal");
-  assert.deepEqual([...document.querySelectorAll(".sf-tag-row .sf-pick")].map((b) => b.textContent), ["health", "journal"]);
-  assert.equal(byText(".sf-tag-row", "journal").querySelector(".sf-join")!.textContent, "and");
+  assert.deepEqual([...document.querySelectorAll(".sf-tags .sf-item .sf-pick")].map((b) => b.textContent), ["health", "journal"]);
+  assert.equal(byText(".sf-item", "journal").querySelector(".sf-join")!.textContent, "and");
 
   const match = $<HTMLSelectElement>(".sf-tags select");
   match.value = "any";
   match.dispatchEvent(new window.Event("change"));
-  assert.equal(byText(".sf-tag-row", "journal").querySelector(".sf-join")!.textContent, "or");
+  assert.equal(byText(".sf-item", "journal").querySelector(".sf-join")!.textContent, "or");
 
-  byText(".sf-folder .sf-pick", "Any folder").click();
+  byText(".sf-folders .sf-pick", "Any folder").click();
   assert.ok(!byText(".folder-picker .fp-list", "New folder"), "a filter only picks folders that exist");
   pickItem("Health and Fitness");
   assert.deepEqual([...document.querySelectorAll(".sf-crumb")].map((c) => c.textContent), ["Areas", "Health and Fitness"]);
@@ -61,8 +61,8 @@ test("tags are rows joined by and/or, the folder is picked, and Advanced shows t
   // Typing a query fills the controls from it.
   query.value = "tag=journal sort=date";
   query.dispatchEvent(new window.Event("input"));
-  assert.deepEqual([...document.querySelectorAll(".sf-tag-row .sf-pick")].map((b) => b.textContent), ["journal"]);
-  assert.equal(byText(".sf-folder .sf-pick", "Any folder").textContent, "Any folder");
+  assert.deepEqual([...document.querySelectorAll(".sf-tags .sf-item .sf-pick")].map((b) => b.textContent), ["journal"]);
+  assert.equal(byText(".sf-folders .sf-pick", "Any folder").textContent, "Any folder");
 
   $<HTMLInputElement>(".sf-name").value = "Journal";
   $<HTMLFormElement>(".sf-dialog").requestSubmit();
@@ -81,16 +81,52 @@ test("a smart folder without a name isn't saved, and Escape closes the dialog", 
   assert.equal(document.querySelector(".sf-modal"), null);
 });
 
-test("the editor asks about Favorites when the caller says where the folder stands", async () => {
-  let saved: { favorite?: boolean } | null = null;
-  smartFolderEditor(document.body, { name: "Work", query: "tag=health", shared: true, favorite: true }, { canShare: true, sources, save: async (f) => void (saved = f) });
-  const box = byText(".sf-just-me", "In Favorites").querySelector("input")!;
-  assert.equal(box.checked, true);
-  box.checked = false;
+test("words and folders are rows too: words match all or any, folders any of them", async () => {
+  let saved: { query: string } | null = null;
+  smartFolderEditor(document.body, { name: "Mixed", query: "", shared: false }, { canShare: true, sources, save: async (f) => void (saved = f) });
+  const words = () => [...document.querySelectorAll<HTMLInputElement>(".sf-words .sf-word")];
+  const type = (input: HTMLInputElement, value: string) => ((input.value = value), input.dispatchEvent(new window.Event("input")));
+  type(words()[0], "budget");
+  byText(".sf-add", "Add a word").click();
+  type(words()[1], "weekly review");
+  assert.equal($<HTMLInputElement>(".sf-query").value, "q=\"budget 'weekly review'\"");
+  const match = $<HTMLSelectElement>(".sf-words select");
+  match.value = "any";
+  match.dispatchEvent(new window.Event("change"));
+  assert.equal($<HTMLInputElement>(".sf-query").value, "q=\"budget OR 'weekly review'\"");
+
+  byText(".sf-folders .sf-pick", "Any folder").click();
+  pickItem("Health and Fitness");
+  byText(".sf-add", "Add a folder").click();
+  pickItem("Areas");
+  assert.equal(document.querySelectorAll(".sf-folders .sf-item")[1].querySelector(".sf-join")!.textContent, "or");
+  assert.match($<HTMLInputElement>(".sf-query").value, /folder="Areas\/Health and Fitness\|Areas"/);
+
+  // A query rows can't say keeps its words as text.
+  const query = $<HTMLInputElement>(".sf-query");
+  query.value = "q=\"plan -draft\"";
+  query.dispatchEvent(new window.Event("input"));
+  assert.equal(words().length, 1);
+  assert.equal(words()[0].value, "plan -draft");
+  assert.ok(byText(".sf-words", "query syntax"));
   $<HTMLFormElement>(".sf-dialog").requestSubmit();
   await settle();
-  assert.equal(saved!.favorite, false);
-  smartFolderEditor(document.body, { name: "Work", query: "", shared: true }, { canShare: true, sources, save: async () => {} });
+  assert.equal(saved!.query, 'q="plan -draft"');
+});
+
+test("sharing with the workspace is a box, off unless the folder is shared; Favorites aren't asked", async () => {
+  let saved: { shared: boolean } | null = null;
+  smartFolderEditor(document.body, { name: "Work", query: "tag=health", shared: false }, { canShare: true, sources, save: async (f) => void (saved = f) });
+  const box = byText(".sf-just-me", "Share with workspace").querySelector("input")!;
+  assert.equal(box.checked, false);
   assert.equal(byText(".sf-just-me", "In Favorites"), undefined);
+  box.checked = true;
+  $<HTMLFormElement>(".sf-dialog").requestSubmit();
+  await settle();
+  assert.equal(saved!.shared, true);
+  smartFolderEditor(document.body, { name: "Work", query: "", shared: true }, { canShare: false, sources, save: async () => {} });
+  const viewer = byText(".sf-just-me", "Share with workspace").querySelector("input")!;
+  assert.equal(viewer.checked, false);
+  assert.equal(viewer.disabled, true);
   $(".sf-dialog").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
 });

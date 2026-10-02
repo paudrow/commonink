@@ -1669,14 +1669,15 @@ const fieldSources = { tags: () => tags, folders: () => allFolders() };
 
 /** Offer to keep a note query as a smart folder (from the Notes filters or a ::query widget). */
 function saveSmartFolder(query: string, name: string, anchor: HTMLElement, favorite = false) {
-  smartFolderEditor(anchor, { name: name || nameFor(query), query, shared: !viewer, favorite }, {
+  // New ones are yours only until you share them (a local vault has no one else, so it keeps them as it always did).
+  smartFolderEditor(anchor, { name: name || nameFor(query), query, shared: local }, {
     canShare: !viewer,
     alone: local,
     sources: fieldSources,
     save: async (f) => {
       const saved = await api.saveSmartFolder(f);
       smartFolders = await api.smartFolders();
-      await starSmartFolder(saved.id, !!f.favorite);
+      if (favorite) await starSmartFolder(saved.id, true);
       renderTree();
       notesPage.refreshSoon();
       toast({ icon: "folderSearch", text: `Saved ${saved.name}`, detail: local ? undefined : saved.shared ? "Everyone in the workspace sees it in their sidebar." : "Only you see it." });
@@ -1693,14 +1694,13 @@ function newSmartFolderFromPalette() {
 
 /** A new smart folder from scratch (the Smart folders header, or its empty row). Saving opens it. */
 function newSmartFolder(anchor: HTMLElement) {
-  smartFolderEditor(anchor, { name: "", query: "", shared: !viewer, favorite: false }, {
+  smartFolderEditor(anchor, { name: "", query: "", shared: local }, {
     canShare: !viewer,
     alone: local,
     sources: fieldSources,
     save: async (f) => {
       const saved = await api.saveSmartFolder(f);
       smartFolders = await api.smartFolders();
-      await starSmartFolder(saved.id, !!f.favorite);
       await showNotes({ tab: "notes", query: parseQuery(saved.query) });
     },
   });
@@ -1737,7 +1737,7 @@ function smartStarButton(f: SmartFolder): HTMLElement {
 /**
  * The star beside the Notes filters, for whatever they show. A smart folder's exact query stars
  * that folder; a tag alone stars the tag; anything else is saved as a smart folder first (the
- * editor opens, with Favorites ticked), since a favorite needs a name.
+ * editor opens, and saving it stars it), since a favorite needs a name.
  */
 function queryStarButton(q: NoteQuery): HTMLElement | "" {
   const text = formatQuery(q);
@@ -1808,14 +1808,13 @@ function renderSmartFolders(active: string | null) {
     const edit = el("button", { type: "button", class: "row-act", title: "Edit or delete" }, icon("sliders", 14));
     edit.addEventListener("click", (e) => {
       e.stopPropagation();
-      smartFolderEditor(edit, { ...f, favorite: isSmartStarred(f.id) }, {
+      smartFolderEditor(edit, f, {
         canShare: !viewer,
         alone: local,
         sources: fieldSources,
         save: async (next) => {
-          const saved = await api.saveSmartFolder(next);
+          await api.saveSmartFolder(next);
           smartFolders = await api.smartFolders();
-          await starSmartFolder(saved.id, !!next.favorite);
           renderTree();
         },
         remove: async () => {

@@ -14,7 +14,7 @@ import { parseDirective } from "./widgets/args.ts";
 import { WIDGETS } from "./widgets/index.ts";
 import { tagChip, tagFilter } from "./tagPicker.ts";
 import type { ToastSpec } from "./toast.ts";
-import { formatQuery, tagList, type NoteQuery, type QuerySort } from "../../src/core/query.ts";
+import { folderList, formatQuery, tagList, type NoteQuery, type QuerySort } from "../../src/core/query.ts";
 import { hydrateTaskChips, withTaskChips } from "./taskChips.ts";
 import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
 import { linkClick, sideClick } from "./panes.ts";
@@ -264,7 +264,7 @@ export class NotesPage {
     this.folderBar.replaceChildren(
       // A subfolder picked in the sidebar gets a chip too, so it shows as the filter in use.
       ...["", ...page.folders, ...(this.folder && !page.folders.includes(this.folder) ? [this.folder] : [])].map((f) =>
-        el("button", { type: "button", class: `chip${f === this.folder ? " is-on" : ""}`, "aria-pressed": String(f === this.folder), onclick: () => ((this.folder = f), (this.focus = 0), this.reload()) }, f || "All folders"),
+        el("button", { type: "button", class: `chip${f === this.folder ? " is-on" : ""}`, "aria-pressed": String(f === this.folder), onclick: () => ((this.folder = f), (this.focus = 0), this.reload()) }, folderList(f).join(" or ") || "All folders"),
       ),
     );
     this.tagBar.replaceChildren(tagFilter({ current: this.tag, any: this.match === "any", tags: this.hooks.tags, count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }), this.hooks.starButton(this.query));
@@ -290,7 +290,7 @@ export class NotesPage {
   private empty(q: string, filtered: boolean): HTMLElement {
     if (filtered) {
       const which = this.tab === "archive" ? "archived " : "";
-      const where = `${this.tag ? ` tagged ${tagList(this.tag).map((t) => `#${t}`).join(this.match === "any" ? " or " : " and ")}` : ""}${this.folder ? ` in ${this.folder}` : ""}`;
+      const where = `${this.tag ? ` tagged ${tagList(this.tag).map((t) => `#${t}`).join(this.match === "any" ? " or " : " and ")}` : ""}${this.folder ? ` in ${folderList(this.folder).join(" or ")}` : ""}`;
       return emptyState({
         icon: "search",
         title: q ? `No ${which}notes${where} match “${q}”` : `No ${which}notes${where}`,

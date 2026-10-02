@@ -12,7 +12,7 @@ import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
 import { dueFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
 import { parseQuickAdd } from "./quickAdd.ts";
-import { dayPasses, formatQuery, ftsAny, ftsQuery, parseQuery, parseSearch, queryProblem, searchWords, tagList, type NoteQuery } from "./query.ts";
+import { dayPasses, folderList, formatQuery, ftsAny, ftsQuery, parseQuery, parseSearch, queryProblem, searchWords, tagList, type NoteQuery } from "./query.ts";
 import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
 import { safeDecode } from "./uri.ts";
 import { AGENTS_NOTE, START_TAG, type NoteRole } from "./noteRoles.ts";
@@ -812,7 +812,9 @@ export class Vault {
       const out = found(ftsAny(words.none));
       rows = rows.filter((r) => !out.has(r.path));
     }
-    if (query.folder) rows = rows.filter((r) => homeOf(r.path).startsWith(query.folder!.replace(/\/?$/, "/")));
+    // Any of the folders (`Projects|Areas`), and the folders in each.
+    const folders = folderList(query.folder).map((f) => `${f}/`);
+    if (folders.length) rows = rows.filter((r) => folders.some((f) => homeOf(r.path).startsWith(f)));
     // Every tag, each with the tags under it: `work,plan` is the notes with both. A tag left out (`-tag=x`) takes the tags under it too.
     const tagged = (tag: string) => {
       const key = normalizeTag(tag);

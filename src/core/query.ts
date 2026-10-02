@@ -12,6 +12,7 @@ export type QuerySort = "modified" | "date" | "oldest" | "title" | "created";
 export interface NoteQuery {
   /** Words to find (full-text, prefix matching), and filters written among them (see parseSearch). */
   q?: string;
+  /** This folder and the folders in it. Several, joined with | (`Projects|Areas`): a note in any of them. */
   folder?: string;
   /** This tag or any tag under it. Several, joined with commas (`work,plan`): a note needs each one, or with match=any, one of them. */
   tag?: string;
@@ -38,6 +39,13 @@ const LIMIT = /^[1-9]\d{0,3}$/;
 
 export const isSort = (s: string | undefined): s is QuerySort => (SORTS as readonly string[]).includes(s ?? "");
 
+/** The folders in a `folder` value: `Projects|Areas` names two, tidied (`/Projects/` is `Projects`). */
+export const folderList = (folder: string | undefined): string[] =>
+  (folder ?? "")
+    .split("|")
+    .map((f) => f.trim().replace(/^\/+|\/+$/g, ""))
+    .filter(Boolean);
+
 /** The tags in a `tag` value: `work,plan`, `work plan` and `#work + #plan` all name two. */
 export const tagList = (tag: string | undefined): string[] => (tag ?? "").split(/[\s,+]+/).filter(Boolean);
 
@@ -47,7 +55,7 @@ export const tagList = (tag: string | undefined): string[] => (tag ?? "").split(
  */
 export function toQuery(args: Record<string, string>): NoteQuery {
   const out: NoteQuery = {};
-  const folder = args.folder?.trim().replace(/^\/+|\/+$/g, "");
+  const folder = [...new Set(folderList(args.folder))].join("|");
   const tags: string[] = [];
   for (const raw of tagList(args.tag)) {
     const t = cleanTag(raw);
@@ -92,6 +100,8 @@ function readQuery(src: string): { args: Record<string, string>; bare: string | 
     if ((IN_Q as readonly string[]).includes(m[1])) filters.push(filterText(m[1], m[2] === "=" ? value : `${m[2]}${value}`));
     else if (m[2] !== "=") args[m[1]] = `${m[2]}${value}`;
     else if (m[1] === "tag") tags.push(value);
+    // `folder=a folder=b` is either folder, as `folder="a|b"` is.
+    else if (m[1] === "folder" && args.folder) args.folder += `|${value}`;
     else args[m[1]] = value;
     open = m[5] !== undefined && (m[1] === "q" || m[1] === "folder" || m[1] === "tag") ? m[1] : null;
   }

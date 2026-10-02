@@ -1,52 +1,99 @@
 // Name a smart folder and say which notes it holds, in a dialog in the middle of the window. The
-// simple part is a few plain controls: words to find, a folder (picked, not typed), tags as rows
-// with "Match all" or "Match any" once there are two, and a sort. Below them, a live count and the
+// simple part is a few plain controls, each a list of rows with "+ Add": words to find, folders
+// (picked, not typed), tags, and a sort. Words and tags say "Match all" or "Match any" once there
+// are two; a note is in one folder, so folders are always any of them. Below, a live count and the
 // first few notes that match, so what a choice does shows as you make it. Advanced has the query
-// as text, the same one an agent or a ::query widget writes; editing either side updates the other.
-// What's saved is the query as text; the server checks it.
+// as text, the same one an agent or a ::query widget writes, with its whole grammar (`-word`,
+// `modified>-7d`, ...); editing either side updates the other. What's saved is the query as text;
+// the server checks it.
 import { api } from "./api.ts";
 import { el, icon } from "./dom.ts";
 import type { FieldSources } from "./widgets/core.ts";
 import { folderPicker } from "./folderPicker.ts";
 import { tagPicker } from "./tagPicker.ts";
-import { formatQuery, parseQuery, queryProblem, tagList, type NoteQuery, type QuerySort } from "../../src/core/query.ts";
+import { folderList, formatQuery, parseQuery, parseSearch, queryProblem, tagList, type NoteQuery, type QuerySort } from "../../src/core/query.ts";
 
 export interface SmartFolderDraft {
   id?: string;
   name: string;
   query: string;
   shared: boolean;
-  /** In the person's Favorites. Left out, the editor doesn't ask. */
-  favorite?: boolean;
 }
 
-/** What the controls hold: the query, with its tags as a list (an empty row is a tag not picked yet). */
+type Match = "all" | "any";
+
+/**
+ * What the controls hold: the query, with its words, folders and tags as lists (an empty row is
+ * one not filled in yet). `words` is null when `q` says more than rows can (`-word`, a date, OR
+ * beside plain words), and `q` is then edited as text.
+ */
 interface State {
   q: string;
-  folder: string;
+  words: string[] | null;
+  wordMatch: Match;
+  folders: string[];
   tags: string[];
-  match: "all" | "any";
+  match: Match;
   sort: QuerySort;
 }
 
 export const SORTS: Array<[QuerySort, string]> = [
   ["modified", "Recently changed"],
+  ["created", "Recently created"],
   ["date", "Newest by date"],
   ["oldest", "Oldest by date"],
   ["title", "By title"],
 ];
 
-const stateOf = (query: NoteQuery): State => ({
-  q: query.q ?? "",
-  folder: query.folder ?? "",
-  tags: tagList(query.tag),
-  match: query.match ?? "all",
-  sort: query.sort ?? "modified",
-});
+/** A row's words as they go in `q`: one word as it is, more as a phrase (`'client call'`). */
+function termText(row: string): string {
+  const t = row.replace(/['"]/g, " ").replace(/\s+/g, " ").trim();
+  return /^[\p{L}\p{N}_]+$/u.test(t) && t !== "OR" ? t : t && `'${t}'`;
+}
+
+/** Rows of words as `q`: all of them (`a b`), or any (`a OR b`). */
+export function wordsText(rows: string[], match: Match): string {
+  return rows.map(termText).filter(Boolean).join(match === "any" ? " OR " : " ");
+}
+
+/** `q` as rows, if rows say it exactly (else null). */
+export function wordRows(q: string): { rows: string[]; match: Match } | null {
+  const text = q.trim().replace(/\s+/g, " ");
+  if (!text) return { rows: [""], match: "all" };
+  const s = parseSearch(text);
+  if (s.problem) return null;
+  const clauses = s.all;
+  const any = clauses.length === 1 && clauses[0].length > 1;
+  if (!any && clauses.some((c) => c.length !== 1)) return null;
+  const rows = (any ? clauses[0] : clauses.map((c) => c[0])).map((t) => t.words.join(" "));
+  const match: Match = any ? "any" : "all";
+  return wordsText(rows, match) === text ? { rows, match } : null;
+}
+
+const stateOf = (query: NoteQuery): State => {
+  const words = wordRows(query.q ?? "");
+  const folders = folderList(query.folder);
+  const tags = tagList(query.tag);
+  return {
+    q: query.q ?? "",
+    words: words?.rows ?? null,
+    wordMatch: words?.match ?? "all",
+    folders: folders.length ? folders : [""],
+    tags: tags.length ? tags : [""],
+    match: query.match ?? "all",
+    sort: query.sort ?? "modified",
+  };
+};
 
 export function queryText(s: State): string {
   const tags = s.tags.filter(Boolean);
-  return formatQuery({ q: s.q.trim() || undefined, folder: s.folder || undefined, tag: tags.join(",") || undefined, match: tags.length > 1 ? s.match : undefined, sort: s.sort });
+  return formatQuery({
+    q: (s.words ? wordsText(s.words, s.wordMatch) : s.q.trim()) || undefined,
+    folder: s.folders.filter(Boolean).join("|") || undefined,
+    tag: tags.join(",") || undefined,
+    match: tags.length > 1 ? s.match : undefined,
+    sort: s.sort,
+  });
 }
 
 /** A folder path as its parts ("Projects › Clients › Acme"), the last one strongest. */
@@ -59,111 +106,209 @@ function crumbs(folder: string): HTMLElement {
   );
 }
 
+/** "Match all of these tags" / "Match any of these tags", for a list of `what`. */
+function matchSelect(what: string, value: Match, onChange: (m: Match) => void): HTMLSelectElement {
+  const select = el(
+    "select",
+    { class: "qw-select sf-match", "aria-label": `How ${what} combine` },
+    el("option", { value: "all" }, `Match all of these ${what}`),
+    el("option", { value: "any" }, `Match any of these ${what}`),
+  );
+  select.value = value;
+  select.addEventListener("change", () => onChange(select.value as Match));
+  return select;
+}
+
+/**
+ * A list of rows: each is `control(i)` with an × to take it out, the word that joins it to the one
+ * above (so "all" or "any" reads down the list), and "+ Add" under them once the last is filled.
+ */
+function rowList(o: { items: string[]; join: string; add: string; remove: string; head?: HTMLElement | ""; control(i: number): HTMLElement; onChange(): void; onAdd(): void }): Array<HTMLElement | ""> {
+  const rows = o.items.map((item, i) => {
+    const remove =
+      o.items.length > 1 || item
+        ? el(
+            "button",
+            {
+              type: "button",
+              class: "icon-btn small",
+              title: o.remove,
+              "aria-label": o.remove,
+              onclick: () => {
+                o.items.splice(i, 1);
+                if (!o.items.length) o.items.push("");
+                o.onChange();
+              },
+            },
+            icon("close", 13),
+          )
+        : "";
+    return el("div", { class: "sf-item" }, el("span", { class: "sf-join" }, i ? o.join : ""), o.control(i), remove);
+  });
+  const add = el(
+    "button",
+    {
+      type: "button",
+      class: "sf-add",
+      disabled: !o.items.at(-1)?.trim(),
+      onclick: () => {
+        o.items.push("");
+        o.onChange();
+        o.onAdd();
+      },
+    },
+    icon("plus", 13),
+    o.add,
+  );
+  return [o.head ?? "", ...rows, add];
+}
+
+/** Where the whole query syntax is written up (the Smart folders part of the README, until the app has a page for it). */
+export const SYNTAX_URL = "https://github.com/paudrow/commonink#notes-archive-and-trash";
+
+/** What a query can say, in short, with a link to the rest. */
+function syntax(): HTMLElement {
+  const rows: Array<[string, string]> = [
+    ["plan meeting", "notes with both words (plan finds planning)"],
+    ["plan OR budget", "either word"],
+    ["'weekly review'", "the words together"],
+    ["-draft", "leave out notes with it"],
+    ["tag=work,plan", "both tags; match=any for either"],
+    ["-tag=done", "leave out a tag"],
+    ['folder="Projects|Areas"', "in either folder"],
+    ["modified>-7d", "changed in the last week (created<2026-01-01 too)"],
+    ["sort=date", "modified, created, date, oldest or title"],
+  ];
+  return el(
+    "div",
+    { class: "sf-syntax" },
+    el("dl", {}, ...rows.flatMap(([code, what]) => [el("dt", {}, el("code", {}, code)), el("dd", {}, what)])),
+    el("a", { href: SYNTAX_URL, target: "_blank", rel: "noopener" }, "All of the query syntax"),
+  );
+}
+
 export function smartFolderEditor(
   anchor: HTMLElement,
   draft: SmartFolderDraft,
-  /** `alone`: a local vault, where "Just me" has no one to leave out, so it isn't asked. */
+  /** `alone`: a local vault, with no workspace to share with, so it isn't asked. */
   opts: { canShare: boolean; alone?: boolean; sources: FieldSources; save(f: SmartFolderDraft): Promise<void>; remove?(): Promise<void> },
 ) {
   document.querySelector(".sf-modal")?.remove();
   const state = stateOf(parseQuery(draft.query));
-  if (!state.tags.length) state.tags.push("");
 
   const name = el("input", { type: "text", class: "sf-name", value: draft.name, placeholder: "Name it: Client work, This week…", spellcheck: "false", "aria-label": "Name" });
-  const words = el("input", { type: "text", value: state.q, placeholder: "Words to find, or leave empty for every note", spellcheck: "false" });
-  words.addEventListener("input", () => ((state.q = words.value), changed()));
 
-  const folderBox = el("div", { class: "sf-folder" });
-  const renderFolder = () => {
-    const button: HTMLButtonElement = el(
-      "button",
-      {
-        type: "button",
-        class: `sf-pick${state.folder ? " is-set" : ""}`,
-        onclick: () =>
-          folderPicker(button, {
-            folders: opts.sources.folders(),
-            current: state.folder,
-            placeholder: "Find a folder…",
-            top: "Any folder",
-            create: false,
-            onPick: (f) => ((state.folder = f), renderFolder(), changed()),
-          }),
-      },
-      icon("folder", 14),
-      state.folder ? crumbs(state.folder) : el("span", { class: "sf-placeholder" }, "Any folder"),
-    );
-    folderBox.replaceChildren(
-      button,
-      state.folder ? el("button", { type: "button", class: "icon-btn small", title: "Any folder", "aria-label": "Any folder", onclick: () => ((state.folder = ""), renderFolder(), changed()) }, icon("close", 13)) : "",
+  const wordBox = el("div", { class: "sf-rows sf-words" });
+  const renderWords = () => {
+    const rows = state.words;
+    if (!rows) {
+      // More than rows can say: the words as text, the way Advanced has them.
+      const input = el("input", { type: "text", class: "sf-word", value: state.q, spellcheck: "false", "aria-label": "Words" });
+      input.addEventListener("input", () => ((state.q = input.value), changed()));
+      return wordBox.replaceChildren(input, el("p", { class: "sf-hint" }, "These words use the query syntax; see Advanced."));
+    }
+    const filled = rows.filter((w) => w.trim()).length;
+    wordBox.replaceChildren(
+      ...rowList({
+        items: rows,
+        join: state.wordMatch === "any" ? "or" : "and",
+        add: "Add a word",
+        remove: "Remove these words",
+        head: filled > 1 ? matchSelect("words", state.wordMatch, (m) => ((state.wordMatch = m), renderWords(), changed())) : "",
+        control: (i) => {
+          const input = el("input", { type: "text", class: "sf-word", value: rows[i], spellcheck: "false", "aria-label": "A word or phrase", placeholder: i ? "Another word or phrase" : "A word or phrase, or leave empty for every note" });
+          input.addEventListener("input", () => {
+            const had = !!rows[i].trim();
+            rows[i] = input.value;
+            // Re-render only when "+ Add" or the × should change, so typing keeps its place.
+            if (had !== !!input.value.trim()) {
+              renderWords();
+              wordBox.querySelectorAll<HTMLInputElement>(".sf-word")[i]?.focus();
+            }
+            changed();
+          });
+          return input;
+        },
+        onChange: () => (renderWords(), changed()),
+        onAdd: () => wordBox.querySelector<HTMLInputElement>(".sf-item:last-of-type .sf-word")?.focus(),
+      }),
     );
   };
 
-  const match = el(
-    "select",
-    { class: "qw-select sf-match", "aria-label": "How tags combine" },
-    el("option", { value: "all" }, "Match all of these tags"),
-    el("option", { value: "any" }, "Match any of these tags"),
-  );
-  match.addEventListener("change", () => ((state.match = match.value as "all" | "any"), renderTags(), changed()));
-  const tagBox = el("div", { class: "sf-tags" });
-  const renderTags = () => {
-    match.value = state.match;
-    const filled = state.tags.filter(Boolean).length;
-    const rows = state.tags.map((tag, i) => {
-      const button: HTMLButtonElement = el(
-        "button",
-        {
-          type: "button",
-          class: `sf-pick${tag ? " is-set" : ""}`,
-          onclick: () =>
-            tagPicker(button, {
-              tags: opts.sources.tags().filter((t) => t.notes > 0 && !state.tags.some((x, j) => j !== i && x.toLowerCase() === t.tag)),
-              count: (t) => t.notes,
-              onPick: (t) => ((state.tags[i] = t), renderTags(), changed()),
-            }),
+  const folderBox = el("div", { class: "sf-rows sf-folders" });
+  const renderFolders = () => {
+    folderBox.replaceChildren(
+      ...rowList({
+        items: state.folders,
+        join: "or",
+        add: "Add a folder",
+        remove: "Remove this folder",
+        control: (i) => {
+          const folder = state.folders[i];
+          const button: HTMLButtonElement = el(
+            "button",
+            {
+              type: "button",
+              class: `sf-pick${folder ? " is-set" : ""}`,
+              onclick: () =>
+                folderPicker(button, {
+                  folders: opts.sources.folders().filter((f) => !state.folders.some((x, j) => j !== i && x === f)),
+                  current: folder,
+                  placeholder: "Find a folder…",
+                  top: "Any folder",
+                  create: false,
+                  onPick: (f) => {
+                    state.folders[i] = f;
+                    if (!f && state.folders.length > 1) state.folders.splice(i, 1);
+                    renderFolders();
+                    changed();
+                  },
+                }),
+            },
+            icon("folder", 14),
+            folder ? crumbs(folder) : el("span", { class: "sf-placeholder" }, i ? "Pick another folder" : "Any folder"),
+          );
+          return button;
         },
-        icon("hash", 14),
-        tag ? el("span", {}, tag) : el("span", { class: "sf-placeholder" }, i ? "Pick another tag" : "Any tag"),
-      );
-      const remove =
-        state.tags.length > 1 || tag
-          ? el(
-              "button",
-              {
-                type: "button",
-                class: "icon-btn small",
-                title: "Remove this tag",
-                "aria-label": "Remove this tag",
-                onclick: () => {
-                  state.tags.splice(i, 1);
-                  if (!state.tags.length) state.tags.push("");
-                  renderTags();
-                  changed();
-                },
-              },
-              icon("close", 13),
-            )
-          : "";
-      // Between rows, the word that joins them, so "all" or "any" reads down the list.
-      return el("div", { class: "sf-tag-row" }, el("span", { class: "sf-join" }, i ? (state.match === "any" ? "or" : "and") : ""), button, remove);
-    });
-    const add = el(
-      "button",
-      {
-        type: "button",
-        class: "sf-add",
-        disabled: !state.tags.at(-1),
-        onclick: () => {
-          state.tags.push("");
-          renderTags();
-          tagBox.querySelector<HTMLButtonElement>(".sf-tag-row:last-of-type .sf-pick")?.click();
-        },
-      },
-      icon("plus", 13),
-      "Add a tag",
+        onChange: () => (renderFolders(), changed()),
+        onAdd: () => folderBox.querySelector<HTMLButtonElement>(".sf-item:last-of-type .sf-pick")?.click(),
+      }),
     );
-    tagBox.replaceChildren(filled > 1 ? match : "", ...rows, add);
+  };
+
+  const tagBox = el("div", { class: "sf-rows sf-tags" });
+  const renderTags = () => {
+    const filled = state.tags.filter(Boolean).length;
+    tagBox.replaceChildren(
+      ...rowList({
+        items: state.tags,
+        join: state.match === "any" ? "or" : "and",
+        add: "Add a tag",
+        remove: "Remove this tag",
+        head: filled > 1 ? matchSelect("tags", state.match, (m) => ((state.match = m), renderTags(), changed())) : "",
+        control: (i) => {
+          const tag = state.tags[i];
+          const button: HTMLButtonElement = el(
+            "button",
+            {
+              type: "button",
+              class: `sf-pick${tag ? " is-set" : ""}`,
+              onclick: () =>
+                tagPicker(button, {
+                  tags: opts.sources.tags().filter((t) => t.notes > 0 && !state.tags.some((x, j) => j !== i && x.toLowerCase() === t.tag)),
+                  count: (t) => t.notes,
+                  onPick: (t) => ((state.tags[i] = t), renderTags(), changed()),
+                }),
+            },
+            icon("hash", 14),
+            tag ? el("span", {}, tag) : el("span", { class: "sf-placeholder" }, i ? "Pick another tag" : "Any tag"),
+          );
+          return button;
+        },
+        onChange: () => (renderTags(), changed()),
+        onAdd: () => tagBox.querySelector<HTMLButtonElement>(".sf-item:last-of-type .sf-pick")?.click(),
+      }),
+    );
   };
 
   const sort = el("select", { class: "qw-select", "aria-label": "Sort" }, ...SORTS.map(([v, label]) => el("option", { value: v }, label)));
@@ -171,14 +316,13 @@ export function smartFolderEditor(
   sort.addEventListener("change", () => ((state.sort = sort.value as QuerySort), changed()));
 
   // Advanced: the query as text. Typing a query that reads fills the controls above from it.
-  const text = el("input", { type: "text", class: "sf-query", value: queryText(state), spellcheck: "false", "aria-label": "Query", placeholder: "tag=work,plan sort=date" });
+  const text = el("input", { type: "text", class: "sf-query", value: queryText(state), spellcheck: "false", "aria-label": "Query", placeholder: "planning -draft tag=work modified>-30d sort=date" });
   text.addEventListener("input", () => {
     if (queryProblem(text.value)) return recount();
     Object.assign(state, stateOf(parseQuery(text.value)));
-    if (!state.tags.length) state.tags.push("");
-    words.value = state.q;
     sort.value = state.sort;
-    renderFolder();
+    renderWords();
+    renderFolders();
     renderTags();
     recount();
   });
@@ -190,7 +334,8 @@ export function smartFolderEditor(
       "div",
       { class: "sf-adv-body" },
       text,
-      el("p", { class: "sf-hint" }, "The same query an agent or a ::query widget uses: q, folder, tag, match, sort. Edit it here or with the controls above."),
+      el("p", { class: "sf-hint" }, "The same query an agent or a ::query widget uses. Edit it here or with the controls above."),
+      syntax(),
     ),
   );
 
@@ -228,11 +373,9 @@ export function smartFolderEditor(
     recount();
   }
 
-  const fav = el("input", { type: "checkbox" });
-  fav.checked = !!draft.favorite;
-  const justMe = el("input", { type: "checkbox" });
-  justMe.checked = !draft.shared || !opts.canShare;
-  justMe.disabled = !opts.canShare;
+  const share = el("input", { type: "checkbox" });
+  share.checked = draft.shared && opts.canShare;
+  share.disabled = !opts.canShare;
   const error = el("div", { class: "sf-pop-error", hidden: true });
   const row = (label: string, ...control: Array<HTMLElement | string>) => el("div", { class: "sf-row" }, el("span", { class: "sf-label" }, label), el("div", { class: "sf-control" }, ...control));
   const title = draft.id ? "Edit smart folder" : draft.query ? "Save as smart folder" : "New smart folder";
@@ -247,7 +390,7 @@ export function smartFolderEditor(
       el("button", { type: "button", class: "icon-btn small", title: "Close", "aria-label": "Close", onclick: () => close() }, icon("close", 15)),
     ),
     name,
-    el("div", { class: "sf-section" }, row("Words", words), row("Folder", folderBox), row("Tags", tagBox), row("Sort", sort)),
+    el("div", { class: "sf-section" }, row("Words", wordBox), row("Folders", folderBox), row("Tags", tagBox), row("Sort", sort)),
     el("div", { class: "sf-result" }, count, preview),
     advanced,
     opts.alone
@@ -255,11 +398,10 @@ export function smartFolderEditor(
       : el(
           "label",
           { class: "sf-just-me", title: opts.canShare ? "" : "Viewers can keep smart folders of their own" },
-          justMe,
-          el("span", {}, "Just me"),
-          el("span", { class: "sf-hint" }, opts.canShare ? "Otherwise everyone in the workspace sees it" : "You can view this workspace, so it's yours only"),
+          share,
+          el("span", {}, "Share with workspace"),
+          el("span", { class: "sf-hint" }, opts.canShare ? "Everyone in the workspace sees it in their sidebar" : "You can view this workspace, so it's yours only"),
         ),
-    draft.favorite === undefined ? null : el("label", { class: "sf-just-me" }, fav, el("span", {}, "In Favorites"), el("span", { class: "sf-hint" }, "Keep it at the top of your sidebar")),
     error,
     el(
       "footer",
@@ -300,9 +442,10 @@ export function smartFolderEditor(
       error.textContent = "Give the smart folder a name";
       return name.focus();
     }
-    void run(() => opts.save({ id: draft.id, name: name.value.trim(), query: current(), shared: !justMe.checked, ...(draft.favorite !== undefined && { favorite: fav.checked }) }));
+    void run(() => opts.save({ id: draft.id, name: name.value.trim(), query: current(), shared: opts.alone ? draft.shared : share.checked }));
   });
-  renderFolder();
+  renderWords();
+  renderFolders();
   renderTags();
   document.body.append(overlay);
   recount();
