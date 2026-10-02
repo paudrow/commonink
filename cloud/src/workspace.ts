@@ -10,9 +10,9 @@ import { errorResponse, handleApi, json, type ApiHost } from "../../src/core/api
 import { cleanPath, fileSecurityHeaders, kindOf, MAX_UPLOAD, mimeOf, VaultError } from "../../src/core/paths.ts";
 import type { Change } from "../../src/core/vault.ts";
 import { createMcpServer } from "../../src/core/tools.ts";
-import { COMMANDS, UsageError, type VaultBytes } from "../../src/core/commands/index.ts";
+import { COMMANDS, UsageError, type SaveTarget, type VaultBytes } from "../../src/core/commands/index.ts";
 import type { RunResponse } from "../../src/core/commands/wire.ts";
-import { coreExporter } from "../../src/core/export.ts";
+import { coreExporter, webMarkdown } from "../../src/core/export.ts";
 import { access, asRole } from "./access.ts";
 import { DoDb, SqlContent } from "./do-store.ts";
 import { SEED_FILES, SEED_NOTES } from "./seed.ts";
@@ -27,7 +27,8 @@ import { addShare, agentLinksAllowed, linkToken, listShares, moveFolderShares, r
 import { Calendar } from "../../src/core/calendar.ts";
 import { assertPublicUrl } from "../../src/core/unfurl.ts";
 import { feedsFor } from "./demo-calendar.ts";
-import { googleMode } from "./connections.ts";
+import { connectionInfo, driveApi, googleMode } from "./connections.ts";
+import { driveProblem, saveToDrive } from "./drive.ts";
 import { googleReader } from "./google-reader.ts";
 
 /** A note and its previous text are each a SQLite row here, which holds at most 2 MB. */
@@ -431,6 +432,32 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * Saving a note to `user`'s Google Drive, for their agents and CLI (drive.ts): its markdown, with
+   * links to notes as their web addresses, which Drive turns into a Google Doc (or then a PDF). The
+   * app sends its static render instead (Share, then Save to Google Drive), so widgets go as a
+   * snapshot from there. None where Google isn't set up.
+   */
+  private driveTarget(vault: Vault, user: string, origin: string): SaveTarget | undefined {
+    if (googleMode(this.env) === "off") return undefined;
+    return {
+      name: "Google Drive",
+      save: async (rel, format) => {
+        if (!(await connectionInfo(this.env, user))?.drive) {
+          throw new VaultError("Google Drive isn't connected yet: in the app, open the note's Share menu and pick Save to Google Drive once to allow it", "forbidden");
+        }
+        const tooMany = await limit(this.env.DB, "drive", user);
+        if (tooMany) throw new VaultError(((await tooMany.json()) as { error: string }).error);
+        const source = { title: vault.meta(rel)?.title ?? rel, type: "md" as const, data: new TextEncoder().encode(webMarkdown({ vault, origin }, rel)) };
+        try {
+          return await saveToDrive(driveApi(this.env, user, origin), source, format);
+        } catch (e) {
+          throw new VaultError(driveProblem(e));
+        }
+      },
+    };
+  }
+
+  /**
    * The MCP sharing tools, for an agent working as `user` (its role already decided which it gets).
    * It sees links' URLs only if it could make a link itself: a URL hands out the link, as making one does.
    */
@@ -559,8 +586,9 @@ export class Workspace extends DurableObject<Env> {
    */
   async mcp(req: Request, who: { workspace: string; user: string; actor: string; role: string; timeZone: string }): Promise<Response> {
     const role = asRole(who.role);
+    const vault = new Vault(this.db, this.files, { maxNoteBytes: MAX_NOTE_BYTES, timeZone: who.timeZone });
     const server = createMcpServer({
-      vault: new Vault(this.db, this.files, { maxNoteBytes: MAX_NOTE_BYTES, timeZone: who.timeZone }),
+      vault,
       user: who.user,
       source: () => who.actor,
       may: (route) => access(role, ...(route.split(" ") as [string, string])) === "allowed",
@@ -571,6 +599,7 @@ export class Workspace extends DurableObject<Env> {
       origin: new URL(req.url).origin,
       // Markdown and .zip; a web page and Word are drawn by the app (Share → Export as).
       exporter: coreExporter({ vault: this.vault, bytes: (rel) => this.fileBytes(rel), origin: new URL(req.url).origin }),
+      drive: this.driveTarget(vault, who.user, new URL(req.url).origin),
     });
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await server.connect(transport);
@@ -615,6 +644,7 @@ export class Workspace extends DurableObject<Env> {
         sharing: who.origin ? this.agentSharing(who.workspace, who.user, who.origin, role === "owner" || role === "editor") : undefined,
         // Markdown and .zip, as over MCP; a web page and Word are drawn by the app (Share → Export as).
         exporter: who.origin ? coreExporter({ vault, bytes: (rel) => this.fileBytes(rel), origin: who.origin }) : undefined,
+        drive: who.origin ? this.driveTarget(vault, who.user, who.origin) : undefined,
       };
       return { ok: true, ...(await command.run(host, input as never)) };
     } catch (e) {

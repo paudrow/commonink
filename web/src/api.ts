@@ -169,7 +169,8 @@ export type EventInput = Omit<EventDraft, "attendees"> & { attendees: Array<{ na
 /** Google Calendar on this server (cloud/src/connections.ts): "mock" is the Preview stand-in, "off" not set up. */
 export interface GoogleStatus {
   mode: "real" | "mock" | "off";
-  connection: { account: string; canWrite: boolean; connectedAt: number } | null;
+  /** `calendar`: its calendars were allowed; `drive`: saving notes to Drive was (each is asked for the first time it's used). */
+  connection: { account: string; calendar: boolean; canWrite: boolean; drive: boolean; connectedAt: number } | null;
 }
 /** One of the person's Google calendars. */
 export interface GoogleCalendar {
@@ -550,6 +551,9 @@ export const api = {
   googleCalendars: () => j<GoogleCalendar[]>("/api/google/calendars"),
   /** Google forgets the grant, and your Google calendars leave every workspace. */
   disconnectGoogle: () => j<{ ok: true }>("/api/google/disconnect", send("POST", {})),
+  /** Save a note to your Google Drive, sent as Word or markdown, as a Google Doc, a PDF or a markdown file. Where it went, to open. */
+  saveToDrive: (as: "doc" | "pdf" | "md", title: string, file: Blob) =>
+    j<{ id: string; name: string; url: string }>(`/api/google/drive?${new URLSearchParams({ as, title })}`, { method: "POST", headers: { "Content-Type": file.type }, body: file }),
   unsubscribe: (id: string) => j<{ ok: true }>(`${BASE}/calendar/sources/remove`, send("POST", { id })),
   /** Read one calendar again, or all of them (each at most once a minute). */
   refreshCalendars: (id?: string) => j<CalendarSource[]>(`${BASE}/calendar/refresh`, send("POST", { id })),

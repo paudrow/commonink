@@ -180,6 +180,8 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "GET /api/google", send: () => ["GET", "/api/google"], expect: SIGNED_IN },
   // No one here connected Google.
   { route: "GET /api/google/calendars", send: () => ["GET", "/api/google/calendars"], expect: [401, 409, 409, 409, 409] },
+  // No one here allowed saving to Drive.
+  { route: "POST /api/google/drive", send: () => ["POST", "/api/google/drive?as=doc&title=x", {}], expect: [401, 409, 409, 409, 409] },
   { route: "POST /api/google/disconnect", send: () => ["POST", "/api/google/disconnect", {}], expect: SIGNED_IN },
   // Last: it ends everyone's sessions.
   { route: "POST /api/sign-out-everywhere", send: () => ["POST", "/api/sign-out-everywhere", {}], expect: SIGNED_IN },

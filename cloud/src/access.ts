@@ -162,6 +162,7 @@ export const ACCOUNT_ROUTES = [
   "GET /api/shared",
   "GET /api/google",
   "GET /api/google/calendars",
+  "POST /api/google/drive",
   "POST /api/google/disconnect",
 ] as const;
 export type AccountRoute = (typeof ACCOUNT_ROUTES)[number];
