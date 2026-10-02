@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 292
 title: Kanban folds are saved in the note
 ---
 Folding a Kanban column now writes it into the board's markdown, so the fold follows the note to other browsers, people and agents.
