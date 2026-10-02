@@ -16,7 +16,7 @@ import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type B
 import { safeDecode } from "./uri.ts";
 import { AGENTS_NOTE, START_TAG, type NoteRole } from "./noteRoles.ts";
 import {
-  contactFromNote, contactNote, dayOfNote, emptyContact, fillContact, parseContactsCsv, parseVCards, PEOPLE, peopleDirectory, personFor, sameFields, samePerson,
+  checkInDue, checkInEvery, contactFromNote, contactNote, dayOfNote, emptyContact, fillContact, parseContactsCsv, parseVCards, PEOPLE, peopleDirectory, personFor, sameFields, samePerson,
   type Contact, type ContactFields, type ContactInput, type ContactNote, type MemberRef, type TimelineItem,
 } from "./contacts.ts";
 import { cleanTitle, DAILY_TEMPLATE, fillTemplate, localNow, TEMPLATES, templateInfo, type FillOptions, type TemplateInfo } from "./templates.ts";
@@ -74,6 +74,11 @@ export const isTagFavorite = (f: Favorite): f is TagFavorite => "tag" in f;
  * can't collide, and rows from before tag favorites need nothing done to them.
  */
 const tagKey = (tag: string) => `#${tag}`;
+
+/** Refuse a contact's check-in rhythm that doesn't read as one ("" clears it). */
+function checkRhythm(text: string | undefined) {
+  if (text?.trim() && !checkInEvery(text)) throw new VaultError(`"${text}" isn't a check-in rhythm. Say weekly, every 2 weeks, monthly, every 3 months, 6m or yearly.`);
+}
 
 export interface Backlink {
   path: string;
@@ -385,7 +390,7 @@ export class Vault {
   }
 
   /** Today, as YYYY-MM-DD, in this core's time zone. */
-  private day(): string {
+  day(): string {
     return localDate(this.now(), this.timeZone);
   }
 
@@ -1771,7 +1776,6 @@ export class Vault {
    */
   addTask(input: string, source: string, opts: { today?: string; ignore?: string[]; to?: string } = {}) {
     const today = opts.today ?? this.day();
-    if (!isDate(today)) throw new VaultError(`"today" must be a date like 2026-10-01, not "${today}"`);
     const q = parseQuickAdd(input, today, opts.ignore);
     if (!q.words) throw new VaultError("Say what the task is: once its dates and repeats are taken out, there are no words left");
     const named = q.target ?? opts.to;
@@ -2182,23 +2186,26 @@ export class Vault {
   // ---------------------------------------------------------------- contacts
 
   /** Every contact (a note in People/, not archived), by name, with how often and when last other notes mention them. */
-  contacts(): Contact[] {
+  contacts(today = this.day()): Contact[] {
+    if (!isDate(today)) throw new VaultError(`"today" must be a date like 2026-10-01, not "${today}"`);
     return this.list(PEOPLE)
       .filter((n) => n.kind === "md")
-      .map((n) => {
-        const mentions = this.mentionsOf(n.path);
-        return { ...contactFromNote(n.path, this.files.read(n.path) ?? ""), id: n.id, mentions: mentions.length, lastContacted: mentions[0]?.date ?? null };
-      })
+      .map((n) => this.contactOf(n.path, n.id, this.mentionsOf(n.path), today))
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
   }
 
   /** One contact and its timeline: the notes that mention them, newest first. */
-  contact(target: string): { contact: Contact; timeline: TimelineItem[] } {
+  contact(target: string, today = this.day()): { contact: Contact; timeline: TimelineItem[] } {
     const rel = this.contactPath(target);
-    const meta = this.meta(rel)!;
     const timeline = this.mentionsOf(rel);
-    const contact = { ...contactFromNote(rel, this.files.read(rel) ?? ""), id: meta.id, mentions: timeline.length, lastContacted: timeline[0]?.date ?? null };
-    return { contact, timeline };
+    return { contact: this.contactOf(rel, this.meta(rel)!.id, timeline, today), timeline };
+  }
+
+  private contactOf(rel: string, id: string, mentions: TimelineItem[], today: string): Contact {
+    if (!isDate(today)) throw new VaultError(`"today" must be a date like 2026-10-01, not "${today}"`);
+    const c = contactFromNote(rel, this.files.read(rel) ?? "");
+    const lastContacted = mentions[0]?.date ?? null;
+    return { ...c, id, mentions: mentions.length, lastContacted, checkInDue: checkInDue(c, lastContacted, today) };
   }
 
   /** The note `target` names, if it's a contact (a note in People/). */
@@ -2229,6 +2236,7 @@ export class Vault {
     const rel = cleanPath(`${PEOPLE}/${name}.md`);
     const taken = this.list(PEOPLE, "all").find((n) => n.path.toLowerCase() === rel.toLowerCase()) ?? (this.files.stat(rel) ? { path: rel } : null);
     if (taken) throw new VaultError(`${taken.path} already exists`, "exists", { path: taken.path });
+    checkRhythm(input.checkIn);
     const fields = { ...emptyContact(name), ...input, name };
     const notes = input.notes?.trim();
     return this.commit(rel, null, contactNote(fields) + (notes ? `\n${notes}\n` : ""), source, "create");
@@ -2237,6 +2245,7 @@ export class Vault {
   /** Change a contact's fields (any of them but its name, which is its note's). Its words and other frontmatter stay. */
   updateContact(target: string, patch: Partial<Omit<ContactFields, "name">>, source: string) {
     const rel = this.contactPath(target);
+    checkRhythm(patch.checkIn);
     const before = this.files.read(rel) ?? "";
     const after = contactNote({ ...contactFromNote(rel, before), ...patch }, before);
     return after === before ? { ...this.meta(rel)!, change: null } : this.commit(rel, before, after, source, "edit");

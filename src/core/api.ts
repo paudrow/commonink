@@ -110,7 +110,7 @@ function contactFields(v: unknown, withName: boolean): Partial<ContactFields> {
     if (x === undefined) continue;
     const ok =
       CONTACT_LISTS.includes(k) ? Array.isArray(x) && x.every((s) => typeof s === "string")
-      : k === "company" || k === "role" || (k === "name" && withName) || (k === "notes" && withName) ? typeof x === "string"
+      : k === "company" || k === "role" || k === "checkIn" || (k === "name" && withName) || (k === "notes" && withName) ? typeof x === "string"
       : false;
     if (!ok) throw new VaultError(`"${k}" isn't a contact field or has the wrong type`);
     out[k] = x;
@@ -294,9 +294,9 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     case "GET /diff":
       return json(vault.diff(qInt("from"), q("to") ? qInt("to") : qInt("from")));
     case "GET /contacts":
-      return json(vault.contacts());
+      return json(vault.contacts(q("today") || undefined));
     case "GET /contact":
-      return json(vault.contact(q("path")));
+      return json(vault.contact(q("path"), q("today") || undefined));
     case "GET /members":
       return json(host.members ? await host.members() : []);
     case "POST /contacts": {

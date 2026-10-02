@@ -440,9 +440,9 @@ export const api = {
   unarchive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/unarchive`, send("POST", { paths })),
   backlinks: (path: string) => j<Backlink[]>(`${BASE}/backlinks?path=${enc(path)}`),
   /** The workspace's contacts (notes in People/), by name. */
-  contacts: () => j<Contact[]>(`${BASE}/contacts`),
+  contacts: () => j<Contact[]>(`${BASE}/contacts?today=${today()}`),
   /** One contact, and the notes that mention them, newest first. */
-  contact: (path: string) => j<{ contact: Contact; timeline: TimelineItem[] }>(`${BASE}/contact?path=${enc(path)}`),
+  contact: (path: string) => j<{ contact: Contact; timeline: TimelineItem[] }>(`${BASE}/contact?path=${enc(path)}&today=${today()}`),
   createContact: (c: Partial<ContactFields> & { name: string; notes?: string }) => j<{ path: string; version: string }>(`${BASE}/contacts`, send("POST", c)),
   updateContact: (path: string, patch: Partial<Omit<ContactFields, "name">>) => j<{ path: string; version: string }>(`${BASE}/contacts/update`, send("POST", { path, patch })),
   /** `keep` gains `drop`'s details and links; `drop` goes to Trash (`trashed` restores it). */
