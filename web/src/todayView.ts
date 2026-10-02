@@ -63,7 +63,7 @@ function mountStreak(host: HTMLElement): () => void {
 }
 
 /**
- * Your seals, in one row: earned ones pressed in the ink you use, the rest grey with a line on how to
+ * Your seals, in a grid: earned ones pressed in the ink you use, the rest grey with a line on how to
  * earn them, so each points at something to try. Redraws when one is earned.
  */
 function mountSeals(host: HTMLElement): () => void {
