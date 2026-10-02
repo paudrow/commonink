@@ -341,8 +341,9 @@ export function addDays(day: string, n: number): string {
  * A note with task lines added: at the end of its "Tasks" section (a heading named Tasks, at any
  * level), or, without one, at the end of the note, under a new `## Tasks` heading if `heading`
  * (a daily note) or right after the last line otherwise. `line` is where the first one landed.
+ * `name` puts them in another section instead (a daily note's Decisions).
  */
-export function withTasksAdded(original: string, added: string[], heading: boolean): { content: string; line: number } {
+export function withTasksAdded(original: string, added: string[], heading: boolean, name = "Tasks"): { content: string; line: number } {
   // Worked out on "\n" lines, and put back with the note's own line endings.
   const crlf = original.includes("\r\n");
   const content = crlf ? original.replace(/\r\n/g, "\n") : original;
@@ -351,7 +352,7 @@ export function withTasksAdded(original: string, added: string[], heading: boole
   while (last > 0 && content[last - 1] === "\n") last--; // a loop: /\n+$/ is quadratic on many blank lines
   const lines = content.slice(0, last).split("\n");
   if (lines.length === 1 && lines[0] === "") lines.pop();
-  const { section, end } = findSection(lines, "Tasks");
+  const { section, end } = findSection(lines, name);
   let at: number;
   if (section >= 0) {
     // After the section's last line with anything on it; a section with nothing yet gets a blank line first.
@@ -364,7 +365,7 @@ export function withTasksAdded(original: string, added: string[], heading: boole
     const after = last + insert.length;
     if (after < lines.length && lines[after].trim()) lines.splice(after, 0, ""); // keep a blank line before the next heading
   } else if (heading) {
-    lines.push(...(lines.length ? [""] : []), "## Tasks", "", ...block);
+    lines.push(...(lines.length ? [""] : []), `## ${name}`, "", ...block);
     at = lines.length - block.length;
   } else {
     // Straight after a list; after a blank line otherwise.

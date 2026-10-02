@@ -32,13 +32,13 @@ test("the server calls itself commonink", () => {
 test("the server lists every tool", async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
-    "add_card", "add_task", "append_to_note", "archive_note", "backlinks", "create_contact", "create_from_template", "create_meeting_note", "create_note",
+    "add_card", "add_task", "append_to_note", "archive_note", "ask_decision", "backlinks", "create_contact", "create_from_template", "create_meeting_note", "create_note",
     "delete_folder", "delete_note", "delete_smart_folder", "diff_versions", "edit_card", "edit_note", "export_note", "get_event", "get_today",
-    "import_contacts", "label_version", "list_contacts", "list_events", "list_folders", "list_labels", "list_notes", "list_smart_folders", "list_tags",
+    "import_contacts", "label_version", "list_contacts", "list_decisions", "list_events", "list_folders", "list_labels", "list_notes", "list_smart_folders", "list_tags",
     "list_tasks", "list_templates", "list_trash", "merge_contacts", "move_card", "move_note", "move_task", "open_journal", "order_favorites",
     "read_board", "read_contact", "read_note", "recent_changes", "remove_task", "rename_tag", "restore_change", "restore_from_trash", "restore_label",
     "save_smart_folder", "search_notes", "set_asset_tags", "show_change", "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag",
-    "update_contact", "update_task", "write_note",
+    "update_contact", "update_task", "withdraw_decision", "write_note",
   ]);
 });
 

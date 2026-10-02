@@ -430,6 +430,22 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       // setting these assets' tags back, undoes the rename without writing over a later edit.
       return json({ changes: r.edits.map((e) => e.change.id), versions: r.edits.map((e) => e.version), assets: r.assets });
     }
+    // Decisions (Vault.askDecision): questions agents put to the person, answered on the Today page.
+    case "GET /decisions":
+      return json(vault.decisions({ status: (q("status") || undefined) as never, ids: q("ids") ? q("ids").split(",") : undefined }));
+    case "POST /decisions": {
+      const rec = (raw as { recommended?: unknown }).recommended;
+      return json(vault.askDecision({ question: str("question"), options: (raw as { options?: unknown }).options === undefined ? [] : paths("options"), context: optStr("context"), note: optStr("note"), recommended: rec == null ? undefined : int("recommended") }, actor));
+    }
+    case "POST /decisions/answer": {
+      const choice = (raw as { choice?: unknown }).choice;
+      const r = vault.answerDecision(str("id"), { choice: choice == null ? undefined : int("choice"), text: optStr("text"), comment: optStr("comment"), dismiss: flag("dismiss") }, actor, optStr("today"));
+      host.written(r.path, vault.files.read(r.path), r.version, r.change);
+      if (r.change?.op === "create") host.tree();
+      return json(r.decision);
+    }
+    case "POST /decisions/withdraw":
+      return json(vault.withdrawDecision(str("id")));
     // Labels (Vault.label): a name on a version of a note, to compare with or go back to.
     case "GET /labels":
       return json(vault.labels(q("path") || undefined));

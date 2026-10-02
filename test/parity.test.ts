@@ -19,7 +19,7 @@ test("every command is an MCP tool, or says why not; names are unique on both si
   assert.deepEqual(
     COMMANDS.filter((c) => !toolName(c)).map((c) => c.cli),
     [
-      "upload", "download", "label-rename", "label-rm", "calendars", "calendars add", "calendars refresh", "calendars remove",
+      "upload", "download", "decision answer", "label-rename", "label-rm", "calendars", "calendars add", "calendars refresh", "calendars remove",
       "members", "member role", "member remove", "leave", "invite", "invites", "invites revoke", "workspace rename", "workspace log",
     ],
     "the CLI-only commands changed: if that's meant, update this list",

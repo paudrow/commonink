@@ -33,6 +33,7 @@ const shared = await shareSome();
 await tryThisPr(favorites, shared);
 await sharedTeam();
 await calendars();
+await decisions();
 console.log(`Filled ${origin} (workspace ${ws.id})`);
 
 /**
@@ -258,4 +259,22 @@ async function calendars() {
     const added = await call("POST", `${api}/calendar/sources`, f);
     if (added.status >= 400) console.warn(`Couldn't subscribe to ${f.name}: ${added.status} ${JSON.stringify(added.data)}`);
   }
+}
+
+/**
+ * A few questions waiting on the Today page, as an agent would ask them with ask_decision, if this
+ * branch has decisions and none were asked yet.
+ */
+async function decisions() {
+  const r = await call("GET", `${api}/decisions?status=all`);
+  if (r.status === 404 || (r.data as unknown[]).length) return;
+  await must("POST", `${api}/decisions`, {
+    question: "Which database should the sync service use?",
+    options: ["Postgres", "SQLite", "Keep the files, no database"],
+    recommended: 1,
+    context: "Sync only needs a change log per workspace.\n\n- **Postgres**: we already run it for billing, but it's one more thing to reach from the edge.\n- **SQLite**: one file per workspace, next to its notes.\n\nNotes on it in [[Common Ink roadmap]].",
+    note: "Projects/Common Ink roadmap.md",
+  });
+  await must("POST", `${api}/decisions`, { question: "Ship the beta on Friday or Monday?", options: ["Friday", "Monday"], recommended: 1, context: "QA has two open bugs; both have fixes in review." });
+  await must("POST", `${api}/decisions`, { question: "What should the CLI be called on npm?", context: "`commonink` is taken by an empty package; `ink` is a React library." });
 }

@@ -1790,6 +1790,39 @@ body.is-resizing iframe { pointer-events: none; }
 .qw.is-standalone > .td-title { margin: 0; padding: 14px 14px 4px; line-height: 16px; }
 /* The Today page's Writing streak, under the day. */
 .td-streak { margin-top: 18px; }
+/* The Today page's Decisions: one question an agent asked at a time (decisionsCard.ts). */
+.td-decisions:not(:empty) { margin-bottom: 18px; }
+.dc-card { outline: none; }
+.dc-card:focus-visible { border-color: var(--accent-line); }
+.dc-card .td-title svg { color: var(--accent); }
+.dc-count { margin-left: 4px; font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
+.dc-nav { display: inline-flex; gap: 2px; margin: -6px -6px -6px auto; }
+.dc-nav .qw-icon:first-child svg { transform: scaleX(-1); }
+.dc-q { margin: 2px 0 6px; font-size: 16px; font-weight: 600; line-height: 1.4; color: var(--ink-strong); text-wrap: pretty; }
+.dc-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.dc-about { display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; padding: 1px 6px; border-radius: 5px; color: var(--accent-ink); }
+.dc-about:hover { background: var(--hover); }
+.dc-context { margin-top: 10px; font-size: 13.5px; line-height: 1.55; color: var(--ink-2); }
+.dc-context > :first-child { margin-top: 0; }
+.dc-context > :last-child { margin-bottom: 0; }
+.dc-options { display: grid; gap: 6px; margin-top: 12px; }
+.dc-opt { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg); text-align: left; transition: border-color 0.12s, background 0.12s; }
+.dc-opt:hover { border-color: var(--muted); }
+.dc-opt.is-picked { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent); }
+.dc-opt kbd { flex: none; min-width: 20px; text-align: center; }
+.dc-opt.is-picked kbd { border-color: var(--accent); color: var(--accent-ink); }
+.dc-label { flex: 1; min-width: 0; color: var(--ink); }
+.dc-rec { flex: none; padding: 2px 7px; border-radius: 999px; background: var(--hover); font-size: 11.5px; color: var(--muted); }
+.dc-opt.is-picked .dc-rec { background: var(--bg-elev); color: var(--accent-ink); }
+.dc-other-input, .dc-comment { width: 100%; padding: 9px 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg); color: var(--ink); font: inherit; font-size: 14px; }
+.dc-other-input:focus, .dc-comment:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.dc-comment { display: block; margin-top: 8px; min-height: 38px; resize: vertical; font-size: 13.5px; }
+.dc-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.dc-dismiss { padding: 0 8px; height: 34px; border-radius: 9px; font-size: 13px; color: var(--muted); }
+.dc-dismiss:hover { background: var(--hover); color: var(--ink-strong); }
+.dc-hint { margin-left: auto; font-size: 12px; color: var(--faint); }
+.dc-card.is-clear .td-clear { margin: 0; border-radius: 0; }
+@media (max-width: 640px) { .dc-hint { display: none; } }
 .wd-card .td-title svg { color: var(--accent); }
 .wd-what { margin: 10px 0 0; font-size: 12.5px; color: var(--muted); }
 .td-section + .td-section { margin-top: 10px; }

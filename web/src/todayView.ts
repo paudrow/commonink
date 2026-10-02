@@ -1,7 +1,9 @@
-// The Today page: the quick-add bar, then the day at a glance (the ::today widget: today's journal
+// The Today page: the quick-add bar, then decisions agents are waiting on you for (decisionsCard.ts,
+// only when there are any), then the day at a glance (the ::today widget: today's journal
 // note, today's events, and what's overdue, due or starting today), then your Writing streak. Ticking
 // a box here edits the note the task lives in, and clearing the last one is celebrated as anywhere
 // else (todayCleared.ts). Tasks lists every task; this page is just today.
+import { mountDecisions } from "./decisionsCard.ts";
 import { el, icon } from "./dom.ts";
 import { onVaultChange } from "./events.ts";
 import { quickAddBar } from "./quickAdd.ts";
@@ -62,6 +64,7 @@ function mountStreak(host: HTMLElement): () => void {
 /** Draw the page into `root`; returns its cleanup. */
 export function renderTodayPage(root: HTMLElement, hooks: TodayHooks): () => void {
   const date = new Date(`${today()}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  const decisions = el("div", { class: "td-decisions" });
   const day = el("div");
   const streak = el("div", { class: "td-streak" });
   root.replaceChildren(
@@ -70,11 +73,13 @@ export function renderTodayPage(root: HTMLElement, hooks: TodayHooks): () => voi
       { class: "page" },
       el("header", { class: "page-head" }, el("h1", {}, "Today"), el("p", { class: "page-sub" }, date)),
       quickAddBar({ added: () => {}, open: hooks.open }).root, // the day below reloads when the note changes
+      decisions,
       day,
       gamified() ? streak : "", // a workspace without rewards has no streak (see streak.ts)
     ),
   );
+  const unmountDecisions = mountDecisions(decisions, root, { open: (path) => hooks.open(path) });
   const unmountDay = mountDay(day, hooks);
   const unmountStreak = gamified() ? mountStreak(streak) : () => {};
-  return () => (unmountDay(), unmountStreak());
+  return () => (unmountDecisions(), unmountDay(), unmountStreak());
 }

@@ -80,6 +80,13 @@ const SCHEMA = [
   // Tags someone added by name before anything carried them, shared with the whole workspace. One
   // stays until a note, task or asset uses it (or a tag under it); then it's an ordinary tag.
   `CREATE TABLE IF NOT EXISTS added_tags(tag TEXT PRIMARY KEY)`,
+  // Questions agents put to their person (see decisions.ts), open until answered on the Today page.
+  // `options` is a JSON list; `note_id` a note it's about, `note` where that note was when asked.
+  `CREATE TABLE IF NOT EXISTS decisions(
+     id TEXT PRIMARY KEY, question TEXT NOT NULL, context TEXT, options TEXT NOT NULL, recommended INTEGER,
+     note_id TEXT, note TEXT, status TEXT NOT NULL, asked_at INTEGER NOT NULL, asked_by TEXT NOT NULL, person TEXT, agent TEXT,
+     answer TEXT, choice INTEGER, comment TEXT, answered_at INTEGER, answered_by TEXT, journal TEXT)`,
+  `CREATE INDEX IF NOT EXISTS decisions_status ON decisions(status, asked_at)`,
 ];
 
 /**

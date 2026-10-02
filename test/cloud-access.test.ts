@@ -30,6 +30,8 @@ let startId: string;
 const restoreIds = {} as Record<Who, number>;
 /** A label of each person's own note, to compare, rename, restore to and delete. */
 const labelIds = {} as Record<Who, string>;
+/** Decisions asked for each person to answer and to withdraw. */
+const decisionIds = {} as Record<Who, { answer: string; withdraw: string }>;
 /** A smart folder of each person's own, for them to delete. */
 const folderIds = {} as Record<Who, string>;
 /** Trash items for each person to restore and to delete for good. */
@@ -76,6 +78,7 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "GET /asset-tags", send: () => ["GET", "/asset-tags"], expect: READ },
   { route: "GET /today", send: () => ["GET", "/today?today=2026-10-01"], expect: READ },
   { route: "GET /export", send: () => ["GET", "/export?path=Getting%20started.md&path=assets/margin.svg"], expect: READ },
+  { route: "GET /decisions", send: () => ["GET", "/decisions"], expect: READ },
   { route: "GET /labels", send: (w) => ["GET", `/labels?path=labeled-${w}.md`], expect: READ },
   { route: "GET /labels/compare", send: (w) => ["GET", `/labels/compare?from=${labelIds[w] ?? "none"}&to=now`], expect: READ },
   { route: "GET /files/*", send: () => ["GET", "/files/assets/margin.svg"], expect: READ },
@@ -112,6 +115,9 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "PUT /asset-tags", send: (w) => ["PUT", "/asset-tags", { path: "assets/margin.svg", tags: [`asset-${w}`] }], expect: EDIT },
   { route: "POST /move", send: (w) => ["POST", "/move", { from: `move-${w}.md`, to: `moved-${w}.md` }], expect: EDIT },
   { route: "POST /restore", send: (w) => ["POST", "/restore", { id: restoreIds[w] ?? 1 }], expect: EDIT },
+  { route: "POST /decisions", send: (w) => ["POST", "/decisions", { question: `Ship it, ${w}?`, options: ["Yes", "No"] }], expect: EDIT },
+  { route: "POST /decisions/answer", send: (w) => ["POST", "/decisions/answer", { id: decisionIds[w]?.answer ?? "none", choice: 0, today: "2026-10-01" }], expect: EDIT },
+  { route: "POST /decisions/withdraw", send: (w) => ["POST", "/decisions/withdraw", { id: decisionIds[w]?.withdraw ?? "none" }], expect: EDIT },
   { route: "POST /labels", send: (w) => ["POST", "/labels", { path: `labeled-${w}.md`, name: `Mine ${w}` }], expect: EDIT },
   { route: "POST /labels/rename", send: (w) => ["POST", "/labels/rename", { id: labelIds[w] ?? "none", name: `v1 ${w}` }], expect: EDIT },
   { route: "POST /labels/restore", send: (w) => ["POST", "/labels/restore", { id: labelIds[w] ?? "none" }], expect: EDIT },
@@ -205,6 +211,8 @@ before(async () => {
     labelIds[w] = (await cloud.call(owner, "POST", `${base}/labels`, { path: `labeled-${w}.md`, name: "v1" })).id;
     await cloud.call(owner, "PUT", `${base}/note`, { path: `labeled-${w}.md`, content: "# Since v1\n" });
     await note(`del-${w}.md`);
+    const ask = async () => (await cloud.call(owner, "POST", `${base}/decisions`, { question: `Which, ${w}?`, options: ["A", "B"] })).id;
+    decisionIds[w] = { answer: await ask(), withdraw: await ask() };
     await note(`People/Update ${w}.md`, `# Update ${w}\n`);
     await note(`People/Keep ${w}.md`, `# Keep ${w}\n`);
     await note(`People/Drop ${w}.md`, `# Drop ${w}\n`);

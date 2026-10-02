@@ -4,6 +4,7 @@ import { did } from "./events.ts";
 import type { NoteRole } from "../../src/core/noteRoles.ts";
 import type { Contact, ContactFields, TimelineItem } from "../../src/core/contacts.ts";
 import { safeDecode } from "../../src/core/uri.ts";
+import type { Decision } from "../../src/core/decisions.ts";
 import type { FillOptions, TemplateInfo } from "../../src/core/templates.ts";
 import type { CalendarEvent, EventDraft, Source as CalendarSource, SourceColor } from "../../src/core/calendar.ts";
 
@@ -160,7 +161,7 @@ export type ServerMsg =
   /** Calendars or their events changed (a sync, a new subscription, a meeting note). */
   | { type: "calendar" };
 
-export type { CalendarEvent, CalendarSource, SourceColor };
+export type { CalendarEvent, CalendarSource, SourceColor, Decision };
 /** An event as the app sends it to be made or changed: guests by name and address (the server keeps their replies). */
 export type EventInput = Omit<EventDraft, "attendees"> & { attendees: Array<{ name: string | null; email: string | null }> };
 
@@ -408,6 +409,11 @@ export const api = {
   today: (day: string) => j<TodayView>(`${BASE}/today?today=${encodeURIComponent(day)}`),
   /** Today's journal note, made from the daily template if it's missing. */
   dailyNote: (day: string) => j<{ path: string; created: boolean }>(`${BASE}/today/journal`, send("POST", { today: day })),
+  /** Decisions agents asked for that wait on the person (src/core/decisions.ts), in the order asked. */
+  decisions: () => j<Decision[]>(`${BASE}/decisions`),
+  /** Answer one: an option (0-based) or your own words, or dismiss it. It's written into today's daily note. */
+  answerDecision: (id: string, a: { choice?: number; text?: string; comment?: string; dismiss?: boolean }) =>
+    j<Decision>(`${BASE}/decisions/answer`, send("POST", { id, ...a, today: today() })),
   /** Add a task written in words (see src/core/quickAdd.ts); `ignore` holds phrases kept as words. */
   addTask: (text: string, ignore: string[] = [], to?: string) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/add`, send("POST", { text, ignore, to, today: today() })),
   /** Take a task (and what's nested under it) out of its note: quick-add's Undo. */
