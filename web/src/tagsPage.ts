@@ -101,16 +101,6 @@ export class TagsPage {
     return node;
   }
 
-  /** Put a tag's row in rename mode (from ⌘⇧P), with the filter cleared so its row is there. */
-  renameTag(tag: string) {
-    const t = this.hooks.tags().find((x) => x.tag === tag.toLowerCase());
-    if (!t || this.hooks.readOnly()) return;
-    this.input.value = "";
-    this.render();
-    const node = this.list.querySelector<HTMLElement>(`.tags-row[data-tag="${CSS.escape(t.tag)}"]`);
-    if (node) this.startRename(node, t);
-  }
-
   private startRename(node: HTMLElement, t: TagCount) {
     const input = el("input", { class: "tag-rename", value: t.display, spellcheck: "false", "aria-label": `New name for #${t.display}` });
     node.replaceChildren(icon("hash", 14), input, el("span", { class: "tags-uses" }, "Enter to rename, Esc to cancel"));
@@ -140,39 +130,47 @@ export class TagsPage {
   }
 
   /** Rename (or merge) a tag, with Undo. Whether it happened. */
-  private async rename(t: TagCount, to: string): Promise<boolean> {
-    const all = this.hooks.tags();
-    const into = all.find((x) => x.tag === to.toLowerCase() && x.tag !== t.tag);
-    if (into && !confirm(`#${into.display} already exists. Merge #${t.display} into it? Everything tagged #${t.display} will be tagged #${into.display}.`)) return false;
-    // Tags added by name under it move with it; Undo moves them back.
-    const waiting = all.filter((x) => tagMatches(x.tag, t.tag) && unusedTag(x) && !all.some((c) => c.tag.startsWith(`${x.tag}/`)));
-    const movedTo = (x: TagCount) => (into?.tag ?? to.toLowerCase()) + x.tag.slice(t.tag.length);
-    let r: Awaited<ReturnType<typeof api.renameTag>>;
-    try {
-      r = await api.renameTag(t.tag, into?.display ?? to); // a merge keeps the way the other tag is written
-    } catch (e) {
-      this.hooks.toast({ text: e instanceof Error ? e.message : `Couldn't rename #${t.display}` });
-      return false;
-    }
-    await this.hooks.refresh();
-    const n = r.changes.length + Object.keys(r.assets).length;
-    this.hooks.toast({
-      icon: "hash",
-      text: `${into ? `Merged #${t.display} into` : `Renamed #${t.display} to`} #${into?.display ?? to}${n ? ` in ${n} place${n === 1 ? "" : "s"}` : ""}`,
-      actionLabel: "Undo",
-      action: async () => {
-        // Only notes still as the rename left them: one edited since keeps its edit, and the new tag.
-        let kept = 0;
-        for (let i = r.changes.length - 1; i >= 0; i--) await api.restore(r.changes[i], r.versions[i]).catch(() => kept++);
-        for (const [path, tags] of Object.entries(r.assets)) await api.setAssetTags(path, tags).catch(() => null);
-        for (const x of waiting) {
-          await api.deleteTag(movedTo(x)).catch(() => null);
-          await api.addTag(x.display).catch(() => null);
-        }
-        await this.hooks.refresh();
-        if (kept) this.hooks.toast({ text: `${kept} note${kept === 1 ? "" : "s"} changed since the rename, so ${kept === 1 ? "it keeps" : "they keep"} #${into?.display ?? to}` });
-      },
-    });
-    return true;
+  private rename(t: TagCount, to: string): Promise<boolean> {
+    return renameTag(t, to, this.hooks);
   }
+}
+
+/**
+ * Rename (or merge) a tag, with Undo. Whether it happened. Merging into a tag that exists asks first,
+ * unless `merge` says it's been asked already (⌘⇧P asks in the palette).
+ */
+export async function renameTag(t: TagCount, to: string, hooks: Pick<Hooks, "tags" | "refresh" | "toast">, merge?: boolean): Promise<boolean> {
+  const all = hooks.tags();
+  const into = all.find((x) => x.tag === to.toLowerCase() && x.tag !== t.tag);
+  if (into && !merge && !confirm(`#${into.display} already exists. Merge #${t.display} into it? Everything tagged #${t.display} will be tagged #${into.display}.`)) return false;
+  // Tags added by name under it move with it; Undo moves them back.
+  const waiting = all.filter((x) => tagMatches(x.tag, t.tag) && unusedTag(x) && !all.some((c) => c.tag.startsWith(`${x.tag}/`)));
+  const movedTo = (x: TagCount) => (into?.tag ?? to.toLowerCase()) + x.tag.slice(t.tag.length);
+  let r: Awaited<ReturnType<typeof api.renameTag>>;
+  try {
+    r = await api.renameTag(t.tag, into?.display ?? to); // a merge keeps the way the other tag is written
+  } catch (e) {
+    hooks.toast({ text: e instanceof Error ? e.message : `Couldn't rename #${t.display}` });
+    return false;
+  }
+  await hooks.refresh();
+  const n = r.changes.length + Object.keys(r.assets).length;
+  hooks.toast({
+    icon: "hash",
+    text: `${into ? `Merged #${t.display} into` : `Renamed #${t.display} to`} #${into?.display ?? to}${n ? ` in ${n} place${n === 1 ? "" : "s"}` : ""}`,
+    actionLabel: "Undo",
+    action: async () => {
+      // Only notes still as the rename left them: one edited since keeps its edit, and the new tag.
+      let kept = 0;
+      for (let i = r.changes.length - 1; i >= 0; i--) await api.restore(r.changes[i], r.versions[i]).catch(() => kept++);
+      for (const [path, tags] of Object.entries(r.assets)) await api.setAssetTags(path, tags).catch(() => null);
+      for (const x of waiting) {
+        await api.deleteTag(movedTo(x)).catch(() => null);
+        await api.addTag(x.display).catch(() => null);
+      }
+      await hooks.refresh();
+      if (kept) hooks.toast({ text: `${kept} note${kept === 1 ? "" : "s"} changed since the rename, so ${kept === 1 ? "it keeps" : "they keep"} #${into?.display ?? to}` });
+    },
+  });
+  return true;
 }

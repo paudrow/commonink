@@ -25,7 +25,48 @@ export interface Command {
   area?: Area;
   /** Offered in ⌘K right now. Its shortcut stays on the sheet either way. */
   available?: boolean;
-  run: () => unknown;
+  /** What it does (a command that asks something has `ask` instead). */
+  run?: () => unknown;
+  /**
+   * From the palette, instead of `run`: what it asks next, typed into the palette itself (a name, a
+   * folder, a tag), or nothing when it's done already. The palette stays open on the step.
+   */
+  ask?: () => PaletteStep | void;
+}
+
+/** One thing a palette step offers to pick. */
+export interface PaletteChoice {
+  label: string;
+  value: string;
+  detail?: string;
+  icon?: string;
+}
+
+/** What a step's submit leads to: the next step, an error to show (the step stays), or nothing (done; the palette closes). */
+export type StepResult = PaletteStep | { error: string } | void;
+
+/**
+ * A question a command asks inside the palette, Raycast-style: the command's name stands before the
+ * field, and what's typed answers it. With `choices`, typing filters them; `enter` is the row for
+ * typed text (a text step's only row, or "Make a new one" beside the choices). Escape, or Backspace
+ * in an empty field, goes back a step.
+ */
+export interface PaletteStep {
+  /** Shown before the field: the command, or what this step asks ("Rename #work"). */
+  title: string;
+  icon?: string;
+  placeholder: string;
+  /** Typed in to start with, selected. */
+  value?: string;
+  choices?: () => PaletteChoice[] | Promise<PaletteChoice[]>;
+  /** The row Enter acts on for what's typed ("Add #work"), or null for none. */
+  enter?: (typed: string) => string | null;
+  /** Under the field. */
+  hint?: string;
+  /** What the list says when there are no choices at all. */
+  empty?: string;
+  /** `value`: the choice's value, or the typed text; `picked`: it was a choice. */
+  submit: (value: string, picked: boolean) => StepResult | Promise<StepResult>;
 }
 
 export type Page = "today" | "notes" | "tasks" | "calendar" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash" | "shared";
@@ -66,25 +107,26 @@ export interface App {
   account: Array<{ label: string; icon: string; run: () => unknown; workspace?: boolean; current?: boolean }>;
   newNote(): void;
   /** Pick a template, answer its questions, and open the new note. */
-  newFromTemplate(): void;
+  newFromTemplate(): PaletteStep | void;
   /** A new note that holds a Kanban board. */
   newBoard(): void;
-  newFolder(): void;
-  newTag(): void;
-  /** A saved search, from scratch, in the Smart folders section. */
-  newSmartFolder(): void;
-  /** Keep the Notes page's filters as a smart folder. */
-  saveFilters(): void;
+  /** The steps below are asked in the palette (PaletteStep); `void` is done already. */
+  newFolder(): PaletteStep | void;
+  newTag(): PaletteStep | void;
+  /** A saved search: pick a tag or folder (or type words) and name it. */
+  newSmartFolder(): PaletteStep | void;
+  /** Keep the Notes page's filters as a smart folder: ask its name. */
+  saveFilters(): PaletteStep | void;
   /** Star or unstar the tag in view, or pick a tag to. */
-  starTag(): void;
-  /** Rename the tag in view (or one picked) on the Tags page. */
-  renameTag(): void;
-  /** Ask for a contact's name and add them. */
-  newContact(): void;
+  starTag(): PaletteStep | void;
+  /** Rename the tag in view (or one picked): ask the new name. */
+  renameTag(): PaletteStep | void;
+  /** Ask for a contact's name (and email and company) and add them. */
+  newContact(): PaletteStep | void;
   /** People from a .vcf or .csv file. */
   importContacts(): void;
-  /** The focused note's History, comparing its latest label with now, ready to restore. */
-  restoreVersion(): void;
+  /** Pick one of the focused note's labels and restore the note to it. */
+  restoreVersion(): PaletteStep | void;
   go(page: Page): void;
   filterNotes(): void;
   quickAdd(): void;
@@ -107,12 +149,13 @@ export interface App {
   delete(): void;
   /** Online: the dialog for sharing the focused note with people or by link (shareDialog.ts). */
   shareWithPeople(): void;
-  move(): void;
+  /** Pick the folder to move the focused note to. */
+  move(): PaletteStep | void;
   /** Put the cursor on what names the note (its heading), or ask for a name. */
-  rename(): void;
+  rename(): PaletteStep | void;
   noteHistory(): void;
-  /** Name the focused note's version as it is now (labels.ts). */
-  labelVersion(): void;
+  /** Name the focused note's version as it is now: ask the name. */
+  labelVersion(): PaletteStep | void;
   /** The focused note's labels, in its History. */
   noteLabels(): void;
   gettingStarted(): void;
@@ -143,21 +186,21 @@ export function appCommands(app: App): Command[] {
   const go = (page: Page, title: string, icon: string, keywords = ""): Command => ({ id: `go:${page}`, title: `Go to ${title}`, keywords: `open show page ${keywords}`, icon, run: () => app.go(page) });
   return [
     { id: "new-note", title: "New note", keywords: "create add page", icon: "plus", run: app.newNote },
-    { id: "new-from-template", title: "New note from template…", keywords: "template meeting create add from boilerplate", icon: "file", available: app.canDelete, run: app.newFromTemplate },
+    { id: "new-from-template", title: "New note from template…", keywords: "template meeting create add from boilerplate", icon: "file", available: app.canDelete, ask: app.newFromTemplate },
     { id: "new-board", title: "New board", keywords: "create add kanban columns cards trello project", icon: "kanban", run: app.newBoard },
-    { id: "new-folder", title: "New folder", keywords: "create add directory", icon: "folderPlus", run: app.newFolder },
-    { id: "new-tag", title: "New tag", keywords: "create add label hashtag", icon: "hash", available: app.canDelete, run: app.newTag },
-    { id: "new-smart-folder", title: "New smart folder", keywords: "create add saved search query filter view", icon: "folderSearch", run: app.newSmartFolder },
-    { id: "save-filters", title: "Save these filters as a smart folder", keywords: "keep saved search query view smart folder sidebar", icon: "folderSearch", available: app.notesFiltered, run: app.saveFilters },
+    { id: "new-folder", title: "New folder", keywords: "create add directory", icon: "folderPlus", ask: app.newFolder },
+    { id: "new-tag", title: "New tag", keywords: "create add label hashtag", icon: "hash", available: app.canDelete, ask: app.newTag },
+    { id: "new-smart-folder", title: "New smart folder", keywords: "create add saved search query filter view", icon: "folderSearch", ask: app.newSmartFolder },
+    { id: "save-filters", title: "Save these filters as a smart folder", keywords: "keep saved search query view smart folder sidebar", icon: "folderSearch", available: app.notesFiltered, ask: app.saveFilters },
     {
       id: "star-tag",
       title: app.tag ? `${app.tag.starred ? "Unstar" : "Star"} #${app.tag.name}` : "Star or unstar a tag…",
       keywords: "star unstar tag hashtag favorite favourite pin sidebar",
       icon: app.tag?.starred ? "starred" : "star",
-      run: app.starTag,
+      ask: app.starTag,
     },
-    { id: "rename-tag", title: app.tag ? `Rename #${app.tag.name}…` : "Rename tag…", keywords: "rename merge tag hashtag everywhere", icon: "hash", available: app.canDelete, run: app.renameTag },
-    { id: "new-contact", title: "New contact…", keywords: "create add person people contact crm", icon: "user", available: app.canDelete, run: app.newContact },
+    { id: "rename-tag", title: app.tag ? `Rename #${app.tag.name}…` : "Rename tag…", keywords: "rename merge tag hashtag everywhere", icon: "hash", available: app.canDelete, ask: app.renameTag },
+    { id: "new-contact", title: "New contact…", keywords: "create add person people contact crm", icon: "user", available: app.canDelete, ask: app.newContact },
     { id: "import-contacts", title: "Import contacts (.vcf or .csv)…", keywords: "import upload vcard vcf csv google outlook people contacts", icon: "upload", available: app.canDelete, run: app.importContacts },
     { id: "quick-add", title: "Add a task", keywords: "quick add todo new task", icon: "task", keys: ["Mod-Shift-."], area: "Tasks", run: app.quickAdd },
     go("today", "Today", "sun", "day agenda due overdue journal streak writing"),
@@ -193,8 +236,8 @@ export function appCommands(app: App): Command[] {
     { id: "star", title: note?.starred ? "Unstar note" : "Star note", keywords: "star favorite favourite", icon: note?.starred ? "starred" : "star", available: !!note, run: app.star },
     { id: "archive", title: note?.archived ? "Unarchive note" : "Archive note", keywords: "archive remove hide", icon: note?.archived ? "unarchive" : "archive", keys: ["Mod-Shift-e"], available: !!note, run: app.archive },
     { id: "delete", title: "Delete note", keywords: "delete remove trash bin", icon: "trash", available: !!note && app.canDelete, run: app.delete },
-    { id: "move", title: "Move to folder…", keywords: "move note folder file", icon: "move", available: !!note, run: app.move },
-    { id: "rename", title: "Rename note…", keywords: "rename name title heading file", icon: "edit", available: !!note && app.canDelete, run: app.rename },
+    { id: "move", title: "Move to folder…", keywords: "move note folder file", icon: "move", available: !!note, ask: app.move },
+    { id: "rename", title: "Rename note…", keywords: "rename name title heading file", icon: "edit", available: !!note && app.canDelete, ask: app.rename },
     { id: "share", title: "Share…", keywords: "share link copy print export download pdf markdown html word send", icon: "share", keys: ["Mod-Shift-s"], available: text, run: app.share },
     { id: "share-people", title: "Share with people…", keywords: "share people link invite collaborate public email", icon: "share-people", available: !!note && app.online, run: app.shareWithPeople },
     { id: "copy-link", title: "Copy link to this note", keywords: "share url address copy", icon: "link", available: text, run: app.copyLink },
@@ -210,8 +253,8 @@ export function appCommands(app: App): Command[] {
     { id: "follow-link", title: "Follow link", keywords: "open link under the cursor gd go to", icon: "link", area: "Editor", available: app.onLink, run: app.followLink },
     { id: "fold-all", title: "Fold all sections", keywords: "collapse close details collapsible zM", icon: "chevron", available: text && app.folds > 0, run: () => app.foldAll(false) },
     { id: "unfold-all", title: "Unfold all sections", keywords: "expand open details collapsible zR", icon: "chevron", available: text && app.folds > 0, run: () => app.foldAll(true) },
-    { id: "label-version", title: "Label this version…", keywords: "name version milestone snapshot tag save point v1 checkpoint", icon: "label", available: text && app.canDelete, run: app.labelVersion },
-    { id: "restore-version", title: "Restore to a version…", keywords: "restore label version go back revert roll back undo milestone", icon: "history", available: text && app.canDelete, run: app.restoreVersion },
+    { id: "label-version", title: "Label this version…", keywords: "name version milestone snapshot tag save point v1 checkpoint", icon: "label", available: text && app.canDelete, ask: app.labelVersion },
+    { id: "restore-version", title: "Restore to a version…", keywords: "restore label version go back revert roll back undo milestone", icon: "history", available: text && app.canDelete, ask: app.restoreVersion },
     { id: "note-labels", title: "Labels of this note", keywords: "versions compare restore label tag release history", icon: "label", available: text, run: app.noteLabels },
     { id: "note-history", title: "History of this note", keywords: "versions changes diff restore", icon: "history", available: !!note, run: app.noteHistory },
     {

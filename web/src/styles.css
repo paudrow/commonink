@@ -690,6 +690,11 @@ body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view
 .palette-foot { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 9px 14px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); background: var(--bg-side); }
 .palette-foot kbd { margin-right: 3px; }
 .palette-item.is-command kbd { margin-left: auto; flex: none; }
+/* A command asking for something in the palette: its name stands before the field, like Raycast. */
+.palette-step { display: inline-flex; align-items: center; gap: 5px; flex: none; max-width: 45%; padding: 3px 9px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-ink); font: 600 12.5px var(--ui); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.palette-step[hidden], .palette-step-foot[hidden], #palette.is-step .palette-foot:not(.palette-step-foot) { display: none; }
+.palette-step span { overflow: hidden; text-overflow: ellipsis; }
+.palette-hint.is-error { color: var(--bad-ink); }
 
 /* Keyboard shortcuts (? or ⌘K) */
 #shortcuts { position: fixed; inset: 0; z-index: 50; background: rgba(20, 16, 10, 0.28); backdrop-filter: blur(3px); display: flex; justify-content: center; align-items: flex-start; padding-top: 8vh; animation: fade 0.12s ease-out; }

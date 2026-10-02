@@ -23,7 +23,7 @@ import { clearFlash, flashChanges } from "./editor/agentFlash.ts";
 import { editsBetween, merge3 } from "./merge.ts";
 import { sandboxFrame } from "./render.ts";
 import { Palette } from "./palette.ts";
-import { ensureContact } from "./people.ts";
+import { ensureContact, refreshPeople } from "./people.ts";
 import { NotesPage, type NotesTab } from "./notesPage.ts";
 import { folderPicker } from "./folderPicker.ts";
 import type { History } from "./history.ts";
@@ -40,7 +40,7 @@ import { taskInputPrefs } from "./taskInput.ts";
 import type { TagsPage } from "./tagsPage.ts";
 import type { Theme } from "./settings.ts";
 import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./account.ts";
-import { appCommands } from "./commands.ts";
+import { appCommands, type PaletteStep } from "./commands.ts";
 import { toggleShortcuts } from "./shortcuts.ts";
 import { NO_TIPS, tipText, watchTips, type TipsState } from "./shortcutTips.ts";
 import { did, vaultEvents } from "./events.ts";
@@ -55,7 +55,6 @@ import { clampSide, forget, historyStep, IS_MAC, newLayout, pageEntry, pageOf, p
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { headingMatches } from "../../src/core/gfm.ts";
 import { formatQuery, parseQuery, tagList, type NoteQuery } from "../../src/core/query.ts";
-import { tagPicker } from "./tagPicker.ts";
 import { NEW_BOARD } from "../../src/core/kanban.ts";
 import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
@@ -327,23 +326,20 @@ function commands() {
     folds: s?.kind === "md" ? foldCount(active.view.state) : 0,
     account,
     newNote: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
-    newFromTemplate: () => void newFromTemplate(undefined, onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
+    newFromTemplate: () => templateStep(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
     newBoard: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : "", `\n${NEW_BOARD}\n`),
-    newFolder: startNewFolder,
-    newTag: startNewTag,
-    newSmartFolder: newSmartFolderFromPalette,
-    saveFilters: () => notesPage.saveFilters(),
-    starTag: () => (tag ? void toggleTagStar(tag) : pickTag("Star or unstar a tag…", (t) => void toggleTagStar(t))),
-    renameTag: () => (tag ? void renameTagOnPage(tag) : pickTag("Rename which tag?", (t) => void renameTagOnPage(t))),
-    newContact: async () => {
-      await showContacts();
-      void contactsPage?.newContact();
-    },
+    newFolder: newFolderStep,
+    newTag: newTagStep,
+    newSmartFolder: smartFolderStep,
+    saveFilters: () => smartFolderNameStep(formatQuery(notesPage.query), "Save these filters"),
+    starTag: () => (tag ? void starTagSaying(tag) : starTagStep()),
+    renameTag: () => (tag ? renameTagStep(tag) : renameWhichTagStep()),
+    newContact: newContactStep,
     importContacts: async () => {
       await showContacts();
       contactsPage?.importFile();
     },
-    restoreVersion: () => void restoreVersion(),
+    restoreVersion: restoreStep,
     go: (page) => {
       if (page === "notes" || page === "archive" || page === "trash") void showNotes({ tab: page, query: {} });
       else void { today: showToday, tasks: showTasks, calendar: showCalendar, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory, shared: showShared }[page]();
@@ -369,10 +365,10 @@ function commands() {
     archive: () => void archiveCurrent(),
     delete: () => void deleteCurrent(),
     shareWithPeople: () => active.session && openShareDialog({ path: active.session.path }),
-    move: () => openMovePicker($("#move-btn")),
-    rename: () => void renameNote(),
+    move: moveStep,
+    rename: renameStep,
     noteHistory: () => s && void showHistory({ note: s.path }),
-    labelVersion: () => void labelCurrent(),
+    labelVersion: labelStep,
     noteLabels: () => s && void showHistory({ note: s.path }),
     gettingStarted: async () => {
       const start = (await api.feed({ tag: "start", limit: 1 }).catch(() => null))?.items[0];
@@ -884,27 +880,276 @@ async function labelCurrent(name?: string) {
   if (label) toast({ icon: "label", text: `Labeled this version “${label.name}”`, actionLabel: "Show", action: () => showLabel(label) });
 }
 
-/** From ⌘⇧P: the focused note's History, its latest label compared with now and ready to restore (or a word on how to make one). */
-async function restoreVersion() {
+// ------------------------------------------------------------------ ⌘⇧P steps (palette.ts)
+// What a command asks, it asks inside the palette: the field takes the answer, and focus stays
+// there until it's done, then goes back to where it was. No form opens elsewhere on the page.
+
+const tagChoices = () =>
+  tags.map((t) => ({ label: `#${t.display}`, value: t.display, icon: isTagStarred(t.display) ? "starred" : "hash", detail: String(t.notes + t.tasks + t.assets || "") }));
+
+/** Star or unstar `tag`, and say which. */
+async function starTagSaying(tag: string) {
+  const was = isTagStarred(tag);
+  await toggleTagStar(tag);
+  if (isTagStarred(tag) !== was) toast({ icon: was ? "star" : "starred", text: was ? `Unstarred #${tag}` : `Starred #${tag}`, detail: was ? undefined : "It's in Favorites now." });
+}
+
+const starTagStep = (): PaletteStep => ({
+  title: "Star or unstar a tag",
+  icon: "star",
+  placeholder: "Which tag?",
+  choices: tagChoices,
+  submit: (tag) => void starTagSaying(tag),
+});
+
+const renameWhichTagStep = (): PaletteStep => ({
+  title: "Rename tag",
+  icon: "hash",
+  placeholder: "Which tag?",
+  choices: tagChoices,
+  submit: (tag) => renameTagStep(tag),
+});
+
+/** The new name for `tag`; onto a tag that exists, one more step asks whether to merge. */
+function renameTagStep(tag: string): PaletteStep {
+  const t = tags.find((x) => x.tag === normalizeTag(tag));
+  const hooks = { tags: () => tags, refresh: () => refreshNotes(), toast };
+  return {
+    title: `Rename #${t?.display ?? tag}`,
+    icon: "hash",
+    placeholder: "New name",
+    value: t?.display ?? tag,
+    hint: "Renames it in every note, task and file, with Undo.",
+    enter: (typed) => (cleanTag(typed) && cleanTag(typed) !== t?.display ? `Rename to #${cleanTag(typed)}` : null),
+    submit: async (typed) => {
+      const to = cleanTag(typed);
+      if (!t) return { error: `There's no #${tag} any more` };
+      if (!to) return { error: "A tag is letters, numbers, - and _, nested with /" };
+      const into = tags.find((x) => x.tag === to.toLowerCase() && x.tag !== t.tag);
+      const { renameTag } = await import("./tagsPage.ts");
+      if (!into) return void (await renameTag(t, to, hooks));
+      return {
+        title: `Merge #${t.display} into #${into.display}?`,
+        icon: "hash",
+        placeholder: `#${into.display} already exists`,
+        hint: `Everything tagged #${t.display} will be tagged #${into.display}.`,
+        choices: () => [
+          { label: `Merge into #${into.display}`, value: "merge", icon: "check" },
+          { label: "Pick another name", value: "back", icon: "back" },
+        ],
+        submit: async (v) => (v === "merge" ? void (await renameTag(t, into.display, hooks, true)) : renameTagStep(t.display)),
+      };
+    },
+  };
+}
+
+const newFolderStep = (): PaletteStep => ({
+  title: "New folder",
+  icon: "folderPlus",
+  placeholder: "Folder name, like Work/Clients",
+  hint: "A / nests it inside another folder.",
+  enter: (typed) => (cleanFolder(typed) ? `Make folder “${cleanFolder(typed)}”` : null),
+  submit: (typed) => {
+    const wrong = makeFolder(typed);
+    return wrong ? { error: wrong } : undefined;
+  },
+});
+
+const newTagStep = (): PaletteStep => ({
+  title: "New tag",
+  icon: "hash",
+  placeholder: "Tag, like work/clients",
+  hint: "Letters, numbers, - and _. A / nests it under another tag.",
+  enter: (typed) => (cleanTag(typed) ? `Add #${cleanTag(typed)}` : null),
+  submit: (typed) => (cleanTag(typed) ? void addTag(typed) : { error: "A tag is letters, numbers, - and _, nested with /" }),
+});
+
+/** A new smart folder: what it holds (a tag, a folder, or words to find), then its name. */
+const smartFolderStep = (): PaletteStep => ({
+  title: "New smart folder",
+  icon: "folderSearch",
+  placeholder: "What should it hold? A tag, a folder, or words to find",
+  hint: "For more filters, use + by Smart folders in the sidebar.",
+  choices: () => [
+    ...tags.filter((t) => !unusedTag(t)).map((t) => ({ label: `#${t.display}`, value: formatQuery({ tag: t.display }), icon: "hash", detail: "tag" })),
+    ...allFolders().map((f) => ({ label: f, value: formatQuery({ folder: f }), icon: "folder", detail: "folder" })),
+  ],
+  enter: (typed) => (typed.trim() ? `Notes with “${typed.trim()}”` : null),
+  submit: (v, picked) => smartFolderNameStep(picked ? v : formatQuery({ q: v.trim() })),
+});
+
+/** Name a smart folder for `query`, and save it. */
+function smartFolderNameStep(query: string, title = "New smart folder"): PaletteStep {
+  return {
+    title,
+    icon: "folderSearch",
+    placeholder: "Name it",
+    value: nameFor(query),
+    hint: local ? undefined : viewer ? "Only you will see it." : "Everyone in the workspace will see it in their sidebar.",
+    enter: (typed) => (typed.trim() ? `Save smart folder “${typed.trim()}”` : null),
+    submit: async (name) => {
+      const saved = await api.saveSmartFolder({ name: name.trim(), query, shared: !viewer }).catch((e: Error) => ({ error: e.message }) as const);
+      if ("error" in saved) return saved;
+      smartFolders = await api.smartFolders();
+      revealed.add("smart");
+      renderTree();
+      toast({ icon: "folderSearch", text: `Saved ${saved.name}`, actionLabel: "Open", action: () => void showNotes({ tab: "notes", query: parseQuery(saved.query) }) });
+    },
+  };
+}
+
+/** A new contact: their name, then (Enter skips each) an email and a company. */
+function newContactStep(): PaletteStep {
+  const add = async (c: { name: string; email?: string; company?: string }) => {
+    const r = await api.createContact({ name: c.name, email: c.email ? [c.email] : [], company: c.company ?? "" }).catch((e: Error) => ({ error: e.message }) as const);
+    if ("error" in r) return r;
+    refreshPeople();
+    const open = async () => {
+      const id = (await api.contacts().catch(() => [])).find((x) => x.path === r.path)?.id;
+      if (id) void showContacts({ contact: id });
+    };
+    toast({ icon: "user", text: `Added ${c.name}`, actionLabel: "Open", action: () => void open() });
+  };
+  return {
+    title: "New contact",
+    icon: "user",
+    placeholder: "Name",
+    enter: (typed) => (typed.trim() ? `Next: ${typed.trim()}'s email` : null),
+    submit: (typed) => {
+      const name = typed.trim();
+      return {
+        title: name,
+        icon: "user",
+        placeholder: "Email (optional)",
+        hint: "Enter skips it.",
+        enter: (email) => (email.trim() ? `Next: company` : "Skip: no email"),
+        submit: (email) => ({
+          title: name,
+          icon: "user",
+          placeholder: "Company (optional)",
+          hint: "Enter skips it.",
+          enter: (company) => (company.trim() ? `Add ${name}, at ${company.trim()}` : `Add ${name}`),
+          submit: (company) => add({ name, email: email.trim() || undefined, company: company.trim() || undefined }),
+        }),
+      };
+    },
+  };
+}
+
+/** Move the focused note: pick a folder (or type a new one). */
+function moveStep(): PaletteStep | void {
+  const s = active.session;
+  if (!s) return;
+  const here = parentOf(s.path);
+  return {
+    title: `Move ${displayName(s.path)}`,
+    icon: "move",
+    placeholder: "To which folder?",
+    choices: () => [
+      { label: "Top level", value: "", icon: "file", detail: here === "" ? "here now" : "" },
+      ...allFolders().map((f) => ({ label: f, value: f, icon: "folder", detail: f === here ? "here now" : "" })),
+    ],
+    enter: (typed) => (cleanFolder(typed) ? `New folder “${cleanFolder(typed)}”` : null),
+    submit: (v, picked) => {
+      const folder = picked ? v : cleanFolder(v);
+      if (folder === here) return { error: `It's in ${folder || "the top level"} already` };
+      void moveToFolder(s.path, folder);
+    },
+  };
+}
+
+/** Rename the focused note: its heading, selected in place; or, for a note a heading doesn't name, its name here. */
+function renameStep(): PaletteStep | void {
+  const s = active.session;
+  if (!s || viewer) return;
+  const file = s.path.split("/").pop()!;
+  const ext = file.match(/\.[^.]+$/)?.[0] ?? "";
+  const was = file.slice(0, file.length - ext.length);
+  if (renameInPlace(s)) return;
+  return {
+    title: "Rename note",
+    icon: "edit",
+    placeholder: "New name",
+    value: was,
+    enter: (typed) => (cleanName(typed) && cleanName(typed) !== was ? `Rename to “${cleanName(typed)}”` : null),
+    submit: async (typed) => {
+      const name = cleanName(typed);
+      if (!name || name === was) return;
+      await flushSave();
+      try {
+        await renameSession(s, `${s.path.slice(0, s.path.lastIndexOf("/") + 1)}${name}${ext}`);
+      } catch (e) {
+        return { error: e instanceof Error ? e.message : `Couldn't rename ${displayName(s.path)}` };
+      }
+    },
+  };
+}
+
+/** Label the focused note's version as it is now. */
+function labelStep(): PaletteStep | void {
+  const s = active.session;
+  if (!s || s.kind === "asset" || viewer) return;
+  return {
+    title: "Label this version",
+    icon: "label",
+    placeholder: "v1, Sent to Alex, Before the rewrite…",
+    hint: "Name the note as it is now, to compare with or go back to later.",
+    enter: (typed) => (typed.trim() ? `Label it “${typed.trim()}”` : null),
+    submit: (name) => void labelCurrent(name.trim()),
+  };
+}
+
+/** Restore the focused note to one of its labels, with Undo. */
+function restoreStep(): PaletteStep | void {
   const s = active.session;
   if (!s || s.kind === "asset") return;
-  await flushSave();
-  const labels = await api.labels(s.path).catch(() => null);
-  const latest = labels?.sort((a, b) => b.ts - a.ts)[0];
-  if (latest) return showLabel(latest);
-  await showHistory({ note: s.path });
-  toast({ icon: "label", text: "No labeled versions yet", detail: "Pick a change in History to restore it, or Label this version to name one for later." });
+  let labels: Label[] = [];
+  return {
+    title: `Restore ${displayName(s.path)}`,
+    icon: "history",
+    placeholder: "To which labeled version?",
+    empty: "No labeled versions yet. Label this version names one; History can restore any change.",
+    choices: async () => {
+      await flushSave();
+      labels = ((await api.labels(s.path).catch(() => [])) ?? []).sort((a, b) => b.ts - a.ts);
+      return labels.map((m) => ({ label: m.name, value: m.id, icon: "label", detail: timeAgo(m.ts) }));
+    },
+    submit: async (id) => {
+      const m = labels.find((x) => x.id === id)!;
+      await flushSave();
+      const r = await api.restoreLabel(m.id).catch(() => null);
+      if (!r) return { error: `Couldn't restore “${m.name}”` };
+      const change = r.change;
+      const said = { icon: "reset", text: `Restored ${displayName(r.path)} to “${m.name}”` };
+      toast(change ? { ...said, actionLabel: "Undo", action: () => void api.restore(change) } : said);
+    },
+  };
 }
 
-/** Ask which tag (from ⌘⇧P, with no tag in view), under the search button. */
-function pickTag(placeholder: string, onPick: (tag: string) => void) {
-  tagPicker($("#search-btn"), { tags: tags.filter((t) => !unusedTag(t)), count: (t) => t.notes + t.tasks + t.assets, onPick, placeholder });
-}
-
-/** Tags, with `tag`'s row ready to rename (or merge). */
-async function renameTagOnPage(tag: string) {
-  await showTags();
-  tagsPage?.renameTag(tag);
+/** A new note from a template: pick it, then its title (a template with questions asks them in its form). */
+function templateStep(folder: string): PaletteStep {
+  let list: TemplateInfo[] = [];
+  return {
+    title: "New note from template",
+    icon: "file",
+    placeholder: "Which template?",
+    empty: "No templates yet. A template is any note in Templates/.",
+    choices: async () => {
+      list = await api.templates().catch(() => []);
+      return list.map((t) => ({ label: t.name, value: t.path, icon: "file", detail: t.asks.length ? `asks ${t.asks.map((a) => a.label).join(", ")}` : "" }));
+    },
+    submit: (path) => {
+      const t = list.find((x) => x.path === path)!;
+      if (t.asks.length) return void setTimeout(() => void newFromTemplate(t, folder)); // after the palette closes
+      return {
+        title: t.name,
+        icon: "file",
+        placeholder: t.title ? "Title (blank for the template's own)" : `Title (blank for “${t.name}”)`,
+        enter: (typed) => (typed.trim() ? `Make “${typed.trim()}”` : `Make it`),
+        submit: (title) => void setTimeout(() => void newFromTemplate(t, folder, title.trim())),
+      };
+    },
+  };
 }
 
 async function showTags(opts: { push?: boolean } = {}) {
@@ -1264,14 +1509,15 @@ async function createNote(name: string) {
  * A new note from a template: pick one (unless given), answer its questions, and open the note with
  * the cursor at its {{cursor}}. It goes in the template's folder, else `folder`.
  */
-async function newFromTemplate(template?: TemplateInfo, folder = "") {
+/** `title`: already asked (in ⌘⇧P), blank for the template's own; then a template with no questions asks nothing more. */
+async function newFromTemplate(template?: TemplateInfo, folder = "", title?: string) {
   let t = template;
   if (!t) {
     const list = await api.templates().catch(() => []);
     t = (await pickTemplate(list, "New note from template")) ?? undefined;
   }
   if (!t) return;
-  const asked = await askFor(t, { title: true, people: await templatePeople(t) });
+  const asked = title !== undefined && !t.asks.length ? { title: title || undefined, answers: {}, picks: {} } : await askFor(t, { title: true, people: await templatePeople(t) });
   if (!asked) return;
   const clipboard = t.clipboard ? await navigator.clipboard?.readText().catch(() => undefined) : undefined;
   try {
@@ -1313,6 +1559,26 @@ async function newNote(folder = "", body = "") {
   } catch {
     toast({ text: "Couldn't create a note" });
   }
+}
+
+/**
+ * For a note its heading names: select the heading (adding one with the note's name if it has none),
+ * where typing renames it. False for the notes a heading doesn't name.
+ */
+function renameInPlace(s: Session): boolean {
+  const view = s.pane.view;
+  const h = s.kind === "md" && !fixedName(s.path) ? nameLine(view.state.doc) : null;
+  if (!h || h.titled) return false;
+  s.retitle = true; // the name follows the heading from here, even if it's left as it is
+  if (h.text === null) {
+    const name = displayName(s.path);
+    const lead = h.line > view.state.doc.lines ? "\n" : "";
+    view.dispatch({ changes: { from: h.at, insert: `${lead}# ${name}\n` } });
+    const from = h.at + lead.length + 2;
+    view.dispatch({ selection: { anchor: from, head: from + name.length }, scrollIntoView: true });
+  } else view.dispatch({ selection: { anchor: h.from, head: h.to }, scrollIntoView: true });
+  view.focus();
+  return true;
 }
 
 /** The note being moved by this window, whose own move coming back from the server isn't news. */
@@ -1376,20 +1642,7 @@ function retitleSoon(s: Session, state: EditorState) {
  */
 async function renameNote() {
   const s = active.session;
-  if (!s || viewer) return;
-  const view = s.pane.view;
-  const h = s.kind === "md" && !fixedName(s.path) ? nameLine(view.state.doc) : null;
-  if (h && !h.titled) {
-    s.retitle = true; // the name follows the heading from here, even if it's left as it is
-    if (h.text === null) {
-      const name = displayName(s.path);
-      const lead = h.line > view.state.doc.lines ? "\n" : "";
-      view.dispatch({ changes: { from: h.at, insert: `${lead}# ${name}\n` } });
-      const from = h.at + lead.length + 2;
-      view.dispatch({ selection: { anchor: from, head: from + name.length }, scrollIntoView: true });
-    } else view.dispatch({ selection: { anchor: h.from, head: h.to }, scrollIntoView: true });
-    return view.focus();
-  }
+  if (!s || viewer || renameInPlace(s)) return;
   const file = s.path.split("/").pop()!;
   const ext = file.match(/\.[^.]+$/)?.[0] ?? "";
   const typed = await askName("Rename note", file.slice(0, file.length - ext.length));
@@ -1737,13 +1990,6 @@ function saveSmartFolder(query: string, name: string, anchor: HTMLElement) {
       toast({ icon: "folderSearch", text: `Saved ${saved.name}`, detail: local ? undefined : saved.shared ? "Everyone in the workspace sees it in their sidebar." : "Only you see it." });
     },
   });
-}
-
-/** A new smart folder from ⌘K: the Smart folders section shows (it waits for a first one otherwise), and the form opens under its +. */
-function newSmartFolderFromPalette() {
-  revealed.add("smart");
-  renderTree();
-  newSmartFolder($("#new-smart-folder"));
 }
 
 /** A new smart folder from scratch (the Smart folders header, or its empty row). Saving opens it. */
@@ -2358,17 +2604,28 @@ function startNewFolder() {
     placeholder: "Folder name",
     label: "New folder",
     done: (typed) => {
-      const name = (typed ?? "").trim().replace(/[\\:*?"<>|#^[\]]/g, "").replace(/\s*\/\s*/g, "/").replace(/^\/+|\/+$/g, "");
-      if (name && !allFolders().some((f) => f.toLowerCase() === name.toLowerCase())) {
-        const empty = emptyFolders();
-        empty.add(name);
-        setEmptyFolders(empty);
-        if (parentOf(name)) setExpanded(parentOf(name), true); // show where the new folder went
-        toast({ icon: "folder", text: `Made ${name}`, detail: "Drag notes onto it, or use Move on a note." });
-      }
+      makeFolder(typed ?? "");
       renderTree();
     },
   });
+}
+
+/** A folder name as typed, cleaned: no characters a path can't hold, no stray slashes. */
+const cleanFolder = (typed: string) => typed.trim().replace(/[\\:*?"<>|#^[\]]/g, "").replace(/\s*\/\s*/g, "/").replace(/^\/+|\/+$/g, "");
+
+/** Make the (empty) folder `typed` names, and say so. What's wrong, if it can't. */
+function makeFolder(typed: string): string | null {
+  const name = cleanFolder(typed);
+  if (!name) return "Type a name for the folder";
+  const had = allFolders().find((f) => f.toLowerCase() === name.toLowerCase());
+  if (had) return `${had} is already a folder`;
+  const empty = emptyFolders();
+  empty.add(name);
+  setEmptyFolders(empty);
+  if (parentOf(name)) setExpanded(parentOf(name), true); // show where the new folder went
+  renderTree();
+  toast({ icon: "folder", text: `Made ${name}`, detail: "Drag notes onto it, or use Move on a note." });
+  return null;
 }
 
 // ------------------------------------------------------------------ chrome: top bar, status, panel
