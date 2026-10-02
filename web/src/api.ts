@@ -4,7 +4,7 @@ import { did } from "./events.ts";
 import type { NoteRole } from "../../src/core/noteRoles.ts";
 import type { Contact, ContactFields, TimelineItem } from "../../src/core/contacts.ts";
 import { encodeTarget, safeDecode } from "../../src/core/uri.ts";
-import type { Decision } from "../../src/core/decisions.ts";
+import type { Decision, DecisionValue } from "../../src/core/decisions.ts";
 import type { FillOptions, TemplateInfo } from "../../src/core/templates.ts";
 import type { CalendarEvent, EventDraft, Source as CalendarSource, SourceColor } from "../../src/core/calendar.ts";
 import type { QuerySort } from "../../src/core/query.ts";
@@ -415,8 +415,8 @@ export const api = {
   dailyNote: (day: string) => j<{ path: string; created: boolean }>(`${BASE}/today/journal`, send("POST", { today: day })),
   /** Decisions agents asked for that wait on the person (src/core/decisions.ts), in the order asked. */
   decisions: () => j<Decision[]>(`${BASE}/decisions`),
-  /** Answer one: an option (0-based) or your own words, or dismiss it. It's written into today's daily note. */
-  answerDecision: (id: string, a: { choice?: number; text?: string; comment?: string; dismiss?: boolean }) =>
+  /** Answer one in its shape (an option, several, a choice per row, an order, a number, words), or dismiss it. It's written into today's daily note. */
+  answerDecision: (id: string, a: { value?: DecisionValue; comment?: string; dismiss?: boolean }) =>
     j<Decision>(`${BASE}/decisions/answer`, send("POST", { id, ...a, today: today() })),
   /** Add a task written in words (see src/core/quickAdd.ts); `ignore` holds phrases kept as words. */
   addTask: (text: string, ignore: string[] = [], to?: string) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/add`, send("POST", { text, ignore, to, today: today() })),

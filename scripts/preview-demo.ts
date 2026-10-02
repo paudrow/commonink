@@ -262,19 +262,30 @@ async function calendars() {
 }
 
 /**
- * A few questions waiting on the Today page, as an agent would ask them with ask_decision, if this
- * branch has decisions and none were asked yet.
+ * A question of each kind waiting on the Today page, as an agent would ask them with ask_decision,
+ * if this branch has decisions and none were asked yet.
  */
 async function decisions() {
   const r = await call("GET", `${api}/decisions?status=all`);
   if (r.status === 404 || (r.data as unknown[]).length) return;
-  await must("POST", `${api}/decisions`, {
-    question: "Which database should the sync service use?",
-    options: ["Postgres", "SQLite", "Keep the files, no database"],
-    recommended: 1,
-    context: "Sync only needs a change log per workspace.\n\n- **Postgres**: we already run it for billing, but it's one more thing to reach from the edge.\n- **SQLite**: one file per workspace, next to its notes.\n\nNotes on it in [[Common Ink roadmap]].",
-    note: "Projects/Common Ink roadmap.md",
-  });
-  await must("POST", `${api}/decisions`, { question: "Ship the beta on Friday or Monday?", options: ["Friday", "Monday"], recommended: 1, context: "QA has two open bugs; both have fixes in review." });
-  await must("POST", `${api}/decisions`, { question: "What should the CLI be called on npm?", context: "`commonink` is taken by an empty package; `ink` is a React library." });
+  const svg = (fill: string, label: string) =>
+    `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120"><rect width="160" height="120" fill="${fill}"/><text x="80" y="70" font-family="sans-serif" font-size="28" fill="white" text-anchor="middle">${label}</text></svg>`)}`;
+  const asks = [
+    {
+      question: "Which database should the sync service use?",
+      options: ["Postgres", "SQLite", "Keep the files, no database"],
+      details: { Postgres: "We already run it for billing", SQLite: "One file per workspace, next to its notes" },
+      recommended: ["SQLite"],
+      context: "Sync only needs a change log per workspace. Notes on it in [[Common Ink roadmap]].",
+      note: "Projects/Common Ink roadmap.md",
+    },
+    { question: "Which conference talks should I go to?", kind: "rows", rows: ["Keynote, 9:00", "Rust at scale, 10:30", "Lunch panel, 12:00", "Local-first sync, 14:00"], options: ["Go", "Maybe", "Skip"], recommended: ["Keynote, 9:00=Go", "Local-first sync, 14:00=Go"] },
+    { question: "Which cover for the launch post?", kind: "compare", options: ["Ink blue", "Warm paper"], images: { "Ink blue": svg("#4545b8", "Blue"), "Warm paper": svg("#b8875a", "Paper") }, details: { "Ink blue": "Matches the app icon", "Warm paper": "Softer, reads as notes" } },
+    { question: "Ship the beta on Friday?", kind: "yes_no", recommended: ["No"], context: "QA has two open bugs; both have fixes in review." },
+    { question: "What should go in the 1.0 release notes?", kind: "many", options: ["Today page", "Decisions", "Smart folders", "Vim mode", "Sharing"], max: 3 },
+    { question: "Put next week's work in order", kind: "rank", options: ["Fix sync conflicts", "Write the docs", "Record a demo"] },
+    { question: "How ready does the beta feel?", kind: "scale", labels: ["Not at all", "Ship it"], recommended: ["4"] },
+    { question: "What should the CLI be called on npm?", context: "`commonink` is taken by an empty package; `ink` is a React library." },
+  ];
+  for (const a of asks) await must("POST", `${api}/decisions`, a);
 }

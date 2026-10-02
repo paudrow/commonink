@@ -451,12 +451,34 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     case "GET /decisions":
       return json(vault.decisions({ status: (q("status") || undefined) as never, ids: q("ids") ? q("ids").split(",") : undefined }));
     case "POST /decisions": {
-      const rec = (raw as { recommended?: unknown }).recommended;
-      return json(vault.askDecision({ question: str("question"), options: (raw as { options?: unknown }).options === undefined ? [] : paths("options"), context: optStr("context"), note: optStr("note"), recommended: rec == null ? undefined : int("recommended") }, actor));
+      // The question as data: AskInput (decisions.ts), with `note`.
+      const b = raw as Record<string, unknown>;
+      const obj = (k: string) => (b[k] == null ? undefined : typeof b[k] === "object" && !Array.isArray(b[k]) ? (b[k] as Record<string, string>) : (() => { throw new VaultError(`"${k}" must be an object`); })());
+      const optNum = (k: string) => (b[k] == null ? undefined : int(k));
+      const rec = b.recommended;
+      return json(
+        vault.askDecision(
+          {
+            question: str("question"),
+            kind: optStr("kind") as never,
+            options: b.options == null ? undefined : (Array.isArray(b.options) ? (b.options as never) : paths("options")),
+            details: obj("details"),
+            images: obj("images"),
+            rows: b.rows == null ? undefined : paths("rows"),
+            media: b.media == null ? undefined : paths("media"),
+            labels: b.labels == null ? undefined : paths("labels"),
+            min: optNum("min"),
+            max: optNum("max"),
+            recommended: rec == null ? undefined : typeof rec === "string" ? [rec] : (rec as never),
+            context: optStr("context"),
+            note: optStr("note"),
+          },
+          actor,
+        ),
+      );
     }
     case "POST /decisions/answer": {
-      const choice = (raw as { choice?: unknown }).choice;
-      const r = vault.answerDecision(str("id"), { choice: choice == null ? undefined : int("choice"), text: optStr("text"), comment: optStr("comment"), dismiss: flag("dismiss") }, actor, optStr("today"));
+      const r = vault.answerDecision(str("id"), { value: (raw as { value?: unknown }).value ?? undefined, comment: optStr("comment"), dismiss: flag("dismiss") }, actor, optStr("today"));
       host.written(r.path, vault.files.read(r.path), r.version, r.change);
       if (r.change?.op === "create") host.tree();
       return json(r.decision);

@@ -22,7 +22,7 @@ import {
 } from "./contacts.ts";
 import { cleanTitle, DAILY_TEMPLATE, fillTemplate, localNow, TEMPLATES, templateInfo, type FillOptions, type TemplateInfo } from "./templates.ts";
 import { frontmatterEntries } from "./frontmatter.ts";
-import { COMMENT_MAX, CONTEXT_MAX, DECISION_STATUSES, DECISIONS, journalLines, OPEN_MAX, OPTION_MAX, OPTIONS_MAX, QUESTION_MAX, type Decision, type DecisionStatus } from "./decisions.ts";
+import { answerText, askSpec, checkValue, COMMENT_MAX, DECISION_STATUSES, DECISIONS, journalLines, OPEN_MAX, type AskInput, type AskSpec, type Decision, type DecisionKind, type DecisionOption, type DecisionStatus, type DecisionValue } from "./decisions.ts";
 
 export interface NoteMeta {
   /** Stable across renames, moves and archiving; see ids.ts. */
@@ -2237,31 +2237,26 @@ export class Vault {
 
   /**
    * Put a question to the person (decisions.ts): it waits on their Today page until they answer.
-   * `recommended` is an option's index (0-based); `note` a note it's about.
+   * `note` is a note it's about.
    */
-  askDecision(q: { question: string; options?: string[]; context?: string; recommended?: number; note?: string }, source: string): Decision {
-    const question = q.question.trim();
-    if (!question) throw new VaultError("Say what the question is");
-    if (question.length > QUESTION_MAX) throw new VaultError(`Keep the question to ${QUESTION_MAX} characters; put the rest in context`);
-    const options = (q.options ?? []).map((o) => o.replace(/\s+/g, " ").trim()).filter(Boolean);
-    if (options.length > OPTIONS_MAX) throw new VaultError(`Offer at most ${OPTIONS_MAX} options`);
-    if (options.some((o) => o.length > OPTION_MAX)) throw new VaultError(`Keep each option to ${OPTION_MAX} characters; put the reasoning in context`);
-    if (new Set(options.map((o) => o.toLowerCase())).size < options.length) throw new VaultError("Two options say the same thing");
-    if (options.length === 1) throw new VaultError("Offer two or more options, or none for an answer in the person's own words");
-    if (q.recommended !== undefined && !(Number.isInteger(q.recommended) && q.recommended >= 0 && q.recommended < options.length)) {
-      throw new VaultError(options.length ? `recommended must be an option's number, from 1 to ${options.length}` : "There are no options to recommend");
+  askDecision(q: AskInput & { note?: string }, source: string): Decision {
+    let spec: AskSpec;
+    try {
+      spec = askSpec(q);
+    } catch (e) {
+      throw new VaultError((e as Error).message);
     }
-    const context = q.context?.trim() || null;
-    if (context && context.length > CONTEXT_MAX) throw new VaultError(`Keep the context to ${CONTEXT_MAX} characters, or link a note`);
     const rel = q.note ? this.mustResolve(q.note) : null;
     if ((this.db.get("SELECT count(*) AS n FROM decisions WHERE status = 'open'")?.n ?? 0) >= OPEN_MAX) {
       throw new VaultError(`${OPEN_MAX} decisions are already waiting: wait for answers before asking more`);
     }
     const who = actorOf(source);
     const id = newNoteId();
+    const shape = { rows: spec.rows, media: spec.media, min: spec.min, max: spec.max, labels: spec.labels };
     this.db.run(
-      "INSERT INTO decisions(id, question, context, options, recommended, note_id, note, status, asked_at, asked_by, person, agent) VALUES (?,?,?,?,?,?,?,'open',?,?,?,?)",
-      id, question, context, JSON.stringify(options), q.recommended ?? null, rel ? this.meta(rel)!.id : null, rel, this.now(), who.source, who.person, who.agent,
+      "INSERT INTO decisions(id, kind, question, context, options, spec, recommended, note_id, note, status, asked_at, asked_by, person, agent) VALUES (?,?,?,?,?,?,?,?,?,'open',?,?,?,?)",
+      id, spec.kind, spec.question, spec.context, JSON.stringify(spec.options), JSON.stringify(shape), spec.recommended ? JSON.stringify(spec.recommended) : null,
+      rel ? this.meta(rel)!.id : null, rel, this.now(), who.source, who.person, who.agent,
     );
     return this.decision(id);
   }
@@ -2289,19 +2284,27 @@ export class Vault {
 
   private toDecision(r: Record<string, unknown>): Decision {
     const noteId = r.note_id as string | null;
+    const shape = JSON.parse((r.spec as string | null) ?? "{}") as Partial<Pick<Decision, "rows" | "media" | "min" | "max" | "labels">>;
+    const json = <T>(v: unknown): T | null => (typeof v === "string" ? (JSON.parse(v) as T) : null);
     return {
       id: r.id as string,
+      kind: r.kind as DecisionKind,
       question: r.question as string,
       context: (r.context as string | null) ?? null,
-      options: JSON.parse(r.options as string) as string[],
-      recommended: (r.recommended as number | null) ?? null,
+      options: JSON.parse(r.options as string) as DecisionOption[],
+      rows: shape.rows ?? [],
+      media: shape.media ?? [],
+      min: shape.min ?? null,
+      max: shape.max ?? null,
+      labels: shape.labels ?? null,
+      recommended: json<DecisionValue>(r.recommended),
       note: noteId ? (this.pathOf(noteId) ?? (r.note as string | null)) : null,
       status: r.status as DecisionStatus,
       asked_at: r.asked_at as number,
       asked_by: r.asked_by as string,
       agent: (r.agent as string | null) ?? null,
       answer: (r.answer as string | null) ?? null,
-      choice: (r.choice as number | null) ?? null,
+      value: json<DecisionValue>(r.value),
       comment: (r.comment as string | null) ?? null,
       answered_at: (r.answered_at as number | null) ?? null,
       answered_by: (r.answered_by as string | null) ?? null,
@@ -2310,40 +2313,39 @@ export class Vault {
   }
 
   /**
-   * Answer an open decision: an option (`choice`, 0-based) or an answer in the person's own words
-   * (`text`), or dismiss it (they won't decide). It's written into the daily note for `today` (made
-   * if needed) under `## Decisions`, so the day's notes say what was decided.
+   * Answer an open decision with `value` in its shape (decisions.ts: an option, several, a choice
+   * for each row, an order, a number, or words), or dismiss it (they won't decide). It's written into
+   * the daily note for `today` (made if needed) under `## Decisions`, so the day's notes say what was
+   * decided.
    */
-  answerDecision(id: string, a: { choice?: number; text?: string; comment?: string; dismiss?: boolean }, source: string, today = this.day()) {
+  answerDecision(id: string, a: { value?: unknown; comment?: string; dismiss?: boolean }, source: string, today = this.day()) {
     if (!isDate(today)) throw new VaultError(`"today" must be a date like 2026-10-01, not "${today}"`);
     const d = this.decision(id);
     if (d.status !== "open") {
       throw new VaultError(d.status === "withdrawn" ? "That decision was withdrawn: no answer is needed" : `That decision was already ${d.status === "dismissed" ? "dismissed" : `answered: ${d.answer}`}`, "conflict");
     }
-    let answer: string | null = null;
-    let choice: number | null = null;
+    let value: DecisionValue | null = null;
     if (!a.dismiss) {
-      if (a.choice !== undefined) {
-        if (!(Number.isInteger(a.choice) && a.choice >= 0 && a.choice < d.options.length)) throw new VaultError(`Pick an option from 1 to ${d.options.length}`);
-        [choice, answer] = [a.choice, d.options[a.choice]];
-      } else {
-        answer = a.text?.trim() || null;
-        if (!answer) throw new VaultError("Pick an option, or say the answer in your own words");
-        if (answer.length > COMMENT_MAX) throw new VaultError(`Keep the answer to ${COMMENT_MAX} characters`);
+      if (a.value === undefined) throw new VaultError("Answer it, or dismiss it");
+      try {
+        value = checkValue(d, a.value);
+      } catch (e) {
+        throw new VaultError((e as Error).message);
       }
     }
     const comment = a.comment?.trim() || null;
     if (comment && comment.length > COMMENT_MAX) throw new VaultError(`Keep the comment to ${COMMENT_MAX} characters`);
     const rel = `Journal/${today}.md`;
     const who = actorOf(source);
-    const settled: Decision = { ...d, status: a.dismiss ? "dismissed" : "answered", answer, choice, comment, answered_at: this.now(), answered_by: who.source, journal: rel };
+    const answer = value ? answerText(d, value) : null;
+    const settled: Decision = { ...d, status: a.dismiss ? "dismissed" : "answered", answer, value, comment, answered_at: this.now(), answered_by: who.source, journal: rel };
     const before = this.files.read(rel);
     const linkTo = (p: string) => `[[${this.linkName(p)}]]`;
     const added = withTasksAdded(before ?? this.dailyTemplate(today), journalLines(settled, linkTo), true, DECISIONS);
     const r = this.commit(rel, before, added.content, source, before === null ? "create" : "edit");
     this.db.run(
-      "UPDATE decisions SET status = ?, answer = ?, choice = ?, comment = ?, answered_at = ?, answered_by = ?, journal = ? WHERE id = ? AND status = 'open'",
-      settled.status, answer, choice, comment, settled.answered_at, settled.answered_by, rel, d.id,
+      "UPDATE decisions SET status = ?, answer = ?, value = ?, comment = ?, answered_at = ?, answered_by = ?, journal = ? WHERE id = ? AND status = 'open'",
+      settled.status, answer, value ? JSON.stringify(value) : null, comment, settled.answered_at, settled.answered_by, rel, d.id,
     );
     return { decision: this.decision(d.id), ...r, line: added.line };
   }

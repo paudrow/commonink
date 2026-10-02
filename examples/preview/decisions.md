@@ -2,8 +2,8 @@
 pr: 230
 title: Decisions on the Today page
 ---
-1. Click **Today**. Under the quick-add bar, **Decisions** shows the first of three questions an agent asked (with `ask_decision`): the question, who asked, what they know, and the choices, with the one they'd pick already picked and marked **Recommended**.
-2. Press `2` (or click **SQLite**), type a reason in **Why?**, and press Enter. A toast says what you decided and the next question comes up. **Today's note** in the toast opens your daily note: the answer is under **## Decisions**, with the reason under it.
-3. Press `S` or → to skip a question and ← to come back. On the last one, type an answer of your own in **Or answer in your own words…** and press Enter. Click **Not deciding** on one to close it without an answer: the note says so.
-4. With nothing left, the card says "All decided." Reload Today and it's gone until an agent asks again.
-5. Agents: `commonink decision ask "Ship on Friday?" --options Yes,No --recommended 1`, then `commonink decisions --status settled` to read the answer.
+1. Click **Today**. Under the quick-add bar, **Decisions** shows eight questions an agent asked with `ask_decision`, one of each kind, "1 of 8". The agent's pick starts picked and says **Recommended**.
+2. Step through them with → and ←: pick one (with a line about each option), a choice for each talk (**Go / Maybe / Skip**; a column's heading sets every row), two covers side by side, yes or no (`Y` / `N`), pick up to three, put work in order (the arrows move a row), a 1 to 5 scale, and one in words.
+3. On any of them, add a **Comment** and press Enter (or **Decide**). A toast says what you decided; **Today's note** in it opens your daily note, where the answer is under **## Decisions** (the talks as one line each).
+4. Press `S` (or **Skip**) to leave one for later. Once only skipped ones are left, the card says so, with **Show them again**. **Not deciding** closes one without an answer, and the note says so. Type in **Or answer in your own words…** to answer differently from the options.
+5. Agents: `commonink decision ask "Which talks?" --kind rows --rows "Keynote,Panel" --options Go,Skip`, then `commonink decisions --status settled` to read the answer.
