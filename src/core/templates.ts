@@ -169,8 +169,12 @@ export function formatDate(d: Date, format: string): string {
   return format.replace(/\[([^\]]*)\]|YYYY|YY|MMMM|MMM|MM|M|DD|D|dddd|ddd|HH|H|hh|h|mm|m|ss|s|A|a/g, (t, literal?: string) => literal ?? tokens[t]);
 }
 
-/** Now on this machine's clock, as FillOptions.at. */
-export const localNow = (ms = Date.now()) => formatDate(new Date(ms), "YYYY-MM-DD[T]HH:mm");
+/** Now as FillOptions.at: the wall clock in `timeZone`, or on this machine's clock when it's unset. */
+export function localNow(ms = Date.now(), timeZone?: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(ms);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)!.value;
+  return `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}`;
+}
 
 /**
  * `text` with its placeholders filled. The template's own frontmatter keys (title, folder,
