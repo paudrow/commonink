@@ -4,7 +4,7 @@ import "./mobile.css";
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, type EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
-import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, unusedTag, useWorkspace, whoAmI, ApiError, type Backlink, type Change, type Favorite, type NoteMeta, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
+import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, unusedTag, useWorkspace, whoAmI, ApiError, type Backlink, type Change, type Favorite, type NoteMeta, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite, type UnlinkedMention } from "./api.ts";
 import { cleanTag, normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
@@ -2489,8 +2489,79 @@ async function refreshBacklinks() {
     ...(toggle ? [toggle] : []),
     ...(archivedBacklinksShown ? fromArchive.map(row) : []),
   );
+  refreshMentionsSoon();
 }
 const refreshBacklinksSoon = debounce(refreshBacklinks, 300);
+
+// Unlinked mentions: other notes that write this note's name without linking it, under Backlinks,
+// folded. Only looked for while the side panel shows, a moment after the note settles.
+let mentionsOpen = false;
+const panelShows = () => !document.body.classList.contains("is-focus") && (narrow.matches ? document.body.classList.contains("panel-overlay") : prefs.panel);
+async function refreshMentions() {
+  const box = $("#unlinked");
+  const s = active.session;
+  if (!s || s.kind !== "md") return void ((box.hidden = true), box.replaceChildren());
+  if (!panelShows()) return; // looked for again when the panel opens
+  const found = await api.mentions(s.path).catch(() => []);
+  if (s !== active.session) return;
+  box.hidden = !found.length;
+  if (!found.length) return void box.replaceChildren();
+  const esc = (t: string) => t.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]!);
+  const row = (m: UnlinkedMention) => {
+    const at = m.context.indexOf(m.text);
+    const text = at < 0 ? esc(m.context) : `${esc(m.context.slice(0, at))}<b>${esc(m.text)}</b>${esc(m.context.slice(at + m.text.length))}`;
+    return el(
+      "div",
+      { class: "backlink is-mention", onclick: (e: MouseEvent) => openNote(m.path, { line: m.line, pane: sideClick(e) ? sideOf(active) : active }) },
+      el(
+        "div",
+        { class: "bl-title" },
+        icon("file", 12),
+        el("span", { class: "bl-name" }, m.title),
+        viewer
+          ? null
+          : el(
+              "button",
+              { type: "button", class: "bl-link", title: `Make “${m.text}” a link to ${s.title}`, onclick: (e: MouseEvent) => (e.stopPropagation(), void linkMention(s.path, m)) },
+              "Link",
+            ),
+      ),
+      el("div", { class: "bl-text", html: text }),
+    );
+  };
+  const details = el(
+    "details",
+    { class: "bl-unlinked", ontoggle: (e: Event) => (mentionsOpen = (e.currentTarget as HTMLDetailsElement).open) },
+    el("summary", {}, "Unlinked mentions ", el("span", { class: "count" }, String(found.length))),
+    ...found.map(row),
+  );
+  details.open = mentionsOpen;
+  box.replaceChildren(details);
+}
+const refreshMentionsSoon = debounce(refreshMentions, 600);
+
+/** The Link button: that one mention becomes [[this note]], one change in that note, with Undo. */
+async function linkMention(target: string, m: UnlinkedMention) {
+  let r: Awaited<ReturnType<typeof api.linkMention>>;
+  try {
+    r = await api.linkMention(target, m);
+  } catch (e) {
+    toast({ text: e instanceof Error ? e.message : "Couldn't link it" });
+    return void refreshMentions();
+  }
+  void refreshBacklinks();
+  if (r.change === null) return;
+  const change = r.change;
+  toast({
+    icon: "link",
+    text: `Linked “${m.text}” in ${m.title}`,
+    actionLabel: "Undo",
+    action: async () => {
+      await api.restore(change, r.version).catch((e) => toast({ text: e instanceof Error ? e.message : "Couldn't undo it" }));
+      void refreshBacklinks();
+    },
+  });
+}
 const highlightLink = (t: string) =>
   t.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]!).replace(/!?\[\[([^\]]+)\]\]/g, (_m, x) => `<b>${x.split("|").pop()}</b>`);
 
@@ -2744,10 +2815,11 @@ const narrow = matchMedia("(max-width: 1100px)");
 function togglePanel(force?: boolean) {
   if (narrow.matches && force === undefined) {
     document.body.classList.toggle("panel-overlay"); // narrow windows: the panel floats over the editor
-    return;
+    return refreshMentionsSoon();
   }
   prefs.panel = force ?? !prefs.panel;
   store.set("panel", prefs.panel);
+  refreshMentionsSoon(); // looked for only while the panel shows
   document.body.classList.toggle("panel-closed", !prefs.panel);
 }
 

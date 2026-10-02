@@ -256,6 +256,14 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json(vault.backlinks(q("path"), qScope()));
     case "GET /links/missing":
       return json(vault.missingLinks({ folder: q("folder") || undefined, scope: qScope() }));
+    case "GET /mentions":
+      return json(vault.unlinkedMentions(q("path")));
+    case "POST /mentions/link": {
+      // One unlinked mention made a link: one change, which Undo restores while the note is still at `version`.
+      const r = vault.linkMention(str("target"), { path: str("path"), line: int("line"), from: int("from"), to: int("to"), text: str("text") }, actor);
+      host.written(r.path, r.content, r.version, r.change);
+      return json({ path: r.path, version: r.version, change: r.change?.id ?? null });
+    }
     case "GET /changes":
       return json(vault.changes({ limit: qCount("limit", 50, 500), before: qCount("before", 0, Infinity) || undefined, path: q("path") || undefined, by: parseAuthorFilter(q("by")) }));
     case "GET /changes/agents":
