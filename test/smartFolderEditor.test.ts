@@ -1,5 +1,5 @@
 // The smart folder dialog: words, folders and tags as rows (all or any), folders picked from a list, and
-// the query text under Advanced kept in step with the controls.
+// the query text, always shown, kept in step with the controls.
 import "./dom.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -26,7 +26,7 @@ const $ = <T extends Element = HTMLElement>(sel: string) => document.querySelect
 const byText = (sel: string, text: string) => [...document.querySelectorAll<HTMLElement>(sel)].find((b) => b.textContent?.includes(text))!;
 const pickItem = (text: string) => byText(".folder-picker .fp-item", text).click();
 
-test("tags are rows joined by and/or, the folder is picked, and Advanced shows the query", async () => {
+test("tags are rows joined by and/or, the folder is picked, and the query shows as text", async () => {
   let saved: { name: string; query: string } | null = null;
   const anchor = document.body.appendChild(document.createElement("button"));
   smartFolderEditor(anchor, { name: "", query: "", shared: true }, { canShare: true, sources, save: async (f) => void (saved = f) });
@@ -52,6 +52,7 @@ test("tags are rows joined by and/or, the folder is picked, and Advanced shows t
   assert.deepEqual([...document.querySelectorAll(".sf-crumb")].map((c) => c.textContent), ["Areas", "Health and Fitness"]);
 
   const query = $<HTMLInputElement>(".sf-query");
+  assert.equal(query.closest("details"), null, "the query is always in view, not folded away");
   assert.equal(query.value, 'folder="Areas/Health and Fitness" tag="health,journal" match=any');
   await settle();
   assert.match(feeds.at(-1)!, /tag=health,journal&match=any/);

@@ -10,8 +10,8 @@ import { sideClick } from "../panes.ts";
 const prevent = (e: Event) => e.preventDefault();
 
 /**
- * The note query's fields, as the settings form shows them. The ::query widget and the smart
- * folder editor both use this list, so a query term added here shows up in both.
+ * The note query's fields, as the ::query widget's settings form shows them. (The smart folder
+ * editor has rows of its own, over the same query text.)
  */
 export const QUERY_FIELDS: Field[] = [
   { key: "q", label: "Matching", type: "text", placeholder: 'Words, "a phrase", -leave out, modified>-7d' },
@@ -23,7 +23,7 @@ export const QUERY_FIELDS: Field[] = [
 
 export const query: WidgetSpec = {
   name: "query",
-  title: "Notes",
+  title: "Query",
   icon: "feed",
   hint: "Live list of notes by search, folder or tag",
   keywords: "query list notes dashboard recent folder tag search",

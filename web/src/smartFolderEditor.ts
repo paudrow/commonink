@@ -2,9 +2,10 @@
 // simple part is a few plain controls, each a list of rows with "+ Add": words to find, folders
 // (picked, not typed), tags, and a sort. Words and tags say "Match all" or "Match any" once there
 // are two; a note is in one folder, so folders are always any of them. Below, a live count and the
-// first few notes that match, so what a choice does shows as you make it. Advanced has the query
-// as text, the same one an agent or a ::query widget writes, with its whole grammar (`-word`,
-// `modified>-7d`, ...); editing either side updates the other. What's saved is the query as text;
+// first few notes that match, so what a choice does shows as you make it. Under the rows, always in
+// view, is the query as text: the same one an agent or a ::query widget writes, with its whole
+// grammar (`-word`, `modified>-7d`, ...). It's built as the rows change, and typing in it fills them.
+// "Syntax" under it says what a query can say. What's saved is the query as text;
 // the server checks it.
 import { api } from "./api.ts";
 import { el, icon } from "./dom.ts";
@@ -202,10 +203,10 @@ export function smartFolderEditor(
   const renderWords = () => {
     const rows = state.words;
     if (!rows) {
-      // More than rows can say: the words as text, the way Advanced has them.
+      // More than rows can say: the words as text, as the query has them.
       const input = el("input", { type: "text", class: "sf-word", value: state.q, spellcheck: "false", "aria-label": "Words" });
       input.addEventListener("input", () => ((state.q = input.value), changed()));
-      return wordBox.replaceChildren(input, el("p", { class: "sf-hint" }, "These words use the query syntax; see Advanced."));
+      return wordBox.replaceChildren(input, el("p", { class: "sf-hint" }, "These words use the query syntax (see Syntax below)."));
     }
     const filled = rows.filter((w) => w.trim()).length;
     wordBox.replaceChildren(
@@ -315,7 +316,7 @@ export function smartFolderEditor(
   sort.value = state.sort;
   sort.addEventListener("change", () => ((state.sort = sort.value as QuerySort), changed()));
 
-  // Advanced: the query as text. Typing a query that reads fills the controls above from it.
+  // The query as text. Typing a query that reads fills the controls above from it.
   const text = el("input", { type: "text", class: "sf-query", value: queryText(state), spellcheck: "false", "aria-label": "Query", placeholder: "planning -draft tag=work modified>-30d sort=date" });
   text.addEventListener("input", () => {
     if (queryProblem(text.value)) return recount();
@@ -326,16 +327,15 @@ export function smartFolderEditor(
     renderTags();
     recount();
   });
-  const advanced = el(
-    "details",
-    { class: "sf-advanced" },
-    el("summary", {}, "Advanced"),
+  const queryBox = el(
+    "div",
+    { class: "sf-adv-body" },
+    text,
     el(
-      "div",
-      { class: "sf-adv-body" },
-      text,
-      el("p", { class: "sf-hint" }, "The same query an agent or a ::query widget uses. Edit it here or with the controls above."),
-      syntax(),
+      "details",
+      { class: "sf-advanced" },
+      el("summary", {}, "Syntax"),
+      el("div", { class: "sf-adv-body" }, el("p", { class: "sf-hint" }, "The same query as ::query{…} in a note, or an agent's. Type it here, or use the rows above."), syntax()),
     ),
   );
 
@@ -343,7 +343,7 @@ export function smartFolderEditor(
   const preview = el("ul", { class: "sf-preview" });
   let timer = 0;
   let seq = 0;
-  const current = () => (advanced.open && queryProblem(text.value) ? text.value : queryText(state));
+  const current = () => (queryProblem(text.value) ? text.value : queryText(state));
   function recount() {
     clearTimeout(timer);
     timer = window.setTimeout(async () => {
@@ -390,9 +390,8 @@ export function smartFolderEditor(
       el("button", { type: "button", class: "icon-btn small", title: "Close", "aria-label": "Close", onclick: () => close() }, icon("close", 15)),
     ),
     name,
-    el("div", { class: "sf-section" }, row("Words", wordBox), row("Folders", folderBox), row("Tags", tagBox), row("Sort", sort)),
+    el("div", { class: "sf-section" }, row("Words", wordBox), row("Folders", folderBox), row("Tags", tagBox), row("Sort", sort), row("Query", queryBox)),
     el("div", { class: "sf-result" }, count, preview),
-    advanced,
     opts.alone
       ? null
       : el(
