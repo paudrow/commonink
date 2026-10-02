@@ -447,6 +447,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
         readOnly: viewer,
         context: {
           path: note.path,
+          id: note.id,
           // Followed from one pane of a split, a link or card opens in the other; Cmd/Ctrl-click opens it to the side.
           openTarget: (target, from, o) => void openTarget(target, from, split || o?.side ? other(pane) : pane),
           createNote,
