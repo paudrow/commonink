@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addDays, dueFilter, editTask, editTaskLines, parseTask, patchProblem, skipPatch, todaySection, withTasksAdded } from "../src/core/tasks.ts";
+import { addDays, dateFilter, dayFrom, dueFilter, editTask, editTaskLines, parseTask, patchProblem, priorityFilter, skipPatch, todaySection, withTasksAdded } from "../src/core/tasks.ts";
 import { recLabel } from "../src/core/recurrence.ts";
 import { openTempVault } from "./helpers.ts";
 
@@ -292,6 +292,27 @@ test("a due filter compares dates, with today, tomorrow and yesterday relative t
   assert.deepEqual(["2026-09-29", "2026-09-30"].map((d) => due(">yesterday", d)), [false, false]);
   assert.equal(due(">=2026-09-01", "2026-09-01"), true);
   assert.deepEqual(["soon", "<=2026-02-31x", "2026-13-01"].map((e) => dueFilter(e, "2026-10-01")), [null, null, null]);
+});
+
+test("a date filter takes spans from today and ranges of two comparisons", () => {
+  const passes = (expr: string, d: string | null) => dateFilter(expr, "2026-10-01")!(d);
+  // The coming week, today included.
+  assert.deepEqual(["2026-09-30", "2026-10-01", "2026-10-08", "2026-10-09", null].map((d) => passes(">=today <=+7d", d)), [false, true, true, false, false]);
+  assert.deepEqual(["2026-09-24", "2026-09-23"].map((d) => passes(">=-7d", d)), [true, false]);
+  assert.equal(passes(">= today, <= +1w", "2026-10-08"), true);
+  assert.equal(passes("-2w", "2026-09-17"), true);
+  assert.equal(passes("+1y", "2027-10-01"), true);
+  assert.deepEqual([dayFrom("+1m", "2026-01-31"), dayFrom("-1m", "2026-03-31"), dayFrom("+13m", "2026-12-15"), dayFrom("+1M", "2026-10-01")], ["2026-02-28", "2026-02-28", "2028-01-15", "2026-11-01"]);
+  assert.deepEqual(["+7", "7d", "+7x", ">=today <=soon", ""].map((e) => dateFilter(e, "2026-10-01")), [null, null, null, null, null]);
+});
+
+test("a priority filter takes high, low or none, several with commas, and the token's own spelling", () => {
+  const passes = (expr: string) => (["high", "low", null] as const).map((p) => priorityFilter(expr)!(p));
+  assert.deepEqual(passes("high"), [true, false, false]);
+  assert.deepEqual(passes("!high"), [true, false, false]);
+  assert.deepEqual(passes("high,none"), [true, false, true]);
+  assert.deepEqual(passes("NONE"), [false, false, true]);
+  assert.deepEqual(["urgent", "", "high,soon"].map(priorityFilter), [null, null, null]);
 });
 
 test("a task that moved is found among the note's tasks, never in a code block's example of one", () => {
