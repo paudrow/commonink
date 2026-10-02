@@ -1,7 +1,7 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import { Calendar, dayRange, fetchFeed, fmtEvents, SYNC_EVERY, type FeedFetcher } from "../src/core/calendar.ts";
+import { Calendar, dayRange, fetchFeed, fmtEvents, SYNC_EVERY, type FeedFetcher, type NoteWrite } from "../src/core/calendar.ts";
 import { openTempVault } from "./helpers.ts";
 
 const ics = (...events: string[]) => ["BEGIN:VCALENDAR", "VERSION:2.0", "X-WR-CALNAME:Team", ...events, "END:VCALENDAR", ""].join("\r\n");
@@ -59,7 +59,7 @@ const OCT = { from: Date.parse("2026-10-01T00:00:00Z"), to: Date.parse("2026-11-
 function setup(files?: Record<string, string>) {
   let now = Date.parse("2026-10-01T12:00:00Z");
   const { vault } = openTempVault(files ?? {}, { now: () => now });
-  const cal = new Calendar(vault.db, feeds, { now: () => now });
+  const cal = new Calendar(vault.db, feeds, { now: () => now, vault });
   return { vault, cal, tick: (ms: number) => (now += ms) };
 }
 
@@ -342,4 +342,113 @@ test("the workspace's own calendar: made with its first event, which editors mov
   assert.equal((await cal.createEvent("local", draft, ME, "you", "nonote22")).note, null);
   await assert.rejects(cal.createEvent("local", { ...draft, title: "  " }, ME, "you"), /Give the event a title/);
   await assert.rejects(cal.createEvent("local", { ...draft, start: "2026-10-06T15:00:00" }, ME, "you"), /must be a time with its zone/);
+});
+
+test("the workspace's own events are notes in Events/: made, moved, renamed and deleted through the vault", async () => {
+  const { cal, vault } = setup();
+  const draft = { title: "Launch review", start: "2026-10-06T15:00:00Z", end: "2026-10-06T16:00:00Z", allDay: false, timeZone: "America/Chicago", location: "Room 1: north", description: "Bring the numbers.", attendees: [{ name: "Ana", email: "ana@example.com", status: null }, { name: null, email: "sam@example.com", status: null }] };
+  const writes: NoteWrite[] = [];
+  const made = await cal.createEvent("local", draft, ME, "you", undefined, writes);
+  const rel = "Events/2026-10-06 Launch review.md";
+  assert.deepEqual(writes.map((w) => [w.op, w.path]), [["written", rel]]);
+  assert.equal(
+    vault.read(rel).content,
+    ["---", "start: 2026-10-06T10:00-05:00", "end: 2026-10-06T11:00-05:00", 'where: "Room 1: north"', "attendees:", "  - Ana <ana@example.com>", "  - sam@example.com", "---", "# Launch review", "", "Bring the numbers.", ""].join("\n"),
+  );
+  assert.deepEqual(made.file, { id: vault.read(rel).id, path: rel });
+  assert.deepEqual([made.title, made.start, made.end, made.location, made.description], ["Launch review", "2026-10-06T15:00:00Z", "2026-10-06T16:00:00Z", "Room 1: north", "Bring the numbers."]);
+  assert.equal(vault.changes({ path: rel })[0].source, "you");
+
+  // Words added under the title stay when the event moves; the note keeps the offset it's written in.
+  vault.append(rel, "## Notes\n\n- agreed on Friday", "you");
+  const moved = await cal.updateEvent(made.id, { start: "2026-10-06T17:00:00Z", end: "2026-10-06T18:30:00Z" }, ME, "you");
+  assert.equal(moved.id, made.id);
+  assert.match(vault.read(rel).content, /^---\nstart: 2026-10-06T12:00-05:00\nend: 2026-10-06T13:30-05:00\n[\s\S]*Bring the numbers\.\n\n## Notes\n\n- agreed on Friday\n$/);
+
+  // A new title or day renames a note named after them, links to it and all; its ID, and so the event's, stay.
+  vault.create("Plan.md", "See [[2026-10-06 Launch review]].\n", "you");
+  const renamed: NoteWrite[] = [];
+  const again = await cal.updateEvent(made.id, { title: "Launch go/no-go", start: "2026-10-07T15:00:00Z", end: "2026-10-07T16:00:00Z", timeZone: "America/Chicago" }, ME, "you", renamed);
+  const next = "Events/2026-10-07 Launch go no-go.md";
+  assert.deepEqual([again.id, again.title, again.file?.path], [made.id, "Launch go/no-go", next]);
+  assert.deepEqual(renamed.map((w) => w.op), ["written", "moved"]);
+  assert.match(vault.read(next).content, /# Launch go\/no-go\n\nBring the numbers\./);
+  assert.equal(vault.read("Plan.md").content, "See [[2026-10-07 Launch go no-go]].\n");
+  // One someone named themselves keeps its name.
+  vault.move(next, "Events/Go-no-go.md", "you");
+  assert.equal((await cal.updateEvent(made.id, { title: "Go/no-go" }, ME, "you")).file?.path, "Events/Go-no-go.md");
+
+  const gone: NoteWrite[] = [];
+  await cal.deleteEvent(made.id, ME, "you", gone);
+  assert.deepEqual(gone.map((w) => [w.op, w.path]), [["removed", "Events/Go-no-go.md"]]);
+  assert.equal(cal.event(made.id, ME), null);
+  assert.equal(vault.trash().length, 1); // in Trash, where it can come back
+});
+
+test("a note written in Events/ is an event: agents make them with the note tools, in any of the ways people write times", async () => {
+  const { cal, vault } = setup();
+  assert.deepEqual(cal.sources(ME), []);
+  vault.create("Events/2026-10-05 Dentist.md", '---\nstart: 2026-10-05 14:00\nend: 15:30\nlocation: Main St\nattendees: ["[[People/Jane Doe]]", Bo <BO@x.org>]\n---\n', "Claude\u001fyou");
+  vault.create("Events/Offsite.md", "---\nall_day: true\nstart: 2026-10-12\nend: 2026-10-13\n---\n# Team offsite\n", "you");
+  vault.create("Events/Quick call.md", "---\nstart: 2026-10-08T09:00Z\n---\nAbout the launch.\n", "you");
+  vault.create("Events/README.md", "What goes here: one note per event.\n", "you");
+  const [own] = cal.sources(ME);
+  assert.deepEqual([own.kind, own.name, own.events], ["local", "Common Ink", 3]);
+  assert.throws(() => cal.remove(own.id, ME), /events are notes in Events\/: delete those/);
+  const evs = cal.events(ME, OCT);
+  assert.deepEqual(evs.map((e) => [e.title, e.start, e.end, e.allDay]), [
+    ["Dentist", "2026-10-05T14:00:00", "2026-10-05T15:30:00", false], // no zone: that time wherever the reader is
+    ["Quick call", "2026-10-08T09:00:00Z", "2026-10-08T10:00:00Z", false], // an hour, with no end
+    ["Team offsite", "2026-10-12", "2026-10-14", true], // the end day is the last day
+  ]);
+  assert.deepEqual([evs[0].location, evs[0].attendees.map((a) => [a.name, a.email])], ["Main St", [["Jane Doe", null], ["Bo", "bo@x.org"]]]);
+  assert.equal(evs[1].description, "About the launch.");
+
+  // Changing the note changes the event, keeping its ID; a note that stops being an event takes it away.
+  const dentist = evs[0].id;
+  vault.edit("Events/2026-10-05 Dentist.md", { oldString: "14:00", newString: "13:00" }, "you");
+  assert.equal(cal.event(dentist, ME)?.start, "2026-10-05T13:00:00");
+  vault.move("Events/2026-10-05 Dentist.md", "Events/Health/Dentist.md", "you");
+  assert.equal(cal.event(dentist, ME)?.file?.path, "Events/Health/Dentist.md");
+  vault.edit("Events/Health/Dentist.md", { oldString: "start:", newString: "started:" }, "you");
+  assert.equal(cal.event(dentist, ME), null);
+  vault.delete(["Events/Offsite.md"], "you");
+  assert.deepEqual(cal.events(ME, OCT).map((e) => e.title), ["Quick call"]);
+});
+
+test("events kept in the database before they were notes are written out as notes once, keeping their IDs and meeting notes", async () => {
+  const { vault } = setup();
+  const now = () => Date.parse("2026-10-01T12:00:00Z");
+  // The workspace's calendar as it was kept before: a source, and its events as rows.
+  new Calendar(vault.db, feeds, { now });
+  vault.db.run("INSERT INTO sources(id, kind, owner, name, color, config, status, next_sync, created_by, created_at) VALUES ('loc','local',NULL,'Common Ink','blue','{}','ok',0,'you',0)");
+  const ms = (t: string) => Date.parse(t.length === 10 ? `${t}T00:00:00Z` : t);
+  const row = (id: string, title: string, start: string, end: string, d: object) =>
+    vault.db.run(
+      "INSERT INTO external_items(id, source, kind, title, start, end, start_ms, end_ms, abs, data, hash) VALUES (?,?,?,?,?,?,?,?,?,?,'')",
+      id, "loc", "event", title, start, end, ms(start), ms(end), start.length === 10 ? 0 : 1,
+      JSON.stringify({ allDay: start.length === 10, timeZone: "America/Los_Angeles", location: null, description: null, url: null, organizer: null, attendees: [], status: "confirmed", recurring: false, uid: id, instance: null, ...d }),
+    );
+  row("aaaaaaaaaaaa", "Standup", "2026-10-05T16:30:00Z", "2026-10-05T16:45:00Z", { location: "Zoom", description: "Daily." });
+  row("bbbbbbbbbbbb", "Offsite", "2026-10-12", "2026-10-14", {});
+  const meeting = vault.create("Meetings/2026-10-05 Standup.md", "[Standup](/calendar/aaaaaaaaaaaa)\n", "you");
+  vault.db.run("UPDATE external_items SET note_id = ? WHERE id = 'aaaaaaaaaaaa'", meeting.id);
+
+  const cal = new Calendar(vault.db, feeds, { now, vault });
+  assert.equal(vault.read("Events/2026-10-05 Standup.md").content, "---\nstart: 2026-10-05T09:30-07:00\nend: 2026-10-05T09:45-07:00\nwhere: Zoom\n---\n# Standup\n\nDaily.\n");
+  assert.equal(vault.read("Events/2026-10-12 Offsite.md").content, "---\nall_day: true\nstart: 2026-10-12\nend: 2026-10-13\n---\n# Offsite\n");
+  assert.deepEqual(vault.changes({ path: "Events/2026-10-12 Offsite.md" }).map((c) => c.source), ["Common Ink"]);
+  const standup = cal.event("aaaaaaaaaaaa", ME)!;
+  assert.deepEqual([standup.title, standup.start, standup.location, standup.note?.path, standup.file?.path], ["Standup", "2026-10-05T16:30:00Z", "Zoom", meeting.path, "Events/2026-10-05 Standup.md"]);
+  assert.deepEqual(cal.events(ME, OCT).map((e) => e.id), ["aaaaaaaaaaaa", "bbbbbbbbbbbb"]);
+
+  // Again (another process opening the vault): nothing new.
+  new Calendar(vault.db, feeds, { now, vault });
+  assert.deepEqual(vault.list("Events").map((n) => n.path).sort(), ["Events/2026-10-05 Standup.md", "Events/2026-10-12 Offsite.md"]);
+  // A run that wrote a note and stopped before recording it: the next takes that note rather than writing another.
+  row("cccccccccccc", "Review", "2026-10-09T18:00:00Z", "2026-10-09T19:00:00Z", {});
+  vault.create("Events/2026-10-09 Review.md", "---\nstart: 2026-10-09T11:00-07:00\nend: 2026-10-09T12:00-07:00\n---\n# Review\n", "Common Ink");
+  const third = new Calendar(vault.db, feeds, { now, vault });
+  assert.equal(vault.list("Events").length, 3);
+  assert.deepEqual(third.events(ME, OCT).map((e) => e.id), ["aaaaaaaaaaaa", "cccccccccccc", "bbbbbbbbbbbb"]);
 });

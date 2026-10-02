@@ -1,6 +1,6 @@
-// Calendars: sources of outside items (ICS feeds, Google, and the workspace's own "Common Ink"
-// calendar of events made in the app) and the items they bring in, kept in the workspace's own SQLite
-// next to its notes. Events are linked
+// Calendars: sources of outside items (ICS feeds, Google) and the items they bring in, kept in the
+// workspace's own SQLite next to its notes, plus the workspace's own "Common Ink" calendar, whose
+// events are notes in Events/ (eventNotes.ts) indexed here like the rest. Outside events are linked
 // records, not notes: a meeting note is made from one on request and linked to it. A source is the
 // whole workspace's (owner null) or one person's, and a person only ever sees their own and the
 // workspace's. Syncing is async (it fetches), so it runs outside the note core: on a timer or alarm
@@ -9,7 +9,8 @@ import { looksLikeIcs, readIcs, type Occurrence, type Person } from "./ics.ts";
 import { frontmatterEntries, frontmatterText, scalarOf, type Entry } from "./frontmatter.ts";
 import { VaultError } from "./paths.ts";
 import { fillTemplate } from "./templates.ts";
-import type { Vault } from "./vault.ts";
+import type { Change, Vault } from "./vault.ts";
+import { EVENTS, eventFromNote, eventNote, inEvents, noteName, zoneIn, type NoteEvent } from "./eventNotes.ts";
 import type { SqlDb } from "./store.ts";
 import { fetchGuarded, readCappedBytes, type UrlGuard } from "./unfurl.ts";
 
@@ -70,7 +71,18 @@ export interface CalendarEvent {
   recurring: boolean;
   /** The meeting note made from it, if it still exists. */
   note: { id: string; path: string; title: string } | null;
+  /** The note the event is (the workspace's own calendar's events, in Events/); null for outside events. */
+  file: { id: string; path: string } | null;
 }
+
+/** A note an event change wrote, moved or sent to Trash, for the host to tell its clients about. */
+export type NoteWrite =
+  | { op: "written"; path: string; version: string; change: Change | null }
+  | { op: "moved"; from: string; path: string; version: string; change: Change | null; edits: Array<{ path: string; content: string; version: string; change: Change }> }
+  | { op: "removed"; path: string; change: Change };
+
+/** Who wrote the notes of events that were kept in the database before events were notes. */
+const MIGRATED_BY = "Common Ink";
 
 /**
  * An event as made or changed in the app. Times are as in CalendarEvent: "2026-10-05T16:30:00Z", or
@@ -126,7 +138,7 @@ export interface SourceReader {
   deleteEvent?(src: SourceRef, item: { uid: string; instance: string | null }): Promise<void>;
 }
 
-/** The workspace's own calendar: its events are the items themselves, so there's nothing to read. */
+/** The workspace's own calendar: its events are notes, indexed as they change (see syncNotes), so there's nothing to read. */
 const localReader: SourceReader = {
   read: async () => ({ status: "unchanged" }),
   every: 365 * 86_400_000,
@@ -227,6 +239,22 @@ async function itemId(source: string, uid: string, instance: string | null): Pro
 
 export const EVENT_ID = /^[a-z2-9]{12}$/;
 
+/** The ID of the event a note in Events/ is: the same note always gives the same one, so a rename keeps it. */
+function eventIdOf(noteId: string): string {
+  let a = 0x811c9dc5;
+  let b = 0x9747b28c;
+  for (const ch of `event\n${noteId}`) {
+    a = Math.imul(a ^ ch.charCodeAt(0), 0x01000193) >>> 0;
+    b = Math.imul(b ^ ch.charCodeAt(0), 0x5bd1e995) >>> 0;
+    b = (b ^ (b >>> 15)) >>> 0;
+  }
+  let out = "";
+  for (let i = 0; i < 6; i++) out += ALPHABET[(a >>> (i * 5)) & 31] + ALPHABET[(b >>> (i * 5)) & 31];
+  return out;
+}
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 /** Milliseconds for an event time as written: all-day and floating read as if in UTC. */
 function msOf(t: string): number {
   if (t.length === 10) return Date.parse(`${t}T00:00:00Z`);
@@ -292,16 +320,22 @@ export class Calendar {
   private now: () => number;
   private running = new Map<string, Promise<void>>();
   private readers: Partial<Record<SourceKind, SourceReader>>;
+  private vault: Vault | null;
 
-  /** `fetcher` reads ICS feeds; `readers` add other kinds of source (Google, online). */
+  /**
+   * `fetcher` reads ICS feeds; `readers` add other kinds of source (Google, online). `vault` holds
+   * the workspace's own events, as notes in Events/; without it, there are none to make.
+   */
   constructor(
     private db: SqlDb,
     fetcher: FeedFetcher,
-    opts: { now?: () => number; readers?: Partial<Record<Exclude<SourceKind, "ics" | "local">, SourceReader>> } = {},
+    opts: { now?: () => number; readers?: Partial<Record<Exclude<SourceKind, "ics" | "local">, SourceReader>>; vault?: Vault } = {},
   ) {
     this.now = opts.now ?? Date.now;
     this.readers = { ics: icsReader(fetcher), local: localReader, ...opts.readers };
+    this.vault = opts.vault ?? null;
     for (const stmt of SCHEMA) db.exec(stmt);
+    if (this.vault) this.migrate(this.vault);
   }
 
   // ---------------------------------------------------------------- sources
@@ -346,6 +380,7 @@ export class Calendar {
   }
 
   sources(viewer: Viewer): Source[] {
+    this.syncNotes();
     return this.visible(viewer).map((r) => this.present(r, viewer));
   }
 
@@ -436,6 +471,8 @@ export class Calendar {
   remove(id: string, viewer: Viewer) {
     const r = this.row(id, viewer);
     this.mayChange(r, viewer);
+    // Its events are notes, which would only bring it back.
+    if (r.kind === "local" && this.vault) throw new VaultError(`${r.name}'s events are notes in ${EVENTS}/: delete those to remove them`);
     this.drop(r);
   }
 
@@ -557,7 +594,7 @@ export class Calendar {
     FROM external_items i JOIN sources s ON s.id = i.source LEFT JOIN notes n ON n.id = i.note_id`;
 
   private event_(r: ItemRow): CalendarEvent {
-    const d = JSON.parse(r.data) as Omit<CalendarEvent, "id" | "source" | "title" | "start" | "end" | "note">;
+    const d = JSON.parse(r.data) as Omit<CalendarEvent, "id" | "source" | "title" | "start" | "end" | "note" | "file"> & { file?: string; path?: string };
     return {
       id: r.id,
       source: r.source,
@@ -574,6 +611,7 @@ export class Calendar {
       status: d.status,
       recurring: d.recurring,
       note: r.note_id && r.note_path ? { id: r.note_id, path: r.note_path, title: r.note_title ?? r.note_path } : null,
+      file: d.file && d.path ? { id: d.file, path: d.path } : null,
     };
   }
 
@@ -583,6 +621,7 @@ export class Calendar {
    * `q` narrows to titles containing it.
    */
   events(viewer: { user: string }, range: { from: number; to: number; zone?: string; q?: string; limit?: number; source?: string }): CalendarEvent[] {
+    this.syncNotes();
     const { from, to } = range;
     const q = range.q?.trim().toLowerCase();
     const limit = Math.min(range.limit ?? 2000, 5000);
@@ -606,6 +645,7 @@ export class Calendar {
   }
 
   event(id: string, viewer: { user: string }): CalendarEvent | null {
+    this.syncNotes();
     this.relink(id);
     const r = this.db.get<ItemRow>(`${Calendar.SELECT} WHERE i.id = ? AND (s.owner IS NULL OR s.owner = ?)`, id, viewer.user);
     return r ? this.event_(r) : null;
@@ -613,7 +653,7 @@ export class Calendar {
 
   // ---------------------------------------------------------------- making and changing events
 
-  /** The workspace's own calendar, made the first time an event is added to it. */
+  /** The workspace's own calendar, made the first time an event is added to it (or a note put in Events/). */
   private local(by: string): SourceRow {
     const had = this.db.get<SourceRow>("SELECT * FROM sources WHERE kind = 'local'");
     if (had) return had;
@@ -636,16 +676,20 @@ export class Calendar {
   }
 
   /**
-   * Add an event: to the workspace's own calendar, or to one of the viewer's Google calendars.
-   * `note`: a meeting note to link it to, if it still exists (a deleted event made again by Undo).
+   * Add an event: to the workspace's own calendar (a note in Events/), or to one of the viewer's
+   * Google calendars. `note`: a meeting note to link it to, if it still exists (a deleted event made
+   * again by Undo). The notes it writes go in `writes`.
    */
-  async createEvent(source: string, draft: EventDraft, viewer: Viewer, by: string, note?: string): Promise<CalendarEvent> {
+  async createEvent(source: string, draft: EventDraft, viewer: Viewer, by: string, note?: string, writes: NoteWrite[] = []): Promise<CalendarEvent> {
     const d = checkDraft(draft);
     const src = this.target(source, viewer, by);
     let id: string;
     if (src.kind === "local") {
-      id = randomId(12);
-      this.putLocal(src.id, id, d);
+      const vault = this.notes();
+      const r = vault.create(vault.freePath(`${EVENTS}/${noteName(d, d.timeZone)}.md`), eventNote(d, d.timeZone), by);
+      writes.push({ op: "written", path: r.path, version: r.version, change: r.change });
+      this.syncNotes();
+      id = eventIdOf(r.id);
     } else {
       const { uid } = await atSource(() => this.readers[src.kind]!.createEvent!(this.ref(src), d));
       id = (await this.afterWrite(src, uid, null, viewer)).id;
@@ -655,11 +699,12 @@ export class Calendar {
   }
 
   /** Move an event, change its length, or change what it says. For one instance of a Google series, only that instance. */
-  async updateEvent(id: string, patch: Partial<EventDraft>, viewer: Viewer, by: string): Promise<CalendarEvent> {
+  async updateEvent(id: string, patch: Partial<EventDraft>, viewer: Viewer, by: string, writes: NoteWrite[] = []): Promise<CalendarEvent> {
     const { src, ev, uid, instance } = this.editable(id, viewer, by);
     const d = checkDraft({ ...ev, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) } as EventDraft);
     if (src.kind === "local") {
-      this.putLocal(src.id, id, d);
+      this.rewrite(ev, d, patch, by, writes);
+      this.syncNotes();
       return this.event(id, viewer)!;
     }
     const changed = Object.fromEntries((Object.keys(patch) as Array<keyof EventDraft>).filter((k) => patch[k] !== undefined).map((k) => [k, d[k]]));
@@ -668,9 +713,13 @@ export class Calendar {
     return this.afterWrite(src, uid, instance, viewer);
   }
 
-  async deleteEvent(id: string, viewer: Viewer, by: string) {
-    const { src, uid, instance } = this.editable(id, viewer, by);
-    if (src.kind !== "local") {
+  /** Delete an event: at Google for a Google one; the workspace's own goes to Trash with its note. */
+  async deleteEvent(id: string, viewer: Viewer, by: string, writes: NoteWrite[] = []) {
+    const { src, ev, uid, instance } = this.editable(id, viewer, by);
+    if (src.kind === "local") {
+      for (const r of this.notes().delete([this.fileOf(ev)], by)) writes.push({ op: "removed", path: r.path, change: r.change });
+      this.syncNotes();
+    } else {
       await atSource(() => this.readers[src.kind]!.deleteEvent!(this.ref(src), { uid, instance }));
       await this.sync(src.id);
     }
@@ -723,17 +772,134 @@ export class Calendar {
     return found;
   }
 
-  private putLocal(source: string, id: string, d: EventDraft) {
+  // ---------------------------------------------------------------- the workspace's own events, as notes
+
+  private notes(): Vault {
+    if (!this.vault) throw new VaultError("Events can't be made here");
+    return this.vault;
+  }
+
+  /** Where an event's note is now. */
+  private fileOf(ev: CalendarEvent): string {
+    const rel = ev.file && this.notes().pathOf(ev.file.id);
+    if (!rel) throw new VaultError("That event's note is gone", "not_found");
+    return rel;
+  }
+
+  /**
+   * Write a change to an event into its note: its frontmatter, and its title as the heading (the
+   * words under it only when the description changed). A note named after the event's day and
+   * title is renamed with them; a name someone chose stays.
+   */
+  private rewrite(ev: CalendarEvent, d: EventDraft, patch: Partial<EventDraft>, by: string, writes: NoteWrite[]) {
+    const vault = this.notes();
+    let rel = this.fileOf(ev);
+    const before = vault.files.read(rel) ?? "";
+    const zone = patch.timeZone ?? zoneIn(before);
+    const after = eventNote(d, zone, before, patch.description !== undefined);
+    if (after !== before) {
+      const r = vault.save(rel, after, { source: by });
+      writes.push({ op: "written", path: rel, version: r.version, change: r.change });
+    }
+    const dir = rel.slice(0, rel.lastIndexOf("/"));
+    const stem = rel.slice(dir.length + 1).replace(/\.md$/i, "");
+    const named = new RegExp(`^\\d{4}-\\d{2}-\\d{2} ${escapeRe(noteName({ ...ev, start: "2000-01-01" }, null).slice(11))}( \\d+)?$`);
+    const name = noteName(d, zone);
+    if (named.test(stem) && stem.replace(/ \d+$/, "") !== name) {
+      const m = vault.move(rel, vault.freePath(`${dir}/${name}.md`), by);
+      writes.push({ op: "moved", from: m.from, path: m.path, version: m.version, change: m.change, edits: m.edits });
+      rel = m.path;
+    }
+  }
+
+  /** Notes in Events/ that aren't events (no `start:`), by path, at the version read: not read again until they change. */
+  private notEvents = new Map<string, string>();
+
+  /**
+   * Bring the workspace's own calendar in line with the notes in Events/: a note that's new or
+   * changed is read again, and one that's gone (or isn't an event any more) takes its event with
+   * it. Two queries when nothing changed. An event keeps its ID, and its meeting note, as long as
+   * its note keeps its own, renamed or not.
+   */
+  private syncNotes() {
+    const vault = this.vault;
+    if (!vault) return;
+    const notes = this.db
+      .all<{ path: string; id: string; version: string }>("SELECT path, id, version FROM notes WHERE kind = 'md' AND path LIKE ?", `${EVENTS}/%`)
+      .filter((n) => inEvents(n.path) && this.notEvents.get(n.path) !== n.version);
+    let src = this.db.get<SourceRow>("SELECT * FROM sources WHERE kind = 'local'") ?? null;
+    if (!src && !notes.length) return;
+    const byNote = new Map<string, { id: string; hash: string }>();
+    for (const r of src ? this.db.all<{ id: string; hash: string; data: string }>("SELECT id, hash, data FROM external_items WHERE source = ?", src.id) : []) {
+      const file = (JSON.parse(r.data) as { file?: string }).file;
+      if (file) byNote.set(file, r);
+    }
+    const live = new Set(this.db.all<{ id: string }>("SELECT id FROM notes WHERE kind = 'md' AND path LIKE ?", `${EVENTS}/%`).map((n) => n.id));
+    const gone = [...byNote].filter(([file]) => !live.has(file)).map(([, r]) => r.id);
+    const changed = notes
+      .filter((n) => byNote.get(n.id)?.hash !== `${n.version}:${n.path}`)
+      .map((n) => ({ n, ev: eventFromNote(n.path, vault.files.read(n.path) ?? "") }));
+    if (!gone.length && !changed.length) return;
+    if (!src && !changed.some((c) => c.ev)) return;
+    src ??= this.local(MIGRATED_BY);
+    const source = src.id;
+    this.db.tx(() => {
+      for (const id of gone) this.db.run("DELETE FROM external_items WHERE id = ?", id);
+      for (const { n, ev } of changed) {
+        const had = byNote.get(n.id);
+        if (ev) this.putLocal(source, had?.id ?? eventIdOf(n.id), ev, n);
+        else {
+          this.notEvents.set(n.path, n.version);
+          if (had) this.db.run("DELETE FROM external_items WHERE id = ?", had.id);
+        }
+      }
+    });
+  }
+
+  /** An event as its note says it, kept as the note's event with the ID `id`. */
+  private putLocal(source: string, id: string, ev: NoteEvent, note: { id: string; path: string; version: string }) {
     const data = JSON.stringify({
-      allDay: d.allDay, timeZone: d.timeZone, location: d.location, description: d.description, url: null,
-      organizer: null, attendees: d.attendees, status: "confirmed", recurring: false, uid: id, instance: null,
+      allDay: ev.allDay, timeZone: null, location: ev.location, description: ev.description, url: null,
+      organizer: null, attendees: ev.attendees, status: "confirmed", recurring: false, uid: note.id, instance: null, file: note.id, path: note.path,
     });
     this.db.run(
       `INSERT INTO external_items(id, source, kind, title, start, end, start_ms, end_ms, abs, data, hash) VALUES (?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(id) DO UPDATE SET title = excluded.title, start = excluded.start, end = excluded.end, start_ms = excluded.start_ms,
          end_ms = excluded.end_ms, abs = excluded.abs, data = excluded.data, hash = excluded.hash`,
-      id, source, "event", d.title, d.start, d.end, msOf(d.start), msOf(d.end), d.allDay ? 0 : 1, data, "",
+      id, source, "event", ev.title, ev.start, ev.end, msOf(ev.start), msOf(ev.end), ev.start.endsWith("Z") ? 1 : 0, data, `${note.version}:${note.path}`,
     );
+  }
+
+  /**
+   * Events made in the app used to be kept only here, in the database: write each out as a note in
+   * Events/, once. It keeps its ID (so links to it from notes still work) and its meeting note;
+   * from then on its note is what it says. Safe to run again: an event written out already is
+   * skipped, and one whose note was written by a run that stopped before recording it takes that note.
+   */
+  private migrate(vault: Vault) {
+    const src = this.db.get<SourceRow>("SELECT * FROM sources WHERE kind = 'local'");
+    if (!src) return;
+    const rows = this.db.all<{ id: string; title: string; start: string; end: string; data: string }>("SELECT id, title, start, end, data FROM external_items WHERE source = ?", src.id);
+    const claimed = new Set(rows.map((r) => (JSON.parse(r.data) as { file?: string }).file).filter(Boolean));
+    for (const r of rows) {
+      const d = JSON.parse(r.data) as { file?: string; allDay: boolean; timeZone: string | null; location: string | null; description: string | null; attendees?: Person[] };
+      if (d.file) continue;
+      try {
+        const ev: NoteEvent = { title: r.title, start: r.start, end: r.end, allDay: d.allDay, location: d.location, description: d.description, attendees: d.attendees ?? [] };
+        const text = eventNote(ev, d.timeZone);
+        const want = `${EVENTS}/${noteName(ev, d.timeZone)}.md`;
+        let rel = vault.freePath(want);
+        for (let i = 1, p = want; vault.files.stat(p); p = want.replace(/\.md$/, ` ${++i}.md`)) {
+          const meta = vault.meta(p);
+          if (vault.files.read(p) === text && (!meta || !claimed.has(meta.id))) rel = p;
+        }
+        const meta = vault.files.stat(rel) ? (vault.meta(rel) ?? vault.indexFile(rel)!) : vault.create(rel, text, MIGRATED_BY);
+        claimed.add(meta.id);
+        this.putLocal(src.id, r.id, eventFromNote(rel, text) ?? ev, { id: meta.id, path: rel, version: meta.version });
+      } catch (e) {
+        console.error(`Couldn't write the event "${r.title}" out as a note:`, e);
+      }
+    }
   }
 
   /**
@@ -836,6 +1002,7 @@ export function fmtEvent(e: CalendarEvent, sources: Source[], zone: string): str
     `start: ${e.start}`,
     `end: ${e.end}`,
     `calendar: ${sources.find((s) => s.id === e.source)?.name ?? e.source}`,
+    e.file && `file: ${e.file.path} (the event is this note: edit it to change the event)`,
     e.location && `where: ${e.location}`,
     e.organizer && `organizer: ${person(e.organizer)}`,
     e.attendees.length && `attendees: ${e.attendees.map(person).join(", ")}`,

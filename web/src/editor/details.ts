@@ -18,11 +18,20 @@ import { touches } from "./livePreview.ts";
 /** Open or close sections: by key, or all of them. */
 export const setFold = StateEffect.define<{ key: string; open: boolean } | { all: boolean; keys: string[] }>();
 
-const STORE = (path: string) => `commonink.details:${path}`;
-function load(path: string | undefined): Record<string, boolean> {
-  if (!path) return {};
+// Kept by the note's ID, so a rename or move keeps it. It used to be kept by path: the first time a
+// note opens, an entry under its path moves over to its ID.
+type Where = { path: string; id?: string };
+const STORE = (where: Where) => `commonink.details:${where.id ? `id:${where.id}` : where.path}`;
+function load(where: Where | undefined): Record<string, boolean> {
+  if (!where) return {};
   try {
-    return JSON.parse(localStorage.getItem(STORE(path)) ?? "{}") ?? {};
+    let saved = localStorage.getItem(STORE(where));
+    const old = where.id && saved === null ? `commonink.details:${where.path}` : null;
+    if (old && (saved = localStorage.getItem(old)) !== null) {
+      localStorage.setItem(STORE(where), saved);
+      localStorage.removeItem(old);
+    }
+    return JSON.parse(saved ?? "{}") ?? {};
   } catch {
     return {};
   }
@@ -30,7 +39,7 @@ function load(path: string | undefined): Record<string, boolean> {
 
 /** Which sections the person opened or closed in this note (section key → open). */
 export const foldState = StateField.define<Record<string, boolean>>({
-  create: (s) => load(s.facet(editorContext)?.path),
+  create: (s) => load(s.facet(editorContext)),
   update(v, tr) {
     let out = v;
     for (const e of tr.effects) {
@@ -44,9 +53,9 @@ export const foldState = StateField.define<Record<string, boolean>>({
 /** Keep what was opened and closed, per note in this browser. */
 const remember = EditorView.updateListener.of((u) => {
   if (!u.transactions.some((t) => t.effects.some((e) => e.is(setFold)))) return;
-  const path = u.state.facet(editorContext)?.path;
+  const where = u.state.facet(editorContext);
   try {
-    if (path) localStorage.setItem(STORE(path), JSON.stringify(u.state.field(foldState)));
+    if (where) localStorage.setItem(STORE(where), JSON.stringify(u.state.field(foldState)));
   } catch {}
 });
 

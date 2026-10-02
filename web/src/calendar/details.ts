@@ -42,6 +42,8 @@ export function renderDetails(item: Extract<Item, { kind: "event" }>, hooks: { o
     field("clock", "When", whenText(item.span), ev.recurring ? el("span", { class: "cal-d-tag" }, icon("reset", 11), "Recurring") : null, ev.status === "tentative" ? el("span", { class: "cal-d-tag" }, "Tentative") : null),
     where ? field("globe", "Where", where) : null,
     field("calendar", "Calendar", dot(item.color), item.source?.name ?? "Calendar"),
+    // The workspace's own events are notes: open one to change it there, or to write in it.
+    ev.file ? field("file", "Note", el("a", { href: "#", onclick: (e: Event) => (e.preventDefault(), hooks.open(ev.file!.path)) }, ev.file.path.replace(/\.md$/i, ""))) : null,
     organizer ? field("user", "Organizer", `Organized by ${organizer}`) : null,
     people.length
       ? field(
