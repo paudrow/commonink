@@ -139,9 +139,10 @@ export function templateInfo(path: string, md: string): TemplateInfo {
 
 const pad = (n: number, w = 2) => String(n).padStart(w, "0");
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const ordinal = (n: number) => n + (n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] ?? "th");
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
-/** `d` in a Moment-style format: YYYY YY MMMM MMM MM M DD D dddd ddd HH H hh h mm m ss s A a, [literal]. */
+/** `d` in a Moment-style format: YYYY YY MMMM MMM MM M DD Do D dddd ddd HH H hh h mm m ss s A a, [literal]. */
 export function formatDate(d: Date, format: string): string {
   const h12 = d.getHours() % 12 || 12;
   const tokens: Record<string, string> = {
@@ -152,6 +153,7 @@ export function formatDate(d: Date, format: string): string {
     MM: pad(d.getMonth() + 1),
     M: String(d.getMonth() + 1),
     DD: pad(d.getDate()),
+    Do: ordinal(d.getDate()),
     D: String(d.getDate()),
     dddd: DAYS[d.getDay()],
     ddd: DAYS[d.getDay()].slice(0, 3),
@@ -166,7 +168,7 @@ export function formatDate(d: Date, format: string): string {
     A: d.getHours() < 12 ? "AM" : "PM",
     a: d.getHours() < 12 ? "am" : "pm",
   };
-  return format.replace(/\[([^\]]*)\]|YYYY|YY|MMMM|MMM|MM|M|DD|D|dddd|ddd|HH|H|hh|h|mm|m|ss|s|A|a/g, (t, literal?: string) => literal ?? tokens[t]);
+  return format.replace(/\[([^\]]*)\]|YYYY|YY|MMMM|MMM|MM|M|DD|Do|D|dddd|ddd|HH|H|hh|h|mm|m|ss|s|A|a/g, (t, literal?: string) => literal ?? tokens[t]);
 }
 
 /** Now as FillOptions.at: the wall clock in `timeZone`, or on this machine's clock when it's unset. */
