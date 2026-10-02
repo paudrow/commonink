@@ -9,6 +9,9 @@ import { assetUrl } from "./api.ts";
 import { footnotesIn, headingSlug, parseAlert, type Alert } from "../../src/core/gfm.ts";
 import { emojiFor, SHORTCODE } from "../../src/core/emoji.ts";
 import { clip } from "../../src/core/depth.ts";
+import { safeDecode } from "../../src/core/uri.ts";
+import { noteTarget } from "./noteLinks.ts";
+import { calendarTarget } from "./links.ts";
 
 /** The note being rendered, for relative image paths in its HTML. Set by renderMarkdown. */
 let from = "";
@@ -170,5 +173,27 @@ export function followInPage(root: HTMLElement, href: string): boolean {
     target = root.querySelector(`#user-content-${CSS.escape(decodeURIComponent(id))}`);
   } catch {}
   target?.scrollIntoView({ behavior: "smooth", block: "center" });
+  return true;
+}
+
+/** A mailto: link, which the browser opens in the mail app: rendered links leave it be. */
+export const leftToBrowser = (href: string) => /^mailto:/i.test(href.trim());
+
+/**
+ * Follow a click on a link in markdown rendered outside the editor (a note card, an embed, a board
+ * card's details) the way the editor does: a web page opens in a new tab; a [[link]], a calendar
+ * link or a relative path to a note (`[Plan](Plan.md)`) goes to `open`; a footnote or `#heading`
+ * scrolls within `root`. False for a mailto:, left to the browser; true when the caller should
+ * prevent the click's default.
+ */
+export function followRenderedLink(href: string, root: HTMLElement, open: (target: string) => void): boolean {
+  const h = href.trim();
+  if (leftToBrowser(h)) return false;
+  const note = noteTarget(h);
+  if (/^https?:/i.test(h)) window.open(h, "_blank", "noopener");
+  else if (note !== null) open(note);
+  else if (calendarTarget(h) !== null) open(h);
+  else if (followInPage(root, h)) return true;
+  else if (h && !/^[a-z][a-z0-9+.-]*:/i.test(h)) open(safeDecode(h)); // no other scheme (javascript:, data:) opens
   return true;
 }
