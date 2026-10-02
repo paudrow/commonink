@@ -112,7 +112,8 @@ export const tags = [
     summary: "Every tag, nested, with how many notes, tasks and assets carry it",
     description:
       "Every tag in the vault as a tree (tags nest with /), with how many notes, tasks and assets carry each one or a tag under it. " +
-      "Use the names with the `tag` filter of search_notes and list_notes.",
+      "Use the names with the `tag` filter of search_notes and list_notes (notes that carry the tag themselves) and of list_tasks " +
+      "(tasks whose line carries it): a tag on a task tags that task, not its note.",
     examples: ["commonink tags", "commonink tags --json"],
     readOnly: true,
     args: {},
