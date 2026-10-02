@@ -253,7 +253,7 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
         }),
       );
     case "GET /backlinks":
-      return json(vault.backlinks(q("path")));
+      return json(vault.backlinks(q("path"), qScope()));
     case "GET /links/missing":
       return json(vault.missingLinks({ folder: q("folder") || undefined, scope: qScope() }));
     case "GET /changes":
