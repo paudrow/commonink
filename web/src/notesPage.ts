@@ -2,7 +2,7 @@
 // the whole note in place; Edit opens it in the editor. Filter as you type, triage from the
 // keyboard (j/k, Enter to expand, o to open, e to archive, x to select, Delete to delete), and
 // archive or delete in bulk. Its tabs are where notes go: Notes, Archive and Trash.
-import { api, type FeedItem, type FeedPage, type TagCount, type Task } from "./api.ts";
+import { api, isArchived, type FeedItem, type FeedPage, type TagCount, type Task } from "./api.ts";
 import type { TrashPage } from "./trash.ts";
 import { $, authorAvatar, authorName, displayName, el, icon, markTerms, NOTE_DRAG, timeAgo } from "./dom.ts";
 import { renderMarkdown, sandboxFrame } from "./render.ts";
@@ -582,7 +582,7 @@ export class NotesPage {
     const n = this.selected.size;
     this.bulk.hidden = n === 0;
     if (!n) return;
-    const allArchived = [...this.selected].every((p) => p.startsWith("Archive/"));
+    const allArchived = [...this.selected].every(isArchived);
     this.bulk.replaceChildren(
       el("span", {}, `${n} selected`),
       el("span", { class: "spacer" }),
@@ -622,7 +622,7 @@ export class NotesPage {
   /** Archive (or unarchive, if they're all archived) — with Undo. */
   async archive(paths: string[]) {
     if (!paths.length) return;
-    const restore = paths.every((p) => p.startsWith("Archive/"));
+    const restore = paths.every(isArchived);
     const r = await (restore ? api.unarchive(paths) : api.archive(paths)).catch(() => null);
     if (!r) return this.hooks.toast({ text: "Couldn't archive that" });
     this.selected.clear();
