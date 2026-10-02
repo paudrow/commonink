@@ -64,7 +64,7 @@ export interface AccountAction {
   session?: boolean;
 }
 
-function accountActions(me: Me, current: Me["workspaces"][number], toast: (t: { text: string; icon?: string }) => void, exportAll: () => unknown): AccountAction[] {
+function accountActions(me: Me, current: Me["workspaces"][number], toast: (t: { text: string; icon?: string }) => void): AccountAction[] {
   return [
     ...me.workspaces.map((w) => ({
       label: `${w.name}${w.kind === "personal" ? " (you)" : ""}`,
@@ -113,12 +113,6 @@ function accountActions(me: Me, current: Me["workspaces"][number], toast: (t: { 
       },
     },
     {
-      label: "Delete account…",
-      icon: "trash",
-      session: true,
-      run: () => void import("./deleteAccount.ts").then((m) => m.showDeleteAccount(me.user, toast, exportAll)),
-    },
-    {
       label: "Sign out everywhere…",
       icon: "open",
       session: true,
@@ -132,7 +126,7 @@ function accountActions(me: Me, current: Me["workspaces"][number], toast: (t: { 
 }
 
 /** The account button at the bottom of the sidebar, with its menu. Returns the menu's actions. */
-export function renderAccount(me: Me, current: Me["workspaces"][number], toast: (t: { text: string; icon?: string }) => void, exportAll: () => unknown): AccountAction[] {
+export function renderAccount(me: Me, current: Me["workspaces"][number], toast: (t: { text: string; icon?: string }) => void): AccountAction[] {
   const face = me.user.picture
     ? el("img", { class: "acct-face", src: me.user.picture, alt: "", referrerpolicy: "no-referrer" })
     : el("span", { class: "acct-face is-initial" }, me.user.name.slice(0, 1).toUpperCase());
@@ -145,7 +139,7 @@ export function renderAccount(me: Me, current: Me["workspaces"][number], toast: 
   );
   const menu = el("div", { class: "acct-menu", hidden: true });
   const close = () => (menu.hidden = true);
-  const actions = accountActions(me, current, toast, exportAll);
+  const actions = accountActions(me, current, toast);
   const sep = actions.findIndex((a) => a.session);
   menu.append(
     el("div", { class: "acct-section" }, "Workspaces"),

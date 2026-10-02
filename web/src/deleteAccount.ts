@@ -1,4 +1,4 @@
-// Online-only: Delete my account, from the account menu. It says what goes (your own workspaces,
+// Online-only: Delete your account, from Settings → Danger zone. It says what goes (your own workspaces,
 // with their notes and files), what you leave (teams others are in, which keep their notes) and
 // what's in the way (a team you're the only owner of), offers an export first, and asks you to type
 // your email. The work is the Worker's (cloud/src/account.ts).
