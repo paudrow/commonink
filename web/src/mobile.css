@@ -43,7 +43,7 @@
 @media (pointer: coarse), (max-width: 760px) {
   #topbar .icon-btn, #statusbar .icon-btn, #sidebar .tree-head .icon-btn { width: 44px; height: 44px; flex: none; }
   #statusbar { height: 44px; }
-  /* The vim chip keeps its look; its tap area grows to 44px. */
+  /* A chip keeps its look; its tap area grows to 44px. */
   #statusbar .chip-btn { position: relative; }
   #statusbar .chip-btn::after { content: ""; position: absolute; inset: -12px -6px; }
   #sidebar .search-pill, #sidebar .nav-item, #sidebar .ghost-btn, #sidebar .tree-row, .acct-btn, .acct-item { height: auto; min-height: 44px; }
@@ -99,11 +99,9 @@
   /* The top bar is full on a phone: → shows only when there's somewhere to go forward, like a phone browser's. */
   #topbar .nav-arrow[data-dir="forward"][aria-disabled="true"] { display: none; }
   #topbar { padding-left: 4px; }
-  #save-status { flex: none; }
-  #save-status:not([data-state="error"]) { font-size: 0; min-width: 0; gap: 0; }
   #agents .avatar:nth-child(n + 2) { display: none; }
   /* Tasks, Tags and the other pages get the phone's width, as Notes does. A phone shows one pane,
-     so a task's "Open to the side" (its last button) has no side to open. */
+     so a task's "Open in split view" (its last button) has no side to open. */
   .page { padding: 24px 16px 96px; }
   .qt-row > .qt-act:last-child { display: none; }
   body:has(#notes-view:not([hidden])) #fab-new { display: grid; }
@@ -117,14 +115,14 @@
   .feed-card:not(.is-focused, .is-expanded) .fc-action { display: none; }
 
   /* Split view: one pane at a time, the focused one. Its bar's close button brings back the other. */
-  body.is-split #stage > :is(#editor-host, #html-preview, #notes-view, #today-view, #tasks-view, #calendar-view, #history-view, #assets-view, #tags-view), #main-bar, #banner { right: 0; }
+  body.is-split #stage > :is(#editor-host, #html-preview, #notes-view, #today-view, #tasks-view, #calendar-view, #history-view, #assets-view, #tags-view, #checkup-view, #replace-view), #main-bar, #banner { right: 0; }
   #side-pane { left: 0; width: auto; border-left: 0; z-index: 6; }
   #pane-divider { display: none; }
   body:has(#main-bar.is-focused) #side-pane { display: none; }
 }
 
 @media (max-width: 760px) and (pointer: coarse) {
-  #vim-toggle:not(.is-on), #codewrap-toggle { display: none; }
+  #codewrap-toggle { display: none; }
 }
 
 /* Settings: the whole screen on a phone, and 44px controls on touch. */

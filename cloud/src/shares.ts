@@ -161,6 +161,14 @@ export async function removeShare(db: D1Database, workspaceId: string, id: strin
   if (!removed.results.length) throw new ShareError("That share isn't in this workspace", 404);
 }
 
+/** A folder was renamed or moved: shares of it, and of the folders in it, follow it there. */
+export async function moveFolderShares(db: D1Database, workspaceId: string, from: string, to: string) {
+  await db
+    .prepare("UPDATE shares SET folder = ? || substr(folder, ?) WHERE workspace_id = ? AND (folder = ? OR substr(folder, 1, ?) = ?)")
+    .bind(to, from.length + 1, workspaceId, from, from.length + 1, `${from}/`)
+    .run();
+}
+
 /** Whether someone new has been shared something by email: a member vouched for them, so they may sign up. */
 export async function hasPendingShare(db: D1Database, email: string) {
   return !!(await db.prepare(`SELECT 1 FROM shares WHERE principal_type = 'email' AND principal = ? AND ${live}`).bind(email.toLowerCase(), Date.now()).first());

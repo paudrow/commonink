@@ -15,7 +15,8 @@
 // with any lines nested under an item. A column can carry a colour after its name, `{color=blue}`.
 // It stays real markdown, so tasks, links, tags and backlinks work in it as anywhere else. The
 // column named "Done" is the done column: a card moved into it is ticked, and one moved out
-// unticked. The board draws no checkboxes; where a card is says whether it's done.
+// unticked. The board draws no checkboxes; where a card is says whether it's done. Folded columns
+// are named on the opening line, `:::kanban{folded="Done,Later"}`, so a fold travels with the note.
 //
 // Lines the board can't place (text before the first column, a paragraph between cards) are
 // problems: reported with where they are, shown to the person with fixes to pick from, and never
@@ -44,6 +45,8 @@ export interface Column {
   from: number;
   to: number;
   done: boolean;
+  /** Named in the board's `folded=`: drawn as just its heading. */
+  folded: boolean;
   cards: Card[];
 }
 /**
@@ -73,8 +76,14 @@ const OPEN = /^\s*:::kanban(?:\{([^}\n]*)\})?\s*$/i;
 const CLOSE = /^\s*:::\s*$/;
 const HEADING = /^ {0,3}(#{1,6})[ \t]+(.*)$/; // the words are headingText(m[2])
 const ITEM = /^( {0,3})([-*+]|\d{1,9}[.)])([ \t]+)(.*)$/;
-/** Settings the opening line may carry. `done` names another done column: kept for older files, not offered. */
-const SETTINGS = new Set(["done"]);
+/**
+ * Settings the opening line may carry. `done` names another done column: kept for older files, not
+ * offered. `folded` names the folded columns, comma-separated (see foldColumn).
+ */
+const SETTINGS = new Set(["done", "folded"]);
+
+/** The column names in a board's `folded=`, lowercased. */
+const foldedNames = (args: Record<string, string>) => new Set((args.folded ?? "").split(",").map((n) => n.trim().toLowerCase()).filter(Boolean));
 
 /** A new board, for the insert menu. */
 export const NEW_BOARD = ":::kanban\n## Backlog\n- [ ] Your first card\n\n## Doing\n\n## Done\n:::";
@@ -114,11 +123,12 @@ function readBoard(lines: string[], prose: Set<number>, from: number, close: num
   }
   const problems: Problem[] = [];
   const done = (args.done || "Done").trim().toLowerCase();
+  const folded = foldedNames(args);
   const columns = heads.map((h, k) => {
     const to = heads[k + 1]?.at ?? close;
     const { cards, stray } = readCards(lines, prose, h.at + 1, to);
     for (const s of stray) problems.push({ kind: "stray", ...s, message: `${count(s)} in ${h.title} ${s.to - s.from === 1 ? "isn't a card" : "aren't cards"}` });
-    return { title: h.title, color: h.color, from: h.at, to, done: h.title.toLowerCase() === done, cards };
+    return { title: h.title, color: h.color, from: h.at, to, done: h.title.toLowerCase() === done, folded: folded.has(h.title.toLowerCase()), cards };
   });
   const first = heads[0]?.at ?? close;
   const before = trimBlank(lines, from + 1, first);
@@ -378,13 +388,43 @@ function headingAttrs(line: string): Record<string, string> {
   return attrs === null ? {} : parseAttrs(attrs);
 }
 
-/** Rename a column: its heading's name changes; its level and colour stay. */
+/** Rename a column: its heading's name changes; its level, colour and fold stay. */
 export function renameColumn(md: string, at: Place, title: string): string {
   const { raw } = split(md);
-  const column = columnAt(boardsIn(md), at);
+  const boards = boardsIn(md);
+  const column = columnAt(boards, at);
   raw[column.from] = heading(raw[column.from], title.trim(), headingAttrs(raw[column.from]));
+  if (column.folded) setFolded(raw, boards[at.board], (c) => (c === column ? title.trim() : c.folded ? c.title : null));
   return raw.join("\n");
 }
+
+/**
+ * Fold a column (or unfold it with `on` false): the board's opening line names its folded columns,
+ * `:::kanban{folded="Done,Later"}`, and `folded=` goes when none are. Names of columns that are gone
+ * are dropped on the way.
+ */
+export function foldColumn(md: string, at: Place, on: boolean): string {
+  const { raw } = split(md);
+  const boards = boardsIn(md);
+  const column = columnAt(boards, at);
+  setFolded(raw, boards[at.board], (c) => ((c === column ? on : c.folded) ? c.title : null));
+  return raw.join("\n");
+}
+
+/** Write a board's `folded=`: the names `name` gives its columns (null for an open one), other settings kept. */
+function setFolded(raw: string[], b: Board, name: (c: Column) => string | null) {
+  const names = b.columns.map(name).filter((n): n is string => !!n);
+  const args = { ...b.args };
+  if (names.length) args.folded = names.join(",");
+  else delete args.folded;
+  raw[b.from] = opening(raw[b.from], args);
+}
+
+/** A board's opening line with these settings, its indent kept. */
+const opening = (line: string, args: Record<string, string>) => {
+  const attrs = serializeAttrs(args);
+  return retext(line, (l) => `${l.match(/^\s*/)![0]}:::kanban${attrs ? `{${attrs}}` : ""}`);
+};
 
 /** Give a column a colour (one of COLORS), or take it off with null. It's written after the name: `## Doing {color=blue}`. */
 export function setColumnColor(md: string, at: Place, color: string | null): string {
@@ -446,9 +486,7 @@ export function fixProblem(md: string, board: number, problem: number, fix: Fix)
   const p = b.problems[problem];
   if (!p || !fixesFor(p, b).includes(fix)) throw new Error("That problem isn't on the board any more");
   if (p.kind === "unknown-setting") {
-    const kept = Object.fromEntries(Object.entries(b.args).filter(([k]) => SETTINGS.has(k)));
-    const attrs = serializeAttrs(kept);
-    raw[b.from] = retext(raw[b.from], (l) => `${l.match(/^\s*/)![0]}:::kanban${attrs ? `{${attrs}}` : ""}`);
+    raw[b.from] = opening(raw[b.from], Object.fromEntries(Object.entries(b.args).filter(([k]) => SETTINGS.has(k))));
     return raw.join("\n");
   }
   const lines = raw.slice(p.from, p.to);

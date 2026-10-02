@@ -20,10 +20,10 @@ export const ALIASES: Record<string, { to: string; set: Record<string, unknown> 
 export const GROUP_DEFAULTS: Record<string, string> = { task: "task update" };
 /**
  * A command that stands for another when it's given one of that one's own flags:
- * `contact Jane --role CTO` is `contact update`, `diff Spec --from v1` is `label-diff`, and
- * `restore Spec --to v1` is `label-restore`.
+ * `contact Jane --role CTO` is `contact update`, `diff Spec --from v1` is `label-diff`,
+ * `restore Spec --to v1` is `label-restore`, and `export Spec --to drive` is `save-to-drive`.
  */
-export const WITH_FLAGS: Record<string, string> = { contact: "contact update", diff: "label-diff", restore: "label-restore" };
+export const WITH_FLAGS: Record<string, string> = { contact: "contact update", diff: "label-diff", restore: "label-restore", export: "save-to-drive" };
 
 export const kebab = (name: string) => name.replaceAll("_", "-");
 export const flagOf = (name: string, a: ArgSpec) => a.flag ?? kebab(name);

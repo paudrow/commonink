@@ -5,6 +5,7 @@ import { parseQuery } from "../query.ts";
 import { TRASH_DAYS } from "../vault.ts";
 import { fmtImport, MAX_IMPORT_NOTES, ON_EXISTING, pairsImport, readImport, writeImport, type OnExisting } from "../import.ts";
 import { bool, command, list, localFiles, num, pairs, str } from "./types.ts";
+import { checkup, fmtCheckup, STALE_DAYS } from "../checkup.ts";
 
 const TAG = "Only notes with this tag or a tag under it: work matches #work and #work/acme. Several (work,plan): notes with all of them";
 const ONE_TAG = "Only notes with this tag or a tag under it: work matches #work and #work/acme";
@@ -139,6 +140,25 @@ export const notes = [
     },
   }),
   command({
+    cli: "checkup",
+    mcp: "workspace_checkup",
+    route: "GET /checkup",
+    title: "Check up on this workspace",
+    summary: "What may need tending: dead links, duplicate contacts, empty notes, notes nothing links to, long-overdue tasks",
+    description:
+      "A check-up of the workspace. Dead links (as missing_links has them), people with two contact notes (merge_contacts joins them), " +
+      "notes with nothing but a title, top-level notes with no links to them, no tag and no star (maybe ready to archive), " +
+      `and open tasks due more than ${STALE_DAYS} days ago that don't repeat. Each list holds only what's there. Archived notes are left out. ` +
+      "Suggest fixes to the person rather than making them all yourself: an unlinked note may be just fine.",
+    examples: ["commonink checkup", "commonink checkup --json"],
+    readOnly: true,
+    args: {},
+    run: ({ vault, user }) => {
+      const c = checkup(vault, user);
+      return { text: fmtCheckup(c), data: c };
+    },
+  }),
+  command({
     cli: "create",
     mcp: "create_note",
     route: "POST /note",
@@ -214,6 +234,37 @@ export const notes = [
     run: ({ vault, source }, a) => {
       const r = vault.edit(a.path, { oldString: a.old_string, newString: a.new_string, replaceAll: a.replace_all, baseVersion: a.base_version }, source);
       return { text: fmtWrite(r, "Edited"), data: r };
+    },
+  }),
+  command({
+    cli: "replace",
+    mcp: "replace_text",
+    route: "POST /replace",
+    title: "Replace across notes",
+    summary: "Find and replace plain text in every note (or a folder's); --dry-run shows what would change",
+    description:
+      "Find and replace plain text (not a pattern) in every active Markdown note, or only those in a folder: any case unless match_case, " +
+      "and only whole words with whole_word. Over MCP, dry_run is required: pass true first, show the user the notes and lines it lists, and only " +
+      "run it again with dry_run false when they ask for it. Each changed note is its own change, so restore_change can undo any of them.",
+    examples: ["commonink replace 'Acme Corp' 'Acme Inc' --dry-run", "commonink replace colour color --whole-word --folder Projects"],
+    destructive: true,
+    args: {
+      find: str({ required: true, pos: 0, describe: "The text to find, as written (one line)" }),
+      replace: str({ required: true, pos: 1, allowEmpty: true, describe: "What replaces it ('' to remove it)" }),
+      folder: str({ describe: "Only notes in this folder (and its subfolders)" }),
+      match_case: bool({ describe: "Only where the case matches too" }),
+      whole_word: bool({ describe: "Only whole words, not inside longer ones" }),
+      // Over MCP an agent must say which it means, so a vault-wide edit is never what it gets by leaving this out.
+      dry_run: bool({ mcpRequired: true, describe: "Only say what would change. Over MCP, required: true to preview, false to write" }),
+    },
+    run: ({ vault, source }, a) => {
+      const r = vault.replaceAcross(a.find, a.replace, { folder: a.folder, matchCase: a.match_case, wholeWord: a.whole_word, dryRun: a.dry_run }, source);
+      const places = r.notes.reduce((n, x) => n + x.count, 0);
+      const head = !r.notes.length
+        ? `No note has "${a.find}"`
+        : `${a.dry_run ? "Would replace" : "Replaced"} ${places} place${places === 1 ? "" : "s"} in ${r.notes.length} note${r.notes.length === 1 ? "" : "s"}`;
+      const body = r.notes.flatMap((n) => [`${n.path} (${n.count})`, ...n.lines.flatMap((l) => [`  ${l.line}- ${l.before.trim()}`, `  ${l.line}+ ${l.after.trim()}`])]);
+      return { text: [head, ...body].join("\n"), data: { notes: r.notes, changes: r.edits.map((e) => e.change.id) } };
     },
   }),
   command({
