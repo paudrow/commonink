@@ -21,6 +21,7 @@ import type { Env } from "./env.ts";
 import { safeDecode } from "../../src/core/uri.ts";
 import { AGENTS_NOTE } from "../../src/core/noteRoles.ts";
 import { accessOn, type SharedAccess, type ShareRole } from "./grants.ts";
+import { readUpTo } from "./body.ts";
 import { limit } from "./limits.ts";
 import { addShare, agentLinksAllowed, linkToken, listShares, removeShare, ShareError, updateShare, type Share, type Target } from "./shares.ts";
 import { Calendar } from "../../src/core/calendar.ts";
@@ -212,9 +213,9 @@ export class Workspace extends DurableObject<Env> {
     try {
       const name = url.searchParams.get("name") ?? "";
       const folder = url.searchParams.get("folder") ?? "assets";
-      const body = await req.arrayBuffer();
-      if (body.byteLength > MAX_UPLOAD) return json({ error: "That file is over 50 MB" }, 413);
-      const { rel, r } = await this.storeFile(wsId, this.vault.uploadPath(name, folder), new Uint8Array(body), actor, () => this.vault.uploadPath(name, folder));
+      const body = await readUpTo(req, MAX_UPLOAD);
+      if (!body) return json({ error: "That file is over 50 MB" }, 413);
+      const { rel, r } = await this.storeFile(wsId, this.vault.uploadPath(name, folder), body, actor, () => this.vault.uploadPath(name, folder));
       this.announce(rel, null, r.version, r.change);
       this.broadcast({ type: "tree" });
       return json({ path: rel, version: r.version, size: r.size });
