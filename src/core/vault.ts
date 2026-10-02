@@ -6,12 +6,12 @@ import { chainBefore, dropBefores, readBefore } from "./changeTexts.ts";
 import type { Content, SqlDb } from "./store.ts";
 import { cleanPath, isHidden, kindOf, linkKey, VaultError, stemOf, type NoteKind } from "./paths.ts";
 import { headingName, headingText, mapOutsideCode, proseLines } from "./prose.ts";
-import { extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
+import { dateOf, extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
 import { dueFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
 import { parseQuickAdd } from "./quickAdd.ts";
-import { formatQuery, parseQuery, queryProblem, type NoteQuery } from "./query.ts";
+import { formatQuery, parseQuery, queryProblem, tagList, type NoteQuery } from "./query.ts";
 import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
 import { safeDecode } from "./uri.ts";
 import { AGENTS_NOTE, START_TAG, type NoteRole } from "./noteRoles.ts";
@@ -435,6 +435,7 @@ export class Vault {
     let version: string;
     let title: string;
     let body = "";
+    let date: string | null = null;
     if (kind === "asset") {
       version = versionOf(`${st.size}:${st.mtime}`);
       title = path.posix.basename(rel);
@@ -443,6 +444,7 @@ export class Vault {
       version = versionOf(content);
       title = titleOf(content, kind, rel);
       body = searchableText(content, kind);
+      date = dateOf(content, kind, rel);
     }
     const known = this.db.get<IndexedRow>("SELECT id, kind, fts FROM notes WHERE path = ?", rel);
     const noteId: string = known?.id ?? id ?? this.renamedId(rel, kind, version, st.size) ?? newNoteId();
@@ -450,10 +452,10 @@ export class Vault {
       this.dropText(rel, known);
       const fts = kind === "asset" ? null : this.db.run("INSERT INTO notes_fts(path, title, body) VALUES (?,?,?)", rel, title, body).lastId;
       this.db.run(
-        `INSERT INTO notes(path, kind, title, stem, version, mtime, size, id, fts) VALUES (?,?,?,?,?,?,?,?,?)
+        `INSERT INTO notes(path, kind, title, stem, version, mtime, size, id, fts, date) VALUES (?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(path) DO UPDATE SET kind=excluded.kind, title=excluded.title, stem=excluded.stem,
-           version=excluded.version, mtime=excluded.mtime, size=excluded.size, fts=excluded.fts`,
-        rel, kind, title, stemOf(rel), version, st.mtime, st.size, noteId, fts,
+           version=excluded.version, mtime=excluded.mtime, size=excluded.size, fts=excluded.fts, date=excluded.date`,
+        rel, kind, title, stemOf(rel), version, st.mtime, st.size, noteId, fts, date,
       );
       this.db.run("DELETE FROM links WHERE src = ?", rel);
       this.db.run("DELETE FROM tags WHERE path = ? AND kind != 'asset'", rel);
@@ -582,8 +584,9 @@ export class Vault {
    */
   list(folder?: string, scope: ArchiveScope = "active", tag?: string): NoteMeta[] {
     let rows = this.db.all<NoteMeta>(`SELECT ${META_COLS} FROM notes ORDER BY path COLLATE NOCASE`);
-    if (tag !== undefined) {
-      const on = new Set(this.tagged(tag).map((r) => r.path));
+    // Several tags (`work,plan`): the notes with every one.
+    for (const t of tag === undefined ? [] : tagList(tag).length ? tagList(tag) : [tag]) {
+      const on = new Set(this.tagged(t).map((r) => r.path));
       rows = rows.filter((r) => on.has(r.path));
     }
     if (!folder) return rows.filter((r) => inScope(r.path, scope));
@@ -708,7 +711,7 @@ export class Vault {
     rows = rows.filter((r) => inScope(r.path, scope));
     const starts = new Set(this.db.all<{ path: string }>("SELECT DISTINCT path FROM tags WHERE tag = ?", START_TAG).map((r) => r.path));
     const roleOf = (p: string): NoteRole | null => (p === AGENTS_NOTE ? "agents" : starts.has(p) && !isArchived(p) ? "start" : null);
-    if (opts.sort !== "title") {
+    if (!opts.sort || opts.sort === "modified") {
       const rank = (p: string) => ({ start: 0, agents: 2, none: 1 })[roleOf(p) ?? "none"];
       rows = [...rows].sort((a, b) => rank(a.path) - rank(b.path));
     }
@@ -757,8 +760,8 @@ export class Vault {
   }
 
   /** Every note (not assets), archived ones included, newest first: what matching() narrows. */
-  private feedRows(): Array<{ id: string; path: string; kind: NoteKind; title: string; mtime: number }> {
-    return this.db.all("SELECT id, path, kind, title, mtime FROM notes WHERE kind != 'asset' ORDER BY mtime DESC");
+  private feedRows(): Array<{ id: string; path: string; kind: NoteKind; title: string; mtime: number; date: string | null }> {
+    return this.db.all("SELECT id, path, kind, title, mtime, date FROM notes WHERE kind != 'asset' ORDER BY mtime DESC");
   }
 
   /** The notes a query matches, archived ones included, in its order. The part of the feed smart folder counts need. */
@@ -771,12 +774,19 @@ export class Vault {
     }
     const home = (p: string) => (isArchived(p) ? p.slice(ARCHIVE.length) : p);
     if (query.folder) rows = rows.filter((r) => home(r.path).startsWith(query.folder!.replace(/\/?$/, "/")));
-    if (query.tag) {
-      const key = normalizeTag(query.tag);
+    // Every tag, each with the tags under it: `work,plan` is the notes with both.
+    for (const tag of tagList(query.tag)) {
+      const key = normalizeTag(tag);
       const on = new Set(key ? this.db.all<{ path: string }>(`SELECT DISTINCT path FROM tags WHERE ${UNDER}`, ...under(key)).map((r) => r.path) : []);
       rows = rows.filter((r) => on.has(r.path));
     }
     if (query.sort === "title") rows = [...rows].sort((a, b) => a.title.localeCompare(b.title));
+    if (query.sort === "date" || query.sort === "oldest") {
+      // A note's own date, else the day it last changed; the same day goes by when it changed.
+      const day = (r: (typeof rows)[number]) => r.date ?? new Date(r.mtime).toISOString().slice(0, 10);
+      const dir = query.sort === "date" ? -1 : 1;
+      rows = [...rows].sort((a, b) => dir * (day(a).localeCompare(day(b)) || a.mtime - b.mtime));
+    }
     return rows;
   }
 

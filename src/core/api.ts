@@ -10,6 +10,7 @@ import { findStartNote, GUIDE, parseGuideAction, runGuide } from "./guide.ts";
 import { exportZip, type ExportWhat } from "./export.ts";
 import type { Calendar, EventDraft } from "./calendar.ts";
 import { notePath } from "./ids.ts";
+import { isSort } from "./query.ts";
 
 export interface ApiHost {
   vault: Vault;
@@ -245,7 +246,7 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
           scope: qScope(),
           folder: q("folder") || undefined,
           tag: q("tag") || undefined,
-          sort: q("sort") === "title" ? "title" : "modified",
+          sort: [q("sort")].find(isSort) ?? "modified",
           offset: qCount("offset", 0, Infinity),
           limit: qCount("limit", 30, Infinity), // the feed re-fetches everything it has shown
         }),

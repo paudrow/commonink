@@ -5,7 +5,8 @@ import { parseQuery } from "../query.ts";
 import { TRASH_DAYS } from "../vault.ts";
 import { bool, command, list, num, str } from "./types.ts";
 
-const TAG = "Only notes with this tag or a tag under it: work matches #work and #work/acme";
+const TAG = "Only notes with this tag or a tag under it: work matches #work and #work/acme. Several (work,plan): notes with all of them";
+const ONE_TAG = "Only notes with this tag or a tag under it: work matches #work and #work/acme";
 const NOTE = "A path, a path without .md, a [[wikilink]] name, a note ID or a note URL";
 const scopeOf = (a: { include_archived?: boolean; archived?: boolean }) => (a.archived ? "archived" : a.include_archived ? "all" : "active") as "archived" | "all" | "active";
 
@@ -31,7 +32,7 @@ export const notes = [
       limit: num({ min: 1, max: 50, describe: "Max results (default 10)" }),
       include_archived: bool({ flag: "all", describe: "Also search archived notes" }),
       archived: bool({ only: "cli", describe: "Only archived notes" }),
-      tag: str({ describe: TAG }),
+      tag: str({ describe: ONE_TAG }),
     },
     run: ({ vault }, a) => {
       const hits = vault.search(a.query, a.limit ?? 10, scopeOf(a), a.tag);
