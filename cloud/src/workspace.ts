@@ -23,7 +23,7 @@ import { AGENTS_NOTE } from "../../src/core/noteRoles.ts";
 import { accessOn, type SharedAccess, type ShareRole } from "./grants.ts";
 import { readUpTo } from "./body.ts";
 import { limit } from "./limits.ts";
-import { addShare, agentLinksAllowed, linkToken, listShares, removeShare, ShareError, updateShare, type Share, type Target } from "./shares.ts";
+import { addShare, agentLinksAllowed, linkToken, listShares, moveFolderShares, removeShare, ShareError, updateShare, type Share, type Target } from "./shares.ts";
 import { Calendar } from "../../src/core/calendar.ts";
 import { assertPublicUrl } from "../../src/core/unfurl.ts";
 import { feedsFor } from "./demo-calendar.ts";
@@ -179,6 +179,7 @@ export class Workspace extends DurableObject<Env> {
         this.ctx.waitUntil(this.schedule());
       },
       fileBytes: (rel) => this.fileBytes(rel),
+      folderMoved: (from, to) => this.folderMoved(wsId, from, to),
     };
     return (await handleApi(host, req, route)) ?? json({ error: `No route ${req.method} ${route}` }, 404);
   }
@@ -477,6 +478,7 @@ export class Workspace extends DurableObject<Env> {
         this.sharingChanged();
         return "Stopped sharing it.";
       }),
+      folderMoved: (from: string, to: string) => this.folderMoved(wsId, from, to),
     };
   }
 
@@ -501,6 +503,12 @@ export class Workspace extends DurableObject<Env> {
    */
   sharingChanged() {
     for (const ws of this.ctx.getWebSockets("shared")) ws.close(4003, "Sharing changed");
+  }
+
+  /** A folder was renamed or moved (by anyone who may): its shares go with it, as a note's go with the note. */
+  private async folderMoved(wsId: string, from: string, to: string) {
+    await moveFolderShares(this.env.DB, wsId, from, to);
+    this.sharingChanged();
   }
 
   private announce(rel: string, content: string | null, version: string, change: Change | null, origin?: string) {

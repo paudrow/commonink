@@ -10,6 +10,7 @@ import { $, authorAvatar, authorName, displayName, el, icon, markTerms, NOTE_DRA
 import { renderMarkdown, sandboxFrame } from "./render.ts";
 import { hydrateCode } from "./code.ts";
 import { hydrateMath } from "./math.ts";
+import { hydrateGithubLinks } from "./github.ts";
 import { followRenderedLink } from "./gfm.ts";
 import { hydrateDataEmbeds } from "./textPreview.ts";
 import { parseDirective } from "./widgets/args.ts";
@@ -45,6 +46,8 @@ interface Hooks {
   shared?(item: FeedItem): boolean;
   /** Send notes to Trash (asking first if other notes link to them). Resolves to the paths that went. */
   delete(paths: string[]): Promise<string[]>;
+  /** Rename a note (F2 on its card), the way ⌘K's Rename does. */
+  rename(path: string): void;
   toast(t: ToastSpec): void;
   changed(): void;
   /** The sidebar's New note. */
@@ -81,7 +84,7 @@ export class NotesPage {
   private input: HTMLInputElement;
   private list: HTMLElement;
   private scopeBar: HTMLElement;
-  private folderBar: HTMLElement;
+  private folderSel: HTMLSelectElement;
   private tagBar: HTMLElement;
   private sortSel: HTMLSelectElement;
   private saveBtn: HTMLButtonElement;
@@ -124,7 +127,8 @@ export class NotesPage {
     this.scopeBar = el("div", { class: "seg feed-scope", role: "group", "aria-label": "Notes, Archive or Trash" });
     this.about = el("p", { class: "feed-about" });
     this.elsewhere = el("div", { class: "feed-elsewhere" });
-    this.folderBar = el("div", { class: "feed-folders", role: "group", "aria-label": "Folder" });
+    this.folderSel = el("select", { class: "qt-select feed-folder", "aria-label": "Folder" });
+    this.folderSel.addEventListener("change", () => ((this.folder = this.folderSel.value), (this.focus = 0), this.reload()));
     this.tagBar = el("div", { class: "feed-folders" });
     this.sortSel = el("select", { class: "qt-select feed-sort", "aria-label": "Sort" });
     this.sortSel.addEventListener("change", () => ((this.sort = this.sortSel.value as QuerySort), (this.focus = 0), this.reload()));
@@ -138,15 +142,29 @@ export class NotesPage {
     this.bulk = el("div", { class: "feed-bulk", hidden: true });
     this.list = el("div", { class: "feed-list", role: "list" });
     this.more = el("div", { class: "feed-more" });
-    this.search = el("label", { class: "feed-search" }, icon("search", 16), this.input, el("kbd", {}, "/"));
-    this.filters = el("div", { class: "feed-filters" }, this.scopeBar, this.tagBar, this.folderBar, this.sortSel, this.saveBtn, this.emptyBtn);
+    // The sort sits in the search box, so the filters fit on one row.
+    this.search = el("label", { class: "feed-search" }, icon("search", 16), this.input, this.sortSel, el("kbd", {}, "/"));
+    this.filters = el("div", { class: "feed-filters" }, this.scopeBar, this.tagBar, this.folderSel, this.saveBtn, this.emptyBtn);
     this.keys = el("footer", { class: "feed-keys" });
-    this.root.append(el("div", { class: "feed" }, el("header", { class: "feed-head" }, this.heading, this.search, this.filters, this.about), this.bulk, this.list, this.elsewhere, this.more, this.keys));
+    // The heading scrolls away; the search and filters stay at the top, and the list scrolls clear of them.
+    const head = el("header", { class: "feed-head" }, this.search, this.filters, this.about);
+    this.root.append(el("div", { class: "feed" }, this.heading, head, this.bulk, this.list, this.elsewhere, this.more, this.keys));
     this.input.addEventListener("input", () => {
       clearTimeout(this.timer);
       this.timer = window.setTimeout(() => this.reload(), 90);
     });
     this.root.addEventListener("keydown", (e) => this.key(e));
+    // j and k scroll a card into view below the sticky header (and the bulk bar, when it shows), not under it.
+    const clear = () => {
+      const bar = this.bulk.hidden ? 0 : this.bulk.offsetHeight + 10;
+      this.root.style.setProperty("--feed-head", `${head.offsetHeight}px`);
+      this.root.style.scrollPaddingTop = `${head.offsetHeight + bar + 8}px`;
+    };
+    if (typeof ResizeObserver !== "undefined") {
+      const ro = new ResizeObserver(clear);
+      ro.observe(head);
+      ro.observe(this.bulk);
+    }
     this.root.addEventListener("scroll", () => {
       if (!this.root.hidden) this.scrollTop = this.root.scrollTop;
       if (this.root.scrollTop + this.root.clientHeight > this.root.scrollHeight - 600) void this.loadMore();
@@ -286,13 +304,11 @@ export class NotesPage {
     this.root.dataset.tab = this.tab;
   }
 
-  /** The folder chips: every folder, and a subfolder picked in the sidebar too, so it shows as the filter in use. */
+  /** The folder menu: every folder, and a subfolder picked in the sidebar too, so it shows as the filter in use. */
   private renderFolders(folders: string[]) {
-    this.folderBar.replaceChildren(
-      ...["", ...folders, ...(this.folder && !folders.includes(this.folder) ? [this.folder] : [])].map((f) =>
-        el("button", { type: "button", class: `chip${f === this.folder ? " is-on" : ""}`, "aria-pressed": String(f === this.folder), onclick: () => ((this.folder = f), (this.focus = 0), this.reload()) }, f || "All folders"),
-      ),
-    );
+    this.folderSel.replaceChildren(...["", ...folders, ...(this.folder && !folders.includes(this.folder) ? [this.folder] : [])].map((f) => el("option", { value: f }, f || "All folders")));
+    this.folderSel.value = this.folder;
+    this.folderSel.classList.toggle("is-on", !!this.folder);
   }
 
   /** The sort menu for the tab, and the footer listing its keys (none with nothing listed). */
@@ -640,6 +656,7 @@ export class NotesPage {
     hydrateTaskChips(node, tasks);
     hydrateCode(node);
     hydrateMath(node);
+    hydrateGithubLinks(node);
     // A note can write its own <span class="tk-run">, so only the ones that name a real task count.
     node.querySelectorAll<HTMLElement>(".tk-run").forEach((run) => {
       const task = tasks[+run.dataset.task!];
@@ -869,6 +886,7 @@ export class NotesPage {
         Enter: () => this.toggleExpand(this.focus),
         o: () => item && this.hooks.open(item.path),
         s: () => item && this.hooks.toggleStar(item.path),
+        F2: () => item && !this.hooks.readOnly() && this.hooks.rename(item.path),
         e: () => void this.archive(this.selected.size ? [...this.selected] : item ? [item.path] : []),
         x: () => item && this.toggle(item.path),
         Delete: () => void this.delete(this.selected.size ? [...this.selected] : item ? [item.path] : []),

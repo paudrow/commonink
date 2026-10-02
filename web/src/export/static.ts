@@ -216,7 +216,7 @@ async function snapshot(d: Directive, path: string, src: StaticSources): Promise
     case "stopwatch":
       return box(`Stopwatch${label}`, el("div", { class: "st-note" }, "Stopwatch"));
     case "calendar":
-      return box(`Calendar${label}`, el("div", { class: "st-note" }, `Daily notes in ${a.folder ?? "Journal"}`));
+      return box(`Journal${label}`, el("div", { class: "st-note" }, `Notes in ${a.folder ?? "Journal"}`));
     default:
       return el("div"); // the getting-started guide, and anything unknown: nothing on paper
   }

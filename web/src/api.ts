@@ -413,7 +413,7 @@ export const api = {
   updateTask: (t: Task, patch: TaskPatch) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/update`, send("POST", { path: t.path, line: t.line, text: t.text, patch, today: today() })),
   /** The day at a glance for `day` (the viewer's today). */
   today: (day: string) => j<TodayView>(`${BASE}/today?today=${encodeURIComponent(day)}`),
-  /** Today's journal note, made from the daily template if it's missing. */
+  /** Today's journal note, made from the journal template if it's missing. */
   dailyNote: (day: string) => j<{ path: string; created: boolean }>(`${BASE}/today/journal`, send("POST", { today: day })),
   /** Add a task written in words (see src/core/quickAdd.ts); `ignore` holds phrases kept as words. */
   addTask: (text: string, ignore: string[] = [], to?: string) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/add`, send("POST", { text, ignore, to, today: today() })),
@@ -440,6 +440,9 @@ export const api = {
   delete: (paths: string[]) => j<{ trashed: Trashed[] }>(`${BASE}/delete`, send("POST", { paths })),
   deleteFolder: (folder: string, notes: "trash" | "lift") =>
     j<{ trashed: Trashed[]; moved: Array<{ from: string; to: string }> }>(`${BASE}/delete-folder`, send("POST", { folder, notes })),
+  /** Rename a folder (or move it under another): everything in it moves, links rewritten. */
+  renameFolder: (folder: string, to: string) =>
+    j<{ from: string; path: string; moved: Array<{ from: string; to: string }> }>(`${BASE}/folders/rename`, send("POST", { folder, to })),
   trash: () => j<TrashItem[]>(`${BASE}/trash`),
   restoreTrash: (ids: string[]) => j<{ restored: string[] }>(`${BASE}/trash/restore`, send("POST", { ids })),
   purgeTrash: (ids: string[]) => j<{ deleted: string[] }>(`${BASE}/trash/delete`, send("POST", { ids })),

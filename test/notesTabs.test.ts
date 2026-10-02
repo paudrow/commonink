@@ -50,6 +50,7 @@ const page = new NotesPage({
   tags: () => [],
   saveQuery() {},
   delete: async () => [],
+  rename() {},
   starButton: () => document.createElement("span"),
   openPerson() {},
   readOnly: () => viewer,
@@ -100,11 +101,13 @@ test("Trash shows cards like Notes: the title, rendered text, the sort and filte
   const card = root.querySelector(".feed-card")!;
   assert.deepEqual([card.querySelector(".fc-title")!.textContent, card.querySelector(".fc-body strong")?.textContent], ["The launch", "launch"], "the title, and markdown rendered, not raw");
   assert.deepEqual([...card.querySelectorAll(".fc-action")].map((b) => (b as HTMLElement).title), ["Restore (r)", "Delete forever (⌫)"]);
-  assert.deepEqual([...root.querySelectorAll(".feed-folders .chip")].map((c) => c.textContent).filter((t) => t !== "Tag"), ["All folders", "Projects"]);
+  const folderSel = root.querySelector<HTMLSelectElement>(".feed-folder")!;
+  assert.deepEqual([...folderSel.options].map((o) => o.textContent), ["All folders", "Projects"]);
   assert.deepEqual([...root.querySelectorAll<HTMLOptionElement>(".feed-sort option")].map((o) => o.textContent), ["Recently deleted", "Deleted longest ago", "By title"]);
   assert.deepEqual([...root.querySelectorAll(".feed-keys kbd")].map((k) => k.textContent), ["j k", "r", "⌫", "x", "/"]);
   assert.equal(button("Empty trash").hidden, false);
-  button("Projects").click();
+  folderSel.value = "Projects";
+  folderSel.dispatchEvent(new document.defaultView!.Event("change"));
   await settle();
   assert.deepEqual(titles(), ["The launch"]);
   page.show({ query: { sort: "oldest" } });

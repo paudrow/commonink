@@ -372,7 +372,7 @@ export function footerStart(lines: string[]): number {
 /**
  * A note with task lines added: at the end of its "Tasks" section (a heading named Tasks, at any
  * level), or, without one, at the end of the note, under a new `## Tasks` heading if `heading`
- * (a daily note) or right after the last line otherwise. A footer (see footerStart) stays last, so
+ * (a journal note) or right after the last line otherwise. A footer (see footerStart) stays last, so
  * "the end" is just above it. `line` is where the first one landed.
  */
 export function withTasksAdded(original: string, added: string[], heading: boolean): { content: string; line: number } {

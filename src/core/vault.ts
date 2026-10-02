@@ -20,7 +20,7 @@ import {
   checkInDue, checkInEvery, contactFromNote, contactNote, dayOfNote, emptyContact, fillContact, parseContactsCsv, parseVCards, PEOPLE, peopleDirectory, personFor, sameFields, samePerson,
   type Contact, type ContactFields, type ContactInput, type ContactNote, type MemberRef, type TimelineItem,
 } from "./contacts.ts";
-import { cleanTitle, DAILY_TEMPLATE, fillTemplate, localNow, TEMPLATES, templateInfo, type FillOptions, type TemplateInfo } from "./templates.ts";
+import { cleanTitle, fillTemplate, JOURNAL_TEMPLATES, localNow, TEMPLATES, templateInfo, type FillOptions, type TemplateInfo } from "./templates.ts";
 import { frontmatterEntries } from "./frontmatter.ts";
 
 export interface NoteMeta {
@@ -1800,10 +1800,10 @@ export class Vault {
 
   /**
    * Add a task typed the way you'd say it ("Pay rent every month on the 1st #home"; see
-   * quickAdd.ts). It goes under `## Tasks` in today's daily note (`Journal/YYYY-MM-DD.md`, made if
+   * quickAdd.ts). It goes under `## Tasks` in today's journal note (`Journal/YYYY-MM-DD.md`, made if
    * needed), or in the note named with `→ [[Note]]`: at the end of its Tasks section, or of the note.
    * `today` is the person's day; `ignore` holds phrases they chose to keep as words; `to` is a note
-   * to use instead of the daily note (the one the bar was opened from), which `→ [[Note]]` overrides.
+   * to use instead of the journal (the one the bar was opened from), which `→ [[Note]]` overrides.
    */
   addTask(input: string, source: string, opts: { today?: string; ignore?: string[]; to?: string } = {}) {
     const today = opts.today ?? this.day();
@@ -1844,7 +1844,7 @@ export class Vault {
     };
   }
 
-  /** Today's journal note (`Journal/YYYY-MM-DD.md`), made from the daily template if it's missing. */
+  /** Today's journal note (`Journal/YYYY-MM-DD.md`), made from the journal template if it's missing. */
   dailyNote(date: string, source: string) {
     if (!isDate(date)) throw new VaultError(`"today" must be a date like 2026-10-01, not "${date}"`);
     const rel = `Journal/${date}.md`;
@@ -1853,9 +1853,9 @@ export class Vault {
     return { path: rel, created: true, version: r.version, change: r.change };
   }
 
-  /** A new daily note: `Templates/Daily note.md`, filled in as of `date` (see templates.ts), or a plain one with Tasks and Log. */
+  /** A new journal note: `Templates/Journal.md` (or `Templates/Daily note.md`, its old name), filled in as of `date` (see templates.ts), or a plain one with Tasks and Log. */
   private dailyTemplate(date: string): string {
-    const template = this.files.read(DAILY_TEMPLATE);
+    const template = JOURNAL_TEMPLATES.map((t) => this.files.read(t)).find((t) => t !== null) ?? null;
     return template !== null ? fillTemplate(template, { at: `${date}T${localNow(this.now(), this.timeZone).split("T")[1]}`, title: date }).text : `# ${date}\n\n## Tasks\n\n## Log\n`;
   }
 
@@ -2054,6 +2054,48 @@ export class Vault {
       return this.move(rel, this.freePath(parent === "." ? rest : `${parent}/${rest}`), source);
     });
     return { deleted: [], moved };
+  }
+
+  /**
+   * Rename a folder, or move it under another: everything in it (its archived notes, in Archive,
+   * too) moves to `to`, every link to them rewritten as a note's move does, and smart folders
+   * narrowed to it follow. It can't land on a folder that has anything in it already, and nothing
+   * moves unless all of it can.
+   */
+  moveFolder(folder: string, to: string, source: string): { from: string; path: string; moved: Array<ReturnType<Vault["move"]>> } {
+    const [from, dest] = [folder, to].map((f) => cleanPath(f).replace(/\/+$/, ""));
+    for (const [dir, what] of [[ARCHIVE.slice(0, -1), "Archive"], [PEOPLE, "Contacts"], [TEMPLATES, "Templates"]] as const) {
+      if (from === dir) throw new VaultError(`${dir} is where ${what === "Archive" ? "archived notes go" : `${what} live`}, so it keeps its name`);
+    }
+    if (isArchived(`${from}/`) || isArchived(`${dest}/`)) throw new VaultError("Folders in Archive move with their notes: unarchive them instead");
+    if (dest === from) return { from, path: dest, moved: [] };
+    if (dest.startsWith(`${from}/`)) throw new VaultError(`${from} can't move into itself`);
+    const rels = [...this.under(from), ...this.under(`${ARCHIVE}${from}`)];
+    if (!rels.length) throw new VaultError(`There's nothing in ${from}`, "not_found");
+    // Only the case changing ("ideas" to "Ideas"): a case-insensitive disk would keep the folder's old
+    // spelling under renamed files, so it goes by way of another name.
+    if (dest.toLowerCase() === from.toLowerCase()) {
+      let via = `${from} (renaming)`;
+      for (let i = 2; this.files.listUnder(via).length; i++) via = `${from} (renaming ${i})`;
+      const first = this.moveFolder(from, via, source);
+      const r = this.moveFolder(via, dest, source);
+      const was = new Map(first.moved.map((m) => [m.path, m.from]));
+      return { ...r, from, moved: r.moved.map((m) => ({ ...m, from: was.get(m.from) ?? m.from })) };
+    }
+    if (this.under(dest).length || this.files.listUnder(dest).length) throw new VaultError(`There's already a folder named ${dest}`, "exists");
+    const target = (rel: string) => (isArchived(rel) ? `${ARCHIVE}${dest}${rel.slice(ARCHIVE.length + from.length)}` : `${dest}${rel.slice(from.length)}`);
+    const clash = rels.find((rel) => this.files.stat(target(rel)));
+    if (clash) throw new VaultError(`${target(clash)} already exists`, "exists");
+    const moved = rels.map((rel) => this.move(rel, target(rel), source));
+    for (const f of this.db.all<{ id: string; query: string }>("SELECT id, query FROM smart_folders")) {
+      const q = parseQuery(f.query);
+      if (q.folder === from || q.folder?.startsWith(`${from}/`)) {
+        this.db.run("UPDATE smart_folders SET query = ? WHERE id = ?", formatQuery({ ...q, folder: dest + q.folder.slice(from.length) }), f.id);
+      }
+    }
+    this.files.prune?.(from);
+    this.files.prune?.(`${ARCHIVE}${from}`);
+    return { from, path: dest, moved };
   }
 
   /** The ids of what's in Trash, newest first. */

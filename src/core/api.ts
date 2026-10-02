@@ -30,6 +30,8 @@ export interface ApiHost {
   removed(rel: string, change: Change): void;
   /** The set of notes changed. */
   tree(): void;
+  /** A folder was renamed or moved (online: its shares go with it). */
+  folderMoved?(from: string, to: string): Promise<void>;
   /** The workspace's calendars, where the host can sync them (both hosts today). */
   calendar?: Calendar;
   /** Calendars or their events changed: tell connected clients (and reschedule syncing). */
@@ -510,6 +512,16 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       const out = trashed(vault.delete(paths("paths"), actor));
       host.tree();
       return json({ trashed: out });
+    }
+    case "POST /folders/rename": {
+      const r = vault.moveFolder(str("folder"), str("to"), actor);
+      for (const m of r.moved) {
+        for (const e of m.edits) host.written(e.path, e.content, e.version, e.change);
+        host.moved(m.from, m.path, m.version, m.change);
+      }
+      await host.folderMoved?.(r.from, r.path);
+      host.tree();
+      return json({ from: r.from, path: r.path, moved: r.moved.map((m) => ({ from: m.from, to: m.path })) });
     }
     case "POST /delete-folder": {
       const notes = str("notes");
