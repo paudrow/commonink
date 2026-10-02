@@ -33,6 +33,8 @@ export const query: WidgetSpec = {
   hint: "Live list or table of notes by search, folder, tag or property",
   keywords: "query list notes dashboard recent folder tag search",
   defaults: { limit: "6" },
+  // Filters written as keys of their own (modified>-7d, -tag=x) show in Matching, so saving the form keeps them.
+  formArgs: (args) => ({ ...args, q: toQuery(args).q ?? "" }),
   configAction: {
     label: "Save as smart folder",
     icon: "folderSearch",

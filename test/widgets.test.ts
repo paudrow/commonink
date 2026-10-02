@@ -22,6 +22,11 @@ test("the query fields cover every query key a smart folder keeps, and the widge
   assert.deepEqual(query.fields.map((f) => f.key), ["label", ...QUERY_FIELDS.map((f) => f.key), "view", "cols", "limit"]);
 });
 
+test("a ::query's filters written as their own keys show in Matching, so saving its settings keeps them", () => {
+  const form = query.formArgs!(parseAttrs('q=plan folder=A modified>-7d -tag=x label="Recent"'));
+  assert.equal(serializeAttrs(fieldValues(query.fields, form)), 'label=Recent q="plan modified>-7d -tag=x" folder=A');
+});
+
 test("the shared fields write a query back as text, leaving out blanks and the default sort", () => {
   const edit = (src: string) => serializeAttrs(fieldValues(QUERY_FIELDS, parseAttrs(src)));
   assert.equal(edit('q="launch plan" tag=work sort=title limit=5'), 'q="launch plan" tag=work sort=title');
