@@ -1079,26 +1079,23 @@ export class Vault {
 
   /** Put a note back the way it was before change #id; with `baseVersion`, only if the note is still at it. */
   restore(id: number, source: string, baseVersion?: string) {
-    const row = this.db.get("SELECT path, op FROM changes WHERE id = ?", id);
+    const row = this.db.get("SELECT path, op, note_id FROM changes WHERE id = ?", id);
     if (!row) throw new VaultError(`No change #${id}`, "not_found");
     // A note deleted by this change is still in Trash: bring it back from there, ID and all.
     const trashed = row.op === "delete" ? this.trashIds().find((t) => t.endsWith(`-${id}`)) : undefined;
     if (trashed) return this.untrash([trashed], source)[0];
     const before = readBefore(this.db, id);
     if (before === null) throw new VaultError(`Change #${id} (${row.op} ${row.path}) has no earlier text to restore`);
-    // The note may have been renamed or archived since: restore it where it lives now.
-    let at = row.path as string;
-    let since = id;
-    for (let moved; (moved = this.db.get("SELECT id, path FROM changes WHERE from_path = ? AND id > ? ORDER BY id LIMIT 1", at, since)); ) {
-      at = moved.path;
-      since = moved.id;
-    }
-    // Deleted since, and still in Trash? Bring that note back first, so the old text lands on it
-    // (its ID, favorite and labels) rather than on a new note beside it.
-    const last = this.db.get("SELECT id, op FROM changes WHERE path = ? AND id > ? ORDER BY id DESC LIMIT 1", at, since);
-    const inTrash = last?.op === "delete" ? this.trashIds().find((t) => t.endsWith(`-${last.id}`)) : undefined;
-    if (inTrash) {
-      at = this.untrash([inTrash], source)[0].path;
+    // Find the note by its ID, wherever it lives now (renamed, archived), never a different note
+    // that took its path since.
+    const noteId = row.note_id as string | null;
+    let at = noteId ? this.pathOf(noteId) : (row.path as string);
+    if (!at) {
+      // Deleted since, and still in Trash? Bring that note back first, so the old text lands on it
+      // (its ID, favorite and labels) rather than on a new note beside it. Gone for good: a new
+      // note at a free name.
+      const inTrash = this.trashIds().find((t) => this.db.get("SELECT 1 FROM changes WHERE id = ? AND note_id = ?", Number(t.split("-")[1]), noteId));
+      at = inTrash ? this.untrash([inTrash], source)[0].path : this.freePath(row.path);
       baseVersion = undefined; // the note wasn't there to have changed
     }
     return { ...this.save(at, before, { source, baseVersion }), path: at };
