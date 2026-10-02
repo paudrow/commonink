@@ -443,12 +443,6 @@ body.panel-closed #panel { opacity: 0; pointer-events: none; }
 .spacer { flex: 1; }
 #agents { display: flex; align-items: center; padding-left: 6px; }
 #agents .avatar { margin-left: -6px; }
-#save-status { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; min-width: 64px; justify-content: flex-end; }
-#save-status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); opacity: 0.8; }
-#save-status[data-state="editing"]::before { background: var(--faint); }
-#save-status[data-state="saving"]::before { background: var(--warn); }
-#save-status[data-state="error"] { color: var(--bad-ink); }
-#save-status[data-state="error"]::before { background: var(--bad); }
 .icon-btn { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 7px; color: var(--muted); }
 .icon-btn:hover { background: var(--hover); color: var(--ink-strong); }
 .icon-btn.small { width: 24px; height: 24px; }
@@ -554,9 +548,10 @@ body.is-resizing iframe { pointer-events: none; }
 .mode[data-mode="insert"] { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok-ink); }
 .mode[data-mode="visual"] { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn-ink); }
 .mode[data-mode="replace"] { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad-ink); }
-.conn { position: relative; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); cursor: help; }
-.conn::before { content: ""; position: absolute; inset: -8px; } /* a hover target bigger than the dot */
-.conn[data-up="true"] { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent); }
+/* Saved and connected says nothing; offline or a failed save says so in words. */
+.health { cursor: help; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.health:empty { display: none; }
+#conn, .health.is-bad { color: var(--bad-ink); }
 .chip-btn {
   font: 600 11px/1 var(--mono);
   min-height: 24px;
