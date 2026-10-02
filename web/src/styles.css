@@ -444,7 +444,13 @@ body.panel-closed #panel { opacity: 0; pointer-events: none; }
 .seg button { min-height: 24px; font-size: 12px; padding: 4px 10px; border-radius: 6px; color: var(--muted); }
 .seg button.is-on { background: var(--bg-elev); color: var(--ink-strong); box-shadow: var(--shadow-sm); }
 
-#banner {
+/* Each pane's banner sits at its top, and the note starts below it (--main-banner, --side-banner: see banner.ts). */
+.banner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
   margin: 0 20px 6px;
   display: flex;
   align-items: center;
@@ -456,8 +462,12 @@ body.panel-closed #panel { opacity: 0; pointer-events: none; }
   color: var(--ink);
   font-size: 13px;
 }
-#banner svg { color: var(--warn); flex: none; }
-#banner { flex-wrap: wrap; }
+body.is-split #banner { top: 34px; right: var(--side, 50%); }
+#side-banner { top: 34px; }
+body.is-split .banner { margin-top: 6px; }
+body.is-split .banner-text { flex-basis: 140px; }
+.banner svg { color: var(--warn); flex: none; }
+.banner { flex-wrap: wrap; }
 .banner-text { flex: 1 1 220px; }
 .banner-btn { padding: 4px 10px; border-radius: 6px; background: var(--bg-elev); border: 1px solid var(--line-strong); font-size: 12.5px; font-weight: 550; }
 .banner-btn:hover { border-color: var(--muted); }
@@ -478,6 +488,7 @@ body.panel-closed #panel { opacity: 0; pointer-events: none; }
 
 #stage { flex: 1; min-height: 0; position: relative; }
 #editor-host, #html-preview, #side-host, #side-preview { position: absolute; inset: 0; }
+#stage > :is(#editor-host, #html-preview) { top: var(--main-banner, 0px); }
 :is(#editor-host, #side-host) .cm-editor { font-size: 16.5px; }
 /* Let the text column shrink with the window even if a widget's content is wide: lines keep
    wrapping, and widgets size themselves to the column. */
@@ -490,13 +501,14 @@ body.panel-closed #panel { opacity: 0; pointer-events: none; }
 /* ------------------------------------------------------------------ split view */
 /* The main pane's views make room for the side pane (its width is --side) and a bar on top. */
 body.is-split #stage > :is(#editor-host, #html-preview, #notes-view, #tasks-view, #calendar-view, #history-view, #assets-view, #tags-view) { top: 34px; right: var(--side, 50%); }
+body.is-split #stage > :is(#editor-host, #html-preview) { top: calc(34px + var(--main-banner, 0px)); }
 .pane-bar { display: flex; align-items: center; gap: 2px; height: 34px; padding: 0 6px 0 8px; border-bottom: 1px solid var(--line); background: var(--bg); font-size: 12.5px; color: var(--muted); }
 #main-bar { position: absolute; top: 0; left: 0; right: var(--side, 50%); }
 .pane-bar.is-focused { box-shadow: inset 0 -2px 0 var(--accent-line); color: var(--ink-strong); }
 .pane-bar .icon-btn:disabled { opacity: 0.35; pointer-events: none; }
 .pane-bar .icon-btn.is-on { color: var(--warn); }
 #side-pane { position: absolute; top: 0; right: 0; bottom: 0; width: var(--side, 50%); border-left: 1px solid var(--line); background: var(--bg); }
-#side-pane > :is(#side-host, #side-preview) { top: 34px; }
+#side-pane > :is(#side-host, #side-preview) { top: calc(34px + var(--side-banner, 0px)); }
 #pane-divider { position: absolute; top: 0; bottom: 0; right: var(--side, 50%); width: 9px; margin-right: -5px; z-index: 5; cursor: col-resize; }
 #pane-divider:hover, #pane-divider:focus-visible, body.is-resizing #pane-divider { background: linear-gradient(to right, transparent 3px, var(--accent-line) 3px, var(--accent-line) 6px, transparent 6px); outline: none; }
 body.is-resizing { cursor: col-resize; user-select: none; }
@@ -1282,8 +1294,8 @@ body.is-resizing iframe { pointer-events: none; }
 .new-note-row { display: flex; align-items: center; gap: 4px; }
 .new-note-row .ghost-btn { flex: 1; }
 
-#banner.is-info { background: color-mix(in srgb, var(--accent) 9%, var(--bg-elev)); border-color: var(--accent-line); }
-#banner.is-info svg { color: var(--accent); }
+.banner.is-info { background: color-mix(in srgb, var(--accent) 9%, var(--bg-elev)); border-color: var(--accent-line); }
+.banner.is-info svg { color: var(--accent); }
 
 /* ------------------------------------------------------------------ notes page */
 #notes-view { position: absolute; inset: 0; overflow: auto; outline: none; }
