@@ -40,7 +40,7 @@ export interface StaticSources {
   /** Tasks, as `::tasks` asks for them. */
   tasks(q: { folder?: string; note?: string; tag?: string; assignee?: string; due?: string }): Promise<Task[]>;
   /** Notes, as `::query` asks for them. */
-  feed(q: NoteQuery & { limit: number }): Promise<FeedItem[]>;
+  feed(q: NoteQuery & { limit: number; cols?: string }): Promise<FeedItem[]>;
   today(): Promise<TodayView>;
   /** KaTeX's renderer (math.ts's, or mathRender.ts itself). */
   math(): Promise<{ renderTex(tex: string, display: boolean): Rendered }>;
@@ -203,7 +203,22 @@ async function snapshot(d: Directive, path: string, src: StaticSources): Promise
     case "query": {
       const q = toQuery(a);
       const limit = Math.min(q.limit ?? 6, MAX_ROWS);
-      const items = (await src.feed({ ...q, limit: limit + 1 }).catch(() => [] as FeedItem[])).filter((i) => i.path !== path).slice(0, limit);
+      const cols = a.view === "table" ? [...new Set((a.cols ?? "").split(",").map((c) => c.trim()).filter(Boolean))].slice(0, 20) : [];
+      const props = cols.filter((c) => !["tags", "folder"].includes(c.toLowerCase())).join(",");
+      const items = (await src.feed({ ...q, limit: limit + 1, cols: props || undefined }).catch(() => [] as FeedItem[])).filter((i) => i.path !== path).slice(0, limit);
+      if (a.view === "table" && items.length) {
+        // A table on paper: the title, then each column's values (modified is left blank: a date on paper goes stale).
+        const cell = (i: FeedItem, key: string) => (key === "tags" ? i.tags.map((t) => `#${t}`) : key === "folder" ? [i.path.split("/").slice(0, -1).join("/")] : (i.props?.[key] ?? [])).join(", ");
+        return box(
+          `Notes${label}`,
+          el(
+            "table",
+            {},
+            el("thead", {}, el("tr", {}, el("th", {}, "Note"), ...cols.map((c) => el("th", {}, c)))),
+            el("tbody", {}, ...items.map((i) => el("tr", {}, el("td", {}, noteLink(i.path, i.title)), ...cols.map((c) => el("td", {}, cell(i, c.toLowerCase())))))),
+          ),
+        );
+      }
       return box(`Notes${label}`, items.length ? el("ul", {}, ...items.map((i) => el("li", {}, noteLink(i.path, i.title), i.excerpt ? el("span", { class: "st-note" }, ` — ${firstLine(i.excerpt)}`) : null))) : empty("No notes match."));
     }
     case "kanban": {

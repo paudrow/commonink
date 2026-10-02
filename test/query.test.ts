@@ -250,3 +250,18 @@ test("an index from before properties reads every note again to fill them in", (
   const again = openVault(dir);
   assert.deepEqual(again.feed(parseQuery("status=draft")).items.map((i) => i.path), ["A.md"]);
 });
+
+test("the feed hands over the properties a table asks for, each with its values", () => {
+  const { vault } = openTempVault({
+    "Projects/A.md": "---\nStatus: draft\ndue: 2026-10-10\nowners: [Ana, Bo]\n---\n# A\n",
+    "Projects/B.md": "# B\n",
+  });
+  const items = vault.feed({ folder: "Projects", sort: "title", cols: "status, Owners,due,missing" }).items;
+  assert.deepEqual(items.map((i) => [i.title, i.props]), [
+    ["A", { status: ["draft"], due: ["2026-10-10"], owners: ["Ana", "Bo"] }],
+    ["B", {}],
+  ]);
+  assert.equal(vault.feed({ folder: "Projects" }).items[0].props, undefined);
+  // A ::query's view and cols aren't filters.
+  assert.deepEqual(toQuery({ folder: "Projects", view: "table", cols: "status,due" }), { folder: "Projects" });
+});

@@ -1195,7 +1195,7 @@ body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view
 .lap-split { color: var(--muted); }
 .lap-total { font-weight: 600; color: var(--ink); }
 
-.qw-config { border-top: 1px solid var(--line); background: color-mix(in srgb, var(--bg-side) 55%, var(--bg-elev)); padding: 12px 14px; display: grid; gap: 10px; }
+.qw-config { border-top: 1px solid var(--line); background: color-mix(in srgb, var(--bg-side) 55%, var(--bg-elev)); padding: 12px 14px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; } /* minmax: a long ::directive line in the foot ellipsizes instead of widening the form */
 .qw-field { display: grid; grid-template-columns: 110px 1fr; align-items: start; gap: 12px; font-size: 13px; }
 .qw-field-label { color: var(--ink-2); font-weight: 550; padding-top: 7px; }
 .qw-field.is-toggle { align-items: center; }
@@ -1615,6 +1615,17 @@ body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view
 .qq-preview mark { background: var(--mark); color: var(--ink-strong); border-radius: 3px; }
 .qq-meta { flex: none; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .qq-foot { font-size: 11.5px; color: var(--muted); padding-top: 6px; }
+/* view=table: the title, then a column per property. Wide tables scroll inside the widget. */
+.qq-table-wrap { overflow-x: auto; margin: 2px 0 0; }
+.qq-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.qq-table th { text-align: left; font-weight: 600; font-size: 11.5px; color: var(--muted); padding: 6px 10px 6px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.qq-table td { padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; color: var(--ink); }
+.qq-table td:not(:first-child) { white-space: nowrap; }
+.qq-table td:first-child { min-width: 9em; word-break: normal; overflow-wrap: normal; }
+.qq-table tr:last-child td { border-bottom: none; }
+.qq-table .qq-cell-title { font-weight: 600; color: var(--ink-strong); text-align: left; padding: 0; }
+.qq-table .qq-cell-title:hover { text-decoration: underline; }
+.qq-table .qq-none { color: var(--muted); }
 
 /* ------------------------------------------------------------------ calendar widget */
 .qc-head { display: flex; align-items: center; gap: 4px; margin-bottom: 8px; }
