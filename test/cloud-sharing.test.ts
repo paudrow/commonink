@@ -187,6 +187,24 @@ test("making a link view-only, or removing it, does the same for everyone who jo
   assert.deepEqual([await role(keeper), await role(direct)], [404, "viewer"]);
 });
 
+test("sharing a link again as view-only, or to run out sooner, does the same for everyone who joined it", async () => {
+  await cloud.call(t.owner, "POST", `${t.base}/note`, { path: "Reshared.md", content: "# Reshared\n" });
+  const made = await cloud.call(t.owner, "POST", `${t.base}/shares`, { path: "Reshared.md", link: true, role: "editor" });
+  const share = made.shares.find((s: { kind: string }) => s.kind === "link");
+  const keeper = await cloud.signIn("rekeeper");
+  await cloud.call(keeper, "POST", `/api/s/${share.url.split("/")[2]}/join`, {});
+  const id = (await cloud.call(t.owner, "GET", `${t.base}/notes`)).find((n: { path: string }) => n.path === "Reshared.md").id;
+  const role = async () => {
+    const r = await get(keeper, `${t.base}/shared/note?id=${id}`);
+    return r.status === 200 ? ((await r.json()) as { role: string }).role : r.status;
+  };
+  assert.equal(await role(), "editor");
+  await cloud.call(t.owner, "POST", `${t.base}/shares`, { path: "Reshared.md", link: true, role: "viewer" });
+  assert.equal(await role(), "viewer");
+  await cloud.call(t.owner, "POST", `${t.base}/shares`, { path: "Reshared.md", link: true, role: "viewer", expiresAt: Date.now() - 1000 });
+  assert.equal(await role(), 404);
+});
+
 test("an address several accounts share (Previews' developer sign-ins) is shared by address, and reaches whoever signs in with it", async () => {
   const twin = await cloud.signIn("twin");
   const env = await cloud.server.getWorker().getEnv();
@@ -247,6 +265,22 @@ test("signing out closes live connections opened through a share, in workspaces 
   await cloud.call(t.owner, "PUT", `${t.base}/note`, { path: "Guest note.md", content: "# Guest note\n\nWritten after they signed out.\n" });
   const open = await live.stillOpen();
   assert.deepEqual([live.heard.filter((m) => m.includes("after they signed out")), open], [[], false]);
+});
+
+test("a note moved into a shared folder reaches its live readers without where it came from", async () => {
+  await cloud.call(t.owner, "POST", `${t.base}/note`, { path: "HR/Firing Bob.md", content: "# Firing Bob\n" });
+  const live = await listen(editor);
+  await cloud.call(t.owner, "POST", `${t.base}/move`, { from: "HR/Firing Bob.md", to: "Team folder/b.md" });
+  await cloud.call(t.owner, "POST", `${t.base}/move`, { from: "Team folder/b.md", to: "Team folder/c.md" });
+  await live.stillOpen();
+  await cloud.call(t.owner, "POST", `${t.base}/move`, { from: "Team folder/c.md", to: "HR/Firing Bob.md" });
+  const changes = live.heard.map((m) => JSON.parse(m)).flatMap((m) => (m.change ? [`${m.type} ${m.change.path} from ${m.change.from_path}: ${m.change.summary}`] : []));
+  assert.deepEqual(changes, [
+    "note Team folder/b.md from null: null",
+    "change Team folder/b.md from null: null",
+    "note Team folder/c.md from Team folder/b.md: from Team folder/b.md",
+    "change Team folder/c.md from Team folder/b.md: from Team folder/b.md",
+  ]);
 });
 
 test("only those who can change sharing see a link's URL; workspace viewers see only that there is one", async () => {

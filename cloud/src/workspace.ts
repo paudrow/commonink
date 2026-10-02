@@ -21,6 +21,7 @@ import type { Env } from "./env.ts";
 import { safeDecode } from "../../src/core/uri.ts";
 import { AGENTS_NOTE } from "../../src/core/noteRoles.ts";
 import { accessOn, type SharedAccess, type ShareRole } from "./grants.ts";
+import { readUpTo } from "./body.ts";
 import { limit } from "./limits.ts";
 import { addShare, agentLinksAllowed, linkToken, listShares, removeShare, ShareError, updateShare, type Share, type Target } from "./shares.ts";
 import { Calendar } from "../../src/core/calendar.ts";
@@ -213,9 +214,9 @@ export class Workspace extends DurableObject<Env> {
     try {
       const name = url.searchParams.get("name") ?? "";
       const folder = url.searchParams.get("folder") ?? "assets";
-      const body = await req.arrayBuffer();
-      if (body.byteLength > MAX_UPLOAD) return json({ error: "That file is over 50 MB" }, 413);
-      const { rel, r } = await this.storeFile(wsId, this.vault.uploadPath(name, folder), new Uint8Array(body), actor, () => this.vault.uploadPath(name, folder));
+      const body = await readUpTo(req, MAX_UPLOAD);
+      if (!body) return json({ error: "That file is over 50 MB" }, 413);
+      const { rel, r } = await this.storeFile(wsId, this.vault.uploadPath(name, folder), body, actor, () => this.vault.uploadPath(name, folder));
       this.announce(rel, null, r.version, r.change);
       this.broadcast({ type: "tree" });
       return json({ path: rel, version: r.version, size: r.size });
@@ -246,9 +247,10 @@ export class Workspace extends DurableObject<Env> {
         const text = this.files.read(rel);
         return text === null ? null : new TextEncoder().encode(text);
       },
-      add: async (rel, bytes, source) => {
+      add: async (free, bytes, source) => {
+        const rel = free();
         if (bytes.byteLength > MAX_UPLOAD) throw new VaultError(`${rel} is over 50 MB`);
-        await this.storeFile(wsId, rel, bytes, source);
+        return (await this.storeFile(wsId, rel, bytes, source, free)).rel;
       },
     };
   }
@@ -541,15 +543,30 @@ export class Workspace extends DurableObject<Env> {
     return !!meta && !!accessOn(share, meta);
   }
 
+  /**
+   * A change as a share hears it: where the note came from only if the share reaches it there too,
+   * so moving a note into a shared folder doesn't name the folder it left. (Its summary says it.)
+   */
+  private changeFor(share: SharedAccess, change: Change): Change {
+    if (!change.from_path || "member" in share) return change;
+    const id = change.note_id ?? this.vault.meta(change.path)?.id ?? null;
+    return accessOn(share, { id, path: change.from_path }) ? change : { ...change, from_path: null, summary: null };
+  }
+
   private broadcast(msg: Record<string, unknown>) {
     const data = JSON.stringify(msg);
+    const change = msg.change as Change | null | undefined;
     const now = Date.now();
     for (const ws of this.ctx.getWebSockets()) {
       try {
         const { expires, share } = (ws.deserializeAttachment() ?? {}) as { expires?: number; share?: SharedAccess };
         if (expires && expires < now) ws.close(4001, "Session expired");
         else if (share && "grants" in share && share.grants.some((g) => g.expiresAt && g.expiresAt < now)) ws.close(4003, "Sharing changed");
-        else if (!share || this.mayHear(share, msg)) ws.send(data);
+        else if (!share) ws.send(data);
+        else if (this.mayHear(share, msg)) {
+          const heard = change ? this.changeFor(share, change) : change;
+          ws.send(heard === change ? data : JSON.stringify({ ...msg, change: heard }));
+        }
       } catch {}
     }
   }

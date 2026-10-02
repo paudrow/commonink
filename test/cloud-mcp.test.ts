@@ -85,7 +85,7 @@ async function mcp(token: string) {
 /** What a viewer's agent gets: reading, and what's each person's own (favorites, their smart folders). */
 const VIEWER_TOOLS = [
   "backlinks", "delete_smart_folder", "diff_versions", "export_note", "get_event", "get_today", "list_contacts", "list_events", "list_folders",
-  "list_labels", "list_notes", "list_shares", "list_smart_folders", "list_tags", "list_tasks", "list_templates", "order_favorites", "read_board", "read_contact",
+  "list_labels", "list_notes", "list_shares", "list_smart_folders", "list_tags", "list_tasks", "list_templates", "missing_links", "order_favorites", "read_board", "read_contact",
   "read_note", "recent_changes", "save_smart_folder", "save_to_drive", "search_notes", "show_change", "star_note", "star_tag", "unstar_note", "unstar_tag",
 ];
 const ALL_TOOLS = [
@@ -363,8 +363,8 @@ test("an agent shares a note as its person, lists who it's shared with, and stop
   assert.equal((await owner.call("list_shares", { path: "Plan to share" })).text, "Plan to share.md isn't shared with anyone outside the workspace.");
   const viewing = await owner.call("share_note", { path: "Plan to share", email: "reader@example.com", role: "viewer" });
   assert.match(viewing.text, /- reader@example\.com \(by email\) — viewer/, "a viewer by email needs no setting");
-  assert.deepEqual(await cloud.call(people.owner, "GET", `${people.base}/workspace/settings`), { agentLinks: false });
-  assert.deepEqual(await cloud.call(people.owner, "POST", `${people.base}/workspace/settings`, { agentLinks: true }), { agentLinks: true });
+  assert.deepEqual(await cloud.call(people.owner, "GET", `${people.base}/workspace/settings`), { agentLinks: false, gamified: true });
+  assert.deepEqual(await cloud.call(people.owner, "POST", `${people.base}/workspace/settings`, { agentLinks: true }), { agentLinks: true, gamified: true });
   const [logged] = await cloud.call(people.owner, "GET", `${people.base}/workspace/log`);
   assert.deepEqual([logged.action, logged.detail], ["settings", "agentLinks: on"]);
   const shared = await owner.call("share_note", { path: "Plan to share", email: "guest@example.com", role: "editor", expires_in_days: 7 });

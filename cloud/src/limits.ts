@@ -23,6 +23,16 @@ export const LIMITS = {
 } as const;
 
 /**
+ * Workspace routes limited per person, whichever way they come: the app's API (index.ts) or a CLI
+ * command (cli.ts) with that route. (Shares are counted in the workspace, invites in admin.ts.)
+ */
+export const ROUTE_LIMITS: Record<string, keyof typeof LIMITS> = {
+  "POST /upload": "upload",
+  "POST /calendar/sources": "calendar",
+  "POST /calendar/refresh": "calendar",
+};
+
+/**
  * Count one `action` by `who`. Returns a 429 to send back once they're over the limit, or null.
  * `as` picks the 429's form: JSON for the API, plain text for the sign-in pages.
  */

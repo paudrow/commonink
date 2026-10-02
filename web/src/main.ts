@@ -12,6 +12,7 @@ import { setSaveToDrive, setShareState, setShareWithPeople, SHARE_KEYS, toggleSh
 import type { Label } from "./api.ts";
 import { hideBanner, showBanner } from "./banner.ts";
 import { showConflict as conflictBanner } from "./conflict.ts";
+import { notesChanged } from "./editor/livePreview.ts";
 import { createState, lineNumbersFor, lineNumbersSlot, openLinkToSide, remote, setVimDisplayLines, vimSlot } from "./editor/setup.ts";
 import { linkTargetAt } from "./editor/linkAt.ts";
 import { bumpEmbeds, codeRange, editorContext } from "./editor/blocks.ts";
@@ -44,6 +45,7 @@ import { did, vaultEvents } from "./events.ts";
 import { guideMessage, startGuide } from "./onboarding.ts";
 import { watchTodayCleared } from "./todayCleared.ts";
 import { inkState, setInk, startInks } from "./inkUnlocks.ts";
+import { gamified, loadGamified, onGamified, setGamified } from "./gamify.ts";
 import { store } from "./store.ts";
 import { changeVerb, groupChanges } from "../../src/core/format.ts";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
@@ -106,6 +108,8 @@ interface Pane {
   host: HTMLElement;
   preview: HTMLElement;
   bar: HTMLElement;
+  /** The strip over its note, for something about that note (archived, a conflict…). */
+  banner: HTMLElement;
   trail: PaneTrail;
   /** Counts what the pane was asked to show, so a note that loads after a later request doesn't replace it. */
   opens: number;
@@ -151,17 +155,18 @@ const revealed = new Set<OptionalItem>();
 const layoutKey = () => `layout:${workspaceId || "local"}`;
 /** How the window was split, and each pane's trail; read again once the workspace is known (see boot). */
 let layout = newLayout();
-const makePane = (index: 0 | 1, host: HTMLElement, preview: HTMLElement, bar: HTMLElement): Pane => ({
+const makePane = (index: 0 | 1, host: HTMLElement, preview: HTMLElement, bar: HTMLElement, banner: HTMLElement): Pane => ({
   index,
   view: new EditorView({ parent: host }),
   session: null,
   host,
   preview,
   bar,
+  banner,
   trail: layout.panes[index],
   opens: 0,
 });
-const panes: [Pane, Pane] = [makePane(0, $("#editor-host"), $("#html-preview"), $("#main-bar")), makePane(1, $("#side-host"), $("#side-preview"), $("#side-bar"))];
+const panes: [Pane, Pane] = [makePane(0, $("#editor-host"), $("#html-preview"), $("#main-bar"), $("#banner")), makePane(1, $("#side-host"), $("#side-preview"), $("#side-bar"), $("#side-banner"))];
 let active = panes[0];
 let split = false;
 const other = (p: Pane) => panes[1 - p.index];
@@ -410,7 +415,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
     return toast({ text: `Couldn't open ${path}` });
   }
   if (ticket !== pane.opens) return; // something else was opened here while this loaded
-  hideBanner();
+  hideBanner(pane.banner);
   // The same note again (renamed, moved or archived while open) keeps its place.
   const keep = pane.session?.id === note.id ? { scroll: pane.view.scrollSnapshot(), head: pane.view.state.selection.main.head } : null;
   const next: Session = {
@@ -458,19 +463,15 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
     );
   } catch (e) {
     console.error(e);
-    return showBanner(`Couldn't open ${note.path} in the editor. Reload the page to try again.`);
+    return showBanner(`Couldn't open ${note.path} in the editor. Reload the page to try again.`, [], { in: pane.banner });
   }
   if (note.kind === "md") next.heading = nameLine(pane.view.state.doc).text;
   pane.session = next;
   pane.trail = opts.trail === false ? { ...pane.trail, note: note.id } : visit(pane.trail, note.id);
   resetVimJumps();
-  if (isArchived(note.path)) {
-    showBanner("This note is archived. It's hidden from search and the sidebar.", ["Unarchive", () => void archiveCurrent()]);
-    $("#banner").classList.add("is-info");
-  } else if (isAgentsNote(note.path)) {
-    showBanner(AGENTS_BLURB);
-    $("#banner").classList.add("is-info");
-  }
+  // Split, the banner is over this pane only: Unarchive puts back this pane's note, whichever has the focus.
+  if (isArchived(note.path)) showBanner("This note is archived. It's hidden from search and the sidebar.", [["Unarchive", () => void archiveCurrent(pane)]], { in: pane.banner, info: true });
+  else if (isAgentsNote(note.path)) showBanner(AGENTS_BLURB, [], { in: pane.banner, info: true });
   pane.host.classList.toggle("is-code", note.kind === "html");
   showNoteIn(pane);
   if (pane.index === 1 && !split) setSplit(true);
@@ -526,6 +527,7 @@ function setSplit(on: boolean) {
   $("#side-pane").hidden = !on;
   $("#pane-divider").hidden = !on;
   $("#main-bar").hidden = !on;
+  if (!on) hideBanner(panes[1].banner);
   $("#stage").style.setProperty("--side", `${layout.side * 100}%`);
   if (!on) panes[1].session = null;
   renderPaneBars();
@@ -685,11 +687,12 @@ function showStage(which: "editor" | "html" | "notes" | "tasks" | "calendar" | "
 }
 
 /**
- * A page you went to (Notes, Tasks…): its address, and a place in the main pane's trail, so back
- * comes to it. A page shown for you (at start, or after its note went away) isn't a place you went.
+ * A page showing in the main pane (Notes, Tasks…) is a place in its trail, so back from a note you
+ * opened from it comes back to it, however you got there. `push`: you went to it, so the address
+ * bar moves too; shown from the address bar (at start, a reload, back and forward), it's already there.
  */
-function wentTo(url: string) {
-  setUrl(url);
+function wentTo(url: string, push = true) {
+  if (push) setUrl(url);
   panes[0].trail = visit(panes[0].trail, pageEntry(url));
   saveLayout();
   renderPaneBars();
@@ -705,7 +708,7 @@ async function leaveNote() {
   main.session = null;
   active = main;
   renderPaneBars();
-  hideBanner();
+  hideBanner(main.banner);
   await setFocusMode(false);
   $("#backlink-count").textContent = "";
   $("#backlinks").replaceChildren(el("div", { class: "panel-empty" }, "—"));
@@ -720,8 +723,8 @@ async function showNotes(opts: { tab?: NotesTab; filter?: boolean; folder?: stri
   showStage("notes");
   notesPage.show(opts);
   const tab = notesPage.tab; // a viewer asking for Trash gets Notes
-  if (opts.push !== false) wentTo(`/${tab}`);
-  else if (tab !== opts.tab && opts.tab) setUrl(`/${tab}`, "replace");
+  if (opts.push === false && opts.tab && tab !== opts.tab) setUrl(`/${tab}`, "replace");
+  wentTo(`/${tab}`, opts.push !== false);
   document.title = `${PAGE_LABEL[tab]} · Common Ink`;
   renderChrome();
   renderTree();
@@ -736,7 +739,7 @@ async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean
     void (calendarTarget(path) !== null ? openTarget(path) : openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }));
   unmountTasks = renderTasksPage($("#tasks-view"), { open, tags: () => tags, me: workspaceId ? "Tasks with your @name" : "Tasks with @me" }, { tag: opts.tag, assignee: opts.assignee });
   $("#tasks-view").focus({ preventScroll: true });
-  if (opts.push !== false) wentTo("/tasks");
+  wentTo("/tasks", opts.push !== false);
   document.title = "Tasks · Common Ink";
   renderChrome();
   renderTree();
@@ -748,7 +751,7 @@ async function showCalendar(opts: { event?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("calendar");
   const page = await loadCalendar();
-  if (opts.push !== false) wentTo(opts.event ? `/calendar/${opts.event}` : "/calendar");
+  wentTo(opts.event ? `/calendar/${opts.event}` : "/calendar", opts.push !== false);
   document.title = "Calendar · Common Ink";
   renderChrome();
   renderTree();
@@ -801,7 +804,7 @@ async function showHistory(opts: { note?: string | null; select?: number; label?
   showStage("history");
   await (await loadHistory()).show({ note: opts.note ?? null, select: opts.select, label: opts.label });
   const id = opts.note ? notes.find((n) => n.path === opts.note)?.id : undefined;
-  if (opts.push !== false) wentTo(id ? `/history?note=${id}` : "/history");
+  wentTo(id ? `/history?note=${id}` : "/history", opts.push !== false);
   document.title = `${opts.note ? `${displayName(opts.note)} · ` : ""}History · Common Ink`;
   renderChrome();
   renderTree();
@@ -828,7 +831,7 @@ async function showTags(opts: { push?: boolean } = {}) {
   showStage("tags");
   (await loadTags()).show();
   refreshTagsSoon();
-  if (opts.push !== false) wentTo("/tags");
+  wentTo("/tags", opts.push !== false);
   document.title = "Tags · Common Ink";
   renderChrome();
   renderTree();
@@ -842,7 +845,7 @@ async function showContacts(opts: { contact?: string | null; push?: boolean } = 
   const page = await loadContacts();
   await page.show(opts.contact ?? null);
   const name = opts.contact ? notes.find((n) => n.id === opts.contact)?.title : undefined;
-  if (opts.push !== false) setUrl(name ? `/contacts?c=${opts.contact}` : "/contacts");
+  wentTo(name ? `/contacts?c=${opts.contact}` : "/contacts", opts.push !== false);
   document.title = `${name ? `${name} · ` : ""}Contacts · Common Ink`;
   renderChrome();
   renderTree();
@@ -885,7 +888,7 @@ async function showShared(opts: { push?: boolean } = {}) {
   showStage("shared");
   const root = $("#shared-view");
   root.replaceChildren(el("div", { class: "trash" }, el("div", { class: "tr-head" }, el("div", { class: "tr-title" }, el("h1", {}, "Shared with me")), el("p", {}, "Notes people outside your workspaces have shared with you. Each opens on its own page."))));
-  if (opts.push !== false) setUrl("/shared");
+  wentTo("/shared", opts.push !== false);
   document.title = "Shared with me · Common Ink";
   renderChrome();
   renderTree();
@@ -952,7 +955,7 @@ async function showAssets(opts: { open?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("assets");
   (await loadAssets()).show({ open: opts.open });
-  if (opts.push !== false) wentTo("/assets");
+  wentTo("/assets", opts.push !== false);
   document.title = "Assets · Common Ink";
   renderChrome();
   renderTree();
@@ -1038,8 +1041,8 @@ async function setFocusMode(on: boolean) {
 }
 
 /** Archive the open note (or unarchive it, if it's archived). Stays on the note, with Undo. */
-async function archiveCurrent() {
-  const s = active.session;
+async function archiveCurrent(pane = active) {
+  const s = pane.session;
   if (!s) return;
   await flushSave();
   const restore = isArchived(s.path);
@@ -1053,7 +1056,7 @@ async function archiveCurrent() {
     renaming = null;
   }
   await refreshNotes();
-  await openNote(to, { push: false });
+  await openNote(to, { push: false, pane });
   toast({
     icon: restore ? "unarchive" : "archive",
     text: `${restore ? "Unarchived" : "Archived"} ${displayName(to)}`,
@@ -1061,8 +1064,8 @@ async function archiveCurrent() {
     action: async () => {
       const back = (await (restore ? api.archive([to]) : api.unarchive([to]))).moved[0].to;
       await refreshNotes();
-      if (active.session?.path === to) {
-        await openNote(back, { push: false });
+      if (pane.session?.path === to) {
+        await openNote(back, { push: false, pane });
       }
     },
   });
@@ -1466,6 +1469,7 @@ function showConflict(s: Session, m: { path: string; content: string | null; ver
   clearTimeout(s.timer);
   status(s, "error");
   conflictBanner({
+    banner: s.pane.banner,
     who,
     where: split ? displayName(s.path) : "this note",
     mine: () => s.pane.view.state.doc.toString(),
@@ -1562,7 +1566,8 @@ function onMessage(m: ServerMsg) {
     case "removed": {
       const path = m.path;
       setTimeout(() => {
-        if (panes.some((p) => p.session?.path === path) && !notes.some((n) => n.path === path)) showBanner(`${displayName(path)} was moved or deleted on disk.`);
+        if (notes.some((n) => n.path === path)) return;
+        for (const p of panes) if (p.session?.path === path) showBanner(`${displayName(path)} was moved or deleted on disk.`, [], { in: p.banner });
       }, 400);
       refreshNotesSoon();
       return;
@@ -1596,6 +1601,7 @@ async function refreshNotes() {
   renderTree();
   assetsPage?.refresh();
   tagsPage?.refresh();
+  for (const p of panes) if (p.session?.kind === "md") p.view.dispatch({ effects: notesChanged.of(null) });
 }
 const refreshNotesSoon = debounce(refreshNotes, 120);
 /** Whether there's a calendar, so Calendar shows in the sidebar. A failed read leaves it as it was. */
@@ -1901,6 +1907,9 @@ function allFolders(): string[] {
 }
 
 const parentOf = (p: string) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
+/** Where a moved note came from, for Activity: its old name if it was renamed, else its old folder. */
+const movedFrom = (from: string, to: string) =>
+  displayName(from) !== displayName(to) ? displayName(from) : parentOf(from) || "the top level";
 
 function setExpanded(folder: string, open: boolean) {
   if (open) prefs.expanded.add(folder);
@@ -1933,6 +1942,7 @@ function renderTree() {
     },
     prefs.sidebarPinned,
     here,
+    !gamified(),
   );
   for (const item of ["contacts", "calendar", "assets"] as const) $(`#${item}-btn`).hidden = !shown[item];
   $('.tree-head[data-section="smart"]').hidden = !shown.smart;
@@ -2235,7 +2245,8 @@ async function moveToFolder(path: string, folder: string, opts: { undo?: boolean
 
 /** Archive a note by its path (the guide's last card offers it). The open note stays open (marked archived), like ⌘⇧E. */
 async function archivePath(path: string) {
-  if (active.session?.path === path) return archiveCurrent();
+  const open = panes.find((p) => p.session?.path === path);
+  if (open) return archiveCurrent(open);
   const r = await api.archive([path]).catch(() => null);
   if (!r) return toast({ text: `Couldn't archive ${displayName(path)}` });
   await refreshNotes();
@@ -2321,9 +2332,16 @@ function openMovePicker(anchor: HTMLElement) {
 
 function setSaveStatus(state: "saved" | "editing" | "saving" | "error") {
   const labels = { saved: "Saved", editing: "Edited", saving: "Saving…", error: "Not saved" };
+  const hints = {
+    saved: "All changes to this note are saved",
+    editing: "Your changes save automatically in a moment",
+    saving: "Saving your latest changes…",
+    error: "Your latest changes aren't saved yet. Keep this tab open: they're retried automatically, or on your next edit",
+  };
   const node = $("#save-status");
   node.dataset.state = state;
   node.textContent = labels[state];
+  node.title = hints[state];
 }
 
 let statusTimer = 0;
@@ -2469,7 +2487,7 @@ function renderActivity() {
                 "div",
                 { class: "act-meta" },
                 stat ? statEl(stat) : null,
-                c.op === "move" && c.from_path ? el("span", {}, `from ${displayName(c.from_path)}`) : null,
+                c.op === "move" && c.from_path ? el("span", {}, `from ${movedFrom(c.from_path, c.path)}`) : null,
                 c.count > 1 ? el("span", {}, `${c.count} saves`) : null,
                 el("span", { "data-ts": String(c.ts) }, timeAgo(c.ts)),
               ),
@@ -2526,8 +2544,24 @@ Vim.defineEx("edit", "e", (_cm: unknown, params: { args?: string[] }) => {
 Vim.defineEx("archive", "arch", () => void archiveCurrent());
 // Not :delete, which is Vim's own (:d deletes lines).
 Vim.defineEx("trash", "trash", () => void deleteCurrent());
+Vim.defineEx("unarchive", "unarch", () => active.session && isArchived(active.session.path) && void archiveCurrent());
 Vim.defineEx("notes", "note", () => void showNotes());
 Vim.defineEx("calendar", "cal", () => void showCalendar());
+Vim.defineEx("tasks", "tasks", () => void showTasks());
+Vim.defineEx("tags", "tags", () => void showTags());
+Vim.defineEx("history", "hist", () => void showHistory());
+Vim.defineEx("assets", "assets", () => void showAssets());
+Vim.defineEx("contacts", "con", () => void showContacts());
+// :move Projects/Acme files the note there (any case; / is the top level); :move alone opens the folder picker.
+Vim.defineEx("move", "mo", (_cm: unknown, params: { args?: string[] }) => {
+  const s = active.session;
+  if (!s) return;
+  const arg = params.args?.join(" ").trim().replace(/^\/+|\/+$/g, "");
+  if (arg === undefined) return void setTimeout(() => openMovePicker($("#move-btn")));
+  const folder = arg === "" ? "" : allFolders().find((f) => f.toLowerCase() === arg.toLowerCase());
+  if (folder === undefined) return void toast({ text: `No folder named ${arg}` });
+  void moveToFolder(s.path, folder);
+});
 // After vim puts the focus back in the editor, so the name prompt keeps it.
 Vim.defineEx("rename", "ren", () => setTimeout(() => void renameNote()));
 Vim.defineEx("star", "star", () => active.session && void toggleStar(active.session.path));
@@ -2782,6 +2816,12 @@ function openSettings(query?: string) {
           localVault,
           sidebarPinned: prefs.sidebarPinned,
           setSidebarPinned,
+          gamified: { on: gamified(), canChange: owner },
+          setGamified: (on) =>
+            void setGamified(on).then(
+              () => (m.refreshSettings(), toast({ icon: "check", text: on ? "Unlock as you go is on" : "Everything is unlocked", detail: "For everyone in this workspace, from their next visit." })),
+              (e) => toast({ text: e instanceof Error ? e.message : "That didn't work" }),
+            ),
           shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
           connectAgent,
         }),
@@ -2803,7 +2843,8 @@ const connectAgent = () => void import("./agentsPage.ts").then((m) => m.showAgen
 const tipsState = (): TipsState => ({ ...NO_TIPS, ...store.get<Partial<TipsState>>("shortcutTips", {}) });
 function setupShortcutTips() {
   watchTips({
-    load: tipsState,
+    // Not gamified: tips are off, whatever this browser says (and it keeps what it said for if they're back).
+    load: () => (gamified() ? tipsState() : { ...tipsState(), off: true }),
     save: (s) => store.set("shortcutTips", s),
     // The palette's box is always there, hidden with it; a dialog that's showing isn't inside anything hidden.
     busy: () => [...document.querySelectorAll('[aria-modal="true"], .qa-float')].some((n) => !n.closest("[hidden]")),
@@ -3090,7 +3131,8 @@ async function boot() {
     renderPresence();
   }, 30_000);
 
-  const [info, list, starred, recent, tagList, smart] = await Promise.all([api.info(), api.notes(), api.favorites(), api.changes(), api.tags(), api.smartFolders()]);
+  const [info, list, starred, recent, tagList, smart] = await Promise.all([api.info(), api.notes(), api.favorites(), api.changes(), api.tags(), api.smartFolders(), loadGamified()]);
+  onGamified(() => renderTree()); // an owner flipped it here: the sidebar shows everything, or waits again
   $("#vault-name").textContent = info.name;
   if (info.mode === "local") localVault = info;
   notes = list;
@@ -3102,8 +3144,12 @@ async function boot() {
   renderActivity();
   renderPresence();
   connect(onMessage, (up) => {
-    $("#conn").dataset.up = String(up);
-    $("#conn").title = up ? "Live: watching the vault for agent edits" : "Reconnecting…";
+    const conn = $("#conn");
+    conn.dataset.up = String(up);
+    conn.title = up
+      ? "Connected: changes from agents, other tabs and collaborators show up live"
+      : "Offline, reconnecting… Your edits are kept and saved once the connection is back";
+    conn.setAttribute("aria-label", conn.title);
     if (up) {
       refreshNotesSoon();
       void flushSave(); // what couldn't be saved while the connection was down
