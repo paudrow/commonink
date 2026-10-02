@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 296
 title: Open sections stay open after a rename
 ---
 Which collapsible sections you opened in a note is remembered per note in your browser. It used to be lost when the note was renamed or moved.
