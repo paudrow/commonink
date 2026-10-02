@@ -53,6 +53,18 @@ test("a path typed in another case is the note's own path, not a second note", (
   assert.deepEqual(vault.changes().map((c) => c.path), ["Projects/Roadmap.md"]);
 });
 
+test("renaming a note to another case never replaces a different file with that name", () => {
+  const { dir, vault } = openTempVault({ "Notes.md": "# Mine\nimportant" });
+  vault.move("Notes.md", "NOTES.md", "t");
+  assert.equal(vault.read("NOTES.md").path, "NOTES.md");
+  const sensitive = !fs.existsSync(path.join(dir, "notes.md"));
+  if (!sensitive) return; // on a case-insensitive disk the two names are one file
+  fs.writeFileSync(path.join(dir, "notes.md"), "# Other\nexternal data");
+  assert.throws(() => vault.move("NOTES.md", "notes.md", "t"), /already exists/);
+  assert.equal(fs.readFileSync(path.join(dir, "notes.md"), "utf8"), "# Other\nexternal data");
+  assert.equal(fs.readFileSync(path.join(dir, "NOTES.md"), "utf8"), "# Mine\nimportant");
+});
+
 test("a file named in decomposed Unicode is the note a link or path in composed Unicode means", () => {
   const nfd = "Café".normalize("NFD");
   const { vault } = openTempVault({ [`${nfd}.md`]: "# Café\n\n- [ ] one\n", "A.md": "See [[Café]]\n" });
