@@ -200,3 +200,25 @@ function zipName(what: ExportWhat, paths: string[], workspace = "Workspace"): st
   if (paths.length === 1) return paths[0].split("/").pop()!.replace(/\.(md|html?)$/i, "");
   return "Notes";
 }
+
+/** What a note becomes when it's saved somewhere else (Google Drive, online): a Google Doc, a PDF, or its markdown file. */
+export const SAVE_FORMATS = ["doc", "pdf", "md"] as const;
+export type SaveFormat = (typeof SAVE_FORMATS)[number];
+
+/**
+ * A note's markdown for somewhere outside the app (Google Drive): every link to another note,
+ * itself included, becomes a link to its web address, as a link to a note left out of a .zip does.
+ * Pictures and files keep their links.
+ */
+export function webMarkdown(host: Pick<ExportHost, "vault" | "origin">, rel: string): string {
+  const { vault } = host;
+  return relink(vault.read(rel).content, rel, {
+    resolve: (target, from) => vault.resolve(target, from),
+    included: () => false,
+    url: (to) => {
+      const meta = vault.meta(to);
+      return meta ? `${host.origin}${notePath(meta.title, meta.id)}` : null;
+    },
+    uses: () => {},
+  });
+}

@@ -7,27 +7,14 @@ import type { Contact, Member } from "./api.ts";
 import { contactLink, people } from "./people.ts";
 import { peopleDirectory } from "../../src/core/contacts.ts";
 import { el, icon } from "./dom.ts";
+import { openModal } from "./modal.ts";
 import { fuzzyScore } from "./fuzzy.ts";
 import { fillTemplate, handlesFor, localNow, type Ask, type PersonPick, type TemplateInfo } from "../../src/core/templates.ts";
 
-/** A modal on the page; `close` takes it away. Escape or a click outside is `cancel`. */
-function modal(title: string, children: HTMLElement[], cancel: () => void, head?: HTMLElement) {
-  const box = el("div", { class: "ask-box tpl-box", role: "dialog", "aria-modal": "true", "aria-label": title }, el("div", { class: "tpl-head" }, el("h2", {}, title), head ?? null), ...children);
-  const overlay = el("div", { class: "ask", onmousedown: (e: MouseEvent) => e.target === overlay && close(true) }, box);
-  const onKey = (e: KeyboardEvent) => {
-    if (e.key !== "Escape") return;
-    e.preventDefault();
-    e.stopPropagation();
-    close(true);
-  };
-  const close = (cancelled = false) => {
-    overlay.remove();
-    document.removeEventListener("keydown", onKey, true);
-    if (cancelled) cancel();
-  };
-  document.body.append(overlay);
-  document.addEventListener("keydown", onKey, true);
-  return { box, close };
+/** The app's modal; `close` takes it away. The X, Cancel, Escape or a click outside is `cancel`. */
+function modal(title: string, children: HTMLElement[], cancel: () => void, o: { head?: HTMLElement; actions?: HTMLElement[] } = {}) {
+  const m = openModal({ title, head: [o.head ?? null], content: children, actions: o.actions, boxClass: "ask-box tpl-box", headClass: "tpl-head", onDismiss: () => (m.close(), cancel()) });
+  return m;
 }
 
 /** The help on every template option (docs/templates.md), loaded when it's asked for. */
@@ -71,7 +58,7 @@ export function pickTemplate(templates: TemplateInfo[], title: string, opts: { h
       }
     });
     const help = el("button", { type: "button", class: "icon-btn small tpl-help", title: "Every template option: placeholders, questions, frontmatter", "aria-label": "Help on templates", onclick: () => (opts.help ?? openTemplateHelp)() }, "?");
-    const m = modal(title, [filter, list], () => resolve(null), help);
+    const m = modal(title, [filter, list], () => resolve(null), { head: help });
     draw();
     filter.focus();
   });
@@ -88,13 +75,7 @@ export function askName(title: string, name: string): Promise<string | null> {
       resolve(typed && typed !== name ? typed : null);
     };
     form.addEventListener("submit", (e) => (e.preventDefault(), submit()));
-    const actions = el(
-      "div",
-      { class: "ask-actions" },
-      el("button", { type: "button", class: "qw-btn", onclick: () => (m.close(), resolve(null)) }, "Cancel"),
-      el("button", { type: "button", class: "qw-btn primary", onclick: submit }, "Rename"),
-    );
-    const m = modal(title, [form, actions], () => resolve(null));
+    const m = modal(title, [form], () => resolve(null), { actions: [el("button", { type: "button", class: "qw-btn primary", onclick: submit }, "Rename")] });
     input.focus();
     input.select();
   });
@@ -244,13 +225,7 @@ export function askFor(t: TemplateInfo, opts: { title: boolean; people?: Offer[]
     };
     form.addEventListener("submit", (e) => (e.preventDefault(), submit()));
     form.addEventListener("keydown", (e) => e.key === "Enter" && !e.defaultPrevented && (e.preventDefault(), submit()));
-    const actions = el(
-      "div",
-      { class: "ask-actions" },
-      el("button", { type: "button", class: "qw-btn", onclick: () => (m.close(), resolve(null)) }, "Cancel"),
-      el("button", { type: "button", class: "qw-btn primary", onclick: submit }, opts.title ? "Create" : "Insert"),
-    );
-    const m = modal(t.name, [form, actions], () => resolve(null));
+    const m = modal(t.name, [form], () => resolve(null), { actions: [el("button", { type: "button", class: "qw-btn primary", onclick: submit }, opts.title ? "Create" : "Insert")] });
     // The first question has the keyboard; the title can come from the template.
     (form.querySelector<HTMLElement>(fields.length ? "input:not([name='__title']), select" : "input") ?? form.querySelector("input"))?.focus();
   });
