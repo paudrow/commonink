@@ -855,12 +855,12 @@ test("a smart folder can be a favorite, beside notes and tags, and leaves Favori
   const { vault } = openTempVault(TAGGED);
   const f = vault.saveSmartFolder("ana", { name: "Clients", query: "tag=work/clients", shared: true }, true);
   const mine = vault.saveSmartFolder("bo", { name: "Mine", query: "folder=Ideas", shared: false }, true);
-  vault.starTag("ana", "billing");
+  vault.starTag("ana", "work");
   const shown = (user: string) => vault.favorites(user).map((x) => ("smartFolder" in x ? `~${x.name} ${x.count}` : "tag" in x ? `#${x.tag}` : x.path));
   assert.deepEqual(vault.starSmartFolder("ana", "clients").flatMap((x) => ("smartFolder" in x ? [x.id] : [])), [f.id]);
-  assert.deepEqual(shown("ana"), ["#billing", "~Clients 2"]);
+  assert.deepEqual(shown("ana"), ["#work", "~Clients 2"]);
   vault.orderFavorites("ana", ["~Clients"]);
-  assert.deepEqual(shown("ana"), ["~Clients 2", "#billing"]);
+  assert.deepEqual(shown("ana"), ["~Clients 2", "#work"]);
   assert.throws(() => vault.starSmartFolder("ana", "Mine"), /No smart folder/); // bo's own
   vault.starSmartFolder("bo", mine.id);
   vault.starSmartFolder("bo", f.id);
@@ -868,7 +868,7 @@ test("a smart folder can be a favorite, beside notes and tags, and leaves Favori
   assert.deepEqual(shown("bo"), ["~Mine 1"]);
   assert.deepEqual(vault.unstarSmartFolder("bo", "Mine"), []);
   vault.deleteSmartFolder("ana", f.id, true);
-  assert.deepEqual(shown("ana"), ["#billing"]);
+  assert.deepEqual(shown("ana"), ["#work"]);
 });
 
 test("a smart folder name means your own before a shared one, a saved query keeps no limit, and there's a cap", () => {
