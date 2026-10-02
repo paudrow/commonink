@@ -9,7 +9,7 @@ Bring everything you have in one go. In the app, press ⌘⇧P and pick **Import
 
 | Coming from | What to pick | What happens |
 | --- | --- | --- |
-| Obsidian | Your vault, zipped, or the folder with the CLI | Nothing to convert: links, embeds, tags and callouts already work |
+| Obsidian | Your vault, zipped, or the folder with the CLI | Links, embeds, attachments, tags and callouts work as they are; aliases, comments and Tasks dates are converted |
 | Notion | The Markdown & CSV export (.zip) | Page names and links lose Notion's ids; databases come as .csv files |
 | Evernote | One .enex file per notebook | Each note becomes markdown with its tags, dates and pictures |
 | Apple Notes | A folder saved by our script, zipped | Each note becomes markdown, a folder per Notes folder |
@@ -17,12 +17,12 @@ Bring everything you have in one go. In the app, press ⌘⇧P and pick **Import
 
 ## Obsidian
 
-Obsidian vaults are folders of markdown, which is what Common Ink keeps, so your `[[links]]`, `![[embeds]]`, `#tags`, frontmatter and `> [!note]` callouts work as they are.
+Obsidian vaults are folders of markdown, which is what Common Ink keeps, so your `[[links]]`, `![[embeds]]`, attachments, `#tags`, frontmatter and `> [!note]` callouts work as they are. A few Obsidian-only things are converted on the way in: a link to a note's alias goes to the note, `%% comments %%` stay hidden, block ids (`^abc`) are dropped, and the Tasks plugin's 📅 ✅ 🛫 ⏫ 🔁 become Common Ink's due, done and start dates, priority and repeat.
 
 - **In the app:** zip the vault folder (on a Mac, right-click it and choose Compress), then **Import notes…** and pick the .zip.
 - **From a terminal:** `commonink import ~/Obsidian/MyVault`
 
-The `.obsidian` settings folder and other hidden folders are left out.
+The `.obsidian` settings folder, `.trash` and other hidden folders are left out, and so are files Common Ink doesn't keep, like `.canvas` (the import says which).
 
 ## Notion
 
@@ -49,9 +49,9 @@ Apple Notes has no export of its own, so a small script asks Notes for each note
 
 1. Download [export-apple-notes.js](https://github.com/paudrow/commonink/blob/main/scripts/export-apple-notes.js).
 2. In Terminal, run `osascript -l JavaScript export-apple-notes.js`. Notes asks once to let it be controlled. Your notes are saved to `AppleNotesExport` on your Desktop, a folder per Notes folder.
-3. Zip that folder, then in Common Ink press ⌘⇧P and pick **Import from Apple Notes…**.
+3. Zip that folder, then in Common Ink press ⌘⇧P and pick **Import notes…**. The `AppleNotesExport` folder tells Common Ink it's from Apple Notes.
 
-From a terminal: `commonink import ~/Desktop/AppleNotesExport --from apple-notes`
+From a terminal: `commonink import ~/Desktop/AppleNotesExport`
 
 Locked notes are skipped. Pictures inside notes don't come along yet, since Notes keeps them outside a note's text.
 

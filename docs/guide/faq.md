@@ -19,7 +19,7 @@ Online, in your workspace on Cloudflare's infrastructure, readable only by the p
 
 ## Can I use it with Obsidian?
 
-Yes. Common Ink reads Obsidian's links, embeds, tags and callouts, so a vault imports as it is, and an export opens in Obsidian. Locally, you can point Common Ink at your vault folder and use both.
+Yes. Common Ink reads Obsidian's links, embeds, tags and callouts, so a vault imports with little to convert, and an export opens in Obsidian. Locally, you can point Common Ink at your vault folder and use both.
 
 ## What can a connected agent see?
 

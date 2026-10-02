@@ -18,7 +18,7 @@ Prefer your own computer? The same app runs locally on a folder of markdown file
 1. **Write a note.** ⌘⇧P (Ctrl+Shift+P off a Mac), then **New note**, makes one. Its first `# heading` is its name: change the heading and the note is renamed, with links to it updated.
 2. **Link notes.** Type `[[` and pick a note, or `@` to link a note or a person. `![[Note]]` shows another note inline.
 3. **Add a task.** A line like `- [ ] Send invoice due:friday #work` is a task. ⌘⇧. adds one from anywhere, the way you'd say it: "Pay rent every month on the 1st #home". **Tasks** shows them all, with **Today** on top.
-4. **Bring your notes in.** ⌘⇧P, then **Import notes…** takes markdown, an Obsidian vault, a Notion export or Evernote files. See [Moving in](import.md).
+4. **Bring your notes in.** ⌘⇧P, then **Import notes…** takes markdown, an Obsidian vault, a Notion export, Evernote files or Apple Notes. See [Moving in](import.md).
 5. **Connect an agent.** Add `https://commonink.app/mcp` as a connector in Claude, Claude Code or Cursor, and ask it to do something in your notes. Watch the edit land. See [Connect an agent](agents.md).
 
 ## Find your way around
