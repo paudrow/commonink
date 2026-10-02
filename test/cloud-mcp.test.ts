@@ -92,7 +92,7 @@ const ALL_TOOLS = [
   ...VIEWER_TOOLS,
   "add_card", "add_task", "append_to_note", "archive_note", "create_contact", "create_from_template", "create_meeting_note", "create_note", "delete_folder",
   "delete_note", "edit_card", "edit_note", "import_contacts", "import_notes", "label_version", "list_trash", "merge_contacts", "move_card", "move_note",
-  "move_task", "open_journal", "remove_task", "rename_tag", "restore_change", "restore_from_trash", "restore_label", "set_asset_tags", "share_note", "unarchive_note", "unshare_note",
+  "move_task", "open_journal", "remove_task", "rename_tag", "replace_text", "restore_change", "restore_from_trash", "restore_label", "set_asset_tags", "share_note", "unarchive_note", "unshare_note",
   "update_contact", "update_task", "write_note",
 ].sort();
 
