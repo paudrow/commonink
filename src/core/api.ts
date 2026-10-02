@@ -478,7 +478,7 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       );
     }
     case "POST /decisions/answer": {
-      const r = vault.answerDecision(str("id"), { value: (raw as { value?: unknown }).value ?? undefined, comment: optStr("comment"), dismiss: flag("dismiss") }, actor, optStr("today"));
+      const r = vault.answerDecision(str("id"), { value: (raw as { value?: unknown }).value ?? undefined, comment: optStr("comment"), dismiss: flag("dismiss"), change: flag("change") }, actor, optStr("today"));
       host.written(r.path, vault.files.read(r.path), r.version, r.change);
       if (r.change?.op === "create") host.tree();
       return json(r.decision);

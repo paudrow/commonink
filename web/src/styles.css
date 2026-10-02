@@ -1835,6 +1835,10 @@ body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view
 .dc-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12.5px; color: var(--muted); }
 .dc-about { display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; padding: 1px 6px; border-radius: 5px; color: var(--accent-ink); }
 .dc-about:hover { background: var(--hover); }
+.dc-was { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; padding: 6px 10px; border-radius: 8px; background: var(--hover); font-size: 13px; color: var(--ink-2); }
+.dc-was > svg { color: var(--accent-ink); flex: none; }
+.dc-was strong { color: var(--ink-strong); }
+.dc-was .dc-about { margin-left: auto; }
 .dc-context { margin-top: 10px; font-size: 13.5px; line-height: 1.55; color: var(--ink-2); }
 .dc-context > :first-child { margin-top: 0; }
 .dc-context > :last-child { margin-bottom: 0; }

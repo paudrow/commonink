@@ -388,3 +388,30 @@ export function fmtDecision(d: Decision): string {
   if (d.note) lines.push(`  About: ${d.note}`);
   return lines.join("\n");
 }
+
+/**
+ * A daily note with a decision's earlier lines swapped for its new ones, or null when they aren't there
+ * (someone edited them away). The block is found by its first line, as written then, or else by its
+ * question; the indented lines under it (rows, the comment) go with it.
+ */
+export function replaceJournalLines(content: string, was: Decision, lines: string[], linkTo?: (path: string) => string): string | null {
+  const crlf = content.includes("\r\n");
+  const all = (crlf ? content.replace(/\r\n/g, "\n") : content).split("\n");
+  const first = journalLines(was, linkTo)[0];
+  const asked = `- ${oneLine(was.question)} `;
+  let at = all.lastIndexOf(first);
+  if (at < 0) {
+    for (let i = all.length - 1; i >= 0; i--) {
+      if (all[i].startsWith(asked) && all[i].includes("(asked by ")) {
+        at = i;
+        break;
+      }
+    }
+  }
+  if (at < 0) return null;
+  let end = at + 1;
+  while (end < all.length && /^ {2,}\S/.test(all[end])) end++;
+  all.splice(at, end - at, ...lines);
+  const out = all.join("\n");
+  return crlf ? out.replace(/\n/g, "\r\n") : out;
+}

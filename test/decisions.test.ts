@@ -43,6 +43,49 @@ test("asking, answering and recording a decision in the daily note", () => {
   assert.match(fs.readFileSync(path.join(dir, "Journal/2026-10-03.md"), "utf8"), /## Decisions\n\n- Rewrite the parser\? _Not deciding_ \(asked by Claude Code\)\n$/);
 });
 
+test("changing an answer rewrites its lines where they were recorded", () => {
+  const day = "Journal/2026-10-02.md";
+  const { vault, dir } = openTempVault({ [day]: "# 2026-10-02\n\n## Log\n\nMorning.\n" });
+  const read = (rel = day) => fs.readFileSync(path.join(dir, rel), "utf8");
+  const ask = (q: Parameters<typeof vault.askDecision>[0]) => vault.askDecision(q, AGENT);
+  const db = ask({ question: "Postgres or SQLite?", options: ["Postgres", "SQLite"] });
+  const talks = ask({ question: "Which talks?", kind: "rows", rows: ["Keynote", "Panel"], options: ["Go", "Skip"] });
+  const name = ask({ question: "Name it ink?", kind: "yes_no" });
+  vault.answerDecision(db.id, { value: { choice: 1 }, comment: "Simpler." }, "you", "2026-10-02");
+  vault.answerDecision(talks.id, { value: { rows: [0, 1] } }, "you", "2026-10-02");
+  vault.answerDecision(name.id, { dismiss: true }, "you", "2026-10-02");
+  assert.match(read(), /- Postgres or SQLite\? \*\*SQLite\*\* \(asked by Claude Code\)\n  Simpler\.\n- Which talks\? \(asked by Claude Code\)\n  - Keynote: \*\*Go\*\*\n  - Panel: \*\*Skip\*\*\n- Name it ink\? _Not deciding_/);
+
+  // In place: the comment goes with the old answer, the rows are rewritten, and the others stay put.
+  const r = vault.answerDecision(db.id, { value: { choice: 0 }, change: true }, "you", "2026-10-02");
+  assert.equal(r.decision.answer, "Postgres");
+  assert.equal(r.line, 9);
+  vault.answerDecision(talks.id, { value: { rows: [1, 0] }, comment: "Swapped.", change: true }, "you", "2026-10-02");
+  vault.answerDecision(name.id, { value: { choice: 0 }, change: true }, "you", "2026-10-02");
+  assert.equal(
+    read(),
+    "# 2026-10-02\n\n## Log\n\nMorning.\n\n## Decisions\n\n" +
+      "- Postgres or SQLite? **Postgres** (asked by Claude Code)\n" +
+      "- Which talks? (asked by Claude Code)\n  - Keynote: **Skip**\n  - Panel: **Go**\n  Swapped.\n" +
+      "- Name it ink? **Yes** (asked by Claude Code)\n",
+  );
+  assert.equal(vault.decision(name.id).status, "answered");
+
+  // Changed on a later day, it's rewritten in the note it was recorded in.
+  vault.answerDecision(db.id, { value: { text: "Neither" }, change: true }, "you", "2026-10-03");
+  assert.match(read(), /^- Postgres or SQLite\? \*\*Neither\*\* \(asked by Claude Code\)$/m);
+  assert.equal(fs.existsSync(path.join(dir, "Journal/2026-10-03.md")), false);
+  assert.equal(vault.decision(db.id).journal, day);
+
+  // When its lines were edited away, the new answer goes in that day's note instead.
+  fs.writeFileSync(path.join(dir, day), "# 2026-10-02\n");
+  vault.sync();
+  const moved = vault.answerDecision(name.id, { value: { choice: 1 }, change: true }, "you", "2026-10-03");
+  assert.equal(moved.decision.journal, "Journal/2026-10-03.md");
+  assert.match(read("Journal/2026-10-03.md"), /- Name it ink\? \*\*No\*\*/);
+  assert.throws(() => vault.answerDecision(name.id, { value: { choice: 0 } }, "you"), /already answered: No/, "changing needs asking for it");
+});
+
 test("bad questions are refused, and withdrawn ones leave the list", () => {
   const { vault } = openTempVault({});
   assert.throws(() => vault.askDecision({ question: " " }, AGENT), /Say what the question is/);
@@ -183,6 +226,10 @@ test("an agent asks over MCP, the person answers with the CLI, and the agent rea
   assert.match(read.text, /Answer: No, Monday \(option 2\)\n  Comment: QA needs a day\n  By you, recorded in Journal\//);
   assert.equal((await call("withdraw_decision", { id })).isError, true, "a settled one can't be withdrawn");
   assert.equal(commonink(vault, ["decision", "answer", id, "1"]).status, 4, "conflict");
+  const changed = commonink(vault, ["decision", "answer", id, "1", "--change"]);
+  assert.equal(changed.status, 0, changed.stderr);
+  assert.match(changed.stdout, /^Changed to: Yes\. Recorded in Journal\//);
+  assert.match((await call("list_decisions", { ids: [id] })).text, /Answer: Yes \(option 1\)/);
 });
 
 test("an agent asks which events to go to, with a choice for each, and the CLI answers row by row", async () => {

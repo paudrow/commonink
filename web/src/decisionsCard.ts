@@ -2,13 +2,16 @@
 // one at a time, each in its own shape: pick one, pick many, yes or no, a choice for each row,
 // pictures side by side, an order, a scale, or words. Every question can be answered in your own
 // words (all but rank and scale), commented on, skipped (S) or not decided. Decide (Enter) writes the
-// answer into today's daily note and brings up the next one; ← and → move between them. With nothing
-// waiting the card isn't there at all.
+// answer into today's daily note and brings up the next one. ← and → move between them, back through
+// the ones answered today too, where the answer can be changed (its lines in the note are rewritten).
+// With nothing waiting or answered today the card isn't there at all.
 import { api, assetUrl, type Decision } from "./api.ts";
 import type { DecisionValue } from "../../src/core/decisions.ts";
 import { authorAvatar, el, icon, timeAgo, typingIn } from "./dom.ts";
 import { onVaultChange } from "./events.ts";
+import { localDate } from "../../src/core/tasks.ts";
 import { NOTE_LINKS, noteTarget } from "./noteLinks.ts";
+import { today } from "./taskChips.ts";
 import { renderMarkdown } from "./render.ts";
 import { toast } from "./toast.ts";
 
@@ -30,9 +33,9 @@ interface Draft {
   comment: string;
 }
 
-/** A fresh draft, starting from what the agent would answer. */
+/** A fresh draft, starting from the answer given (for one answered already) or what the agent would answer. */
 function draftOf(d: Decision): Draft {
-  const r = d.recommended;
+  const r = d.status === "answered" ? d.value : d.recommended;
   return {
     pick: r && "choice" in r ? r.choice : null,
     picks: new Set(r && "choices" in r ? r.choices : []),
@@ -40,7 +43,7 @@ function draftOf(d: Decision): Draft {
     order: r && "order" in r ? [...r.order] : d.options.map((_, i) => i),
     scale: r && "scale" in r ? r.scale : null,
     other: r && "text" in r ? r.text : "",
-    comment: "",
+    comment: d.comment ?? "",
   };
 }
 
@@ -69,38 +72,59 @@ function valueOf(d: Decision, dr: Draft): DecisionValue | null {
 
 /** Mount the card into `host` (empty while nothing waits). `page` is the page around it: its keys work there too, while nothing else has the focus. Returns its cleanup. */
 export function mountDecisions(host: HTMLElement, page: HTMLElement, hooks: DecisionHooks): () => void {
+  /** Today's answered (and not-decided) ones, in the order answered, then the open ones, in the order asked. */
   let list: Decision[] = [];
+  /** Where you are in `shown()`; its length is the "all decided" end. */
   let at = 0;
   let busy = false;
   let alive = true;
+  let loaded = false;
   /** How many were settled here, so clearing the last one can say so. */
   let settled = 0;
   /** Skipped for now: shown again once only skipped ones are left, if you ask. */
   const skipped = new Set<string>();
   const drafts = new Map<string, Draft>();
 
-  const waiting = () => list.filter((d) => !skipped.has(d.id));
-  const current = () => waiting()[at] as Decision | undefined;
+  const isOpen = (d: Decision) => d.status === "open";
+  const waiting = () => list.filter((d) => isOpen(d) && !skipped.has(d.id));
+  /** What ← and → step through: today's answered ones, then the open ones not skipped. */
+  const shown = () => list.filter((d) => !isOpen(d) || !skipped.has(d.id));
+  const current = () => shown()[at] as Decision | undefined;
+  /** The first open one (or the end, with none left). */
+  const firstOpen = () => {
+    const i = shown().findIndex(isOpen);
+    return i < 0 ? shown().length : i;
+  };
+  const sorted = (all: Decision[]) => {
+    const day = today();
+    const done = all.filter((d) => (d.status === "answered" || d.status === "dismissed") && d.answered_at && localDate(d.answered_at) === day).sort((a, b) => a.answered_at! - b.answered_at!);
+    return [...done, ...all.filter(isOpen)];
+  };
   const draft = (d: Decision) => drafts.get(d.id) ?? (drafts.set(d.id, draftOf(d)), drafts.get(d.id)!);
   const focusCard = () => host.querySelector<HTMLElement>(".dc-card")?.focus({ preventScroll: true });
 
   const load = async () => {
-    const next = await api.decisions().catch(() => null);
+    const next = await Promise.all([api.decisions(), api.decisions("settled")]).catch(() => null);
     if (!alive || !next) return;
+    const first = !loaded;
+    loaded = true;
     const was = current()?.id;
-    list = next;
-    for (const id of skipped) if (!list.some((d) => d.id === id)) skipped.delete(id);
-    const i = was ? waiting().findIndex((d) => d.id === was) : -1;
-    at = i >= 0 ? i : Math.min(at, Math.max(0, waiting().length - 1));
+    list = sorted(next.flat());
+    for (const id of skipped) if (!list.some((d) => d.id === id && isOpen(d))) skipped.delete(id);
+    const i = was ? shown().findIndex((d) => d.id === was) : -1;
+    // Open on the first one waiting; after that, stay where you are.
+    at = first ? firstOpen() : i >= 0 ? i : Math.min(at, firstOpen());
     // Don't redraw under someone typing their answer.
     if (!host.contains(document.activeElement) || !typingIn(document.activeElement) || i < 0) render();
     else count();
   };
 
+  /** Step to `to`: from the first back to the end ("all decided", or the last one when some still wait), and round. */
   const go = (to: number) => {
-    const n = waiting().length;
+    const n = shown().length;
     if (!n) return;
-    at = (to + n) % n;
+    const slots = waiting().length ? n : n + 1;
+    at = ((to % slots) + slots) % slots;
     render();
     focusCard();
   };
@@ -108,8 +132,10 @@ export function mountDecisions(host: HTMLElement, page: HTMLElement, hooks: Deci
   const skip = () => {
     const d = current();
     if (!d) return;
+    if (!isOpen(d)) return go(at + 1);
     skipped.add(d.id);
-    at = Math.min(at, Math.max(0, waiting().length - 1));
+    const i = shown().findIndex((x, k) => k >= at && isOpen(x));
+    at = i >= 0 ? i : firstOpen();
     render();
     focusCard();
   };
@@ -122,14 +148,17 @@ export function mountDecisions(host: HTMLElement, page: HTMLElement, hooks: Deci
     if (!dismiss && !value) return;
     busy = true;
     render();
+    const change = !isOpen(d);
     try {
       const comment = dr.comment.trim() || undefined;
-      const done = await api.answerDecision(d.id, dismiss ? { dismiss: true, comment } : { value: value!, comment });
+      const done = await api.answerDecision(d.id, dismiss ? { dismiss: true, comment, change } : { value: value!, comment, change });
       settled++;
       drafts.delete(d.id);
-      list = list.filter((x) => x.id !== d.id);
-      at = Math.min(at, Math.max(0, waiting().length - 1));
-      toast({ icon: "check", text: dismiss ? "Not deciding that one; noted in today's note" : `Decided: ${(done.answer ?? "").length > 60 ? `${done.answer!.slice(0, 57)}…` : done.answer}`, actionLabel: "Today's note", action: () => done.journal && hooks.open(done.journal) });
+      list = sorted(list.map((x) => (x.id === d.id ? done : x)));
+      // A new answer brings up the next one waiting; a changed one stays put to see it.
+      at = change ? shown().findIndex((x) => x.id === d.id) : firstOpen();
+      const said = (done.answer ?? "").length > 60 ? `${done.answer!.slice(0, 57)}…` : done.answer;
+      toast({ icon: "check", text: dismiss ? "Not deciding that one; noted in today's note" : `${change ? "Changed to" : "Decided"}: ${said}`, actionLabel: "Today's note", action: () => done.journal && hooks.open(done.journal) });
     } catch (e) {
       toast({ text: `Couldn't record that: ${(e as Error).message}` });
       void load();
@@ -142,9 +171,25 @@ export function mountDecisions(host: HTMLElement, page: HTMLElement, hooks: Deci
 
   const count = () => {
     const c = host.querySelector(".dc-count");
-    const n = waiting().length;
-    if (c) c.textContent = n > 1 ? `${at + 1} of ${n}` : "";
+    if (c) c.textContent = countText();
   };
+
+  const countText = () => {
+    const n = shown().length;
+    const left = waiting().length;
+    return n > 1 && at < n ? `${at + 1} of ${n}${left && left < n ? ` · ${left} left` : ""}` : "";
+  };
+
+  /** Back and next, shown while there's anywhere else to go (at the end, "Go back" and ← do it). */
+  const navOf = () =>
+    shown().length > 1 || !waiting().length
+      ? el(
+          "span",
+          { class: "dc-nav" },
+          el("button", { type: "button", class: "qw-icon", title: "Previous (←)", "aria-label": "Previous decision", onclick: () => go(at - 1) }, icon("chevron", 14)),
+          el("button", { type: "button", class: "qw-icon dc-next", title: "Next (→)", "aria-label": "Next decision", onclick: () => go(at + 1) }, icon("chevron", 14)),
+        )
+      : "";
 
   /** Redraw just the Decide button's state (as you type, without redrawing the field you're in). */
   const ready = () => {
@@ -156,26 +201,33 @@ export function mountDecisions(host: HTMLElement, page: HTMLElement, hooks: Deci
   const render = () => {
     const d = current();
     if (!d) {
-      const later = list.length;
+      const later = list.filter(isOpen).length;
+      const answered = shown().length;
+      const back = answered ? el("button", { type: "button", class: "dc-again", onclick: () => go(at - 1) }, "Go back to change one") : "";
       host.replaceChildren(
         later
           ? el(
               "section",
-              { class: "qw dc-card is-standalone is-clear", "aria-label": "Decisions" },
+              { class: "qw dc-card is-standalone is-clear", tabindex: "-1", "aria-label": "Decisions" },
               el(
                 "div",
                 { class: "td-clear" },
                 icon("flag", 14),
                 `${later} skipped for now.`,
-                el("button", { type: "button", class: "dc-again", onclick: () => (skipped.clear(), (at = 0), render(), focusCard()) }, "Show them again"),
+                el("button", { type: "button", class: "dc-again", onclick: () => (skipped.clear(), (at = firstOpen()), render(), focusCard()) }, "Show them again"),
               ),
             )
-          : settled
-            ? el("section", { class: "qw dc-card is-standalone is-clear", "aria-label": "Decisions" }, el("div", { class: "td-clear" }, icon("check", 14), "All decided. Your answers are in today's note."))
+          : answered || settled
+            ? el(
+                "section",
+                { class: "qw dc-card is-standalone is-clear", tabindex: "-1", "aria-label": "Decisions" },
+                el("div", { class: "td-clear" }, icon("check", 14), "All decided. Your answers are in today's note.", back),
+              )
             : "",
       );
       return;
     }
+    const open = isOpen(d);
     const dr = draft(d);
     const rec = d.recommended;
     const isRec = (i: number) => !!rec && (("choice" in rec && rec.choice === i) || ("choices" in rec && rec.choices.includes(i)));
@@ -352,28 +404,32 @@ export function mountDecisions(host: HTMLElement, page: HTMLElement, hooks: Deci
       ? el("div", { class: "dc-media" }, ...d.media.map((m) => el("a", { href: assetUrl(m, d.note ?? undefined), target: "_blank", rel: "noopener noreferrer", class: "dc-media-item" }, pic(m, "dc-media-img", ""))))
       : "";
     const about = d.note ? el("button", { type: "button", class: "dc-about", onclick: () => hooks.open(d.note!) }, icon("file", 12), d.note.replace(/\.md$/, "")) : "";
-    const many = waiting().length > 1;
-    const nav = many
-      ? el(
-          "span",
-          { class: "dc-nav" },
-          el("button", { type: "button", class: "qw-icon", title: "Previous (←)", onclick: () => go(at - 1) }, icon("chevron", 14)),
-          el("button", { type: "button", class: "qw-icon dc-next", title: "Next (→)", onclick: () => go(at + 1) }, icon("chevron", 14)),
-        )
-      : "";
+    const enter = open ? "Enter to decide" : "Enter to change it";
     const hint =
-      d.kind === "yes_no" ? "Y or N, Enter to decide"
-      : d.kind === "one" || d.kind === "compare" || d.kind === "many" ? `1–${Math.min(9, n)} to ${d.kind === "many" ? "tick" : "pick"}, Enter to decide`
-      : d.kind === "scale" && d.max! <= 9 ? `${d.min}–${d.max} to pick, Enter to decide`
-      : "Enter to decide";
+      d.kind === "yes_no" ? `Y or N, ${enter}`
+      : d.kind === "one" || d.kind === "compare" || d.kind === "many" ? `1–${Math.min(9, n)} to ${d.kind === "many" ? "tick" : "pick"}, ${enter}`
+      : d.kind === "scale" && d.max! <= 9 ? `${d.min}–${d.max} to pick, ${enter}`
+      : enter;
+    // One answered already says so, and when; the same controls change it.
+    const was = open
+      ? ""
+      : el(
+          "p",
+          { class: "dc-was" },
+          icon("check", 12),
+          d.status === "dismissed" ? "You chose not to decide" : el("span", {}, "Answered: ", el("strong", {}, d.answer ?? "")),
+          ` · ${timeAgo(d.answered_at!)}`,
+          d.journal ? el("button", { type: "button", class: "dc-about", onclick: () => hooks.open(d.journal!) }, "In today's note") : "",
+        );
     host.replaceChildren(
       el(
         "section",
-        { class: `qw dc-card is-standalone is-${d.kind}${ownWords(d) && dr.other.trim() && d.kind !== "text" ? " is-own" : ""}`, tabindex: "-1", "aria-labelledby": "dc-heading" },
-        el("h2", { class: "td-title", id: "dc-heading" }, icon("flag", 14), "Decisions", el("span", { class: "dc-count" }, many ? `${at + 1} of ${waiting().length}` : ""), nav),
+        { class: `qw dc-card is-standalone is-${d.kind}${open ? "" : " is-settled"}${ownWords(d) && dr.other.trim() && d.kind !== "text" ? " is-own" : ""}`, tabindex: "-1", "aria-labelledby": "dc-heading" },
+        el("h2", { class: "td-title", id: "dc-heading" }, icon("flag", 14), "Decisions", el("span", { class: "dc-count" }, countText()), navOf()),
         el(
           "div",
           { class: "qw-body" },
+          was,
           el("p", { class: "dc-q", id: "dc-q" }, d.question),
           el("div", { class: "dc-meta" }, authorAvatar({ source: d.asked_by, agent: d.agent }, 16), `Asked by ${d.agent ?? d.asked_by} · ${timeAgo(d.asked_at)}`, about),
           context,
@@ -383,9 +439,9 @@ export function mountDecisions(host: HTMLElement, page: HTMLElement, hooks: Deci
           el(
             "div",
             { class: "dc-actions" },
-            el("button", { type: "button", class: "qw-btn primary dc-decide", disabled: busy || !valueOf(d, dr), onclick: () => void decide() }, busy ? "Saving…" : "Decide"),
-            el("button", { type: "button", class: "qw-btn", title: "Leave it for later (S)", onclick: skip }, "Skip"),
-            el("button", { type: "button", class: "dc-dismiss", title: "Close it without an answer; today's note says you didn't decide", onclick: () => void decide(true) }, "Not deciding"),
+            el("button", { type: "button", class: "qw-btn primary dc-decide", disabled: busy || !valueOf(d, dr), onclick: () => void decide() }, busy ? "Saving…" : open ? "Decide" : "Change answer"),
+            open ? el("button", { type: "button", class: "qw-btn", title: "Leave it for later (S)", onclick: skip }, "Skip") : "",
+            d.status === "dismissed" ? "" : el("button", { type: "button", class: "dc-dismiss", title: "Close it without an answer; today's note says you didn't decide", onclick: () => void decide(true) }, "Not deciding"),
             el("span", { class: "dc-hint" }, hint),
           ),
         ),
@@ -407,7 +463,12 @@ export function mountDecisions(host: HTMLElement, page: HTMLElement, hooks: Deci
   function keys(e: KeyboardEvent) {
     const d = current();
     const t = e.target as HTMLElement;
-    if (!d || e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented || !(t === page || host.contains(t))) return;
+    if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented || !(t === page || host.contains(t))) return;
+    if (!d) {
+      // At the end: ← goes back to the answers.
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") e.preventDefault(), go(at + (e.key === "ArrowLeft" ? -1 : 1));
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey && (!typingIn(t) || t.matches(".dc-other-input, .dc-comment"))) {
       if (t.matches("button")) return; // the button's own click
       e.preventDefault();

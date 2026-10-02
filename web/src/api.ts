@@ -413,10 +413,10 @@ export const api = {
   today: (day: string) => j<TodayView>(`${BASE}/today?today=${encodeURIComponent(day)}`),
   /** Today's journal note, made from the daily template if it's missing. */
   dailyNote: (day: string) => j<{ path: string; created: boolean }>(`${BASE}/today/journal`, send("POST", { today: day })),
-  /** Decisions agents asked for that wait on the person (src/core/decisions.ts), in the order asked. */
-  decisions: () => j<Decision[]>(`${BASE}/decisions`),
-  /** Answer one in its shape (an option, several, a choice per row, an order, a number, words), or dismiss it. It's written into today's daily note. */
-  answerDecision: (id: string, a: { value?: DecisionValue; comment?: string; dismiss?: boolean }) =>
+  /** Decisions agents asked for that wait on the person (src/core/decisions.ts), in the order asked; "settled" for answered ones, newest first. */
+  decisions: (status?: "settled") => j<Decision[]>(`${BASE}/decisions${status ? `?status=${status}` : ""}`),
+  /** Answer one in its shape (an option, several, a choice per row, an order, a number, words), or dismiss it. It's written into today's daily note; `change` answers one again and rewrites its lines there. */
+  answerDecision: (id: string, a: { value?: DecisionValue; comment?: string; dismiss?: boolean; change?: boolean }) =>
     j<Decision>(`${BASE}/decisions/answer`, send("POST", { id, ...a, today: today() })),
   /** Add a task written in words (see src/core/quickAdd.ts); `ignore` holds phrases kept as words. */
   addTask: (text: string, ignore: string[] = [], to?: string) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/add`, send("POST", { text, ignore, to, today: today() })),

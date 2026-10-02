@@ -83,17 +83,19 @@ export const decisions = [
     mcp: { none: "answering is the person's: an agent asks with ask_decision and reads the answer with list_decisions" },
     route: "POST /decisions/answer",
     title: "Answer a decision",
-    summary: "Answer an open decision by its option's number or words (or your own), and record it in today's daily note",
+    summary: "Answer an open decision by its option's number or words (or your own), and record it in today's daily note; --change answers one again",
     description:
       "Answer an open decision and record it under ## Decisions in today's daily note. Write the answer as an option's number or words; " +
       "for many and rank, several separated by commas (rank: best first); for rows, one per row in order or Row=Option; for scale, a number. " +
-      "Anything that isn't an option is an answer in your own words.",
-    examples: ["commonink decision answer k3m9x2pq 1", "commonink decision answer k3m9x2pq Go,Skip,Maybe", 'commonink decision answer k3m9x2pq Postgres --comment "We already run it"', "commonink decision answer k3m9x2pq --dismiss"],
+      "Anything that isn't an option is an answer in your own words. With --change, a decision already answered or dismissed takes the new " +
+      "answer, and its lines in the daily note are rewritten in place.",
+    examples: ["commonink decision answer k3m9x2pq 1", "commonink decision answer k3m9x2pq Go,Skip,Maybe", 'commonink decision answer k3m9x2pq Postgres --comment "We already run it"', "commonink decision answer k3m9x2pq --dismiss", "commonink decision answer k3m9x2pq 2 --change"],
     args: {
       id: str(ID),
       answer: str({ pos: "rest", describe: "An option's number or words, or your own answer" }),
       comment: str({ describe: "Why, or anything to add" }),
       dismiss: bool({ describe: "You won't decide this: close it without an answer" }),
+      change: bool({ describe: "Change the answer to one already answered or dismissed" }),
     },
     run: ({ vault, source }, a) => {
       const d = vault.decision(a.id);
@@ -107,8 +109,8 @@ export const decisions = [
       } catch (e) {
         throw new UsageError((e as Error).message);
       }
-      const r = vault.answerDecision(d.id, { value, comment: a.comment, dismiss: a.dismiss }, source);
-      return { text: `${r.decision.status === "dismissed" ? "Dismissed" : `Decided: ${r.decision.answer}`}. Recorded in ${r.path}.`, data: r.decision };
+      const r = vault.answerDecision(d.id, { value, comment: a.comment, dismiss: a.dismiss, change: a.change }, source);
+      return { text: `${r.decision.status === "dismissed" ? "Dismissed" : `${a.change ? "Changed to" : "Decided"}: ${r.decision.answer}`}. Recorded in ${r.path}.`, data: r.decision };
     },
   }),
   command({

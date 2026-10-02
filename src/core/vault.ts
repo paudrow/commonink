@@ -22,7 +22,7 @@ import {
 } from "./contacts.ts";
 import { cleanTitle, DAILY_TEMPLATE, fillTemplate, localNow, TEMPLATES, templateInfo, type FillOptions, type TemplateInfo } from "./templates.ts";
 import { frontmatterEntries } from "./frontmatter.ts";
-import { answerText, askSpec, checkValue, COMMENT_MAX, DECISION_STATUSES, DECISIONS, journalLines, OPEN_MAX, type AskInput, type AskSpec, type Decision, type DecisionKind, type DecisionOption, type DecisionStatus, type DecisionValue } from "./decisions.ts";
+import { answerText, askSpec, checkValue, COMMENT_MAX, DECISION_STATUSES, DECISIONS, journalLines, OPEN_MAX, replaceJournalLines, type AskInput, type AskSpec, type Decision, type DecisionKind, type DecisionOption, type DecisionStatus, type DecisionValue } from "./decisions.ts";
 
 export interface NoteMeta {
   /** Stable across renames, moves and archiving; see ids.ts. */
@@ -2316,13 +2316,15 @@ export class Vault {
    * Answer an open decision with `value` in its shape (decisions.ts: an option, several, a choice
    * for each row, an order, a number, or words), or dismiss it (they won't decide). It's written into
    * the daily note for `today` (made if needed) under `## Decisions`, so the day's notes say what was
-   * decided.
+   * decided. With `change`, one already answered or dismissed takes a new answer, and its lines are rewritten
+   * where they were recorded (or added to today's note when they're gone from there).
    */
-  answerDecision(id: string, a: { value?: unknown; comment?: string; dismiss?: boolean }, source: string, today = this.day()) {
+  answerDecision(id: string, a: { value?: unknown; comment?: string; dismiss?: boolean; change?: boolean }, source: string, today = this.day()) {
     if (!isDate(today)) throw new VaultError(`"today" must be a date like 2026-10-01, not "${today}"`);
     const d = this.decision(id);
-    if (d.status !== "open") {
-      throw new VaultError(d.status === "withdrawn" ? "That decision was withdrawn: no answer is needed" : `That decision was already ${d.status === "dismissed" ? "dismissed" : `answered: ${d.answer}`}`, "conflict");
+    if (d.status === "withdrawn") throw new VaultError("That decision was withdrawn: no answer is needed", "conflict");
+    if (d.status !== "open" && !a.change) {
+      throw new VaultError(`That decision was already ${d.status === "dismissed" ? "dismissed" : `answered: ${d.answer}`}`, "conflict");
     }
     let value: DecisionValue | null = null;
     if (!a.dismiss) {
@@ -2335,19 +2337,37 @@ export class Vault {
     }
     const comment = a.comment?.trim() || null;
     if (comment && comment.length > COMMENT_MAX) throw new VaultError(`Keep the comment to ${COMMENT_MAX} characters`);
-    const rel = `Journal/${today}.md`;
     const who = actorOf(source);
     const answer = value ? answerText(d, value) : null;
-    const settled: Decision = { ...d, status: a.dismiss ? "dismissed" : "answered", answer, value, comment, answered_at: this.now(), answered_by: who.source, journal: rel };
-    const before = this.files.read(rel);
     const linkTo = (p: string) => `[[${this.linkName(p)}]]`;
-    const added = withTasksAdded(before ?? this.dailyTemplate(today), journalLines(settled, linkTo), true, DECISIONS);
-    const r = this.commit(rel, before, added.content, source, before === null ? "create" : "edit");
+    const settle = (rel: string): Decision => ({ ...d, status: a.dismiss ? "dismissed" : "answered", answer, value, comment, answered_at: this.now(), answered_by: who.source, journal: rel });
+    // A changed answer replaces its lines where they were written; otherwise (or when they're gone) it goes in today's note.
+    let rel = `Journal/${today}.md`;
+    let settled = settle(rel);
+    let r: ReturnType<Vault["commit"]> | null = null;
+    let line = 0;
+    if (d.status !== "open" && d.journal) {
+      const there = this.files.read(d.journal);
+      const lines = journalLines(settle(d.journal), linkTo);
+      const swapped = there === null ? null : replaceJournalLines(there, d, lines, linkTo);
+      if (swapped !== null) {
+        rel = d.journal;
+        settled = settle(rel);
+        line = swapped.replace(/\r\n/g, "\n").split("\n").indexOf(lines[0]) + 1;
+        r = this.commit(rel, there, swapped, source, "edit");
+      }
+    }
+    if (!r) {
+      const before = this.files.read(rel);
+      const added = withTasksAdded(before ?? this.dailyTemplate(today), journalLines(settled, linkTo), true, DECISIONS);
+      line = added.line;
+      r = this.commit(rel, before, added.content, source, before === null ? "create" : "edit");
+    }
     this.db.run(
-      "UPDATE decisions SET status = ?, answer = ?, value = ?, comment = ?, answered_at = ?, answered_by = ?, journal = ? WHERE id = ? AND status = 'open'",
-      settled.status, answer, value ? JSON.stringify(value) : null, comment, settled.answered_at, settled.answered_by, rel, d.id,
+      "UPDATE decisions SET status = ?, answer = ?, value = ?, comment = ?, answered_at = ?, answered_by = ?, journal = ? WHERE id = ? AND status = ?",
+      settled.status, answer, value ? JSON.stringify(value) : null, comment, settled.answered_at, settled.answered_by, rel, d.id, d.status,
     );
-    return { decision: this.decision(d.id), ...r, line: added.line };
+    return { decision: this.decision(d.id), ...r, line };
   }
 
   /** Take back an open question (it no longer matters). Nothing is written to the daily note. */
