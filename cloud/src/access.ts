@@ -23,6 +23,7 @@ export const WORKSPACE_ROUTES = {
   "GET /links/missing": "viewer",
   "GET /changes": "viewer",
   "GET /changes/agents": "viewer",
+  "GET /changes/away": "viewer",
   "GET /diffs": "viewer",
   "GET /diffstats": "viewer",
   "GET /diff": "viewer",
@@ -81,6 +82,7 @@ export const WORKSPACE_ROUTES = {
   // Trash: editors delete and restore, and only they see what's in it; deleting for good is the owner's.
   "GET /delete-check": "editor",
   "POST /delete": "editor",
+  "POST /folders/rename": "editor",
   "POST /delete-folder": "editor",
   "GET /trash": "editor",
   "POST /trash/restore": "editor",

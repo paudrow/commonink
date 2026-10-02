@@ -17,6 +17,7 @@ import { timeZoneNamed } from "../../src/core/tasks.ts";
 import type { Env } from "./env.ts";
 import { fetchAsset, secure } from "./headers.ts";
 import { limit, limited, ROUTE_LIMITS } from "./limits.ts";
+import { landingPage } from "./landing.ts";
 import { connectionInfo, disconnectGoogle, driveApi, googleApi, googleAuth, googleMode } from "./connections.ts";
 import { DRIVE_FORMATS, driveProblem, MAX_DRIVE_BYTES, MIME, saveToDrive, type DriveFormat } from "./drive.ts";
 
@@ -68,6 +69,8 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
   }
   // A share the service worker didn't catch (it wasn't set up yet): the capture screen says so.
   if (url.pathname === "/share" && req.method === "POST") return Response.redirect(new URL("/capture?share=none", url).href, 303);
+  // The front page: what Common Ink is, for anyone not signed in; the app for everyone who is.
+  if (url.pathname === "/" && (req.method === "GET" || req.method === "HEAD") && !(await readSessionOf(req, env))) return landingPage(url, env.DEV_LOGIN === "1");
   return fetchAsset(env.ASSETS, req, url);
 }
 
@@ -115,7 +118,7 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
       await unfurl(target, (u) => {
         assertPublicUrl(u);
         if (u.hostname.replace(/\.$/, "") === url.hostname) throw new Error("self"); // "commonink.app." too
-      }),
+      }, { githubToken: env.GITHUB_TOKEN || undefined }),
     );
   },
   "GET /api/note-ids/*": async ({ env, url, user }) => {
