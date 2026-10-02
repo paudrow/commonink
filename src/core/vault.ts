@@ -2029,6 +2029,48 @@ export class Vault {
     return { deleted: [], moved };
   }
 
+  /**
+   * Rename a folder, or move it under another: everything in it (its archived notes, in Archive,
+   * too) moves to `to`, every link to them rewritten as a note's move does, and smart folders
+   * narrowed to it follow. It can't land on a folder that has anything in it already, and nothing
+   * moves unless all of it can.
+   */
+  moveFolder(folder: string, to: string, source: string): { from: string; path: string; moved: Array<ReturnType<Vault["move"]>> } {
+    const [from, dest] = [folder, to].map((f) => cleanPath(f).replace(/\/+$/, ""));
+    for (const [dir, what] of [[ARCHIVE.slice(0, -1), "Archive"], [PEOPLE, "Contacts"], [TEMPLATES, "Templates"]] as const) {
+      if (from === dir) throw new VaultError(`${dir} is where ${what === "Archive" ? "archived notes go" : `${what} live`}, so it keeps its name`);
+    }
+    if (isArchived(`${from}/`) || isArchived(`${dest}/`)) throw new VaultError("Folders in Archive move with their notes: unarchive them instead");
+    if (dest === from) return { from, path: dest, moved: [] };
+    if (dest.startsWith(`${from}/`)) throw new VaultError(`${from} can't move into itself`);
+    const rels = [...this.under(from), ...this.under(`${ARCHIVE}${from}`)];
+    if (!rels.length) throw new VaultError(`There's nothing in ${from}`, "not_found");
+    // Only the case changing ("ideas" to "Ideas"): a case-insensitive disk would keep the folder's old
+    // spelling under renamed files, so it goes by way of another name.
+    if (dest.toLowerCase() === from.toLowerCase()) {
+      let via = `${from} (renaming)`;
+      for (let i = 2; this.files.listUnder(via).length; i++) via = `${from} (renaming ${i})`;
+      const first = this.moveFolder(from, via, source);
+      const r = this.moveFolder(via, dest, source);
+      const was = new Map(first.moved.map((m) => [m.path, m.from]));
+      return { ...r, from, moved: r.moved.map((m) => ({ ...m, from: was.get(m.from) ?? m.from })) };
+    }
+    if (this.under(dest).length || this.files.listUnder(dest).length) throw new VaultError(`There's already a folder named ${dest}`, "exists");
+    const target = (rel: string) => (isArchived(rel) ? `${ARCHIVE}${dest}${rel.slice(ARCHIVE.length + from.length)}` : `${dest}${rel.slice(from.length)}`);
+    const clash = rels.find((rel) => this.files.stat(target(rel)));
+    if (clash) throw new VaultError(`${target(clash)} already exists`, "exists");
+    const moved = rels.map((rel) => this.move(rel, target(rel), source));
+    for (const f of this.db.all<{ id: string; query: string }>("SELECT id, query FROM smart_folders")) {
+      const q = parseQuery(f.query);
+      if (q.folder === from || q.folder?.startsWith(`${from}/`)) {
+        this.db.run("UPDATE smart_folders SET query = ? WHERE id = ?", formatQuery({ ...q, folder: dest + q.folder.slice(from.length) }), f.id);
+      }
+    }
+    this.files.prune?.(from);
+    this.files.prune?.(`${ARCHIVE}${from}`);
+    return { from, path: dest, moved };
+  }
+
   /** The ids of what's in Trash, newest first. */
   private trashIds(): string[] {
     const ids = new Set(this.files.listUnder(TRASH).map((f) => f.path.split("/")[1]).filter((id) => TRASH_ID.test(id)));

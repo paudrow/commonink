@@ -92,10 +92,21 @@ export class TagsPage {
     const node = el(
       "div",
       { class: "tags-row", role: "listitem", "data-tag": t.tag, style: { "--depth": String(depth) } },
-      el("button", { type: "button", class: "tags-open", title: `Notes tagged #${t.display}`, onclick: () => this.hooks.openTag(t.display) }, icon("hash", 14), label),
+      el(
+        "button",
+        {
+          type: "button",
+          class: "tags-open",
+          title: `Notes tagged #${t.display}`,
+          onclick: () => this.hooks.openTag(t.display),
+          onkeydown: (e: KeyboardEvent) => e.key === "F2" && edit && (e.preventDefault(), this.startRename(node, t)),
+        },
+        icon("hash", 14),
+        label,
+      ),
       el("span", { class: "tags-uses" }, unusedTag(t) ? "Not used yet" : uses.join(" · ")),
       t.tasks ? el("button", { type: "button", class: "row-act", title: `Tasks tagged #${t.display}`, onclick: () => this.hooks.openTag(t.display, "tasks") }, icon("task", 14)) : null,
-      edit ? el("button", { type: "button", class: "row-act tags-rename", title: "Rename or merge", "aria-label": `Rename or merge #${t.display}`, onclick: () => this.startRename(node, t) }, icon("edit", 14)) : null,
+      edit ? el("button", { type: "button", class: "row-act tags-rename", title: "Rename or merge (F2)", "aria-label": `Rename or merge #${t.display}`, onclick: () => this.startRename(node, t) }, icon("edit", 14)) : null,
       edit && unusedTag(t) ? el("button", { type: "button", class: "row-act", title: `Delete #${t.display}`, onclick: () => void this.hooks.deleteTag(t) }, icon("trash", 14)) : null,
     );
     return node;
@@ -129,8 +140,8 @@ export class TagsPage {
     input.addEventListener("blur", () => void finish(false));
   }
 
-  /** Rename (or merge) a tag, with Undo. Whether it happened. */
-  private async rename(t: TagCount, to: string): Promise<boolean> {
+  /** Rename (or merge) a tag, with Undo (the sidebar's rename comes here too). Whether it happened. */
+  async rename(t: TagCount, to: string): Promise<boolean> {
     const all = this.hooks.tags();
     const into = all.find((x) => x.tag === to.toLowerCase() && x.tag !== t.tag);
     if (into && !confirm(`#${into.display} already exists. Merge #${t.display} into it? Everything tagged #${t.display} will be tagged #${into.display}.`)) return false;

@@ -121,6 +121,7 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /unarchive", send: (w) => ["POST", "/unarchive", { paths: [`Archive/unarch-${w}.md`] }], expect: EDIT },
   { route: "GET /delete-check", send: (w) => ["GET", `/delete-check?path=tasks-${w}.md`], expect: EDIT },
   { route: "POST /delete", send: (w) => ["POST", "/delete", { paths: [`del-${w}.md`] }], expect: EDIT },
+  { route: "POST /folders/rename", send: (w) => ["POST", "/folders/rename", { folder: `renfolder-${w}`, to: `renamed-${w}` }], expect: EDIT },
   { route: "POST /delete-folder", send: (w) => ["POST", "/delete-folder", { folder: `folder-${w}`, notes: "lift" }], expect: EDIT },
   { route: "GET /trash", send: () => ["GET", "/trash"], expect: EDIT },
   { route: "POST /trash/restore", send: (w) => ["POST", "/trash/restore", { ids: [trashIds[w].restore] }], expect: EDIT },
@@ -211,6 +212,7 @@ before(async () => {
     await note(`People/Drop ${w}.md`, `# Drop ${w}\n`);
     if (w === "signedOut") await note("Templates/Access template.md", "# {{title}}\n");
     await note(`folder-${w}/Inside.md`);
+    await note(`renfolder-${w}/Inside.md`);
     await note(`trash-restore-${w}.md`);
     await note(`trash-purge-${w}.md`);
     const [restore, purge] = (await cloud.call(owner, "POST", `${base}/delete`, { paths: [`trash-restore-${w}.md`, `trash-purge-${w}.md`] })).trashed.map((t: { id: string }) => t.id);

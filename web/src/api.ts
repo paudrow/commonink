@@ -437,6 +437,9 @@ export const api = {
   delete: (paths: string[]) => j<{ trashed: Trashed[] }>(`${BASE}/delete`, send("POST", { paths })),
   deleteFolder: (folder: string, notes: "trash" | "lift") =>
     j<{ trashed: Trashed[]; moved: Array<{ from: string; to: string }> }>(`${BASE}/delete-folder`, send("POST", { folder, notes })),
+  /** Rename a folder (or move it under another): everything in it moves, links rewritten. */
+  renameFolder: (folder: string, to: string) =>
+    j<{ from: string; path: string; moved: Array<{ from: string; to: string }> }>(`${BASE}/folders/rename`, send("POST", { folder, to })),
   trash: () => j<TrashItem[]>(`${BASE}/trash`),
   restoreTrash: (ids: string[]) => j<{ restored: string[] }>(`${BASE}/trash/restore`, send("POST", { ids })),
   purgeTrash: (ids: string[]) => j<{ deleted: string[] }>(`${BASE}/trash/delete`, send("POST", { ids })),

@@ -30,6 +30,9 @@ export interface Command {
 
 export type Page = "notes" | "tasks" | "calendar" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash" | "shared";
 
+/** The kinds of thing ⌘K's Rename… can rename. */
+export type Renamable = "note" | "folder" | "tag" | "smart folder" | "file";
+
 /** What the registry needs from the app: a snapshot of its state, and the actions to run. */
 export interface App {
   /** The note in the focused pane. */
@@ -58,6 +61,8 @@ export interface App {
   canConnectGoogle: boolean;
   /** How many collapsible sections the focused note has. */
   folds: number;
+  /** What ⌘K's Rename… renames: the open note, the folder, tag or smart folder Notes shows, or the file Assets previews. Null for nothing. */
+  renames: Renamable | null;
   /** Online, the account menu's actions; locally, none. */
   account: Array<{ label: string; icon: string; run: () => unknown; workspace?: boolean; current?: boolean }>;
   newNote(): void;
@@ -164,7 +169,15 @@ export function appCommands(app: App): Command[] {
     { id: "archive", title: note?.archived ? "Unarchive note" : "Archive note", keywords: "archive remove hide", icon: note?.archived ? "unarchive" : "archive", keys: ["Mod-Shift-e"], available: !!note, run: app.archive },
     { id: "delete", title: "Delete note", keywords: "delete remove trash bin", icon: "trash", available: !!note && app.canDelete, run: app.delete },
     { id: "move", title: "Move to folder…", keywords: "move note folder file", icon: "move", available: !!note, run: app.move },
-    { id: "rename", title: "Rename note…", keywords: "rename name title heading file", icon: "edit", available: !!note && app.canDelete, run: app.rename },
+    {
+      id: "rename",
+      title: `Rename ${app.renames ?? "note"}…`,
+      keywords: "rename name title heading file folder tag F2",
+      icon: "edit",
+      keys: ["F2"],
+      available: !!app.renames && app.canDelete,
+      run: app.rename,
+    },
     { id: "share", title: "Share…", keywords: "share link copy print export download pdf markdown html word send", icon: "share", keys: ["Mod-Shift-s"], available: text, run: app.share },
     { id: "share-people", title: "Share with people…", keywords: "share people link invite collaborate public email", icon: "share-people", available: !!note && app.online, run: app.shareWithPeople },
     { id: "copy-link", title: "Copy link to this note", keywords: "share url address copy", icon: "link", available: text, run: app.copyLink },
@@ -215,6 +228,7 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: ["s"], label: "Star or unstar", area: "Notes page" },
   { keys: ["e"], label: "Archive (the selected notes, or this one)", area: "Notes page" },
   { keys: ["x"], label: "Select", area: "Notes page" },
+  { keys: ["F2"], label: "Rename the note (in the sidebar: the folder, tag or note in focus; double-click works too)", area: "Notes page" },
   { keys: ["Delete", "Backspace"], label: "Delete (the selected notes, or this one)", area: "Notes page" },
   { keys: ["/"], label: "Filter", area: "Notes page" },
   { keys: ["Escape"], label: "Clear the selection", area: "Notes page" },
