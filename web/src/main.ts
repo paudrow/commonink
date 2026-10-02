@@ -2986,7 +2986,8 @@ async function boot() {
     useWorkspace(`/api/w/${ws.id}`, `/api/w/${ws.id}/live`);
     setSelfName(who.me.user.name);
     api.reportTimeZone().catch(() => {}); // unreported, agents use the owner's zone, or UTC
-    account = renderAccount(who.me, ws, (t) => toast(t));
+    $("#settings-btn").remove(); // the account menu has Settings
+    account = renderAccount(who.me, ws, (t) => toast(t), () => openSettings());
     $("#shared-btn").hidden = false;
     setShareWithPeople({ label: "Share with people…", icon: "share-people", run: (note) => openShareDialog({ path: note.path }) });
     void refreshShares();
@@ -3010,8 +3011,13 @@ async function boot() {
   renderCodeWrap();
   $("#codewrap-toggle").addEventListener("click", () => setCodeWrap(!codeWrapByDefault()));
   $("#vim-toggle").addEventListener("click", toggleVim);
-  $("#settings-btn").addEventListener("click", () => openSettings());
-  setLabel($("#settings-btn"), `Settings (${formatKeys("Mod-,")})`);
+  // Settings sits under you at the foot of the sidebar: online in the account menu, locally (no account) as its own row.
+  if (local) {
+    const settings = $("#settings-btn");
+    settings.hidden = false;
+    settings.querySelector("kbd")!.textContent = formatKeys("Mod-,");
+    settings.addEventListener("click", () => openSettings());
+  }
   setupShortcutTips();
   attachVim(); // the toggle's label, before any note opens
   $("#html-toggle").addEventListener("click", (e) => {

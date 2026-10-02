@@ -1,5 +1,5 @@
 // Shortcut tips: Common Ink is keyboard-first, but a new person clicks. The third time someone
-// clicks a button that has a shortcut (the sidebar's Search, the top bar's Archive, the gear), a
+// clicks a button that has a shortcut (the sidebar's Search, the top bar's Archive, Settings), a
 // toast says once which keys do it: "Tip: ⌘K searches from anywhere." Each tip shows once in this
 // browser, at most one shows per visit, never from the keyboard or a touch screen, and never over a
 // dialog or the palette: a tip that comes due then waits until it closes. Settings → Keyboard turns
