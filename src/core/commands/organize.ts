@@ -7,7 +7,7 @@ import { bool, command, list, num, str, UsageError } from "./types.ts";
 
 const BOARD_HELP =
   "A board is a :::kanban block in a note (closed by :::): its ## headings are columns and its list items are cards, " +
-  "with task tokens like tasks. Moving a card into the column named Done ticks it. read_board also lists lines that aren't part of the board (problems): leave them unless the user asks.";
+  "with task tokens like tasks. Moving a card into the column named Done ticks it. The opening line's folded=\"A,B\" names the columns the user folded. read_board also lists lines that aren't part of the board (problems): leave them unless the user asks.";
 const CARD = "The card's line number from read_board, or words from its text that only that card has";
 const COLUMN = "The column's name, or its number from 1";
 
@@ -323,6 +323,30 @@ export const folders = [
     run: ({ vault }) => {
       const found = foldersOf(vault.list(undefined, "active").filter((n) => n.kind !== "asset").map((n) => n.path));
       return { text: found.length ? found.map((f) => `${"  ".repeat(f.folder.split("/").length - 1)}- ${f.folder.split("/").pop()}/ (${f.notes})`).join("\n") : "No folders.", data: found };
+    },
+  }),
+  command({
+    cli: "folder rename",
+    mcp: "rename_folder",
+    route: "POST /folders/rename",
+    title: "Rename / move folder",
+    summary: "Rename a folder, or move it under another, rewriting every link to what's in it",
+    description:
+      "Rename a folder or move it under another (to=Projects/Old moves it into Projects). Everything in it moves, archived notes included, " +
+      "every link to them is rewritten, and smart folders narrowed to it follow. It can't land on a folder that already has notes. Only when the user asks.",
+    examples: ["commonink folder rename Ideas 'Ideas 2026'", "commonink folder rename 'Projects/Ideas' 'Projects/Ideas 2026'"],
+    args: {
+      folder: str({ required: true, pos: 0 }),
+      to: str({ required: true, pos: 1, label: "new-path", describe: "Its whole new path: Projects/Ideas 2026, not just the new name" }),
+    },
+    run: async ({ vault, source, sharing }, a) => {
+      const r = vault.moveFolder(a.folder, a.to, source);
+      await sharing?.folderMoved?.(r.from, r.path);
+      const updated = [...new Set(r.moved.flatMap((m) => m.updated))].filter((p) => !r.moved.some((m) => m.path === p || m.from === p));
+      return {
+        text: `Moved ${r.from}/ to ${r.path}/ (${r.moved.length} file${r.moved.length === 1 ? "" : "s"}).${updated.length ? ` Updated links in: ${updated.join(", ")}` : ""}`,
+        data: { from: r.from, path: r.path, moved: r.moved.map((m) => ({ from: m.from, to: m.path })), updated },
+      };
     },
   }),
   command({
