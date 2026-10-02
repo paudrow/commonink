@@ -36,9 +36,9 @@ test("the server lists every tool", async () => {
     "delete_folder", "delete_note", "delete_smart_folder", "diff_versions", "edit_card", "edit_note", "export_note", "get_event", "get_today",
     "import_contacts", "import_notes", "label_version", "list_contacts", "list_events", "list_folders", "list_labels", "list_notes", "list_smart_folders", "list_tags",
     "list_tasks", "list_templates", "list_trash", "merge_contacts", "missing_links", "move_card", "move_note", "move_task", "open_journal", "order_favorites",
-    "read_board", "read_contact", "read_note", "recent_changes", "remove_task", "rename_tag", "restore_change", "restore_from_trash", "restore_label",
+    "read_board", "read_contact", "read_note", "recent_changes", "remove_task", "rename_folder", "rename_tag", "restore_change", "restore_from_trash", "restore_label",
     "save_smart_folder", "search_notes", "set_asset_tags", "show_change", "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag",
-    "update_contact", "update_task", "write_note",
+    "update_contact", "update_task", "workspace_checkup", "write_note",
   ]);
 });
 
@@ -62,7 +62,7 @@ test("agents read a board and add, move and edit its cards, each change attribut
   assert.deepEqual(await call("move_card", { path: "Launch", card: "nope", to_column: "Done" }), { text: 'No card in Launch.md matches "nope"', isError: true });
 });
 
-test("agents add a task from words, to today's daily note or a named note, and move one", async () => {
+test("agents add a task from words, to today's journal note or a named note, and move one", async () => {
   const today = new Date().toLocaleDateString("en-CA");
   const r = await call("add_task", { text: "Renew the domain every year on mar 1 !high" });
   assert.match(r.text, new RegExp(`^Added "- \\[ \\] Renew the domain !high due:\\d{4}-03-01 rec:mar-1" to Journal/${today}\\.md:5$`));
