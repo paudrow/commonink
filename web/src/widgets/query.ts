@@ -16,8 +16,8 @@ const prevent = (e: Event) => e.preventDefault();
 export const QUERY_FIELDS: Field[] = [
   { key: "q", label: "Matching", type: "text", placeholder: "Search words (optional)" },
   { key: "folder", label: "Folder", type: "text", placeholder: "e.g. Projects", picker: "folder" },
-  { key: "tag", label: "Tag", type: "text", placeholder: "e.g. meeting (includes meeting/…)", picker: "tag" },
-  { key: "sort", label: "Sort", type: "select", options: [["modified", "Newest first"], ["title", "By title"]] },
+  { key: "tag", label: "Tags", type: "text", placeholder: "e.g. meeting (includes meeting/…), or meeting, client for both", picker: "tag" },
+  { key: "sort", label: "Sort", type: "select", options: [["modified", "Recently changed"], ["date", "Newest by date"], ["oldest", "Oldest by date"], ["title", "By title"]] },
 ];
 
 export const query: WidgetSpec = {

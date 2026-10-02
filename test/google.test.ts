@@ -183,3 +183,67 @@ test("Google is real only when fully configured; the stand-in only where develop
     ["off", "off", "real", "mock", "real"],
   );
 });
+
+/** A Worker module, loaded by name so this project's type check doesn't take in the Workers types it needs. */
+const cloudModule = (name: string) => import(`../cloud/src/${name}.ts`);
+
+// A person's Google connection in a D1 stand-in (node:sqlite), with a hook that runs once, just after
+// the connection is first read: that's where a disconnect lands while a read or a refresh is in flight.
+async function connected(opts: { expired: boolean }) {
+  const { DatabaseSync } = await import("node:sqlite");
+  const sqlite = new DatabaseSync(":memory:");
+  sqlite.exec("CREATE TABLE connections(user_id TEXT NOT NULL, provider TEXT NOT NULL, account TEXT NOT NULL, scopes TEXT NOT NULL, access_enc TEXT NOT NULL, refresh_enc TEXT, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(user_id, provider))");
+  const hook = { once: null as null | (() => void) };
+  const DB = {
+    prepare: (sql: string) => ({
+      bind: (...args: any[]) => ({
+        first: async () => {
+          const row = sqlite.prepare(sql).get(...args) ?? null;
+          const fn = hook.once;
+          hook.once = null;
+          fn?.();
+          return row;
+        },
+        run: async () => sqlite.prepare(sql).run(...args),
+      }),
+    }),
+  };
+  const env = { DEV_LOGIN: "1", SESSION_SECRET: "test-secret", DB } as any;
+  const key = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode("mock-integrations:test-secret")))));
+  sqlite.prepare("INSERT INTO connections VALUES ('u1', 'google', 'me@example.com', ?, ?, ?, ?, 1)").run(
+    "https://www.googleapis.com/auth/calendar.readonly", await encrypt(key, "mock-a", "u1:google:access"), await encrypt(key, "mock-r", "u1:google:refresh"), opts.expired ? 0 : Date.now() + 3600_000,
+  );
+  const disconnect = () => sqlite.prepare("DELETE FROM connections WHERE user_id = 'u1'").run();
+  const count = () => (sqlite.prepare("SELECT COUNT(*) AS n FROM connections").get() as { n: number }).n;
+  return { env, hook, disconnect, count };
+}
+
+test("a refresh in flight when the person disconnects doesn't bring the connection back", async () => {
+  const { accessToken } = await cloudModule("connections");
+  const c = await connected({ expired: true });
+  c.hook.once = c.disconnect;
+  await accessToken(c.env, "u1");
+  assert.equal(c.count(), 0);
+  const kept = await connected({ expired: true }); // and with nothing in the way, the refresh is kept
+  await accessToken(kept.env, "u1");
+  assert.equal(kept.count(), 1);
+});
+
+test("a Google read in flight when its calendar goes keeps none of its events", async () => {
+  const { googleReader } = await cloudModule("google-reader");
+  const { NodeDb } = await import("../src/core/local.ts");
+  const { DatabaseSync } = await import("node:sqlite");
+  const c = await connected({ expired: false });
+  const db = new NodeDb(new DatabaseSync(":memory:"));
+  db.exec("CREATE TABLE sources(id TEXT PRIMARY KEY)");
+  db.run("INSERT INTO sources(id) VALUES ('s1')");
+  const reader = googleReader(c.env, db);
+  const src = { id: "s1", owner: "u1", config: { calendar: "primary" }, state: {}, fresh: false };
+  c.hook.once = () => {
+    c.disconnect();
+    db.run("DELETE FROM sources WHERE id = 's1'");
+    reader.removed!(src);
+  };
+  assert.deepEqual(await reader.read(src), { status: "unchanged" });
+  assert.equal(db.get<{ n: number }>("SELECT COUNT(*) AS n FROM google_events")!.n, 0);
+});

@@ -68,9 +68,11 @@ function localHost(q: LocalVault, agent: string | undefined): CommandHost {
           return null;
         }
       },
-      add: async (rel, bytes, source) => {
+      add: async (free, bytes, source) => {
+        const rel = free();
         q.files.write(rel, bytes);
         q.recordUpload(rel, false, source);
+        return rel;
       },
     },
   };

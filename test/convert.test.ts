@@ -125,7 +125,7 @@ test("an Evernote import is written, links and tags working, and says where it c
   {
     const set = readImport([{ name: "Travel.enex", bytes: strToU8(ENEX) }]);
     const added: string[] = [];
-    const r = await writeImport(vault, set, { source: "test", bytes: { add: async (p: string) => void added.push(p) } as never });
+    const r = await writeImport(vault, set, { source: "test", bytes: { add: async (free: () => string) => (added.push(free()), added.at(-1)!) } as never });
     assert.equal(r.from, "evernote");
     assert.deepEqual(added, ["Travel/attachments/map.png"]);
     assert.match(fmtImport(r), /^From Evernote: imported 2 new notes, added 1 file\./);

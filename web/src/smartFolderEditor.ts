@@ -6,7 +6,7 @@ import { el, icon } from "./dom.ts";
 import { fieldRows, fieldValues, type Field, type FieldSources } from "./widgets/core.ts";
 import { QUERY_FIELDS } from "./widgets/query.ts";
 import { parseAttrs, serializeAttrs } from "../../src/core/directive.ts";
-import { queryProblem, toQuery } from "../../src/core/query.ts";
+import { parseQuery, queryProblem } from "../../src/core/query.ts";
 
 export interface SmartFolderDraft {
   id?: string;
@@ -35,7 +35,7 @@ export function smartFolderEditor(
       const mine = ++seq;
       const problem = queryProblem(query());
       if (problem) return void ((count.textContent = problem), count.classList.add("is-error"));
-      const page = await api.feed({ ...toQuery(parseAttrs(query())), scope: "active", limit: 1 }).catch(() => null);
+      const page = await api.feed({ ...parseQuery(query()), scope: "active", limit: 1 }).catch(() => null);
       if (mine !== seq || !page) return;
       count.classList.remove("is-error");
       count.textContent = page.total === 1 ? "1 note matches" : `${page.total} notes match`;

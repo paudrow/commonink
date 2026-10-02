@@ -157,8 +157,11 @@ export async function writeImport(
       r.skipped.push(rel);
       continue;
     }
-    await opts.bytes!.add(rel, bytes, opts.source);
-    r.files.push(rel);
+    // At its own path; if another upload takes that meanwhile, beside it ("pic 2.png").
+    let asked = 0;
+    const slash = rel.lastIndexOf("/");
+    const free = () => (asked++ ? vault.uploadPath(rel.slice(slash + 1), rel.slice(0, Math.max(slash, 0))) : rel);
+    r.files.push(await opts.bytes!.add(free, bytes, opts.source));
   }
   return r;
 }
