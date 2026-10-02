@@ -59,6 +59,7 @@ import { safeDecode } from "../../src/core/uri.ts";
 import { deleteFolder, deletePaths, TrashPage, type DeleteHooks } from "./trash.ts";
 import { mountSharedView, sharedRoute } from "./sharedView.ts";
 import { showShareDialog } from "./shareDialog.ts";
+import { openRowMenu, rowMenu, type RowMenuItem } from "./rowMenu.ts";
 import { CapturePage, registerWorker } from "./capture.ts";
 import { AGENTS_BLURB, isAgentsNote } from "./agentsNote.ts";
 import { closeDrawer, renderMore, setupMobileNav } from "./mobileNav.ts";
@@ -1955,7 +1956,7 @@ function renderTree() {
             "aria-current": showing === formatQuery({ folder: path }) && "page",
             style: { "--depth": String(depth) },
             "data-folder": path,
-            title: n ? `Show the notes in ${path}` : `${path} is empty. Drag notes here.`,
+            title: `${n ? `Show the notes in ${path}.` : `${path} is empty. Drag notes here.`} Right-click for more.`,
             ...opens(() => void showNotes({ tab: "notes", query: { folder: path } })),
           },
           subs
@@ -1983,16 +1984,27 @@ function renderTree() {
             "span",
             { class: "row-actions" },
             action(`New note in ${path}`, "plus", () => void newNote(path)),
-            action(`Export ${path} as a .zip`, "download", () => void exportZip({ folder: path })),
-            workspaceId ? action(`Share ${path}…`, "share", () => openShareDialog({ folder: path })) : null,
-            viewer ? null : action(`Delete ${path}`, "trash", () => void removeFolder(path)),
+            // Export, Share and Delete are in the folder's menu (right-click, Shift+F10); a touch
+            // screen has neither, so there it gets ⋯ (mobile.css).
+            el("button", { type: "button", class: "row-act row-more", title: `More for ${path}`, "aria-haspopup": "menu", onclick: (e: Event) => (e.stopPropagation(), openRowMenu(row, path, folderMenu(path))) }, icon("more", 14)),
           ),
         );
+        rowMenu(row, path, () => folderMenu(path));
         dropTarget(row, () => path);
         return [row, ...(open ? walk(path, depth + 1) : [])];
       });
   const rows = walk("", 0);
   $("#tree").replaceChildren(...(rows.length ? rows : [sectionHint("Click ", plusMark(), " to make a folder.")]));
+}
+
+/** A folder's menu in the sidebar: what you do to it now and then, kept off the row itself. */
+function folderMenu(path: string): (RowMenuItem | null)[] {
+  return [
+    { label: "New note here", icon: "plus", run: () => newNote(path) },
+    { label: "Export as .zip", icon: "download", run: () => exportZip({ folder: path }) },
+    workspaceId ? { label: "Share…", icon: "share", run: () => openShareDialog({ folder: path }) } : null,
+    viewer ? null : { label: "Delete…", icon: "trash", danger: true, run: () => removeFolder(path) },
+  ];
 }
 
 /** Delete a folder: an empty one just goes; one with notes asks what happens to them. */

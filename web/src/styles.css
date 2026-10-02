@@ -1703,6 +1703,7 @@ body.is-resizing iframe { pointer-events: none; }
 .tree-row:hover .agent-dot { display: none; }
 .row-act { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 5px; color: var(--muted); }
 .row-act:hover { background: var(--active); color: var(--ink-strong); }
+.row-act.row-more { display: none; } /* a folder's menu opens on right-click; ⋯ is for touch (mobile.css) */
 .tree-row.is-input { cursor: default; }
 .tree-input { flex: 1; min-width: 0; font: 13px var(--ui); color: var(--ink-strong); background: var(--bg-elev); border: 1px solid var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); border-radius: 5px; padding: 2px 6px; outline: none; }
 .tree-row.is-drop { background: var(--accent-soft); color: var(--accent-ink); box-shadow: inset 0 0 0 1.5px var(--accent-line); }
@@ -2853,6 +2854,10 @@ button.cal-src-color:hover { background: var(--hover); }
 .share-section { font: 650 10.5px/1 var(--ui); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 9px 9px 6px; }
 .share-sep { height: 1px; background: var(--line); margin: 6px 2px; }
 @media (pointer: coarse) { .share-item { min-height: 44px; font-size: 14px; } }
+/* A sidebar row's menu (rowMenu.ts) wears the Share menu's look; Delete is set apart, in red. */
+.row-menu { min-width: 190px; }
+.share-item.is-danger, .share-item.is-danger svg { color: var(--bad); }
+.share-item.is-danger:is(:hover, :focus-visible) { background: color-mix(in srgb, var(--bad) 10%, transparent); color: var(--bad); }
 
 /* ------------------------------------------------------------------ print (export/print.ts) */
 .pr-dialog { padding: 0; border: 0; border-radius: 14px; background: var(--bg-elev); color: var(--ink); box-shadow: var(--shadow-lg); width: min(380px, calc(100vw - 32px)); }
