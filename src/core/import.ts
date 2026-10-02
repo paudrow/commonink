@@ -135,8 +135,7 @@ export async function writeImport(
       r.skipped.push(rel);
       continue;
     }
-    await opts.bytes!.add(rel, bytes, opts.source);
-    r.files.push(rel);
+    r.files.push(await opts.bytes!.add(() => rel, bytes, opts.source));
   }
   return r;
 }
