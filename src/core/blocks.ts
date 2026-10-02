@@ -1,5 +1,5 @@
 // Block IDs: `[[Note#^id]]` links to one paragraph or list item, and `![[Note#^id]]` embeds it.
-// Used by the editor (following and embedding block links, "Copy link to this paragraph" and the right-click menu) and by
+// Used by the editor (following and embedding block links, "Copy [[link]] to this paragraph" and the right-click menu) and by
 // exports. No Node imports: the web app runs this too.
 import { frontmatterLines, headingName, headingText, proseLines } from "./prose.ts";
 
@@ -58,7 +58,7 @@ export function findBlock(md: string, id: string): Block | null {
 }
 
 /**
- * The block line `line` (from 1) is in, for "Copy link to this paragraph": the block with an ID there,
+ * The block line `line` (from 1) is in, for "Copy [[link]] to this paragraph": the block with an ID there,
  * or else where an ID would go. `insert` is the text to add at the end of line `at`, with `{id}` for
  * the ID: ` ^{id}` at the end of a paragraph or list item, or `^{id}` on a line of its own after a
  * table or a quote (an ID on their last line would be read as part of them). Null on a blank line,
@@ -97,7 +97,7 @@ export type LinkTarget =
   | { kind: "paragraph" | "list item" | "table" | "quote"; block: NonNullable<ReturnType<typeof blockAt>> };
 
 /**
- * What "Copy link to this …" links to from line `line` (from 1): a heading (by its words, as
+ * What "Copy [[link]] to this …" links to from line `line` (from 1): a heading (by its words, as
  * `[[Note#Heading]]`), or the paragraph, list item, table or quote it's in (by its ID, as
  * `[[Note#^id]]`, which it may not have yet). Null on a blank line, in code or frontmatter.
  */

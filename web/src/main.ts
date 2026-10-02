@@ -1236,9 +1236,9 @@ function openEditorMenu(pane: Pane, pointer?: { x: number; y: number }) {
           }
         : null,
       selected ? { label: "Copy", icon: "copy", run: () => copy(selected, "Copied") } : null,
-      { label: "Copy link to this note", icon: "link", run: () => copy(noteLink(linkName(s.path)), "Link copied") },
-      linkable ? { label: `Copy link to this ${target.kind}`, icon: "link", run: () => link(false) } : null,
-      linkable && target.kind !== "heading" ? { label: `Copy embed of this ${target.kind}`, icon: "embed", run: () => link(true) } : null,
+      { label: "Copy [[link]] to this note", icon: "link", run: () => copy(noteLink(linkName(s.path)), "Link copied") },
+      linkable ? { label: `Copy [[link]] to this ${target.kind}`, icon: "link", run: () => link(false) } : null,
+      linkable && target.kind !== "heading" ? { label: `Copy ![[embed]] of this ${target.kind}`, icon: "embed", run: () => link(true) } : null,
     ],
     at,
     view.contentDOM,
