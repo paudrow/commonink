@@ -27,7 +27,7 @@ export const notes = [
     summary: "Full-text search (prefix matching), with the lines that match",
     description:
       "Full-text search across the vault (titles, paths, bodies; prefix matching). Every word must match; " +
-      '-word leaves out notes with it, a OR b matches either, and "exact phrase" matches the words together. Returns paths with matching line numbers.',
+      '-word leaves out notes with it, a OR b matches either, ( ) groups, and "exact phrase" matches the words together (commonink help query). Returns paths with matching line numbers.',
     examples: ["commonink search launch plan", "commonink search invoice --tag work --json", `commonink search '"launch plan" -draft'`],
     readOnly: true,
     args: {
@@ -83,7 +83,7 @@ export const notes = [
       smart_folder: str({ flag: "smart", describe: "If set, list the notes in this smart folder (name or ID) instead" }),
       query: str({
         describe:
-          'If set, list the notes this note query matches instead, written as a smart folder or ::query writes it: q="launch -draft" folder=Projects tag=work modified>-7d -tag=done sort=created',
+          'If set, list the notes this note query matches instead, written as a smart folder or ::query writes it: q="(launch OR release) -draft" folder=Projects tag=work modified>-7d -tag=done sort=created. In q, side by side is AND, OR is either, -x leaves out, ( ) groups, and tag=, folder= and dates work inside. See commonink help query.',
       }),
       include_archived: bool({ flag: "all", describe: "Also archived notes" }),
       archived: bool({ only: "cli", describe: "Only archived notes" }),

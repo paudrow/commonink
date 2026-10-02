@@ -4,15 +4,17 @@
 // are two; a note is in one folder, so folders are always any of them. Below, a live count and the
 // first few notes that match, so what a choice does shows as you make it. Under the rows, always in
 // view, is the query as text: the same one an agent or a ::query widget writes, with its whole
-// grammar (`-word`, `modified>-7d`, ...). It's built as the rows change, and typing in it fills them.
-// "Syntax" under it says what a query can say. What's saved is the query as text;
+// grammar (queryGrammar.ts: AND, OR, ( ), -word, modified>-7d, ...). It's built as the rows change,
+// and typing in it fills them. Its ? opens the Query syntax page. What's saved is the query as text;
 // the server checks it.
 import { api } from "./api.ts";
 import { el, icon } from "./dom.ts";
 import type { FieldSources } from "./widgets/core.ts";
 import { folderPicker } from "./folderPicker.ts";
 import { tagPicker } from "./tagPicker.ts";
-import { folderList, formatQuery, parseQuery, parseSearch, queryProblem, tagList, type NoteQuery, type QuerySort } from "../../src/core/query.ts";
+import { queryHelpLink } from "./queryHelp.ts";
+import { parse } from "../../src/core/queryGrammar.ts";
+import { folderList, formatQuery, parseQuery, queryProblem, tagList, type NoteQuery, type QuerySort } from "../../src/core/query.ts";
 
 export interface SmartFolderDraft {
   id?: string;
@@ -49,7 +51,7 @@ export const SORTS: Array<[QuerySort, string]> = [
 /** A row's words as they go in `q`: one word as it is, more as a phrase (`'client call'`). */
 function termText(row: string): string {
   const t = row.replace(/['"]/g, " ").replace(/\s+/g, " ").trim();
-  return /^[\p{L}\p{N}_]+$/u.test(t) && t !== "OR" ? t : t && `'${t}'`;
+  return /^[\p{L}\p{N}_]+$/u.test(t) && t !== "OR" && t !== "AND" ? t : t && `'${t}'`;
 }
 
 /** Rows of words as `q`: all of them (`a b`), or any (`a OR b`). */
@@ -57,17 +59,16 @@ export function wordsText(rows: string[], match: Match): string {
   return rows.map(termText).filter(Boolean).join(match === "any" ? " OR " : " ");
 }
 
-/** `q` as rows, if rows say it exactly (else null). */
+/** `q` as rows, if rows say it exactly (else null): words side by side, or words joined by OR. */
 export function wordRows(q: string): { rows: string[]; match: Match } | null {
   const text = q.trim().replace(/\s+/g, " ");
   if (!text) return { rows: [""], match: "all" };
-  const s = parseSearch(text);
-  if (s.problem) return null;
-  const clauses = s.all;
-  const any = clauses.length === 1 && clauses[0].length > 1;
-  if (!any && clauses.some((c) => c.length !== 1)) return null;
-  const rows = (any ? clauses[0] : clauses.map((c) => c[0])).map((t) => t.words.join(" "));
-  const match: Match = any ? "any" : "all";
+  const { expr, sort, error } = parse(text);
+  if (error || sort || !expr) return null;
+  const items = expr.kind === "and" || expr.kind === "or" ? expr.items : [expr];
+  if (!items.every((t) => t.kind === "text")) return null;
+  const rows = items.map((t) => (t.kind === "text" ? t.words.join(" ") : ""));
+  const match: Match = expr.kind === "or" ? "any" : "all";
   return wordsText(rows, match) === text ? { rows, match } : null;
 }
 
@@ -164,30 +165,6 @@ function rowList(o: { items: string[]; join: string; add: string; remove: string
   return [o.head ?? "", ...rows, add];
 }
 
-/** Where the whole query syntax is written up (the Smart folders part of the README, until the app has a page for it). */
-export const SYNTAX_URL = "https://github.com/paudrow/commonink#notes-archive-and-trash";
-
-/** What a query can say, in short, with a link to the rest. */
-function syntax(): HTMLElement {
-  const rows: Array<[string, string]> = [
-    ["plan meeting", "notes with both words (plan finds planning)"],
-    ["plan OR budget", "either word"],
-    ["'weekly review'", "the words together"],
-    ["-draft", "leave out notes with it"],
-    ["tag=work,plan", "both tags; match=any for either"],
-    ["-tag=done", "leave out a tag"],
-    ['folder="Projects|Areas"', "in either folder"],
-    ["modified>-7d", "changed in the last week (created<2026-01-01 too)"],
-    ["sort=date", "modified, created, date, oldest or title"],
-  ];
-  return el(
-    "div",
-    { class: "sf-syntax" },
-    el("dl", {}, ...rows.flatMap(([code, what]) => [el("dt", {}, el("code", {}, code)), el("dd", {}, what)])),
-    el("a", { href: SYNTAX_URL, target: "_blank", rel: "noopener" }, "All of the query syntax"),
-  );
-}
-
 export function smartFolderEditor(
   anchor: HTMLElement,
   draft: SmartFolderDraft,
@@ -206,7 +183,7 @@ export function smartFolderEditor(
       // More than rows can say: the words as text, as the query has them.
       const input = el("input", { type: "text", class: "sf-word", value: state.q, spellcheck: "false", "aria-label": "Words" });
       input.addEventListener("input", () => ((state.q = input.value), changed()));
-      return wordBox.replaceChildren(input, el("p", { class: "sf-hint" }, "These words use the query syntax (see Syntax below)."));
+      return wordBox.replaceChildren(input, el("p", { class: "sf-hint" }, "These words use the query syntax (the ? by Query lists it)."));
     }
     const filled = rows.filter((w) => w.trim()).length;
     wordBox.replaceChildren(
@@ -329,14 +306,9 @@ export function smartFolderEditor(
   });
   const queryBox = el(
     "div",
-    { class: "sf-adv-body" },
-    text,
-    el(
-      "details",
-      { class: "sf-advanced" },
-      el("summary", {}, "Syntax"),
-      el("div", { class: "sf-adv-body" }, el("p", { class: "sf-hint" }, "The same query as ::query{…} in a note, or an agent's. Type it here, or use the rows above."), syntax()),
-    ),
+    { class: "sf-query-box" },
+    el("div", { class: "sf-query-line" }, text, queryHelpLink()),
+    el("p", { class: "sf-hint" }, "The same query as ::query{…} in a note. Type it here or use the rows above; the ? shows all the syntax."),
   );
 
   const count = el("div", { class: "sf-count", "aria-live": "polite" });

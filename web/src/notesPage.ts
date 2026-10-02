@@ -15,6 +15,8 @@ import { WIDGETS } from "./widgets/index.ts";
 import { tagChip, tagFilter } from "./tagPicker.ts";
 import type { ToastSpec } from "./toast.ts";
 import { folderList, formatQuery, tagList, type NoteQuery, type QuerySort } from "../../src/core/query.ts";
+import { parse, textWords } from "../../src/core/queryGrammar.ts";
+import { queryHelpLink } from "./queryHelp.ts";
 import { hydrateTaskChips, withTaskChips } from "./taskChips.ts";
 import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
 import { linkClick, sideClick } from "./panes.ts";
@@ -77,6 +79,8 @@ export class NotesPage {
   private bulk: HTMLElement;
   private more: HTMLElement;
   private search: HTMLElement;
+  /** What's wrong with the filter's query, if anything ("Missing ")" …"). */
+  private problem = el("div", { class: "feed-problem", role: "status", hidden: true });
   private filters: HTMLElement;
   private keys: HTMLElement;
   /** The tab's one line under the filters. */
@@ -123,7 +127,7 @@ export class NotesPage {
     this.bulk = el("div", { class: "feed-bulk", hidden: true });
     this.list = el("div", { class: "feed-list", role: "list" });
     this.more = el("div", { class: "feed-more" });
-    this.search = el("label", { class: "feed-search" }, icon("search", 16), this.input, el("kbd", {}, "/"));
+    this.search = el("label", { class: "feed-search" }, icon("search", 16), this.input, queryHelpLink(), el("kbd", {}, "/"));
     this.filters = el("div", { class: "feed-filters" }, this.scopeBar, this.tagBar, this.folderBar, this.sortSel, this.saveBtn);
     this.keys = el(
       "footer",
@@ -131,7 +135,7 @@ export class NotesPage {
       ...[["j k", "move"], ["↵", "expand"], ["o", "open"], ["s", "star"], ["e", "archive"], ["⌫", "delete"], ["x", "select"], ["/", "filter"]].map(([k, t]) => el("span", {}, el("kbd", {}, k), t)),
     );
     this.root.append(
-      el("div", { class: "feed" }, el("header", { class: "feed-head" }, this.heading, this.search, this.filters, this.about), this.bulk, this.list, this.elsewhere, this.more, this.trashHost, this.keys),
+      el("div", { class: "feed" }, el("header", { class: "feed-head" }, this.heading, this.search, this.problem, this.filters, this.about), this.bulk, this.list, this.elsewhere, this.more, this.trashHost, this.keys),
     );
     this.input.addEventListener("input", () => {
       clearTimeout(this.timer);
@@ -205,6 +209,9 @@ export class NotesPage {
     const seq = ++this.seq;
     this.renderTabs();
     const q = this.input.value.trim();
+    const problem = parse(q).error;
+    this.problem.hidden = !problem;
+    this.problem.textContent = problem?.message ?? "";
     const trash = this.hooks.trash();
     if (this.tab === "trash") {
       this.hooks.filtersChanged();
@@ -399,7 +406,7 @@ export class NotesPage {
     let body: HTMLElement;
     if (open) body = this.fullBody(item);
     else if (q && item.lines.length) {
-      body = el("div", { class: "fc-hits" }, ...item.lines.map((l) => el("div", { class: "fc-hit", html: markTerms(l.text, q), onclick: (e: Event) => (e.stopPropagation(), this.hooks.open(item.path, l.line)) })));
+      body = el("div", { class: "fc-hits" }, ...item.lines.map((l) => el("div", { class: "fc-hit", html: markTerms(l.text, textWords(parse(q).expr).join(" ")), onclick: (e: Event) => (e.stopPropagation(), this.hooks.open(item.path, l.line)) })));
     } else if (item.kind === "html") body = el("div", { class: "fc-body is-muted" }, "HTML note · click to preview");
     else if (item.role === "agents") body = el("div", { class: "fc-body is-muted" }, AGENTS_BLURB);
     else {

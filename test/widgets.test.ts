@@ -27,6 +27,16 @@ test("a ::query's filters written as their own keys show in Matching, so saving 
   assert.equal(serializeAttrs(fieldValues(query.fields, form)), 'label=Recent q="plan modified>-7d -tag=x" folder=A');
 });
 
+test("a ::query's grouping round-trips through its settings form", () => {
+  const save = (src: string) => serializeAttrs(fieldValues(query.fields, query.formArgs!(parseAttrs(src))));
+  assert.equal(save(`q="(tag=work OR tag=home) -folder=Archive 'launch plan'"`), `q="(tag=work OR tag=home) -folder=Archive 'launch plan'"`);
+  // A filter written as its own key joins an OR without changing it.
+  assert.equal(save('q="budget OR costs" modified>-7d'), 'q="(budget OR costs) modified>-7d"');
+  assert.equal(save(save('q="budget OR costs" modified>-7d')), 'q="(budget OR costs) modified>-7d"');
+  // A mistake keeps the form from saving, and says where it is.
+  assert.equal(query.fields.find((f) => f.key === "q")!.check!("(a OR b"), 'Missing ")" for the "(" at character 1');
+});
+
 test("the shared fields write a query back as text, leaving out blanks and the default sort", () => {
   const edit = (src: string) => serializeAttrs(fieldValues(QUERY_FIELDS, parseAttrs(src)));
   assert.equal(edit('q="launch plan" tag=work sort=title limit=5'), 'q="launch plan" tag=work sort=title');

@@ -4,8 +4,10 @@ import { api, type FeedItem } from "../api.ts";
 import { el, escapeHtml, icon, markTerms, timeAgo } from "../dom.ts";
 import { onVaultChange } from "../events.ts";
 import type { Field, WidgetSpec } from "./core.ts";
-import { formatQuery, parseSearch, searchWords, toQuery } from "../../../src/core/query.ts";
+import { formatQuery, toQuery } from "../../../src/core/query.ts";
+import { parse, textWords } from "../../../src/core/queryGrammar.ts";
 import { sideClick } from "../panes.ts";
+import { queryHelpLink } from "../queryHelp.ts";
 
 const prevent = (e: Event) => e.preventDefault();
 
@@ -14,7 +16,14 @@ const prevent = (e: Event) => e.preventDefault();
  * editor has rows of its own, over the same query text.)
  */
 export const QUERY_FIELDS: Field[] = [
-  { key: "q", label: "Matching", type: "text", placeholder: 'Words, "a phrase", -leave out, modified>-7d' },
+  {
+    key: "q",
+    label: "Matching",
+    type: "text",
+    placeholder: "Words, a OR b, ( ), -leave out, tag=x, modified>-7d",
+    check: (v) => parse(v).error?.message ?? null,
+    help: queryHelpLink,
+  },
   { key: "folder", label: "Folder", type: "text", placeholder: "e.g. Projects", picker: "folder" },
   { key: "tag", label: "Tags", type: "text", placeholder: "e.g. meeting (includes meeting/…), or meeting, client for both", picker: "tag" },
   { key: "match", label: "Combine", type: "select", options: [["all", "Match all of them"], ["any", "Match any of them"]] },
@@ -48,6 +57,7 @@ export const query: WidgetSpec = {
     body.append(list, foot);
     const query = toQuery(env.args);
     const limit = Math.min(query.limit ?? 6, 50);
+    const problem = parse(query.q ?? "").error?.message;
 
     async function load() {
       const page = await api.feed({ ...query, scope: "active", limit: limit + 1 }).catch(() => null);
@@ -56,6 +66,9 @@ export const query: WidgetSpec = {
       const total = page.total - (page.items.some((i) => i.path === env.note) ? 1 : 0);
       list.replaceChildren(...(items.length ? items.map(row) : [el("div", { class: "qt-empty" }, "No notes match.")]));
       foot.textContent = total > items.length ? `${items.length} of ${total} notes` : `${total} note${total === 1 ? "" : "s"}`;
+      // A mistake in the query (a "(" never closed) is said here; the list is the best reading of the rest.
+      if (problem) foot.textContent = problem;
+      foot.classList.toggle("is-error", !!problem);
       env.remeasure();
     }
 
@@ -93,5 +106,5 @@ function firstLine(md: string): string {
 }
 
 function highlight(text: string, q: string): string {
-  return markTerms(text.replace(/^[#>\-*+\s]+/, ""), searchWords(parseSearch(q)).join(" "));
+  return markTerms(text.replace(/^[#>\-*+\s]+/, ""), textWords(parse(q).expr).join(" "));
 }

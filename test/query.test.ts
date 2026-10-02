@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { dayFrom, dayPasses, formatQuery, ftsAny, ftsQuery, parseQuery, parseSearch, queryProblem, searchWords, toQuery, type NoteQuery } from "../src/core/query.ts";
+import { dayFrom, dayPasses, formatQuery, parseQuery, queryProblem, toQuery, type NoteQuery } from "../src/core/query.ts";
+import { format, parse, textWords, toFts } from "../src/core/queryGrammar.ts";
 import { openTempVault } from "./helpers.ts";
 
 test("a note query is the ::query widget's args: q, folder, tag, sort and limit", () => {
@@ -73,43 +74,36 @@ test("match=any makes several tags an or, and is dropped with fewer than two", (
 const DAY = 86_400_000;
 
 test("plain words read the way they always did: each one a prefix, all of them needed", () => {
-  const s = parseSearch("launch plan e-mail");
-  assert.deepEqual(s.all.map((c) => c.map((t) => t.words.join(" "))), [["launch"], ["plan"], ["e"], ["mail"]]);
-  assert.equal(ftsQuery(s), '"launch"* "plan"* "e"* "mail"*');
-  assert.deepEqual(s.none, []);
+  const s = parse("launch plan e-mail");
+  assert.equal(format(s.expr), "launch plan e mail");
+  assert.equal(toFts(s.expr), '"launch"* "plan"* "e"* "mail"*');
   // Words with an = in them, a lone dash and a quote that never closes are just words too.
-  assert.equal(ftsQuery(parseSearch('a=b - "open')), '"a"* "b"* "open"*');
-  assert.equal(ftsQuery(parseSearch("don't stop")), '"don"* "t"* "stop"*');
+  assert.equal(toFts(parse('a=b - "open').expr), '"a"* "b"* "open"*');
+  assert.equal(toFts(parse("don't stop").expr), '"don"* "t"* "stop"*');
+  assert.equal(parse('a=b - "open').error, null);
 });
 
 test('-word, OR and "phrase" in the words', () => {
-  const s = parseSearch('"launch plan" budget OR costs -draft -"old idea"');
-  assert.equal(ftsQuery(s), '"launch plan" ("budget"* OR "costs"*)');
-  assert.deepEqual(s.none, [
-    { words: ["draft"], phrase: false },
-    { words: ["old", "idea"], phrase: true },
-  ]);
-  assert.equal(ftsAny(s.none), '("draft"* OR "old idea")');
-  assert.deepEqual(searchWords(s), ["launch", "plan", "budget", "costs"]);
+  // OR goes after AND, so a group keeps budget OR costs together.
+  const s = parse('"launch plan" (budget OR costs) -draft -"old idea"');
+  assert.equal(toFts(s.expr), '("launch plan" ("budget"* OR "costs"*)) NOT ("draft"* OR "old idea")');
+  assert.deepEqual(textWords(s.expr), ["launch", "plan", "budget", "costs"]);
   // Single quotes make a phrase too: that's how a ::query or smart folder writes one inside q="…".
-  assert.equal(ftsQuery(parseSearch("'launch plan'")), '"launch plan"');
-  // OR with nothing on one side is just the word, and a lowercase or is a word.
-  assert.equal(ftsQuery(parseSearch("OR plan OR")), '"OR"* "plan"* "OR"*');
-  assert.equal(ftsQuery(parseSearch("plan or")), '"plan"* "or"*');
+  assert.equal(toFts(parse("'launch plan'").expr), '"launch plan"');
+  // OR with nothing on one side is a mistake, said with where it is; the rest still reads.
+  assert.equal(parse("OR plan OR").error?.message, "Nothing before OR at character 1: put a word or filter on each side");
+  assert.equal(toFts(parse("OR plan OR").expr), '"plan"*');
+  // A lowercase or is a word.
+  assert.equal(toFts(parse("plan or").expr), '"plan"* "or"*');
 });
 
 test("tag=, -tag= and dates in the words are filters, not words", () => {
-  const s = parseSearch("plan tag=#Work -tag=draft,old modified>-7d created<=2026-09-01");
-  assert.equal(ftsQuery(s), '"plan"*');
-  assert.deepEqual(s.tags, ["Work"]);
-  assert.deepEqual(s.notTags, ["draft", "old"]);
-  assert.deepEqual(s.dates, [
-    { field: "modified", op: ">", day: "-7d" },
-    { field: "created", op: "<=", day: "2026-09-01" },
-  ]);
-  assert.equal(s.problem, null);
-  assert.match(parseSearch("modified>lastweek").problem!, /isn't a day/);
-  assert.match(parseSearch("tag=27").problem!, /isn't a tag/);
+  const s = parse("plan tag=#Work -tag=draft,old modified>-7d created<=2026-09-01");
+  assert.equal(toFts(s.expr), '"plan"*');
+  assert.equal(format(s.expr), "plan tag=Work -tag=draft -tag=old modified>-7d created<=2026-09-01");
+  assert.equal(s.error, null);
+  assert.match(parse("modified>lastweek").error!.message, /isn't a day/);
+  assert.match(parse("tag=27").error!.message, /isn't a tag/);
 });
 
 test("days count back from today: days, weeks, months and years", () => {

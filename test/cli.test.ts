@@ -81,6 +81,19 @@ test("missing or malformed arguments are one-line errors with exit code 2, not s
   }
 });
 
+test("help query lists the query syntax, and ls --query says where a query goes wrong", () => {
+  const vault = tempVault();
+  const help = commonink(vault, ["help", "query"]);
+  assert.equal(help.status, 0);
+  assert.match(help.stdout, /^Query syntax: /);
+  assert.match(help.stdout, /a OR b +Either one/);
+  assert.match(help.stdout, /folder=name/);
+  const bad = commonink(vault, ["ls", "--query", 'q="(roadmap OR plan"']);
+  assert.notEqual(bad.status, 0);
+  assert.equal(bad.stderr, 'Missing ")" for the "(" at character 1\n');
+  assert.equal(commonink(vault, ["ls", "--query", 'q="(roadmap OR nothing) folder=Projects -tag=nope"']).stdout, "- Projects/Roadmap.md — Roadmap\n");
+});
+
 test("an unknown command prints help and exits 2", () => {
   const r = commonink(tempVault(), ["frobnicate"]);
   assert.equal(r.status, 2);

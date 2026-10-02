@@ -200,9 +200,10 @@ export const smartFolders = [
       'q="words" folder=Projects tag=work sort=title limit=10 (all optional; a tag includes the tags under it). Several tags (tag=work,plan or ' +
       "tag=work tag=plan) means notes with all of them; add match=any for notes with any of them. sort is modified (last changed first, the default), date (the note's own date: " +
       "frontmatter date/created, else a YYYY-MM-DD in its name, newest first), oldest (the same, oldest first), title or created (newest note first). " +
-      'In q, -word leaves a word out, a OR b matches either, and \'exact phrase\' matches the words together; tag=x and -tag=x, and ' +
-      "modified>-7d or created<2026-09-01 (a date, today, yesterday, or -7d, -2w, -1m back) filter too, and can also stand on their own. " +
-      'Several folders (folder="Projects|Areas" or folder=Projects folder=Areas) means notes in any of them. Quote a value with spaces (folder="Health and Fitness"). Only save one the user asked for.',
+      'In q, words side by side (or a AND b) all match, a OR b matches either (AND goes first), -x leaves out, ( ) groups, and \'exact phrase\' matches the words together; ' +
+      "tag=x, folder=x (folder=A|B for either) and modified>-7d or created<2026-09-01 (a date, today, yesterday, or -7d, -2w, -1m back) filter too, anywhere a word can go: " +
+      'q="(tag=work OR tag=home) -folder=Archive". -tag=x and the dates can also stand on their own. commonink help query lists it all. ' +
+      'Quote a value with spaces (folder="Health and Fitness"). Only save one the user asked for.',
     examples: ["commonink smart-save Planning tag=plan --just-me", 'commonink smart-save Launch folder=Projects q="launch"', "commonink smart-save Journal tag=journal,health sort=date"],
     args: {
       name: str({ required: true, pos: 0 }),
