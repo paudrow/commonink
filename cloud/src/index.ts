@@ -114,7 +114,7 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
       await unfurl(target, (u) => {
         assertPublicUrl(u);
         if (u.hostname.replace(/\.$/, "") === url.hostname) throw new Error("self"); // "commonink.app." too
-      }),
+      }, { githubToken: env.GITHUB_TOKEN || undefined }),
     );
   },
   "GET /api/note-ids/*": async ({ env, url, user }) => {

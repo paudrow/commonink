@@ -1,7 +1,9 @@
 // Link previews for pasted URLs: fetch the page server-side (no CORS) and read its OpenGraph tags.
 // Note content picks the URL, so the fetch is kept on a short leash: `guard` vets every hop before
 // it's fetched (locally: public hosts only), redirects are capped, the whole thing has one deadline,
-// only HTML is read, and at most MAX_BYTES of it.
+// only HTML is read, and at most MAX_BYTES of it. A GitHub issue or pull request link reads GitHub's
+// API instead (src/core/github.ts), and falls back to its page's tags when GitHub won't answer.
+import { githubCard, githubRef, type GithubCard } from "./github.ts";
 
 export interface Unfurl {
   url: string;
@@ -10,6 +12,8 @@ export interface Unfurl {
   image: string | null;
   siteName: string | null;
   favicon: string | null;
+  /** A GitHub issue's or pull request's live details, for its card. */
+  github?: GithubCard;
 }
 
 /** Throws if a URL mustn't be fetched. Called for the first URL and for every redirect. */
@@ -25,10 +29,18 @@ const CACHE_SIZE = 500;
 
 const cache = new Map<string, { at: number; value: Promise<Unfurl> }>();
 
-export function unfurl(url: string, guard?: UrlGuard, opts: { timeout?: number } = {}): Promise<Unfurl> {
+export async function unfurl(url: string, guard?: UrlGuard, opts: { timeout?: number; githubToken?: string } = {}): Promise<Unfurl> {
+  if (githubRef(url)) {
+    const card = await githubCard(url, { token: opts.githubToken, timeout: opts.timeout });
+    if (card) return { url, title: card.title, description: null, image: null, siteName: card.repo, favicon: null, github: card };
+  }
+  return page(url, guard, opts.timeout ?? TIMEOUT);
+}
+
+function page(url: string, guard: UrlGuard | undefined, timeout: number): Promise<Unfurl> {
   const hit = cache.get(url);
   if (hit && Date.now() - hit.at < TTL) return hit.value;
-  const value = fetchPreview(url, guard, opts.timeout ?? TIMEOUT).catch(() => empty(url));
+  const value = fetchPreview(url, guard, timeout).catch(() => empty(url));
   cache.delete(url);
   cache.set(url, { at: Date.now(), value });
   if (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value!); // the oldest

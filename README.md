@@ -105,7 +105,7 @@ CodeMirror 6, with vim mode (`@replit/codemirror-vim`), off until you turn on **
   - `::calendar{folder=Journal}` shows a month of daily notes, shaded by how much you wrote, with your streak. Click a day to open it, or to start it.
   - `::timer{duration=25m label="Focus"}` and `::stopwatch{label="Run"}` keep their running state (time left, laps) in the browser, keyed by `id`, so they don't churn the file. Timers chime and notify even when their note isn't open.
 - **Diagrams.** A ```mermaid block renders inline in the app's colors (Mermaid is loaded only when a note has one). Move into it to edit the code, with the diagram re-rendering live underneath.
-- **Pasting a link** on its own line embeds it. YouTube, Vimeo, Loom, X, Bluesky, Mastodon, Instagram, TikTok and Spotify play inline, and other pages become link cards (the server fetches their OpenGraph tags, public hosts only). Pasting over selected text makes `[text](url)`, and `<url>` keeps a plain link.
+- **Pasting a link** on its own line embeds it. YouTube, Vimeo, Loom, X, Bluesky, Mastodon, Instagram, TikTok and Spotify play inline, and other pages become link cards (the server fetches their OpenGraph tags, public hosts only). A GitHub issue or pull request link becomes a live card instead: title, open/closed/merged/draft, labels, author, comments and when it last changed, read from GitHub's API and kept 5 minutes. Without a token that's public repos and GitHub's 60 requests an hour; set `GITHUB_TOKEN` (an environment variable locally, a Worker secret online) for more, and for private repos it can read. Where GitHub won't answer, it's a plain link card. Pasting over selected text makes `[text](url)`, and `<url>` keeps a plain link.
 
 ## Links to notes
 
