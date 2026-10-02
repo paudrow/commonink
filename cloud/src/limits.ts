@@ -9,6 +9,8 @@ const MINUTE = 60_000;
 /** What's limited, and how much. The key says per whom. */
 export const LIMITS = {
   signIn: { max: 60, per: 10 * MINUTE, message: "Too many sign-in attempts from your network." },
+  // With sign-up open, new accounts per address, so one network can't make them by the hundred.
+  signUp: { max: 10, per: 60 * MINUTE, message: "That's a lot of new accounts from your network." },
   invite: { max: 20, per: 60 * MINUTE, message: "That's a lot of invite links for one hour." },
   upload: { max: 120, per: 60 * MINUTE, message: "That's a lot of uploads for one hour." },
   unfurl: { max: 120, per: MINUTE, message: "Too many link previews at once." },
