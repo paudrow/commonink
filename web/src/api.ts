@@ -3,7 +3,7 @@ import type { GuideAction, GuideState } from "../../src/core/guide.ts";
 import { did } from "./events.ts";
 import type { NoteRole } from "../../src/core/noteRoles.ts";
 import type { Contact, ContactFields, TimelineItem } from "../../src/core/contacts.ts";
-import { safeDecode } from "../../src/core/uri.ts";
+import { encodeTarget, safeDecode } from "../../src/core/uri.ts";
 import type { FillOptions, TemplateInfo } from "../../src/core/templates.ts";
 import type { CalendarEvent, EventDraft, Source as CalendarSource, SourceColor } from "../../src/core/calendar.ts";
 
@@ -558,8 +558,8 @@ export const api = {
 };
 
 export function assetUrl(target: string, from?: string): string {
-  if (/^https?:\/\//i.test(target)) return target;
-  return `${BASE}/file-resolve?target=${enc(target)}${from ? `&from=${enc(from)}` : ""}`;
+  if (/^(?:https?:\/\/|data:image\/)/i.test(target)) return target;
+  return `${BASE}/file-resolve?target=${encodeTarget(target)}${from ? `&from=${encodeTarget(from)}` : ""}`;
 }
 
 export function connect(onMessage: (m: ServerMsg) => void, onStatus: (up: boolean) => void) {
