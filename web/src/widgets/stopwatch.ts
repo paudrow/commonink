@@ -21,7 +21,7 @@ export const stopwatch: WidgetSpec = {
   hint: "Count up, with laps",
   keywords: "stopwatch count up laps track time",
   defaults: {},
-  fields: [{ key: "label", label: "Label", type: "text", placeholder: "Run, Meeting, Deep work…" }],
+  fields: [{ key: "label", label: "Title", type: "text", placeholder: "Run, Meeting, Deep work…" }],
 
   mount(body, env, card) {
     const id = env.args.id;

@@ -69,7 +69,7 @@ export const tasks: WidgetSpec = {
   keywords: "tasks todo checklist rollup dashboard due",
   defaults: {},
   fields: [
-    { key: "label", label: "Label", type: "text", placeholder: "This week, Launch…" },
+    { key: "label", label: "Title", type: "text", placeholder: "This week, Launch…" },
     { key: "folder", label: "Folder", type: "text", placeholder: "Every note, or e.g. Projects" },
     { key: "note", label: "Note", type: "text", placeholder: "Just one note (optional)" },
     { key: "tag", label: "Tag", type: "text", placeholder: "e.g. work (includes work/…)" },

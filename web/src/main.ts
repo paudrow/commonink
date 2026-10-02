@@ -875,7 +875,7 @@ async function labelCurrent(name?: string) {
   await flushSave();
   if (!name) return void (await import("./labels.ts")).labelVersion(s.path, { toast, show: showLabel });
   const label = await api.label(s.path, name).catch((e: Error) => (toast({ text: e.message }), null));
-  if (label) toast({ icon: "label", text: `Labeled this version “${label.name}”`, actionLabel: "Show", action: () => showLabel(label) });
+  if (label) toast({ icon: "label", text: `Named this version “${label.name}”`, actionLabel: "Show", action: () => showLabel(label) });
 }
 
 async function showTags(opts: { push?: boolean } = {}) {
@@ -1752,7 +1752,7 @@ async function toggleTagStar(tag: string) {
 /** A tag's star, the same control notes have: on its sidebar row (`row`) or beside the Notes tag filter (`chip`). */
 function tagStarButton(tag: string, where: "row" | "chip"): HTMLElement {
   const starred = isTagStarred(tag);
-  const label = starred ? "Remove from Favorites" : "Add to Favorites";
+  const label = starred ? "Unstar tag" : "Star tag";
   return el(
     "button",
     {
@@ -1887,7 +1887,7 @@ function renderFavorites() {
         "span",
         { class: "row-actions" },
         el("button", { type: "button", class: "row-act", title: `Open to the side (${SIDE_CLICK})`, onclick: (e: Event) => (e.stopPropagation(), void openNote(f.path, { pane: sideOf(active) })) }, icon("split", 14)),
-        el("button", { type: "button", class: "row-act fav-star", title: "Remove from Favorites", onclick: (e: Event) => (e.stopPropagation(), void toggleStar(f.path)) }, icon("starred", 14)),
+        el("button", { type: "button", class: "row-act fav-star", title: "Unstar", onclick: (e: Event) => (e.stopPropagation(), void toggleStar(f.path)) }, icon("starred", 14)),
       ),
     );
     favoriteDrop(row, "is-drop-before", f.path);
@@ -1928,7 +1928,7 @@ async function dropFavorite(key: string, before?: string) {
     order.splice(at < 0 ? order.length : at, 0, key);
     favorites = await api.orderFavorites(order);
   } catch {
-    return toast({ text: `Couldn't add ${key.startsWith("#") ? key : displayName(key)} to Favorites` });
+    return toast({ text: `Couldn't star ${key.startsWith("#") ? key : displayName(key)}` });
   }
   renderTree();
   renderChrome();
@@ -2273,7 +2273,7 @@ function renderTagTree(active: string) {
             : el("span", { class: "chev is-leaf" }),
           icon("hash", 14),
           el("span", { class: "tree-name" }, t.display.split("/").pop()!),
-          isTagStarred(t.display) ? el("span", { class: "fav-mark", title: "In Favorites" }, icon("starred", 11)) : null,
+          isTagStarred(t.display) ? el("span", { class: "fav-mark", title: "Starred" }, icon("starred", 11)) : null,
           unusedTag(t) ? null : el("span", { class: "n" }, String(onlyTasks(t) ? t.tasks : t.notes)),
           el(
             "span",
@@ -2514,7 +2514,7 @@ function renderChrome() {
   }
   const starred = isStarred(s.id);
   $("#star-btn").classList.toggle("is-on", starred);
-  setLabel($("#star-btn"), starred ? "Unstar (take out of Favorites)" : "Star (add to Favorites)");
+  setLabel($("#star-btn"), starred ? "Unstar" : "Star");
   $("#star-btn").replaceChildren(icon(starred ? "starred" : "star", 16));
   const archived = isArchived(s.path);
   setLabel($("#archive-btn"), `${archived ? "Unarchive note" : "Archive note"} (${formatKeys("Mod-Shift-e")})`);
@@ -2816,8 +2816,10 @@ Vim.defineEx("move", "mo", (_cm: unknown, params: { args?: string[] }) => {
 Vim.defineEx("rename", "ren", () => setTimeout(() => void renameNote()));
 Vim.defineEx("star", "star", () => active.session && void toggleStar(active.session.path));
 Vim.defineEx("share", "sha", () => openShare());
-// :label names the note's version as it is now (:label v1); with no name, it asks for one.
-Vim.defineEx("label", "label", (_cm: unknown, params: { args?: string[] }) => void labelCurrent(params.args?.join(" ").trim() || undefined));
+// :version names the note's version as it is now (:version v1); with no name, it asks for one. :label still works.
+const nameVersion = (_cm: unknown, params: { args?: string[] }) => void labelCurrent(params.args?.join(" ").trim() || undefined);
+Vim.defineEx("version", "version", nameVersion);
+Vim.defineEx("label", "label", nameVersion);
 Vim.defineEx("focus", "foc", () => void setFocusMode(!focusMode));
 Vim.defineEx("vsplit", "vs", (_cm: unknown, params: { args?: string[] }) => {
   const arg = params.args?.join(" ");
