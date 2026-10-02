@@ -927,7 +927,7 @@ body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view
 .prop-val { display: flex; gap: 6px; flex-wrap: wrap; color: var(--ink); }
 .prop.is-bad .prop-key { color: var(--bad-ink); text-decoration: underline wavy var(--bad); text-underline-offset: 3px; }
 /* Properties help (editor/properties.ts): the strip above a note whose properties have a problem, and hover help. */
-.cm-panels-top { border-top: none !important; border-bottom: 1px solid var(--line); }
+.cm-editor .cm-panels.cm-panels-top { border-top: none; border-bottom: 1px solid var(--line); }
 .prop-problems { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 14px; border: 0; background: color-mix(in srgb, var(--warn) 10%, transparent); color: var(--warn-ink); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
 .prop-problems.is-error { background: color-mix(in srgb, var(--bad) 9%, transparent); color: var(--bad-ink); }
 .prop-problems:hover { text-decoration: underline; }
@@ -935,7 +935,21 @@ body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view
 .prop-info p { margin: 4px 0 0; }
 .prop-info-head { display: flex; gap: 8px; align-items: baseline; }
 .prop-info-head span, .prop-info-more { color: var(--muted); }
-.cm-tooltip-lint .cm-diagnostic { font-size: 12.5px; max-width: 360px; }
+/* Hover help and problem tooltips: the app's own surface, not CodeMirror's light default, so they read in dark mode too. */
+.cm-editor .cm-tooltip.cm-tooltip-hover, .cm-editor .cm-tooltip.cm-tooltip-lint {
+  background: var(--bg-elev);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.cm-editor .cm-tooltip-lint { padding: 0; }
+.cm-editor .cm-tooltip-lint .cm-diagnostic { font-size: 12.5px; max-width: 360px; padding: 7px 10px 7px 9px; color: var(--ink); border-left-width: 3px; }
+.cm-editor .cm-diagnostic-error { border-left-color: var(--bad); }
+.cm-editor .cm-diagnostic-warning { border-left-color: var(--warn); }
+.cm-editor .cm-tooltip-hover .cm-tooltip-arrow:before { border-top-color: var(--line) !important; border-bottom-color: var(--line) !important; }
+.cm-editor .cm-tooltip-hover .cm-tooltip-arrow:after { border-top-color: var(--bg-elev) !important; border-bottom-color: var(--bg-elev) !important; }
 
 /* vim */
 /* The block cursor takes the width of the glyph under it; in a proportional font that makes it
