@@ -296,8 +296,19 @@ export function parseVCards(text: string): ContactInput[] {
   const unfolded = text.replace(/\r\n?/g, "\n").replace(/\n[ \t]/g, "");
   const out: ContactInput[] = [];
   let card: (ContactInput & { given: string }) | null = null;
-  const unescape = (s: string) => s.replace(/\\([nN])/g, "\n").replace(/\\([,;\\])/g, "$1");
-  const parts = (v: string, sep: string) => v.split(new RegExp(`(?<!\\\\)${sep}`)).map(unescape).map((s) => s.trim());
+  // One pass, so `\\n` is a backslash then an n, not a newline.
+  const unescape = (s: string) => s.replace(/\\([nN,;\\])/g, (_, c: string) => (c === "n" || c === "N" ? "\n" : c));
+  /** `v` split on `sep` where it isn't escaped (`A\\;B` splits after the escaped backslash). */
+  const parts = (v: string, sep: string) => {
+    const out: string[] = [];
+    let start = 0;
+    for (let i = 0; i < v.length; i++) {
+      if (v[i] === "\\") i++;
+      else if (v[i] === sep) out.push(v.slice(start, i)), (start = i + 1);
+    }
+    out.push(v.slice(start));
+    return out.map(unescape).map((s) => s.trim());
+  };
   for (const line of unfolded.split("\n")) {
     const colon = line.indexOf(":");
     if (colon < 0) continue;
@@ -360,7 +371,7 @@ export function parseContactsCsv(text: string): ContactInput[] {
       const role = roles[i];
       const v = cell.trim();
       if (!role || !v) return;
-      const items = v.split(/\s*:::\s*|\s*;\s*/).filter(Boolean);
+      const items = v.split(/:::|;/).map((s) => s.trim()).filter(Boolean); // trimmed after, not in the pattern: `\s*` there rescans every run of spaces
       if (role === "first") first = v;
       else if (role === "last") last = v;
       else if (role === "name") c.name = v;

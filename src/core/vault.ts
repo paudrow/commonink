@@ -1040,6 +1040,14 @@ export class Vault {
       at = moved.path;
       since = moved.id;
     }
+    // Deleted since, and still in Trash? Bring that note back first, so the old text lands on it
+    // (its ID, favorite and labels) rather than on a new note beside it.
+    const last = this.db.get("SELECT id, op FROM changes WHERE path = ? AND id > ? ORDER BY id DESC LIMIT 1", at, since);
+    const inTrash = last?.op === "delete" ? this.trashIds().find((t) => t.endsWith(`-${last.id}`)) : undefined;
+    if (inTrash) {
+      at = this.untrash([inTrash], source)[0].path;
+      baseVersion = undefined; // the note wasn't there to have changed
+    }
     return { ...this.save(at, before, { source, baseVersion }), path: at };
   }
 

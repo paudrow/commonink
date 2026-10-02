@@ -148,6 +148,153 @@
   }
 }
 
+/* Inks (web/src/inks.ts): the accent in another color, earned by using the app. Indigo, above, is the
+   one you start with; index.html puts the one you picked on <html> as data-ink before the page draws.
+   Each swatch in Settings (.ink-option) takes its own ink's colors the same way. */
+.ink-option[data-ink="indigo"] {
+  --accent: #5b5bd6;
+  --accent-ink: #4545b8;
+  --accent-soft: rgba(91, 91, 214, 0.11);
+  --accent-line: rgba(91, 91, 214, 0.35);
+  --selection: rgba(91, 91, 214, 0.18);
+}
+:root[data-ink="sepia"],
+.ink-option[data-ink="sepia"] {
+  --accent: #8f5b2c;
+  --accent-ink: #74461d;
+  --accent-soft: rgba(143, 91, 44, 0.11);
+  --accent-line: rgba(143, 91, 44, 0.35);
+  --selection: rgba(143, 91, 44, 0.18);
+}
+:root[data-ink="viridian"],
+.ink-option[data-ink="viridian"] {
+  --accent: #1b7a5e;
+  --accent-ink: #135f48;
+  --accent-soft: rgba(27, 122, 94, 0.11);
+  --accent-line: rgba(27, 122, 94, 0.35);
+  --selection: rgba(27, 122, 94, 0.18);
+}
+:root[data-ink="vermilion"],
+.ink-option[data-ink="vermilion"] {
+  --accent: #c03a22;
+  --accent-ink: #a12d17;
+  --accent-soft: rgba(192, 58, 34, 0.11);
+  --accent-line: rgba(192, 58, 34, 0.35);
+  --selection: rgba(192, 58, 34, 0.18);
+}
+:root[data-ink="cobalt"],
+.ink-option[data-ink="cobalt"] {
+  --accent: #2160c4;
+  --accent-ink: #1a4c9e;
+  --accent-soft: rgba(33, 96, 196, 0.11);
+  --accent-line: rgba(33, 96, 196, 0.35);
+  --selection: rgba(33, 96, 196, 0.18);
+}
+:root[data-ink="iron-gall"],
+.ink-option[data-ink="iron-gall"] {
+  --accent: #4d3b66;
+  --accent-ink: #3d2d54;
+  --accent-soft: rgba(77, 59, 102, 0.11);
+  --accent-line: rgba(77, 59, 102, 0.35);
+  --selection: rgba(77, 59, 102, 0.18);
+}
+:root[data-theme="dark"] .ink-option[data-ink="indigo"] {
+  --accent: #9090f7;
+  --accent-ink: #a9a9ff;
+  --accent-soft: rgba(144, 144, 247, 0.14);
+  --accent-line: rgba(144, 144, 247, 0.4);
+  --selection: rgba(144, 144, 247, 0.26);
+}
+:root[data-theme="dark"][data-ink="sepia"],
+:root[data-theme="dark"] .ink-option[data-ink="sepia"] {
+  --accent: #d4a26e;
+  --accent-ink: #e2b98a;
+  --accent-soft: rgba(212, 162, 110, 0.14);
+  --accent-line: rgba(212, 162, 110, 0.4);
+  --selection: rgba(212, 162, 110, 0.26);
+}
+:root[data-theme="dark"][data-ink="viridian"],
+:root[data-theme="dark"] .ink-option[data-ink="viridian"] {
+  --accent: #4fbf98;
+  --accent-ink: #76d3b1;
+  --accent-soft: rgba(79, 191, 152, 0.14);
+  --accent-line: rgba(79, 191, 152, 0.4);
+  --selection: rgba(79, 191, 152, 0.26);
+}
+:root[data-theme="dark"][data-ink="vermilion"],
+:root[data-theme="dark"] .ink-option[data-ink="vermilion"] {
+  --accent: #f07c62;
+  --accent-ink: #f89b85;
+  --accent-soft: rgba(240, 124, 98, 0.14);
+  --accent-line: rgba(240, 124, 98, 0.4);
+  --selection: rgba(240, 124, 98, 0.26);
+}
+:root[data-theme="dark"][data-ink="cobalt"],
+:root[data-theme="dark"] .ink-option[data-ink="cobalt"] {
+  --accent: #6fa2f6;
+  --accent-ink: #95bbff;
+  --accent-soft: rgba(111, 162, 246, 0.14);
+  --accent-line: rgba(111, 162, 246, 0.4);
+  --selection: rgba(111, 162, 246, 0.26);
+}
+:root[data-theme="dark"][data-ink="iron-gall"],
+:root[data-theme="dark"] .ink-option[data-ink="iron-gall"] {
+  --accent: #b29bd6;
+  --accent-ink: #c7b3ee;
+  --accent-soft: rgba(178, 155, 214, 0.14);
+  --accent-line: rgba(178, 155, 214, 0.4);
+  --selection: rgba(178, 155, 214, 0.26);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .ink-option[data-ink="indigo"] {
+    --accent: #9090f7;
+    --accent-ink: #a9a9ff;
+    --accent-soft: rgba(144, 144, 247, 0.14);
+    --accent-line: rgba(144, 144, 247, 0.4);
+    --selection: rgba(144, 144, 247, 0.26);
+  }
+  :root:not([data-theme="light"])[data-ink="sepia"],
+  :root:not([data-theme="light"]) .ink-option[data-ink="sepia"] {
+    --accent: #d4a26e;
+    --accent-ink: #e2b98a;
+    --accent-soft: rgba(212, 162, 110, 0.14);
+    --accent-line: rgba(212, 162, 110, 0.4);
+    --selection: rgba(212, 162, 110, 0.26);
+  }
+  :root:not([data-theme="light"])[data-ink="viridian"],
+  :root:not([data-theme="light"]) .ink-option[data-ink="viridian"] {
+    --accent: #4fbf98;
+    --accent-ink: #76d3b1;
+    --accent-soft: rgba(79, 191, 152, 0.14);
+    --accent-line: rgba(79, 191, 152, 0.4);
+    --selection: rgba(79, 191, 152, 0.26);
+  }
+  :root:not([data-theme="light"])[data-ink="vermilion"],
+  :root:not([data-theme="light"]) .ink-option[data-ink="vermilion"] {
+    --accent: #f07c62;
+    --accent-ink: #f89b85;
+    --accent-soft: rgba(240, 124, 98, 0.14);
+    --accent-line: rgba(240, 124, 98, 0.4);
+    --selection: rgba(240, 124, 98, 0.26);
+  }
+  :root:not([data-theme="light"])[data-ink="cobalt"],
+  :root:not([data-theme="light"]) .ink-option[data-ink="cobalt"] {
+    --accent: #6fa2f6;
+    --accent-ink: #95bbff;
+    --accent-soft: rgba(111, 162, 246, 0.14);
+    --accent-line: rgba(111, 162, 246, 0.4);
+    --selection: rgba(111, 162, 246, 0.26);
+  }
+  :root:not([data-theme="light"])[data-ink="iron-gall"],
+  :root:not([data-theme="light"]) .ink-option[data-ink="iron-gall"] {
+    --accent: #b29bd6;
+    --accent-ink: #c7b3ee;
+    --accent-soft: rgba(178, 155, 214, 0.14);
+    --accent-line: rgba(178, 155, 214, 0.4);
+    --selection: rgba(178, 155, 214, 0.26);
+  }
+}
+
 /* ------------------------------------------------------------------ base + layout */
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
@@ -547,6 +694,19 @@ body.is-resizing iframe { pointer-events: none; }
 .st-row.is-disabled :is(.st-title, .st-desc) { opacity: 0.55; }
 .st-row.is-disabled :is(.st-check, .st-inline) { cursor: default; }
 .st-custom { width: 100%; margin-top: 4px; }
+/* The Ink setting: a swatch per ink, the one in use ringed and ticked, locked ones faded with a lock and their goal. */
+.ink-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 6px; width: 100%; }
+.ink-option { display: grid; justify-items: center; align-content: start; gap: 5px; padding: 10px 6px 8px; border: 1px solid transparent; border-radius: 10px; background: none; color: var(--ink-strong); font: 600 12.5px/1.3 var(--ui); text-align: center; cursor: pointer; }
+.ink-option:hover { background: var(--hover); }
+.ink-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ink-option[aria-checked="true"] { border-color: var(--accent-line); background: var(--accent-soft); }
+.ink-swatch { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: var(--on-accent); }
+.ink-option[aria-checked="true"] .ink-swatch { box-shadow: 0 0 0 2px var(--bg-elev), 0 0 0 4px var(--accent); }
+.ink-option:not(.is-locked, [aria-checked="true"]) .ink-swatch svg { visibility: hidden; }
+.ink-option.is-locked { color: var(--muted); cursor: default; }
+.ink-option.is-locked .ink-swatch { background: color-mix(in srgb, var(--accent) 28%, var(--bg-elev)); color: var(--ink-2); }
+.ink-goal, .ink-count { font: 11.5px/1.3 var(--ui); color: var(--muted); }
+.ink-count { font-variant-numeric: tabular-nums; margin-top: -3px; }
 .st-empty { padding: 20px 0 4px; text-align: center; color: var(--muted); }
 
 /* ------------------------------------------------------------------ toasts */
@@ -1617,6 +1777,15 @@ body.is-resizing iframe { pointer-events: none; }
 .td-section.is-overdue .qt-note { color: var(--bad-ink); }
 .td-none { padding: 2px 0 4px; font-size: 13px; color: var(--muted); }
 .td-clear { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: var(--hover); font-size: 13px; color: var(--ink-2); }
+/* Clearing Today: a ring and eight drops of ink spread from the box you ticked, then fade (todayCleared.ts). */
+.td-burst { position: fixed; z-index: 90; width: 0; height: 0; pointer-events: none; }
+.td-burst::before, .td-burst::after { content: ""; position: absolute; border-radius: 50%; animation: td-burst 0.6s cubic-bezier(0.2, 0.7, 0.3, 1) forwards; }
+.td-burst::before { left: -14px; top: -14px; width: 28px; height: 28px; border: 2px solid var(--accent); }
+.td-burst::after {
+  left: -2px; top: -2px; width: 4px; height: 4px; /* no dot of its own, only the drops around it */
+  box-shadow: 0 -18px var(--accent), 13px -13px var(--accent), 18px 0 var(--accent), 13px 13px var(--accent), 0 18px var(--accent), -13px 13px var(--accent), -18px 0 var(--accent), -13px -13px var(--accent);
+}
+@keyframes td-burst { from { opacity: 1; transform: scale(0.35); } 55% { opacity: 0.85; } to { opacity: 0; transform: scale(1.3); } }
 .td-journal { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; margin: 0 -6px; border-radius: 7px; font-size: 14px; color: var(--ink); text-align: left; }
 .td-journal:hover { background: var(--hover); }
 .td-journal svg { color: var(--muted); }

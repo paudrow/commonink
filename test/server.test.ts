@@ -99,6 +99,25 @@ test("other sites get nothing from the app's own files, and the app has the same
   assert.match(String(own.headers["content-security-policy"]), /^default-src 'self'; script-src 'self' 'nonce-[\w+/=]{24}'; .*; frame-ancestors 'none'$/);
 });
 
+test("another site's <img> or <script> can't reach the API, though it may still open the app in a tab", async () => {
+  const from = (site: string, mode = "no-cors", dest = "image") => ({ "Sec-Fetch-Site": site, "Sec-Fetch-Mode": mode, "Sec-Fetch-Dest": dest });
+  for (const site of ["cross-site", "same-site"]) {
+    assert.equal((await request("GET", "/api/files/assets/chart.svg", { headers: from(site) })).status, 403);
+    assert.equal((await request("GET", "/api/file-resolve?target=chart.svg", { headers: from(site) })).status, 403);
+    assert.equal((await request("GET", "/api/export?all=1", { headers: from(site, "navigate", "document") })).status, 403);
+    assert.equal((await request("GET", "/src/main.ts", { headers: from(site, "no-cors", "script") })).status, 403);
+  }
+  // A link from elsewhere to the app itself still opens it (here, the 404 of a server with no UI).
+  assert.equal((await request("GET", "/", { headers: from("cross-site", "navigate", "document") })).status, 404);
+  // The app itself, a typed-in address, and the CLI (no Sec-Fetch headers) are all answered.
+  const own = await request("GET", "/api/files/assets/chart.svg", { headers: from("same-origin") });
+  assert.equal(own.status, 200);
+  assert.equal(own.headers["cross-origin-resource-policy"], "same-origin");
+  assert.equal((await request("GET", "/api/files/assets/chart.svg", { headers: from("none", "navigate", "document") })).status, 200);
+  const notes = await request("GET", "/api/notes");
+  assert.deepEqual([notes.status, notes.headers["cross-origin-resource-policy"]], [200, "same-origin"]);
+});
+
 test("a WebSocket to anything but /ws is closed, not left hanging", async () => {
   const { default: WebSocket } = await import("ws");
   const socket = new WebSocket(`ws://localhost:${port}/ws?x=1`, { headers: origin() });
@@ -130,6 +149,29 @@ test("uploads land in assets/ under a free name; wrong types and oversized files
   const big = await up("big.png", Buffer.alloc(MAX_UPLOAD + 1));
   assert.equal(big.status, 413);
   assert.equal(fs.existsSync(path.join(vault, "assets/big.png")), false);
+});
+
+test("two pastes named image.png at once both keep their file", async () => {
+  // The first upload's body is still arriving when the second one is sent and saved.
+  const slow = new Promise<string>((resolve, reject) => {
+    const req = http.request(
+      { host: "127.0.0.1", port, method: "POST", path: "/api/upload?name=image.png", headers: { Host: `localhost:${port}`, ...origin() } },
+      (res) => {
+        let body = "";
+        res.setEncoding("utf8").on("data", (d) => (body += d)).on("end", () => resolve(body));
+      },
+    );
+    req.on("error", reject);
+    req.write("first ");
+    setTimeout(async () => {
+      const second = await request("POST", "/api/upload?name=image.png", { headers: origin(), body: "second" });
+      assert.equal(JSON.parse(second.body).path, "assets/image.png");
+      req.end("file");
+    }, 100);
+  });
+  assert.equal(JSON.parse(await slow).path, "assets/image 2.png");
+  assert.equal(fs.readFileSync(path.join(vault, "assets/image.png"), "utf8"), "second");
+  assert.equal(fs.readFileSync(path.join(vault, "assets/image 2.png"), "utf8"), "first file");
 });
 
 test("a file the server can't read is a 404, and the server keeps running", { skip: process.getuid?.() === 0 && "root reads any file" }, async () => {
