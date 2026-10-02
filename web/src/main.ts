@@ -750,7 +750,7 @@ async function showNotes(opts: { tab?: NotesTab; filter?: boolean; folder?: stri
   renderOutline();
 }
 
-/** Today: what's on today (events, and tasks overdue, due or starting today), today's journal note, and your writing streak. */
+/** Today: what's on today (events, and tasks overdue, due or starting today), today's journal note, and your week (its recap and writing days). */
 async function showToday(opts: { push?: boolean } = {}) {
   await leaveNote();
   showStage("today");
@@ -3374,7 +3374,7 @@ async function boot() {
 
   const [info, list, starred, recent, tagList, smart] = await Promise.all([api.info(), api.notes(), api.favorites(), api.changes(), api.tags(), api.smartFolders(), loadGamified()]);
   onGamified(() => renderTree()); // an owner flipped it here: the sidebar shows everything, or waits again
-  onGamified(() => !$("#today-view").hidden && void showToday({ push: false })); // the Today page gains or drops its streak
+  onGamified(() => !$("#today-view").hidden && void showToday({ push: false })); // the Today page gains or drops its week card
   $("#vault-name").textContent = info.name;
   if (info.mode === "local") localVault = info;
   notes = list;
