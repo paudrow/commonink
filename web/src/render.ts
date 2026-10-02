@@ -10,7 +10,7 @@ import { isEmbeddable } from "./embeds/providers.ts";
 import { calendarTarget, externalTitle, linkKind } from "./links.ts";
 import { boardsIn } from "../../src/core/kanban.ts";
 import { SANDBOX_PATH } from "../../src/core/sandbox.ts";
-import { safeDecode } from "../../src/core/uri.ts";
+import { encodeTarget, safeDecode } from "../../src/core/uri.ts";
 import { headingName, headingText, mapOutsideCode } from "../../src/core/prose.ts";
 import { capHtmlDepth, tameMarkdown } from "../../src/core/depth.ts";
 import { gfmMarked, renderingFrom } from "./gfm.ts";
@@ -146,10 +146,15 @@ export function renderMarkdown(md: string, from: string, opts: { boards?: boolea
       .replace(/!\[\[([^[\]|]+)(?:\|[^[\]]*)?\]\]/g, (_m, target: string) => {
         const kind = embedKindOf(target);
         if (kind === "image") return `![${target}](${assetUrl(target, from)})`;
-        return `[↳ ${target}](commonink:${encodeURIComponent(target)})`;
+        return `[↳ ${target}](commonink:${encodeTarget(target)})`;
       })
-      .replace(/\[\[([^[\]|]+)(?:\|([^[\]]*))?\]\]/g, (_m, target: string, alias?: string) => `[${alias ?? target.replace(/#/, " › ")}](commonink:${encodeURIComponent(target)})`)
-      .replace(/!\[([^[\]]*)\]\((?!https?:|\/)([^()\s]+)\)/g, (_m, alt, src) => `![${alt}](${assetUrl(safeDecode(src), from)})`),
+      .replace(/\[\[([^[\]|]+)(?:\|([^[\]]*))?\]\]/g, (_m, target: string, alias?: string) => `[${alias ?? target.replace(/#/, " › ")}](commonink:${encodeTarget(target)})`)
+      // A relative image, bare or in <angle brackets>, maybe with a "title" (as the editor shows it). Any
+      // scheme (data:, https:) is left to the sanitizer's SAFE_URI.
+      .replace(
+        /!\[([^[\]]*)\]\((?:<(?![a-zA-Z][a-zA-Z0-9+.-]*:|\/)([^<>\n]+)>|(?![a-zA-Z][a-zA-Z0-9+.-]*:|\/)([^()\s<>]+))(\s+"[^"\n]*")?\)/g,
+        (_m, alt: string, angled?: string, bare?: string, title = "") => `![${alt}](${assetUrl(safeDecode(angled ?? bare!), from)}${title})`,
+      ),
   );
   // marked recurses once per nested quote, list and emphasis, and a DOM's serializer once per
   // element level: nesting past a sane depth reads flat (see src/core/depth.ts). DOMPurify stays last.

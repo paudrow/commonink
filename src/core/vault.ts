@@ -341,12 +341,14 @@ function cutTask(lines: string[], i: number): string[] {
 
 /**
  * The index of the task on `line` (1-based) whose text is `text`, or, if the note moved it, of the
- * nearest line with that text. Throws if it's gone (the note changed under the caller).
+ * nearest line with that text, outside code. Throws if it's gone (the note changed under the caller).
  */
 function findTask(lines: string[], line: number, text: string, notePath: string): number {
+  // Only prose lines hold tasks: a checkbox inside a code block is an example, not one to tick.
+  const prose = proseLines(lines.join("\n")).map(([n]) => n - 1);
   const matches = (i: number) => lines[i]?.match(TASK_LINE)?.[4] === text;
-  if (matches(line - 1)) return line - 1;
-  const near = lines.map((_, j) => j).filter(matches).sort((a, b) => Math.abs(a - (line - 1)) - Math.abs(b - (line - 1)));
+  if (prose.includes(line - 1) && matches(line - 1)) return line - 1;
+  const near = prose.filter(matches).sort((a, b) => Math.abs(a - (line - 1)) - Math.abs(b - (line - 1)));
   if (!near.length) throw new VaultError(`That task isn't in ${notePath} any more`, "conflict");
   return near[0];
 }
@@ -638,7 +640,7 @@ export class Vault {
     const base = key.split("/").pop()!;
     const rows = this.db.all("SELECT path FROM notes WHERE stem = ?", base)
       .map((r) => r.path as string)
-      .filter((p) => linkKey(p).endsWith(key));
+      .filter((p) => linkKey(p) === key || linkKey(p).endsWith(`/${key}`));
     if (!rows.length) return null;
     const dir = from ? path.posix.dirname(from) : null;
     rows.sort((a, b) => Number(path.posix.dirname(b) === dir) - Number(path.posix.dirname(a) === dir) || a.length - b.length);
@@ -1077,26 +1079,23 @@ export class Vault {
 
   /** Put a note back the way it was before change #id; with `baseVersion`, only if the note is still at it. */
   restore(id: number, source: string, baseVersion?: string) {
-    const row = this.db.get("SELECT path, op FROM changes WHERE id = ?", id);
+    const row = this.db.get("SELECT path, op, note_id FROM changes WHERE id = ?", id);
     if (!row) throw new VaultError(`No change #${id}`, "not_found");
     // A note deleted by this change is still in Trash: bring it back from there, ID and all.
     const trashed = row.op === "delete" ? this.trashIds().find((t) => t.endsWith(`-${id}`)) : undefined;
     if (trashed) return this.untrash([trashed], source)[0];
     const before = readBefore(this.db, id);
     if (before === null) throw new VaultError(`Change #${id} (${row.op} ${row.path}) has no earlier text to restore`);
-    // The note may have been renamed or archived since: restore it where it lives now.
-    let at = row.path as string;
-    let since = id;
-    for (let moved; (moved = this.db.get("SELECT id, path FROM changes WHERE from_path = ? AND id > ? ORDER BY id LIMIT 1", at, since)); ) {
-      at = moved.path;
-      since = moved.id;
-    }
-    // Deleted since, and still in Trash? Bring that note back first, so the old text lands on it
-    // (its ID, favorite and labels) rather than on a new note beside it.
-    const last = this.db.get("SELECT id, op FROM changes WHERE path = ? AND id > ? ORDER BY id DESC LIMIT 1", at, since);
-    const inTrash = last?.op === "delete" ? this.trashIds().find((t) => t.endsWith(`-${last.id}`)) : undefined;
-    if (inTrash) {
-      at = this.untrash([inTrash], source)[0].path;
+    // Find the note by its ID, wherever it lives now (renamed, archived), never a different note
+    // that took its path since.
+    const noteId = row.note_id as string | null;
+    let at = noteId ? this.pathOf(noteId) : (row.path as string);
+    if (!at) {
+      // Deleted since, and still in Trash? Bring that note back first, so the old text lands on it
+      // (its ID, favorite and labels) rather than on a new note beside it. Gone for good: a new
+      // note at a free name.
+      const inTrash = this.trashIds().find((t) => this.db.get("SELECT 1 FROM changes WHERE id = ? AND note_id = ?", Number(t.split("-")[1]), noteId));
+      at = inTrash ? this.untrash([inTrash], source)[0].path : this.freePath(row.path);
       baseVersion = undefined; // the note wasn't there to have changed
     }
     return { ...this.save(at, before, { source, baseVersion }), path: at };
@@ -1445,21 +1444,28 @@ export class Vault {
     );
   }
 
-  /** Each tagged asset's tags, as written, from the asset tags file. A file that isn't valid JSON reads as none. */
-  assetTags(): Record<string, string[]> {
+  /**
+   * Each tagged asset's tags, as written, from the asset tags file. A file that isn't a JSON object
+   * reads as none, unless it's read `forWrite`: writing back would drop every other asset's tags,
+   * so that refuses until the file is fixed.
+   */
+  assetTags(forWrite = false): Record<string, string[]> {
     let data: unknown;
     try {
       data = JSON.parse(this.files.read(ASSET_TAGS) ?? "{}");
     } catch {
+      data = null;
+    }
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      if (forWrite) throw new VaultError(`${ASSET_TAGS} isn't a valid tags file (a JSON object): fix it before changing asset tags`, "conflict");
       return {};
     }
-    const out: Record<string, string[]> = {};
-    if (!data || typeof data !== "object" || Array.isArray(data)) return out;
-    for (const [rel, list] of Object.entries(data)) {
-      const tags = Array.isArray(list) ? uniqueTags(list.filter((t): t is string => typeof t === "string"), false) : [];
-      if (tags.length) out[rel] = tags;
-    }
-    return out;
+    // fromEntries, not assignment, so a "__proto__" key stays a plain entry.
+    return Object.fromEntries(
+      Object.entries(data)
+        .map(([rel, list]) => [rel, Array.isArray(list) ? uniqueTags(list.filter((t): t is string => typeof t === "string"), false) : []] as const)
+        .filter(([, tags]) => tags.length),
+    );
   }
 
   /** Set an asset's tags (an empty list clears them). Returns them as stored: tidied, each once. */
@@ -1467,7 +1473,7 @@ export class Vault {
     const meta = this.metaOf(target);
     if (meta.kind !== "asset") throw new VaultError(`${meta.path} is a note: tag it with #tags in its text`);
     const clean = uniqueTags(tags, true);
-    const map = this.assetTags();
+    const map = this.assetTags(true);
     if (clean.length) map[meta.path] = clean;
     else delete map[meta.path];
     this.writeAssetTags(map);
@@ -1490,6 +1496,7 @@ export class Vault {
     const next = cleanTag(to);
     if (!old) throw new VaultError(`"${from}" isn't a tag`);
     if (!next) throw new VaultError(`"${to}" isn't a tag: use letters, numbers, - and _, nested with /`);
+    const map = this.assetTags(true);
     const edits: Array<{ path: string; content: string; version: string; change: Change }> = [];
     for (const rel of new Set(this.tagged(old).filter((r) => r.kind !== "asset").map((r) => r.path))) {
       const before = this.files.read(rel);
@@ -1498,7 +1505,6 @@ export class Vault {
       const r = this.commit(rel, before, after, source, "edit");
       edits.push({ path: rel, content: after, version: r.version, change: r.change });
     }
-    const map = this.assetTags();
     const assets: Record<string, string[]> = {};
     for (const [rel, tags] of Object.entries(map)) {
       if (!tags.some((t) => tagMatches(t.toLowerCase(), old))) continue;
@@ -1835,7 +1841,7 @@ export class Vault {
   /** A new daily note: `Templates/Daily note.md`, filled in as of `date` (see templates.ts), or a plain one with Tasks and Log. */
   private dailyTemplate(date: string): string {
     const template = this.files.read(DAILY_TEMPLATE);
-    return template !== null ? fillTemplate(template, { at: `${date}T${localNow(this.now()).split("T")[1]}`, title: date }).text : `# ${date}\n\n## Tasks\n\n## Log\n`;
+    return template !== null ? fillTemplate(template, { at: `${date}T${localNow(this.now(), this.timeZone).split("T")[1]}`, title: date }).text : `# ${date}\n\n## Tasks\n\n## Log\n`;
   }
 
   // ---------------------------------------------------------------- templates
@@ -1866,7 +1872,7 @@ export class Vault {
   renderTemplate(target: string, opts: FillOptions = {}) {
     const rel = this.templatePath(target);
     const { body } = frontmatterEntries(this.files.read(rel) ?? "");
-    return { path: rel, ...fillTemplate(body, { at: localNow(this.now()), ...opts }) };
+    return { path: rel, ...fillTemplate(body, { at: localNow(this.now(), this.timeZone), ...opts }) };
   }
 
   /**
@@ -1878,7 +1884,7 @@ export class Vault {
     const rel = this.templatePath(target);
     const md = this.files.read(rel) ?? "";
     const info = templateInfo(rel, md);
-    const fill = { at: localNow(this.now()), ...opts };
+    const fill = { at: localNow(this.now(), this.timeZone), ...opts };
     const title = cleanTitle(opts.title ?? (info.title ? fillTemplate(info.title, fill).text : "")) || info.name;
     const folderText = opts.folder ?? (info.folder ? fillTemplate(info.folder, fill).text : "");
     const folder = folderText.split("/").map(cleanTitle).filter(Boolean).join("/");
@@ -1903,8 +1909,15 @@ export class Vault {
     const block = cutTask(lines, findTask(lines, line, text, note.path));
     const there = this.read(dest);
     const added = withTasksAdded(there.content, block, false);
-    const cut = this.commit(note.path, note.content, lines.join("\n"), source, "edit");
+    // Into the other note first: if that write fails, the task is still where it was.
     const r = this.commit(dest, there.content, added.content, source, "edit");
+    let cut;
+    try {
+      cut = this.commit(note.path, note.content, lines.join("\n"), source, "edit");
+    } catch (e) {
+      this.commit(dest, added.content, there.content, source, "edit");
+      throw e;
+    }
     // The note it left, too, so a caller can tell whoever shows that note.
     return { ...r, cut, line: added.line, text: block[0].match(TASK_LINE)![4] };
   }
@@ -1983,12 +1996,12 @@ export class Vault {
     return rels.map((rel) => {
       const meta = this.meta(rel) ?? this.indexFile(rel);
       if (!meta) throw new VaultError(`No note matches "${rel}"`, "not_found");
+      const tags = meta.kind === "asset" ? this.assetTags(true) : {};
       const text = meta.kind === "asset" ? null : (this.files.read(rel) ?? "");
       const summary = meta.kind === "asset" ? fmtBytes(meta.size) : diffstat(text!, "");
       const change = this.recordChange({ path: rel, op: "delete", source, version: null, summary, from_path: null }, text);
       const id = `${change.ts}-${change.id}`;
       this.files.rename(rel, `${TRASH}/${id}/${rel}`);
-      const tags = this.assetTags();
       if (tags[rel]) {
         this.files.write(`${TRASH}/${id}/${TRASH_TAGS}`, JSON.stringify(tags[rel]));
         delete tags[rel];
@@ -2053,11 +2066,12 @@ export class Vault {
       if (!f) throw new VaultError("That's no longer in Trash", "not_found");
       const noteId = this.db.get("SELECT note_id FROM changes WHERE id = ?", Number(id.split("-")[1]))?.note_id;
       const dest = this.freePath(f.path);
-      this.files.rename(f.at, dest);
       const tagsAt = `${TRASH}/${id}/${TRASH_TAGS}`;
       const kept = this.files.read(tagsAt);
+      const tags = kept ? this.assetTags(true) : {};
+      this.files.rename(f.at, dest);
       if (kept) {
-        this.writeAssetTags({ ...this.assetTags(), [dest]: JSON.parse(kept) });
+        this.writeAssetTags({ ...tags, [dest]: JSON.parse(kept) });
         this.files.remove(tagsAt);
       }
       const free = noteId && !this.db.get("SELECT 1 FROM notes WHERE id = ?", noteId);
@@ -2134,11 +2148,11 @@ export class Vault {
     const pointing = this.linksTo(from, [from, ...this.backlinks(from).map((b) => b.path)]);
 
     const id = this.meta(from)?.id;
+    const assetTags = kindOf(from) === "asset" ? this.assetTags(true) : {};
     this.files.rename(from, dest);
     this.unindex(from);
     const meta = this.indexFile(dest, undefined, id)!;
     const change = this.recordChange({ path: dest, op, source, version: meta.version, summary: `from ${from}`, from_path: from });
-    const assetTags = meta.kind === "asset" ? this.assetTags() : {};
     if (assetTags[from]) {
       assetTags[dest] = assetTags[from];
       delete assetTags[from];
@@ -2233,7 +2247,7 @@ export class Vault {
     for (const b of this.backlinks(rel)) {
       if (seen.has(b.path)) continue;
       seen.add(b.path);
-      const date = dayOfNote(b.path, this.files.read(b.path) ?? "") ?? localDate(this.meta(b.path)?.mtime ?? this.now());
+      const date = dayOfNote(b.path, this.files.read(b.path) ?? "") ?? localDate(this.meta(b.path)?.mtime ?? this.now(), this.timeZone);
       out.push({ kind: "note", path: b.path, title: b.title, date, line: b.line, text: b.text });
     }
     return out.sort((a, b) => b.date.localeCompare(a.date) || a.path.localeCompare(b.path));

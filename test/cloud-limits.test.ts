@@ -1,6 +1,8 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { startCloud, team, type Cloud } from "./cloud.ts";
+import { readUpTo } from "../cloud/src/body.ts";
+import { MAX_UPLOAD } from "../src/core/paths.ts";
 
 let cloud: Cloud;
 before(async () => (cloud = await startCloud()));
@@ -52,4 +54,42 @@ test("OAuth client registrations are limited per network address", async () => {
       body: JSON.stringify({ client_name: "Spam", redirect_uris: ["http://127.0.0.1:9/cb"], token_endpoint_auth_method: "none" }),
     });
   assert.equal(await statuses(21, register), "201×20, 429×1");
+});
+
+test("a working share link isn't limited, however many requests its page makes; tries at links that don't work are", async () => {
+  const sharer = await cloud.signIn("sharer");
+  const { id } = await cloud.call(sharer, "POST", "/api/workspaces", { name: "Shared" });
+  await cloud.call(sharer, "POST", `/api/w/${id}/note`, { path: "Index.md", content: "# Index\n" });
+  const made = await cloud.call(sharer, "POST", `/api/w/${id}/shares`, { path: "Index.md", link: true, role: "viewer" });
+  const token: string = made.shares.find((s: { kind: string }) => s.kind === "link").url.split("/")[2];
+  const from = (t: string) => cloud.request(null, "GET", `/api/s/${t}/list`, undefined, { "CF-Connecting-IP": "203.0.113.80" });
+  assert.equal(await statuses(320, () => from(token)), "200×320", "one office opening a big index note, again and again");
+  assert.equal(await statuses(301, (i) => from(i.toString(16).padStart(64, "0"))), "404×300, 429×1");
+  assert.equal((await from(token)).status, 429, "past the limit, a working link is refused too, so a right guess looks like a wrong one");
+});
+
+/** A body sent without a length: `mb` megabytes, then the end, or (with `forever`) nothing more, ever. */
+function chunked(mb: number, forever = false) {
+  const chunk = new Uint8Array(1024 * 1024).fill(120);
+  let sent = 0;
+  return new ReadableStream<Uint8Array>({ pull: (c) => (sent++ < mb ? c.enqueue(chunk) : forever ? new Promise(() => {}) : c.close()) });
+}
+
+test("an upload is counted as it arrives, so one without a length stops at 50 MB", async () => {
+  const post = (body: ReadableStream<Uint8Array>) => new Request("https://workspace/upload", { method: "POST", body, duplex: "half" } as never);
+  // Reading all of a body that never ends before checking its size would never finish.
+  const stillReading = new Promise((r) => setTimeout(r, 5000, "still reading").unref());
+  assert.equal(await Promise.race([readUpTo(post(chunked(51, true)), MAX_UPLOAD), stillReading]), null);
+  assert.equal((await readUpTo(post(chunked(50)), MAX_UPLOAD))?.byteLength, MAX_UPLOAD);
+
+  const me = await cloud.signIn("streamer");
+  const { id } = await cloud.call(me, "POST", "/api/workspaces", { name: "Streams" });
+  const upload = (name: string, body: ReadableStream<Uint8Array>) =>
+    cloud.server.fetch(new URL(`/api/w/${id}/upload?name=${name}`, cloud.origin), { method: "POST", headers: { cookie: me, origin: cloud.origin }, body, duplex: "half" } as never);
+  const small = await upload("small.txt", chunked(1));
+  assert.equal(small.status, 200);
+  assert.equal(((await small.json()) as { size: number }).size, 1024 * 1024);
+  const big = await upload("big.txt", chunked(51));
+  assert.equal(big.status, 413);
+  assert.deepEqual(await big.json(), { error: "That file is over 50 MB" });
 });

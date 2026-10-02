@@ -130,8 +130,7 @@ export const files = [
       if (!bytes) throw new VaultError("Uploading needs the CLI or the app");
       const added: Array<{ path: string; size: number }> = [];
       for (const f of a.files) {
-        const rel = vault.uploadPath(f.name, a.folder ?? "assets");
-        await bytes.add(rel, f.bytes, source);
+        const rel = await bytes.add(() => vault.uploadPath(f.name, a.folder ?? "assets"), f.bytes, source);
         added.push({ path: rel, size: f.bytes.length });
       }
       return { text: added.map((f) => `Uploaded ${f.path} (${kb(f.size)})`).join("\n"), data: added };
