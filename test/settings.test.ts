@@ -27,6 +27,8 @@ function fakeApp(over: Partial<SettingsApp> = {}) {
     setShortcutTips: (on) => ((app.shortcutTips = on), log.push(`shortcutTips:${on}`)),
     sidebarPinned: {},
     setSidebarPinned: (item, on) => ((app.sidebarPinned = { ...app.sidebarPinned, [item]: on }), log.push(`sidebar:${item}:${on}`)),
+    gamified: { on: true, canChange: true },
+    setGamified: (on) => ((app.gamified = { ...app.gamified, on }), log.push(`gamified:${on}`)),
     localVault: { projectRoot: "/code/commonink", vault: "/notes" },
     shortcuts: () => log.push("shortcuts"),
     connectAgent: () => log.push("connectAgent"),
@@ -39,7 +41,7 @@ const titles = (q: string, app: SettingsApp) => matchSettings(q, appSettings(app
 
 test("search finds settings by every word, across title, description, section and keywords", () => {
   const { app } = fakeApp();
-  assert.deepEqual(titles("", app), ["Theme", "Ink", "Always show Contacts", "Always show Calendar", "Always show Assets", "Always show Smart folders", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Shortcut tips", "Connect an agent"]);
+  assert.deepEqual(titles("", app), ["Theme", "Ink", "Always show Contacts", "Always show Calendar", "Always show Assets", "Always show Smart folders", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Shortcut tips", "Connect an agent", "Unlock as you go"]);
   assert.deepEqual(titles("dark", app), ["Theme"]);
   assert.deepEqual(titles("VIM", app), ["Line numbers", "Vim keys", "Vim: j and k by screen line"]);
   assert.deepEqual(titles("vim gj", app), ["Vim: j and k by screen line"]);
@@ -59,6 +61,20 @@ test("online, Agents opens the Connected agents dialog; Vim's j and k wait for V
   assert.equal(jk(true), false);
 });
 
+test("a workspace that isn't gamified has nothing to pin or earn and no tips; only an owner can turn it back on", () => {
+  const { app, log } = fakeApp({ gamified: { on: false, canChange: true } });
+  assert.deepEqual(titles("", app), ["Theme", "Ink", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Connect an agent", "Unlock as you go"]);
+  assert.deepEqual(titles("gamification", app), ["Unlock as you go"]);
+  assert.deepEqual(titles("progressive disclosure", app), ["Unlock as you go"]);
+  const setting = appSettings(app).find((s) => s.id === "gamified")!;
+  assert.equal(setting.disabled, false);
+  if (setting.control.kind === "toggle") setting.control.set(true);
+  assert.deepEqual(log, ["gamified:true"]);
+  const member = appSettings(fakeApp({ gamified: { on: true, canChange: false } }).app).find((s) => s.id === "gamified")!;
+  assert.equal(member.disabled, true);
+  assert.match(member.description, /Only an owner can change it/);
+});
+
 test("the dialog: labelled controls, search as you type, changes that apply at once, Esc to close", async () => {
   const { app, log } = fakeApp();
   const before = document.body.appendChild(document.createElement("button"));
@@ -70,7 +86,7 @@ test("the dialog: labelled controls, search as you type, changes that apply at o
   const search = dialog.querySelector<HTMLInputElement>("input[type=search]")!;
   assert.equal(document.activeElement, search);
   assert.equal(search.getAttribute("aria-label"), "Search settings");
-  assert.deepEqual([...dialog.querySelectorAll("h3")].map((h) => h.textContent), ["Appearance", "Sidebar", "Editor", "Keyboard", "Agents"]);
+  assert.deepEqual([...dialog.querySelectorAll("h3")].map((h) => h.textContent), ["Appearance", "Sidebar", "Editor", "Keyboard", "Agents", "Workspace"]);
   for (const control of dialog.querySelectorAll<HTMLElement>("input[type=checkbox], select")) {
     const label = dialog.querySelector(`label[for="${control.id}"]`);
     assert.ok(label?.textContent, `${control.id} has a label`);

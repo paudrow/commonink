@@ -13,8 +13,9 @@ import { ask } from "./trash.ts";
 import { fuzzyScore } from "./fuzzy.ts";
 import { memberOf, membersWithoutContact, refreshPeople } from "./people.ts";
 import { onVaultChange } from "./events.ts";
-import { duplicateContacts, handlesOf, matchContacts, peopleDirectory } from "../../src/core/contacts.ts";
+import { checkInEvery, describeCheckIn, duplicateContacts, handlesOf, matchContacts, peopleDirectory } from "../../src/core/contacts.ts";
 import { mountTasks } from "./tasksView.ts";
+import { today } from "./taskChips.ts";
 
 interface Hooks {
   /** Open a note (at a line; `side`: in the other pane). */
@@ -35,6 +36,22 @@ interface Hooks {
 const googleUrl = (resource: string) => `https://contacts.google.com/person/${resource.replace(/^people\//, "")}`;
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** The rhythms the contact page offers; a note can say any other (see checkInEvery). */
+const RHYTHMS = ["weekly", "every 2 weeks", "monthly", "every 3 months", "every 6 months", "yearly"];
+
+/** Whether a contact is due a check-in by today. */
+export const dueForCheckIn = (c: Contact, day = today()) => !!c.checkInDue && c.checkInDue <= day;
+
+/** A contact's check-in in words: "Every 2 weeks · due since Oct 4", "Every month · next Nov 2". */
+export function checkInText(c: Contact, day = today()): string {
+  const every = checkInEvery(c.checkIn);
+  if (!every || !c.checkInDue) return c.checkIn;
+  const words = describeCheckIn(every).replace(/^e/, "E");
+  const on = shortDay(c.checkInDue, new Date(`${day}T12:00:00`));
+  const when = c.checkInDue < day ? `due since ${on}` : c.checkInDue === day ? "due today" : `next ${on}`;
+  return `${words} · ${when}`;
+}
+
 /** "Sep 20", or "Sep 20, 2025" for another year. */
 export function shortDay(day: string, today = new Date()): string {
   const [y, m, d] = day.split("-").map(Number);
@@ -51,6 +68,7 @@ export class ContactsPage {
   private search = el("input", { placeholder: "Search people…", spellcheck: "false", autocomplete: "off", "aria-label": "Search people" });
   private tag = el("select", { class: "ct-select", "aria-label": "Tag" });
   private company = el("select", { class: "ct-select", "aria-label": "Company" });
+  private due = el("select", { class: "ct-select", "aria-label": "Check-ins" }, el("option", { value: "" }, "Everyone"), el("option", { value: "due" }, "Due for a check-in"));
   private body = el("div", { class: "ct-body" });
   private loaded = false;
   /** Google Contacts here: null where this server has none (locally, or Google not set up). */
@@ -66,6 +84,7 @@ export class ContactsPage {
     this.search.addEventListener("input", () => this.renderList());
     this.tag.addEventListener("change", () => this.renderList());
     this.company.addEventListener("change", () => this.renderList());
+    this.due.addEventListener("change", () => this.renderList());
     onVaultChange(() => void this.refresh(), 600); // a new mention, a changed contact
   }
 
@@ -197,21 +216,25 @@ export class ContactsPage {
     this.fillSelect(this.tag, "All tags", [...new Set(this.contacts.flatMap((c) => c.tags.map((t) => t.toLowerCase())))].sort(), (t) => `#${t}`);
     this.fillSelect(this.company, "All companies", [...new Set(this.contacts.map((c) => c.company).filter(Boolean))].sort((a, b) => a.localeCompare(b)), (c) => c);
     const q = this.search.value.trim();
+    // The check-in filter shows once someone has a rhythm.
+    this.due.hidden = !this.contacts.some((c) => c.checkInDue);
+    if (this.due.hidden) this.due.value = "";
     let list = matchContacts(this.contacts, { tag: this.tag.value || undefined, company: this.company.value || undefined });
+    if (this.due.value) list = list.filter((c) => dueForCheckIn(c)).sort((a, b) => a.checkInDue!.localeCompare(b.checkInDue!));
     if (q) {
       // Words anywhere, or a fuzzy match on the name (so "jdoe" finds Jane Doe).
       const words = matchContacts(list, { q });
       const fuzzy = list.filter((c) => !words.includes(c) && Math.max(fuzzyScore(q, c.name), ...c.aliases.map((a) => fuzzyScore(q, a))) >= 0);
       list = [...words, ...fuzzy];
     }
-    const filtering = !!(q || this.tag.value || this.company.value);
+    const filtering = !!(q || this.tag.value || this.company.value || this.due.value);
     const dupes = canEdit && !filtering ? duplicateContacts(this.contacts) : [];
     const loose = membersWithoutContact(this.contacts, this.members);
 
     const rows = list.length
       ? el("div", { class: "ct-list", role: "list" }, ...list.map((c) => this.row(c)))
       : filtering
-        ? el("div", { class: "feed-empty" }, "No one matches.")
+        ? el("div", { class: "feed-empty" }, this.due.value && !q && !this.tag.value && !this.company.value ? "No one is due a check-in." : "No one matches.")
         : emptyState({
             icon: "user",
             title: "No contacts yet",
@@ -221,7 +244,7 @@ export class ContactsPage {
 
     this.body.replaceChildren(
       head,
-      el("div", { class: "ct-filters" }, el("label", { class: "feed-search ct-search" }, icon("search", 16), this.search), this.tag, this.company),
+      el("div", { class: "ct-filters" }, el("label", { class: "feed-search ct-search" }, icon("search", 16), this.search), this.tag, this.company, this.due),
       this.googleBar(canEdit),
       ...dupes.map((g) => this.dupeBanner(g)),
       rows,
@@ -246,7 +269,13 @@ export class ContactsPage {
       el(
         "span",
         { class: "ct-main" },
-        el("span", { class: "ct-name" }, c.name, member ? el("span", { class: "ct-badge", title: `${member.name} has an account in this workspace` }, member.you ? "You" : "Member") : null),
+        el(
+          "span",
+          { class: "ct-name" },
+          c.name,
+          member ? el("span", { class: "ct-badge", title: `${member.name} has an account in this workspace` }, member.you ? "You" : "Member") : null,
+          dueForCheckIn(c) ? el("span", { class: "ct-badge is-due", title: checkInText(c) }, "Check in") : null,
+        ),
         el("span", { class: "ct-who" }, [who, c.email[0]].filter(Boolean).join(" · ") || " "),
       ),
       el("span", { class: "ct-tags" }, ...c.tags.slice(0, 3).map((t) => el("span", { class: "tag" }, `#${t}`))),
@@ -321,6 +350,7 @@ export class ContactsPage {
       ...field("Links", join(c.links.filter((l) => /^https?:\/\//i.test(l)).map((l) => link(l, l.replace(/^https?:\/\/(www\.)?/i, ""))))),
       ...field("Also", c.aliases.length ? [c.aliases.join(", ")] : []),
       ...field("Tags", c.tags.length ? [el("span", { class: "ct-taglist" }, ...c.tags.map((t) => el("span", { class: "tag" }, `#${t}`)))] : []),
+      ...field("Check in", canEdit ? [this.rhythmPicker(c)] : c.checkIn ? [checkInText(c)] : []),
       ...field("Synced", c.google ? [link(googleUrl(c.google), "Google Contacts")] : []),
     );
     const mentions = timeline.filter((t) => t.kind === "note");
@@ -375,6 +405,34 @@ export class ContactsPage {
         empty: () => el("p", { class: "ct-none" }, `No tasks for ${c.name.split(" ")[0]} yet. Put @${handle} on a task to give it to them.`),
       });
     }
+  }
+
+  /** How often to check in with `c`: a menu of rhythms, and when the next is due. */
+  private rhythmPicker(c: Contact): HTMLElement {
+    const options = c.checkIn && !RHYTHMS.includes(c.checkIn) ? [...RHYTHMS, c.checkIn] : RHYTHMS;
+    const select = el(
+      "select",
+      { class: "ct-select ct-rhythm", "aria-label": "How often to check in" },
+      el("option", { value: "" }, "Not set"),
+      ...options.map((r) => {
+        const every = checkInEvery(r);
+        return el("option", { value: r }, every ? describeCheckIn(every).replace(/^e/, "E") : r);
+      }),
+    );
+    select.value = c.checkIn;
+    select.addEventListener("change", async () => {
+      try {
+        await api.updateContact(c.path, { checkIn: select.value });
+        await this.load();
+        const now = this.contacts.find((x) => x.id === c.id);
+        if (now) await this.openContact(now, false);
+      } catch (e) {
+        select.value = c.checkIn;
+        this.hooks.toast({ text: e instanceof ApiError ? e.message : "Couldn't change that" });
+      }
+    });
+    const due = c.checkInDue ? checkInText(c).split(" · ")[1] : "";
+    return el("span", { class: "ct-checkin" }, select, due ? el("span", { class: `ct-who${dueForCheckIn(c) ? " is-due" : ""}` }, due) : null);
   }
 
   private event(t: TimelineItem): HTMLElement {

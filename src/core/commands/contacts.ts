@@ -3,7 +3,7 @@ import { VaultError } from "../paths.ts";
 import { fmtContact, fmtContactLine } from "../format.ts";
 import { matchContacts } from "../contacts.ts";
 import { fmtSync, type GoogleContactsSync } from "../googleContacts.ts";
-import { command, list, localFiles, str, type CommandHost } from "./types.ts";
+import { bool, command, list, localFiles, str, type CommandHost } from "./types.ts";
 
 const WHO = "Their name or their note's path";
 
@@ -16,7 +16,11 @@ const FIELDS = {
   links: list({ flag: "link", label: "url,…", describe: "URLs: a profile, a site, a repo" }),
   aliases: list({ flag: "alias", label: "a,b", describe: "Other names they go by" }),
   tags: list({ flag: "tag", label: "t,u", describe: "Tags, without #" }),
+  check_in: str({ flag: "check-in", label: "rhythm", describe: 'How often to be in touch: weekly, every 2 weeks, monthly, 3m, yearly ("" for none)' }),
 };
+
+/** The fields as a contact has them (check_in is checkIn). */
+const fieldsOf = <T extends { check_in?: string }>({ check_in, ...rest }: T) => given({ ...rest, checkIn: check_in });
 
 /** Only the fields given: the rest stay as they are. */
 const given = <T extends object>(fields: T) => Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined)) as Partial<T>;
@@ -37,19 +41,27 @@ export const contacts = [
     mcp: "list_contacts",
     route: "GET /contacts",
     title: "List contacts",
-    summary: "People: notes in People/ with email, phone, company, role, links, aliases and tags, and when each was last mentioned",
+    summary: "People: notes in People/ with email, phone, company, role, links, aliases and tags, when each was last mentioned, and who's due a check-in",
     description:
-      "The people in the vault: each is a note in People/ whose frontmatter has email, phone, company, role, links, aliases and tags. " +
-      "Shows when each was last mentioned in another note. Link to a person with [[People/Name]].",
-    examples: ["commonink contacts", "commonink contacts --company acme --tag client", "commonink contacts --q priya --json"],
+      "The people in the vault: each is a note in People/ whose frontmatter has email, phone, company, role, links, aliases, tags and " +
+      "check_in (how often to be in touch). Shows when each was last mentioned in another note, and when a check-in is next due " +
+      "(that long after the last mention). check_in_due lists only the people due a check-in by today, the longest overdue first. " +
+      "Link to a person with [[People/Name]].",
+    examples: ["commonink contacts", "commonink contacts --company acme --tag client", "commonink contacts --q priya --json", "commonink contacts --check-in-due"],
     readOnly: true,
     args: {
       q: str({ label: "words", describe: "Words in their name, an alias, email or company" }),
       tag: str(),
       company: str(),
+      check_in_due: bool({ flag: "check-in-due", describe: "Only people due a check-in by today, the longest overdue first" }),
+      today: str({ flag: "date", describe: "The day to count from, YYYY-MM-DD; default the user's today" }),
     },
     run: ({ vault }, a) => {
-      const hits = matchContacts(vault.contacts(), a);
+      const all = vault.contacts(a.today);
+      const today = a.today ?? vault.day();
+      let hits = matchContacts(all, a);
+      if (a.check_in_due) hits = hits.filter((c) => c.checkInDue && c.checkInDue <= today).sort((x, y) => x.checkInDue!.localeCompare(y.checkInDue!));
+      if (a.check_in_due && !hits.length) return { text: "No one is due a check-in. Give a contact a rhythm with update_contact check_in (CLI: --check-in monthly).", data: hits };
       return { text: hits.length ? hits.map(fmtContactLine).join("\n") : "No contacts match. People are notes in People/; `commonink contact add <name>` makes one.", data: hits };
     },
   }),
@@ -82,7 +94,7 @@ export const contacts = [
       notes: str({ describe: "What goes under their name in the note" }),
     },
     run: ({ vault, source }, { name, ...rest }) => {
-      const r = vault.createContact({ ...given(rest), name }, source);
+      const r = vault.createContact({ ...fieldsOf(rest), name }, source);
       return { text: `Created ${r.path}. Link to them with [[${r.path.replace(/\.md$/, "")}]].`, data: { path: r.path } };
     },
   }),
@@ -93,10 +105,10 @@ export const contacts = [
     title: "Update a contact",
     summary: "Change a person's details; a list replaces that list (also: contact <name> --role …)",
     description: "Change a person's details. Each field given replaces what's there (send the whole list to add to one); the rest stay.",
-    examples: ["commonink contact update Jane Doe --role CTO", "commonink contact Jane Doe --phone 555-0100,555-0199"],
+    examples: ["commonink contact update Jane Doe --role CTO", "commonink contact Jane Doe --phone 555-0100,555-0199", 'commonink contact update Jane Doe --check-in "every 2 weeks"'],
     args: { contact: str({ required: true, pos: "rest", label: "name", describe: WHO }), ...FIELDS },
     run: ({ vault, source }, { contact, ...patch }) => {
-      const r = vault.updateContact(contact, given(patch), source);
+      const r = vault.updateContact(contact, fieldsOf(patch), source);
       return { text: r.change ? `Updated ${r.path} → version ${r.version}` : `${r.path} already says that`, data: { path: r.path, version: r.version } };
     },
   }),

@@ -39,28 +39,30 @@ export function nameField(section: HTMLElement, opts: { icon: string; placeholde
   input.addEventListener("blur", () => finish(true));
 }
 
-/** The tags the Tags section lists: ones on notes and ones added by name that nothing carries yet, with their parents. */
+/** The tags the Tags section lists: ones on notes or tasks and ones added by name that nothing carries yet, with their parents. */
 export function sidebarTags(tags: TagCount[]): TagCount[] {
-  const listed = (t: TagCount) => t.notes > 0 || unusedTag(t);
+  const listed = (t: TagCount) => t.notes > 0 || t.tasks > 0 || unusedTag(t);
   return tags.filter((t) => tags.some((c) => tagMatches(c.tag, t.tag) && listed(c)));
 }
 
 /**
  * The sidebar items most people don't need on day one. Each waits until it's in use (a contact, a
- * calendar, a file, a smart folder), so a new workspace's sidebar is Notes, Tasks, History and the
- * sections everyone uses. ⌘K and their addresses reach them all along.
+ * calendar, a file, a smart folder), so a new workspace's sidebar is Today, Notes, Tasks, History
+ * and the sections everyone uses. ⌘K and their addresses reach them all along.
  */
 export type OptionalItem = "contacts" | "calendar" | "assets" | "smart";
 export const OPTIONAL_ITEMS: OptionalItem[] = ["contacts", "calendar", "assets", "smart"];
 
 /**
  * Which optional items the sidebar shows: those in use, those you're on (or asked for from ⌘K, as
- * New smart folder does), and those Settings keeps there always.
+ * New smart folder does), and those Settings keeps there always. In a workspace that isn't
+ * gamified (gamify.ts), `all` is set and every one shows from the start.
  */
 export function shownItems(
   inUse: Record<OptionalItem, boolean>,
   pinned: Partial<Record<OptionalItem, boolean>>,
   here: ReadonlySet<OptionalItem>,
+  all = false,
 ): Record<OptionalItem, boolean> {
-  return Object.fromEntries(OPTIONAL_ITEMS.map((i) => [i, inUse[i] || !!pinned[i] || here.has(i)])) as Record<OptionalItem, boolean>;
+  return Object.fromEntries(OPTIONAL_ITEMS.map((i) => [i, all || inUse[i] || !!pinned[i] || here.has(i)])) as Record<OptionalItem, boolean>;
 }

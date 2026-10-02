@@ -4,7 +4,7 @@ import "./mobile.css";
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, type EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
-import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, unusedTag, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
+import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, unusedTag, useWorkspace, whoAmI, ApiError, type Backlink, type Change, type Favorite, type NoteMeta, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
 import { cleanTag, normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
@@ -12,6 +12,7 @@ import { setShareState, setShareWithPeople, SHARE_KEYS, toggleShareMenu, type Sh
 import type { Label } from "./api.ts";
 import { hideBanner, showBanner } from "./banner.ts";
 import { showConflict as conflictBanner } from "./conflict.ts";
+import { notesChanged } from "./editor/livePreview.ts";
 import { createState, lineNumbersFor, lineNumbersSlot, openLinkToSide, remote, setVimDisplayLines, vimSlot } from "./editor/setup.ts";
 import { linkTargetAt } from "./editor/linkAt.ts";
 import { bumpEmbeds, codeRange, editorContext } from "./editor/blocks.ts";
@@ -27,6 +28,7 @@ import { folderPicker } from "./folderPicker.ts";
 import type { History } from "./history.ts";
 import type { Assets } from "./assets.ts";
 import { renderTasksPage } from "./tasksView.ts";
+import { renderTodayPage } from "./todayView.ts";
 import { askFor, askName, pickTemplate, templatePeople } from "./templatePicker.ts";
 import { localNow, type TemplateInfo } from "../../src/core/templates.ts";
 import { openQuickAdd, QUICK_ADD } from "./quickAdd.ts";
@@ -44,6 +46,7 @@ import { did, vaultEvents } from "./events.ts";
 import { guideMessage, startGuide } from "./onboarding.ts";
 import { watchTodayCleared } from "./todayCleared.ts";
 import { inkState, setInk, startInks } from "./inkUnlocks.ts";
+import { gamified, loadGamified, onGamified, setGamified } from "./gamify.ts";
 import { store } from "./store.ts";
 import { changeVerb, groupChanges } from "../../src/core/format.ts";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
@@ -106,12 +109,14 @@ interface Pane {
   host: HTMLElement;
   preview: HTMLElement;
   bar: HTMLElement;
+  /** The strip over its note, for something about that note (archived, a conflict…). */
+  banner: HTMLElement;
   trail: PaneTrail;
   /** Counts what the pane was asked to show, so a note that loads after a later request doesn't replace it. */
   opens: number;
 }
 
-// This PR's first version stored a "Start on Today" choice; Today is the top of Tasks now.
+// An early Today page stored a "Start on Today" choice; the app always opens on Notes.
 try {
   localStorage.removeItem("commonink.startOnToday");
 } catch {}
@@ -151,17 +156,18 @@ const revealed = new Set<OptionalItem>();
 const layoutKey = () => `layout:${workspaceId || "local"}`;
 /** How the window was split, and each pane's trail; read again once the workspace is known (see boot). */
 let layout = newLayout();
-const makePane = (index: 0 | 1, host: HTMLElement, preview: HTMLElement, bar: HTMLElement): Pane => ({
+const makePane = (index: 0 | 1, host: HTMLElement, preview: HTMLElement, bar: HTMLElement, banner: HTMLElement): Pane => ({
   index,
   view: new EditorView({ parent: host }),
   session: null,
   host,
   preview,
   bar,
+  banner,
   trail: layout.panes[index],
   opens: 0,
 });
-const panes: [Pane, Pane] = [makePane(0, $("#editor-host"), $("#html-preview"), $("#main-bar")), makePane(1, $("#side-host"), $("#side-preview"), $("#side-bar"))];
+const panes: [Pane, Pane] = [makePane(0, $("#editor-host"), $("#html-preview"), $("#main-bar"), $("#banner")), makePane(1, $("#side-host"), $("#side-preview"), $("#side-bar"), $("#side-banner"))];
 let active = panes[0];
 let split = false;
 const other = (p: Pane) => panes[1 - p.index];
@@ -305,7 +311,7 @@ function commands() {
     newSmartFolder: newSmartFolderFromPalette,
     go: (page) => {
       if (page === "notes" || page === "archive" || page === "trash") void showNotes({ tab: page, query: {} });
-      else void { tasks: showTasks, calendar: showCalendar, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory, shared: showShared }[page]();
+      else void { today: showToday, tasks: showTasks, calendar: showCalendar, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory, shared: showShared }[page]();
     },
     subscribeCalendar: () => void subscribeCalendar(),
     refreshCalendars: () => void refreshCalendars(),
@@ -342,6 +348,7 @@ function commands() {
     copyLink: () => void copyLink(),
     exportAs: (how) => void exportNote(how),
     exportWorkspace: () => void exportZip({ all: true }),
+    importNotes: () => void importNotes(),
     settings: openSettings,
     connectAgent,
     back: () => void stepPane(active, "back"),
@@ -410,7 +417,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
     return toast({ text: `Couldn't open ${path}` });
   }
   if (ticket !== pane.opens) return; // something else was opened here while this loaded
-  hideBanner();
+  hideBanner(pane.banner);
   // The same note again (renamed, moved or archived while open) keeps its place.
   const keep = pane.session?.id === note.id ? { scroll: pane.view.scrollSnapshot(), head: pane.view.state.selection.main.head } : null;
   const next: Session = {
@@ -458,19 +465,15 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
     );
   } catch (e) {
     console.error(e);
-    return showBanner(`Couldn't open ${note.path} in the editor. Reload the page to try again.`);
+    return showBanner(`Couldn't open ${note.path} in the editor. Reload the page to try again.`, [], { in: pane.banner });
   }
   if (note.kind === "md") next.heading = nameLine(pane.view.state.doc).text;
   pane.session = next;
   pane.trail = opts.trail === false ? { ...pane.trail, note: note.id } : visit(pane.trail, note.id);
   resetVimJumps();
-  if (isArchived(note.path)) {
-    showBanner("This note is archived. It's hidden from search and the sidebar.", ["Unarchive", () => void archiveCurrent()]);
-    $("#banner").classList.add("is-info");
-  } else if (isAgentsNote(note.path)) {
-    showBanner(AGENTS_BLURB);
-    $("#banner").classList.add("is-info");
-  }
+  // Split, the banner is over this pane only: Unarchive puts back this pane's note, whichever has the focus.
+  if (isArchived(note.path)) showBanner("This note is archived. It's hidden from search and the sidebar.", [["Unarchive", () => void archiveCurrent(pane)]], { in: pane.banner, info: true });
+  else if (isAgentsNote(note.path)) showBanner(AGENTS_BLURB, [], { in: pane.banner, info: true });
   pane.host.classList.toggle("is-code", note.kind === "html");
   showNoteIn(pane);
   if (pane.index === 1 && !split) setSplit(true);
@@ -526,6 +529,7 @@ function setSplit(on: boolean) {
   $("#side-pane").hidden = !on;
   $("#pane-divider").hidden = !on;
   $("#main-bar").hidden = !on;
+  if (!on) hideBanner(panes[1].banner);
   $("#stage").style.setProperty("--side", `${layout.side * 100}%`);
   if (!on) panes[1].session = null;
   renderPaneBars();
@@ -664,13 +668,15 @@ function setUrl(url: string, how: "push" | "replace" = "push") {
 }
 
 let unmountTasks: (() => void) | null = null;
+let unmountToday: (() => void) | null = null;
 
-function showStage(which: "editor" | "html" | "notes" | "tasks" | "calendar" | "contacts" | "history" | "assets" | "tags" | "shared" | "capture") {
+function showStage(which: "editor" | "html" | "notes" | "today" | "tasks" | "calendar" | "contacts" | "history" | "assets" | "tags" | "shared" | "capture") {
   closeDrawer();
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
   $("#assets-view").hidden = which !== "assets";
   $("#notes-view").hidden = which !== "notes";
+  $("#today-view").hidden = which !== "today";
   $("#tasks-view").hidden = which !== "tasks";
   $("#calendar-view").hidden = which !== "calendar";
   $("#history-view").hidden = which !== "history";
@@ -682,14 +688,19 @@ function showStage(which: "editor" | "html" | "notes" | "tasks" | "calendar" | "
     unmountTasks?.();
     unmountTasks = null;
   }
+  if (which !== "today") {
+    unmountToday?.();
+    unmountToday = null;
+  }
 }
 
 /**
- * A page you went to (Notes, Tasks…): its address, and a place in the main pane's trail, so back
- * comes to it. A page shown for you (at start, or after its note went away) isn't a place you went.
+ * A page showing in the main pane (Notes, Tasks…) is a place in its trail, so back from a note you
+ * opened from it comes back to it, however you got there. `push`: you went to it, so the address
+ * bar moves too; shown from the address bar (at start, a reload, back and forward), it's already there.
  */
-function wentTo(url: string) {
-  setUrl(url);
+function wentTo(url: string, push = true) {
+  if (push) setUrl(url);
   panes[0].trail = visit(panes[0].trail, pageEntry(url));
   saveLayout();
   renderPaneBars();
@@ -705,7 +716,7 @@ async function leaveNote() {
   main.session = null;
   active = main;
   renderPaneBars();
-  hideBanner();
+  hideBanner(main.banner);
   await setFocusMode(false);
   $("#backlink-count").textContent = "";
   $("#backlinks").replaceChildren(el("div", { class: "panel-empty" }, "—"));
@@ -720,23 +731,37 @@ async function showNotes(opts: { tab?: NotesTab; filter?: boolean; folder?: stri
   showStage("notes");
   notesPage.show(opts);
   const tab = notesPage.tab; // a viewer asking for Trash gets Notes
-  if (opts.push !== false) wentTo(`/${tab}`);
-  else if (tab !== opts.tab && opts.tab) setUrl(`/${tab}`, "replace");
+  if (opts.push === false && opts.tab && tab !== opts.tab) setUrl(`/${tab}`, "replace");
+  wentTo(`/${tab}`, opts.push !== false);
   document.title = `${PAGE_LABEL[tab]} · Common Ink`;
   renderChrome();
   renderTree();
   renderOutline();
 }
 
+/** Today: what's on today (events, and tasks overdue, due or starting today), today's journal note, and your writing streak. */
+async function showToday(opts: { push?: boolean } = {}) {
+  await leaveNote();
+  showStage("today");
+  unmountToday = renderTodayPage($("#today-view"), { open: openFromPage, openTag: (tag) => openTag(tag, "tasks"), openPerson: (assignee) => void showTasks({ assignee }) });
+  $("#today-view").focus({ preventScroll: true });
+  wentTo("/today", opts.push !== false);
+  document.title = "Today · Common Ink";
+  renderChrome();
+  renderTree();
+  renderOutline();
+}
+
+/** Something a page lists, opened: today's events on the Calendar page (/calendar/<id>), and everything else as a note. */
+const openFromPage = (path: string, line?: number, side?: boolean) =>
+  void (calendarTarget(path) !== null ? openTarget(path) : openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }));
+
 async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("tasks");
-  // Today's events open on the Calendar page (/calendar/<id>); everything else is a note.
-  const open = (path: string, line?: number, side?: boolean) =>
-    void (calendarTarget(path) !== null ? openTarget(path) : openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }));
-  unmountTasks = renderTasksPage($("#tasks-view"), { open, tags: () => tags, me: workspaceId ? "Tasks with your @name" : "Tasks with @me" }, { tag: opts.tag, assignee: opts.assignee });
+  unmountTasks = renderTasksPage($("#tasks-view"), { open: openFromPage, tags: () => tags, me: workspaceId ? "Tasks with your @name" : "Tasks with @me" }, { tag: opts.tag, assignee: opts.assignee });
   $("#tasks-view").focus({ preventScroll: true });
-  if (opts.push !== false) wentTo("/tasks");
+  wentTo("/tasks", opts.push !== false);
   document.title = "Tasks · Common Ink";
   renderChrome();
   renderTree();
@@ -748,7 +773,7 @@ async function showCalendar(opts: { event?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("calendar");
   const page = await loadCalendar();
-  if (opts.push !== false) wentTo(opts.event ? `/calendar/${opts.event}` : "/calendar");
+  wentTo(opts.event ? `/calendar/${opts.event}` : "/calendar", opts.push !== false);
   document.title = "Calendar · Common Ink";
   renderChrome();
   renderTree();
@@ -807,7 +832,7 @@ async function showHistory(opts: { note?: string | null; select?: number; label?
   showStage("history");
   await (await loadHistory()).show({ note: opts.note ?? null, select: opts.select, label: opts.label });
   const id = opts.note ? notes.find((n) => n.path === opts.note)?.id : undefined;
-  if (opts.push !== false) wentTo(id ? `/history?note=${id}` : "/history");
+  wentTo(id ? `/history?note=${id}` : "/history", opts.push !== false);
   document.title = `${opts.note ? `${displayName(opts.note)} · ` : ""}History · Common Ink`;
   renderChrome();
   renderTree();
@@ -834,7 +859,7 @@ async function showTags(opts: { push?: boolean } = {}) {
   showStage("tags");
   (await loadTags()).show();
   refreshTagsSoon();
-  if (opts.push !== false) wentTo("/tags");
+  wentTo("/tags", opts.push !== false);
   document.title = "Tags · Common Ink";
   renderChrome();
   renderTree();
@@ -848,7 +873,7 @@ async function showContacts(opts: { contact?: string | null; push?: boolean } = 
   const page = await loadContacts();
   await page.show(opts.contact ?? null);
   const name = opts.contact ? notes.find((n) => n.id === opts.contact)?.title : undefined;
-  if (opts.push !== false) setUrl(name ? `/contacts?c=${opts.contact}` : "/contacts");
+  wentTo(name ? `/contacts?c=${opts.contact}` : "/contacts", opts.push !== false);
   document.title = `${name ? `${name} · ` : ""}Contacts · Common Ink`;
   renderChrome();
   renderTree();
@@ -891,7 +916,7 @@ async function showShared(opts: { push?: boolean } = {}) {
   showStage("shared");
   const root = $("#shared-view");
   root.replaceChildren(el("div", { class: "trash" }, el("div", { class: "tr-head" }, el("div", { class: "tr-title" }, el("h1", {}, "Shared with me")), el("p", {}, "Notes people outside your workspaces have shared with you. Each opens on its own page."))));
-  if (opts.push !== false) setUrl("/shared");
+  wentTo("/shared", opts.push !== false);
   document.title = "Shared with me · Common Ink";
   renderChrome();
   renderTree();
@@ -958,7 +983,7 @@ async function showAssets(opts: { open?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("assets");
   (await loadAssets()).show({ open: opts.open });
-  if (opts.push !== false) wentTo("/assets");
+  wentTo("/assets", opts.push !== false);
   document.title = "Assets · Common Ink";
   renderChrome();
   renderTree();
@@ -988,20 +1013,21 @@ async function uploadFiles(files?: File[]): Promise<string[]> {
   return done.map(embedName);
 }
 
-function pickFiles(): Promise<File[]> {
+function pickFiles(accept?: string): Promise<File[]> {
   return new Promise((resolve) => {
-    const input = el("input", { type: "file", multiple: true });
+    const input = el("input", { type: "file", multiple: true, ...(accept ? { accept } : {}) });
     input.addEventListener("change", () => resolve([...(input.files ?? [])]));
     input.addEventListener("cancel", () => resolve([]));
     input.click();
   });
 }
 
-const PAGE_LABEL = { notes: "Notes", archive: "Archive", trash: "Trash", tasks: "Tasks", calendar: "Calendar", contacts: "Contacts", history: "History", assets: "Assets", tags: "Tags", shared: "Shared with me", capture: "Capture" } as const;
+const PAGE_LABEL = { today: "Today", notes: "Notes", archive: "Archive", trash: "Trash", tasks: "Tasks", calendar: "Calendar", contacts: "Contacts", history: "History", assets: "Assets", tags: "Tags", shared: "Shared with me", capture: "Capture" } as const;
 
 /** The page showing (the Notes page by its tab), or null while a note is. */
 const onPage = () =>
   notesPage.visible ? notesPage.tab
+  : !$("#today-view").hidden ? "today"
   : !$("#tasks-view").hidden ? "tasks"
   : calendarPage?.visible ? "calendar"
   : contactsPage?.visible ? "contacts"
@@ -1044,8 +1070,8 @@ async function setFocusMode(on: boolean) {
 }
 
 /** Archive the open note (or unarchive it, if it's archived). Stays on the note, with Undo. */
-async function archiveCurrent() {
-  const s = active.session;
+async function archiveCurrent(pane = active) {
+  const s = pane.session;
   if (!s) return;
   await flushSave();
   const restore = isArchived(s.path);
@@ -1059,7 +1085,7 @@ async function archiveCurrent() {
     renaming = null;
   }
   await refreshNotes();
-  await openNote(to, { push: false });
+  await openNote(to, { push: false, pane });
   toast({
     icon: restore ? "unarchive" : "archive",
     text: `${restore ? "Unarchived" : "Archived"} ${displayName(to)}`,
@@ -1067,8 +1093,8 @@ async function archiveCurrent() {
     action: async () => {
       const back = (await (restore ? api.archive([to]) : api.unarchive([to]))).moved[0].to;
       await refreshNotes();
-      if (active.session?.path === to) {
-        await openNote(back, { push: false });
+      if (pane.session?.path === to) {
+        await openNote(back, { push: false, pane });
       }
     },
   });
@@ -1109,6 +1135,21 @@ async function exportZip(what: { paths?: string[]; folder?: string; all?: boolea
     toast({ icon: "check", text: `Exported ${name}` });
   } catch (e) {
     toast({ text: `Couldn't export: ${e instanceof Error ? e.message : String(e)}` });
+  }
+}
+
+/** Pick .md files or a .zip and bring them all in (see importNotes.ts). */
+async function importNotes() {
+  const picked = await pickFiles(".md,.markdown,.html,.htm,.zip,application/zip,text/markdown");
+  if (!picked.length) return;
+  toast({ icon: "upload", text: "Importing…" });
+  try {
+    const r = await (await import("./importNotes.ts")).importNotes(picked, new Set(notes.map((n) => n.path.toLowerCase())));
+    await refreshNotes();
+    toast({ icon: "check", text: r });
+  } catch (e) {
+    await refreshNotes();
+    toast({ text: `Couldn't import: ${e instanceof Error ? e.message : String(e)}` });
   }
 }
 
@@ -1453,6 +1494,7 @@ function showConflict(s: Session, m: { path: string; content: string | null; ver
   clearTimeout(s.timer);
   status(s, "error");
   conflictBanner({
+    banner: s.pane.banner,
     who,
     where: split ? displayName(s.path) : "this note",
     mine: () => s.pane.view.state.doc.toString(),
@@ -1549,7 +1591,8 @@ function onMessage(m: ServerMsg) {
     case "removed": {
       const path = m.path;
       setTimeout(() => {
-        if (panes.some((p) => p.session?.path === path) && !notes.some((n) => n.path === path)) showBanner(`${displayName(path)} was moved or deleted on disk.`);
+        if (notes.some((n) => n.path === path)) return;
+        for (const p of panes) if (p.session?.path === path) showBanner(`${displayName(path)} was moved or deleted on disk.`, [], { in: p.banner });
       }, 400);
       refreshNotesSoon();
       return;
@@ -1583,6 +1626,7 @@ async function refreshNotes() {
   renderTree();
   assetsPage?.refresh();
   tagsPage?.refresh();
+  for (const p of panes) if (p.session?.kind === "md") p.view.dispatch({ effects: notesChanged.of(null) });
 }
 const refreshNotesSoon = debounce(refreshNotes, 120);
 /** Whether there's a calendar, so Calendar shows in the sidebar. A failed read leaves it as it was. */
@@ -1696,6 +1740,7 @@ function tagStarButton(tag: string, where: "row" | "chip"): HTMLElement {
 /** How a sidebar row opens what it names: a click, or Enter while the row (not a button in it) has the keyboard. */
 const opens = (go: (e?: MouseEvent) => void) => ({
   tabindex: "0",
+  role: "link",
   onclick: (e: MouseEvent) => go(e),
   onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && go(),
 });
@@ -1888,6 +1933,9 @@ function allFolders(): string[] {
 }
 
 const parentOf = (p: string) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
+/** Where a moved note came from, for Activity: its old name if it was renamed, else its old folder. */
+const movedFrom = (from: string, to: string) =>
+  displayName(from) !== displayName(to) ? displayName(from) : parentOf(from) || "the top level";
 
 function setExpanded(folder: string, open: boolean) {
   if (open) prefs.expanded.add(folder);
@@ -1920,6 +1968,7 @@ function renderTree() {
     },
     prefs.sidebarPinned,
     here,
+    !gamified(),
   );
   for (const item of ["contacts", "calendar", "assets"] as const) $(`#${item}-btn`).hidden = !shown[item];
   $('.tree-head[data-section="smart"]').hidden = !shown.smart;
@@ -1927,6 +1976,7 @@ function renderTree() {
   setCurrent($("#notes-btn"), showing === "" || page === "archive" || page === "trash"); // Archive and Trash are tabs of Notes
   const shownTag = showing === null ? "" : (parseQuery(showing).tag ?? "");
   renderTagTree(shownTag && showing === formatQuery({ tag: shownTag }) ? shownTag.toLowerCase() : ""); // a tag alone, like a folder alone
+  setCurrent($("#today-btn"), page === "today");
   setCurrent($("#tasks-btn"), page === "tasks");
   setCurrent($("#calendar-btn"), page === "calendar");
   setCurrent($("#contacts-btn"), page === "contacts");
@@ -1972,6 +2022,8 @@ function renderTree() {
                   type: "button",
                   class: "chev",
                   title: open ? "Hide subfolders" : "Show subfolders",
+                  "aria-label": `${open ? "Hide" : "Show"} the folders in ${path}`,
+                  "aria-expanded": String(open),
                   onclick: (e: Event) => {
                     e.stopPropagation();
                     setExpanded(path, !open);
@@ -2018,6 +2070,7 @@ async function removeFolder(path: string) {
  */
 function renderTagTree(active: string) {
   const shown = sidebarTags(tags);
+  const onlyTasks = (t: TagCount) => !t.notes && !t.assets && t.tasks > 0;
   const parent = (t: string) => (t.includes("/") ? t.slice(0, t.lastIndexOf("/")) : "");
   const walk = (under: string, depth: number): HTMLElement[] =>
     shown
@@ -2033,8 +2086,9 @@ function renderTagTree(active: string) {
             "aria-current": t.tag === active && "page",
             style: { "--depth": String(depth) },
             "data-tag": t.tag,
-            title: unusedTag(t) ? `No note has #${t.display} yet` : `Notes tagged #${t.display}`,
-            ...opens(() => openTag(t.display)),
+            // A tag only tasks carry opens its tasks: no note is tagged with it.
+            title: unusedTag(t) ? `No note has #${t.display} yet` : onlyTasks(t) ? `Tasks tagged #${t.display}` : `Notes tagged #${t.display}`,
+            ...opens(() => openTag(t.display, onlyTasks(t) ? "tasks" : "notes")),
           },
           subs
             ? el(
@@ -2043,6 +2097,8 @@ function renderTagTree(active: string) {
                   type: "button",
                   class: "chev",
                   title: open ? "Hide nested tags" : "Show nested tags",
+                  "aria-label": `${open ? "Hide" : "Show"} the tags under #${t.tag}`,
+                  "aria-expanded": String(open),
                   onclick: (e: Event) => {
                     e.stopPropagation();
                     if (open) prefs.tagsOpen.delete(t.tag);
@@ -2058,12 +2114,13 @@ function renderTagTree(active: string) {
           icon("hash", 14),
           el("span", { class: "tree-name" }, t.display.split("/").pop()!),
           isTagStarred(t.display) ? el("span", { class: "fav-mark", title: "In Favorites" }, icon("starred", 11)) : null,
-          unusedTag(t) ? null : el("span", { class: "n" }, String(t.notes)),
+          unusedTag(t) ? null : el("span", { class: "n" }, String(onlyTasks(t) ? t.tasks : t.notes)),
           el(
             "span",
             { class: "row-actions" },
-            // A tag nothing carries yet can't be a favorite (it would show no notes), but it can go again.
-            !unusedTag(t) ? tagStarButton(t.display, "row")
+            // A tag no note carries can't be a favorite (it would show no notes); one nothing carries yet can go again.
+            onlyTasks(t) ? null
+            : !unusedTag(t) ? tagStarButton(t.display, "row")
             : viewer ? null
             : el("button", { type: "button", class: "row-act", title: `Delete #${t.display}`, onclick: (e: Event) => (e.stopPropagation(), void deleteTag(t)) }, icon("trash", 14)),
           ),
@@ -2222,7 +2279,8 @@ async function moveToFolder(path: string, folder: string, opts: { undo?: boolean
 
 /** Archive a note by its path (the guide's last card offers it). The open note stays open (marked archived), like ⌘⇧E. */
 async function archivePath(path: string) {
-  if (active.session?.path === path) return archiveCurrent();
+  const open = panes.find((p) => p.session?.path === path);
+  if (open) return archiveCurrent(open);
   const r = await api.archive([path]).catch(() => null);
   if (!r) return toast({ text: `Couldn't archive ${displayName(path)}` });
   await refreshNotes();
@@ -2308,9 +2366,18 @@ function openMovePicker(anchor: HTMLElement) {
 
 function setSaveStatus(state: "saved" | "editing" | "saving" | "error") {
   const labels = { saved: "Saved", editing: "Edited", saving: "Saving…", error: "Not saved" };
+  const hints = {
+    saved: "All changes to this note are saved",
+    editing: "Your changes save automatically in a moment",
+    saving: "Saving your latest changes…",
+    error: "Your latest changes aren't saved yet. Keep this tab open: they're retried automatically, or on your next edit",
+  };
   const node = $("#save-status");
+  // Screen readers hear only a failed save, not "Edited… Saving… Saved" at every pause in typing.
+  if (state === "error" && node.dataset.state !== "error") $("#toast-alert").textContent = "Not saved";
   node.dataset.state = state;
   node.textContent = labels[state];
+  node.title = hints[state];
 }
 
 let statusTimer = 0;
@@ -2399,23 +2466,35 @@ function highlightOutline(line: number) {
 }
 
 // backlinks
+// Links from archived notes wait behind a toggle, so old copies don't sit beside the live ones
+// (an archived note shows all its links: there they're the context).
+let archivedBacklinksShown = false;
 async function refreshBacklinks() {
   const s = active.session;
   if (!s) return;
-  const links = await api.backlinks(s.path).catch(() => []);
+  const all = await api.backlinks(s.path, "all").catch(() => []);
   if (s !== active.session) return;
+  const fromArchive = isArchived(s.path) ? [] : all.filter((b) => isArchived(b.path));
+  const links = all.filter((b) => !fromArchive.includes(b));
+  const row = (b: Backlink) =>
+    el(
+      "div",
+      { class: `backlink${isArchived(b.path) ? " is-archived" : ""}`, onclick: (e: MouseEvent) => openNote(b.path, { line: b.line, pane: sideClick(e) ? sideOf(active) : active }) },
+      el("div", { class: "bl-title" }, icon(b.kind === "embed" ? "open" : "link", 12), b.title),
+      el("div", { class: "bl-text", html: highlightLink(b.text) }),
+    );
+  const toggle = fromArchive.length
+    ? el(
+        "button",
+        { type: "button", class: "bl-archived-toggle", onclick: () => ((archivedBacklinksShown = !archivedBacklinksShown), void refreshBacklinks()) },
+        archivedBacklinksShown ? "Hide links from archived notes" : `${fromArchive.length} more from archived ${fromArchive.length === 1 ? "note" : "notes"}`,
+      )
+    : null;
   $("#backlink-count").textContent = links.length ? String(links.length) : "";
   $("#backlinks").replaceChildren(
-    ...(links.length
-      ? links.map((b) =>
-          el(
-            "div",
-            { class: "backlink", onclick: (e: MouseEvent) => openNote(b.path, { line: b.line, pane: sideClick(e) ? sideOf(active) : active }) },
-            el("div", { class: "bl-title" }, icon(b.kind === "embed" ? "open" : "link", 12), b.title),
-            el("div", { class: "bl-text", html: highlightLink(b.text) }),
-          ),
-        )
-      : [el("div", { class: "panel-empty" }, "No backlinks yet")]),
+    ...(links.length ? links.map(row) : [el("div", { class: "panel-empty" }, fromArchive.length ? "No backlinks from active notes" : "No backlinks yet")]),
+    ...(toggle ? [toggle] : []),
+    ...(archivedBacklinksShown ? fromArchive.map(row) : []),
   );
 }
 const refreshBacklinksSoon = debounce(refreshBacklinks, 300);
@@ -2456,7 +2535,7 @@ function renderActivity() {
                 "div",
                 { class: "act-meta" },
                 stat ? statEl(stat) : null,
-                c.op === "move" && c.from_path ? el("span", {}, `from ${displayName(c.from_path)}`) : null,
+                c.op === "move" && c.from_path ? el("span", {}, `from ${movedFrom(c.from_path, c.path)}`) : null,
                 c.count > 1 ? el("span", {}, `${c.count} saves`) : null,
                 el("span", { "data-ts": String(c.ts) }, timeAgo(c.ts)),
               ),
@@ -2513,8 +2592,25 @@ Vim.defineEx("edit", "e", (_cm: unknown, params: { args?: string[] }) => {
 Vim.defineEx("archive", "arch", () => void archiveCurrent());
 // Not :delete, which is Vim's own (:d deletes lines).
 Vim.defineEx("trash", "trash", () => void deleteCurrent());
+Vim.defineEx("unarchive", "unarch", () => active.session && isArchived(active.session.path) && void archiveCurrent());
 Vim.defineEx("notes", "note", () => void showNotes());
 Vim.defineEx("calendar", "cal", () => void showCalendar());
+Vim.defineEx("today", "tod", () => void showToday());
+Vim.defineEx("tasks", "tasks", () => void showTasks());
+Vim.defineEx("tags", "tags", () => void showTags());
+Vim.defineEx("history", "hist", () => void showHistory());
+Vim.defineEx("assets", "assets", () => void showAssets());
+Vim.defineEx("contacts", "con", () => void showContacts());
+// :move Projects/Acme files the note there (any case; / is the top level); :move alone opens the folder picker.
+Vim.defineEx("move", "mo", (_cm: unknown, params: { args?: string[] }) => {
+  const s = active.session;
+  if (!s) return;
+  const arg = params.args?.join(" ").trim().replace(/^\/+|\/+$/g, "");
+  if (arg === undefined) return void setTimeout(() => openMovePicker($("#move-btn")));
+  const folder = arg === "" ? "" : allFolders().find((f) => f.toLowerCase() === arg.toLowerCase());
+  if (folder === undefined) return void toast({ text: `No folder named ${arg}` });
+  void moveToFolder(s.path, folder);
+});
 // After vim puts the focus back in the editor, so the name prompt keeps it.
 Vim.defineEx("rename", "ren", () => setTimeout(() => void renameNote()));
 Vim.defineEx("star", "star", () => active.session && void toggleStar(active.session.path));
@@ -2769,6 +2865,12 @@ function openSettings(query?: string) {
           localVault,
           sidebarPinned: prefs.sidebarPinned,
           setSidebarPinned,
+          gamified: { on: gamified(), canChange: owner },
+          setGamified: (on) =>
+            void setGamified(on).then(
+              () => (m.refreshSettings(), toast({ icon: "check", text: on ? "Unlock as you go is on" : "Everything is unlocked", detail: "For everyone in this workspace, from their next visit." })),
+              (e) => toast({ text: e instanceof Error ? e.message : "That didn't work" }),
+            ),
           shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
           connectAgent,
           integrations: local
@@ -2798,7 +2900,8 @@ const connectAgent = () => void import("./agentsPage.ts").then((m) => m.showAgen
 const tipsState = (): TipsState => ({ ...NO_TIPS, ...store.get<Partial<TipsState>>("shortcutTips", {}) });
 function setupShortcutTips() {
   watchTips({
-    load: tipsState,
+    // Not gamified: tips are off, whatever this browser says (and it keeps what it said for if they're back).
+    load: () => (gamified() ? tipsState() : { ...tipsState(), off: true }),
     save: (s) => store.set("shortcutTips", s),
     // The palette's box is always there, hidden with it; a dialog that's showing isn't inside anything hidden.
     busy: () => [...document.querySelectorAll('[aria-modal="true"], .qa-float')].some((n) => !n.closest("[hidden]")),
@@ -2877,7 +2980,7 @@ function setupPanes() {
   // Clicking or tabbing into a pane gives it the focus.
   // (Not from a pane bar's buttons: redrawing the bar on mousedown would swallow their click.)
   const follow = (p: Pane) => (e: Event) => p !== active && split && !(e.target as Element).closest?.(".pane-bar button") && focusPane(p);
-  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#tasks-view", "#calendar-view", "#contacts-view", "#history-view", "#assets-view", "#tags-view"]], [panes[1], ["#side-pane"]]] as const) {
+  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#today-view", "#tasks-view", "#calendar-view", "#contacts-view", "#history-view", "#assets-view", "#tags-view"]], [panes[1], ["#side-pane"]]] as const) {
     for (const sel of nodes) {
       $(sel).addEventListener("focusin", follow(p));
       $(sel).addEventListener("mousedown", follow(p));
@@ -2906,7 +3009,7 @@ let viewer = false;
 let owner = true;
 
 /**
- * Show whatever the address bar points at: /notes/<title>-<id>, /tasks, /calendar (or one event,
+ * Show whatever the address bar points at: /notes/<title>-<id>, /today, /tasks, /calendar (or one event,
  * /calendar/<id>), /history, /assets, or the notes list (/notes, /). Links from before paths (#/Projects/Plan.md, #tasks) still work and get rewritten.
  */
 async function route() {
@@ -2923,10 +3026,7 @@ async function route() {
   }
   const at = location.pathname.replace(/\/+$/, "") || "/";
   if (at === "/tasks") return showTasks({ push: false });
-  if (at === "/today") {
-    setUrl("/tasks", "replace"); // Today is the top of Tasks now
-    return showTasks({ push: false });
-  }
+  if (at === "/today") return showToday({ push: false });
   if (at === "/assets") return showAssets({ push: false });
   if (at === "/contacts") {
     const id = new URLSearchParams(location.search).get("c");
@@ -3037,6 +3137,7 @@ async function boot() {
   systemDark.addEventListener("change", () => theme() === "system" && renderTheme());
   window.addEventListener("popstate", (e) => void onPopState(e));
   $("#notes-btn").addEventListener("click", () => void showNotes({ tab: "notes", query: {} }));
+  $("#today-btn").addEventListener("click", () => void showToday());
   $("#tasks-btn").addEventListener("click", () => void showTasks());
   $("#calendar-btn").addEventListener("click", () => void showCalendar());
   window.addEventListener(OPEN_CALENDAR, (e) => void showCalendar({ event: (e as CustomEvent<string>).detail || undefined }));
@@ -3082,7 +3183,9 @@ async function boot() {
     renderPresence();
   }, 30_000);
 
-  const [info, list, starred, recent, tagList, smart] = await Promise.all([api.info(), api.notes(), api.favorites(), api.changes(), api.tags(), api.smartFolders()]);
+  const [info, list, starred, recent, tagList, smart] = await Promise.all([api.info(), api.notes(), api.favorites(), api.changes(), api.tags(), api.smartFolders(), loadGamified()]);
+  onGamified(() => renderTree()); // an owner flipped it here: the sidebar shows everything, or waits again
+  onGamified(() => !$("#today-view").hidden && void showToday({ push: false })); // the Today page gains or drops its streak
   $("#vault-name").textContent = info.name;
   if (info.mode === "local") localVault = info;
   notes = list;
@@ -3094,8 +3197,12 @@ async function boot() {
   renderActivity();
   renderPresence();
   connect(onMessage, (up) => {
-    $("#conn").dataset.up = String(up);
-    $("#conn").title = up ? "Live: watching the vault for agent edits" : "Reconnecting…";
+    const conn = $("#conn");
+    conn.dataset.up = String(up);
+    conn.title = up
+      ? "Connected: changes from agents, other tabs and collaborators show up live"
+      : "Offline, reconnecting… Your edits are kept and saved once the connection is back";
+    conn.setAttribute("aria-label", conn.title);
     if (up) {
       refreshNotesSoon();
       void flushSave(); // what couldn't be saved while the connection was down

@@ -3,13 +3,12 @@
 // pick, attributed, and limited by their role there.
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { startCloud, team, type Cloud } from "./cloud.ts";
+import { cli, login as loginTo } from "./cli-login.ts";
 
-const BIN = path.resolve(import.meta.dirname, "../bin/commonink");
 let cloud: Cloud;
 let people: Awaited<ReturnType<typeof team>>;
 
@@ -19,57 +18,16 @@ before(async () => {
 });
 after(() => cloud.close());
 
-/** A CLI with its own config folder (where login keeps its tokens), and no local vault in the way. */
-function cli() {
-  const config = fs.mkdtempSync(path.join(os.tmpdir(), "commonink-config-"));
-  const env: NodeJS.ProcessEnv = { ...process.env, COMMONINK_CONFIG_DIR: config };
-  delete env.COMMONINK_VAULT;
-  delete env.COMMONINK_AGENT;
-  delete env.COMMONINK_WORKSPACE;
-  const run = (args: string[], input?: string) => {
-    const r = spawnSync(BIN, args, { env, input, encoding: "utf8" });
-    return { status: r.status, stdout: r.stdout, stderr: r.stderr };
-  };
-  return { config, env, run, json: (args: string[]) => JSON.parse(run([...args, "--json"]).stdout) };
-}
-
 /** `commonink login`, with `cookie`'s person in the browser allowing it for `workspace` ("*" for all of them). */
-async function login(c: ReturnType<typeof cli>, cookie: string, workspace = "*") {
-  const child = spawn(BIN, ["login", "--server", cloud.origin, "--no-browser"], { env: c.env, stdio: ["ignore", "pipe", "pipe"] });
-  let out = "";
-  let err = "";
-  child.stdout.on("data", (d) => (out += d));
-  const url = await new Promise<string>((resolve) =>
-    child.stderr.on("data", (d) => {
-      err += d;
-      const m = err.match(/(http\S+\/authorize\?\S+)/);
-      if (m) resolve(m[1]);
-    }),
-  );
-  const page = await cloud.request(cookie, "GET", new URL(url).pathname + new URL(url).search);
-  assert.equal(page.status, 200);
-  const html = await page.text();
-  const handle = html.match(/name="handle" value="([^"]+)"/)![1];
-  const binding = page.headers.getSetCookie().map((x) => x.split(";")[0]).join("; ");
-  const answer = await cloud.server.fetch(new URL("/authorize", cloud.origin), {
-    method: "POST",
-    redirect: "manual",
-    headers: { "content-type": "application/x-www-form-urlencoded", cookie: `${cookie}; ${binding}`, origin: cloud.origin },
-    body: new URLSearchParams({ handle, decision: "allow", workspace }).toString(),
-  });
-  assert.equal(answer.status, 302);
-  // The browser follows the redirect to the CLI's loopback address.
-  await fetch(answer.headers.get("location")!);
-  const status = await new Promise<number | null>((resolve) => child.on("exit", resolve));
-  return { status, out, err, html };
-}
+const login = (c: ReturnType<typeof cli>, cookie: string, workspace = "*") => loginTo(cloud, c, cookie, workspace);
 
 test("commonink login signs in through the browser and keeps its tokens where only you can read them", async () => {
   const c = cli();
   const { status, out, html } = await login(c, people.owner);
   assert.equal(status, 0);
   assert.match(html, /Connect commonink CLI to Common Ink\?/);
-  assert.match(html, /<strong>All your workspaces<\/strong>/);
+  // Offered, and picked, for the CLI, which gets its answer on this computer.
+  assert.match(html, /<input type="radio" name="workspace" value="\*" checked>\s*<span><strong>All your workspaces<\/strong>/);
   assert.match(out, /^Signed in to http:\/\/\S+ as Owner Dev\. Workspaces: Owner's notes \(owner\), Team \(owner\)\. Pick one with commonink workspaces use <name>, or --workspace\.\n$/);
   const file = path.join(c.config, "credentials.json");
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
@@ -101,7 +59,7 @@ test("commands run in the workspace you name, attributed to you or to the agent 
   const nowhere = c.run(["ls", "--workspace", "Nowhere"]);
   assert.equal(nowhere.status, 3);
   // Exit codes and --json errors are the same as for a local vault.
-  assert.deepEqual(JSON.parse(c.run(["create", "Hello", "again", "--json"]).stdout), { error: "Hello.md already exists; use edit_note instead", code: "exists", exit: 5 });
+  assert.deepEqual(JSON.parse(c.run(["create", "Hello", "again", "--json"]).stdout), { error: "Hello.md already exists. To replace it, create it again with overwrite (--overwrite); to change part of it, use edit_note", code: "exists", exit: 5 });
   assert.equal(c.run(["edit", "Hello", "--old", "by hand", "--new", "x", "--base", "000000000000"]).status, 4);
 });
 
@@ -117,6 +75,25 @@ test("the workspace's calendar from the CLI: events, and a meeting note made and
   assert.match(c.run(["event", id, ...team]).stdout, /^meeting note: Meetings\/2026-10-05 Standup\.md$/m);
   assert.equal(c.run(["event", "nope", ...team]).status, 3);
   await cloud.call(people.owner, "POST", `${people.base}/calendar/sources/remove`, { id: cal.id });
+});
+
+test("subscribing and refreshing calendars from the CLI is limited per person, as in the app", async () => {
+  const c = cli();
+  await login(c, people.editor);
+  const { accessToken } = JSON.parse(fs.readFileSync(path.join(c.config, "credentials.json"), "utf8"));
+  const refresh = async () => {
+    const res = await fetch(new URL("/mcp/cli/run", cloud.origin), {
+      method: "POST",
+      headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ command: "calendars refresh", input: {}, workspace: "Team" }),
+    });
+    await res.body?.cancel();
+    return res.status;
+  };
+  const seen: number[] = [];
+  for (let i = 0; i < 61; i++) seen.push(await refresh());
+  assert.deepEqual([seen.slice(0, 60).every((s) => s === 200), seen[60]], [true, 429]);
+  assert.match(c.run(["calendars", "add", "https://demo.commonink.invalid/more.ics", "--workspace", "Team"]).stderr, /a lot of calendar subscribing/);
 });
 
 test("a CLI's today is its person's day, in the time zone their browser reported", async () => {
@@ -139,6 +116,23 @@ test("files go up to R2 and come back down, byte for byte", async () => {
   const out = path.join(here, "back.png");
   assert.equal(c.run(["download", "assets/pixel.png", "--workspace", "Team", "--out", out]).status, 0);
   assert.deepEqual([...fs.readFileSync(out)], [...bytes]);
+});
+
+test("commonink import brings a folder of notes and its pictures into a hosted workspace in one go", async () => {
+  const c = cli();
+  await login(c, people.owner);
+  const here = fs.mkdtempSync(path.join(os.tmpdir(), "commonink-import-"));
+  fs.mkdirSync(path.join(here, "Areas"));
+  fs.writeFileSync(path.join(here, "Areas/Health.md"), "# Health\n\n![[scan.png]]\n");
+  fs.writeFileSync(path.join(here, "Areas/scan.png"), Buffer.from([137, 80, 78, 71]));
+  fs.writeFileSync(path.join(here, "Inbox.md"), "# Inbox\n");
+  const r = c.json(["import", here, "--folder", "Moved", "--workspace", "Team"]);
+  assert.deepEqual(r.created, ["Moved/Areas/Health.md", "Moved/Inbox.md"]);
+  assert.deepEqual(r.files, ["Moved/Areas/scan.png"]);
+  assert.match(c.run(["read", "Moved/Areas/Health", "--workspace", "Team"]).stdout, /# Health/);
+  const out = path.join(here, "back.png");
+  assert.equal(c.run(["download", "Moved/Areas/scan.png", "--workspace", "Team", "--out", out]).status, 0);
+  assert.deepEqual([...fs.readFileSync(out)], [137, 80, 78, 71]);
 });
 
 test("contacts, labels, tasks --by me and export work in a hosted workspace too", async () => {
@@ -174,6 +168,11 @@ test("a viewer's CLI reads but can't write, and a grant for one workspace stays 
   assert.deepEqual(one.json(["workspaces"]).workspaces.map((w: { name: string }) => w.name), ["Team"]);
   assert.equal(one.run(["ls"]).status, 0);
   assert.equal(one.run(["ls", team, "Editor's notes"]).status, 3);
+  // What it writes is the client's, by its registered name, even when it names no agent or another one.
+  assert.equal(one.run(["create", "From one grant", "x"]).status, 0);
+  assert.equal(one.run(["append", "From one grant", "more", "--agent", "Someone else"]).status, 0);
+  const changes = await cloud.call(people.editor, "GET", `${people.base}/changes?path=${encodeURIComponent("From one grant.md")}`);
+  assert.deepEqual(changes.map((ch: { agent: string | null; person: string }) => [ch.agent, ch.person]), [["commonink CLI", "Editor Dev"], ["commonink CLI", "Editor Dev"]]);
   // Nor its settings: a grant for one workspace (an MCP client's, which reaches /mcp/cli with the same token) is to its notes.
   const owner = cli();
   await login(owner, people.owner, people.id);
@@ -213,28 +212,43 @@ test("sharing from the CLI: by email, listed, stopped; links wait for the owner'
   assert.equal(editor.run(["shares", "Shared from the CLI", ...team]).stdout, "Shared from the CLI.md isn't shared with anyone outside the workspace.\n");
 });
 
-test("only an app that asks for every workspace can be given every workspace", async () => {
-  // An MCP client asks for no scope: an answer of "all of them" (a forged form) is refused.
-  const reg = await cloud.server.fetch(new URL("/oauth/register", cloud.origin), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ client_name: "Some Agent", redirect_uris: ["http://127.0.0.1:9/callback"], token_endpoint_auth_method: "none" }),
-  });
-  const { client_id } = (await reg.json()) as { client_id: string };
-  const query = new URLSearchParams({ response_type: "code", client_id, redirect_uri: "http://127.0.0.1:9/callback", code_challenge: "x".repeat(43), code_challenge_method: "S256", state: "s" });
-  const page = await cloud.request(people.owner, "GET", `/authorize?${query}`);
-  const html = await page.text();
-  assert.doesNotMatch(html, /All your workspaces/);
-  const handle = html.match(/name="handle" value="([^"]+)"/)![1];
-  const binding = page.headers.getSetCookie().map((x) => x.split(";")[0]).join("; ");
-  const answer = await cloud.server.fetch(new URL("/authorize", cloud.origin), {
-    method: "POST",
-    redirect: "manual",
-    headers: { "content-type": "application/x-www-form-urlencoded", cookie: `${people.owner}; ${binding}`, origin: cloud.origin },
-    body: new URLSearchParams({ handle, decision: "allow", workspace: "*" }).toString(),
-  });
-  assert.equal(answer.status, 400);
-  assert.match(await answer.text(), /Pick one of your workspaces/);
+test("only an app on your computer that asks for every workspace can be given every workspace", async () => {
+  const consent = async (redirect: string, scope?: string) => {
+    const reg = await cloud.server.fetch(new URL("/oauth/register", cloud.origin), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ client_name: "Some Agent", redirect_uris: [redirect], token_endpoint_auth_method: "none" }),
+    });
+    const { client_id } = (await reg.json()) as { client_id: string };
+    const query = new URLSearchParams({ response_type: "code", client_id, redirect_uri: redirect, code_challenge: "x".repeat(43), code_challenge_method: "S256", state: "s", ...(scope ? { scope } : {}) });
+    const page = await cloud.request(people.owner, "GET", `/authorize?${query}`);
+    const html = await page.text();
+    const handle = html.match(/name="handle" value="([^"]+)"/)![1];
+    const binding = page.headers.getSetCookie().map((x) => x.split(";")[0]).join("; ");
+    const answer = (workspace: string) =>
+      cloud.server.fetch(new URL("/authorize", cloud.origin), {
+        method: "POST",
+        redirect: "manual",
+        headers: { "content-type": "application/x-www-form-urlencoded", cookie: `${people.owner}; ${binding}`, origin: cloud.origin },
+        body: new URLSearchParams({ handle, decision: "allow", workspace }).toString(),
+      });
+    return { html, answer };
+  };
+  // An MCP client asks for no scope, and a website gets no more for asking: it isn't offered, and an
+  // answer of "all of them" (a forged form) is refused.
+  for (const [redirect, scope] of [["http://127.0.0.1:9/callback"], ["https://look-alike.example/cb", "workspaces"]]) {
+    const { html, answer } = await consent(redirect!, scope);
+    assert.doesNotMatch(html, /All your workspaces/);
+    const forged = await answer("*");
+    assert.equal(forged.status, 400);
+    assert.match(await forged.text(), /Pick one of your workspaces/);
+  }
+  // A workspace that isn't yours is refused without using up the answer, so a right one still goes through.
+  const { answer } = await consent("https://look-alike.example/cb", "workspaces");
+  assert.equal((await answer("not-mine")).status, 400);
+  const fixed = await answer(people.id);
+  assert.equal(fixed.status, 302);
+  assert.match(fixed.headers.get("location")!, /^https:\/\/look-alike\.example\/cb\?code=/);
 });
 
 test("a workspace's settings from the CLI: invite links, members and roles, a new name, leaving", async () => {

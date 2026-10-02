@@ -9,8 +9,10 @@ import type { FillOptions, PersonPick } from "./templates.ts";
 import { agentSource, parseAuthorFilter } from "./actor.ts";
 import { findStartNote, GUIDE, parseGuideAction, runGuide } from "./guide.ts";
 import { exportZip, type ExportWhat } from "./export.ts";
+import { ON_EXISTING, pairsImport, writeImport, type OnExisting } from "./import.ts";
 import type { Calendar, EventDraft } from "./calendar.ts";
 import { notePath } from "./ids.ts";
+import { isSort } from "./query.ts";
 
 export interface ApiHost {
   vault: Vault;
@@ -113,7 +115,7 @@ function contactFields(v: unknown, withName: boolean): Partial<ContactFields> {
     if (x === undefined) continue;
     const ok =
       CONTACT_LISTS.includes(k) ? Array.isArray(x) && x.every((s) => typeof s === "string")
-      : k === "company" || k === "role" || (k === "name" && withName) || (k === "notes" && withName) ? typeof x === "string"
+      : k === "company" || k === "role" || k === "checkIn" || (k === "name" && withName) || (k === "notes" && withName) ? typeof x === "string"
       : false;
     if (!ok) throw new VaultError(`"${k}" isn't a contact field or has the wrong type`);
     out[k] = x;
@@ -248,13 +250,15 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
           scope: qScope(),
           folder: q("folder") || undefined,
           tag: q("tag") || undefined,
-          sort: q("sort") === "title" ? "title" : "modified",
+          sort: [q("sort")].find(isSort) ?? "modified",
           offset: qCount("offset", 0, Infinity),
           limit: qCount("limit", 30, Infinity), // the feed re-fetches everything it has shown
         }),
       );
     case "GET /backlinks":
-      return json(vault.backlinks(q("path")));
+      return json(vault.backlinks(q("path"), qScope()));
+    case "GET /links/missing":
+      return json(vault.missingLinks({ folder: q("folder") || undefined, scope: qScope() }));
     case "GET /changes":
       return json(vault.changes({ limit: qCount("limit", 50, 500), before: qCount("before", 0, Infinity) || undefined, path: q("path") || undefined, by: parseAuthorFilter(q("by")) }));
     case "GET /changes/agents":
@@ -295,9 +299,9 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     case "GET /diff":
       return json(vault.diff(qInt("from"), q("to") ? qInt("to") : qInt("from")));
     case "GET /contacts":
-      return json(vault.contacts());
+      return json(vault.contacts(q("today") || undefined));
     case "GET /contact":
-      return json(vault.contact(q("path")));
+      return json(vault.contact(q("path"), q("today") || undefined));
     case "GET /members":
       return json(host.members ? await host.members() : []);
     case "POST /contacts": {
@@ -375,6 +379,19 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       host.written(r.path, content, r.version, r.change);
       host.tree();
       return json({ path: r.path, version: r.version });
+    }
+    // Many notes at once (the app's Import notes; files' bytes go through /upload).
+    case "POST /import": {
+      const notes = (raw as Record<string, unknown>).notes;
+      if (typeof notes !== "object" || notes === null || Array.isArray(notes) || !Object.values(notes).every((v) => typeof v === "string")) {
+        throw new VaultError(`"notes" must be an object of path → text`);
+      }
+      const existing = optStr("existing");
+      if (existing !== undefined && !ON_EXISTING.includes(existing as OnExisting)) throw new VaultError(`"existing" must be ${ON_EXISTING.join(" or ")}`);
+      const r = await writeImport(vault, pairsImport(notes as Record<string, string>, optStr("folder")), { existing: existing as OnExisting | undefined, source: actor });
+      for (const p of [...r.created, ...r.replaced]) host.written(p, vault.files.read(p), vault.meta(p)?.version ?? "", null);
+      if (r.created.length) host.tree();
+      return json(r);
     }
     case "POST /tasks/set": {
       const r = vault.setTask(str("path"), int("line"), str("text"), flag("done"), actor, optStr("today")); // done: gets the person's day
