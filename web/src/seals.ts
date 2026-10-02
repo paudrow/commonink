@@ -4,6 +4,7 @@
 // so each grey seal points at a feature. This is the rules and the counting, with nothing to fetch or
 // draw, so it can be tested; sealUnlocks.ts gathers the numbers and says when one is earned.
 import { GUIDE } from "../../src/core/guide.ts";
+import { formatKeys } from "./keys.ts";
 
 export const SEAL_IDS = ["link", "backlink", "template", "board", "smart-folder", "shared", "agent-task", "agent-edit", "agent-ten"] as const;
 export type SealId = (typeof SEAL_IDS)[number];
@@ -50,8 +51,8 @@ const count = (n: number | null, need: number) => (n === null ? null : { have: M
 export const SEALS: Seal[] = [
   { id: "link", name: "First link", icon: "link", how: "Link one note to another: type [[ and pick it.", earned: "You linked two notes.", progress: (s) => yes(s.linked) },
   { id: "backlink", name: "First backlink", icon: "back", how: "Follow a backlink: the notes that link here are listed under a note.", earned: "You followed a link back.", progress: (s) => yes(s.followedBacklink) },
-  { id: "template", name: "First template", icon: "file", how: "Make a note from a template: New note from template in ⌘⇧P.", earned: "You made a note from a template.", progress: (s) => yes(s.usedTemplate) },
-  { id: "board", name: "First board", icon: "kanban", how: "Make a kanban board: New board in ⌘⇧P, or / → Kanban board.", earned: "You made a kanban board.", progress: (s) => yes(s.madeBoard) },
+  { id: "template", name: "First template", icon: "file", how: `Make a note from a template: New note from template in ${formatKeys("Mod-Shift-p")}.`, earned: "You made a note from a template.", progress: (s) => yes(s.usedTemplate) },
+  { id: "board", name: "First board", icon: "kanban", how: `Make a kanban board: New board in ${formatKeys("Mod-Shift-p")}, or / → Kanban board.`, earned: "You made a kanban board.", progress: (s) => yes(s.madeBoard) },
   { id: "smart-folder", name: "First smart folder", icon: "folder", how: "Save a search as a smart folder from the Notes page.", earned: "You saved a smart folder.", progress: (s) => count(s.smartFolders, 1) },
   { id: "shared", name: "First share", icon: "share", how: "Share a note with someone outside the workspace.", earned: "You shared a note.", online: true, progress: (s) => count(s.shares, 1) },
   { id: "agent-task", name: "First handoff", icon: "bot", how: "Hand a task to an agent: put @Claude (or your agent's name) on it.", earned: "You handed a task to an agent.", progress: (s) => count(s.agentTasks, 1) },

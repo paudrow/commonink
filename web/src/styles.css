@@ -1824,13 +1824,13 @@ body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view
 /* The Today page's Writing streak, under the day. */
 .td-streak { margin-top: 18px; }
 .wd-card .td-title svg { color: var(--accent); }
-/* Seals on the Today page: one row (it scrolls sideways when narrow). An earned seal is wax in the
+/* Seals on the Today page: a grid that wraps, so every seal shows at any width. An earned seal is wax in the
    ink you use; a grey one is a dashed ring with how to earn it. */
 .td-seals { margin-top: 18px; }
 .seal-card .td-title svg { color: var(--accent); }
 .seal-tally { margin-left: auto; font-weight: 500; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.seal-row { display: flex; gap: 4px; margin: 0; padding: 6px 10px 12px; list-style: none; overflow-x: auto; scroll-snap-type: x proximity; }
-.seal { flex: 0 0 104px; display: grid; justify-items: center; align-content: start; gap: 4px; padding: 6px 4px; text-align: center; scroll-snap-align: start; }
+.seal-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px 4px; margin: 0; padding: 6px 10px 12px; list-style: none; }
+.seal { display: grid; justify-items: center; align-content: start; gap: 4px; padding: 6px 4px; text-align: center; }
 .seal-mark { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; border: 1.5px dashed var(--line-strong); color: var(--muted); }
 .seal.is-earned .seal-mark {
   border: none;
