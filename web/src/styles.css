@@ -757,7 +757,9 @@ body.is-resizing iframe { pointer-events: none; }
 }
 .cm-md-link:hover, .cm-wikilink:hover { text-decoration-color: var(--accent); }
 .cm-wikilink.is-raw, .cm-md-link.is-raw { cursor: text; text-decoration: none; }
-.cm-wikilink.is-missing:not(.is-raw) { color: var(--muted); text-decoration-style: dashed; text-decoration-color: var(--line-strong); }
+/* A [[link]] to a note that isn't here: grey and dashed until it's made (clicking makes it). */
+.cm-wikilink.is-missing:not(.is-raw) { text-decoration-style: dashed; text-decoration-color: var(--line-strong); }
+.cm-wikilink.is-missing:not(.is-raw), .cm-wikilink.is-missing:not(.is-raw) * { color: var(--muted); }
 .cm-embed-inline { background: var(--accent-soft); border-radius: 4px; text-decoration: none; padding: 0 2px; }
 .cm-bullet { color: var(--muted); font-weight: 700; display: inline-block; min-width: 0.6em; }
 .cm-list-num { color: var(--muted); font-variant-numeric: tabular-nums; }

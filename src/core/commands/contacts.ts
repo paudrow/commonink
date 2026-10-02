@@ -39,23 +39,23 @@ export const contacts = [
     description:
       "The people in the vault: each is a note in People/ whose frontmatter has email, phone, company, role, links, aliases, tags and " +
       "check_in (how often to be in touch). Shows when each was last mentioned in another note, and when a check-in is next due " +
-      "(that long after the last mention). due lists only the people due a check-in by today, the longest overdue first. " +
+      "(that long after the last mention). check_in_due lists only the people due a check-in by today, the longest overdue first. " +
       "Link to a person with [[People/Name]].",
-    examples: ["commonink contacts", "commonink contacts --company acme --tag client", "commonink contacts --q priya --json", "commonink contacts --due"],
+    examples: ["commonink contacts", "commonink contacts --company acme --tag client", "commonink contacts --q priya --json", "commonink contacts --check-in-due"],
     readOnly: true,
     args: {
       q: str({ label: "words", describe: "Words in their name, an alias, email or company" }),
       tag: str(),
       company: str(),
-      due: bool({ describe: "Only people due a check-in by today, the longest overdue first" }),
+      check_in_due: bool({ flag: "check-in-due", describe: "Only people due a check-in by today, the longest overdue first" }),
       today: str({ flag: "date", describe: "The day to count from, YYYY-MM-DD; default the user's today" }),
     },
     run: ({ vault }, a) => {
       const all = vault.contacts(a.today);
       const today = a.today ?? vault.day();
       let hits = matchContacts(all, a);
-      if (a.due) hits = hits.filter((c) => c.checkInDue && c.checkInDue <= today).sort((x, y) => x.checkInDue!.localeCompare(y.checkInDue!));
-      if (a.due && !hits.length) return { text: "No one is due a check-in. Give a contact a rhythm with `commonink contact <name> --check-in monthly`.", data: hits };
+      if (a.check_in_due) hits = hits.filter((c) => c.checkInDue && c.checkInDue <= today).sort((x, y) => x.checkInDue!.localeCompare(y.checkInDue!));
+      if (a.check_in_due && !hits.length) return { text: "No one is due a check-in. Give a contact a rhythm with `commonink contact <name> --check-in monthly`.", data: hits };
       return { text: hits.length ? hits.map(fmtContactLine).join("\n") : "No contacts match. People are notes in People/; `commonink contact add <name>` makes one.", data: hits };
     },
   }),

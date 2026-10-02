@@ -233,9 +233,9 @@ test("a contact's check_in sets when they're next due: that long after the last 
   assert.throws(() => vault.createContact({ name: "Kim", checkIn: "sometimes" }, "you"), /isn't a check-in rhythm/);
   assert.equal(vault.read(vault.createContact({ name: "Kim", checkIn: "3m" }, "you").path).content, "---\ncheck_in: 3m\n---\n# Kim\n");
 
-  // list_contacts --due: who's due by the day, the longest overdue first.
+  // list_contacts --check-in-due: who's due by the day, the longest overdue first.
   const list = COMMANDS.find((c) => c.cli === "contacts")!;
-  const due = (today: string) => (list.run({ vault } as never, { due: true, today } as never) as { data: Contact[] }).data.map((c) => [c.name, c.checkInDue]);
+  const due = (today: string) => (list.run({ vault } as never, { check_in_due: true, today } as never) as { data: Contact[] }).data.map((c) => [c.name, c.checkInDue]);
   assert.deepEqual(due("2026-10-02"), [["Kim", "2026-10-02"], ["Ola", "2026-10-02"]]);
   assert.deepEqual(due("2026-10-05"), [["Ola", "2026-10-02"], ["Jane Doe", "2026-10-04"], ["Kim", "2026-10-05"]]);
 });

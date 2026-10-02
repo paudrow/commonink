@@ -63,6 +63,7 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "GET /search", send: () => ["GET", "/search?q=welcome"], expect: READ },
   { route: "GET /feed", send: () => ["GET", "/feed"], expect: READ },
   { route: "GET /backlinks", send: () => ["GET", "/backlinks?path=Getting%20started.md"], expect: READ },
+  { route: "GET /links/missing", send: () => ["GET", "/links/missing"], expect: READ },
   { route: "GET /changes", send: () => ["GET", "/changes?by=ai"], expect: READ },
   { route: "GET /changes/agents", send: () => ["GET", "/changes/agents"], expect: READ },
   { route: "GET /diffs", send: () => ["GET", "/diffs?ids=1-3"], expect: READ },

@@ -1776,6 +1776,7 @@ export class Vault {
    */
   addTask(input: string, source: string, opts: { today?: string; ignore?: string[]; to?: string } = {}) {
     const today = opts.today ?? this.day();
+    if (!isDate(today)) throw new VaultError(`"today" must be a date like 2026-10-01, not "${today}"`);
     const q = parseQuickAdd(input, today, opts.ignore);
     if (!q.words) throw new VaultError("Say what the task is: once its dates and repeats are taken out, there are no words left");
     const named = q.target ?? opts.to;
@@ -2187,7 +2188,6 @@ export class Vault {
 
   /** Every contact (a note in People/, not archived), by name, with how often and when last other notes mention them. */
   contacts(today = this.day()): Contact[] {
-    if (!isDate(today)) throw new VaultError(`"today" must be a date like 2026-10-01, not "${today}"`);
     return this.list(PEOPLE)
       .filter((n) => n.kind === "md")
       .map((n) => this.contactOf(n.path, n.id, this.mentionsOf(n.path), today))
