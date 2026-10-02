@@ -1689,6 +1689,7 @@ function tagStarButton(tag: string, where: "row" | "chip"): HTMLElement {
 /** How a sidebar row opens what it names: a click, or Enter while the row (not a button in it) has the keyboard. */
 const opens = (go: (e?: MouseEvent) => void) => ({
   tabindex: "0",
+  role: "link",
   onclick: (e: MouseEvent) => go(e),
   onkeydown: (e: KeyboardEvent) => e.key === "Enter" && e.target === e.currentTarget && go(),
 });
@@ -1965,6 +1966,8 @@ function renderTree() {
                   type: "button",
                   class: "chev",
                   title: open ? "Hide subfolders" : "Show subfolders",
+                  "aria-label": `${open ? "Hide" : "Show"} the folders in ${path}`,
+                  "aria-expanded": String(open),
                   onclick: (e: Event) => {
                     e.stopPropagation();
                     setExpanded(path, !open);
@@ -2036,6 +2039,8 @@ function renderTagTree(active: string) {
                   type: "button",
                   class: "chev",
                   title: open ? "Hide nested tags" : "Show nested tags",
+                  "aria-label": `${open ? "Hide" : "Show"} the tags under #${t.tag}`,
+                  "aria-expanded": String(open),
                   onclick: (e: Event) => {
                     e.stopPropagation();
                     if (open) prefs.tagsOpen.delete(t.tag);
@@ -2302,6 +2307,8 @@ function openMovePicker(anchor: HTMLElement) {
 function setSaveStatus(state: "saved" | "editing" | "saving" | "error") {
   const labels = { saved: "Saved", editing: "Edited", saving: "Saving…", error: "Not saved" };
   const node = $("#save-status");
+  // Screen readers hear only a failed save, not "Edited… Saving… Saved" at every pause in typing.
+  if (state === "error" && node.dataset.state !== "error") $("#toast-alert").textContent = "Not saved";
   node.dataset.state = state;
   node.textContent = labels[state];
 }
