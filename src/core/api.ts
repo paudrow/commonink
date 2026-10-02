@@ -460,10 +460,12 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       if (r.change) host.written(r.path, vault.files.read(r.path), r.version, r.change);
       return json({ path: r.path, version: r.version, change: r.change?.id ?? null }); // restoring `change` undoes this
     }
-    // A `tag` stars or unstars a tag; a `path` a note.
+    // A `tag` stars or unstars a tag; a `smart_folder` (its ID) a smart folder; a `path` a note.
     case "POST /favorites/star":
+      if (optStr("smart_folder") !== undefined) return json(favorited(vault.starSmartFolder(host.user, str("smart_folder"))));
       return json(favorited(optStr("tag") !== undefined ? vault.starTag(host.user, str("tag")) : vault.star(host.user, str("path"))));
     case "POST /favorites/unstar":
+      if (optStr("smart_folder") !== undefined) return json(favorited(vault.unstarSmartFolder(host.user, str("smart_folder"))));
       return json(favorited(optStr("tag") !== undefined ? vault.unstarTag(host.user, str("tag")) : vault.unstar(host.user, str("path"))));
     case "PUT /favorites":
       return json(favorited(vault.orderFavorites(host.user, paths("paths"))));

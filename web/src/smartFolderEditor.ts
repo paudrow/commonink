@@ -16,6 +16,8 @@ export interface SmartFolderDraft {
   name: string;
   query: string;
   shared: boolean;
+  /** In the person's Favorites. Left out, the editor doesn't ask. */
+  favorite?: boolean;
 }
 
 /** What the controls hold: the query, with its tags as a list (an empty row is a tag not picked yet). */
@@ -226,6 +228,8 @@ export function smartFolderEditor(
     recount();
   }
 
+  const fav = el("input", { type: "checkbox" });
+  fav.checked = !!draft.favorite;
   const justMe = el("input", { type: "checkbox" });
   justMe.checked = !draft.shared || !opts.canShare;
   justMe.disabled = !opts.canShare;
@@ -255,6 +259,7 @@ export function smartFolderEditor(
           el("span", {}, "Just me"),
           el("span", { class: "sf-hint" }, opts.canShare ? "Otherwise everyone in the workspace sees it" : "You can view this workspace, so it's yours only"),
         ),
+    draft.favorite === undefined ? null : el("label", { class: "sf-just-me" }, fav, el("span", {}, "In Favorites"), el("span", { class: "sf-hint" }, "Keep it at the top of your sidebar")),
     error,
     el(
       "footer",
@@ -295,7 +300,7 @@ export function smartFolderEditor(
       error.textContent = "Give the smart folder a name";
       return name.focus();
     }
-    void run(() => opts.save({ id: draft.id, name: name.value.trim(), query: current(), shared: !justMe.checked }));
+    void run(() => opts.save({ id: draft.id, name: name.value.trim(), query: current(), shared: !justMe.checked, ...(draft.favorite !== undefined && { favorite: fav.checked }) }));
   });
   renderFolder();
   renderTags();

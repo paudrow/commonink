@@ -34,8 +34,8 @@ interface Hooks {
   tags(): TagCount[];
   /** Save these filters (a query like `tag=work sort=title`) as a smart folder. */
   saveQuery(anchor: HTMLElement, query: string): void;
-  /** The star (Add to / Remove from Favorites) for the tag Notes is narrowed to. */
-  starButton(tag: string): HTMLElement;
+  /** The star (Add to / Remove from Favorites) for what Notes shows: a tag, a smart folder, or any search. Empty with no filters. */
+  starButton(query: NoteQuery): HTMLElement | "";
   /** Show every task of this person's. */
   openPerson(name: string): void;
   /** You can only view this workspace: chips show, but don't open editors. */
@@ -268,7 +268,7 @@ export class NotesPage {
         el("button", { type: "button", class: `chip${f === this.folder ? " is-on" : ""}`, "aria-pressed": String(f === this.folder), onclick: () => ((this.folder = f), (this.focus = 0), this.reload()) }, f || "All folders"),
       ),
     );
-    this.tagBar.replaceChildren(tagFilter({ current: this.tag, any: this.match === "any", tags: this.hooks.tags, count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }), tagList(this.tag).length === 1 ? this.hooks.starButton(this.tag) : "");
+    this.tagBar.replaceChildren(tagFilter({ current: this.tag, any: this.match === "any", tags: this.hooks.tags, count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }), this.hooks.starButton(this.query));
     this.sortSel.value = this.sort;
     this.saveBtn.hidden = !formatQuery(this.query);
     this.hooks.filtersChanged();

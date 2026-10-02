@@ -37,7 +37,7 @@ test("the server lists every tool", async () => {
     "import_contacts", "label_version", "list_contacts", "list_events", "list_folders", "list_labels", "list_notes", "list_smart_folders", "list_tags",
     "list_tasks", "list_templates", "list_trash", "merge_contacts", "move_card", "move_note", "move_task", "open_journal", "order_favorites",
     "read_board", "read_contact", "read_note", "recent_changes", "remove_task", "rename_tag", "restore_change", "restore_from_trash", "restore_label",
-    "save_smart_folder", "search_notes", "set_asset_tags", "show_change", "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag",
+    "save_smart_folder", "search_notes", "set_asset_tags", "show_change", "star_note", "star_smart_folder", "star_tag", "unarchive_note", "unstar_note", "unstar_smart_folder", "unstar_tag",
     "update_contact", "update_task", "write_note",
   ]);
 });

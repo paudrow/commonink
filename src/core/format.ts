@@ -2,7 +2,7 @@
 // Agents read markdown far more cheaply than JSON, so this is the default output.
 import { authorLabel } from "./actor.ts";
 import { createTwoFilesPatch } from "diff";
-import { isTagFavorite, type Backlink, type Change, type Favorite, type Label, type Note, type NoteMeta, type Vault, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView, type TrashItem } from "./vault.ts";
+import { isSmartFavorite, isTagFavorite, type Backlink, type Change, type Favorite, type Label, type Note, type NoteMeta, type Vault, type SearchHit, type SmartFolder, type TagCount, type Task, type TodayView, type TrashItem } from "./vault.ts";
 import type { Board } from "./kanban.ts";
 import type { TemplateInfo } from "./templates.ts";
 import type { Contact, TimelineItem } from "./contacts.ts";
@@ -38,7 +38,12 @@ export function fmtList(notes: Array<Pick<NoteMeta, "path" | "kind" | "title">>)
 
 export function fmtFavorites(favorites: Favorite[]): string {
   if (!favorites.length) return "No favorites.";
-  const line = (f: Favorite) => (isTagFavorite(f) ? `- #${f.display} (${f.notes} note${f.notes === 1 ? "" : "s"})` : fmtList([f]));
+  const line = (f: Favorite) =>
+    isTagFavorite(f)
+      ? `- #${f.display} (${f.notes} note${f.notes === 1 ? "" : "s"})`
+      : isSmartFavorite(f)
+        ? `- Smart folder ${f.name} (${f.count} note${f.count === 1 ? "" : "s"}): ${f.query || "every note"}`
+        : fmtList([f]);
   return `Favorites:\n${favorites.map(line).join("\n")}`;
 }
 

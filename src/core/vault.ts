@@ -66,9 +66,16 @@ export interface TagFavorite {
   display: string;
   notes: number;
 }
-/** A favorite is a note or a tag, in one order. */
-export type Favorite = NoteMeta | TagFavorite;
+/** A smart folder in someone's favorites: the folder (see SmartFolder), marked as one. */
+export interface SmartFavorite extends SmartFolder {
+  smartFolder: true;
+}
+/** A favorite is a note, a tag or a smart folder, in one order. */
+export type Favorite = NoteMeta | TagFavorite | SmartFavorite;
 export const isTagFavorite = (f: Favorite): f is TagFavorite => "tag" in f;
+export const isSmartFavorite = (f: Favorite): f is SmartFavorite => "smartFolder" in f;
+/** A smart folder favorite's key: "~" + its ID (which is shaped like a note's, so it needs the mark). */
+const smartKey = (id: string) => `~${id}`;
 /**
  * A tag favorite's key in the favorites table: "#" + the tag. Note IDs never hold a "#", so the two
  * can't collide, and rows from before tag favorites need nothing done to them.
@@ -1174,7 +1181,15 @@ export class Vault {
    */
   favorites(user: string): Favorite[] {
     const out: Favorite[] = [];
+    let smart: Map<string, SmartFolder> | null = null;
     for (const f of this.db.all<{ note_id: string; path: string }>("SELECT note_id, path FROM favorites WHERE user = ? ORDER BY pos", user)) {
+      // A starred smart folder they can still see (one made just someone else's drops out).
+      if (f.note_id.startsWith("~")) {
+        smart ??= new Map(this.smartFolders(user).map((s) => [s.id, s]));
+        const s = smart.get(f.note_id.slice(1));
+        if (s) out.push({ ...s, smartFolder: true });
+        continue;
+      }
       if (f.note_id.startsWith("#")) {
         const t = this.tagInUse(f.note_id.slice(1));
         if (t) out.push(t);
@@ -1227,6 +1242,18 @@ export class Vault {
     return this.favorites(user);
   }
 
+  /** Star a smart folder (a name or ID, as list_smart_folders gives) at the end of `user`'s favorites. */
+  starSmartFolder(user: string, target: string): Favorite[] {
+    const f = this.findSmartFolder(user, target);
+    this.addFavorite(user, smartKey(f.id), f.name);
+    return this.favorites(user);
+  }
+
+  unstarSmartFolder(user: string, target: string): Favorite[] {
+    this.db.run("DELETE FROM favorites WHERE user = ? AND note_id = ?", user, smartKey(this.findSmartFolder(user, target).id));
+    return this.favorites(user);
+  }
+
   private addFavorite(user: string, key: string, path: string) {
     this.db.run(
       `INSERT INTO favorites(user, note_id, path, pos)
@@ -1237,12 +1264,13 @@ export class Vault {
 
   /**
    * Put these favorites first, in this order; the rest follow in the order they had, stars whose
-   * note is gone included. A `#tag` target is a starred tag.
+   * note is gone included. A `#tag` target is a starred tag, and `~name` (or `~id`) a starred smart folder.
    */
   orderFavorites(user: string, targets: string[]): Favorite[] {
     this.favorites(user); // rebinds stars to their notes' current IDs
     const starred = this.db.all<{ note_id: string }>("SELECT note_id FROM favorites WHERE user = ? ORDER BY pos", user).map((f) => f.note_id);
-    const first = targets.map((t) => (t.startsWith("#") ? tagKey(normalizeTag(t) ?? "") : this.metaOf(t).id)).filter((id) => starred.includes(id));
+    const key = (t: string) => (t.startsWith("#") ? tagKey(normalizeTag(t) ?? "") : t.startsWith("~") ? smartKey(this.findSmartFolder(user, t.slice(1)).id) : this.metaOf(t).id);
+    const first = targets.map(key).filter((id) => starred.includes(id));
     const order = [...new Set([...first, ...starred])];
     this.db.tx(() => order.forEach((id, i) => this.db.run("UPDATE favorites SET pos = ? WHERE user = ? AND note_id = ?", i + 1, user, id)));
     return this.favorites(user);
@@ -1320,6 +1348,7 @@ export class Vault {
     const f = this.findSmartFolder(user, target, idOnly);
     if (f.shared && !canEditShared) throw new VaultError("Only editors can delete shared smart folders.", "forbidden");
     this.db.run("DELETE FROM smart_folders WHERE id = ?", f.id);
+    this.db.run("DELETE FROM favorites WHERE note_id = ?", smartKey(f.id));
     return this.smartFolders(user);
   }
 

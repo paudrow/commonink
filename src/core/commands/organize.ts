@@ -290,12 +290,45 @@ export const favorites = [
     run: (host, a) => starEach(host, a.tags.map((t) => `#${t.replace(/^#/, "")}`), false),
   }),
   command({
+    cli: "smart-star",
+    mcp: "star_smart_folder",
+    route: "POST /favorites/star",
+    title: "Star smart folder",
+    summary: "Add smart folders to your favorites, beside your starred notes and tags",
+    description:
+      "Add smart folders (by name or ID, as list_smart_folders gives) to the user's favorites, beside their starred notes and tags. " +
+      "Only star ones the user asked for.",
+    examples: ["commonink smart-star Planning"],
+    args: { smart_folders: list({ required: true, pos: "rest", label: "name" }) },
+    run: ({ vault, user }, a) => {
+      for (const f of a.smart_folders) vault.starSmartFolder(user, f);
+      const list = vault.favorites(user);
+      return { text: fmtFavorites(list), data: list };
+    },
+  }),
+  command({
+    cli: "smart-unstar",
+    mcp: "unstar_smart_folder",
+    route: "POST /favorites/unstar",
+    title: "Unstar smart folder",
+    summary: "Take smart folders out of your favorites",
+    description: "Take smart folders out of the user's favorites. The smart folders themselves stay.",
+    examples: ["commonink smart-unstar Planning"],
+    args: { smart_folders: list({ required: true, pos: "rest", label: "name" }) },
+    run: ({ vault, user }, a) => {
+      for (const f of a.smart_folders) vault.unstarSmartFolder(user, f);
+      const list = vault.favorites(user);
+      return { text: fmtFavorites(list), data: list };
+    },
+  }),
+  command({
     cli: "starred order",
     mcp: "order_favorites",
     route: "PUT /favorites",
     title: "Order favorites",
-    summary: "Put favorites first, in this order (notes, and '#tags'); the rest follow",
-    description: "Reorder the user's favorites: these come first, in this order (a note, or a #tag for a starred tag), and the rest follow as they were.",
+    summary: "Put favorites first, in this order (notes, '#tags' and '~smart folders'); the rest follow",
+    description:
+      "Reorder the user's favorites: these come first, in this order (a note, a #tag for a starred tag, or ~name for a starred smart folder), and the rest follow as they were.",
     examples: ["commonink starred order Roadmap '#work' Welcome"],
     args: { paths: list({ required: true, pos: "rest", label: "note" }) },
     run: ({ vault, user }, a) => {

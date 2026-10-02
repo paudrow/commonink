@@ -80,3 +80,17 @@ test("a smart folder without a name isn't saved, and Escape closes the dialog", 
   $(".sf-dialog").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   assert.equal(document.querySelector(".sf-modal"), null);
 });
+
+test("the editor asks about Favorites when the caller says where the folder stands", async () => {
+  let saved: { favorite?: boolean } | null = null;
+  smartFolderEditor(document.body, { name: "Work", query: "tag=health", shared: true, favorite: true }, { canShare: true, sources, save: async (f) => void (saved = f) });
+  const box = byText(".sf-just-me", "In Favorites").querySelector("input")!;
+  assert.equal(box.checked, true);
+  box.checked = false;
+  $<HTMLFormElement>(".sf-dialog").requestSubmit();
+  await settle();
+  assert.equal(saved!.favorite, false);
+  smartFolderEditor(document.body, { name: "Work", query: "", shared: true }, { canShare: true, sources, save: async () => {} });
+  assert.equal(byText(".sf-just-me", "In Favorites"), undefined);
+  $(".sf-dialog").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+});

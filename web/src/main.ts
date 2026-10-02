@@ -4,7 +4,7 @@ import "./mobile.css";
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, type EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
-import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, unusedTag, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
+import { api, clientId, connect, favoriteKey, isArchived, isNoteFavorite, isSmartFavorite, isTagFavorite, unusedTag, useWorkspace, whoAmI, ApiError, type Change, type Favorite, type NoteMeta, type ServerMsg, type SmartFavorite, type SmartFolder, type TagCount, type TagFavorite } from "./api.ts";
 import { cleanTag, normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
@@ -51,7 +51,7 @@ import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
 import { clampSide, forget, historyStep, IS_MAC, newLayout, pageEntry, pageOf, parseLayout, rememberPlace, SIDE_CLICK, sideClick, step, trailAhead, visit, type PaneTrail, type Place } from "./panes.ts";
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { headingMatches } from "../../src/core/gfm.ts";
-import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
+import { formatQuery, parseQuery, tagList, type NoteQuery } from "../../src/core/query.ts";
 import { NEW_BOARD } from "../../src/core/kanban.ts";
 import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
@@ -178,7 +178,7 @@ const notesPage = new NotesPage({
   filtersChanged: () => renderTree(),
   tags: () => tags,
   saveQuery: (anchor, query) => saveSmartFolder(query, "", anchor),
-  starButton: (tag) => tagStarButton(tag, "chip"),
+  starButton: (q) => queryStarButton(q),
   openPerson: (assignee) => void showTasks({ assignee }),
   readOnly: () => viewer,
   shared: (item) => !!workspaceId && isShared(item.id, item.path),
@@ -1597,12 +1597,13 @@ const refreshTagsSoon = debounce(async () => {
 
 // ------------------------------------------------------------------ favorites
 
-const isStarred = (id: string) => favorites.some((f) => !isTagFavorite(f) && f.id === id);
+const isStarred = (id: string) => favorites.some((f) => isNoteFavorite(f) && f.id === id);
 const isTagStarred = (tag: string) => favorites.some((f) => isTagFavorite(f) && f.tag === normalizeTag(tag));
+const isSmartStarred = (id: string) => favorites.some((f) => isSmartFavorite(f) && f.id === id);
 
 /** Star a note, or unstar it if it's starred. */
 async function toggleStar(path: string) {
-  const on = favorites.some((f) => !isTagFavorite(f) && f.path === path);
+  const on = favorites.some((f) => isNoteFavorite(f) && f.path === path);
   try {
     favorites = await (on ? api.unstar(path) : api.star(path));
   } catch {
@@ -1618,22 +1619,25 @@ async function toggleStar(path: string) {
 /** A starting name for a query: its tag, folder and words ("#work · Projects"). */
 function nameFor(query: string): string {
   const q = parseQuery(query);
-  return [q.tag && `#${q.tag}`, q.folder, q.q && `“${q.q}”`].filter(Boolean).join(" · ") || "All notes";
+  const tags = tagList(q.tag).map((t) => `#${t}`).join(q.match === "any" ? " or " : " ");
+  return [tags, q.folder, q.q && `“${q.q}”`].filter(Boolean).join(" · ") || "All notes";
 }
 
 /** What the settings forms' tag and folder fields suggest. */
 const fieldSources = { tags: () => tags, folders: () => allFolders() };
 
 /** Offer to keep a note query as a smart folder (from the Notes filters or a ::query widget). */
-function saveSmartFolder(query: string, name: string, anchor: HTMLElement) {
-  smartFolderEditor(anchor, { name: name || nameFor(query), query, shared: !viewer }, {
+function saveSmartFolder(query: string, name: string, anchor: HTMLElement, favorite = false) {
+  smartFolderEditor(anchor, { name: name || nameFor(query), query, shared: !viewer, favorite }, {
     canShare: !viewer,
     alone: local,
     sources: fieldSources,
     save: async (f) => {
       const saved = await api.saveSmartFolder(f);
       smartFolders = await api.smartFolders();
+      await starSmartFolder(saved.id, !!f.favorite);
       renderTree();
+      notesPage.refreshSoon();
       toast({ icon: "folderSearch", text: `Saved ${saved.name}`, detail: local ? undefined : saved.shared ? "Everyone in the workspace sees it in their sidebar." : "Only you see it." });
     },
   });
@@ -1648,16 +1652,75 @@ function newSmartFolderFromPalette() {
 
 /** A new smart folder from scratch (the Smart folders header, or its empty row). Saving opens it. */
 function newSmartFolder(anchor: HTMLElement) {
-  smartFolderEditor(anchor, { name: "", query: "", shared: !viewer }, {
+  smartFolderEditor(anchor, { name: "", query: "", shared: !viewer, favorite: false }, {
     canShare: !viewer,
     alone: local,
     sources: fieldSources,
     save: async (f) => {
       const saved = await api.saveSmartFolder(f);
       smartFolders = await api.smartFolders();
+      await starSmartFolder(saved.id, !!f.favorite);
       await showNotes({ tab: "notes", query: parseQuery(saved.query) });
     },
   });
+}
+
+/** Put a smart folder in Favorites (`on`) or take it out; nothing if it's already that way. */
+async function starSmartFolder(id: string, on: boolean) {
+  if (isSmartStarred(id) === on) return;
+  favorites = await (on ? api.starSmartFolder(id) : api.unstarSmartFolder(id));
+}
+
+/** Star a smart folder, or unstar it. */
+async function toggleSmartStar(f: SmartFolder) {
+  try {
+    await starSmartFolder(f.id, !isSmartStarred(f.id));
+  } catch (e) {
+    return toast({ text: e instanceof Error ? e.message : `Couldn't change ${f.name} in Favorites` });
+  }
+  renderTree();
+  notesPage.refreshSoon();
+}
+
+/** A smart folder's star, on its row in Smart folders or in Favorites. */
+function smartStarButton(f: SmartFolder): HTMLElement {
+  const starred = isSmartStarred(f.id);
+  const label = starred ? "Remove from Favorites" : "Add to Favorites";
+  return el(
+    "button",
+    { type: "button", class: `row-act star-btn${starred ? " is-starred" : ""}`, title: label, "aria-label": `${label}: ${f.name}`, "aria-pressed": String(starred), onclick: (e: Event) => (e.stopPropagation(), void toggleSmartStar(f)) },
+    icon(starred ? "starred" : "star", 14),
+  );
+}
+
+/**
+ * The star beside the Notes filters, for whatever they show. A smart folder's exact query stars
+ * that folder; a tag alone stars the tag; anything else is saved as a smart folder first (the
+ * editor opens, with Favorites ticked), since a favorite needs a name.
+ */
+function queryStarButton(q: NoteQuery): HTMLElement | "" {
+  const text = formatQuery(q);
+  if (!text) return "";
+  const saved = smartFolders.find((f) => f.query === text);
+  if (saved) {
+    const b = smartStarButton(saved);
+    b.className = b.className.replace("row-act", "fc-action tag-star");
+    return b;
+  }
+  if (q.tag && tagList(q.tag).length === 1 && text === formatQuery({ tag: q.tag })) return tagStarButton(q.tag, "chip");
+  const b: HTMLButtonElement = el(
+    "button",
+    {
+      type: "button",
+      class: "fc-action tag-star star-btn",
+      title: "Add to Favorites (saves this search as a smart folder)",
+      "aria-label": "Add this search to Favorites",
+      "aria-pressed": "false",
+      onclick: (e: Event) => (e.stopPropagation(), saveSmartFolder(text, "", b, true)),
+    },
+    icon("star", 15),
+  );
+  return b;
 }
 
 /** Star a tag (or unstar it): one click, and it's in Favorites beside your notes. */
@@ -1703,13 +1766,14 @@ function renderSmartFolders(active: string | null) {
     const edit = el("button", { type: "button", class: "row-act", title: "Edit or delete" }, icon("sliders", 14));
     edit.addEventListener("click", (e) => {
       e.stopPropagation();
-      smartFolderEditor(edit, f, {
+      smartFolderEditor(edit, { ...f, favorite: isSmartStarred(f.id) }, {
         canShare: !viewer,
         alone: local,
         sources: fieldSources,
         save: async (next) => {
-          await api.saveSmartFolder(next);
+          const saved = await api.saveSmartFolder(next);
           smartFolders = await api.smartFolders();
+          await starSmartFolder(saved.id, !!next.favorite);
           renderTree();
         },
         remove: async () => {
@@ -1734,7 +1798,7 @@ function renderSmartFolders(active: string | null) {
       el("span", { class: "tree-name" }, f.name),
       f.shared ? null : el("span", { class: "sf-mine", title: "Just you" }, icon("user", 11)),
       el("span", { class: "n" }, String(f.count)),
-      f.shared && viewer ? null : el("span", { class: "row-actions" }, edit),
+      el("span", { class: "row-actions" }, smartStarButton(f), f.shared && viewer ? null : edit),
     );
   });
   // Empty: one quiet line pointing at the header's +, the one way to add one from here.
@@ -1768,12 +1832,42 @@ function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
   );
 }
 
-/** Starred notes and tags, in your order: drag one to reorder, or drag a card in from Notes to star it. */
+/** A starred smart folder in Favorites: it opens Notes with its query, like its row under Smart folders. */
+function smartFavoriteRow(f: SmartFavorite, active: boolean): HTMLElement {
+  return el(
+    "div",
+    {
+      class: `tree-row is-file${active ? " is-active" : ""}`,
+      "aria-current": active && "page",
+      style: { "--depth": "0" },
+      title: f.query || "Every note",
+      draggable: "true",
+      ...opens(() => void showNotes({ tab: "notes", query: parseQuery(f.query) })),
+      ondragstart: (e: DragEvent) => {
+        e.dataTransfer!.setData(FAVORITE, favoriteKey(f));
+        document.body.classList.add("is-dragging");
+        e.dataTransfer!.effectAllowed = "move";
+      },
+    },
+    el("span", { class: "chev is-leaf" }),
+    icon("folderSearch", 14),
+    el("span", { class: "tree-name" }, f.name),
+    el("span", { class: "n" }, String(f.count)),
+    el("span", { class: "row-actions" }, smartStarButton(f)),
+  );
+}
+
+/** Starred notes, tags and smart folders, in your order: drag one to reorder, or drag a card in from Notes to star it. */
 function renderFavorites() {
   // The tag Notes shows on its own (like a folder alone), which its favorite marks as open.
   const q = onPage() === "notes" ? notesPage.query : null;
   const shownTag = q?.tag && formatQuery(q) === formatQuery({ tag: q.tag }) ? (normalizeTag(q.tag) ?? "") : "";
   const rows = favorites.map((f) => {
+    if (isSmartFavorite(f)) {
+      const row = smartFavoriteRow(f, !!q && formatQuery(q) === f.query);
+      favoriteDrop(row, "is-drop-before", favoriteKey(f));
+      return row;
+    }
     if (isTagFavorite(f)) {
       const row = tagFavoriteRow(f, f.tag === shownTag);
       favoriteDrop(row, "is-drop-before", favoriteKey(f));
@@ -1811,7 +1905,7 @@ function renderFavorites() {
     favoriteDrop(row, "is-drop-before", f.path);
     return row;
   });
-  $("#favorites").replaceChildren(...(rows.length ? rows : [sectionHint("Star a note or a tag to keep it here. A note's star is in its top bar: ", icon("star", 12))]));
+  $("#favorites").replaceChildren(...(rows.length ? rows : [sectionHint("Star a note, a tag or a search to keep it here. A note's star is in its top bar: ", icon("star", 12))]));
 }
 
 /** Let `node` take a favorite (to reorder) or a card from Notes (to star), marking it with `cls` while over it. */
@@ -1840,13 +1934,13 @@ function favoriteDrop(node: HTMLElement, cls: string, before?: string) {
 async function dropFavorite(key: string, before?: string) {
   if (!key || key === before) return;
   try {
-    if (!favorites.some((f) => favoriteKey(f) === key)) favorites = await (key.startsWith("#") ? api.starTag(key) : api.star(key));
+    if (!favorites.some((f) => favoriteKey(f) === key)) favorites = await (key.startsWith("#") ? api.starTag(key) : key.startsWith("~") ? api.starSmartFolder(key.slice(1)) : api.star(key));
     const order = favorites.map(favoriteKey).filter((k) => k !== key);
     const at = before ? order.indexOf(before) : -1;
     order.splice(at < 0 ? order.length : at, 0, key);
     favorites = await api.orderFavorites(order);
   } catch {
-    return toast({ text: `Couldn't add ${key.startsWith("#") ? key : displayName(key)} to Favorites` });
+    return toast({ text: `Couldn't add ${key.startsWith("#") ? key : key.startsWith("~") ? "that smart folder" : displayName(key)} to Favorites` });
   }
   renderTree();
   renderChrome();
