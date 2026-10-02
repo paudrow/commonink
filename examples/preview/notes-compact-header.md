@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 231
 title: Compact Notes header, and j/k never hides a note under it
 ---
 1. Open **Notes**. The header is one row of filters under the search: the tabs, **Tag**, and a folder dropdown that replaces the row of folder chips. The sort moved into the right end of the search box. The "Notes" title scrolls away with the list; only the search and filters stay at the top.
