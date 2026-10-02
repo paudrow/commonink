@@ -7,7 +7,7 @@ import { bool, command, list, num, str, UsageError } from "./types.ts";
 
 const BOARD_HELP =
   "A board is a :::kanban block in a note (closed by :::): its ## headings are columns and its list items are cards, " +
-  "with task tokens like tasks. Moving a card into the column named Done ticks it. read_board also lists lines that aren't part of the board (problems): leave them unless the user asks.";
+  "with task tokens like tasks. Moving a card into the column named Done ticks it. The opening line's folded=\"A,B\" names the columns the user folded. read_board also lists lines that aren't part of the board (problems): leave them unless the user asks.";
 const CARD = "The card's line number from read_board, or words from its text that only that card has";
 const COLUMN = "The column's name, or its number from 1";
 
