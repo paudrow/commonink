@@ -1887,6 +1887,9 @@ function allFolders(): string[] {
 }
 
 const parentOf = (p: string) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
+/** Where a moved note came from, for Activity: its old name if it was renamed, else its old folder. */
+const movedFrom = (from: string, to: string) =>
+  displayName(from) !== displayName(to) ? displayName(from) : parentOf(from) || "the top level";
 
 function setExpanded(folder: string, open: boolean) {
   if (open) prefs.expanded.add(folder);
@@ -2464,7 +2467,7 @@ function renderActivity() {
                 "div",
                 { class: "act-meta" },
                 stat ? statEl(stat) : null,
-                c.op === "move" && c.from_path ? el("span", {}, `from ${displayName(c.from_path)}`) : null,
+                c.op === "move" && c.from_path ? el("span", {}, `from ${movedFrom(c.from_path, c.path)}`) : null,
                 c.count > 1 ? el("span", {}, `${c.count} saves`) : null,
                 el("span", { "data-ts": String(c.ts) }, timeAgo(c.ts)),
               ),
