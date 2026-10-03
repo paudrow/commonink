@@ -5,6 +5,7 @@
 import { api, unusedTag, type TagCount } from "./api.ts";
 import { el, icon } from "./dom.ts";
 import { confirmAction } from "./modal.ts";
+import { listKey, stepFocus } from "./listKeys.ts";
 import type { ToastSpec } from "./toast.ts";
 import { cleanTag, tagMatches } from "../../src/core/tags.ts";
 
@@ -45,6 +46,34 @@ export class TagsPage {
       ),
     );
     this.input.addEventListener("input", () => this.render());
+    root.addEventListener("keydown", (e) => this.key(e));
+  }
+
+  /** The list keys (listKeys.ts): Enter on a tag opens it (its row is a button), Delete takes away one nothing carries. */
+  private key(e: KeyboardEvent) {
+    const rows = () => [...this.list.querySelectorAll<HTMLElement>(".tags-open")];
+    if (e.target === this.input) {
+      // From the filter, ↓ or Enter goes to the tags it found; Esc clears it.
+      if ((e.key === "ArrowDown" || e.key === "Enter") && rows().length) {
+        e.preventDefault();
+        stepFocus(rows(), "first");
+      } else if (e.key === "Escape" && this.input.value) {
+        e.preventDefault();
+        this.input.value = "";
+        this.render();
+      }
+      return;
+    }
+    const tag = (e.target as HTMLElement).closest(".tags-row")?.getAttribute("data-tag");
+    const t = tag ? this.hooks.tags().find((x) => x.tag === tag) : undefined;
+    listKey(e, {
+      next: () => stepFocus(rows(), 1),
+      prev: () => stepFocus(rows(), -1),
+      first: () => stepFocus(rows(), "first"),
+      last: () => stepFocus(rows(), "last"),
+      filter: () => this.input.focus(),
+      ...(t && unusedTag(t) && !this.hooks.readOnly() && { delete: () => void this.hooks.deleteTag(t) }),
+    });
   }
 
   get visible() {
@@ -73,6 +102,7 @@ export class TagsPage {
         : [el("div", { class: "feed-empty" }, all.length ? `No tags match “${q}”.` : "No tags yet. Type #tag in a note, or add tags to an asset.")]),
     );
     if (had) this.focusTag(had); // a redraw (a live update) keeps the keyboard on the tag it was on
+    if (had && !this.list.contains(document.activeElement)) this.root.focus({ preventScroll: true }); // the tag is gone (deleted): the keys still work
   }
 
   /** Give the keyboard to a tag's row. Its buttons stay hidden until the row has the focus, so the tag's own button takes it. */

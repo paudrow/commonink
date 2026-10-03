@@ -9,6 +9,7 @@ import { tagChip, tagFilter, tagPicker } from "./tagPicker.ts";
 import { normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { fuzzyScore } from "./fuzzy.ts";
 import { emptyState } from "./emptyState.ts";
+import { listKey, stepFocus } from "./listKeys.ts";
 import { textStage, textThumb } from "./textPreview.ts";
 import { ASSET_LABEL, assetIcon, assetType, extOf, fmtBytes, typeIcon, type AssetType } from "./assetKinds.ts";
 
@@ -106,15 +107,7 @@ export class Assets {
     );
 
     this.input.addEventListener("input", () => ((this.active = 0), this.render()));
-    this.grid.addEventListener("keydown", (e) => {
-      const path = (e.target as HTMLElement).closest<HTMLElement>(".as-card")?.dataset.path;
-      if (!path || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === "Delete" || e.key === "Backspace") void this.delete(this.selected.size ? [...this.selected] : [path]);
-      else if (e.key === "x") this.toggle(path);
-      else if (e.key === "F2") void this.rename(path);
-      else return;
-      e.preventDefault();
-    });
+    this.root.addEventListener("keydown", (e) => this.key(e));
     this.input.addEventListener("keydown", (e) => this.searchKey(e));
     this.input.addEventListener("blur", () => setTimeout(() => this.closeSuggest(), 120));
     this.sortSel.addEventListener("change", () => ((this.sort = this.sortSel.value as Sort), this.render()));
@@ -266,6 +259,7 @@ export class Assets {
     const went = await this.hooks.delete(paths);
     for (const p of went) this.selected.delete(p);
     if (went.length) this.render();
+    if (!this.root.contains(document.activeElement)) this.root.focus({ preventScroll: true }); // its card is gone: the keys still work
   }
 
   private card(n: NoteMeta): HTMLElement {
@@ -311,6 +305,29 @@ export class Assets {
   private closeSuggest() {
     this.suggest.hidden = true;
     this.input.setAttribute("aria-expanded", "false");
+  }
+
+  /** The list keys (listKeys.ts) on the grid, and F2 to rename the file in focus. The search field and the open preview keep their own. */
+  private key(e: KeyboardEvent) {
+    // The arrows keep scrolling the page: the grid has columns, so j and k (next, previous) move through it.
+    if (this.previewing || e.target === this.input || e.key.startsWith("Arrow")) return;
+    const cards = () => [...this.grid.querySelectorAll<HTMLElement>(".as-card[data-path]")];
+    const path = (e.target as HTMLElement).closest<HTMLElement>(".as-card")?.dataset.path;
+    const picked = () => (this.selected.size ? [...this.selected] : path ? [path] : []);
+    const handled = listKey(e, {
+      next: () => stepFocus(cards(), 1),
+      prev: () => stepFocus(cards(), -1),
+      first: () => stepFocus(cards(), "first"),
+      last: () => stepFocus(cards(), "last"),
+      // Enter on a card opens it: the card is a button.
+      select: () => path && this.toggle(path),
+      filter: () => this.input.focus(),
+      delete: () => picked().length && void this.delete(picked()),
+      clear: () => (this.selected.clear(), this.render()),
+    });
+    if (handled || e.key !== "F2" || !path || e.metaKey || e.ctrlKey || e.altKey) return;
+    e.preventDefault();
+    void this.rename(path);
   }
 
   private searchKey(e: KeyboardEvent) {

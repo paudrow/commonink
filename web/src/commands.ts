@@ -2,11 +2,12 @@
 // Commands section and the shortcut sheet (?) both read. main.ts supplies the state and the actions.
 import { fuzzyScore } from "./fuzzy.ts";
 import { CALENDAR_KEYS } from "./calendar/keys.ts";
+import { listShortcuts, type ListAction } from "./listKeys.ts";
 
-export type Area = "Global" | "Notes page" | "Calendar" | "Editor" | "Vim" | "Tasks" | "Tabs" | "Split view";
+export type Area = "Global" | "Notes page" | "History" | "Assets" | "Tags" | "Contacts" | "Calendar" | "Editor" | "Vim" | "Tasks" | "Tabs" | "Split view";
 /** Notes' Advanced search, from anywhere: its ⌘K command, the app's key handler and the button's title. */
 export const ADVANCED_KEYS = "Mod-Alt-f";
-export const AREAS: Area[] = ["Global", "Notes page", "Calendar", "Editor", "Vim", "Tasks", "Tabs", "Split view"];
+export const AREAS: Area[] = ["Global", "Notes page", "History", "Assets", "Tags", "Contacts", "Calendar", "Editor", "Vim", "Tasks", "Tabs", "Split view"];
 
 /** Keys as CodeMirror writes them ("Mod-Shift-e", "Mod-Alt-\\"), or typed literally ("?", "gd", ":w"). */
 export interface Shortcut {
@@ -362,24 +363,34 @@ export function appCommands(app: App): Command[] {
   ];
 }
 
+/** A list page's shared keys (listKeys.ts), as its area's rows on the sheet. */
+const listKeys = (area: Area, what: string, actions: ListAction[], labels?: Partial<Record<ListAction, string>>): Shortcut[] => listShortcuts(what, actions, labels).map((s) => ({ ...s, area }));
+
 /** Shortcuts that belong to no command: moving around a page, the editor, vim. */
 export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: ["Mod-p", "Mod-k"], label: "Quick open: find a note", area: "Global" },
   { keys: ["Mod-Shift-p"], label: "Commands", area: "Global" },
   { keys: [">"], label: "In quick open, switch to commands", area: "Global" },
   { keys: ["Mod-s"], label: "Save now", area: "Global" },
-  { keys: ["j", "k"], label: "Next / previous note", area: "Notes page" },
-  { keys: ["g", "G"], label: "First / last note", area: "Notes page" },
-  { keys: ["Enter"], label: "Expand the note's preview", area: "Notes page" },
+  // Each list page: the keys they share (listKeys.ts), then its own.
+  ...listKeys("Notes page", "note", ["next", "prev", "first", "last", "open", "select", "delete", "filter", "clear"], { delete: "Delete (the selected notes, or this one)" }),
+  { keys: ["o"], label: "Open the note, as Enter does", area: "Notes page" },
+  { keys: ["Space"], label: "Expand the note's preview, or fold it again", area: "Notes page" },
   { keys: ["n"], label: "New note (in the folder you're looking at)", area: "Notes page" },
-  { keys: ["o"], label: "Open the note", area: "Notes page" },
   { keys: ["s"], label: "Star or unstar", area: "Notes page" },
   { keys: ["e"], label: "Archive (the selected notes, or this one)", area: "Notes page" },
-  { keys: ["x"], label: "Select", area: "Notes page" },
   { keys: ["F2"], label: "Rename the note (in the sidebar: the folder, tag or note in focus; double-click works too)", area: "Notes page" },
-  { keys: ["Delete", "Backspace"], label: "Delete (the selected notes, or this one)", area: "Notes page" },
-  { keys: ["/"], label: "Filter", area: "Notes page" },
-  { keys: ["Escape"], label: "Clear the selection", area: "Notes page" },
+  { keys: ["r"], label: "In Trash: restore (the selected notes, or this one)", area: "Notes page" },
+  ...listKeys("History", "change", ["next", "prev", "first", "last", "open", "select", "clear"], { open: "Open the note the change is in", select: "Select, to see several changes together", clear: "Back to one change" }),
+  { keys: ["Space"], label: "Select, as x does", area: "History" },
+  { keys: ["Shift-j", "Shift-k"], label: "Extend the selection down / up", area: "History" },
+  { keys: ["a"], label: "Select every change", area: "History" },
+  ...listKeys("Assets", "file", ["next", "prev", "first", "last", "open", "select", "delete", "filter", "clear"], { open: "Preview the file", delete: "Delete (the selected files, or this one)" }),
+  { keys: ["F2"], label: "Rename the file", area: "Assets" },
+  { keys: ["ArrowLeft", "ArrowRight"], label: "In the preview: previous / next file", area: "Assets" },
+  ...listKeys("Tags", "tag", ["next", "prev", "first", "last", "open", "delete", "filter"], { open: "Show the tag's notes", delete: "Delete the tag, if nothing carries it yet" }),
+  { keys: ["F2"], label: "Rename or merge the tag", area: "Tags" },
+  ...listKeys("Contacts", "person", ["next", "prev", "first", "last", "open", "filter"], { open: "Open the person's page" }),
   ...CALENDAR_KEYS.map(({ keys, label }): Shortcut => ({ keys, label, area: "Calendar" })),
   { keys: ["Mod-z"], label: "Undo", area: "Editor" },
   { keys: ["Mod-Shift-z"], label: "Redo", area: "Editor" },
@@ -414,8 +425,10 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: [":tabnew name", ":tabclose", ":q"], label: "Open a note in a new tab (alone, quick open) / close this tab", area: "Vim" },
   { keys: ["gt", "gT", ":tabn", ":tabp"], label: "Next / previous tab", area: "Vim" },
   { keys: [":tabonly"], label: "Close the other tabs", area: "Vim" },
+  ...listKeys("Tasks", "task", ["next", "prev", "first", "last"]),
   { keys: ["Tab"], label: "In quick-add, send it to the open note", area: "Tasks" },
   { keys: ["Space", "Enter"], label: "Tick the focused task", area: "Tasks" },
+  { keys: ["o"], label: "On the Tasks page: open the focused task's note", area: "Tasks" },
   { keys: ["Enter", "Escape"], label: "Save / cancel a task you're editing", area: "Tasks" },
   { keys: ["Mod-click", "Middle-click"], label: "Open a link, card, task or starred note in a new tab", area: "Tabs" },
   { keys: ["Mod-Enter"], label: "In quick open, open the note in a new tab", area: "Tabs" },

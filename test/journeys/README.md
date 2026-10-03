@@ -9,6 +9,7 @@ The few things everyone does in Common Ink, tested end to end the way they're do
 | | Gather notes by tag into a view | browser, CLI |
 | | Work alongside an agent, and undo what it did | browser, MCP |
 | | Delete a note by mistake and get it back | browser |
+| | Move through every list with the same keys | browser |
 | `agents.test.ts` | An agent keeps meeting notes from the shell | CLI, the files |
 | | An agent over MCP and one in the shell work from the same notes | MCP, CLI |
 | `hosted.test.ts` | Bring a teammate and their agent into a shared workspace | hosted API, CLI login |
