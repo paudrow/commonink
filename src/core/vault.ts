@@ -2505,7 +2505,7 @@ export class Vault {
   /**
    * Answer an open decision with `value` in its shape (decisions.ts: an option, several, a choice
    * for each row, an order, a number, or words), or dismiss it (they won't decide). It's written into
-   * the daily note for `today` (made if needed) under `## Decisions`, so the day's notes say what was
+   * the journal note for `today` (made if needed) under `## Decisions`, so the day's notes say what was
    * decided. With `change`, one already answered or dismissed takes a new answer, and its lines are rewritten
    * where they were recorded (or added to today's note when they're gone from there).
    */
@@ -2560,7 +2560,7 @@ export class Vault {
     return { decision: this.decision(d.id), ...r, line };
   }
 
-  /** Take back an open question (it no longer matters). Nothing is written to the daily note. */
+  /** Take back an open question (it no longer matters). Nothing is written to the journal note. */
   withdrawDecision(id: string): Decision {
     const d = this.decision(id);
     if (d.status !== "open") throw new VaultError(`That decision is already ${d.status}${d.answer ? `: ${d.answer}` : ""}`, "conflict");

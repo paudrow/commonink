@@ -1,5 +1,5 @@
 // Decisions: an agent asks its person to decide something; the Today page steps through the open
-// ones, and each answer lands in that day's daily note (see core/decisions.ts).
+// ones, and each answer lands in that day's journal note (see core/decisions.ts).
 import { DECISION_STATUSES, fmtDecision, fmtDecisions, KINDS, parseAnswer, type DecisionKind } from "../decisions.ts";
 import { bool, command, list, num, pairs, str, UsageError } from "./types.ts";
 
@@ -15,7 +15,7 @@ export const decisions = [
     description:
       "Put a decision to the user instead of guessing or stopping: it waits on their Today page, where they step through open " +
       "decisions one at a time (they can always skip, comment, or answer in their own words). Each answer is written into that day's " +
-      "daily note under ## Decisions. Ask one clear question per decision, put what they need to know in `context` (Markdown), and pick " +
+      "journal note under ## Decisions. Ask one clear question per decision, put what they need to know in `context` (Markdown), and pick " +
       "its `kind`:\n" +
       "- one (the default with options): pick one of 2 to 9 short `options`.\n" +
       "- many: pick any of them; `min` and `max` bound how many.\n" +
@@ -64,7 +64,7 @@ export const decisions = [
     summary: "Decisions waiting on the person (the default), or answered ones with their answers",
     description:
       "Decisions put to the user with ask_decision. By default the open ones, oldest first; `status: \"settled\"` lists answered, " +
-      "dismissed and withdrawn ones newest first, with the answer, any comment, and the daily note it was recorded in. Pass `ids` to " +
+      "dismissed and withdrawn ones newest first, with the answer, any comment, and the journal note it was recorded in. Pass `ids` to " +
       "check on the ones you asked. A dismissed decision means they chose not to decide: don't ask it again as is.",
     examples: ["commonink decisions", "commonink decisions --status settled", "commonink decisions --ids k3m9x2pq --json"],
     readOnly: true,
@@ -83,12 +83,12 @@ export const decisions = [
     mcp: { none: "answering is the person's: an agent asks with ask_decision and reads the answer with list_decisions" },
     route: "POST /decisions/answer",
     title: "Answer a decision",
-    summary: "Answer an open decision by its option's number or words (or your own), and record it in today's daily note; --change answers one again",
+    summary: "Answer an open decision by its option's number or words (or your own), and record it in today's journal note; --change answers one again",
     description:
-      "Answer an open decision and record it under ## Decisions in today's daily note. Write the answer as an option's number or words; " +
+      "Answer an open decision and record it under ## Decisions in today's journal note. Write the answer as an option's number or words; " +
       "for many and rank, several separated by commas (rank: best first); for rows, one per row in order or Row=Option; for scale, a number. " +
       "Anything that isn't an option is an answer in your own words. With --change, a decision already answered or dismissed takes the new " +
-      "answer, and its lines in the daily note are rewritten in place.",
+      "answer, and its lines in the journal note are rewritten in place.",
     examples: ["commonink decision answer k3m9x2pq 1", "commonink decision answer k3m9x2pq Go,Skip,Maybe", 'commonink decision answer k3m9x2pq Postgres --comment "We already run it"', "commonink decision answer k3m9x2pq --dismiss", "commonink decision answer k3m9x2pq 2 --change"],
     args: {
       id: str(ID),

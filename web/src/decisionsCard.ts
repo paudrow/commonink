@@ -2,7 +2,7 @@
 // one at a time, each in its own shape: pick one, pick many, yes or no, a choice for each row,
 // pictures side by side, an order, a scale, or words. Every question can be answered in your own
 // words (all but rank and scale), commented on, or skipped (S) to come back to. Decide (Enter) writes the
-// answer into today's daily note and brings up the next one. ← and → move between all of them, the
+// answer into today's journal note and brings up the next one. ← and → move between all of them, the
 // skipped ones and the ones answered today too, where the answer can be changed (its lines in the note
 // are rewritten).
 // With nothing waiting or answered today the card isn't there at all.

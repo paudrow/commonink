@@ -1,7 +1,7 @@
 // Decisions: a question an agent puts to its person ("Postgres or SQLite for the sync service?"),
 // in one of a few shapes (pick one, pick many, yes or no, a choice for each row, compare pictures,
 // put in order, a scale, or words). Open ones wait on the Today page, one at a time; each answer is
-// written into that day's daily note under `## Decisions`, so the day's notes say what was decided
+// written into that day's journal note under `## Decisions`, so the day's notes say what was decided
 // and why, and the agent reads the answer back (list_decisions). No Node imports: the web app uses
 // this too.
 
@@ -85,7 +85,7 @@ export interface Decision {
   comment: string | null;
   answered_at: number | null;
   answered_by: string | null;
-  /** The daily note the answer was written into. */
+  /** The journal note the answer was written into. */
   journal: string | null;
 }
 
@@ -327,12 +327,12 @@ export function answerText(d: Pick<Decision, "options" | "rows" | "min" | "max" 
   return d.rows.map((r, i) => `${r}: ${v.rows[i] === null ? "no answer" : label(v.rows[i]!)}`).join("; ");
 }
 
-/** Who asked, as the daily note says it: "Claude Code", or the person's name. */
+/** Who asked, as the journal note says it: "Claude Code", or the person's name. */
 const asker = (d: Pick<Decision, "agent" | "asked_by">) => d.agent ?? d.asked_by;
 const bold = (s: string) => `**${oneLine(s).replace(/\*/g, "\\*")}**`;
 
 /**
- * The lines a settled decision adds to the daily note's Decisions section: the question and what
+ * The lines a settled decision adds to the journal note's Decisions section: the question and what
  * was decided (a choice for each row on lines of their own), then the comment, indented under it.
  *
  *     - Postgres or SQLite for the sync service? **Postgres** (asked by Claude Code, about [[Sync]])
@@ -390,7 +390,7 @@ export function fmtDecision(d: Decision): string {
 }
 
 /**
- * A daily note with a decision's earlier lines swapped for its new ones, or null when they aren't there
+ * A journal note with a decision's earlier lines swapped for its new ones, or null when they aren't there
  * (someone edited them away). The block is found by its first line, as written then, or else by its
  * question; the indented lines under it (rows, the comment) go with it.
  */

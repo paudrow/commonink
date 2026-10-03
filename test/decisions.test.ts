@@ -1,5 +1,5 @@
 // Decisions: an agent asks (ask_decision), the person answers on the Today page or with the CLI, and
-// the answer is written into that day's daily note.
+// the answer is written into that day's journal note.
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -13,7 +13,7 @@ import { answerText, askSpec, checkValue, journalLines, optionOf, parseAnswer, t
 
 const AGENT = agentSource("Claude Code", "you");
 
-test("asking, answering and recording a decision in the daily note", () => {
+test("asking, answering and recording a decision in the journal note", () => {
   const { vault, dir } = openTempVault({ "Sync design.md": "# Sync design\n", "Journal/2026-10-02.md": "# 2026-10-02\n\n## Tasks\n\n- [ ] Walk\n\n## Log\n\nMorning.\n" });
   const d = vault.askDecision({ question: "Postgres or SQLite for sync?", options: ["Postgres", "SQLite"], recommended: ["2"], context: "SQLite is simpler.", note: "Sync design" }, AGENT);
   assert.equal(d.status, "open");
