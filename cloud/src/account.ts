@@ -1,10 +1,11 @@
 // Deleting your own account: what it takes with it, and doing it. Your personal workspace and any
 // team workspace you're the only member of are deleted (notes, files, history); you leave every
 // other workspace, as Leave does; your agents, sessions, Google connection and what's shared with you
-// go; and then so does your account. Notes you wrote in teams you leave stay theirs. If you're the
+// go; their subscription is cancelled; and then so does your account. Notes you wrote in teams you leave stay theirs. If you're the
 // only owner of a team that others are in, it waits until you make someone else an owner.
 import { deleteWorkspace, drop, log, membersOf } from "./admin.ts";
 import { revokeAgents } from "./agents.ts";
+import { endBilling } from "./billing.ts";
 import { disconnectGoogle } from "./connections.ts";
 import { endSessionsOf, workspacesOf, type User, type WorkspaceRef } from "./directory.ts";
 import type { Env } from "./env.ts";
@@ -47,6 +48,8 @@ export async function deleteAccount(env: Env, url: URL, user: User, closeTabs: (
   if (plan.blocked.length) return null;
   const sharedIn = (await sharedWith(env.DB, user)).map((s) => s.workspace.id);
 
+  // First, so a deleted account is never charged again: if Stripe can't be reached, nothing is deleted.
+  await endBilling(env, user.id);
   // Nothing of theirs keeps working while the rest goes: tabs, sessions, agents, Google.
   await closeTabs();
   await endSessionsOf(env.DB, user.id);

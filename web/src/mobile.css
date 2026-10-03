@@ -114,6 +114,14 @@
   .fc-head > .spacer + .fc-action { margin-left: -7px; }
   .feed-card:not(.is-focused, .is-expanded) .fc-action { display: none; }
 
+  /* Tabs: a strip that scrolls sideways, in the space the top bar has left. A phone shows one pane, so
+     a tab's drag goes along the strip or to a folder, never to a split. */
+  #topbar { flex-wrap: wrap; height: auto; min-height: 48px; row-gap: 0; }
+  #top-tabs { order: 10; flex: 1 0 100%; padding: 0 0 6px; }
+  .tab { max-width: 150px; padding-left: 8px; }
+  .tabs { scroll-snap-type: x proximity; }
+  .tab { scroll-snap-align: start; }
+
   /* Split view: one pane at a time, the focused one. Its bar's close button brings back the other. */
   body.is-split #stage > :is(#editor-host, #html-preview, #notes-view, #today-view, #tasks-view, #calendar-view, #history-view, #assets-view, #tags-view, #checkup-view, #replace-view, #query-help-view), #main-bar, #banner { right: 0; }
   #side-pane { left: 0; width: auto; border-left: 0; z-index: 6; }
@@ -146,16 +154,19 @@
 @media (max-width: 760px) {
   .cal { padding: 10px 12px 0; }
   .cal-head { gap: 8px; }
-  .cal-title { flex-basis: 100%; font-size: 19px; }
-  .cal-tools { width: 100%; gap: 8px; }
-  .cal-views { flex: 1; justify-content: space-between; }
+  .cal-title { font-size: 19px; }
+  /* The dates; then Today, back and on, with Calendars and New at the end; then the views, full width. */
+  .cal-nav .qw-btn, .cal-nav .icon-btn { height: 36px; }
+  .cal-tools { display: contents; }
+  .cal-sources-btn { order: 1; margin-left: auto; }
+  .cal-new { order: 2; }
+  .cal-views { order: 3; flex: 1 0 100%; justify-content: space-between; }
   .cal-views button { flex: 1; padding-inline: 4px; min-height: 36px; }
-  .cal-sources-btn span { display: none; }
   .cal-new span { display: none; }
-  .cal-new { width: 44px; justify-content: center; padding: 0; }
+  .qw-btn.cal-new { flex: none; width: 44px; min-width: 0; height: 36px; justify-content: center; padding: 0; }
   .cal-f-line { gap: 8px; }
   .cal-f-adders { padding-left: 0; }
-  .cal-sources-btn { width: 44px; justify-content: center; padding: 0; }
+  .cal-sources-btn { width: 44px; height: 36px; justify-content: center; padding: 0; }
   .cal-tg { min-width: 620px; }
   #calendar-view[data-view="day"] .cal-tg { min-width: 0; }
   .cal-month { grid-template-rows: auto repeat(var(--weeks), minmax(64px, 1fr)); }

@@ -12,6 +12,7 @@ import { grantsFor, joinLink, linkShare, sharedWith } from "./shares.ts";
 import { authorize, listAgents, oauthOptions, revokeAgents, withOAuthStore, type OAuthEnv } from "./agents.ts";
 import { clearSessionCookies, ensurePersonalWorkspace, escapeHtml, handleAuth, page, readSession, readSessionOf, seedWorkspace, text } from "./auth.ts";
 import { adminRoute } from "./admin.ts";
+import { actingRole, BILLING_ROUTES, CancelFailed, READ_ONLY, webhook, workspaceWritable } from "./billing.ts";
 import { deleteAccount, deletionPlan } from "./account.ts";
 import { acceptInvite, inviteInfo, createWorkspace, endSessionsOf, locateNote, membership, setTimeZone, workspacesOf, type User } from "./directory.ts";
 import { timeZoneNamed } from "../../src/core/tasks.ts";
@@ -60,6 +61,8 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
   }
   if (url.pathname.startsWith("/invite/")) return invite(req, env, url);
   if (url.pathname.startsWith("/api/s/")) return shareLink(req, env, url);
+  // Stripe's own calls: no session, no Origin, signed instead (billing.ts checks the signature).
+  if (url.pathname === "/api/stripe/webhook" && req.method === "POST") return webhook(req, env);
   if (url.pathname.startsWith("/api/")) return api(req, env, url);
   if (url.pathname.startsWith("/s/")) {
     // A shared link's page: not for search engines, and its token stays out of Referer.
@@ -129,6 +132,10 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
     return ws ? json({ workspace: ws }) : json({ error: "That note doesn't exist, or you don't have access to it" }, 404);
   },
   "GET /api/agents": async ({ env, url, user }) => json(await listAgents(env, url, user)),
+  // Your plan, and the way to Stripe's Checkout or Customer Portal (billing.ts).
+  "GET /api/billing": ({ env, req, url, user }) => BILLING_ROUTES["GET /api/billing"](env, req, url, user),
+  "POST /api/billing/checkout": ({ env, req, url, user }) => BILLING_ROUTES["POST /api/billing/checkout"](env, req, url, user),
+  "POST /api/billing/portal": ({ env, req, url, user }) => BILLING_ROUTES["POST /api/billing/portal"](env, req, url, user),
   // "Shared with me": notes other workspaces share with you, each workspace's by title.
   "GET /api/shared": async ({ env, user }) =>
     json(
@@ -205,7 +212,13 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
     if (typeof confirm !== "string" || confirm.trim().toLowerCase() !== user.email.toLowerCase()) {
       return json({ error: `Type your email, ${user.email}, to delete your account` }, 400);
     }
-    const plan = await deleteAccount(env, url, user, () => disconnect(env, user, user.id));
+    let plan;
+    try {
+      plan = await deleteAccount(env, url, user, () => disconnect(env, user, user.id));
+    } catch (e) {
+      if (!(e instanceof CancelFailed)) throw e;
+      return json({ error: `Couldn't cancel your subscription, so nothing was deleted. Try again in a moment. (${e.message})` }, 502);
+    }
     if (!plan) {
       const { blocked } = await deletionPlan(env, user);
       return json({ error: `You're the only owner of ${blocked.map((w) => w.name).join(", ")}. Make someone else an owner first, or delete ${blocked.length === 1 ? "it" : "them"}.`, blocked }, 409);
@@ -257,6 +270,10 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
   const settings = await adminRoute(req, env, url, user, ws, route, () => body(req));
   if (settings) return settings;
 
+  // A workspace whose owner's plan has ended is read-only (billing.ts): still readable and exportable.
+  const role = await actingRole(env, ws.id, ws.role);
+  if (role !== ws.role && access(role, req.method, route) !== "allowed") return json({ error: READ_ONLY, readOnly: true }, 402);
+
   const limited = ROUTE_LIMITS[`${req.method} ${route}`];
   if (limited) {
     const tooMany = await limit(env.DB, limited, user.id);
@@ -270,7 +287,7 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
   headers.set("x-ci-workspace-name", encodeURIComponent(ws.name));
   headers.set("x-ci-actor", encodeURIComponent(user.name));
   headers.set("x-ci-user", user.id);
-  headers.set("x-ci-role", ws.role);
+  headers.set("x-ci-role", role);
   headers.set("x-ci-session", session.id);
   headers.set("x-ci-session-expires", String(session.expiresAt));
   headers.set("x-ci-origin", url.origin);
@@ -284,7 +301,8 @@ async function shared(req: Request, env: Env, url: URL, user: User, session: { i
   const ws = await membership(env.DB, user.id, wsId);
   const grants = ws ? [] : await grantsFor(env.DB, wsId, user);
   if (!ws && !grants.length) return json({ error: "Not found" }, 404);
-  const access: SharedAccess = ws ? { member: memberShareRole(ws.role) } : { grants, write: true };
+  const writable = await workspaceWritable(env, wsId);
+  const access: SharedAccess = ws ? { member: memberShareRole(writable ? ws.role : "viewer") } : { grants, write: writable };
   const headers = forwardHeaders(req, wsId, access, `/api/w/${wsId}/shared`);
   headers.set("x-ci-actor", encodeURIComponent(user.name));
   headers.set("x-ci-user", user.id);

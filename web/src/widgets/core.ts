@@ -1,6 +1,7 @@
 // Shared chrome for interactive widgets: the card, its header, and the settings form that
 // writes the widget's args back into the markdown line. Its fields (fieldRows) are shared with
 // the smart folder editor, so a query field added once shows up in both.
+import type { Where } from "../panes.ts";
 import type { TagCount } from "../api.ts";
 import { el, icon } from "../dom.ts";
 import { tagPicker } from "../tagPicker.ts";
@@ -55,8 +56,8 @@ export interface WidgetEnv {
   /** Show the widget's markdown line in the note, with the cursor on it (none on the Tasks and Today pages). */
   editSource?(): void;
   remeasure(): void;
-  /** Open a note (path or [[name]]), optionally at a line; `side`: to the side (Cmd/Ctrl-click). */
-  open(target: string, line?: number, side?: boolean): void;
+  /** Open a note (path or [[name]]), optionally at a line; `where`: here, in a new tab (⌘-click) or to the side (⌘⌥-click). */
+  open(target: string, line?: number, where?: Where): void;
   /** Show what carries a tag (a tag clicked in the widget). */
   openTag(tag: string): void;
   /** Offer to keep a note query (`tag=work sort=title`) as a smart folder, named `name` to start with. */

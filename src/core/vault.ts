@@ -16,7 +16,7 @@ import { formatQuery, parseQuery, queryProblem, tagList, type NoteQuery } from "
 import { dayPasses, evaluate, folderList, inFolders, parse, termsOf, textWords, toFts, type Term } from "./queryGrammar.ts";
 import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
 import { safeDecode } from "./uri.ts";
-import { AGENTS_NOTE, START_TAG, type NoteRole } from "./noteRoles.ts";
+import { isAgentsNote, START_TAG, type NoteRole } from "./noteRoles.ts";
 import {
   checkInDue, checkInEvery, contactFromNote, contactNote, dayOfNote, emptyContact, fillContact, parseContactsCsv, parseVCards, PEOPLE, peopleDirectory, personFor, sameFields, samePerson,
   type Contact, type ContactFields, type ContactInput, type ContactNote, type MemberRef, type TimelineItem,
@@ -828,7 +828,7 @@ export class Vault {
     const counts = { active: rows.filter((r) => !isArchived(r.path)).length, archived: rows.filter((r) => isArchived(r.path)).length };
     rows = rows.filter((r) => inScope(r.path, scope));
     const starts = new Set(this.db.all<{ path: string }>("SELECT DISTINCT path FROM tags WHERE tag = ?", START_TAG).map((r) => r.path));
-    const roleOf = (p: string): NoteRole | null => (p === AGENTS_NOTE ? "agents" : starts.has(p) && !isArchived(p) ? "start" : null);
+    const roleOf = (p: string): NoteRole | null => (isAgentsNote(p) ? "agents" : starts.has(p) && !isArchived(p) ? "start" : null);
     if (!opts.sort || opts.sort === "modified") {
       const rank = (p: string) => ({ start: 0, agents: 2, none: 1 })[roleOf(p) ?? "none"];
       rows = [...rows].sort((a, b) => rank(a.path) - rank(b.path));

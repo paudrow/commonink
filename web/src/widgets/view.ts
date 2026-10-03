@@ -19,7 +19,7 @@ import { formatQuery, toQuery } from "../../../src/core/query.ts";
 import { parse, textWords } from "../../../src/core/queryGrammar.ts";
 import { withProperty } from "../../../src/core/frontmatter.ts";
 import { boardColumns, calendarDays, dateKeyOf, fieldsOf, groupOf, layoutOf, propsWanted, rowsOf, type Layout } from "../../../src/core/view.ts";
-import { sideClick } from "../panes.ts";
+import { clickWhere } from "../panes.ts";
 import { queryHelpLink } from "../queryHelp.ts";
 
 const prevent = (e: Event) => e.preventDefault();
@@ -112,7 +112,7 @@ export const view: WidgetSpec = {
       env.remeasure();
     }
 
-    const open = (item: FeedItem, line?: number) => (e: MouseEvent) => env.open(item.path, line, sideClick(e));
+    const open = (item: FeedItem, line?: number) => (e: MouseEvent) => env.open(item.path, line, clickWhere(e));
 
     /** A note's title, as a button that opens it. */
     const titleButton = (item: FeedItem, cls: string) => el("button", { type: "button", class: cls, onmousedown: prevent, onclick: open(item) }, item.title);

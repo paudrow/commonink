@@ -188,6 +188,10 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   // No one here allowed saving to Drive.
   { route: "POST /api/google/drive", send: () => ["POST", "/api/google/drive?as=doc&title=x", {}], expect: [401, 409, 409, 409, 409] },
   { route: "POST /api/google/disconnect", send: () => ["POST", "/api/google/disconnect", {}], expect: SIGNED_IN },
+  { route: "GET /api/billing", send: () => ["GET", "/api/billing"], expect: SIGNED_IN },
+  // Billing isn't set up here (cloud-billing.test.ts has it on).
+  { route: "POST /api/billing/checkout", send: () => ["POST", "/api/billing/checkout", { interval: "month" }], expect: [401, 404, 404, 404, 404] },
+  { route: "POST /api/billing/portal", send: () => ["POST", "/api/billing/portal", {}], expect: [401, 404, 404, 404, 404] },
   { route: "GET /api/me/delete", send: () => ["GET", "/api/me/delete"], expect: SIGNED_IN },
   // A wrong email deletes nothing: everyone signed in gets past to the 400.
   { route: "POST /api/me/delete", send: () => ["POST", "/api/me/delete", { confirm: "not-my-email@example.com" }], expect: [401, 400, 400, 400, 400] },

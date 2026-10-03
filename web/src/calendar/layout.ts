@@ -109,21 +109,32 @@ export function bucket<T>(items: T[], span: (t: T) => Span, days: Day[]): Map<Da
   return out;
 }
 
-/** A timed item's piece of one day in the time grid: minutes from midnight by the clock, and its lane among the items it overlaps. */
+/**
+ * A timed item's piece of one day in the time grid: minutes from midnight by the clock; the lane it
+ * starts in among the items it overlaps, how many lanes it runs across (the free ones to its right),
+ * and how deep it sits on top of earlier items in its lane.
+ */
 export interface Segment<T> {
   item: T;
   top: number;
   bottom: number;
   lane: number;
   lanes: number;
+  span: number;
+  indent: number;
 }
 
 const clockMinutes = (d: Date) => d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
 
+/** Minutes apart two overlapping items start before the later one sits on top of the earlier rather than beside it. */
+export const NEST = 30;
+
 /**
- * The time grid for one day: each timed item's piece of the day, laid out side by side where they
- * overlap. Items that overlap each other, directly or through a chain, share one width, split into
- * as many lanes as the most that are on at once; each item takes the first free lane.
+ * The time grid for one day: each timed item's piece of the day. Items that start at about the same
+ * time (under NEST minutes apart) sit side by side, each in the first free lane; one that starts later,
+ * inside another, sits on top of it a little indented, so both titles show and neither gets thin.
+ * Items that overlap, directly or through a chain, share one set of lanes, and each widens into the
+ * lanes to its right that nothing overlapping it uses.
  */
 export function timeGrid<T>(items: T[], span: (t: T) => Span, day: Day): Segment<T>[] {
   const from = dayStart(day);
@@ -134,24 +145,32 @@ export function timeGrid<T>(items: T[], span: (t: T) => Span, day: Day): Segment
       const s = span(item);
       const top = s.start <= from ? 0 : clockMinutes(s.start);
       const bottom = s.end >= to ? DAY_MINUTES : Math.max(top, clockMinutes(s.end));
-      return { item, top, bottom, lane: 0, lanes: 1 };
+      return { item, top, bottom, lane: 0, lanes: 1, span: 1, indent: 0 };
     })
     .sort((a, b) => a.top - b.top || b.bottom - a.bottom);
   // A moment or a very short item still takes some room, so what's drawn is what's compared.
   const end = (s: { top: number; bottom: number }) => Math.max(s.bottom, s.top + 15);
+  const overlap = (a: Segment<T>, b: Segment<T>) => a.top < end(b) && b.top < end(a);
   let cluster: Segment<T>[] = [];
   let clusterEnd = -1;
   const close = () => {
     const lanes = Math.max(0, ...cluster.map((s) => s.lane)) + 1;
-    for (const s of cluster) s.lanes = lanes;
+    for (const s of cluster) {
+      s.lanes = lanes;
+      let next = s.lane + 1;
+      while (next < lanes && !cluster.some((o) => o.lane === next && overlap(o, s))) next++;
+      s.span = next - s.lane;
+    }
     cluster = [];
   };
   for (const seg of segs) {
     if (seg.top >= clusterEnd) close();
-    const taken = cluster.filter((s) => end(s) > seg.top).map((s) => s.lane);
+    const on = cluster.filter((s) => end(s) > seg.top);
+    const taken = on.filter((s) => seg.top - s.top < NEST).map((s) => s.lane);
     let lane = 0;
     while (taken.includes(lane)) lane++;
     seg.lane = lane;
+    seg.indent = Math.max(-1, ...on.filter((s) => s.lane === lane).map((s) => s.indent)) + 1;
     cluster.push(seg);
     clusterEnd = Math.max(clusterEnd, end(seg));
   }
@@ -185,6 +204,41 @@ export function bars<T>(items: T[], span: (t: T) => Span, days: Day[]): Bar<T>[]
     out.push({ item, from, to, row, before: s.start < dayStart(days[from]), after: s.end > dayStart(addDays(days[to], 1)) });
   }
   return out;
+}
+
+/**
+ * A week of Month: every item as a bar across the days it's on, stacked into rows so no two in a row
+ * overlap. Items over more than one day go first, longest first, so they make one straight bar.
+ */
+export function weekRows<T>(items: T[], span: (t: T) => Span, days: Day[]): Bar<T>[] {
+  const out: Bar<T>[] = [];
+  const rows: boolean[][] = []; // rows[row][column]: taken
+  const placed = items
+    .map((item) => ({ item, cols: days.flatMap((d, i) => (touches(span(item), d) ? [i] : [])) }))
+    .filter((p) => p.cols.length)
+    .sort((a, b) => b.cols.length - a.cols.length || byStart(span(a.item), span(b.item)));
+  for (const { item, cols } of placed) {
+    const [from, to] = [cols[0], cols[cols.length - 1]];
+    let row = rows.findIndex((r) => cols.every((c) => !r[c]));
+    if (row < 0) row = rows.push([]) - 1;
+    for (const c of cols) rows[row][c] = true;
+    const s = span(item);
+    out.push({ item, from, to, row, before: s.start < dayStart(days[from]), after: s.end > dayStart(addDays(days[to], 1)) });
+  }
+  return out;
+}
+
+/**
+ * Which of a week's bars show when each day has room for `lines`: a day with more than that shows one
+ * fewer, for its "+N more". A bar shows only where it fits on every day it crosses. Returns the bars
+ * that show, and how many each day hides.
+ */
+export function fitRows<T>(rows: Bar<T>[], lines: number, columns = 7): { shown: Bar<T>[]; hidden: number[] } {
+  const on = Array.from({ length: columns }, (_, c) => rows.filter((b) => b.from <= c && c <= b.to).length);
+  const limit = on.map((n) => (n > lines ? Math.max(0, lines - 1) : lines));
+  const shown = rows.filter((b) => on.every((_, c) => c < b.from || c > b.to || b.row < limit[c]));
+  const hidden = on.map((n, c) => n - shown.filter((b) => b.from <= c && c <= b.to).length);
+  return { shown, hidden };
 }
 
 /** Where the now line sits in today's grid, in minutes from midnight. */

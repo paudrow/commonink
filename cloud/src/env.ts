@@ -30,6 +30,20 @@ export interface Env {
    * dashboard). They still confirm on a page that names the Terms and Privacy Policy first.
    */
   OPEN_SIGNUP?: string;
+  /**
+   * Billing (cloud/src/billing.ts) is on only when all four are set; otherwise everything is free.
+   * Secrets: `wrangler secret put STRIPE_SECRET_KEY` (a restricted key works: Customers, Checkout
+   * Sessions, Customer Portal and Subscriptions) and `STRIPE_WEBHOOK_SECRET` (the endpoint's signing
+   * secret, for https://<host>/api/stripe/webhook). Vars: the Price IDs of the $8 monthly and $60 yearly prices.
+   */
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  STRIPE_PRICE_MONTH?: string;
+  STRIPE_PRICE_YEAR?: string;
+  /** Days of free trial for someone new once billing is on (default 14). */
+  TRIAL_DAYS?: string;
+  /** Tests only: where Stripe's API is (default https://api.stripe.com). */
+  STRIPE_API?: string;
   /** "1" in local development and pull request Previews only: signs people in without Google. */
   DEV_LOGIN?: string;
 }

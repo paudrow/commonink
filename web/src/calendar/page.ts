@@ -3,6 +3,7 @@
 // meeting note; its address is /calendar/<event id>. Events in calendars this person can write to
 // are made here (the form, editor.ts, or a drag), moved and resized (drags, drag.ts, or keys), and
 // deleted, each with Undo. Keys are in keys.ts; the date math in layout.ts.
+import { clickWhere, type Where } from "../panes.ts";
 import { api } from "../api.ts";
 import { el, icon, setPressed, typingIn } from "../dom.ts";
 import { matchKeys } from "../keys.ts";
@@ -11,7 +12,7 @@ import { toast } from "../toast.ts";
 import { calendarChanged, calendars, canEditCalendars, colorVar, dayText, dueTasks, eventAgain, eventBody, eventHref, eventItems, events, eventTargets, placeText, readOnlyReason, timeOnDay, timeText, whenText, type CalendarSource, type Item } from "./data.ts";
 import { renderDetails } from "./details.ts";
 import { CALENDAR_KEYS, NUDGE_KEYS, VIEW_KEYS, type CalendarAction, type Nudge } from "./keys.ts";
-import { addDays, bars, bucket, dayKey, dayStart, daysRange, defaultSlot, inAllDayRow, monthWeeks, moved, nowMinutes, resizedBy, spanOf, stepDay, timeGrid, timesOf, viewDays, type Bar, type Day, type Times, type View } from "./layout.ts";
+import { addDays, bars, bucket, dayKey, dayStart, daysRange, defaultSlot, fitRows, inAllDayRow, monthWeeks, moved, nowMinutes, resizedBy, spanOf, stepDay, timeGrid, timesOf, viewDays, weekRows, type Bar, type Day, type Span, type Times, type View } from "./layout.ts";
 import { lastTarget, openEventForm } from "./editor.ts";
 import { gridDrags, monthDrags, type DragHooks } from "./drag.ts";
 import { openCalendars } from "./sources.ts";
@@ -27,8 +28,8 @@ function withTimes(item: Item, times: Times): Item {
 }
 
 export interface CalendarHooks {
-  /** Open a note, at a line (a task's), or to the side. */
-  open(path: string, line?: number, side?: boolean): void;
+  /** Open a note, at a line (a task's), here, in a new tab or to the side. */
+  open(path: string, line?: number, where?: Where): void;
   /** Point the address bar at the page or one of its events, in place (not a new step back). */
   setUrl(url: string): void;
 }
@@ -38,21 +39,28 @@ const PHONE = "(max-width: 760px)";
 const HOUR = 48;
 /** How long a run of key presses on one event waits before it's saved, as one change with one Undo. */
 const NUDGE_SAVE = 700;
-/** Lines a day shows in Month before "+N more". */
+/** The height of a line of text in an event in the time grid, in pixels. */
+const LINE = 16;
+/** Lines a day shows in Month before "+N more", until it's measured how many fit (and on a phone). */
 const MONTH_LINES = 3;
+/** Month: the height of an item's line, and the room above the first for the day's number, in pixels. */
+const MONTH_LINE = 22;
+const MONTH_TOP = 30;
 /** How often the page reads its events again while it's showing. */
 const REFRESH_EVERY = 5 * 60_000;
 const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 const span = (i: Item) => i.span;
 const longDay = (d: Day) => dayText(dayStart(d), { weekday: "long", month: "long", day: "numeric" });
+const hourRange = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+/** An event's times on one day of the grid: "10:00 – 11:30 AM", or "Until 11:00 AM" for the rest of one that began the day before. */
+const rangeOnDay = (s: Span, day: Day) => (dayKey(s.start) !== day ? `Until ${timeText(s.end)}` : s.end > s.start && dayKey(s.end) === day ? hourRange.formatRange(s.start, s.end) : timeText(s.start));
 const count = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
+/** A run of days as the reader's locale says a range: "Oct 5 – 11, 2026", "Sep 28 – Oct 4, 2026". */
 function rangeTitle(days: Day[]): string {
   const [a, b] = [dayStart(days[0]), dayStart(days[days.length - 1])];
-  const sameYear = a.getFullYear() === b.getFullYear();
-  const from = dayText(a, { month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) });
-  return `${from} to ${dayText(b, { month: a.getMonth() === b.getMonth() && sameYear ? undefined : "short", day: "numeric", year: "numeric" })}`;
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).formatRange(a, b);
 }
 
 const VIEWS: Record<View, { label: string; title(day: Day): string }> = {
@@ -88,6 +96,7 @@ export class CalendarPage {
   private selected: string | null = null;
   /** The day it was when the page was last drawn (Today, the now line). */
   private drawnOn = "";
+  private monthLines = MONTH_LINES;
   private title = el("h1", { class: "cal-title", "aria-live": "polite" });
   private viewButtons: Record<View, HTMLButtonElement>;
   private notice = el("div", { class: "cal-notice", hidden: true });
@@ -100,6 +109,8 @@ export class CalendarPage {
     item: (key) => this.items.find((i) => i.key === key),
     canCreate: () => eventTargets(this.sources).length > 0,
     create: (slot) => this.newEvent(slot),
+    // A click on empty grid closes an open event's details first; with none open, it makes an event there.
+    pick: (slot) => (this.selected ? this.closeDetails() : eventTargets(this.sources).length && this.newEvent(slot)),
     change: (item, times, verb) => void this.changeTimes(item, times, verb),
     refuse: (reason) => toast({ icon: "info", text: reason }),
   };
@@ -118,29 +129,32 @@ export class CalendarPage {
       el(
         "div",
         { class: "cal" },
+        // One row: where you are (Today, back, on, and the dates), then how to look (the views), then
+        // what you can do (your calendars, a new event). Narrower, the dates go on a row of their own.
         el(
           "header",
           { class: "cal-head" },
+          el(
+            "div",
+            { class: "cal-nav" },
+            el("button", { type: "button", class: "qw-btn cal-today", title: "Today (t)", onclick: () => void this.run("today") }, "Today"),
+            btn("back", "Previous (k)", () => void this.run("prev"), "icon-btn cal-prev"),
+            btn("chevron", "Next (j)", () => void this.run("next")),
+          ),
           this.title,
           el(
             "div",
             { class: "cal-tools" },
-            el(
-              "div",
-              { class: "cal-nav" },
-              btn("back", "Previous (k)", () => void this.run("prev"), "icon-btn cal-prev"),
-              el("button", { type: "button", class: "qw-btn cal-today", title: "Today (t)", onclick: () => void this.run("today") }, "Today"),
-              btn("chevron", "Next (j)", () => void this.run("next")),
-            ),
             el("div", { class: "seg cal-views", role: "group", "aria-label": "View" }, ...Object.values(this.viewButtons)),
-            this.newButton,
             el("button", { type: "button", class: "qw-btn cal-sources-btn", title: "Your calendars: subscribe, rename, remove", "aria-label": "Calendars", onclick: () => this.openSources() }, icon("calendar", 14), el("span", {}, "Calendars")),
+            this.newButton,
           ),
         ),
         this.notice,
         el("div", { class: "cal-main" }, this.body, this.details),
       ),
     );
+    if (typeof ResizeObserver !== "undefined") new ResizeObserver(() => this.view === "month" && this.visible && this.fitMonth()).observe(this.body);
     root.addEventListener("keydown", (e) => this.onKey(e));
     root.addEventListener("focusin", (e) => {
       const nav = (e.target as HTMLElement).closest<HTMLElement>("[data-nav]")?.dataset.nav;
@@ -517,14 +531,19 @@ export class CalendarPage {
     this.root.dataset.view = this.view;
     const views: Record<View, () => HTMLElement> = { month: () => this.month(), week: () => this.timeGrid(viewDays("week", this.day)), day: () => this.timeGrid([this.day]), agenda: () => this.agenda() };
     this.body.replaceChildren(views[this.view]());
+    if (this.view === "month") queueMicrotask(() => this.fitMonth());
     this.renderDetails();
     this.focusCursor(keep && hadFocus);
     if (scroll !== null) scroller.scrollTop = scroll;
     else if (this.view === "week" || this.view === "day") {
-      // To the open event's hour, or to now on a view with today in it, or to 8 in the morning.
+      // To the open event's hour; or from the day's start (8 in the morning, or the first event if
+      // earlier), unless now is further down than that shows, on a view with today in it.
       const days = viewDays(this.view, this.day);
       const open = this.items.find((i) => i.key === this.selected && !inAllDayRow(i.span) && days.includes(dayKey(i.span.start)));
-      const hours = open ? nowMinutes(open.span.start) / 60 - 1 : days.includes(dayKey(new Date())) ? nowMinutes(new Date()) / 60 - 1.5 : 8;
+      const first = Math.min(8, ...this.items.filter((i) => !inAllDayRow(i.span) && days.includes(dayKey(i.span.start))).map((i) => nowMinutes(i.span.start) / 60));
+      const shows = (scroller.clientHeight || 12 * HOUR) / HOUR - 2; // hours under the day headers
+      const now = nowMinutes(new Date()) / 60;
+      const hours = open ? nowMinutes(open.span.start) / 60 - 1 : days.includes(dayKey(new Date())) && now > first - 0.5 + shows ? now - shows / 3 : first - 0.5;
       scroller.scrollTop = Math.min(Math.max(0, hours), 16) * HOUR;
     } else scroller.scrollTop = 0;
   }
@@ -556,7 +575,8 @@ export class CalendarPage {
    */
   private chip(item: Item, day: Day, how: { bar?: Bar<Item>; timed?: boolean } = {}): HTMLElement {
     if (item.kind === "task") return this.taskChip(item, day, how);
-    const time = item.span.allDay || how.bar ? null : el("span", { class: "cal-chip-time" }, timeOnDay(item.span, day));
+    // In the grid, its times ("10:00 – 11:30 AM"), or just its start where that doesn't fit (the CSS picks).
+    const time = item.span.allDay || how.bar ? null : how.timed ? el("span", { class: "cal-chip-time" }, el("span", { class: "cal-t-start" }, timeOnDay(item.span, day)), el("span", { class: "cal-t-range" }, rangeOnDay(item.span, day))) : el("span", { class: "cal-chip-time" }, timeOnDay(item.span, day));
     const title = el("span", { class: "cal-chip-title" }, item.title);
     const lead = how.timed || how.bar || item.span.allDay ? null : dot(item.color);
     const label = [item.title, whenText(item.span), placeText(item.event.location), item.source?.name].filter(Boolean).join(", ");
@@ -606,7 +626,7 @@ export class CalendarPage {
         "aria-label": label,
         onclick: (e: MouseEvent) => {
           this.cursor = { day, key: item.key };
-          this.hooks.open(t.path, t.line, e.metaKey || e.ctrlKey);
+          this.hooks.open(t.path, t.line, clickWhere(e));
         },
       },
       el("span", { class: "cal-chip-title" }, item.title),
@@ -638,18 +658,39 @@ export class CalendarPage {
     const byDay = bucket(this.items, span, weeks.flat());
     const month = dayStart(this.day).getMonth();
     const today = dayKey(new Date());
+    // A phone draws each day's items as dots under its number; wider, each item is a bar across its days.
+    const dots = matchMedia(PHONE).matches;
     const grid = el(
       "div",
-      { class: "cal-month", role: "grid", "aria-label": VIEWS.month.title(this.day), style: { "--weeks": String(weeks.length) } },
+      { class: `cal-month${dots ? " is-dots" : ""}`, role: "grid", "aria-label": VIEWS.month.title(this.day), style: { "--weeks": String(weeks.length), "--mline": `${MONTH_LINE}px` } },
       el("div", { class: "cal-dows", role: "row" }, ...DOW.map((d) => el("div", { class: "cal-dow", role: "columnheader" }, d))),
-      ...weeks.map((week) =>
-        el(
+      ...weeks.map((week) => {
+        const rows = dots ? null : fitRows(weekRows(this.items, span, week), this.monthLines);
+        return el(
           "div",
           { class: "cal-mweek", role: "row" },
-          ...week.map((d) => {
+          ...week.map((d, col) => {
             const list = byDay.get(d)!;
-            const shown = list.length > MONTH_LINES ? list.slice(0, MONTH_LINES - 1) : list;
             const date = dayStart(d);
+            let items: HTMLElement[];
+            let hidden: number;
+            if (rows) {
+              // Each bar sits in the cell of its first day, across as many as it covers.
+              items = rows.shown
+                .filter((b) => b.from === col)
+                .map((b) => {
+                  const chip = this.chip(b.item, d, inAllDayRow(b.item.span) ? { bar: b } : {});
+                  chip.classList.add("cal-mbar");
+                  chip.style.setProperty("--row", String(b.row));
+                  chip.style.setProperty("--n", String(b.to - b.from + 1));
+                  return chip;
+                });
+              hidden = rows.hidden[col];
+            } else {
+              const shown = list.length > MONTH_LINES ? list.slice(0, MONTH_LINES - 1) : list;
+              items = shown.map((i) => this.chip(i, d));
+              hidden = list.length - shown.length;
+            }
             return el(
               "div",
               {
@@ -663,15 +704,25 @@ export class CalendarPage {
                 onclick: (e: MouseEvent) => !(e.target as Element).closest("button") && this.goDay(d),
               },
               el("button", { type: "button", class: "cal-num", tabindex: "-1", title: `Show ${longDay(d)}`, "aria-label": `Show ${longDay(d)}`, onclick: () => this.goDay(d) }, String(date.getDate())),
-              ...shown.map((i) => this.chip(i, d)),
-              list.length > shown.length ? el("button", { type: "button", class: "cal-more", tabindex: "-1", onclick: () => this.goDay(d) }, `+${list.length - shown.length} more`) : null,
+              ...items,
+              hidden ? el("button", { type: "button", class: "cal-more", tabindex: "-1", style: { "--row": String(this.monthLines - 1) }, onclick: () => this.goDay(d) }, `+${hidden} more`) : null,
             );
           }),
-        ),
-      ),
+        );
+      }),
     );
     monthDrags(grid, this.drags);
     return grid;
+  }
+
+  /** Month's lines a day: as many as fit in its weeks' height; drawn again when that changes. */
+  private fitMonth() {
+    const week = this.body.querySelector<HTMLElement>(".cal-month:not(.is-dots) .cal-mweek");
+    if (!week?.clientHeight) return;
+    const lines = Math.max(2, Math.floor((week.clientHeight - MONTH_TOP - 4) / MONTH_LINE));
+    if (lines === this.monthLines) return;
+    this.monthLines = lines;
+    this.render(true);
   }
 
   private timeGrid(days: Day[]): HTMLElement {
@@ -698,9 +749,24 @@ export class CalendarPage {
           const chip = this.chip(s.item, d, { timed: true });
           const height = (Math.max(s.bottom - s.top, 15) / 60) * HOUR;
           chip.classList.add("cal-ev");
-          if (height < 36) chip.classList.add("is-short");
+          // Too short for two lines, its title and start share one; taller, as many lines of title as fit
+          // above its times, and above any event that sits on it.
+          const covered = Math.min(s.bottom, ...segs.filter((o) => o.lane === s.lane && o.indent > s.indent && o.top > s.top).map((o) => o.top));
+          const lines = Math.floor(((Math.max(covered - s.top, 15) / 60) * HOUR - 8) / LINE);
+          if (height - 8 < 2 * LINE) {
+            chip.classList.add("is-short");
+            chip.querySelector(".cal-t-range")?.remove();
+          }
+          if (s.indent) chip.classList.add("is-nested");
+          if (covered < s.bottom && lines < 2) chip.classList.add("is-covered"); // its times would be under the one on it
           if (s.item.span.end <= new Date()) chip.classList.add("is-past");
-          Object.assign(chip.style, { top: `${(s.top / 60) * HOUR}px`, height: `${height - 2}px`, left: `calc(${s.lane} * 100% / ${s.lanes})`, width: `calc(100% / ${s.lanes} - 3px)` });
+          Object.assign(chip.style, {
+            top: `${(s.top / 60) * HOUR}px`,
+            height: `${height - 2}px`,
+            left: `calc(${s.lane} * 100% / ${s.lanes}${s.indent ? ` + ${s.indent} * var(--nest)` : ""})`,
+            width: `calc(${s.span} * 100% / ${s.lanes}${s.indent ? ` - ${s.indent} * var(--nest)` : ""} - 3px)`,
+          });
+          chip.style.setProperty("--lines", String(Math.max(1, lines - 1)));
           return chip;
         }),
         now,

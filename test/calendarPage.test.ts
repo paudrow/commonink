@@ -108,6 +108,18 @@ test("m, a, d and w switch views; j goes a period on and t comes back to today",
   assert.equal(root.dataset.view, "week");
 });
 
+test("a week inside one month is titled as one range", async () => {
+  // The week of the 5th of the month after this one: always inside that month.
+  const next = new Date(now.getFullYear(), now.getMonth() + 1, 5);
+  const monday = new Date(next.getFullYear(), next.getMonth(), 5 + ((8 - next.getDay()) % 7));
+  await page.setView("week", `${monday.getFullYear()}-${pad(monday.getMonth() + 1)}-${pad(monday.getDate())}`);
+  await settle();
+  const month = monday.toLocaleDateString(undefined, { month: "short" });
+  assert.equal(root.querySelector(".cal-title")!.textContent!.replace(/\s+/g, " "), `${month} ${monday.getDate()} – ${monday.getDate() + 6}, ${monday.getFullYear()}`);
+  await page.setView("week", today);
+  await settle();
+});
+
 test("an event opens beside the calendar as text, makes its meeting note, and Escape closes it", async () => {
   const standup = [...root.querySelectorAll<HTMLElement>(".cal-ev")].find((e) => e.textContent!.startsWith("Standup"))!;
   standup.click();

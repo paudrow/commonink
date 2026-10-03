@@ -3,10 +3,10 @@
 import { fuzzyScore } from "./fuzzy.ts";
 import { CALENDAR_KEYS } from "./calendar/keys.ts";
 
-export type Area = "Global" | "Notes page" | "Calendar" | "Editor" | "Vim" | "Tasks" | "Split view";
+export type Area = "Global" | "Notes page" | "Calendar" | "Editor" | "Vim" | "Tasks" | "Tabs" | "Split view";
 /** Notes' Advanced search, from anywhere: its ⌘K command, the app's key handler and the button's title. */
 export const ADVANCED_KEYS = "Mod-Alt-f";
-export const AREAS: Area[] = ["Global", "Notes page", "Calendar", "Editor", "Vim", "Tasks", "Split view"];
+export const AREAS: Area[] = ["Global", "Notes page", "Calendar", "Editor", "Vim", "Tasks", "Tabs", "Split view"];
 
 /** Keys as CodeMirror writes them ("Mod-Shift-e", "Mod-Alt-\\"), or typed literally ("?", "gd", ":w"). */
 export interface Shortcut {
@@ -44,6 +44,11 @@ export interface App {
   vimDisplayLines: boolean;
   lineNumbers: boolean;
   split: boolean;
+  /** How many tabs the focused pane has, and whether the one showing is pinned. */
+  tabs: number;
+  pinned: boolean;
+  /** Tabs closed that ⌘⇧T can bring back. */
+  closedTabs: number;
   focusMode: boolean;
   htmlMode: "preview" | "source";
   /** A note tagged `start` exists. */
@@ -110,6 +115,14 @@ export interface App {
   togglePanel(): void;
   toggleFocus(): void;
   toggleSplit(): void;
+  newTab(): void;
+  closeTab(): void;
+  reopenTab(): void;
+  closeOtherTabs(): void;
+  closeTabsToRight(): void;
+  togglePin(): void;
+  stepTab(by: 1 | -1): void;
+  moveTab(by: 1 | -1): void;
   toggleHtml(): void;
   star(): void;
   archive(): void;
@@ -139,6 +152,10 @@ export interface App {
   /** Markdown files or a .zip of them (an Obsidian vault, a Notion export), .enex files, or an Apple Notes export, brought in at once. */
   importNotes(): void;
   settings(): void;
+  /** Your settings file, and the workspace's (userSettings.ts, schema.ts). */
+  userSettingsFile(): void;
+  workspaceSettingsFile(): void;
+  agentInstructions(): void;
   /** Online, the Connected agents dialog; locally, how to connect one to this vault. */
   connectAgent(): void;
   /** Back or forward through what the focused pane has shown. */
@@ -174,7 +191,7 @@ export function appCommands(app: App): Command[] {
     { id: "new-contact", title: "New contact…", keywords: "create add person people contact crm", icon: "user", available: app.canDelete, run: app.newContact },
     { id: "import-contacts", title: "Import contacts (.vcf or .csv)…", keywords: "import upload vcard vcf csv google outlook people contacts", icon: "upload", available: app.canDelete, run: app.importContacts },
     { id: "quick-add", title: "Add a task", keywords: "quick add todo new task", icon: "task", keys: ["Mod-Shift-."], area: "Tasks", run: app.quickAdd },
-    go("today", "Today", "sun", "day agenda due overdue journal streak writing week recap"),
+    go("today", "Today", "sun", "day agenda due overdue journal writing week recap"),
     go("notes", "Notes", "feed", "home all"),
     { id: "filter-notes", title: "Filter notes", keywords: "search find notes page", icon: "search", keys: ["Mod-Shift-f"], run: app.filterNotes },
     { id: "advanced-search", title: "Advanced search…", keywords: "filter find notes query view smart folder words tags folders and or match any", icon: "sliders", keys: [ADVANCED_KEYS], run: app.advancedSearch },
@@ -207,6 +224,16 @@ export function appCommands(app: App): Command[] {
     { id: "panel", title: "Toggle info panel", keywords: "outline backlinks activity sidebar side panel", icon: "panel", keys: ["Mod-\\"], run: app.togglePanel },
     { id: "focus", title: app.focusMode ? "Leave focus mode" : "Focus mode", keywords: "zen full screen distraction", icon: app.focusMode ? "unfocus" : "focus", keys: ["Mod-Shift-Enter"], available: text || app.focusMode, run: app.toggleFocus },
     { id: "split", title: app.split ? "Close split view" : "Open split view", keywords: "pane side by side to the side", icon: "split", keys: ["Mod-Alt-\\"], area: "Split view", run: app.toggleSplit },
+    { id: "new-tab", title: "New tab…", keywords: "tab open another note keep", icon: "plus", keys: ["Mod-t", "Mod-Alt-t"], area: "Tabs", run: app.newTab },
+    { id: "close-tab", title: "Close tab", keywords: "tab close", icon: "close", keys: ["Mod-w", "Mod-Alt-w"], available: app.tabs > 0, area: "Tabs", run: app.closeTab },
+    { id: "reopen-tab", title: "Reopen closed tab", keywords: "tab undo close restore again", icon: "history", keys: ["Mod-Shift-t", "Mod-Alt-Shift-t"], available: app.closedTabs > 0, area: "Tabs", run: app.reopenTab },
+    { id: "close-other-tabs", title: "Close other tabs", keywords: "tab close others all but", icon: "close", available: app.tabs > 1, area: "Tabs", run: app.closeOtherTabs },
+    { id: "close-tabs-right", title: "Close tabs to the right", keywords: "tab close right after", icon: "close", available: app.tabs > 1, area: "Tabs", run: app.closeTabsToRight },
+    { id: "pin-tab", title: app.pinned ? "Unpin tab" : "Pin tab", keywords: "tab pin keep stick", icon: "pin", available: app.tabs > 0, area: "Tabs", run: app.togglePin },
+    { id: "next-tab", title: "Next tab", keywords: "tab switch cycle gt", icon: "arrowRight", keys: ["Ctrl-Tab", "Ctrl-PageDown"], available: app.tabs > 1, area: "Tabs", run: () => app.stepTab(1) },
+    { id: "previous-tab", title: "Previous tab", keywords: "tab switch cycle gT", icon: "arrowLeft", keys: ["Ctrl-Shift-Tab", "Ctrl-PageUp"], available: app.tabs > 1, area: "Tabs", run: () => app.stepTab(-1) },
+    { id: "move-tab-left", title: "Move tab left", keywords: "tab reorder move", icon: "arrowLeft", keys: ["Mod-Shift-PageUp"], available: app.tabs > 1, area: "Tabs", run: () => app.moveTab(-1) },
+    { id: "move-tab-right", title: "Move tab right", keywords: "tab reorder move", icon: "arrowRight", keys: ["Mod-Shift-PageDown"], available: app.tabs > 1, area: "Tabs", run: () => app.moveTab(1) },
     { id: "star", title: note?.starred ? "Unstar note" : "Star note", keywords: "star favorite favourite", icon: note?.starred ? "starred" : "star", available: !!note, run: app.star },
     { id: "archive", title: note?.archived ? "Unarchive note" : "Archive note", keywords: "archive remove hide", icon: note?.archived ? "unarchive" : "archive", keys: ["Mod-Shift-e"], available: !!note, run: app.archive },
     { id: "delete", title: "Delete note", keywords: "delete remove trash bin", icon: "trash", available: !!note && app.canDelete, run: app.delete },
@@ -253,6 +280,9 @@ export function appCommands(app: App): Command[] {
     },
     { id: "getting-started", title: "Open Getting started", keywords: "help start welcome guide tour", icon: "info", available: app.hasStart, run: app.gettingStarted },
     { id: "settings", title: "Open settings", keywords: "preferences options configure", icon: "gear", keys: ["Mod-,"], run: app.settings },
+    { id: "user-settings-file", title: "Open your settings file", keywords: "preferences user settings yaml config json file", icon: "code", run: app.userSettingsFile },
+    { id: "agent-instructions", title: "Open AGENTS.md", keywords: "agent instructions ai conventions rules claude", icon: "bot", run: app.agentInstructions },
+    { id: "workspace-settings-file", title: "Open workspace settings file", keywords: "preferences workspace settings yaml config json file settings.md", icon: "code", run: app.workspaceSettingsFile },
     { id: "connect-agent", title: "Connect an agent", keywords: "agent mcp claude cursor connected agents ai assistant", icon: "bot", run: app.connectAgent },
     // The docs are on the hosted site; a local app opens commonink.app's.
     { id: "docs", title: "Help and docs", keywords: "documentation guide manual how to learn import agents faq support", icon: "file", run: () => void window.open(/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? "https://commonink.app/docs/" : "/docs/", "_blank", "noopener") },
@@ -310,14 +340,23 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: [":tags", ":assets", ":history"], label: "Go to Tags / Assets / History", area: "Vim" },
   { keys: [":focus"], label: "Focus mode", area: "Vim" },
   { keys: [":set nu", ":set nonu"], label: "Show / hide line numbers", area: "Vim" },
-  { keys: [":vs name"], label: "Open a note in split view", area: "Vim" },
+  { keys: [":vs name", ":sp name"], label: "Open a note in split view, beside / below", area: "Vim" },
   { keys: [":only", ":close"], label: "Close the other pane / this pane", area: "Vim" },
+  { keys: [":tabnew name", ":tabclose", ":q"], label: "Open a note in a new tab (alone, quick open) / close this tab", area: "Vim" },
+  { keys: ["gt", "gT", ":tabn", ":tabp"], label: "Next / previous tab", area: "Vim" },
+  { keys: [":tabonly"], label: "Close the other tabs", area: "Vim" },
   { keys: ["Tab"], label: "In quick-add, send it to the open note", area: "Tasks" },
   { keys: ["Space", "Enter"], label: "Tick the focused task", area: "Tasks" },
   { keys: ["Enter", "Escape"], label: "Save / cancel a task you're editing", area: "Tasks" },
+  { keys: ["Mod-click", "Middle-click"], label: "Open a link, card, task or starred note in a new tab", area: "Tabs" },
+  { keys: ["Mod-Enter"], label: "In quick open, open the note in a new tab", area: "Tabs" },
+  { keys: ["Mod-1", "Mod-8"], label: "Go to the first … eighth tab", area: "Tabs" },
+  { keys: ["Mod-9"], label: "Go to the last tab", area: "Tabs" },
+  { keys: ["Middle-click"], label: "On a tab: close it", area: "Tabs" },
+  { keys: ["Delete"], label: "On a focused tab: close it", area: "Tabs" },
   { keys: ["Mod-Alt-[", "Mod-Alt-]"], label: "Focus the left / right pane", area: "Split view" },
-  { keys: ["Mod-Enter"], label: "In quick open, open the note in split view", area: "Split view" },
-  { keys: ["Mod-click"], label: "Open a link, card or task in split view", area: "Split view" },
+  { keys: ["Mod-Alt-click"], label: "Open a link, card, task or starred note in split view", area: "Split view" },
+  { keys: ["Mod-Alt-Enter"], label: "In quick open, open the note in split view", area: "Split view" },
 ];
 
 /** The shortcut sheet: the fixed shortcuts (quick open leads), then the commands', by area. */

@@ -1,5 +1,6 @@
 // Block-level live preview: whole-line embeds, tables and frontmatter render as widgets.
 // Block decorations must come from a StateField (they change vertical layout).
+import type { Where } from "../panes.ts";
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import { noteTree } from "./tree.ts";
 import { EditorSelection, EditorState, Facet, Prec, StateEffect, StateField, Transaction, type Line, type Range, type StateCommand, type Text } from "@codemirror/state";
@@ -16,6 +17,7 @@ import { touches } from "./livePreview.ts";
 import { dataEmbed, hydrateDataEmbeds } from "../textPreview.ts";
 import { scanTags } from "../../../src/core/tags.ts";
 import { boardsIn, unclosedBoard } from "../../../src/core/kanban.ts";
+import { frontmatterProblems } from "../../../src/core/schema.ts";
 import { listOf, scalarOf } from "../../../src/core/frontmatter.ts";
 // Boards load with the first note that has one.
 import type { BoardHost, mountBoard } from "../kanban.ts";
@@ -37,8 +39,8 @@ export interface EditorContext {
   path: string;
   /** The note's stable ID, which it keeps through renames and moves: what's kept per note in this browser is keyed by it. */
   id?: string;
-  /** Open a note. `side`: to the side of this one (Cmd/Ctrl-click). */
-  openTarget(target: string, from: string, opts?: { side?: boolean }): void;
+  /** Open a note. `where`: here, in a new tab (⌘-click) or to the side of this one (⌘⌥-click). */
+  openTarget(target: string, from: string, opts?: { where?: Where }): void;
   createNote(name: string): void;
   notes(): NoteMeta[];
   /** Upload files (or pick some, if none given); resolves to the names to embed them by. */
@@ -366,7 +368,7 @@ class DirectiveWidget extends WidgetType {
       },
       focusEditor: () => view.focus(),
       editSource: () => reveal(view, root),
-      open: (target, line, side) => view.state.facet(editorContext).openTarget(line ? `${target}#L${line}` : target, this.note, { side }),
+      open: (target, line, where) => view.state.facet(editorContext).openTarget(line ? `${target}#L${line}` : target, this.note, { where }),
       openTag: (tag) => view.state.facet(editorContext).openTag(tag, "tasks"),
       saveSmartFolder: (query, name, anchor) => view.state.facet(editorContext).saveSmartFolder(query, name, anchor),
       sources: { tags: () => view.state.facet(editorContext).tags(), folders: () => view.state.facet(editorContext).folders() },
@@ -704,11 +706,15 @@ class TableWidget extends WidgetType {
 }
 
 class PropertiesWidget extends WidgetType {
-  constructor(readonly yaml: string) {
+  /** `bad`: each property with a problem (schema.ts), and what it is. */
+  constructor(
+    readonly yaml: string,
+    readonly bad: Record<string, string>,
+  ) {
     super();
   }
   eq(o: PropertiesWidget) {
-    return o.yaml === this.yaml;
+    return o.yaml === this.yaml && JSON.stringify(o.bad) === JSON.stringify(this.bad);
   }
   ignoreEvent() {
     return true;
@@ -735,9 +741,10 @@ class PropertiesWidget extends WidgetType {
         const entry = { key: k, lines: [`${k}: ${v}`] };
         const list = /^\[.*\]$/.test(v.trim());
         const values = list ? listOf(entry) : [scalarOf(entry)];
+        const problem = this.bad[k];
         return el(
           "div",
-          { class: "prop" },
+          { class: problem ? "prop is-bad" : "prop", title: problem ?? null },
           el("span", { class: "prop-key" }, k),
           k === "tags"
             ? el("span", { class: "prop-val" }, ...tags.map((t) => tagChip(t.display)))
@@ -793,7 +800,9 @@ function buildBlocks(state: EditorState): DecorationSet {
         const last = lastLine(doc, ref.from, ref.to);
         if (!touches(state, first.from, last.to)) {
           const yaml = doc.sliceString(first.to + 1, Math.max(first.to + 1, last.from - 1));
-          out.push(Decoration.replace({ block: true, widget: new PropertiesWidget(yaml) }).range(first.from, last.to));
+          const bad: Record<string, string> = {};
+          for (const p of frontmatterProblems(text, from)) if (p.key && !bad[p.key]) bad[p.key] = p.message;
+          out.push(Decoration.replace({ block: true, widget: new PropertiesWidget(yaml, bad) }).range(first.from, last.to));
         }
         return false;
       }

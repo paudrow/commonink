@@ -18,7 +18,7 @@ export const linkSideButton = ViewPlugin.fromClass(
         const target = this.link?.dataset.target;
         if (target === undefined) return;
         const ctx = view.state.facet(editorContext);
-        ctx.openTarget(target, ctx.path, { side: true });
+        ctx.openTarget(target, ctx.path, { where: "side" });
         this.hide();
       });
       this.button.addEventListener("mouseenter", () => clearTimeout(this.timer));
