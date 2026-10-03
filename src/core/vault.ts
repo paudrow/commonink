@@ -820,9 +820,10 @@ export class Vault {
     if (query.sort === "title") rows = [...rows].sort((a, b) => a.title.localeCompare(b.title));
     if (query.sort === "date" || query.sort === "oldest") {
       // A note's own date, else the day it last changed in the vault's time zone; the same day goes by when it changed.
-      const day = (r: (typeof rows)[number]) => r.date ?? localDate(r.mtime, this.timeZone);
+      // Worked out once per note: localDate builds a formatter each call, too slow inside a sort.
+      const day = new Map(rows.map((r) => [r, r.date ?? localDate(r.mtime, this.timeZone)]));
       const dir = query.sort === "date" ? -1 : 1;
-      rows = [...rows].sort((a, b) => dir * (day(a).localeCompare(day(b)) || a.mtime - b.mtime));
+      rows = [...rows].sort((a, b) => dir * (day.get(a)!.localeCompare(day.get(b)!) || a.mtime - b.mtime));
     }
     return rows;
   }
