@@ -126,6 +126,13 @@ test("a folder's case change that fails halfway puts everything back", () => {
   assert.equal(vault.read("Home").content, "See [[a]].\n", "its link leads to it again, not to the temp folder");
 });
 
+test("a folder's case change goes by a temp name nothing is archived under, so no other note moves with it", () => {
+  const { vault } = openTempVault({ "ideas/a.md": "# A\n", "Archive/ideas (renaming)/z.md": "# Z\n" });
+  const r = vault.moveFolder("ideas", "Ideas", "you");
+  assert.deepEqual(r.moved.map((m) => [m.from, m.path]), [["ideas/a.md", "Ideas/a.md"]]);
+  assert.deepEqual(vault.list(undefined, "all").map((n) => n.path).sort(), ["Archive/ideas (renaming)/z.md", "Ideas/a.md"]);
+});
+
 test("folder rename: the CLI command and MCP tool say what moved and which notes' links changed", async () => {
   const { vault } = openTempVault(FILES);
   const cmd = COMMANDS.find((c) => c.cli === "folder rename")!;

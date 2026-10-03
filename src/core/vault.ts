@@ -2225,7 +2225,7 @@ export class Vault {
         throw new VaultError(`There's already a folder named ${dest}`, "exists");
       }
       let via = `${from} (renaming)`;
-      for (let i = 2; this.files.listUnder(via).length; i++) via = `${from} (renaming ${i})`;
+      for (let i = 2; this.files.listUnder(via).length || this.files.listUnder(`${ARCHIVE}${via}`).length; i++) via = `${from} (renaming ${i})`;
       // What isn't a note (.DS_Store, say) goes too, or the old folder would stay under its old spelling.
       const carry = (a: string, b: string) => {
         for (const d of [a, `${ARCHIVE}${a}`]) {
