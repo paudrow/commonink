@@ -31,7 +31,7 @@ export interface Command {
 export type Page = "today" | "notes" | "tasks" | "calendar" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash" | "shared" | "checkup" | "query-help";
 
 /** The kinds of thing ⌘K's Rename… can rename. */
-export type Renamable = "note" | "folder" | "tag" | "smart folder" | "file";
+export type Renamable = "note" | "folder" | "tag" | "view" | "file";
 
 /** What the registry needs from the app: a snapshot of its state, and the actions to run. */
 export interface App {
@@ -156,8 +156,8 @@ export function appCommands(app: App): Command[] {
     { id: "new-board", title: "New board", keywords: "create add kanban columns cards trello project", icon: "kanban", run: app.newBoard },
     { id: "new-folder", title: "New folder", keywords: "create add directory", icon: "folderPlus", run: app.newFolder },
     { id: "new-tag", title: "New tag", keywords: "create add hashtag", icon: "hash", available: app.canDelete, run: app.newTag },
-    { id: "new-smart-folder", title: "New smart folder", keywords: "create add saved search query filter view", icon: "folderSearch", run: app.newSmartFolder },
-    { id: "save-filters", title: "Save these filters as a smart folder", keywords: "keep saved search query view smart folder sidebar", icon: "folderSearch", available: app.notesFiltered, run: app.saveFilters },
+    { id: "new-smart-folder", title: "New view", keywords: "create add saved search query filter smart folder", icon: "folderSearch", run: app.newSmartFolder },
+    { id: "save-filters", title: "Save these filters as a view", keywords: "keep saved search query view smart folder sidebar", icon: "folderSearch", available: app.notesFiltered, run: app.saveFilters },
     {
       id: "star-tag",
       title: app.tag ? `${app.tag.starred ? "Unstar" : "Star"} #${app.tag.name}` : "Star or unstar a tag…",

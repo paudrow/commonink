@@ -46,23 +46,30 @@ test("renaming a folder moves everything in it and rewrites the links to it", ()
   assert.equal(vault.unarchive("Archive/Projects/Ideas 2026/Deep/Notes.md", "you").path, "Projects/Ideas 2026/Deep/Notes.md");
 });
 
-test("smart folders narrowed to a renamed folder follow it", () => {
-  const { vault } = openTempVault(FILES);
-  const inside = vault.saveSmartFolder("you", { name: "Deep ideas", query: "folder=Ideas/Deep sort=title", shared: true }, true);
-  const other = vault.saveSmartFolder("you", { name: "Book", query: "folder=Ideasbook", shared: false }, true);
-  vault.moveFolder("Ideas", "Thoughts", "you");
-  assert.deepEqual(vault.smartFolders("you").map((f) => [f.id, f.query, f.count]), [
-    [inside.id, "folder=Thoughts/Deep sort=title", 1],
-    [other.id, "folder=Ideasbook", 0],
+test("views narrowed to a renamed folder follow it: the query line in each view note is rewritten", () => {
+  const { dir, vault } = openTempVault(FILES);
+  const inside = vault.saveSmartFolder("you", { name: "Deep ideas", query: "folder=Ideas/Deep sort=title", shared: true }, true, "you").view;
+  const other = vault.saveSmartFolder("you", { name: "Book", query: "folder=Ideasbook", shared: false }, true, "you").view;
+  // A view someone wrote by hand, with words above its query line and two folders.
+  vault.create("Views/Both.md", 'Ideas and books.\n\n::query{folder="Ideas|Ideasbook"}\n', "you");
+  const r = vault.moveFolder("Ideas", "Thoughts", "you");
+  assert.deepEqual(r.views.map((v) => v.path).sort(), ["Views/Both.md", "Views/Deep ideas.md"]);
+  assert.deepEqual(vault.smartFolders("you").map((f) => [f.name, f.query, f.count]), [
+    ["Book", "folder=Ideasbook", 0],
+    ["Both", 'folder="Thoughts|Ideasbook"', 2],
+    ["Deep ideas", "folder=Thoughts/Deep sort=title", 1],
   ]);
+  assert.equal(vault.findSmartFolder("you", "Deep ideas").id, inside.id);
+  assert.equal(vault.findSmartFolder("you", "Book").id, other.id);
+  assert.equal(fs.readFileSync(path.join(dir, "Views/Both.md"), "utf8"), 'Ideas and books.\n\n::query{folder="Thoughts|Ideasbook"}\n');
 });
 
-test("a folder can't be renamed onto one that has notes, into itself, or away from Archive, People or Templates", () => {
-  const { vault } = openTempVault({ ...FILES, "Thoughts/Old.md": "# Old\n", "People/Ana.md": "# Ana\n", "Templates/Daily.md": "# {{date}}\n" });
+test("a folder can't be renamed onto one that has notes, into itself, or away from Archive, People, Templates or Views", () => {
+  const { vault } = openTempVault({ ...FILES, "Thoughts/Old.md": "# Old\n", "People/Ana.md": "# Ana\n", "Templates/Daily.md": "# {{date}}\n", "Views/Work.md": "::query{tag=work}\n" });
   assert.throws(() => vault.moveFolder("Ideas", "Thoughts", "you"), /already a folder named Thoughts/);
   assert.throws(() => vault.moveFolder("Ideas", "Ideas/Deep/More", "you"), /can't move into itself/);
   assert.throws(() => vault.moveFolder("Nothing", "Else", "you"), /nothing in Nothing/);
-  for (const f of ["People", "Templates", "Archive"]) assert.throws(() => vault.moveFolder(f, "Elsewhere", "you"), /keeps its name/);
+  for (const f of ["People", "Templates", "Archive", "Views"]) assert.throws(() => vault.moveFolder(f, "Elsewhere", "you"), /keeps its name/);
   assert.throws(() => vault.moveFolder("Ideas", "Archive/Ideas", "you"), /unarchive/);
   assert.deepEqual(vault.list().filter((n) => n.path.startsWith("Ideas/")).length, 3, "nothing moved");
 });

@@ -164,7 +164,7 @@ function openDo(v: GeneratedVault, reps: number): { build: number[]; backend: Ba
   let opened!: ReturnType<typeof wake>;
   for (let i = 0; i < reps; i++) {
     const db = new DoDb(doStorage(file));
-    for (const t of ["notes", "notes_fts", "links", "tags", "tag_names", "changes", "favorites", "smart_folders"]) db.exec(`DROP TABLE IF EXISTS ${t}`);
+    for (const t of ["notes", "notes_fts", "links", "tags", "tag_names", "changes", "favorites"]) db.exec(`DROP TABLE IF EXISTS ${t}`);
     build.push(time(() => (opened = wake())));
   }
   const counter = new Counter();
@@ -207,7 +207,7 @@ function scenarios(size: number, v: GeneratedVault, b: Backend) {
   for (const n of notes.slice(0, 20)) b.vault.star(USER, n.path);
   for (const t of b.vault.tags().slice(0, 5)) b.vault.starTag(USER, t.tag);
   const folders = [`tag=${root}`, `tag=${tag}`, "folder=Projects", "folder=Journal sort=title", 'q="launch plan"', "q=budget tag=work", "folder=Ideas", `tag=${v.tags[10]}`];
-  for (const [i, q] of folders.entries()) b.vault.saveSmartFolder(USER, { name: `Folder ${i}`, query: q, shared: i % 2 === 0 }, true);
+  for (const [i, q] of folders.entries()) b.vault.saveSmartFolder(USER, { name: `Folder ${i}`, query: q, shared: i % 2 === 0 }, true, "you");
 
   measure(size, "reopen (warm index)", b, Math.min(reps, 10), () => b.reopen());
   measure(size, "list all", b, reps, (q) => q.list(undefined, "all"));

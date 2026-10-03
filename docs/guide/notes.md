@@ -74,12 +74,12 @@ A ```` ```mermaid ```` block draws a diagram, and `$…$` sets math.
 
 - **⌘K** finds a note by name or by anything in it.
 - **Notes** shows every note as a card, newest first. Type in its filter to search, or narrow to a folder or tag.
-- **Smart folders** are saved searches in the sidebar, like `tag=work/clients sort=title`, with live counts. Make one with **New smart folder** in ⌘K, or save the Notes filter as one.
+- **Views** are saved searches in the sidebar, like `tag=work/clients sort=title`, with live counts. Each is a note in `Views/` holding its query, so you can edit, rename or delete it like any note. Make one with **New view** in ⌘K, or save the Notes filter as one.
 - **Favorites**: star a note or a tag to keep it at the top of the sidebar.
 
 ### Searching and filtering
 
-The Notes filter, smart folders, `::query` and `commonink ls --query` all read the same query language. Plain words find notes with all of them, each as the start of a word (`plan` finds "planning"). Combine them with `AND` and `OR` (in capitals), leave things out with `-`, and group with parentheses: without them, AND goes before OR, so `a b OR c` means `(a b) OR c`. For example:
+The Notes filter, views, `::query` and `commonink ls --query` all read the same query language. Plain words find notes with all of them, each as the start of a word (`plan` finds "planning"). Combine them with `AND` and `OR` (in capitals), leave things out with `-`, and group with parentheses: without them, AND goes before OR, so `a b OR c` means `(a b) OR c`. For example:
 
 ```
 (tag=work OR tag=home) -folder=Archive "launch plan" sort=created
@@ -93,7 +93,7 @@ In the app, the **?** beside the Notes filter (or **Query syntax** in ⌘K) list
 | | Write | Try | What it does |
 | --- | --- | --- | --- |
 | Words | `word` | `plan` | Notes with a word starting with it: "plan" finds planning. Several words: notes with all of them. |
-| Words | `"a phrase"` | `"launch plan"` | The words together, in this order. Inside q="…" (a smart folder or ::query), use single quotes. |
+| Words | `"a phrase"` | `"launch plan"` | The words together, in this order. Inside q="…" (a saved view or ::query), use single quotes. |
 | Combine | `a AND b` | `launch AND budget` | Both. Words side by side mean AND too, so launch budget is the same. |
 | Combine | `a OR b` | `budget OR costs` | Either one. Write OR and AND in capitals: lowercase they're just words. |
 | Combine | `-term` | `launch -draft` | Leave out notes that match: -word, -"a phrase", -tag=old, -folder=Archive. |
