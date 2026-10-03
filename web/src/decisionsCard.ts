@@ -160,6 +160,16 @@ export function mountDecisions(host: HTMLElement, page: HTMLElement, hooks: Deci
     focusCard();
   };
 
+  /** Leave one you went back to as it was answered: drop any changes, and move on (or back to "All decided"). */
+  const keep = () => {
+    const d = current();
+    if (!d || isOpen(d)) return;
+    drafts.delete(d.id);
+    at = firstOpen();
+    render();
+    focusCard();
+  };
+
   const decide = async () => {
     const d = current();
     if (!d || busy) return;
@@ -426,7 +436,7 @@ export function mountDecisions(host: HTMLElement, page: HTMLElement, hooks: Deci
       ? el("div", { class: "dc-media" }, ...d.media.map((m) => el("a", { href: assetUrl(m, d.note ?? undefined), target: "_blank", rel: "noopener noreferrer", class: "dc-media-item" }, pic(m, "dc-media-img", ""))))
       : "";
     const about = d.note ? el("button", { type: "button", class: "dc-about", onclick: () => hooks.open(d.note!) }, icon("file", 12), d.note.replace(/\.md$/, "")) : "";
-    const enter = open ? "Enter to decide" : "Enter to change it";
+    const enter = open ? "Enter to decide" : "Enter to change it, Esc to keep it";
     const hint =
       d.kind === "yes_no" ? `Y or N, ${enter}`
       : d.kind === "one" || d.kind === "compare" || d.kind === "many" ? `1–${Math.min(9, n)} to ${d.kind === "many" ? "tick" : "pick"}, ${enter}`
@@ -463,7 +473,9 @@ export function mountDecisions(host: HTMLElement, page: HTMLElement, hooks: Deci
             "div",
             { class: "dc-actions" },
             el("button", { type: "button", class: "qw-btn primary dc-decide", disabled: busy || !valueOf(d, dr), onclick: () => void decide() }, busy ? "Saving…" : open ? "Decide" : "Change answer"),
-            open ? el("button", { type: "button", class: "qw-btn", title: "Leave it for later (S)", onclick: skip }, "Skip") : "",
+            open
+              ? el("button", { type: "button", class: "qw-btn", title: "Leave it for later (S)", onclick: skip }, "Skip")
+              : el("button", { type: "button", class: "qw-btn dc-keep", title: "Leave the answer as it was (Esc)", onclick: keep }, "Keep my answer"),
             el("span", { class: "dc-hint" }, hint),
           ),
         ),
@@ -498,7 +510,7 @@ export function mountDecisions(host: HTMLElement, page: HTMLElement, hooks: Deci
       return;
     }
     if (typingIn(t)) {
-      if (e.key === "Escape") t.blur(), focusCard();
+      if (e.key === "Escape") isOpen(d) ? (t.blur(), focusCard()) : keep();
       return;
     }
     const dr = draft(d);
@@ -516,6 +528,7 @@ export function mountDecisions(host: HTMLElement, page: HTMLElement, hooks: Deci
       dr.other = "";
     } else if (digit && d.kind === "scale" && k >= d.min! && k <= d.max!) dr.scale = k;
     else if (e.key === "s") return e.preventDefault(), skip();
+    else if (e.key === "Escape" && !isOpen(d)) return e.preventDefault(), keep();
     else if (e.key === "ArrowRight") return e.preventDefault(), go(at + 1);
     else if (e.key === "ArrowLeft") return e.preventDefault(), go(at - 1);
     else if (e.key === "o" && ownWords(d)) return e.preventDefault(), host.querySelector<HTMLElement>(".dc-other-input")?.focus();
