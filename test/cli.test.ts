@@ -165,7 +165,7 @@ test("smart-save, smart and smart-rm keep saved note queries", () => {
   assert.match(commonink(vault, ["smart-save", "Planning", "tag=plan"]).stdout, /^- Planning \(1 note\): tag=plan \[[a-z2-9]{8}\]\n$/);
   assert.match(commonink(vault, ["smart-save", "Mine", "tag=plan", "--just-me"]).stdout, /^- Planning \(1 note\): tag=plan \[[a-z2-9]{8}\]\n- Mine \(1 note\): tag=plan \[[a-z2-9]{8}\]\n$/);
   assert.equal(commonink(vault, ["smart", "planning"]).stdout, "- Projects/Roadmap.md — Roadmap\n");
-  assert.equal(commonink(vault, ["smart-save", "Bad", "colour=red"]).stderr, 'Unknown query key "colour": use q, folder, tag, match, sort or limit\n');
+  assert.equal(commonink(vault, ["smart-save", "Bad", "sort=size"]).stderr, '"sort" is modified, date, oldest, title or created, not "size"\n');
   assert.match(commonink(vault, ["smart-rm", "Mine"]).stdout, /^- Planning \(1 note\): tag=plan \[[a-z2-9]{8}\]\n$/);
   assert.equal(commonink(vault, ["smart-rm", "Planning"]).stdout, "No smart folders.\n");
 });

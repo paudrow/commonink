@@ -64,7 +64,8 @@ export async function deleteFolder(folder: string, hooks: DeleteHooks): Promise<
   const check = await api.deleteCheck({ folder }).catch(() => null);
   if (!check) return false;
   const total = check.notes + check.assets;
-  if (!total) return true;
+  // An empty one just goes, and stops being shared (online), so a folder made with its name later isn't.
+  if (!total) return (await api.deleteFolder(folder, "trash").catch(() => null), true);
   const parent = folder.includes("/") ? folder.slice(0, folder.lastIndexOf("/")) : "the top level";
   const counts = [check.notes && plural(check.notes, "note"), check.assets && plural(check.assets, "asset")].filter(Boolean).join(" and ");
   const choice = await ask({
@@ -81,7 +82,9 @@ export async function deleteFolder(folder: string, hooks: DeleteHooks): Promise<
   await hooks.changed();
   hooks.toast({
     icon: choice === "trash" ? "trash" : "move",
-    text: choice === "trash" ? `Deleted ${displayName(folder)} and ${counts}` : `Deleted ${displayName(folder)}; moved ${counts} to ${parent}`,
+    text:
+      (choice === "trash" ? `Deleted ${displayName(folder)} and ${counts}` : `Deleted ${displayName(folder)}; moved ${counts} to ${parent}`) +
+      (r.unshared ? ", and stopped sharing it" : ""),
     actionLabel: "Undo",
     action: async () => {
       if (r.trashed.length) await api.restoreTrash(r.trashed.map((t) => t.id));
