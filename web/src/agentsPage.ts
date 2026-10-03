@@ -1,6 +1,6 @@
-// Connecting an agent. Online: the agents you've connected over MCP (Claude, Cursor…), which workspace
+// The Agents dialog. Online: the agents you've connected over MCP (Claude, Cursor…), which workspace
 // each works in, when it last did something, what it changed lately, and a button to disconnect it.
-// Locally: the command or JSON that connects one to this vault.
+// Locally: the command or JSON that connects one to this workspace.
 import { api, type ConnectedAgent } from "./api.ts";
 import { localSteps } from "./connectAgent.ts";
 import { el, timeAgo } from "./dom.ts";
@@ -20,7 +20,7 @@ export async function showAgents() {
         " as a custom connector (MCP server) in Claude, Cursor or any MCP client. It signs you in here and asks which workspace to use.",
       );
   openModal({
-    title: local ? "Connect an agent" : "Connected agents",
+    title: "Agents",
     icon: "link",
     content: [how, local ? null : list],
     id: "agents-page",

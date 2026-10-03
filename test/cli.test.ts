@@ -276,7 +276,7 @@ test("import of a folder adds up sizes before reading: too big is refused unread
   fs.truncateSync(path.join(src, "node_modules/pkg/big.mp4"), 3 * 1024 ** 3);
   const ok = commonink(vault, ["import", src]);
   assert.equal(ok.status, 0, ok.stderr);
-  assert.equal(ok.stdout, "Imported 1 new note.\nLeft out: movie.mkv (not a note or a file type the vault keeps)\n");
+  assert.equal(ok.stdout, "Imported 1 new note.\nLeft out: movie.mkv (not a note or a file type the workspace keeps)\n");
   assert.ok(!fs.existsSync(path.join(vault, "node_modules")));
 
   fs.writeFileSync(path.join(src, "talk.mp4"), "");

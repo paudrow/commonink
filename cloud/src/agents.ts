@@ -2,7 +2,7 @@
 // registration, PKCE), and act as the person who connected them, in the one workspace they picked,
 // with that person's role in it right now. @cloudflare/workers-oauth-provider runs the protocol; its
 // records live in D1 (oauth-store.ts). This file has the consent page, the MCP handler, and the
-// "Connected agents" list.
+// list in the Agents dialog.
 import { AuthorizationError, getOAuthApi, type ConsentDescription, type GrantSummary, type OAuthHelpers, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
 import { json } from "../../src/core/api.ts";
 import { escapeHtml, page, readSession, text } from "./auth.ts";
@@ -75,7 +75,7 @@ async function serveMcp(req: Request, env: OAuthEnv, ctx: ExecutionContext<Agent
   return stub.mcp(req, { workspace: ws.id, user: user.id, actor: agentSource(client, user.name), role: await actingRole(env, ws.id, ws.role), timeZone });
 }
 
-/** When a grant was last used (for Connected agents), kept to the minute to save a write per call. */
+/** When a grant was last used (for the Agents dialog), kept to the minute to save a write per call. */
 function noteUse(env: OAuthEnv, ctx: ExecutionContext<AgentProps> & { auth: { token: string } }) {
   // Tokens are "<user>:<grant>:<secret>".
   const grantId = ctx.auth.token.split(":")[1];
@@ -210,7 +210,7 @@ function consentPage(details: ConsentDescription, handle: string, user: User, wo
        ${choices}
        <div class="row"><button type="submit" name="decision" value="deny" class="no">Deny</button><button type="submit" name="decision" value="allow">Allow</button></div>
      </form>
-     <p class="muted" style="margin-top:14px">You can disconnect it any time from Connected agents in your account menu.</p>`,
+     <p class="muted" style="margin-top:14px">You can disconnect it any time from Agents in your account menu.</p>`,
   );
   // No scripts at all on this page, and nobody may frame it.
   res.headers.set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; frame-ancestors 'none'; base-uri 'none'");

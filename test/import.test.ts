@@ -45,7 +45,7 @@ test("a .zip's notes come in at their paths; hidden folders and zip leftovers st
   assert.deepEqual(set.notes.map((n) => n.path).sort(), ["1. Projects/Launch.md", "Daily/2026-10-01.markdown", "Dash.html"]);
   assert.equal(set.notes.find((n) => n.path.endsWith("Launch.md"))!.content, "# Launch\n", "a byte-order mark is dropped");
   assert.deepEqual(set.files.map((f) => f.path), ["assets/pic.png"]);
-  assert.deepEqual(set.ignored, [{ path: "tool.exe", why: "not a note or a file type the vault keeps" }]);
+  assert.deepEqual(set.ignored, [{ path: "tool.exe", why: "not a note or a file type the workspace keeps" }]);
   assert.deepEqual(readImport([{ name: "a.md", bytes: strToU8("# A") }], "Inbox").notes, [{ path: "Inbox/a.md", content: "# A" }]);
   assert.throws(() => readImport([{ name: "bad.zip", bytes: strToU8("not a zip") }]), /bad\.zip isn't a \.zip that can be opened/);
 });

@@ -1,5 +1,5 @@
 // How to connect an agent to a local vault: the Claude Code command and the JSON other MCP clients
-// take. The Getting started guide card, the Connect an agent dialog and Settings all show it.
+// take. The Getting started guide card, the Agents dialog and Settings all show it.
 import { el } from "./dom.ts";
 import { button, setButton } from "./widgets/core.ts";
 

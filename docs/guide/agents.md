@@ -18,7 +18,7 @@ Your workspace's address is `https://commonink.app/mcp`.
 | Cursor | Add `{"mcpServers": {"commonink": {"url": "https://commonink.app/mcp"}}}` to `.cursor/mcp.json`, then **Connect** |
 | Anything else | Point any MCP client that supports OAuth at the address |
 
-Your browser opens Common Ink: sign in, pick the workspace the agent may use, and choose **Allow**. In the app, **Connect an agent** in ⌘⇧P shows the same steps.
+Your browser opens Common Ink: sign in, pick the workspace the agent may use, and choose **Allow**. In the app, **Agents** in ⌘⇧P shows the same steps.
 
 ## Try it
 
@@ -39,7 +39,7 @@ Keep the note open while it works: its edits appear as it makes them.
 ## Control what agents can do
 
 - An agent acts with your role in the workspace: a viewer's agent can only read.
-- **Connected agents** in the account menu lists your agents, when each was last used and what it changed. **Revoke** cuts one off at its next request.
+- **Agents** in the account menu lists your agents, when each was last used and what it changed. **Revoke** cuts one off at its next request.
 - Agents can't delete anything for good: what they delete waits in Trash for 30 days.
 - The note `AGENTS.md` is sent to every agent as its instructions. Edit it to set your conventions ("put meeting notes in Meetings/", "tag tasks with a project").
 

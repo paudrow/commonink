@@ -240,7 +240,7 @@ export function appSettings(app: SettingsApp): Setting[] {
       ? {
           id: "connect-agent",
           section: "Agents",
-          title: "Connect an agent",
+          title: "Agents",
           description: "Let Claude Code, Claude Desktop, Cursor or another MCP client read and edit this workspace. Its edits show up here live.",
           keywords: "agent mcp claude cursor connect ai assistant",
           control: { kind: "custom", render: () => localSteps(app.localVault!) },
@@ -248,10 +248,10 @@ export function appSettings(app: SettingsApp): Setting[] {
       : {
           id: "connect-agent",
           section: "Agents",
-          title: "Connected agents",
+          title: "Agents",
           description: "The agents you've connected over MCP, and how to connect another.",
-          keywords: "agent mcp claude cursor connect ai assistant revoke",
-          control: { kind: "button", label: "Connected agents…", run: app.connectAgent },
+          keywords: "agent mcp claude cursor connect connected ai assistant revoke disconnect",
+          control: { kind: "button", label: "Agents…", run: app.connectAgent },
         },
     {
       id: "agent-instructions",

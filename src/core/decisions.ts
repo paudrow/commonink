@@ -38,7 +38,7 @@ export interface DecisionOption {
   label: string;
   /** A line more about it. */
   detail?: string;
-  /** A picture of it: an https:// address or a file in the vault. */
+  /** A picture of it: an https:// address or a file in the workspace. */
   image?: string;
 }
 
@@ -115,7 +115,7 @@ export type AskSpec = Pick<Decision, "kind" | "question" | "context" | "options"
 export const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
 
 const YES_NO = ["Yes", "No"];
-/** A picture is a web address (https), a file in the vault, or a small inline image (data:image/…), never another scheme. */
+/** A picture is a web address (https), a file in the workspace, or a small inline image (data:image/…), never another scheme. */
 const isPicture = (s: string) =>
   /^https:\/\/\S+$/i.test(s) ||
   (/^data:image\/(png|jpeg|gif|webp|svg\+xml)[;,]/i.test(s) && s.length <= 64_000) ||
@@ -153,7 +153,7 @@ export function askSpec(q: AskInput): AskSpec {
   for (const o of options) {
     if (o.label.length > OPTION_MAX) throw new Error(`Keep each option to ${OPTION_MAX} characters; put more in its detail`);
     if (o.detail && o.detail.length > DETAIL_MAX) throw new Error(`Keep each option's detail to ${DETAIL_MAX} characters`);
-    if (o.image && !isPicture(o.image)) throw new Error(`"${o.image.slice(0, 80)}" isn't a picture: use an https:// address or a file in the vault`);
+    if (o.image && !isPicture(o.image)) throw new Error(`"${o.image.slice(0, 80)}" isn't a picture: use an https:// address or a file in the workspace`);
     if (!o.detail) delete o.detail;
     if (!o.image) delete o.image;
   }
@@ -165,7 +165,7 @@ export function askSpec(q: AskInput): AskSpec {
   } else if (rows.length) throw new Error('Only a "rows" question has rows');
   const media = (q.media ?? []).map((m) => m.trim()).filter(Boolean);
   if (media.length > MEDIA_MAX) throw new Error(`At most ${MEDIA_MAX} pictures`);
-  for (const m of media) if (!isPicture(m)) throw new Error(`"${m.slice(0, 80)}" isn't a picture: use an https:// address or a file in the vault`);
+  for (const m of media) if (!isPicture(m)) throw new Error(`"${m.slice(0, 80)}" isn't a picture: use an https:// address or a file in the workspace`);
   let [min, max] = [q.min ?? null, q.max ?? null];
   if (kind === "scale") {
     [min, max] = [min ?? 1, max ?? 5];

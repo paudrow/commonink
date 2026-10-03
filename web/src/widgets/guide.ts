@@ -1,6 +1,6 @@
 // The Getting started note's cards (see onboarding.ts):
 //   ::guide{step=watch}     the guide makes a demo edit here, for you to take back
-//   ::guide{step=connect}   how to connect your own agent: the command to run locally, the Connected agents dialog online
+//   ::guide{step=connect}   how to connect your own agent: the command to run locally, the Agents dialog online
 //   ::guide{step=done}      how far along you are, then an offer to archive the note
 import { api, type GuideState } from "../api.ts";
 import { el } from "../dom.ts";

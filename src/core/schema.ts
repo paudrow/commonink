@@ -127,7 +127,7 @@ export const SETTINGS_SCHEMA: ObjectSchema = {
     organizing: {
       type: "string",
       enum: PRESETS.map((p) => p.id),
-      description: `How this vault is organized, which agents follow: ${PRESETS.map((p) => `${p.id} (${p.name})`).join(", ")}. Changing it in Settings rewrites the Organizing section of Config/AGENTS.md.`,
+      description: `How this workspace is organized, which agents follow: ${PRESETS.map((p) => `${p.id} (${p.name})`).join(", ")}. Changing it in Settings rewrites the Organizing section of Config/AGENTS.md.`,
     },
     hidden_folders: {
       type: "array",

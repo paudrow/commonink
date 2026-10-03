@@ -43,7 +43,7 @@ export const contacts = [
     title: "List contacts",
     summary: "People: notes in People/ with email, phone, company, role, links, aliases and tags, when each was last mentioned, and who's due a check-in",
     description:
-      "The people in the vault: each is a note in People/ whose frontmatter has email, phone, company, role, links, aliases, tags and " +
+      "The people in the workspace: each is a note in People/ whose frontmatter has email, phone, company, role, links, aliases, tags and " +
       "check_in (how often to be in touch). Shows when each was last mentioned in another note, and when a check-in is next due " +
       "(that long after the last mention). check_in_due lists only the people due a check-in by today, the longest overdue first. " +
       "Link to a person with [[People/Name]].",

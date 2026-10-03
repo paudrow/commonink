@@ -26,7 +26,7 @@ commonink workspaces         # yours, with your role in each
 commonink workspaces use "Acme team"
 ```
 
-`--workspace <name>` picks one for a single command. `--no-browser` on `login` prints the address to open elsewhere, for a machine you reach over SSH. `commonink logout` signs out; the CLI shows in **Connected agents** as "commonink CLI", where you can also revoke it.
+`--workspace <name>` picks one for a single command. `--no-browser` on `login` prints the address to open elsewhere, for a machine you reach over SSH. `commonink logout` signs out; the CLI shows in **Agents** as "commonink CLI", where you can also revoke it.
 
 ## Local
 

@@ -21,7 +21,7 @@ export const PRESETS: Preset[] = [
     name: "PARA",
     summary: "Projects, Areas, Resources, Archive: file by what you're doing with it (Building a Second Brain).",
     rules: [
-      "This vault uses PARA. File each note by how actionable it is:",
+      "This workspace uses PARA. File each note by how actionable it is:",
       "- `Projects/`: work with a goal and an end (`Projects/Launch site/`). One folder per project.",
       "- `Areas/`: ongoing responsibilities with no end date (`Areas/Health`, `Areas/Team`).",
       "- `Resources/`: topics and reference material worth keeping (`Resources/Typography`).",
@@ -34,7 +34,7 @@ export const PRESETS: Preset[] = [
     name: "Zettelkasten",
     summary: "Small linked notes: capture to Inbox, distill into one idea per note, link generously.",
     rules: [
-      "This vault is a Zettelkasten:",
+      "This workspace is a Zettelkasten:",
       "- `Inbox/`: quick captures, to be processed. New material lands here first.",
       "- `Notes/`: permanent notes, one idea each, written in the person's words, with a title that states the idea.",
       "- `Sources/`: one note per book, article or talk, with the source's details and what it said.",
@@ -46,7 +46,7 @@ export const PRESETS: Preset[] = [
     name: "Journal first",
     summary: "The daily note is home: write there, and pull out notes when a topic grows.",
     rules: [
-      "This vault is journal first:",
+      "This workspace is journal first:",
       "- The day's journal note is the default place for anything new: tasks, meeting notes, ideas, captures.",
       "- `Notes/`: when a topic grows past a few paragraphs or comes up on several days, give it its own note there and link it from the journal.",
       "Don't create folders unless asked. When asked what happened, read the journal notes first.",
@@ -57,7 +57,7 @@ export const PRESETS: Preset[] = [
     name: "Simple",
     summary: "No folder scheme: a flat list of notes, sorted with tags and links.",
     rules: [
-      "This vault is kept flat:",
+      "This workspace is kept flat:",
       "- Put new notes at the top level. Don't create folders unless asked.",
       "- Group with tags (reuse existing ones from `list_tags`) and with `[[links]]`.",
     ].join("\n"),

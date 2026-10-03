@@ -1,4 +1,4 @@
-// Online-only UI: the sign-in screen, and the account menu (your profile, Settings, workspaces, invites, connected agents, sign out).
+// Online-only UI: the sign-in screen, and the account menu (your profile, Settings, workspaces, invites, agents, sign out).
 
 import { api, type Me } from "./api.ts";
 import { $, el, icon } from "./dom.ts";
@@ -102,7 +102,7 @@ function accountActions(me: Me, current: Me["workspaces"][number], toast: (t: { 
       icon: "sliders",
       run: () => void import("./workspaceSettings.ts").then((m) => m.showWorkspaceSettings(current, me.user, toast)),
     },
-    { label: "Connected agents…", icon: "bot", run: () => void import("./agentsPage.ts").then((m) => m.showAgents()) },
+    { label: "Agents…", icon: "bot", run: () => void import("./agentsPage.ts").then((m) => m.showAgents()) },
     {
       label: "Sign out",
       icon: "open",

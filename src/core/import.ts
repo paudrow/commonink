@@ -22,7 +22,7 @@ export const ON_EXISTING: OnExisting[] = ["skip", "replace"];
 export interface ImportSet {
   notes: Array<{ path: string; content: string }>;
   files: Array<{ path: string; bytes: Uint8Array }>;
-  /** What was left out, and why ("not a note or a file type the vault keeps"). */
+  /** What was left out, and why ("not a note or a file type the workspace keeps"). */
   ignored: Array<{ path: string; why: string }>;
   /** The app it was read as coming from (convert.ts), when it was read from files. */
   from?: Exclude<ImportFrom, "auto">;
@@ -94,7 +94,7 @@ export function readImport(picked: LocalFile[], folder?: string, from: ImportFro
     if (isHidden(rel) || JUNK.test(rel)) continue;
     const kind = kindOf(rel);
     if (!kind) {
-      out.ignored.push({ path: rel, why: "not a note or a file type the vault keeps" });
+      out.ignored.push({ path: rel, why: "not a note or a file type the workspace keeps" });
       continue;
     }
     total += bytes.byteLength;
@@ -122,7 +122,7 @@ export async function writeImport(
   opts: { existing?: OnExisting; source: string; bytes?: VaultBytes; written?: (path: string, content: string, version: string, change: Change | null) => void },
 ): Promise<ImportResult> {
   const existing = opts.existing ?? "skip";
-  if (!set.notes.length && !set.files.length) throw new VaultError(set.ignored.length ? "Nothing to import: no notes in that (only files the vault doesn't keep)" : "Nothing to import");
+  if (!set.notes.length && !set.files.length) throw new VaultError(set.ignored.length ? "Nothing to import: no notes in that (only files the workspace doesn't keep)" : "Nothing to import");
   if (set.notes.length > MAX_IMPORT_NOTES) throw new VaultError(`That's ${set.notes.length} notes; at most ${MAX_IMPORT_NOTES} come in at once: import a folder at a time`);
   if (set.files.length && !opts.bytes) throw new VaultError("Files (pictures, PDFs) come in through the CLI or the app; send only notes here");
 
