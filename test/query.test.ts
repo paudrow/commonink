@@ -66,6 +66,7 @@ test("an apostrophe inside a word is part of it; a ' only quotes at the start of
   // Quoting still works either way, and a ' left open is called out as one.
   assert.deepEqual(parseQuery(`q='launch plan' folder="Bob's Notes"`), { q: "launch plan", folder: "Bob's Notes" });
   assert.equal(queryProblem("q='abc"), "A quote isn't closed");
+  assert.equal(queryProblem("sort=title 'abc'"), 'Give "abc" a value, like abc=…');
   // What the app writes reads back the same (a " in a value is written as ').
   assert.deepEqual(parseQuery(formatQuery({ folder: "Bob's Notes" })), { folder: "Bob's Notes" });
   assert.deepEqual(parseQuery(formatQuery({ q: "don't stop", tag: "work" })), { q: "don't stop", tag: "work" });

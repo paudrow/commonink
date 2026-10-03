@@ -73,7 +73,7 @@ function readQuery(src: string): { args: Record<string, string>; bare: string | 
         if (open === "tag") tags.push(word);
         else args[open] += ` ${word}`;
       } else {
-        bare ??= word.match(/^[\w-]+/)?.[0] ?? word;
+        bare ??= word.match(/[\w-]+/)?.[0] ?? word;
         open = null;
       }
       continue;
