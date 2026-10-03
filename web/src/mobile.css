@@ -113,6 +113,13 @@
   .fc-head > .spacer + .fc-action { margin-left: -7px; }
   .feed-card:not(.is-focused, .is-expanded) .fc-action { display: none; }
 
+  /* Tabs: a strip that scrolls sideways, in the space the top bar has left. A phone shows one pane, so
+     a tab's drag goes along the strip or to a folder, never to a split. */
+  #topbar { gap: 6px; }
+  .tab { min-width: 0; max-width: 132px; padding-left: 8px; }
+  .tabs { scroll-snap-type: x proximity; }
+  .tab { scroll-snap-align: start; }
+
   /* Split view: one pane at a time, the focused one. Its bar's close button brings back the other. */
   body.is-split #stage > :is(#editor-host, #html-preview, #notes-view, #today-view, #tasks-view, #calendar-view, #history-view, #assets-view, #tags-view, #checkup-view, #replace-view, #query-help-view), #main-bar, #banner { right: 0; }
   #side-pane { left: 0; width: auto; border-left: 0; z-index: 6; }

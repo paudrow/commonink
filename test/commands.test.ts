@@ -16,6 +16,8 @@ const app = (over: Partial<App> = {}): App => {
     lineNumbers: false,
     split: false,
     tabs: 1,
+    pinned: false,
+    closedTabs: 0,
     focusMode: false,
     htmlMode: "preview",
     hasStart: false,
@@ -51,6 +53,12 @@ const app = (over: Partial<App> = {}): App => {
     toggleSplit: run("toggleSplit"),
     newTab: run("newTab"),
     closeTab: run("closeTab"),
+    reopenTab: run("reopenTab"),
+    closeOtherTabs: run("closeOtherTabs"),
+    closeTabsToRight: run("closeTabsToRight"),
+    togglePin: run("togglePin"),
+    stepTab: run("stepTab"),
+    moveTab: run("moveTab"),
     toggleHtml: run("toggleHtml"),
     star: run("star"),
     archive: run("archive"),
@@ -140,7 +148,7 @@ test("commands follow the app: vim's state, the open note, Getting started, and 
 
 test("the sheet lists each area's shortcuts, the commands' included, whether or not they're on offer now", () => {
   const sheet = shortcutSheet(appCommands(app()));
-  assert.deepEqual(sheet.map((s) => s.area), ["Global", "Notes page", "Calendar", "Editor", "Vim", "Tasks", "Split view"]);
+  assert.deepEqual(sheet.map((s) => s.area), ["Global", "Notes page", "Calendar", "Editor", "Vim", "Tasks", "Tabs", "Split view"]);
   const global = sheet.find((s) => s.area === "Global")!.shortcuts;
   assert.deepEqual(global.slice(0, 2).map((s) => s.keys), [["Mod-p", "Mod-k"], ["Mod-Shift-p"]]);
   assert.deepEqual(global.find((s) => s.label === "Archive note")?.keys, ["Mod-Shift-e"]);
