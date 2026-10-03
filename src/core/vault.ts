@@ -645,6 +645,33 @@ export class Vault {
    * Obsidian-style [[name]] to a vault path. `from` lets links prefer notes in the same folder.
    */
   resolve(target: string, from?: string): string | null {
+    return this.resolveIn(target, from);
+  }
+
+  /**
+   * resolve(), optionally answering "is this file here" from the index rather than the disk:
+   * `stems` keeps each `SELECT path FROM notes WHERE stem = ?` it has made. A path the index has
+   * is taken as is; one it has under another case or Unicode form is asked of the disk (a Mac's
+   * finds it, Linux's doesn't); one it has under no spelling isn't here, unless it's somewhere
+   * sync never looks.
+   */
+  private resolveIn(target: string, from?: string, stems?: Map<string, string[]>): string | null {
+    const byStem = (stem: string): string[] => {
+      let rows = stems?.get(stem);
+      if (!rows) {
+        rows = this.db.all("SELECT path FROM notes WHERE stem = ?", stem).map((r) => r.path as string);
+        stems?.set(stem, rows);
+      }
+      return rows;
+    };
+    const here = (rel: string): boolean => {
+      if (!stems) return this.files.stat(rel) !== null;
+      const rows = byStem(stemOf(rel));
+      if (rows.includes(rel)) return true;
+      const fold = (p: string) => p.normalize("NFC").toLowerCase();
+      const unsynced = rel.split("/").includes("node_modules");
+      return (unsynced || rows.some((p) => fold(p) === fold(rel))) && this.files.stat(rel) !== null;
+    };
     const t = target.trim().replace(/\\/g, "/").replace(/^\.?\/+/, "").replace(/#.*$/, "").replace(/\|.*$/, "");
     if (!t) return null;
     const candidates: string[] = [];
@@ -654,7 +681,7 @@ export class Vault {
       for (const p of kindOf(c) ? [c] : [`${c}.md`, c]) {
         try {
           const rel = cleanPath(p);
-          if (kindOf(rel) && this.files.stat(rel)) return this.indexedPath(rel);
+          if (kindOf(rel) && here(rel)) return this.indexedPath(rel);
         } catch {}
       }
     }
@@ -663,8 +690,7 @@ export class Vault {
     if (byId) return byId;
     const key = linkKey(t);
     const base = key.split("/").pop()!;
-    const rows = this.db.all("SELECT path FROM notes WHERE stem = ?", base)
-      .map((r) => r.path as string)
+    const rows = byStem(base)
       .filter((p) => linkKey(p) === key || linkKey(p).endsWith(`/${key}`));
     if (!rows.length) return null;
     const dir = from ? path.posix.dirname(from) : null;
@@ -939,9 +965,10 @@ export class Vault {
    */
   private resolver() {
     const seen = new Map<string, string | null>();
+    const stems = new Map<string, string[]>();
     return (target: string, from: string) => {
       const key = `${path.posix.dirname(from)}\n${target}`;
-      if (!seen.has(key)) seen.set(key, this.resolve(target, from));
+      if (!seen.has(key)) seen.set(key, this.resolveIn(target, from, stems));
       return seen.get(key)!;
     };
   }
