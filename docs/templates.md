@@ -81,9 +81,9 @@ tags: [meeting]
 
 `\{{date}}` is written as `{{date}}`, for a template that shows how templates work.
 
-## Daily notes
+## The journal
 
-Today's journal note (on the Today page), quick-add's journal, quick capture, and the calendar widget over `Journal/` make a new day's note from `Templates/Daily note.md`, with the same placeholders. `{{date}}` is that day, so `# {{date:dddd, MMMM D}}` heads it with the weekday.
+Today's journal note (on the Today page), quick-add's journal, quick capture, and the calendar widget over `Journal/` make a new day's note from `Templates/Journal.md` (or `Templates/Daily note.md`, its old name, when there's no `Journal.md`), with the same placeholders. `{{date}}` is that day, so `# {{date:dddd, MMMM D}}` heads it with the weekday.
 
 ## Meeting notes
 
@@ -96,6 +96,8 @@ Today's journal note (on the Today page), quick-add's journal, quick capture, an
 | `{{attendees}}` | Who's invited. |
 | `{{agenda}}` | Its description. |
 | `{{event}}` | A link back to the event. |
+
+The new note's frontmatter also says which event it's for: `event:` (its ID in the calendar), `occurrence:` (which one of a series) and `calendar:` (the calendar's name). They replace those keys if the template has them; its other frontmatter stays. They're how the event finds its note again after an export, so leave them be.
 
 ## For agents
 

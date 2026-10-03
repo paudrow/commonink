@@ -17,12 +17,14 @@ const clock = (d: Date) => `${L.dayKey(d)} ${String(d.getHours()).padStart(2, "0
 
 // ------------------------------------------------------------------ the math
 
-test("a new event starts at the next half hour today, or at 9 on another day, and lasts half an hour", () => {
+test("a new event starts at the next half hour today, or at 9 on a day ahead, never in the past, and lasts half an hour", () => {
   const at = (now: Date, day?: string) => Object.values(L.defaultSlot(now, day)).map(clock);
   assert.deepEqual(at(local(2026, 9, 29, 10, 7)), ["2026-09-29 10:30", "2026-09-29 11:00"]);
   assert.deepEqual(at(local(2026, 9, 29, 10, 30)), ["2026-09-29 11:00", "2026-09-29 11:30"]);
   assert.deepEqual(at(local(2026, 9, 29, 23, 50)), ["2026-09-30 00:00", "2026-09-30 00:30"]);
   assert.deepEqual(at(local(2026, 9, 29, 10, 7), "2026-10-02"), ["2026-10-02 09:00", "2026-10-02 09:30"]);
+  assert.deepEqual(at(local(2026, 10, 2, 18, 2), "2026-10-01"), ["2026-10-02 18:30", "2026-10-02 19:00"], "a day gone by means today");
+  assert.deepEqual(at(local(2026, 10, 2, 18, 2), "2026-09-15"), ["2026-10-02 18:30", "2026-10-02 19:00"]);
 });
 
 test("a drag down a column covers the steps it touches, upward too, and one step at least", () => {
