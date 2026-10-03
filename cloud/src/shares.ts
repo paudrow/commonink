@@ -169,6 +169,28 @@ export async function moveFolderShares(db: D1Database, workspaceId: string, from
     .run();
 }
 
+/** A folder and the folders in it, as SQL on `folder` ("/" sorts just before "0", so the range is everything under it). */
+const folderAndUnder = "(folder = ? OR (folder >= ? AND folder < ?))";
+const underArgs = (folder: string) => [folder, `${folder}/`, `${folder}0`];
+
+/** How many shares a folder, or a folder in it, has, leaving out those of `except` and the folders in it. */
+export async function folderShareCount(db: D1Database, workspaceId: string, folder: string, except?: string) {
+  const row = await db
+    .prepare(`SELECT count(*) AS n FROM shares WHERE workspace_id = ? AND ${folderAndUnder}${except ? ` AND NOT ${folderAndUnder}` : ""}`)
+    .bind(workspaceId, ...underArgs(folder), ...(except ? underArgs(except) : []))
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+/** A folder was deleted: its shares, and those of the folders in it, stop. How many did. */
+export async function removeFolderShares(db: D1Database, workspaceId: string, folder: string) {
+  const { results } = await db
+    .prepare(`DELETE FROM shares WHERE workspace_id = ? AND ${folderAndUnder} RETURNING via_share AS via`)
+    .bind(workspaceId, ...underArgs(folder))
+    .all<{ via: string | null }>();
+  return results.filter((r) => !r.via).length; // not those kept by joining a link: they went with it
+}
+
 /** Whether someone new has been shared something by email: a member vouched for them, so they may sign up. */
 export async function hasPendingShare(db: D1Database, email: string) {
   return !!(await db.prepare(`SELECT 1 FROM shares WHERE principal_type = 'email' AND principal = ? AND ${live}`).bind(email.toLowerCase(), Date.now()).first());

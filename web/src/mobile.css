@@ -65,10 +65,11 @@
 }
 
 @media (hover: none) {
-  /* No hover to reveal them: a sidebar row's actions (a folder's New note and Delete, a favorite's
+  /* No hover to reveal them: a sidebar row's actions (a folder's New note and ⋯, a favorite's
      Open to the side and Unstar) always show, 44px to tap, as they would under the pointer. */
   #sidebar .row-actions { display: flex; margin-right: -8px; }
   #sidebar .row-act { width: 44px; height: 44px; }
+  #sidebar .row-act.row-more { display: grid; } /* no right-click here: a folder's menu is behind ⋯ */
   #sidebar .tree-row .agent-dot, #sidebar .tree-row .fav-mark { display: none; }
   .tags-row .row-act { visibility: visible; }
   /* A task row's buttons show too, rather than waiting invisibly under a finger. A Notes card's
@@ -114,7 +115,7 @@
   .feed-card:not(.is-focused, .is-expanded) .fc-action { display: none; }
 
   /* Split view: one pane at a time, the focused one. Its bar's close button brings back the other. */
-  body.is-split #stage > :is(#editor-host, #html-preview, #notes-view, #today-view, #tasks-view, #calendar-view, #history-view, #assets-view, #tags-view, #checkup-view, #replace-view), #main-bar, #banner { right: 0; }
+  body.is-split #stage > :is(#editor-host, #html-preview, #notes-view, #today-view, #tasks-view, #calendar-view, #history-view, #assets-view, #tags-view, #checkup-view, #replace-view, #query-help-view), #main-bar, #banner { right: 0; }
   #side-pane { left: 0; width: auto; border-left: 0; z-index: 6; }
   #pane-divider { display: none; }
   body:has(#main-bar.is-focused) #side-pane { display: none; }
@@ -152,8 +153,8 @@
   .cal-sources-btn span { display: none; }
   .cal-new span { display: none; }
   .cal-new { width: 44px; justify-content: center; padding: 0; }
-  .cal-f-field { grid-template-columns: minmax(0, 1fr); gap: 4px; }
-  .cal-f-label { padding-top: 0; }
+  .cal-f-line { gap: 8px; }
+  .cal-f-adders { padding-left: 0; }
   .cal-sources-btn { width: 44px; justify-content: center; padding: 0; }
   .cal-tg { min-width: 620px; }
   #calendar-view[data-view="day"] .cal-tg { min-width: 0; }

@@ -84,6 +84,19 @@ test("missing or malformed arguments are one-line errors with exit code 2, not s
   }
 });
 
+test("help query lists the query syntax, and ls --query says where a query goes wrong", () => {
+  const vault = tempVault();
+  const help = commonink(vault, ["help", "query"]);
+  assert.equal(help.status, 0);
+  assert.match(help.stdout, /^Query syntax: /);
+  assert.match(help.stdout, /a OR b +Either one/);
+  assert.match(help.stdout, /folder=name/);
+  const bad = commonink(vault, ["ls", "--query", 'q="(roadmap OR plan"']);
+  assert.notEqual(bad.status, 0);
+  assert.equal(bad.stderr, 'Missing ")" for the "(" at character 1\n');
+  assert.equal(commonink(vault, ["ls", "--query", 'q="(roadmap OR nothing) folder=Projects -tag=nope"']).stdout, "- Projects/Roadmap.md — Roadmap\n");
+});
+
 test("an unknown command prints help and exits 2", () => {
   const r = commonink(tempVault(), ["frobnicate"]);
   assert.equal(r.status, 2);
@@ -152,7 +165,7 @@ test("smart-save, smart and smart-rm keep saved note queries", () => {
   assert.match(commonink(vault, ["smart-save", "Planning", "tag=plan"]).stdout, /^- Planning \(1 note\): tag=plan \[[a-z2-9]{8}\]\n$/);
   assert.match(commonink(vault, ["smart-save", "Mine", "tag=plan", "--just-me"]).stdout, /^- Planning \(1 note\): tag=plan \[[a-z2-9]{8}\]\n- Mine \(1 note\): tag=plan \[[a-z2-9]{8}\]\n$/);
   assert.equal(commonink(vault, ["smart", "planning"]).stdout, "- Projects/Roadmap.md — Roadmap\n");
-  assert.equal(commonink(vault, ["smart-save", "Bad", "colour=red"]).stderr, 'Unknown query key "colour": use q, folder, tag, sort or limit\n');
+  assert.equal(commonink(vault, ["smart-save", "Bad", "sort=size"]).stderr, '"sort" is modified, date, oldest, title or created, not "size"\n');
   assert.match(commonink(vault, ["smart-rm", "Mine"]).stdout, /^- Planning \(1 note\): tag=plan \[[a-z2-9]{8}\]\n$/);
   assert.equal(commonink(vault, ["smart-rm", "Planning"]).stdout, "No smart folders.\n");
 });

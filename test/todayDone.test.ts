@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CHEERS, cheer, openToday, shouldCelebrate } from "../web/src/todayDone.ts";
+import { CHEERS, cheer, openToday, shouldCelebrate, todayProgress } from "../web/src/todayDone.ts";
 import type { Task, TodayView } from "../web/src/api.ts";
 
 const view = (...counts: number[]): TodayView => ({
@@ -27,4 +27,13 @@ test("a tick celebrates only when it takes Today from something to nothing, once
 test("the toast's second line is always one of the cheers", () => {
   for (const r of [0, 0.3, 0.6, 0.999999, 1]) assert.ok(CHEERS.includes(cheer(r)));
   assert.equal(cheer(0), CHEERS[0]);
+});
+
+test("the Today ring fills with what's ticked of what Today had, and closes when it's clear", () => {
+  assert.deepEqual(todayProgress(2, 3), { done: 3, total: 5, fraction: 0.6, label: "3 of 5 of today's tasks done" });
+  assert.deepEqual(todayProgress(4, 0), { done: 0, total: 4, fraction: 0, label: "0 of 4 of today's tasks done" });
+  assert.deepEqual(todayProgress(0, 2), { done: 2, total: 2, fraction: 1, label: "All 2 of today's tasks done" });
+  assert.equal(todayProgress(0, 0).total, 0, "nothing on Today: no ring");
+  assert.equal(todayProgress(0, 0).fraction, 0);
+  assert.equal(todayProgress(-1, -1).total, 0, "a bad count isn't drawn as progress");
 });
