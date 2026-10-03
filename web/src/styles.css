@@ -3320,6 +3320,8 @@ button.cal-src-color:hover { background: var(--hover); }
 @media (pointer: coarse) { .share-item { min-height: 44px; font-size: 14px; } }
 /* A sidebar row's menu (rowMenu.ts) wears the Share menu's look; Delete is set apart, in red. */
 .row-menu { min-width: 190px; }
+.share-item .menu-keys { margin-left: auto; padding-left: 18px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.share-item:disabled svg, .share-item:disabled .menu-keys { opacity: .55; }
 .share-item.is-danger, .share-item.is-danger svg { color: var(--bad); }
 .share-item.is-danger:is(:hover, :focus-visible) { background: color-mix(in srgb, var(--bad) 10%, transparent); color: var(--bad); }
 

@@ -82,6 +82,7 @@ const app = (over: Partial<App> = {}): App => {
     shortcuts: run("shortcuts"),
     share: run("share"),
     copyLink: run("copyLink"),
+    copyBlockLink: (embed) => void ran.push(embed ? "copyBlockEmbed" : "copyBlockLink"),
     replaceAcross: run("replaceAcross"),
     exportAs: (how) => void ran.push(`export:${how}`),
     saveToDrive: run("saveToDrive"),
@@ -450,6 +451,16 @@ test("Advanced search is a command, with its keys on the sheet", () => {
   assert.equal(ran.at(-1), "advancedSearch");
   const global = shortcutSheet(appCommands(app())).find((s) => s.area === "Global")!.shortcuts;
   assert.ok(global.some((s) => s.keys.includes("Mod-Alt-f") && s.label === "Advanced search…"));
+});
+
+test("the block commands are worded plainly, and the note's web address says it's one", () => {
+  const md = appCommands(app({ note: { kind: "md", starred: false, archived: false } }));
+  const title = (id: string) => md.find((c) => c.id === id)!.title;
+  assert.equal(title("copy-link"), "Copy web address of this note");
+  assert.equal(title("copy-block-link"), "Copy link to this paragraph or selection");
+  assert.equal(title("copy-block-embed"), "Copy embed of this paragraph or selection");
+  md.find((c) => c.id === "copy-block-embed")!.run!();
+  assert.equal(ran.at(-1), "copyBlockEmbed");
 });
 
 test("the tag in view can be starred and renamed from the palette, or a tag picked when none is", () => {

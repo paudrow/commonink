@@ -2,6 +2,7 @@ import "./styles.css";
 import "./motion.css";
 import "./mobile.css";
 import { EditorView } from "@codemirror/view";
+import { isolateHistory } from "@codemirror/commands";
 import { EditorSelection, type EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
 import { api, clientId, connect, favoriteKey, isArchived, isNoteFavorite, isSmartFavorite, isTagFavorite, unusedTag, useWorkspace, whoAmI, ApiError, type Backlink, type Change, type Favorite, type NoteMeta, type ServerMsg, type SmartFavorite, type SmartFolder, type TagCount, type TagFavorite, type UnlinkedMention } from "./api.ts";
@@ -70,6 +71,7 @@ import { openMenu, under, type MenuItem } from "./menu.ts";
 import { clampSide, clickWhere, dropDock, forget, historyStep, IS_MAC, pageEntry, pageOf, rememberPlace, SIDE_CLICK, step, trailAhead, type Dock, type PaneTrail, type Place, type Where } from "./panes.ts";
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { headingMatches } from "../../src/core/gfm.ts";
+import { blockAnchor, blockLinkTarget, blockRange, newBlockId, noteLink, selectionBlocks, type BlockSpot } from "../../src/core/blocks.ts";
 import { formatQuery, parseQuery, tagList, type NoteQuery } from "../../src/core/query.ts";
 import { NEW_BOARD } from "../../src/core/kanban.ts";
 import { smartFolderEditor, suggestName } from "./smartFolderEditor.ts";
@@ -80,7 +82,7 @@ import { deleteFolder, deletePaths, Trash, type DeleteHooks } from "./trash.ts";
 import { confirmAction } from "./modal.ts";
 import { mountSharedView, sharedRoute } from "./sharedView.ts";
 import { showShareDialog } from "./shareDialog.ts";
-import { rowMenu, type RowMenuItem } from "./rowMenu.ts";
+import { openRowMenu, rowMenu, rowMenuOpenFor, SEPARATOR, type RowMenuItem } from "./rowMenu.ts";
 import { renderSharedList, sharedPage } from "./sharedPage.ts";
 import { CapturePage, registerWorker } from "./capture.ts";
 import { AGENTS_BLURB, isAgentsNote } from "./agentsNote.ts";
@@ -199,6 +201,7 @@ const makePane = (index: 0 | 1, host: HTMLElement, preview: HTMLElement, bar: HT
   opens: 0,
 });
 const panes: [Pane, Pane] = [makePane(0, $("#editor-host"), $("#html-preview"), $("#main-bar"), $("#banner")), makePane(1, $("#side-host"), $("#side-preview"), $("#side-bar"), $("#side-banner"))];
+for (const p of panes) wireEditorMenu(p);
 let active = panes[0];
 let split = false;
 const other = (p: Pane) => panes[1 - p.index];
@@ -454,6 +457,7 @@ function commands() {
     shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
     share: openShare,
     copyLink: () => void copyLink(),
+    copyBlockLink: (embed) => void copyBlockLink(embed),
     replaceAcross: () => void showReplace(),
     exportAs: (how) => void exportNote(how),
     saveToDrive: () => void saveNoteToDrive(),
@@ -1968,6 +1972,192 @@ async function copyLink() {
   toast({ icon: "link", text: "Link copied" });
 }
 
+/** How `[[…]]` names the note at `path`: its name, or its path when another note has the same name. */
+function linkName(path: string) {
+  const name = displayName(path);
+  const unique = notes.filter((n) => displayName(n.path).toLowerCase() === name.toLowerCase()).length <= 1;
+  return unique ? name : path.replace(/\.(md|markdown)$/i, "");
+}
+
+/** What a link from the cursor's line points at (see blockLinkTarget). Not the heading that names the note: that's a link to the note. */
+function cursorTarget(view: EditorView) {
+  const line = view.state.doc.lineAt(view.state.selection.main.head).number;
+  const target = blockLinkTarget(view.state.doc.toString(), line);
+  return target?.kind === "heading" && line === nameLine(view.state.doc).line ? null : target;
+}
+
+/**
+ * What "Copy link to …" in `view` links to, and what the menu calls it: with text highlighted
+ * across blocks, the "selection" (its first and last block, as `[[Note#^a..^b]]`); else the one
+ * paragraph, list item, table or quote the selection or cursor is in (`[[Note#^id]]`), or the
+ * heading (`[[Note#Heading]]`). Null where there's nothing to link to (a blank line, code).
+ */
+function linkSubject(view: EditorView): { what: string; heading: string } | { what: string; blocks: BlockSpot[] } | null {
+  const { doc, selection } = view.state;
+  const sel = selection.main;
+  if (!sel.empty) {
+    const md = doc.toString();
+    const fromLine = doc.lineAt(sel.from).number;
+    // A selection that ends at the very start of a line (a triple-click) doesn't take that line.
+    const end = doc.lineAt(sel.to);
+    const toLine = end.from === sel.to && end.number > fromLine ? end.number - 1 : end.number;
+    const pair = selectionBlocks(md, fromLine, toLine);
+    if (pair && pair.first !== pair.last) return { what: "selection", blocks: [pair.first, pair.last] };
+    const one = pair && blockLinkTarget(md, pair.first.from);
+    if (one && one.kind !== "heading") return { what: one.kind, blocks: [one.block] };
+  }
+  const target = cursorTarget(view);
+  if (!target) return null;
+  return target.kind === "heading" ? { what: "heading", heading: target.heading } : { what: target.kind, blocks: [target.block] };
+}
+
+/**
+ * Copy a link to what's highlighted or at the cursor in `pane` (see linkSubject): `[[Note#Heading]]`
+ * on a heading, `[[Note#^id]]` for one block, `[[Note#^a..^b]]` for a selection across blocks
+ * (`![[…]]` with `embed`). A block with no ID gets a short one first (` ^k3x9q2` at its end, as
+ * Obsidian writes them), all in one step Undo takes back.
+ */
+async function copyBlockLink(embed = false, pane = active) {
+  const s = pane.session;
+  if (s?.kind !== "md") return;
+  const view = pane.view;
+  const doc = view.state.doc;
+  let md = doc.toString();
+  const subject = linkSubject(view);
+  if (!subject) return void toast({ text: "Put the cursor in a paragraph, list item or heading first" });
+  let anchor: string;
+  if ("heading" in subject) anchor = subject.heading;
+  else {
+    const missing = subject.blocks.filter((b) => b.id === null);
+    if (missing.length && (viewer || view.state.readOnly)) return void toast({ text: "You can't edit this note, so this can't be linked yet" });
+    const changes: { from: number; insert: string }[] = [];
+    const ids = subject.blocks.map((b) => {
+      if (b.id !== null) return b.id;
+      const id = newBlockId(md);
+      md += ` ^${id}`; // so the next one is different
+      changes.push({ from: doc.line(b.at).to, insert: b.insert.replace("{id}", id) });
+      return id;
+    });
+    if (changes.length) view.dispatch({ changes, userEvent: "input.block-id", annotations: isolateHistory.of("full") });
+    anchor = blockAnchor(ids[0], ids.at(-1));
+  }
+  await navigator.clipboard.writeText(noteLink(linkName(s.path), anchor, embed));
+  toast({ icon: embed ? "embed" : "link", text: embed ? "Embed copied. Paste it in another note to show this there." : "Link copied" });
+}
+
+/**
+ * The note editor's right-click menu (also Shift+F10 and the Menu key). First the usual editing
+ * items (Cut, Copy, Paste, Select all, with their shortcuts), then Common Ink's: a link to the note,
+ * and a link to and an embed of the paragraph, list item or heading under the cursor, or of the
+ * highlighted text. It's the sidebar's row menu (rowMenu.ts), so it looks and moves the same.
+ * Shift+right-click, and a long press on a touch screen, keep the browser's own menu (spellcheck).
+ */
+function wireEditorMenu(pane: Pane) {
+  const view = pane.view;
+  const content = view.contentDOM;
+  let touch = false;
+  content.addEventListener("pointerdown", (e) => (touch = e.pointerType === "touch"), true);
+  content.addEventListener("contextmenu", (e) => {
+    if (e.shiftKey || touch || pane.session?.kind !== "md" || (e.target as Element).closest?.("input, textarea, select")) return;
+    e.preventDefault();
+    if (rowMenuOpenFor(content)) return; // Shift+F10 opened it already
+    // From the keyboard (the Menu key) there's no pointer: Chrome and Firefox say so with 0, 0.
+    const pointer = e.clientX || e.clientY ? { x: e.clientX, y: e.clientY } : undefined;
+    if (pointer) {
+      // As in a text editor: a right-click outside the selection moves the cursor there first; inside it, the selection stays.
+      const pos = view.posAtCoords(pointer);
+      const sel = view.state.selection.main;
+      if (pos !== null && (sel.empty || pos < sel.from || pos > sel.to)) view.dispatch({ selection: { anchor: pos }, userEvent: "select.pointer" });
+    }
+    openEditorMenu(pane, pointer);
+  });
+  content.addEventListener("keydown", (e) => {
+    if (!((e.key === "F10" && e.shiftKey) || e.key === "ContextMenu") || pane.session?.kind !== "md") return;
+    e.preventDefault();
+    e.stopPropagation();
+    openEditorMenu(pane);
+  });
+}
+
+/** Paste from the menu. Browsers may refuse a page reading the clipboard; then say which keys paste. */
+async function pasteInto(view: EditorView) {
+  view.focus();
+  let text: string;
+  try {
+    text = await navigator.clipboard.readText();
+  } catch {
+    return void toast({ icon: "paste", text: `Your browser didn't let the menu paste. Press ${formatKeys("Mod-v")} to paste.` });
+  }
+  if (text) view.dispatch(view.state.replaceSelection(text), { userEvent: "input.paste", scrollIntoView: true });
+}
+
+function openEditorMenu(pane: Pane, pointer?: { x: number; y: number }) {
+  const s = pane.session;
+  if (s?.kind !== "md") return;
+  const view = pane.view;
+  const sel = view.state.selection.main;
+  const selected = view.state.sliceDoc(sel.from, sel.to);
+  const editable = !viewer && !view.state.readOnly;
+  const subject = linkSubject(view);
+  // A block with no ID yet needs one written into the note, which a viewer can't do.
+  const linkable = !!subject && ("heading" in subject || editable || subject.blocks.every((b) => b.id !== null));
+  const copy = (text: string, said: string) => {
+    view.focus();
+    void navigator.clipboard.writeText(text).then(() => toast({ icon: said === "Copied" ? "copy" : "link", text: said }));
+  };
+  const link = (embed: boolean) => {
+    view.focus();
+    void copyBlockLink(embed, pane);
+  };
+  const what = subject?.what === "selection" ? "selection" : `this ${subject?.what}`;
+  const whatHint = subject?.what === "selection" ? "the paragraphs and list items you highlighted" : `this ${subject?.what}`;
+  // From the keyboard, it opens at the cursor.
+  const caret = view.coordsAtPos(sel.head);
+  const at = pointer ?? (caret ? { x: caret.left, y: caret.bottom + 2 } : undefined);
+  openRowMenu(
+    view.contentDOM,
+    "Note",
+    [
+      {
+        label: "Cut",
+        icon: "cut",
+        keys: "Mod-x",
+        disabled: !selected || !editable,
+        run: () => {
+          view.focus();
+          void navigator.clipboard.writeText(selected).then(() => view.dispatch({ changes: { from: sel.from, to: sel.to }, userEvent: "delete.cut" }));
+        },
+      },
+      { label: "Copy", icon: "copy", keys: "Mod-c", disabled: !selected, run: () => copy(selected, "Copied") },
+      { label: "Paste", icon: "paste", keys: "Mod-v", disabled: !editable, run: () => void pasteInto(view) },
+      {
+        label: "Select all",
+        icon: "selectAll",
+        keys: "Mod-a",
+        run: () => {
+          view.focus();
+          view.dispatch({ selection: { anchor: 0, head: view.state.doc.length }, userEvent: "select" });
+        },
+      },
+      SEPARATOR,
+      { label: "Copy link to this note", icon: "link", hint: `Copies ${noteLink(linkName(s.path))}. Paste it in another note to link here.`, run: () => copy(noteLink(linkName(s.path)), "Link copied") },
+      linkable
+        ? {
+            label: `Copy link to ${what}`,
+            icon: "link",
+            hint: `Paste it in another note: clicking it opens this note at ${whatHint}.${subject && "blocks" in subject && subject.blocks.some((b) => b.id === null) ? " It adds a short code (hidden as you read) to the end of the text so the link can find it." : ""}`,
+            run: () => link(false),
+          }
+        : null,
+      linkable && !("heading" in subject!)
+        ? { label: `Copy embed of ${what}`, icon: "embed", hint: `Paste it in another note to show ${whatHint} there, kept up to date as this note changes.`, run: () => link(true) }
+        : null,
+    ],
+    at,
+    view.contentDOM,
+  );
+}
+
 /** Notes as a .zip: a folder, some notes, or everything. */
 async function exportZip(what: { paths?: string[]; folder?: string; all?: boolean }) {
   toast({ icon: "download", text: "Making the .zip…" });
@@ -2202,8 +2392,9 @@ async function renameNote() {
   }
 }
 
-/** The line of the heading `anchor` names (its words, or GitHub's slug of them), outside code. */
+/** The line of the heading `anchor` names (its words, or GitHub's slug of them), outside code; or of the block a `^id` names. */
 function headingLine(pane: Pane, anchor: string): number | undefined {
+  if (anchor.startsWith("^")) return blockRange(pane.view.state.doc.toString(), anchor)?.from;
   for (const [n, text] of proseLines(pane.view.state.doc.toString())) {
     const m = text.match(/^#{1,6}[ \t]+(.*)$/);
     if (m && headingMatches(headingName(headingText(m[1])), anchor)) return n;
