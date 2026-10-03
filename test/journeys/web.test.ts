@@ -92,7 +92,7 @@ journey("Plan the day from Today", ({ given, when, then, and }) => {
     await page.locator(".feed-card", { hasText: "Errands" }).waitFor();
   });
   when("I open Today", async () => {
-    // Its name carries the Today ring's progress when tasks are due: "Today, 1 of 3 done".
+    // Its name goes on with the ring's progress ("Today, 0 of 2 done") once Today has tasks.
     await page.locator("#sidebar").getByRole("button", { name: /^Today\b/ }).click();
     await page.waitForURL(/\/today$/);
   });
