@@ -108,3 +108,25 @@ export function propsOf(md: string): Array<{ key: string; value: string }> {
   }
   return out;
 }
+
+/**
+ * `md` with its frontmatter property `key` set to `value`, or taken out for null: a card moved to
+ * another column of a board. The key keeps its case as written (`Status:`), a list becomes the one
+ * value, and every other line stays as it was. A note without frontmatter gets some.
+ */
+export function withProperty(md: string, key: string, value: string | null): string {
+  const { entries, body } = frontmatterEntries(md);
+  const at = entries.findIndex((e) => e.key.toLowerCase() === key.toLowerCase());
+  if (at < 0 && value === null) return md;
+  const line = (k: string) => [{ key: k, lines: [`${k}: ${yamlScalar(value!)}`] }];
+  const next = at < 0 ? [...entries, ...line(key)] : [...entries.slice(0, at), ...(value === null ? [] : line(entries[at].key)), ...entries.slice(at + 1)];
+  // A note written with \r\n keeps them.
+  const eol = /^﻿?---\r\n/.test(md) ? "\r\n" : "\n";
+  return (md.startsWith("﻿") ? "﻿" : "") + frontmatterText(next).replace(/\n/g, eol) + body;
+}
+
+/** A value as YAML reads it back as written: quoted when it would read as something else (a list, a comment, a number's true or false). */
+function yamlScalar(v: string): string {
+  const plain = v !== "" && !/^[\s\-?:,[\]{}#&*!|>'"%@`]|[:#]\s|:$|\s$/.test(v) && !/^(true|false|null|yes|no|on|off|~)$/i.test(v);
+  return plain ? v : `"${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}

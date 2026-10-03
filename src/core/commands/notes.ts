@@ -10,6 +10,7 @@ import { describeProblems, frontmatterProblems } from "../schema.ts";
 import { propertyTypes } from "../properties.ts";
 import type { Vault } from "../vault.ts";
 import { checkup, fmtCheckup, STALE_DAYS } from "../checkup.ts";
+import { blockRange } from "../blocks.ts";
 
 const TAG = "Only notes with this tag or a tag under it: work matches #work and #work/acme. Several (work,plan): notes with all of them";
 const ONE_TAG = "Only notes with this tag or a tag under it: work matches #work and #work/acme";
@@ -65,8 +66,9 @@ export const notes = [
     summary: "A note with line numbers, and its version for --base",
     description:
       "Read a note with line numbers. `path` may be a vault path, a path without extension, or a [[wikilink]] name. " +
+      "A block link's target (Roadmap#^k3x9q2, or Roadmap#^a..^b for a range of blocks) reads just those lines. " +
       "The returned version can be passed to edit_note as base_version.",
-    examples: ["commonink read Roadmap", "commonink read Projects/Roadmap.md --offset 10 --limit 20"],
+    examples: ["commonink read Roadmap", "commonink read Projects/Roadmap.md --offset 10 --limit 20", "commonink read 'Roadmap#^k3x9q2'"],
     readOnly: true,
     args: {
       path: str({ required: true, pos: 0, label: "note", describe: NOTE }),
@@ -75,6 +77,13 @@ export const notes = [
     },
     run: ({ vault }, a) => {
       const n = vault.read(a.path);
+      // Note#^id or Note#^a..^b, from a block link: just those lines, unless offset or limit say otherwise.
+      const anchor = a.path.match(/#(\^.*)$/)?.[1];
+      if (anchor && a.offset === undefined && a.limit === undefined) {
+        const r = blockRange(n.content, anchor);
+        if (!r) throw new VaultError(`${n.path} has no block ${anchor}`, "not_found");
+        return { text: fmtRead(n, r.from, r.to - r.from + 1), data: n };
+      }
       return { text: fmtRead(n, a.offset, a.limit), data: n };
     },
   }),
@@ -98,7 +107,7 @@ export const notes = [
       smart_folder: str({ flag: "smart", describe: "If set, list the notes in this saved view (smart folder: name or ID) instead" }),
       query: str({
         describe:
-          'If set, list the notes this note query matches instead, written as a view or ::query writes it: q="(launch OR release) -draft" folder=Projects tag=work modified>-7d -tag=done sort=created. In q, side by side is AND, OR is either, -x leaves out, ( ) groups, and tag=, folder= and dates work inside. See commonink help query.',
+          'If set, list the notes this note query matches instead, written as a view or ::view writes it: q="(launch OR release) -draft" folder=Projects tag=work modified>-7d -tag=done sort=created. In q, side by side is AND, OR is either, -x leaves out, ( ) groups, and tag=, folder= and dates work inside. See commonink help query.',
       }),
       include_archived: bool({ flag: "all", describe: "Also archived notes" }),
       archived: bool({ only: "cli", describe: "Only archived notes" }),

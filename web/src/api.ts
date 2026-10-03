@@ -3,6 +3,7 @@ import type { GuideAction, GuideState } from "../../src/core/guide.ts";
 import { did } from "./events.ts";
 import type { NoteRole } from "../../src/core/noteRoles.ts";
 import type { Contact, ContactFields, TimelineItem } from "../../src/core/contacts.ts";
+import type { SyncResult as GoogleContactsResult, SyncStatus as GoogleContactsStatus } from "../../src/core/googleContacts.ts";
 import { encodeTarget, safeDecode } from "../../src/core/uri.ts";
 import type { Decision, DecisionValue } from "../../src/core/decisions.ts";
 import type { FillOptions, TemplateInfo } from "../../src/core/templates.ts";
@@ -114,6 +115,8 @@ export interface FeedItem {
   /** Who made the last change (see authorName). */
   lastBy: { person: string | null; agent: string | null } | null;
   role: NoteRole | null;
+  /** The note's own date (YYYY-MM-DD), from its frontmatter or its name; a view's calendar falls back to it. */
+  date: string | null;
   /** The frontmatter properties asked for with `cols`, each with its values. */
   props?: Record<string, string[]>;
 }
@@ -132,7 +135,7 @@ export interface SmartFolder {
   name: string;
   /** The view note. */
   path: string;
-  /** As ::query args: `tag=work sort=title`. */
+  /** As ::view args: `tag=work sort=title`. */
   query: string;
   shared: boolean;
   count: number;
@@ -202,8 +205,8 @@ export type EventInput = Omit<EventDraft, "attendees"> & { attendees: Array<{ na
 /** Google Calendar on this server (cloud/src/connections.ts): "mock" is the Preview stand-in, "off" not set up. */
 export interface GoogleStatus {
   mode: "real" | "mock" | "off";
-  /** `calendar`: its calendars were allowed; `drive`: saving notes to Drive was (each is asked for the first time it's used). */
-  connection: { account: string; calendar: boolean; canWrite: boolean; drive: boolean; connectedAt: number } | null;
+  /** `calendar`: its calendars were allowed; `drive`: saving notes to Drive was (each is asked for the first time it's used); `contacts`: Google Contacts, read only or editable. */
+  connection: { account: string; calendar: boolean; canWrite: boolean; contacts: "none" | "read" | "write"; drive: boolean; connectedAt: number } | null;
 }
 /** Your plan on this server (cloud/src/billing.ts). `on` false: billing isn't set up, and it's all free. */
 export interface Billing {
@@ -221,6 +224,8 @@ export interface Billing {
     customer?: boolean;
   };
 }
+
+export type { SyncResult as GoogleContactsResult, SyncStatus as GoogleContactsStatus } from "../../src/core/googleContacts.ts";
 /** One of the person's Google calendars. */
 export interface GoogleCalendar {
   id: string;
@@ -253,6 +258,8 @@ export function useWorkspace(base: string, live: string) {
   LIVE = live;
   resolveCache.clear();
 }
+/** The workspace the API is for, online ("" locally). */
+export const currentWorkspace = () => BASE.match(/^\/api\/w\/([^/]+)/)?.[1] ?? "";
 export const fileUrl = (path: string) => `${BASE}/files/${path.split("/").map(encodeURIComponent).join("/")}`;
 
 export interface Me {
@@ -462,6 +469,8 @@ export const api = {
   /** How many tasks are still open across the workspace (the Tasks badge). */
   openTasks: () => j<{ open: number }>(`${BASE}/tasks/count`).then((r) => r.open),
   tags: () => j<TagCount[]>(`${BASE}/tags`),
+  /** The frontmatter properties notes have, most used first. */
+  properties: () => j<Array<{ key: string; notes: number }>>(`${BASE}/properties`),
   smartFolders: () => j<SmartFolder[]>(`${BASE}/smart-folders`),
   /** Create a view (a note in Views/), or change one by `id`: renaming it renames its note. */
   saveSmartFolder: (f: { id?: string; name: string; query: string; shared: boolean }) => j<SmartFolder>(`${BASE}/smart-folders`, send("POST", { id: f.id, name: f.name, query: f.query, shared: f.shared })),
@@ -636,6 +645,10 @@ export const api = {
   /** Online: whether Google Calendar works on this server, and your connection to it (404 locally). */
   google: () => j<GoogleStatus>("/api/google"),
   googleCalendars: () => j<GoogleCalendar[]>("/api/google/calendars"),
+  /** Online, where Google is set up: your Google Contacts here (404 otherwise). */
+  googleContacts: () => j<GoogleContactsStatus>(`${BASE}/contacts/google`),
+  /** Bring your Google Contacts into People/, and send edits made here back (when allowed). */
+  syncGoogleContacts: () => j<GoogleContactsResult>(`${BASE}/contacts/google/sync`, send("POST", {})),
   /** Google forgets the grant, and your Google calendars leave every workspace. */
   disconnectGoogle: () => j<{ ok: true }>("/api/google/disconnect", send("POST", {})),
   /** Save a note to your Google Drive, sent as Word or markdown, as a Google Doc, a PDF or a markdown file. Where it went, to open. */

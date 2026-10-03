@@ -13,4 +13,4 @@ https://www.youtube.com/watch?v=aqz-KE-bpKQ
 https://developer.mozilla.org/en-US/docs/Web/HTML
 The line above is a link card, and this sentence sits right under it: press Backspace at the start of this line.
 
-::query{folder=Projects limit=3}
+::view{folder=Projects limit=3}

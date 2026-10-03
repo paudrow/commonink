@@ -27,8 +27,9 @@ import { addShare, agentLinksAllowed, folderShareCount, linkToken, listShares, m
 import { Calendar } from "../../src/core/calendar.ts";
 import { assertPublicUrl } from "../../src/core/unfurl.ts";
 import { feedsFor } from "./demo-calendar.ts";
-import { connectionInfo, driveApi, googleMode } from "./connections.ts";
+import { connectionInfo, contactsConnection, driveApi, googleMode, peopleApi } from "./connections.ts";
 import { driveProblem, saveToDrive } from "./drive.ts";
+import { GoogleContactsSync } from "../../src/core/googleContacts.ts";
 import { googleReader } from "./google-reader.ts";
 
 /** A note and its previous text are each a SQLite row here, which holds at most 2 MB. */
@@ -182,11 +183,18 @@ export class Workspace extends DurableObject<Env> {
         this.ctx.waitUntil(this.schedule());
       },
       fileBytes: (rel) => this.fileBytes(rel),
+      googleContacts: this.googleContacts(this.vault, user),
       folderMoved: (from, to) => this.folderMoved(wsId, from, to),
       folderMoving: (from, to) => this.folderMoving(wsId, from, to),
       folderDeleted: (folder) => this.folderDeleted(wsId, folder),
     };
     return (await handleApi(host, req, route)) ?? json({ error: `No route ${req.method} ${route}` }, 404);
+  }
+
+  /** `user`'s Google Contacts here, where Google is set up (or stood in for). */
+  private googleContacts(vault: Vault, user: string): GoogleContactsSync | undefined {
+    if (googleMode(this.env) === "off" || !user) return undefined;
+    return new GoogleContactsSync(this.db, vault, user, () => contactsConnection(this.env, user), () => peopleApi(this.env, user));
   }
 
   /** Wake when the next calendar feed is due; with none, don't wake at all. */
@@ -634,6 +642,7 @@ export class Workspace extends DurableObject<Env> {
       origin: new URL(req.url).origin,
       // Markdown and .zip; a web page and Word are drawn by the app (Share → Export as).
       exporter: coreExporter({ vault: this.vault, bytes: (rel) => this.fileBytes(rel), origin: new URL(req.url).origin }),
+      googleContacts: this.googleContacts(this.vault, who.user),
       drive: this.driveTarget(vault, who.user, new URL(req.url).origin),
     });
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
@@ -679,6 +688,7 @@ export class Workspace extends DurableObject<Env> {
         sharing: who.origin ? this.agentSharing(who.workspace, who.user, who.origin, role === "owner" || role === "editor") : undefined,
         // Markdown and .zip, as over MCP; a web page and Word are drawn by the app (Share → Export as).
         exporter: who.origin ? coreExporter({ vault, bytes: (rel) => this.fileBytes(rel), origin: who.origin }) : undefined,
+        googleContacts: this.googleContacts(vault, who.user),
         drive: who.origin ? this.driveTarget(vault, who.user, who.origin) : undefined,
       };
       return { ok: true, ...(await command.run(host, input as never)) };
@@ -716,6 +726,8 @@ export class Workspace extends DurableObject<Env> {
    * were removed from the workspace.
    */
   async dropCalendarsOf(user: string, kind?: "google") {
+    // What their Google Contacts last agreed on goes too; the notes stay the workspace's.
+    this.googleContacts(this.vault, user)?.forget();
     if (this.calendar.dropOwner(user, kind)) {
       this.broadcast({ type: "calendar" });
       await this.schedule();

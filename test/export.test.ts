@@ -23,7 +23,7 @@ const sources = (over: Partial<StaticSources> = {}): StaticSources => ({
     { path: "Launch.md", title: "Launch", line: 3, text: "Ship it due:2040-10-01 !high", summary: "Ship it", done: false, heading: null, meta: { priority: "high", due: "2040-10-01", start: null, rec: null, done: null, until: null, times: null, assignees: [], tags: [] } as never },
     { path: "Launch.md", title: "Launch", line: 4, text: "Done already", summary: "Done already", done: true, heading: null, meta: { priority: null, due: null, start: null, rec: null, done: null, until: null, times: null, assignees: [], tags: [] } as never },
   ],
-  feed: async () => [{ id: "abcd2345", path: "Launch.md", kind: "md", title: "Launch", mtime: 0, archived: false, excerpt: "The plan in short.", tags: [], lines: [], lastSource: null, lastBy: null, role: null }],
+  feed: async () => [{ id: "abcd2345", path: "Launch.md", kind: "md", title: "Launch", mtime: 0, archived: false, excerpt: "The plan in short.", tags: [], lines: [], lastSource: null, lastBy: null, role: null, date: null }],
   today: async () => ({ date: "2026-09-29", sections: [], journal: { path: "Journal/2026-09-29.md", exists: false } }),
   math: () => import("../web/src/mathRender.ts"),
   diagram: async (code) => `<svg xmlns="http://www.w3.org/2000/svg" id="qd-1"><style>#qd-1 .node{fill:#fff}</style><text>${code.length} chars</text></svg>`,
@@ -58,7 +58,7 @@ $$
 
 ::tasks{folder=Projects}
 
-::query{folder=Projects label="Active"}
+::view{folder=Projects label="Active"}
 
 ::timer{duration=25m label="Focus"}
 

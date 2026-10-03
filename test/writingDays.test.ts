@@ -1,7 +1,7 @@
 // Your writing days: changes grouped by the calendar day where you are, and the 12 weeks the heatmap shows.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { countByDay, daysText, heatmapWeeks, level, mondayOf } from "../web/src/writingDays.ts";
+import { countByDay, daysText, fitWeeks, heatmapWeeks, level, MAX_WEEKS, mondayOf, thisWeek } from "../web/src/writingDays.ts";
 
 
 test("changes count toward the day they were made where you are, not the UTC day", () => {
@@ -36,8 +36,32 @@ test("the heatmap is 12 weeks of Monday to Sunday ending this week, with days to
   assert.equal(new Set(fall).size, fall.length);
 });
 
+test("the heatmap fills its width: more weeks as it widens, squares growing into what's left", () => {
+  const span = ({ weeks, cell }: { weeks: number; cell: number }) => weeks * cell + (weeks - 1) * 3;
+  // A Today card's width: well past 12 weeks, filling it to within a pixel.
+  const card = fitWeeks(560);
+  assert.ok(card.weeks > 12 && card.cell >= 13, JSON.stringify(card));
+  assert.ok(560 - span(card) < 1 + card.weeks * 0.1, `fills 560px: ${span(card)}`);
+  // Narrow: never fewer than 12 weeks; the squares shrink instead.
+  assert.deepEqual(fitWeeks(120).weeks, 12);
+  assert.ok(fitWeeks(120).cell < 13);
+  // Wide: at most a year, then the squares grow (up to a point).
+  const wide = fitWeeks(1100);
+  assert.equal(wide.weeks, MAX_WEEKS);
+  assert.ok(wide.cell > 13 && wide.cell <= 24);
+  // A year of weeks back from today, for the widest map.
+  assert.equal(heatmapWeeks("2026-10-01", MAX_WEEKS).length, 53);
+});
+
 test("a day's square darkens with its changes, and counts read as words", () => {
   assert.deepEqual([0, 1, 2, 3, 4, 7, 8, 40].map(level), [0, 1, 2, 2, 3, 3, 4, 4]);
   assert.equal(daysText(1), "1 day");
   assert.equal(daysText(3), "3 days");
+});
+
+test("this week counts the days you wrote since Monday", () => {
+  const wrote = new Map(["2026-09-27", "2026-09-28", "2026-09-30", "2026-10-01"].map((d) => [d, 1])); // Sunday, then Mon, Wed, Thu
+  assert.equal(thisWeek(wrote, "2026-10-01"), 3);
+  assert.equal(thisWeek(wrote, "2026-09-28"), 1, "on Monday, only Monday");
+  assert.equal(thisWeek(new Map(), "2026-10-01"), 0);
 });

@@ -196,7 +196,9 @@ async function tryThisPr(favorites: boolean, shared: string[]) {
   await must("PUT", `${api}/note`, { path: TRY, content: lines.join("\n") });
   if (favorites) {
     await must("POST", `${api}/favorites/star`, { path: TRY });
-    const order = ((await must("GET", `${api}/favorites`)) as Array<{ path: string }>).map((f) => f.path);
+    // Starred tags and views are in the list too: they're ordered by "#tag" and "~id", notes by path.
+    const keyOf = (f: { path?: string; tag?: string; id?: string; smartFolder?: boolean }) => (f.tag !== undefined ? `#${f.tag}` : f.smartFolder ? `~${f.id}` : f.path!);
+    const order = ((await must("GET", `${api}/favorites`)) as Array<Parameters<typeof keyOf>[0]>).map(keyOf);
     await must("PUT", `${api}/favorites`, { paths: [TRY, ...order.filter((p) => p !== TRY)] });
   }
 }

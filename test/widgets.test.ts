@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseDirective, serializeDirective } from "../web/src/widgets/args.ts";
 import { fieldValues } from "../web/src/widgets/core.ts";
-import { QUERY_FIELDS, query } from "../web/src/widgets/query.ts";
+import { QUERY_FIELDS, view } from "../web/src/widgets/view.ts";
 import { parseAttrs, serializeAttrs } from "../src/core/directive.ts";
 import { parseQuery } from "../src/core/query.ts";
 import { EditorState } from "@codemirror/state";
@@ -19,22 +19,22 @@ import { WidgetType } from "@codemirror/view";
 test("the query fields cover every query key a smart folder keeps, and the widget shows them all", () => {
   const every = parseQuery('q=x folder=A tag=b,c match=any sort=title limit=5');
   assert.deepEqual(QUERY_FIELDS.map((f) => f.key).sort(), Object.keys(every).filter((k) => k !== "limit").sort());
-  assert.deepEqual(query.fields.map((f) => f.key), ["label", ...QUERY_FIELDS.map((f) => f.key), "view", "cols", "limit"]);
+  assert.deepEqual(view.fields.map((f) => f.key), ["label", ...QUERY_FIELDS.map((f) => f.key), "layout", "fields", "group", "date", "limit"]);
 });
 
-test("a ::query's filters written as their own keys show in Matching, so saving its settings keeps them", () => {
-  const form = query.formArgs!(parseAttrs('q=plan folder=A modified>-7d -tag=x label="Recent"'));
-  assert.equal(serializeAttrs(fieldValues(query.fields, form)), 'label=Recent q="plan modified>-7d -tag=x" folder=A');
+test("a ::view's filters written as their own keys show in Matching, so saving its settings keeps them", () => {
+  const form = view.formArgs!(parseAttrs('q=plan folder=A modified>-7d -tag=x label="Recent"'));
+  assert.equal(serializeAttrs(fieldValues(view.fields, form)), 'label=Recent q="plan modified>-7d -tag=x" folder=A');
 });
 
-test("a ::query's grouping round-trips through its settings form", () => {
-  const save = (src: string) => serializeAttrs(fieldValues(query.fields, query.formArgs!(parseAttrs(src))));
+test("a ::view's grouping round-trips through its settings form", () => {
+  const save = (src: string) => serializeAttrs(fieldValues(view.fields, view.formArgs!(parseAttrs(src))));
   assert.equal(save(`q="(tag=work OR tag=home) -folder=Archive 'launch plan'"`), `q="(tag=work OR tag=home) -folder=Archive 'launch plan'"`);
   // A filter written as its own key joins an OR without changing it.
   assert.equal(save('q="budget OR costs" modified>-7d'), 'q="(budget OR costs) modified>-7d"');
   assert.equal(save(save('q="budget OR costs" modified>-7d')), 'q="(budget OR costs) modified>-7d"');
   // A mistake keeps the form from saving, and says where it is.
-  assert.equal(query.fields.find((f) => f.key === "q")!.check!("(a OR b"), 'Missing ")" for the "(" at character 1');
+  assert.equal(view.fields.find((f) => f.key === "q")!.check!("(a OR b"), 'Missing ")" for the "(" at character 1');
 });
 
 test("the shared fields write a query back as text, leaving out blanks and the default sort", () => {
@@ -315,7 +315,7 @@ test("a key that compares twice is a range, and start and done compare too", () 
 });
 
 test("only a key that compares is written with its operator; any other value starting with < or > is quoted", () => {
-  const d = { name: "query", args: { label: "<3 launch", q: ">foo" } };
-  assert.equal(serializeDirective(d), '::query{label="<3 launch" q=">foo"}');
+  const d = { name: "view", args: { label: "<3 launch", q: ">foo" } };
+  assert.equal(serializeDirective(d), '::view{label="<3 launch" q=">foo"}');
   assert.deepEqual(parseDirective(serializeDirective(d))!.args, d.args);
 });

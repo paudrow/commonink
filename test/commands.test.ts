@@ -1,7 +1,7 @@
 import "./dom.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appCommands, matchCommands, shortcutSheet, type App } from "../web/src/commands.ts";
+import { appCommands, matchCommands, shortcutSheet, type App, type Command } from "../web/src/commands.ts";
 import { Palette, scopeOf, type PaletteScopes } from "../web/src/palette.ts";
 import { toggleShortcuts } from "../web/src/shortcuts.ts";
 import type { NoteMeta } from "../web/src/api.ts";
@@ -86,6 +86,7 @@ const app = (over: Partial<App> = {}): App => {
     shortcuts: run("shortcuts"),
     share: run("share"),
     copyLink: run("copyLink"),
+    copyBlockLink: (embed) => void ran.push(embed ? "copyBlockEmbed" : "copyBlockLink"),
     replaceAcross: run("replaceAcross"),
     exportAs: (how) => void ran.push(`export:${how}`),
     saveToDrive: run("saveToDrive"),
@@ -138,19 +139,19 @@ test("commands follow the app: vim's state, the open note, Getting started, and 
   const rename = matchCommands("rename", appCommands(app({ renames: "note" })));
   assert.deepEqual(rename.map((c) => c.title), ["Rename note…", "Rename a tag…", "Go to Tags"]);
   assert.deepEqual(rename[0].keys, ["F2"]);
-  rename[0].run();
+  rename[0].ask!();
   assert.equal(ran.at(-1), "rename");
   // One Rename… for whatever is showing: Notes narrowed to a folder renames the folder, and so on.
   for (const what of ["folder", "tag", "view", "file"] as const) assert.ok(titles("rename", app({ renames: what })).includes(`Rename ${what}…`));
   const moving = appCommands(app({ canBack: true, canForward: true, onLink: true, note: { kind: "md", starred: false, archived: false } })).filter((c) => ["back", "forward", "follow-link"].includes(c.id));
   assert.deepEqual(moving.map((c) => [c.title, c.keys?.[0]]), [["Go back", "Mod-["], ["Go forward", "Mod-]"], ["Follow link", undefined]]);
-  moving.forEach((c) => c.run());
+  moving.forEach((c) => c.run!());
   assert.deepEqual(ran.slice(-3), ["back", "forward", "followLink"]);
   const md = { kind: "md" as const, starred: false, archived: false };
   assert.deepEqual(titles("fold all", app({ note: md })), [], "no sections: nothing to fold");
   const folding = appCommands(app({ note: md, folds: 2 })).filter((c) => c.id.endsWith("fold-all"));
   assert.deepEqual(folding.map((c) => c.title), ["Fold all sections", "Unfold all sections"]);
-  folding.forEach((c) => c.run());
+  folding.forEach((c) => c.run!());
   assert.deepEqual(ran.slice(-2), ["foldAll:false", "foldAll:true"]);
   assert.deepEqual(titles("getting", app()), []);
   assert.deepEqual(titles("getting", app({ hasStart: true })), ["Open Getting started"]);
@@ -200,7 +201,7 @@ const scopes: PaletteScopes = {
   openPerson: (p) => void went.push(`person ${p.name}`),
 };
 
-function page(notes: NoteMeta[], onCreate: (name: string) => void = () => {}) {
+function page(notes: NoteMeta[], onCreate: (name: string) => void = () => {}, commands: () => Command[] = () => appCommands(app())) {
   document.body.innerHTML = `
     <button id="before">before</button>
     <div id="palette" hidden><div class="palette-box" role="dialog" aria-modal="true">
@@ -208,7 +209,7 @@ function page(notes: NoteMeta[], onCreate: (name: string) => void = () => {}) {
       <div id="palette-hint"></div><kbd class="palette-side"></kbd>
     </div></div>`;
   const opened: string[] = [];
-  const palette = new Palette(() => notes, (path) => void opened.push(path), onCreate, () => appCommands(app()), scopes);
+  const palette = new Palette(() => notes, (path) => void opened.push(path), onCreate, commands, scopes);
   const input = document.querySelector<HTMLInputElement>("#palette-input")!;
   const type = (text: string) => {
     input.value = text;
@@ -265,6 +266,74 @@ test("after >, Shift+Enter makes no note and Escape closes, handing focus back",
   p.press("Escape");
   assert.equal(p.palette.isOpen, false);
   assert.equal(document.activeElement?.id, "before");
+});
+
+test("a command that needs something asks it in the palette: the field keeps focus, Escape steps back, and done hands focus back", async () => {
+  const moved: string[] = [];
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+  const move: Command = {
+    id: "move",
+    title: "Move to folder…",
+    ask: () => ({
+      title: "Move Plan",
+      icon: "move",
+      placeholder: "To which folder?",
+      choices: () => Promise.resolve([{ label: "Projects", value: "Projects" }, { label: "Recipes", value: "Recipes" }]),
+      enter: (typed) => (typed ? `New folder “${typed}”` : null),
+      submit: (folder, picked) =>
+        folder === "Recipes"
+          ? { error: "It's in Recipes already" }
+          : {
+              title: `Into ${folder}`,
+              placeholder: "Why? (optional)",
+              enter: (why) => (why ? `Move, because ${why}` : "Move"),
+              submit: (why) => void moved.push(`${folder}${picked ? "" : " (new)"}${why ? `: ${why}` : ""}`),
+            },
+    }),
+  };
+  const p = page([], undefined, () => [move]);
+  const chip = document.querySelector<HTMLElement>(".palette-step")!;
+  const hint = document.querySelector<HTMLElement>("#palette-hint")!;
+  p.type(">move");
+  p.press("Enter");
+  assert.equal(p.palette.isOpen, true, "it stays open");
+  assert.equal(document.activeElement, p.input, "and the field keeps focus");
+  assert.equal(chip.hidden, false);
+  assert.equal(chip.textContent, "Move Plan");
+  assert.equal(p.input.placeholder, "To which folder?");
+  await tick();
+  assert.deepEqual(p.options(), ["Projects", "Recipes"]);
+  p.type("recipes");
+  assert.deepEqual(p.options(), ["Recipes"], "typing filters the choices");
+  p.press("Enter");
+  await tick();
+  assert.equal(hint.textContent, "It's in Recipes already", "an error keeps the step");
+  assert.equal(chip.textContent, "Move Plan");
+  p.type("Archive");
+  assert.deepEqual(p.options(), ["New folder “Archive”Enter"]);
+  p.press("Enter");
+  await tick();
+  assert.equal(chip.textContent, "Into Archive", "on to the next step");
+  assert.equal(p.input.value, "");
+  p.press("Backspace");
+  assert.equal(chip.textContent, "Move Plan", "Backspace in an empty field steps back");
+  assert.equal(p.input.value, "Archive", "with what was typed there");
+  p.press("Escape");
+  assert.equal(chip.hidden, true, "Escape steps back to the commands");
+  assert.equal(p.input.value, ">move");
+  assert.equal(p.palette.isOpen, true);
+  p.press("Enter");
+  await tick();
+  p.press("Enter"); // Projects
+  await tick();
+  p.type("tidy");
+  p.press("Enter");
+  await tick();
+  assert.deepEqual(moved, ["Projects: tidy"]);
+  assert.equal(p.palette.isOpen, false);
+  assert.equal(document.activeElement?.id, "before", "focus goes back where it was");
+  p.palette.open();
+  assert.equal(chip.hidden, true, "it opens to search again");
 });
 
 test("quick open's prefixes: # headings, tag: tags, / or folder: folders and smart folders, @ people", () => {
@@ -367,7 +436,7 @@ test("the calendar is a page to go to, a feed to subscribe to (not for viewers) 
   assert.deepEqual(titles("webcal", app({ canSubscribe: false })), []);
   assert.deepEqual(titles("calendar", app({ canSubscribe: false })), ["Go to Calendar", "Refresh calendars", "New event…"]);
   assert.deepEqual(titles("new event", app()).slice(0, 1), ["New event…"]);
-  for (const c of appCommands(app()).filter((c) => c.id.includes("calendar"))) c.run();
+  for (const c of appCommands(app()).filter((c) => c.id.includes("calendar"))) c.run!();
   assert.deepEqual(ran.slice(-3), ["go:calendar", "subscribeCalendar", "refreshCalendars"]);
   const keys = shortcutSheet(appCommands(app())).find((s) => s.area === "Calendar")!.shortcuts.map((s) => s.keys.join(" "));
   assert.deepEqual(keys.slice(0, 4), ["t", "j n", "k p", "m w d a"]);
@@ -375,17 +444,27 @@ test("the calendar is a page to go to, a feed to subscribe to (not for viewers) 
 
 test("Today is a page to go to, from the palette or :today", () => {
   assert.equal(titles("today", app())[0], "Go to Today");
-  appCommands(app()).find((c) => c.id === "go:today")!.run();
+  appCommands(app()).find((c) => c.id === "go:today")!.run!();
   assert.equal(ran.at(-1), "go:today");
   assert.ok(shortcutSheet(appCommands(app())).find((s) => s.area === "Vim")!.shortcuts.some((s) => s.keys.includes(":today")));
 });
 
 test("Advanced search is a command, with its keys on the sheet", () => {
   assert.equal(titles("advanced", app())[0], "Advanced search…");
-  appCommands(app()).find((c) => c.id === "advanced-search")!.run();
+  appCommands(app()).find((c) => c.id === "advanced-search")!.run!();
   assert.equal(ran.at(-1), "advancedSearch");
   const global = shortcutSheet(appCommands(app())).find((s) => s.area === "Global")!.shortcuts;
   assert.ok(global.some((s) => s.keys.includes("Mod-Alt-f") && s.label === "Advanced search…"));
+});
+
+test("the block commands are worded plainly, and the note's web address says it's one", () => {
+  const md = appCommands(app({ note: { kind: "md", starred: false, archived: false } }));
+  const title = (id: string) => md.find((c) => c.id === id)!.title;
+  assert.equal(title("copy-link"), "Copy web address of this note");
+  assert.equal(title("copy-block-link"), "Copy link to this paragraph or selection");
+  assert.equal(title("copy-block-embed"), "Copy embed of this paragraph or selection");
+  md.find((c) => c.id === "copy-block-embed")!.run!();
+  assert.equal(ran.at(-1), "copyBlockEmbed");
 });
 
 test("the tag in view can be starred and renamed from the palette, or a tag picked when none is", () => {
@@ -401,6 +480,13 @@ test("the tag in view can be starred and renamed from the palette, or a tag pick
 test("saving filters as a view is offered only when Notes has filters on", () => {
   assert.deepEqual(titles("save filters", app()).filter((t) => t.startsWith("Save these")), []);
   assert.deepEqual(titles("save filters", app({ notesFiltered: true })).slice(0, 1), ["Save these filters as a view"]);
+});
+
+test("one short field or one pick is asked in the palette; a form of several fields opens its dialog", () => {
+  const cmds = appCommands(app({ notesFiltered: true, note: { kind: "md", starred: false, archived: false } }));
+  const by = (id: string) => cmds.find((c) => c.id === id)!;
+  for (const id of ["new-smart-folder", "save-filters", "new-contact"]) assert.ok(by(id).run && !by(id).ask, `${id} opens its dialog`);
+  for (const id of ["new-folder", "new-tag", "star-tag", "rename-tag", "move", "label-version", "restore-version", "new-from-template"]) assert.ok(by(id)?.ask, `${id} asks in the palette`);
 });
 
 test("a note can go back to a labeled version, and archive turns into unarchive on an archived note", () => {
@@ -484,6 +570,8 @@ const NOT_A_VERB: Record<string, string> = {
   "card move": "cards are dragged on the board itself",
   "card edit": "cards are edited on the board itself",
   "tag asset": "an asset's tag chips on Assets",
+  "contacts google": "the Google bar on Contacts, and Settings → Integrations, show whether Google Contacts is connected",
+  "contacts sync": "the Google bar on Contacts syncs, and Settings → Integrations",
   properties: "a note's property table lists them, and suggests keys and values as you add one",
   "property type": "a property's type menu in a note's property table",
   smart: "the sidebar's Smart folders section lists them",
@@ -492,8 +580,8 @@ const NOT_A_VERB: Record<string, string> = {
   decisions: "Today lists the decisions waiting on you",
   "decision answer": "a decision's own buttons on Today",
   "decision withdraw": "agents withdraw the questions they asked",
-  "smart-star": "a smart folder's star, on its row in the sidebar or beside the Notes filters",
-  "smart-unstar": "a smart folder's star, on its row in the sidebar or beside the Notes filters",
+  "smart-star": "a smart folder's own star, on its sidebar row or beside the Notes filters showing it",
+  "smart-unstar": "a smart folder's own star, on its sidebar row or in Starred",
   "starred order": "favorites are dragged into order in the sidebar",
   "label-rename": "a label's own buttons in History",
   "label-rm": "a label's own buttons in History",

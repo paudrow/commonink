@@ -1,5 +1,7 @@
 // Connected accounts: a person connects Google Calendar once, and adds its calendars to any workspace
-// they're in, where only they see them. The grant lives in D1 (`connections`), its tokens sealed
+// they're in, where only they see them. Google Contacts rides the same grant: connecting it from the
+// Contacts page adds its scope (Google keeps the ones already granted), and syncing writes the
+// contacts into that workspace's People/ (src/core/googleContacts.ts). The grant lives in D1 (`connections`), its tokens sealed
 // under INTEGRATIONS_KEY (secrets.ts); only this Worker and its workspaces read them, and no response
 // carries one. Connecting asks Google for read access, and for editing events only when someone turns
 // write-back on (incremental consent). Google Drive is the same connection: saving a note there asks
@@ -9,7 +11,9 @@
 import type { SqlDb } from "../../src/core/store.ts";
 import { b64url, cookie, escapeHtml, page, readSession, seal, setCookie, text, unseal } from "./auth.ts";
 import type { Env } from "./env.ts";
-import { exchangeCode, GOOGLE, GoogleClient, GoogleError, googleMode, refreshGrant, revokeGrant, SCOPES, type GoogleApi, type Grant } from "./google.ts";
+import { exchangeCode, GOOGLE, GoogleClient, GoogleError, googleMode, refreshGrant, revokeGrant, SCOPES, scopesFor, type GoogleApi, type GoogleProduct, type Grant } from "./google.ts";
+import { MockPeople, PeopleClient } from "./google-people.ts";
+import type { ContactsConnection, PeopleApi } from "../../src/core/googleContacts.ts";
 import { MockDrive, MockGoogle } from "./google-mock.ts";
 import { appPath, DRIVE, DRIVE_SCOPE, DriveClient, type DriveApi } from "./drive.ts";
 import { decrypt, encrypt } from "./secrets.ts";
@@ -41,6 +45,8 @@ export interface ConnectionInfo {
   calendar: boolean;
   /** May meeting notes' links be written to their events (the calendar.events scope)? */
   canWrite: boolean;
+  /** Google Contacts: not granted, read only, or editable (edits made here go back). */
+  contacts: "none" | "read" | "write";
   /** May notes be saved to their Google Drive (the drive.file scope)? */
   drive: boolean;
   connectedAt: number;
@@ -53,7 +59,27 @@ export async function connectionInfo(env: Env, user: string): Promise<Connection
   const r = await row(env, user);
   if (!r) return null;
   const scopes = r.scopes.split(" ");
-  return { account: r.account, calendar: scopes.includes(SCOPES.read) || scopes.includes(SCOPES.write), canWrite: scopes.includes(SCOPES.write), drive: scopes.includes(DRIVE_SCOPE), connectedAt: r.created_at };
+  const contacts = scopes.includes(SCOPES.contactsWrite) ? "write" : scopes.includes(SCOPES.contactsRead) ? "read" : "none";
+  return {
+    account: r.account,
+    calendar: scopes.includes(SCOPES.read) || scopes.includes(SCOPES.write),
+    canWrite: scopes.includes(SCOPES.write),
+    contacts,
+    drive: scopes.includes(DRIVE_SCOPE),
+    connectedAt: r.created_at,
+  };
+}
+
+/** Someone's Google Contacts connection, for syncing: null until they've granted contacts. */
+export async function contactsConnection(env: Env, user: string): Promise<ContactsConnection | null> {
+  const info = await connectionInfo(env, user);
+  return info && info.contacts !== "none" ? { account: info.account, canWrite: info.contacts === "write" } : null;
+}
+
+/** Google Contacts, as `user`: the People API, or the stand-in (kept in D1, so it's one per person). */
+export function peopleApi(env: Env, user: string): PeopleApi {
+  const token = () => accessToken(env, user);
+  return googleMode(env) === "mock" ? new MockPeople(env.DB, user, token) : new PeopleClient(token);
 }
 
 async function sealGrant(env: Env, user: string, g: Grant) {
@@ -142,14 +168,16 @@ interface Pending {
   user: string;
   workspace: string;
   write: boolean;
+  /** What it's for: where it comes back to, and which scopes it asks for. Calendar when left out. */
+  for?: GoogleProduct;
   /** Connecting to save to Drive: it asks for drive.file, and comes back to `next`. */
   drive?: { next: string; as: string };
   exp: number;
 }
 
-/** Where connecting ends: back on the Calendar, in the workspace it started from; for Drive, back on the note. */
-function back(url: URL, p: Pending, outcome: string) {
-  if (!p.drive) return `${url.origin}/calendar?w=${encodeURIComponent(p.workspace)}&google=${outcome}`;
+/** Where connecting ends: back on the Calendar (or Contacts), in the workspace it started from; for Drive, back on the note. */
+function back(url: URL, p: Pick<Pending, "workspace" | "for" | "drive">, outcome: string) {
+  if (!p.drive) return `${url.origin}/${p.for === "contacts" ? "contacts" : "calendar"}?w=${encodeURIComponent(p.workspace)}&google=${outcome}`;
   let to = new URL(p.drive.next, url.origin);
   if (to.origin !== url.origin) to = new URL("/", url.origin); // appPath made sure; this makes surer
   to.searchParams.set("drive", outcome);
@@ -157,25 +185,30 @@ function back(url: URL, p: Pending, outcome: string) {
   return to.toString();
 }
 
+/** The scopes a connection asks for: drive.file for Drive, else its product's (reading, or also writing). */
+const asking = (p: Pick<Pending, "for" | "drive" | "write">) => (p.drive ? [DRIVE_SCOPE] : scopesFor(p.for ?? "calendar", p.write));
+
 const found = (to: string, cookies: string[] = []) => {
   const headers = new Headers({ Location: to, "Cache-Control": "no-store" });
   for (const c of cookies) headers.append("Set-Cookie", c);
   return new Response(null, { status: 302, headers });
 };
 
-/** What a grant needs to count: the calendar (read or edit), or for Drive, drive.file. */
-const granted = (scopes: string[], p: Pending) => (p.drive ? scopes.includes(DRIVE_SCOPE) : scopes.includes(SCOPES.read) || scopes.includes(SCOPES.write));
+/** What a grant needs to count: its product's scopes (reading or editing), or for Drive, drive.file. */
+const granted = (scopes: string[], p: Pending) =>
+  p.drive ? scopes.includes(DRIVE_SCOPE) : [...scopesFor(p.for ?? "calendar", false), ...scopesFor(p.for ?? "calendar", true)].some((s) => scopes.includes(s));
 
 /**
  * /auth/google/calendar and /auth/google/drive (start), /auth/google/calendar/callback (Google sends
  * the person back, either way), and on Previews /auth/google/calendar/mock (the stand-in's consent
  * page) and /auth/google/drive/mock/file (what "Open in Drive" shows there). Starting Calendar takes
- * `w`, the workspace to come back to, and `write=1` to also ask to edit events; starting Drive takes
- * `next`, the note to come back to, and `as`, the format the person picked.
+ * `w`, the workspace to come back to, `write=1` to also ask to edit events (or contacts), and
+ * `for=contacts` to connect Google Contacts instead; starting Drive takes `next`, the note to come
+ * back to, and `as`, the format the person picked.
  */
 export async function googleAuth(req: Request, env: Env, url: URL): Promise<Response> {
   const user = await readSession(req, env);
-  const next = url.pathname === "/auth/google/drive" ? appPath(url.searchParams.get("next")) : "/calendar";
+  const next = url.pathname === "/auth/google/drive" ? appPath(url.searchParams.get("next")) : url.searchParams.get("for") === "contacts" ? "/contacts" : "/calendar";
   if (!user) return found(`${url.origin}/auth/${env.DEV_LOGIN === "1" ? "dev" : "google"}?next=${encodeURIComponent(next)}`);
   const mode = googleMode(env);
   if (mode === "off") return notConfigured();
@@ -185,10 +218,11 @@ export async function googleAuth(req: Request, env: Env, url: URL): Promise<Resp
     case "/auth/google/drive": {
       const workspace = (url.searchParams.get("w") ?? "").replace(/[^a-z0-9]/g, "").slice(0, 40);
       const write = url.searchParams.get("write") === "1";
+      const product: GoogleProduct = url.searchParams.get("for") === "contacts" ? "contacts" : "calendar";
       const drive = url.pathname === "/auth/google/drive" ? { next, as: (url.searchParams.get("as") ?? "").replace(/[^a-z]/g, "").slice(0, 8) } : undefined;
       const state = b64url(crypto.getRandomValues(new Uint8Array(24)));
       const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
-      const pending = await seal(env.SESSION_SECRET, { state, verifier, user: user.id, workspace, write, drive, exp: Date.now() + 10 * 60_000 } satisfies Pending);
+      const pending = await seal(env.SESSION_SECRET, { state, verifier, user: user.id, workspace, write, for: product, drive, exp: Date.now() + 10 * 60_000 } satisfies Pending);
       const cookies = [setCookie(PENDING, pending, 600)];
       if (mode === "mock") return found(`${url.origin}/auth/google/calendar/mock?state=${state}`, cookies);
       const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
@@ -197,7 +231,7 @@ export async function googleAuth(req: Request, env: Env, url: URL): Promise<Resp
         client_id: env.GOOGLE_CLIENT_ID!,
         redirect_uri: client(env, url.origin).redirect,
         response_type: "code",
-        scope: ["openid", "email", ...(drive ? [DRIVE_SCOPE] : [SCOPES.read, ...(write ? [SCOPES.write] : [])])].join(" "),
+        scope: ["openid", "email", ...asking({ for: product, drive, write })].join(" "),
         access_type: "offline",
         include_granted_scopes: "true",
         prompt: "consent",
@@ -221,7 +255,9 @@ export async function googleAuth(req: Request, env: Env, url: URL): Promise<Resp
       }
       const asks = pending.drive
         ? "<b>see, edit, create and delete only the specific Google Drive files that you use with this app</b>"
-        : `<b>see your calendars</b>${pending.write ? " and <b>add links to meeting notes to your events</b>" : ""}`;
+        : pending.for === "contacts"
+          ? `<b>see your contacts</b>${pending.write ? " and <b>edit them</b>" : ""}`
+          : `<b>see your calendars</b>${pending.write ? " and <b>add links to meeting notes to your events</b>" : ""}`;
       return page(
         200,
         `<h1>Stand-in for Google</h1>
@@ -255,8 +291,7 @@ export async function googleAuth(req: Request, env: Env, url: URL): Promise<Resp
         if (mode === "mock") {
           // Google adds what's asked for to what was granted before (include_granted_scopes); so does the stand-in.
           const had = (await row(env, user.id))?.scopes.split(" ") ?? [];
-          const asked = pending.drive ? [DRIVE_SCOPE] : [SCOPES.read, ...(pending.write ? [SCOPES.write] : [])];
-          grant = mockGrant([...new Set(["openid", "email", ...had.filter(Boolean), ...asked])]);
+          grant = mockGrant([...new Set(["openid", "email", ...had.filter(Boolean), ...asking(pending)])]);
         } else grant = await exchangeCode(client(env, url.origin), code, pending.verifier);
       } catch {
         return found(back(url, pending, "failed"), clear);
@@ -273,10 +308,61 @@ function notConfigured() {
   return page(
     503,
     `<h1>Google isn't configured on this server</h1>
-     <p class="muted">Connecting Google Calendar or Google Drive needs a Google OAuth client and an encryption key for its tokens.
+     <p class="muted">Connecting Google Calendar, Contacts or Drive needs a Google OAuth client and an encryption key for its tokens.
      The person who runs this server sets <code>GOOGLE_CLIENT_ID</code>, <code>GOOGLE_CLIENT_SECRET</code> and
      <code>INTEGRATIONS_KEY</code> with <code>wrangler secret put</code>.</p>
      <p><a href="/calendar">Back to the Calendar</a></p>`,
   );
 }
 
+
+/**
+ * /auth/google/contacts/mock, on Previews and in local development only: the stand-in's address
+ * book, where a contact can be changed or deleted as if in Google, to see a sync bring it in.
+ */
+export async function mockContactsPage(req: Request, env: Env, url: URL): Promise<Response> {
+  if (googleMode(env) !== "mock") return text(404, "Not found");
+  const user = await readSession(req, env);
+  if (!user) return found(`${url.origin}/auth/dev?next=${encodeURIComponent(url.pathname)}`);
+  const people = new MockPeople(env.DB, user.id);
+  if (req.method === "POST") {
+    if (req.headers.get("Origin") !== url.origin) return text(403, "Cross-origin request refused");
+    const form = await req.formData();
+    const resource = String(form.get("resource") ?? "");
+    if (!/^people\/c\d+$/.test(resource)) return text(400, "Which contact?");
+    const list = (k: string) => String(form.get(k) ?? "").split(",").map((s) => s.trim()).filter(Boolean).map((value) => ({ value }));
+    if (form.get("delete")) await people.edit(resource, null);
+    else {
+      await people.edit(resource, {
+        names: [{ displayName: String(form.get("name") ?? "").trim() || resource }],
+        emailAddresses: list("email"),
+        phoneNumbers: list("phone"),
+        organizations: [{ name: String(form.get("company") ?? "").trim(), title: String(form.get("role") ?? "").trim() }],
+      });
+    }
+    return found(url.pathname);
+  }
+  const all = await people.all();
+  const field = (name: string, label: string, value: string) => `<label>${label} <input name="${name}" value="${escapeHtml(value)}"></label>`;
+  const next = `people/c${1000 + all.length + 1}`;
+  const card = (p: (typeof all)[number] | null) => {
+    const resource = p?.resourceName ?? next;
+    return `<form method="post" style="border:1px solid var(--line);border-radius:8px;padding:12px;margin:12px 0;display:grid;gap:6px${p?.metadata?.deleted ? ";opacity:.5" : ""}">
+      <input type="hidden" name="resource" value="${resource}">
+      <b>${p ? escapeHtml(p.names?.[0]?.displayName ?? resource) : "Add a contact"}</b>${p?.metadata?.deleted ? " (deleted)" : ""}
+      ${field("name", "Name", p?.names?.[0]?.displayName ?? "")}
+      ${field("email", "Emails", (p?.emailAddresses ?? []).map((e) => e.value).join(", "))}
+      ${field("phone", "Phones", (p?.phoneNumbers ?? []).map((e) => e.value).join(", "))}
+      ${field("company", "Company", p?.organizations?.[0]?.name ?? "")}
+      ${field("role", "Role", p?.organizations?.[0]?.title ?? "")}
+      <div><button type="submit">${p ? "Save in Google" : "Add in Google"}</button>${p && !p.metadata?.deleted ? ` <button type="submit" name="delete" value="1" style="background:none;color:inherit;border:1px solid var(--line)">Delete in Google</button>` : ""}</div>
+    </form>`;
+  };
+  return page(
+    200,
+    `<h1>Stand-in Google Contacts</h1>
+     <p class="muted">This server has no Google OAuth client, so these demo contacts play your Google address book. Change one here, then press <b>Sync</b> on the Contacts page.</p>
+     ${all.map(card).join("")}${card(null)}
+     <p><a href="/contacts">Back to Contacts</a></p>`,
+  );
+}

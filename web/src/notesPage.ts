@@ -196,15 +196,15 @@ export class NotesPage {
   private get scope() {
     return this.tab === "archive" ? "archived" : "active";
   }
-  /** What Notes shows, as a note query: the same thing a ::query widget or a smart folder holds. */
+  /** What Notes shows, as a note query: the same thing a ::view widget or a smart folder holds. */
   get query(): NoteQuery {
     const q = this.input.value.trim();
     return { ...(q && { q }), ...(this.folder && { folder: this.folder }), ...(this.tag && { tag: this.tag }), ...(this.match === "any" && tagList(this.tag).length > 1 && { match: "any" as const }), ...(this.sort !== "modified" && { sort: this.sort }) };
   }
 
-  /** Offer to keep the filters as a smart folder, under the page's own Save button (what ⌘⇧P's command does). */
-  saveFilters() {
-    this.hooks.saveQuery(this.saveBtn, formatQuery(this.query));
+  /** Keep the filters as a smart folder: the smart folder editor, filled in with them (what ⌘⇧P's command does). */
+  saveFilters(anchor?: HTMLElement) {
+    this.hooks.saveQuery(anchor ?? this.saveBtn, formatQuery(this.query));
   }
 
   /**

@@ -9,6 +9,7 @@ import { tagList } from "../../../src/core/query.ts";
 import { formatDuration, parseDuration, serializeDirective } from "./args.ts";
 import type { EditorContext } from "../editor/blocks.ts";
 import { calendars, colorVar } from "../calendar/data.ts";
+import { api } from "../api.ts";
 
 export interface Field {
   key: string;
@@ -21,8 +22,15 @@ export interface Field {
   off?: string;
   /** Selects: [value, label] pairs. The first is the default, which is left out of the markdown. */
   options?: Array<[string, string]>;
-  /** A text field that suggests values: tags in use (with the tag picker), or folders. */
-  picker?: "tag" | "folder";
+  /**
+   * A text field that suggests values: tags in use (with the tag picker), folders, or the
+   * frontmatter properties notes have (as chips under it; with `several`, each one picked joins the list).
+   */
+  picker?: "tag" | "folder" | "property";
+  /** A property picker's field holds several, comma-separated (`status, due`). */
+  several?: boolean;
+  /** Shown only when this says so, from the form's values (a board's group: only for a board). A hidden field isn't written. */
+  when?(values: Record<string, string>): boolean;
   /** Text fields: what's wrong with a value, or null. A widget's form shows it in place of its preview, and can't be saved until it's fixed. */
   check?(value: string): string | null;
   /** Text fields: a link beside the box, such as the query syntax's "?". */
@@ -78,7 +86,7 @@ export interface WidgetSpec {
   defaults: Record<string, string>;
   /** A button in the settings form that does something with the args being edited (not yet saved). */
   configAction?: { label: string; icon: string; run(args: Record<string, string>, env: WidgetEnv, anchor: HTMLElement): void };
-  /** The args as the settings form shows them, when that differs from how they're written (see ::query). */
+  /** The args as the settings form shows them, when that differs from how they're written (see ::view). */
   formArgs?(args: Record<string, string>): Record<string, string>;
   /** Build the widget body; return a cleanup function. */
   mount(body: HTMLElement, env: WidgetEnv, card: HTMLElement): () => void;
@@ -172,12 +180,24 @@ function configForm(
     preview.classList.toggle("is-error", !valid);
   };
 
-  const rows = fieldRows(spec.fields, values, refresh, env.sources);
+  // A field shown only for some values (a board's group) comes and goes as they change.
+  const shown = () => spec.fields.filter((f) => f.when?.(values) ?? true).map((f) => f.key).join(" ");
+  let showing = shown();
+  const rows = el("div", { class: "qw-config-rows" });
+  const changed = () => {
+    if (shown() !== showing) {
+      showing = shown();
+      rows.replaceChildren(...fieldRows(spec.fields, values, changed, env.sources));
+      env.remeasure();
+    }
+    refresh();
+  };
+  rows.append(...fieldRows(spec.fields, values, changed, env.sources));
 
   const form = el(
     "form",
     { class: "qw-config" },
-    ...rows,
+    rows,
     el(
       "div",
       { class: "qw-config-foot" },
@@ -209,6 +229,7 @@ function configForm(
 export function fieldValues(fields: Field[], values: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const f of fields) {
+    if (f.when && !f.when(values)) continue;
     const v = (values[f.key] ?? "").trim();
     if (f.type === "duration") out[f.key] = formatDuration(parseDuration(v) ?? 0);
     else if (f.type === "toggle") {
@@ -228,7 +249,7 @@ export function fieldRows(fields: Field[], values: Record<string, string>, chang
     values[key] = v;
     changed();
   };
-  return fields.map((f) => {
+  return fields.filter((f) => f.when?.(values) ?? true).map((f) => {
     const row = (...control: Array<HTMLElement | null>) =>
       el("label", { class: "qw-field" }, el("span", { class: "qw-field-label" }, f.label), el("span", { class: "qw-field-control" }, ...control));
     if (f.type === "toggle") {
@@ -278,6 +299,7 @@ export function fieldRows(fields: Field[], values: Record<string, string>, chang
       );
       helper = button;
     }
+    const props = f.picker === "property" ? propertyChips(input, !!f.several, pick) : null;
     const presets = f.presets?.length
       ? el(
           "div",
@@ -286,8 +308,49 @@ export function fieldRows(fields: Field[], values: Record<string, string>, chang
         )
       : null;
     if (f.help) helper = el("span", { class: "qw-help" }, helper, f.help());
-    return row(helper ? el("span", { class: "qw-picked" }, input, helper) : input, presets);
+    return row(helper ? el("span", { class: "qw-picked" }, input, helper) : input, presets, props);
   });
+}
+
+/**
+ * The properties notes have, as chips under a field: one picks it (the field holds one), or adds it
+ * to or takes it out of the list (the field holds `several`, where the fields every note has, tags,
+ * folder and modified, are offered too).
+ */
+function propertyChips(input: HTMLInputElement, several: boolean, pick: (v: string) => void): HTMLElement {
+  const wrap = el("div", { class: "qw-presets qw-props" });
+  const chosen = () => input.value.split(",").map((v) => v.trim().toLowerCase()).filter(Boolean);
+  const draw = (keys: string[]) => {
+    const on = new Set(several ? chosen() : [input.value.trim().toLowerCase()]);
+    wrap.replaceChildren(
+      ...keys.map((k) =>
+        el(
+          "button",
+          {
+            type: "button",
+            class: `qw-chip${on.has(k) ? " is-on" : ""}`,
+            "aria-pressed": String(on.has(k)),
+            onmousedown: (e: Event) => e.preventDefault(),
+            onclick: () => {
+              pick(!several ? k : on.has(k) ? chosen().filter((c) => c !== k).join(", ") : [...chosen(), k].join(", "));
+              draw(keys);
+            },
+          },
+          k,
+        ),
+      ),
+    );
+  };
+  void api
+    .properties()
+    .then((list) => {
+      const found = list.slice(0, 24).map((p) => p.key);
+      const keys = several ? [...found, ...["tags", "folder", "modified"].filter((k) => !found.includes(k))] : found;
+      draw(keys);
+      input.addEventListener("input", () => draw(keys));
+    })
+    .catch(() => {});
+  return wrap;
 }
 
 /**

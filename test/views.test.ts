@@ -25,12 +25,16 @@ function oldTable(db: { exec(sql: string): void; run(sql: string, ...p: unknown[
 }
 
 test("a view's query line: read outside code, tidied, rewritten in place, and a name that can be a file's", () => {
-  assert.equal(viewLine("tag=work  sort=title limit=5"), "::query{tag=work sort=title}");
-  assert.equal(viewLine(""), "::query");
-  assert.deepEqual(viewQueryIn("# Work\n\n```\n::query{tag=no}\n```\n\n::query{tag=work limit=3 label=Mine}\n"), { query: "tag=work", line: 6 });
+  assert.equal(viewLine("tag=work  sort=title limit=5"), "::view{tag=work sort=title}");
+  assert.equal(viewLine(""), "::view");
+  assert.deepEqual(viewQueryIn("# Work\n\n```\n::view{tag=no}\n```\n\n::view{tag=work limit=3 label=Mine}\n"), { query: "tag=work", line: 6 });
   assert.equal(viewQueryIn("Just words.\n"), null);
-  assert.equal(withViewQuery("Above.\n\n::query{tag=work}\n\nBelow.\n", 'q="launch plan"'), 'Above.\n\n::query{q="launch plan"}\n\nBelow.\n');
-  assert.equal(withViewQuery("Above.\n", "tag=x"), "Above.\n\n::query{tag=x}\n");
+  assert.equal(withViewQuery("Above.\n\n::view{tag=work}\n\nBelow.\n", 'q="launch plan"'), 'Above.\n\n::view{q="launch plan"}\n\nBelow.\n');
+  assert.equal(withViewQuery("Above.\n", "tag=x"), "Above.\n\n::view{tag=x}\n");
+  // A view note laid out as a board keeps its layout, fields, title and id when its query changes.
+  const board = '::view{tag=work layout=board group=owner fields=due label="Work" id=k3x9q}\n';
+  assert.deepEqual(viewQueryIn(board), { query: "tag=work", line: 0 });
+  assert.equal(withViewQuery(board, "tag=plan"), '::view{tag=plan label=Work layout=board fields=due group=owner id=k3x9q}\n');
   assert.equal(viewFileName(" Q3 / Q4: #work [[links]] "), "Q3 Q4 work links");
   assert.equal(viewFileName("..."), "");
 });
@@ -38,11 +42,11 @@ test("a view's query line: read outside code, tidied, rewritten in place, and a 
 test("views are read from notes in Views/: shared ones right in it, each person's own in Views/<user ID>/", () => {
   const { vault } = openTempVault({
     ...NOTES,
-    "Views/Plans.md": "Everything we plan.\n\n::query{tag=plan sort=title}\n",
+    "Views/Plans.md": "Everything we plan.\n\n::view{tag=plan sort=title}\n",
     "Views/Readme.md": "# Not a view: no query line\n",
-    "Views/ana/Mine.md": "::query{folder=Ideas}\n",
-    "Views/bo/Theirs.md": "::query{folder=Projects}\n",
-    "Views/ana/Deeper/Lost.md": "::query{tag=work}\n",
+    "Views/ana/Mine.md": "::view{folder=Ideas}\n",
+    "Views/bo/Theirs.md": "::view{folder=Projects}\n",
+    "Views/ana/Deeper/Lost.md": "::view{tag=work}\n",
   });
   const list = (user: string) => vault.smartFolders(user).map((f) => `${f.name} ${f.path} ${f.query} ${f.count} ${f.shared ? "shared" : "own"}`);
   assert.deepEqual(list("ana"), ["Mine Views/ana/Mine.md folder=Ideas 1 own", "Plans Views/Plans.md tag=plan sort=title 2 shared"]);
@@ -50,7 +54,7 @@ test("views are read from notes in Views/: shared ones right in it, each person'
   assert.equal(vault.findSmartFolder("ana", "views/plans.md").name, "Plans", "a view is found by its note's path too");
   assert.throws(() => vault.findSmartFolder("ana", "Theirs"), /No view "Theirs"/);
   // Editing the note is editing the view.
-  vault.save("Views/Plans.md", "Everything we plan.\n\n::query{tag=work}\n", { source: "ana" });
+  vault.save("Views/Plans.md", "Everything we plan.\n\n::view{tag=work}\n", { source: "ana" });
   assert.equal(vault.findSmartFolder("ana", "Plans").query, "tag=work");
   // A view note isn't one of the notes a view finds, unless the query asks for Views/.
   assert.equal(vault.feed({ limit: 50 }).items.some((n) => n.path.startsWith("Views/")), false);
@@ -65,16 +69,16 @@ test("saving a view writes its note; renaming renames it; sharing moves it; dele
   const made = vault.saveSmartFolder("ana", { name: "Launch / plans", query: "tag=plan limit=5", shared: false }, true, "ana");
   assert.equal(made.view.path, "Views/ana/Launch plans.md");
   assert.equal(made.view.name, "Launch plans");
-  assert.equal(fs.readFileSync(path.join(dir, made.view.path), "utf8"), "::query{tag=plan}\n");
+  assert.equal(fs.readFileSync(path.join(dir, made.view.path), "utf8"), "::view{tag=plan}\n");
   assert.equal(made.written?.change?.op, "create");
   assert.throws(() => vault.saveSmartFolder("ana", { name: "launch plans", query: "", shared: false }, true, "ana"), /already a view named launch plans/);
 
   // Words written above its query line stay through a change.
-  vault.save(made.view.path, "Launch work.\n\n::query{tag=plan}\n", { source: "ana" });
+  vault.save(made.view.path, "Launch work.\n\n::view{tag=plan}\n", { source: "ana" });
   const renamed = vault.saveSmartFolder("ana", { id: made.view.id, name: "Launch", query: "tag=plan,work", shared: true }, true, "ana");
   assert.deepEqual([renamed.view.id, renamed.view.path, renamed.view.shared, renamed.view.count], [made.view.id, "Views/Launch.md", true, 1]);
   assert.deepEqual([renamed.moved?.from, renamed.moved?.path], ["Views/ana/Launch plans.md", "Views/Launch.md"]);
-  assert.equal(fs.readFileSync(path.join(dir, "Views/Launch.md"), "utf8"), 'Launch work.\n\n::query{tag="plan,work"}\n');
+  assert.equal(fs.readFileSync(path.join(dir, "Views/Launch.md"), "utf8"), 'Launch work.\n\n::view{tag="plan,work"}\n');
   assert.equal(fs.existsSync(path.join(dir, "Views/ana/Launch plans.md")), false);
   assert.deepEqual(vault.smartFolders("bo").map((f) => f.name), ["Launch"], "shared now");
 
@@ -116,10 +120,10 @@ test("the upgrade writes each smart folder out as a view note, keeps its stars, 
   vault.sync();
   vault.upgradeSmartFolders();
   const read = (rel: string) => fs.readFileSync(path.join(dir, rel), "utf8");
-  assert.equal(read("Views/Plans.md"), "::query{tag=plan sort=title}\n");
-  assert.equal(read("Views/Plans 2.md"), "::query{tag=work}\n", "a name taken already gets a free one");
-  assert.equal(read("Views/u1/Q3 Q4 work.md"), "::query{folder=Projects}\n");
-  assert.equal(read("Views/u2/Plans.md"), "::query{folder=Ideas}\n");
+  assert.equal(read("Views/Plans.md"), "::view{tag=plan sort=title}\n");
+  assert.equal(read("Views/Plans 2.md"), "::view{tag=work}\n", "a name taken already gets a free one");
+  assert.equal(read("Views/u1/Q3 Q4 work.md"), "::view{folder=Projects}\n");
+  assert.equal(read("Views/u2/Plans.md"), "::view{folder=Ideas}\n");
   assert.equal(db.get("SELECT 1 AS n FROM sqlite_master WHERE name = 'smart_folders'"), undefined, "the table is gone");
   assert.deepEqual(vault.smartFolders("u1").map((f) => `${f.name}:${f.shared}`), ["Plans:true", "Plans 2:true", "Q3 Q4 work:false"]);
   assert.deepEqual(vault.smartFolders("u2").map((f) => `${f.name}:${f.shared}`), ["Plans:false", "Plans:true", "Plans 2:true"]);
