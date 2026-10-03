@@ -25,6 +25,36 @@ test("replaceIn: plain text, any case unless asked, whole words when asked; the 
   assert.ok(findPattern("(c++)", { wholeWord: true })!.test("use (c++) here"), "ends that aren't letters need no boundary");
 });
 
+test("replaceIn: only prose; frontmatter, code, link targets, URLs and #tags are left as written", () => {
+  const md = [
+    "---",
+    "tags: [acme]",
+    "company: Acme",
+    "---",
+    "# Acme",
+    "",
+    "Met Acme about [[Acme]] and [[Acme|the Acme deal]]; see ![logo](assets/acme-logo.png) and [pricing](https://acme.com/pricing).",
+    "Bare https://acme.com/pricing, `acme()` and #acme stay; Acme changes.",
+    "",
+    "```js",
+    "const acme = 1; // Acme",
+    "```",
+    "",
+  ].join("\n");
+  const r = replaceIn(md, "Acme", "Acme Inc", { wholeWord: true });
+  const want = md
+    .replace("# Acme", "# Acme Inc")
+    .replace("Met Acme about", "Met Acme Inc about")
+    .replace("; Acme changes.", "; Acme Inc changes.");
+  assert.equal(r.content, want);
+  assert.equal(r.count, 3);
+  assert.deepEqual(r.lines.map((l) => l.line), [5, 7, 8]);
+  // The preview's lines are exactly what's written.
+  const lines = md.split("\n");
+  for (const l of r.lines) lines[l.line - 1] = l.after;
+  assert.equal(lines.join("\n"), r.content);
+});
+
 test("replaceAcross: a dry run changes nothing; then one change per note, active notes only, in a folder if asked", () => {
   const { vault } = openTempVault({
     "A.md": "# A\n\nAcme Corp signed.\n",
