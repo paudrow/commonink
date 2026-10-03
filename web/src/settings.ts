@@ -6,7 +6,7 @@ import { formatKeys } from "./keys.ts";
 import { openModal } from "./modal.ts";
 import { localSteps } from "./connectAgent.ts";
 import { button } from "./widgets/core.ts";
-import type { Pinnable } from "./sidebar.ts";
+import { keptUpTop, type MoreItem, type Pinnable } from "./sidebar.ts";
 import { INKS, progressText, type InkId, type InkStats } from "./inks.ts";
 
 export type Section = "Appearance" | "Sidebar" | "Editor" | "Keyboard" | "Agents" | "Workspace";
@@ -67,7 +67,7 @@ export interface SettingsApp {
  * The pages under More, and what puts each there by itself in a workspace that unlocks as you go
  * (`when`; History is there from the start).
  */
-const UNDER_MORE: Array<{ item: Pinnable; name: string; when?: string; keywords: string }> = [
+const UNDER_MORE: Array<{ item: Exclude<MoreItem, "shared">; name: string; when?: string; keywords: string }> = [
   { item: "contacts", name: "Contacts", when: "you add someone", keywords: "people crm" },
   { item: "calendar", name: "Calendar", when: "you add a calendar or an event", keywords: "events meetings schedule" },
   { item: "assets", name: "Assets", when: "you upload a file", keywords: "files images uploads attachments" },
@@ -87,7 +87,7 @@ export function appSettings(app: SettingsApp): Setting[] {
           ? `${name} shows under More once ${when}. Turn this on to keep it with Today, Notes and Tasks, even before then.`
           : `On, ${name} sits with Today, Notes and Tasks. Off, it's under More.`,
       keywords: `sidebar navigation hide show more pin ${keywords}`,
-      control: { kind: "toggle", on: !!app.sidebarPinned[item], set: (on) => app.setSidebarPinned(item, on) },
+      control: { kind: "toggle", on: keptUpTop(app.sidebarPinned, item), set: (on) => app.setSidebarPinned(item, on) },
     }),
   );
   // A new workspace leaves Smart folders out until you save one; it can stay from the start instead.

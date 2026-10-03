@@ -54,8 +54,15 @@ test("a workspace that isn't gamified shows every optional item from the start",
   assert.deepEqual(shownItems(none, {}, new Set()), none);
 });
 
-test("past Today, Notes and Tasks, pages sit under More unless Settings keeps them up top; Shared with me always folds", () => {
+test("past Today, Notes and Tasks, pages sit under More unless kept up top (Calendar is by default); Shared with me always folds", () => {
   const shown = { contacts: true, calendar: true, assets: false, history: true, shared: true };
-  assert.deepEqual(morePlaces(shown, {}), { contacts: "more", calendar: "more", assets: null, history: "more", shared: "more" });
-  assert.deepEqual(morePlaces(shown, { calendar: true, history: true, assets: true }), { contacts: "more", calendar: "top", assets: null, history: "top", shared: "more" }, "a page that isn't showing stays out, pinned or not");
+  assert.deepEqual(morePlaces(shown, {}), { contacts: "more", calendar: "top", assets: null, history: "more", shared: "more" });
+  assert.deepEqual(morePlaces(shown, { calendar: false, history: true, assets: true }), { contacts: "more", calendar: "more", assets: null, history: "top", shared: "more" }, "a page that isn't showing stays out, kept up top or not");
+});
+
+test("with More folded, the page you're on sits up top, never below the closed More", () => {
+  const shown = { contacts: true, calendar: true, assets: true, history: true, shared: false };
+  assert.equal(morePlaces(shown, {}, "contacts", true).contacts, "top");
+  assert.equal(morePlaces(shown, {}, "contacts", false).contacts, "more", "open, it stays in its place under More");
+  assert.equal(morePlaces(shown, {}, "notes", true).contacts, "more");
 });

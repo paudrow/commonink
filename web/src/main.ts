@@ -2030,18 +2030,19 @@ function setExpanded(folder: string, open: boolean) {
 }
 
 /**
- * Calendar, Contacts, Assets, History and Shared with me: kept up top (Settings, Sidebar) or under
- * More, which starts folded. Folded, More still shows the page you're on, so where you are never hides.
+ * Contacts, Calendar, Assets, History and Shared with me: kept up top (Settings, Sidebar; Calendar is
+ * by default) or under More, which starts folded. Folded, the page you're on joins the ones up top,
+ * so where you are never hides and never sits below a closed More.
  */
 function placeMoreItems(shown: Record<MoreItem, boolean>, page: string | null) {
-  const places = morePlaces(shown, prefs.sidebarPinned);
+  const folded = !!prefs.folded.more;
+  const places = morePlaces(shown, prefs.sidebarPinned, page, folded);
   const more = $("#nav-more-btn");
   const list = $("#nav-more");
-  const folded = !!prefs.folded.more;
   for (const item of MORE_ITEMS) {
     const btn = $(`#${item}-btn`);
     const place = places[item];
-    btn.hidden = !place || (place === "more" && folded && page !== item);
+    btn.hidden = !place || (place === "more" && folded);
     if (place === "top") more.before(btn);
     else list.append(btn);
   }

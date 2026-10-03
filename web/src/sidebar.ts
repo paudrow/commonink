@@ -76,12 +76,26 @@ export const MORE_ITEMS: MoreItem[] = ["contacts", "calendar", "assets", "histor
 /** What Settings, Sidebar can keep showing: an optional item, or History. */
 export type Pinnable = OptionalItem | "history";
 
+/** Pages up top unless Settings, Sidebar says otherwise: Calendar, used most days next to Today. */
+const UP_TOP_BY_DEFAULT: ReadonlySet<MoreItem> = new Set(["calendar"]);
+
+/** Whether Settings, Sidebar keeps `item` up top: what you chose there, or its default. */
+export function keptUpTop(pinned: Partial<Record<Pinnable, boolean>>, item: MoreItem): boolean {
+  return item !== "shared" && (pinned[item] ?? UP_TOP_BY_DEFAULT.has(item));
+}
+
 /**
- * Where each of those pages sits: up top with Today, Notes and Tasks ("top", kept there in
- * Settings), under More ("more"), or nowhere (null) while it isn't showing at all (`shown`).
+ * Where each of those pages sits: up top with Today, Notes and Tasks ("top": kept there in
+ * Settings, or the page you're on while More is folded, so it never shows below a closed More),
+ * under More ("more"), or nowhere (null) while it isn't showing at all (`shown`).
  */
-export function morePlaces(shown: Record<MoreItem, boolean>, pinned: Partial<Record<Pinnable, boolean>>): Record<MoreItem, "top" | "more" | null> {
+export function morePlaces(
+  shown: Record<MoreItem, boolean>,
+  pinned: Partial<Record<Pinnable, boolean>>,
+  here: string | null = null,
+  folded = false,
+): Record<MoreItem, "top" | "more" | null> {
   return Object.fromEntries(
-    MORE_ITEMS.map((i) => [i, !shown[i] ? null : i !== "shared" && pinned[i] ? "top" : "more"]),
+    MORE_ITEMS.map((i) => [i, !shown[i] ? null : keptUpTop(pinned, i) || (folded && here === i) ? "top" : "more"]),
   ) as Record<MoreItem, "top" | "more" | null>;
 }
