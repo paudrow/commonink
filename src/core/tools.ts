@@ -2,14 +2,14 @@
 // by the local stdio server (src/mcp.ts) and hosted workspaces (the remote /mcp endpoint), so an
 // agent gets the same tools either way.
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
 import { VaultError } from "./paths.ts";
 import type { Vault } from "./vault.ts";
 import type { Calendar } from "./calendar.ts";
 import type { MemberRef } from "./contacts.ts";
 import type { Exporter } from "./export.ts";
 import { AGENTS_NOTE } from "./noteRoles.ts";
-import { COMMANDS, toolName, type ArgSpec, type Command, type SaveTarget, type Sharing } from "./commands/index.ts";
+import { COMMANDS, toolName, type Command, type SaveTarget, type Sharing } from "./commands/index.ts";
+import { inputSchema } from "./commands/input.ts";
 
 export interface ToolHost {
   vault: Vault;
@@ -43,22 +43,6 @@ export interface ToolHost {
  * allows that route (cloud/src/access.ts), so MCP can't do more than the app.
  */
 export const TOOL_ROUTES: Record<string, string> = Object.fromEntries(COMMANDS.flatMap((c) => (toolName(c) ? [[toolName(c), c.route]] : [])));
-
-/** An argument as MCP's input schema has it. */
-function schemaOf(a: ArgSpec): z.ZodTypeAny {
-  let t: z.ZodTypeAny;
-  if (a.kind === "number") t = z.number().int().min(a.min ?? Number.MIN_SAFE_INTEGER).max(a.max ?? Number.MAX_SAFE_INTEGER);
-  else if (a.kind === "boolean") t = z.boolean();
-  else if (a.kind === "strings") t = a.required && !a.allowEmpty ? z.array(z.string()).min(1) : z.array(z.string());
-  else if (a.kind === "string") t = a.enum ? z.enum(a.enum as [string, ...string[]]) : z.string();
-  else if (a.kind === "pairs") t = z.record(z.string(), z.string());
-  else throw new Error(`An MCP tool can't take a ${a.kind} argument`);
-  if (a.nullable) t = t.nullable();
-  if (!a.required && !a.mcpRequired) t = t.optional();
-  return a.describe ? t.describe(a.describe) : t;
-}
-
-const inputSchema = (c: Command) => Object.fromEntries(Object.entries(c.args).flatMap(([name, a]) => (a.only === "cli" ? [] : [[name, schemaOf(a)]])));
 
 const annotations = (c: Command) =>
   c.readOnly ? { readOnlyHint: true, openWorldHint: false } : { readOnlyHint: false, destructiveHint: !!c.destructive, openWorldHint: !!c.openWorld };
