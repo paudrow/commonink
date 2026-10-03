@@ -373,6 +373,7 @@ export class NotesPage {
     this.renderFolders(page.folders);
     this.tagBar.replaceChildren(tagFilter({ current: this.tag, any: this.match === "any", tags: this.hooks.tags, count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }), this.hooks.starButton(this.query));
     this.renderSortAndKeys();
+    this.search.hidden = this.tagBar.hidden = this.folderSel.hidden = false;
     this.saveBtn.hidden = !formatQuery(this.query);
     this.emptyBtn.hidden = true;
     this.hooks.filtersChanged();
@@ -430,6 +431,8 @@ export class NotesPage {
     const q = this.input.value.trim();
     const top = this.root.scrollTop;
     const filtered = Boolean(q || this.folder || this.tag);
+    // An empty Trash has nothing to search or filter, so it shows just the tabs and says it's empty.
+    this.search.hidden = this.tagBar.hidden = this.folderSel.hidden = !filtered && !items.length;
     this.list.replaceChildren(...(this.trashShown.length ? this.trashShown.map((t, i) => this.trashCard(t, i, trash)) : [this.trashEmpty(q, filtered)]));
     const page = this.trashFeed;
     this.renderElsewhere(filtered && page ? [["notes", page.counts.active], ["archive", page.counts.archived]] : []);
