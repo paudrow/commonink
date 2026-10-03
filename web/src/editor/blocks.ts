@@ -16,6 +16,7 @@ import { touches } from "./livePreview.ts";
 import { dataEmbed, hydrateDataEmbeds } from "../textPreview.ts";
 import { scanTags } from "../../../src/core/tags.ts";
 import { boardsIn, unclosedBoard } from "../../../src/core/kanban.ts";
+import { listOf, scalarOf } from "../../../src/core/frontmatter.ts";
 // Boards load with the first note that has one.
 import type { BoardHost, mountBoard } from "../kanban.ts";
 import { editsBetween } from "../merge.ts";
@@ -729,8 +730,11 @@ class PropertiesWidget extends WidgetType {
       .map((l) => l.match(/^([\w-]+):\s*(.*)$/))
       .filter((m): m is RegExpMatchArray => !!m)
       .map(([, k, v]) => {
-        const list = v.match(/^\[(.*)\]$/);
-        const values = list ? list[1].split(",").map((s) => s.trim()).filter(Boolean) : [v.replace(/^["']|["']$/g, "")];
+        // The same reading as the index's (quotes, escapes, a comma inside quotes), so a value a
+        // contact or event note wrote quoted shows as its text.
+        const entry = { key: k, lines: [`${k}: ${v}`] };
+        const list = /^\[.*\]$/.test(v.trim());
+        const values = list ? listOf(entry) : [scalarOf(entry)];
         return el(
           "div",
           { class: "prop" },
