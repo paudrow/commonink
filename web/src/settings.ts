@@ -208,7 +208,7 @@ export function appSettings(app: SettingsApp): Setting[] {
       description: app.gamified.canChange
         ? "For everyone in this workspace. On, the sidebar grows as you use it, inks are earned, tips teach shortcuts and clearing Today gets a small celebration. Off, everything is there from the start, with nothing to unlock and no celebrations."
         : `${game ? "On" : "Off"} for this workspace: ${game ? "the sidebar grows as you use it, inks are earned, and tips and small celebrations show up" : "everything is there from the start"}. Only an owner can change it.`,
-      keywords: "gamification gamified game progressive disclosure unlock earn rewards celebrate streak tips beginner simple everything admin owner",
+      keywords: "gamification gamified game progressive disclosure unlock earn rewards celebrate tips beginner simple everything admin owner",
       disabled: !app.gamified.canChange,
       control: { kind: "toggle", on: game, set: app.setGamified },
     },

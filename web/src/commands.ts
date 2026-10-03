@@ -174,7 +174,7 @@ export function appCommands(app: App): Command[] {
     { id: "new-contact", title: "New contact…", keywords: "create add person people contact crm", icon: "user", available: app.canDelete, run: app.newContact },
     { id: "import-contacts", title: "Import contacts (.vcf or .csv)…", keywords: "import upload vcard vcf csv google outlook people contacts", icon: "upload", available: app.canDelete, run: app.importContacts },
     { id: "quick-add", title: "Add a task", keywords: "quick add todo new task", icon: "task", keys: ["Mod-Shift-."], area: "Tasks", run: app.quickAdd },
-    go("today", "Today", "sun", "day agenda due overdue journal streak writing week recap"),
+    go("today", "Today", "sun", "day agenda due overdue journal writing week recap"),
     go("notes", "Notes", "feed", "home all"),
     { id: "filter-notes", title: "Filter notes", keywords: "search find notes page", icon: "search", keys: ["Mod-Shift-f"], run: app.filterNotes },
     { id: "advanced-search", title: "Advanced search…", keywords: "filter find notes query view smart folder words tags folders and or match any", icon: "sliders", keys: [ADVANCED_KEYS], run: app.advancedSearch },
