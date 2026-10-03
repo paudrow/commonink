@@ -208,6 +208,12 @@ export interface GoogleStatus {
   /** `calendar`: its calendars were allowed; `drive`: saving notes to Drive was (each is asked for the first time it's used); `contacts`: Google Contacts, read only or editable. */
   connection: { account: string; calendar: boolean; canWrite: boolean; contacts: "none" | "read" | "write"; drive: boolean; connectedAt: number } | null;
 }
+/** GitHub on this server (cloud/src/github.ts), for issue and PR cards of private repos: "mock" is the Preview stand-in, "off" not set up. */
+export interface GithubStatus {
+  mode: "real" | "mock" | "off";
+  /** `account` is their GitHub login. */
+  connection: { account: string; connectedAt: number } | null;
+}
 /** Your plan on this server (cloud/src/billing.ts). `on` false: billing isn't set up, and it's all free. */
 export interface Billing {
   on: boolean;
@@ -651,6 +657,10 @@ export const api = {
   syncGoogleContacts: () => j<GoogleContactsResult>(`${BASE}/contacts/google/sync`, send("POST", {})),
   /** Google forgets the grant, and your Google calendars leave every workspace. */
   disconnectGoogle: () => j<{ ok: true }>("/api/google/disconnect", send("POST", {})),
+  /** Online: whether GitHub can be connected on this server, and your connection to it (404 locally). */
+  github: () => j<GithubStatus>("/api/github"),
+  /** GitHub forgets the grant; cards go back to public repositories only. */
+  disconnectGithub: () => j<{ ok: true }>("/api/github/disconnect", send("POST", {})),
   /** Save a note to your Google Drive, sent as Word or markdown, as a Google Doc, a PDF or a markdown file. Where it went, to open. */
   saveToDrive: (as: "doc" | "pdf" | "md", title: string, file: Blob) =>
     j<{ id: string; name: string; url: string }>(`/api/google/drive?${new URLSearchParams({ as, title })}`, { method: "POST", headers: { "Content-Type": file.type }, body: file }),

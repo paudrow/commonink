@@ -7,6 +7,7 @@ import { deleteWorkspace, drop, log, membersOf } from "./admin.ts";
 import { revokeAgents } from "./agents.ts";
 import { endBilling } from "./billing.ts";
 import { disconnectGoogle } from "./connections.ts";
+import { disconnectGithub } from "./github.ts";
 import { endSessionsOf, workspacesOf, type User, type WorkspaceRef } from "./directory.ts";
 import type { Env } from "./env.ts";
 import { sharedWith } from "./shares.ts";
@@ -50,11 +51,12 @@ export async function deleteAccount(env: Env, url: URL, user: User, closeTabs: (
 
   // First, so a deleted account is never charged again: if Stripe can't be reached, nothing is deleted.
   await endBilling(env, user.id);
-  // Nothing of theirs keeps working while the rest goes: tabs, sessions, agents, Google.
+  // Nothing of theirs keeps working while the rest goes: tabs, sessions, agents, Google, GitHub.
   await closeTabs();
   await endSessionsOf(env.DB, user.id);
   await revokeAgents(env, url, user, "all");
   await disconnectGoogle(env, user.id);
+  await disconnectGithub(env, user.id);
 
   for (const w of plan.leaves) {
     if (await drop(env, url, w.id, user.id)) await log(env, w.id, user.id, "leave", user.id, "account deleted");

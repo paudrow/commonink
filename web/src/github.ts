@@ -1,6 +1,9 @@
 // GitHub issue and pull request cards (src/core/github.ts reads them, through /api/unfurl): a
 // github.com issue or PR link alone on its line shows its title, state, labels and activity. The
 // note keeps the plain URL; where GitHub won't answer, the link stays a link (or a plain link card).
+// Online, someone who connected their GitHub account (Settings → Integrations) gets cards for the
+// private repositories they can see; the server reads with their token, which never comes here.
+import { api, ApiError, type GithubStatus } from "./api.ts";
 import { el, icon, timeAgo } from "./dom.ts";
 import { githubRef, type GithubCard } from "../../src/core/github.ts";
 import type { Unfurl } from "../../src/core/unfurl.ts";
@@ -57,6 +60,30 @@ export function fetchUnfurl(url: string): Promise<Unfurl | null> {
     .then((meta) => (meta || seen.delete(url), meta)); // a failure is asked again next time
   seen.set(url, { at: Date.now(), value });
   return value;
+}
+
+/** GitHub on this server and the person's connection, or null where it has none (the local app answers 404). */
+export const githubStatus = (): Promise<GithubStatus | null> =>
+  api.github().catch((e) => {
+    if (e instanceof ApiError && e.status === 404) return null;
+    throw e;
+  });
+
+/** Where connecting starts; GitHub sends the person back to `next`, the page they were on. */
+export const githubConnectUrl = (next: string) => `/auth/github?next=${encodeURIComponent(next)}`;
+
+const OUTCOMES: Record<string, string> = {
+  connected: "GitHub is connected",
+  denied: "GitHub wasn't connected: access wasn't allowed.",
+  failed: "Couldn't connect GitHub. Try again.",
+};
+/** What coming back from connecting (?github=…) says, or null for an address that isn't one. */
+export const githubOutcome = (outcome: string | null) => (outcome && OUTCOMES[outcome]) || null;
+
+/** Disconnect GitHub. Cards already asked for are forgotten, so the next look shows what's still readable. */
+export async function disconnectGithub() {
+  await api.disconnectGithub();
+  seen.clear();
 }
 
 /**

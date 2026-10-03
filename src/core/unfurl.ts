@@ -29,9 +29,21 @@ const CACHE_SIZE = 500;
 
 const cache = new Map<string, { at: number; value: Promise<Unfurl> }>();
 
-export async function unfurl(url: string, guard?: UrlGuard, opts: { timeout?: number; githubToken?: string } = {}): Promise<Unfurl> {
+export interface UnfurlOptions {
+  timeout?: number;
+  /** The server's shared token for GitHub cards (GITHUB_TOKEN), if it has one. */
+  githubToken?: string;
+  /** Online: the asker's own GitHub connection, tried first. Its cards are kept under `as`, for them alone. */
+  githubOwn?: { token: string; as: string; rejected?: () => Promise<void> | void };
+  /** Tests only: where GitHub's API is. */
+  githubApi?: string;
+}
+
+export async function unfurl(url: string, guard?: UrlGuard, opts: UnfurlOptions = {}): Promise<Unfurl> {
   if (githubRef(url)) {
-    const card = await githubCard(url, { token: opts.githubToken, timeout: opts.timeout });
+    const { githubOwn: own, githubApi: api, timeout } = opts;
+    // Their own token first, for the private repos they can see; where it gets nothing, the shared one.
+    const card = (own && (await githubCard(url, { ...own, api, timeout }))) || (await githubCard(url, { token: opts.githubToken, api, timeout }));
     if (card) return { url, title: card.title, description: null, image: null, siteName: card.repo, favicon: null, github: card };
   }
   return page(url, guard, opts.timeout ?? TIMEOUT);
