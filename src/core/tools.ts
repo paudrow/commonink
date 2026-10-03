@@ -58,7 +58,17 @@ function schemaOf(a: ArgSpec): z.ZodTypeAny {
   return a.describe ? t.describe(a.describe) : t;
 }
 
-const inputSchema = (c: Command) => Object.fromEntries(Object.entries(c.args).flatMap(([name, a]) => (a.only === "cli" ? [] : [[name, schemaOf(a)]])));
+/**
+ * A tool's arguments. Unknown ones are refused, naming them and the ones it takes, rather than
+ * dropped: an agent passing a guessed argument (add_task's `to`) would otherwise have it ignored.
+ */
+function inputSchema(c: Command, name: string) {
+  const shape = Object.fromEntries(Object.entries(c.args).flatMap(([n, a]) => (a.only === "cli" ? [] : [[n, schemaOf(a)]])));
+  const takes = Object.keys(shape).length ? `It takes: ${Object.keys(shape).join(", ")}.` : "It takes no arguments.";
+  return z.strictObject(shape, {
+    error: (iss) => (iss.code === "unrecognized_keys" ? `${name} has no argument ${iss.keys.map((k) => `\`${k}\``).join(", ")}. ${takes} (${c.summary})` : undefined),
+  });
+}
 
 const annotations = (c: Command) =>
   c.readOnly ? { readOnlyHint: true, openWorldHint: false } : { readOnlyHint: false, destructiveHint: !!c.destructive, openWorldHint: !!c.openWorld };
@@ -117,7 +127,7 @@ export function createMcpServer(host: ToolHost): McpServer {
     if (!name || c.settings || (host.may && !host.may(c.route)) || (c.needs === "calendar" && !host.calendar) || (c.needs === "exporter" && !host.exporter) || (c.needs === "sharing" && !host.sharing) || (c.needs === "drive" && !host.drive)) continue;
     (mcp.registerTool as (n: string, config: unknown, cb: (input: Record<string, unknown>) => Promise<Result>) => unknown)(
       name,
-      { title: c.title, description: c.description ?? c.summary, inputSchema: inputSchema(c), annotations: annotations(c) },
+      { title: c.title, description: c.description ?? c.summary, inputSchema: inputSchema(c, name), annotations: annotations(c) },
       async (input) => {
         try {
           if (c.readOnly) vault.sync(); // files written straight to disk count too
