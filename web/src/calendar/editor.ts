@@ -1,7 +1,8 @@
 // The event form, for a new event (the New event button, the palette, `c`, a drag across the grid)
 // or one being edited: title, when (all day or not), which calendar, where, notes, who, and for a
 // new one its meeting note. Changing the start keeps the length; the form stays open with the
-// server's reason when saving fails.
+// server's reason when saving fails. Each row leads with an icon instead of a label; where, notes
+// and guests stay behind "Add …" buttons until used, and the end date shows only when it differs.
 import { api } from "../api.ts";
 import { el, icon } from "../dom.ts";
 import { store } from "../store.ts";
@@ -20,6 +21,18 @@ function dateOf(day: string, time: string): Date | null {
   const t = time.match(/^(\d{2}):(\d{2})/) ?? ["", "00", "00"];
   return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(t[1]), Number(t[2])) : null;
 }
+/** How long the event runs, said briefly: "30 min", "1 hr 30 min", "2 days". */
+function lengthText({ start, end, whole }: { start: Date | null; end: Date | null; whole: boolean }): string {
+  if (!start || !end || end <= start) return "";
+  const minutes = Math.round((end.getTime() - start.getTime()) / 60_000);
+  if (whole) {
+    const days = Math.round(minutes / 1440);
+    return days === 1 ? "" : `${days} days`;
+  }
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return [h && `${h} hr`, m && `${m} min`].filter(Boolean).join(" ");
+}
 const EMAIL = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/;
 
 /** Everyone in the workspace, to suggest as guests (online; none locally). */
@@ -30,7 +43,6 @@ async function members(): Promise<Person[]> {
 
 export function openEventForm(o: { mode: "new" | "edit"; initial: EventForm; targets: Target[]; calendar?: string; save(form: EventForm): Promise<void> }) {
   const f = o.initial;
-  const field = (label: string, control: HTMLElement, cls = "") => el("label", { class: `cal-f-field ${cls}` }, el("span", { class: "cal-f-label" }, label), control);
   const title = el("input", { class: "ws-input cal-f-title", value: f.title, placeholder: "Add a title", "aria-label": "Title", maxlength: "500", autocomplete: "off" });
   const allDay = el("input", { type: "checkbox", checked: f.allDay });
   // An all-day event's end is exclusive; the form shows its last day.
@@ -99,8 +111,13 @@ export function openEventForm(o: { mode: "new" | "edit"; initial: EventForm; tar
     const last = dateOf(endDay.value, whole ? "00:00" : endTime.value);
     return { start, end: last && whole ? dayStart(addDays(dayKey(last), 1)) : last, whole };
   };
+  /** Times for a timed event; the end date only when the event runs past its first day (or all day over several). */
   const showTimes = () => {
     for (const t of [startTime, endTime]) t.hidden = allDay.checked;
+    endDay.hidden = endDay.value === startDay.value && document.activeElement !== endDay;
+    dash.hidden = allDay.checked && endDay.hidden;
+    moreDays.hidden = !endDay.hidden;
+    span.textContent = lengthText(read());
   };
   // A new start keeps the event's length: the end moves with it.
   const startMoved = () => {
@@ -109,10 +126,12 @@ export function openEventForm(o: { mode: "new" | "edit"; initial: EventForm; tar
     const end = new Date(start.getTime() + length);
     endDay.value = dayKey(whole ? dayStart(addDays(dayKey(end), -1)) : end);
     endTime.value = timeValue(end);
+    showTimes();
   };
   const endMoved = () => {
     const { start, end } = read();
     if (start && end && end > start) length = end.getTime() - start.getTime();
+    showTimes();
   };
   startDay.addEventListener("change", startMoved);
   startTime.addEventListener("change", startMoved);
@@ -123,24 +142,57 @@ export function openEventForm(o: { mode: "new" | "edit"; initial: EventForm; tar
     length = allDay.checked ? Math.max(86_400_000, Math.round(length / 86_400_000) * 86_400_000) : 30 * 60_000;
     startMoved();
   });
+  const dash = el("span", { class: "cal-f-to" }, "–");
+  const span = el("span", { class: "cal-f-span" });
+  const moreDays = el("button", { type: "button", class: "cal-f-link", onclick: () => ((endDay.hidden = false), (dash.hidden = false), endDay.focus()) }, "Ends another day");
   showTimes();
+
+  // ---------------------------------------------------------------- the rest, as rows that open when wanted
+  const row = (iconName: string, _label: string, ...content: (HTMLElement | null)[]) =>
+    el("div", { class: "cal-f-line" }, el("span", { class: "cal-f-icon" }, icon(iconName, 16)), el("div", { class: "cal-f-line-body" }, ...content));
+  const whereRow = row("globe", "Location", location);
+  const notesRow = row("list", "Description", description);
+  const guestsRow = row("share-people", "Guests", chips, guest, suggest);
+  const adders = el("div", { class: "cal-f-adders" });
+  const optional: Array<[HTMLElement, string, HTMLElement, boolean]> = [
+    [whereRow, "Location", location, !!f.location],
+    [guestsRow, "Guests", guest, f.attendees.length > 0],
+    [notesRow, "Description", description, !!f.description],
+  ];
+  for (const [line, label, input, filled] of optional) {
+    line.hidden = !filled;
+    if (filled) continue;
+    const add: HTMLButtonElement = el("button", {
+      type: "button",
+      class: "cal-f-add",
+      onclick: () => {
+        line.hidden = false;
+        add.remove();
+        if (!adders.children.length) adders.hidden = true;
+        input.focus();
+      },
+    }, icon("plus", 13), `Add ${label.toLowerCase()}`);
+    adders.append(add);
+  }
+  adders.hidden = !adders.children.length;
 
   // ---------------------------------------------------------------- saving
   const form = el(
     "form",
     { class: "cal-f" },
     title,
-    el(
-      "div",
-      { class: "cal-f-when" },
-      el("div", { class: "cal-f-row" }, startDay, startTime, el("span", { class: "cal-f-to" }, "to"), endDay, endTime),
-      el("label", { class: "cal-f-check" }, allDay, "All day"),
+    row(
+      "clock",
+      "When",
+      el("div", { class: "cal-f-row" }, startDay, startTime, dash, endDay, endTime, span),
+      el("div", { class: "cal-f-row cal-f-sub" }, el("label", { class: "cal-f-check" }, allDay, "All day"), moreDays),
     ),
-    field("Calendar", calendar),
-    field("Location", location),
-    field("Description", description),
-    el("div", { class: "cal-f-field" }, el("span", { class: "cal-f-label" }, "Guests"), el("div", {}, chips, guest, suggest)),
-    o.mode === "new" ? el("label", { class: "cal-f-check" }, note, "Also make a meeting note") : null,
+    pick && o.targets.length < 2 ? null : row("calendar", "Calendar", calendar),
+    whereRow,
+    guestsRow,
+    notesRow,
+    adders,
+    o.mode === "new" ? row("file", "Meeting note", el("label", { class: "cal-f-check" }, note, "Also make a meeting note")) : null,
     problem,
     el("div", { class: "ask-actions" }, el("button", { type: "button", class: "qw-btn", onclick: () => close() }, "Cancel"), save),
   );
