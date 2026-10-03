@@ -10,7 +10,7 @@ import { headingName, headingText, mapOutsideCode, proseLines } from "./prose.ts
 import { dateOf, extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
-import { DATE_FILTER_HELP, dateFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, priorityFilter, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
+import { addDays, DATE_FILTER_HELP, dateFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, priorityFilter, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
 import { parseQuickAdd } from "./quickAdd.ts";
 import { formatQuery, parseQuery, queryProblem, tagList, type NoteQuery } from "./query.ts";
 import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
@@ -2452,18 +2452,50 @@ export class Vault {
   }
 
   /** Decisions, newest first: open ones (the default), settled ones, or all; or the ones named by ID. */
-  decisions(opts: { status?: DecisionStatus | "settled" | "all"; ids?: string[]; limit?: number } = {}): Decision[] {
+  /**
+   * Decisions put to the person. `since` (a date, today, yesterday, or a number of days like 7d) keeps the ones
+   * asked, answered or dismissed on or after that day; `commented` the ones answered with a comment; `query` the
+   * ones whose question, context, answer or comment has all its words.
+   */
+  decisions(opts: { status?: DecisionStatus | "settled" | "all"; ids?: string[]; limit?: number; since?: string; commented?: boolean; query?: string } = {}): Decision[] {
     const status = opts.status ?? "open";
     if (![...DECISION_STATUSES, "settled", "all"].includes(status)) throw new VaultError(`"status" must be open, answered, dismissed, withdrawn, settled or all, not "${status}"`);
+    const since = opts.since?.trim() ? this.sinceDay(opts.since.trim()) : null;
+    const words = (opts.query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
     const where: string[] = [];
     const params: unknown[] = [];
     if (opts.ids?.length) where.push(`id IN (${opts.ids.map(() => "?").join(",")})`), params.push(...opts.ids);
     else if (status === "settled") where.push("status != 'open'");
     else if (status !== "all") where.push("status = ?"), params.push(status);
+    if (opts.commented) where.push("comment IS NOT NULL AND comment != ''");
+    // A day early in SQL (time zones), exact below.
+    if (since) where.push("coalesce(answered_at, asked_at) >= ?"), params.push(Date.parse(`${since}T00:00:00Z`) - 86_400_000);
     // Open ones in the order they were asked, the picker's order; settled ones newest first.
     const order = status === "open" && !opts.ids?.length ? "asked_at, rowid" : "coalesce(answered_at, asked_at) DESC, rowid DESC";
-    const rows = this.db.all(`SELECT * FROM decisions ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY ${order} LIMIT ?`, ...params, Math.min(opts.limit ?? 100, 500));
-    return rows.map((r) => this.toDecision(r));
+    const limit = Math.min(opts.limit ?? 100, 500);
+    const filtered = since || words.length;
+    const rows = this.db.all(`SELECT * FROM decisions ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY ${order}${filtered ? "" : " LIMIT ?"}`, ...params, ...(filtered ? [] : [limit]));
+    let list = rows.map((r) => this.toDecision(r));
+    if (since) list = list.filter((d) => localDate(d.answered_at ?? d.asked_at, this.timeZone) >= since);
+    if (words.length) {
+      list = list.filter((d) => {
+        const text = [d.question, d.context, d.answer, d.comment, ...d.options.map((o) => o.label), ...d.rows].join("\n").toLowerCase();
+        return words.every((w) => text.includes(w));
+      });
+    }
+    return list.slice(0, limit);
+  }
+
+  /** The first day `since` means: a date, today, yesterday, or 7d (the last seven days, today among them). */
+  private sinceDay(since: string): string {
+    const today = this.day();
+    const s = since.toLowerCase();
+    if (s === "today") return today;
+    if (s === "yesterday") return addDays(today, -1);
+    const n = /^(\d{1,4})\s*d(ays?)?$/.exec(s);
+    if (n) return addDays(today, -Math.max(0, Number(n[1]) - 1));
+    if (isDate(since)) return since;
+    throw new VaultError(`"since" must be a date like 2026-10-01, today, yesterday, or a number of days like 7d, not "${since}"`);
   }
 
   decision(id: string): Decision {
