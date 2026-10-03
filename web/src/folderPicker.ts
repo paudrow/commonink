@@ -2,14 +2,17 @@
 // name doesn't exist yet. Folders are just the paths notes live under, so a new folder is real
 // as soon as the note lands in it.
 import { el, icon } from "./dom.ts";
+import { inFolders, isPattern } from "../../src/core/queryGrammar.ts";
 
 /**
  * `create: false` only picks a folder that exists (a filter's), and `top` names the "" choice
- * ("Any folder" for a filter). A nested folder shows its parents dimmed, so the last part stands out.
+ * ("Any folder" for a filter). With `pattern` (a filter's too), a name typed with a `*` in it can be
+ * picked as it is: every folder it fits, listed under it. A nested folder shows its parents dimmed,
+ * so the last part stands out.
  */
 export function folderPicker(
   anchor: HTMLElement,
-  opts: { folders: string[]; current: string; onPick(folder: string): void; placeholder?: string; top?: string; create?: boolean },
+  opts: { folders: string[]; current: string; onPick(folder: string): void; placeholder?: string; top?: string; create?: boolean; pattern?: boolean },
 ) {
   document.querySelector(".folder-picker")?.remove();
   const top = opts.top ?? "Top level";
@@ -23,15 +26,18 @@ export function folderPicker(
 
   let items: Array<{ folder: string; label: string; create?: boolean }> = [];
   let active = 0;
-  const clean = (s: string) => s.trim().replace(/[\\:*?"<>|#^[\]]/g, "").replace(/\s*\/\s*/g, "/").replace(/^\/+|\/+$/g, "");
+  const clean = (s: string, keep = "") => s.trim().replace(/[\\:*?"<>|#^[\]]/g, (c) => (c === keep ? c : "")).replace(/\s*\/\s*/g, "/").replace(/^\/+|\/+$/g, "");
 
   const render = () => {
+    const wild = opts.pattern && isPattern(input.value) ? clean(input.value, "*").replace(/\*{2,}/g, "*") : "";
     const q = clean(input.value);
     const ql = q.toLowerCase();
-    items = [
-      ...(!q || top.toLowerCase().includes(ql) ? [{ folder: "", label: top }] : []),
-      ...opts.folders.filter((f) => f.toLowerCase().includes(ql)).map((f) => ({ folder: f, label: f })),
-    ];
+    items = wild
+      ? [{ folder: wild, label: `Folders matching “${wild}”`, create: true }, ...opts.folders.filter((f) => inFolders(`${f}/`, [wild])).map((f) => ({ folder: f, label: f }))]
+      : [
+          ...(!q || top.toLowerCase().includes(ql) ? [{ folder: "", label: top }] : []),
+          ...opts.folders.filter((f) => f.toLowerCase().includes(ql)).map((f) => ({ folder: f, label: f })),
+        ];
     if (q && opts.create !== false && !opts.folders.some((f) => f.toLowerCase() === ql)) items.push({ folder: q, label: `New folder “${q}”`, create: true });
     active = Math.min(active, Math.max(0, items.length - 1));
     list.replaceChildren(
@@ -44,7 +50,7 @@ export function folderPicker(
             onmousemove: () => i !== active && ((active = i), render()),
             onclick: () => pick(i),
           },
-          icon(it.create ? "folderPlus" : it.folder ? "folder" : "file", 14),
+          icon(it.create ? (wild ? "search" : "folderPlus") : it.folder ? "folder" : "file", 14),
           it.create || !it.folder.includes("/")
             ? el("span", {}, it.label)
             : el("span", {}, el("span", { class: "fp-parent" }, it.folder.slice(0, it.folder.lastIndexOf("/") + 1)), it.folder.slice(it.folder.lastIndexOf("/") + 1)),

@@ -10,6 +10,7 @@
 //   ( … )                       a group: `-` binds tightest, then AND, then OR
 //   tag=x, folder=x, modified>-7d, created<2026-09-01   filters, usable anywhere a word is
 //   status=draft, has=due       frontmatter properties: any other key=value is one
+//   pl*ing, folder=*/Clients, tag=work/*, status=draft*   a * stands for any run of characters
 //   sort=title                  how the list is ordered: on its own, outside ( )
 //
 // The API, small on purpose:
@@ -19,7 +20,7 @@
 //   format(expr)        an expression as text again; parse(format(e)) reads back the same e.
 //   andJoin(a, b, …)    texts that must all match, joined without changing what each means.
 //   SYNTAX              every operator and field, with an example: what the help pages list.
-import { cleanTag } from "./tags.ts";
+import { cleanTag, tagMatches } from "./tags.ts";
 
 export type QuerySort = "modified" | "date" | "oldest" | "title" | "created";
 export const SORTS: readonly QuerySort[] = ["modified", "date", "oldest", "title", "created"];
@@ -29,18 +30,21 @@ export type CompareOp = "<" | "<=" | ">" | ">=" | "=";
 
 /** One thing a note can match. */
 export type Term =
-  /** A word, found as a prefix; or with `phrase`, the words together, exactly. */
+  /**
+   * A word, found as a prefix; or with `phrase`, the words together, exactly. A word with a `*` in
+   * it (`pl*ing`, `*ing`) is a pattern for a whole word (see isWildText).
+   */
   | { kind: "text"; words: string[]; phrase: boolean }
-  /** This tag, or a tag under it. */
+  /** This tag, or a tag under it. With a `*` (`work/*`), the tags it fits (see tagFits). */
   | { kind: "tag"; tag: string }
-  /** In one of these folders, or a folder under it. */
+  /** In one of these folders, or a folder under it. One with a `*` (`Proj*`) is every folder it fits. */
   | { kind: "folder"; folders: string[] }
   /** The day a note was last changed (or made) compared with `day` (see dayFrom). */
   | { kind: "date"; field: "modified" | "created"; op: CompareOp; day: string }
   /**
    * A frontmatter property: `status=draft` is { key: "status", value: "draft" } (any case; a list
    * matches if any item does), `has=due` is { key: "due", value: null } (set to anything). `title`
-   * is the note's title.
+   * is the note's title. A value with a `*` (`draft*`, `*Smith`) is a pattern for the whole value.
    */
   | { kind: "prop"; key: string; value: string | null };
 
@@ -71,6 +75,7 @@ export interface SyntaxEntry {
 
 export const SYNTAX: SyntaxEntry[] = [
   { group: "Words", syntax: "word", example: "plan", about: 'Notes with a word starting with it: "plan" finds planning. Several words: notes with all of them.' },
+  { group: "Words", syntax: "wild*card", example: "pl*ing", about: "A * stands for any letters, or none, and the pattern is the whole word: pl*ing finds planning and playing, *ing every word ending in ing, *plan* any word with plan in it." },
   { group: "Words", syntax: '"a phrase"', example: '"launch plan"', about: "The words together, in this order. Inside q=\"…\" (a saved view or ::view), use single quotes." },
   { group: "Combine", syntax: "a AND b", example: "launch AND budget", about: "Both. Words side by side mean AND too, so launch budget is the same." },
   { group: "Combine", syntax: "a OR b", example: "budget OR costs", about: "Either one. Write OR and AND in capitals: lowercase they're just words." },
@@ -83,6 +88,7 @@ export const SYNTAX: SyntaxEntry[] = [
   { group: "Filters", syntax: "created<day", example: "created<2026-09-01", about: "Made before a day, with the same comparisons and days as modified." },
   { group: "Filters", syntax: "property=value", example: "status=draft", about: "A frontmatter property has this value, in any case; a list matches if any item does. title=… is the note's title. Quote values with spaces: status='in progress'." },
   { group: "Filters", syntax: "has=property", example: "has=due", about: "The property is set, to anything. -has=due: notes without one." },
+  { group: "Filters", syntax: "filter=wild*card", example: "folder=*/Clients", about: "A * in a filter's value stands for anything, or nothing. folder=*/Clients is a Clients folder inside any folder, and folder=Proj* every folder starting with Proj. tag=work/* is the tags under work, not work itself. status=draft* starts with draft, and owner=*Smith ends with Smith." },
   { group: "Order", syntax: "sort=order", example: "tag=work sort=title", about: "modified (last changed first, the default), date or oldest (by the note's own date), title or created (newest first). On its own, not inside ( )." },
 ];
 
@@ -108,7 +114,16 @@ type Token =
 
 /** At most this many words are searched for: more only slows the search down. */
 const MAX_WORDS = 12;
-const wordsOf = (s: string) => [...s.matchAll(/[\p{L}\p{N}_]+/gu)].map((m) => m[0]);
+export const wordsOf = (s: string) => [...s.matchAll(/[\p{L}\p{N}_]+/gu)].map((m) => m[0]);
+/**
+ * The words of a word token, keeping a `*` that's a wildcard: `pl*ing` and `*ing` stay as written.
+ * A `*` only at the end goes, since every word is a prefix already (`plan*` is `plan`).
+ */
+const wildWordsOf = (s: string) =>
+  [...s.matchAll(/[\p{L}\p{N}_*]+/gu)]
+    .map((m) => m[0].replace(/\*{2,}/g, "*"))
+    .map((w) => (isPattern(w.replace(/\*$/, "")) ? w : w.replace(/\*$/, "")))
+    .filter(Boolean);
 const KV = /([A-Za-z_][\w-]*)(<=|>=|<|>|=)("[^"]*"|'[^']*'|[^\s()"']+)(?=[\s)]|$)/y;
 
 function tokenize(s: string): Token[] {
@@ -201,8 +216,8 @@ export function parse(q: string): Parsed {
       const either = value.includes("|");
       const tags: Expr[] = [];
       for (const raw of value.split(either ? "|" : /[\s,+]+/).filter(Boolean)) {
-        const tag = cleanTag(raw);
-        if (!tag) fail(at, `"${raw}" isn't a tag: use letters, numbers, - and _, nested with / ({at})`);
+        const tag = cleanTagFilter(raw);
+        if (!tag) fail(at, `"${raw}" isn't a tag: use letters, numbers, - and _, nested with /, and * for any of them ({at})`);
         else tags.push({ kind: "tag", tag });
       }
       return either ? any(tags) : all(tags);
@@ -256,7 +271,7 @@ export function parse(q: string): Parsed {
     }
     if (tok.t === "kv") return filter(tok, not);
     if (tok.t === "phrase") return text(wordsOf(tok.text), true);
-    if (tok.t === "word") return text(wordsOf(tok.text), false);
+    if (tok.t === "word") return text(wildWordsOf(tok.text), false);
     return null;
   };
 
@@ -315,8 +330,72 @@ export const folderList = (value: string) =>
     .map((f) => f.trim().replace(/^\/+|\/+$/g, ""))
     .filter(Boolean);
 
-/** Is a note's path (its home, outside the archive) in one of these folders, or under one? */
-export const inFolders = (path: string, folders: string[]) => folders.some((f) => path.startsWith(`${f}/`));
+/**
+ * Is a note's path (its home, outside the archive) in one of these folders, or under one? A folder
+ * with a `*` is every folder it fits, and what's under each: `Proj*` is Projects, and a `*` then
+ * `/Clients` is Work/Clients. `Projects/*` is anything under Projects, so the same as `Projects`.
+ */
+export const inFolders = (path: string, folders: string[]) =>
+  folders.some((f) => {
+    if (!isPattern(f)) return path.startsWith(`${f}/`);
+    const pattern = f.replace(/(\/\*)+$/, "");
+    const parts = path.split("/").slice(0, -1);
+    return parts.some((_, i) => globMatch(pattern, parts.slice(0, i + 1).join("/")));
+  });
+
+// ---------------------------------------------------------------- wildcards
+
+/** Does a word or a filter's value hold a wildcard? A `*` stands for any run of characters, or none. */
+export const isPattern = (s: string) => s.includes("*");
+
+/** Is a text term a pattern for a whole word (`pl*ing`), not a word found as a prefix? */
+export const isWildText = (t: Term) => t.kind === "text" && !t.phrase && t.words.some(isPattern);
+
+/**
+ * Does the whole of `s` fit `pattern`, in the case given? Read a character at a time, going back
+ * only to the last `*`, so a hostile pattern takes no longer than pattern × text.
+ */
+export function globMatch(pattern: string, s: string): boolean {
+  let p = 0;
+  let i = 0;
+  let star = -1;
+  let mark = 0;
+  while (i < s.length) {
+    if (p < pattern.length && pattern[p] !== "*" && pattern[p] === s[i]) {
+      p++;
+      i++;
+    } else if (pattern[p] === "*") {
+      star = p++;
+      mark = i;
+    } else if (star !== -1) {
+      p = star + 1;
+      i = ++mark;
+    } else return false;
+  }
+  while (pattern[p] === "*") p++;
+  return p === pattern.length;
+}
+
+/** Does a property's value (or a title) match the one asked for? In any case; with a `*`, as a pattern. */
+export const valueFits = (value: string, want: string) => (isPattern(want) ? globMatch(want.toLowerCase(), value.toLowerCase()) : value.toLowerCase() === want.toLowerCase());
+
+/** A tag to filter by, tidied as cleanTag does, or null if it isn't one. It may hold wildcards: `work/*`, `proj*`. */
+export function cleanTagFilter(raw: string): string | null {
+  if (!isPattern(raw)) return cleanTag(raw);
+  const t = raw.trim().replace(/^#/, "").replace(/\*{2,}/g, "*").replace(/\/{2,}/g, "/").replace(/^\/+|\/+$/g, "");
+  // Each * stands in for letters: with one in its place, the rest has to be a tag.
+  return cleanTag(t.replace(/\*/g, "x")) ? t : null;
+}
+
+/**
+ * Does `tag` come under `filter` (both in lowercase)? `work` takes `work` and `work/acme`. With a
+ * `*`, the tag or a tag above it has to fit: `work/*` takes `work/acme` and what's under it, not `work`.
+ */
+export function tagFits(tag: string, filter: string): boolean {
+  if (!isPattern(filter)) return tagMatches(tag, filter);
+  const parts = tag.split("/");
+  return parts.some((_, i) => globMatch(filter, parts.slice(0, i + 1).join("/")));
+}
 
 // ---------------------------------------------------------------- matching
 
@@ -337,12 +416,30 @@ export function termsOf(expr: Expr | null): Term[] {
   return [expr];
 }
 
-/** The words a note is found by, for marking them: every word searched for that isn't left out. */
-export function textWords(expr: Expr | null, not = false): string[] {
+/**
+ * The words a note is found by, for marking them: every word searched for that isn't left out.
+ * A pattern is marked by its longest run of letters (`pl*ing` by "ing"); with `patterns`, it's
+ * handed over as written, for finding the lines it's on.
+ */
+export function textWords(expr: Expr | null, not = false, patterns = false): string[] {
   if (!expr) return [];
-  if (expr.kind === "and" || expr.kind === "or") return [...new Set(expr.items.flatMap((e) => textWords(e, not)))];
-  if (expr.kind === "not") return textWords(expr.item, !not);
-  return expr.kind === "text" && !not ? expr.words : [];
+  if (expr.kind === "and" || expr.kind === "or") return [...new Set(expr.items.flatMap((e) => textWords(e, not, patterns)))];
+  if (expr.kind === "not") return textWords(expr.item, !not, patterns);
+  if (expr.kind !== "text" || not) return [];
+  return isWildText(expr) && !patterns ? expr.words.flatMap((w) => w.split("*").sort((a, b) => b.length - a.length).slice(0, 1)).filter(Boolean) : expr.words;
+}
+
+/** An expression's words alone, without its filters: what a full-text search goes by. */
+export function wordsOnly(expr: Expr | null): Expr | null {
+  if (!expr) return null;
+  if (expr.kind === "text") return expr;
+  if (expr.kind === "not") {
+    const item = wordsOnly(expr.item);
+    return item && { kind: "not", item };
+  }
+  if (expr.kind !== "and" && expr.kind !== "or") return null;
+  const items = expr.items.map(wordsOnly).filter((e): e is Expr => !!e);
+  return items.length > 1 ? { kind: expr.kind, items } : (items[0] ?? null);
 }
 
 const ftsGroup = (s: string) => (/^"[^"]*"\*?$/.test(s) ? s : `(${s})`);
@@ -350,11 +447,12 @@ const ftsGroup = (s: string) => (/^"[^"]*"\*?$/.test(s) ? s : `(${s})`);
 /**
  * A full-text (FTS5) query for the words in an expression, or null if it has none to search for.
  * Filters (tags, folders, dates) are left out: they aren't in the text. FTS5 can't search for only
- * what's missing, so `-word` needs something beside it to leave it out of.
+ * what's missing, so `-word` needs something beside it to leave it out of. A pattern (`pl*ing`)
+ * isn't something FTS5 can find: the engine checks those itself (see Vault.wordPaths).
  */
 export function toFts(expr: Expr | null): string | null {
   if (!expr) return null;
-  if (expr.kind === "text") return expr.phrase ? `"${expr.words.join(" ")}"` : expr.words.map((w) => `"${w}"*`).join(" ");
+  if (expr.kind === "text") return expr.phrase ? `"${expr.words.join(" ")}"` : expr.words.filter((w) => !isPattern(w)).map((w) => `"${w}"*`).join(" ") || null;
   if (expr.kind === "or") {
     const parts = expr.items.map(toFts).filter((s): s is string => !!s);
     return parts.length ? (parts.length > 1 ? parts.map(ftsGroup).join(" OR ") : parts[0]) : null;

@@ -13,7 +13,7 @@ import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tag
 import { addDays, DATE_FILTER_HELP, dateFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, priorityFilter, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
 import { parseQuickAdd } from "./quickAdd.ts";
 import { formatQuery, parseQuery, queryProblem, tagList, type NoteQuery } from "./query.ts";
-import { dayPasses, evaluate, folderList, inFolders, parse, termsOf, textWords, toFts, type Term } from "./queryGrammar.ts";
+import { cleanTagFilter, dayPasses, evaluate, folderList, globMatch, inFolders, isPattern, isWildText, parse, tagFits, termsOf, textWords, toFts, valueFits, wordsOf, wordsOnly, type Expr, type Term } from "./queryGrammar.ts";
 import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
 import { safeDecode } from "./uri.ts";
 import { isAgentsNote, START_TAG, type NoteRole } from "./noteRoles.ts";
@@ -781,10 +781,12 @@ export class Vault {
    */
   search(query: string, limit = 20, scope: ArchiveScope = "active", tag?: string): SearchHit[] {
     const { expr } = parse(query);
-    const terms = textWords(expr);
-    const match = toFts(expr);
+    const terms = textWords(expr, false, true);
     const key = tag === undefined ? null : normalizeTag(tag);
-    if (!match || !terms.length || (tag !== undefined && !key)) return [];
+    if (tag !== undefined && !key) return [];
+    if (termsOf(expr).some(isWildText)) return this.searchWild(wordsOnly(expr), terms, limit, scope, key);
+    const match = toFts(expr);
+    if (!match || !terms.length) return [];
     // Ordered by rank, the full-text index hands hits over best first, so the query stops at `limit`
     // and makes snippets only for the hits it returns (a 1 MB note's snippet can take 200 ms).
     const rows = this.db.all(
@@ -801,13 +803,51 @@ export class Vault {
     return rows.map((r) => ({ ...r, lines: this.matchingLines(r.path, terms) }));
   }
 
+  /**
+   * A search with a pattern among its words (`pl*ing`), which the full-text index can't rank: the
+   * notes whose words fit, last changed first, each with the lines that hold them.
+   */
+  private searchWild(expr: Expr | null, terms: string[], limit: number, scope: ArchiveScope, tag: string | null): SearchHit[] {
+    const sets = new Map<Term, Set<string>>();
+    const has = (t: Term, rel: string) => (sets.get(t) ?? sets.set(t, this.wordPaths(t)).get(t)!).has(rel);
+    const tagged = tag === null ? null : new Set(this.db.all<{ path: string }>(`SELECT DISTINCT path FROM tags WHERE kind != 'task' AND ${UNDER}`, ...under(tag)).map((r) => r.path));
+    return this.db
+      .all<{ path: string; title: string; kind: NoteKind }>("SELECT path, title, kind FROM notes WHERE kind != 'asset' ORDER BY mtime DESC")
+      .filter((r) => inScope(r.path, scope) && (!tagged || tagged.has(r.path)) && evaluate(expr, (t) => has(t, r.path)))
+      .slice(0, limit)
+      .map((r) => {
+        const lines = this.matchingLines(r.path, terms);
+        return { ...r, snippet: lines[0]?.text ?? "", score: 0, lines };
+      });
+  }
+
+  /**
+   * The notes a text term finds. A word or phrase goes through the full-text index. A pattern
+   * (`pl*ing`, `*ing`) is checked against each word of a note's path, title and text, in any case;
+   * the index narrows the notes first by the pattern's opening letters, when it has two (a stemmed
+   * word keeps at least those).
+   */
+  private wordPaths(t: Term): Set<string> {
+    if (t.kind !== "text") return new Set();
+    if (!isWildText(t)) {
+      const match = toFts(t);
+      return new Set(match ? this.db.all<{ path: string }>("SELECT path FROM notes_fts WHERE notes_fts MATCH ?", match).map((r) => r.path) : []);
+    }
+    // A word that isn't in a phrase is a term of its own, so a pattern is the term's one word.
+    const pattern = t.words[0].toLowerCase();
+    const head = pattern.slice(0, pattern.indexOf("*"));
+    const rows = this.db.all<{ path: string; title: string; body: string }>(`SELECT path, title, body FROM notes_fts${head.length >= 2 ? " WHERE notes_fts MATCH ?" : ""}`, ...(head.length >= 2 ? [`"${head.slice(0, 2)}"*`] : []));
+    return new Set(rows.filter((r) => wordsOf(`${r.path} ${r.title} ${r.body}`.toLowerCase()).some((w) => globMatch(pattern, w))).map((r) => r.path));
+  }
+
   private matchingLines(rel: string, terms: string[], max = 3, content = this.files.read(rel) ?? ""): SearchHit["lines"] {
     const needles = terms.map((t) => t.toLowerCase());
     const lines: SearchHit["lines"] = [];
     const text = content.split("\n");
     for (let i = 0; i < text.length && lines.length < max; i++) {
       const l = text[i].toLowerCase();
-      if (needles.some((n) => l.includes(n))) lines.push({ line: i + 1, text: text[i].trim().slice(0, 200) });
+      // A pattern (pl*ing) is on a line that has a word it fits.
+      if (needles.some((n) => (isPattern(n) ? wordsOf(l).some((w) => globMatch(n, w)) : l.includes(n)))) lines.push({ line: i + 1, text: text[i].trim().slice(0, 200) });
     }
     return lines;
   }
@@ -822,7 +862,7 @@ export class Vault {
     const cols = [...new Set((opts.cols ?? "").split(",").map((c) => c.trim().toLowerCase()).filter(Boolean))].slice(0, 20);
     const scope = opts.scope ?? "active";
     const words = parse(opts.q ?? "");
-    const terms = textWords(words.expr);
+    const terms = textWords(words.expr, false, true);
     // A sort= among the words is the list's order.
     opts = { ...opts, sort: words.sort ?? opts.sort };
     const all = this.feedRows();
@@ -922,8 +962,10 @@ export class Vault {
       rows = rows.filter((r) => !homeOf(r.path).startsWith(`${VIEWS}/`));
     }
     // A tag takes the tags under it too, whether it's wanted or left out.
+    // One with a * (work/*) takes the tags it fits, and those under them.
     const tagged = (tag: string) => {
-      const key = normalizeTag(tag);
+      const key = cleanTagFilter(tag)?.toLowerCase();
+      if (key && isPattern(key)) return new Set(this.db.all<{ tag: string; path: string }>("SELECT DISTINCT tag, path FROM tags WHERE kind != 'task'").filter((r) => tagFits(r.tag, key)).map((r) => r.path));
       return new Set(key ? this.db.all<{ path: string }>(`SELECT DISTINCT path FROM tags WHERE kind != 'task' AND ${UNDER}`, ...under(key)).map((r) => r.path) : []);
     };
     // The tag key's tags: all of them, or with match=any, one.
@@ -938,13 +980,12 @@ export class Vault {
       const sets = new Map<Term, Set<string>>();
       const setOf = (t: Term) => {
         if (!sets.has(t)) {
-          const match = t.kind === "text" ? toFts(t) : null;
-          const want = t.kind === "prop" ? t.value?.toLowerCase() : undefined;
+          const want = t.kind === "prop" ? t.value : undefined;
           sets.set(
             t,
             t.kind === "tag" ? tagged(t.tag)
-            : t.kind === "prop" ? new Set(this.db.all<{ path: string; value: string }>("SELECT path, value FROM props WHERE key = ?", t.key).filter((r) => want === undefined || r.value.toLowerCase() === want).map((r) => r.path))
-            : new Set(match ? this.db.all<{ path: string }>("SELECT path FROM notes_fts WHERE notes_fts MATCH ?", match).map((r) => r.path) : []),
+            : t.kind === "prop" ? new Set(this.db.all<{ path: string; value: string }>("SELECT path, value FROM props WHERE key = ?", t.key).filter((r) => want == null || valueFits(r.value, want)).map((r) => r.path))
+            : this.wordPaths(t),
           );
         }
         return sets.get(t)!;
@@ -954,7 +995,7 @@ export class Vault {
       const test = (r: (typeof rows)[number]) => (t: Term) =>
         t.kind === "folder" ? inFolders(homeOf(r.path), t.folders)
         : t.kind === "date" ? dayPasses(dayOf(t.field === "created" ? createdOf(r) : r.mtime), t, today)
-        : t.kind === "prop" && t.key === "title" ? t.value === null || r.title.toLowerCase() === t.value.toLowerCase()
+        : t.kind === "prop" && t.key === "title" ? t.value === null || valueFits(r.title, t.value)
         : setOf(t).has(r.path);
       rows = rows.filter((r) => evaluate(expr, test(r)));
     }

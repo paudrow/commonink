@@ -192,3 +192,25 @@ test("a search's suggested name: its tags, folders and words", async () => {
   assert.equal(suggestName('tag="work,plan" match=any'), "work or plan");
   assert.equal(suggestName('folder="Areas|Projects" q=launch'), "Areas or Projects · “launch”");
 });
+
+test("a folder or tag row takes a pattern typed with a *, listing what it fits", async () => {
+  let saved: { query: string } | null = null;
+  smartFolderEditor(document.body, { name: "Wild", query: "", shared: false }, { canShare: false, sources, save: async (f) => void (saved = f) });
+  const typeIn = (text: string) => {
+    const input = $<HTMLInputElement>(".folder-picker .fp-input");
+    input.value = text;
+    input.dispatchEvent(new window.Event("input"));
+  };
+  byText(".sf-folders .sf-pick", "Any folder").click();
+  typeIn("*/Health*");
+  assert.deepEqual([...document.querySelectorAll(".folder-picker .fp-item")].map((b) => b.textContent), ["Folders matching “*/Health*”", "Areas/Health and Fitness"]);
+  pickItem("Folders matching");
+  byText(".sf-tags .sf-item .sf-pick", "Any tag").click();
+  typeIn("#h*");
+  assert.deepEqual([...document.querySelectorAll(".folder-picker .fp-item")].map((b) => b.textContent), ["Tags matching #h*", "#health3"]);
+  pickItem("Tags matching");
+  assert.equal($<HTMLInputElement>(".sf-query").value, 'folder="*/Health*" tag="h*"');
+  $<HTMLFormElement>(".sf-dialog").requestSubmit();
+  await settle();
+  assert.equal(saved!.query, 'folder="*/Health*" tag="h*"');
+});

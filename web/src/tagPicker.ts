@@ -4,6 +4,7 @@ import type { TagCount } from "./api.ts";
 import { el, icon } from "./dom.ts";
 import { fuzzyScore } from "./fuzzy.ts";
 import { cleanTag } from "../../src/core/tags.ts";
+import { cleanTagFilter, isPattern, tagFits } from "../../src/core/queryGrammar.ts";
 import { tagList } from "../../src/core/query.ts";
 
 /** A clickable `#tag`. A span, since it often sits inside a card that is itself a button. */
@@ -36,7 +37,7 @@ export function tagFilter(opts: { current: string; any?: boolean; tags: () => Ta
   }
   const chip: HTMLButtonElement = el(
     "button",
-    { type: "button", class: "chip tag-filter", title: "Filter by tag", onclick: () => tagPicker(chip, { tags: opts.tags().filter((t) => opts.count(t) > 0), count: opts.count, onPick: opts.onChange }) },
+    { type: "button", class: "chip tag-filter", title: "Filter by tag", onclick: () => tagPicker(chip, { tags: opts.tags().filter((t) => opts.count(t) > 0), count: opts.count, onPick: opts.onChange, pattern: true }) },
     icon("hash", 13),
     "Tag",
   );
@@ -45,9 +46,10 @@ export function tagFilter(opts: { current: string; any?: boolean; tags: () => Ta
 
 /**
  * Pick a tag from a popover. With `create`, a name that isn't a tag yet can be picked too (for
- * tagging an asset); otherwise only tags in use are offered.
+ * tagging an asset); otherwise only tags in use are offered. With `pattern` (a filter's), a name
+ * typed with a `*` in it can be picked as it is: the tags it fits, listed under it.
  */
-export function tagPicker(anchor: HTMLElement, opts: { tags: TagCount[]; count: (t: TagCount) => number; onPick(tag: string): void; create?: boolean; placeholder?: string }) {
+export function tagPicker(anchor: HTMLElement, opts: { tags: TagCount[]; count: (t: TagCount) => number; onPick(tag: string): void; create?: boolean; placeholder?: string; pattern?: boolean }) {
   document.querySelector(".folder-picker")?.remove();
   const input = el("input", { class: "fp-input", placeholder: opts.placeholder ?? "Filter by tag…", spellcheck: "false", autocomplete: "off" });
   const list = el("div", { class: "fp-list", role: "listbox" });
@@ -55,11 +57,14 @@ export function tagPicker(anchor: HTMLElement, opts: { tags: TagCount[]; count: 
   const r = anchor.getBoundingClientRect();
   Object.assign(box.style, { top: `${r.bottom + 6}px`, left: `${Math.min(r.left, innerWidth - 332)}px` });
 
-  let items: Array<{ tag: string; label: string; n: number; create?: boolean }> = [];
+  let items: Array<{ tag: string; label: string; n: number; create?: boolean; pattern?: boolean }> = [];
   let active = 0;
   const render = () => {
     const q = input.value.trim().replace(/^#/, "");
-    const ranked = q
+    const wild = opts.pattern && isPattern(q) ? cleanTagFilter(q) : null;
+    const ranked = wild
+      ? opts.tags.filter((t) => tagFits(t.tag, wild.toLowerCase())).sort((a, b) => a.tag.localeCompare(b.tag))
+      : q
       ? opts.tags
           .map((t) => ({ t, s: fuzzyScore(q, t.display) }))
           .filter((x) => x.s >= 0)
@@ -67,6 +72,7 @@ export function tagPicker(anchor: HTMLElement, opts: { tags: TagCount[]; count: 
           .map((x) => x.t)
       : [...opts.tags].sort((a, b) => opts.count(b) - opts.count(a) || a.tag.localeCompare(b.tag));
     items = ranked.slice(0, 50).map((t) => ({ tag: t.display, label: `#${t.display}`, n: opts.count(t) }));
+    if (wild) items.unshift({ tag: wild, label: `Tags matching #${wild}`, n: 0, pattern: true });
     const typed = cleanTag(q);
     if (opts.create && typed && !opts.tags.some((t) => t.tag === typed.toLowerCase())) items.push({ tag: typed, label: `New tag #${typed}`, n: 0, create: true });
     active = Math.min(active, Math.max(0, items.length - 1));
@@ -76,7 +82,7 @@ export function tagPicker(anchor: HTMLElement, opts: { tags: TagCount[]; count: 
             el(
               "button",
               { type: "button", class: `fp-item${i === active ? " is-active" : ""}`, onmousemove: () => i !== active && ((active = i), render()), onclick: () => pick(i) },
-              icon(it.create ? "plus" : "hash", 14),
+              icon(it.create ? "plus" : it.pattern ? "search" : "hash", 14),
               el("span", {}, it.label),
               it.n ? el("span", { class: "fp-here" }, String(it.n)) : null,
             ),

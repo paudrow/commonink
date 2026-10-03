@@ -256,6 +256,7 @@ export function smartFolderEditor(
                   placeholder: "Find a folder…",
                   top: "Any folder",
                   create: false,
+                  pattern: true,
                   onPick: (f) => {
                     state.folders[i] = f;
                     if (!f && state.folders.length > 1) state.folders.splice(i, 1);
@@ -296,6 +297,7 @@ export function smartFolderEditor(
                 tagPicker(button, {
                   tags: opts.sources.tags().filter((t) => t.notes > 0 && !state.tags.some((x, j) => j !== i && x.toLowerCase() === t.tag)),
                   count: (t) => t.notes,
+                  pattern: true,
                   onPick: (t) => ((state.tags[i] = t), renderTags(), changed()),
                 }),
             },

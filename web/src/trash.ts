@@ -5,7 +5,7 @@ import { api, ApiError, type TagCount, type TrashItem } from "./api.ts";
 import { displayName, el, icon } from "./dom.ts";
 import type { ToastSpec } from "./toast.ts";
 import { folderList, tagList, type NoteQuery } from "../../src/core/query.ts";
-import { tagMatches } from "../../src/core/tags.ts";
+import { inFolders, tagFits } from "../../src/core/queryGrammar.ts";
 import { ask } from "./modal.ts";
 
 export interface DeleteHooks {
@@ -107,13 +107,13 @@ export function trashMatches(t: TrashItem, q: string): boolean {
 /** What Trash lists for the Notes page's filters: its words, folder, tags (each, or a tag under it) and order. */
 export function filterTrash(items: TrashItem[], query: NoteQuery): TrashItem[] {
   // Several folders (`A|B`) mean any of them; several tags mean each one, or with match=any, one of them.
-  const folders = folderList(query.folder).map((f) => f.replace(/\/?$/, "/"));
+  const folders = folderList(query.folder);
   const tags = tagList(query.tag).map((t) => t.toLowerCase());
-  const hasTag = (t: TrashItem, f: string) => (t.tags ?? []).some((x) => tagMatches(x.toLowerCase(), f));
+  const hasTag = (t: TrashItem, f: string) => (t.tags ?? []).some((x) => tagFits(x.toLowerCase(), f));
   const shown = items.filter(
     (t) =>
       (!query.q || trashMatches(t, query.q)) &&
-      (!folders.length || folders.some((f) => homeOf(t).startsWith(f))) &&
+      (!folders.length || inFolders(homeOf(t), folders)) &&
       (!tags.length || (query.match === "any" ? tags.some((f) => hasTag(t, f)) : tags.every((f) => hasTag(t, f)))),
   );
   // Trash keeps no note dates: newest and recently changed both mean most recently deleted.
