@@ -819,8 +819,8 @@ export class Vault {
     }
     if (query.sort === "title") rows = [...rows].sort((a, b) => a.title.localeCompare(b.title));
     if (query.sort === "date" || query.sort === "oldest") {
-      // A note's own date, else the day it last changed; the same day goes by when it changed.
-      const day = (r: (typeof rows)[number]) => r.date ?? new Date(r.mtime).toISOString().slice(0, 10);
+      // A note's own date, else the day it last changed in the vault's time zone; the same day goes by when it changed.
+      const day = (r: (typeof rows)[number]) => r.date ?? localDate(r.mtime, this.timeZone);
       const dir = query.sort === "date" ? -1 : 1;
       rows = [...rows].sort((a, b) => dir * (day(a).localeCompare(day(b)) || a.mtime - b.mtime));
     }
