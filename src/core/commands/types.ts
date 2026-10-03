@@ -79,11 +79,11 @@ export interface VaultBytes {
 /** Where a command runs: the vault, and who's asking. */
 export interface CommandHost {
   vault: Vault;
-  /** Whose favorites and own smart folders these are. */
+  /** Whose favorites and own saved views these are. */
   user: string;
   /** Who writes are attributed to (see agentSource in actor.ts). */
   source: string;
-  /** May they change what the whole workspace shares (shared smart folders)? */
+  /** May they change what the whole workspace shares (shared views)? */
   canEditShared: boolean;
   /** The bytes of vault files. Unset where a command can't move files (MCP, which carries text). */
   bytes?: VaultBytes;

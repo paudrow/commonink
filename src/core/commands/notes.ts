@@ -69,7 +69,7 @@ export const notes = [
     mcp: "list_notes",
     route: "GET /notes",
     title: "List notes",
-    summary: "Notes in the vault or a folder, with a tag, the most recent, starred, or in a smart folder",
+    summary: "Notes in the vault or a folder, with a tag, the most recent, starred, or in a saved view",
     description:
       "List notes in the vault or a folder, the notes and assets with a tag, the most recently modified notes, or the user's " +
       "starred notes (favorites, in their order). Archived notes (in Archive/, or the workspace's own archive folder like " +
@@ -81,10 +81,10 @@ export const notes = [
       tag: str({ describe: TAG }),
       recent: num({ min: 1, max: 100, describe: "If set, list this many most recently modified notes" }),
       starred: bool({ describe: "If set, list the user's favorites instead" }),
-      smart_folder: str({ flag: "smart", describe: "If set, list the notes in this smart folder (name or ID) instead" }),
+      smart_folder: str({ flag: "smart", describe: "If set, list the notes in this saved view (smart folder: name or ID) instead" }),
       query: str({
         describe:
-          'If set, list the notes this note query matches instead, written as a smart folder or ::query writes it: q="(launch OR release) -draft" folder=Projects tag=work modified>-7d -tag=done sort=created. In q, side by side is AND, OR is either, -x leaves out, ( ) groups, and tag=, folder= and dates work inside. See commonink help query.',
+          'If set, list the notes this note query matches instead, written as a view or ::query writes it: q="(launch OR release) -draft" folder=Projects tag=work modified>-7d -tag=done sort=created. In q, side by side is AND, OR is either, -x leaves out, ( ) groups, and tag=, folder= and dates work inside. See commonink help query.',
       }),
       include_archived: bool({ flag: "all", describe: "Also archived notes" }),
       archived: bool({ only: "cli", describe: "Only archived notes" }),

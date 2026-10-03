@@ -210,7 +210,9 @@ export function openVault(root = DEFAULT_VAULT, opts: VaultOptions = {}): LocalV
   sqlite.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA synchronous=NORMAL;");
   const db = new NodeDb(sqlite);
   migrate(db, { local: true });
-  const q = new Vault(db, new FsContent(root), opts) as LocalVault;
+  // Its one person keeps their views right in Views/ (see views.ts).
+  const q = new Vault(db, new FsContent(root), { soleUser: LOCAL_USER, ...opts }) as LocalVault;
   q.sync();
+  q.upgradeSmartFolders();
   return q;
 }

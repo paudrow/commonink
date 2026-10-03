@@ -77,7 +77,7 @@ test("a smart folder without a name isn't saved, and Escape closes the dialog", 
   smartFolderEditor(document.body, { name: "", query: "tag=health", shared: true }, { canShare: true, sources, save: async () => void saves++ });
   $<HTMLFormElement>(".sf-dialog").requestSubmit();
   assert.equal(saves, 0);
-  assert.equal($(".sf-pop-error").textContent, "Give the smart folder a name");
+  assert.equal($(".sf-pop-error").textContent, "Give the view a name");
   $(".sf-dialog").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   assert.equal(document.querySelector(".sf-modal"), null);
 });

@@ -13,7 +13,7 @@ import { inputSchema } from "./commands/input.ts";
 
 export interface ToolHost {
   vault: Vault;
-  /** Whose favorites and own smart folders the tools read and change. */
+  /** Whose favorites and own saved views the tools read and change. */
   user: string;
   /** Who writes are attributed to, given the name the client connected with. */
   source(client: string | undefined): string;
@@ -22,7 +22,7 @@ export interface ToolHost {
    * route they may not use aren't offered. Unset locally, where everything is allowed.
    */
   may?(route: string): boolean;
-  /** Whether the caller may make or change shared smart folders (online: editors and owners). Default yes. */
+  /** Whether the caller may make or change shared views (online: editors and owners). Default yes. */
   canEditShared?: boolean;
   /** The workspace's members (online), for who "me" and other people are on tasks. None locally. */
   members?(): Promise<MemberRef[]>;

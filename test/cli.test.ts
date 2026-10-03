@@ -159,15 +159,17 @@ test("today prints the day's sections", () => {
   assert.equal(JSON.parse(commonink(vault, ["today", "--date", "2026-10-01", "--json"]).stdout).sections[1].tasks[0].line, 8);
 });
 
-test("smart-save, smart and smart-rm keep saved note queries", () => {
+test("smart-save, smart and smart-rm keep saved note queries as view notes in Views/", () => {
   const vault = tempVault();
-  // A local vault has no one to share with, so no smart folder is called shared (or just yours).
-  assert.match(commonink(vault, ["smart-save", "Planning", "tag=plan"]).stdout, /^- Planning \(1 note\): tag=plan \[[a-z2-9]{8}\]\n$/);
-  assert.match(commonink(vault, ["smart-save", "Mine", "tag=plan", "--just-me"]).stdout, /^- Planning \(1 note\): tag=plan \[[a-z2-9]{8}\]\n- Mine \(1 note\): tag=plan \[[a-z2-9]{8}\]\n$/);
+  // A local vault has no one to share with, so no view is called shared (or just yours), and its one person's go right in Views/.
+  assert.match(commonink(vault, ["smart-save", "Planning", "tag=plan"]).stdout, /^- Planning \(1 note\): tag=plan — Views\/Planning\.md \[[a-z2-9]{8}\]\n$/);
+  assert.equal(fs.readFileSync(path.join(vault, "Views/Planning.md"), "utf8"), "::query{tag=plan}\n");
+  assert.match(commonink(vault, ["smart-save", "Mine", "tag=plan", "--just-me"]).stdout, /^- Mine \(1 note\): tag=plan — Views\/Mine\.md \[[a-z2-9]{8}\]\n- Planning \(1 note\): tag=plan — Views\/Planning\.md \[[a-z2-9]{8}\]\n$/);
   assert.equal(commonink(vault, ["smart", "planning"]).stdout, "- Projects/Roadmap.md — Roadmap\n");
   assert.equal(commonink(vault, ["smart-save", "Bad", "colour=red"]).stderr, 'Unknown query key "colour": use q, folder, tag, match, sort or limit\n');
-  assert.match(commonink(vault, ["smart-rm", "Mine"]).stdout, /^- Planning \(1 note\): tag=plan \[[a-z2-9]{8}\]\n$/);
-  assert.equal(commonink(vault, ["smart-rm", "Planning"]).stdout, "No smart folders.\n");
+  assert.match(commonink(vault, ["smart-rm", "Mine"]).stdout, /^- Planning \(1 note\): tag=plan — Views\/Planning\.md \[[a-z2-9]{8}\]\n$/);
+  assert.equal(commonink(vault, ["smart-rm", "Planning"]).stdout, "No saved views.\n");
+  assert.equal(fs.existsSync(path.join(vault, "Views/Planning.md")), false, "its note went to Trash");
 });
 
 test("task --until and --times end a repeat, and ticking counts it down", () => {
