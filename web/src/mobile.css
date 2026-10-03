@@ -153,8 +153,8 @@
   .cal-sources-btn span { display: none; }
   .cal-new span { display: none; }
   .cal-new { width: 44px; justify-content: center; padding: 0; }
-  .cal-f-field { grid-template-columns: minmax(0, 1fr); gap: 4px; }
-  .cal-f-label { padding-top: 0; }
+  .cal-f-line { gap: 8px; }
+  .cal-f-adders { padding-left: 0; }
   .cal-sources-btn { width: 44px; justify-content: center; padding: 0; }
   .cal-tg { min-width: 620px; }
   #calendar-view[data-view="day"] .cal-tg { min-width: 0; }

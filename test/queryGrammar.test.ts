@@ -17,6 +17,8 @@ function show(e: Expr | null): string {
       return `in:${e.folders.join("|")}`;
     case "date":
       return `${e.field}${e.op}${e.day}`;
+    case "prop":
+      return e.value === null ? `has:${e.key}` : `${e.key}:${e.value}`;
     case "not":
       return `NOT ${show(e.item)}`;
     case "and":
@@ -133,6 +135,32 @@ test("evaluate does and, or and not over a term test", () => {
   assert.equal(evaluate(expr, has("b", "c")), false);
   assert.equal(evaluate(expr, has("d")), false);
   assert.equal(evaluate(null, has()), true);
+});
+
+test("property filters work inside groups, left out, and alongside every other term", () => {
+  assert.equal(read("(alpha OR beta) AND status=draft"), "[[alpha | beta] & status:draft]");
+  assert.equal(read("(status=draft OR status=review) -has=due"), "[[status:draft | status:review] & NOT has:due]");
+  assert.equal(read("-(status=done OR has=archived) tag=work"), "[NOT [status:done | has:archived] & #work]");
+  assert.equal(read("-has=a,b"), "[NOT has:a & NOT has:b]");
+  assert.equal(read("stage='in review' OR folder=Projects"), "[stage:in review | in:Projects]");
+  assert.equal(parse("(status>draft OR a)").error?.message, "Only modified and created compare with < and >: write status=… (at character 2)");
+  for (const q of ["(alpha OR beta) AND status=draft", "-(status=done OR has=archived) stage='in review'"]) assert.deepEqual(parse(format(parse(q).expr)).expr, parse(q).expr, q);
+  assert.ok(SYNTAX.some((s) => s.example === "status=draft") && SYNTAX.some((s) => s.example === "has=due"));
+});
+
+test("the feed runs property filters inside groups", () => {
+  const { vault } = openTempVault({
+    "A.md": "---\nstatus: draft\ndue: 2026-10-10\n---\n# A\n\nalpha\n",
+    "B.md": "---\nstatus: done\n---\n# B\n\nbeta\n",
+    "C.md": "---\nstatus: [draft, review]\n---\n# C\n\nbeta\n",
+    "D.md": "# D\n\nalpha beta\n",
+  });
+  const paths = (q: string) => vault.feed({ q }).items.map((i) => i.path).sort();
+  assert.deepEqual(paths("(alpha OR beta) AND status=draft"), ["A.md", "C.md"]);
+  assert.deepEqual(paths("(status=done OR has=due) beta"), ["B.md"]);
+  assert.deepEqual(paths("beta -(status=done OR status=review)"), ["D.md"]);
+  assert.deepEqual(paths("status=done OR alpha -has=due"), ["B.md", "D.md"]);
+  assert.deepEqual(paths("title=d OR (status=draft has=due)"), ["A.md", "D.md"]);
 });
 
 test("the syntax help lists every operator and field, each with an example that reads", () => {
