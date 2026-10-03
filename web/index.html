@@ -47,11 +47,14 @@
         <button id="today-btn" class="nav-item" type="button"><span class="ico" data-icon="sun"></span><span>Today</span></button>
         <button id="notes-btn" class="nav-item" type="button"><span class="ico" data-icon="feed"></span><span>Notes</span></button>
         <button id="tasks-btn" class="nav-item" type="button"><span class="ico" data-icon="task"></span><span>Tasks</span><span id="tasks-count" class="n"></span></button>
-        <button id="contacts-btn" class="nav-item" type="button" hidden><span class="ico" data-icon="user"></span><span>Contacts</span></button>
-        <button id="calendar-btn" class="nav-item" type="button" hidden><span class="ico" data-icon="calendar"></span><span>Calendar</span></button>
-        <button id="assets-btn" class="nav-item" type="button" hidden><span class="ico" data-icon="grid"></span><span>Assets</span><span id="assets-count" class="n"></span></button>
-        <button id="history-btn" class="nav-item" type="button"><span class="ico" data-icon="history"></span><span>History</span></button>
-        <button id="shared-btn" class="nav-item" type="button" hidden><span class="ico" data-icon="share"></span><span>Shared with me</span><span id="shared-count" class="n"></span></button>
+        <button id="more-btn" class="nav-item more-toggle is-folded" type="button" aria-expanded="false" aria-controls="nav-more" hidden><span class="ico" data-icon="chevron" data-size="14"></span><span>More</span></button>
+        <div id="nav-more">
+          <button id="contacts-btn" class="nav-item" type="button" hidden><span class="ico" data-icon="user"></span><span>Contacts</span></button>
+          <button id="calendar-btn" class="nav-item" type="button" hidden><span class="ico" data-icon="calendar"></span><span>Calendar</span></button>
+          <button id="assets-btn" class="nav-item" type="button" hidden><span class="ico" data-icon="grid"></span><span>Assets</span><span id="assets-count" class="n"></span></button>
+          <button id="history-btn" class="nav-item" type="button" hidden><span class="ico" data-icon="history"></span><span>History</span></button>
+          <button id="shared-btn" class="nav-item" type="button" hidden><span class="ico" data-icon="share"></span><span>Shared with me</span><span id="shared-count" class="n"></span></button>
+        </div>
         <div class="sidebar-sections">
         <div class="tree-head" data-section="favorites">
           <button class="section-toggle" type="button" aria-expanded="true" aria-controls="favorites"><span class="ico" data-icon="chevron" data-size="12"></span><span>Starred</span></button>

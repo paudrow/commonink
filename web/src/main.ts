@@ -71,7 +71,7 @@ import { renderSharedList, sharedPage } from "./sharedPage.ts";
 import { CapturePage, registerWorker } from "./capture.ts";
 import { AGENTS_BLURB, isAgentsNote } from "./agentsNote.ts";
 import { closeDrawer, renderMore, setupMobileNav } from "./mobileNav.ts";
-import { nameField, plusMark, sectionHint, shownItems, sidebarTags, type OptionalItem } from "./sidebar.ts";
+import { MORE_ITEMS, morePlaces, nameField, plusMark, sectionHint, shownItems, sidebarTags, type MoreItem, type OptionalItem, type Pinnable } from "./sidebar.ts";
 import { PEOPLE } from "../../src/core/contacts.ts";
 import type { CalendarPage } from "./calendar/page.ts";
 import { calendarChanged, calendars, setCalendarContext } from "./calendar/data.ts";
@@ -140,9 +140,9 @@ const prefs = {
   /** Tags whose nested tags are showing in the sidebar (they start closed). */
   tagsOpen: new Set<string>(store.get<string[]>("tagsOpen", [])),
   /** Sidebar sections folded away from their header. Folders start folded: the sidebar leads with tags. */
-  folded: { favorites: false, smart: false, folders: true, tags: false, ...store.get<Record<string, boolean>>("folded", {}) } as Record<string, boolean>,
-  /** Contacts, Calendar, Assets and Smart folders kept in the sidebar before they're in use (Settings, Sidebar). */
-  sidebarPinned: store.get<Partial<Record<OptionalItem, boolean>>>("sidebarPinned", {}),
+  folded: { favorites: false, smart: false, folders: true, tags: false, more: true, ...store.get<Record<string, boolean>>("folded", {}) } as Record<string, boolean>,
+  /** Contacts, Calendar, Assets, History and Smart folders kept in the sidebar, above More, before they're in use (Settings, Sidebar). */
+  sidebarPinned: store.get<Partial<Record<Pinnable, boolean>>>("sidebarPinned", {}),
 };
 taskInputPrefs.vim = prefs.vim; // every task input (quick-add, inline edit, a card) types with the editor's keys
 
@@ -2030,6 +2030,27 @@ function setExpanded(folder: string, open: boolean) {
 }
 
 /**
+ * Calendar, Contacts, Assets, History and Shared with me: kept up top (Settings, Sidebar) or under
+ * More, which starts folded. Folded, More still shows the page you're on, so where you are never hides.
+ */
+function placeMoreItems(shown: Record<MoreItem, boolean>, page: string | null) {
+  const places = morePlaces(shown, prefs.sidebarPinned);
+  const more = $("#more-btn");
+  const list = $("#nav-more");
+  const folded = !!prefs.folded.more;
+  for (const item of MORE_ITEMS) {
+    const btn = $(`#${item}-btn`);
+    const place = places[item];
+    btn.hidden = !place || (place === "more" && folded && page !== item);
+    if (place === "top") more.before(btn);
+    else list.append(btn);
+  }
+  more.hidden = !MORE_ITEMS.some((i) => places[i] === "more");
+  more.setAttribute("aria-expanded", String(!folded));
+  more.classList.toggle("is-folded", folded);
+}
+
+/**
  * The sidebar: the views' counts and highlights, Favorites, and the folders. Folders start closed
  * (the chevron shows subfolders) and hold no notes: clicking one shows Notes narrowed to it.
  */
@@ -2056,7 +2077,10 @@ function renderTree() {
     here,
     !gamified(),
   );
-  for (const item of ["contacts", "calendar", "assets"] as const) $(`#${item}-btn`).hidden = !shown[item];
+  placeMoreItems(
+    { calendar: shown.calendar, contacts: shown.contacts, assets: shown.assets, history: true, shared: !local && !!workspaceId },
+    page,
+  );
   $('.tree-head[data-section="smart"]').hidden = !shown.smart;
   $("#smart-folders").hidden = !shown.smart || !!prefs.folded.smart;
   setCurrent($("#notes-btn"), showing === "" || page === "archive" || page === "trash"); // Archive and Trash are tabs of Notes
@@ -3217,8 +3241,8 @@ function openSettings(query?: string) {
   );
 }
 
-/** Keep an optional sidebar item showing even before it's in use (Settings, Sidebar), or let it wait again. */
-function setSidebarPinned(item: OptionalItem, on: boolean) {
+/** Keep a sidebar item showing above More, even before it's in use (Settings, Sidebar), or let it go back under More. */
+function setSidebarPinned(item: Pinnable, on: boolean) {
   prefs.sidebarPinned = { ...prefs.sidebarPinned, [item]: on };
   store.set("sidebarPinned", prefs.sidebarPinned);
   renderTree();
@@ -3437,7 +3461,6 @@ async function boot() {
     api.reportTimeZone().catch(() => {}); // unreported, agents use the owner's zone, or UTC
     $("#settings-btn").remove(); // the account menu has Settings
     account = renderAccount(who.me, ws, (t) => toast(t), () => openSettings());
-    $("#shared-btn").hidden = false;
     setShareWithPeople({ label: "Share with people…", icon: "share-people", run: (note) => openShareDialog({ path: note.path }) });
     setSaveToDrive({ label: "Save to Google Drive…", icon: "drive", run: (note) => void saveNoteToDrive(note) });
     void refreshShares();
@@ -3492,6 +3515,11 @@ async function boot() {
   $("#contacts-btn").addEventListener("click", () => void showContacts());
   $("#history-btn").addEventListener("click", () => void showHistory());
   $("#assets-btn").addEventListener("click", () => void showAssets());
+  $("#more-btn").addEventListener("click", () => {
+    prefs.folded.more = !prefs.folded.more;
+    store.set("folded", prefs.folded);
+    renderTree();
+  });
   $("#tags-page-btn").addEventListener("click", () => void showTags());
   $("#new-smart-folder").addEventListener("click", () => newSmartFolder($("#new-smart-folder")));
   setupSections();

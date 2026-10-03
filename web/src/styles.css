@@ -1366,6 +1366,11 @@ a.gh-card:hover { border-color: var(--line-strong); }
 .nav-item svg { color: var(--muted); }
 .nav-item .n { margin-left: auto; font-size: 11.5px; color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
 .sidebar-foot .nav-item { margin: 0 0 4px; }
+/* More: the pages past Today, Notes and Tasks, folded under one row whose chevron turns like a section's. */
+.more-toggle { color: var(--muted); font-weight: 500; }
+.more-toggle .ico { transition: transform 0.15s; transform: rotate(90deg); }
+.more-toggle.is-folded .ico { transform: rotate(0); }
+#nav-more { display: flex; flex-direction: column; }
 .new-note-row { display: flex; align-items: center; gap: 4px; }
 .new-note-row .ghost-btn { flex: 1; }
 /* Your writing days (streak.ts): the heatmap the Today page's week card and the ::streak widget show. */

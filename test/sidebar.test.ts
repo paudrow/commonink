@@ -1,7 +1,7 @@
 import "./dom.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { nameField, sectionHint, shownItems, sidebarTags } from "../web/src/sidebar.ts";
+import { morePlaces, nameField, sectionHint, shownItems, sidebarTags } from "../web/src/sidebar.ts";
 import type { TagCount } from "../web/src/api.ts";
 
 const tag = (t: string, notes: number, tasks = 0, assets = 0): TagCount => ({ tag: t, display: t, notes, tasks, assets });
@@ -52,4 +52,10 @@ test("a workspace that isn't gamified shows every optional item from the start",
   const none = { contacts: false, calendar: false, assets: false, smart: false };
   assert.deepEqual(shownItems(none, {}, new Set(), true), { contacts: true, calendar: true, assets: true, smart: true });
   assert.deepEqual(shownItems(none, {}, new Set()), none);
+});
+
+test("past Today, Notes and Tasks, pages sit under More unless Settings keeps them up top; Shared with me always folds", () => {
+  const shown = { contacts: true, calendar: true, assets: false, history: true, shared: true };
+  assert.deepEqual(morePlaces(shown, {}), { contacts: "more", calendar: "more", assets: null, history: "more", shared: "more" });
+  assert.deepEqual(morePlaces(shown, { calendar: true, history: true, assets: true }), { contacts: "more", calendar: "top", assets: null, history: "top", shared: "more" }, "a page that isn't showing stays out, pinned or not");
 });

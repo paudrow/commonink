@@ -66,3 +66,22 @@ export function shownItems(
 ): Record<OptionalItem, boolean> {
   return Object.fromEntries(OPTIONAL_ITEMS.map((i) => [i, all || inUse[i] || !!pinned[i] || here.has(i)])) as Record<OptionalItem, boolean>;
 }
+
+/**
+ * The pages below Today, Notes and Tasks. They fold under More so the top of the sidebar stays
+ * three rows; Settings, Sidebar can keep any of them up top instead.
+ */
+export type MoreItem = "contacts" | "calendar" | "assets" | "history" | "shared";
+export const MORE_ITEMS: MoreItem[] = ["contacts", "calendar", "assets", "history", "shared"];
+/** What Settings, Sidebar can keep showing: an optional item, or History. */
+export type Pinnable = OptionalItem | "history";
+
+/**
+ * Where each of those pages sits: up top with Today, Notes and Tasks ("top", kept there in
+ * Settings), under More ("more"), or nowhere (null) while it isn't showing at all (`shown`).
+ */
+export function morePlaces(shown: Record<MoreItem, boolean>, pinned: Partial<Record<Pinnable, boolean>>): Record<MoreItem, "top" | "more" | null> {
+  return Object.fromEntries(
+    MORE_ITEMS.map((i) => [i, !shown[i] ? null : i !== "shared" && pinned[i] ? "top" : "more"]),
+  ) as Record<MoreItem, "top" | "more" | null>;
+}

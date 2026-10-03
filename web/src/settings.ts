@@ -6,7 +6,7 @@ import { formatKeys } from "./keys.ts";
 import { openModal } from "./modal.ts";
 import { localSteps } from "./connectAgent.ts";
 import { button } from "./widgets/core.ts";
-import type { OptionalItem } from "./sidebar.ts";
+import type { Pinnable } from "./sidebar.ts";
 import { INKS, progressText, type InkId, type InkStats } from "./inks.ts";
 
 export type Section = "Appearance" | "Sidebar" | "Editor" | "Keyboard" | "Agents" | "Workspace";
@@ -51,9 +51,9 @@ export interface SettingsApp {
   setVimDisplayLines(on: boolean): void;
   shortcutTips: boolean;
   setShortcutTips(on: boolean): void;
-  /** The sidebar items kept showing before they're in use. */
-  sidebarPinned: Partial<Record<OptionalItem, boolean>>;
-  setSidebarPinned(item: OptionalItem, on: boolean): void;
+  /** The sidebar items kept up top, above More (Smart folders: kept showing), even before they're in use. */
+  sidebarPinned: Partial<Record<Pinnable, boolean>>;
+  setSidebarPinned(item: Pinnable, on: boolean): void;
   /** Whether the workspace is gamified (gamify.ts), and whether you may change that: its owners online, and you locally. */
   gamified: { on: boolean; canChange: boolean };
   setGamified(on: boolean): void;
@@ -63,28 +63,44 @@ export interface SettingsApp {
   connectAgent(): void;
 }
 
-/** Each sidebar item that waits until it's in use: its name, and what puts it in the sidebar by itself. */
-const WAITING: Array<{ item: OptionalItem; name: string; when: string; keywords: string }> = [
+/**
+ * The pages under More, and what puts each there by itself in a workspace that unlocks as you go
+ * (`when`; History is there from the start).
+ */
+const UNDER_MORE: Array<{ item: Pinnable; name: string; when?: string; keywords: string }> = [
   { item: "contacts", name: "Contacts", when: "you add someone", keywords: "people crm" },
   { item: "calendar", name: "Calendar", when: "you add a calendar or an event", keywords: "events meetings schedule" },
   { item: "assets", name: "Assets", when: "you upload a file", keywords: "files images uploads attachments" },
-  { item: "smart", name: "Smart folders", when: "you save one", keywords: "saved searches queries" },
+  { item: "history", name: "History", keywords: "changes activity versions log" },
 ];
 
 export function appSettings(app: SettingsApp): Setting[] {
   const game = app.gamified.on;
-  // A new workspace's sidebar leaves these out until they're in use; each can stay there from the start instead.
-  // Not gamified, the sidebar has them all from the start, so there's nothing to pin.
-  const sidebar = !game ? [] : WAITING.map(
+  // Past Today, Notes and Tasks, the sidebar's pages fold under More; each can sit up top instead.
+  const sidebar: Setting[] = UNDER_MORE.map(
     ({ item, name, when, keywords }): Setting => ({
       id: `sidebar-${item}`,
       section: "Sidebar",
-      title: `Always show ${name}`,
-      description: `The sidebar shows ${name} once ${when}. Turn this on to keep it there even before then.`,
-      keywords: `sidebar navigation hide show empty pin ${keywords}`,
+      title: `Keep ${name} up top`,
+      description:
+        game && when
+          ? `${name} shows under More once ${when}. Turn this on to keep it with Today, Notes and Tasks, even before then.`
+          : `On, ${name} sits with Today, Notes and Tasks. Off, it's under More.`,
+      keywords: `sidebar navigation hide show more pin ${keywords}`,
       control: { kind: "toggle", on: !!app.sidebarPinned[item], set: (on) => app.setSidebarPinned(item, on) },
     }),
   );
+  // A new workspace leaves Smart folders out until you save one; it can stay from the start instead.
+  // Not gamified, it's there from the start, so there's nothing to keep.
+  if (game)
+    sidebar.push({
+      id: "sidebar-smart",
+      section: "Sidebar",
+      title: "Always show Smart folders",
+      description: "The sidebar shows Smart folders once you save one. Turn this on to keep it there even before then.",
+      keywords: "sidebar navigation hide show empty pin saved searches queries",
+      control: { kind: "toggle", on: !!app.sidebarPinned.smart, set: (on) => app.setSidebarPinned("smart", on) },
+    });
   return [
     {
       id: "theme",
