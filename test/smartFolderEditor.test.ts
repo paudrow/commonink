@@ -77,7 +77,7 @@ test("a smart folder without a name isn't saved, and Escape closes the dialog", 
   smartFolderEditor(document.body, { name: "", query: "tag=health", shared: true }, { canShare: true, sources, save: async () => void saves++ });
   $<HTMLFormElement>(".sf-dialog").requestSubmit();
   assert.equal(saves, 0);
-  assert.equal($(".sf-pop-error").textContent, "Give the smart folder a name");
+  assert.equal($(".sf-pop-error").textContent, "Give the view a name");
   $(".sf-dialog").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   assert.equal(document.querySelector(".sf-modal"), null);
 });
@@ -167,17 +167,17 @@ test("Advanced search: no name until asked, each change shows in Notes, and Canc
   assert.deepEqual(applied, ["tag=journal sort=title"], "closing stops the live updates");
   assert.equal(saved, null);
 
-  // Save as smart folder: a name, suggested, then Save. Back returns to the search.
+  // Save as view: a name, suggested, then Save. Back returns to the search.
   open();
-  byText(".sf-save-as", "Save as smart folder").click();
-  assert.equal($(".sf-dialog h2").textContent, "Save as smart folder");
+  byText(".sf-save-as", "Save as view").click();
+  assert.equal($(".sf-dialog h2").textContent, "Save as view");
   assert.equal($<HTMLInputElement>(".sf-name").hidden, false);
-  assert.equal($<HTMLInputElement>(".sf-name").value, "#health");
+  assert.equal($<HTMLInputElement>(".sf-name").value, "health");
   assert.equal(document.activeElement, $(".sf-name"));
   $(".sf-dialog").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   assert.ok($(".sf-modal"), "Escape while naming goes back to the search");
   assert.equal($(".sf-dialog h2").textContent, "Advanced search");
-  byText(".sf-save-as", "Save as smart folder").click();
+  byText(".sf-save-as", "Save as view").click();
   $<HTMLInputElement>(".sf-name").value = "Health";
   $<HTMLFormElement>(".sf-dialog").requestSubmit();
   await settle();
@@ -188,7 +188,7 @@ test("Advanced search: no name until asked, each change shows in Notes, and Canc
 test("a search's suggested name: its tags, folders and words", async () => {
   const { suggestName } = await import("../web/src/smartFolderEditor.ts");
   assert.equal(suggestName(""), "All notes");
-  assert.equal(suggestName("tag=health"), "#health");
-  assert.equal(suggestName('tag="work,plan" match=any'), "#work or #plan");
+  assert.equal(suggestName("tag=health"), "health");
+  assert.equal(suggestName('tag="work,plan" match=any'), "work or plan");
   assert.equal(suggestName('folder="Areas|Projects" q=launch'), "Areas or Projects · “launch”");
 });

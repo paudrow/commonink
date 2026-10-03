@@ -393,13 +393,13 @@ test("reordering favorites while a starred note is gone leaves it last when it c
 
 test("a tag can be a favorite: in the same order as notes, following renames, dropping out when unused", () => {
   const { vault } = openTempVault({ "A.md": "# A\n\n#work/clients #home\n", "B.md": "# B\n\n#work/clients/acme\n" });
-  const shown = (user = "ana") => vault.favorites(user).map((f) => ("tag" in f ? `#${f.display} ${f.notes}` : "path" in f ? f.path : f.name));
+  const shown = (user = "ana") => vault.favorites(user).map((f) => ("tag" in f ? `#${f.display} ${f.notes}` : "smartFolder" in f ? f.name : f.path));
   vault.star("ana", "A");
   vault.starTag("ana", "#Work/Clients");
   vault.starTag("ana", "work/clients"); // again: no change
   vault.starTag("ana", "home");
   assert.deepEqual(shown(), ["A.md", "#work/clients 2", "#home 1"]);
-  assert.deepEqual(vault.orderFavorites("ana", ["#home", "A.md"]).map((f) => ("tag" in f ? f.tag : "path" in f ? f.path : f.name)), ["home", "A.md", "work/clients"]);
+  assert.deepEqual(vault.orderFavorites("ana", ["#home", "A.md"]).map((f) => ("tag" in f ? f.tag : "smartFolder" in f ? f.name : f.path)), ["home", "A.md", "work/clients"]);
   assert.throws(() => vault.starTag("ana", "nowhere"), /No note has #nowhere/);
   assert.deepEqual(shown("bo"), []);
 
@@ -413,16 +413,16 @@ test("a tag can be a favorite: in the same order as notes, following renames, dr
   assert.deepEqual(shown(), ["A.md"]); // unused: out of sight, but kept
   vault.append("B", "#job/clients again", "t");
   assert.deepEqual(shown(), ["A.md", "#Job/clients 1"]);
-  assert.deepEqual(vault.unstarTag("ana", "job/clients").map((f) => ("tag" in f ? f.tag : "path" in f ? f.path : f.name)), ["A.md"]);
+  assert.deepEqual(vault.unstarTag("ana", "job/clients").map((f) => ("tag" in f ? f.tag : "smartFolder" in f ? f.name : f.path)), ["A.md"]);
 });
 
 test("favorites from before tag favorites keep their notes, and a tag can be starred after the upgrade", () => {
   const { dir, vault } = openTempVault({ "A.md": "# A\n\n#work\n" });
   vault.star("ana", "A");
   const reopened = openVault(dir);
-  assert.deepEqual(reopened.favorites("ana").map((f) => ("tag" in f ? f.tag : "path" in f ? f.path : f.name)), ["A.md"]);
+  assert.deepEqual(reopened.favorites("ana").map((f) => ("tag" in f ? f.tag : "smartFolder" in f ? f.name : f.path)), ["A.md"]);
   reopened.starTag("ana", "work");
-  assert.deepEqual(reopened.favorites("ana").map((f) => ("tag" in f ? f.tag : "path" in f ? f.path : f.name)), ["A.md", "work"]);
+  assert.deepEqual(reopened.favorites("ana").map((f) => ("tag" in f ? f.tag : "smartFolder" in f ? f.name : f.path)), ["A.md", "work"]);
 });
 
 test("only notes can be starred, not assets", () => {
@@ -835,36 +835,38 @@ test("updateTask rewrites a task's tokens in its note, and refuses values that c
   assert.throws(() => vault.updateTask("Plan", 3, "Gone", { due: null }, "t"), /isn't in Plan\.md any more/);
 });
 
-test("smart folders are saved queries, shared with the workspace or one person's own, each with a live count", () => {
+test("views are saved queries, shared with the workspace or one person's own, each with a live count", () => {
   const { vault } = openTempVault(TAGGED);
-  const clients = vault.saveSmartFolder("ana", { name: "Client work", query: "tag=work/clients  sort=title", shared: true }, true);
-  assert.deepEqual(clients, { id: clients.id, name: "Client work", query: "tag=work/clients sort=title", shared: true, count: 2 });
-  vault.saveSmartFolder("bo", { name: "Ideas", query: 'q="idea"', shared: false }, true);
+  const save = (user: string, f: { id?: string; name: string; query: string; shared: boolean }, can = true) => vault.saveSmartFolder(user, f, can, "t").view;
+  const clients = save("ana", { name: "Client work", query: "tag=work/clients  sort=title", shared: true });
+  assert.deepEqual(clients, { id: clients.id, name: "Client work", path: "Views/Client work.md", query: "tag=work/clients sort=title", shared: true, count: 2 });
+  save("bo", { name: "Ideas", query: 'q="idea"', shared: false });
   assert.deepEqual(vault.smartFolders("ana").map((f) => f.name), ["Client work"]);
   assert.deepEqual(vault.smartFolders("bo").map((f) => `${f.name} ${f.count}`), ["Client work 2", "Ideas 1"]);
   vault.create("Projects/Beta", "# Beta\n\n#work/clients/beta\n", "t");
   assert.equal(vault.smartFolders("ana")[0].count, 3);
-  assert.equal(vault.findSmartFolder("bo", "ideas").query, 'q=idea');
+  assert.equal(vault.findSmartFolder("bo", "ideas").query, "q=idea");
 
   // Someone who can't edit shared things (a viewer online) keeps their own, and can't touch the workspace's.
-  assert.throws(() => vault.saveSmartFolder("vi", { name: "Mine", query: "", shared: true }, false), /Only editors/);
-  assert.throws(() => vault.saveSmartFolder("vi", { id: clients.id, name: "Renamed", query: "", shared: false }, false), /Only editors/);
-  assert.throws(() => vault.deleteSmartFolder("vi", clients.id, false), /Only editors/);
-  const own = vault.saveSmartFolder("vi", { name: "Mine", query: "folder=Ideas", shared: false }, false);
+  assert.throws(() => save("vi", { name: "Mine", query: "", shared: true }, false), /Only editors/);
+  assert.throws(() => save("vi", { id: clients.id, name: "Renamed", query: "", shared: false }, false), /Only editors/);
+  assert.throws(() => vault.deleteSmartFolder("vi", clients.id, false, "t"), /Only editors/);
+  const own = save("vi", { name: "Mine", query: "folder=Ideas", shared: false }, false);
   assert.equal(own.count, 1);
-  assert.throws(() => vault.saveSmartFolder("ana", { id: own.id, name: "Taken", query: "", shared: false }, true), /No smart folder/);
-  assert.throws(() => vault.saveSmartFolder("ana", { name: "Bad", query: "colour>red", shared: true }, true), /Only modified and created compare/);
-  assert.throws(() => vault.saveSmartFolder("ana", { name: " ", query: "", shared: true }, true), /name/);
-  assert.deepEqual(vault.deleteSmartFolder("ana", "client work", true), []);
+  assert.equal(own.path, "Views/vi/Mine.md");
+  assert.throws(() => save("ana", { id: own.id, name: "Taken", query: "", shared: false }), /No view/);
+  assert.throws(() => save("ana", { name: "Bad", query: "colour>red", shared: true }), /Only modified and created compare/);
+  assert.throws(() => save("ana", { name: " ", query: "", shared: true }), /name/);
+  assert.deepEqual(vault.deleteSmartFolder("ana", "client work", true, "t").views, []);
 });
 
-test("a smart folder can need several tags, a folder with spaces, and sort by each note's own date", () => {
+test("a view can need several tags, a folder with spaces, and sort by each note's own date", () => {
   const { vault } = openTempVault({});
   vault.create("Health and Fitness/Run log", "---\ndate: 2024-03-01\n---\n# Run log\n\n#health #journal\n", "t");
   vault.create("Health and Fitness/2025-06-10 Swim", "# Swim\n\n#health #journal\n", "t");
   vault.create("Health and Fitness/Gym plan", "---\ncreated: 2023-01-05\n---\n# Gym plan\n\n#health\n", "t");
   vault.create("Journal/2024-12-24", "#journal/daily\n", "t");
-  const both = vault.saveSmartFolder("ana", { name: "Health journal", query: "tag=health tag=journal sort=date", shared: true }, true);
+  const both = vault.saveSmartFolder("ana", { name: "Health journal", query: "tag=health tag=journal sort=date", shared: true }, true, "t").view;
   assert.equal(both.query, 'tag="health,journal" sort=date');
   assert.equal(both.count, 2);
   const titles = (query: string) => vault.feed({ ...parseQuery(query), limit: 50 }).items.map((i) => i.title);
@@ -872,49 +874,49 @@ test("a smart folder can need several tags, a folder with spaces, and sort by ea
   assert.deepEqual(titles("folder=Health and Fitness sort=oldest"), ["Gym plan", "Run log", "Swim"]);
   // A nested tag counts toward its parent, as it does for one tag.
   assert.deepEqual(titles("tag=journal sort=date"), ["Swim", "2024-12-24", "Run log"]);
-  assert.equal(vault.saveSmartFolder("ana", { name: "Health", query: 'folder="Health and Fitness"', shared: true }, true).count, 3);
+  assert.equal(vault.saveSmartFolder("ana", { name: "Health", query: 'folder="Health and Fitness"', shared: true }, true, "t").view.count, 3);
   assert.deepEqual(titles('folder="Health and Fitness|Journal" sort=title'), ["2024-12-24", "Gym plan", "Run log", "Swim"]);
   assert.deepEqual(vault.list(undefined, "active", "health,journal").map((n) => n.title), ["Swim", "Run log"]);
   assert.deepEqual(titles("tag=health,journal match=any sort=title"), ["2024-12-24", "Gym plan", "Run log", "Swim"]);
 });
 
-test("starring and unstarring a tag only touches Favorites, never a smart folder with that tag's query", () => {
+test("starring and unstarring a tag only touches Favorites, never a view with that tag's query", () => {
   const { vault } = openTempVault(TAGGED);
-  const folder = vault.saveSmartFolder("ana", { name: "Workshop", query: "tag=workshop", shared: false }, true);
+  const folder = vault.saveSmartFolder("ana", { name: "Workshop", query: "tag=workshop", shared: false }, true, "t").view;
   vault.starTag("ana", "workshop");
   assert.deepEqual(vault.unstarTag("ana", "workshop"), []);
   assert.deepEqual(vault.smartFolders("ana").map((f) => [f.id, f.query]), [[folder.id, "tag=workshop"]]);
 });
 
-test("a smart folder can be a favorite, beside notes and tags, and leaves Favorites when it's deleted or out of sight", () => {
+test("a view can be a favorite, beside notes and tags, and leaves Favorites when it's deleted or out of sight", () => {
   const { vault } = openTempVault(TAGGED);
-  const f = vault.saveSmartFolder("ana", { name: "Clients", query: "tag=work/clients", shared: true }, true);
-  const mine = vault.saveSmartFolder("bo", { name: "Mine", query: "folder=Ideas", shared: false }, true);
+  const f = vault.saveSmartFolder("ana", { name: "Clients", query: "tag=work/clients", shared: true }, true, "t").view;
+  const mine = vault.saveSmartFolder("bo", { name: "Mine", query: "folder=Ideas", shared: false }, true, "t").view;
   vault.starTag("ana", "work");
   const shown = (user: string) => vault.favorites(user).map((x) => ("smartFolder" in x ? `~${x.name} ${x.count}` : "tag" in x ? `#${x.tag}` : x.path));
   assert.deepEqual(vault.starSmartFolder("ana", "clients").flatMap((x) => ("smartFolder" in x ? [x.id] : [])), [f.id]);
   assert.deepEqual(shown("ana"), ["#work", "~Clients 2"]);
   vault.orderFavorites("ana", ["~Clients"]);
   assert.deepEqual(shown("ana"), ["~Clients 2", "#work"]);
-  assert.throws(() => vault.starSmartFolder("ana", "Mine"), /No smart folder/); // bo's own
+  assert.throws(() => vault.starSmartFolder("ana", "Mine"), /No view/); // bo's own
   vault.starSmartFolder("bo", mine.id);
   vault.starSmartFolder("bo", f.id);
-  vault.saveSmartFolder("ana", { id: f.id, name: "Clients", query: "tag=work/clients", shared: false }, true); // now ana's alone
+  vault.saveSmartFolder("ana", { id: f.id, name: "Clients", query: "tag=work/clients", shared: false }, true, "t"); // now ana's alone
   assert.deepEqual(shown("bo"), ["~Mine 1"]);
   assert.deepEqual(vault.unstarSmartFolder("bo", "Mine"), []);
-  vault.deleteSmartFolder("ana", f.id, true);
+  vault.deleteSmartFolder("ana", f.id, true, "t");
   assert.deepEqual(shown("ana"), ["#work"]);
 });
 
-test("a smart folder name means your own before a shared one, a saved query keeps no limit, and there's a cap", () => {
+test("a view's name means your own before a shared one, a saved query keeps no limit, and there's a cap", () => {
   const { vault } = openTempVault(TAGGED);
-  const shared = vault.saveSmartFolder("ana", { name: "Work", query: "tag=work limit=5", shared: true }, true);
+  const shared = vault.saveSmartFolder("ana", { name: "Work", query: "tag=work limit=5", shared: true }, true, "t").view;
   assert.equal(shared.query, "tag=work");
-  vault.saveSmartFolder("bo", { name: "work", query: "folder=Ideas", shared: false }, true);
-  assert.deepEqual(vault.deleteSmartFolder("bo", "WORK", true).map((f) => f.name), ["Work"]);
-  assert.throws(() => vault.saveSmartFolder("bo", { name: "x".repeat(81), query: "", shared: false }, true), /80 characters/);
-  for (let i = 0; i < 50; i++) vault.saveSmartFolder("cy", { name: `f${i}`, query: "", shared: false }, true);
-  assert.throws(() => vault.saveSmartFolder("cy", { name: "one more", query: "", shared: false }, true), /50 smart folders/);
+  vault.saveSmartFolder("bo", { name: "work", query: "folder=Ideas", shared: false }, true, "t");
+  assert.deepEqual(vault.deleteSmartFolder("bo", "WORK", true, "t").views.map((f) => f.name), ["Work"]);
+  assert.throws(() => vault.saveSmartFolder("bo", { name: "x".repeat(81), query: "", shared: false }, true, "t"), /80 characters/);
+  for (let i = 0; i < 50; i++) vault.saveSmartFolder("cy", { name: `f${i}`, query: "", shared: false }, true, "t");
+  assert.throws(() => vault.saveSmartFolder("cy", { name: "one more", query: "", shared: false }, true, "t"), /50 views/);
 });
 
 test("an index from before note dates learns each note's date on the next start", () => {

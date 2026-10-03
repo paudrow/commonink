@@ -160,11 +160,11 @@ test("an agent acts as its person, with their role, and its writes say who", asy
   assert.equal(refused.isError, true);
   assert.equal((await viewer.call("read_note", { path: "From an agent" })).isError, false);
 
-  // Online, its smart folders say which the workspace shares and which are just theirs.
+  // Online, its views (notes in Views/) say which the workspace shares and which are just theirs.
   await owner.call("save_smart_folder", { name: "Team plans", query: "tag=plan" });
   const { text } = await owner.call("save_smart_folder", { name: "My plans", query: "tag=plan", just_me: true });
-  assert.match(text, /^- Team plans \(\d+ notes?, shared\): tag=plan \[/m);
-  assert.match(text, /^- My plans \(\d+ notes?, just you\): tag=plan \[/m);
+  assert.match(text, /^- Team plans \(\d+ notes?, shared\): tag=plan — Views\/Team plans\.md \[/m);
+  assert.match(text, /^- My plans \(\d+ notes?, just you\): tag=plan — Views\/[a-z0-9]+\/My plans\.md \[/m);
   await owner.call("delete_smart_folder", { smart_folder: "Team plans" });
   await owner.call("delete_smart_folder", { smart_folder: "My plans" });
   await Promise.all([owner.client.close(), viewer.client.close()]);

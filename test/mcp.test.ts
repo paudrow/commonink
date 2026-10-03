@@ -152,12 +152,12 @@ test("search_notes sees files written straight to disk", async () => {
   assert.equal((await call("search_notes", { query: "zeppelin" })).text, "- Side door.md — Side door\n    L3: zeppelin");
 });
 
-test("agents save smart folders, list them with counts and list the notes in one", async () => {
+test("agents save views (smart folders) as notes, list them with counts and list the notes in one", async () => {
   const saved = await call("save_smart_folder", { name: "Q3", query: "tag=q3 sort=title" });
-  assert.match(saved.text, /^- Q3 \(1 note\): tag=q3 sort=title \[[a-z2-9]{8}\]$/);
+  assert.match(saved.text, /^- Q3 \(1 note\): tag=q3 sort=title — Views\/Q3\.md \[[a-z2-9]{8}\]$/);
   assert.equal((await call("list_notes", { smart_folder: "q3" })).text, "- Projects/Roadmap.md — Roadmap");
   assert.equal((await call("save_smart_folder", { name: "Bad", query: "sort=size" })).text, '"sort" is modified, date, oldest, title or created, not "size"');
-  assert.equal((await call("delete_smart_folder", { smart_folder: "Q3" })).text, "No smart folders.");
+  assert.equal((await call("delete_smart_folder", { smart_folder: "Q3" })).text, "No saved views.");
 });
 
 test("agents star and unstar tags as favorites too", async () => {

@@ -33,7 +33,7 @@ export interface Command {
 export type Page = "today" | "notes" | "tasks" | "calendar" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash" | "shared" | "checkup" | "query-help";
 
 /** The kinds of thing ⌘K's Rename… can rename. */
-export type Renamable = "note" | "folder" | "tag" | "smart folder" | "file";
+export type Renamable = "note" | "folder" | "tag" | "view" | "file";
 
 /** What the registry needs from the app: a snapshot of its state, and the actions to run. */
 export interface App {
@@ -94,7 +94,7 @@ export interface App {
   restoreVersion(): void;
   go(page: Page): void;
   filterNotes(): void;
-  /** Notes' Advanced search: the smart folder editor on its filters. */
+  /** Notes' Advanced search: the view editor on its filters. */
   advancedSearch(): void;
   quickAdd(): void;
   /** The Calendar page, with the Calendars dialog open at its link field. */
@@ -160,8 +160,8 @@ export function appCommands(app: App): Command[] {
     { id: "new-board", title: "New board", keywords: "create add kanban columns cards trello project", icon: "kanban", run: app.newBoard },
     { id: "new-folder", title: "New folder", keywords: "create add directory", icon: "folderPlus", run: app.newFolder },
     { id: "new-tag", title: "New tag", keywords: "create add hashtag", icon: "hash", available: app.canDelete, run: app.newTag },
-    { id: "new-smart-folder", title: "New smart folder", keywords: "create add saved search query filter view", icon: "folderSearch", run: app.newSmartFolder },
-    { id: "save-filters", title: "Save these filters as a smart folder", keywords: "keep saved search query view smart folder sidebar", icon: "folderSearch", available: app.notesFiltered, run: app.saveFilters },
+    { id: "new-smart-folder", title: "New view", keywords: "create add saved search query filter smart folder", icon: "folderSearch", run: app.newSmartFolder },
+    { id: "save-filters", title: "Save these filters as a view", keywords: "keep saved search query view smart folder sidebar", icon: "folderSearch", available: app.notesFiltered, run: app.saveFilters },
     {
       id: "star-tag",
       title: app.tag ? `${app.tag.starred ? "Unstar" : "Star"} #${app.tag.name}` : "Star or unstar a tag…",
@@ -177,7 +177,7 @@ export function appCommands(app: App): Command[] {
     go("today", "Today", "sun", "day agenda due overdue journal streak writing week recap"),
     go("notes", "Notes", "feed", "home all"),
     { id: "filter-notes", title: "Filter notes", keywords: "search find notes page", icon: "search", keys: ["Mod-Shift-f"], run: app.filterNotes },
-    { id: "advanced-search", title: "Advanced search…", keywords: "filter find notes query smart folder words tags folders and or match any", icon: "sliders", keys: [ADVANCED_KEYS], run: app.advancedSearch },
+    { id: "advanced-search", title: "Advanced search…", keywords: "filter find notes query view smart folder words tags folders and or match any", icon: "sliders", keys: [ADVANCED_KEYS], run: app.advancedSearch },
     go("tasks", "Tasks", "task", "todo checklist"),
     go("calendar", "Calendar", "calendar", "events meetings schedule agenda month week day"),
     { id: "subscribe-calendar", title: "Subscribe to a calendar…", keywords: "calendar add ics webcal ical feed google outlook subscribe", icon: "calendar", available: app.canSubscribe, run: app.subscribeCalendar },
@@ -254,6 +254,8 @@ export function appCommands(app: App): Command[] {
     { id: "getting-started", title: "Open Getting started", keywords: "help start welcome guide tour", icon: "info", available: app.hasStart, run: app.gettingStarted },
     { id: "settings", title: "Open settings", keywords: "preferences options configure", icon: "gear", keys: ["Mod-,"], run: app.settings },
     { id: "connect-agent", title: "Connect an agent", keywords: "agent mcp claude cursor connected agents ai assistant", icon: "bot", run: app.connectAgent },
+    // The docs are on the hosted site; a local app opens commonink.app's.
+    { id: "docs", title: "Help and docs", keywords: "documentation guide manual how to learn import agents faq support", icon: "file", run: () => void window.open(/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? "https://commonink.app/docs/" : "/docs/", "_blank", "noopener") },
     { id: "shortcuts", title: "Keyboard shortcuts", keywords: "keys keybindings help hotkeys cheat sheet", icon: "keyboard", keys: ["?"], run: app.shortcuts },
     ...app.account
       .filter((a) => !a.current)

@@ -82,10 +82,8 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS favorites(
      user TEXT NOT NULL, note_id TEXT NOT NULL, path TEXT NOT NULL, pos INTEGER NOT NULL,
      PRIMARY KEY(user, note_id))`,
-  // Saved note queries in the sidebar (see query.ts). A null `owner` shares one with the whole
-  // workspace; a user ID makes it just that person's.
-  `CREATE TABLE IF NOT EXISTS smart_folders(
-     id TEXT PRIMARY KEY, name TEXT NOT NULL, query TEXT NOT NULL, owner TEXT, pos INTEGER NOT NULL)`,
+  // Saved note queries (views) are notes in Views/ now (see views.ts). An older database's
+  // `smart_folders` table is written out as those notes and dropped once (Vault.upgradeSmartFolders).
   // Tags someone added by name before anything carried them, shared with the whole workspace. One
   // stays until a note, task or asset uses it (or a tag under it); then it's an ordinary tag.
   `CREATE TABLE IF NOT EXISTS added_tags(tag TEXT PRIMARY KEY)`,

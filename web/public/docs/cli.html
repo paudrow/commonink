@@ -1,0 +1,82 @@
+<!doctype html>
+<!-- Built by scripts/docs.ts from docs/guide/cli.md: edit that, then npm run docs. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>The command line · Common Ink docs</title>
+    <meta name="description" content="The commonink CLI for scripts, shell agents and you, on your own computer or a hosted workspace." />
+    <meta property="og:title" content="The command line · Common Ink docs" />
+    <meta property="og:description" content="The commonink CLI for scripts, shell agents and you, on your own computer or a hosted workspace." />
+    <meta property="og:image" content="/social.png" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/docs/docs.css" />
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="/"><img src="/favicon.svg" alt="" />Common Ink</a>
+      <span class="section">Docs</span>
+      <a class="open" href="/">Open Common Ink</a>
+    </header>
+    <div class="layout">
+      <nav aria-label="Docs">
+        <a href="/docs/">Getting started</a>
+        <a href="/docs/import">Moving in</a>
+        <a href="/docs/agents">Connect an agent</a>
+        <a href="/docs/notes">Writing notes</a>
+        <a href="/docs/sharing">Sharing and teams</a>
+        <a href="/docs/cli" aria-current="page">The command line</a>
+        <a href="/docs/faq">Questions</a>
+      </nav>
+      <main>
+<h1>The command line</h1>
+<p><code>commonink</code> does everything the app and the MCP tools do, from a terminal: for scripts, shell agents and you.</p>
+<h2 id="install"><a class="anchor" href="#install">Install</a></h2>
+<pre><code class="language-bash">git clone https://github.com/paudrow/commonink &amp;&amp; cd commonink
+npm install
+bin/commonink help           # the commands, by area
+bin/commonink help import    # one command&#39;s options and examples
+</code></pre>
+<p>It needs Node 22.13 or newer. Put <code>bin</code> on your <code>PATH</code> to type just <code>commonink</code>. Once it&#39;s published to npm, <code>npm install -g commonink</code> (or <code>npx commonink …</code>) will do instead. <code>source &lt;(commonink completion zsh)</code> adds tab completion (<code>bash</code> and <code>fish</code> too).</p>
+<h2 id="your-hosted-workspace"><a class="anchor" href="#your-hosted-workspace">Your hosted workspace</a></h2>
+<pre><code class="language-bash">commonink login              # signs in through your browser
+commonink workspaces         # yours, with your role in each
+commonink workspaces use &quot;Acme team&quot;
+</code></pre>
+<p><code>--workspace &lt;name&gt;</code> picks one for a single command. <code>--no-browser</code> on <code>login</code> prints the address to open elsewhere, for a machine you reach over SSH. <code>commonink logout</code> signs out; the CLI shows in <strong>Connected agents</strong> as &quot;commonink CLI&quot;, where you can also revoke it.</p>
+<h2 id="local"><a class="anchor" href="#local">Local</a></h2>
+<p>Without signing in, <code>commonink</code> works on a folder of markdown on your computer: <code>$COMMONINK_VAULT</code>, or <code>~/Common Ink</code>. <code>--workspace local</code> uses it even when you&#39;re signed in. The local app, with the same editor, runs from the same checkout: <code>npm run dev</code>, then open <code>http://localhost:4777</code>.</p>
+<h2 id="everyday-commands"><a class="anchor" href="#everyday-commands">Everyday commands</a></h2>
+<pre><code class="language-bash">commonink search &quot;launch plan&quot;
+commonink ls --query &#39;q=&quot;(launch OR release) -draft&quot; tag=work modified&gt;-7d&#39;
+commonink read &quot;Projects/Launch&quot;
+commonink create &quot;Ideas/Pricing&quot; - &lt; draft.md
+echo &quot;- [ ] Call Sam due:friday&quot; | commonink append &quot;Journal/2026-10-02&quot; -
+commonink tasks --due &quot;&lt;=today&quot;
+commonink today
+commonink import ~/Obsidian/Vault --folder Imported
+commonink export / --format zip --out notes.zip
+commonink changes --path &quot;Projects/Launch.md&quot;
+commonink restore 24
+</code></pre>
+<p><code>--query</code> takes the same query language as the Notes filter and views (<a href="/docs/notes#searching-and-filtering">Searching and filtering</a>); <code>commonink help query</code> lists it.</p>
+<h2 id="for-scripts-and-agents"><a class="anchor" href="#for-scripts-and-agents">For scripts and agents</a></h2>
+<ul>
+<li><code>--json</code> prints any result, or an error, as JSON.</li>
+<li>Exit codes are stable: 0 ok, 1 error, 2 usage, 3 not found, 4 conflict (the note changed since you read it), 5 exists, 6 forbidden, 7 auth, 8 unavailable.</li>
+<li><code>--base &lt;version&gt;</code> (from <code>commonink read</code>) makes <code>edit</code>, <code>append</code>, <code>write</code> and <code>restore</code> refuse a note that changed since.</li>
+<li>Content comes from stdin with <code>-</code>, or piped in.</li>
+<li><code>COMMONINK_AGENT=&lt;name&gt;</code> (or <code>--agent</code>) signs writes as that agent, shown as &quot;<agent> for you&quot; in History.</li>
+<li><code>commonink upload</code> and <code>commonink download</code> move files in and out.</li>
+</ul>
+
+        <footer>
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+          <a href="https://github.com/paudrow/commonink">GitHub</a>
+          <a href="mailto:support@commonink.app">support@commonink.app</a>
+        </footer>
+      </main>
+    </div>
+  </body>
+</html>

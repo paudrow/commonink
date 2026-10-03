@@ -25,7 +25,7 @@ export const GROUPS: ReadonlyArray<{ title: string; commands: Command[] }> = [
   { title: "Contacts", commands: contacts },
   { title: "Boards", commands: boards },
   { title: "Tags", commands: tags },
-  { title: "Smart folders", commands: smartFolders },
+  { title: "Views", commands: smartFolders },
   { title: "Favorites", commands: favorites },
   { title: "History and Trash", commands: [...history, ...trash] },
   { title: "Labels", commands: labels },

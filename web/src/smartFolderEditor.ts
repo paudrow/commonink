@@ -9,8 +9,8 @@
 // the server checks it.
 //
 // The same dialog is Notes' Advanced search (`opts.search`): no name yet, and each change shows in
-// Notes as it's made (Cancel puts the filters back). "Save as smart folder" asks for a name in place,
-// so a search becomes a smart folder in one step.
+// Notes as it's made (Cancel puts the filters back). "Save as view" asks for a name in place,
+// so a search becomes a view in one step.
 import { api } from "./api.ts";
 import { el, icon } from "./dom.ts";
 import type { FieldSources } from "./widgets/core.ts";
@@ -22,6 +22,8 @@ import { folderList, formatQuery, parseQuery, queryProblem, tagList, type NoteQu
 
 export interface SmartFolderDraft {
   id?: string;
+  /** The view's note, once it's saved. */
+  path?: string;
   name: string;
   query: string;
   shared: boolean;
@@ -91,10 +93,10 @@ const stateOf = (query: NoteQuery): State => {
   };
 };
 
-/** A starting name for a query: its tags, folders and words ("#work · Projects · “launch”"). */
+/** A starting name for a query: its tags, folders and words ("work · Projects · “launch”"). It's a file name, so tags go without their #. */
 export function suggestName(query: string): string {
   const q = parseQuery(query);
-  const tags = tagList(q.tag).map((t) => `#${t}`).join(q.match === "any" ? " or " : " ");
+  const tags = tagList(q.tag).join(q.match === "any" ? " or " : " ");
   return [tags, folderList(q.folder).join(" or "), q.q && `“${q.q}”`].filter(Boolean).join(" · ") || "All notes";
 }
 
@@ -374,20 +376,20 @@ export function smartFolderEditor(
   /** The query Notes shows, as last applied (Advanced search). */
   const opened = queryText(state);
   let applied = opened;
-  /** Advanced search, once "Save as smart folder" asks for a name. */
+  /** Advanced search, once "Save as view" asks for a name. */
   let naming = !search;
-  const title = draft.id ? "Edit smart folder" : draft.query ? "Save as smart folder" : "New smart folder";
+  const title = draft.id ? "Edit view" : draft.query ? "Save as view" : "New view";
   const heading = el("h2", {}, search ? "Advanced search" : title);
   const submit = el("button", { class: "qw-btn primary", type: "submit" }, search ? "Done" : "Save");
   const cancel = el("button", { class: "qw-btn", type: "button", onclick: () => back() }, "Cancel");
   const saveAs: HTMLButtonElement | null = search
-    ? el("button", { class: "qw-btn sf-save-as", type: "button", title: "Keep this search in the sidebar", onclick: () => startNaming() }, icon("folderSearch", 13), "Save as smart folder")
+    ? el("button", { class: "qw-btn sf-save-as", type: "button", title: "Keep this search in the sidebar", onclick: () => startNaming() }, icon("folderSearch", 13), "Save as view")
     : null;
   const shareRow = opts.alone
     ? null
     : el(
         "label",
-        { class: "sf-just-me", title: opts.canShare ? "" : "Viewers can keep smart folders of their own" },
+        { class: "sf-just-me", title: opts.canShare ? "" : "Viewers can keep views of their own" },
         share,
         el("span", {}, "Share with workspace"),
         el("span", { class: "sf-hint" }, opts.canShare ? "Everyone in the workspace sees it in their sidebar" : "You can view this workspace, so it's yours only"),
@@ -403,6 +405,8 @@ export function smartFolderEditor(
       el("button", { type: "button", class: "icon-btn small", title: "Close", "aria-label": "Close", onclick: () => dismiss() }, icon("close", 15)),
     ),
     name,
+    // A view is a note (see core/views.ts): say which, so it can be found in the file tree.
+    el("div", { class: "sf-hint sf-where" }, draft.path ? `Kept as the note ${draft.path}` : "Kept as a note in Views/"),
     el("div", { class: "sf-section" }, row("Words", wordBox), row("Folders", folderBox), row("Tags", tagBox), row("Sort", sort), row("Query", queryBox)),
     el("div", { class: "sf-result" }, count, preview),
     shareRow,
@@ -437,7 +441,7 @@ export function smartFolderEditor(
     name.hidden = !on;
     if (shareRow) shareRow.hidden = !on;
     if (saveAs) saveAs.hidden = on;
-    heading.textContent = on ? "Save as smart folder" : "Advanced search";
+    heading.textContent = on ? "Save as view" : "Advanced search";
     form.setAttribute("aria-label", heading.textContent);
     submit.textContent = on ? "Save" : "Done";
     cancel.textContent = on ? "Back" : "Cancel";
@@ -460,7 +464,7 @@ export function smartFolderEditor(
       close();
     } catch (err) {
       error.hidden = false;
-      error.textContent = err instanceof Error ? err.message : "Couldn't save the smart folder";
+      error.textContent = err instanceof Error ? err.message : "Couldn't save the view";
     }
   };
   // The backdrop closes it; the pickers open outside the form, so a click in one isn't on the backdrop.
@@ -478,7 +482,7 @@ export function smartFolderEditor(
     }
     if (!name.value.trim()) {
       error.hidden = false;
-      error.textContent = "Give the smart folder a name";
+      error.textContent = "Give the view a name";
       return name.focus();
     }
     // Saved from Advanced search: Notes shows what was saved, its name heading the page.
