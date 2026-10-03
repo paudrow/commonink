@@ -1,5 +1,5 @@
 //   ::today   ::today{label="My day"}
-// The day at a glance: today's journal note (open it, or start it from the daily template), today's
+// The day at a glance: today's journal note (open it, or start it from the journal template), today's
 // events from the workspace's calendars, then open tasks overdue, due today and starting today. The
 // Today page is this widget, with empty sections left out. Task sections come from the
 // core (Vault.today), so new kinds slot in there.
@@ -23,7 +23,7 @@ export const todayWidget: WidgetSpec = {
   hint: "Overdue, due today and starting today, and today's journal note",
   keywords: "today day agenda brief morning journal due overdue",
   defaults: {},
-  fields: [{ key: "label", label: "Label", type: "text", placeholder: "My day" }],
+  fields: [{ key: "label", label: "Title", type: "text", placeholder: "My day" }],
 
   mount(body, env) {
     let view: TodayView | null = null;
@@ -104,7 +104,7 @@ export const todayWidget: WidgetSpec = {
       );
     }
 
-    /** Today's journal note: open it, or start it from the daily template. */
+    /** Today's journal note: open it, or start it from the journal template. */
     function journal(v: TodayView) {
       const open = async () => {
         if (!v.journal.exists) await api.dailyNote(v.date).catch(() => null);
@@ -118,7 +118,7 @@ export const todayWidget: WidgetSpec = {
           "button",
           { type: "button", class: "td-journal", onmousedown: (e: Event) => e.preventDefault(), onclick: () => void open() },
           icon(v.journal.exists ? "file" : "plus", 14),
-          el("span", {}, v.journal.exists ? "Open today's note" : "Start today's note"),
+          el("span", {}, v.journal.exists ? "Open today's journal" : "Start today's journal"),
           el("span", { class: "td-path" }, v.journal.path.replace(/\.md$/, "")),
         ),
       );
