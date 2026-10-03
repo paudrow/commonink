@@ -19,6 +19,7 @@ const app = (over: Partial<App> = {}): App => {
     pinned: false,
     closedTabs: 0,
     focusMode: false,
+    hasPanel: true,
     htmlMode: "preview",
     hasStart: false,
     canBack: false,
@@ -422,6 +423,12 @@ test("Delete and Trash are commands for whoever can delete, not viewers", () => 
   assert.deepEqual(titles("trash", app({ note })).slice(0, 2), ["Go to Trash", "Delete note"]);
   assert.deepEqual(titles("trash", app({ note: null })), ["Go to Trash"]);
   assert.deepEqual(titles("trash", app({ note, canDelete: false })), []);
+});
+
+test("Toggle info panel is a command where there's a side panel, not on History", () => {
+  const panel = (t: string) => t === "Toggle info panel";
+  assert.deepEqual(titles("info panel", app()).filter(panel), ["Toggle info panel"]);
+  assert.deepEqual(titles("info panel", app({ hasPanel: false })).filter(panel), []);
 });
 
 test("Share with people… and Shared with me are commands online only", () => {

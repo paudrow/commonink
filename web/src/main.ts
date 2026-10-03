@@ -392,6 +392,7 @@ function commands() {
     pinned: !!currentTab(active.group)?.pinned,
     closedTabs: closedTabs.length,
     focusMode,
+    hasPanel: !noPanel(),
     htmlMode: prefs.htmlMode,
     hasStart: tags.some((t) => t.tag === "start" && t.notes > 0),
     canBack: active.trail.back.length > 0,
@@ -1256,6 +1257,7 @@ function showStage(which: "editor" | "html" | "notes" | "today" | "tasks" | "cal
   $("#contacts-view").hidden = which !== "contacts";
   $("#shared-view").hidden = which !== "shared";
   $("#capture-view").hidden = which !== "capture";
+  $("#panel-btn").hidden = which === "history";
   if (which !== "tasks") {
     unmountTasks?.();
     unmountTasks = null;
@@ -4355,7 +4357,10 @@ function quickAdd() {
 const narrow = matchMedia("(max-width: 1100px)");
 /** A phone: one pane, with its tabs in a strip that scrolls (no split, so no drop zones). */
 const phone = matchMedia("(max-width: 760px)");
+/** History has no side panel (it's the whole activity log, with a detail pane of its own), so no button, shortcut or command for one. */
+const noPanel = () => !$("#history-view").hidden;
 function togglePanel(force?: boolean) {
+  if (noPanel() && force === undefined) return; // nothing would show: leave the saved setting alone
   if (narrow.matches && force === undefined) {
     document.body.classList.toggle("panel-overlay"); // narrow windows: the panel floats over the editor
     return refreshMentionsSoon();

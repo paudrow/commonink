@@ -92,6 +92,8 @@ export interface App {
   /** Tabs closed that ⌘⇧T can bring back. */
   closedTabs: number;
   focusMode: boolean;
+  /** The page showing has a side panel (History doesn't). */
+  hasPanel: boolean;
   htmlMode: "preview" | "source";
   /** A note tagged `start` exists. */
   hasStart: boolean;
@@ -279,7 +281,7 @@ export function appCommands(app: App): Command[] {
       run: app.toggleVimDisplayLines,
     },
     { id: "line-numbers", title: app.lineNumbers ? "Hide line numbers" : "Show line numbers", keywords: "line numbers gutter nu number", icon: "list", run: app.toggleLineNumbers },
-    { id: "panel", title: "Toggle info panel", keywords: "outline backlinks activity sidebar side panel", icon: "panel", keys: ["Mod-\\"], run: app.togglePanel },
+    { id: "panel", title: "Toggle info panel", keywords: "outline backlinks activity sidebar side panel", icon: "panel", keys: ["Mod-\\"], available: app.hasPanel, run: app.togglePanel },
     { id: "focus", title: app.focusMode ? "Leave focus mode" : "Focus mode", keywords: "zen full screen distraction", icon: app.focusMode ? "unfocus" : "focus", keys: ["Mod-Shift-Enter"], available: text || app.focusMode, run: app.toggleFocus },
     { id: "split", title: app.split ? "Close split view" : "Open split view", keywords: "pane side by side to the side", icon: "split", keys: ["Mod-Alt-\\"], area: "Split view", run: app.toggleSplit },
     { id: "new-tab", title: "New tab…", keywords: "tab open another note keep", icon: "plus", keys: ["Mod-t", "Mod-Alt-t"], area: "Tabs", run: app.newTab },
