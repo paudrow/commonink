@@ -2230,10 +2230,32 @@ export class Vault {
     // Only the case changing ("ideas" to "Ideas"): a case-insensitive disk would keep the folder's old
     // spelling under renamed files, so it goes by way of another name.
     if (dest.toLowerCase() === from.toLowerCase()) {
+      // Checked first: on a case-sensitive disk `dest` can be another folder, but on one that ignores
+      // case it's this one, whose files are the same files.
+      if (this.files.listUnder(dest).some((f) => !this.files.same(f.path, from + f.path.slice(dest.length)))) {
+        throw new VaultError(`There's already a folder named ${dest}`, "exists");
+      }
       let via = `${from} (renaming)`;
-      for (let i = 2; this.files.listUnder(via).length; i++) via = `${from} (renaming ${i})`;
+      for (let i = 2; this.files.listUnder(via).length || this.files.listUnder(`${ARCHIVE}${via}`).length; i++) via = `${from} (renaming ${i})`;
+      // What isn't a note (.DS_Store, say) goes too, or the old folder would stay under its old spelling.
+      const carry = (a: string, b: string) => {
+        for (const d of [a, `${ARCHIVE}${a}`]) {
+          const to = d === a ? b : `${ARCHIVE}${b}`;
+          for (const f of this.files.listUnder(d)) if (!this.files.stat(to + f.path.slice(d.length))) this.files.rename(f.path, to + f.path.slice(d.length));
+          this.files.prune?.(d);
+        }
+      };
       const first = this.moveFolder(from, via, source);
-      const r = this.moveFolder(via, dest, source);
+      carry(from, via);
+      let r: ReturnType<Vault["moveFolder"]>;
+      try {
+        r = this.moveFolder(via, dest, source);
+      } catch (e) {
+        this.moveFolder(via, from, source); // put it all back as it was
+        carry(via, from);
+        throw e;
+      }
+      carry(via, dest);
       const was = new Map(first.moved.map((m) => [m.path, m.from]));
       return { ...r, from, moved: r.moved.map((m) => ({ ...m, from: was.get(m.from) ?? m.from })) };
     }
