@@ -103,6 +103,8 @@ In the app, the **?** beside the Notes filter (or **Query syntax** in ⌘K) list
 | Filters | `folder=name` | `folder=Projects` | In that folder or a folder under it. folder=A\|B is either. Quote names with spaces: folder='Health and Fitness'. |
 | Filters | `modified>day` | `modified>-7d` | Changed after a day (<, <=, >, >= or =). A day is 2026-09-01, today, yesterday, or -7d, -2w, -1m, -1y back. modified>-7d is the last 7 days. |
 | Filters | `created<day` | `created<2026-09-01` | Made before a day, with the same comparisons and days as modified. |
+| Filters | `property=value` | `status=draft` | A frontmatter property has this value, in any case; a list matches if any item does. title=… is the note's title. Quote values with spaces: status='in progress'. |
+| Filters | `has=property` | `has=due` | The property is set, to anything. -has=due: notes without one. |
 | Order | `sort=order` | `tag=work sort=title` | modified (last changed first, the default), date or oldest (by the note's own date), title or created (newest first). On its own, not inside ( ). |
 <!-- /query-syntax -->
 
