@@ -51,7 +51,9 @@ import { watchTodayCleared } from "./todayCleared.ts";
 import { awayStrip, startAway } from "./away.ts";
 import { inkState, setInk, startInks } from "./inkUnlocks.ts";
 import { gamified, loadGamified, onGamified, setGamified } from "./gamify.ts";
-import { CONFIG, SETTINGS_NOTE, settingsNote, userSettingsPath } from "../../src/core/schema.ts";
+import { SETTINGS_NOTE, settingsNote, userSettingsPath } from "../../src/core/schema.ts";
+import { appFolderRefusal, isAppFolder } from "../../src/core/appFolders.ts";
+import { DEFAULT_HIDDEN, hiddenBy, hiddenThere, loadHidden, saveHidden, withFolderHidden } from "./hiddenFolders.ts";
 import { AGENTS_NOTE, ROOT_AGENTS_NOTE } from "../../src/core/noteRoles.ts";
 import { applyUserFile, ensureUserFile, keepInFile, setupUserSettings, userSettingsFile, type Personal } from "./userSettings.ts";
 import type { InkId } from "./inks.ts";
@@ -149,9 +151,11 @@ const prefs = {
   folded: { favorites: false, smart: false, folders: true, tags: false, ...store.get<Record<string, boolean>>("folded", {}) } as Record<string, boolean>,
   /** Contacts, Calendar, Assets and Smart folders kept in the sidebar before they're in use (Settings, Sidebar). */
   sidebarPinned: store.get<Partial<Record<OptionalItem, boolean>>>("sidebarPinned", {}),
-  /** Config/ (the workspace's settings and conventions) in the sidebar's folders: off, it's reached from Settings. */
-  showConfig: store.get("showConfig", false),
+  /** The workspace's hidden folders (Config, Templates…) in the sidebar's folders anyway. Before there were hidden folders, this was Config's alone. */
+  showHidden: store.get("showHidden", store.get("showConfig", false)),
 };
+/** The folders the sidebar leaves out (hiddenFolders.ts), as Config/Settings.md lists them. */
+let hiddenNow: string[] = DEFAULT_HIDDEN;
 taskInputPrefs.vim = prefs.vim; // every task input (quick-add, inline edit, a card) types with the editor's keys
 
 let notes: NoteMeta[] = [];
@@ -346,11 +350,15 @@ function commands() {
     canConnectGoogle: !!googleKnown() && googleKnown()!.mode !== "off" && !googleKnown()!.connection?.calendar,
     folds: s?.kind === "md" ? foldCount(active.view.state) : 0,
     renames: renameTarget()?.what ?? null,
+    folder: shownFolder() ? { path: shownFolder()!, hidden: !!hiddenBy(shownFolder()!, hiddenNow) } : null,
+    showHidden: prefs.showHidden,
     account,
     newNote: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
     newFromTemplate: () => void newFromTemplate(undefined, onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
     newBoard: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : "", `\n${NEW_BOARD}\n`),
     newFolder: startNewFolder,
+    toggleHideFolder: () => shownFolder() && void toggleHideFolder(shownFolder()!),
+    toggleHiddenFolders: () => setShowHidden(!prefs.showHidden),
     newTag: startNewTag,
     newSmartFolder: newSmartFolderFromPalette,
     go: (page) => {
@@ -1639,7 +1647,7 @@ function onMessage(m: ServerMsg) {
   if (m.type !== "change") vaultEvents.dispatchEvent(new Event("change"));
   if ((m.type === "note" || m.type === "removed") && m.path === userSettingsFile()) void applyUserFile();
   // The settings file changed, here or anywhere.
-  if ((m.type === "note" || m.type === "removed") && m.path === SETTINGS_NOTE) void Promise.all([loadGamified(), organizing().then((id) => (organizingNow = id))]);
+  if ((m.type === "note" || m.type === "removed") && m.path === SETTINGS_NOTE) void Promise.all([loadGamified(), organizing().then((id) => (organizingNow = id)), refreshHidden()]);
   switch (m.type) {
     case "note": {
       const meta = notes.find((n) => n.path === m.path);
@@ -2097,18 +2105,20 @@ function renderTree() {
   const agents = recentAgentFolders();
   const action = (title: string, ico: string, fn: () => void) =>
     el("button", { type: "button", class: "row-act", title, onclick: (e: Event) => (e.stopPropagation(), fn()) }, icon(ico, 14));
+  // Hidden folders (hiddenFolders.ts) and the folders in them are left out, unless you show them.
+  const listed = prefs.showHidden ? folders : folders.filter((f) => !hiddenBy(f, hiddenNow));
   const walk = (parent: string, depth: number): HTMLElement[] =>
-    folders
-      .filter((f) => parentOf(f) === parent && (prefs.showConfig || f !== CONFIG))
+    listed
+      .filter((f) => parentOf(f) === parent)
       .flatMap((path) => {
-        const subs = folders.some((f) => parentOf(f) === path);
+        const subs = listed.some((f) => parentOf(f) === path);
         const open = subs && prefs.expanded.has(path);
         const n = count.get(path) ?? 0;
         const agent = agents.get(path);
         const row = el(
           "div",
           {
-            class: `tree-row is-folder${open ? "" : " is-collapsed"}${showing === formatQuery({ folder: path }) ? " is-active" : ""}`,
+            class: `tree-row is-folder${open ? "" : " is-collapsed"}${showing === formatQuery({ folder: path }) ? " is-active" : ""}${hiddenBy(path, hiddenNow) ? " is-hidden" : ""}`,
             "aria-current": showing === formatQuery({ folder: path }) && "page",
             style: { "--depth": String(depth) },
             "data-folder": path,
@@ -2144,19 +2154,32 @@ function renderTree() {
             action(`New note in ${path}`, "plus", () => void newNote(path)),
             action(`Export ${path} as a .zip`, "download", () => void exportZip({ folder: path })),
             workspaceId ? action(`Share ${path}…`, "share", () => openShareDialog({ folder: path })) : null,
-            viewer ? null : action(`Rename ${path}… (F2)`, "edit", () => void renameFolder(path)),
-            viewer ? null : action(`Delete ${path}`, "trash", () => void removeFolder(path)),
+            viewer || isAppFolder(path) ? null : action(`Rename ${path}… (F2)`, "edit", () => void renameFolder(path)),
+            viewer || isAppFolder(path) ? null : action(`Delete ${path}`, "trash", () => void removeFolder(path)),
           ),
         );
         dropTarget(row, () => path);
         return [row, ...(open ? walk(path, depth + 1) : [])];
       });
   const rows = walk("", 0);
-  $("#tree").replaceChildren(...(rows.length ? rows : [sectionHint("Click ", plusMark(), " to make a folder.")]));
+  const hidden = hiddenThere(folders, hiddenNow).length;
+  // One quiet row at the bottom shows or hides them, when there are any.
+  const toggle = hidden
+    ? el(
+        "button",
+        { type: "button", class: "tree-row tree-hidden-toggle", style: { "--depth": "0" }, "aria-pressed": String(prefs.showHidden), onclick: () => setShowHidden(!prefs.showHidden) },
+        el("span", { class: "chev is-leaf" }),
+        icon("more", 14),
+        el("span", { class: "tree-name" }, prefs.showHidden ? "Hide hidden folders" : `Show hidden folders (${hidden})`),
+      )
+    : null;
+  $("#tree").replaceChildren(...(rows.length ? rows : [sectionHint("Click ", plusMark(), " to make a folder.")]), ...(toggle ? [toggle] : []));
 }
 
 /** Delete a folder: an empty one just goes; one with notes asks what happens to them. */
 async function removeFolder(path: string) {
+  const refused = appFolderRefusal(path, "delete");
+  if (refused) return toast({ text: refused });
   if (!(await deleteFolder(path, deleteHooks))) return;
   const empty = emptyFolders();
   for (const f of [...empty]) if (f === path || f.startsWith(`${path}/`)) empty.delete(f);
@@ -2173,6 +2196,8 @@ async function removeFolder(path: string) {
 /** Rename a folder: everything in it moves (its archived notes too), links rewritten. Undo puts it back. */
 async function renameFolder(path: string) {
   if (viewer) return;
+  const refused = appFolderRefusal(path, "rename");
+  if (refused) return toast({ text: refused });
   const typed = await askName("Rename folder", path.split("/").pop()!);
   const name = typed && cleanName(typed);
   const to = name && (parentOf(path) ? `${parentOf(path)}/${name}` : name);
@@ -2270,6 +2295,12 @@ function renameRow(row: HTMLElement) {
   else if (t) void renameTag(t);
   else if (smart) editSmartFolder(smart);
   else if (path) void renamePath(path);
+}
+
+/** The folder Notes shows on its own (not narrowed further), or null. */
+function shownFolder(): string | null {
+  const q = notesPage.query;
+  return onPage() === "notes" && q.folder && formatQuery(q) === formatQuery({ folder: q.folder }) ? q.folder : null;
 }
 
 /** What ⌘K's Rename… (and F2 outside a list) renames: the file Assets previews, what Notes shows on its own (a folder, tag or smart folder), or the open note. */
@@ -3230,8 +3261,14 @@ function openSettings(query?: string) {
               () => ((organizingNow = id), m.refreshSettings(), toast({ icon: "check", text: "Organizing style saved", detail: "The Organizing section of Config/AGENTS.md now says how agents file notes." })),
               (e) => toast({ text: e instanceof Error ? e.message : "That didn't work" }),
             ),
-          showConfig: prefs.showConfig,
-          setShowConfig,
+          showHidden: prefs.showHidden,
+          setShowHidden,
+          hiddenFolders: { list: hiddenNow, canChange: !viewer },
+          setHiddenFolders: (list) =>
+            void setHidden(list).then(
+              () => m.refreshSettings(),
+              (e) => toast({ text: e instanceof Error ? e.message : "That didn't work" }),
+            ),
           setGamified: (on) =>
             void setGamified(on).then(
               () => (m.refreshSettings(), toast({ icon: "check", text: on ? "Unlock as you go is on" : "Everything is unlocked", detail: "For everyone in this workspace, from their next visit." })),
@@ -3256,9 +3293,9 @@ function setShortcutTips(on: boolean) {
   store.set("shortcutTips", { ...tipsState(), off: !on });
   keepInFile("shortcut_tips", on);
 }
-function setShowConfig(on: boolean) {
-  store.set("showConfig", (prefs.showConfig = on));
-  keepInFile("show_config_folder", on);
+function setShowHidden(on: boolean) {
+  store.set("showHidden", (prefs.showHidden = on));
+  keepInFile("show_hidden_folders", on);
   renderTree();
 }
 const personalSettings = (): Personal[] => [
@@ -3270,7 +3307,7 @@ const personalSettings = (): Personal[] => [
   { key: "wrap_code", get: codeWrapByDefault, set: (v) => setCodeWrap(v as boolean) },
   { key: "html_notes", get: () => prefs.htmlMode, set: (v) => setHtmlMode(v as "preview" | "source") },
   { key: "shortcut_tips", get: () => !tipsState().off, set: (v) => setShortcutTips(v as boolean) },
-  { key: "show_config_folder", get: () => prefs.showConfig, set: (v) => setShowConfig(v as boolean) },
+  { key: "show_hidden_folders", was: "show_config_folder", get: () => prefs.showHidden, set: (v) => setShowHidden(v as boolean) },
   { key: "always_show", get: alwaysShown, set: (v) => setAlwaysShow(Object.fromEntries((v as string[]).map((k) => [k, true]))) },
 ];
 
@@ -3297,6 +3334,27 @@ const AGENTS_STARTER = "# Workspace conventions\n\nEvery agent working in this w
 
 /** How agents are told to organize this workspace (organizing.ts), as Settings shows it; null until picked. */
 let organizingNow: PresetId | null = null;
+
+async function refreshHidden() {
+  hiddenNow = await loadHidden();
+  renderTree();
+}
+/** Hide folders for everyone here: the list goes into Config/Settings.md, and shows in the sidebar at once. */
+async function setHidden(list: string[]) {
+  await saveHidden(list, gamified());
+  hiddenNow = list;
+  renderTree();
+}
+/** Hide the folder Notes shows, or show it again (⌘K). One inside a hidden folder shows when that one does. */
+async function toggleHideFolder(folder: string) {
+  const by = hiddenBy(folder, hiddenNow);
+  if (by && by !== folder) return toast({ text: `${folder} is in ${by}, which is hidden. Show ${by} to show it.` });
+  const saved = await setHidden(withFolderHidden(hiddenNow, folder, !by)).then(
+    () => true,
+    (e) => (toast({ text: e instanceof Error ? e.message : "That didn't work" }), false),
+  );
+  if (saved && !by && !prefs.showHidden) toast({ icon: "folder", text: `${folder} is hidden from the sidebar`, detail: "Show hidden folders, under the sidebar's folders, shows it again.", actionLabel: "Undo", action: () => void toggleHideFolder(folder) });
+}
 
 /** Open the workspace's settings file (schema.ts), writing it first if this workspace has none yet. */
 async function openSettingsFile() {
@@ -3645,6 +3703,7 @@ async function boot() {
   renderActivity();
   renderPresence();
   void organizing().then((id) => (organizingNow = id));
+  void refreshHidden();
   setupUserSettings(userSettingsPath(myName), personalSettings());
   void applyUserFile();
   void askOrganizingIfNew({

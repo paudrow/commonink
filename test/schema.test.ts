@@ -47,12 +47,30 @@ test("the settings file names unknown settings and wrong values", () => {
 });
 
 test("settings are read from the file, and written back keeping every other line", () => {
-  assert.deepEqual(readSettings(settingsNote({ gamified: false })), { gamified: false });
+  assert.deepEqual(readSettings(settingsNote({ gamified: false })), { gamified: false, hidden_folders: ["Config", "Templates"] });
   assert.deepEqual(readSettings("---\ngamified: maybe\n---\n"), {});
   const md = "---\n# mine\ngamified: true # on\ntitle: Settings\n---\nNotes\n";
   assert.equal(withSetting(md, "gamified", false), "---\n# mine\ngamified: false\ntitle: Settings\n---\nNotes\n");
   assert.equal(withSetting("---\ntitle: S\n---\nNotes\n", "gamified", false), "---\ntitle: S\ngamified: false\n---\nNotes\n");
   assert.equal(withSetting("", "gamified", false), settingsNote({ gamified: false }));
+});
+
+test("hidden folders are a list in the settings file, Config and Templates to start with; [] hides none", () => {
+  assert.match(settingsNote(), /^hidden_folders: \[Config, Templates\]$/m);
+  assert.deepEqual(readSettings("---\nhidden_folders: [Config, Archive/Old]\n---\n").hidden_folders, ["Config", "Archive/Old"]);
+  assert.deepEqual(readSettings("---\nhidden_folders:\n  - Config\n  - Drafts\n---\n").hidden_folders, ["Config", "Drafts"]);
+  assert.deepEqual(readSettings("---\nhidden_folders: []\n---\n").hidden_folders, []);
+  assert.equal(readSettings("---\ngamified: true\n---\n").hidden_folders, undefined, "a file that doesn't say keeps the default");
+  assert.equal(withSetting("---\nhidden_folders: [Config]\n---\n", "hidden_folders", ["Config", "Drafts"]), "---\nhidden_folders: [Config, Drafts]\n---\n");
+  assert.deepEqual(messages("---\nhidden_folders: [Config, Drafts]\n---\n", SETTINGS_NOTE), []);
+  assert.deepEqual(readSettings("---\nhidden_folders: Drafts\n---\n").hidden_folders, ["Drafts"], "one folder, written without brackets");
+});
+
+test("your settings file's old show_config_folder is still a setting, so it isn't flagged", async () => {
+  const { USER_SCHEMA, userSettingsNote } = await import("../src/core/schema.ts");
+  assert.deepEqual(messages("---\nshow_config_folder: true\n---\n", "Config/Users/Ada.md"), []);
+  assert.equal(USER_SCHEMA.properties.show_hidden_folders.default, false);
+  assert.doesNotMatch(userSettingsNote({ show_hidden_folders: true }), /show_config_folder/, "a new file only has the new name");
 });
 
 test("an agent that writes bad properties is told what's wrong, line by line", async () => {
@@ -105,7 +123,7 @@ test("your own settings file lists every setting, reads back what it wrote, and 
   assert.equal(path, "Config/Users/AdaL.md");
   assert.equal(userSettingsPath(""), "Config/Users/Me.md");
   const md = userSettingsNote({ theme: "dark", always_show: ["contacts"] });
-  for (const key of Object.keys(USER_SCHEMA.properties).filter((k) => k !== "title" && k !== "tags")) assert.match(md, new RegExp(`^${key}: `, "m"), `${key} is listed`);
+  for (const key of Object.keys(USER_SCHEMA.properties).filter((k) => k !== "title" && k !== "tags" && k !== "show_config_folder")) assert.match(md, new RegExp(`^${key}: `, "m"), `${key} is listed`);
   assert.deepEqual(messages(md, path), []);
   const values = readValues(md, USER_SCHEMA);
   assert.equal(values.theme, "dark");

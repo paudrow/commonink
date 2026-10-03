@@ -58,7 +58,7 @@ test("a folder can't be renamed onto one that has notes, into itself, or away fr
   assert.throws(() => vault.moveFolder("Ideas", "Thoughts", "you"), /already a folder named Thoughts/);
   assert.throws(() => vault.moveFolder("Ideas", "Ideas/Deep/More", "you"), /can't move into itself/);
   assert.throws(() => vault.moveFolder("Nothing", "Else", "you"), /nothing in Nothing/);
-  for (const f of ["People", "Templates", "Archive"]) assert.throws(() => vault.moveFolder(f, "Elsewhere", "you"), /keeps its name/);
+  for (const f of ["People", "Templates", "Archive", "Config", "Config/Users", "Journal", "Events"]) assert.throws(() => vault.moveFolder(f, "Elsewhere", "you"), /keeps its name/);
   assert.throws(() => vault.moveFolder("Ideas", "Archive/Ideas", "you"), /unarchive/);
   assert.deepEqual(vault.list().filter((n) => n.path.startsWith("Ideas/")).length, 3, "nothing moved");
 });
@@ -84,4 +84,16 @@ test("folder rename: the CLI command and MCP tool say what moved and which notes
   assert.match(out.text, /^Moved Ideas\/ to Thoughts\/ \(3 files\)\. Updated links in: Home\.md$/);
   assert.deepEqual((out.data as { updated: string[] }).updated, ["Home.md"]);
   assert.deepEqual(moved, [["Ideas", "Thoughts"]], "its shares are told to follow it");
+});
+
+test("the app's own folders can't be deleted, by the app, an agent or the CLI; the notes in them can, one by one", () => {
+  const { vault } = openTempVault({ "Templates/Daily.md": "# {{date}}\n", "Journal/2026-10-01.md": "# Day\n", "Config/Settings.md": "---\ngamified: true\n---\n", "Templates/Old/Thing.md": "# Thing\n" });
+  const del = COMMANDS.find((c) => c.mcp === "delete_folder")!;
+  for (const f of ["Templates", "Journal", "Config", "/Config/", "People", "Events"]) {
+    assert.throws(() => vault.deleteFolder(f, "trash", "you"), /can't be deleted; its notes can still be deleted one by one/);
+    assert.throws(() => del.run({ vault, source: "agent" } as never, { folder: f, notes: "lift" } as never), /can't be deleted/);
+  }
+  assert.equal(vault.list().length, 4, "nothing went");
+  assert.deepEqual(vault.deleteFolder("Templates/Old", "trash", "you").deleted.map((d) => d.path), ["Templates/Old/Thing.md"], "a folder of your own inside one goes");
+  assert.deepEqual(vault.delete(["Journal/2026-10-01.md"], "you").map((d) => d.path), ["Journal/2026-10-01.md"]);
 });
