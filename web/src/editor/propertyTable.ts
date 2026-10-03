@@ -3,13 +3,20 @@
 // picker, chips for lists, tags and people, with suggestions as you type. "Add property" offers what
 // this note can still have. A change rewrites only that property's line, so the YAML stays as it
 // was everywhere else, and it stays one click away (YAML) for anything the table can't show.
+//
+// Each row says what type its property is. The app's own properties have theirs; a property of your
+// own is whatever the workspace settings declare it (`properties:` in Config/Settings.md), else
+// guessed from its value. Clicking the type picks another, which is written to the settings, so
+// every note's table (and agents, through list_properties) agree on it.
 import { EditorView, WidgetType } from "@codemirror/view";
-import { linkTarget, propKind, scanFrontmatter, schemaFor, withoutValue, withValue, type PropKind, type PropSchema, type SettingValue, type Value } from "../../../src/core/schema.ts";
+import { KIND_NAME, linkTarget, PROPERTY_TYPES, propKind, scanFrontmatter, schemaFor, SETTINGS_NOTE, typeInfo, typeSettable, withoutValue, withValue, type PropertyTypes, type PropKind, type PropSchema, type SettingValue, type TypeInfo, type Value } from "../../../src/core/schema.ts";
 import { displayName, el, icon } from "../dom.ts";
 import { fuzzyScore } from "../fuzzy.ts";
 import { contactLink, ensureContact, people, rankPeople } from "../people.ts";
 import { editorContext } from "./blocks.ts";
 import { typeText } from "./properties.ts";
+import { setPropertyType } from "../propertyTypes.ts";
+import { toast } from "../toast.ts";
 
 /** The property to focus once the table is drawn again (one was just added). */
 let focusNext: string | null = null;
@@ -27,8 +34,59 @@ function commit(view: EditorView, key: string, value: SettingValue | null) {
   view.dispatch({ changes: { from, to: a, insert: next.slice(from, b) }, userEvent: "input.properties" });
 }
 
-/** What a property's type reads as, beside its name. */
-const KIND_LABEL: Record<PropKind, string> = { boolean: "checkbox", enum: "one of", date: "date", person: "person", people: "people", tags: "tags", choices: "list", list: "list", text: "text", raw: "YAML" };
+/** Each type's icon, beside its name on a row. */
+const TYPE_ICON: Record<string, string> = { text: "edit", number: "sigma", checkbox: "task", date: "calendar", list: "list", people: "user", person: "user", tags: "hash", "one of": "check", YAML: "braces" };
+
+/** The menu of types for `key`, under its type chip: picking one declares it for every note. */
+function typeMenu(anchor: HTMLElement, key: string, now: TypeInfo) {
+  document.querySelector(".prop-type-menu")?.remove();
+  const close = () => (menu.remove(), document.removeEventListener("mousedown", outside, true), document.removeEventListener("keydown", onKey, true));
+  const outside = (e: Event) => !menu.contains(e.target as Node) && close();
+  const onKey = (e: KeyboardEvent) => e.key === "Escape" && (e.preventDefault(), e.stopPropagation(), close());
+  const pick = (type: string) => {
+    close();
+    setPropertyType(key, type).catch((e) => toast({ text: `Couldn't change ${key}'s type`, detail: e instanceof Error ? e.message : String(e) }));
+  };
+  const item = (type: string, label: string, ic: string, on: boolean) =>
+    el("button", { type: "button", role: "menuitemradio", "aria-checked": String(on), class: `fp-item${on ? " is-active" : ""}`, onmousedown: (e: Event) => (e.preventDefault(), pick(type)) }, icon(ic, 14), el("span", {}, label), on ? icon("check", 13) : null);
+  const declared = now.source === "declared";
+  const menu = el(
+    "div",
+    { class: "folder-picker prop-suggest prop-type-menu", role: "menu", "aria-label": `${key}'s type` },
+    el("div", { class: "prop-type-head" }, `${key} is a… (for every note, in ${SETTINGS_NOTE})`),
+    el(
+      "div",
+      { class: "fp-list" },
+      ...PROPERTY_TYPES.map((t) => item(t, t, TYPE_ICON[t], declared && now.type === t)),
+      item("auto", declared ? "Guess from its value" : `Guessed: ${now.type}`, "spark", !declared),
+    ),
+  );
+  document.body.append(menu);
+  const r = anchor.getBoundingClientRect();
+  Object.assign(menu.style, { top: `${r.bottom + 4}px`, left: `${Math.max(8, Math.min(r.left, innerWidth - 300))}px` });
+  document.addEventListener("mousedown", outside, true);
+  document.addEventListener("keydown", onKey, true);
+  (menu.querySelector(".fp-item") as HTMLElement | null)?.focus();
+}
+
+/** A row's type: its icon and name, and, for a property of your own, a button that changes it. */
+function typeChip(path: string, key: string, info: TypeInfo, readOnly: boolean): HTMLElement {
+  const why =
+    info.source === "built in"
+      ? `${key} is one of Common Ink's own properties, so it's always ${info.type === "one of" ? "one of a few values" : `a ${info.type}`}.`
+      : info.source === "declared"
+        ? `${key} is a ${info.type} in every note: ${SETTINGS_NOTE} says so (properties:).`
+        : `${key} looks like ${info.type === "YAML" ? "nested YAML" : `a ${info.type}`} from its value. Nothing declares its type yet.`;
+  const can = !readOnly && typeSettable(path, key);
+  const chip = el(
+    can ? "button" : "span",
+    { ...(can ? { type: "button" } : {}), class: `prop-type is-${info.source.replace(" ", "-")}`, title: can ? `${why}\n\nClick to choose its type for every note.` : why },
+    icon(TYPE_ICON[info.type] ?? "sliders", 11),
+    el("span", {}, info.type),
+  );
+  if (can) chip.addEventListener("mousedown", (e) => (e.preventDefault(), e.stopPropagation(), typeMenu(chip, key, info)));
+  return chip;
+}
 
 interface Option {
   value: string;
@@ -133,18 +191,19 @@ class PropertyTableWidget extends WidgetType {
     readonly yaml: string,
     readonly path: string,
     readonly bad: Record<string, string>,
+    readonly types: PropertyTypes,
   ) {
     super();
   }
   eq(o: PropertyTableWidget) {
-    return o.yaml === this.yaml && o.path === this.path && JSON.stringify(o.bad) === JSON.stringify(this.bad);
+    return o.yaml === this.yaml && o.path === this.path && JSON.stringify(o.bad) === JSON.stringify(this.bad) && JSON.stringify(o.types) === JSON.stringify(this.types);
   }
   ignoreEvent() {
     return true;
   }
   toDOM(view: EditorView) {
     const readOnly = view.state.readOnly;
-    const schema = schemaFor(this.path);
+    const schema = schemaFor(this.path, this.types);
     const src = `---\n${this.yaml}\n---\n`;
     const scan = scanFrontmatter(src);
     const fields = scan?.fields ?? [];
@@ -156,7 +215,7 @@ class PropertyTableWidget extends WidgetType {
       const prop = schema.properties[f.key];
       const kind = propKind(f.key, prop, f.value);
       const problem = this.bad[f.key];
-      const keyEl = el("button", { type: "button", class: "prop-key", title: prop ? `${prop.description}\n\nClick to edit as YAML.` : "Click to edit as YAML." }, f.key);
+      const keyEl = el("button", { type: "button", class: "prop-key-name", title: prop ? `${prop.description}\n\nClick to edit as YAML.` : "Click to edit as YAML." }, f.key);
       keyEl.addEventListener("mousedown", (e) => {
         e.preventDefault();
         const line = view.state.doc.line(Math.min(view.state.doc.lines, src.slice(0, f.from).split("\n").length));
@@ -171,7 +230,7 @@ class PropertyTableWidget extends WidgetType {
         el(
           "div",
           { class: problem ? "prop is-bad" : "prop", "data-key": f.key },
-          keyEl,
+          el("div", { class: "prop-key" }, keyEl, typeChip(this.path, f.key, typeInfo(this.path, f.key, f.value, this.types), readOnly)),
           el("div", { class: "prop-cell" }, control, problem ? el("div", { class: "prop-problem" }, problem) : null),
           remove ?? el("span", {}),
         ),
@@ -187,7 +246,8 @@ class PropertyTableWidget extends WidgetType {
           { class: "prop is-unset", "data-key": k },
           el("span", { class: "prop-key" }, k),
           el("div", { class: "prop-cell" }, el("span", { class: "prop-unset-type" }, typeText(p)), el("span", { class: "prop-unset-desc" }, p.description)),
-          el("button", { type: "button", class: "qw-btn prop-unset-add", title: `Set ${k}`, onmousedown: (e: Event) => (e.preventDefault(), addKey(view, k, p)) }, "Add"),
+          // A map (the property types) is set from a note's table, a type at a time.
+          p.type === "object" ? el("span", {}) : el("button", { type: "button", class: "qw-btn prop-unset-add", title: `Set ${k}`, onmousedown: (e: Event) => (e.preventDefault(), addKey(view, k, p)) }, "Add"),
         ),
       );
     const foot = el(
@@ -231,6 +291,15 @@ class PropertyTableWidget extends WidgetType {
         select.value = text;
         select.addEventListener("change", () => set(select.value));
         return select;
+      }
+      case "number": {
+        const input = el("input", { type: "text", inputmode: "decimal", class: "prop-input prop-number", value: text, disabled: readOnly, "aria-label": key, spellcheck: "false" });
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") e.preventDefault(), input.blur();
+          if (e.key === "Escape") (input.value = text), input.blur();
+        });
+        input.addEventListener("blur", () => input.value.trim() !== text && set(input.value.trim()));
+        return input;
       }
       case "date": {
         const ok = !text || /^\d{4}-\d{2}-\d{2}$/.test(text);
@@ -308,7 +377,7 @@ class PropertyTableWidget extends WidgetType {
     button.addEventListener("mousedown", (e) => (e.preventDefault(), open()));
     const options = Object.entries(known)
       .filter(([k]) => !used.has(k))
-      .map(([k, p]): Option => ({ value: k, label: k, detail: KIND_LABEL[propKind(k, p, { kind: "empty", from: 0, to: 0 })], icon: "sliders" }));
+      .map(([k, p]): Option => ({ value: k, label: k, detail: KIND_NAME[propKind(k, p, { kind: "empty", from: 0, to: 0 })], icon: "sliders" }));
     suggest(input, (q) => ranked(q, options), (name) => {
       const key = name.trim().replace(/:$/, "");
       if (!/^[^\s#:-][^:]*$/.test(key)) return;
@@ -337,6 +406,6 @@ function reveal(view: EditorView) {
   view.focus();
 }
 
-export function propertyTable(yaml: string, path: string, bad: Record<string, string>): WidgetType {
-  return new PropertyTableWidget(yaml, path, bad);
+export function propertyTable(yaml: string, path: string, bad: Record<string, string>, types: PropertyTypes): WidgetType {
+  return new PropertyTableWidget(yaml, path, bad, types);
 }

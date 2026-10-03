@@ -17,6 +17,7 @@ import { dataEmbed, hydrateDataEmbeds } from "../textPreview.ts";
 import { boardsIn, unclosedBoard } from "../../../src/core/kanban.ts";
 import { frontmatterProblems } from "../../../src/core/schema.ts";
 import { propertyTable } from "./propertyTable.ts";
+import { propertyTypes } from "../propertyTypes.ts";
 // Boards load with the first note that has one.
 import type { BoardHost, mountBoard } from "../kanban.ts";
 import { editsBetween } from "../merge.ts";
@@ -744,8 +745,9 @@ function buildBlocks(state: EditorState): DecorationSet {
         if (!touches(state, first.from, last.to)) {
           const yaml = doc.sliceString(first.to + 1, Math.max(first.to + 1, last.from - 1));
           const bad: Record<string, string> = {};
-          for (const p of frontmatterProblems(text, from)) if (p.key && !bad[p.key]) bad[p.key] = p.message;
-          out.push(Decoration.replace({ block: true, widget: propertyTable(yaml, from, bad) }).range(first.from, last.to));
+          const types = propertyTypes();
+          for (const p of frontmatterProblems(text, from, types)) if (p.key && !bad[p.key]) bad[p.key] = p.message;
+          out.push(Decoration.replace({ block: true, widget: propertyTable(yaml, from, bad, types) }).range(first.from, last.to));
         }
         return false;
       }

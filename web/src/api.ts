@@ -136,11 +136,17 @@ export interface TagFavorite {
   display: string;
   notes: number;
 }
-/** A favorite is a note or a tag, in one order. */
-export type Favorite = NoteMeta | TagFavorite;
+/** A smart folder in someone's favorites. */
+export interface SmartFavorite extends SmartFolder {
+  smartFolder: true;
+}
+/** A favorite is a note, a tag or a smart folder, in one order. */
+export type Favorite = NoteMeta | TagFavorite | SmartFavorite;
 export const isTagFavorite = (f: Favorite): f is TagFavorite => "tag" in f;
-/** How a favorite is named in an order: a note's path, or "#" and the tag. */
-export const favoriteKey = (f: Favorite) => (isTagFavorite(f) ? `#${f.tag}` : f.path);
+export const isSmartFavorite = (f: Favorite): f is SmartFavorite => "smartFolder" in f;
+export const isNoteFavorite = (f: Favorite): f is NoteMeta => "path" in f;
+/** How a favorite is named in an order: a note's path, "#" and the tag, or "~" and a smart folder's ID. */
+export const favoriteKey = (f: Favorite) => (isTagFavorite(f) ? `#${f.tag}` : isSmartFavorite(f) ? `~${f.id}` : f.path);
 /** A tag (parents included), and how many notes, tasks and assets carry it or a tag under it. */
 export interface TagCount {
   tag: string;
@@ -405,7 +411,7 @@ export const api = {
   notes: () => j<NoteMeta[]>(`${BASE}/notes`),
   note: (path: string) => j<Note>(`${BASE}/note?path=${enc(path)}`),
   search: (q: string, scope: Scope = "active") => j<SearchHit[]>(`${BASE}/search?q=${enc(q)}&limit=20&scope=${scope}`),
-  feed: (p: { q?: string; scope?: Scope; folder?: string; tag?: string; sort?: QuerySort; offset?: number; limit?: number }) =>
+  feed: (p: { q?: string; scope?: Scope; folder?: string; tag?: string; match?: "all" | "any"; sort?: QuerySort; offset?: number; limit?: number }) =>
     j<FeedPage>(`${BASE}/feed?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
   /** `assignee`: someone's name (every @name that's theirs) or "me"; `by: "me"`: tasks you gave someone else, in your notes. */
   tasks: (p: { folder?: string; note?: string; tag?: string; assignee?: string; by?: "me"; due?: string; start?: string; done?: string; priority?: string; today?: string }) =>
@@ -415,7 +421,7 @@ export const api = {
   tags: () => j<TagCount[]>(`${BASE}/tags`),
   smartFolders: () => j<SmartFolder[]>(`${BASE}/smart-folders`),
   /** Create a smart folder, or change one by `id`. */
-  saveSmartFolder: (f: { id?: string; name: string; query: string; shared: boolean }) => j<SmartFolder>(`${BASE}/smart-folders`, send("POST", f)),
+  saveSmartFolder: (f: { id?: string; name: string; query: string; shared: boolean }) => j<SmartFolder>(`${BASE}/smart-folders`, send("POST", { id: f.id, name: f.name, query: f.query, shared: f.shared })),
   deleteSmartFolder: (id: string) => j<SmartFolder[]>(`${BASE}/smart-folders/delete`, send("POST", { id })),
   /** Each tagged asset's tags. */
   assetTags: () => j<Record<string, string[]>>(`${BASE}/asset-tags`),
@@ -427,6 +433,8 @@ export const api = {
   /** Find and replace across notes. `dryRun` only says what would change; else `restore(changes[i], versions[i])` undoes each note. */
   replace: (find: string, replace: string, opts: { matchCase?: boolean; wholeWord?: boolean; folder?: string; dryRun?: boolean } = {}) =>
     j<{ notes: ReplacedNote[]; changes: number[]; versions: string[] }>(`${BASE}/replace`, send("POST", { find, replace, ...opts })),
+  /** Declare a property's type for the whole workspace (in Config/Settings.md); "auto" goes back to guessing it. */
+  setPropertyType: (name: string, type: string) => j<{ version: string | null }>(`${BASE}/properties/type`, send("POST", { name, type })),
   renameTag: (from: string, to: string) => j<{ changes: number[]; versions: string[]; assets: Record<string, string[]> }>(`${BASE}/tags/rename`, send("POST", { from, to })),
   setTask: (t: Task, done: boolean) => (done && did("tick"), j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/set`, send("POST", { path: t.path, line: t.line, text: t.text, done, today: today() }))),
   /** Change a task's tokens in its note; the rest of its line stays as written. */
@@ -446,7 +454,9 @@ export const api = {
   unstar: (path: string) => j<Favorite[]>(`${BASE}/favorites/unstar`, send("POST", { path })),
   starTag: (tag: string) => j<Favorite[]>(`${BASE}/favorites/star`, send("POST", { tag })),
   unstarTag: (tag: string) => j<Favorite[]>(`${BASE}/favorites/unstar`, send("POST", { tag })),
-  /** `keys` are note paths and "#tag"s (see favoriteKey). */
+  starSmartFolder: (id: string) => j<Favorite[]>(`${BASE}/favorites/star`, send("POST", { smart_folder: id })),
+  unstarSmartFolder: (id: string) => j<Favorite[]>(`${BASE}/favorites/unstar`, send("POST", { smart_folder: id })),
+  /** `keys` are note paths, "#tag"s and "~id"s for smart folders (see favoriteKey). */
   orderFavorites: (keys: string[]) => j<Favorite[]>(`${BASE}/favorites`, send("PUT", { paths: keys })),
   /** The Getting started checklist's state, or null if there isn't one (see src/core/guide.ts). */
   guide: () => j<GuideState | null>(`${BASE}/guide`),

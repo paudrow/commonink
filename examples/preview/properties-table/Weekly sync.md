@@ -6,6 +6,7 @@ people:
   - "[[People/Jo Park]]"
 draft: true
 status: active
+priority: 2
 ---
 # Weekly sync
 

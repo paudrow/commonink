@@ -9,14 +9,20 @@ import { EditorSelection, StateField, type EditorState, type Extension } from "@
 import { EditorView, hoverTooltip, showPanel, type Panel } from "@codemirror/view";
 import { frontmatterProblems, scanFrontmatter, schemaFor, type Problem, type PropSchema } from "../../../src/core/schema.ts";
 import { el, icon } from "../dom.ts";
-import { editorContext } from "./blocks.ts";
+import { editorContext, refreshEmbeds } from "./blocks.ts";
+import { propertyTypes } from "../propertyTypes.ts";
 
 const pathOf = (state: EditorState) => state.facet(editorContext)?.path ?? "";
+/** The note's schema, with the workspace's declared property types (propertyTypes.ts). */
+const schemaOf = (state: EditorState) => schemaFor(pathOf(state), propertyTypes());
+const problemsOf = (state: EditorState) => frontmatterProblems(state.doc.toString(), pathOf(state), propertyTypes());
 
 /** A property's type as a word, for completions and hover. */
 export function typeText(p: PropSchema): string {
   if (p.enum) return p.enum.join(" | ");
   if (p.type === "boolean") return "true | false";
+  if (p.type === "number") return "number";
+  if (p.type === "object") return p.additionalProperties ? `name: ${p.additionalProperties.enum.join(" | ")}` : "names and values";
   if (p.type === "array") return p.items?.enum ? `list of ${p.items.enum.join(" | ")}` : "list";
   return p.format === "date" ? "date" : "text";
 }
@@ -44,7 +50,7 @@ function inFrontmatter(state: EditorState, pos: number) {
 export function propertySource(ctx: CompletionContext): CompletionResult | null {
   const scan = inFrontmatter(ctx.state, ctx.pos);
   if (!scan) return null;
-  const schema = schemaFor(pathOf(ctx.state));
+  const schema = schemaOf(ctx.state);
   const line = ctx.state.doc.lineAt(ctx.pos);
   const before = line.text.slice(0, ctx.pos - line.from);
   const key = before.match(/^([\w-]*)$/);
@@ -85,15 +91,16 @@ export function propertySource(ctx: CompletionContext): CompletionResult | null 
 const propertyHover = hoverTooltip((view, pos) => {
   const scan = inFrontmatter(view.state, pos);
   const field = scan?.fields.find((f) => pos >= f.from && pos <= f.to);
-  const prop = field && schemaFor(pathOf(view.state)).properties[field.key];
+  const prop = field && schemaOf(view.state).properties[field.key];
   if (!field || !prop) return null;
   return { pos: field.from, end: field.to, above: true, create: () => ({ dom: infoOf(field.key, prop)() }) };
 });
 
 /** The note's property problems, kept up to date as it changes. */
 const problemsField = StateField.define<Problem[]>({
-  create: (state) => frontmatterProblems(state.doc.toString(), pathOf(state)),
-  update: (value, tr) => (tr.docChanged ? frontmatterProblems(tr.state.doc.toString(), pathOf(tr.state)) : value),
+  create: problemsOf,
+  // Again when the declared types change (refreshEmbeds, from main.ts), as well as on an edit.
+  update: (value, tr) => (tr.docChanged || tr.effects.some((e) => e.is(refreshEmbeds)) ? problemsOf(tr.state) : value),
 });
 
 /** Underline each problem where it is, with what's wrong on hover. */

@@ -5,7 +5,7 @@
 import { duplicateContacts } from "./contacts.ts";
 import { splitFrontmatter } from "./parse.ts";
 import { addDays } from "./tasks.ts";
-import { isArchived, isTagFavorite, type MissingLink, type Vault } from "./vault.ts";
+import { isArchived, isSmartFavorite, isTagFavorite, type MissingLink, type Vault } from "./vault.ts";
 import { isAgentsNote } from "./noteRoles.ts";
 
 /** Tasks overdue by more than this many days count as forgotten. */
@@ -48,7 +48,7 @@ export function checkup(vault: Vault, user: string, today = vault.day()): Checku
   }
   const empty = new Set(emptyNotes.map((n) => n.path));
 
-  const starred = new Set(vault.favorites(user).flatMap((f) => (isTagFavorite(f) ? [] : [f.path])));
+  const starred = new Set(vault.favorites(user).flatMap((f) => (isTagFavorite(f) || isSmartFavorite(f) ? [] : [f.path])));
   const tagged = new Set(
     vault
       .tags()

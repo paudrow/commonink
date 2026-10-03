@@ -13,6 +13,7 @@ import type { Calendar, EventDraft, NoteWrite } from "./calendar.ts";
 import { notePath } from "./ids.ts";
 import { isSort } from "./query.ts";
 import { checkup } from "./checkup.ts";
+import { noteProperties, propertiesInUse, setPropertyType } from "./properties.ts";
 
 export interface ApiHost {
   vault: Vault;
@@ -250,6 +251,7 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
           scope: qScope(),
           folder: q("folder") || undefined,
           tag: q("tag") || undefined,
+          match: q("match") === "any" ? "any" : undefined,
           sort: [q("sort")].find(isSort) ?? "modified",
           offset: qCount("offset", 0, Infinity),
           limit: qCount("limit", 30, Infinity), // the feed re-fetches everything it has shown
@@ -312,6 +314,17 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json({ open: vault.openTaskCount() });
     case "GET /tags":
       return json(vault.tags());
+    // Property types (properties.ts): declared in Config/Settings.md, the rest guessed.
+    case "GET /properties":
+      return json(q("path") ? noteProperties(vault, q("path")) : propertiesInUse(vault));
+    case "POST /properties/type": {
+      const r = setPropertyType(vault, str("name"), str("type"), actor);
+      if (r) {
+        host.written(r.path, vault.files.read(r.path), r.version, r.change);
+        if (r.change?.op === "create") host.tree();
+      }
+      return json({ version: r?.version ?? null });
+    }
     case "GET /asset-tags":
       return json(vault.assetTags());
     case "GET /diff":
@@ -395,8 +408,11 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       }
       const existing = optStr("existing");
       if (existing !== undefined && !ON_EXISTING.includes(existing as OnExisting)) throw new VaultError(`"existing" must be ${ON_EXISTING.join(" or ")}`);
-      const r = await writeImport(vault, pairsImport(notes as Record<string, string>, optStr("folder")), { existing: existing as OnExisting | undefined, source: actor });
-      for (const p of [...r.created, ...r.replaced]) host.written(p, vault.files.read(p), vault.meta(p)?.version ?? "", null);
+      const r = await writeImport(vault, pairsImport(notes as Record<string, string>, optStr("folder")), {
+        existing: existing as OnExisting | undefined,
+        source: actor,
+        written: (p, content, version, change) => host.written(p, content, version, change),
+      });
       if (r.created.length) host.tree();
       return json(r);
     }
@@ -505,10 +521,12 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       if (r.change) host.written(r.path, vault.files.read(r.path), r.version, r.change);
       return json({ path: r.path, version: r.version, change: r.change?.id ?? null }); // restoring `change` undoes this
     }
-    // A `tag` stars or unstars a tag; a `path` a note.
+    // A `tag` stars or unstars a tag; a `smart_folder` (its ID) a smart folder; a `path` a note.
     case "POST /favorites/star":
+      if (optStr("smart_folder") !== undefined) return json(favorited(vault.starSmartFolder(host.user, str("smart_folder"))));
       return json(favorited(optStr("tag") !== undefined ? vault.starTag(host.user, str("tag")) : vault.star(host.user, str("path"))));
     case "POST /favorites/unstar":
+      if (optStr("smart_folder") !== undefined) return json(favorited(vault.unstarSmartFolder(host.user, str("smart_folder"))));
       return json(favorited(optStr("tag") !== undefined ? vault.unstarTag(host.user, str("tag")) : vault.unstar(host.user, str("path"))));
     case "PUT /favorites":
       return json(favorited(vault.orderFavorites(host.user, paths("paths"))));
