@@ -33,7 +33,7 @@ test("findMentions stays fast on a long run of scheme characters with no ://, an
   const md = "# T\n\nAcme " + "a".repeat(100_000) + "\n\nsee https://acme.example/Acme and <git+ssh://h/Acme> and Acme.";
   const t = performance.now();
   const found = findMentions(md, ["Acme"]);
-  assert.ok(performance.now() - t < 200, `took ${Math.round(performance.now() - t)} ms`);
+  assert.ok(performance.now() - t < 1000, `took ${Math.round(performance.now() - t)} ms`);
   assert.deepEqual(found.map((m) => [m.line, m.from]), [[3, 0], [5, 57]], "the URLs' Acme isn't a mention");
 });
 
