@@ -58,10 +58,10 @@
         </div>
         <nav id="favorites" aria-label="Starred"></nav>
         <div class="tree-head" data-section="smart" hidden>
-          <button class="section-toggle" type="button" aria-expanded="true" aria-controls="smart-folders"><span class="ico" data-icon="chevron" data-size="12"></span><span>Smart folders</span></button>
-          <button id="new-smart-folder" class="icon-btn small" type="button" title="New smart folder" aria-label="New smart folder"><span class="ico" data-icon="plus" data-size="15"></span></button>
+          <button class="section-toggle" type="button" aria-expanded="true" aria-controls="smart-folders"><span class="ico" data-icon="chevron" data-size="12"></span><span>Views</span></button>
+          <button id="new-smart-folder" class="icon-btn small" type="button" title="New view" aria-label="New view"><span class="ico" data-icon="plus" data-size="15"></span></button>
         </div>
-        <nav id="smart-folders" aria-label="Smart folders" hidden></nav>
+        <nav id="smart-folders" aria-label="Views" hidden></nav>
         <div class="tree-head" data-section="folders">
           <button class="section-toggle" type="button" aria-expanded="true" aria-controls="tree"><span class="ico" data-icon="chevron" data-size="12"></span><span>Folders</span></button>
           <button id="new-folder" class="icon-btn small" type="button" title="New folder" aria-label="New folder"><span class="ico" data-icon="plus" data-size="15"></span></button>
@@ -87,6 +87,7 @@
 
       <main id="main">
         <header id="topbar">
+          <div id="top-tabs"></div>
           <div class="spacer"></div>
           <div id="agents" title="Agents active in the last 15 minutes"></div>
           <div id="html-toggle" class="seg" role="group" aria-label="Show as" hidden>
@@ -115,6 +116,7 @@
           <div id="assets-view" hidden tabindex="-1"></div>
           <div id="tags-view" hidden tabindex="-1"></div>
           <div id="query-help-view" hidden tabindex="-1"></div>
+          <div id="profile-view" hidden tabindex="-1"></div>
           <div id="checkup-view" hidden tabindex="-1"></div>
           <div id="replace-view" hidden tabindex="-1"></div>
           <div id="contacts-view" hidden tabindex="-1"></div>
@@ -163,7 +165,7 @@
         <div class="palette-input"><span class="ico" data-icon="search"></span><input id="palette-input" role="combobox" aria-label="Search notes and commands" aria-controls="palette-results" aria-expanded="true" aria-autocomplete="list" aria-describedby="palette-hint" placeholder="Find a note, or type > for commands…" autocomplete="off" spellcheck="false" /></div>
         <div id="palette-results" role="listbox" aria-label="Results"></div>
         <div id="palette-hint" class="palette-hint">Start with <kbd>#</kbd> for headings in this note, <kbd>@</kbd> people, <kbd>tag:</kbd> tags, <kbd>/</kbd> folders, <kbd>&gt;</kbd> commands</div>
-        <div class="palette-foot"><span><kbd data-keys="ArrowUp">↑</kbd><kbd data-keys="ArrowDown">↓</kbd> move</span><span><kbd data-keys="Enter">↵</kbd> open</span><span><kbd data-keys="Mod-Enter">⌘↵</kbd> open in split view</span><span><kbd data-keys="Shift-Enter">⇧↵</kbd> create</span><span><kbd data-keys="Mod-p">⌘P</kbd> notes</span><span><kbd data-keys="Mod-Shift-p">⌘⇧P</kbd> or <kbd data-keys="&gt;">&gt;</kbd> commands</span><span><kbd data-keys="Escape">Esc</kbd> close</span></div>
+        <div class="palette-foot"><span><kbd data-keys="ArrowUp">↑</kbd><kbd data-keys="ArrowDown">↓</kbd> move</span><span><kbd data-keys="Enter">↵</kbd> open</span><span><kbd data-keys="Mod-Enter">⌘↵</kbd> new tab</span><span><kbd data-keys="Mod-Alt-Enter">⌘⌥↵</kbd> to the side</span><span><kbd data-keys="Shift-Enter">⇧↵</kbd> create</span><span><kbd data-keys="Mod-p">⌘P</kbd> notes</span><span><kbd data-keys="Mod-Shift-p">⌘⇧P</kbd> or <kbd data-keys="&gt;">&gt;</kbd> commands</span><span><kbd data-keys="Escape">Esc</kbd> close</span></div>
       </div>
     </div>
     <div id="toasts" role="region" aria-label="Notifications"></div>

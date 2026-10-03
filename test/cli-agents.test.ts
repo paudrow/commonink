@@ -135,7 +135,7 @@ test("task remove takes a task's line out, and a task is named by its line", () 
 test("help lists every group, help <command> shows its options and examples, and completion scripts complete", () => {
   const vault = tempVault();
   const help = commonink(vault, ["help"]).stdout;
-  for (const g of ["Notes:", "Folders and files:", "Tasks and today:", "Boards:", "Tags:", "Smart folders:", "Favorites:", "History and Trash:", "The CLI itself:"]) assert.ok(help.includes(`\n${g}\n`), g);
+  for (const g of ["Notes:", "Folders and files:", "Tasks and today:", "Boards:", "Tags:", "Views:", "Favorites:", "History and Trash:", "The CLI itself:"]) assert.ok(help.includes(`\n${g}\n`), g);
   assert.match(help, /Exit codes: 0 ok, 1 error, 2 usage, 3 not found, 4 conflict, 5 exists, 6 forbidden, 7 auth, 8 unavailable\./);
   const one = commonink(vault, ["help", "task", "move"]).stdout;
   assert.match(one, /^commonink task move <note> <line> --to <to> \[--text <text>\]\n/);

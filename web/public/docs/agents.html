@@ -1,0 +1,96 @@
+<!doctype html>
+<!-- Built by scripts/docs.ts from docs/guide/agents.md: edit that, then npm run docs. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Connect an agent · Common Ink docs</title>
+    <meta name="description" content="Let Claude, Claude Code, Cursor or any MCP client read and edit your notes, and see everything it did." />
+    <meta property="og:title" content="Connect an agent · Common Ink docs" />
+    <meta property="og:description" content="Let Claude, Claude Code, Cursor or any MCP client read and edit your notes, and see everything it did." />
+    <meta property="og:image" content="/social.png" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/docs/docs.css" />
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="/"><img src="/favicon.svg" alt="" />Common Ink</a>
+      <span class="section">Docs</span>
+      <a class="open" href="/">Open Common Ink</a>
+    </header>
+    <div class="layout">
+      <nav aria-label="Docs">
+        <a href="/docs/">Getting started</a>
+        <a href="/docs/import">Moving in</a>
+        <a href="/docs/agents" aria-current="page">Connect an agent</a>
+        <a href="/docs/notes">Writing notes</a>
+        <a href="/docs/sharing">Sharing and teams</a>
+        <a href="/docs/cli">The command line</a>
+        <a href="/docs/faq">Questions</a>
+      </nav>
+      <main>
+<h1>Connect an agent</h1>
+<p>Any agent that speaks MCP can work in your notes: search them, read them, write and edit them, manage tasks and boards. It signs in as you, so there&#39;s no key to copy, and everything it changes is shown live and kept in History.</p>
+<h2 id="add-common-ink-to-your-agent"><a class="anchor" href="#add-common-ink-to-your-agent">Add Common Ink to your agent</a></h2>
+<p>Your workspace&#39;s address is <code>https://commonink.app/mcp</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Agent</th>
+<th>How</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Claude (claude.ai and Claude Desktop)</td>
+<td><strong>Settings</strong>, then <strong>Connectors</strong>, then <strong>Add custom connector</strong>, and paste the address</td>
+</tr>
+<tr>
+<td>Claude Code</td>
+<td><code>claude mcp add --transport http commonink https://commonink.app/mcp</code>, then <code>/mcp</code> to sign in</td>
+</tr>
+<tr>
+<td>Cursor</td>
+<td>Add <code>{&quot;mcpServers&quot;: {&quot;commonink&quot;: {&quot;url&quot;: &quot;https://commonink.app/mcp&quot;}}}</code> to <code>.cursor/mcp.json</code>, then <strong>Connect</strong></td>
+</tr>
+<tr>
+<td>Anything else</td>
+<td>Point any MCP client that supports OAuth at the address</td>
+</tr>
+</tbody></table>
+<p>Your browser opens Common Ink: sign in, pick the workspace the agent may use, and choose <strong>Allow</strong>. In the app, <strong>Connect an agent</strong> in ⌘⇧P shows the same steps.</p>
+<h2 id="try-it"><a class="anchor" href="#try-it">Try it</a></h2>
+<p>Ask your agent something that touches your notes:</p>
+<ul>
+<li>&quot;Summarize what I wrote this week and add the open questions to my Today list.&quot;</li>
+<li>&quot;Make a note for tomorrow&#39;s standup from my calendar, with yesterday&#39;s done tasks.&quot;</li>
+<li>&quot;Find every note that mentions the Acme launch and add a link to the launch plan.&quot;</li>
+</ul>
+<p>Keep the note open while it works: its edits appear as it makes them.</p>
+<h2 id="see-what-an-agent-did"><a class="anchor" href="#see-what-an-agent-did">See what an agent did</a></h2>
+<ul>
+<li><strong>Live highlights.</strong> An agent&#39;s edit flashes in the editor where it landed, and a toast says who made it, with <strong>Undo</strong>. Undo takes out just that edit and keeps what you&#39;ve typed since.</li>
+<li><strong>Signed changes.</strong> Every change says who made it, such as &quot;Claude (via Audrow)&quot;. <strong>History</strong> lists them all, and any one can be compared and restored.</li>
+<li><strong>Safe together.</strong> Agents edit by replacing exact text, and an edit to a note that changed since the agent read it is refused, so it reads again instead of overwriting you. If you and an agent change the same lines, a banner offers <strong>Keep mine</strong>, <strong>Use theirs</strong> or <strong>Compare</strong>.</li>
+</ul>
+<h2 id="control-what-agents-can-do"><a class="anchor" href="#control-what-agents-can-do">Control what agents can do</a></h2>
+<ul>
+<li>An agent acts with your role in the workspace: a viewer&#39;s agent can only read.</li>
+<li><strong>Connected agents</strong> in the account menu lists your agents, when each was last used and what it changed. <strong>Revoke</strong> cuts one off at its next request.</li>
+<li>Agents can&#39;t delete anything for good: what they delete waits in Trash for 30 days.</li>
+<li>The note <code>AGENTS.md</code> is sent to every agent as its instructions. Edit it to set your conventions (&quot;put meeting notes in Meetings/&quot;, &quot;tag tasks with a project&quot;).</li>
+</ul>
+<h2 id="agents-on-your-own-computer"><a class="anchor" href="#agents-on-your-own-computer">Agents on your own computer</a></h2>
+<p>With the local app, agents connect over stdio: <code>claude mcp add commonink -- commonink mcp</code>, or command <code>commonink</code> with args <code>[&quot;mcp&quot;]</code> in other clients. Shell agents can use <a href="/docs/cli">the command line</a> directly, with <code>COMMONINK_AGENT=&lt;name&gt;</code> so their writes are signed.</p>
+<h2 id="what-agents-can-use"><a class="anchor" href="#what-agents-can-use">What agents can use</a></h2>
+<p>The tools cover notes (<code>search_notes</code>, <code>read_note</code>, <code>create_note</code>, <code>edit_note</code>, <code>import_notes</code>, <code>move_note</code>, <code>archive_note</code>), tasks (<code>list_tasks</code>, <code>add_task</code>, <code>update_task</code>, <code>get_today</code>), boards, tags, views (saved searches), favorites, history and restore, calendar events and meeting notes, contacts, and sharing. Every tool is also a command: <code>commonink help</code> lists them.</p>
+
+        <footer>
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+          <a href="https://github.com/paudrow/commonink">GitHub</a>
+          <a href="mailto:support@commonink.app">support@commonink.app</a>
+        </footer>
+      </main>
+    </div>
+  </body>
+</html>

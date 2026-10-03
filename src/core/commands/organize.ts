@@ -1,4 +1,4 @@
-// Organizing notes: boards, tags, smart folders, favorites and folders.
+// Organizing notes: boards, tags, saved views (smart folders), favorites and folders.
 import { VaultError } from "../paths.ts";
 import { fmtBoards, fmtFavorites, fmtList, fmtSmartFolders, fmtTags, fmtWrite } from "../format.ts";
 import { parseQuery } from "../query.ts";
@@ -172,11 +172,11 @@ export const smartFolders = [
     cli: "smart",
     mcp: "list_smart_folders",
     route: "GET /smart-folders",
-    title: "List smart folders",
-    summary: "Your smart folders (saved note queries) with counts, or with a name, the notes in one",
+    title: "List views",
+    summary: "Your saved views (smart folders: note queries kept as notes in Views/) with counts, or with a name, the notes in one",
     description:
-      "The user's smart folders: saved note queries in the sidebar, each with its query and how many notes match now. " +
-      "list_notes with smart_folder lists one's notes.",
+      "The user's saved views (smart folders): note queries kept as notes in Views/, shown in the sidebar, each with its query, its note's path and how many notes match now. " +
+      "A view is a note right in Views/ (shared) or in Views/<user ID>/ (just that person's) whose body has one ::view{…} line. list_notes with smart_folder lists one's notes.",
     examples: ["commonink smart", "commonink smart planning"],
     readOnly: true,
     args: { name: str({ only: "cli", pos: "rest", describe: "List the notes in this one instead" }) },
@@ -193,10 +193,11 @@ export const smartFolders = [
     cli: "smart-save",
     mcp: "save_smart_folder",
     route: "POST /smart-folders",
-    title: "Save smart folder",
-    summary: 'Save a note query (q="…" folder=… tag=… sort=date) as a smart folder',
+    title: "Save view",
+    summary: 'Save a note query (q="…" folder=… tag=… sort=date) as a view: a note in Views/',
     description:
-      "Create a smart folder (a saved note query in the sidebar), or change one by id. The query uses ::query's keys: " +
+      "Create a saved view (a smart folder: a note in Views/ named for the view, holding the query as one ::view{…} line, shown in the sidebar), or change one by id: " +
+      "a new name renames its note, and the words around its query line stay. Writing such a note yourself does the same. The query uses ::view's keys: " +
       'q="words" folder=Projects tag=work sort=title limit=10 (all optional; a tag includes the tags under it). Several tags (tag=work,plan or ' +
       "tag=work tag=plan) means notes with all of them; add match=any for notes with any of them. sort is modified (last changed first, the default), date (the note's own date: " +
       "frontmatter date/created, else a YYYY-MM-DD in its name, newest first), oldest (the same, oldest first), title or created (newest note first). " +
@@ -209,26 +210,26 @@ export const smartFolders = [
       name: str({ required: true, pos: 0 }),
       query: str({ mcpRequired: true, pos: "rest", describe: "The query, e.g. tag=work,plan sort=date (none: every note)" }),
       just_me: bool({ describe: "Keep it the user's own instead of sharing it with the workspace" }),
-      id: str({ describe: "Change this smart folder instead of creating one" }),
+      id: str({ describe: "Change this view instead of creating one" }),
     },
-    run: ({ vault, user, canEditShared, members }, a) => {
-      const f = vault.saveSmartFolder(user, { id: a.id, name: a.name, query: a.query ?? "", shared: !a.just_me }, canEditShared);
-      return { text: fmtSmartFolders(vault.smartFolders(user), !members), data: f };
+    run: ({ vault, user, canEditShared, members, source }, a) => {
+      const { view } = vault.saveSmartFolder(user, { id: a.id, name: a.name, query: a.query ?? "", shared: !a.just_me }, canEditShared, source);
+      return { text: fmtSmartFolders(vault.smartFolders(user), !members), data: view };
     },
   }),
   command({
     cli: "smart-rm",
     mcp: "delete_smart_folder",
     route: "POST /smart-folders/delete",
-    title: "Delete smart folder",
-    summary: "Delete a smart folder (its notes don't change)",
-    description: "Delete a smart folder by name or ID. The notes in it don't change.",
+    title: "Delete view",
+    summary: "Delete a saved view: its note goes to Trash (the notes it finds don't change)",
+    description: "Delete a saved view (smart folder) by name or ID: its note in Views/ goes to Trash, like delete_note. The notes it finds don't change.",
     examples: ["commonink smart-rm Planning"],
     destructive: true,
     args: { smart_folder: str({ required: true, pos: 0, label: "name" }) },
-    run: ({ vault, user, canEditShared, members }, a) => {
-      const list = vault.deleteSmartFolder(user, a.smart_folder, canEditShared);
-      return { text: fmtSmartFolders(list, !members), data: list };
+    run: ({ vault, user, canEditShared, members, source }, a) => {
+      const { views } = vault.deleteSmartFolder(user, a.smart_folder, canEditShared, source);
+      return { text: fmtSmartFolders(views, !members), data: views };
     },
   }),
 ];
@@ -297,10 +298,10 @@ export const favorites = [
     cli: "smart-star",
     mcp: "star_smart_folder",
     route: "POST /favorites/star",
-    title: "Star smart folder",
-    summary: "Add smart folders to your favorites, beside your starred notes and tags",
+    title: "Star view",
+    summary: "Add saved views (smart folders) to your favorites, beside your starred notes and tags",
     description:
-      "Add smart folders (by name or ID, as list_smart_folders gives) to the user's favorites, beside their starred notes and tags. " +
+      "Add saved views (smart folders, by name or ID, as list_smart_folders gives) to the user's favorites, beside their starred notes and tags. " +
       "Only star ones the user asked for.",
     examples: ["commonink smart-star Planning"],
     args: { smart_folders: list({ required: true, pos: "rest", label: "name" }) },
@@ -314,9 +315,9 @@ export const favorites = [
     cli: "smart-unstar",
     mcp: "unstar_smart_folder",
     route: "POST /favorites/unstar",
-    title: "Unstar smart folder",
-    summary: "Take smart folders out of your favorites",
-    description: "Take smart folders out of the user's favorites. The smart folders themselves stay.",
+    title: "Unstar view",
+    summary: "Take saved views out of your favorites",
+    description: "Take saved views (smart folders) out of the user's favorites. The views themselves stay.",
     examples: ["commonink smart-unstar Planning"],
     args: { smart_folders: list({ required: true, pos: "rest", label: "name" }) },
     run: ({ vault, user }, a) => {
@@ -366,7 +367,7 @@ export const folders = [
     summary: "Rename a folder, or move it under another, rewriting every link to what's in it",
     description:
       "Rename a folder or move it under another (to=Projects/Old moves it into Projects). Everything in it moves, archived notes included, " +
-      "every link to them is rewritten, and smart folders narrowed to it follow. It can't land on a folder that already has notes. Only when the user asks.",
+      "every link to them is rewritten, and saved views narrowed to it follow. It can't land on a folder that already has notes. Only when the user asks.",
     examples: ["commonink folder rename Ideas 'Ideas 2026'", "commonink folder rename 'Projects/Ideas' 'Projects/Ideas 2026'"],
     args: {
       folder: str({ required: true, pos: 0 }),

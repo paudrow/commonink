@@ -8,7 +8,7 @@ import { openTempVault } from "./helpers.ts";
 import { openVault } from "../src/core/local.ts";
 import { propsOf } from "../src/core/frontmatter.ts";
 
-test("a note query is the ::query widget's args: q, folder, tag, sort and limit", () => {
+test("a note query is the ::view widget's args: q, folder, tag, sort and limit", () => {
   const src = 'q="launch plan" folder=Projects tag=work/acme sort=title limit=5';
   assert.deepEqual(parseQuery(src), { q: "launch plan", folder: "Projects", tag: "work/acme", sort: "title", limit: 5 });
   assert.equal(formatQuery(parseQuery(src)), src);
@@ -90,7 +90,7 @@ test('-word, OR and "phrase" in the words', () => {
   const s = parse('"launch plan" (budget OR costs) -draft -"old idea"');
   assert.equal(toFts(s.expr), '("launch plan" ("budget"* OR "costs"*)) NOT ("draft"* OR "old idea")');
   assert.deepEqual(textWords(s.expr), ["launch", "plan", "budget", "costs"]);
-  // Single quotes make a phrase too: that's how a ::query or smart folder writes one inside q="…".
+  // Single quotes make a phrase too: that's how a ::view or smart folder writes one inside q="…".
   assert.equal(toFts(parse("'launch plan'").expr), '"launch plan"');
   // OR with nothing on one side is a mistake, said with where it is; the rest still reads.
   assert.equal(parse("OR plan OR").error?.message, "Nothing before OR at character 1: put a word or filter on each side");
@@ -208,9 +208,9 @@ test("status=draft, -status=done and has=due in the words are property filters",
   assert.match(parse("status>draft").error!.message, /Only modified and created compare/);
   // A dash leaves out a date range too, like any other term.
   assert.deepEqual(parse("-modified=today").expr, { kind: "not", item: { kind: "date", field: "modified", op: "=", day: "today" } });
-  // Written as keys of their own (a smart folder, a ::query), they join q; a widget's own args don't.
+  // Written as keys of their own (a smart folder, a ::view), they join q; a widget's own args don't.
   assert.deepEqual(parseQuery('folder=Projects status=draft stage="in review" -has=due'), { q: "status=draft stage='in review' -has=due", folder: "Projects" });
-  assert.deepEqual(toQuery({ label: "Drafts", id: "x1", view: "table", cols: "status", status: "draft" }), { q: "status=draft" });
+  assert.deepEqual(toQuery({ label: "Drafts", id: "x1", layout: "table", fields: "status", status: "draft" }), { q: "status=draft" });
   assert.equal(formatQuery(parseQuery('stage="in review"')), `q="stage='in review'"`);
   assert.equal(queryProblem("status=draft -has=due"), null);
 });
@@ -258,8 +258,11 @@ test("the feed hands over the properties a table asks for, each with its values"
     ["B", {}],
   ]);
   assert.equal(vault.feed({ folder: "Projects" }).items[0].props, undefined);
-  // A ::query's view and cols aren't filters.
-  assert.deepEqual(toQuery({ folder: "Projects", view: "table", cols: "status,due" }), { folder: "Projects" });
+  // A ::view's layout and fields aren't filters; a board's group and a calendar's date aren't either, but in a list they are.
+  assert.deepEqual(toQuery({ folder: "Projects", layout: "table", fields: "status,due" }), { folder: "Projects" });
+  assert.deepEqual(toQuery({ layout: "board", group: "owner", fields: "due" }), {});
+  assert.deepEqual(toQuery({ layout: "calendar", date: "review" }), {});
+  assert.deepEqual(toQuery({ date: "2026-10-01" }), { q: "date=2026-10-01" });
 });
 
 test("several folders are any of them, written with | or as folder= more than once", () => {

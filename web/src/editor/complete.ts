@@ -9,6 +9,7 @@ import { displayName, icon } from "../dom.ts";
 import { fuzzyScore } from "../fuzzy.ts";
 import { newId, serializeDirective } from "../widgets/args.ts";
 import { pendingConfig, WIDGETS } from "../widgets/index.ts";
+import { LAYOUTS } from "../../../src/core/view.ts";
 import { editorContext } from "./blocks.ts";
 import { api } from "../api.ts";
 import { askFor, pickTemplate, templatePeople } from "../templatePicker.ts";
@@ -17,9 +18,10 @@ import { localNow } from "../../../src/core/templates.ts";
 import { NEW_BOARD } from "../../../src/core/kanban.ts";
 import { wrapInDetails } from "../../../src/core/details.ts";
 import { taskTokenSource } from "./taskComplete.ts";
+import { propertySource } from "./properties.ts";
 import { inTaskText } from "./taskEdit.ts";
 import { emojiMatches } from "../../../src/core/emoji.ts";
-import { did } from "../events.ts";
+import { did, didFirst } from "../events.ts";
 import { slashUsed } from "./lineHint.ts";
 import { assigneeOptions, assignees, contactLink, ensureContact, people, rankPeople } from "../people.ts";
 import { toast } from "../toast.ts";
@@ -394,6 +396,24 @@ function widgetTool(name: string, keywords: string, title?: string): Tool {
   };
 }
 
+/**
+ * `/view`: notes as a list, a table, a board or a calendar. `/query`, `/table`, `/board` and
+ * `/calendar` find it too; typed as one of the layouts (`/board`), it starts in that layout.
+ */
+function viewTool(): Tool {
+  const tool = widgetTool("view", WIDGETS.view.keywords);
+  return {
+    ...tool,
+    run(view, from, to) {
+      const typed = view.state.sliceDoc(from + 1, to).toLowerCase();
+      const layout = typed.length >= 3 ? LAYOUTS.find((l) => l !== "list" && l.startsWith(typed)) : undefined;
+      const id = newId();
+      pendingConfig.add(id); // open its settings as soon as it renders
+      insert(view, from, to, serializeDirective({ name: "view", args: { ...(layout ? { layout } : {}), id } }), { own: true });
+    },
+  };
+}
+
 const today = () => new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD
 
 const TOOLS: Tool[] = [
@@ -412,12 +432,11 @@ const TOOLS: Tool[] = [
   },
   { title: "Link embed", hint: "YouTube, X, Bluesky, Spotify… or any page", icon: "video", keywords: "embed link url youtube video tweet x twitter bluesky mastodon instagram tiktok spotify vimeo loom bookmark", section: "Embed", run: (v, f, t) => insert(v, f, t, "https://", { cursor: 0, select: 8, block: true }) },
   widgetTool("tasks", "tasks todo checklist rollup dashboard open"),
-  widgetTool("query", "notes list query dashboard recent folder tag"),
+  viewTool(),
   widgetTool("calendar", "calendar journal daily month diary events"),
   widgetTool("agenda", "agenda events calendar meetings schedule upcoming"),
   widgetTool("timer", "timer countdown pomodoro alarm"),
   widgetTool("stopwatch", "stopwatch count up laps"),
-  widgetTool("streak", "streak writing days habit heatmap"),
   {
     title: "Collapsible section",
     hint: `<details> · ${formatKeys("Mod-Alt-s")} wraps a selection`,
@@ -426,7 +445,7 @@ const TOOLS: Tool[] = [
     section: "Blocks",
     run: (v, f, t) => insert(v, f, t, wrapInDetails(""), { cursor: "<details>\n<summary>".length, select: "Details".length, block: true }),
   },
-  { title: "Kanban board", hint: "Columns of cards", icon: "kanban", keywords: "kanban board columns cards pipeline trello", section: "Widgets", run: (v, f, t) => insert(v, f, t, NEW_BOARD, { own: true }) },
+  { title: "Kanban board", hint: "Columns of cards", icon: "kanban", keywords: "kanban board columns cards pipeline trello", section: "Widgets", run: (v, f, t) => (didFirst("madeBoard"), insert(v, f, t, NEW_BOARD, { own: true })) },
   widgetTool("kanban", "kanban board embed another note", "Kanban from another note"),
   {
     title: "Diagram",
@@ -567,7 +586,7 @@ const pasteFiles = EditorView.domEventHandlers({
 // ------------------------------------------------------------------ extension
 
 export function typingHelpers(): Extension {
-  return [completions([toolSource, taskTokenSource, mentionSource, linkSource, tagSource, frontmatterTagSource, emojiSource, placeholderSource]), pasteLinks, pasteFiles];
+  return [completions([toolSource, taskTokenSource, mentionSource, linkSource, tagSource, frontmatterTagSource, propertySource, emojiSource, placeholderSource]), pasteLinks, pasteFiles];
 }
 
 function completions(override: CompletionSource[]): Extension {

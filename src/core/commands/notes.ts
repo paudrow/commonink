@@ -3,9 +3,14 @@ import { kindOf, VaultError } from "../paths.ts";
 import { fmtBacklinks, fmtFavorites, fmtList, fmtMissingLinks, fmtRead, fmtSearch, fmtWrite } from "../format.ts";
 import { parseQuery, queryProblem } from "../query.ts";
 import { TRASH_DAYS } from "../vault.ts";
+import { IMPORT_FROM, type ImportFrom } from "../convert.ts";
 import { fmtImport, MAX_IMPORT_NOTES, ON_EXISTING, pairsImport, readImport, writeImport, type OnExisting } from "../import.ts";
 import { bool, command, list, localFiles, num, pairs, str } from "./types.ts";
+import { describeProblems, frontmatterProblems } from "../schema.ts";
+import { propertyTypes } from "../properties.ts";
+import type { Vault } from "../vault.ts";
 import { checkup, fmtCheckup, STALE_DAYS } from "../checkup.ts";
+import { blockRange } from "../blocks.ts";
 
 const TAG = "Only notes with this tag or a tag under it: work matches #work and #work/acme. Several (work,plan): notes with all of them";
 const ONE_TAG = "Only notes with this tag or a tag under it: work matches #work and #work/acme";
@@ -17,6 +22,16 @@ function checkBase(host: { vault: { read(t: string): { path: string; version: st
   if (!base) return;
   const note = host.vault.read(target);
   if (note.version !== base) throw new VaultError(`${note.path} is at version ${note.version}, not ${base}. Re-read it and retry.`, "conflict", { version: note.version });
+}
+
+/** What's wrong with a note's properties after a write (schema.ts), as lines for whoever wrote it; "" if nothing is. */
+function propertyProblems(vault: Vault, path: string): string {
+  try {
+    const n = vault.read(path);
+    return describeProblems(n.content, frontmatterProblems(n.content, n.path, propertyTypes(vault)));
+  } catch {
+    return "";
+  }
 }
 
 export const notes = [
@@ -51,8 +66,9 @@ export const notes = [
     summary: "A note with line numbers, and its version for --base",
     description:
       "Read a note with line numbers. `path` may be a vault path, a path without extension, or a [[wikilink]] name. " +
+      "A block link's target (Roadmap#^k3x9q2, or Roadmap#^a..^b for a range of blocks) reads just those lines. " +
       "The returned version can be passed to edit_note as base_version.",
-    examples: ["commonink read Roadmap", "commonink read Projects/Roadmap.md --offset 10 --limit 20"],
+    examples: ["commonink read Roadmap", "commonink read Projects/Roadmap.md --offset 10 --limit 20", "commonink read 'Roadmap#^k3x9q2'"],
     readOnly: true,
     args: {
       path: str({ required: true, pos: 0, label: "note", describe: NOTE }),
@@ -61,6 +77,13 @@ export const notes = [
     },
     run: ({ vault }, a) => {
       const n = vault.read(a.path);
+      // Note#^id or Note#^a..^b, from a block link: just those lines, unless offset or limit say otherwise.
+      const anchor = a.path.match(/#(\^.*)$/)?.[1];
+      if (anchor && a.offset === undefined && a.limit === undefined) {
+        const r = blockRange(n.content, anchor);
+        if (!r) throw new VaultError(`${n.path} has no block ${anchor}`, "not_found");
+        return { text: fmtRead(n, r.from, r.to - r.from + 1), data: n };
+      }
       return { text: fmtRead(n, a.offset, a.limit), data: n };
     },
   }),
@@ -69,7 +92,7 @@ export const notes = [
     mcp: "list_notes",
     route: "GET /notes",
     title: "List notes",
-    summary: "Notes in the vault or a folder, with a tag, the most recent, starred, or in a smart folder",
+    summary: "Notes in the vault or a folder, with a tag, the most recent, starred, or in a saved view",
     description:
       "List notes in the vault or a folder, the notes and assets with a tag, the most recently modified notes, or the user's " +
       "starred notes (favorites, in their order). Archived notes (in Archive/, or the workspace's own archive folder like " +
@@ -81,10 +104,10 @@ export const notes = [
       tag: str({ describe: TAG }),
       recent: num({ min: 1, max: 100, describe: "If set, list this many most recently modified notes" }),
       starred: bool({ describe: "If set, list the user's favorites instead" }),
-      smart_folder: str({ flag: "smart", describe: "If set, list the notes in this smart folder (name or ID) instead" }),
+      smart_folder: str({ flag: "smart", describe: "If set, list the notes in this saved view (smart folder: name or ID) instead" }),
       query: str({
         describe:
-          'If set, list the notes this note query matches instead, written as a smart folder or ::query writes it: q="(launch OR release) -draft" folder=Projects tag=work modified>-7d -tag=done sort=created. In q, side by side is AND, OR is either, -x leaves out, ( ) groups, and tag=, folder= and dates work inside. See commonink help query.',
+          'If set, list the notes this note query matches instead, written as a view or ::view writes it: q="(launch OR release) -draft" folder=Projects tag=work modified>-7d -tag=done sort=created. In q, side by side is AND, OR is either, -x leaves out, ( ) groups, and tag=, folder= and dates work inside. See commonink help query.',
       }),
       include_archived: bool({ flag: "all", describe: "Also archived notes" }),
       archived: bool({ only: "cli", describe: "Only archived notes" }),
@@ -188,12 +211,12 @@ export const notes = [
     run: ({ vault, source }, a) => {
       try {
         const r = vault.create(a.path, a.content, source);
-        return { text: fmtWrite(r, "Created"), data: r };
+        return { text: fmtWrite(r, "Created") + propertyProblems(vault, r.path), data: r };
       } catch (e) {
         if (!a.overwrite || !(e instanceof VaultError) || e.code !== "exists") throw e;
         const rel = (e.data as { path: string }).path;
         const r = { ...vault.save(rel, a.content, { source }), path: rel };
-        return { text: fmtWrite(r, r.change ? "Replaced" : "No change to"), data: r };
+        return { text: fmtWrite(r, r.change ? "Replaced" : "No change to") + propertyProblems(vault, rel), data: r };
       }
     },
   }),
@@ -202,26 +225,32 @@ export const notes = [
     mcp: "import_notes",
     route: "POST /import",
     title: "Import notes",
-    summary: "Create many notes in one go: .md files, a folder, or a .zip (an Obsidian vault or an export), folders kept",
+    summary: "Create many notes in one go: .md files, a folder, or a .zip (Obsidian, Notion, Evernote .enex, Apple Notes), folders kept",
     description:
       "Create many notes in one call, instead of create_note for each. `notes` maps each note's path to its markdown " +
       `(up to ${MAX_IMPORT_NOTES} at once); \`.md\` is added to a path with no extension. \`folder\` puts them all under a folder. ` +
       "A note that's already there is left as it is, or replaced with `existing: \"replace\"` (History keeps what it was). " +
       "Every path is checked before anything is written, so one bad path refuses the whole import. " +
-      "On the CLI, give .md files, a folder or a .zip: folders inside are kept, and pictures and other files come along.",
+      "On the CLI, give .md files, a folder or a .zip: folders inside are kept, and pictures and other files come along. " +
+      "Other apps' exports are converted: Notion's (ids taken out of names and links), Evernote's .enex files (notes, tags, dates and pictures), " +
+      "and Apple Notes' (the AppleNotesExport folder scripts/export-apple-notes.js saves). Which app is told from the files; `from` names it instead.",
     examples: [
       "commonink import notes.zip",
       "commonink import ~/Obsidian/Vault --folder Imported",
       "commonink import *.md --folder Inbox --existing replace",
+      "commonink import Notion-Export.zip --folder Notion",
+      "commonink import Evernote/*.enex",
+      "commonink import ~/Desktop/AppleNotesExport",
     ],
     args: {
       files: localFiles({ required: true, pos: "rest", label: "file", describe: ".md or .html files, folders, or .zip files on this computer" }),
       notes: pairs({ required: true, only: "mcp", describe: "Each note's path (\"Projects/Plan.md\") → its markdown" }),
       folder: str({ describe: "Put everything under this folder (default: where its paths say)" }),
       existing: str({ enum: ON_EXISTING, describe: "A note already at a path: skip it (default) or replace it" }),
+      from: str({ enum: IMPORT_FROM, only: "cli", describe: "The app the files come from (default auto: Notion is told by its names, .enex is Evernote)" }),
     },
     run: async ({ vault, source, bytes }, a) => {
-      const set = a.notes ? pairsImport(a.notes, a.folder) : readImport(a.files ?? [], a.folder);
+      const set = a.notes ? pairsImport(a.notes, a.folder) : readImport(a.files ?? [], a.folder, (a.from as ImportFrom | undefined) ?? "auto");
       const r = await writeImport(vault, set, { existing: a.existing as OnExisting | undefined, source, bytes });
       return { text: fmtImport(r), data: r };
     },
@@ -245,7 +274,7 @@ export const notes = [
     },
     run: ({ vault, source }, a) => {
       const r = vault.edit(a.path, { oldString: a.old_string, newString: a.new_string, replaceAll: a.replace_all, baseVersion: a.base_version }, source);
-      return { text: fmtWrite(r, "Edited"), data: r };
+      return { text: fmtWrite(r, "Edited") + propertyProblems(vault, r.path), data: r };
     },
   }),
   command({
@@ -317,7 +346,7 @@ export const notes = [
       if (!a.content.trim()) throw new VaultError("That would leave the note empty. To remove it, use delete.");
       const rel = vault.resolve(a.path) ?? (kindOf(a.path) ? a.path : `${a.path}.md`);
       const r = vault.save(rel, a.content, { baseVersion: a.base_version, source });
-      return { text: fmtWrite({ ...r, path: rel }, r.change ? "Wrote" : "No change to"), data: { ...r, path: rel } };
+      return { text: fmtWrite({ ...r, path: rel }, r.change ? "Wrote" : "No change to") + propertyProblems(vault, rel), data: { ...r, path: rel } };
     },
   }),
   command({

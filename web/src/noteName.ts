@@ -2,7 +2,7 @@
 // change the heading and the note is renamed to match (retitle in main.ts). No DOM here, for tests.
 import type { Text } from "@codemirror/state";
 import { headingText } from "../../src/core/prose.ts";
-import { AGENTS_NOTE } from "../../src/core/noteRoles.ts";
+import { isAgentsNote } from "../../src/core/noteRoles.ts";
 import { TEMPLATES } from "../../src/core/templates.ts";
 
 /** The first line after a note's frontmatter, where the heading that names it goes. */
@@ -43,7 +43,7 @@ export function nameLine(doc: Text): NameLine {
 }
 
 /** Notes whose names the app relies on: the agents' note, templates and daily notes. A heading doesn't rename them. */
-export const fixedName = (path: string) => path === AGENTS_NOTE || path.startsWith(`${TEMPLATES}/`) || /(^|\/)\d{4}-\d{2}-\d{2}\.md$/i.test(path);
+export const fixedName = (path: string) => isAgentsNote(path) || path.startsWith(`${TEMPLATES}/`) || /(^|\/)\d{4}-\d{2}-\d{2}\.md$/i.test(path);
 
 /** A heading as a file name: without the characters a name can't have, at most 120 long. */
 export const cleanName = (text: string) =>

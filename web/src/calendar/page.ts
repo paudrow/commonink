@@ -3,6 +3,7 @@
 // meeting note; its address is /calendar/<event id>. Events in calendars this person can write to
 // are made here (the form, editor.ts, or a drag), moved and resized (drags, drag.ts, or keys), and
 // deleted, each with Undo. Keys are in keys.ts; the date math in layout.ts.
+import { clickWhere, type Where } from "../panes.ts";
 import { api } from "../api.ts";
 import { el, icon, setPressed, typingIn } from "../dom.ts";
 import { matchKeys } from "../keys.ts";
@@ -27,8 +28,8 @@ function withTimes(item: Item, times: Times): Item {
 }
 
 export interface CalendarHooks {
-  /** Open a note, at a line (a task's), or to the side. */
-  open(path: string, line?: number, side?: boolean): void;
+  /** Open a note, at a line (a task's), here, in a new tab or to the side. */
+  open(path: string, line?: number, where?: Where): void;
   /** Point the address bar at the page or one of its events, in place (not a new step back). */
   setUrl(url: string): void;
 }
@@ -627,7 +628,7 @@ export class CalendarPage {
         "aria-label": label,
         onclick: (e: MouseEvent) => {
           this.cursor = { day, key: item.key };
-          this.hooks.open(t.path, t.line, e.metaKey || e.ctrlKey);
+          this.hooks.open(t.path, t.line, clickWhere(e));
         },
       },
       el("span", { class: "cal-chip-title" }, item.title),

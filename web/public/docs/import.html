@@ -1,0 +1,119 @@
+<!doctype html>
+<!-- Built by scripts/docs.ts from docs/guide/import.md: edit that, then npm run docs. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Moving in · Common Ink docs</title>
+    <meta name="description" content="Bring your notes from Obsidian, Notion, Evernote, Apple Notes or markdown files into Common Ink." />
+    <meta property="og:title" content="Moving in · Common Ink docs" />
+    <meta property="og:description" content="Bring your notes from Obsidian, Notion, Evernote, Apple Notes or markdown files into Common Ink." />
+    <meta property="og:image" content="/social.png" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/docs/docs.css" />
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="/"><img src="/favicon.svg" alt="" />Common Ink</a>
+      <span class="section">Docs</span>
+      <a class="open" href="/">Open Common Ink</a>
+    </header>
+    <div class="layout">
+      <nav aria-label="Docs">
+        <a href="/docs/">Getting started</a>
+        <a href="/docs/import" aria-current="page">Moving in</a>
+        <a href="/docs/agents">Connect an agent</a>
+        <a href="/docs/notes">Writing notes</a>
+        <a href="/docs/sharing">Sharing and teams</a>
+        <a href="/docs/cli">The command line</a>
+        <a href="/docs/faq">Questions</a>
+      </nav>
+      <main>
+<h1>Moving in</h1>
+<p>Bring everything you have in one go. In the app, press ⌘⇧P and pick <strong>Import notes…</strong>, then choose your files, a <code>.zip</code> or an export. From a terminal, <code>commonink import &lt;files or folder&gt;</code> does the same. Folders are kept, pictures come along, and a note that&#39;s already there is left as it is.</p>
+<table>
+<thead>
+<tr>
+<th>Coming from</th>
+<th>What to pick</th>
+<th>What happens</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Obsidian</td>
+<td>Your vault, zipped, or the folder with the CLI</td>
+<td>Links, embeds, attachments, tags and callouts work as they are; aliases, comments and Tasks dates are converted</td>
+</tr>
+<tr>
+<td>Notion</td>
+<td>The Markdown &amp; CSV export (.zip)</td>
+<td>Page names and links lose Notion&#39;s ids; databases come as .csv files</td>
+</tr>
+<tr>
+<td>Evernote</td>
+<td>One .enex file per notebook</td>
+<td>Each note becomes markdown with its tags, dates and pictures</td>
+</tr>
+<tr>
+<td>Apple Notes</td>
+<td>A folder saved by our script, zipped</td>
+<td>Each note becomes markdown, a folder per Notes folder</td>
+</tr>
+<tr>
+<td>Markdown files</td>
+<td>The files, a folder or a .zip</td>
+<td>Each file is a note at its path</td>
+</tr>
+</tbody></table>
+<h2 id="obsidian"><a class="anchor" href="#obsidian">Obsidian</a></h2>
+<p>Obsidian vaults are folders of markdown, which is what Common Ink keeps, so your <code>[[links]]</code>, <code>![[embeds]]</code>, attachments, <code>#tags</code>, frontmatter and <code>&gt; [!note]</code> callouts work as they are. A few Obsidian-only things are converted on the way in: a link to a note&#39;s alias goes to the note, <code>%% comments %%</code> stay hidden, block ids (<code>^abc</code>) are dropped, and the Tasks plugin&#39;s 📅 ✅ 🛫 ⏫ 🔁 become Common Ink&#39;s due, done and start dates, priority and repeat.</p>
+<ul>
+<li><strong>In the app:</strong> zip the vault folder (on a Mac, right-click it and choose Compress), then <strong>Import notes…</strong> and pick the .zip.</li>
+<li><strong>From a terminal:</strong> <code>commonink import ~/Obsidian/MyVault</code></li>
+</ul>
+<p>The <code>.obsidian</code> settings folder, <code>.trash</code> and other hidden folders are left out, and so are files Common Ink doesn&#39;t keep, like <code>.canvas</code> (the import says which).</p>
+<h2 id="notion"><a class="anchor" href="#notion">Notion</a></h2>
+<ol>
+<li>In Notion, open <strong>Settings</strong>, then <strong>Export all workspace content</strong> (or a page&#39;s <strong>⋯</strong> menu, then <strong>Export</strong>, for one page and its subpages).</li>
+<li>Choose <strong>Markdown &amp; CSV</strong>, and include subpages and files.</li>
+<li>In Common Ink, <strong>Import notes…</strong> and pick the .zip Notion gave you. Don&#39;t unzip it first.</li>
+</ol>
+<p>Notion ends every name with an id (<code>Plan 1a2b3c….md</code>). Those come off, from files, folders and the links between pages, so <code>Plan 1a2b3c….md</code> arrives as <code>Plan.md</code> and links to it keep working. Two pages with the same title become <code>Untitled.md</code> and <code>Untitled 2.md</code>. Databases arrive as <code>.csv</code> files beside their pages.</p>
+<p>From a terminal: <code>commonink import Notion-Export.zip --folder Notion</code></p>
+<h2 id="evernote"><a class="anchor" href="#evernote">Evernote</a></h2>
+<ol>
+<li>In Evernote, right-click a notebook and choose <strong>Export notebook…</strong>, then <strong>ENEX</strong>. Do this for each notebook you want.</li>
+<li>In Common Ink, <strong>Import notes…</strong> and pick the <code>.enex</code> files (several at once is fine).</li>
+</ol>
+<p>Each notebook becomes a folder. Each note becomes a markdown note with its created and updated dates, tags and source address in its frontmatter. Checklists become tasks, and pictures and attachments go in the notebook&#39;s <code>attachments</code> folder, shown where they were in the note.</p>
+<p>From a terminal: <code>commonink import Evernote/*.enex</code></p>
+<h2 id="apple-notes"><a class="anchor" href="#apple-notes">Apple Notes</a></h2>
+<p>Apple Notes has no export of its own, so a small script asks Notes for each note and saves it. On a Mac:</p>
+<ol>
+<li>Download <a href="https://github.com/paudrow/commonink/blob/main/scripts/export-apple-notes.js">export-apple-notes.js</a>.</li>
+<li>In Terminal, run <code>osascript -l JavaScript export-apple-notes.js</code>. Notes asks once to let it be controlled. Your notes are saved to <code>AppleNotesExport</code> on your Desktop, a folder per Notes folder.</li>
+<li>Zip that folder, then in Common Ink press ⌘⇧P and pick <strong>Import notes…</strong>. The <code>AppleNotesExport</code> folder tells Common Ink it&#39;s from Apple Notes.</li>
+</ol>
+<p>From a terminal: <code>commonink import ~/Desktop/AppleNotesExport</code></p>
+<p>Locked notes are skipped. Pictures inside notes don&#39;t come along yet, since Notes keeps them outside a note&#39;s text.</p>
+<h2 id="markdown-files-and-other-apps"><a class="anchor" href="#markdown-files-and-other-apps">Markdown files and other apps</a></h2>
+<p>Any app that exports markdown (Bear, Logseq, Joplin, Craft, Typora, Google Docs as .md) works with <strong>Import notes…</strong>: pick the files, or a .zip of a folder of them. HTML files come in as HTML notes, which Common Ink shows as pages.</p>
+<h2 id="good-to-know"><a class="anchor" href="#good-to-know">Good to know</a></h2>
+<ul>
+<li><strong>Nothing is half done.</strong> Every path is checked before anything is written, so a problem (a name used twice, say) stops the import and says why.</li>
+<li><strong>Run it again safely.</strong> A note that&#39;s already there is skipped. To overwrite instead, use <code>commonink import … --existing replace</code>; History keeps what each note was.</li>
+<li><strong>Size.</strong> Up to 2,000 notes and 100 MB at once. For a bigger vault, import a folder at a time.</li>
+<li><strong>Agents can import too.</strong> Over MCP, <code>import_notes</code> takes up to 2,000 notes as path and markdown in one call.</li>
+<li><strong>Leaving is as easy.</strong> ⌘⇧P, then <strong>Export all notes (.zip)</strong>, gives you every note and file as markdown, ready to open in Obsidian.</li>
+</ul>
+
+        <footer>
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+          <a href="https://github.com/paudrow/commonink">GitHub</a>
+          <a href="mailto:support@commonink.app">support@commonink.app</a>
+        </footer>
+      </main>
+    </div>
+  </body>
+</html>

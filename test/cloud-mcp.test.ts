@@ -84,16 +84,17 @@ async function mcp(token: string) {
 
 /** What a viewer's agent gets: reading, and what's each person's own (favorites, their smart folders). */
 const VIEWER_TOOLS = [
-  "backlinks", "delete_smart_folder", "diff_versions", "export_note", "get_event", "get_today", "list_contacts", "list_events", "list_folders",
-  "list_labels", "list_notes", "list_shares", "list_smart_folders", "list_tags", "list_tasks", "list_templates", "missing_links", "order_favorites", "read_board", "read_contact",
-  "read_note", "recent_changes", "save_smart_folder", "save_to_drive", "search_notes", "show_change", "star_note", "star_smart_folder", "star_tag", "unstar_note", "unstar_smart_folder", "unstar_tag", "workspace_checkup",
+  "backlinks", "delete_smart_folder", "diff_versions", "export_note", "get_event", "get_today", "google_contacts_status", "list_contacts", "list_decisions", "list_events",
+  "list_folders", "list_labels", "list_notes", "list_properties", "list_shares", "list_smart_folders", "list_tags", "list_tasks", "list_templates", "missing_links",
+  "order_favorites", "read_board", "read_contact", "read_note", "recent_changes", "save_smart_folder", "save_to_drive", "search_notes", "show_change", "star_note",
+  "star_smart_folder", "star_tag", "unstar_note", "unstar_smart_folder", "unstar_tag", "workspace_checkup",
 ];
 const ALL_TOOLS = [
   ...VIEWER_TOOLS,
-  "add_card", "add_task", "append_to_note", "archive_note", "create_contact", "create_from_template", "create_meeting_note", "create_note", "delete_folder",
+  "add_card", "add_task", "append_to_note", "archive_note", "ask_decision", "create_contact", "create_from_template", "create_meeting_note", "create_note", "delete_folder",
   "delete_note", "edit_card", "edit_note", "import_contacts", "import_notes", "label_version", "list_trash", "merge_contacts", "move_card", "move_note",
-  "move_task", "open_journal", "remove_task", "rename_folder", "rename_tag", "replace_text", "restore_change", "restore_from_trash", "restore_label", "set_asset_tags", "share_note", "unarchive_note", "unshare_note",
-  "update_contact", "update_task", "write_note",
+  "move_task", "open_journal", "remove_task", "rename_folder", "rename_tag", "replace_text", "restore_change", "restore_from_trash", "restore_label", "set_asset_tags",
+  "set_property_type", "share_note", "sync_google_contacts", "unarchive_note", "unshare_note", "update_contact", "update_task", "withdraw_decision", "write_note",
 ].sort();
 
 test("an agent discovers where to sign in from /mcp", async () => {
@@ -160,11 +161,11 @@ test("an agent acts as its person, with their role, and its writes say who", asy
   assert.equal(refused.isError, true);
   assert.equal((await viewer.call("read_note", { path: "From an agent" })).isError, false);
 
-  // Online, its smart folders say which the workspace shares and which are just theirs.
+  // Online, its views (notes in Views/) say which the workspace shares and which are just theirs.
   await owner.call("save_smart_folder", { name: "Team plans", query: "tag=plan" });
   const { text } = await owner.call("save_smart_folder", { name: "My plans", query: "tag=plan", just_me: true });
-  assert.match(text, /^- Team plans \(\d+ notes?, shared\): tag=plan \[/m);
-  assert.match(text, /^- My plans \(\d+ notes?, just you\): tag=plan \[/m);
+  assert.match(text, /^- Team plans \(\d+ notes?, shared\): tag=plan — Views\/Team plans\.md \[/m);
+  assert.match(text, /^- My plans \(\d+ notes?, just you\): tag=plan — Views\/[a-z0-9]+\/My plans\.md \[/m);
   await owner.call("delete_smart_folder", { smart_folder: "Team plans" });
   await owner.call("delete_smart_folder", { smart_folder: "My plans" });
   await Promise.all([owner.client.close(), viewer.client.close()]);

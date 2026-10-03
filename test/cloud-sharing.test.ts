@@ -18,7 +18,7 @@ let ids: Record<string, string> = {};
 let link = "";
 
 const SECRET = "# Secret\n\nThe launch date is classified. #hush\n\n- [ ] Tell no one due:2026-10-01\n";
-const SHARED = "# Shared\n\nSee [[Secret]] and the plan.\n\n![[Secret]]\n\n![[secret.svg]]\n\n::query{tag=hush}\n";
+const SHARED = "# Shared\n\nSee [[Secret]] and the plan.\n\n![[Secret]]\n\n![[secret.svg]]\n\n::view{tag=hush}\n";
 
 before(async () => {
   cloud = await startCloud();

@@ -19,6 +19,7 @@ import { parseDirective, type Directive } from "../../../src/core/directive.ts";
 import { boardsIn, summaryOf, type Board } from "../../../src/core/kanban.ts";
 import { splitFrontmatter } from "../../../src/core/parse.ts";
 import { toQuery, type NoteQuery } from "../../../src/core/query.ts";
+import { BUILT_IN_FIELDS, fieldsOf, layoutOf, propsWanted, rowsOf } from "../../../src/core/view.ts";
 import { parseTask } from "../../../src/core/tasks.ts";
 import { safeDecode } from "../../../src/core/uri.ts";
 import { NOTE_LINKS, noteTarget } from "../noteLinks.ts";
@@ -39,7 +40,7 @@ export interface StaticSources {
   url(target: string, from: string): Promise<string | null>;
   /** Tasks, as `::tasks` asks for them. */
   tasks(q: { folder?: string; note?: string; tag?: string; assignee?: string; due?: string; start?: string; done?: string; priority?: string }): Promise<Task[]>;
-  /** Notes, as `::query` asks for them. */
+  /** Notes, as `::view` asks for them. */
   feed(q: NoteQuery & { limit: number; cols?: string }): Promise<FeedItem[]>;
   today(): Promise<TodayView>;
   /** KaTeX's renderer (math.ts's, or mathRender.ts itself). */
@@ -200,26 +201,31 @@ async function snapshot(d: Directive, path: string, src: StaticSources): Promise
       const sections = v?.sections.filter((s) => s.tasks.length) ?? [];
       return box(`Today${label}`, sections.length ? el("div", {}, ...sections.map((s) => el("div", {}, el("div", { class: "st-group" }, s.title), taskList(s.tasks, true)))) : empty("Nothing due today."));
     }
-    case "query": {
+    case "view": {
+      // A table stays a table on paper; a board or a month is the list of its notes, each with its fields.
       const q = toQuery(a);
-      const limit = Math.min(q.limit ?? 6, MAX_ROWS);
-      const cols = a.view === "table" ? [...new Set((a.cols ?? "").split(",").map((c) => c.trim()).filter(Boolean))].slice(0, 20) : [];
-      const props = cols.filter((c) => !["tags", "folder"].includes(c.toLowerCase())).join(",");
+      const limit = rowsOf(a, q.limit);
+      const fields = fieldsOf(a);
+      const props = propsWanted(a).filter((p) => !BUILT_IN_FIELDS.includes(p)).join(",");
       const items = (await src.feed({ ...q, limit: limit + 1, cols: props || undefined }).catch(() => [] as FeedItem[])).filter((i) => i.path !== path).slice(0, limit);
-      if (a.view === "table" && items.length) {
-        // A table on paper: the title, then each column's values (modified is left blank: a date on paper goes stale).
-        const cell = (i: FeedItem, key: string) => (key === "tags" ? i.tags.map((t) => `#${t}`) : key === "folder" ? [i.path.split("/").slice(0, -1).join("/")] : (i.props?.[key] ?? [])).join(", ");
+      // A field's value (modified is left blank: a date on paper goes stale).
+      const cell = (i: FeedItem, key: string) => (key === "tags" ? i.tags.map((t) => `#${t}`) : key === "folder" ? [i.path.split("/").slice(0, -1).join("/")] : key === "modified" ? [] : (i.props?.[key] ?? [])).join(", ");
+      if (layoutOf(a) === "table" && items.length) {
         return box(
           `Notes${label}`,
           el(
             "table",
             {},
-            el("thead", {}, el("tr", {}, el("th", {}, "Note"), ...cols.map((c) => el("th", {}, c)))),
-            el("tbody", {}, ...items.map((i) => el("tr", {}, el("td", {}, noteLink(i.path, i.title)), ...cols.map((c) => el("td", {}, cell(i, c.toLowerCase())))))),
+            el("thead", {}, el("tr", {}, el("th", {}, "Note"), ...fields.map((c) => el("th", {}, c)))),
+            el("tbody", {}, ...items.map((i) => el("tr", {}, el("td", {}, noteLink(i.path, i.title)), ...fields.map((c) => el("td", {}, cell(i, c)))))),
           ),
         );
       }
-      return box(`Notes${label}`, items.length ? el("ul", {}, ...items.map((i) => el("li", {}, noteLink(i.path, i.title), i.excerpt ? el("span", { class: "st-note" }, ` — ${firstLine(i.excerpt)}`) : null))) : empty("No notes match."));
+      const said = (i: FeedItem) => {
+        const values = fields.map((f) => [f, cell(i, f)]).filter(([, v]) => v);
+        return values.length ? values.map(([f, v]) => `${f}: ${v}`).join(" · ") : i.excerpt ? firstLine(i.excerpt) : "";
+      };
+      return box(`Notes${label}`, items.length ? el("ul", {}, ...items.map((i) => el("li", {}, noteLink(i.path, i.title), said(i) ? el("span", { class: "st-note" }, ` — ${said(i)}`) : null))) : empty("No notes match."));
     }
     case "kanban": {
       const n = a.note ? await src.note(a.note, path).catch(() => null) : null;

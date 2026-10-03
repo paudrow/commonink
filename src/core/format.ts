@@ -42,17 +42,17 @@ export function fmtFavorites(favorites: Favorite[]): string {
     isTagFavorite(f)
       ? `- #${f.display} (${f.notes} note${f.notes === 1 ? "" : "s"})`
       : isSmartFavorite(f)
-        ? `- Smart folder ${f.name} (${f.count} note${f.count === 1 ? "" : "s"}): ${f.query || "every note"}`
+        ? `- View ${f.name} (${f.count} note${f.count === 1 ? "" : "s"}): ${f.query || "every note"}`
         : fmtList([f]);
   return `Favorites:\n${favorites.map(line).join("\n")}`;
 }
 
-/** `alone`: a local vault, with no workspace to share one with, so who sees each goes unsaid. */
+/** Saved views, each with its note. `alone`: a local vault, with no workspace to share one with, so who sees each goes unsaid. */
 export function fmtSmartFolders(folders: SmartFolder[], alone = false): string {
-  if (!folders.length) return "No smart folders.";
+  if (!folders.length) return "No saved views.";
   const who = (f: SmartFolder) => (alone ? "" : f.shared ? ", shared" : ", just you");
   return folders
-    .map((f) => `- ${f.name} (${f.count} note${f.count === 1 ? "" : "s"}${who(f)}): ${f.query || "every note"} [${f.id}]`)
+    .map((f) => `- ${f.name} (${f.count} note${f.count === 1 ? "" : "s"}${who(f)}): ${f.query || "every note"} — ${f.path} [${f.id}]`)
     .join("\n");
 }
 

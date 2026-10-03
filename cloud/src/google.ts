@@ -24,7 +24,17 @@ export function googleMode(env: { GOOGLE_CLIENT_ID?: string; GOOGLE_CLIENT_SECRE
 export const SCOPES = {
   read: "https://www.googleapis.com/auth/calendar.readonly",
   write: "https://www.googleapis.com/auth/calendar.events",
+  /** Google Contacts (google-people.ts): reading them, and editing them for edits made here. */
+  contactsRead: "https://www.googleapis.com/auth/contacts.readonly",
+  contactsWrite: "https://www.googleapis.com/auth/contacts",
 };
+
+/** What a connection was made for: Google Calendar, or Google Contacts. */
+export type GoogleProduct = "calendar" | "contacts";
+
+/** The scopes to ask for: one product's, reading or also writing. */
+export const scopesFor = (product: GoogleProduct, write: boolean) =>
+  product === "contacts" ? [write ? SCOPES.contactsWrite : SCOPES.contactsRead] : [SCOPES.read, ...(write ? [SCOPES.write] : [])];
 
 /** The parts of a Google Calendar event we read (https://developers.google.com/calendar/api/v3/reference/events). */
 export interface GoogleEvent {

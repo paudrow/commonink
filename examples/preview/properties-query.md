@@ -10,4 +10,4 @@ Notes can now be filtered by the properties in their frontmatter, like `status: 
 4. Type `has=due`. Only [[Pricing page]] has a `due:`. Then try `-has=due owner=bo` for [[Onboarding emails]].
 5. Open [[Pricing page]] and change `status: draft` to `status: done`. Back on Notes, `status=draft` now lists only [[Onboarding emails]].
 6. In ⌘K, choose "New smart folder" and type `status=draft`. The live count matches the Notes list. Save it: it stays up to date as you edit.
-7. In any note, add a line `::query{status=draft}` to list the drafts there.
+7. In any note, add a line `::view{status=draft}` to list the drafts there.

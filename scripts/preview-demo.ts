@@ -33,6 +33,7 @@ const shared = await shareSome();
 await tryThisPr(favorites, shared);
 await sharedTeam();
 await calendars();
+await decisions();
 console.log(`Filled ${origin} (workspace ${ws.id})`);
 
 /**
@@ -195,7 +196,9 @@ async function tryThisPr(favorites: boolean, shared: string[]) {
   await must("PUT", `${api}/note`, { path: TRY, content: lines.join("\n") });
   if (favorites) {
     await must("POST", `${api}/favorites/star`, { path: TRY });
-    const order = ((await must("GET", `${api}/favorites`)) as Array<{ path: string }>).map((f) => f.path);
+    // Starred tags and views are in the list too: they're ordered by "#tag" and "~id", notes by path.
+    const keyOf = (f: { path?: string; tag?: string; id?: string; smartFolder?: boolean }) => (f.tag !== undefined ? `#${f.tag}` : f.smartFolder ? `~${f.id}` : f.path!);
+    const order = ((await must("GET", `${api}/favorites`)) as Array<Parameters<typeof keyOf>[0]>).map(keyOf);
     await must("PUT", `${api}/favorites`, { paths: [TRY, ...order.filter((p) => p !== TRY)] });
   }
 }
@@ -258,4 +261,34 @@ async function calendars() {
     const added = await call("POST", `${api}/calendar/sources`, f);
     if (added.status >= 400) console.warn(`Couldn't subscribe to ${f.name}: ${added.status} ${JSON.stringify(added.data)}`);
   }
+}
+
+/**
+ * A question of each kind waiting on the Today page, as an agent would ask them with ask_decision,
+ * if this branch has decisions and none are waiting (answered ones leave Today the next day, so a
+ * Preview tried yesterday gets a fresh set).
+ */
+async function decisions() {
+  const r = await call("GET", `${api}/decisions?status=open`);
+  if (r.status === 404 || (r.data as unknown[]).length) return;
+  const svg = (fill: string, label: string) =>
+    `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120"><rect width="160" height="120" fill="${fill}"/><text x="80" y="70" font-family="sans-serif" font-size="28" fill="white" text-anchor="middle">${label}</text></svg>`)}`;
+  const asks = [
+    {
+      question: "Which database should the sync service use?",
+      options: ["Postgres", "SQLite", "Keep the files, no database"],
+      details: { Postgres: "We already run it for billing", SQLite: "One file per workspace, next to its notes" },
+      recommended: ["SQLite"],
+      context: "Sync only needs a change log per workspace. Notes on it in [[Common Ink roadmap]].",
+      note: "Projects/Common Ink roadmap.md",
+    },
+    { question: "Which conference talks should I go to?", kind: "rows", rows: ["Keynote, 9:00", "Rust at scale, 10:30", "Lunch panel, 12:00", "Local-first sync, 14:00"], options: ["Go", "Maybe", "Skip"], recommended: ["Keynote, 9:00=Go", "Local-first sync, 14:00=Go"] },
+    { question: "Which cover for the launch post?", kind: "compare", options: ["Ink blue", "Warm paper"], images: { "Ink blue": svg("#4545b8", "Blue"), "Warm paper": svg("#b8875a", "Paper") }, details: { "Ink blue": "Matches the app icon", "Warm paper": "Softer, reads as notes" } },
+    { question: "Ship the beta on Friday?", kind: "yes_no", recommended: ["No"], context: "QA has two open bugs; both have fixes in review." },
+    { question: "What should go in the 1.0 release notes?", kind: "many", options: ["Today page", "Decisions", "Smart folders", "Vim mode", "Sharing"], max: 3 },
+    { question: "Put next week's work in order", kind: "rank", options: ["Fix sync conflicts", "Write the docs", "Record a demo"] },
+    { question: "How ready does the beta feel?", kind: "scale", labels: ["Not at all", "Ship it"], recommended: ["4"] },
+    { question: "What should the CLI be called on npm?", context: "`commonink` is taken by an empty package; `ink` is a React library.", recommended: ["@commonink/cli"] },
+  ];
+  for (const a of asks) await must("POST", `${api}/decisions`, a);
 }

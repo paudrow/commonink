@@ -256,13 +256,14 @@ test("today reads the viewer's day, and its journal note is made on request", as
   assert.equal((await call("GET", "/today?today=soon")).status, 400);
 });
 
-test("smart folders: an editor shares one, a viewer keeps their own but can't create, change or delete shared ones", async () => {
+test("views (smart folders): an editor shares one, a viewer keeps their own but can't create, change or delete shared ones", async () => {
   const opened = openTempVault();
   const editor = setup({ user: "ed" }, opened);
   const viewer = setup({ user: "vi", canEditShared: false }, opened);
   const shared = await editor.call("POST", "/smart-folders", { name: "Planning", query: "tag=plan", shared: true });
-  assert.deepEqual(shared.body, { id: shared.body.id, name: "Planning", query: "tag=plan", shared: true, count: 1 });
-  assert.deepEqual(editor.events, ["tree"]);
+  assert.deepEqual(shared.body, { id: shared.body.id, name: "Planning", path: "Views/Planning.md", query: "tag=plan", shared: true, count: 1 });
+  // It's a note: open tabs hear about it as about any note.
+  assert.deepEqual(editor.events, ["written Views/Planning.md by ed", "tree"]);
 
   const refused: Array<[string, unknown]> = [
     ["/smart-folders", { name: "Team view", query: "", shared: true }],
@@ -275,10 +276,18 @@ test("smart folders: an editor shares one, a viewer keeps their own but can't cr
     assert.deepEqual([r.status, r.body.code], [403, "forbidden"], JSON.stringify(body));
   }
   const mine = await viewer.call("POST", "/smart-folders", { name: "Roadmap words", query: 'q="importer"' });
-  assert.deepEqual([mine.status, mine.body.shared, mine.body.count], [200, false, 1]);
-  assert.deepEqual((await viewer.call("GET", "/smart-folders")).body.map((f: { name: string }) => f.name), ["Planning", "Roadmap words"]);
+  assert.deepEqual([mine.status, mine.body.shared, mine.body.count, mine.body.path], [200, false, 1, "Views/vi/Roadmap words.md"]);
+  // Renaming one renames its note, and the words around its query line stay.
+  opened.vault.save("Views/vi/Roadmap words.md", 'Words by the importer.\n\n::view{q="importer"}\n', { source: "vi" });
+  const renamed = await viewer.call("POST", "/smart-folders", { id: mine.body.id, name: "Importer", query: "q=importer sort=title" });
+  assert.deepEqual([renamed.body.id, renamed.body.path, renamed.body.query], [mine.body.id, "Views/vi/Importer.md", "q=importer sort=title"]);
+  assert.equal(opened.vault.read("Views/vi/Importer.md").content, "Words by the importer.\n\n::view{q=importer sort=title}\n");
+  assert.deepEqual((await viewer.call("GET", "/smart-folders")).body.map((f: { name: string }) => f.name), ["Importer", "Planning"]);
   assert.deepEqual((await editor.call("GET", "/smart-folders")).body.map((f: { name: string }) => f.name), ["Planning"]);
+  viewer.events.length = 0;
   assert.equal((await viewer.call("POST", "/smart-folders/delete", { id: mine.body.id })).status, 200);
+  assert.deepEqual(viewer.events, ["removed Views/vi/Importer.md by vi", "tree"]);
+  assert.equal(opened.vault.trash()[0].path, "Views/vi/Importer.md", "its note is in Trash");
   assert.equal((await editor.call("POST", "/smart-folders", { name: "Bad", query: "sort=size" })).status, 400);
 });
 

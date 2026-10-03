@@ -182,6 +182,8 @@ export function chromium(): Promise<Browser | string> {
 export async function person(b: Browser, url: string): Promise<{ context: BrowserContext; page: Page; errors: string[] }> {
   const context = await b.newContext({ viewport: { width: 1400, height: 900 }, timezoneId: process.env.TZ || undefined });
   contexts.add(context);
+  // A new workspace asks how its agents should organize notes; these journeys are about other things.
+  await context.addInitScript(() => localStorage.setItem("commonink.organizingAsked.local", "true"));
   const page = await context.newPage();
   pages.add(page);
   page.on("close", () => pages.delete(page));

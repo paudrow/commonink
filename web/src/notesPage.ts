@@ -22,23 +22,27 @@ import { parse, textWords } from "../../src/core/queryGrammar.ts";
 import { queryHelpLink } from "./queryHelp.ts";
 import { hydrateTaskChips, withTaskChips } from "./taskChips.ts";
 import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
-import { linkClick, sideClick } from "./panes.ts";
+import { clickWhere, linkClick, modClick, type Where } from "./panes.ts";
 import { calendarTarget, openCalendarLink } from "./links.ts";
 import { emptyState } from "./emptyState.ts";
 import { AGENTS_BLURB, agentsBadge } from "./agentsNote.ts";
 import { notePath } from "../../src/core/ids.ts";
+import { formatKeys } from "./keys.ts";
+import { ADVANCED_KEYS } from "./commands.ts";
 import { openRowMenu, type RowMenuItem } from "./rowMenu.ts";
 
 interface Hooks {
-  /** `side`: to the side (a Cmd-click; Ctrl-click off a Mac). */
-  open(path: string, line?: number, side?: boolean): void;
+  /** `where`: here, in a new tab (⌘-click, Ctrl-click off a Mac, or a middle-click) or to the side (⌘⌥-click). */
+  open(path: string, line?: number, where?: Where): void;
   starred(id: string): boolean;
   toggleStar(path: string): void;
   /** The filters changed (the sidebar marks the folder or smart folder being shown). */
   filtersChanged(): void;
   tags(): TagCount[];
-  /** Save these filters (a query like `tag=work sort=title`) as a smart folder. */
+  /** Save these filters (a query like `tag=work sort=title`) as a view (a note in Views/). */
   saveQuery(anchor: HTMLElement, query: string): void;
+  /** Advanced search: the view editor on what Notes shows, kept in step with the filters. */
+  advanced(anchor: HTMLElement): void;
   /** The star (Add to / Remove from Favorites) for what Notes shows: a tag, a smart folder, or any search. Empty with no filters. */
   starButton(query: NoteQuery): HTMLElement | "";
   /** Show every task of this person's. */
@@ -91,6 +95,7 @@ export class NotesPage {
   private tagBar: HTMLElement;
   private sortSel: HTMLSelectElement;
   private saveBtn: HTMLButtonElement;
+  private advancedBtn: HTMLButtonElement;
   private heading = el("h1", {}, "Notes");
   private bulk: HTMLElement;
   private more: HTMLElement;
@@ -143,14 +148,20 @@ export class NotesPage {
       "button",
       { type: "button", class: "chip tag-filter", title: "Keep these filters in the sidebar", onclick: () => this.hooks.saveQuery(this.saveBtn, formatQuery(this.query)) },
       icon("folderSearch", 13),
-      "Save as smart folder",
+      "Save as view",
+    );
+    this.advancedBtn = el(
+      "button",
+      { type: "button", class: "feed-advanced", title: `Advanced search: words, folders and tags (${formatKeys(ADVANCED_KEYS)})`, onclick: () => this.openAdvanced() },
+      icon("sliders", 14),
+      el("span", {}, "Advanced"),
     );
     this.emptyBtn = el("button", { type: "button", class: "qw-btn danger feed-empty-trash", hidden: true, onclick: () => void this.emptyTrash() }, icon("trash", 14), "Empty trash");
     this.bulk = el("div", { class: "feed-bulk", hidden: true });
     this.list = el("div", { class: "feed-list", role: "list" });
     this.more = el("div", { class: "feed-more" });
     // The sort sits in the search box, so the filters fit on one row.
-    this.search = el("label", { class: "feed-search" }, icon("search", 16), this.input, queryHelpLink(), this.sortSel, el("kbd", {}, "/"));
+    this.search = el("label", { class: "feed-search" }, icon("search", 16), this.input, queryHelpLink(), this.advancedBtn, this.sortSel, el("kbd", {}, "/"));
     this.filters = el("div", { class: "feed-filters" }, this.scopeBar, this.tagBar, this.folderSel, this.saveBtn, this.emptyBtn);
     this.keys = el("footer", { class: "feed-keys" });
     // The heading scrolls away; the search and filters stay at the top, and the list scrolls clear of them.
@@ -185,15 +196,15 @@ export class NotesPage {
   private get scope() {
     return this.tab === "archive" ? "archived" : "active";
   }
-  /** What Notes shows, as a note query: the same thing a ::query widget or a smart folder holds. */
+  /** What Notes shows, as a note query: the same thing a ::view widget or a smart folder holds. */
   get query(): NoteQuery {
     const q = this.input.value.trim();
     return { ...(q && { q }), ...(this.folder && { folder: this.folder }), ...(this.tag && { tag: this.tag }), ...(this.match === "any" && tagList(this.tag).length > 1 && { match: "any" as const }), ...(this.sort !== "modified" && { sort: this.sort }) };
   }
 
-  /** Offer to keep the filters as a smart folder, under the page's own Save button (what ⌘⇧P's command does). */
-  saveFilters() {
-    this.hooks.saveQuery(this.saveBtn, formatQuery(this.query));
+  /** Keep the filters as a smart folder: the smart folder editor, filled in with them (what ⌘⇧P's command does). */
+  saveFilters(anchor?: HTMLElement) {
+    this.hooks.saveQuery(anchor ?? this.saveBtn, formatQuery(this.query));
   }
 
   /**
@@ -206,16 +217,34 @@ export class NotesPage {
     if (this.visible) document.title = `${name ?? "Notes"} · Common Ink`;
   }
 
+  /** Advanced search on what Notes shows. Not in Trash: the view editor finds notes, not deleted ones. */
+  openAdvanced() {
+    if (this.tab !== "trash") this.hooks.advanced(this.advancedBtn);
+  }
+
+  /** Show `query` in place of the filters, from the top, leaving the keyboard where it is (Advanced search, as it changes). */
+  setQuery(query: NoteQuery) {
+    this.assign(query);
+    this.folder = query.folder ?? "";
+    this.tag = query.tag ?? "";
+    this.root.scrollTop = 0;
+    void this.reload();
+  }
+
+  private assign(query: NoteQuery) {
+    this.input.value = query.q ?? "";
+    this.sort = query.sort ?? "modified";
+    this.match = query.match ?? "all";
+    this.focus = 0;
+    this.scrollTop = 0;
+  }
+
   /** Show the list where the reader left it: same scroll position, same cards open. */
   /** `query` replaces all the filters (a smart folder); `folder` and `tag` change just those. */
   show(opts: { tab?: NotesTab; filter?: boolean; folder?: string; tag?: string; query?: NoteQuery } = {}) {
     if (opts.query) {
-      this.input.value = opts.query.q ?? "";
-      this.sort = opts.query.sort ?? "modified";
-      this.match = opts.query.match ?? "all";
+      this.assign(opts.query);
       opts = { ...opts, folder: opts.query.folder ?? "", tag: opts.query.tag ?? "" };
-      this.focus = 0;
-      this.scrollTop = 0;
     }
     const tab = opts.tab === "trash" && !this.hooks.trash() ? "notes" : opts.tab;
     if (tab && tab !== this.tab) {
@@ -557,7 +586,13 @@ export class NotesPage {
       const how = linkClick(e);
       if (how === "browser") return;
       e.preventDefault();
-      this.hooks.open(item.path, undefined, how === "side");
+      this.hooks.open(item.path, undefined, how);
+    });
+    title.addEventListener("auxclick", (e) => {
+      if (e.button !== 1) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.hooks.open(item.path, undefined, "tab");
     });
     const expandBtn = el("button", { type: "button", class: "fc-action fc-expand", title: open ? "Collapse (↵)" : "Expand (↵)", "aria-label": "Show the whole note", "aria-expanded": String(open) }, icon("chevron", 15));
     expandBtn.addEventListener("click", (e) => {
@@ -624,12 +659,18 @@ export class NotesPage {
         return;
       }
       const a = t.closest("a");
-      const side = sideClick(e);
       if (a) return this.followLink(e, a, node, item.path);
-      if (side && !t.closest("button, input")) return this.hooks.open(item.path, undefined, true);
+      if (modClick(e) && !t.closest("button, input")) return this.hooks.open(item.path, undefined, clickWhere(e));
       // Reading an open card (selecting text, ticking tasks) shouldn't fold it back up.
       if (t.closest("input, .fc-full") || String(getSelection() ?? "")) return;
       this.toggleExpand(i);
+    });
+    // A middle-click opens it in a new tab, as in a browser.
+    node.addEventListener("mousedown", (e) => e.button === 1 && !(e.target as Element).closest("a, button") && e.preventDefault()); // not the page's autoscroll
+    node.addEventListener("auxclick", (e) => {
+      if (e.button !== 1 || (e.target as Element).closest("a, button")) return;
+      e.preventDefault();
+      this.hooks.open(item.path, undefined, "tab");
     });
     node.addEventListener("contextmenu", (e) => {
       const t = e.target as HTMLElement;
@@ -646,8 +687,8 @@ export class NotesPage {
 
   /** A click on a link in a card's text: to the note (or calendar day) it names, relative to the card's note at `from`. */
   private followLink(e: MouseEvent, a: HTMLAnchorElement, card: HTMLElement, from: string) {
-    const side = sideClick(e);
-    const open = (target: string) => (calendarTarget(target) !== null ? openCalendarLink(target) : void api.resolve(target, from).then((p) => p && this.hooks.open(p, undefined, side)));
+    const where = clickWhere(e);
+    const open = (target: string) => (calendarTarget(target) !== null ? openCalendarLink(target) : void api.resolve(target, from).then((p) => p && this.hooks.open(p, undefined, where)));
     if (followRenderedLink(a.getAttribute("href") ?? "", card, open)) e.preventDefault();
   }
 
@@ -813,7 +854,8 @@ export class NotesPage {
     const readOnly = this.hooks.readOnly();
     return [
       { label: "Open", icon: "edit", run: () => this.hooks.open(item.path) },
-      { label: "Open to the side", icon: "split", run: () => this.hooks.open(item.path, undefined, true) },
+      { label: "Open in new tab", icon: "plus", run: () => this.hooks.open(item.path, undefined, "tab") },
+      { label: "Open to the side", icon: "split", run: () => this.hooks.open(item.path, undefined, "side") },
       { label: this.expanded.has(item.path) ? "Collapse" : "Expand", icon: "chevron", run: () => this.toggleExpand(i) },
       { label: starred ? "Unstar" : "Star", icon: starred ? "starred" : "star", run: () => this.hooks.toggleStar(item.path) },
       { label: this.selected.has(item.path) ? "Deselect" : "Select", icon: "check", run: () => this.toggle(item.path) },

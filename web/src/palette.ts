@@ -1,13 +1,14 @@
 // Quick open (⌘P, or ⌘K): fuzzy jump by name + full-text search (SQLite FTS5 on the server), in one
 // list. A leading `>` (or ⌘⇧P, which types it) lists the app's commands instead, and a few other
 // prefixes narrow it to one kind of place: `#` the open note's headings, `@` people, `tag:` tags,
-// `/` (or `folder:`) folders and smart folders.
+// `/` (or `folder:`) folders and smart folders. A command that needs something typed (a name, a
+// folder, a tag) asks for it here, as a step in the same field, so you never leave the palette.
 import { api, isArchived, type NoteMeta, type SearchHit, type TagCount } from "./api.ts";
-import { matchCommands, type Command } from "./commands.ts";
+import { matchCommands, type Command, type PaletteChoice, type PaletteStep } from "./commands.ts";
 import { $, displayName, el, icon, markTerms, searchTerms } from "./dom.ts";
 import { fuzzyScore } from "./fuzzy.ts";
 import { agentsBadge, isAgentsNote } from "./agentsNote.ts";
-import { paletteEnter } from "./panes.ts";
+import { paletteEnter, type Where } from "./panes.ts";
 import { kbd, matchKeys } from "./keys.ts";
 import { people, rankPeople, type Person } from "./people.ts";
 
@@ -46,9 +47,11 @@ type Item =
   | { type: "person"; person: Person }
   | { type: "tag"; tag: TagCount }
   | { type: "folder"; path: string }
-  | { type: "smart"; name: string; query: string };
+  | { type: "smart"; name: string; query: string }
+  | { type: "choice"; choice: PaletteChoice }
+  | { type: "enter"; label: string };
 
-const SECTION: Partial<Record<Item["type"], string>> = { heading: "Headings in this note", person: "People", tag: "Tags", folder: "Folders", smart: "Smart folders" };
+const SECTION: Partial<Record<Item["type"], string>> = { heading: "Headings in this note", person: "People", tag: "Tags", folder: "Folders", smart: "Views" };
 
 const kindIcon = (kind: string) => (kind === "html" ? "html" : kind === "asset" ? "image" : "file");
 
@@ -66,11 +69,29 @@ function ranked<T>(rest: string, items: T[], ...names: Array<(t: T) => string>):
     .map((x) => x.item);
 }
 
+/** A step the palette is on: its question, its choices once loaded, and how to get back to what was before it. */
+interface OnStep {
+  step: PaletteStep;
+  choices: PaletteChoice[] | null;
+  /** What the field held before this step: the command query, or the last step's answer. */
+  back: string;
+}
+
 export class Palette {
   private root = $("#palette");
   private input = $<HTMLInputElement>("#palette-input");
   private list = $("#palette-results");
   private hint = $("#palette-hint");
+  /** The step's name before the field (a chip), while a command asks for something. */
+  private chip = el("span", { class: "palette-step", hidden: "" });
+  /** The keys a step takes, in place of quick open's. */
+  private stepFoot = el("div", { class: "palette-foot palette-step-foot", hidden: "" }, el("span", {}, kbd("Enter"), " choose"), el("span", {}, kbd("Escape"), " or ", kbd("Backspace"), " back"));
+  private placeholder = this.input.placeholder;
+  private hintHtml = this.hint.innerHTML;
+  /** The steps taken, the current one last; empty when the palette is searching. */
+  private steps: OnStep[] = [];
+  /** A step's submit is running: Enter waits for it. */
+  private busy = false;
   private items: Item[] = [];
   private active = 0;
   private seq = 0;
@@ -80,13 +101,16 @@ export class Palette {
 
   constructor(
     private notes: () => NoteMeta[],
-    /** `side`: open it to the side (⌘Enter). */
-    private onOpen: (path: string, line?: number, side?: boolean) => void,
+    /** `how`: in place, to the side (⌘Enter), or in a new tab (⌥Enter). */
+    private onOpen: (path: string, line: number | undefined, how: Where) => void,
     private onCreate: (name: string) => void,
     private commands: () => Command[],
     private scopes: PaletteScopes,
   ) {
     document.querySelectorAll<HTMLElement>("kbd[data-keys]").forEach((k) => k.replaceChildren(...kbd(k.dataset.keys!).childNodes));
+    this.input.before(this.chip);
+    (this.root.querySelector(".palette-foot") ?? this.hint).after(this.stepFoot);
+    this.hintHtml = this.hint.innerHTML;
     this.input.addEventListener("input", () => this.query());
     this.input.addEventListener("keydown", (e) => this.key(e));
     this.root.addEventListener("mousedown", (e) => {
@@ -100,6 +124,7 @@ export class Palette {
 
   open(initial = "") {
     if (this.root.hidden) this.returnTo = document.activeElement as HTMLElement | null;
+    this.leaveSteps();
     this.root.hidden = false;
     this.input.value = initial;
     this.input.focus();
@@ -109,7 +134,7 @@ export class Palette {
 
   /** ⌘P / ⌘K (`initial` ""), ⌘⇧P (">"): open it that way, switch to it, or close it if it's already that way. */
   toggle(initial: "" | ">") {
-    const commands = this.input.value.trim().startsWith(">");
+    const commands = !this.steps.length && this.input.value.trim().startsWith(">");
     if (this.isOpen && commands === (initial === ">")) this.close();
     else this.open(initial);
   }
@@ -117,15 +142,113 @@ export class Palette {
   close() {
     if (this.root.hidden) return;
     this.root.hidden = true;
+    this.leaveSteps();
     this.input.removeAttribute("aria-activedescendant");
     if (this.returnTo?.isConnected) this.returnTo.focus({ preventScroll: true });
     this.returnTo = null;
+  }
+
+  /** The step it's on, or null. */
+  private get onStep(): OnStep | null {
+    return this.steps[this.steps.length - 1] ?? null;
+  }
+
+  /** Ask `step` in the field, after whatever it's on now. */
+  private enterStep(step: PaletteStep) {
+    this.steps.push({ step, choices: null, back: this.input.value });
+    this.showStep();
+  }
+
+  /** Back a step: to the one before, or to the commands it came from. */
+  private stepBack() {
+    const was = this.steps.pop();
+    if (!was) return;
+    if (this.steps.length) this.showStep(was.back);
+    else {
+      this.drawStep();
+      this.input.value = was.back;
+      this.query();
+    }
+  }
+
+  private leaveSteps() {
+    this.steps = [];
+    this.busy = false;
+    this.drawStep();
+  }
+
+  /** The chip, the placeholder and the hint for the step it's on (or for searching, with none). */
+  private drawStep(error = "") {
+    const on = this.onStep;
+    this.chip.hidden = !on;
+    this.stepFoot.hidden = !on;
+    this.root.classList.toggle("is-step", !!on);
+    this.chip.replaceChildren(...(on ? [icon(on.step.icon ?? "spark", 13), el("span", {}, on.step.title)] : []));
+    this.input.placeholder = on ? on.step.placeholder : this.placeholder;
+    this.input.setAttribute("aria-label", on ? `${on.step.title}: ${on.step.placeholder}` : "Search notes and commands");
+    this.hint.classList.toggle("is-error", !!error);
+    if (error) this.hint.textContent = error;
+    else if (on) this.hint.textContent = on.step.hint ?? "";
+    else this.hint.innerHTML = this.hintHtml;
+  }
+
+  /** Show the step it's on: its field (`value`, or the step's own start), and its choices once they load. */
+  private showStep(value?: string) {
+    const on = this.onStep!;
+    this.drawStep();
+    this.input.value = value ?? on.step.value ?? "";
+    this.input.focus();
+    this.input.select();
+    this.active = 0;
+    this.query();
+    if (on.step.choices && !on.choices) {
+      void Promise.resolve(on.step.choices()).then((choices) => {
+        on.choices = choices;
+        if (this.onStep === on) this.query();
+      });
+    }
+  }
+
+  /** The step's rows for what's typed: the choices it matches, then the row for the typed text. */
+  private stepItems(on: OnStep, q: string): Item[] {
+    const choices = ranked(q, on.choices ?? [], (c) => c.label, (c) => c.detail ?? "").slice(0, 50);
+    const exact = choices.some((c) => c.label.toLowerCase() === q.toLowerCase() || c.value.toLowerCase() === q.toLowerCase());
+    const label = !exact && on.step.enter?.(q);
+    return [...choices.map((choice): Item => ({ type: "choice", choice })), ...(label ? [{ type: "enter" as const, label }] : [])];
+  }
+
+  /** Answer the step: the next step, an error (it stays), or done (it closes). */
+  private async answer(value: string, picked: boolean) {
+    const on = this.onStep;
+    if (!on || this.busy) return;
+    this.busy = true;
+    let next: Awaited<ReturnType<PaletteStep["submit"]>>;
+    try {
+      next = await on.step.submit(value, picked);
+    } catch (e) {
+      next = { error: e instanceof Error ? e.message : "That didn't work" };
+    }
+    this.busy = false;
+    if (this.onStep !== on) return; // closed, or moved on, meanwhile
+    if (!next) return this.close();
+    if ("error" in next) {
+      this.hint.hidden = false;
+      return this.drawStep(next.error);
+    }
+    this.enterStep(next);
   }
 
   private query() {
     const q = this.input.value.trim();
     const seq = ++this.seq;
     clearTimeout(this.timer);
+    const on = this.onStep;
+    if (on) {
+      this.drawStep();
+      this.render(this.stepItems(on, q), q);
+      this.hint.hidden = !this.hint.textContent;
+      return;
+    }
     if (q.startsWith(">")) {
       return this.render(
         matchCommands(q.slice(1), this.commands()).map((command) => ({ type: "command", command })),
@@ -214,7 +337,11 @@ export class Palette {
       if (group) group.append(row);
       else rows.push(row);
     });
-    if (!items.length) rows.push(el("div", { class: "palette-empty" }, q.startsWith(">") ? "No command matches" : emptyText(q)));
+    if (!items.length) {
+      const on = this.onStep;
+      const empty = on ? stepEmpty(on) : q.startsWith(">") ? "No command matches" : emptyText(q);
+      if (empty) rows.push(el("div", { class: "palette-empty" }, empty));
+    }
     this.list.replaceChildren(...rows);
     this.setActive(this.active);
   }
@@ -227,6 +354,10 @@ export class Palette {
     if (item.type === "tag") return place("hash", item.tag.display, String(item.tag.notes || item.tag.tasks || ""));
     if (item.type === "folder") return place("folder", item.path.slice(item.path.lastIndexOf("/") + 1), item.path.includes("/") ? item.path : "");
     if (item.type === "smart") return place("folderSearch", item.name, item.query);
+    if (item.type === "choice") return place(item.choice.icon ?? "chevron", item.choice.label, item.choice.detail);
+    if (item.type === "enter") {
+      return el("div", { class: "palette-item is-create", role: "option" }, icon(this.onStep?.step.icon ?? "plus", 15), el("span", { class: "pi-title" }, item.label), kbd("Enter"));
+    }
     if (item.type === "command") {
       const c = item.command;
       return el(
@@ -283,11 +414,20 @@ export class Palette {
     row?.scrollIntoView?.({ block: "nearest" });
   }
 
-  private choose(i: number, how: ReturnType<typeof paletteEnter> = "open") {
+  private choose(i: number, how: ReturnType<typeof paletteEnter> = "here") {
     const item = this.items[i];
     const q = this.input.value.trim();
+    if (this.steps.length) {
+      if (item?.type === "choice") void this.answer(item.choice.value, true);
+      else if (item?.type === "enter") void this.answer(q, false);
+      return;
+    }
+    if (item?.type === "command" && item.command.ask) {
+      const step = item.command.ask();
+      return step ? this.enterStep(step) : this.close();
+    }
     this.close();
-    if (item?.type === "command") return void item.command.run();
+    if (item?.type === "command") return void item.command.run?.();
     if (q.startsWith(">")) return;
     const s = this.scopes;
     if (item?.type === "heading") return s.goToHeading(item.line);
@@ -298,8 +438,8 @@ export class Palette {
     if (scopeOf(q)) return; // Shift-Enter doesn't make a note called "#…" or "@…"
     if (how === "create" || item?.type === "create") return q && this.onCreate(q);
     if (!item) return;
-    if (item.type === "note") this.onOpen(item.note.path, undefined, how === "side");
-    else if (item.type === "hit") this.onOpen(item.hit.path, item.hit.lines[0]?.line, how === "side");
+    if (item.type === "note") this.onOpen(item.note.path, undefined, how);
+    else if (item.type === "hit") this.onOpen(item.hit.path, item.hit.lines[0]?.line, how);
   }
 
   private key(e: KeyboardEvent) {
@@ -315,11 +455,22 @@ export class Palette {
       this.choose(this.active, paletteEnter(e));
     } else if (e.key === "Escape") {
       e.preventDefault();
-      this.close();
+      if (this.steps.length) this.stepBack();
+      else this.close();
+    } else if (e.key === "Backspace" && this.steps.length && !this.input.value) {
+      e.preventDefault();
+      this.stepBack();
     } else if (e.key === "Tab") {
       e.preventDefault(); // the field is all there is to focus in here
     }
   }
+}
+
+/** What a step's empty list says: still loading, nothing to pick at all, or nothing matching what's typed. */
+function stepEmpty(on: OnStep): string {
+  if (!on.step.choices) return "";
+  if (!on.choices) return "Loading…";
+  return on.choices.length ? "Nothing matches" : (on.step.empty ?? "Nothing to pick");
 }
 
 /** What an empty list says, by prefix. */

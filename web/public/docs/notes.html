@@ -1,0 +1,227 @@
+<!doctype html>
+<!-- Built by scripts/docs.ts from docs/guide/notes.md: edit that, then npm run docs. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Writing notes · Common Ink docs</title>
+    <meta name="description" content="Links, tags, tasks, boards, templates and widgets in Common Ink." />
+    <meta property="og:title" content="Writing notes · Common Ink docs" />
+    <meta property="og:description" content="Links, tags, tasks, boards, templates and widgets in Common Ink." />
+    <meta property="og:image" content="/social.png" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/docs/docs.css" />
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="/"><img src="/favicon.svg" alt="" />Common Ink</a>
+      <span class="section">Docs</span>
+      <a class="open" href="/">Open Common Ink</a>
+    </header>
+    <div class="layout">
+      <nav aria-label="Docs">
+        <a href="/docs/">Getting started</a>
+        <a href="/docs/import">Moving in</a>
+        <a href="/docs/agents">Connect an agent</a>
+        <a href="/docs/notes" aria-current="page">Writing notes</a>
+        <a href="/docs/sharing">Sharing and teams</a>
+        <a href="/docs/cli">The command line</a>
+        <a href="/docs/faq">Questions</a>
+      </nav>
+      <main>
+<h1>Writing notes</h1>
+<p>A note is a markdown file. The editor hides the markup when your cursor leaves it, so it reads like a page and edits like text. Type <code>/</code> for blocks, widgets and dates.</p>
+<h2 id="links-and-embeds"><a class="anchor" href="#links-and-embeds">Links and embeds</a></h2>
+<ul>
+<li><code>[[Note name]]</code> links a note; typing <code>[[</code> suggests names. <code>@</code> links a note or a person.</li>
+<li><code>![[Note]]</code> shows another note inline, <code>![[Note#Heading]]</code> one section of it, and <code>![[picture.png]]</code> a file.</li>
+<li>Paste a link on its own line to embed it: YouTube, Vimeo, Loom, X, Bluesky, Spotify and others play inline, and other pages become link cards.</li>
+<li>Every note has a stable address, so links and bookmarks keep working after renames and moves. Renaming a note (change its first <code># heading</code>) rewrites links to it.</li>
+</ul>
+<h2 id="tags"><a class="anchor" href="#tags">Tags</a></h2>
+<p><code>#tag</code> anywhere in a note, or <code>tags: [a, b]</code> in its frontmatter. Tags nest with <code>/</code>: <code>#work</code> includes <code>#work/clients/acme</code>. The sidebar lists them with counts, and clicking one shows its notes. Rename a tag on the <strong>Tags</strong> page and it changes in every note, with Undo.</p>
+<h2 id="tasks"><a class="anchor" href="#tasks">Tasks</a></h2>
+<p>A task is a checkbox line with details at the end:</p>
+<pre><code class="language-markdown">- [ ] Send invoice due:2026-10-01 rec:monthly #work/clients @jane !high
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Token</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>due:2026-10-01</code></td>
+<td>Due date; turns red when overdue</td>
+</tr>
+<tr>
+<td><code>start:2026-09-28</code></td>
+<td>Hidden until then</td>
+</tr>
+<tr>
+<td><code>rec:monthly</code></td>
+<td>Repeats: <code>weekly</code>, <code>2w</code>, <code>mon,thu</code>, <code>last-fri</code>, <code>1st-tue</code>, <code>after-1m</code> and more</td>
+</tr>
+<tr>
+<td><code>@jane</code></td>
+<td>Assigned to a person or a workspace member</td>
+</tr>
+<tr>
+<td><code>!high</code></td>
+<td>Priority</td>
+</tr>
+<tr>
+<td><code>#tag</code></td>
+<td>Tags, as in notes</td>
+</tr>
+</tbody></table>
+<p>Off the cursor&#39;s line these show as chips you can click to change. <strong>Quick add</strong> (⌘⇧.) takes a task in plain words: &quot;Pay rent every month on the 1st #home&quot; is written as the line above would be. It lands in today&#39;s daily note unless you name another with <code>→ [[Note]]</code>.</p>
+<p><strong>Tasks</strong> lists every task in your notes, with <strong>Today</strong> on top: today&#39;s daily note, then what&#39;s overdue, due and starting today, and today&#39;s calendar events. Ticking a repeating task adds the next one below it.</p>
+<h2 id="daily-notes-and-templates"><a class="anchor" href="#daily-notes-and-templates">Daily notes and templates</a></h2>
+<p>Today&#39;s daily note is <code>Journal/YYYY-MM-DD.md</code>, started from <code>Templates/Daily note.md</code> if you have one. A template is any note in <code>Templates/</code>, with placeholders like <code>{{date:dddd, MMMM D}}</code>, <code>{{title}}</code>, <code>{{cursor}}</code> and <code>{{ask:Client}}</code>, which asks you before the note is made. The <a href="https://github.com/paudrow/commonink/blob/main/docs/templates.md">templates reference</a> lists every option.</p>
+<h2 id="boards"><a class="anchor" href="#boards">Boards</a></h2>
+<p>A board is a block in any note:</p>
+<pre><code class="language-markdown">:::kanban
+## To do
+- Draft the launch post
+## Doing
+- [[Landing page]]
+## Done
+:::
+</code></pre>
+<p>Drag cards and columns; each move is one edit to the note, so it saves and undoes like typing. A card moved into <strong>Done</strong> is ticked. <code>/Kanban board</code> inserts one.</p>
+<h2 id="widgets"><a class="anchor" href="#widgets">Widgets</a></h2>
+<p>Widgets are one line of markdown, so agents can write them too:</p>
+<ul>
+<li><code>::tasks{tag=work due&lt;=today}</code> rolls up tasks from across your notes.</li>
+<li><code>::view{tag=project sort=modified}</code> is a live list of matching notes. Add <code>fields=status,due</code> to show those properties, and <code>layout=table</code>, <code>layout=board</code> or <code>layout=calendar</code> to see the same notes as a table, as columns by <code>status</code> (drag a card to change it), or on a month by their <code>due</code> date.</li>
+<li><code>::calendar{folder=Journal}</code> is a month of daily notes, and <code>::agenda{days=3}</code> your next few days of events.</li>
+<li><code>::timer{duration=25m}</code> and <code>::stopwatch</code> keep time.</li>
+</ul>
+<p>A <code>```mermaid</code> block draws a diagram, and <code>$…$</code> sets math.</p>
+<h2 id="finding-things"><a class="anchor" href="#finding-things">Finding things</a></h2>
+<ul>
+<li><strong>⌘K</strong> finds a note by name or by anything in it.</li>
+<li><strong>Notes</strong> shows every note as a card, newest first. Type in its filter to search, or narrow to a folder or tag.</li>
+<li><strong>Views</strong> are saved searches in the sidebar, like <code>tag=work/clients sort=title</code>, with live counts. Each is a note in <code>Views/</code> holding its query, so you can edit, rename or delete it like any note. Make one with <strong>New view</strong> in ⌘K, or save the Notes filter as one.</li>
+<li><strong>Favorites</strong>: star a note or a tag to keep it at the top of the sidebar.</li>
+</ul>
+<h3 id="searching-and-filtering"><a class="anchor" href="#searching-and-filtering">Searching and filtering</a></h3>
+<p>The Notes filter, views, <code>::view</code> and <code>commonink ls --query</code> all read the same query language. Plain words find notes with all of them, each as the start of a word (<code>plan</code> finds &quot;planning&quot;). Combine them with <code>AND</code> and <code>OR</code> (in capitals), leave things out with <code>-</code>, and group with parentheses: without them, AND goes before OR, so <code>a b OR c</code> means <code>(a b) OR c</code>. For example:</p>
+<pre><code>(tag=work OR tag=home) -folder=Archive &quot;launch plan&quot; sort=created
+</code></pre>
+<p>finds notes tagged work or home, outside Archive, with the words &quot;launch plan&quot; together, newest first. A query with a mistake in it, like a <code>(</code> that&#39;s never closed, says where under the filter, and the list shows the best reading of the rest meanwhile.</p>
+<p>In the app, the <strong>?</strong> beside the Notes filter (or <strong>Query syntax</strong> in ⌘K) lists all of this with examples you can click to try; <code>commonink help query</code> prints it too.</p>
+<!-- query-syntax -->
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Write</th>
+<th>Try</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Words</td>
+<td><code>word</code></td>
+<td><code>plan</code></td>
+<td>Notes with a word starting with it: &quot;plan&quot; finds planning. Several words: notes with all of them.</td>
+</tr>
+<tr>
+<td>Words</td>
+<td><code>&quot;a phrase&quot;</code></td>
+<td><code>&quot;launch plan&quot;</code></td>
+<td>The words together, in this order. Inside q=&quot;…&quot; (a saved view or ::view), use single quotes.</td>
+</tr>
+<tr>
+<td>Combine</td>
+<td><code>a AND b</code></td>
+<td><code>launch AND budget</code></td>
+<td>Both. Words side by side mean AND too, so launch budget is the same.</td>
+</tr>
+<tr>
+<td>Combine</td>
+<td><code>a OR b</code></td>
+<td><code>budget OR costs</code></td>
+<td>Either one. Write OR and AND in capitals: lowercase they&#39;re just words.</td>
+</tr>
+<tr>
+<td>Combine</td>
+<td><code>-term</code></td>
+<td><code>launch -draft</code></td>
+<td>Leave out notes that match: -word, -&quot;a phrase&quot;, -tag=old, -folder=Archive.</td>
+</tr>
+<tr>
+<td>Combine</td>
+<td><code>( … )</code></td>
+<td><code>(tag=work OR tag=home) launch</code></td>
+<td>A group. Without one, AND goes before OR: a b OR c is (a b) OR c.</td>
+</tr>
+<tr>
+<td>Combine</td>
+<td><code>-( … )</code></td>
+<td><code>launch -(draft OR old)</code></td>
+<td>Leave out notes matching anything in the group.</td>
+</tr>
+<tr>
+<td>Filters</td>
+<td><code>tag=name</code></td>
+<td><code>tag=work</code></td>
+<td>Tagged with it, or a tag under it (work/clients). tag=a,b needs both; tag=a|b either.</td>
+</tr>
+<tr>
+<td>Filters</td>
+<td><code>folder=name</code></td>
+<td><code>folder=Projects</code></td>
+<td>In that folder or a folder under it. folder=A|B is either. Quote names with spaces: folder=&#39;Health and Fitness&#39;.</td>
+</tr>
+<tr>
+<td>Filters</td>
+<td><code>modified&gt;day</code></td>
+<td><code>modified&gt;-7d</code></td>
+<td>Changed after a day (&lt;, &lt;=, &gt;, &gt;= or =). A day is 2026-09-01, today, yesterday, or -7d, -2w, -1m, -1y back. modified&gt;-7d is the last 7 days.</td>
+</tr>
+<tr>
+<td>Filters</td>
+<td><code>created&lt;day</code></td>
+<td><code>created&lt;2026-09-01</code></td>
+<td>Made before a day, with the same comparisons and days as modified.</td>
+</tr>
+<tr>
+<td>Filters</td>
+<td><code>property=value</code></td>
+<td><code>status=draft</code></td>
+<td>A frontmatter property has this value, in any case; a list matches if any item does. title=… is the note&#39;s title. Quote values with spaces: status=&#39;in progress&#39;.</td>
+</tr>
+<tr>
+<td>Filters</td>
+<td><code>has=property</code></td>
+<td><code>has=due</code></td>
+<td>The property is set, to anything. -has=due: notes without one.</td>
+</tr>
+<tr>
+<td>Order</td>
+<td><code>sort=order</code></td>
+<td><code>tag=work sort=title</code></td>
+<td>modified (last changed first, the default), date or oldest (by the note&#39;s own date), title or created (newest first). On its own, not inside ( ).</td>
+</tr>
+</tbody></table>
+<!-- /query-syntax --><h2 id="putting-notes-away"><a class="anchor" href="#putting-notes-away">Putting notes away</a></h2>
+<ul>
+<li><strong>Archive</strong> (⌘⇧E) takes a note out of the sidebar, search and agents&#39; lists, and its links keep working.</li>
+<li><strong>Delete</strong> sends it to <strong>Trash</strong> for 30 days, and Trash puts it back where it was.</li>
+<li>Every change is kept: a note&#39;s <strong>History</strong> shows each version, who made it, and restores any of them. Label a version (&quot;Sent to Alex&quot;) to find it later.</li>
+</ul>
+
+        <footer>
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+          <a href="https://github.com/paudrow/commonink">GitHub</a>
+          <a href="mailto:support@commonink.app">support@commonink.app</a>
+        </footer>
+      </main>
+    </div>
+  </body>
+</html>

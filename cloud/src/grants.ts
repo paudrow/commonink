@@ -2,7 +2,7 @@
 // a note (by its stable ID, so renames and moves keep it) or a folder (by path, covering everything
 // beneath it). The effective role on a note is the highest that applies. No Workers imports, so the
 // workspace and tests can both use it.
-import { AGENTS_NOTE } from "../../src/core/noteRoles.ts";
+import { isAgentsNote } from "../../src/core/noteRoles.ts";
 import { kindOf } from "../../src/core/paths.ts";
 
 export type ShareRole = "viewer" | "editor";
@@ -38,7 +38,7 @@ export function roleOn(grants: Grant[], note: { id: string | null; path: string 
  * says: markdown and HTML notes only (never an upload), and never AGENTS.md, which every member's
  * agent follows. Checked on every request, so moving a note there can't hand out edit access.
  */
-export const editableThroughShare = (path: string) => path !== AGENTS_NOTE && (kindOf(path) === "md" || kindOf(path) === "html");
+export const editableThroughShare = (path: string) => !isAgentsNote(path) && (kindOf(path) === "md" || kindOf(path) === "html");
 
 /** The role a request has on a note, member or not. Link visitors never write, and nor does anyone where editableThroughShare says no. */
 export function accessOn(access: SharedAccess, note: { id: string | null; path: string }): ShareRole | null {

@@ -97,7 +97,7 @@ test("a vault on disk gives back the space the delta upgrade freed, once, and sa
   openVault(dir);
   assert.equal(said.mock.callCount(), 1);
   assert.match(said.mock.calls[0].arguments[0], /^Stored History's older versions as edits: the index went from \d+\.\d MB to \d+\.\d MB\.$/);
-  assert.deepEqual(upgraded.db.all("SELECT name FROM upgrades ORDER BY name").map((u) => u.name), ["change deltas", "vacuum after deltas"]);
+  assert.deepEqual(upgraded.db.all("SELECT name FROM upgrades ORDER BY name").map((u) => u.name), ["change deltas", "vacuum after deltas", "views as notes"]);
 });
 
 test("a vault with nothing to store as deltas isn't vacuumed", (t) => {

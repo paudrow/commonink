@@ -3,7 +3,11 @@
 // what the notes say about them: when they were last mentioned, and where. The list searches and
 // filters by tag and company, says who looks like the same person twice (and merges them), and
 // imports vCard and CSV exports. Online, members of the workspace with no contact are listed too.
-import { api, ApiError, type Contact, type Member, type TimelineItem } from "./api.ts";
+// Online with Google set up, a bar connects Google Contacts and syncs it (src/core/googleContacts.ts):
+// Google is the truth for how to reach someone, and the notes stay the workspace's own.
+import type { Where } from "./panes.ts";
+import { api, ApiError, currentWorkspace, type Contact, type GoogleContactsStatus, type Member, type TimelineItem } from "./api.ts";
+import { leave, contactsConnectUrl } from "./calendar/google.ts";
 import { avatar, el, icon } from "./dom.ts";
 import { emptyState } from "./emptyState.ts";
 import { ask } from "./modal.ts";
@@ -15,8 +19,8 @@ import { mountTasks } from "./tasksView.ts";
 import { today } from "./taskChips.ts";
 
 interface Hooks {
-  /** Open a note (at a line; `side`: in the other pane). */
-  open(path: string, line?: number, side?: boolean): void;
+  /** Open a note (at a line; `where`: here, in a new tab or in the other pane). */
+  open(path: string, line?: number, where?: Where): void;
   /** Tasks with a tag, or one person's tasks (from a task's chips). */
   openTag(tag: string): void;
   openPerson(name: string): void;
@@ -25,7 +29,12 @@ interface Hooks {
   /** Whether this person may change contacts (not a viewer). */
   canEdit(): boolean;
   toast(t: { text: string; icon?: string }): void;
+  /** Settings → Integrations, at Google: what's connected, Allow editing, Disconnect. */
+  manageGoogle(): void;
 }
+
+/** A synced contact's page on Google Contacts (as googleUrl in src/core/googleContacts.ts, which needs Node). */
+const googleUrl = (resource: string) => `https://contacts.google.com/person/${resource.replace(/^people\//, "")}`;
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 /** The rhythms the contact page offers; a note can say any other (see checkInEvery). */
@@ -63,6 +72,9 @@ export class ContactsPage {
   private due = el("select", { class: "ct-select", "aria-label": "Check-ins" }, el("option", { value: "" }, "Everyone"), el("option", { value: "due" }, "Due for a check-in"));
   private body = el("div", { class: "ct-body" });
   private loaded = false;
+  /** Google Contacts here: null where this server has none (locally, or Google not set up). */
+  private google: GoogleContactsStatus | null = null;
+  private syncing = false;
 
   constructor(
     root: HTMLElement,
@@ -107,10 +119,81 @@ export class ContactsPage {
   }
 
   private async load() {
-    const [contacts, members] = await Promise.all([api.contacts().catch(() => this.contacts), api.members().catch(() => [])]);
+    const [contacts, members, google] = await Promise.all([
+      api.contacts().catch(() => this.contacts),
+      api.members().catch(() => []),
+      currentWorkspace() ? api.googleContacts().catch(() => null) : null,
+    ]);
     this.contacts = contacts;
     this.members = members;
+    this.google = google;
     this.loaded = true;
+  }
+
+  /** Back from connecting (/contacts?google=connected|denied|failed; main.ts reads it): say so, and sync straight away. */
+  async backFromGoogle(outcome: string) {
+    await this.load();
+    if (outcome === "connected" && this.google?.connection) await this.syncGoogle();
+    else this.hooks.toast({ text: outcome === "denied" ? "Google Contacts wasn't connected: access wasn't allowed" : "Couldn't connect Google Contacts. Try again." });
+  }
+
+  /** Leave for Google's consent page (or the stand-in's), coming back here. `write` also asks to edit contacts. */
+  private connectGoogle(write: boolean) {
+    leave.to(contactsConnectUrl(write));
+  }
+
+  private async syncGoogle() {
+    if (this.syncing) return;
+    this.syncing = true;
+    this.renderList();
+    try {
+      const r = await api.syncGoogleContacts();
+      const parts = [
+        r.created.length && `${r.created.length} new`,
+        r.linked.length && `${r.linked.length} linked`,
+        r.updated.length && `${r.updated.length} updated`,
+        r.pushed.length && `${r.pushed.length} sent to Google`,
+      ].filter(Boolean);
+      const extra = [r.conflicts.length && `${r.conflicts.length} changed on both sides (Google's kept)`, r.kept.length && `${r.kept.length} edited here only`].filter(Boolean);
+      this.hooks.toast({ text: `Google Contacts: ${parts.length ? parts.join(", ") : "up to date"}${extra.length ? `; ${extra.join(", ")}` : ""}`, icon: "user" });
+    } catch (e) {
+      this.hooks.toast({ text: e instanceof ApiError ? e.message : "Couldn't sync Google Contacts" });
+    } finally {
+      this.syncing = false;
+      await this.load();
+      if (!this.shown) this.renderList();
+    }
+  }
+
+  /** The list's Google Contacts bar: connect, or who's synced, when, and Sync. */
+  private googleBar(canEdit: boolean): HTMLElement | string {
+    const g = this.google;
+    if (!g || !canEdit) return "";
+    if (!g.connection) {
+      return el(
+        "div",
+        { class: "ct-google", role: "region", "aria-label": "Google Contacts" },
+        icon("user", 15),
+        el("span", {}, el("b", {}, "Google Contacts"), " as the source of truth: each contact becomes a note here, for your notes about them. Everyone in this workspace sees People/."),
+        el("button", { type: "button", class: "qw-btn", onclick: () => this.connectGoogle(false) }, "Connect"),
+      );
+    }
+    const when = g.lastSync ? `synced ${new Date(g.lastSync).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}` : "not synced yet";
+    return el(
+      "div",
+      { class: "ct-google", role: "region", "aria-label": "Google Contacts" },
+      icon("user", 15),
+      el(
+        "span",
+        {},
+        el("b", {}, "Google Contacts"),
+        ` · ${g.connection.account}`,
+        el("br", {}),
+        el("span", { class: "ct-google-sub" }, `${g.linked} linked, ${when}. ${g.connection.canWrite ? "Edits here go back to Google." : "Read only: edits here stay here."}`),
+      ),
+      el("button", { type: "button", class: "qw-btn", title: "Allow editing, or disconnect", onclick: () => this.hooks.manageGoogle() }, icon("gear", 14), "Manage"),
+      el("button", { type: "button", class: "qw-btn", disabled: this.syncing, onclick: () => void this.syncGoogle() }, icon("refresh", 14), this.syncing ? "Syncing…" : "Sync now"),
+    );
   }
 
   // ---------------------------------------------------------------- the list
@@ -126,7 +209,7 @@ export class ContactsPage {
         ? el(
             "div",
             { class: "ct-actions" },
-            el("button", { type: "button", class: "qw-btn", onclick: () => this.importFile() }, icon("upload", 14), "Import"),
+            el("button", { type: "button", class: "qw-btn", title: "Add people from a vCard (.vcf) or CSV file: Apple, Outlook or a Google Contacts export", onclick: () => this.importFile() }, icon("upload", 14), "Import file…"),
             el("button", { type: "button", class: "qw-btn primary", onclick: () => void this.newContact() }, icon("plus", 14), "New contact"),
           )
         : null,
@@ -163,6 +246,7 @@ export class ContactsPage {
     this.body.replaceChildren(
       head,
       el("div", { class: "ct-filters" }, el("label", { class: "feed-search ct-search" }, icon("search", 16), this.search), this.tag, this.company, this.due),
+      this.googleBar(canEdit),
       ...dupes.map((g) => this.dupeBanner(g)),
       rows,
       loose.length && !filtering ? this.membersBlock(loose, canEdit) : "",
@@ -268,6 +352,7 @@ export class ContactsPage {
       ...field("Also", c.aliases.length ? [c.aliases.join(", ")] : []),
       ...field("Tags", c.tags.length ? [el("span", { class: "ct-taglist" }, ...c.tags.map((t) => el("span", { class: "tag" }, `#${t}`)))] : []),
       ...field("Check in", canEdit ? [this.rhythmPicker(c)] : c.checkIn ? [checkInText(c)] : []),
+      ...field("Synced", c.google ? [link(googleUrl(c.google), "Google Contacts")] : []),
     );
     const mentions = timeline.filter((t) => t.kind === "note");
     this.body.replaceChildren(
@@ -287,6 +372,8 @@ export class ContactsPage {
           { class: "ct-actions" },
           el("button", { type: "button", class: "qw-btn", onclick: () => this.hooks.open(c.path) }, icon("edit", 14), canEdit ? "Edit note" : "Open note"),
           canEdit && this.contacts.length > 1 ? el("button", { type: "button", class: "qw-btn", onclick: () => void this.pickMerge(c) }, icon("user", 14), "Merge…") : null,
+          // Synced: their details can be changed in Google too (Edit note changes them here).
+          c.google ? el("a", { class: "qw-btn", href: googleUrl(c.google), target: "_blank", rel: "noopener" }, icon("open", 14), "Open in Google") : null,
         ),
       ),
       details.childElementCount ? details : el("p", { class: "ct-none" }, canEdit ? "No details yet. Edit the note to add an email, phone, company or role." : "No details yet."),

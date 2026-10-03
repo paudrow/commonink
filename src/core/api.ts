@@ -1,5 +1,6 @@
 // The note API, written against the web-standard Request/Response so the same routes run in the
 // local Node server and in a Cloudflare workspace Durable Object.
+import type { GoogleContactsSync } from "./googleContacts.ts";
 import { cleanPath, VaultError } from "./paths.ts";
 import type { ArchiveScope, Change, Vault } from "./vault.ts";
 import type { TaskPatch } from "./tasks.ts";
@@ -13,14 +14,15 @@ import type { Calendar, EventDraft, NoteWrite } from "./calendar.ts";
 import { notePath } from "./ids.ts";
 import { isSort } from "./query.ts";
 import { checkup } from "./checkup.ts";
+import { noteProperties, propertiesInUse, setPropertyType } from "./properties.ts";
 
 export interface ApiHost {
   vault: Vault;
   /** Who changes made through this request are attributed to ("you" locally, a person's name online). */
   actor: string;
-  /** Whose favorites and personal smart folders this request reads and changes (the vault's one person locally, a user ID online). */
+  /** Whose favorites and personal views (in Views/<user>/) this request reads and changes (the vault's one person locally, a user ID online). */
   user: string;
-  /** May this person change what the whole workspace shares, like shared smart folders? Everyone locally; not viewers online. */
+  /** May this person change what the whole workspace shares, like shared views? Everyone locally; not viewers online. */
   canEditShared: boolean;
   info(): Record<string, unknown>;
   /** A note's text changed through the API: tell connected clients. */
@@ -47,6 +49,8 @@ export interface ApiHost {
   fileBytes?(rel: string): Promise<Uint8Array | null>;
   /** The workspace's members (online); a local vault has none. */
   members?(): Promise<Member[]>;
+  /** Online, with Google configured: the person's Google Contacts (see googleContacts.ts). */
+  googleContacts?: GoogleContactsSync;
 }
 
 /** Someone with an account in the workspace. A contact with the same email is them (see contacts.ts). */
@@ -316,8 +320,21 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     }
     case "GET /tasks/count":
       return json({ open: vault.openTaskCount() });
+    case "GET /properties":
+      return json(vault.properties());
     case "GET /tags":
       return json(vault.tags());
+    // Property types (properties.ts): declared in Config/Settings.md, the rest guessed.
+    case "GET /properties":
+      return json(q("path") ? noteProperties(vault, q("path")) : propertiesInUse(vault));
+    case "POST /properties/type": {
+      const r = setPropertyType(vault, str("name"), str("type"), actor);
+      if (r) {
+        host.written(r.path, vault.files.read(r.path), r.version, r.change);
+        if (r.change?.op === "create") host.tree();
+      }
+      return json({ version: r?.version ?? null });
+    }
     case "GET /asset-tags":
       return json(vault.assetTags());
     case "GET /diff":
@@ -354,6 +371,17 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       if (body.length > MAX_IMPORT) throw new VaultError("That file is too big to import at once; split it up");
       const r = vault.importContacts(body, format, actor);
       for (const p of [...r.created, ...r.updated]) host.written(p, vault.files.read(p), vault.meta(p)?.version ?? "", null);
+      if (r.created.length) host.tree();
+      return json(r);
+    }
+    // Google Contacts (online): where it isn't set up, it isn't here at all.
+    case "GET /contacts/google":
+      if (!host.googleContacts) return json({ error: "Google Contacts isn't available here" }, 404);
+      return json(await host.googleContacts.status());
+    case "POST /contacts/google/sync": {
+      if (!host.googleContacts) return json({ error: "Google Contacts isn't available here" }, 404);
+      const r = await host.googleContacts.sync(actor);
+      for (const p of new Set([...r.created, ...r.linked, ...r.updated, ...r.unlinked, ...r.conflicts.map((c) => c.path)])) host.written(p, vault.files.read(p), vault.meta(p)?.version ?? "", null);
       if (r.created.length) host.tree();
       return json(r);
     }
@@ -486,6 +514,52 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       // setting these assets' tags back, undoes the rename without writing over a later edit.
       return json({ changes: r.edits.map((e) => e.change.id), versions: r.edits.map((e) => e.version), assets: r.assets });
     }
+    // Decisions (Vault.askDecision): questions agents put to the person, answered on the Today page.
+    case "GET /decisions":
+      return json(
+        vault.decisions({
+          status: (q("status") || undefined) as never,
+          ids: q("ids") ? q("ids").split(",") : undefined,
+          since: q("since") || undefined,
+          commented: q("commented") === "true" || q("commented") === "1",
+          query: q("query") || undefined,
+        }),
+      );
+    case "POST /decisions": {
+      // The question as data: AskInput (decisions.ts), with `note`.
+      const b = raw as Record<string, unknown>;
+      const obj = (k: string) => (b[k] == null ? undefined : typeof b[k] === "object" && !Array.isArray(b[k]) ? (b[k] as Record<string, string>) : (() => { throw new VaultError(`"${k}" must be an object`); })());
+      const optNum = (k: string) => (b[k] == null ? undefined : int(k));
+      const rec = b.recommended;
+      return json(
+        vault.askDecision(
+          {
+            question: str("question"),
+            kind: optStr("kind") as never,
+            options: b.options == null ? undefined : (Array.isArray(b.options) ? (b.options as never) : paths("options")),
+            details: obj("details"),
+            images: obj("images"),
+            rows: b.rows == null ? undefined : paths("rows"),
+            media: b.media == null ? undefined : paths("media"),
+            labels: b.labels == null ? undefined : paths("labels"),
+            min: optNum("min"),
+            max: optNum("max"),
+            recommended: rec == null ? undefined : typeof rec === "string" ? [rec] : (rec as never),
+            context: optStr("context"),
+            note: optStr("note"),
+          },
+          actor,
+        ),
+      );
+    }
+    case "POST /decisions/answer": {
+      const r = vault.answerDecision(str("id"), { value: (raw as { value?: unknown }).value ?? undefined, comment: optStr("comment"), dismiss: flag("dismiss"), change: flag("change") }, actor, optStr("today"));
+      host.written(r.path, vault.files.read(r.path), r.version, r.change);
+      if (r.change?.op === "create") host.tree();
+      return json(r.decision);
+    }
+    case "POST /decisions/withdraw":
+      return json(vault.withdrawDecision(str("id")));
     // Labels (Vault.label): a name on a version of a note, to compare with or go back to.
     case "GET /labels":
       return json(vault.labels(q("path") || undefined));
@@ -514,7 +588,7 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       if (r.change) host.written(r.path, vault.files.read(r.path), r.version, r.change);
       return json({ path: r.path, version: r.version, change: r.change?.id ?? null }); // restoring `change` undoes this
     }
-    // A `tag` stars or unstars a tag; a `smart_folder` (its ID) a smart folder; a `path` a note.
+    // A `tag` stars or unstars a tag; a `smart_folder` (its note ID) a saved view; a `path` a note.
     case "POST /favorites/star":
       if (optStr("smart_folder") !== undefined) return json(favorited(vault.starSmartFolder(host.user, str("smart_folder"))));
       return json(favorited(optStr("tag") !== undefined ? vault.starTag(host.user, str("tag")) : vault.star(host.user, str("path"))));
@@ -523,15 +597,23 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json(favorited(optStr("tag") !== undefined ? vault.unstarTag(host.user, str("tag")) : vault.unstar(host.user, str("path"))));
     case "PUT /favorites":
       return json(favorited(vault.orderFavorites(host.user, paths("paths"))));
+    // Views (smart folders) are notes in Views/: saving one writes (or renames) its note, and
+    // deleting one sends its note to Trash, so open tabs hear about it as about any note.
     case "POST /smart-folders": {
-      const f = vault.saveSmartFolder(host.user, { id: optStr("id"), name: str("name"), query: text("query"), shared: flag("shared") }, host.canEditShared, true);
+      const r = vault.saveSmartFolder(host.user, { id: optStr("id"), name: str("name"), query: text("query"), shared: flag("shared") }, host.canEditShared, actor, true);
+      if (r.moved) {
+        for (const e of r.moved.edits) host.written(e.path, e.content, e.version, e.change);
+        host.moved(r.moved.from, r.moved.path, r.moved.version, r.moved.change);
+      }
+      if (r.written) host.written(r.written.path, r.written.content, r.written.version, r.written.change);
       host.tree();
-      return json(f);
+      return json(r.view);
     }
     case "POST /smart-folders/delete": {
-      const list = vault.deleteSmartFolder(host.user, str("id"), host.canEditShared, true);
+      const r = vault.deleteSmartFolder(host.user, str("id"), host.canEditShared, actor, true);
+      host.removed(r.trashed.path, r.trashed.change);
       host.tree();
-      return json(list);
+      return json(r.views);
     }
     case "GET /guide":
       return json(findStartNote(vault)?.state ?? null);
@@ -559,6 +641,7 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
         for (const e of m.edits) host.written(e.path, e.content, e.version, e.change);
         host.moved(m.from, m.path, m.version, m.change);
       }
+      for (const v of r.views) host.written(v.path, v.content, v.version, v.change);
       await host.folderMoved?.(r.from, r.path);
       host.tree();
       return json({ from: r.from, path: r.path, moved: r.moved.map((m) => ({ from: m.from, to: m.path })) });

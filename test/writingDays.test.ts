@@ -1,10 +1,8 @@
-// Your writing days: changes grouped by the calendar day where you are, the streak (which waits for
-// you until tonight rather than breaking at 9am), and the 12 weeks the heatmap shows.
+// Your writing days: changes grouped by the calendar day where you are, and the 12 weeks the heatmap shows.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { countByDay, daysText, heatmapWeeks, inFolder, level, mondayOf, streakOf, streakTitle, thisWeek } from "../web/src/writingDays.ts";
+import { countByDay, daysText, fitWeeks, heatmapWeeks, level, MAX_WEEKS, mondayOf, thisWeek } from "../web/src/writingDays.ts";
 
-const days = (...list: string[]) => new Map(list.map((d) => [d, 1]));
 
 test("changes count toward the day they were made where you are, not the UTC day", () => {
   // 02:30 UTC on Oct 2 is still the evening of Oct 1 in New York, and already the morning in Tokyo.
@@ -21,29 +19,6 @@ test("a day a clock changes on is one day: no day is skipped or counted twice", 
   assert.deepEqual([...spring], [["2026-03-08", 2]]);
   const fall = countByDay([Date.UTC(2026, 10, 1, 4, 0), Date.UTC(2026, 10, 2, 4, 59)], zone); // 00:00 EDT, 23:59 EST
   assert.deepEqual([...fall], [["2026-11-01", 2]]);
-  assert.equal(streakOf(days("2026-03-07", "2026-03-08", "2026-03-09"), "2026-03-09").current, 3);
-  assert.equal(streakOf(days("2026-10-31", "2026-11-01", "2026-11-02"), "2026-11-02").current, 3);
-});
-
-test("with no history there is no streak", () => {
-  assert.deepEqual(streakOf(new Map(), "2026-10-01"), { current: 0, longest: 0, wroteToday: false });
-});
-
-test("the streak counts back from today, or from yesterday until you've written today", () => {
-  const wrote = days("2026-09-28", "2026-09-29", "2026-09-30");
-  assert.deepEqual(streakOf(wrote, "2026-10-01"), { current: 3, longest: 3, wroteToday: false });
-  wrote.set("2026-10-01", 4);
-  assert.deepEqual(streakOf(wrote, "2026-10-01"), { current: 4, longest: 4, wroteToday: true });
-  // A whole day missed (yesterday) ends it.
-  assert.equal(streakOf(days("2026-09-28", "2026-09-29"), "2026-10-01").current, 0);
-});
-
-test("a gap day splits runs, and the longest run is found wherever it is", () => {
-  const wrote = days("2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04", "2026-09-06", "2026-09-30", "2026-10-01");
-  assert.deepEqual(streakOf(wrote, "2026-10-01"), { current: 2, longest: 4, wroteToday: true });
-  // A day listed with no changes isn't a day written.
-  wrote.set("2026-09-05", 0);
-  assert.equal(streakOf(wrote, "2026-10-01").longest, 4);
 });
 
 test("the heatmap is 12 weeks of Monday to Sunday ending this week, with days to come left empty", () => {
@@ -61,32 +36,32 @@ test("the heatmap is 12 weeks of Monday to Sunday ending this week, with days to
   assert.equal(new Set(fall).size, fall.length);
 });
 
+test("the heatmap fills its width: more weeks as it widens, squares growing into what's left", () => {
+  const span = ({ weeks, cell }: { weeks: number; cell: number }) => weeks * cell + (weeks - 1) * 3;
+  // A Today card's width: well past 12 weeks, filling it to within a pixel.
+  const card = fitWeeks(560);
+  assert.ok(card.weeks > 12 && card.cell >= 13, JSON.stringify(card));
+  assert.ok(560 - span(card) < 1 + card.weeks * 0.1, `fills 560px: ${span(card)}`);
+  // Narrow: never fewer than 12 weeks; the squares shrink instead.
+  assert.deepEqual(fitWeeks(120).weeks, 12);
+  assert.ok(fitWeeks(120).cell < 13);
+  // Wide: at most a year, then the squares grow (up to a point).
+  const wide = fitWeeks(1100);
+  assert.equal(wide.weeks, MAX_WEEKS);
+  assert.ok(wide.cell > 13 && wide.cell <= 24);
+  // A year of weeks back from today, for the widest map.
+  assert.equal(heatmapWeeks("2026-10-01", MAX_WEEKS).length, 53);
+});
+
 test("a day's square darkens with its changes, and counts read as words", () => {
   assert.deepEqual([0, 1, 2, 3, 4, 7, 8, 40].map(level), [0, 1, 2, 2, 3, 3, 4, 4]);
   assert.equal(daysText(1), "1 day");
   assert.equal(daysText(3), "3 days");
 });
 
-test("this week counts the days you wrote since Monday, so a missed day lowers it by one", () => {
-  const wrote = days("2026-09-27", "2026-09-28", "2026-09-30", "2026-10-01"); // Sunday, then Mon, Wed, Thu
+test("this week counts the days you wrote since Monday", () => {
+  const wrote = new Map(["2026-09-27", "2026-09-28", "2026-09-30", "2026-10-01"].map((d) => [d, 1])); // Sunday, then Mon, Wed, Thu
   assert.equal(thisWeek(wrote, "2026-10-01"), 3);
-  assert.equal(streakOf(wrote, "2026-10-01").current, 2, "Tuesday ended the run");
   assert.equal(thisWeek(wrote, "2026-09-28"), 1, "on Monday, only Monday");
   assert.equal(thisWeek(new Map(), "2026-10-01"), 0);
-});
-
-test("a folder filter counts notes in that folder or under it, archived ones toward where they came from", () => {
-  assert.ok(inFolder("Journal/2026-10-01.md", "Journal"));
-  assert.ok(inFolder("Journal/2026/Oct.md", "Journal/"));
-  assert.ok(inFolder("Archive/Journal/2026-01-01.md", "Journal"));
-  assert.ok(!inFolder("Journals/x.md", "Journal"), "a folder whose name starts the same isn't it");
-  assert.ok(!inFolder("Journal.md", "Journal"));
-  assert.ok(inFolder("anything.md", ""), "no folder is every note");
-});
-
-test("the header says what's counted", () => {
-  assert.equal(streakTitle({}), "Writing days");
-  assert.equal(streakTitle({ folder: "Journal/" }), "Writing days in Journal");
-  assert.equal(streakTitle({ tag: "#work" }), "Writing days tagged #work");
-  assert.equal(streakTitle({ folder: "Projects", tag: "work" }), "Writing days in Projects tagged #work");
 });

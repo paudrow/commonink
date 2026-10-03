@@ -21,3 +21,8 @@ export const DIDS = ["slash", "link", "search", "star", "tick"] as const satisfi
 export type Did = (typeof DIDS)[number];
 export const didEvents = new EventTarget();
 export const did = (what: Did) => didEvents.dispatchEvent(new Event(what));
+
+/** A first worth a seal that only this tab sees you do (see sealUnlocks.ts). */
+export type First = "followedBacklink" | "usedTemplate" | "madeBoard";
+export const firstEvents = new EventTarget();
+export const didFirst = (what: First) => firstEvents.dispatchEvent(new Event(what));

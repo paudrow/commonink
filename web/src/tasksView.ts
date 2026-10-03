@@ -1,6 +1,7 @@
 // The Tasks page: the quick-add bar, then every task, narrowed to whose they are or a tag. The list
 // is the ::tasks widget, so ticking a box here edits the note the task lives in. What's on today
 // has a page of its own, Today (todayView.ts).
+import type { Where } from "./panes.ts";
 import type { TagCount } from "./api.ts";
 import { el, icon } from "./dom.ts";
 import { tagFilter } from "./tagPicker.ts";
@@ -8,7 +9,7 @@ import { WIDGETS } from "./widgets/index.ts";
 import { quickAddBar } from "./quickAdd.ts";
 import { emptyState } from "./emptyState.ts";
 
-type Open = (path: string, line?: number, side?: boolean) => void;
+type Open = (path: string, line?: number, where?: Where) => void;
 
 /** Mount a task list into `host`; returns its cleanup. Clicking a task's tag calls `openTag`, and "Show …'s tasks" `openPerson`. */
 export function mountTasks(
@@ -28,7 +29,7 @@ export function mountTasks(
       withId() {},
       focusEditor() {},
       remeasure() {},
-      open: (target, line, side) => opts.open(target, line, side),
+      open: (target, line, where) => opts.open(target, line, where),
       openTag: opts.openTag,
       saveSmartFolder() {},
       sources: { tags: () => [], folders: () => [] }, // the Tasks page has no settings form

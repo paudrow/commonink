@@ -9,12 +9,14 @@ import { files, history, trash } from "./history.ts";
 import { labels } from "./labels.ts";
 import { contacts } from "./contacts.ts";
 import { notes } from "./notes.ts";
+import { properties } from "./properties.ts";
 import { boards, favorites, folders, smartFolders, tags } from "./organize.ts";
 import { settings } from "./settings.ts";
 import { sharing } from "./sharing.ts";
 import { tasks } from "./tasks.ts";
 import { templates } from "./templates.ts";
 import { calendar } from "./calendar.ts";
+import { decisions } from "./decisions.ts";
 import type { Command } from "./types.ts";
 
 export const GROUPS: ReadonlyArray<{ title: string; commands: Command[] }> = [
@@ -22,10 +24,12 @@ export const GROUPS: ReadonlyArray<{ title: string; commands: Command[] }> = [
   { title: "Templates", commands: templates },
   { title: "Folders and files", commands: [...folders, ...files] },
   { title: "Tasks and today", commands: tasks },
+  { title: "Decisions", commands: decisions },
   { title: "Contacts", commands: contacts },
   { title: "Boards", commands: boards },
   { title: "Tags", commands: tags },
-  { title: "Smart folders", commands: smartFolders },
+  { title: "Properties", commands: properties },
+  { title: "Views", commands: smartFolders },
   { title: "Favorites", commands: favorites },
   { title: "History and Trash", commands: [...history, ...trash] },
   { title: "Labels", commands: labels },
@@ -45,6 +49,7 @@ export const APP_ONLY: Readonly<Record<string, string>> = {
   "GET /resolve": "every command resolves a note's name itself",
   "GET /file-resolve": "the app's way to show an embedded file",
   "GET /feed": "the Notes page's paging; ls and search list notes",
+  "GET /properties": "a view's settings suggest the properties notes have; read_note shows a note's",
   "GET /diffs": "History's side-by-side view; diff shows a change",
   "GET /diffstats": "History's line counts; changes shows them",
   "GET /changes/agents": "History's filter chips; changes --by takes an agent's name",
