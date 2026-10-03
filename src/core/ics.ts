@@ -415,14 +415,17 @@ const unknownZones = new Set<string>();
 const ZONE_MISSES = 200;
 let canonicalZones: Set<string> | null = null;
 
-/** Whether Intl lists `key` (lowercased) as a canonical zone: a cheap check for once a feed's misses are spent. Aliases aren't listed. */
+/** Common aliases Intl accepts but doesn't list (it lists one canonical name per zone, and older ICU lists Asia/Calcutta, not Asia/Kolkata). */
+const ZONE_ALIASES = ["UTC", "Etc/UTC", "GMT", "Etc/GMT", "Etc/Universal", "Universal", "Zulu", "Asia/Kolkata", "Europe/Kyiv", "Asia/Ho_Chi_Minh", "Asia/Kathmandu", "Asia/Yangon", "America/Nuuk", "Pacific/Kanton", "Atlantic/Faroe", "America/Argentina/Buenos_Aires", "America/Indiana/Indianapolis", "US/Eastern", "US/Central", "US/Mountain", "US/Pacific", "US/Alaska", "US/Hawaii", "US/Arizona", "US/East-Indiana", "US/Michigan", "Canada/Atlantic", "Canada/Eastern", "Canada/Central", "Canada/Mountain", "Canada/Pacific", "Canada/Newfoundland", "Europe/Belfast", "GB", "Japan", "PRC", "ROC", "ROK", "Singapore", "Hongkong", "Israel", "Turkey", "Egypt", "Brazil/East", "Mexico/General", "Australia/ACT", "Australia/NSW", "Australia/Canberra", "NZ"];
+
+/** Whether `key` (lowercased) is a zone Intl lists, a common alias, or a Windows-table target: a cheap check for once a feed's misses are spent. */
 function listedZone(key: string): boolean {
   if (!canonicalZones) {
+    let listed: string[] = [];
     try {
-      canonicalZones = new Set(Intl.supportedValuesOf("timeZone").map((z) => z.toLowerCase()));
-    } catch {
-      canonicalZones = new Set();
-    }
+      listed = Intl.supportedValuesOf("timeZone");
+    } catch {}
+    canonicalZones = new Set([...listed, ...ZONE_ALIASES, ...windowsZones.values()].map((z) => z.toLowerCase()));
   }
   return canonicalZones.has(key);
 }
