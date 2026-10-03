@@ -1,7 +1,7 @@
 // What a brand-new workspace starts with.
 import start from "../seed/Getting started.md";
 import tips from "../seed/Tips.md";
-import agents from "../seed/AGENTS.md";
+import agents from "../seed/Config/AGENTS.md";
 import overview from "../seed/Dashboards/Overview.md";
 import margin from "../seed/assets/margin.svg";
 import { SETTINGS_NOTE, settingsNote } from "../../src/core/schema.ts";
