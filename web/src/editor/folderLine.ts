@@ -25,12 +25,16 @@ class FolderWidget extends WidgetType {
     return el(
       "nav",
       { class: "cm-folder-line", "aria-label": "Folder" },
-      icon("folder", 12),
-      ...parts.flatMap((name, i) => {
-        const folder = parts.slice(0, i + 1).join("/");
-        const link = el("button", { type: "button", title: `Show the notes in ${folder.split("/").join(" / ")}`, onmousedown: (e: Event) => e.preventDefault(), onclick: () => open(folder) }, name);
-        return i ? [el("span", { class: "cm-folder-sep", "aria-hidden": "true" }, "/"), link] : [link];
-      }),
+      el(
+        "div",
+        { class: "cm-folder-path" },
+        icon("folder", 12),
+        ...parts.flatMap((name, i) => {
+          const folder = parts.slice(0, i + 1).join("/");
+          const link = el("button", { type: "button", title: `Show the notes in ${folder.split("/").join(" / ")}`, onmousedown: (e: Event) => e.preventDefault(), onclick: () => open(folder) }, name);
+          return i ? [el("span", { class: "cm-folder-sep", "aria-hidden": "true" }, "/"), link] : [link];
+        }),
+      ),
     );
   }
 }
