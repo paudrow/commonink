@@ -480,6 +480,8 @@ const NOT_A_VERB: Record<string, string> = {
   "card move": "cards are dragged on the board itself",
   "card edit": "cards are edited on the board itself",
   "tag asset": "an asset's tag chips on Assets",
+  properties: "a note's property table lists them, and suggests keys and values as you add one",
+  "property type": "a property's type menu in a note's property table",
   smart: "the sidebar's Smart folders section lists them",
   "smart-rm": "a smart folder's own menu in the sidebar",
   "smart-star": "a smart folder's star, on its row in the sidebar or beside the Notes filters",

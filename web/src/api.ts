@@ -476,6 +476,8 @@ export const api = {
   /** Find and replace across notes. `dryRun` only says what would change; else `restore(changes[i], versions[i])` undoes each note. */
   replace: (find: string, replace: string, opts: { matchCase?: boolean; wholeWord?: boolean; folder?: string; dryRun?: boolean } = {}) =>
     j<{ notes: ReplacedNote[]; changes: number[]; versions: string[] }>(`${BASE}/replace`, send("POST", { find, replace, ...opts })),
+  /** Declare a property's type for the whole workspace (in Config/Settings.md); "auto" goes back to guessing it. */
+  setPropertyType: (name: string, type: string) => j<{ version: string | null }>(`${BASE}/properties/type`, send("POST", { name, type })),
   renameTag: (from: string, to: string) => j<{ changes: number[]; versions: string[]; assets: Record<string, string[]> }>(`${BASE}/tags/rename`, send("POST", { from, to })),
   setTask: (t: Task, done: boolean) => (done && did("tick"), j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/set`, send("POST", { path: t.path, line: t.line, text: t.text, done, today: today() }))),
   /** Change a task's tokens in its note; the rest of its line stays as written. */

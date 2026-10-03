@@ -7,6 +7,8 @@ import { IMPORT_FROM, type ImportFrom } from "../convert.ts";
 import { fmtImport, MAX_IMPORT_NOTES, ON_EXISTING, pairsImport, readImport, writeImport, type OnExisting } from "../import.ts";
 import { bool, command, list, localFiles, num, pairs, str } from "./types.ts";
 import { describeProblems, frontmatterProblems } from "../schema.ts";
+import { propertyTypes } from "../properties.ts";
+import type { Vault } from "../vault.ts";
 import { checkup, fmtCheckup, STALE_DAYS } from "../checkup.ts";
 
 const TAG = "Only notes with this tag or a tag under it: work matches #work and #work/acme. Several (work,plan): notes with all of them";
@@ -22,10 +24,10 @@ function checkBase(host: { vault: { read(t: string): { path: string; version: st
 }
 
 /** What's wrong with a note's properties after a write (schema.ts), as lines for whoever wrote it; "" if nothing is. */
-function propertyProblems(vault: { read(t: string): { path: string; content: string } }, path: string): string {
+function propertyProblems(vault: Vault, path: string): string {
   try {
     const n = vault.read(path);
-    return describeProblems(n.content, frontmatterProblems(n.content, n.path));
+    return describeProblems(n.content, frontmatterProblems(n.content, n.path, propertyTypes(vault)));
   } catch {
     return "";
   }

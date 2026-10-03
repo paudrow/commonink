@@ -103,6 +103,7 @@ export function createMcpServer(host: ToolHost): McpServer {
         "Find before you write: search_notes, then read_note. Change existing notes with edit_note (small exact replacements); create_note is for a new note, import_notes for many at once (moving notes in from elsewhere).",
         "Link notes with [[Note name]] and embed with ![[Note name]]. The user may be editing at the same time; if an edit fails, re-read and retry.",
         `Workspace settings are the frontmatter of ${SETTINGS_NOTE}; commonink://config/schema lists every property the app reads, and commonink://config/agents re-reads the conventions below.`,
+        "Each property of a note has a type (text, number, checkbox, date, list, people): list_properties shows them, declared in the settings' properties: or guessed; write values to suit, and set_property_type declares one for every note.",
         agentsMd && `\nVault conventions (AGENTS.md):\n${agentsMd}`,
       ]
         .filter(Boolean)
