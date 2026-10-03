@@ -366,7 +366,8 @@ export class ContactsPage {
 
   // ---------------------------------------------------------------- changes
 
-  private async newContact() {
+  /** Ask for a name (and an email and company), add the contact, and open its page. */
+  async newContact() {
     const name = el("input", { placeholder: "Name", "aria-label": "Name", autocomplete: "off" });
     const email = el("input", { placeholder: "Email (optional)", "aria-label": "Email", type: "email", autocomplete: "off" });
     const company = el("input", { placeholder: "Company (optional)", "aria-label": "Company", autocomplete: "off" });
@@ -390,7 +391,8 @@ export class ContactsPage {
     }
   }
 
-  private importFile() {
+  /** Pick a .vcf or .csv file and bring its people in. */
+  importFile() {
     const input = el("input", { type: "file", accept: ".vcf,.vcard,.csv,text/vcard,text/csv" });
     input.addEventListener("change", async () => {
       const file = input.files?.[0];

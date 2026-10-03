@@ -9,7 +9,7 @@ import { cleanTag, normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { $, authorAvatar, dragsPage, draggedPage, endPageDrag, onPageClick, PAGE_DRAG, startPageDrag, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
 import { setSaveToDrive, setShareState, setShareWithPeople, SHARE_KEYS, toggleShareMenu, type ShareNote } from "./share.ts";
-import type { Label } from "./api.ts";
+import type { Label, Me } from "./api.ts";
 import { hideBanner, showBanner } from "./banner.ts";
 import { showConflict as conflictBanner } from "./conflict.ts";
 import { notesChanged } from "./editor/livePreview.ts";
@@ -64,12 +64,13 @@ import { clampSide, clickWhere, dropDock, forget, historyStep, IS_MAC, pageEntry
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { headingMatches } from "../../src/core/gfm.ts";
 import { formatQuery, parseQuery, tagList, type NoteQuery } from "../../src/core/query.ts";
+import { tagPicker } from "./tagPicker.ts";
 import { NEW_BOARD } from "../../src/core/kanban.ts";
 import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
 import { safeDecode } from "../../src/core/uri.ts";
-import { deleteFolder, deletePaths, TrashPage, type DeleteHooks } from "./trash.ts";
+import { deleteFolder, deletePaths, Trash, type DeleteHooks } from "./trash.ts";
 import { confirmAction } from "./modal.ts";
 import { mountSharedView, sharedRoute } from "./sharedView.ts";
 import { showShareDialog } from "./shareDialog.ts";
@@ -218,7 +219,7 @@ const notesPage = new NotesPage({
   },
   newNote: (folder) => void newNote(folder),
   goTab: (tab) => void showNotes({ tab }),
-  trash: () => (viewer ? null : (trashPage ??= new TrashPage({ ...deleteHooks, canPurge: () => owner, open: (path) => fromPage(path) }))),
+  trash: () => (viewer ? null : (trash ??= new Trash({ ...deleteHooks, canPurge: () => owner, open: (path) => fromPage(path) }))),
 });
 /** What deleting (and restoring from Trash) needs: a toast, and everything that lists notes brought up to date. */
 const deleteHooks: DeleteHooks = {
@@ -228,10 +229,9 @@ const deleteHooks: DeleteHooks = {
     await refreshNotes();
     notesPage.refreshSoon();
     assetsPage?.refresh();
-    await trashPage?.refresh();
   },
 };
-let trashPage: TrashPage | null = null;
+let trash: Trash | null = null;
 let capturePage: CapturePage | null = null;
 // History, Assets and Tags load the first time they're opened (each is null until then).
 let historyPage: History | null = null;
@@ -354,7 +354,12 @@ let account: AccountAction[] = [];
 /** Everything ⌘K can do right now, and every shortcut the sheet lists. */
 function commands() {
   const s = active.session;
+  const onNotes = onPage() === "notes";
+  const tagNames = onNotes ? tagList(notesPage.query.tag) : [];
+  const tag = tagNames.length === 1 ? tagNames[0] : null;
   return appCommands({
+    tag: tag ? { name: tag, starred: isTagStarred(tag) } : null,
+    notesFiltered: onNotes && notesPage.tab === "notes" && !!formatQuery(notesPage.query),
     note: s ? { kind: s.kind, starred: isStarred(s.id), archived: isArchived(s.path) } : null,
     vim: prefs.vim,
     vimDisplayLines: prefs.vimDisplayLines,
@@ -382,6 +387,18 @@ function commands() {
     newFolder: startNewFolder,
     newTag: startNewTag,
     newSmartFolder: newSmartFolderFromPalette,
+    saveFilters: () => notesPage.saveFilters(),
+    starTag: () => (tag ? void toggleTagStar(tag) : pickTag("Star or unstar a tag…", (t) => void toggleTagStar(t))),
+    renameTag: () => (tag ? void renameTagOnPage(tag) : pickTag("Rename which tag?", (t) => void renameTagOnPage(t))),
+    newContact: async () => {
+      await showContacts();
+      void contactsPage?.newContact();
+    },
+    importContacts: async () => {
+      await showContacts();
+      contactsPage?.importFile();
+    },
+    restoreVersion: () => void restoreVersion(),
     go: (page) => {
       if (page === "notes" || page === "archive" || page === "trash") void showNotes({ tab: page, query: {} });
       else void { today: showToday, tasks: showTasks, calendar: showCalendar, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory, shared: showShared, checkup: showCheckup, "query-help": showQueryHelp }[page]();
@@ -1401,6 +1418,29 @@ async function showReplace(opts: { push?: boolean } = {}) {
   renderOutline();
 }
 
+/** From ⌘⇧P: the focused note's History, its latest label compared with now and ready to restore (or a word on how to make one). */
+async function restoreVersion() {
+  const s = active.session;
+  if (!s || s.kind === "asset") return;
+  await flushSave();
+  const labels = await api.labels(s.path).catch(() => null);
+  const latest = labels?.sort((a, b) => b.ts - a.ts)[0];
+  if (latest) return showLabel(latest);
+  await showHistory({ note: s.path });
+  toast({ icon: "label", text: "No labeled versions yet", detail: "Pick a change in History to restore it, or Label this version to name one for later." });
+}
+
+/** Ask which tag (from ⌘⇧P, with no tag in view), under the search button. */
+function pickTag(placeholder: string, onPick: (tag: string) => void) {
+  tagPicker($("#search-btn"), { tags: tags.filter((t) => !unusedTag(t)), count: (t) => t.notes + t.tasks + t.assets, onPick, placeholder });
+}
+
+/** Tags, with `tag`'s row ready to rename (or merge). */
+async function renameTagOnPage(tag: string) {
+  await showTags();
+  tagsPage?.renameTag(tag);
+}
+
 async function showTags(opts: { push?: boolean } = {}) {
   await leaveNote();
   showStage("tags");
@@ -1710,9 +1750,9 @@ async function exportZip(what: { paths?: string[]; folder?: string; all?: boolea
   }
 }
 
-/** Pick .md files or a .zip and bring them all in (see importNotes.ts). */
+/** Pick .md files or a .zip and bring them all in (see importNotes.ts): which app they're from is told from what's in them. */
 async function importNotes() {
-  const picked = await pickFiles(".md,.markdown,.html,.htm,.zip,application/zip,text/markdown");
+  const picked = await pickFiles(".md,.markdown,.html,.htm,.txt,.zip,.enex,application/zip,text/markdown");
   if (!picked.length) return;
   toast({ icon: "upload", text: "Importing…" });
   try {
@@ -3880,6 +3920,9 @@ function renderCodeWrapSoon() {
   codeWrapTimer = window.setTimeout(renderCodeWrap, 300);
 }
 
+/** Online, who's signed in (for Settings' Danger zone); locally, null. */
+let signedIn: Me["user"] | null = null;
+
 /** Local vaults: where the vault and the `commonink` command are, for connecting an agent. Online, null. */
 let localVault: { vault?: string; projectRoot?: string } | null = null;
 
@@ -3916,6 +3959,9 @@ function openSettings(query?: string) {
             ),
           shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
           connectAgent,
+          deleteAccount: signedIn
+            ? () => void import("./deleteAccount.ts").then((d) => d.showDeleteAccount(signedIn!, (t) => toast(t), () => exportZip({ all: true })))
+            : null,
         }),
       { query },
     ),
@@ -4250,6 +4296,7 @@ async function boot() {
     api.reportTimeZone().catch(() => {}); // unreported, agents use the owner's zone, or UTC
     $("#settings-btn").remove(); // the account menu has Settings
     account = renderAccount(who.me, ws, (t) => toast(t), () => openSettings());
+    signedIn = who.me.user;
     $("#shared-btn").hidden = false;
     setShareWithPeople({ label: "Share with people…", icon: "share-people", run: (note) => openShareDialog({ path: note.path }) });
     setSaveToDrive({ label: "Save to Google Drive…", icon: "drive", run: (note) => void saveNoteToDrive(note) });

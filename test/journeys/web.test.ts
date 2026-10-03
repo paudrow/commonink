@@ -34,12 +34,29 @@ async function typeInNote(page: Page, keys: string[]) {
   await page.locator('#vim-mode[data-mode="insert"]').waitFor();
   for (const k of keys) {
     if (k === "{pick}") {
-      await page.locator(".cm-tooltip-autocomplete [role=option]").first().waitFor();
+      await pickReady(page);
       await page.keyboard.press("Enter");
     } else if (k.startsWith("{") && k.endsWith("}")) await page.keyboard.press(k.slice(1, -1));
     else await page.keyboard.type(k);
   }
   await page.keyboard.press("Escape");
+}
+
+/**
+ * Waits until the suggestions have settled and can take a key. They fill in as results come back, and
+ * CodeMirror ignores Enter for its interactionDelay (75 ms) after the list changes, so an Enter pressed
+ * too soon types a new line instead of picking.
+ */
+async function pickReady(page: Page) {
+  const list = page.locator(".cm-tooltip-autocomplete");
+  await list.locator("[role=option]").first().waitFor();
+  let last = "";
+  for (let i = 0; i < 50; i++) {
+    const now = await list.innerHTML();
+    if (now === last) return;
+    last = now;
+    await page.waitForTimeout(150);
+  }
 }
 
 /** Opens a note by name from search (Ctrl+K), as a person does. */
@@ -225,7 +242,7 @@ journey("Delete a note by mistake and get it back", ({ given, when, then, and })
   });
   when("I open Trash and restore it", async () => {
     await page.locator("#notes-view").getByRole("button", { name: "Trash", exact: true }).click();
-    await page.locator(".tr-row", { hasText: "Groceries" }).getByRole("button", { name: "Restore" }).click();
+    await page.locator("#notes-view .feed-card", { hasText: "Groceries" }).getByRole("button", { name: "Restore (r)" }).click();
   });
   then("it's back in the vault folder, unchanged", async () => {
     await eventually(() => assert.equal(app.read("Groceries.md"), groceries));
