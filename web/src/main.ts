@@ -52,6 +52,7 @@ import { did, vaultEvents } from "./events.ts";
 import { guideMessage, startGuide } from "./onboarding.ts";
 import { watchTodayCleared } from "./todayCleared.ts";
 import { awayStrip, startAway } from "./away.ts";
+import { watchTodayRing } from "./todayRing.ts";
 import { inkState, setInk, startInks } from "./inkUnlocks.ts";
 import { gamified, loadGamified, onGamified, setGamified } from "./gamify.ts";
 import { isTestSite, store } from "./store.ts";
@@ -3726,6 +3727,7 @@ async function boot() {
   if (!viewer) void startGuide({ archive: (path) => void archivePath(path), flush: () => flushSave() });
   if (!viewer) watchTodayCleared();
   if (!viewer) startAway({ seeChanges: (after) => void showHistory({ since: after }), workspace: () => workspaceId });
+  watchTodayRing($("#today-btn")); // fills as today's tasks are ticked
   startInks({ choose: () => openSettings("ink") });
 
   void refreshTaskCount();

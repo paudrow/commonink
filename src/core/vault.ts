@@ -362,6 +362,8 @@ export interface TodayView {
   sections: TodaySection[];
   /** Today's journal note, and whether it's been written yet. */
   journal: { path: string; exists: boolean };
+  /** How many tasks that would be in a section were ticked today (`done:` the reader's day): the Today ring's progress. */
+  done: number;
 }
 
 /** Cut the task on line index `i`, with the lines nested under it, out of `lines`; returns them, lifted to the top level. */
@@ -2086,6 +2088,10 @@ export class Vault {
     const into = (id: string) => open.filter((t) => todaySection(t.meta, date) === id);
     const overdue = into("overdue").sort((a, b) => a.meta.due!.localeCompare(b.meta.due!));
     const [due, starting] = [into("due"), into("starting")];
+    // Ticked today, and overdue, due or starting today: what Today had and is now done.
+    const ticked = this.taskRows("t.done = 1 AND (substr(t.due, 1, 10) <= ? OR substr(t.start, 1, 10) = ?)", date, date)
+      .map(toTask)
+      .filter((t) => t.meta.done?.slice(0, 10) === date && todaySection(t.meta, date) !== null).length;
     const journal = `Journal/${date}.md`;
     return {
       date,
@@ -2095,6 +2101,7 @@ export class Vault {
         { id: "starting", title: "Starting today", tasks: starting },
       ],
       journal: { path: journal, exists: this.files.stat(journal) !== null },
+      done: ticked,
     };
   }
 
