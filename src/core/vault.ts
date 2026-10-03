@@ -22,7 +22,7 @@ import {
   type Contact, type ContactFields, type ContactInput, type ContactNote, type MemberRef, type TimelineItem,
 } from "./contacts.ts";
 import { cleanTitle, fillTemplate, JOURNAL_TEMPLATES, localNow, TEMPLATES, templateInfo, type FillOptions, type TemplateInfo } from "./templates.ts";
-import { frontmatterEntries, listOf } from "./frontmatter.ts";
+import { frontmatterEntries, listOf, propsOf } from "./frontmatter.ts";
 import { taskChanges, type AwaySummary } from "./away.ts";
 import { findMentions, linkMentionIn, type Mention } from "./mentions.ts";
 import { replaceIn, type ReplacedLine, type ReplaceOptions } from "./replace.ts";
@@ -509,7 +509,9 @@ export class Vault {
       this.db.run("DELETE FROM links WHERE src = ?", rel);
       this.db.run("DELETE FROM tags WHERE path = ? AND kind != 'asset'", rel);
       this.db.run("DELETE FROM tasks WHERE path = ?", rel);
+      this.db.run("DELETE FROM props WHERE path = ?", rel);
       if (kind === "md" && content) {
+        insertRows(this.db, "INSERT INTO props(path, key, value)", propsOf(content).map((p) => [rel, p.key, p.value]));
         const tasks = tasksIn(content).map(({ line, done, ...task }) => [rel, line, done ? 1 : 0, task.meta.due, task.meta.start, JSON.stringify(task)]);
         insertRows(this.db, "INSERT INTO tasks(path, line, done, due, start, task)", tasks);
         insertRows(this.db, "INSERT INTO links(src, key, kind, line)", extractLinks(content).map((l) => [rel, linkStem(l.key), l.kind, l.line]));
@@ -602,6 +604,7 @@ export class Vault {
       this.db.run("DELETE FROM links WHERE src = ?", rel);
       this.db.run("DELETE FROM tags WHERE path = ? AND kind != 'asset'", rel);
       this.db.run("DELETE FROM tasks WHERE path = ?", rel);
+      this.db.run("DELETE FROM props WHERE path = ?", rel);
     });
   }
 
@@ -879,19 +882,29 @@ export class Vault {
     const created = termsOf(expr).some((t) => t.kind === "date" && t.field === "created") || sort === "created" ? this.createdTimes() : null;
     const createdOf = (r: (typeof rows)[number]) => Math.min(created?.get(r.id) ?? r.mtime, r.mtime);
     if (expr) {
-      // Each term's notes, found once: words through the full-text index, tags through the tags table.
+      // Each term's notes, found once: words through the full-text index, tags through the tags table,
+      // properties through the props table (status=draft: any of its status values is "draft", in any case).
       const sets = new Map<Term, Set<string>>();
       const setOf = (t: Term) => {
         if (!sets.has(t)) {
           const match = t.kind === "text" ? toFts(t) : null;
-          sets.set(t, t.kind === "tag" ? tagged(t.tag) : new Set(match ? this.db.all<{ path: string }>("SELECT path FROM notes_fts WHERE notes_fts MATCH ?", match).map((r) => r.path) : []));
+          const want = t.kind === "prop" ? t.value?.toLowerCase() : undefined;
+          sets.set(
+            t,
+            t.kind === "tag" ? tagged(t.tag)
+            : t.kind === "prop" ? new Set(this.db.all<{ path: string; value: string }>("SELECT path, value FROM props WHERE key = ?", t.key).filter((r) => want === undefined || r.value.toLowerCase() === want).map((r) => r.path))
+            : new Set(match ? this.db.all<{ path: string }>("SELECT path FROM notes_fts WHERE notes_fts MATCH ?", match).map((r) => r.path) : []),
+          );
         }
         return sets.get(t)!;
       };
       const today = this.day();
       const dayOf = dayFormat(this.timeZone);
       const test = (r: (typeof rows)[number]) => (t: Term) =>
-        t.kind === "folder" ? inFolders(homeOf(r.path), t.folders) : t.kind === "date" ? dayPasses(dayOf(t.field === "created" ? createdOf(r) : r.mtime), t, today) : setOf(t).has(r.path);
+        t.kind === "folder" ? inFolders(homeOf(r.path), t.folders)
+        : t.kind === "date" ? dayPasses(dayOf(t.field === "created" ? createdOf(r) : r.mtime), t, today)
+        : t.kind === "prop" && t.key === "title" ? t.value === null || r.title.toLowerCase() === t.value.toLowerCase()
+        : setOf(t).has(r.path);
       rows = rows.filter((r) => evaluate(expr, test(r)));
     }
     if (sort === "created") rows = [...rows].sort((a, b) => createdOf(b) - createdOf(a));
