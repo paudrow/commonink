@@ -378,6 +378,13 @@ const send = (method: string, body: unknown): RequestInit => ({
 
 const resolveCache = new Map<string, Promise<string | null>>();
 
+type PlanWorkspace = { id: string; name: string; kind: "personal" | "team" };
+export interface DeletionPlan {
+  deletes: PlanWorkspace[];
+  leaves: PlanWorkspace[];
+  blocked: PlanWorkspace[];
+}
+
 export const api = {
   /** Locally, `vault` and `projectRoot` (where bin/commonink is) are absolute paths. */
   info: () => j<{ mode: "local" | "cloud"; name: string; vault?: string; projectRoot?: string }>(`${BASE}/info`),
@@ -387,6 +394,10 @@ export const api = {
   /** Online: tell the server this browser's time zone, so your agents' "today" is yours. */
   reportTimeZone: () => j<{ timeZone: string }>("/api/me/time-zone", send("POST", { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })),
   signOutEverywhere: () => j<{ ok: true }>("/api/sign-out-everywhere", send("POST", {})),
+  /** What deleting your account would take with it, leave, or be stopped by (a team you alone own). */
+  deletionPlan: () => j<DeletionPlan>("/api/me/delete"),
+  /** Delete your account for good; `confirm` is your email. */
+  deleteAccount: (confirm: string) => j<{ ok: true } & DeletionPlan>("/api/me/delete", send("POST", { confirm })),
   /** Online: the agents you've connected over MCP, most recently used first. */
   agents: () => j<ConnectedAgent[]>("/api/agents"),
   revokeAgent: (id: string) => j<{ ok: true }>("/api/agents/revoke", send("POST", { id })),

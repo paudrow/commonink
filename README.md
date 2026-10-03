@@ -186,6 +186,8 @@ Online, **Workspace settings…** in the account menu (**Members…** if you are
 - Owners **delete** a team workspace by typing its name: its notes, files, members, invite links and agents' access all go. There's no export yet, so the dialog says to copy out anything worth keeping first.
 - Every one of these is logged in `workspace_log` in D1, and owners see it as **Activity**.
 
+**Delete account…**, in Settings under **Danger zone** (online only), deletes your account for good (`cloud/src/account.ts`, `POST /api/me/delete`). It first lists what goes: your personal workspace and any team only you are in, every note and file in them. Teams others are in, you leave (as Leave does), and they keep what you wrote; a team you're the only owner of stops it until someone else is an owner. It offers **Export all notes (.zip)**, then asks you to type your email. Your sessions, agents (the CLI too), Google connection, invite links and what's shared with you go with it; teams you co-owned and shares you made there pass to another owner.
+
 ## Who can sign up
 
 Signed out, `commonink.app/` is the landing page (`cloud/src/landing.ts`): what Common Ink is, and Get started, which is Google sign-in. It's one page with its styles inline and no script. Signed in, `/` is the app, and every other address (notes, invites, shared links) works as before.

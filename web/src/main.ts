@@ -9,7 +9,7 @@ import { cleanTag, normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
 import { setSaveToDrive, setShareState, setShareWithPeople, SHARE_KEYS, toggleShareMenu, type ShareNote } from "./share.ts";
-import type { Label } from "./api.ts";
+import type { Label, Me } from "./api.ts";
 import { hideBanner, showBanner } from "./banner.ts";
 import { showConflict as conflictBanner } from "./conflict.ts";
 import { notesChanged } from "./editor/livePreview.ts";
@@ -3386,6 +3386,9 @@ function renderCodeWrapSoon() {
   codeWrapTimer = window.setTimeout(renderCodeWrap, 300);
 }
 
+/** Online, who's signed in (for Settings' Danger zone); locally, null. */
+let signedIn: Me["user"] | null = null;
+
 /** Local vaults: where the vault and the `commonink` command are, for connecting an agent. Online, null. */
 let localVault: { vault?: string; projectRoot?: string } | null = null;
 
@@ -3422,6 +3425,9 @@ function openSettings(query?: string) {
             ),
           shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
           connectAgent,
+          deleteAccount: signedIn
+            ? () => void import("./deleteAccount.ts").then((d) => d.showDeleteAccount(signedIn!, (t) => toast(t), () => exportZip({ all: true })))
+            : null,
         }),
       { query },
     ),
@@ -3649,6 +3655,7 @@ async function boot() {
     api.reportTimeZone().catch(() => {}); // unreported, agents use the owner's zone, or UTC
     $("#settings-btn").remove(); // the account menu has Settings
     account = renderAccount(who.me, ws, (t) => toast(t), () => openSettings());
+    signedIn = who.me.user;
     $("#shared-btn").hidden = false;
     setShareWithPeople({ label: "Share with people…", icon: "share-people", run: (note) => openShareDialog({ path: note.path }) });
     setSaveToDrive({ label: "Save to Google Drive…", icon: "drive", run: (note) => void saveNoteToDrive(note) });
