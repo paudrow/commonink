@@ -6,7 +6,7 @@ import { EditorSelection, type EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
 import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, unusedTag, useWorkspace, whoAmI, ApiError, type Backlink, type Change, type Favorite, type NoteMeta, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite, type UnlinkedMention } from "./api.ts";
 import { cleanTag, normalizeTag, tagMatches } from "../../src/core/tags.ts";
-import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
+import { $, authorAvatar, dragsPage, draggedPage, PAGE_DRAG, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
 import { setSaveToDrive, setShareState, setShareWithPeople, SHARE_KEYS, toggleShareMenu, type ShareNote } from "./share.ts";
 import type { Label } from "./api.ts";
@@ -1860,7 +1860,7 @@ function renderSmartFolders(active: string | null) {
         },
       });
     });
-    return el(
+    const row = el(
       "div",
       {
         class: `tree-row is-file${f.query === active ? " is-active" : ""}`,
@@ -1877,6 +1877,8 @@ function renderSmartFolders(active: string | null) {
       el("span", { class: "n" }, String(f.count)),
       f.shared && viewer ? null : el("span", { class: "row-actions" }, edit),
     );
+    dragsPage(row, f.name, () => showNotes({ tab: "notes", query: parseQuery(f.query) }));
+    return row;
   });
   // Empty: one quiet line pointing at the header's +, the one way to add one from here.
   $("#smart-folders").replaceChildren(...(rows.length ? rows : [sectionHint("Click ", plusMark(), " to save a search here.")]));
@@ -1886,7 +1888,7 @@ const FAVORITE = "application/x-common-ink-favorite";
 
 /** A starred tag in Favorites: it opens Notes narrowed to the tag, like the tag's row under Tags. */
 function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
-  return el(
+  const row = el(
     "div",
     {
       class: `tree-row is-tag${active ? " is-active" : ""}`,
@@ -1908,6 +1910,8 @@ function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
     el("span", { class: "n" }, String(f.notes)),
     el("span", { class: "row-actions" }, tagStarButton(f.display, "row")),
   );
+  dragsPage(row, `#${f.display}`, () => showNotes({ tab: "notes", query: { tag: f.display } }));
+  return row;
 }
 
 /** Starred notes and tags, in your order: drag one to reorder, or drag a card in from Notes to star it. */
@@ -2144,6 +2148,7 @@ function renderTree() {
           ),
         );
         dropTarget(row, () => path);
+        dragsPage(row, path.split("/").pop()!, () => showNotes({ tab: "notes", query: { folder: path } }));
         return [row, ...(open ? walk(path, depth + 1) : [])];
       });
   const rows = walk("", 0);
@@ -2347,6 +2352,7 @@ function renderTagTree(active: string) {
             : el("button", { type: "button", class: "row-act", title: `Delete #${t.display}`, onclick: (e: Event) => (e.stopPropagation(), void deleteTag(t)) }, icon("trash", 14)),
           ),
         );
+        dragsPage(row, `#${t.display}`, () => (onlyTasks(t) ? showTasks({ tag: t.display }) : showNotes({ tab: "notes", query: { tag: t.display } })));
         return [row, ...(open ? walk(t.tag, depth + 1) : [])];
       });
   const rows = walk("", 0);
@@ -3293,33 +3299,47 @@ function setupPanes() {
     saveLayout();
   });
 
-  // Drag a note (a sidebar row, a Notes card, a task) or a link (in a note, a board's link card) onto
-  // the notes to open it in a split: on the left or right half it opens beside, near the top or
-  // bottom edge above or below (see dropDock). Once split, a drop on a pane opens it there (on the
-  // main pane, while it shows a note). The zone outlines where it'll go. Inside a board, its columns
-  // take the drag first.
+  // Drag onto the notes to show something there. A note (a sidebar row, a Notes card, a task) or a
+  // link (in a note, a board's link card) opens in a split: on the left or right half beside, near
+  // the top or bottom edge above or below (see dropDock); once split, in the pane it's dropped on. A
+  // page from the sidebar (Notes, Today, a folder, a tag, a smart folder) shows in the main pane,
+  // where pages show: dropped on an edge beside a note, it takes that edge and the note moves to the
+  // side pane across from it; dropped on the side pane, the panes swap places so it shows where it
+  // was dropped. The zone outlines where it'll go. Inside a board, its columns take the drag first.
   const zone = $("#side-drop");
-  type Drop = { pane: Pane; at?: Dock; label: string; box: { x: number; y: number; w: number; h: number } };
-  const dropAt = (x: number, y: number): Drop | null => {
+  type Box = { x: number; y: number; w: number; h: number };
+  type Drop = { pane: Pane; at?: Dock; swap?: boolean; label: string; box: Box };
+  const opposite = { right: "left", left: "right", top: "bottom", bottom: "top" } as const;
+  const where = { right: "on the right", left: "on the left", top: "above", bottom: "below" } as const;
+  const dropAt = (x: number, y: number, page?: string): Drop | null => {
     const r = stage.getBoundingClientRect();
     if (x < r.left || x > r.right || y < r.top || y > r.bottom) return null;
-    const rel = (b: DOMRect) => ({ x: b.left - r.left, y: b.top - r.top, w: b.width, h: b.height });
+    const here = page ? `Show ${page} here` : "Open here";
     if (split) {
-      const side = $("#side-pane").getBoundingClientRect();
-      if (x >= side.left && x <= side.right && y >= side.top && y <= side.bottom) return { pane: panes[1], label: "Open here", box: rel(side) };
-      if (onPage() || !panes[0].session) return null; // a page in the main pane keeps its own drops (a Notes card to a folder)
-      const main = $("#editor-host").getBoundingClientRect();
-      return { pane: panes[0], label: "Open here", box: rel(main.width ? main : $("#html-preview").getBoundingClientRect()) };
+      const s = $("#side-pane").getBoundingClientRect();
+      const side = { x: s.left - r.left, y: s.top - r.top, w: s.width, h: s.height };
+      if (x >= s.left && x <= s.right && y >= s.top && y <= s.bottom) return page ? { pane: panes[0], swap: true, label: here, box: side } : { pane: panes[1], label: here, box: side };
+      const main = {
+        right: { x: 0, y: 0, w: side.x, h: r.height },
+        left: { x: side.x + side.w, y: 0, w: r.width - side.x - side.w, h: r.height },
+        top: { x: 0, y: side.y + side.h, w: r.width, h: r.height - side.y - side.h },
+        bottom: { x: 0, y: 0, w: r.width, h: side.y },
+      }[layout.at];
+      return { pane: panes[0], label: here, box: main };
     }
+    // A page over a page takes its place: two pages don't show at once.
+    if (page && (onPage() || !panes[0].session)) return { pane: panes[0], label: `Show ${page}`, box: { x: 0, y: 0, w: r.width, h: r.height } };
     const at = dropDock((x - r.left) / r.width, (y - r.top) / r.height);
-    const s = layout.side;
+    // What's dropped gets the side pane's share of the window, or the main pane's for a page.
+    const s = page ? 1 - layout.side : layout.side;
     const box = {
       right: { x: r.width * (1 - s), y: 0, w: r.width * s, h: r.height },
       left: { x: 0, y: 0, w: r.width * s, h: r.height },
       top: { x: 0, y: 0, w: r.width, h: r.height * s },
       bottom: { x: 0, y: r.height * (1 - s), w: r.width, h: r.height * s },
     }[at];
-    return { pane: panes[1], at, label: { right: "Open on the right", left: "Open on the left", top: "Open above", bottom: "Open below" }[at], box };
+    if (page) return { pane: panes[0], at: opposite[at], label: `Show ${page} ${where[at]}`, box };
+    return { pane: panes[1], at, label: `Open ${where[at]}`, box };
   };
   const show = (d: Drop | null) => {
     zone.hidden = !d;
@@ -3333,17 +3353,38 @@ function setupPanes() {
     if (d.at) dockAt(d.at);
     open(d.pane);
   };
-  const dragging = (e: DragEvent) => !!e.dataTransfer?.types.some((t) => t === NOTE_DRAG || t === LINK_DRAG);
+  /** Show a dropped page in the main pane, moving the panes or the note there out of its way first. */
+  const landPage = async (d: Drop, open: () => unknown) => {
+    const note = panes[0].session?.path;
+    if (d.swap) {
+      layout.at = opposite[layout.at];
+      setSplit(true);
+      saveLayout();
+    }
+    await open();
+    if (d.at && note) {
+      dockAt(d.at);
+      await openNote(note, { pane: panes[1] });
+    }
+  };
+  /** The page being dragged, if it's a page (and from this window). */
+  const pageIn = (e: DragEvent) => (e.dataTransfer?.types.includes(PAGE_DRAG) ? draggedPage() : null);
+  const dragging = (e: DragEvent) => !!pageIn(e) || !!e.dataTransfer?.types.some((t) => t === NOTE_DRAG || t === LINK_DRAG);
   stage.addEventListener("dragover", (e) => {
-    const d = dragging(e) ? dropAt(e.clientX, e.clientY) : null;
+    const d = dragging(e) ? dropAt(e.clientX, e.clientY, pageIn(e)?.label) : null;
     show(d);
     if (d) e.preventDefault();
   });
   stage.addEventListener("dragleave", (e) => !stage.contains(e.relatedTarget as Node) && (zone.hidden = true));
   stage.addEventListener("drop", (e) => {
-    const d = !zone.hidden && dragging(e) ? dropAt(e.clientX, e.clientY) : null;
+    const page = pageIn(e);
+    const d = !zone.hidden && dragging(e) ? dropAt(e.clientX, e.clientY, page?.label) : null;
     zone.hidden = true;
     if (!d) return;
+    if (page) {
+      e.preventDefault();
+      return void landPage(d, page.open);
+    }
     const link = e.dataTransfer!.getData(LINK_DRAG);
     const path = e.dataTransfer!.getData(NOTE_DRAG);
     if (link) {
@@ -3542,6 +3583,18 @@ async function boot() {
   renderTheme();
   systemDark.addEventListener("change", () => theme() === "system" && renderTheme());
   window.addEventListener("popstate", (e) => void onPopState(e));
+  // Each page in the sidebar can be dragged onto the notes, to show it there (see setupPanes).
+  for (const [id, label, open] of [
+    ["#today-btn", "Today", () => showToday()],
+    ["#notes-btn", "Notes", () => showNotes({ tab: "notes", query: {} })],
+    ["#tasks-btn", "Tasks", () => showTasks()],
+    ["#calendar-btn", "Calendar", () => showCalendar()],
+    ["#contacts-btn", "Contacts", () => showContacts()],
+    ["#history-btn", "History", () => showHistory()],
+    ["#assets-btn", "Assets", () => showAssets()],
+    ["#shared-btn", "Shared with me", () => showShared()],
+  ] as const)
+    dragsPage($(id), label, open);
   $("#notes-btn").addEventListener("click", () => void showNotes({ tab: "notes", query: {} }));
   $("#today-btn").addEventListener("click", () => void showToday());
   $("#tasks-btn").addEventListener("click", () => void showTasks());

@@ -142,6 +142,24 @@ const ICONS: Record<string, string> = {
 /** What a dragged note carries (its path), from a card in Notes or a favorite to a folder, Favorites or Archive. */
 export const NOTE_DRAG = "application/x-common-ink-path";
 /**
+ * A dragged page: a sidebar row that shows something in the main pane (Notes, Today, a folder, a
+ * tag, a smart folder). The data is its name; dragover can't read data, so what it opens is kept here.
+ */
+export const PAGE_DRAG = "application/x-common-ink-page";
+let pageDragged: { label: string; open: () => unknown } | null = null;
+/** The page being dragged, if one is. */
+export const draggedPage = () => pageDragged;
+/** Make a row a page you can drag onto the notes: `label` names it ("Notes", "Projects"), `open` shows it in the main pane. */
+export function dragsPage(node: HTMLElement, label: string, open: () => unknown) {
+  node.draggable = true;
+  node.addEventListener("dragstart", (e) => {
+    pageDragged = { label, open };
+    e.dataTransfer!.setData(PAGE_DRAG, label);
+    if (e.dataTransfer!.effectAllowed === "uninitialized") e.dataTransfer!.effectAllowed = "copyMove";
+  });
+  node.addEventListener("dragend", () => (pageDragged = null));
+}
+/**
  * A dragged link: in HTML drag and drop, data of this type is `{ target, from }` (the [[target]]
  * and the note it's in, resolved where it lands); a link dragged in the editor sends window events
  * of this name, with a LinkDrag each.

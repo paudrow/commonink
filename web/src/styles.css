@@ -2699,6 +2699,10 @@ details.markdown-alert[open] > summary { margin-bottom: 0.3em; }
 /* Back and forward arrows: in the top bar (the focused pane) and in each split pane's bar. */
 .nav-arrows { display: inline-flex; align-items: center; gap: 2px; flex: none; }
 #topbar .nav-arrows { margin-right: 4px; }
+/* In a split each pane has its own arrows in its bar, so the top bar's go. */
+@media not all and (max-width: 760px) {
+  body.is-split #topbar .nav-arrows { display: none; }
+}
 .nav-arrow[aria-disabled="true"] { opacity: 0.4; cursor: default; }
 .nav-arrow[aria-disabled="true"]:hover { background: none; color: var(--muted); }
 .nav-trail .fp-item { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
