@@ -169,6 +169,24 @@ test("leaving a workspace takes your own calendars there with you", async () => 
   assert.deepEqual(await storage.exec("SELECT id FROM sources WHERE kind = 'google'"), []);
 });
 
+test("adding Google calendars is limited per person, as subscribing is, so even a viewer can't loop it against Google", async () => {
+  const { base, owner } = people;
+  const looper = await cloud.signIn("looper");
+  const { url } = await cloud.call(owner, "POST", `${base}/invites`, { role: "viewer" });
+  assert.equal((await cloud.request(looper, "POST", new URL(url).pathname)).status, 302);
+  await connect(looper);
+  const seen: number[] = [];
+  for (let i = 0; i < 61; i++) {
+    // Each add reads the whole calendar from Google, whether it's then removed or was never there.
+    const res = await cloud.request(looper, "POST", `${base}/calendar/google`, { calendar: i % 2 ? "nope@demo" : "holidays@demo" });
+    seen.push(res.status);
+    const added = res.status === 200 ? ((await res.json()) as { id: string }) : (await res.body?.cancel(), null);
+    if (added) await cloud.call(looper, "POST", `${base}/calendar/sources/remove`, { id: added.id });
+  }
+  assert.deepEqual([seen.slice(0, 60).every((s) => s !== 429), seen[60]], [true, 429]);
+  assert.equal((await cloud.request(looper, "POST", `${base}/calendar/refresh`, {})).status, 429, "the same hour's allowance as refreshing");
+});
+
 test("with a real Google client configured, connecting goes to Google, and the stand-in isn't there", async () => {
   const real = await startCloud({ GOOGLE_CLIENT_ID: "cid.apps.googleusercontent.com", GOOGLE_CLIENT_SECRET: "csecret", INTEGRATIONS_KEY: Buffer.alloc(32, 7).toString("base64") });
   try {

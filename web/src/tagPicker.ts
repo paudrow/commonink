@@ -20,12 +20,12 @@ export function tagChip(display: string, onClick: () => void): HTMLElement {
  * The filter chip: "Tag" opens the picker; with a tag chosen it shows `#tag` and an × to clear it.
  * `count` says how many of what this view lists each tag has, so tags with none are left out.
  */
-export function tagFilter(opts: { current: string; tags: () => TagCount[]; count: (t: TagCount) => number; onChange(tag: string): void }): HTMLElement {
+export function tagFilter(opts: { current: string; any?: boolean; tags: () => TagCount[]; count: (t: TagCount) => number; onChange(tag: string): void }): HTMLElement {
   if (opts.current) {
     // A smart folder can need several tags at once (`work,plan`).
     const display = tagList(opts.current)
       .map((c) => opts.tags().find((t) => t.tag === c.toLowerCase())?.display ?? c)
-      .join(" + #");
+      .join(opts.any ? " or #" : " + #");
     return el(
       "span",
       { class: "chip tag-filter is-on" },
