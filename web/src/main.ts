@@ -2035,7 +2035,7 @@ function setExpanded(folder: string, open: boolean) {
  */
 function placeMoreItems(shown: Record<MoreItem, boolean>, page: string | null) {
   const places = morePlaces(shown, prefs.sidebarPinned);
-  const more = $("#more-btn");
+  const more = $("#nav-more-btn");
   const list = $("#nav-more");
   const folded = !!prefs.folded.more;
   for (const item of MORE_ITEMS) {
@@ -3515,7 +3515,7 @@ async function boot() {
   $("#contacts-btn").addEventListener("click", () => void showContacts());
   $("#history-btn").addEventListener("click", () => void showHistory());
   $("#assets-btn").addEventListener("click", () => void showAssets());
-  $("#more-btn").addEventListener("click", () => {
+  $("#nav-more-btn").addEventListener("click", () => {
     prefs.folded.more = !prefs.folded.more;
     store.set("folded", prefs.folded);
     renderTree();
