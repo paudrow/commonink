@@ -2299,6 +2299,8 @@ body:has(#history-view:not([hidden])) #panel { opacity: 0; pointer-events: none;
   .hist-side { border-right: 0; border-bottom: 1px solid var(--line); }
 }
 .hist-move-who { margin-left: auto; font-size: 11.5px; color: var(--muted); }
+/* A phone's way from the list to the changes picked and back (mobile.css). */
+.hist-back, .hist-open { display: none; }
 
 /* ------------------------------------------------------------------ assets */
 #assets-view { position: absolute; inset: 0; overflow: auto; outline: none; }
