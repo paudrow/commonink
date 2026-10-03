@@ -21,12 +21,33 @@ export interface RunRequest {
 export type RunResponse = ({ ok: true } & Output) | { ok: false; error: string; code: string };
 
 const B64 = "$bytes";
+// Both ways go a slice at a time, never through one string or array the size of the whole file: a
+// Worker has 128 MB, and a file's bytes, its base64 and the JSON around it are all in memory at once.
+const SLICE = 3 * 0x2000; // bytes; a multiple of 3, so each slice's base64 has no padding in the middle
 const toB64 = (b: Uint8Array) => {
-  let s = "";
-  for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000));
-  return btoa(s);
+  const parts: string[] = [];
+  for (let i = 0; i < b.length; i += SLICE) parts.push(btoa(String.fromCharCode(...b.subarray(i, i + SLICE))));
+  return parts.join("");
 };
-const fromB64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+const fromB64 = (b64: string) => {
+  // atob skips ASCII whitespace (line-wrapped base64); slices must count only real characters.
+  const s = /[\t\n\f\r ]/.test(b64) ? b64.replace(/[\t\n\f\r ]+/g, "") : b64;
+  const end = s.endsWith("==") ? s.length - 2 : s.endsWith("=") ? s.length - 1 : s.length;
+  const out = new Uint8Array(Math.floor((end * 3) / 4));
+  let n = 0;
+  for (let i = 0; i < s.length; i += (SLICE / 3) * 4) {
+    const bin = atob(s.slice(i, i + (SLICE / 3) * 4));
+    for (let j = 0; j < bin.length; j++) out[n++] = bin.charCodeAt(j);
+  }
+  return n === out.length ? out : out.subarray(0, n);
+};
+
+/**
+ * The most a hosted workspace reads of a command (`POST /mcp/cli/run`): its JSON, files' base64 and all.
+ * Decoding takes a few times the body's size, so this keeps a Worker well inside its 128 MB. Bigger
+ * files go up through the app, which takes them as they are (up to 50 MB).
+ */
+export const MAX_RUN_BODY = 20 * 1024 * 1024;
 
 /** A value as JSON can carry it: bytes become `{"$bytes": "<base64>"}`. */
 export function toWire(v: unknown): unknown {

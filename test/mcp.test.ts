@@ -37,7 +37,7 @@ test("the server lists every tool", async () => {
     "import_contacts", "import_notes", "label_version", "list_contacts", "list_events", "list_folders", "list_labels", "list_notes", "list_smart_folders", "list_tags",
     "list_tasks", "list_templates", "list_trash", "merge_contacts", "missing_links", "move_card", "move_note", "move_task", "open_journal", "order_favorites",
     "read_board", "read_contact", "read_note", "recent_changes", "remove_task", "rename_folder", "rename_tag", "replace_text", "restore_change", "restore_from_trash", "restore_label",
-    "save_smart_folder", "search_notes", "set_asset_tags", "show_change", "star_note", "star_tag", "unarchive_note", "unstar_note", "unstar_tag",
+    "save_smart_folder", "search_notes", "set_asset_tags", "show_change", "star_note", "star_smart_folder", "star_tag", "unarchive_note", "unstar_note", "unstar_smart_folder", "unstar_tag",
     "update_contact", "update_task", "workspace_checkup", "write_note",
   ]);
 });
@@ -70,6 +70,16 @@ test("agents add a task from words, to today's journal note or a named note, and
   assert.equal(to.text, 'Added "- [ ] Draft the agenda" to Projects/Roadmap.md:10');
   assert.equal((await call("move_task", { path: "Roadmap", line: 10, text: "Draft the agenda", to: `Journal/${today}` })).text, `Moved "Draft the agenda" to Journal/${today}.md:6`);
   assert.equal((await call("add_task", { text: "tomorrow" })).isError, true);
+});
+
+test("an argument a tool doesn't take is refused, naming it and the ones it does, and nothing is written", async () => {
+  const before = fs.readdirSync(vault, { recursive: true }).length;
+  const r = await call("add_task", { text: "Book the venue for the offsite", to: "Projects/Plan" });
+  assert.equal(r.isError, true);
+  assert.match(r.text, /add_task has no argument `to`\. It takes: text\. .*→ \[\[Note\]\]/);
+  assert.equal(fs.readdirSync(vault, { recursive: true }).length, before);
+  assert.equal((await call("search_notes", { query: "offsite" })).text.includes("venue"), false);
+  assert.match((await call("list_tags", { bogus: 1, other: 2 })).text, /list_tags has no argument `bogus`, `other`\. It takes/);
 });
 
 test("agents read the day: overdue, due today, starting today, and the journal note", async () => {
@@ -144,9 +154,9 @@ test("search_notes sees files written straight to disk", async () => {
 
 test("agents save smart folders, list them with counts and list the notes in one", async () => {
   const saved = await call("save_smart_folder", { name: "Q3", query: "tag=q3 sort=title" });
-  assert.match(saved.text, /^- Q3 \(1 note, shared\): tag=q3 sort=title \[[a-z2-9]{8}\]$/);
+  assert.match(saved.text, /^- Q3 \(1 note\): tag=q3 sort=title \[[a-z2-9]{8}\]$/);
   assert.equal((await call("list_notes", { smart_folder: "q3" })).text, "- Projects/Roadmap.md — Roadmap");
-  assert.equal((await call("save_smart_folder", { name: "Bad", query: "sort=size" })).text, '"sort" is modified, date, oldest or title, not "size"');
+  assert.equal((await call("save_smart_folder", { name: "Bad", query: "sort=size" })).text, '"sort" is modified, date, oldest, title or created, not "size"');
   assert.equal((await call("delete_smart_folder", { smart_folder: "Q3" })).text, "No smart folders.");
 });
 

@@ -9,7 +9,7 @@ import { configFolder } from "../legacy.ts";
 import path from "node:path";
 import readline from "node:readline";
 import { EXIT, type Output } from "../core/commands/index.ts";
-import { CLI_ROUTE, fromWire, toWire, type RunRequest, type RunResponse } from "../core/commands/wire.ts";
+import { CLI_ROUTE, fromWire, MAX_RUN_BODY, toWire, type RunRequest, type RunResponse } from "../core/commands/wire.ts";
 
 export const DEFAULT_SERVER = "https://commonink.app";
 /** The scope that asks for every workspace (see cloud/src/agents.ts). */
@@ -281,7 +281,12 @@ const EXIT_OF: Record<string, number> = { usage: EXIT.usage, invalid: EXIT.error
 
 /** Run a command in a hosted workspace. */
 export async function runRemote(c: Credentials, req: RunRequest): Promise<Output> {
-  const res = await authed(c, "/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(toWire(req)) });
+  const sent = JSON.stringify(toWire(req));
+  // Refused here rather than after it's all been sent: the workspace reads no more than this.
+  if (Buffer.byteLength(sent) > MAX_RUN_BODY) {
+    throw new CliError(`That's too big to send to a hosted workspace: ${MAX_RUN_BODY / 1024 / 1024} MB at most, about ${Math.floor((MAX_RUN_BODY * 3) / 4 / 1024 / 1024)} MB of files. Upload bigger files in the app.`, "invalid", EXIT.error);
+  }
+  const res = await authed(c, "/run", { method: "POST", headers: { "content-type": "application/json" }, body: sent });
   const body = (await res.json().catch(() => null)) as RunResponse | { error?: string } | null;
   if (res.status === 429) throw new CliError((body as { error?: string })?.error ?? "Too many requests: try again soon.", "unavailable", EXIT.unavailable);
   if (!body || !("ok" in body)) throw new CliError(`${c.server} couldn't run it (${res.status})`, "unavailable", EXIT.unavailable);

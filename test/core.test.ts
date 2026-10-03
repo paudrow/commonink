@@ -246,7 +246,7 @@ test("backlinks leave out archived notes when asked, unless the note itself is a
   // An agent asking over MCP hears that some were left out, and how to see them.
   const run = (args: Record<string, unknown>) => notes.find((c) => c.mcp === "backlinks")!.run({ vault, source: "t" } as never, args as never) as { text: string };
   assert.equal(run({ path: "Plan" }).text, "- Notes/Live.md:3 (wikilink) [[Plan]]\n1 more from archived note (include_archived to see them).");
-  // Newest first, so which comes first depends on when each note was last saved.
+  // Newest first, so the order follows file times; check each line is there rather than the order.
   const all = run({ path: "Plan", include_archived: true }).text.split("\n").sort();
   assert.deepEqual(all, ["- Archive/Plan copy.md:3 (wikilink) [[Plan]] and [[Old]]", "- Notes/Live.md:3 (wikilink) [[Plan]]"]);
 });
@@ -393,13 +393,13 @@ test("reordering favorites while a starred note is gone leaves it last when it c
 
 test("a tag can be a favorite: in the same order as notes, following renames, dropping out when unused", () => {
   const { vault } = openTempVault({ "A.md": "# A\n\n#work/clients #home\n", "B.md": "# B\n\n#work/clients/acme\n" });
-  const shown = (user = "ana") => vault.favorites(user).map((f) => ("tag" in f ? `#${f.display} ${f.notes}` : f.path));
+  const shown = (user = "ana") => vault.favorites(user).map((f) => ("tag" in f ? `#${f.display} ${f.notes}` : "path" in f ? f.path : f.name));
   vault.star("ana", "A");
   vault.starTag("ana", "#Work/Clients");
   vault.starTag("ana", "work/clients"); // again: no change
   vault.starTag("ana", "home");
   assert.deepEqual(shown(), ["A.md", "#work/clients 2", "#home 1"]);
-  assert.deepEqual(vault.orderFavorites("ana", ["#home", "A.md"]).map((f) => ("tag" in f ? f.tag : f.path)), ["home", "A.md", "work/clients"]);
+  assert.deepEqual(vault.orderFavorites("ana", ["#home", "A.md"]).map((f) => ("tag" in f ? f.tag : "path" in f ? f.path : f.name)), ["home", "A.md", "work/clients"]);
   assert.throws(() => vault.starTag("ana", "nowhere"), /No note has #nowhere/);
   assert.deepEqual(shown("bo"), []);
 
@@ -413,16 +413,16 @@ test("a tag can be a favorite: in the same order as notes, following renames, dr
   assert.deepEqual(shown(), ["A.md"]); // unused: out of sight, but kept
   vault.append("B", "#job/clients again", "t");
   assert.deepEqual(shown(), ["A.md", "#Job/clients 1"]);
-  assert.deepEqual(vault.unstarTag("ana", "job/clients").map((f) => ("tag" in f ? f.tag : f.path)), ["A.md"]);
+  assert.deepEqual(vault.unstarTag("ana", "job/clients").map((f) => ("tag" in f ? f.tag : "path" in f ? f.path : f.name)), ["A.md"]);
 });
 
 test("favorites from before tag favorites keep their notes, and a tag can be starred after the upgrade", () => {
   const { dir, vault } = openTempVault({ "A.md": "# A\n\n#work\n" });
   vault.star("ana", "A");
   const reopened = openVault(dir);
-  assert.deepEqual(reopened.favorites("ana").map((f) => ("tag" in f ? f.tag : f.path)), ["A.md"]);
+  assert.deepEqual(reopened.favorites("ana").map((f) => ("tag" in f ? f.tag : "path" in f ? f.path : f.name)), ["A.md"]);
   reopened.starTag("ana", "work");
-  assert.deepEqual(reopened.favorites("ana").map((f) => ("tag" in f ? f.tag : f.path)), ["A.md", "work"]);
+  assert.deepEqual(reopened.favorites("ana").map((f) => ("tag" in f ? f.tag : "path" in f ? f.path : f.name)), ["A.md", "work"]);
 });
 
 test("only notes can be starred, not assets", () => {
@@ -731,6 +731,23 @@ test("today is overdue, due today and starting today, in sections, with today's 
   assert.throws(() => vault.today("Monday"), /"today" must be a date/);
 });
 
+test("today counts the tasks it had that were ticked today, for the Today ring", () => {
+  const { vault } = openTempVault({
+    "Plan.md": [
+      "- [x] Was overdue due:2026-09-20 done:2026-09-28",
+      "- [x] Due and done due:2026-09-28 done:2026-09-28",
+      "- [x] Started and done start:2026-09-28 due:2026-10-09 done:2026-09-28",
+      "- [x] Done yesterday due:2026-09-28 done:2026-09-27",
+      "- [x] Not today's due:2026-10-05 done:2026-09-28",
+      "- [x] No dates done:2026-09-28",
+      "- [ ] Still open due:2026-09-28",
+      "",
+    ].join("\n"),
+  });
+  assert.equal(vault.today("2026-09-28").done, 3);
+  assert.equal(vault.today("2026-09-29").done, 0);
+});
+
 test("today's journal note is made from Templates/Journal.md, else its old name Daily note.md, else a plain one", () => {
   const { dir, vault } = openTempVault({ "Welcome.md": "# Welcome\n" });
   const read = (p: string) => fs.readFileSync(path.join(dir, p), "utf8");
@@ -836,7 +853,7 @@ test("smart folders are saved queries, shared with the workspace or one person's
   const own = vault.saveSmartFolder("vi", { name: "Mine", query: "folder=Ideas", shared: false }, false);
   assert.equal(own.count, 1);
   assert.throws(() => vault.saveSmartFolder("ana", { id: own.id, name: "Taken", query: "", shared: false }, true), /No smart folder/);
-  assert.throws(() => vault.saveSmartFolder("ana", { name: "Bad", query: "colour=red", shared: true }, true), /Unknown query key "colour"/);
+  assert.throws(() => vault.saveSmartFolder("ana", { name: "Bad", query: "colour>red", shared: true }, true), /Only modified and created compare/);
   assert.throws(() => vault.saveSmartFolder("ana", { name: " ", query: "", shared: true }, true), /name/);
   assert.deepEqual(vault.deleteSmartFolder("ana", "client work", true), []);
 });
@@ -856,7 +873,9 @@ test("a smart folder can need several tags, a folder with spaces, and sort by ea
   // A nested tag counts toward its parent, as it does for one tag.
   assert.deepEqual(titles("tag=journal sort=date"), ["Swim", "2024-12-24", "Run log"]);
   assert.equal(vault.saveSmartFolder("ana", { name: "Health", query: 'folder="Health and Fitness"', shared: true }, true).count, 3);
+  assert.deepEqual(titles('folder="Health and Fitness|Journal" sort=title'), ["2024-12-24", "Gym plan", "Run log", "Swim"]);
   assert.deepEqual(vault.list(undefined, "active", "health,journal").map((n) => n.title), ["Swim", "Run log"]);
+  assert.deepEqual(titles("tag=health,journal match=any sort=title"), ["2024-12-24", "Gym plan", "Run log", "Swim"]);
 });
 
 test("starring and unstarring a tag only touches Favorites, never a smart folder with that tag's query", () => {
@@ -865,6 +884,26 @@ test("starring and unstarring a tag only touches Favorites, never a smart folder
   vault.starTag("ana", "workshop");
   assert.deepEqual(vault.unstarTag("ana", "workshop"), []);
   assert.deepEqual(vault.smartFolders("ana").map((f) => [f.id, f.query]), [[folder.id, "tag=workshop"]]);
+});
+
+test("a smart folder can be a favorite, beside notes and tags, and leaves Favorites when it's deleted or out of sight", () => {
+  const { vault } = openTempVault(TAGGED);
+  const f = vault.saveSmartFolder("ana", { name: "Clients", query: "tag=work/clients", shared: true }, true);
+  const mine = vault.saveSmartFolder("bo", { name: "Mine", query: "folder=Ideas", shared: false }, true);
+  vault.starTag("ana", "work");
+  const shown = (user: string) => vault.favorites(user).map((x) => ("smartFolder" in x ? `~${x.name} ${x.count}` : "tag" in x ? `#${x.tag}` : x.path));
+  assert.deepEqual(vault.starSmartFolder("ana", "clients").flatMap((x) => ("smartFolder" in x ? [x.id] : [])), [f.id]);
+  assert.deepEqual(shown("ana"), ["#work", "~Clients 2"]);
+  vault.orderFavorites("ana", ["~Clients"]);
+  assert.deepEqual(shown("ana"), ["~Clients 2", "#work"]);
+  assert.throws(() => vault.starSmartFolder("ana", "Mine"), /No smart folder/); // bo's own
+  vault.starSmartFolder("bo", mine.id);
+  vault.starSmartFolder("bo", f.id);
+  vault.saveSmartFolder("ana", { id: f.id, name: "Clients", query: "tag=work/clients", shared: false }, true); // now ana's alone
+  assert.deepEqual(shown("bo"), ["~Mine 1"]);
+  assert.deepEqual(vault.unstarSmartFolder("bo", "Mine"), []);
+  vault.deleteSmartFolder("ana", f.id, true);
+  assert.deepEqual(shown("ana"), ["#work"]);
 });
 
 test("a smart folder name means your own before a shared one, a saved query keeps no limit, and there's a cap", () => {

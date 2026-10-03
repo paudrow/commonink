@@ -6,7 +6,7 @@
 import { strFromU8, unzipSync } from "fflate";
 import { cleanPath, isHidden, kindOf, MAX_NOTE_BYTES, VaultError } from "./paths.ts";
 import type { LocalFile, VaultBytes } from "./commands/types.ts";
-import type { Vault } from "./vault.ts";
+import type { Change, Vault } from "./vault.ts";
 import { convertEntries, type ImportEntry, type ImportFrom } from "./convert.ts";
 
 /** The most notes one import may bring: a bigger vault goes a folder (or a .zip) at a time. */
@@ -113,12 +113,13 @@ export function pairsImport(notes: Record<string, string>, folder?: string): Imp
 /**
  * Write an import: every note is checked first (a path that can't be a note, the same note twice, too
  * many), then each is created, or replaced or left alone if it's already there, as `existing` says.
- * Files' bytes are stored through `bytes`; one that's already there is left as it is.
+ * Files' bytes are stored through `bytes`; one that's already there is left as it is. `written` hears
+ * each note written, with its change, so open tabs and History can be told.
  */
 export async function writeImport(
   vault: Vault,
   set: ImportSet,
-  opts: { existing?: OnExisting; source: string; bytes?: VaultBytes },
+  opts: { existing?: OnExisting; source: string; bytes?: VaultBytes; written?: (path: string, content: string, version: string, change: Change | null) => void },
 ): Promise<ImportResult> {
   const existing = opts.existing ?? "skip";
   if (!set.notes.length && !set.files.length) throw new VaultError(set.ignored.length ? "Nothing to import: no notes in that (only files the vault doesn't keep)" : "Nothing to import");
@@ -145,10 +146,12 @@ export async function writeImport(
   if (set.from && set.from !== "obsidian") r.from = set.from;
   for (const { rel, content } of notes) {
     if (!vault.files.stat(rel)) {
-      vault.create(rel, content, opts.source);
+      const w = vault.create(rel, content, opts.source);
+      opts.written?.(rel, content, w.version, w.change);
       r.created.push(rel);
     } else if (existing === "replace" && vault.files.read(rel) !== content) {
-      vault.save(rel, content, { source: opts.source });
+      const w = vault.save(rel, content, { source: opts.source });
+      opts.written?.(rel, content, w.version, w.change);
       r.replaced.push(rel);
     } else r.skipped.push(rel);
   }
