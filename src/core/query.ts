@@ -56,14 +56,17 @@ export function toQuery(args: Record<string, string>): NoteQuery {
  * A query's text as args. Forgiving the way people (and agents) write one: `tag=a tag=b` keeps both
  * tags, and an unquoted value runs on over plain words, so `folder=Health and Fitness` is one folder.
  * `bare` is a word that belongs to no key (`tag folder=Ideas`), for queryProblem to point at.
+ * A ' quotes only at the start of a value, so `folder=Bob's Notes` keeps its apostrophe; `unclosed`
+ * is a value that opens a ' and never closes it (`q='abc`).
  */
-function readQuery(src: string): { args: Record<string, string>; bare: string | null } {
+function readQuery(src: string): { args: Record<string, string>; bare: string | null; unclosed: boolean } {
   const args: Record<string, string> = {};
   const tags: string[] = [];
   let bare: string | null = null;
+  let unclosed = false;
   // The key=value pair, or the plain word, that a following plain word joins.
   let open: string | null = null;
-  for (const m of src.matchAll(/([\w-]+)=(?:"([^"]*)"|'([^']*)'|([^\s"']+))|([^\s"']+)/g)) {
+  for (const m of src.matchAll(/([\w-]+)=(?:"([^"]*)"|'([^']*)'|([^\s"]+))|([^\s"]+)/g)) {
     if (m[5] !== undefined) {
       const word = m[5];
       if (open && !(KEYS as readonly string[]).includes(word.replace(/=.*/, ""))) {
@@ -76,12 +79,13 @@ function readQuery(src: string): { args: Record<string, string>; bare: string | 
       continue;
     }
     const value = m[2] ?? m[3] ?? m[4];
+    if (m[4]?.startsWith("'")) unclosed = true;
     if (m[1] === "tag") tags.push(value);
     else args[m[1]] = value;
     open = m[4] !== undefined && (m[1] === "q" || m[1] === "folder" || m[1] === "tag") ? m[1] : null;
   }
   if (tags.length) args.tag = tags.join(",");
-  return { args, bare };
+  return { args, bare, unclosed };
 }
 
 export const parseQuery = (src: string) => toQuery(readQuery(src).args);
@@ -94,7 +98,8 @@ export function formatQuery(q: NoteQuery): string {
 /** What's wrong with a query someone wants to save, or null. Stricter than toQuery, which drops what it can't use. */
 export function queryProblem(src: string): string | null {
   if ((src.match(/"/g)?.length ?? 0) % 2) return "A quote isn't closed";
-  const { args, bare } = readQuery(src);
+  const { args, bare, unclosed } = readQuery(src);
+  if (unclosed) return "A quote isn't closed";
   if (bare) return `Give "${bare}" a value, like ${bare === "tag" ? "tag=work" : `${bare}=…`}`;
   for (const [k, v] of Object.entries(args)) {
     if (!(KEYS as readonly string[]).includes(k)) return `Unknown query key "${k}": use ${KEYS.slice(0, -1).join(", ")} or ${KEYS.at(-1)}`;
