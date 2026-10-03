@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 343
 title: The ::streak widget is gone
 ---
 Writing days now show in one place only: the week card on Today.
