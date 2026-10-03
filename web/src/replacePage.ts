@@ -1,6 +1,7 @@
 // Replace across notes (⌘K "Replace across notes…", /replace): find and replace plain text in every
 // note, or a folder's. The list shows each note that would change and its lines, old and new, as you
 // type. Replace all is one change per note, with one Undo for the lot, like renaming a tag.
+import { clickWhere, type Where } from "./panes.ts";
 import { api, type ReplacedNote } from "./api.ts";
 import { el, escapeHtml, icon } from "./dom.ts";
 import type { ToastSpec } from "./toast.ts";
@@ -8,7 +9,7 @@ import { findPattern, type ReplaceOptions } from "../../src/core/replace.ts";
 
 interface Hooks {
   folders(): string[];
-  open(path: string, line: number, side: boolean): void;
+  open(path: string, line: number, where: Where): void;
   /** Notes changed: fetch them again. */
   refresh(): Promise<void>;
   /** A viewer (online) can't change notes. */
@@ -123,7 +124,7 @@ export class ReplacePage {
       { class: "rp-note" },
       el(
         "button",
-        { type: "button", class: "rp-title", title: `Open ${n.path}`, onclick: (e: MouseEvent) => this.hooks.open(n.path, n.lines[0]?.line ?? 1, e.metaKey || e.ctrlKey) },
+        { type: "button", class: "rp-title", title: `Open ${n.path}`, onclick: (e: MouseEvent) => this.hooks.open(n.path, n.lines[0]?.line ?? 1, clickWhere(e)) },
         icon("file", 14),
         el("span", {}, n.title),
         el("span", { class: "rp-path" }, n.path),
@@ -132,7 +133,7 @@ export class ReplacePage {
       ...n.lines.map((l) =>
         el(
           "button",
-          { type: "button", class: "rp-line", onclick: (e: MouseEvent) => this.hooks.open(n.path, l.line, e.metaKey || e.ctrlKey) },
+          { type: "button", class: "rp-line", onclick: (e: MouseEvent) => this.hooks.open(n.path, l.line, clickWhere(e)) },
           el("span", { class: "rp-num" }, String(l.line)),
           el("span", { class: "rp-text", html: re ? diffLine(l.before, re, this.replace.value) : escapeHtml(l.after) }),
         ),

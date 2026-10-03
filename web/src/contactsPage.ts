@@ -3,6 +3,7 @@
 // what the notes say about them: when they were last mentioned, and where. The list searches and
 // filters by tag and company, says who looks like the same person twice (and merges them), and
 // imports vCard and CSV exports. Online, members of the workspace with no contact are listed too.
+import type { Where } from "./panes.ts";
 import { api, ApiError, type Contact, type Member, type TimelineItem } from "./api.ts";
 import { avatar, el, icon } from "./dom.ts";
 import { emptyState } from "./emptyState.ts";
@@ -15,8 +16,8 @@ import { mountTasks } from "./tasksView.ts";
 import { today } from "./taskChips.ts";
 
 interface Hooks {
-  /** Open a note (at a line; `side`: in the other pane). */
-  open(path: string, line?: number, side?: boolean): void;
+  /** Open a note (at a line; `where`: here, in a new tab or in the other pane). */
+  open(path: string, line?: number, where?: Where): void;
   /** Tasks with a tag, or one person's tasks (from a task's chips). */
   openTag(tag: string): void;
   openPerson(name: string): void;

@@ -1,5 +1,6 @@
 // Block-level live preview: whole-line embeds, tables and frontmatter render as widgets.
 // Block decorations must come from a StateField (they change vertical layout).
+import type { Where } from "../panes.ts";
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import { noteTree } from "./tree.ts";
 import { EditorSelection, EditorState, Facet, Prec, StateEffect, StateField, Transaction, type Line, type Range, type StateCommand, type Text } from "@codemirror/state";
@@ -37,8 +38,8 @@ export interface EditorContext {
   path: string;
   /** The note's stable ID, which it keeps through renames and moves: what's kept per note in this browser is keyed by it. */
   id?: string;
-  /** Open a note. `side`: to the side of this one (Cmd/Ctrl-click). */
-  openTarget(target: string, from: string, opts?: { side?: boolean }): void;
+  /** Open a note. `where`: here, in a new tab (⌘-click) or to the side of this one (⌘⌥-click). */
+  openTarget(target: string, from: string, opts?: { where?: Where }): void;
   createNote(name: string): void;
   notes(): NoteMeta[];
   /** Upload files (or pick some, if none given); resolves to the names to embed them by. */
@@ -366,7 +367,7 @@ class DirectiveWidget extends WidgetType {
       },
       focusEditor: () => view.focus(),
       editSource: () => reveal(view, root),
-      open: (target, line, side) => view.state.facet(editorContext).openTarget(line ? `${target}#L${line}` : target, this.note, { side }),
+      open: (target, line, where) => view.state.facet(editorContext).openTarget(line ? `${target}#L${line}` : target, this.note, { where }),
       openTag: (tag) => view.state.facet(editorContext).openTag(tag, "tasks"),
       saveSmartFolder: (query, name, anchor) => view.state.facet(editorContext).saveSmartFolder(query, name, anchor),
       sources: { tags: () => view.state.facet(editorContext).tags(), folders: () => view.state.facet(editorContext).folders() },

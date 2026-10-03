@@ -21,17 +21,17 @@ import { parse, textWords } from "../../src/core/queryGrammar.ts";
 import { queryHelpLink } from "./queryHelp.ts";
 import { hydrateTaskChips, withTaskChips } from "./taskChips.ts";
 import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
-import { linkClick, sideClick } from "./panes.ts";
+import { clickWhere, linkClick, modClick, type Where } from "./panes.ts";
 import { calendarTarget, openCalendarLink } from "./links.ts";
 import { emptyState } from "./emptyState.ts";
 import { AGENTS_BLURB, agentsBadge } from "./agentsNote.ts";
 import { notePath } from "../../src/core/ids.ts";
 
 interface Hooks {
-  /** `side`: to the side (a Cmd-click; Ctrl-click off a Mac). */
-  open(path: string, line?: number, side?: boolean): void;
-  /** In a new tab (a middle-click). */
-  openInTab?(path: string): void;
+  /** `where`: here, in a new tab (⌘-click, Ctrl-click off a Mac, or a middle-click) or to the side (⌘⌥-click). */
+  open(path: string, line?: number, where?: Where): void;
+  /** A card's right-click menu (Open in new tab, Open to the side…). */
+  menu?(path: string, at: { x: number; y: number }): void;
   starred(id: string): boolean;
   toggleStar(path: string): void;
   /** The filters changed (the sidebar marks the folder or smart folder being shown). */
@@ -417,7 +417,13 @@ export class NotesPage {
       const how = linkClick(e);
       if (how === "browser") return;
       e.preventDefault();
-      this.hooks.open(item.path, undefined, how === "side");
+      this.hooks.open(item.path, undefined, how);
+    });
+    title.addEventListener("auxclick", (e) => {
+      if (e.button !== 1) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.hooks.open(item.path, undefined, "tab");
     });
     const expandBtn = el("button", { type: "button", class: "fc-action fc-expand", title: open ? "Collapse (↵)" : "Expand (↵)", "aria-label": "Show the whole note", "aria-expanded": String(open) }, icon("chevron", 15));
     expandBtn.addEventListener("click", (e) => {
@@ -484,24 +490,29 @@ export class NotesPage {
         return;
       }
       const a = t.closest("a");
-      const side = sideClick(e);
+      const where = clickWhere(e);
       if (a) {
         const open = (target: string) =>
-          calendarTarget(target) !== null ? openCalendarLink(target) : void api.resolve(target, item.path).then((p) => p && this.hooks.open(p, undefined, side));
+          calendarTarget(target) !== null ? openCalendarLink(target) : void api.resolve(target, item.path).then((p) => p && this.hooks.open(p, undefined, where));
         if (followRenderedLink(a.getAttribute("href") ?? "", node, open)) e.preventDefault();
         return;
       }
-      if (side && !t.closest("button, input")) return this.hooks.open(item.path, undefined, true);
+      if (modClick(e) && !t.closest("button, input")) return this.hooks.open(item.path, undefined, where);
       // Reading an open card (selecting text, ticking tasks) shouldn't fold it back up.
       if (t.closest("input, .fc-full") || String(getSelection() ?? "")) return;
       this.toggleExpand(i);
     });
-    // A middle-click opens it in a new tab, as in a browser.
+    // A middle-click opens it in a new tab, as in a browser; a right-click offers that and the side.
     node.addEventListener("mousedown", (e) => e.button === 1 && !(e.target as Element).closest("a, button") && e.preventDefault()); // not the page's autoscroll
     node.addEventListener("auxclick", (e) => {
       if (e.button !== 1 || (e.target as Element).closest("a, button")) return;
       e.preventDefault();
-      this.hooks.openInTab?.(item.path);
+      this.hooks.open(item.path, undefined, "tab");
+    });
+    node.addEventListener("contextmenu", (e) => {
+      if (!this.hooks.menu || (e.target as Element).closest(".fc-full, input, textarea") || String(getSelection() ?? "")) return;
+      e.preventDefault();
+      this.hooks.menu(item.path, { x: e.clientX, y: e.clientY });
     });
     node.addEventListener("mousemove", () => this.setFocus(i, false));
     node.addEventListener("focusin", () => this.setFocus(i, false));

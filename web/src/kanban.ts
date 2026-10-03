@@ -7,7 +7,7 @@
 import { api, ApiError, type Task } from "./api.ts";
 import { displayName, el, icon, LINK_DRAG, NOTE_DRAG } from "./dom.ts";
 import { onVaultChange } from "./events.ts";
-import { IS_MAC, sideClick } from "./panes.ts";
+import { clickWhere, IS_MAC, modClick } from "./panes.ts";
 import { matchKeys } from "./keys.ts";
 import { renderMarkdown } from "./render.ts";
 import { followRenderedLink } from "./gfm.ts";
@@ -314,7 +314,7 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
           "div",
           { class: "kb-actions" },
           act("edit", "Edit (Enter)", () => openEdit(c, i, card)),
-          link ? act("split", "Open in split view", () => host.ctx.openTarget(link.target, host.path, { side: true })) : act("file", "Open as note", () => void openAsNote(c, i, card.text)),
+          link ? act("split", "Open in split view", () => host.ctx.openTarget(link.target, host.path, { where: "side" })) : act("file", "Open as note", () => void openAsNote(c, i, card.text)),
           act("trash", "Delete (⌫)", () => remove(c, i, card.text)),
         );
     const node = el(
@@ -333,7 +333,7 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
       actions,
     );
     // A side click takes the mousedown too, so the note editor around the board doesn't act on it.
-    node.addEventListener("mousedown", (e) => link && sideClick(e) && e.preventDefault());
+    node.addEventListener("mousedown", (e) => link && modClick(e) && e.preventDefault());
     node.addEventListener("click", (e) => {
       if (IS_MAC && e.ctrlKey) return; // the right-click menu
       const target = e.target as HTMLElement;
@@ -341,15 +341,15 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
       const tag = chip?.dataset.field === "tags" ? chip.dataset.value!.toLowerCase() : target.closest<HTMLElement>(".tag")?.dataset.tag;
       if (tag) return host.ctx.openTag(tag, "tasks");
       if (chip) return void (!host.readOnly && openChipEditor(chip, chipContext(c, i, card, task)));
-      if (link && target.closest(".kb-link-name")) return host.ctx.openTarget(link.target, host.path, { side: sideClick(e) });
+      if (link && target.closest(".kb-link-name")) return host.ctx.openTarget(link.target, host.path, { where: clickWhere(e) });
       if (target.closest(".kb-actions")) return;
       const a = target.closest("a");
       if (a) {
-        const side = sideClick(e);
-        if (followRenderedLink(a.getAttribute("href") ?? "", node, (t) => host.ctx.openTarget(t, host.path, { side }))) e.preventDefault();
+        const where = clickWhere(e);
+        if (followRenderedLink(a.getAttribute("href") ?? "", node, (t) => host.ctx.openTarget(t, host.path, { where }))) e.preventDefault();
         return;
       }
-      if (host.readOnly) return link && host.ctx.openTarget(link.target, host.path, { side: sideClick(e) });
+      if (host.readOnly) return link && host.ctx.openTarget(link.target, host.path, { where: clickWhere(e) });
       openEdit(c, i, card);
     });
     node.addEventListener("keydown", (e) => keys(e, node, c, i, card, link));

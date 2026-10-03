@@ -6,7 +6,7 @@ import { onVaultChange } from "../events.ts";
 import type { Field, WidgetSpec } from "./core.ts";
 import { formatQuery, toQuery } from "../../../src/core/query.ts";
 import { parse, textWords } from "../../../src/core/queryGrammar.ts";
-import { sideClick } from "../panes.ts";
+import { clickWhere } from "../panes.ts";
 import { queryHelpLink } from "../queryHelp.ts";
 
 const prevent = (e: Event) => e.preventDefault();
@@ -78,7 +78,7 @@ export const query: WidgetSpec = {
       const preview = hit ? highlight(hit.text, env.args.q ?? "") : escapeHtml(firstLine(item.excerpt));
       const node = el(
         "button",
-        { type: "button", class: "qq-row", onmousedown: prevent, onclick: (e: MouseEvent) => env.open(item.path, hit?.line, sideClick(e)) },
+        { type: "button", class: "qq-row", onmousedown: prevent, onclick: (e: MouseEvent) => env.open(item.path, hit?.line, clickWhere(e)) },
         icon(item.kind === "html" ? "html" : "file", 14),
         el(
           "span",

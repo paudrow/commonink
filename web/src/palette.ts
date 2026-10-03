@@ -7,7 +7,7 @@ import { matchCommands, type Command } from "./commands.ts";
 import { $, displayName, el, icon, markTerms, searchTerms } from "./dom.ts";
 import { fuzzyScore } from "./fuzzy.ts";
 import { agentsBadge, isAgentsNote } from "./agentsNote.ts";
-import { paletteEnter } from "./panes.ts";
+import { paletteEnter, type Where } from "./panes.ts";
 import { kbd, matchKeys } from "./keys.ts";
 import { people, rankPeople, type Person } from "./people.ts";
 
@@ -81,7 +81,7 @@ export class Palette {
   constructor(
     private notes: () => NoteMeta[],
     /** `how`: in place, to the side (⌘Enter), or in a new tab (⌥Enter). */
-    private onOpen: (path: string, line: number | undefined, how: "open" | "side" | "tab") => void,
+    private onOpen: (path: string, line: number | undefined, how: Where) => void,
     private onCreate: (name: string) => void,
     private commands: () => Command[],
     private scopes: PaletteScopes,
@@ -283,7 +283,7 @@ export class Palette {
     row?.scrollIntoView?.({ block: "nearest" });
   }
 
-  private choose(i: number, how: ReturnType<typeof paletteEnter> = "open") {
+  private choose(i: number, how: ReturnType<typeof paletteEnter> = "here") {
     const item = this.items[i];
     const q = this.input.value.trim();
     this.close();
