@@ -41,6 +41,8 @@ export interface ContactFields {
 /** A contact as a note: its fields, and where it is. */
 export interface ContactNote extends ContactFields {
   path: string;
+  /** The Google contact it's synced with (`google: people/c…`; see googleContacts.ts), when it is. */
+  google?: string;
 }
 
 /** A contact in the vault, with how often and when last it's mentioned in other notes. */
@@ -145,6 +147,7 @@ export function contactFromNote(path: string, md: string): ContactNote {
   for (const e of frontmatterEntries(md).entries) {
     if ((LISTS as readonly string[]).includes(e.key)) c[e.key as ListField] = listOf(e);
     else if (e.key === "company" || e.key === "role") c[e.key] = scalarOf(e);
+    else if (e.key === "google" && /^people\/[\w-]+$/.test(scalarOf(e))) c.google = scalarOf(e);
     else if (e.key === "check_in") c.checkIn = scalarOf(e);
   }
   return c;
