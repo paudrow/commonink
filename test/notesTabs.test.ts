@@ -26,6 +26,7 @@ const page = new NotesPage({
   tags: () => [],
   saveQuery() {},
   delete: async () => [],
+  rename() {},
   starButton: () => document.createElement("span"),
   openPerson() {},
   readOnly: () => viewer,

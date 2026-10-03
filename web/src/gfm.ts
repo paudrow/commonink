@@ -172,7 +172,7 @@ export function followInPage(root: HTMLElement, href: string): boolean {
   try {
     target = root.querySelector(`#user-content-${CSS.escape(decodeURIComponent(id))}`);
   } catch {}
-  target?.scrollIntoView({ behavior: "smooth", block: "center" });
+  target?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
   return true;
 }
 

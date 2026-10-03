@@ -12,7 +12,7 @@ const page = async (p: string, headers: Record<string, string> = {}) => {
 };
 
 test("app pages get a strict CSP whose nonce is on every script, fresh each time", async () => {
-  const a = await page("/");
+  const a = await page("/", { cookie: await cloud.signIn("headers") }); // signed out, "/" is the landing page
   const nonce = a.headers.get("content-security-policy")!.match(/'nonce-([^']+)'/)![1];
   assert.equal(
     a.headers.get("content-security-policy"),
