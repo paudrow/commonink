@@ -1,7 +1,8 @@
 import "./dom.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appSettings, matchSettings, openSettings, type SettingsApp } from "../web/src/settings.ts";
+import { appSettings, matchSettings, openSettings, planText, type SettingsApp } from "../web/src/settings.ts";
+import type { Billing } from "../web/src/api.ts";
 
 (globalThis as any).matchMedia = () => ({ matches: false, addEventListener() {} });
 
@@ -32,6 +33,9 @@ function fakeApp(over: Partial<SettingsApp> = {}) {
     localVault: { projectRoot: "/code/commonink", vault: "/notes" },
     shortcuts: () => log.push("shortcuts"),
     connectAgent: () => log.push("connectAgent"),
+    billing: null,
+    subscribe: (i) => log.push(`subscribe:${i}`),
+    manageBilling: () => log.push("manageBilling"),
     deleteAccount: null,
     ...over,
   };
@@ -160,6 +164,46 @@ test("Ink: a radio group of swatches; locked ones say what earns them and can't 
   radios[0].click();
   assert.deepEqual(log, ["ink:viridian", "ink:indigo"]);
   document.activeElement!.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+});
+
+const billing = (plan: Billing["plan"]): Billing => ({
+  on: true,
+  plans: { month: { label: "$8 a month", price: 8 }, year: { label: "$60 a year ($5 a month)", price: 60 } },
+  graceDays: 7,
+  plan,
+});
+
+test("Plan shows only where billing is set up: subscribe until you do, then manage it on Stripe", () => {
+  const plan = (b: Billing | null) => {
+    const { app, log } = fakeApp({ billing: b });
+    return { log, settings: appSettings(app).filter((s) => s.section === "Plan") };
+  };
+  assert.deepEqual(plan(null).settings, []);
+  assert.deepEqual(plan({ ...billing({ status: "free", canWrite: true }), on: false }).settings, []);
+
+  const trial = plan(billing({ status: "trial", canWrite: true, trialEnds: Date.UTC(2026, 9, 17, 12) }));
+  assert.deepEqual(trial.settings.map((s) => s.title), ["Your plan", "Yearly: $60 a year ($5 a month)", "Monthly: $8 a month"]);
+  assert.match(trial.settings[0].description, /^Your free trial runs until October 17, 2026\./);
+  for (const s of trial.settings) if (s.control.kind === "button") s.control.run();
+  assert.deepEqual(trial.log, ["subscribe:year", "subscribe:month"]);
+
+  const paying = plan(billing({ status: "active", canWrite: true, interval: "year", periodEnd: Date.UTC(2027, 9, 3, 12), customer: true }));
+  assert.deepEqual(paying.settings.map((s) => s.title), ["Your plan", "Manage billing"]);
+  assert.equal(paying.settings[0].description, "You subscribe at $60 a year ($5 a month), renewing October 3, 2027. Thank you.");
+  const manage = paying.settings[1].control;
+  assert.ok(manage.kind === "button");
+  manage.run();
+  assert.deepEqual(paying.log, ["manageBilling"]);
+  // Search finds it by what people call it.
+  const { app } = fakeApp({ billing: billing({ status: "trial", canWrite: true, trialEnds: Date.now() }) });
+  assert.deepEqual(titles("subscription", app).slice(0, 1), ["Your plan"]);
+});
+
+test("each plan reads as a sentence: ending, a failed payment, lapsed", () => {
+  const end = Date.UTC(2026, 10, 3, 12);
+  assert.equal(planText(billing({ status: "active", canWrite: true, interval: "month", periodEnd: end, cancelling: true })), "You subscribe at $8 a month until November 3, 2026, when it ends. Resume it from Manage billing.");
+  assert.equal(planText(billing({ status: "past_due", canWrite: true, graceEnds: end })), "Your last payment didn't go through. Update your card by November 3, 2026 to keep editing.");
+  assert.match(planText(billing({ status: "lapsed", canWrite: false })), /read-only: everyone can still read and export them/);
 });
 
 test("online, Delete your account is in the Danger zone, last, and only opens the confirming dialog", () => {

@@ -7,6 +7,7 @@ import { AuthorizationError, getOAuthApi, type ConsentDescription, type GrantSum
 import { json } from "../../src/core/api.ts";
 import { escapeHtml, page, readSession, text } from "./auth.ts";
 import { getUser, membership, timeZoneFor, workspacesOf, type User, type WorkspaceRef } from "./directory.ts";
+import { actingRole } from "./billing.ts";
 import type { Env } from "./env.ts";
 import { D1Kv } from "./oauth-store.ts";
 import { agentSource, authorLabel } from "../../src/core/actor.ts";
@@ -70,7 +71,8 @@ async function serveMcp(req: Request, env: OAuthEnv, ctx: ExecutionContext<Agent
   const [user, ws, timeZone] = await Promise.all([getUser(env.DB, userId), membership(env.DB, userId, workspaceId), timeZoneFor(env.DB, userId, workspaceId)]);
   if (!user || !ws) return json({ error: "The person who connected this agent is no longer in that workspace" }, 403);
   const stub = env.WORKSPACE.get(env.WORKSPACE.idFromName(ws.id));
-  return stub.mcp(req, { workspace: ws.id, user: user.id, actor: agentSource(client, user.name), role: ws.role, timeZone });
+  // A workspace whose owner's plan has ended offers only the reading tools.
+  return stub.mcp(req, { workspace: ws.id, user: user.id, actor: agentSource(client, user.name), role: await actingRole(env, ws.id, ws.role), timeZone });
 }
 
 /** When a grant was last used (for Connected agents), kept to the minute to save a write per call. */

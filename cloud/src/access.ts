@@ -170,6 +170,9 @@ export const ACCOUNT_ROUTES = [
   "GET /api/google/calendars",
   "POST /api/google/drive",
   "POST /api/google/disconnect",
+  "GET /api/billing",
+  "POST /api/billing/checkout",
+  "POST /api/billing/portal",
 ] as const;
 export type AccountRoute = (typeof ACCOUNT_ROUTES)[number];
 
