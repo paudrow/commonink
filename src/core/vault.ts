@@ -165,6 +165,10 @@ export interface TrashItem {
   /** Where it was. */
   path: string;
   kind: NoteKind;
+  /** What a list calls it, as it would if it were back: its title, or for an asset its file name. */
+  title: string;
+  /** Its tags (a note's, as written), for filtering Trash as Notes is filtered. */
+  tags: string[];
   size: number;
   deletedAt: number;
   /** When it's deleted for good. */
@@ -230,6 +234,8 @@ export interface FeedItem {
   /** Who made the last change: a person, or an agent for one. */
   lastBy: Actor | null;
   role: NoteRole | null;
+  /** The properties asked for with `cols`, each with its values as written (a list has several). */
+  props?: Record<string, string[]>;
 }
 
 export interface Task {
@@ -788,7 +794,9 @@ export class Vault {
    * `folder` matches the note's original folder whether or not it's archived. Newest first puts
    * `start` notes ahead and the agents' instructions after the rest (see noteRoles.ts).
    */
-  feed(opts: Omit<NoteQuery, "limit"> & { scope?: ArchiveScope; offset?: number; limit?: number } = {}) {
+  feed(opts: Omit<NoteQuery, "limit"> & { scope?: ArchiveScope; offset?: number; limit?: number; cols?: string } = {}) {
+    // The frontmatter properties a table of these notes shows (`cols=status,due`), lowercase.
+    const cols = [...new Set((opts.cols ?? "").split(",").map((c) => c.trim().toLowerCase()).filter(Boolean))].slice(0, 20);
     const scope = opts.scope ?? "active";
     const words = parse(opts.q ?? "");
     const terms = textWords(words.expr);
@@ -809,6 +817,7 @@ export class Vault {
     // The page's tags and who changed each note last, a few queries for the whole page.
     const tags = new Map<string, string[]>();
     const last = new Map<string, Actor & { source: string }>();
+    const props = new Map<string, Record<string, string[]>>();
     for (let i = 0; i < page.length; i += 90) {
       const paths = page.slice(i, i + 90).map((r) => r.path);
       const marks = paths.map(() => "?").join(",");
@@ -825,6 +834,16 @@ export class Vault {
         ...paths,
       )) {
         last.set(c.path, c);
+      }
+      if (cols.length) {
+        for (const p of this.db.all<{ path: string; key: string; value: string }>(
+          `SELECT path, key, value FROM props WHERE path IN (${marks}) AND key IN (${cols.map(() => "?").join(",")}) ORDER BY rowid`,
+          ...paths,
+          ...cols,
+        )) {
+          const of = props.get(p.path) ?? props.set(p.path, {}).get(p.path)!;
+          (of[p.key] ??= []).push(p.value);
+        }
       }
     }
     const items: FeedItem[] = page.map((r) => {
@@ -843,6 +862,7 @@ export class Vault {
         lastSource: last.get(r.path)?.source ?? null,
         lastBy: last.has(r.path) ? { person: last.get(r.path)!.person, agent: last.get(r.path)!.agent } : null,
         role: roleOf(r.path),
+        ...(cols.length ? { props: props.get(r.path) ?? {} } : {}),
       };
     });
     return { items, total: rows.length, counts, folders: [...new Set(all.map((n) => homeOf(n.path)).filter((p) => p.includes("/")).map((p) => p.split("/")[0]))].sort() };
@@ -2398,7 +2418,9 @@ export class Vault {
   /** The ids of what's in Trash, newest first. */
   private trashIds(): string[] {
     const ids = new Set(this.files.listUnder(TRASH).map((f) => f.path.split("/")[1]).filter((id) => TRASH_ID.test(id)));
-    return [...ids].sort((a, b) => Number(b.split("-")[0]) - Number(a.split("-")[0]));
+    // Newest first; items deleted in the same millisecond go by their change, so the order never depends on the disk.
+    const key = (id: string) => id.split("-").map(Number);
+    return [...ids].sort((a, b) => key(b)[0] - key(a)[0] || key(b)[1] - key(a)[1]);
   }
 
   /** The deleted file in Trash item `id`, and what's kept beside it. */
@@ -2421,7 +2443,9 @@ export class Vault {
       const text = kind === "asset" ? "" : (this.files.read(f.at) ?? "");
       const noteId = this.db.get("SELECT note_id FROM changes WHERE id = ?", changeId)?.note_id;
       const labels = noteId ? (this.db.get("SELECT count(*) AS n FROM labels WHERE note_id = ?", noteId)?.n ?? 0) : 0;
-      return [{ id, path: f.path, kind, size: f.size, deletedAt: ms, expiresAt: ms + TRASH_DAYS * 86_400_000, by: c ?? null, labels, excerpt: kind === "md" ? excerptOf(splitFrontmatter(text).body, titleOf(text, kind, f.path), 240) : "" }];
+      const title = kind === "asset" ? path.posix.basename(f.path) : titleOf(text, kind, f.path);
+      const tags = kind === "md" ? [...new Map(scanTags(text).map((t) => [t.tag, t.display])).values()] : [];
+      return [{ id, path: f.path, kind, title, tags, size: f.size, deletedAt: ms, expiresAt: ms + TRASH_DAYS * 86_400_000, by: c ?? null, labels, excerpt: kind === "md" ? excerptOf(splitFrontmatter(text).body, title, 240) : "" }];
     });
   }
 

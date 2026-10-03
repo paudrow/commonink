@@ -193,6 +193,9 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   // No one here allowed saving to Drive.
   { route: "POST /api/google/drive", send: () => ["POST", "/api/google/drive?as=doc&title=x", {}], expect: [401, 409, 409, 409, 409] },
   { route: "POST /api/google/disconnect", send: () => ["POST", "/api/google/disconnect", {}], expect: SIGNED_IN },
+  { route: "GET /api/me/delete", send: () => ["GET", "/api/me/delete"], expect: SIGNED_IN },
+  // A wrong email deletes nothing: everyone signed in gets past to the 400.
+  { route: "POST /api/me/delete", send: () => ["POST", "/api/me/delete", { confirm: "not-my-email@example.com" }], expect: [401, 400, 400, 400, 400] },
   // Last: it ends everyone's sessions.
   { route: "POST /api/sign-out-everywhere", send: () => ["POST", "/api/sign-out-everywhere", {}], expect: SIGNED_IN },
 ];
