@@ -34,12 +34,29 @@ async function typeInNote(page: Page, keys: string[]) {
   await page.locator('#vim-mode[data-mode="insert"]').waitFor();
   for (const k of keys) {
     if (k === "{pick}") {
-      await page.locator(".cm-tooltip-autocomplete [role=option]").first().waitFor();
+      await pickReady(page);
       await page.keyboard.press("Enter");
     } else if (k.startsWith("{") && k.endsWith("}")) await page.keyboard.press(k.slice(1, -1));
     else await page.keyboard.type(k);
   }
   await page.keyboard.press("Escape");
+}
+
+/**
+ * Waits until the suggestions have settled and can take a key. They fill in as results come back, and
+ * CodeMirror ignores Enter for its interactionDelay (75 ms) after the list changes, so an Enter pressed
+ * too soon types a new line instead of picking.
+ */
+async function pickReady(page: Page) {
+  const list = page.locator(".cm-tooltip-autocomplete");
+  await list.locator("[role=option]").first().waitFor();
+  let last = "";
+  for (let i = 0; i < 50; i++) {
+    const now = await list.innerHTML();
+    if (now === last) return;
+    last = now;
+    await page.waitForTimeout(150);
+  }
 }
 
 /** Opens a note by name from search (Ctrl+K), as a person does. */
