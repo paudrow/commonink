@@ -60,11 +60,27 @@ export const openCalendarLink = (href: string) => window.dispatchEvent(new Custo
 export function missingNote(target: string, notes: ReadonlyArray<{ path: string }>): boolean {
   const name = target.replace(/[#|].*$/, "").trim();
   if (!name || NOTE_ID.test(name) || /^[a-z][a-z0-9+.-]*:|^\/|\.\./i.test(name)) return false;
-  const key = linkKey(name);
-  return !notes.some((n) => {
-    const k = linkKey(n.path);
-    return k === key || k.endsWith(`/${key}`);
-  });
+  return !linkIndex(notes).has(linkKey(name));
+}
+
+/**
+ * Every key a link can match in `notes`: each path's key and each tail of it after a "/". Built once
+ * per list (main.ts swaps in a new array on refresh), since the editor asks about every link on every
+ * keystroke and keying thousands of paths each time made typing lag in big vaults.
+ */
+const indexes = new WeakMap<ReadonlyArray<{ path: string }>, Set<string>>();
+function linkIndex(notes: ReadonlyArray<{ path: string }>): Set<string> {
+  let index = indexes.get(notes);
+  if (!index) {
+    index = new Set();
+    for (const n of notes) {
+      const k = linkKey(n.path);
+      index.add(k);
+      for (let i = k.indexOf("/"); i >= 0; i = k.indexOf("/", i + 1)) index.add(k.slice(i + 1));
+    }
+    indexes.set(notes, index);
+  }
+  return index;
 }
 
 const linkKey = (p: string) =>

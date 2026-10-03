@@ -136,7 +136,8 @@ test("POST /import writes the app's notes and announces each", async () => {
     user: "you",
     canEditShared: true,
     info: () => ({}),
-    written: (rel) => events.push(`written ${rel}`),
+    // An open tab and History hear a change only when one comes with the write.
+    written: (rel, content, version, change) => events.push(`written ${rel} ${change?.op ?? "no change"} ${version === vault.meta(rel)?.version} ${content === vault.files.read(rel)}`),
     moved: () => {},
     removed: () => {},
     tree: () => events.push("tree"),
@@ -148,7 +149,11 @@ test("POST /import writes the app's notes and announces each", async () => {
   const ok = await call({ notes: { "A.md": "# A\n", "Welcome.md": "# W\n" }, folder: "" });
   assert.equal(ok.status, 200);
   assert.deepEqual(ok.body.created, ["A.md"]);
-  assert.deepEqual(events, ["written A.md", "tree"]);
+  assert.deepEqual(events, ["written A.md create true true", "tree"]);
+  events.length = 0;
+  const replaced = await call({ notes: { "A.md": "# A again\n", "Welcome.md": "# W\n" }, existing: "replace" });
+  assert.deepEqual(replaced.body.replaced, ["A.md", "Welcome.md"]);
+  assert.deepEqual(events, ["written A.md edit true true", "written Welcome.md edit true true"]);
   assert.equal((await call({ notes: ["A.md"] })).status, 400);
   assert.equal((await call({ notes: {}, existing: "merge" })).status, 400);
 });
