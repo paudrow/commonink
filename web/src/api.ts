@@ -162,6 +162,8 @@ export interface TodayView {
   date: string;
   sections: Array<{ id: "overdue" | "due" | "starting"; title: string; tasks: Task[] }>;
   journal: { path: string; exists: boolean };
+  /** How many of today's tasks were ticked today (missing from an older server). */
+  done?: number;
 }
 
 export interface Task {
@@ -478,7 +480,7 @@ export const api = {
   /** Send notes and assets to Trash; `trashed` is what Undo restores. */
   delete: (paths: string[]) => j<{ trashed: Trashed[] }>(`${BASE}/delete`, send("POST", { paths })),
   deleteFolder: (folder: string, notes: "trash" | "lift") =>
-    j<{ trashed: Trashed[]; moved: Array<{ from: string; to: string }> }>(`${BASE}/delete-folder`, send("POST", { folder, notes })),
+    j<{ trashed: Trashed[]; moved: Array<{ from: string; to: string }>; unshared?: number }>(`${BASE}/delete-folder`, send("POST", { folder, notes })),
   /** Rename a folder (or move it under another): everything in it moves, links rewritten. */
   renameFolder: (folder: string, to: string) =>
     j<{ from: string; path: string; moved: Array<{ from: string; to: string }> }>(`${BASE}/folders/rename`, send("POST", { folder, to })),

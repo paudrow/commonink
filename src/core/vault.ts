@@ -22,7 +22,7 @@ import {
   type Contact, type ContactFields, type ContactInput, type ContactNote, type MemberRef, type TimelineItem,
 } from "./contacts.ts";
 import { cleanTitle, fillTemplate, JOURNAL_TEMPLATES, localNow, TEMPLATES, templateInfo, type FillOptions, type TemplateInfo } from "./templates.ts";
-import { frontmatterEntries, listOf } from "./frontmatter.ts";
+import { frontmatterEntries, listOf, propsOf } from "./frontmatter.ts";
 import { taskChanges, type AwaySummary } from "./away.ts";
 import { findMentions, linkMentionIn, type Mention } from "./mentions.ts";
 import { replaceIn, type ReplacedLine, type ReplaceOptions } from "./replace.ts";
@@ -362,6 +362,8 @@ export interface TodayView {
   sections: TodaySection[];
   /** Today's journal note, and whether it's been written yet. */
   journal: { path: string; exists: boolean };
+  /** How many tasks that would be in a section were ticked today (`done:` the reader's day): the Today ring's progress. */
+  done: number;
 }
 
 /** Cut the task on line index `i`, with the lines nested under it, out of `lines`; returns them, lifted to the top level. */
@@ -507,7 +509,9 @@ export class Vault {
       this.db.run("DELETE FROM links WHERE src = ?", rel);
       this.db.run("DELETE FROM tags WHERE path = ? AND kind != 'asset'", rel);
       this.db.run("DELETE FROM tasks WHERE path = ?", rel);
+      this.db.run("DELETE FROM props WHERE path = ?", rel);
       if (kind === "md" && content) {
+        insertRows(this.db, "INSERT INTO props(path, key, value)", propsOf(content).map((p) => [rel, p.key, p.value]));
         const tasks = tasksIn(content).map(({ line, done, ...task }) => [rel, line, done ? 1 : 0, task.meta.due, task.meta.start, JSON.stringify(task)]);
         insertRows(this.db, "INSERT INTO tasks(path, line, done, due, start, task)", tasks);
         insertRows(this.db, "INSERT INTO links(src, key, kind, line)", extractLinks(content).map((l) => [rel, linkStem(l.key), l.kind, l.line]));
@@ -600,6 +604,7 @@ export class Vault {
       this.db.run("DELETE FROM links WHERE src = ?", rel);
       this.db.run("DELETE FROM tags WHERE path = ? AND kind != 'asset'", rel);
       this.db.run("DELETE FROM tasks WHERE path = ?", rel);
+      this.db.run("DELETE FROM props WHERE path = ?", rel);
     });
   }
 
@@ -653,6 +658,34 @@ export class Vault {
    * Obsidian-style [[name]] to a vault path. `from` lets links prefer notes in the same folder.
    */
   resolve(target: string, from?: string): string | null {
+    return this.resolveIn(target, from);
+  }
+
+  /**
+   * resolve(), optionally answering "is this file here" from the index rather than the disk:
+   * `stems` keeps each `SELECT path FROM notes WHERE stem = ?` it has made. A path the index has
+   * is taken as is; one it has under another case or Unicode form is asked of the disk (a Mac's
+   * finds it, Linux's doesn't); one it has under no spelling isn't here, unless it's somewhere
+   * sync never looks.
+   */
+  private resolveIn(target: string, from?: string, stems?: Map<string, string[]>): string | null {
+    const byStem = (stem: string): string[] => {
+      let rows = stems?.get(stem);
+      if (!rows) {
+        rows = this.db.all("SELECT path FROM notes WHERE stem = ?", stem).map((r) => r.path as string);
+        stems?.set(stem, rows);
+      }
+      return rows;
+    };
+    /** `rel` as the index spells it, if that file is here. */
+    const here = (rel: string): string | null => {
+      if (!stems) return this.files.stat(rel) ? this.indexedPath(rel) : null;
+      const rows = byStem(stemOf(rel));
+      if (rows.includes(rel)) return rel;
+      const fold = (p: string) => p.normalize("NFC").toLowerCase();
+      const unsynced = rel.split("/").includes("node_modules");
+      return (unsynced || rows.some((p) => fold(p) === fold(rel))) && this.files.stat(rel) ? this.indexedPath(rel) : null;
+    };
     const t = target.trim().replace(/\\/g, "/").replace(/^\.?\/+/, "").replace(/#.*$/, "").replace(/\|.*$/, "");
     if (!t) return null;
     const candidates: string[] = [];
@@ -662,7 +695,8 @@ export class Vault {
       for (const p of kindOf(c) ? [c] : [`${c}.md`, c]) {
         try {
           const rel = cleanPath(p);
-          if (kindOf(rel) && this.files.stat(rel)) return this.indexedPath(rel);
+          const found = kindOf(rel) ? here(rel) : null;
+          if (found) return found;
         } catch {}
       }
     }
@@ -671,8 +705,7 @@ export class Vault {
     if (byId) return byId;
     const key = linkKey(t);
     const base = key.split("/").pop()!;
-    const rows = this.db.all("SELECT path FROM notes WHERE stem = ?", base)
-      .map((r) => r.path as string)
+    const rows = byStem(base)
       .filter((p) => linkKey(p) === key || linkKey(p).endsWith(`/${key}`));
     if (!rows.length) return null;
     const dir = from ? path.posix.dirname(from) : null;
@@ -849,19 +882,29 @@ export class Vault {
     const created = termsOf(expr).some((t) => t.kind === "date" && t.field === "created") || sort === "created" ? this.createdTimes() : null;
     const createdOf = (r: (typeof rows)[number]) => Math.min(created?.get(r.id) ?? r.mtime, r.mtime);
     if (expr) {
-      // Each term's notes, found once: words through the full-text index, tags through the tags table.
+      // Each term's notes, found once: words through the full-text index, tags through the tags table,
+      // properties through the props table (status=draft: any of its status values is "draft", in any case).
       const sets = new Map<Term, Set<string>>();
       const setOf = (t: Term) => {
         if (!sets.has(t)) {
           const match = t.kind === "text" ? toFts(t) : null;
-          sets.set(t, t.kind === "tag" ? tagged(t.tag) : new Set(match ? this.db.all<{ path: string }>("SELECT path FROM notes_fts WHERE notes_fts MATCH ?", match).map((r) => r.path) : []));
+          const want = t.kind === "prop" ? t.value?.toLowerCase() : undefined;
+          sets.set(
+            t,
+            t.kind === "tag" ? tagged(t.tag)
+            : t.kind === "prop" ? new Set(this.db.all<{ path: string; value: string }>("SELECT path, value FROM props WHERE key = ?", t.key).filter((r) => want === undefined || r.value.toLowerCase() === want).map((r) => r.path))
+            : new Set(match ? this.db.all<{ path: string }>("SELECT path FROM notes_fts WHERE notes_fts MATCH ?", match).map((r) => r.path) : []),
+          );
         }
         return sets.get(t)!;
       };
       const today = this.day();
       const dayOf = dayFormat(this.timeZone);
       const test = (r: (typeof rows)[number]) => (t: Term) =>
-        t.kind === "folder" ? inFolders(homeOf(r.path), t.folders) : t.kind === "date" ? dayPasses(dayOf(t.field === "created" ? createdOf(r) : r.mtime), t, today) : setOf(t).has(r.path);
+        t.kind === "folder" ? inFolders(homeOf(r.path), t.folders)
+        : t.kind === "date" ? dayPasses(dayOf(t.field === "created" ? createdOf(r) : r.mtime), t, today)
+        : t.kind === "prop" && t.key === "title" ? t.value === null || r.title.toLowerCase() === t.value.toLowerCase()
+        : setOf(t).has(r.path);
       rows = rows.filter((r) => evaluate(expr, test(r)));
     }
     if (sort === "created") rows = [...rows].sort((a, b) => createdOf(b) - createdOf(a));
@@ -988,9 +1031,10 @@ export class Vault {
    */
   private resolver() {
     const seen = new Map<string, string | null>();
+    const stems = new Map<string, string[]>();
     return (target: string, from: string) => {
       const key = `${path.posix.dirname(from)}\n${target}`;
-      if (!seen.has(key)) seen.set(key, this.resolve(target, from));
+      if (!seen.has(key)) seen.set(key, this.resolveIn(target, from, stems));
       return seen.get(key)!;
     };
   }
@@ -2057,6 +2101,10 @@ export class Vault {
     const into = (id: string) => open.filter((t) => todaySection(t.meta, date) === id);
     const overdue = into("overdue").sort((a, b) => a.meta.due!.localeCompare(b.meta.due!));
     const [due, starting] = [into("due"), into("starting")];
+    // Ticked today, and overdue, due or starting today: what Today had and is now done.
+    const ticked = this.taskRows("t.done = 1 AND (substr(t.due, 1, 10) <= ? OR substr(t.start, 1, 10) = ?)", date, date)
+      .map(toTask)
+      .filter((t) => t.meta.done?.slice(0, 10) === date && todaySection(t.meta, date) !== null).length;
     const journal = `Journal/${date}.md`;
     return {
       date,
@@ -2066,6 +2114,7 @@ export class Vault {
         { id: "starting", title: "Starting today", tasks: starting },
       ],
       journal: { path: journal, exists: this.files.stat(journal) !== null },
+      done: ticked,
     };
   }
 
