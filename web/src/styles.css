@@ -519,8 +519,32 @@ body.is-split #stage > :is(#editor-host, #html-preview) { top: calc(34px + var(-
 #pane-divider:hover, #pane-divider:focus-visible, body.is-resizing #pane-divider { background: linear-gradient(to right, transparent 3px, var(--accent-line) 3px, var(--accent-line) 6px, transparent 6px); outline: none; }
 body.is-resizing { cursor: col-resize; user-select: none; }
 body.is-resizing iframe { pointer-events: none; }
-#side-drop { position: absolute; top: 12px; right: 12px; bottom: 12px; width: min(40%, 360px); z-index: 20; display: flex; align-items: center; justify-content: center; gap: 8px; border: 2px dashed var(--accent); border-radius: 14px; background: color-mix(in srgb, var(--accent) 10%, var(--bg)); color: var(--accent-ink); font-weight: 600; pointer-events: none; }
+#side-drop { position: absolute; z-index: 20; transition: left 0.12s, top 0.12s, width 0.12s, height 0.12s; display: flex; align-items: center; justify-content: center; gap: 8px; border: 2px dashed var(--accent); border-radius: 14px; background: color-mix(in srgb, var(--accent) 10%, var(--bg)); color: var(--accent-ink); font-weight: 600; pointer-events: none; }
 #side-drop[hidden] { display: none; }
+/* Docked left, above or below (body[data-dock]), the side pane takes that edge and the main pane the rest. */
+/* (A phone shows one pane at a time, filling the window: see mobile.css.) */
+@media not all and (max-width: 760px) {
+  body.is-split[data-dock="left"] #stage > :is(#editor-host, #html-preview, #notes-view, #today-view, #tasks-view, #calendar-view, #history-view, #assets-view, #tags-view),
+  body.is-split[data-dock="left"] :is(#main-bar, #banner) { right: 0; left: var(--side, 50%); }
+  body[data-dock="left"] #side-pane { right: auto; left: 0; border-left: 0; border-right: 1px solid var(--line); }
+  body[data-dock="left"] #pane-divider { right: auto; left: var(--side, 50%); margin-right: 0; margin-left: -4px; }
+  body.is-split:is([data-dock="top"], [data-dock="bottom"]) #stage > :is(#editor-host, #html-preview, #notes-view, #today-view, #tasks-view, #calendar-view, #history-view, #assets-view, #tags-view),
+  body.is-split:is([data-dock="top"], [data-dock="bottom"]) :is(#main-bar, #banner) { right: 0; }
+  body:is([data-dock="top"], [data-dock="bottom"]) #side-pane { left: 0; width: auto; height: var(--side, 50%); border-left: 0; }
+  body:is([data-dock="top"], [data-dock="bottom"]) #pane-divider { left: 0; right: 0; width: auto; height: 9px; margin: 0; cursor: row-resize; }
+  body:is([data-dock="top"], [data-dock="bottom"]) #pane-divider:is(:hover, :focus-visible) { background: linear-gradient(to bottom, transparent 3px, var(--accent-line) 3px, var(--accent-line) 6px, transparent 6px); }
+  body:is([data-dock="top"], [data-dock="bottom"]).is-resizing { cursor: row-resize; }
+  body:is([data-dock="top"], [data-dock="bottom"]).is-resizing #pane-divider { background: linear-gradient(to bottom, transparent 3px, var(--accent-line) 3px, var(--accent-line) 6px, transparent 6px); }
+  body.is-split[data-dock="bottom"] #stage > :is(#editor-host, #html-preview, #notes-view, #today-view, #tasks-view, #calendar-view, #history-view, #assets-view, #tags-view) { bottom: var(--side, 50%); }
+  body[data-dock="bottom"] #side-pane { top: auto; border-top: 1px solid var(--line); }
+  body[data-dock="bottom"] #pane-divider { top: auto; bottom: var(--side, 50%); margin-bottom: -5px; }
+  body[data-dock="top"] #side-pane { bottom: auto; border-bottom: 1px solid var(--line); }
+  body[data-dock="top"] #pane-divider { bottom: auto; top: var(--side, 50%); margin-top: -4px; }
+  body.is-split[data-dock="top"] #stage > :is(#notes-view, #today-view, #tasks-view, #calendar-view, #history-view, #assets-view, #tags-view) { top: calc(var(--side, 50%) + 34px); }
+  body.is-split[data-dock="top"] #stage > :is(#editor-host, #html-preview) { top: calc(var(--side, 50%) + 34px + var(--main-banner, 0px)); }
+  body.is-split[data-dock="top"] #main-bar { top: var(--side, 50%); }
+  body.is-split[data-dock="top"] #banner { top: calc(var(--side, 50%) + 34px); }
+}
 #split-btn.is-on, #share-btn.is-on { color: var(--accent); }
 
 #statusbar {
@@ -2747,6 +2771,10 @@ details.markdown-alert[open] > summary { margin-bottom: 0.3em; }
 /* Back and forward arrows: in the top bar (the focused pane) and in each split pane's bar. */
 .nav-arrows { display: inline-flex; align-items: center; gap: 2px; flex: none; }
 #topbar .nav-arrows { margin-right: 4px; }
+/* In a split each pane has its own arrows in its bar, so the top bar's go. */
+@media not all and (max-width: 760px) {
+  body.is-split #topbar .nav-arrows { display: none; }
+}
 .nav-arrow[aria-disabled="true"] { opacity: 0.4; cursor: default; }
 .nav-arrow[aria-disabled="true"]:hover { background: none; color: var(--muted); }
 .nav-trail .fp-item { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
