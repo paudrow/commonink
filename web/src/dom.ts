@@ -129,6 +129,7 @@ const ICONS: Record<string, string> = {
   sigma: '<path d="M18 7V5a1 1 0 0 0-1-1H6.5a.5.5 0 0 0-.4.8l4.5 6a2 2 0 0 1 0 2.4l-4.5 6a.5.5 0 0 0 .4.8H17a1 1 0 0 0 1-1v-2"/>',
   wrap: '<path d="M3 6h18"/><path d="M3 12h15a3 3 0 1 1 0 6h-4"/><path d="m16 16-2 2 2 2"/><path d="M3 18h7"/>',
   copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  pin: '<path d="M9 4h6l-1 5 3 3v2H7v-2l3-3-1-5zM12 14v6"/>',
   split: '<rect x="2" y="4" width="9" height="16" rx="2"/><rect x="13" y="4" width="9" height="16" rx="2"/>',
   more: '<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>',
   menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
@@ -149,16 +150,35 @@ export const PAGE_DRAG = "application/x-common-ink-page";
 let pageDragged: { label: string; open: () => unknown } | null = null;
 /** The page being dragged, if one is. */
 export const draggedPage = () => pageDragged;
+let pageClick: ((label: string, open: () => unknown, e: MouseEvent) => boolean) | null = null;
+/** What a click (a right-click, a middle-click…) on a page row does instead of opening it there; true if it did something. */
+export const onPageClick = (fn: typeof pageClick) => void (pageClick = fn);
 /** Make a row a page you can drag onto the notes: `label` names it ("Notes", "Projects"), `open` shows it in the main pane. */
 export function dragsPage(node: HTMLElement, label: string, open: () => unknown) {
   node.draggable = true;
-  node.addEventListener("dragstart", (e) => {
-    pageDragged = { label, open };
-    e.dataTransfer!.setData(PAGE_DRAG, label);
-    if (e.dataTransfer!.effectAllowed === "uninitialized") e.dataTransfer!.effectAllowed = "copyMove";
-  });
-  node.addEventListener("dragend", () => (pageDragged = null));
+  // ⌘-click, a middle-click or a right-click: the app may open it in a new tab (see onPageClick).
+  const click = (e: MouseEvent) => {
+    const inner = (e.target as Element).closest?.("button, a, input");
+    if (inner && inner !== node) return;
+    if (pageClick?.(label, open, e)) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+  };
+  node.addEventListener("click", click, true);
+  node.addEventListener("auxclick", click, true);
+  node.addEventListener("contextmenu", click, true);
+  node.addEventListener("mousedown", (e) => e.button === 1 && e.preventDefault()); // not the page's autoscroll
+  node.addEventListener("dragstart", (e) => startPageDrag(e, label, open));
+  node.addEventListener("dragend", endPageDrag);
 }
+/** Start dragging a page (a sidebar row, or a page's tab): `open` shows it in the main pane. */
+export function startPageDrag(e: DragEvent, label: string, open: () => unknown) {
+  pageDragged = { label, open };
+  e.dataTransfer!.setData(PAGE_DRAG, label);
+  if (e.dataTransfer!.effectAllowed === "uninitialized") e.dataTransfer!.effectAllowed = "copyMove";
+}
+export const endPageDrag = () => void (pageDragged = null);
 /**
  * A dragged link: in HTML drag and drop, data of this type is `{ target, from }` (the [[target]]
  * and the note it's in, resolved where it lands); a link dragged in the editor sends window events

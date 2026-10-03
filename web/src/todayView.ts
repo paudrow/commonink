@@ -2,6 +2,7 @@
 // today's events, and what's overdue, due or starting today), then your week (weekRecapCard.ts). Ticking
 // a box here edits the note the task lives in, and clearing the last one is celebrated as anywhere
 // else (todayCleared.ts). Tasks lists every task; this page is just today.
+import type { Where } from "./panes.ts";
 import { el } from "./dom.ts";
 import { gamified } from "./gamify.ts";
 import { quickAddBar } from "./quickAdd.ts";
@@ -11,7 +12,7 @@ import { mountWeekRecap } from "./weekRecapCard.ts";
 import { WIDGETS } from "./widgets/index.ts";
 
 export interface TodayHooks {
-  open(path: string, line?: number, side?: boolean): void;
+  open(path: string, line?: number, where?: Where): void;
   openTag(tag: string): void;
   openPerson(name: string): void;
 }
