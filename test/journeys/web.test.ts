@@ -68,7 +68,7 @@ journey("Capture a thought and find it again", ({ given, when, then }) => {
     await page.waitForURL(/\/notes\/trip-plan-/);
   });
   when("I search for a word in it", async () => {
-    await page.getByRole("button", { name: "Notes", exact: true }).click();
+    await page.locator("#sidebar").getByRole("button", { name: "Notes", exact: true }).click();
     await openFromSearch(page, "flights", "Trip plan");
   });
   then("it's the note that opens", async () => {
@@ -92,7 +92,7 @@ journey("Plan the day from Today", ({ given, when, then, and }) => {
     await page.locator(".feed-card", { hasText: "Errands" }).waitFor();
   });
   when("I open Today", async () => {
-    await page.getByRole("button", { name: "Today", exact: true }).click();
+    await page.locator("#sidebar").getByRole("button", { name: "Today", exact: true }).click();
     await page.waitForURL(/\/today$/);
   });
   then("it shows what's overdue and what's due today, and nothing later", async () => {
@@ -139,8 +139,8 @@ journey("Gather notes by tag into a smart folder", ({ given, when, then, and }) 
   });
   when("I save that as a smart folder called Recipes", async () => {
     await page.getByRole("button", { name: "Save as smart folder" }).click();
-    await page.locator(".sf-editor").getByLabel("Name").fill("Recipes");
-    await page.locator(".sf-editor").getByRole("button", { name: "Save" }).click();
+    await page.getByRole("dialog", { name: "Save as smart folder" }).getByLabel("Name").fill("Recipes");
+    await page.getByRole("dialog", { name: "Save as smart folder" }).getByRole("button", { name: "Save" }).click();
   });
   then("Recipes is in the sidebar, holding 2 notes", async () => {
     await eventually(async () => assert.match((await recipes().textContent()) ?? "", /Recipes\s*2/));
@@ -218,9 +218,9 @@ journey("Delete a note by mistake and get it back", ({ given, when, then, and })
   });
   and("it leaves the vault folder and Notes", async () => {
     await eventually(() => assert.equal(app.exists("Groceries.md"), false));
-    await page.getByRole("button", { name: "Notes", exact: true }).click();
+    await page.locator("#sidebar").getByRole("button", { name: "Notes", exact: true }).click();
     await page.locator(".feed-card", { hasText: "Shopping" }).waitFor();
-    assert.equal(await page.locator("#notes-view .fc-title", { hasText: "Groceries" }).count(), 0);
+    await page.locator("#notes-view .fc-title", { hasText: "Groceries" }).waitFor({ state: "detached" });
   });
   when("I open Trash and restore it", async () => {
     await page.locator("#notes-view").getByRole("button", { name: "Trash", exact: true }).click();
