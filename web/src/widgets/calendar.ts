@@ -118,9 +118,7 @@ export const calendar: WidgetSpec = {
         );
       }
       grid.replaceChildren(...cells);
-      let streak = 0;
-      for (let d = new Date(); days.has(iso(d)); d.setDate(d.getDate() - 1)) streak++;
-      stats.textContent = `${written} ${written === 1 ? "entry" : "entries"} this month${streak ? ` · ${streak}-day streak` : ""}`;
+      stats.textContent = `${written} ${written === 1 ? "entry" : "entries"} this month`;
       env.remeasure();
     }
 

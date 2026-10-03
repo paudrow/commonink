@@ -1368,7 +1368,7 @@ a.gh-card:hover { border-color: var(--line-strong); }
 .sidebar-foot .nav-item { margin: 0 0 4px; }
 .new-note-row { display: flex; align-items: center; gap: 4px; }
 .new-note-row .ghost-btn { flex: 1; }
-/* Your writing days (streak.ts): the heatmap the Today page's week card and the ::streak widget show. */
+/* Your writing days (writingHeatmap.ts): the heatmap under the Today page's week card. */
 .wd { --cell: 12px; --gap: 3px; display: flex; flex-direction: column; gap: 10px; }
 .wd-map { display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; gap: 4px 6px; justify-content: start; font-size: 10.5px; color: var(--muted); }
 .wd-months { display: grid; grid-auto-flow: column; grid-auto-columns: var(--cell); gap: var(--gap); height: 13px; }
@@ -1382,8 +1382,6 @@ a.gh-card:hover { border-color: var(--line-strong); }
 .wd-day.l3 { background: color-mix(in srgb, var(--accent) 75%, transparent); }
 .wd-day.l4 { background: var(--accent); }
 .wd-day.is-today { outline: 1.5px solid var(--ink-2); outline-offset: 1px; }
-.wd-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--ink-2); }
-.wd-best { color: var(--muted); }
 
 .banner.is-info { background: color-mix(in srgb, var(--accent) 9%, var(--bg-elev)); border-color: var(--accent-line); }
 .banner.is-info svg { color: var(--accent); }
