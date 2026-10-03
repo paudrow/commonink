@@ -47,10 +47,12 @@ export function fmtFavorites(favorites: Favorite[]): string {
   return `Favorites:\n${favorites.map(line).join("\n")}`;
 }
 
-export function fmtSmartFolders(folders: SmartFolder[]): string {
+/** `alone`: a local vault, with no workspace to share one with, so who sees each goes unsaid. */
+export function fmtSmartFolders(folders: SmartFolder[], alone = false): string {
   if (!folders.length) return "No smart folders.";
+  const who = (f: SmartFolder) => (alone ? "" : f.shared ? ", shared" : ", just you");
   return folders
-    .map((f) => `- ${f.name} (${f.count} note${f.count === 1 ? "" : "s"}, ${f.shared ? "shared" : "just you"}): ${f.query || "every note"} [${f.id}]`)
+    .map((f) => `- ${f.name} (${f.count} note${f.count === 1 ? "" : "s"}${who(f)}): ${f.query || "every note"} [${f.id}]`)
     .join("\n");
 }
 

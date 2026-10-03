@@ -2,8 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { zipFolder } from "../src/cli/folder.ts";
 import { browserCommand } from "../src/cli/hosted.ts";
+import { readImport } from "../src/core/import.ts";
 import { groupChanges } from "../src/core/format.ts";
 import { openVault } from "../src/core/local.ts";
 import { tempVault } from "./helpers.ts";
@@ -158,9 +161,12 @@ test("today prints the day's sections", () => {
 
 test("smart-save, smart and smart-rm keep saved note queries", () => {
   const vault = tempVault();
-  assert.match(commonink(vault, ["smart-save", "Planning", "tag=plan", "--just-me"]).stdout, /^- Planning \(1 note, just you\): tag=plan \[[a-z2-9]{8}\]\n$/);
+  // A local vault has no one to share with, so no smart folder is called shared (or just yours).
+  assert.match(commonink(vault, ["smart-save", "Planning", "tag=plan"]).stdout, /^- Planning \(1 note\): tag=plan \[[a-z2-9]{8}\]\n$/);
+  assert.match(commonink(vault, ["smart-save", "Mine", "tag=plan", "--just-me"]).stdout, /^- Planning \(1 note\): tag=plan \[[a-z2-9]{8}\]\n- Mine \(1 note\): tag=plan \[[a-z2-9]{8}\]\n$/);
   assert.equal(commonink(vault, ["smart", "planning"]).stdout, "- Projects/Roadmap.md — Roadmap\n");
   assert.equal(commonink(vault, ["smart-save", "Bad", "colour=red"]).stderr, 'Unknown query key "colour": use q, folder, tag, match, sort or limit\n');
+  assert.match(commonink(vault, ["smart-rm", "Mine"]).stdout, /^- Planning \(1 note\): tag=plan \[[a-z2-9]{8}\]\n$/);
   assert.equal(commonink(vault, ["smart-rm", "Planning"]).stdout, "No smart folders.\n");
 });
 
@@ -253,4 +259,46 @@ test("login opens the whole sign-in address, &s and all, and only a web address,
   assert.deepEqual(browserCommand(url, "linux"), ["xdg-open", [url]]);
   // A server's discovery document names the address, so it may try to be a command.
   for (const bad of ["file:///etc/passwd", "calc.exe", "javascript:alert(1)", "-a Terminal", ""]) assert.equal(browserCommand(bad, "win32"), null, bad);
+});
+
+test("import of a folder adds up sizes before reading: too big is refused unread, other files and node_modules aren't loaded", () => {
+  const vault = tempVault();
+  const src = fs.mkdtempSync(path.join(os.tmpdir(), "commonink-import-"));
+  fs.writeFileSync(path.join(src, "a.md"), "# A\n");
+  // Sparse files: gigabytes on paper, nothing on disk. Reading one whole would fail (or take gigabytes).
+  fs.writeFileSync(path.join(src, "movie.mkv"), "");
+  fs.truncateSync(path.join(src, "movie.mkv"), 3 * 1024 ** 3);
+  fs.mkdirSync(path.join(src, "node_modules/pkg"), { recursive: true });
+  fs.writeFileSync(path.join(src, "node_modules/pkg/README.md"), "# pkg\n");
+  fs.writeFileSync(path.join(src, "node_modules/pkg/big.mp4"), "");
+  fs.truncateSync(path.join(src, "node_modules/pkg/big.mp4"), 3 * 1024 ** 3);
+  const ok = commonink(vault, ["import", src]);
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.equal(ok.stdout, "Imported 1 new note.\nLeft out: movie.mkv (not a note or a file type the vault keeps)\n");
+  assert.ok(!fs.existsSync(path.join(vault, "node_modules")));
+
+  fs.writeFileSync(path.join(src, "talk.mp4"), "");
+  fs.truncateSync(path.join(src, "talk.mp4"), 3 * 1024 ** 3);
+  const big = commonink(vault, ["import", src]);
+  assert.equal(big.status, 1);
+  assert.equal(big.stderr, "That's more than 100 MB: import a folder at a time\n");
+
+  // A file that's there but can't be read isn't "no file", and fails.
+  const single = commonink(vault, ["import", path.join(src, "talk.mp4")]);
+  assert.equal(single.status, 1);
+  assert.match(single.stderr, /^Can't read .*talk\.mp4: /);
+  assert.doesNotMatch(single.stderr, /There's no file|\n {4}at /);
+  assert.equal(commonink(vault, ["import", path.join(src, "nope.md")]).stderr, `There's no file at ${path.join(src, "nope.md")}\n`);
+});
+
+test("zipFolder refuses past its limit before reading, and puts left-out files in empty", () => {
+  const src = fs.mkdtempSync(path.join(os.tmpdir(), "commonink-zip-"));
+  fs.writeFileSync(path.join(src, "a.md"), "# A\n");
+  fs.writeFileSync(path.join(src, "notes.xyz"), "x".repeat(5000));
+  const set = readImport([{ name: "src.zip", bytes: zipFolder(src, 1024 * 1024) }]);
+  assert.deepEqual(set.notes.map((n) => n.path), ["a.md"]);
+  assert.deepEqual(set.ignored.map((i) => i.path), ["notes.xyz"]);
+  fs.writeFileSync(path.join(src, "pic.png"), "");
+  fs.truncateSync(path.join(src, "pic.png"), 2 * 1024 * 1024);
+  assert.throws(() => zipFolder(src, 1024 * 1024), { message: "That's more than 1 MB: import a folder at a time" });
 });

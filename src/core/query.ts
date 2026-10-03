@@ -71,27 +71,32 @@ export function toQuery(args: Record<string, string>): NoteQuery {
  * A query's text as args. Forgiving the way people (and agents) write one: `tag=a tag=b` keeps both
  * tags, and an unquoted value runs on over plain words, so `folder=Health and Fitness` is one folder.
  * `bare` is a word that belongs to no key (`tag folder=Ideas`), for queryProblem to point at.
+ * A ' quotes only at the start of a value, so `folder=Bob's Notes` keeps its apostrophe; `unclosed`
+ * is a value that opens a ' and never closes it (`q='abc`).
  */
-function readQuery(src: string): { args: Record<string, string>; bare: string | null } {
+function readQuery(src: string): { args: Record<string, string>; bare: string | null; unclosed: boolean } {
   const args: Record<string, string> = {};
   const tags: string[] = [];
   const filters: string[] = [];
   let bare: string | null = null;
+  let unclosed = false;
   // The key=value pair, or the plain word, that a following plain word joins.
   let open: string | null = null;
-  for (const m of src.matchAll(/([\w-]+)(<=|>=|<|>|=)(?:"([^"]*)"|'([^']*)'|([^\s"']+))|([^\s"']+)/g)) {
+  for (const m of src.matchAll(/([\w-]+)(<=|>=|<|>|=)(?:"([^"]*)"|'([^']*)'|([^\s"]+))|([^\s"]+)/g)) {
     if (m[6] !== undefined) {
       const word = m[6];
       if (open && !(KEYS as readonly string[]).includes(word.replace(/=.*/, ""))) {
         if (open === "tag") tags.push(word);
         else args[open] += ` ${word}`;
       } else {
-        bare ??= word.match(/^[\w-]+/)?.[0] ?? word;
+        // A quoted word (`'abc'`) is named without its quotes; a ( or other mark stays, for queryProblem to point at.
+        bare ??= word.match(/^'?([\w-]+)/)?.[1] ?? word;
         open = null;
       }
       continue;
     }
     const value = m[3] ?? m[4] ?? m[5];
+    if (m[5]?.startsWith("'")) unclosed = true;
     // A filter that lives in `q` joins the words there, so it can be given twice (`modified>-30d modified<-7d`).
     if ((IN_Q as readonly string[]).includes(m[1])) filters.push(filterText(m[1], m[2] === "=" ? value : `${m[2]}${value}`));
     else if (m[2] !== "=") args[m[1]] = `${m[2]}${value}`;
@@ -103,7 +108,7 @@ function readQuery(src: string): { args: Record<string, string>; bare: string | 
   }
   if (tags.length) args.tag = tags.join(",");
   if (filters.length) args.q = andJoin(args.q, ...filters);
-  return { args, bare };
+  return { args, bare, unclosed };
 }
 
 export const parseQuery = (src: string) => toQuery(readQuery(src).args);
@@ -119,7 +124,8 @@ export function formatQuery(q: NoteQuery): string {
 /** What's wrong with a query someone wants to save, or null. Stricter than toQuery, which drops what it can't use. */
 export function queryProblem(src: string): string | null {
   if ((src.match(/"/g)?.length ?? 0) % 2) return "A quote isn't closed";
-  const { args, bare } = readQuery(src);
+  const { args, bare, unclosed } = readQuery(src);
+  if (unclosed) return "A quote isn't closed";
   // Words, groups and OR go in q: `q="(a OR b) -c"`.
   if (bare && (!/^\w[\w-]*$/.test(bare) || bare === "OR" || bare === "AND")) return `Put words, ( ) and OR inside q="…", like q="(budget OR costs) -draft"`;
   if (bare) return `Give "${bare}" a value, like ${bare === "tag" ? "tag=work" : `${bare}=…`}`;
