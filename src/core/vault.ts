@@ -1623,6 +1623,7 @@ export class Vault {
     const rows = this.db.all<{ path: string; title: string }>("SELECT path, title FROM notes WHERE kind = 'md' ORDER BY path");
     const notes: ReplacedNote[] = [];
     const edits: Array<{ path: string; content: string; version: string; change: Change }> = [];
+    const pending: Array<{ path: string; before: string; after: string }> = [];
     for (const r of rows) {
       if (isArchived(r.path) || !r.path.startsWith(folder)) continue;
       const before = this.files.read(r.path);
@@ -1631,8 +1632,13 @@ export class Vault {
       if (done.content === before) continue;
       notes.push({ path: r.path, title: r.title, count: done.count, lines: done.lines.slice(0, 20) });
       if (opts.dryRun) continue;
-      const c = this.commit(r.path, before, done.content, source, "edit");
-      if (c.change) edits.push({ path: r.path, content: done.content, version: c.version, change: c.change });
+      // Check every note fits before writing any, so one note over the limit leaves them all as they were.
+      this.checkSize(r.path, done.content);
+      pending.push({ path: r.path, before, after: done.content });
+    }
+    for (const p of pending) {
+      const c = this.commit(p.path, p.before, p.after, source, "edit");
+      if (c.change) edits.push({ path: p.path, content: p.after, version: c.version, change: c.change });
     }
     return { notes, edits };
   }
@@ -1689,11 +1695,15 @@ export class Vault {
 
   // ---------------------------------------------------------------- writing
 
-  private commit(rel: string, before: string | null, after: string, source: string, op: Change["op"], autosave = false) {
-    // Every write through the core lands here, so one limit covers the API, MCP, the CLI and online.
+  private checkSize(rel: string, after: string) {
     if (after.length > this.maxNoteBytes / 4 && new TextEncoder().encode(after).length > this.maxNoteBytes) {
       throw new VaultError(`${rel} would be over ${Math.round(this.maxNoteBytes / 1024 / 1024)} MB, the most a note can hold`, "invalid");
     }
+  }
+
+  private commit(rel: string, before: string | null, after: string, source: string, op: Change["op"], autosave = false) {
+    // Every write through the core lands here, so one limit covers the API, MCP, the CLI and online.
+    this.checkSize(rel, after);
     this.files.write(rel, after);
     const sitting = autosave && op === "edit" && before !== null ? this.sittingOf(rel, actorOf(source).source, before) : null;
     const meta = this.indexFile(rel, after)!;
