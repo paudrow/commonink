@@ -9,7 +9,7 @@ import { cleanTag, normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
 import { setSaveToDrive, setShareState, setShareWithPeople, SHARE_KEYS, toggleShareMenu, type ShareNote } from "./share.ts";
-import type { Label } from "./api.ts";
+import type { Label, Me } from "./api.ts";
 import { hideBanner, showBanner } from "./banner.ts";
 import { showConflict as conflictBanner } from "./conflict.ts";
 import { notesChanged } from "./editor/livePreview.ts";
@@ -41,6 +41,7 @@ import { taskInputPrefs } from "./taskInput.ts";
 import type { TagsPage } from "./tagsPage.ts";
 import type { QueryHelpPage } from "./queryHelpPage.ts";
 import { QUERY_HELP } from "./queryHelp.ts";
+import { lazyPage } from "./lazyPage.ts";
 import type { CheckupPage } from "./checkupPage.ts";
 import type { Theme } from "./settings.ts";
 import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./account.ts";
@@ -51,6 +52,7 @@ import { did, vaultEvents } from "./events.ts";
 import { guideMessage, startGuide } from "./onboarding.ts";
 import { watchTodayCleared } from "./todayCleared.ts";
 import { awayStrip, startAway } from "./away.ts";
+import { watchTodayRing } from "./todayRing.ts";
 import { inkState, setInk, startInks } from "./inkUnlocks.ts";
 import { gamified, loadGamified, onGamified, setGamified } from "./gamify.ts";
 import { isTestSite, store } from "./store.ts";
@@ -60,15 +62,17 @@ import { clampSide, forget, historyStep, IS_MAC, newLayout, pageEntry, pageOf, p
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { headingMatches } from "../../src/core/gfm.ts";
 import { formatQuery, parseQuery, tagList, type NoteQuery } from "../../src/core/query.ts";
+import { tagPicker } from "./tagPicker.ts";
 import { NEW_BOARD } from "../../src/core/kanban.ts";
 import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
 import { safeDecode } from "../../src/core/uri.ts";
-import { deleteFolder, deletePaths, TrashPage, type DeleteHooks } from "./trash.ts";
+import { deleteFolder, deletePaths, Trash, type DeleteHooks } from "./trash.ts";
 import { confirmAction } from "./modal.ts";
 import { mountSharedView, sharedRoute } from "./sharedView.ts";
 import { showShareDialog } from "./shareDialog.ts";
+import { rowMenu, type RowMenuItem } from "./rowMenu.ts";
 import { renderSharedList, sharedPage } from "./sharedPage.ts";
 import { CapturePage, registerWorker } from "./capture.ts";
 import { AGENTS_BLURB, isAgentsNote } from "./agentsNote.ts";
@@ -201,7 +205,7 @@ const notesPage = new NotesPage({
   },
   newNote: (folder) => void newNote(folder),
   goTab: (tab) => void showNotes({ tab }),
-  trash: () => (viewer ? null : (trashPage ??= new TrashPage({ ...deleteHooks, canPurge: () => owner, open: (path) => fromPage(path) }))),
+  trash: () => (viewer ? null : (trash ??= new Trash({ ...deleteHooks, canPurge: () => owner, open: (path) => fromPage(path) }))),
 });
 /** What deleting (and restoring from Trash) needs: a toast, and everything that lists notes brought up to date. */
 const deleteHooks: DeleteHooks = {
@@ -211,10 +215,9 @@ const deleteHooks: DeleteHooks = {
     await refreshNotes();
     notesPage.refreshSoon();
     assetsPage?.refresh();
-    await trashPage?.refresh();
   },
 };
-let trashPage: TrashPage | null = null;
+let trash: Trash | null = null;
 let capturePage: CapturePage | null = null;
 // History, Assets and Tags load the first time they're opened (each is null until then).
 let historyPage: History | null = null;
@@ -225,18 +228,21 @@ let checkupPage: CheckupPage | null = null;
 let replacePage: import("./replacePage.ts").ReplacePage | null = null;
 let contactsPage: import("./contactsPage.ts").ContactsPage | null = null;
 let calendarPage: CalendarPage | null = null;
-const once = <T>(load: () => Promise<T>) => {
-  let loading: Promise<T> | null = null;
-  return () => (loading ??= load());
-};
-const loadHistory = once(async () =>
+/** A page whose code is fetched the first time it's shown; see lazyPage.ts for when that fetch fails. */
+const page = <T>(at: string, load: () => Promise<T>) =>
+  lazyPage(at, load, (err) => {
+    console.error(err);
+    toast({ error: true, text: "Couldn't load that page. Check your connection, then try again." });
+    void showNotes({ tab: "notes" });
+  });
+const loadHistory = page("/history", async () =>
   (historyPage = new (await import("./history.ts")).History({
     open: (path) => fromPage(path),
     toast: (t) => toast(t),
     readOnly: viewer,
   })),
 );
-const loadAssets = once(async () =>
+const loadAssets = page("/assets", async () =>
   (assetsPage = new (await import("./assets.ts")).Assets({
     notes: () => notes,
     upload: (files) => uploadFiles(files),
@@ -251,7 +257,7 @@ const loadAssets = once(async () =>
     toast: (t) => toast(t),
   })),
 );
-const loadContacts = once(async () =>
+const loadContacts = page("/contacts", async () =>
   (contactsPage = new (await import("./contactsPage.ts")).ContactsPage($("#contacts-view"), {
     open: (path, line, side) => fromPage(path, line, side),
     openTag: (tag) => openTag(tag, "tasks"),
@@ -262,7 +268,7 @@ const loadContacts = once(async () =>
     toast: (t) => toast(t),
   })),
 );
-const loadTags = once(async () =>
+const loadTags = page("/tags", async () =>
   (tagsPage = new (await import("./tagsPage.ts")).TagsPage($("#tags-view"), {
     tags: () => tags,
     refresh: () => refreshNotes(),
@@ -272,12 +278,12 @@ const loadTags = once(async () =>
     toast: (t) => toast(t),
   })),
 );
-const loadQueryHelp = once(async () =>
+const loadQueryHelp = page("/query-help", async () =>
   (queryHelpPage = new (await import("./queryHelpPage.ts")).QueryHelpPage($("#query-help-view"), {
     tryQuery: (q) => void showNotes({ tab: "notes", query: { q } }),
   })),
 );
-const loadCheckup = once(async () =>
+const loadCheckup = page("/checkup", async () =>
   (checkupPage = new (await import("./checkupPage.ts")).CheckupPage($("#checkup-view"), {
     open: (path, line) => fromPage(path, line),
     contacts: () => void showContacts(),
@@ -286,7 +292,7 @@ const loadCheckup = once(async () =>
     readOnly: () => viewer,
   })),
 );
-const loadCalendar = once(async () =>
+const loadCalendar = page("/calendar", async () =>
   (calendarPage = new (await import("./calendar/page.ts")).CalendarPage($("#calendar-view"), {
     open: (path, line, side) => void openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }),
     setUrl: (url) => setUrl(url, "replace"),
@@ -328,7 +334,12 @@ let account: AccountAction[] = [];
 /** Everything ⌘K can do right now, and every shortcut the sheet lists. */
 function commands() {
   const s = active.session;
+  const onNotes = onPage() === "notes";
+  const tagNames = onNotes ? tagList(notesPage.query.tag) : [];
+  const tag = tagNames.length === 1 ? tagNames[0] : null;
   return appCommands({
+    tag: tag ? { name: tag, starred: isTagStarred(tag) } : null,
+    notesFiltered: onNotes && notesPage.tab === "notes" && !!formatQuery(notesPage.query),
     note: s ? { kind: s.kind, starred: isStarred(s.id), archived: isArchived(s.path) } : null,
     vim: prefs.vim,
     vimDisplayLines: prefs.vimDisplayLines,
@@ -353,6 +364,18 @@ function commands() {
     newFolder: startNewFolder,
     newTag: startNewTag,
     newSmartFolder: newSmartFolderFromPalette,
+    saveFilters: () => notesPage.saveFilters(),
+    starTag: () => (tag ? void toggleTagStar(tag) : pickTag("Star or unstar a tag…", (t) => void toggleTagStar(t))),
+    renameTag: () => (tag ? void renameTagOnPage(tag) : pickTag("Rename which tag?", (t) => void renameTagOnPage(t))),
+    newContact: async () => {
+      await showContacts();
+      void contactsPage?.newContact();
+    },
+    importContacts: async () => {
+      await showContacts();
+      contactsPage?.importFile();
+    },
+    restoreVersion: () => void restoreVersion(),
     go: (page) => {
       if (page === "notes" || page === "archive" || page === "trash") void showNotes({ tab: page, query: {} });
       else void { today: showToday, tasks: showTasks, calendar: showCalendar, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory, shared: showShared, checkup: showCheckup, "query-help": showQueryHelp }[page]();
@@ -715,7 +738,7 @@ function setUrl(url: string, how: "push" | "replace" = "push") {
   else history.replaceState({ i: historyAt }, "", url);
 }
 
-const loadReplace = once(async () =>
+const loadReplace = page("/replace", async () =>
   (replacePage = new (await import("./replacePage.ts")).ReplacePage($("#replace-view"), {
     folders: () => allFolders(),
     open: (path, line, side) => void openNote(path, { line, pane: side ? sideOf(active) : active }),
@@ -921,6 +944,29 @@ async function showReplace(opts: { push?: boolean } = {}) {
   renderChrome();
   renderTree();
   renderOutline();
+}
+
+/** From ⌘⇧P: the focused note's History, its latest label compared with now and ready to restore (or a word on how to make one). */
+async function restoreVersion() {
+  const s = active.session;
+  if (!s || s.kind === "asset") return;
+  await flushSave();
+  const labels = await api.labels(s.path).catch(() => null);
+  const latest = labels?.sort((a, b) => b.ts - a.ts)[0];
+  if (latest) return showLabel(latest);
+  await showHistory({ note: s.path });
+  toast({ icon: "label", text: "No labeled versions yet", detail: "Pick a change in History to restore it, or Label this version to name one for later." });
+}
+
+/** Ask which tag (from ⌘⇧P, with no tag in view), under the search button. */
+function pickTag(placeholder: string, onPick: (tag: string) => void) {
+  tagPicker($("#search-btn"), { tags: tags.filter((t) => !unusedTag(t)), count: (t) => t.notes + t.tasks + t.assets, onPick, placeholder });
+}
+
+/** Tags, with `tag`'s row ready to rename (or merge). */
+async function renameTagOnPage(tag: string) {
+  await showTags();
+  tagsPage?.renameTag(tag);
 }
 
 async function showTags(opts: { push?: boolean } = {}) {
@@ -1916,9 +1962,16 @@ const opens = (go: (e?: MouseEvent) => void) => ({
 function renderSmartFolders(active: string | null) {
   const rows = smartFolders.map((f) => {
     const edit = el("button", { type: "button", class: "row-act", title: "Edit or delete" }, icon("sliders", 14));
-    edit.addEventListener("click", (e) => {
-      e.stopPropagation();
-      smartFolderEditor(edit, f, {
+    const editable = !(f.shared && viewer);
+    const remove = async () => {
+      const everyone = f.shared && !local ? " for everyone in the workspace" : "";
+      if (!(await confirmAction({ title: `Delete the smart folder ${f.name}${everyone}?`, body: "Its notes don't change.", action: "Delete", danger: true }))) return;
+      smartFolders = await api.deleteSmartFolder(f.id);
+      renderTree();
+      toast({ icon: "folderSearch", text: `Deleted ${f.name}` });
+    };
+    const openEditor = (anchor: HTMLElement) =>
+      smartFolderEditor(anchor, f, {
         canShare: !viewer,
         alone: local,
         sources: fieldSources,
@@ -1927,16 +1980,14 @@ function renderSmartFolders(active: string | null) {
           smartFolders = await api.smartFolders();
           renderTree();
         },
-        remove: async () => {
-          const everyone = f.shared && !local ? " for everyone in the workspace" : "";
-          if (!(await confirmAction({ title: `Delete the smart folder ${f.name}${everyone}?`, body: "Its notes don't change.", action: "Delete", danger: true }))) return;
-          smartFolders = await api.deleteSmartFolder(f.id);
-          renderTree();
-          toast({ icon: "folderSearch", text: `Deleted ${f.name}` });
-        },
+        remove,
       });
+    edit.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openEditor(edit);
     });
-    return el(
+    const show = () => void showNotes({ tab: "notes", query: parseQuery(f.query) });
+    const row = el(
       "div",
       {
         class: `tree-row is-file${f.query === active ? " is-active" : ""}`,
@@ -1944,15 +1995,22 @@ function renderSmartFolders(active: string | null) {
         style: { "--depth": "0" },
         "data-smart": f.id,
         title: `${f.query || "Every note"}${f.shared ? "" : " (just you)"}`,
-        ...opens(() => void showNotes({ tab: "notes", query: parseQuery(f.query) })),
+        ...opens(show),
       },
       el("span", { class: "chev is-leaf" }), // the chevron column Folders and Tags rows have, so icons and names line up
       icon("folderSearch", 14),
       el("span", { class: "tree-name" }, f.name),
       f.shared ? null : el("span", { class: "sf-mine", title: "Just you" }, icon("user", 11)),
       el("span", { class: "n" }, String(f.count)),
-      el("span", { class: "row-actions" }, smartStarButton(f), f.shared && viewer ? null : edit),
+      el("span", { class: "row-actions" }, smartStarButton(f), editable ? edit : null),
     );
+    rowMenu(row, f.name, () => [
+      { label: "Show notes", icon: "folderSearch", run: show },
+      { label: isSmartStarred(f.id) ? "Remove from Favorites" : "Add to Favorites", icon: isSmartStarred(f.id) ? "starred" : "star", run: () => void toggleSmartStar(f) },
+      editable ? { label: "Edit…", icon: "sliders", run: () => openEditor(edit.isConnected ? edit : row) } : null,
+      editable ? { label: "Delete…", icon: "trash", danger: true, run: remove } : null,
+    ]);
+    return row;
   });
   // Empty: one quiet line pointing at the header's +, the one way to add one from here.
   $("#smart-folders").replaceChildren(...(rows.length ? rows : [sectionHint("Click ", plusMark(), " to save a search here.")]));
@@ -1962,7 +2020,7 @@ const FAVORITE = "application/x-common-ink-favorite";
 
 /** A starred tag in Favorites: it opens Notes narrowed to the tag, like the tag's row under Tags. */
 function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
-  return el(
+  const row = el(
     "div",
     {
       class: `tree-row is-tag${active ? " is-active" : ""}`,
@@ -1984,11 +2042,27 @@ function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
     el("span", { class: "n" }, String(f.notes)),
     el("span", { class: "row-actions" }, tagStarButton(f.display, "row")),
   );
+  rowMenu(row, `#${f.display}`, () => tagMenu(f.display, true));
+  return row;
+}
+
+/** A tag's menu, on its row under Tags or in Favorites. `used`: some note carries it (else it can be deleted). */
+function tagMenu(tag: string, used: boolean, t = tags.find((x) => x.display === tag)): (RowMenuItem | null)[] {
+  const starred = isTagStarred(tag);
+  const notesToo = !t || !!t.notes || !!t.assets || !t.tasks; // a tag only tasks carry can't be a favorite (it would show no notes)
+  return [
+    { label: "Show notes", icon: "file", run: () => openTag(tag) },
+    { label: "Show tasks", icon: "task", run: () => openTag(tag, "tasks") },
+    used && (notesToo || starred) ? { label: starred ? "Remove from Favorites" : "Add to Favorites", icon: starred ? "starred" : "star", run: () => toggleTagStar(tag) } : null,
+    t && !viewer ? { label: "Rename…", icon: "edit", run: () => renameTag(t) } : null,
+    !used && t && !viewer ? { label: "Delete…", icon: "trash", danger: true, run: () => deleteTag(t) } : null,
+  ];
 }
 
 /** A starred smart folder in Favorites: it opens Notes with its query, like its row under Smart folders. */
 function smartFavoriteRow(f: SmartFavorite, active: boolean): HTMLElement {
-  return el(
+  const show = () => void showNotes({ tab: "notes", query: parseQuery(f.query) });
+  const row = el(
     "div",
     {
       class: `tree-row is-file${active ? " is-active" : ""}`,
@@ -1996,7 +2070,7 @@ function smartFavoriteRow(f: SmartFavorite, active: boolean): HTMLElement {
       style: { "--depth": "0" },
       title: f.query || "Every note",
       draggable: "true",
-      ...opens(() => void showNotes({ tab: "notes", query: parseQuery(f.query) })),
+      ...opens(show),
       ondragstart: (e: DragEvent) => {
         e.dataTransfer!.setData(FAVORITE, favoriteKey(f));
         document.body.classList.add("is-dragging");
@@ -2009,6 +2083,11 @@ function smartFavoriteRow(f: SmartFavorite, active: boolean): HTMLElement {
     el("span", { class: "n" }, String(f.count)),
     el("span", { class: "row-actions" }, smartStarButton(f)),
   );
+  rowMenu(row, f.name, () => [
+    { label: "Show notes", icon: "folderSearch", run: show },
+    { label: "Remove from Favorites", icon: "starred", run: () => void toggleSmartStar(f) },
+  ]);
+  return row;
 }
 
 /** Starred notes, tags and smart folders, in your order: drag one to reorder, or drag a card in from Notes to star it. */
@@ -2057,6 +2136,12 @@ function renderFavorites() {
         el("button", { type: "button", class: "row-act fav-star", title: "Unstar", onclick: (e: Event) => (e.stopPropagation(), void toggleStar(f.path)) }, icon("starred", 14)),
       ),
     );
+    rowMenu(row, displayName(f.path), () => [
+      { label: "Open", icon: "edit", run: () => openNote(f.path) },
+      { label: "Open to the side", icon: "split", run: () => openNote(f.path, { pane: sideOf(active) }) },
+      viewer ? null : { label: "Rename…", icon: "edit", run: () => renamePath(f.path) },
+      { label: "Remove from Favorites", icon: "starred", run: () => toggleStar(f.path) },
+    ]);
     favoriteDrop(row, "is-drop-before", f.path);
     return row;
   });
@@ -2213,7 +2298,7 @@ function renderTree() {
             "aria-current": showing === formatQuery({ folder: path }) && "page",
             style: { "--depth": String(depth) },
             "data-folder": path,
-            title: n ? `Show the notes in ${path}` : `${path} is empty. Drag notes here.`,
+            title: `${n ? `Show the notes in ${path}.` : `${path} is empty. Drag notes here.`} Right-click for more.`,
             ...opens(() => void showNotes({ tab: "notes", query: { folder: path } })),
           },
           subs
@@ -2243,12 +2328,10 @@ function renderTree() {
             "span",
             { class: "row-actions" },
             action(`New note in ${path}`, "plus", () => void newNote(path)),
-            action(`Export ${path} as a .zip`, "download", () => void exportZip({ folder: path })),
-            workspaceId ? action(`Share ${path}…`, "share", () => openShareDialog({ folder: path })) : null,
-            viewer ? null : action(`Rename ${path}… (F2)`, "edit", () => void renameFolder(path)),
-            viewer ? null : action(`Delete ${path}`, "trash", () => void removeFolder(path)),
+            // Export, Share, Rename and Delete are in the folder's menu: right-click, Shift+F10, or ⋯ on touch.
           ),
         );
+        rowMenu(row, path, () => folderMenu(path));
         dropTarget(row, () => path);
         return [row, ...(open ? walk(path, depth + 1) : [])];
       });
@@ -2256,9 +2339,21 @@ function renderTree() {
   $("#tree").replaceChildren(...(rows.length ? rows : [sectionHint("Click ", plusMark(), " to make a folder.")]));
 }
 
+/** A folder's menu in the sidebar: what you do to it now and then, kept off the row itself. */
+function folderMenu(path: string): (RowMenuItem | null)[] {
+  return [
+    { label: "New note here", icon: "plus", run: () => newNote(path) },
+    { label: "Export as .zip", icon: "download", run: () => exportZip({ folder: path }) },
+    workspaceId ? { label: "Share…", icon: "share", run: () => openShareDialog({ folder: path }) } : null,
+    viewer ? null : { label: "Rename…", icon: "edit", run: () => renameFolder(path) },
+    viewer ? null : { label: "Delete…", icon: "trash", danger: true, run: () => removeFolder(path) },
+  ];
+}
+
 /** Delete a folder: an empty one just goes; one with notes asks what happens to them. */
 async function removeFolder(path: string) {
   if (!(await deleteFolder(path, deleteHooks))) return;
+  void refreshShares(); // its shares went with it
   const empty = emptyFolders();
   for (const f of [...empty]) if (f === path || f.startsWith(`${path}/`)) empty.delete(f);
   setEmptyFolders(empty);
@@ -2453,6 +2548,7 @@ function renderTagTree(active: string) {
             : el("button", { type: "button", class: "row-act", title: `Delete #${t.display}`, onclick: (e: Event) => (e.stopPropagation(), void deleteTag(t)) }, icon("trash", 14)),
           ),
         );
+        rowMenu(row, `#${t.display}`, () => tagMenu(t.display, !unusedTag(t), t));
         return [row, ...(open ? walk(t.tag, depth + 1) : [])];
       });
   const rows = walk("", 0);
@@ -3290,6 +3386,9 @@ function renderCodeWrapSoon() {
   codeWrapTimer = window.setTimeout(renderCodeWrap, 300);
 }
 
+/** Online, who's signed in (for Settings' Danger zone); locally, null. */
+let signedIn: Me["user"] | null = null;
+
 /** Local vaults: where the vault and the `commonink` command are, for connecting an agent. Online, null. */
 let localVault: { vault?: string; projectRoot?: string } | null = null;
 
@@ -3326,6 +3425,9 @@ function openSettings(query?: string) {
             ),
           shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
           connectAgent,
+          deleteAccount: signedIn
+            ? () => void import("./deleteAccount.ts").then((d) => d.showDeleteAccount(signedIn!, (t) => toast(t), () => exportZip({ all: true })))
+            : null,
         }),
       { query },
     ),
@@ -3553,6 +3655,7 @@ async function boot() {
     api.reportTimeZone().catch(() => {}); // unreported, agents use the owner's zone, or UTC
     $("#settings-btn").remove(); // the account menu has Settings
     account = renderAccount(who.me, ws, (t) => toast(t), () => openSettings());
+    signedIn = who.me.user;
     $("#shared-btn").hidden = false;
     setShareWithPeople({ label: "Share with people…", icon: "share-people", run: (note) => openShareDialog({ path: note.path }) });
     setSaveToDrive({ label: "Save to Google Drive…", icon: "drive", run: (note) => void saveNoteToDrive(note) });
@@ -3672,6 +3775,7 @@ async function boot() {
   if (!viewer) void startGuide({ archive: (path) => void archivePath(path), flush: () => flushSave() });
   if (!viewer) watchTodayCleared();
   if (!viewer) startAway({ seeChanges: (after) => void showHistory({ since: after }), workspace: () => workspaceId });
+  watchTodayRing($("#today-btn")); // fills as today's tasks are ticked
   startInks({ choose: () => openSettings("ink") });
 
   void refreshTaskCount();
