@@ -11,6 +11,7 @@ import { EXIT, UsageError, type CommandHost, type Output } from "./core/commands
 import { findCommand, noSuchSubcommand, parse, type Io } from "./cli/argv.ts";
 import { commandHelp, overview } from "./cli/help.ts";
 import { SHELLS } from "./cli/completion.ts";
+import { syntaxText } from "./core/queryGrammar.ts";
 import { zipFolder } from "./cli/folder.ts";
 import { CliError, DEFAULT_SERVER, loadCredentials, login, logout, runRemote, saveCredentials, workspaces, type Credentials } from "./cli/hosted.ts";
 
@@ -160,6 +161,7 @@ async function main() {
   if (!argv.filter((w) => w !== "--json").length || first === "help" || first === "--help" || first === "-h") {
     const asked = more.filter((w) => !w.startsWith("-"));
     if (!asked.length) return console.log(overview());
+    if (asked.join(" ") === "query") return console.log(syntaxText());
     const found = findCommand(asked);
     if (!found) throw new UsageError(`No command "${asked.join(" ")}": see commonink help`);
     return console.log(commandHelp(found.command));

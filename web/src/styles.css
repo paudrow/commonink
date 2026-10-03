@@ -506,7 +506,7 @@ body.is-split .banner-text { flex-basis: 140px; }
 
 /* ------------------------------------------------------------------ split view */
 /* The main pane's views make room for the side pane (its width is --side) and a bar on top. */
-body.is-split #stage > :is(#editor-host, #html-preview, #notes-view, #today-view, #tasks-view, #calendar-view, #history-view, #assets-view, #tags-view, #checkup-view, #replace-view) { top: 34px; right: var(--side, 50%); }
+body.is-split #stage > :is(#editor-host, #html-preview, #notes-view, #today-view, #tasks-view, #calendar-view, #history-view, #assets-view, #tags-view, #checkup-view, #replace-view, #query-help-view) { top: 34px; right: var(--side, 50%); }
 body.is-split #stage > :is(#editor-host, #html-preview) { top: calc(34px + var(--main-banner, 0px)); }
 .pane-bar { display: flex; align-items: center; gap: 2px; height: 34px; padding: 0 6px 0 8px; border-bottom: 1px solid var(--line); background: var(--bg); font-size: 12.5px; color: var(--muted); }
 #main-bar { position: absolute; top: 0; left: 0; right: var(--side, 50%); }
@@ -599,7 +599,7 @@ body.is-resizing iframe { pointer-events: none; }
 #panel section { padding: 14px 14px 8px; border-bottom: 1px solid var(--line); flex: none; max-height: 34vh; display: flex; flex-direction: column; min-height: 0; }
 #panel section.grow { flex: 1; max-height: none; border-bottom: 0; }
 /* On a page that isn't a note (Notes, Tasks, Calendar…), the note's Outline and Backlinks have nothing to show; Activity stays. */
-body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view, #checkup-view, #replace-view, #contacts-view, #shared-view, #capture-view):not([hidden])) #panel section:not(.grow) { display: none; }
+body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view, #checkup-view, #replace-view, #query-help-view, #contacts-view, #shared-view, #capture-view):not([hidden])) #panel section:not(.grow) { display: none; }
 #panel h3 {
   margin: 0 0 8px 4px;
   font: 650 10.5px/1 var(--ui);
@@ -1433,6 +1433,16 @@ a.gh-card:hover { border-color: var(--line-strong); }
 .feed-search:focus-within { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
 .feed-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font: 15px var(--ui); color: var(--ink-strong); }
 .feed-search input::placeholder { color: var(--muted); }
+/* The "?" beside a query box: opens Query syntax (see queryHelp.ts). */
+.query-help-link {
+  flex: none; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%;
+  border: 1px solid var(--line-strong); color: var(--muted); font: 600 12px var(--ui); text-decoration: none;
+}
+.query-help-link:hover, .query-help-link:focus-visible { color: var(--accent); border-color: var(--accent-line); }
+.qw-help { display: inline-flex; gap: 6px; align-items: center; }
+.qw-help:empty { display: none; }
+.feed-problem { margin-top: 6px; font-size: 13px; color: var(--bad-ink); }
+.qq-foot.is-error { color: var(--bad-ink); }
 .feed-filters { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .qt-select.feed-folder { max-width: 220px; height: 26px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--ink-2); }
 .qt-select.feed-folder:hover { border-color: var(--line-strong); }
@@ -1869,6 +1879,7 @@ a.gh-card:hover { border-color: var(--line-strong); }
 .fp-item.is-active { background: var(--hover); color: var(--ink-strong); }
 .fp-item.is-current { color: var(--muted); }
 .fp-here { font-size: 11px; color: var(--muted); }
+.fp-parent { color: var(--muted); }
 
 /* ------------------------------------------------------------------ notes page: expanded cards */
 .feed-card.is-expanded { cursor: default; border-color: var(--line-strong); box-shadow: var(--shadow-sm); }
@@ -2241,6 +2252,22 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .ap-tag-list { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .tags-search { margin-bottom: 14px; }
 .tags-list { display: grid; gap: 1px; }
+/* Query syntax: a row per operator or field, with an example to try. */
+#query-help-view { position: absolute; inset: 0; overflow: auto; outline: none; }
+.qh-group { margin-top: 26px; }
+.qh-group h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 8px; }
+.qh-list { display: grid; gap: 1px; }
+.qh-row { display: grid; grid-template-columns: 9.5em 1fr auto; gap: 14px; align-items: baseline; padding: 9px 8px; border-radius: 8px; }
+.qh-row:hover { background: var(--hover); }
+.qh-syntax { font-weight: 600; color: var(--ink-strong); }
+.qh-about { font-size: 14px; color: var(--ink); margin: 0 0 8px; }
+.qh-row .qh-about { margin: 0; }
+.qh-try { border: 1px solid var(--line-strong); background: var(--bg-elev); border-radius: 7px; padding: 3px 8px; cursor: pointer; color: var(--ink-strong); text-align: left; }
+.qh-try:hover { border-color: var(--accent-line); }
+@media (max-width: 640px) {
+  .qh-row { grid-template-columns: 1fr; gap: 4px; }
+  .qh-try { justify-self: start; }
+}
 .tags-row { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 8px 0 calc(8px + var(--depth) * 22px); border-radius: 8px; }
 .tags-row:hover { background: var(--hover); }
 .tags-row > svg { color: var(--muted); flex: none; }
@@ -2336,16 +2363,48 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .qw-picked input { flex: 1; min-width: 0; width: auto; }
 .qw-pick { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--muted); background: var(--bg-elev); }
 .qw-pick:hover { color: var(--accent-ink); border-color: var(--accent-line); background: var(--accent-soft); }
-.sf-pop { position: fixed; z-index: 60; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--bg-elev); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18); }
-.sf-pop-title { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sf-pop-title svg { flex: none; color: var(--muted); }
-.sf-pop input:not([type="checkbox"]) { min-width: 0; flex: 1; font: 13px var(--ui); color: var(--ink-strong); background: var(--bg); border: 1px solid var(--line-strong); border-radius: 7px; padding: 5px 8px; }
-.sf-pop input:focus { outline: none; border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
-.sf-pop-error { font-size: 12.5px; color: var(--bad-ink); }
-.sf-editor { width: 360px; }
-.sf-editor .qw-field { grid-template-columns: 76px 1fr; align-items: center; }
-.sf-count { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; padding-left: 88px; min-height: 1.4em; }
+/* the smart folder dialog: in the middle of the window, under the pickers it opens (z-index 60) */
+.sf-modal { position: fixed; inset: 0; z-index: 58; display: grid; place-items: start center; padding: 12vh 16px 16px; overflow: auto; background: rgba(20, 16, 10, 0.28); backdrop-filter: blur(3px); }
+.sf-dialog { width: min(560px, 100%); display: grid; gap: 14px; padding: 16px 18px 14px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--bg-elev); color: var(--ink); box-shadow: var(--shadow-lg); }
+.sf-head { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.sf-head h2 { flex: 1; margin: 0; font-size: 14px; font-weight: 600; color: var(--ink-strong); }
+.sf-dialog input[type="text"] { min-width: 0; width: 100%; box-sizing: border-box; font: 14px var(--ui); color: var(--ink-strong); background: var(--bg); border: 1px solid var(--line-strong); border-radius: 8px; padding: 6px 10px; height: 34px; }
+.sf-dialog input[type="text"]:focus { outline: none; border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.sf-dialog input.sf-name { font-size: 17px; font-weight: 600; height: 40px; }
+.sf-section { display: grid; gap: 10px; }
+.sf-row { display: grid; grid-template-columns: 64px 1fr; gap: 12px; align-items: start; }
+.sf-label { padding-top: 8px; font-size: 13px; font-weight: 550; color: var(--ink-2); }
+.sf-control { display: grid; gap: 6px; min-width: 0; }
+.sf-item { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.sf-pick { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg); font: 14px var(--ui); color: var(--ink-strong); text-align: left; }
+.sf-pick svg { flex: none; color: var(--muted); }
+.sf-pick:hover { border-color: var(--accent-line); }
+.sf-pick > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sf-placeholder { color: var(--muted); }
+.sf-crumbs { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.sf-crumb { color: var(--muted); white-space: nowrap; }
+.sf-crumb.is-last { color: var(--ink-strong); font-weight: 550; overflow: hidden; text-overflow: ellipsis; }
+.sf-crumb-sep { color: var(--faint); }
+.sf-rows { display: grid; gap: 6px; }
+.sf-join { flex: none; width: 26px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); text-align: right; }
+.sf-add { justify-self: start; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border-radius: 7px; font: 13px var(--ui); color: var(--accent-ink); }
+.sf-add:hover:not(:disabled) { background: var(--accent-soft); }
+.sf-add:disabled { color: var(--faint); cursor: default; }
+.sf-result { display: grid; gap: 6px; padding: 10px 12px; border-radius: 10px; background: var(--bg-side); }
+.sf-count { font-size: 12.5px; font-weight: 550; color: var(--ink-2); font-variant-numeric: tabular-nums; min-height: 1.4em; }
 .sf-count.is-error { color: var(--bad-ink); }
+.sf-preview { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-size: 13px; }
+.sf-preview li { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--ink); }
+.sf-preview li svg { flex: none; color: var(--muted); }
+.sf-p-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sf-p-folder { flex: none; max-width: 45%; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
+.sf-p-more { color: var(--muted); padding-left: 20px; }
+.sf-dialog input.sf-query { font-family: var(--mono, ui-monospace, monospace); font-size: 13px; }
+.sf-hint { margin: 0; color: var(--muted); font-size: 12px; }
+.sf-query-box { display: grid; gap: 6px; min-width: 0; }
+.sf-query-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.sf-pop-error { font-size: 12.5px; color: var(--bad-ink); }
+.sf-delete svg { color: var(--bad); }
 .qw-config-foot .qw-btn { white-space: nowrap; flex: none; }
 
 /* every task chip is one height and sits on the same line, whatever it holds (icon, avatar, text) */
