@@ -144,7 +144,7 @@ DOMPurify.addHook("uponSanitizeElement", (node, data) => {
 
 /** Markdown to safe HTML. `boards` leaves a slot for each Kanban board to draw a live board in (see hydrateBoards); otherwise a board shows as its headings and lists. */
 export function renderMarkdown(md: string, from: string, opts: { boards?: boolean } = {}): string {
-  const body = boardSlots(md.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, ""), !!opts.boards);
+  const body = boardSlots(md.replace(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---\r?\n?/, ""), !!opts.boards);
   const pre = mapOutsideCode(body, (text) =>
     text
       // Each class leaves out "[" so no pattern backtracks across a long line of them.

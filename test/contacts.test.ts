@@ -53,6 +53,16 @@ test("a field with a line break (from a CSV or vCard) is written on one line and
   assert.deepEqual({ company: c.company, role: c.role, aliases: c.aliases }, { company: "Acme Inc", role: "x --- evil: 1", aliases: ["A B"] });
 });
 
+test("an apostrophe or quote inside a list item, or a phone with a leading zero, reads back the same", () => {
+  const c = { name: "Dan", email: [], phone: ["0123", "+1 555"], company: "", role: 'The "Boss"', links: [], aliases: ["Dan's", "Danny", 'say "hi", ok', "O'Neil, Jr"], tags: ["rock'n'roll", "x"], checkIn: "" };
+  const md = contactNote(c);
+  assert.match(md, /phone: \["0123", \+1 555\]/);
+  assert.deepEqual(contactFromNote("People/Dan.md", md), { path: "People/Dan.md", ...c });
+  // An apostrophe mid-word in a list written by hand (or by an older version) doesn't start a quote.
+  assert.deepEqual(contactFromNote("People/Dan.md", "---\naliases: [Dan's, Danny]\ntags: Dan's, 'a, b', 'it''s, x'\n---\n").aliases, ["Dan's", "Danny"]);
+  assert.deepEqual(contactFromNote("People/Dan.md", "---\ntags: Dan's, 'a, b', 'it''s, x'\n---\n").tags, ["Dan's", "a, b", "it's, x"]);
+});
+
 test("writing a contact keeps a comment before the first key and keys with spaces or accents", () => {
   const md = "---\n# my comment\nemail: a@b.com\nDate Created: 2024-01-01\ntítulo: x\nnotes: x\n---\n# Jane\nbody\n";
   const c = contactFromNote("People/Jane.md", md);
