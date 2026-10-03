@@ -4,7 +4,7 @@
 import { api, type ReplacedNote } from "./api.ts";
 import { el, escapeHtml, icon } from "./dom.ts";
 import type { ToastSpec } from "./toast.ts";
-import { findPattern, type ReplaceOptions } from "../../src/core/replace.ts";
+import { findPattern, proseMatches, type ReplaceOptions } from "../../src/core/replace.ts";
 
 interface Hooks {
   folders(): string[];
@@ -117,7 +117,7 @@ export class ReplacePage {
 
   /** A note's changed lines, each as one line with the old words struck through and the new ones after them. */
   private note(n: ReplacedNote, re: RegExp | null): HTMLElement {
-    const shown = n.lines.reduce((k, l) => k + (re ? [...l.before.matchAll(re)].length : 0), 0);
+    const shown = n.lines.reduce((k, l) => k + (re ? proseMatches(l.before, re).length : 0), 0);
     return el(
       "section",
       { class: "rp-note" },
@@ -175,11 +175,11 @@ export class ReplacePage {
   }
 }
 
-/** `before` as HTML, each match struck through with `replace` after it. */
+/** `before` as HTML, each match that's replaced (prose only, as replaceIn) struck through with `replace` after it. */
 function diffLine(before: string, re: RegExp, replace: string): string {
   let out = "";
   let at = 0;
-  for (const m of before.matchAll(re)) {
+  for (const m of proseMatches(before, re)) {
     out += `${escapeHtml(before.slice(at, m.index))}<del>${escapeHtml(m[0])}</del>${replace ? `<ins>${escapeHtml(replace)}</ins>` : ""}`;
     at = m.index + m[0].length;
   }

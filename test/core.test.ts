@@ -731,6 +731,23 @@ test("today is overdue, due today and starting today, in sections, with today's 
   assert.throws(() => vault.today("Monday"), /"today" must be a date/);
 });
 
+test("today counts the tasks it had that were ticked today, for the Today ring", () => {
+  const { vault } = openTempVault({
+    "Plan.md": [
+      "- [x] Was overdue due:2026-09-20 done:2026-09-28",
+      "- [x] Due and done due:2026-09-28 done:2026-09-28",
+      "- [x] Started and done start:2026-09-28 due:2026-10-09 done:2026-09-28",
+      "- [x] Done yesterday due:2026-09-28 done:2026-09-27",
+      "- [x] Not today's due:2026-10-05 done:2026-09-28",
+      "- [x] No dates done:2026-09-28",
+      "- [ ] Still open due:2026-09-28",
+      "",
+    ].join("\n"),
+  });
+  assert.equal(vault.today("2026-09-28").done, 3);
+  assert.equal(vault.today("2026-09-29").done, 0);
+});
+
 test("today's journal note is made from Templates/Journal.md, else its old name Daily note.md, else a plain one", () => {
   const { dir, vault } = openTempVault({ "Welcome.md": "# Welcome\n" });
   const read = (p: string) => fs.readFileSync(path.join(dir, p), "utf8");
