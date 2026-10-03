@@ -1,8 +1,10 @@
-// The Today page: the quick-add bar, the day at a glance (the ::today widget: today's journal note,
+// The Today page: the quick-add bar, then decisions agents are waiting on you for (decisionsCard.ts,
+// only when there are any), then the day at a glance (the ::today widget: today's journal note,
 // today's events, and what's overdue, due or starting today), then your week (weekRecapCard.ts). Ticking
 // a box here edits the note the task lives in, and clearing the last one is celebrated as anywhere
 // else (todayCleared.ts). Tasks lists every task; this page is just today.
 import type { Where } from "./panes.ts";
+import { mountDecisions } from "./decisionsCard.ts";
 import { el } from "./dom.ts";
 import { gamified } from "./gamify.ts";
 import { quickAddBar } from "./quickAdd.ts";
@@ -43,6 +45,7 @@ function mountDay(host: HTMLElement, hooks: TodayHooks): () => void {
 /** Draw the page into `root`; returns its cleanup. */
 export function renderTodayPage(root: HTMLElement, hooks: TodayHooks): () => void {
   const date = new Date(`${today()}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  const decisions = el("div", { class: "td-decisions" });
   const day = el("div");
   const week = el("div", { class: "td-week" });
   const ring = gamified() ? todayPageRing() : null; // how much of today is ticked, as in the sidebar
@@ -52,11 +55,13 @@ export function renderTodayPage(root: HTMLElement, hooks: TodayHooks): () => voi
       { class: "page" },
       el("header", { class: "page-head" }, el("h1", {}, "Today"), el("p", { class: "page-sub td-sub" }, el("span", {}, date), ring?.root ?? "")),
       quickAddBar({ added: () => {}, open: hooks.open }).root, // the day below reloads when the note changes
+      decisions,
       day,
       gamified() ? week : "", // a workspace without rewards has no week card (see gamify.ts)
     ),
   );
+  const unmountDecisions = mountDecisions(decisions, root, { open: (path) => hooks.open(path) });
   const unmountDay = mountDay(day, hooks);
   const unmountWeek = gamified() ? mountWeekRecap(week, (path) => hooks.open(path)) : () => {};
-  return () => (unmountDay(), unmountWeek(), ring?.stop());
+  return () => (unmountDecisions(), unmountDay(), unmountWeek(), ring?.stop());
 }

@@ -498,6 +498,44 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       // setting these assets' tags back, undoes the rename without writing over a later edit.
       return json({ changes: r.edits.map((e) => e.change.id), versions: r.edits.map((e) => e.version), assets: r.assets });
     }
+    // Decisions (Vault.askDecision): questions agents put to the person, answered on the Today page.
+    case "GET /decisions":
+      return json(vault.decisions({ status: (q("status") || undefined) as never, ids: q("ids") ? q("ids").split(",") : undefined }));
+    case "POST /decisions": {
+      // The question as data: AskInput (decisions.ts), with `note`.
+      const b = raw as Record<string, unknown>;
+      const obj = (k: string) => (b[k] == null ? undefined : typeof b[k] === "object" && !Array.isArray(b[k]) ? (b[k] as Record<string, string>) : (() => { throw new VaultError(`"${k}" must be an object`); })());
+      const optNum = (k: string) => (b[k] == null ? undefined : int(k));
+      const rec = b.recommended;
+      return json(
+        vault.askDecision(
+          {
+            question: str("question"),
+            kind: optStr("kind") as never,
+            options: b.options == null ? undefined : (Array.isArray(b.options) ? (b.options as never) : paths("options")),
+            details: obj("details"),
+            images: obj("images"),
+            rows: b.rows == null ? undefined : paths("rows"),
+            media: b.media == null ? undefined : paths("media"),
+            labels: b.labels == null ? undefined : paths("labels"),
+            min: optNum("min"),
+            max: optNum("max"),
+            recommended: rec == null ? undefined : typeof rec === "string" ? [rec] : (rec as never),
+            context: optStr("context"),
+            note: optStr("note"),
+          },
+          actor,
+        ),
+      );
+    }
+    case "POST /decisions/answer": {
+      const r = vault.answerDecision(str("id"), { value: (raw as { value?: unknown }).value ?? undefined, comment: optStr("comment"), dismiss: flag("dismiss"), change: flag("change") }, actor, optStr("today"));
+      host.written(r.path, vault.files.read(r.path), r.version, r.change);
+      if (r.change?.op === "create") host.tree();
+      return json(r.decision);
+    }
+    case "POST /decisions/withdraw":
+      return json(vault.withdrawDecision(str("id")));
     // Labels (Vault.label): a name on a version of a note, to compare with or go back to.
     case "GET /labels":
       return json(vault.labels(q("path") || undefined));
