@@ -37,6 +37,7 @@ function fakeApp(over: Partial<SettingsApp> = {}) {
     shortcuts: () => log.push("shortcuts"),
     connectAgent: () => log.push("connectAgent"),
     agentInstructions: () => log.push("agentInstructions"),
+    deleteAccount: null,
     ...over,
   };
   return { app, log };
@@ -186,4 +187,18 @@ test("Open settings file opens the file for the tab you're on, as VS Code's does
   open(0);
   open(1);
   assert.deepEqual(opened, ["user", "workspace"]);
+});
+
+test("online, Delete your account is in the Danger zone, last, and only opens the confirming dialog", () => {
+  const { app, log } = fakeApp({ localVault: null, deleteAccount: () => log.push("deleteAccount") });
+  const all = appSettings(app);
+  const del = all.find((s) => s.id === "delete-account")!;
+  assert.equal(del.section, "Danger zone");
+  assert.equal(all.at(-1), del);
+  assert.deepEqual(titles("delete account", app), ["Delete your account"]);
+  assert.ok(del.control.kind === "button" && del.control.danger);
+  if (del.control.kind === "button") del.control.run();
+  assert.deepEqual(log, ["deleteAccount"]);
+  // Locally there's no account to delete.
+  assert.equal(appSettings(fakeApp().app).find((s) => s.id === "delete-account"), undefined);
 });

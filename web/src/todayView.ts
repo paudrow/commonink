@@ -6,6 +6,7 @@ import { el } from "./dom.ts";
 import { gamified } from "./gamify.ts";
 import { quickAddBar } from "./quickAdd.ts";
 import { today } from "./taskChips.ts";
+import { todayPageRing } from "./todayRing.ts";
 import { mountWeekRecap } from "./weekRecapCard.ts";
 import { WIDGETS } from "./widgets/index.ts";
 
@@ -43,11 +44,12 @@ export function renderTodayPage(root: HTMLElement, hooks: TodayHooks): () => voi
   const date = new Date(`${today()}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
   const day = el("div");
   const week = el("div", { class: "td-week" });
+  const ring = gamified() ? todayPageRing() : null; // how much of today is ticked, as in the sidebar
   root.replaceChildren(
     el(
       "div",
       { class: "page" },
-      el("header", { class: "page-head" }, el("h1", {}, "Today"), el("p", { class: "page-sub" }, date)),
+      el("header", { class: "page-head" }, el("h1", {}, "Today"), el("p", { class: "page-sub td-sub" }, el("span", {}, date), ring?.root ?? "")),
       quickAddBar({ added: () => {}, open: hooks.open }).root, // the day below reloads when the note changes
       day,
       gamified() ? week : "", // a workspace without rewards has no week card (see gamify.ts)
@@ -55,5 +57,5 @@ export function renderTodayPage(root: HTMLElement, hooks: TodayHooks): () => voi
   );
   const unmountDay = mountDay(day, hooks);
   const unmountWeek = gamified() ? mountWeekRecap(week, (path) => hooks.open(path)) : () => {};
-  return () => (unmountDay(), unmountWeek());
+  return () => (unmountDay(), unmountWeek(), ring?.stop());
 }

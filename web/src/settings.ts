@@ -10,18 +10,18 @@ import type { OptionalItem } from "./sidebar.ts";
 import { INKS, progressText, type InkId, type InkStats } from "./inks.ts";
 import { PRESETS, type PresetId } from "../../src/core/presets.ts";
 
-export type Section = "Appearance" | "Sidebar" | "Editor" | "Keyboard" | "Agents" | "Workspace";
+export type Section = "Appearance" | "Sidebar" | "Editor" | "Keyboard" | "Agents" | "Workspace" | "Danger zone";
 /** Whose a setting is, as VS Code splits User and Workspace: yours (this browser, or your settings file), or everyone's here. */
 export type Scope = "user" | "workspace";
 export const scopeOf = (s: Setting): Scope => (s.section === "Workspace" ? "workspace" : "user");
-export const SECTIONS: Section[] = ["Appearance", "Sidebar", "Editor", "Keyboard", "Agents", "Workspace"];
+export const SECTIONS: Section[] = ["Appearance", "Sidebar", "Editor", "Keyboard", "Agents", "Workspace", "Danger zone"];
 
 export type Theme = "system" | "light" | "dark";
 
 export type Control =
   | { kind: "toggle"; on: boolean; set(on: boolean): void }
   | { kind: "choice"; value: string; options: Array<{ value: string; label: string }>; set(value: string): void }
-  | { kind: "button"; label: string; run(): void }
+  | { kind: "button"; label: string; run(): void; danger?: boolean }
   | { kind: "custom"; render(): HTMLElement[] };
 
 export interface Setting {
@@ -75,6 +75,8 @@ export interface SettingsApp {
   connectAgent(): void;
   /** Open the note every agent reads first (Config/AGENTS.md, or a root AGENTS.md from before Config/). */
   agentInstructions(): void;
+  /** Online, opens Delete your account (deleteAccount.ts), which asks you to type your email; locally, null. */
+  deleteAccount: (() => void) | null;
 }
 
 /** Each sidebar item that waits until it's in use: its name, and what puts it in the sidebar by itself. */
@@ -261,6 +263,18 @@ export function appSettings(app: SettingsApp): Setting[] {
         set: (v) => app.setOrganizing(v as PresetId),
       },
     },
+    ...(app.deleteAccount
+      ? [
+          {
+            id: "delete-account",
+            section: "Danger zone",
+            title: "Delete your account",
+            description: "Deletes your account for good, with your own workspaces and every note and file in them. You'll see what goes and what stays, can export everything first, and type your email to confirm. It can't be undone.",
+            keywords: "delete remove close erase account gdpr leave danger",
+            control: { kind: "button", label: "Delete account…", run: app.deleteAccount, danger: true },
+          } satisfies Setting,
+        ]
+      : []),
   ];
 }
 
@@ -342,7 +356,7 @@ function controlFor(s: Setting, id: string, describedBy: string): HTMLElement {
     );
   }
   if (c.kind === "button") {
-    const b = button(c.label, null, c.run);
+    const b = button(c.label, null, c.run, c.danger ? "danger" : "");
     b.id = id;
     b.setAttribute("aria-describedby", describedBy);
     return b;

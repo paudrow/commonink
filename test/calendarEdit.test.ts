@@ -133,7 +133,11 @@ test("New event opens the form at the next half hour in the workspace's calendar
   assert.equal(root.querySelector<HTMLElement>(".cal-new")!.hidden, false);
   page.newEvent({ start: new Date(2026, 9, 5, 14, 30), end: new Date(2026, 9, 5, 15, 15) });
   assert.deepEqual([input("Start date").value, input("Start time").value, input("End date").value, input("End time").value], ["2026-10-05", "14:30", "2026-10-05", "15:15"]);
-  assert.deepEqual([...form()!.querySelector<HTMLSelectElement>("select")!.options].map((o) => o.textContent), ["Common Ink"]);
+  assert.equal(form()!.querySelector("select"), null, "one calendar to put it in: no picker");
+  assert.equal(input("End date").hidden, true, "the end date shows only when it's another day");
+  assert.equal(input("Location").closest<HTMLElement>(".cal-f-line")!.hidden, true, "where, guests and notes wait behind Add …");
+  [...form()!.querySelectorAll<HTMLButtonElement>(".cal-f-add")].find((b) => b.textContent === "Add location")!.click();
+  assert.equal(input("Location").closest<HTMLElement>(".cal-f-line")!.hidden, false);
   input("Title").value = "Design review";
   input("Location").value = "Room 4";
   input("Add a guest").value = "ana@example.com";
