@@ -3149,6 +3149,12 @@ details.markdown-alert[open] > summary { margin-bottom: 0.3em; }
 .cal-tg-allday { grid-template-rows: repeat(var(--rows), auto); gap: 2px 0; min-height: 30px; padding: 3px 0 5px; }
 .cal-tg-allday .cal-chip { width: auto; margin: 0 2px; }
 .cal-allday-label { grid-row: 1 / -1; grid-column: 1; align-self: center; padding-right: 8px; text-align: right; font-size: 10.5px; color: var(--muted); }
+.cal-allday-label.is-toggle { display: flex; align-items: center; justify-content: flex-end; gap: 2px; align-self: start; height: 20px; margin-right: 3px; padding: 0 3px; border-radius: 6px; white-space: nowrap; }
+.cal-allday-label.is-toggle:hover { background: var(--hover); color: var(--ink-strong); }
+.cal-allday-label.is-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cal-allday-label.is-toggle svg { transition: transform 0.12s; }
+.cal-allday-label.is-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
+.cal-tg-allday .cal-allday-more { justify-self: start; margin: 0 2px; }
 .cal-dayhead { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 4px 0 6px; border-radius: 8px; color: var(--ink-2); }
 .cal-dayhead:hover { background: var(--hover); }
 .cal-dayhead:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }

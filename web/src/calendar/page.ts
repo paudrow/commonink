@@ -41,6 +41,8 @@ const HOUR = 48;
 const NUDGE_SAVE = 700;
 /** The height of a line of text in an event in the time grid, in pixels. */
 const LINE = 16;
+/** Lines a day shows in the all-day row of Week and Day before "+N more", until it's opened. */
+const ALLDAY_LINES = 3;
 /** Lines a day shows in Month before "+N more", until it's measured how many fit (and on a phone). */
 const MONTH_LINES = 3;
 /** Month: the height of an item's line, and the room above the first for the day's number, in pixels. */
@@ -727,8 +729,18 @@ export class CalendarPage {
 
   private timeGrid(days: Day[]): HTMLElement {
     const today = dayKey(new Date());
-    const top = bars(this.items, span, days);
-    const rows = Math.max(1, ...top.map((b) => b.row + 1));
+    // The all-day row shows a few lines a day; a day with more says "+N more", which opens the row
+    // for every day until "All day" folds it again (remembered).
+    const all = bars(this.items, span, days);
+    const fit = fitRows(all, ALLDAY_LINES, days.length);
+    const folds = fit.hidden.some((n) => n > 0);
+    const open = folds && store.get<boolean>("calendarAllDayOpen", false);
+    const top = open ? all : fit.shown;
+    const rows = Math.max(1, ...top.map((b) => b.row + 1), folds && !open ? ALLDAY_LINES : 0);
+    const toggle = () => {
+      store.set("calendarAllDayOpen", !open);
+      this.render(true);
+    };
     const head = (d: Day) => {
       const date = dayStart(d);
       const label = el("span", { class: "cal-dh" }, el("span", { class: "cal-dh-dow" }, DOW[(date.getDay() + 6) % 7]), el("span", { class: "cal-dh-num" }, String(date.getDate())));
@@ -784,12 +796,19 @@ export class CalendarPage {
         el(
           "div",
           { class: "cal-tg-allday", style: { "--rows": String(rows) }, role: "group", "aria-label": "All day" },
-          el("div", { class: "cal-gutter cal-allday-label" }, "All day"),
+          folds
+            ? el("button", { type: "button", class: "cal-gutter cal-allday-label is-toggle", "aria-expanded": String(open), title: open ? "Show fewer" : "Show all", onclick: toggle }, icon("chevron", 12), "All day")
+            : el("div", { class: "cal-gutter cal-allday-label" }, "All day"),
           ...top.map((b) => {
             const chip = this.chip(b.item, days[b.from], { bar: b });
             Object.assign(chip.style, { gridColumn: `${b.from + 2} / ${b.to + 3}`, gridRow: String(b.row + 1) });
             return chip;
           }),
+          ...(open
+            ? []
+            : fit.hidden.flatMap((n, i) =>
+                n ? [el("button", { type: "button", class: "cal-more cal-allday-more", style: { gridColumn: String(i + 2), gridRow: String(ALLDAY_LINES) }, title: "Show all", onclick: toggle }, `+${n} more`)] : [],
+              )),
         ),
       ),
       body,

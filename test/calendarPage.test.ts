@@ -183,6 +183,25 @@ test("subscribing shows the server's reason when a feed can't be added", async (
   assert.equal(document.querySelector(".cal-src-box"), null);
 });
 
+test("a day with many tasks folds its all-day row to a few lines and +N more, which opens the row until All day folds it", async () => {
+  const many = [1, 2, 3, 4].map((n) => ({ ...TASKS[0], line: 10 + n, text: `Chore ${n} due:${today}`, summary: `Chore ${n}`, meta: { ...TASKS[0].meta } }));
+  TASKS.push(...many);
+  await page.setView("week", today);
+  await settle();
+  const allDay = () => texts(".cal-tg-allday .cal-chip-title");
+  assert.equal(allDay().length, 2, "Offsite and one task, then the more");
+  assert.deepEqual(texts(".cal-allday-more"), ["+4 more"]);
+  root.querySelector<HTMLElement>(".cal-allday-more")!.click();
+  assert.equal(allDay().length, 6);
+  const label = root.querySelector<HTMLElement>(".cal-allday-label")!;
+  assert.equal(label.getAttribute("aria-expanded"), "true");
+  label.click();
+  assert.equal(allDay().length, 2);
+  TASKS.splice(1);
+  await page.refresh();
+  assert.equal(root.querySelector(".cal-allday-label")!.tagName, "DIV", "with room for everything, nothing to fold");
+});
+
 test("a viewer sees the calendars but can't subscribe, rename, remove or make a meeting note", async () => {
   setCalendarContext({ canEdit: false });
   calendarChanged();
