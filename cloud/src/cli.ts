@@ -12,6 +12,7 @@ import { access } from "./access.ts";
 import { readUpTo } from "./body.ts";
 import { adminRoute } from "./admin.ts";
 import { getUser, timeZoneFor, workspacesOf, type User, type WorkspaceRef } from "./directory.ts";
+import { actingRole } from "./billing.ts";
 import { limit, ROUTE_LIMITS } from "./limits.ts";
 import type { AgentProps, OAuthEnv } from "./agents.ts";
 
@@ -98,7 +99,7 @@ export async function serveCli(req: Request, env: OAuthEnv, props: AgentProps, i
     workspace: ws.id,
     user: user.id,
     actor,
-    role: ws.role,
+    role: await actingRole(env, ws.id, ws.role),
     timeZone: await timeZoneFor(env.DB, user.id, ws.id),
     origin: new URL(req.url).origin,
   });

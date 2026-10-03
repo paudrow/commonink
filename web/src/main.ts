@@ -9,7 +9,7 @@ import { cleanTag, normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
 import { setSaveToDrive, setShareState, setShareWithPeople, SHARE_KEYS, toggleShareMenu, type ShareNote } from "./share.ts";
-import type { Label, Me } from "./api.ts";
+import type { Billing, Label, Me } from "./api.ts";
 import { hideBanner, showBanner } from "./banner.ts";
 import { showConflict as conflictBanner } from "./conflict.ts";
 import { notesChanged } from "./editor/livePreview.ts";
@@ -3438,6 +3438,9 @@ function openSettings(query?: string) {
             ),
           shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
           connectAgent,
+          billing: billingState,
+          subscribe: (interval) => void toStripe(() => api.checkout(interval)),
+          manageBilling: () => void toStripe(api.billingPortal),
           deleteAccount: signedIn
             ? () => void import("./deleteAccount.ts").then((d) => d.showDeleteAccount(signedIn!, (t) => toast(t), () => exportZip({ all: true })))
             : null,
@@ -3445,6 +3448,40 @@ function openSettings(query?: string) {
       { query },
     ),
   );
+  // Online, the Plan section shows once the plan has loaded.
+  if (!local) {
+    void api.billing().then(
+      (b) => {
+        billingState = b;
+        void import("./settings.ts").then((m) => m.refreshSettings());
+      },
+      () => {},
+    );
+  }
+}
+
+/** Online, on load: back from Stripe, or a plan that needs you (a failed payment, or ended). */
+async function billingNotice() {
+  const back = new URLSearchParams(location.search).get("billing");
+  if (back) history.replaceState(history.state, "", location.pathname + location.hash);
+  const b = await api.billing().catch(() => null);
+  if (!b?.on) return;
+  billingState = b;
+  const { planText } = await import("./settings.ts");
+  if (back === "done") toast({ icon: "check", text: "Thanks for subscribing", detail: planText(b) });
+  else if (b.plan.status === "past_due" || b.plan.status === "lapsed") toast({ text: b.plan.status === "lapsed" ? "Your plan has ended" : "Your last payment didn't go through", detail: `${planText(b)} Settings, under Plan.` });
+}
+
+/** Online: your plan (cloud/src/billing.ts), as last loaded. */
+let billingState: Billing | null = null;
+
+/** Off to Stripe's Checkout or Customer Portal, which bring you back here after. */
+async function toStripe(page: () => Promise<{ url: string }>) {
+  try {
+    location.assign((await page()).url);
+  } catch (e) {
+    toast({ text: e instanceof Error ? e.message : "Couldn't reach billing" });
+  }
 }
 
 /** Keep an optional sidebar item showing even before it's in use (Settings, Sidebar), or let it wait again. */
@@ -3674,6 +3711,7 @@ async function boot() {
     setSaveToDrive({ label: "Save to Google Drive…", icon: "drive", run: (note) => void saveNoteToDrive(note) });
     void refreshShares();
     void api.sharedWithMe().then((g) => ($("#shared-count").textContent = String(g.reduce((n, x) => n + x.notes.length, 0) || "")), () => {});
+    void billingNotice();
   }
 
   hydrateIcons();
