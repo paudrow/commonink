@@ -33,7 +33,7 @@ test("it goes at the end of the note's Captured section, made at the end of the 
 // ------------------------------------------------------------------ the service worker, run in a fake worker
 
 /** web/public/sw.js with fake caches and fetch; `dispatch` sends it an event. */
-function worker(origin = "https://commonink.app") {
+function worker(origin = "https://commonink.app", answer = () => new Response("body", { status: 200 })) {
   const stores = new Map<string, Map<string, Response>>();
   const key = (r: Request | string) => (typeof r === "string" ? new URL(r, origin).href : r.url);
   const caches = {
@@ -58,7 +58,7 @@ function worker(origin = "https://commonink.app") {
     skipWaiting: () => {},
     clients: { claim: async () => {} },
   };
-  const context = vm.createContext({ self, caches, fetch: async (r: Request) => (fetched.push(r.url), new Response("body", { status: 200 })), Response, Request, URL, FormData, File, Blob, Date, Math, JSON, Promise, console });
+  const context = vm.createContext({ self, caches, fetch: async (r: Request) => (fetched.push(r.url), answer()), Response, Request, URL, FormData, File, Blob, Date, Math, JSON, Promise, console });
   vm.runInContext(fs.readFileSync(path.join(root, "web/public/sw.js"), "utf8"), context);
   const dispatch = async (request: Request) => {
     let answer: Promise<Response> | undefined;
@@ -96,6 +96,15 @@ test("the worker keeps only the app's built files: never pages, notes or API ans
   await w.dispatch(new Request("https://commonink.app/assets/index-abc123.js"));
   assert.deepEqual(w.fetched, ["https://commonink.app/assets/index-abc123.js"], "a built file is fetched once, then kept");
   assert.deepEqual([...w.stores.keys()], ["commonink-assets-v1"]);
+});
+
+test("a built file that's gone (the edge sent the app's page in its place) isn't kept under its name", async () => {
+  const w = worker(undefined, () => new Response("<!doctype html>", { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } }));
+  const old = new Request("https://commonink.app/assets/queryHelpPage-0ld.js");
+  assert.equal((await w.dispatch(old))!.headers.get("Content-Type"), "text/html; charset=utf-8");
+  await w.dispatch(old);
+  assert.equal(w.fetched.length, 2, "asked for again, not answered from the cache");
+  assert.equal(w.stores.get("commonink-assets-v1")?.size ?? 0, 0);
 });
 
 test("the manifest offers Common Ink in the share sheet: links, text and images, posted to /share", () => {
