@@ -25,15 +25,43 @@ test("stepping a month keeps the day of the month where the next month has it", 
   assert.equal(L.stepDay("agenda", "2026-09-29", 1), "2026-10-13");
 });
 
-test("three events on at once take three lanes; the next one takes the first lane that's free", () => {
+test("events that start together sit side by side; one that starts inside another sits on it, indented; each widens into free lanes", () => {
   const items = [ev("A", "2026-09-29T09:00:00", "2026-09-29T10:00:00"), ev("B", "2026-09-29T09:30:00", "2026-09-29T11:00:00"), ev("C", "2026-09-29T09:45:00", "2026-09-29T10:15:00"), ev("D", "2026-09-29T10:30:00", "2026-09-29T11:30:00"), ev("Lunch", "2026-09-29T12:00:00", "2026-09-29T13:00:00")];
-  assert.deepEqual(grid(items, "2026-09-29"), [
-    ["A", 540, 600, 0, 3],
-    ["B", 570, 660, 1, 3],
-    ["C", 585, 615, 2, 3],
-    ["D", 630, 690, 0, 3],
-    ["Lunch", 720, 780, 0, 1],
+  const placed = L.timeGrid(items, span, "2026-09-29").map((s) => [s.item.title, s.top, s.bottom, s.lane, s.lanes, s.span, s.indent]);
+  assert.deepEqual(placed, [
+    ["A", 540, 600, 0, 2, 1, 0],
+    ["B", 570, 660, 0, 2, 1, 1], // half an hour into A: on top of it
+    ["C", 585, 615, 1, 2, 1, 0], // a quarter hour after B: beside it
+    ["D", 630, 690, 0, 2, 2, 2], // inside B; C is over by then, so D takes the whole width
+    ["Lunch", 720, 780, 0, 1, 1, 0],
   ]);
+  const together = [ev("Standup", "2026-09-29T09:00:00", "2026-09-29T09:15:00"), ev("Review", "2026-09-29T09:00:00", "2026-09-29T10:00:00"), ev("Call", "2026-09-29T09:20:00", "2026-09-29T09:50:00")];
+  assert.deepEqual(grid(together, "2026-09-29"), [
+    ["Review", 540, 600, 0, 2],
+    ["Standup", 540, 555, 1, 2],
+    ["Call", 560, 590, 1, 2],
+  ], "starting within half an hour of Review, Call goes beside it, in the lane Standup is done with");
+});
+
+test("in Month, a week's items are bars on rows, longest first, and a full day shows one fewer to make room for +N more", () => {
+  const week = L.viewDays("week", "2026-09-30");
+  const items = [
+    ev("Standup", "2026-09-29T09:00:00", "2026-09-29T09:15:00"),
+    ev("Offsite", "2026-09-29", "2026-10-02", true),
+    ev("Lunch", "2026-09-29T12:00:00", "2026-09-29T13:00:00"),
+    ev("Gym", "2026-09-28T07:00:00", "2026-09-28T08:00:00"),
+  ];
+  const rows = L.weekRows(items, span, week);
+  assert.deepEqual(rows.map((b) => [b.item.title, b.from, b.to, b.row]), [
+    ["Offsite", 1, 3, 0],
+    ["Gym", 0, 0, 0],
+    ["Standup", 1, 1, 1],
+    ["Lunch", 1, 1, 2],
+  ]);
+  const fit = L.fitRows(rows, 2);
+  assert.deepEqual(fit.shown.map((b) => b.item.title), ["Offsite", "Gym"]);
+  assert.deepEqual(fit.hidden, [0, 2, 0, 0, 0, 0, 0]);
+  assert.deepEqual(L.fitRows(rows, 3).hidden, [0, 0, 0, 0, 0, 0, 0]);
 });
 
 test("an all-day event over three days is a bar across those three columns of the week", () => {

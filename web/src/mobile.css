@@ -146,16 +146,19 @@
 @media (max-width: 760px) {
   .cal { padding: 10px 12px 0; }
   .cal-head { gap: 8px; }
-  .cal-title { flex-basis: 100%; font-size: 19px; }
-  .cal-tools { width: 100%; gap: 8px; }
-  .cal-views { flex: 1; justify-content: space-between; }
+  .cal-title { font-size: 19px; }
+  /* The dates; then Today, back and on, with Calendars and New at the end; then the views, full width. */
+  .cal-nav .qw-btn, .cal-nav .icon-btn { height: 36px; }
+  .cal-tools { display: contents; }
+  .cal-sources-btn { order: 1; margin-left: auto; }
+  .cal-new { order: 2; }
+  .cal-views { order: 3; flex: 1 0 100%; justify-content: space-between; }
   .cal-views button { flex: 1; padding-inline: 4px; min-height: 36px; }
-  .cal-sources-btn span { display: none; }
   .cal-new span { display: none; }
-  .cal-new { width: 44px; justify-content: center; padding: 0; }
+  .qw-btn.cal-new { flex: none; width: 44px; min-width: 0; height: 36px; justify-content: center; padding: 0; }
   .cal-f-line { gap: 8px; }
   .cal-f-adders { padding-left: 0; }
-  .cal-sources-btn { width: 44px; justify-content: center; padding: 0; }
+  .cal-sources-btn { width: 44px; height: 36px; justify-content: center; padding: 0; }
   .cal-tg { min-width: 620px; }
   #calendar-view[data-view="day"] .cal-tg { min-width: 0; }
   .cal-month { grid-template-rows: auto repeat(var(--weeks), minmax(64px, 1fr)); }

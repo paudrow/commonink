@@ -175,14 +175,22 @@ test("an all-day event sends days, the end the day after the last one shown", as
   assert.deepEqual([body.start, body.end, body.allDay, body.meetingNote], ["2026-10-12", "2026-10-15", true, undefined]);
 });
 
-test("a drag across empty grid opens the form on that range; a click there makes nothing", async () => {
+test("a click on empty grid opens the form on that half hour; a drag there, on the range it covers", async () => {
   await page.setView("day", today);
   await settle();
   const col = root.querySelector(`.cal-col[data-day="${today}"]`)!;
-  pointer("pointerdown", col, 600);
-  pointer("pointerup", window as unknown as Element, 600);
+  pointer("pointerdown", col, 610);
+  pointer("pointerup", window as unknown as Element, 610);
+  assert.equal(form(), null, "a press alone makes nothing");
+  assert.ok(root.querySelector(".cal-details"), "the event made above is open");
+  pointer("click", col, 610);
+  assert.equal(root.querySelector(".cal-details"), null, "a click beside an open event closes it first");
   assert.equal(form(), null);
-  drag(col, 14 * 48, 15.5 * 48); // 2 to 3:30 in the afternoon, at 48 pixels an hour
+  pointer("click", col, 610); // 12:42, at 48 pixels an hour
+  assert.deepEqual([input("Start time").value, input("End time").value], ["12:30", "13:00"]);
+  document.querySelector<HTMLElement>(".cal-f-box .ask-actions .qw-btn")!.click(); // Cancel
+  assert.equal(form(), null);
+  drag(col, 14 * 48, 15.5 * 48); // 2 to 3:30 in the afternoon
   assert.deepEqual([input("Start time").value, input("End time").value], ["14:00", "15:30"]);
   await settle(); // the click that ends a drag is the drag's, not the next one
   document.querySelector<HTMLElement>(".cal-f-box .ask-actions .qw-btn")!.click(); // Cancel
