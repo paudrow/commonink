@@ -459,6 +459,8 @@ const NOT_A_VERB: Record<string, string> = {
   "tag asset": "an asset's tag chips on Assets",
   smart: "the sidebar's Smart folders section lists them",
   "smart-rm": "a smart folder's own menu in the sidebar",
+  "smart-star": "a smart folder's star, on its row in the sidebar or beside the Notes filters",
+  "smart-unstar": "a smart folder's star, on its row in the sidebar or beside the Notes filters",
   "starred order": "favorites are dragged into order in the sidebar",
   "label-rename": "a label's own buttons in History",
   "label-rm": "a label's own buttons in History",
