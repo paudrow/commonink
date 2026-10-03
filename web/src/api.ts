@@ -121,10 +121,14 @@ export interface FeedPage {
   folders: string[];
 }
 export { isArchived } from "../../src/core/archive.ts";
-/** A saved note query in the sidebar, with how many active notes match it now. */
+/** A saved view: a note in Views/ holding a note query (see core/views.ts), with how many active notes match it now. */
 export interface SmartFolder {
+  /** The view note's ID. */
   id: string;
+  /** Its file's name. */
   name: string;
+  /** The view note. */
+  path: string;
   /** As ::query args: `tag=work sort=title`. */
   query: string;
   shared: boolean;
@@ -144,7 +148,7 @@ export interface SmartFavorite extends SmartFolder {
 export type Favorite = NoteMeta | TagFavorite | SmartFavorite;
 export const isTagFavorite = (f: Favorite): f is TagFavorite => "tag" in f;
 export const isSmartFavorite = (f: Favorite): f is SmartFavorite => "smartFolder" in f;
-export const isNoteFavorite = (f: Favorite): f is NoteMeta => "path" in f;
+export const isNoteFavorite = (f: Favorite): f is NoteMeta => !("tag" in f) && !("smartFolder" in f);
 /** How a favorite is named in an order: a note's path, "#" and the tag, or "~" and a smart folder's ID. */
 export const favoriteKey = (f: Favorite) => (isTagFavorite(f) ? `#${f.tag}` : isSmartFavorite(f) ? `~${f.id}` : f.path);
 /** A tag (parents included), and how many notes, tasks and assets carry it or a tag under it. */
@@ -420,8 +424,9 @@ export const api = {
   openTasks: () => j<{ open: number }>(`${BASE}/tasks/count`).then((r) => r.open),
   tags: () => j<TagCount[]>(`${BASE}/tags`),
   smartFolders: () => j<SmartFolder[]>(`${BASE}/smart-folders`),
-  /** Create a smart folder, or change one by `id`. */
+  /** Create a view (a note in Views/), or change one by `id`: renaming it renames its note. */
   saveSmartFolder: (f: { id?: string; name: string; query: string; shared: boolean }) => j<SmartFolder>(`${BASE}/smart-folders`, send("POST", { id: f.id, name: f.name, query: f.query, shared: f.shared })),
+  /** Delete a view: its note goes to Trash. Returns the views left. */
   deleteSmartFolder: (id: string) => j<SmartFolder[]>(`${BASE}/smart-folders/delete`, send("POST", { id })),
   /** Each tagged asset's tags. */
   assetTags: () => j<Record<string, string[]>>(`${BASE}/asset-tags`),

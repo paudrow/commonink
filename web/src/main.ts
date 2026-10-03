@@ -1765,19 +1765,22 @@ async function toggleStar(path: string) {
   notesPage.refreshSoon();
 }
 
-// ------------------------------------------------------------------ smart folders
+// ------------------------------------------------------------------ views (smart folders)
+// A view is a note in Views/ holding one query line (see core/views.ts): saving one here writes its
+// note, renaming one renames it, and deleting one sends it to Trash. The sidebar lists them as
+// Views; the code and API still call them smart folders.
 
-/** A starting name for a query: its tag, folder and words ("#work · Projects"). */
+/** A starting name for a query: its tag, folder and words ("work · Projects"). It's a file name, so tags go without their #. */
 function nameFor(query: string): string {
   const q = parseQuery(query);
-  const tags = tagList(q.tag).map((t) => `#${t}`).join(q.match === "any" ? " or " : " ");
+  const tags = tagList(q.tag).join(q.match === "any" ? " or " : " ");
   return [tags, q.folder, q.q && `“${q.q}”`].filter(Boolean).join(" · ") || "All notes";
 }
 
 /** What the settings forms' tag and folder fields suggest. */
 const fieldSources = { tags: () => tags, folders: () => allFolders() };
 
-/** Offer to keep a note query as a smart folder (from the Notes filters or a ::query widget). */
+/** Offer to keep a note query as a view (from the Notes filters or a ::query widget). */
 function saveSmartFolder(query: string, name: string, anchor: HTMLElement, favorite = false) {
   // New ones are yours only until you share them (a local vault has no one else, so it keeps them as it always did).
   smartFolderEditor(anchor, { name: name || nameFor(query), query, shared: local }, {
@@ -1790,19 +1793,20 @@ function saveSmartFolder(query: string, name: string, anchor: HTMLElement, favor
       if (favorite) await starSmartFolder(saved.id, true);
       renderTree();
       notesPage.refreshSoon();
-      toast({ icon: "folderSearch", text: `Saved ${saved.name}`, detail: local ? undefined : saved.shared ? "Everyone in the workspace sees it in their sidebar." : "Only you see it." });
+      const who = local ? "" : saved.shared ? " Everyone in the workspace sees it in their sidebar." : " Only you see it in your sidebar.";
+      toast({ icon: "folderSearch", text: `Saved ${saved.name}`, detail: `A note in ${saved.path.replace(/\/[^/]*$/, "/")}.${who}` });
     },
   });
 }
 
-/** A new smart folder from ⌘K: the Smart folders section shows (it waits for a first one otherwise), and the form opens under its +. */
+/** A new view from ⌘K: the Views section shows (it waits for a first one otherwise), and the form opens under its +. */
 function newSmartFolderFromPalette() {
   revealed.add("smart");
   renderTree();
   newSmartFolder($("#new-smart-folder"));
 }
 
-/** A new smart folder from scratch (the Smart folders header, or its empty row). Saving opens it. */
+/** A new view from scratch (the Views header, or its empty row). Saving opens it. */
 function newSmartFolder(anchor: HTMLElement) {
   smartFolderEditor(anchor, { name: "", query: "", shared: local }, {
     canShare: !viewer,
@@ -1836,7 +1840,7 @@ async function toggleSmartStar(f: SmartFolder) {
 /** A smart folder's star, on its row in Smart folders or in Starred. */
 function smartStarButton(f: SmartFolder): HTMLElement {
   const starred = isSmartStarred(f.id);
-  const label = starred ? "Unstar smart folder" : "Star smart folder";
+  const label = starred ? "Unstar view" : "Star view";
   return el(
     "button",
     { type: "button", class: `row-act star-btn${starred ? " is-starred" : ""}`, title: label, "aria-label": `${label}: ${f.name}`, "aria-pressed": String(starred), onclick: (e: Event) => (e.stopPropagation(), void toggleSmartStar(f)) },
@@ -1864,7 +1868,7 @@ function queryStarButton(q: NoteQuery): HTMLElement | "" {
     {
       type: "button",
       class: "fc-action tag-star star-btn",
-      title: "Star this search (saves it as a smart folder)",
+      title: "Star this search (saves it as a view)",
       "aria-label": "Star this search",
       "aria-pressed": "false",
       onclick: (e: Event) => (e.stopPropagation(), saveSmartFolder(text, "", b, true)),
@@ -1929,7 +1933,7 @@ function renderSmartFolders(active: string | null) {
         },
         remove: async () => {
           const everyone = f.shared && !local ? " for everyone in the workspace" : "";
-          if (!(await confirmAction({ title: `Delete the smart folder ${f.name}${everyone}?`, body: "Its notes don't change.", action: "Delete", danger: true }))) return;
+          if (!(await confirmAction({ title: `Delete the view ${f.name}${everyone}?`, body: `Its note (${f.path}) goes to Trash. The notes it finds don't change.`, action: "Delete", danger: true }))) return;
           smartFolders = await api.deleteSmartFolder(f.id);
           renderTree();
           toast({ icon: "folderSearch", text: `Deleted ${f.name}` });
@@ -1943,7 +1947,7 @@ function renderSmartFolders(active: string | null) {
         "aria-current": f.query === active && "page",
         style: { "--depth": "0" },
         "data-smart": f.id,
-        title: `${f.query || "Every note"}${f.shared ? "" : " (just you)"}`,
+        title: `${f.query || "Every note"}${f.shared ? "" : " (just you)"} · ${f.path}`,
         ...opens(() => void showNotes({ tab: "notes", query: parseQuery(f.query) })),
       },
       el("span", { class: "chev is-leaf" }), // the chevron column Folders and Tags rows have, so icons and names line up
@@ -2095,7 +2099,7 @@ async function dropFavorite(key: string, before?: string) {
     order.splice(at < 0 ? order.length : at, 0, key);
     favorites = await api.orderFavorites(order);
   } catch {
-    return toast({ text: `Couldn't star ${key.startsWith("#") ? key : key.startsWith("~") ? "that smart folder" : displayName(key)}` });
+    return toast({ text: `Couldn't star ${key.startsWith("#") ? key : key.startsWith("~") ? "that view" : displayName(key)}` });
   }
   renderTree();
   renderChrome();
@@ -2386,7 +2390,7 @@ function renameTarget(): { what: Renamable; run(): void } | null {
     const t = q.tag && showing === formatQuery({ tag: q.tag }) ? tags.find((x) => x.tag === normalizeTag(q.tag!)) : undefined;
     if (t) return { what: "tag", run: () => void renameTag(t) };
     const f = showing ? smartFolders.find((x) => x.query === showing) : undefined;
-    if (f) return { what: "smart folder", run: () => editSmartFolder(f.id) };
+    if (f) return { what: "view", run: () => editSmartFolder(f.id) };
   }
   return !page && active.session ? { what: "note", run: () => void renameNote() } : null;
 }

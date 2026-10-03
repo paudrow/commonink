@@ -35,7 +35,7 @@ interface Hooks {
   /** The filters changed (the sidebar marks the folder or smart folder being shown). */
   filtersChanged(): void;
   tags(): TagCount[];
-  /** Save these filters (a query like `tag=work sort=title`) as a smart folder. */
+  /** Save these filters (a query like `tag=work sort=title`) as a view (a note in Views/). */
   saveQuery(anchor: HTMLElement, query: string): void;
   /** The star (Add to / Remove from Favorites) for what Notes shows: a tag, a smart folder, or any search. Empty with no filters. */
   starButton(query: NoteQuery): HTMLElement | "";
@@ -127,7 +127,7 @@ export class NotesPage {
       "button",
       { type: "button", class: "chip tag-filter", title: "Keep these filters in the sidebar", onclick: () => this.hooks.saveQuery(this.saveBtn, formatQuery(this.query)) },
       icon("folderSearch", 13),
-      "Save as smart folder",
+      "Save as view",
     );
     this.bulk = el("div", { class: "feed-bulk", hidden: true });
     this.list = el("div", { class: "feed-list", role: "list" });
