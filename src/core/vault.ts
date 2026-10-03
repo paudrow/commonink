@@ -664,13 +664,14 @@ export class Vault {
       }
       return rows;
     };
-    const here = (rel: string): boolean => {
-      if (!stems) return this.files.stat(rel) !== null;
+    /** `rel` as the index spells it, if that file is here. */
+    const here = (rel: string): string | null => {
+      if (!stems) return this.files.stat(rel) ? this.indexedPath(rel) : null;
       const rows = byStem(stemOf(rel));
-      if (rows.includes(rel)) return true;
+      if (rows.includes(rel)) return rel;
       const fold = (p: string) => p.normalize("NFC").toLowerCase();
       const unsynced = rel.split("/").includes("node_modules");
-      return (unsynced || rows.some((p) => fold(p) === fold(rel))) && this.files.stat(rel) !== null;
+      return (unsynced || rows.some((p) => fold(p) === fold(rel))) && this.files.stat(rel) ? this.indexedPath(rel) : null;
     };
     const t = target.trim().replace(/\\/g, "/").replace(/^\.?\/+/, "").replace(/#.*$/, "").replace(/\|.*$/, "");
     if (!t) return null;
@@ -681,7 +682,8 @@ export class Vault {
       for (const p of kindOf(c) ? [c] : [`${c}.md`, c]) {
         try {
           const rel = cleanPath(p);
-          if (kindOf(rel) && here(rel)) return this.indexedPath(rel);
+          const found = kindOf(rel) ? here(rel) : null;
+          if (found) return found;
         } catch {}
       }
     }
