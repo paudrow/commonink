@@ -17,7 +17,7 @@ import { personFor, type Person } from "../../../src/core/contacts.ts";
 type Show = "open" | "done" | "all";
 type Group = "note" | "due" | "priority" | "tag" | "person";
 type Sort = "note" | "due" | "priority";
-const GROUPS: Record<Group, string> = { note: "By note", due: "By due date", priority: "By priority", tag: "By tag", person: "By person" };
+const GROUPS: Record<Group, string> = { note: "By note", due: "By due date", priority: "By priority", tag: "By tag", person: "By assignee" };
 const SORTS: Record<Sort, string> = { note: "Note order", due: "Due first", priority: "Priority first" };
 const PRIORITY = { high: 0, none: 1, low: 2 };
 const prevent = (e: Event) => e.preventDefault();
@@ -73,7 +73,7 @@ export const tasks: WidgetSpec = {
     { key: "folder", label: "Folder", type: "text", placeholder: "Every note, or e.g. Projects" },
     { key: "note", label: "Note", type: "text", placeholder: "Just one note (optional)" },
     { key: "tag", label: "Tag", type: "text", placeholder: "e.g. work (includes work/…)" },
-    { key: "assignee", label: "Person", type: "text", placeholder: "e.g. jane, or me" },
+    { key: "assignee", label: "Assignee", type: "text", placeholder: "e.g. jane, or me" },
     { key: "due", label: "Due", type: "text", placeholder: "<=today, tomorrow, >=today <=+7d" },
     { key: "start", label: "Starts", type: "text", placeholder: ">=today <=+7d, or a date" },
     { key: "done", label: "Done", type: "text", placeholder: ">=-7d for the last week" },

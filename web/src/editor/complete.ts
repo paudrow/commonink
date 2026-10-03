@@ -129,7 +129,7 @@ async function mentionSource(ctx: CompletionContext): Promise<CompletionResult |
     label: name === handle ? `@${handle}` : name,
     detail: name === handle ? detail : `@${handle}`,
     icon: "at",
-    section: { name: "People", rank: -1 },
+    section: { name: "Assignee", rank: -1 },
     apply: (view: EditorView, _c: Completion, _from: number, to: number) =>
       view.dispatch({ changes: { from: at, to, insert: `@${handle}` }, selection: { anchor: at + handle.length + 1 }, userEvent: "input.complete" }),
   });
@@ -164,7 +164,7 @@ async function mentionSource(ctx: CompletionContext): Promise<CompletionResult |
 async function peopleOptions(query: string, at: number): Promise<Option[]> {
   const { contacts, members } = await people().catch(() => ({ contacts: [], members: [] }));
   const ranked = rankPeople(query, contacts, members);
-  const section = { name: "People", rank: -1 };
+  const section = { name: "Contacts", rank: -1 };
   const insert = (view: EditorView, to: number, link: string) => {
     view.dispatch({ changes: { from: at, to, insert: link }, selection: { anchor: at + link.length }, userEvent: "input.complete" });
     did("link");

@@ -274,7 +274,7 @@ export class History {
       ...(note && !this.hooks.readOnly
         ? [el("button", { type: "button", class: "chip hist-label-btn", title: "Name the note as it is now, to compare with or go back to later", onclick: () => void labelVersion(note, { toast: this.hooks.toast }).then((l) => l && this.afterLabel(l)) }, icon("label", 12), "Name this version…")]
         : []),
-      el("span", { class: "hist-by", role: "group", "aria-label": "Whose changes" }, chip("", "Everyone"), chip("people", "People", "user"), chip("ai", "Agents", "bot")),
+      el("span", { class: "hist-by", role: "group", "aria-label": "Whose changes" }, chip("", "Everyone"), chip("people", "Humans", "user"), chip("ai", "Agents", "bot")),
       ...(this.agentNames.length > 1 ? [agentPick] : []),
     );
     let day = "";
@@ -345,7 +345,7 @@ export class History {
 
   private empty(): HTMLElement {
     if (this.by) {
-      return emptyState({ icon: "history", title: "No changes like that yet", text: ["History can show everyone's changes, or just people's, agents' or one agent's."], action: { label: "Show every change", run: () => void this.setBy("") } });
+      return emptyState({ icon: "history", title: "No changes like that yet", text: ["History can show everyone's changes, or just humans', agents' or one agent's."], action: { label: "Show every change", run: () => void this.setBy("") } });
     }
     return emptyState({
       icon: "history",
