@@ -2365,7 +2365,7 @@ function renderTree() {
   const heads = hiddenThere(folders, hiddenNow)
     .filter((h, _, all) => !all.some((o) => h.startsWith(`${o}/`))) // one inside another hidden one is listed under it
     .sort((a, b) => a.localeCompare(b));
-  // One quiet row at the bottom, a line above it, folds the hidden ones open below it, when there are any.
+  // One quiet row at the bottom folds the hidden ones open below it, when there are any.
   const toggle = heads.length
     ? el(
         "button",
