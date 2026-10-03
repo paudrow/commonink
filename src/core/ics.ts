@@ -409,17 +409,37 @@ const steadyDays = new WeakMap<Zone, Map<number, number | null>>();
 const toWall = (zone: Zone, utc: number) => utc + zone.offsetAt(utc);
 
 const ianaZones = new Map<string, Zone>();
+/** Names Intl rejected, so a repeated bogus TZID costs one failed lookup; cleared when full so hostile names can't grow it. */
+const unknownZones = new Set<string>();
+/** Failed Intl lookups one feed may make: each costs tens of µs, and a feed can name a fresh bogus zone per event. Real zones are cached, so they cost once. */
+const ZONE_MISSES = 200;
+let canonicalZones: Set<string> | null = null;
 
-/** An IANA zone Intl knows, or null. Known zones are kept for later feeds; unknown names are not, so hostile TZIDs can't grow the cache. */
-function ianaZone(raw: string): Zone | null {
+/** Whether Intl lists `key` (lowercased) as a canonical zone: a cheap check for once a feed's misses are spent. Aliases aren't listed. */
+function listedZone(key: string): boolean {
+  if (!canonicalZones) {
+    try {
+      canonicalZones = new Set(Intl.supportedValuesOf("timeZone").map((z) => z.toLowerCase()));
+    } catch {
+      canonicalZones = new Set();
+    }
+  }
+  return canonicalZones.has(key);
+}
+
+/** An IANA zone Intl knows, or null. Known zones are kept for later feeds. A name Intl rejects spends `misses`; once that's spent, only names Intl lists are looked up. */
+function ianaZone(raw: string, misses: { left: number }): Zone | null {
   const key = raw.toLowerCase();
   const known = ianaZones.get(key);
   if (known) return known;
-  if (!raw || raw.length > 64) return null;
+  if (!raw || raw.length > 64 || unknownZones.has(key) || (misses.left <= 0 && !listedZone(key))) return null;
   let format: Intl.DateTimeFormat;
   try {
     format = new Intl.DateTimeFormat("en-US", { timeZone: raw, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric" });
   } catch {
+    misses.left--;
+    if (unknownZones.size >= 10_000) unknownZones.clear();
+    unknownZones.add(key);
     return null;
   }
   const canonical = format.resolvedOptions().timeZone;
@@ -593,14 +613,14 @@ export const WINDOWS_ZONES: Record<string, string> = {
 const windowsZones = new Map(Object.entries(WINDOWS_ZONES).map(([win, iana]) => [win.toLowerCase(), iana]));
 
 /** A TZID that names a zone by itself: an IANA name, a Windows name, or an IANA name behind a prefix (`/mozilla.org/20050126_1/America/New_York`). */
-function namedZone(tzid: string): Zone | null {
+function namedZone(tzid: string, misses: { left: number }): Zone | null {
   const id = tzid.trim().replace(/^"(.*)"$/, "$1").trim();
   const win = windowsZones.get(id.toLowerCase());
-  const direct = ianaZone(id) ?? (win ? ianaZone(win) : null);
+  const direct = ianaZone(id, misses) ?? (win ? ianaZone(win, misses) : null);
   if (direct) return direct;
   const segments = id.split("/").filter(Boolean);
   for (let n = Math.min(3, segments.length - 1); n >= 1; n--) {
-    const zone = ianaZone(segments.slice(-n).join("/"));
+    const zone = ianaZone(segments.slice(-n).join("/"), misses);
     if (zone) return zone;
   }
   return null;
@@ -614,7 +634,8 @@ interface ZoneBook {
 
 /** Resolves TZIDs: by name, else by the feed's own VTIMEZONE, else X-WR-TIMEZONE, else UTC. */
 function zoneBook(timezones: Component[], feedTz: string | null, budget: { left: number }): ZoneBook {
-  const floating = (feedTz && namedZone(feedTz)) || UTC;
+  const misses = { left: ZONE_MISSES };
+  const floating = (feedTz && namedZone(feedTz, misses)) || UTC;
   const defined = new Map<string, Component>();
   for (const tz of timezones) {
     const id = tz.props.find((p) => p.name === "TZID")?.value.trim();
@@ -628,7 +649,7 @@ function zoneBook(timezones: Component[], feedTz: string | null, budget: { left:
       if (cached) return cached;
       const def = defined.get(tzid.trim());
       const location = def?.props.find((p) => p.name === "X-LIC-LOCATION")?.value;
-      const zone = namedZone(tzid) ?? (location ? namedZone(location) : null) ?? (def ? definedZone(def, budget) : null) ?? floating;
+      const zone = namedZone(tzid, misses) ?? (location ? namedZone(location, misses) : null) ?? (def ? definedZone(def, budget) : null) ?? floating;
       const clock: Clock = { kind: "zoned", zone };
       clocks.set(tzid, clock);
       return clock;
