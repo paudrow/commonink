@@ -103,11 +103,100 @@
 <h2 id="finding-things"><a class="anchor" href="#finding-things">Finding things</a></h2>
 <ul>
 <li><strong>⌘K</strong> finds a note by name or by anything in it.</li>
-<li><strong>Notes</strong> shows every note as a card, newest first. Type to filter, or narrow to a folder or tag.</li>
-<li><strong>Smart folders</strong> are saved searches in the sidebar, like <code>tag=work/clients sort=title</code>, with live counts.</li>
+<li><strong>Notes</strong> shows every note as a card, newest first. Type in its filter to search, or narrow to a folder or tag.</li>
+<li><strong>Smart folders</strong> are saved searches in the sidebar, like <code>tag=work/clients sort=title</code>, with live counts. Make one with <strong>New smart folder</strong> in ⌘K, or save the Notes filter as one.</li>
 <li><strong>Favorites</strong>: star a note or a tag to keep it at the top of the sidebar.</li>
 </ul>
-<h2 id="putting-notes-away"><a class="anchor" href="#putting-notes-away">Putting notes away</a></h2>
+<h3 id="searching-and-filtering"><a class="anchor" href="#searching-and-filtering">Searching and filtering</a></h3>
+<p>The Notes filter, smart folders, <code>::query</code> and <code>commonink ls --query</code> all read the same query language. Plain words find notes with all of them, each as the start of a word (<code>plan</code> finds &quot;planning&quot;). Combine them with <code>AND</code> and <code>OR</code> (in capitals), leave things out with <code>-</code>, and group with parentheses: without them, AND goes before OR, so <code>a b OR c</code> means <code>(a b) OR c</code>. For example:</p>
+<pre><code>(tag=work OR tag=home) -folder=Archive &quot;launch plan&quot; sort=created
+</code></pre>
+<p>finds notes tagged work or home, outside Archive, with the words &quot;launch plan&quot; together, newest first. A query with a mistake in it, like a <code>(</code> that&#39;s never closed, says where under the filter, and the list shows the best reading of the rest meanwhile.</p>
+<p>In the app, the <strong>?</strong> beside the Notes filter (or <strong>Query syntax</strong> in ⌘K) lists all of this with examples you can click to try; <code>commonink help query</code> prints it too.</p>
+<!-- query-syntax -->
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Write</th>
+<th>Try</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Words</td>
+<td><code>word</code></td>
+<td><code>plan</code></td>
+<td>Notes with a word starting with it: &quot;plan&quot; finds planning. Several words: notes with all of them.</td>
+</tr>
+<tr>
+<td>Words</td>
+<td><code>&quot;a phrase&quot;</code></td>
+<td><code>&quot;launch plan&quot;</code></td>
+<td>The words together, in this order. Inside q=&quot;…&quot; (a smart folder or ::query), use single quotes.</td>
+</tr>
+<tr>
+<td>Combine</td>
+<td><code>a AND b</code></td>
+<td><code>launch AND budget</code></td>
+<td>Both. Words side by side mean AND too, so launch budget is the same.</td>
+</tr>
+<tr>
+<td>Combine</td>
+<td><code>a OR b</code></td>
+<td><code>budget OR costs</code></td>
+<td>Either one. Write OR and AND in capitals: lowercase they&#39;re just words.</td>
+</tr>
+<tr>
+<td>Combine</td>
+<td><code>-term</code></td>
+<td><code>launch -draft</code></td>
+<td>Leave out notes that match: -word, -&quot;a phrase&quot;, -tag=old, -folder=Archive.</td>
+</tr>
+<tr>
+<td>Combine</td>
+<td><code>( … )</code></td>
+<td><code>(tag=work OR tag=home) launch</code></td>
+<td>A group. Without one, AND goes before OR: a b OR c is (a b) OR c.</td>
+</tr>
+<tr>
+<td>Combine</td>
+<td><code>-( … )</code></td>
+<td><code>launch -(draft OR old)</code></td>
+<td>Leave out notes matching anything in the group.</td>
+</tr>
+<tr>
+<td>Filters</td>
+<td><code>tag=name</code></td>
+<td><code>tag=work</code></td>
+<td>Tagged with it, or a tag under it (work/clients). tag=a,b needs both; tag=a|b either.</td>
+</tr>
+<tr>
+<td>Filters</td>
+<td><code>folder=name</code></td>
+<td><code>folder=Projects</code></td>
+<td>In that folder or a folder under it. folder=A|B is either. Quote names with spaces: folder=&#39;Health and Fitness&#39;.</td>
+</tr>
+<tr>
+<td>Filters</td>
+<td><code>modified&gt;day</code></td>
+<td><code>modified&gt;-7d</code></td>
+<td>Changed after a day (&lt;, &lt;=, &gt;, &gt;= or =). A day is 2026-09-01, today, yesterday, or -7d, -2w, -1m, -1y back. modified&gt;-7d is the last 7 days.</td>
+</tr>
+<tr>
+<td>Filters</td>
+<td><code>created&lt;day</code></td>
+<td><code>created&lt;2026-09-01</code></td>
+<td>Made before a day, with the same comparisons and days as modified.</td>
+</tr>
+<tr>
+<td>Order</td>
+<td><code>sort=order</code></td>
+<td><code>tag=work sort=title</code></td>
+<td>modified (last changed first, the default), date or oldest (by the note&#39;s own date), title or created (newest first). On its own, not inside ( ).</td>
+</tr>
+</tbody></table>
+<!-- /query-syntax --><h2 id="putting-notes-away"><a class="anchor" href="#putting-notes-away">Putting notes away</a></h2>
 <ul>
 <li><strong>Archive</strong> (⌘⇧E) takes a note out of the sidebar, search and agents&#39; lists, and its links keep working.</li>
 <li><strong>Delete</strong> sends it to <strong>Trash</strong> for 30 days, and Trash puts it back where it was.</li>

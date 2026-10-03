@@ -48,6 +48,7 @@ commonink workspaces use &quot;Acme team&quot;
 <p>Without signing in, <code>commonink</code> works on a folder of markdown on your computer: <code>$COMMONINK_VAULT</code>, or <code>~/Common Ink</code>. <code>--workspace local</code> uses it even when you&#39;re signed in. The local app, with the same editor, runs from the same checkout: <code>npm run dev</code>, then open <code>http://localhost:4777</code>.</p>
 <h2 id="everyday-commands"><a class="anchor" href="#everyday-commands">Everyday commands</a></h2>
 <pre><code class="language-bash">commonink search &quot;launch plan&quot;
+commonink ls --query &#39;q=&quot;(launch OR release) -draft&quot; tag=work modified&gt;-7d&#39;
 commonink read &quot;Projects/Launch&quot;
 commonink create &quot;Ideas/Pricing&quot; - &lt; draft.md
 echo &quot;- [ ] Call Sam due:friday&quot; | commonink append &quot;Journal/2026-10-02&quot; -
@@ -58,6 +59,7 @@ commonink export / --format zip --out notes.zip
 commonink changes --path &quot;Projects/Launch.md&quot;
 commonink restore 24
 </code></pre>
+<p><code>--query</code> takes the same query language as the Notes filter and smart folders (<a href="/docs/notes#searching-and-filtering">Searching and filtering</a>); <code>commonink help query</code> lists it.</p>
 <h2 id="for-scripts-and-agents"><a class="anchor" href="#for-scripts-and-agents">For scripts and agents</a></h2>
 <ul>
 <li><code>--json</code> prints any result, or an error, as JSON.</li>

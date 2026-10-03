@@ -73,9 +73,38 @@ A ```` ```mermaid ```` block draws a diagram, and `$…$` sets math.
 ## Finding things
 
 - **⌘K** finds a note by name or by anything in it.
-- **Notes** shows every note as a card, newest first. Type to filter, or narrow to a folder or tag.
-- **Smart folders** are saved searches in the sidebar, like `tag=work/clients sort=title`, with live counts.
+- **Notes** shows every note as a card, newest first. Type in its filter to search, or narrow to a folder or tag.
+- **Smart folders** are saved searches in the sidebar, like `tag=work/clients sort=title`, with live counts. Make one with **New smart folder** in ⌘K, or save the Notes filter as one.
 - **Favorites**: star a note or a tag to keep it at the top of the sidebar.
+
+### Searching and filtering
+
+The Notes filter, smart folders, `::query` and `commonink ls --query` all read the same query language. Plain words find notes with all of them, each as the start of a word (`plan` finds "planning"). Combine them with `AND` and `OR` (in capitals), leave things out with `-`, and group with parentheses: without them, AND goes before OR, so `a b OR c` means `(a b) OR c`. For example:
+
+```
+(tag=work OR tag=home) -folder=Archive "launch plan" sort=created
+```
+
+finds notes tagged work or home, outside Archive, with the words "launch plan" together, newest first. A query with a mistake in it, like a `(` that's never closed, says where under the filter, and the list shows the best reading of the rest meanwhile.
+
+In the app, the **?** beside the Notes filter (or **Query syntax** in ⌘K) lists all of this with examples you can click to try; `commonink help query` prints it too.
+
+<!-- query-syntax -->
+| | Write | Try | What it does |
+| --- | --- | --- | --- |
+| Words | `word` | `plan` | Notes with a word starting with it: "plan" finds planning. Several words: notes with all of them. |
+| Words | `"a phrase"` | `"launch plan"` | The words together, in this order. Inside q="…" (a smart folder or ::query), use single quotes. |
+| Combine | `a AND b` | `launch AND budget` | Both. Words side by side mean AND too, so launch budget is the same. |
+| Combine | `a OR b` | `budget OR costs` | Either one. Write OR and AND in capitals: lowercase they're just words. |
+| Combine | `-term` | `launch -draft` | Leave out notes that match: -word, -"a phrase", -tag=old, -folder=Archive. |
+| Combine | `( … )` | `(tag=work OR tag=home) launch` | A group. Without one, AND goes before OR: a b OR c is (a b) OR c. |
+| Combine | `-( … )` | `launch -(draft OR old)` | Leave out notes matching anything in the group. |
+| Filters | `tag=name` | `tag=work` | Tagged with it, or a tag under it (work/clients). tag=a,b needs both; tag=a\|b either. |
+| Filters | `folder=name` | `folder=Projects` | In that folder or a folder under it. folder=A\|B is either. Quote names with spaces: folder='Health and Fitness'. |
+| Filters | `modified>day` | `modified>-7d` | Changed after a day (<, <=, >, >= or =). A day is 2026-09-01, today, yesterday, or -7d, -2w, -1m, -1y back. modified>-7d is the last 7 days. |
+| Filters | `created<day` | `created<2026-09-01` | Made before a day, with the same comparisons and days as modified. |
+| Order | `sort=order` | `tag=work sort=title` | modified (last changed first, the default), date or oldest (by the note's own date), title or created (newest first). On its own, not inside ( ). |
+<!-- /query-syntax -->
 
 ## Putting notes away
 

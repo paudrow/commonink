@@ -36,6 +36,7 @@ Without signing in, `commonink` works on a folder of markdown on your computer: 
 
 ```bash
 commonink search "launch plan"
+commonink ls --query 'q="(launch OR release) -draft" tag=work modified>-7d'
 commonink read "Projects/Launch"
 commonink create "Ideas/Pricing" - < draft.md
 echo "- [ ] Call Sam due:friday" | commonink append "Journal/2026-10-02" -
@@ -46,6 +47,8 @@ commonink export / --format zip --out notes.zip
 commonink changes --path "Projects/Launch.md"
 commonink restore 24
 ```
+
+`--query` takes the same query language as the Notes filter and smart folders ([Searching and filtering](notes.md#searching-and-filtering)); `commonink help query` lists it.
 
 ## For scripts and agents
 
