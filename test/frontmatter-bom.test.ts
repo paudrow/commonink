@@ -4,6 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { frontmatterEntries, scalarOf } from "../src/core/frontmatter.ts";
 import { dateOf, splitFrontmatter, titleOf } from "../src/core/parse.ts";
+import { findMentions } from "../src/core/mentions.ts";
 import { frontmatterLines } from "../src/core/prose.ts";
 import { openTempVault } from "./helpers.ts";
 
@@ -29,4 +30,8 @@ test("a contact whose note starts with a byte-order mark keeps one frontmatter b
   assert.equal(out.match(/^---$/gm)?.length, 2, out);
   assert.ok(!out.includes("﻿"), "the mark isn't left stranded in the body");
   assert.match(out, /^---\nemail: jane@old.com\ncompany: Acme\nrole: CTO\n---\n# Jane\n/);
+});
+
+test("unlinked mentions skip frontmatter after a byte-order mark", () => {
+  assert.deepEqual(findMentions(JANE.replace("Met at", "Acme met"), ["Acme"]).map((m) => m.line), [7]);
 });

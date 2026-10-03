@@ -49,7 +49,7 @@ export function findMentions(md: string, names: string[]): Mention[] {
 
 /** The last line of the frontmatter (counting from 1), or 0 if there's none. */
 function bodyStart(md: string): number {
-  if (!/^---\r?\n/.test(md)) return 0;
+  if (!/^\uFEFF?---\r?\n/.test(md)) return 0;
   const lines = md.split("\n");
   const end = lines.findIndex((l, i) => i > 0 && /^---\r?$/.test(l));
   return end < 0 ? 0 : end + 1;
