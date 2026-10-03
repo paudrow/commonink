@@ -4,7 +4,7 @@
 // in, and the person's role there, are read fresh on every request.
 import { json } from "../../src/core/api.ts";
 import { agentSource } from "../../src/core/actor.ts";
-import { COMMANDS, UsageError, type WorkspaceSettings } from "../../src/core/commands/index.ts";
+import { COMMANDS, toolName, UsageError, type WorkspaceSettings } from "../../src/core/commands/index.ts";
 import { VaultError } from "../../src/core/paths.ts";
 import { CLI_ROUTE, fromWire, toWire, type RunRequest, type RunResponse } from "../../src/core/commands/wire.ts";
 import { access } from "./access.ts";
@@ -20,8 +20,8 @@ const HTTP: Record<string, number> = { usage: 400, invalid: 400, not_found: 404,
 const CODE: Record<number, VaultError["code"]> = { 403: "forbidden", 404: "not_found", 409: "conflict" };
 const fail = (error: string, code: string) => json({ ok: false, error, code } satisfies RunResponse, HTTP[code] ?? 400);
 
-/** `GET /mcp/cli/workspaces` and `POST /mcp/cli/run`, for a request with a valid token. */
-export async function serveCli(req: Request, env: OAuthEnv, props: AgentProps): Promise<Response> {
+/** `GET /mcp/cli/workspaces` and `POST /mcp/cli/run`, for a request with a valid token (`isLocalCli`: whether its grant is the CLI's, asked on demand). */
+export async function serveCli(req: Request, env: OAuthEnv, props: AgentProps, isLocalCli: () => Promise<boolean>): Promise<Response> {
   const user = await getUser(env.DB, props.userId);
   if (!user) return fail("The person who signed in no longer has an account", "forbidden");
   const all = await workspacesOf(env.DB, user.id);
@@ -34,6 +34,17 @@ export async function serveCli(req: Request, env: OAuthEnv, props: AgentProps): 
   if (!body || typeof body.command !== "string" || typeof body.input !== "object" || body.input === null) return fail("Expected {command, input}", "usage");
   const command = COMMANDS.find((c) => c.cli === body.command);
   if (!command) return fail(`No command "${body.command}": see commonink help`, "usage");
+  // A grant for one workspace may be an MCP client's, which reaches here with the same token: it gets
+  // what MCP gives it, no command that isn't a tool and no leaving out what a tool requires. The CLI
+  // signed in for one workspace is still the CLI, so it's asked about only when it matters.
+  if (props.workspaceId !== ALL_WORKSPACES) {
+    const tool = toolName(command);
+    const missing = Object.entries(command.args).filter(([name, a]) => a.mcpRequired && body.input[name] === undefined).map(([name]) => name);
+    if ((!tool || missing.length) && !(await isLocalCli())) {
+      if (!tool) return fail(`${command.cli} isn't open to agents: ${(command.mcp as { none: string }).none}`, "forbidden");
+      return fail(`${command.cli} needs ${missing.join(", ")} from an agent, as the ${tool} tool does`, "usage");
+    }
+  }
   const ws = pick(mine, body.workspace);
   if ("error" in ws) return fail(ws.error, ws.code);
   if (access(ws.role, ...(command.route.split(" ") as [string, string])) !== "allowed") {
