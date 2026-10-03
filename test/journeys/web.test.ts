@@ -93,7 +93,7 @@ journey("Plan the day from Today", ({ given, when, then, and }) => {
   });
   when("I open Today", async () => {
     // Its name carries the Today ring's progress when tasks are due: "Today, 1 of 3 done".
-    await page.locator("#sidebar").getByRole("button", { name: /^Today(,|$)/ }).click();
+    await page.locator("#sidebar").getByRole("button", { name: /^Today\b/ }).click();
     await page.waitForURL(/\/today$/);
   });
   then("it shows what's overdue and what's due today, and nothing later", async () => {
