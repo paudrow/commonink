@@ -2794,14 +2794,22 @@ details.markdown-alert[open] > summary { margin-bottom: 0.3em; }
 /* Each item carries its calendar's color as --c. Event text sits on a light tint of it (the
    contrast test checks the tint), with a bar of the full color at its start. */
 #calendar-view { position: absolute; inset: 0; outline: none; }
-.cal { display: flex; flex-direction: column; height: 100%; max-width: 1500px; margin: 0 auto; padding: 18px 24px 0; }
-.cal-head { display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; padding-bottom: 12px; }
-.cal-title { flex: 1 1 220px; min-width: 0; margin: 0; font-size: 22px; letter-spacing: -0.02em; color: var(--heading); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cal-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.cal-nav { display: flex; align-items: center; gap: 2px; }
-.cal-nav .qw-btn { height: 30px; }
+.cal { container: cal / inline-size; display: flex; flex-direction: column; height: 100%; max-width: 1500px; margin: 0 auto; padding: 16px 24px 0; }
+.cal-head { display: flex; align-items: center; gap: 10px 14px; padding-bottom: 12px; }
+.cal-title { flex: 1 1 auto; min-width: 0; margin: 0; font-size: 20px; letter-spacing: -0.02em; color: var(--heading); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-tools { display: flex; align-items: center; gap: 8px; flex: none; }
+.cal-nav { display: flex; align-items: center; gap: 2px; flex: none; }
+.cal-nav .qw-btn { height: 30px; margin-right: 4px; }
 .cal-views button { min-height: 28px; padding: 4px 12px; font-size: 12.5px; }
 .cal-sources-btn { height: 30px; }
+/* Narrower: the dates on their own row above the controls, and the Calendars button as its icon. */
+@container cal (max-width: 860px) {
+  .cal-head { flex-wrap: wrap; }
+  .cal-title { order: -1; flex-basis: 100%; }
+  .cal-tools { flex: 1; justify-content: flex-end; }
+  .cal-sources-btn span { display: none; }
+  .cal-sources-btn { width: 32px; justify-content: center; padding: 0; }
+}
 .cal-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; margin-bottom: 12px; padding: 8px 12px; border-radius: 10px; background: var(--accent-soft); color: var(--ink-2); font-size: 13px; }
 .cal-notice[hidden] { display: none; }
 .cal-notice > svg { color: var(--accent-ink); flex: none; }
@@ -2850,11 +2858,20 @@ details.markdown-alert[open] > summary { margin-bottom: 0.3em; }
 .cal-cell.is-today .cal-num { background: var(--accent); color: var(--on-accent); }
 .cal-more { align-self: flex-start; padding: 1px 6px; border-radius: 6px; font-size: 11.5px; font-weight: 600; color: var(--muted); }
 .cal-more:hover { background: var(--hover); color: var(--ink-strong); }
+/* Wider than a phone, each item is a bar in the cell of its first day, on its row (--row, from
+   page.ts), across as many days as it's on (--n); "+N more" takes a day's last row. */
+.cal-mweek { min-height: 0; }
+.cal-month:not(.is-dots) .cal-cell { position: relative; display: block; }
+.cal-mbar { position: absolute; z-index: 1; top: calc(30px + var(--row) * var(--mline)); left: 3px; width: calc(var(--n) * 100% + (var(--n) - 1) * 1px - 6px); height: calc(var(--mline) - 2px); }
+.cal-month:not(.is-dots) .cal-more { position: absolute; z-index: 1; top: calc(30px + var(--row) * var(--mline)); left: 3px; height: calc(var(--mline) - 2px); }
+.cal-mbar.is-allday.is-before { left: 0; width: calc(var(--n) * 100% + (var(--n) - 1) * 1px - 3px); }
+.cal-mbar.is-allday.is-after { width: calc(var(--n) * 100% + (var(--n) - 1) * 1px - 3px); }
+.cal-cell.is-past:not(.is-other) .cal-num { color: var(--muted); }
 /* A narrow day gives its events' titles the room; the time is in the tooltip. */
 @container (max-width: 130px) { .cal-cell .cal-chip-time { display: none; } }
 
 /* Week and Day: the day headers and the all-day row stay on top while the hours scroll */
-.cal-tg { position: relative; min-width: 0; --gutter: 56px; }
+.cal-tg { position: relative; min-width: 0; --gutter: 56px; --nest: min(28px, 22%); }
 .cal-tg-top { position: sticky; top: 0; z-index: 4; background: var(--bg); border-bottom: 1px solid var(--line); }
 .cal-tg-head, .cal-tg-allday, .cal-tg-body { display: grid; grid-template-columns: var(--gutter) repeat(var(--days), minmax(0, 1fr)); }
 .cal-tg-allday { grid-template-rows: repeat(var(--rows), auto); gap: 2px 0; min-height: 30px; padding: 3px 0 5px; }
@@ -2875,14 +2892,27 @@ details.markdown-alert[open] > summary { margin-bottom: 0.3em; }
 .cal-hour { position: absolute; right: 8px; transform: translateY(-50%); font-size: 10.5px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .cal-col { position: relative; border-left: 1px solid var(--line); background-image: repeating-linear-gradient(to bottom, transparent 0 calc(var(--hour) - 1px), var(--line) calc(var(--hour) - 1px) var(--hour)); }
 .cal-col.is-today { background-color: color-mix(in srgb, var(--accent) 4%, transparent); }
-.cal-ev { position: absolute; z-index: 1; display: flex; flex-direction: column; justify-content: flex-start; align-items: stretch; gap: 1px; margin-left: 2px; padding: 3px 6px 3px 8px; overflow: hidden; border-radius: 6px; background: color-mix(in srgb, var(--c) 18%, var(--bg-elev)); box-shadow: inset 3px 0 0 var(--c); color: var(--ink-strong); font-size: 12px; line-height: 1.3; }
-.cal-ev:hover { z-index: 2; background: color-mix(in srgb, var(--c) 26%, var(--bg-elev)); }
-.cal-ev .cal-chip-title { font-weight: 600; white-space: normal; }
-.cal-ev .cal-chip-time { color: var(--ink-2); }
+/* An event in the grid: a card in its calendar's tint, a bar of the full color at its start. Its
+   title takes as many lines as fit (--lines, set by page.ts) above its times; a short one is one line.
+   One that starts inside another sits on top of it, indented by --nest, with a ring to set it apart. */
+.cal-ev { position: absolute; z-index: 1; container-type: inline-size; display: flex; flex-direction: column; justify-content: flex-start; align-items: stretch; gap: 1px; margin-left: 2px; padding: 3px 6px 3px 9px; overflow: hidden; border-radius: 6px; background: color-mix(in srgb, var(--c) 16%, var(--bg-elev)); box-shadow: inset 3px 0 0 var(--c); color: var(--ink-strong); font-size: 12px; line-height: 16px; transition: background-color 0.12s, box-shadow 0.12s; }
+.cal-ev:hover { background: color-mix(in srgb, var(--c) 24%, var(--bg-elev)); box-shadow: inset 3px 0 0 var(--c), 0 2px 8px -2px color-mix(in srgb, var(--c) 45%, transparent); }
+.cal-ev .cal-chip-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--lines, 1); flex: none; overflow: hidden; font-weight: 600; white-space: normal; overflow-wrap: anywhere; }
+.cal-ev .cal-chip-time { overflow: hidden; color: var(--ink-2); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
 .cal-ev.is-short { flex-direction: row; align-items: center; gap: 6px; padding-block: 0; }
-.cal-ev.is-short .cal-chip-title { white-space: nowrap; }
-.cal-ev.is-short .cal-chip-time { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; }
-.cal-ev.is-past { background: color-mix(in srgb, var(--c) 9%, var(--bg-elev)); color: var(--ink-2); }
+.cal-ev.is-short .cal-chip-title { display: block; flex: 0 1 auto; min-width: 0; white-space: nowrap; text-overflow: ellipsis; }
+.cal-ev.is-short .cal-chip-time { flex: 0 1 auto; min-width: 0; }
+.cal-ev.is-nested { box-shadow: inset 3px 0 0 var(--c), 0 0 0 1px var(--bg); }
+.cal-ev.is-nested:hover { box-shadow: inset 3px 0 0 var(--c), 0 0 0 1px var(--bg), 0 2px 8px -2px color-mix(in srgb, var(--c) 45%, transparent); }
+.cal-ev.is-covered .cal-chip-time { display: none; }
+.cal-ev.is-past { background: color-mix(in srgb, var(--c) 8%, var(--bg-elev)); color: var(--ink-2); }
+.cal-ev.is-past .cal-chip-time { color: var(--muted); }
+.cal-ev .cal-t-start { display: none; }
+@container (max-width: 150px) { .cal-ev .cal-t-start { display: inline; } .cal-ev .cal-t-range { display: none; } }
+/* A thin event gives its title the room; the time is in its tooltip. */
+.cal-ev.is-short .cal-t-start { display: inline; }
+@container (max-width: 130px) { .cal-ev.is-short .cal-chip-time { display: none; } }
+@container (max-width: 56px) { .cal-ev .cal-chip-time { display: none; } }
 .cal-now { position: absolute; left: -1px; right: 0; z-index: 3; height: 2px; background: var(--bad); pointer-events: none; }
 .cal-now::before { content: ""; position: absolute; left: -5px; top: -4px; width: 10px; height: 10px; border-radius: 999px; background: var(--bad); }
 
@@ -3042,6 +3072,7 @@ button.cal-src-color:hover { background: var(--hover); }
 .cal-new { height: 30px; min-width: 0; }
 .cal-col { cursor: cell; }
 .cal-ev { cursor: pointer; }
+.cal-ghost { position: absolute; left: 2px; right: 3px; z-index: 0; padding: 3px 8px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--accent-line, var(--accent)); background: color-mix(in srgb, var(--accent) 6%, transparent); color: var(--accent-ink); font-size: 11.5px; line-height: 16px; pointer-events: none; }
 .cal-ev.is-draft { z-index: 3; left: 0; width: calc(100% - 3px); padding: 3px 8px; border: 1px dashed var(--accent); background: var(--accent-soft); box-shadow: none; color: var(--accent-ink); font-size: 12px; font-weight: 600; pointer-events: none; }
 .cal-ev.is-dragging, .cal-chip.is-dragging { z-index: 4; opacity: 0.85; box-shadow: inset 3px 0 0 var(--c), var(--shadow-lg); cursor: grabbing; }
 .cal-ev-grip { position: absolute; left: 0; right: 0; bottom: 0; height: 7px; cursor: ns-resize; }
