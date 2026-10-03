@@ -34,7 +34,9 @@ export function oauthOptions(origin: string, app: ExportedHandler<OAuthEnv>): OA
       fetch: (req, env, ctx) => {
         const c = ctx as ExecutionContext<AgentProps> & { auth: { token: string } };
         noteUse(env, c);
-        return new URL(req.url).pathname.startsWith(`${CLI_ROUTE}/`) ? serveCli(req, env, c.props) : serveMcp(req, env, c);
+        // Tokens are "<user>:<grant>:<secret>".
+        const local = () => isLocalCli(env, req.url, c.props.userId, c.auth.token.split(":")[1]);
+        return new URL(req.url).pathname.startsWith(`${CLI_ROUTE}/`) ? serveCli(req, env, c.props, local) : serveMcp(req, env, c);
       },
     },
     defaultHandler: app,
@@ -142,13 +144,29 @@ export async function authorize(req: Request, env: Env, url: URL): Promise<Respo
  * click on a page that looks like ours.
  */
 function offersAll(request: { scope: string[]; redirectUri: string }) {
-  if (!request.scope.includes(WORKSPACES_SCOPE)) return false;
+  return request.scope.includes(WORKSPACES_SCOPE) && isLoopback(request.redirectUri);
+}
+
+function isLoopback(uri: string) {
   try {
-    const url = new URL(request.redirectUri);
+    const url = new URL(uri);
     return url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
   } catch {
     return false;
   }
+}
+
+/**
+ * Whether a grant went to an app on this computer that asked for every workspace, as the CLI does
+ * (see offersAll), whichever workspace it was then given: its client gets answers only at loopback
+ * addresses. Anything else is an agent, held to MCP's rules on the CLI route too.
+ */
+async function isLocalCli(env: OAuthEnv, url: string, userId: string, grantId: string): Promise<boolean> {
+  const oauth = oauthApi(env, new URL(url));
+  const grant = (await grantsOf(oauth, userId)).find((g) => g.id === grantId);
+  if (!grant?.scope.includes(WORKSPACES_SCOPE)) return false;
+  const client = await oauth.lookupClient(grant.clientId);
+  return !!client?.redirectUris.length && client.redirectUris.every(isLoopback);
 }
 
 const CAN: Record<WorkspaceRef["role"], string> = {

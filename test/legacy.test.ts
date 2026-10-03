@@ -44,7 +44,7 @@ test("a vault's .quire folder moves to .commonink on first open, with its note I
   assert.ok(!fs.existsSync(path.join(dir, ".quire")));
   assert.ok(fs.existsSync(path.join(dir, ".commonink", "index.db")));
   assert.equal(after.meta("Inbox.md")!.id, id);
-  assert.deepEqual(after.favorites("you").map((f) => ("path" in f ? f.path : f.tag)), ["Inbox.md"]);
+  assert.deepEqual(after.favorites("you").map((f) => ("path" in f ? f.path : "tag" in f ? f.tag : f.name)), ["Inbox.md"]);
   assert.equal(after.changes({ limit: 50 }).length, changes);
 });
 
