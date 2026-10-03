@@ -20,7 +20,7 @@ import { type EditorContext } from "./editor/blocks.ts";
 import { taskInput } from "./taskInput.ts";
 import { typedTask } from "../../src/core/quickAdd.ts";
 import {
-  addCard, addColumn, boardsIn, cardAsNote, cardLink, COLORS, deleteCard, editCard, fixesFor, fixProblem, moveCard, moveColumn, noteName, patchCard, renameColumn,
+  addCard, addColumn, boardsIn, cardAsNote, cardLink, COLORS, deleteCard, editCard, fixesFor, fixProblem, foldColumn, moveCard, moveColumn, noteName, patchCard, renameColumn,
   setColumnColor, type Board, type Card, type Column, type Fix, type Problem,
 } from "../../src/core/kanban.ts";
 import { parseTask } from "../../src/core/tasks.ts";
@@ -51,22 +51,13 @@ const COLUMN_DRAG = "application/x-common-ink-column";
 /** What's being dragged, since a dragover can't read the data it carries. */
 let dragging: { path: string; board: number; column: number; card?: number; text?: string } | null = null;
 
-const FOLDED = "commonink.kanban.folded";
-const folded = (): Set<string> => {
-  try {
-    return new Set(JSON.parse(localStorage.getItem(FOLDED) ?? "[]"));
-  } catch {
-    return new Set();
-  }
-};
-function setFolded(key: string, on: boolean) {
-  const all = folded();
-  if (on) all.add(key);
-  else all.delete(key);
-  try {
-    localStorage.setItem(FOLDED, JSON.stringify([...all]));
-  } catch {}
-}
+// Folded columns are in the board's markdown (`folded=`, see foldColumn). Folds this browser kept
+// before that are let go, not written into notes: opening a board shouldn't change it.
+try {
+  localStorage.removeItem("commonink.kanban.folded");
+} catch {}
+/** Folds and unfolds on boards the person can't change, flipped from the file's: kept on this page only. */
+const viewFolds = new Set<string>();
 
 /** A small menu under `anchor` that closes on Escape or a click outside. */
 function popMenu(anchor: HTMLElement, label: string, ...children: HTMLElement[]) {
@@ -141,9 +132,8 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
       return host.resized();
     }
     drawProblems(b);
-    const shut = folded();
     lane.replaceChildren(
-      ...b.columns.map((col, c) => columnEl(col, c, shut.has(foldKey(col.title)))),
+      ...b.columns.map((col, c) => columnEl(col, c, host.readOnly ? col.folded !== viewFolds.has(foldKey(col.title)) : col.folded)),
       host.readOnly ? "" : field?.kind === "column" ? el("section", { class: "kb-col is-new" }, field.dom) : addColumnButton(),
     );
     field?.focus();
@@ -193,7 +183,12 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
     const renaming = field?.kind === "rename" && field.column === c;
     const title = renaming ? field!.dom : el("span", { class: "kb-title", title: host.readOnly ? col.title : "Double-click to rename" }, col.title);
     const fold = el("button", { type: "button", class: "kb-fold", title: shut ? "Unfold column" : "Fold column", "aria-expanded": String(!shut) }, icon("chevron", 13));
-    fold.addEventListener("click", () => (setFolded(foldKey(col.title), !shut), draw()));
+    fold.addEventListener("click", () => {
+      if (!host.readOnly) return change((md) => foldColumn(md, { board: at, column: c }, !shut));
+      const key = foldKey(col.title);
+      if (!viewFolds.delete(key)) viewFolds.add(key);
+      draw();
+    });
     const menu = host.readOnly ? null : el("button", { type: "button", class: "kb-icon", title: "Column colour, rename", "aria-label": `${col.title} menu` }, icon("more", 14));
     menu?.addEventListener("click", () => columnMenu(menu, col, c));
     const head = el(

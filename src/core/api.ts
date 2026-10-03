@@ -12,6 +12,7 @@ import { ON_EXISTING, pairsImport, writeImport, type OnExisting } from "./import
 import type { Calendar, EventDraft, NoteWrite } from "./calendar.ts";
 import { notePath } from "./ids.ts";
 import { isSort } from "./query.ts";
+import { checkup } from "./checkup.ts";
 
 export interface ApiHost {
   vault: Vault;
@@ -256,8 +257,18 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       );
     case "GET /backlinks":
       return json(vault.backlinks(q("path"), qScope()));
+    case "GET /checkup":
+      return json(checkup(vault, host.user));
     case "GET /links/missing":
       return json(vault.missingLinks({ folder: q("folder") || undefined, scope: qScope() }));
+    case "GET /mentions":
+      return json(vault.unlinkedMentions(q("path")));
+    case "POST /mentions/link": {
+      // One unlinked mention made a link: one change, which Undo restores while the note is still at `version`.
+      const r = vault.linkMention(str("target"), { path: str("path"), line: int("line"), from: int("from"), to: int("to"), text: str("text") }, actor);
+      host.written(r.path, r.content, r.version, r.change);
+      return json({ path: r.path, version: r.version, change: r.change?.id ?? null });
+    }
     case "GET /changes":
       return json(
         vault.changes({ limit: qCount("limit", 50, 500), before: qCount("before", 0, Infinity) || undefined, since: qCount("after", 0, Infinity) || undefined, path: q("path") || undefined, by: parseAuthorFilter(q("by")) }),
@@ -448,6 +459,15 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       const tags = vault.removeTag(str("tag"));
       host.tree();
       return json(tags);
+    }
+    case "POST /replace": {
+      // Find and replace across notes. With dryRun, only what would change; else each changed note is
+      // its own change, and restoring each while its note is still at `versions` undoes the lot.
+      const r = vault.replaceAcross(str("find"), str("replace"), {
+        folder: optStr("folder"), matchCase: flag("matchCase"), wholeWord: flag("wholeWord"), dryRun: flag("dryRun"),
+      }, actor);
+      for (const e of r.edits) host.written(e.path, e.content, e.version, e.change);
+      return json({ notes: r.notes, changes: r.edits.map((e) => e.change.id), versions: r.edits.map((e) => e.version) });
     }
     case "POST /tags/rename": {
       const r = vault.renameTag(str("from"), str("to"), actor);

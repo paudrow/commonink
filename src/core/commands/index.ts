@@ -50,6 +50,8 @@ export const APP_ONLY: Readonly<Record<string, string>> = {
   "GET /changes/agents": "History's filter chips; changes --by takes an agent's name",
   "GET /changes/away": "the While you were away line on Notes and Today; changes --by ai --since lists the same changes",
   "GET /tasks/count": "the sidebar's badge; tasks lists them",
+  "GET /mentions": "the side panel's Unlinked mentions; search finds where a name is written",
+  "POST /mentions/link": "the side panel's Link button; edit_note writes any link",
   "POST /templates/render": "the editor's Insert template; new (create_from_template) makes a note from one",
   "POST /tags": "the Tags page's adding a tag before any note has it; a tag is made by writing #tag in a note",
   "POST /tags/delete": "the Tags page; tag rename changes a tag everywhere",

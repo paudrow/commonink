@@ -24,7 +24,7 @@ export const calendar: WidgetSpec = {
   keywords: "calendar journal daily notes month diary",
   defaults: { folder: "Journal" },
   fields: [
-    { key: "label", label: "Label", type: "text", placeholder: "Optional" },
+    { key: "label", label: "Title", type: "text", placeholder: "Optional" },
     { key: "folder", label: "Folder", type: "text", placeholder: "Journal" },
     { key: "events", label: "Show events", type: "toggle", off: "off" },
     { key: "calendars", label: "Calendars", type: "calendars" },

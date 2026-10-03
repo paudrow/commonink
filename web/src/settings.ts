@@ -184,7 +184,7 @@ export function appSettings(app: SettingsApp): Setting[] {
           id: "connect-agent",
           section: "Agents",
           title: "Connect an agent",
-          description: "Let Claude Code, Claude Desktop, Cursor or another MCP client read and edit this vault. Its edits show up here live.",
+          description: "Let Claude Code, Claude Desktop, Cursor or another MCP client read and edit this workspace. Its edits show up here live.",
           keywords: "agent mcp claude cursor connect ai assistant",
           control: { kind: "custom", render: () => localSteps(app.localVault!) },
         }
