@@ -29,7 +29,9 @@ const toB64 = (b: Uint8Array) => {
   for (let i = 0; i < b.length; i += SLICE) parts.push(btoa(String.fromCharCode(...b.subarray(i, i + SLICE))));
   return parts.join("");
 };
-const fromB64 = (s: string) => {
+const fromB64 = (b64: string) => {
+  // atob skips ASCII whitespace (line-wrapped base64); slices must count only real characters.
+  const s = /[\t\n\f\r ]/.test(b64) ? b64.replace(/[\t\n\f\r ]+/g, "") : b64;
   const end = s.endsWith("==") ? s.length - 2 : s.endsWith("=") ? s.length - 1 : s.length;
   const out = new Uint8Array(Math.floor((end * 3) / 4));
   let n = 0;
@@ -37,7 +39,7 @@ const fromB64 = (s: string) => {
     const bin = atob(s.slice(i, i + (SLICE / 3) * 4));
     for (let j = 0; j < bin.length; j++) out[n++] = bin.charCodeAt(j);
   }
-  return out;
+  return n === out.length ? out : out.subarray(0, n);
 };
 
 /**

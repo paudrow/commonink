@@ -21,6 +21,11 @@ test("bytes come back exact, every byte value and every length around a slice's 
   }
   // Base64 with its padding left off decodes too.
   assert.deepEqual([...(fromWire({ $bytes: "/w" }) as Uint8Array)], [255]);
+  // As does base64 with whitespace in it, as atob takes it: line-wrapped, across a slice's edge too.
+  assert.deepEqual([...(fromWire({ $bytes: "aGVs\nbG8=" }) as Uint8Array)], [...Buffer.from("hello")]);
+  const long = Buffer.alloc(40_000, 7);
+  const wrapped = long.toString("base64").replace(/.{76}/g, "$&\r\n");
+  assert.deepEqual(Buffer.from(fromWire({ $bytes: wrapped }) as Uint8Array), long);
 });
 
 test("decoding a file takes about its own size, not many times it", () => {
