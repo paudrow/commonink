@@ -72,6 +72,16 @@ test("agents add a task from words, to today's journal note or a named note, and
   assert.equal((await call("add_task", { text: "tomorrow" })).isError, true);
 });
 
+test("an argument a tool doesn't take is refused, naming it and the ones it does, and nothing is written", async () => {
+  const before = fs.readdirSync(vault, { recursive: true }).length;
+  const r = await call("add_task", { text: "Book the venue for the offsite", to: "Projects/Plan" });
+  assert.equal(r.isError, true);
+  assert.match(r.text, /add_task has no argument `to`\. It takes: text\. .*→ \[\[Note\]\]/);
+  assert.equal(fs.readdirSync(vault, { recursive: true }).length, before);
+  assert.equal((await call("search_notes", { query: "offsite" })).text.includes("venue"), false);
+  assert.match((await call("list_tags", { bogus: 1, other: 2 })).text, /list_tags has no argument `bogus`, `other`\. It takes/);
+});
+
 test("agents read the day: overdue, due today, starting today, and the journal note", async () => {
   const text = (await call("get_today", { today: "2026-10-05" })).text;
   assert.match(text, /^Monday, October 5, 2026\n\nOverdue \(\d+\)\n/);

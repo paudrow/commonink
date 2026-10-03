@@ -166,7 +166,7 @@ test("smart-save, smart and smart-rm keep saved note queries as view notes in Vi
   assert.equal(fs.readFileSync(path.join(vault, "Views/Planning.md"), "utf8"), "::query{tag=plan}\n");
   assert.match(commonink(vault, ["smart-save", "Mine", "tag=plan", "--just-me"]).stdout, /^- Mine \(1 note\): tag=plan — Views\/Mine\.md \[[a-z2-9]{8}\]\n- Planning \(1 note\): tag=plan — Views\/Planning\.md \[[a-z2-9]{8}\]\n$/);
   assert.equal(commonink(vault, ["smart", "planning"]).stdout, "- Projects/Roadmap.md — Roadmap\n");
-  assert.equal(commonink(vault, ["smart-save", "Bad", "colour=red"]).stderr, 'Unknown query key "colour": use q, folder, tag, match, sort or limit\n');
+  assert.equal(commonink(vault, ["smart-save", "Bad", "sort=size"]).stderr, '"sort" is modified, date, oldest, title or created, not "size"\n');
   assert.match(commonink(vault, ["smart-rm", "Mine"]).stdout, /^- Planning \(1 note\): tag=plan — Views\/Planning\.md \[[a-z2-9]{8}\]\n$/);
   assert.equal(commonink(vault, ["smart-rm", "Planning"]).stdout, "No saved views.\n");
   assert.equal(fs.existsSync(path.join(vault, "Views/Planning.md")), false, "its note went to Trash");

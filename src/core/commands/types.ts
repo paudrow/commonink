@@ -122,6 +122,10 @@ export interface Sharing {
   unshare(id: string): Promise<string>;
   /** A folder was renamed or moved: its shares go with it, as a note's do. */
   folderMoved?(from: string, to: string): Promise<void>;
+  /** Before a folder is renamed or moved: throws if its new name still has shares of its own. */
+  folderMoving?(from: string, to: string): Promise<void>;
+  /** A folder was deleted: its shares, and its folders', stop. How many did. */
+  folderDeleted?(folder: string): Promise<number>;
 }
 
 /**

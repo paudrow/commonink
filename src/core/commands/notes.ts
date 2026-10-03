@@ -3,6 +3,7 @@ import { kindOf, VaultError } from "../paths.ts";
 import { fmtBacklinks, fmtFavorites, fmtList, fmtMissingLinks, fmtRead, fmtSearch, fmtWrite } from "../format.ts";
 import { parseQuery, queryProblem } from "../query.ts";
 import { TRASH_DAYS } from "../vault.ts";
+import { IMPORT_FROM, type ImportFrom } from "../convert.ts";
 import { fmtImport, MAX_IMPORT_NOTES, ON_EXISTING, pairsImport, readImport, writeImport, type OnExisting } from "../import.ts";
 import { bool, command, list, localFiles, num, pairs, str } from "./types.ts";
 import { checkup, fmtCheckup, STALE_DAYS } from "../checkup.ts";
@@ -202,26 +203,32 @@ export const notes = [
     mcp: "import_notes",
     route: "POST /import",
     title: "Import notes",
-    summary: "Create many notes in one go: .md files, a folder, or a .zip (an Obsidian vault or an export), folders kept",
+    summary: "Create many notes in one go: .md files, a folder, or a .zip (Obsidian, Notion, Evernote .enex, Apple Notes), folders kept",
     description:
       "Create many notes in one call, instead of create_note for each. `notes` maps each note's path to its markdown " +
       `(up to ${MAX_IMPORT_NOTES} at once); \`.md\` is added to a path with no extension. \`folder\` puts them all under a folder. ` +
       "A note that's already there is left as it is, or replaced with `existing: \"replace\"` (History keeps what it was). " +
       "Every path is checked before anything is written, so one bad path refuses the whole import. " +
-      "On the CLI, give .md files, a folder or a .zip: folders inside are kept, and pictures and other files come along.",
+      "On the CLI, give .md files, a folder or a .zip: folders inside are kept, and pictures and other files come along. " +
+      "Other apps' exports are converted: Notion's (ids taken out of names and links), Evernote's .enex files (notes, tags, dates and pictures), " +
+      "and Apple Notes' (the AppleNotesExport folder scripts/export-apple-notes.js saves). Which app is told from the files; `from` names it instead.",
     examples: [
       "commonink import notes.zip",
       "commonink import ~/Obsidian/Vault --folder Imported",
       "commonink import *.md --folder Inbox --existing replace",
+      "commonink import Notion-Export.zip --folder Notion",
+      "commonink import Evernote/*.enex",
+      "commonink import ~/Desktop/AppleNotesExport",
     ],
     args: {
       files: localFiles({ required: true, pos: "rest", label: "file", describe: ".md or .html files, folders, or .zip files on this computer" }),
       notes: pairs({ required: true, only: "mcp", describe: "Each note's path (\"Projects/Plan.md\") → its markdown" }),
       folder: str({ describe: "Put everything under this folder (default: where its paths say)" }),
       existing: str({ enum: ON_EXISTING, describe: "A note already at a path: skip it (default) or replace it" }),
+      from: str({ enum: IMPORT_FROM, only: "cli", describe: "The app the files come from (default auto: Notion is told by its names, .enex is Evernote)" }),
     },
     run: async ({ vault, source, bytes }, a) => {
-      const set = a.notes ? pairsImport(a.notes, a.folder) : readImport(a.files ?? [], a.folder);
+      const set = a.notes ? pairsImport(a.notes, a.folder) : readImport(a.files ?? [], a.folder, (a.from as ImportFrom | undefined) ?? "auto");
       const r = await writeImport(vault, set, { existing: a.existing as OnExisting | undefined, source, bytes });
       return { text: fmtImport(r), data: r };
     },
