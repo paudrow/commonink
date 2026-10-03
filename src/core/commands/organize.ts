@@ -180,13 +180,13 @@ export const smartFolders = [
     examples: ["commonink smart", "commonink smart planning"],
     readOnly: true,
     args: { name: str({ only: "cli", pos: "rest", describe: "List the notes in this one instead" }) },
-    run: ({ vault, user }, a) => {
+    run: ({ vault, user, members }, a) => {
       if (a.name) {
         const items = vault.feed({ ...parseQuery(vault.findSmartFolder(user, a.name).query), limit: Infinity }).items;
         return { text: fmtList(items), data: items };
       }
       const list = vault.smartFolders(user);
-      return { text: fmtSmartFolders(list), data: list };
+      return { text: fmtSmartFolders(list, !members), data: list };
     },
   }),
   command({
@@ -208,9 +208,9 @@ export const smartFolders = [
       just_me: bool({ describe: "Keep it the user's own instead of sharing it with the workspace" }),
       id: str({ describe: "Change this smart folder instead of creating one" }),
     },
-    run: ({ vault, user, canEditShared }, a) => {
+    run: ({ vault, user, canEditShared, members }, a) => {
       const f = vault.saveSmartFolder(user, { id: a.id, name: a.name, query: a.query ?? "", shared: !a.just_me }, canEditShared);
-      return { text: fmtSmartFolders(vault.smartFolders(user)), data: f };
+      return { text: fmtSmartFolders(vault.smartFolders(user), !members), data: f };
     },
   }),
   command({
@@ -223,9 +223,9 @@ export const smartFolders = [
     examples: ["commonink smart-rm Planning"],
     destructive: true,
     args: { smart_folder: str({ required: true, pos: 0, label: "name" }) },
-    run: ({ vault, user, canEditShared }, a) => {
+    run: ({ vault, user, canEditShared, members }, a) => {
       const list = vault.deleteSmartFolder(user, a.smart_folder, canEditShared);
-      return { text: fmtSmartFolders(list), data: list };
+      return { text: fmtSmartFolders(list, !members), data: list };
     },
   }),
 ];

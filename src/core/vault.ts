@@ -819,10 +819,11 @@ export class Vault {
     }
     if (query.sort === "title") rows = [...rows].sort((a, b) => a.title.localeCompare(b.title));
     if (query.sort === "date" || query.sort === "oldest") {
-      // A note's own date, else the day it last changed; the same day goes by when it changed.
-      const day = (r: (typeof rows)[number]) => r.date ?? new Date(r.mtime).toISOString().slice(0, 10);
+      // A note's own date, else the day it last changed in the vault's time zone; the same day goes by when it changed.
+      // Worked out once per note: localDate builds a formatter each call, too slow inside a sort.
+      const day = new Map(rows.map((r) => [r, r.date ?? localDate(r.mtime, this.timeZone)]));
       const dir = query.sort === "date" ? -1 : 1;
-      rows = [...rows].sort((a, b) => dir * (day(a).localeCompare(day(b)) || a.mtime - b.mtime));
+      rows = [...rows].sort((a, b) => dir * (day.get(a)!.localeCompare(day.get(b)!) || a.mtime - b.mtime));
     }
     return rows;
   }
@@ -1622,6 +1623,7 @@ export class Vault {
     const rows = this.db.all<{ path: string; title: string }>("SELECT path, title FROM notes WHERE kind = 'md' ORDER BY path");
     const notes: ReplacedNote[] = [];
     const edits: Array<{ path: string; content: string; version: string; change: Change }> = [];
+    const pending: Array<{ path: string; before: string; after: string }> = [];
     for (const r of rows) {
       if (isArchived(r.path) || !r.path.startsWith(folder)) continue;
       const before = this.files.read(r.path);
@@ -1630,8 +1632,13 @@ export class Vault {
       if (done.content === before) continue;
       notes.push({ path: r.path, title: r.title, count: done.count, lines: done.lines.slice(0, 20) });
       if (opts.dryRun) continue;
-      const c = this.commit(r.path, before, done.content, source, "edit");
-      if (c.change) edits.push({ path: r.path, content: done.content, version: c.version, change: c.change });
+      // Check every note fits before writing any, so one note over the limit leaves them all as they were.
+      this.checkSize(r.path, done.content);
+      pending.push({ path: r.path, before, after: done.content });
+    }
+    for (const p of pending) {
+      const c = this.commit(p.path, p.before, p.after, source, "edit");
+      if (c.change) edits.push({ path: p.path, content: p.after, version: c.version, change: c.change });
     }
     return { notes, edits };
   }
@@ -1688,11 +1695,15 @@ export class Vault {
 
   // ---------------------------------------------------------------- writing
 
-  private commit(rel: string, before: string | null, after: string, source: string, op: Change["op"], autosave = false) {
-    // Every write through the core lands here, so one limit covers the API, MCP, the CLI and online.
+  private checkSize(rel: string, after: string) {
     if (after.length > this.maxNoteBytes / 4 && new TextEncoder().encode(after).length > this.maxNoteBytes) {
       throw new VaultError(`${rel} would be over ${Math.round(this.maxNoteBytes / 1024 / 1024)} MB, the most a note can hold`, "invalid");
     }
+  }
+
+  private commit(rel: string, before: string | null, after: string, source: string, op: Change["op"], autosave = false) {
+    // Every write through the core lands here, so one limit covers the API, MCP, the CLI and online.
+    this.checkSize(rel, after);
     this.files.write(rel, after);
     const sitting = autosave && op === "edit" && before !== null ? this.sittingOf(rel, actorOf(source).source, before) : null;
     const meta = this.indexFile(rel, after)!;
@@ -2148,7 +2159,7 @@ export class Vault {
   /** The notes and assets under `folder` (active and archived alike, since a folder holds both). */
   private under(folder: string): string[] {
     const dir = cleanPath(folder);
-    return this.db.all<{ path: string }>("SELECT path FROM notes WHERE substr(path, 1, ?) = ? ORDER BY path", dir.length + 1, `${dir}/`).map((r) => r.path);
+    return this.db.all<{ path: string }>("SELECT path FROM notes WHERE substr(path, 1, length(?)) = ? ORDER BY path", `${dir}/`, `${dir}/`).map((r) => r.path);
   }
 
   /** What deleting these notes (or everything in `folder`) would touch. */
@@ -2219,10 +2230,32 @@ export class Vault {
     // Only the case changing ("ideas" to "Ideas"): a case-insensitive disk would keep the folder's old
     // spelling under renamed files, so it goes by way of another name.
     if (dest.toLowerCase() === from.toLowerCase()) {
+      // Checked first: on a case-sensitive disk `dest` can be another folder, but on one that ignores
+      // case it's this one, whose files are the same files.
+      if (this.files.listUnder(dest).some((f) => !this.files.same(f.path, from + f.path.slice(dest.length)))) {
+        throw new VaultError(`There's already a folder named ${dest}`, "exists");
+      }
       let via = `${from} (renaming)`;
-      for (let i = 2; this.files.listUnder(via).length; i++) via = `${from} (renaming ${i})`;
+      for (let i = 2; this.files.listUnder(via).length || this.files.listUnder(`${ARCHIVE}${via}`).length; i++) via = `${from} (renaming ${i})`;
+      // What isn't a note (.DS_Store, say) goes too, or the old folder would stay under its old spelling.
+      const carry = (a: string, b: string) => {
+        for (const d of [a, `${ARCHIVE}${a}`]) {
+          const to = d === a ? b : `${ARCHIVE}${b}`;
+          for (const f of this.files.listUnder(d)) if (!this.files.stat(to + f.path.slice(d.length))) this.files.rename(f.path, to + f.path.slice(d.length));
+          this.files.prune?.(d);
+        }
+      };
       const first = this.moveFolder(from, via, source);
-      const r = this.moveFolder(via, dest, source);
+      carry(from, via);
+      let r: ReturnType<Vault["moveFolder"]>;
+      try {
+        r = this.moveFolder(via, dest, source);
+      } catch (e) {
+        this.moveFolder(via, from, source); // put it all back as it was
+        carry(via, from);
+        throw e;
+      }
+      carry(via, dest);
       const was = new Map(first.moved.map((m) => [m.path, m.from]));
       return { ...r, from, moved: r.moved.map((m) => ({ ...m, from: was.get(m.from) ?? m.from })) };
     }

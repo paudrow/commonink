@@ -20,6 +20,7 @@ import type { Person } from "./ics.ts";
 import { frontmatterEntries, frontmatterText, listOf, scalarOf, type Entry } from "./frontmatter.ts";
 import { yamlValue } from "./contacts.ts";
 import { headingText } from "./prose.ts";
+import { isDate } from "./tasks.ts";
 
 /** The folder the workspace's own events live in. */
 export const EVENTS = "Events";
@@ -55,7 +56,8 @@ function written(s: string, sameDayAs?: Written): Written | null {
   const only = t.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
   if (only && sameDayAs) return { day: sameDayAs.day, time: hms(only[1], only[2], only[3]), zone: sameDayAs.zone };
   const m = t.match(/^(\d{4}-\d{2}-\d{2})(?:[T ](\d{1,2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?\s*(Z|[+-]\d{2}:?\d{2})?)?$/i);
-  if (!m || Number.isNaN(Date.parse(m[1]))) return null;
+  // A day that isn't on the calendar (2026-02-30) isn't read as the one it would roll over to.
+  if (!m || !isDate(m[1])) return null;
   if (m[2] && (Number(m[2]) > 23 || Number(m[3]) > 59)) return null;
   const zone = m[5] ? (m[5].toUpperCase() === "Z" ? "Z" : m[5].replace(/^([+-]\d{2})(\d{2})$/, "$1:$2")) : null;
   return { day: m[1], time: m[2] ? hms(m[2], m[3], m[4]) : null, zone };
@@ -104,9 +106,10 @@ export function eventFromNote(rel: string, md: string): NoteEvent | null {
     s = start.day;
     e = plusDays(end && end.day > start.day ? end.day : start.day, 1);
   } else {
-    // An end without a zone is in the start's; an end with one, beside a start with none, isn't.
+    // An end without a zone is in the start's, and one with its own keeps it; beside a start with
+    // none (a time wherever the reader is), the end is floating too, so the two stay on one clock.
     s = stored(start);
-    e = end ? stored({ ...end, zone: start.zone, time: end.time ?? "00:00:00" }) : "";
+    e = end ? stored({ ...end, zone: start.zone && (end.zone ?? start.zone), time: end.time ?? "00:00:00" }) : "";
     if (!e || msOf(e) <= msOf(s)) e = s.endsWith("Z") ? new Date(msOf(s) + HOUR).toISOString().replace(/\.\d{3}Z$/, "Z") : new Date(msOf(s) + HOUR).toISOString().slice(0, 19);
   }
   const { heading, rest } = bodyParts(body);

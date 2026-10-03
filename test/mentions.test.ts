@@ -29,6 +29,14 @@ test("findMentions: whole words in prose, any case; not in code, links, URLs, ta
   assert.deepEqual(findMentions("an AI or a b", ["AI", ""]), [], "names under three letters are too common to suggest");
 });
 
+test("findMentions stays fast on a long run of scheme characters with no ://, and still skips URLs", () => {
+  const md = "# T\n\nAcme " + "a".repeat(100_000) + "\n\nsee https://acme.example/Acme and <git+ssh://h/Acme> and Acme.";
+  const t = performance.now();
+  const found = findMentions(md, ["Acme"]);
+  assert.ok(performance.now() - t < 1000, `took ${Math.round(performance.now() - t)} ms`);
+  assert.deepEqual(found.map((m) => [m.line, m.from]), [[3, 0], [5, 57]], "the URLs' Acme isn't a mention");
+});
+
 test("linkMentionIn writes [[Name]], or [[Name|as written]], and refuses when the text moved", () => {
   const md = "# Plan\n\nThe roadmap is out.\n";
   const [m] = findMentions(md, ["Roadmap"]);
