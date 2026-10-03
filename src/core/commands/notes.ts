@@ -43,7 +43,7 @@ export const notes = [
     summary: "Full-text search (prefix matching), with the lines that match",
     description:
       "Full-text search across the vault (titles, paths, bodies; prefix matching). Every word must match; " +
-      '-word leaves out notes with it, a OR b matches either, ( ) groups, and "exact phrase" matches the words together (commonink help query). Returns paths with matching line numbers.',
+      '-word leaves out notes with it, a OR b matches either, ( ) groups, "exact phrase" matches the words together, and * is a wildcard (pl*ing, *ing) (commonink help query). Returns paths with matching line numbers.',
     examples: ["commonink search launch plan", "commonink search invoice --tag work --json", `commonink search '"launch plan" -draft'`],
     readOnly: true,
     args: {

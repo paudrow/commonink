@@ -173,6 +173,8 @@ test("Trash filters by words, folder, tag (and tags under it) and sorts by when 
   assert.deepEqual(ids({ folder: "Work" }), ["a", "b"], "an archived note's folder is the one it was archived from");
   assert.deepEqual(ids({ tag: "work" }), ["a", "b"]);
   assert.deepEqual(ids({ tag: "work/acme" }), ["a"]);
+  assert.deepEqual(ids({ tag: "work/*" }), ["a"], "a * is a wildcard here too");
+  assert.deepEqual(ids({ folder: "W*" }), ["a", "b"]);
   assert.deepEqual(ids({ q: "acme" }), ["a"], "words find tags too");
   assert.deepEqual(trashFolders(items), ["Work"]);
   assert.deepEqual(

@@ -5,8 +5,7 @@
 // "a phrase", and filters among the words (`tag=x`, `folder=x`, `modified>-7d`). No Node imports:
 // the web app uses this too.
 import { serializeAttrs } from "./directive.ts";
-import { andJoin, folderList as foldersIn, isSort, parse, SORTS, type QuerySort } from "./queryGrammar.ts";
-import { cleanTag } from "./tags.ts";
+import { andJoin, cleanTagFilter, folderList as foldersIn, isSort, parse, SORTS, type QuerySort } from "./queryGrammar.ts";
 import { viewArgKeys } from "./view.ts";
 
 export { dayFrom, dayPasses, isSort, type QuerySort } from "./queryGrammar.ts";
@@ -55,7 +54,7 @@ export function toQuery(args: Record<string, string>): NoteQuery {
   const folder = [...new Set(folderList(args.folder))].join("|");
   const tags: string[] = [];
   for (const raw of tagList(args.tag)) {
-    const t = cleanTag(raw);
+    const t = cleanTagFilter(raw);
     if (t && !tags.some((x) => x.toLowerCase() === t.toLowerCase())) tags.push(t);
   }
   // Joined so each keeps its meaning: `q="a OR b"` with `modified>-7d` is `(a OR b) modified>-7d`.
@@ -146,7 +145,7 @@ export function queryProblem(src: string): string | null {
     if (k === "limit" && !LIMIT.test(v)) return `"limit" is a whole number above 0, not "${v}"`;
     if (k === "q" && parse(v).error) return parse(v).error!.message;
     if (k === "tag") {
-      const wrong = tagList(v).find((t) => !cleanTag(t));
+      const wrong = tagList(v).find((t) => !cleanTagFilter(t));
       if (wrong !== undefined || !tagList(v).length) return `"${wrong ?? v}" isn't a tag: use letters, numbers, - and _, nested with /`;
     }
   }

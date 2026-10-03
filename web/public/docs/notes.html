@@ -108,7 +108,7 @@
 <li><strong>Favorites</strong>: star a note or a tag to keep it at the top of the sidebar.</li>
 </ul>
 <h3 id="searching-and-filtering"><a class="anchor" href="#searching-and-filtering">Searching and filtering</a></h3>
-<p>The Notes filter, views, <code>::view</code> and <code>commonink ls --query</code> all read the same query language. Plain words find notes with all of them, each as the start of a word (<code>plan</code> finds &quot;planning&quot;). Combine them with <code>AND</code> and <code>OR</code> (in capitals), leave things out with <code>-</code>, and group with parentheses: without them, AND goes before OR, so <code>a b OR c</code> means <code>(a b) OR c</code>. For example:</p>
+<p>The Notes filter, views, <code>::view</code> and <code>commonink ls --query</code> all read the same query language. Plain words find notes with all of them, each as the start of a word (<code>plan</code> finds &quot;planning&quot;). A <code>*</code> is a wildcard, in a word (<code>pl*ing</code>, <code>*ing</code>) or in a filter&#39;s value (<code>folder=*/Clients</code>, <code>tag=work/*</code>, <code>status=draft*</code>). Combine them with <code>AND</code> and <code>OR</code> (in capitals), leave things out with <code>-</code>, and group with parentheses: without them, AND goes before OR, so <code>a b OR c</code> means <code>(a b) OR c</code>. For example:</p>
 <pre><code>(tag=work OR tag=home) -folder=Archive &quot;launch plan&quot; sort=created
 </code></pre>
 <p>finds notes tagged work or home, outside Archive, with the words &quot;launch plan&quot; together, newest first. A query with a mistake in it, like a <code>(</code> that&#39;s never closed, says where under the filter, and the list shows the best reading of the rest meanwhile.</p>
@@ -128,6 +128,12 @@
 <td><code>word</code></td>
 <td><code>plan</code></td>
 <td>Notes with a word starting with it: &quot;plan&quot; finds planning. Several words: notes with all of them.</td>
+</tr>
+<tr>
+<td>Words</td>
+<td><code>wild*card</code></td>
+<td><code>pl*ing</code></td>
+<td>A * stands for any letters, or none, and the pattern is the whole word: pl*ing finds planning and playing, *ing every word ending in ing, <em>plan</em> any word with plan in it.</td>
 </tr>
 <tr>
 <td>Words</td>
@@ -200,6 +206,12 @@
 <td><code>has=property</code></td>
 <td><code>has=due</code></td>
 <td>The property is set, to anything. -has=due: notes without one.</td>
+</tr>
+<tr>
+<td>Filters</td>
+<td><code>filter=wild*card</code></td>
+<td><code>folder=*/Clients</code></td>
+<td>A * in a filter&#39;s value stands for anything, or nothing. folder=<em>/Clients is a Clients folder inside any folder, and folder=Proj</em> every folder starting with Proj. tag=work/* is the tags under work, not work itself. status=draft* starts with draft, and owner=*Smith ends with Smith.</td>
 </tr>
 <tr>
 <td>Order</td>

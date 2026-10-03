@@ -79,7 +79,7 @@ A ```` ```mermaid ```` block draws a diagram, and `$…$` sets math.
 
 ### Searching and filtering
 
-The Notes filter, views, `::view` and `commonink ls --query` all read the same query language. Plain words find notes with all of them, each as the start of a word (`plan` finds "planning"). Combine them with `AND` and `OR` (in capitals), leave things out with `-`, and group with parentheses: without them, AND goes before OR, so `a b OR c` means `(a b) OR c`. For example:
+The Notes filter, views, `::view` and `commonink ls --query` all read the same query language. Plain words find notes with all of them, each as the start of a word (`plan` finds "planning"). A `*` is a wildcard, in a word (`pl*ing`, `*ing`) or in a filter's value (`folder=*/Clients`, `tag=work/*`, `status=draft*`). Combine them with `AND` and `OR` (in capitals), leave things out with `-`, and group with parentheses: without them, AND goes before OR, so `a b OR c` means `(a b) OR c`. For example:
 
 ```
 (tag=work OR tag=home) -folder=Archive "launch plan" sort=created
@@ -93,6 +93,7 @@ In the app, the **?** beside the Notes filter (or **Query syntax** in ⌘K) list
 | | Write | Try | What it does |
 | --- | --- | --- | --- |
 | Words | `word` | `plan` | Notes with a word starting with it: "plan" finds planning. Several words: notes with all of them. |
+| Words | `wild*card` | `pl*ing` | A * stands for any letters, or none, and the pattern is the whole word: pl*ing finds planning and playing, *ing every word ending in ing, *plan* any word with plan in it. |
 | Words | `"a phrase"` | `"launch plan"` | The words together, in this order. Inside q="…" (a saved view or ::view), use single quotes. |
 | Combine | `a AND b` | `launch AND budget` | Both. Words side by side mean AND too, so launch budget is the same. |
 | Combine | `a OR b` | `budget OR costs` | Either one. Write OR and AND in capitals: lowercase they're just words. |
@@ -105,6 +106,7 @@ In the app, the **?** beside the Notes filter (or **Query syntax** in ⌘K) list
 | Filters | `created<day` | `created<2026-09-01` | Made before a day, with the same comparisons and days as modified. |
 | Filters | `property=value` | `status=draft` | A frontmatter property has this value, in any case; a list matches if any item does. title=… is the note's title. Quote values with spaces: status='in progress'. |
 | Filters | `has=property` | `has=due` | The property is set, to anything. -has=due: notes without one. |
+| Filters | `filter=wild*card` | `folder=*/Clients` | A * in a filter's value stands for anything, or nothing. folder=*/Clients is a Clients folder inside any folder, and folder=Proj* every folder starting with Proj. tag=work/* is the tags under work, not work itself. status=draft* starts with draft, and owner=*Smith ends with Smith. |
 | Order | `sort=order` | `tag=work sort=title` | modified (last changed first, the default), date or oldest (by the note's own date), title or created (newest first). On its own, not inside ( ). |
 <!-- /query-syntax -->
 
