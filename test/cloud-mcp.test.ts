@@ -162,6 +162,17 @@ test("an agent acts as its person, with their role, and its writes say who", asy
   await Promise.all([owner.client.close(), viewer.client.close()]);
 });
 
+test("online, an agent's smart folders say which the workspace shares and which are just theirs", async () => {
+  const owner = await mcp((await connect(people.owner, people.id)).access);
+  await owner.call("save_smart_folder", { name: "Team plans", query: "tag=plan" });
+  const { text } = await owner.call("save_smart_folder", { name: "My plans", query: "tag=plan", just_me: true });
+  assert.match(text, /^- Team plans \(\d+ notes?, shared\): tag=plan \[/m);
+  assert.match(text, /^- My plans \(\d+ notes?, just you\): tag=plan \[/m);
+  await owner.call("delete_smart_folder", { smart_folder: "Team plans" });
+  await owner.call("delete_smart_folder", { smart_folder: "My plans" });
+  await owner.client.close();
+});
+
 test("online, an agent exports Markdown and a .zip; a web page and Word come from the app", async () => {
   const viewer = await mcp((await connect(people.viewer, people.id)).access);
   const raw = async (args: Record<string, unknown>) => (await viewer.client.callTool({ name: "export_note", arguments: args })) as { content: Array<{ text?: string; resource?: { mimeType: string; text?: string; blob?: string } }>; isError?: boolean };

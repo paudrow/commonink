@@ -145,9 +145,12 @@ test("today prints the day's sections", () => {
 
 test("smart-save, smart and smart-rm keep saved note queries", () => {
   const vault = tempVault();
-  assert.match(commonink(vault, ["smart-save", "Planning", "tag=plan", "--just-me"]).stdout, /^- Planning \(1 note, just you\): tag=plan \[[a-z2-9]{8}\]\n$/);
+  // A local vault has no one to share with, so no smart folder is called shared (or just yours).
+  assert.match(commonink(vault, ["smart-save", "Planning", "tag=plan"]).stdout, /^- Planning \(1 note\): tag=plan \[[a-z2-9]{8}\]\n$/);
+  assert.match(commonink(vault, ["smart-save", "Mine", "tag=plan", "--just-me"]).stdout, /^- Planning \(1 note\): tag=plan \[[a-z2-9]{8}\]\n- Mine \(1 note\): tag=plan \[[a-z2-9]{8}\]\n$/);
   assert.equal(commonink(vault, ["smart", "planning"]).stdout, "- Projects/Roadmap.md — Roadmap\n");
   assert.equal(commonink(vault, ["smart-save", "Bad", "colour=red"]).stderr, 'Unknown query key "colour": use q, folder, tag, sort or limit\n');
+  assert.match(commonink(vault, ["smart-rm", "Mine"]).stdout, /^- Planning \(1 note\): tag=plan \[[a-z2-9]{8}\]\n$/);
   assert.equal(commonink(vault, ["smart-rm", "Planning"]).stdout, "No smart folders.\n");
 });
 
