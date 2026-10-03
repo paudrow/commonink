@@ -8,4 +8,5 @@ export async function assertPublic(u: URL) {
   if (!addrs.length || addrs.some((a) => isPrivateAddress(a.address))) throw new Error("private");
 }
 
-export const unfurl = (url: string) => unfurlCore(url, assertPublic);
+/** GITHUB_TOKEN, if set, is sent to api.github.com (and nowhere else) for GitHub issue and PR cards. */
+export const unfurl = (url: string) => unfurlCore(url, assertPublic, { githubToken: process.env.GITHUB_TOKEN || undefined });

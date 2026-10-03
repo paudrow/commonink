@@ -10,7 +10,7 @@ import { headingName, headingText, mapOutsideCode, proseLines } from "./prose.ts
 import { dateOf, extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
-import { dueFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
+import { DATE_FILTER_HELP, dateFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, priorityFilter, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
 import { parseQuickAdd } from "./quickAdd.ts";
 import { formatQuery, parseQuery, queryProblem, tagList, type NoteQuery } from "./query.ts";
 import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
@@ -20,8 +20,11 @@ import {
   checkInDue, checkInEvery, contactFromNote, contactNote, dayOfNote, emptyContact, fillContact, parseContactsCsv, parseVCards, PEOPLE, peopleDirectory, personFor, sameFields, samePerson,
   type Contact, type ContactFields, type ContactInput, type ContactNote, type MemberRef, type TimelineItem,
 } from "./contacts.ts";
-import { cleanTitle, DAILY_TEMPLATE, fillTemplate, localNow, TEMPLATES, templateInfo, type FillOptions, type TemplateInfo } from "./templates.ts";
-import { frontmatterEntries } from "./frontmatter.ts";
+import { cleanTitle, fillTemplate, JOURNAL_TEMPLATES, localNow, TEMPLATES, templateInfo, type FillOptions, type TemplateInfo } from "./templates.ts";
+import { frontmatterEntries, listOf } from "./frontmatter.ts";
+import { taskChanges, type AwaySummary } from "./away.ts";
+import { findMentions, linkMentionIn, type Mention } from "./mentions.ts";
+import { replaceIn, type ReplacedLine, type ReplaceOptions } from "./replace.ts";
 import { answerText, askSpec, checkValue, COMMENT_MAX, DECISION_STATUSES, DECISIONS, journalLines, OPEN_MAX, replaceJournalLines, type AskInput, type AskSpec, type Decision, type DecisionKind, type DecisionOption, type DecisionStatus, type DecisionValue } from "./decisions.ts";
 
 export interface NoteMeta {
@@ -88,6 +91,22 @@ export interface Backlink {
   kind: string;
   line: number;
   text: string;
+}
+
+/** A note's name written as plain text in another note (see Vault.unlinkedMentions). */
+export interface UnlinkedMention extends Mention {
+  path: string;
+  title: string;
+  /** The whole line, trimmed, for showing it. */
+  context: string;
+}
+
+/** A note find and replace changes (see Vault.replaceAcross): how many places, and its first changed lines. */
+export interface ReplacedNote {
+  path: string;
+  title: string;
+  count: number;
+  lines: ReplacedLine[];
 }
 
 /** A link to a note or file that isn't in the vault, and every place that has it. */
@@ -307,7 +326,12 @@ export interface TaskQuery {
   assignee?: string;
   /** Any of these `@name`s: one person's every name. */
   assignees?: string[];
+  /** Date filters, like `<=today` or `>=today <=+7d` (see dateFilter). */
   due?: string;
+  start?: string;
+  done?: string;
+  /** high, low or none, or several with commas (see priorityFilter). */
+  priority?: string;
   today?: string;
 }
 
@@ -857,6 +881,60 @@ export class Vault {
   }
 
   /**
+   * Where other active notes write this note's name (its title, file name or a frontmatter alias) as
+   * plain text, not as a link: the side panel's "Unlinked mentions". Full-text search finds the
+   * notes that have the words; each is then read for whole-word matches outside code and links.
+   */
+  unlinkedMentions(target: string, limit = 30): UnlinkedMention[] {
+    const rel = this.mustResolve(target);
+    const names = this.namesOf(rel);
+    const candidates = new Set<string>();
+    for (const name of names) {
+      const terms = searchTerms(name);
+      if (!terms.length) continue;
+      const phrase = `"${terms.join(" ")}"`;
+      for (const r of this.db.all<{ path: string }>("SELECT path FROM notes_fts WHERE notes_fts MATCH ? ORDER BY rank LIMIT 50", phrase)) candidates.add(r.path);
+    }
+    candidates.delete(rel);
+    const out: UnlinkedMention[] = [];
+    for (const p of candidates) {
+      if (isArchived(p) || kindOf(p) !== "md") continue;
+      const content = this.files.read(p);
+      if (content === null) continue;
+      const lines = content.split("\n");
+      for (const m of findMentions(content, names)) {
+        out.push({ path: p, title: this.meta(p)?.title ?? p, ...m, context: (lines[m.line - 1] ?? "").trim().slice(0, 200) });
+        if (out.length >= limit) return out;
+      }
+    }
+    return out;
+  }
+
+  /** A note's names as plain text could write them: its title, its file name and its frontmatter `aliases`. */
+  private namesOf(rel: string): string[] {
+    const content = this.files.read(rel) ?? "";
+    const aliases = listOf(frontmatterEntries(content).entries.find((e) => e.key.toLowerCase() === "aliases"));
+    return [...new Set([this.meta(rel)?.title ?? "", fileStem(rel), ...aliases].filter((n) => n.trim()))];
+  }
+
+  /**
+   * Turn one unlinked mention of `target` in another note into a link: `[[Name]]`, or
+   * `[[Name|as written]]` when it's written differently. One change, attributed to `source`.
+   */
+  linkMention(target: string, at: { path: string; line: number; from: number; to: number; text: string }, source: string) {
+    const rel = this.mustResolve(target);
+    const note = this.read(at.path);
+    if (note.path === rel) throw new VaultError("A note can't link a mention of itself");
+    if (!this.namesOf(rel).some((n) => n.toLowerCase() === at.text.toLowerCase())) throw new VaultError(`"${at.text}" isn't a name of ${rel}`);
+    // The file name, if it reaches this note from there; else the path, which always does.
+    const stem = fileStem(rel);
+    const name = this.resolve(stem, note.path) === rel ? stem : rel.replace(/\.(md|markdown)$/i, "");
+    const next = linkMentionIn(note.content, { line: at.line, from: at.from, to: at.to, text: at.text }, name);
+    if (next === null) throw new VaultError(`${note.path} changed: "${at.text}" isn't on line ${at.line} any more. Look again.`, "conflict", { version: note.version });
+    return { ...this.commit(note.path, note.content, next, source, "edit"), content: next };
+  }
+
+  /**
    * resolve(), remembering each answer, for reading many links while no note comes or goes. What a
    * link resolves to depends only on its text and the folder it's in.
    */
@@ -913,6 +991,41 @@ export class Vault {
       this.db.get(`SELECT ${CHANGE_COLS} FROM changes WHERE path = ? AND version = ? AND ts > ? ORDER BY id DESC LIMIT 1`, rel, version, this.now() - withinMs) ??
       null
     );
+  }
+
+  /**
+   * What agents did since `person` last changed anything themselves (and after change `after`, the
+   * last one they dismissed): see away.ts. Null when agents did nothing in that time.
+   */
+  awaySummary(person: string, after = 0): AwaySummary | null {
+    const own = this.db.get<{ id: number | null }>("SELECT MAX(id) AS id FROM changes WHERE person = ? AND agent IS NULL", person)?.id ?? 0;
+    const start = Math.max(own, after);
+    const theirs = this.db.all<Change>(`SELECT ${CHANGE_COLS} FROM changes WHERE id > ? AND agent IS NOT NULL ORDER BY id LIMIT 500`, start);
+    if (!theirs.length) return null;
+    const by = new Map<string, number>();
+    for (const c of theirs) by.set(c.agent!, (by.get(c.agent!) ?? 0) + 1);
+    const key = (c: Change) => c.note_id ?? c.path;
+    const created = new Set(theirs.filter((c) => c.op === "create").map(key));
+    const edited = new Set(theirs.filter((c) => c.op !== "create" && !created.has(key(c))).map(key));
+    let tasksAdded = 0;
+    let tasksDone = 0;
+    for (const run of this.diffSet(theirs.map((c) => c.id)).flatMap((f) => f.runs)) {
+      if (!run.after) continue;
+      const t = taskChanges(run.before, run.after);
+      tasksAdded += t.added;
+      tasksDone += t.done;
+    }
+    return {
+      agents: [...by].sort((a, b) => b[1] - a[1]).map(([name]) => name),
+      created: created.size,
+      edited: edited.size,
+      tasksAdded,
+      tasksDone,
+      after: start,
+      last: theirs.at(-1)!.id,
+      from: theirs[0].ts,
+      to: theirs.at(-1)!.ts,
+    };
   }
 
   /** The agents that appear in the change log, by name, for filtering History by one. */
@@ -1499,6 +1612,32 @@ export class Vault {
   }
 
   /**
+   * Find and replace plain text in every active Markdown note (HTML notes are left alone), or those in `folder`.
+   * `dryRun` only says what would change. Otherwise each note that changes is its own change, as
+   * in renameTag, so Undo can restore them one by one without writing over a later edit.
+   */
+  replaceAcross(find: string, replace: string, opts: ReplaceOptions & { folder?: string; dryRun?: boolean }, source: string) {
+    if (!find) throw new VaultError("Say what to find");
+    if (find.includes("\n") || replace.includes("\n")) throw new VaultError("Find and replace work a line at a time: leave out line breaks");
+    const folder = opts.folder ? cleanPath(opts.folder).replace(/\/?$/, "/") : "";
+    const rows = this.db.all<{ path: string; title: string }>("SELECT path, title FROM notes WHERE kind = 'md' ORDER BY path");
+    const notes: ReplacedNote[] = [];
+    const edits: Array<{ path: string; content: string; version: string; change: Change }> = [];
+    for (const r of rows) {
+      if (isArchived(r.path) || !r.path.startsWith(folder)) continue;
+      const before = this.files.read(r.path);
+      if (before === null) continue;
+      const done = replaceIn(before, find, replace, opts);
+      if (done.content === before) continue;
+      notes.push({ path: r.path, title: r.title, count: done.count, lines: done.lines.slice(0, 20) });
+      if (opts.dryRun) continue;
+      const c = this.commit(r.path, before, done.content, source, "edit");
+      if (c.change) edits.push({ path: r.path, content: done.content, version: c.version, change: c.change });
+    }
+    return { notes, edits };
+  }
+
+  /**
    * Rename a tag (and every tag under it) in every note, task and asset, archived ones included.
    * Renaming onto a tag that exists merges the two. Each rewritten note is its own change, so any
    * of them can be restored; `assets` holds the tagged assets' lists from before, to put them back.
@@ -1639,8 +1778,9 @@ export class Vault {
   /**
    * Checkbox tasks across the vault (active notes), in note order, with the heading each sits under.
    * `tag` keeps the tasks whose line carries it (or a tag under it), `assignee` the ones with that
-   * @person, and `due` the ones whose due date passes a filter like `<=today` (see dueFilter).
-   * `today` (YYYY-MM-DD) is the day that filter means by today; the default is the core's clock.
+   * @person, and `due`, `start` and `done` the ones whose date passes a filter like `<=today` or
+   * `>=today <=+7d` (see dateFilter). `priority` is high, low or none (see priorityFilter).
+   * `today` (YYYY-MM-DD) is the day those filters mean by today; the default is the core's clock.
    */
   tasks(opts: TaskQuery = {}): Task[] {
     const only = opts.note ? this.resolve(opts.note) : null;
@@ -1648,8 +1788,16 @@ export class Vault {
     const prefix = opts.folder ? opts.folder.replace(/^\/+|\/+$/g, "") + "/" : "";
     const tagged = opts.tag === undefined ? null : new Set(this.tagged(opts.tag).filter((r) => r.kind === "task").map((r) => `${r.path}:${r.line}`));
     if (opts.today && !isDate(opts.today)) throw new VaultError(`"today" must be a date like 2026-10-01, not "${opts.today}"`);
-    const due = opts.due ? dueFilter(opts.due, opts.today ?? this.day()) : null;
-    if (opts.due && !due) throw new VaultError(`Bad due filter "${opts.due}": use a date or today/tomorrow/yesterday, optionally after <, <=, > or >=`);
+    const dated = (["due", "start", "done"] as const).flatMap((field) => {
+      const expr = opts[field];
+      if (!expr) return [];
+      const test = dateFilter(expr, opts.today ?? this.day());
+      if (!test) throw new VaultError(`Bad ${field} filter "${expr}": use ${DATE_FILTER_HELP}`);
+      return [(t: Task) => test(t.meta[field])];
+    });
+    const priority = opts.priority ? priorityFilter(opts.priority) : null;
+    if (opts.priority && !priority) throw new VaultError(`Bad priority filter "${opts.priority}": use high, low or none (or several, like high,none)`);
+    const passes = (t: Task) => dated.every((test) => test(t)) && (!priority || priority(t.meta.priority));
     // `assignees` (any of them) is a person's every name; `assignee` one name, as written.
     const names = new Set([...(opts.assignees ?? []), ...(opts.assignee ? [opts.assignee] : [])].map((a) => a.replace(/^@/, "").toLowerCase()));
     // The query narrows to the note, or to notes with the tag on a task (the lines are checked below).
@@ -1662,7 +1810,7 @@ export class Vault {
     return rows
       .filter((r) => (!prefix || r.path.startsWith(prefix)) && (!tagged || tagged.has(`${r.path}:${r.line}`)))
       .map(toTask)
-      .filter((t) => (!due || due(t.meta.due)) && (!names.size || t.meta.assignees.some((a) => names.has(a.toLowerCase()))));
+      .filter((t) => passes(t) && (!names.size || t.meta.assignees.some((a) => names.has(a.toLowerCase()))));
   }
 
   /**
@@ -1797,10 +1945,10 @@ export class Vault {
 
   /**
    * Add a task typed the way you'd say it ("Pay rent every month on the 1st #home"; see
-   * quickAdd.ts). It goes under `## Tasks` in today's daily note (`Journal/YYYY-MM-DD.md`, made if
+   * quickAdd.ts). It goes under `## Tasks` in today's journal note (`Journal/YYYY-MM-DD.md`, made if
    * needed), or in the note named with `→ [[Note]]`: at the end of its Tasks section, or of the note.
    * `today` is the person's day; `ignore` holds phrases they chose to keep as words; `to` is a note
-   * to use instead of the daily note (the one the bar was opened from), which `→ [[Note]]` overrides.
+   * to use instead of the journal (the one the bar was opened from), which `→ [[Note]]` overrides.
    */
   addTask(input: string, source: string, opts: { today?: string; ignore?: string[]; to?: string } = {}) {
     const today = opts.today ?? this.day();
@@ -1841,7 +1989,7 @@ export class Vault {
     };
   }
 
-  /** Today's journal note (`Journal/YYYY-MM-DD.md`), made from the daily template if it's missing. */
+  /** Today's journal note (`Journal/YYYY-MM-DD.md`), made from the journal template if it's missing. */
   dailyNote(date: string, source: string) {
     if (!isDate(date)) throw new VaultError(`"today" must be a date like 2026-10-01, not "${date}"`);
     const rel = `Journal/${date}.md`;
@@ -1850,9 +1998,9 @@ export class Vault {
     return { path: rel, created: true, version: r.version, change: r.change };
   }
 
-  /** A new daily note: `Templates/Daily note.md`, filled in as of `date` (see templates.ts), or a plain one with Tasks and Log. */
+  /** A new journal note: `Templates/Journal.md` (or `Templates/Daily note.md`, its old name), filled in as of `date` (see templates.ts), or a plain one with Tasks and Log. */
   private dailyTemplate(date: string): string {
-    const template = this.files.read(DAILY_TEMPLATE);
+    const template = JOURNAL_TEMPLATES.map((t) => this.files.read(t)).find((t) => t !== null) ?? null;
     return template !== null ? fillTemplate(template, { at: `${date}T${localNow(this.now(), this.timeZone).split("T")[1]}`, title: date }).text : `# ${date}\n\n## Tasks\n\n## Log\n`;
   }
 
@@ -2051,6 +2199,48 @@ export class Vault {
       return this.move(rel, this.freePath(parent === "." ? rest : `${parent}/${rest}`), source);
     });
     return { deleted: [], moved };
+  }
+
+  /**
+   * Rename a folder, or move it under another: everything in it (its archived notes, in Archive,
+   * too) moves to `to`, every link to them rewritten as a note's move does, and smart folders
+   * narrowed to it follow. It can't land on a folder that has anything in it already, and nothing
+   * moves unless all of it can.
+   */
+  moveFolder(folder: string, to: string, source: string): { from: string; path: string; moved: Array<ReturnType<Vault["move"]>> } {
+    const [from, dest] = [folder, to].map((f) => cleanPath(f).replace(/\/+$/, ""));
+    for (const [dir, what] of [[ARCHIVE.slice(0, -1), "Archive"], [PEOPLE, "Contacts"], [TEMPLATES, "Templates"]] as const) {
+      if (from === dir) throw new VaultError(`${dir} is where ${what === "Archive" ? "archived notes go" : `${what} live`}, so it keeps its name`);
+    }
+    if (isArchived(`${from}/`) || isArchived(`${dest}/`)) throw new VaultError("Folders in Archive move with their notes: unarchive them instead");
+    if (dest === from) return { from, path: dest, moved: [] };
+    if (dest.startsWith(`${from}/`)) throw new VaultError(`${from} can't move into itself`);
+    const rels = [...this.under(from), ...this.under(`${ARCHIVE}${from}`)];
+    if (!rels.length) throw new VaultError(`There's nothing in ${from}`, "not_found");
+    // Only the case changing ("ideas" to "Ideas"): a case-insensitive disk would keep the folder's old
+    // spelling under renamed files, so it goes by way of another name.
+    if (dest.toLowerCase() === from.toLowerCase()) {
+      let via = `${from} (renaming)`;
+      for (let i = 2; this.files.listUnder(via).length; i++) via = `${from} (renaming ${i})`;
+      const first = this.moveFolder(from, via, source);
+      const r = this.moveFolder(via, dest, source);
+      const was = new Map(first.moved.map((m) => [m.path, m.from]));
+      return { ...r, from, moved: r.moved.map((m) => ({ ...m, from: was.get(m.from) ?? m.from })) };
+    }
+    if (this.under(dest).length || this.files.listUnder(dest).length) throw new VaultError(`There's already a folder named ${dest}`, "exists");
+    const target = (rel: string) => (isArchived(rel) ? `${ARCHIVE}${dest}${rel.slice(ARCHIVE.length + from.length)}` : `${dest}${rel.slice(from.length)}`);
+    const clash = rels.find((rel) => this.files.stat(target(rel)));
+    if (clash) throw new VaultError(`${target(clash)} already exists`, "exists");
+    const moved = rels.map((rel) => this.move(rel, target(rel), source));
+    for (const f of this.db.all<{ id: string; query: string }>("SELECT id, query FROM smart_folders")) {
+      const q = parseQuery(f.query);
+      if (q.folder === from || q.folder?.startsWith(`${from}/`)) {
+        this.db.run("UPDATE smart_folders SET query = ? WHERE id = ?", formatQuery({ ...q, folder: dest + q.folder.slice(from.length) }), f.id);
+      }
+    }
+    this.files.prune?.(from);
+    this.files.prune?.(`${ARCHIVE}${from}`);
+    return { from, path: dest, moved };
   }
 
   /** The ids of what's in Trash, newest first. */
@@ -2531,6 +2721,9 @@ function insertRows(db: SqlDb, insert: string, rows: unknown[][]) {
  * both reach a note named Plan, and which one they reach is resolve()'s to say.
  */
 const linkStem = (key: string) => key.slice(key.lastIndexOf("/") + 1);
+
+/** "Projects/Roadmap.md" → "Roadmap": the file name as a link writes it, case kept. */
+const fileStem = (rel: string) => path.posix.basename(rel).replace(/\.(md|markdown)$/i, "");
 
 /** `tags.tag` is the tag or under it: a range, so it uses the index and needs no character counting. */
 const UNDER = "(tag = ? OR (tag >= ? AND tag < ?))";

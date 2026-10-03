@@ -316,21 +316,55 @@ function insertToken(text: string, field: Field, token: string): string {
 }
 
 /**
- * A test for due dates from an expression like `<=today`, `>2026-10-01` or `tomorrow` (no operator
- * means that day), or null if it isn't one. `today` is the day it's evaluated on. A task with no
- * due date never matches.
+ * The day a filter word means: today, tomorrow, yesterday, a date, or a span from today (`+7d`,
+ * `-2w`, `+1m`, `+1y`). Null if it isn't one.
  */
-export function dueFilter(expr: string, today: string): ((due: string | null) => boolean) | null {
-  const m = expr.trim().match(/^(<=|>=|<|>|=)?\s*(today|tomorrow|yesterday|\d{4}-\d{2}-\d{2})$/i);
-  if (!m || (/^\d/.test(m[2]) && !isDate(m[2]))) return null;
-  const shift = { today: 0, tomorrow: 1, yesterday: -1 }[m[2].toLowerCase()];
-  const day = shift === undefined ? m[2] : addDays(today, shift);
-  const op = m[1] ?? "=";
-  return (due) => {
-    if (!due) return false;
-    const d = due.slice(0, 10);
-    return op === "<" ? d < day : op === "<=" ? d <= day : op === ">" ? d > day : op === ">=" ? d >= day : d === day;
-  };
+export function dayFrom(word: string, today: string): string | null {
+  const w = word.toLowerCase();
+  if (w === "today" || w === "tomorrow" || w === "yesterday") return addDays(today, { today: 0, tomorrow: 1, yesterday: -1 }[w]);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(w)) return isDate(w) ? w : null;
+  const m = w.match(/^([+-])(\d{1,4})([dwmy])$/);
+  if (!m) return null;
+  const n = Number(m[2]) * (m[1] === "-" ? -1 : 1);
+  return m[3] === "d" ? addDays(today, n) : m[3] === "w" ? addDays(today, 7 * n) : addMonths(today, m[3] === "m" ? n : 12 * n);
+}
+
+/** What a date filter takes, for messages. */
+export const DATE_FILTER_HELP =
+  'today, tomorrow, yesterday, a date, or a span from today like +7d, -2w or +1m, optionally after <, <=, > or >=; two make a range (">=today <=+7d")';
+
+/**
+ * A test for one of a task's dates (due:, start: or done:) from a filter: one or more comparisons,
+ * all of which must hold, like `<=today`, `>=today <=+7d` (the coming week), `>=-7d` or `tomorrow`
+ * (no operator means that day). Spaces or commas separate them. Null if it isn't one. `today` is
+ * the day it's evaluated on. A task without that date never matches.
+ */
+export function dateFilter(expr: string, today: string): ((date: string | null) => boolean) | null {
+  // An operator may have a space after it (">= tomorrow"): it still goes with the word that follows.
+  const parts = expr.trim().replace(/(<=|>=|<|>|=)\s+/g, "$1").split(/[\s,]+/).filter(Boolean);
+  if (!parts.length || parts.length > 4) return null;
+  const tests: Array<(d: string) => boolean> = [];
+  for (const part of parts) {
+    const m = part.match(/^(<=|>=|<|>|=)?(.+)$/)!;
+    const day = dayFrom(m[2], today);
+    if (!day) return null;
+    const op = m[1] ?? "=";
+    tests.push((d) => (op === "<" ? d < day : op === "<=" ? d <= day : op === ">" ? d > day : op === ">=" ? d >= day : d === day));
+  }
+  return (date) => !!date && tests.every((t) => t(date.slice(0, 10)));
+}
+
+/** A due date filter (the name it had before start: and done: could be filtered too). */
+export const dueFilter = dateFilter;
+
+/**
+ * A test for a task's priority from a filter: high, low or none (no priority), or several with
+ * commas (`high,none`). `!high` works too, the way the token is written. Null if it isn't one.
+ */
+export function priorityFilter(expr: string): ((p: Priority | null) => boolean) | null {
+  const want = expr.toLowerCase().split(/[\s,]+/).filter(Boolean).map((w) => w.replace(/^!/, ""));
+  if (!want.length || want.some((w) => w !== "high" && w !== "low" && w !== "none")) return null;
+  return (p) => want.includes(p ?? "none");
 }
 
 /** The day `n` days after `day` (both YYYY-MM-DD). */
@@ -338,6 +372,16 @@ export function addDays(day: string, n: number): string {
   const d = new Date(`${day}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
+}
+
+/** The day `n` months after `day`, on the month's last day if that month is shorter (Jan 31 + 1m is Feb 28). */
+export function addMonths(day: string, n: number): string {
+  const [y, m, d] = day.split("-").map(Number);
+  const months = y * 12 + (m - 1) + n;
+  const year = Math.floor(months / 12);
+  const month = months - year * 12;
+  const last = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  return `${String(year).padStart(4, "0")}-${String(month + 1).padStart(2, "0")}-${String(Math.min(d, last)).padStart(2, "0")}`;
 }
 
 const RULE = /^ {0,3}([-*_])[ \t]*(?:\1[ \t]*){2,}$/;
@@ -372,9 +416,9 @@ export function footerStart(lines: string[]): number {
 /**
  * A note with task lines added: at the end of its "Tasks" section (a heading named Tasks, at any
  * level), or, without one, at the end of the note, under a new `## Tasks` heading if `heading`
- * (a daily note) or right after the last line otherwise. A footer (see footerStart) stays last, so
+ * (a journal note) or right after the last line otherwise. A footer (see footerStart) stays last, so
  * "the end" is just above it. `line` is where the first one landed. `name` puts them in another
- * section instead (a daily note's Decisions).
+ * section instead (a journal note's Decisions).
  */
 export function withTasksAdded(original: string, added: string[], heading: boolean, name = "Tasks"): { content: string; line: number } {
   // Worked out on "\n" lines, and put back with the note's own line endings.

@@ -2,13 +2,14 @@
 // place a task is typed uses (taskInput.ts): phrases light up, the chips below show what will be
 // written, and a click on a lit phrase keeps it as words. The same parser (src/core/quickAdd.ts)
 // runs here as you type and on the server when the task is written. Opened from a note, Tab
-// switches where the task goes between today's daily note and that note.
+// switches where the task goes between today's journal note and that note.
 import { api } from "./api.ts";
 import { el, icon } from "./dom.ts";
 import { today } from "./taskChips.ts";
 import { targetOf } from "./taskCommand.ts";
 import { kbd } from "./keys.ts";
 import { HINT, taskInput, type TaskInput } from "./taskInput.ts";
+import { store } from "./store.ts";
 
 export interface QuickAddOptions {
   /** A task was written: where it went. */
@@ -17,12 +18,26 @@ export interface QuickAddOptions {
   open(path: string, line?: number): void;
   /** Escape out of the bar (the floating one closes). */
   escape?(): void;
-  /** The note it was opened from: Tab sends the task there instead of today's daily note. */
+  /** The note it was opened from: Tab sends the task there instead of today's journal note. */
   note?: string;
 }
 
 /** The shortcut that opens the bar from anywhere, the editor included: the key that types "." (keys.ts), with ⌘⇧ (Ctrl+Shift off a Mac). */
 export const QUICK_ADD = "Mod-Shift-.";
+
+/**
+ * After this many tasks added with the bar (in this browser), its hint drops the example and keeps
+ * only the shortcut: by then you know how it works, the same way shortcut tips retire themselves.
+ */
+const LEARNED = 3;
+const ADDED_KEY = "quickAddCount";
+
+/** The line under an empty bar: an example and the keys at first, just the shortcut once learned. */
+function hint(): HTMLElement {
+  const anywhere = [kbd(QUICK_ADD), " opens this anywhere"];
+  if (store.get(ADDED_KEY, 0) >= LEARNED) return el("span", { class: "qa-hint is-short" }, ...anywhere);
+  return el("span", { class: "qa-hint" }, HINT, el("kbd", {}, "Enter"), " adds · ", ...anywhere);
+}
 
 /** A quick-add bar; focus it with the returned `focus`. */
 export function quickAddBar(opts: QuickAddOptions): { root: HTMLElement; focus(): void; destroy(): void } {
@@ -50,6 +65,7 @@ export function quickAddBar(opts: QuickAddOptions): { root: HTMLElement; focus()
     adding = true;
     try {
       const r = await api.addTask(text, ignore, where().to);
+      store.set(ADDED_KEY, Math.min(LEARNED, store.get(ADDED_KEY, 0) + 1));
       input.clear();
       status = el(
         "span",
@@ -74,7 +90,7 @@ export function quickAddBar(opts: QuickAddOptions): { root: HTMLElement; focus()
     cancel: () => (input.value() ? input.clear() : opts.escape?.()),
     tab: toggleTarget,
     where: () => (drawTarget(), where().label),
-    idle: () => (drawTarget(), status ?? el("span", { class: "qa-hint" }, HINT, el("kbd", {}, "Enter"), " adds · ", kbd(QUICK_ADD), " opens this anywhere")),
+    idle: () => (drawTarget(), status ?? hint()),
     typed: () => (status = null),
   });
   const root = el("div", { class: "qa" }, el("div", { class: "qa-field" }, icon("plus", 15), input.dom, targetChip), input.preview);
