@@ -4,9 +4,9 @@
 // anything is written, so a bad path or a clash refuses the whole import. No Node or DOM imports:
 // Workers run it, and the app unzips with it too.
 import { strFromU8, unzipSync } from "fflate";
-import { cleanPath, isHidden, kindOf, VaultError } from "./paths.ts";
+import { cleanPath, isHidden, kindOf, MAX_NOTE_BYTES, VaultError } from "./paths.ts";
 import type { LocalFile, VaultBytes } from "./commands/types.ts";
-import { MAX_NOTE_BYTES, type Vault } from "./vault.ts";
+import type { Vault } from "./vault.ts";
 import { convertEntries, type ImportEntry, type ImportFrom } from "./convert.ts";
 
 /** The most notes one import may bring: a bigger vault goes a folder (or a .zip) at a time. */

@@ -1,6 +1,7 @@
 // The sample exports in examples/import-samples/ (an Obsidian vault, a Notion export, an Evernote
-// .enex and Apple Notes as scripts/export-apple-notes.js saves them), each zipped into
-// examples/preview/importers/ so a Preview has them to download and import. `npm run import-samples`
+// .enex, Apple Notes as scripts/export-apple-notes.js saves them, and a folder of plain markdown),
+// each zipped into examples/preview/importers/_root/assets/Import samples/, so a Preview lists them
+// on its Assets page, to download and import. `npm run import-samples`
 // rebuilds them; test/convert.test.ts checks they're up to date and import as they should.
 import fs from "node:fs";
 import path from "node:path";
@@ -9,7 +10,7 @@ import { zipSync } from "fflate";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const SAMPLES = path.join(ROOT, "examples/import-samples");
-export const OUT = path.join(ROOT, "examples/preview/importers");
+export const OUT = path.join(ROOT, "examples/preview/importers/_root/assets/Import samples");
 
 /** Every sample folder as a .zip of what's in it (hidden folders too, as the apps write them), the same bytes every time. */
 export function buildSamples(): Map<string, Uint8Array> {
