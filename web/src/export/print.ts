@@ -30,7 +30,7 @@ export function staticDoc(): HTMLElement {
 }
 
 const FOLDS = /<details\b/i;
-const FRONTMATTER = /^---\r?\n[\s\S]*?\r?\n---/;
+const FRONTMATTER = /^\uFEFF?---\r?\n[\s\S]*?\r?\n---/;
 
 /**
  * Print a note. If it has properties or collapsed sections, a small dialog asks about them first
