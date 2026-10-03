@@ -8,9 +8,10 @@ import { localSteps } from "./connectAgent.ts";
 import { button } from "./widgets/core.ts";
 import type { OptionalItem } from "./sidebar.ts";
 import { INKS, progressText, type InkId, type InkStats } from "./inks.ts";
+import type { Billing } from "./api.ts";
 
-export type Section = "Appearance" | "Sidebar" | "Editor" | "Keyboard" | "Agents" | "Workspace";
-export const SECTIONS: Section[] = ["Appearance", "Sidebar", "Editor", "Keyboard", "Agents", "Workspace"];
+export type Section = "Appearance" | "Sidebar" | "Editor" | "Keyboard" | "Agents" | "Workspace" | "Plan";
+export const SECTIONS: Section[] = ["Appearance", "Sidebar", "Editor", "Keyboard", "Agents", "Workspace", "Plan"];
 
 export type Theme = "system" | "light" | "dark";
 
@@ -61,6 +62,10 @@ export interface SettingsApp {
   localVault: { vault?: string; projectRoot?: string } | null;
   shortcuts(): void;
   connectAgent(): void;
+  /** Online, where billing is set up: your plan (null while it loads, or where there's none). */
+  billing: Billing | null;
+  subscribe(interval: "month" | "year"): void;
+  manageBilling(): void;
 }
 
 /** Each sidebar item that waits until it's in use: its name, and what puts it in the sidebar by itself. */
@@ -205,7 +210,49 @@ export function appSettings(app: SettingsApp): Setting[] {
       disabled: !app.gamified.canChange,
       control: { kind: "toggle", on: game, set: app.setGamified },
     },
+    ...planSettings(app),
   ];
+}
+
+const day = (ms: number) => new Date(ms).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
+
+/** What your plan is, in a sentence. */
+export function planText(b: Billing): string {
+  const p = b.plan;
+  const paid = p.interval ? b.plans[p.interval].label : "";
+  switch (p.status) {
+    case "free":
+      return "Everything is free on this server.";
+    case "trial":
+      return `Your free trial runs until ${day(p.trialEnds!)}. Subscribe any time to keep editing after that.`;
+    case "active":
+      return p.cancelling
+        ? `You subscribe at ${paid} until ${day(p.periodEnd!)}, when it ends. Resume it from Manage billing.`
+        : `You subscribe at ${paid}${p.periodEnd ? `, renewing ${day(p.periodEnd)}` : ""}. Thank you.`;
+    case "past_due":
+      return `Your last payment didn't go through. Update your card by ${day(p.graceEnds!)} to keep editing.`;
+    case "lapsed":
+      return "Your plan has ended, so the workspaces you own are read-only: everyone can still read and export them. Subscribe to edit again.";
+  }
+}
+
+/** Plan: your plan, and the way to subscribe or manage it. Only where billing is set up. */
+function planSettings(app: SettingsApp): Setting[] {
+  const b = app.billing;
+  if (!b?.on) return [];
+  const keywords = "plan billing subscription subscribe pay payment price pricing stripe card invoice receipt trial cancel upgrade";
+  const subscribed = b.plan.status === "active" || b.plan.status === "past_due";
+  const settings: Setting[] = [{ id: "plan", section: "Plan", title: "Your plan", description: planText(b), keywords, control: { kind: "custom", render: () => [] } }];
+  if (!subscribed) {
+    settings.push(
+      { id: "subscribe-year", section: "Plan", title: `Yearly: ${b.plans.year.label}`, description: "Billed once a year. Every workspace you own, with everyone you invite.", keywords, control: { kind: "button", label: "Subscribe yearly", run: () => app.subscribe("year") } },
+      { id: "subscribe-month", section: "Plan", title: `Monthly: ${b.plans.month.label}`, description: "Billed every month. Cancel any time.", keywords, control: { kind: "button", label: "Subscribe monthly", run: () => app.subscribe("month") } },
+    );
+  }
+  if (b.plan.customer) {
+    settings.push({ id: "manage-billing", section: "Plan", title: "Manage billing", description: "Change your card or plan, see invoices, or cancel, on Stripe.", keywords, control: { kind: "button", label: "Manage billing…", run: app.manageBilling } });
+  }
+  return settings;
 }
 
 /** The settings a search finds: those with every word of it in their section, title, description or keywords. */

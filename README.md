@@ -201,6 +201,24 @@ With no code set, sign-ups are closed. Each Google account gets 5 wrong tries a 
 
 To open sign-up to everyone, set the Worker var `OPEN_SIGNUP` to `1` (in `cloud/wrangler.jsonc`'s `vars`, or the dashboard). Someone new then sees one page, "Welcome to Common Ink", with their Google address, a **Create my account** button and a line naming the Terms and Privacy Policy, and no code. At most 10 accounts an hour are made from one network (`signUp` in `cloud/src/limits.ts`). Unset it to go back to codes and invites.
 
+### Billing (Stripe)
+
+The hosted app is one plan: $8 a month, or $60 a year ($5 a month). Each person pays for themselves, and a workspace is paid for by its owner, so everyone they invite can edit while the owner's plan is good. Someone new gets a 14-day trial (`TRIAL_DAYS`) with no card. When a plan ends (the trial is over, they cancelled, or a payment failed and a week's grace passed), the owner's workspaces turn **read-only, never locked**: the app, MCP agents and the CLI can still read, search and export everything, and writes answer 402 with a message saying why. Subscribing and managing a plan (card, invoices, switching to yearly, cancelling) happen on Stripe's own pages, Checkout and the Customer Portal, from Settings → Plan (`cloud/src/billing.ts`).
+
+Billing is off, and everything is free, until all four are set:
+
+1. In Stripe, make a product "Common Ink" with two recurring prices, $8/month and $60/year, and turn on the Customer Portal (Settings → Billing → Customer portal: allow cancelling, updating payment methods and switching between the two prices).
+2. Add a webhook endpoint `https://<your host>/api/stripe/webhook` for `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated` and `customer.subscription.deleted`.
+3. Set the secrets and vars (`npm run cloud:deploy` applies the `billing` table's migration):
+
+```bash
+npx wrangler secret put STRIPE_SECRET_KEY -c cloud/wrangler.jsonc      # sk_live_… (or a restricted key)
+npx wrangler secret put STRIPE_WEBHOOK_SECRET -c cloud/wrangler.jsonc  # the endpoint's whsec_…
+# vars (cloud/wrangler.jsonc or the dashboard): STRIPE_PRICE_MONTH=price_…, STRIPE_PRICE_YEAR=price_…
+```
+
+Everyone's trial starts the first time billing sees them after it's turned on, so existing accounts get the full trial too.
+
 ## Testing
 
 ```bash

@@ -196,6 +196,22 @@ export interface GoogleStatus {
   /** `calendar`: its calendars were allowed; `drive`: saving notes to Drive was (each is asked for the first time it's used). */
   connection: { account: string; calendar: boolean; canWrite: boolean; drive: boolean; connectedAt: number } | null;
 }
+/** Your plan on this server (cloud/src/billing.ts). `on` false: billing isn't set up, and it's all free. */
+export interface Billing {
+  on: boolean;
+  plans: Record<"month" | "year", { label: string; price: number }>;
+  graceDays: number;
+  plan: {
+    status: "free" | "trial" | "active" | "past_due" | "lapsed";
+    canWrite: boolean;
+    trialEnds?: number;
+    interval?: "month" | "year";
+    periodEnd?: number;
+    cancelling?: boolean;
+    graceEnds?: number;
+    customer?: boolean;
+  };
+}
 /** One of the person's Google calendars. */
 export interface GoogleCalendar {
   id: string;
@@ -383,6 +399,10 @@ export const api = {
   /** Online: the agents you've connected over MCP, most recently used first. */
   agents: () => j<ConnectedAgent[]>("/api/agents"),
   revokeAgent: (id: string) => j<{ ok: true }>("/api/agents/revoke", send("POST", { id })),
+  /** Online: your plan, and Stripe's Checkout (to subscribe) or Customer Portal (to manage it). */
+  billing: () => j<Billing>("/api/billing"),
+  checkout: (interval: "month" | "year") => j<{ url: string }>("/api/billing/checkout", send("POST", { interval })),
+  billingPortal: () => j<{ url: string }>("/api/billing/portal", send("POST", {})),
   /** Online: notes other workspaces share with you. */
   sharedWithMe: () => j<Array<{ workspace: { id: string; name: string }; notes: SharedNote[] }>>("/api/shared"),
   /** This workspace's shares: of one note or folder, or all of them. */
