@@ -16,6 +16,8 @@ const KEY = "weekRecap";
 const PAGE = 500;
 /** At most this many pages of the log; a busier fortnight shows what they hold. */
 const MAX_PAGES = 8;
+/** Reload no more often than this while the vault keeps changing. */
+const GAP = 30_000;
 
 /** The change log back to `from` (a timestamp), newest first. */
 async function changesSince(from: number): Promise<Change[]> {
@@ -79,19 +81,41 @@ export function mountWeekRecap(host: HTMLElement, open: (path: string) => void):
       el("p", { class: "wd-what" }, COUNTS),
     );
   };
+  let loaded = ""; // the day it last loaded
+  let at = 0; // and when
+  let stale = false; // the vault changed while the tab was hidden
+  let later = 0;
   const refresh = async () => {
-    const next = await load(today()).catch(() => null);
+    clearTimeout(later);
+    later = 0;
+    stale = false;
+    at = Date.now();
+    loaded = today();
+    const next = await load(loaded).catch(() => null);
     if (!alive) return;
     if (!next && !got) return body.replaceChildren(el("div", { class: "qt-empty" }, "Couldn't load your week"));
     if (next) got = next;
     draw();
   };
   void refresh();
+  // Each load reads up to a few thousand changes, so while an agent edits steadily it's at most every
+  // GAP, and not at all in a hidden tab: that catches up when it's shown again (or on a new day).
+  const visible = () => document.visibilityState === "visible";
+  const changed = () => {
+    if (!visible()) return void (stale = true);
+    later ||= window.setTimeout(() => (visible() ? void refresh() : ((later = 0), (stale = true))), Math.max(0, at + GAP - Date.now()));
+  };
+  const shown = () => {
+    if (visible() && (stale || loaded !== today())) void refresh();
+  };
   // A few seconds after the last change, so typing in a note to the side isn't slowed.
-  const off = onVaultChange(() => void refresh(), 4000);
+  const off = onVaultChange(changed, 4000);
+  document.addEventListener("visibilitychange", shown);
   return () => {
     alive = false;
+    clearTimeout(later);
     off();
+    document.removeEventListener("visibilitychange", shown);
   };
 }
 

@@ -1820,6 +1820,7 @@ a.gh-card:hover { border-color: var(--line-strong); }
 .tree-row:hover .agent-dot { display: none; }
 .row-act { position: relative; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 5px; color: var(--muted); }
 .row-act:hover { background: var(--active); color: var(--ink-strong); }
+.row-act.row-more { display: none; } /* a folder's menu opens on right-click; ⋯ is for touch (mobile.css) */
 .tree-row.is-input { cursor: default; }
 .tree-input { flex: 1; min-width: 0; font: 13px var(--ui); color: var(--ink-strong); background: var(--bg-elev); border: 1px solid var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); border-radius: 5px; padding: 2px 6px; outline: none; }
 .tree-row.is-drop { background: var(--accent-soft); color: var(--accent-ink); box-shadow: inset 0 0 0 1.5px var(--accent-line); }
@@ -3064,22 +3065,33 @@ button.cal-src-color:hover { background: var(--hover); }
 .cal-ev:hover .cal-ev-grip::after { opacity: 0.8; }
 .cal-cell.is-drop { box-shadow: inset 0 0 0 2px var(--accent); background: var(--accent-soft); }
 .cal-f-box { width: min(560px, calc(100vw - 32px)); }
-.cal-f { display: grid; gap: 12px; margin-top: 12px; }
+.cal-f { display: grid; gap: 10px; margin-top: 8px; }
 .cal-f .ws-input { width: 100%; min-width: 0; }
-.cal-f-title { height: 38px; font-size: 16px; font-weight: 600; }
-.cal-f-when { display: grid; gap: 8px; }
+.cal-f .cal-f-title { height: 44px; padding: 0 2px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; box-shadow: none; font-size: 20px; font-weight: 600; color: var(--ink-strong); }
+.cal-f .cal-f-title:focus { border-bottom-color: var(--accent); outline: none; }
+.cal-f-line { display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: start; gap: 10px; }
+.cal-f-line[hidden] { display: none; }
+.cal-f-icon { display: flex; justify-content: center; padding-top: 8px; color: var(--muted); }
+.cal-f-line-body { display: grid; gap: 6px; min-width: 0; }
 .cal-f-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.cal-f-row .ws-input { flex: 1 1 120px; width: auto; }
-.cal-f-row .ws-input[type="time"] { flex: 0 1 108px; }
+.cal-f-row .ws-input { flex: 0 1 150px; width: auto; }
+.cal-f-row .ws-input[type="time"] { flex: 0 0 128px; }
 .cal-f-row [hidden] { display: none; }
-.cal-f-to { font-size: 13px; color: var(--muted); }
-.cal-f-field { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: start; gap: 8px; }
-.cal-f-label { padding-top: 7px; font-size: 13px; color: var(--muted); }
+.cal-f-sub { gap: 14px; }
+.cal-f-to { padding: 0 2px; font-size: 13px; color: var(--muted); }
+.cal-f-span { margin-left: 4px; font-size: 12.5px; color: var(--muted); }
+.cal-f-link { padding: 0; border: 0; background: none; font: inherit; font-size: 13px; color: var(--muted); cursor: pointer; }
+.cal-f-link:hover { color: var(--accent-ink); text-decoration: underline; }
 .cal-f-fixed { padding-top: 6px; font-size: 14px; color: var(--ink-strong); }
 .cal-f-notes { height: auto; min-height: 72px; padding: 8px 10px; resize: vertical; line-height: 1.45; }
-.cal-f-people { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.cal-f-people { display: flex; flex-wrap: wrap; gap: 4px; }
 .cal-f-people:empty { display: none; }
-.cal-f-check { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--ink-2); cursor: pointer; }
+.cal-f-adders { display: flex; flex-wrap: wrap; gap: 6px; padding-left: 34px; }
+.cal-f-adders[hidden] { display: none; }
+.cal-f-add { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border: 1px dashed var(--line-strong, var(--line)); border-radius: 999px; background: transparent; font: inherit; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+.cal-f-add:hover, .cal-f-add:focus-visible { border-style: solid; border-color: var(--accent); color: var(--accent-ink); }
+.cal-f-check { display: inline-flex; align-items: center; gap: 8px; padding-top: 6px; font-size: 13.5px; color: var(--ink-2); cursor: pointer; }
+.cal-f-sub .cal-f-check { padding-top: 0; }
 .cal-f-check input { width: 16px; height: 16px; accent-color: var(--accent); }
 .cal-f select.ws-input { padding-right: 6px; }
 .cal-tg-body, .cal-month { user-select: none; -webkit-user-select: none; }
@@ -3094,6 +3106,10 @@ button.cal-src-color:hover { background: var(--hover); }
 .share-section { font: 650 10.5px/1 var(--ui); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 9px 9px 6px; }
 .share-sep { height: 1px; background: var(--line); margin: 6px 2px; }
 @media (pointer: coarse) { .share-item { min-height: 44px; font-size: 14px; } }
+/* A sidebar row's menu (rowMenu.ts) wears the Share menu's look; Delete is set apart, in red. */
+.row-menu { min-width: 190px; }
+.share-item.is-danger, .share-item.is-danger svg { color: var(--bad); }
+.share-item.is-danger:is(:hover, :focus-visible) { background: color-mix(in srgb, var(--bad) 10%, transparent); color: var(--bad); }
 
 /* ------------------------------------------------------------------ print (export/print.ts) */
 .pr-box { width: min(380px, 100%); display: flex; flex-direction: column; gap: 10px; }
@@ -3145,6 +3161,28 @@ button.cal-src-color:hover { background: var(--hover); }
 .away-see { flex: none; font-weight: 550; }
 .away-x { flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; color: var(--muted); }
 .away-x:hover { background: var(--hover); color: var(--ink); }
+/* The Today ring (todayRing.ts): fills as today's tasks are ticked, closes when Today is clear. A
+   small one at the right of Today in the sidebar, a larger one beside the date on the Today page. */
+.today-ring-wrap { display: inline-flex; align-items: center; gap: 8px; }
+.today-ring-wrap[hidden] { display: none; }
+.nav-item .today-ring-wrap { margin-left: auto; }
+svg.today-ring { flex: none; width: 16px; height: 16px; transform: rotate(-90deg); overflow: visible; }
+.today-ring circle { fill: none; stroke-width: 2.25; }
+.today-ring-track { stroke: color-mix(in srgb, var(--muted) 35%, transparent); } /* visible on a lit row too, so a part-filled ring reads as progress, not a spinner */
+.today-ring-fill { stroke: var(--accent); stroke-linecap: round; transition: stroke-dasharray 0.45s cubic-bezier(0.3, 0.7, 0.4, 1); }
+.today-ring-fill[stroke-dasharray^="0 "] { visibility: hidden; } /* no dot before the first tick */
+.today-ring-wrap.is-closed .today-ring-fill { stroke-linecap: butt; }
+.today-ring-wrap.is-closed .today-ring-track { fill: var(--accent-soft); stroke: var(--accent); }
+.today-ring-tick { fill: none; stroke: var(--accent); stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; visibility: hidden; }
+.today-ring-wrap.is-closed .today-ring-tick { visibility: visible; }
+.td-sub { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; }
+.today-ring-wrap.is-big svg.today-ring { width: 26px; height: 26px; }
+.today-ring-wrap.is-big .today-ring circle { stroke-width: 1.75; }
+.today-ring-text { font-size: 13px; font-weight: 550; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.today-ring-wrap.is-closed .today-ring-text { color: var(--accent-ink); }
+@media (prefers-reduced-motion: reduce) {
+  .today-ring-fill { transition: none; }
+}
 
 /* Check-up (checkupPage.ts): a section per kind of finding, each row with its fix beside it. */
 .cu-section { margin: 0 0 26px; }

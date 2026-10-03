@@ -26,6 +26,7 @@ import { calendarTarget, openCalendarLink } from "./links.ts";
 import { emptyState } from "./emptyState.ts";
 import { AGENTS_BLURB, agentsBadge } from "./agentsNote.ts";
 import { notePath } from "../../src/core/ids.ts";
+import { openRowMenu, type RowMenuItem } from "./rowMenu.ts";
 
 interface Hooks {
   /** `side`: to the side (a Cmd-click; Ctrl-click off a Mac). */
@@ -494,6 +495,14 @@ export class NotesPage {
       if (t.closest("input, .fc-full") || String(getSelection() ?? "")) return;
       this.toggleExpand(i);
     });
+    node.addEventListener("contextmenu", (e) => {
+      const t = e.target as HTMLElement;
+      // Over a link, a field, the open note's text or a selection, the browser's own menu (Copy, Open link) is the useful one.
+      if (t.closest("a[href]:not(.fc-title), input, textarea, .fc-full") || String(getSelection() ?? "")) return;
+      e.preventDefault();
+      this.setFocus(i, false);
+      openRowMenu(node, item.title, this.cardMenu(item, i), e.clientX || e.clientY ? { x: e.clientX, y: e.clientY } : undefined, this.root);
+    });
     node.addEventListener("mousemove", () => this.setFocus(i, false));
     node.addEventListener("focusin", () => this.setFocus(i, false));
     return node;
@@ -623,8 +632,13 @@ export class NotesPage {
 
   /** The selected notes as a .zip, with the files they use. */
   private async exportSelected() {
+    await this.exportPaths([...this.selected]);
+  }
+
+  /** Notes as a .zip, with the files they use. */
+  private async exportPaths(paths: string[]) {
     try {
-      const name = await (await import("./export/files.ts")).exportZip({ paths: [...this.selected] });
+      const name = await (await import("./export/files.ts")).exportZip({ paths });
       this.hooks.toast({ icon: "check", text: `Exported ${name}` });
     } catch (e) {
       this.hooks.toast({ text: `Couldn't export: ${e instanceof Error ? e.message : String(e)}` });
@@ -637,6 +651,23 @@ export class NotesPage {
     this.list.querySelectorAll(".feed-card").forEach((c) => c.classList.toggle("is-focused", Number((c as HTMLElement).dataset.index) === this.focus));
     if (scroll) this.list.querySelector(".feed-card.is-focused")?.scrollIntoView({ block: "nearest" });
     if (this.focus >= this.items.length - 5) void this.loadMore();
+  }
+
+  /** A card's right-click menu (Shift+F10 or the Menu key on the focused card): what its buttons and keys do, named. */
+  private cardMenu(item: FeedItem, i: number): (RowMenuItem | null)[] {
+    const starred = this.hooks.starred(item.id);
+    const readOnly = this.hooks.readOnly();
+    return [
+      { label: "Open", icon: "edit", run: () => this.hooks.open(item.path) },
+      { label: "Open to the side", icon: "split", run: () => this.hooks.open(item.path, undefined, true) },
+      { label: this.expanded.has(item.path) ? "Collapse" : "Expand", icon: "chevron", run: () => this.toggleExpand(i) },
+      { label: starred ? "Unstar" : "Star", icon: starred ? "starred" : "star", run: () => this.hooks.toggleStar(item.path) },
+      { label: this.selected.has(item.path) ? "Deselect" : "Select", icon: "check", run: () => this.toggle(item.path) },
+      readOnly ? null : { label: "Rename…", icon: "edit", run: () => this.hooks.rename(item.path) },
+      { label: "Export as .zip", icon: "download", run: () => this.exportPaths([item.path]) },
+      { label: item.archived ? "Unarchive" : "Archive", icon: item.archived ? "unarchive" : "archive", run: () => this.archive([item.path]) },
+      readOnly ? null : { label: "Delete", icon: "trash", danger: true, run: () => this.delete([item.path]) },
+    ];
   }
 
   private toggle(path: string) {
@@ -706,6 +737,12 @@ export class NotesPage {
     // Enter and Space on a link or button do what it says, not the card's shortcut.
     if ((e.key === "Enter" || e.key === " ") && (e.target as HTMLElement).closest("a, button, select")) return;
     const item = this.items[this.focus];
+    if (item && (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey))) {
+      e.preventDefault();
+      const card = this.list.querySelector<HTMLElement>(`.feed-card[data-index="${this.focus}"]`);
+      if (card) openRowMenu(card, item.title, this.cardMenu(item, this.focus), undefined, this.root);
+      return;
+    }
     const act: Record<string, () => void> = {
       j: () => this.setFocus(this.focus + 1),
       ArrowDown: () => this.setFocus(this.focus + 1),
