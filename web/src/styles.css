@@ -1426,9 +1426,10 @@ a.gh-card:hover { border-color: var(--line-strong); }
 .feed-scope button { display: inline-flex; gap: 6px; align-items: center; }
 .feed-about { margin: 10px 0 0; font-size: 13px; color: var(--muted); }
 .feed-elsewhere { padding: 14px 0 0; text-align: center; font-size: 13px; color: var(--muted); }
-/* The Notes page shows its cards, or (on the Trash tab) Trash. */
-#notes-view[data-tab="trash"] :is(.feed-bulk, .feed-list, .feed-elsewhere, .feed-more, .feed-keys, .feed-filters > :not(.feed-scope)) { display: none; }
-#notes-view:not([data-tab="trash"]) .feed-trash { display: none; }
+/* Trash's cards: nothing in Trash opens, so its title isn't a link and the card isn't a button. */
+.feed-empty-trash { margin-left: auto; }
+.feed-card.is-trashed { cursor: default; }
+.feed-card.is-trashed .fc-title:hover { text-decoration: none; }
 .feed-folders { display: flex; gap: 6px; flex-wrap: wrap; }
 
 .feed-bulk {
@@ -2342,7 +2343,6 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .sf-just-me .sf-hint { color: var(--muted); font-size: 12px; }
 .sf-editor .qw-config-foot .qw-btn:first-child svg { color: var(--bad); }
 .feed-sort { flex: none; }
-#notes-view[data-tab="trash"] .feed-sort { display: none; }
 
 /* shared settings fields: selects, pickers, and the smart folder editor's live count */
 .qw-select { height: 32px; width: 100%; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-elev); color: var(--ink-strong); padding: 0 8px; font: 14px var(--ui); outline: none; }

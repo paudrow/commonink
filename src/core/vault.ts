@@ -164,6 +164,10 @@ export interface TrashItem {
   /** Where it was. */
   path: string;
   kind: NoteKind;
+  /** What a list calls it, as it would if it were back: its title, or for an asset its file name. */
+  title: string;
+  /** Its tags (a note's, as written), for filtering Trash as Notes is filtered. */
+  tags: string[];
   size: number;
   deletedAt: number;
   /** When it's deleted for good. */
@@ -2436,7 +2440,9 @@ export class Vault {
       const text = kind === "asset" ? "" : (this.files.read(f.at) ?? "");
       const noteId = this.db.get("SELECT note_id FROM changes WHERE id = ?", changeId)?.note_id;
       const labels = noteId ? (this.db.get("SELECT count(*) AS n FROM labels WHERE note_id = ?", noteId)?.n ?? 0) : 0;
-      return [{ id, path: f.path, kind, size: f.size, deletedAt: ms, expiresAt: ms + TRASH_DAYS * 86_400_000, by: c ?? null, labels, excerpt: kind === "md" ? excerptOf(splitFrontmatter(text).body, titleOf(text, kind, f.path), 240) : "" }];
+      const title = kind === "asset" ? path.posix.basename(f.path) : titleOf(text, kind, f.path);
+      const tags = kind === "md" ? [...new Map(scanTags(text).map((t) => [t.tag, t.display])).values()] : [];
+      return [{ id, path: f.path, kind, title, tags, size: f.size, deletedAt: ms, expiresAt: ms + TRASH_DAYS * 86_400_000, by: c ?? null, labels, excerpt: kind === "md" ? excerptOf(splitFrontmatter(text).body, title, 240) : "" }];
     });
   }
 

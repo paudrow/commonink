@@ -225,7 +225,7 @@ journey("Delete a note by mistake and get it back", ({ given, when, then, and })
   });
   when("I open Trash and restore it", async () => {
     await page.locator("#notes-view").getByRole("button", { name: "Trash", exact: true }).click();
-    await page.locator(".tr-row", { hasText: "Groceries" }).getByRole("button", { name: "Restore" }).click();
+    await page.locator("#notes-view .feed-card", { hasText: "Groceries" }).getByRole("button", { name: "Restore (r)" }).click();
   });
   then("it's back in the vault folder, unchanged", async () => {
     await eventually(() => assert.equal(app.read("Groceries.md"), groceries));

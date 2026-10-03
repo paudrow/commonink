@@ -328,6 +328,9 @@ export interface Trashed {
 }
 export interface TrashItem extends Trashed {
   kind: "md" | "html" | "asset";
+  /** Its title (an asset's file name), as Notes would show it. */
+  title: string;
+  tags: string[];
   size: number;
   deletedAt: number;
   expiresAt: number;
