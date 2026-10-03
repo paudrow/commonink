@@ -41,6 +41,7 @@ import { taskInputPrefs } from "./taskInput.ts";
 import type { TagsPage } from "./tagsPage.ts";
 import type { QueryHelpPage } from "./queryHelpPage.ts";
 import { QUERY_HELP } from "./queryHelp.ts";
+import { lazyPage } from "./lazyPage.ts";
 import type { CheckupPage } from "./checkupPage.ts";
 import type { Theme } from "./settings.ts";
 import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./account.ts";
@@ -225,18 +226,21 @@ let checkupPage: CheckupPage | null = null;
 let replacePage: import("./replacePage.ts").ReplacePage | null = null;
 let contactsPage: import("./contactsPage.ts").ContactsPage | null = null;
 let calendarPage: CalendarPage | null = null;
-const once = <T>(load: () => Promise<T>) => {
-  let loading: Promise<T> | null = null;
-  return () => (loading ??= load());
-};
-const loadHistory = once(async () =>
+/** A page whose code is fetched the first time it's shown; see lazyPage.ts for when that fetch fails. */
+const page = <T>(at: string, load: () => Promise<T>) =>
+  lazyPage(at, load, (err) => {
+    console.error(err);
+    toast({ error: true, text: "Couldn't load that page. Check your connection, then try again." });
+    void showNotes({ tab: "notes" });
+  });
+const loadHistory = page("/history", async () =>
   (historyPage = new (await import("./history.ts")).History({
     open: (path) => fromPage(path),
     toast: (t) => toast(t),
     readOnly: viewer,
   })),
 );
-const loadAssets = once(async () =>
+const loadAssets = page("/assets", async () =>
   (assetsPage = new (await import("./assets.ts")).Assets({
     notes: () => notes,
     upload: (files) => uploadFiles(files),
@@ -251,7 +255,7 @@ const loadAssets = once(async () =>
     toast: (t) => toast(t),
   })),
 );
-const loadContacts = once(async () =>
+const loadContacts = page("/contacts", async () =>
   (contactsPage = new (await import("./contactsPage.ts")).ContactsPage($("#contacts-view"), {
     open: (path, line, side) => fromPage(path, line, side),
     openTag: (tag) => openTag(tag, "tasks"),
@@ -262,7 +266,7 @@ const loadContacts = once(async () =>
     toast: (t) => toast(t),
   })),
 );
-const loadTags = once(async () =>
+const loadTags = page("/tags", async () =>
   (tagsPage = new (await import("./tagsPage.ts")).TagsPage($("#tags-view"), {
     tags: () => tags,
     refresh: () => refreshNotes(),
@@ -272,12 +276,12 @@ const loadTags = once(async () =>
     toast: (t) => toast(t),
   })),
 );
-const loadQueryHelp = once(async () =>
+const loadQueryHelp = page("/query-help", async () =>
   (queryHelpPage = new (await import("./queryHelpPage.ts")).QueryHelpPage($("#query-help-view"), {
     tryQuery: (q) => void showNotes({ tab: "notes", query: { q } }),
   })),
 );
-const loadCheckup = once(async () =>
+const loadCheckup = page("/checkup", async () =>
   (checkupPage = new (await import("./checkupPage.ts")).CheckupPage($("#checkup-view"), {
     open: (path, line) => fromPage(path, line),
     contacts: () => void showContacts(),
@@ -286,7 +290,7 @@ const loadCheckup = once(async () =>
     readOnly: () => viewer,
   })),
 );
-const loadCalendar = once(async () =>
+const loadCalendar = page("/calendar", async () =>
   (calendarPage = new (await import("./calendar/page.ts")).CalendarPage($("#calendar-view"), {
     open: (path, line, side) => void openNote(path, { line, pane: side ? sideOf(panes[0]) : split ? panes[1] : panes[0] }),
     setUrl: (url) => setUrl(url, "replace"),
@@ -715,7 +719,7 @@ function setUrl(url: string, how: "push" | "replace" = "push") {
   else history.replaceState({ i: historyAt }, "", url);
 }
 
-const loadReplace = once(async () =>
+const loadReplace = page("/replace", async () =>
   (replacePage = new (await import("./replacePage.ts")).ReplacePage($("#replace-view"), {
     folders: () => allFolders(),
     open: (path, line, side) => void openNote(path, { line, pane: side ? sideOf(active) : active }),
