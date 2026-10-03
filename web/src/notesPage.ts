@@ -349,7 +349,7 @@ export class NotesPage {
     this.root.dataset.tab = this.tab;
   }
 
-  /** The folder menu: every folder, and a subfolder picked in the sidebar too, so it shows as the filter in use. */
+  /** The folder menu: the folders the tab has notes in, and a subfolder picked in the sidebar too, so it shows as the filter in use. */
   private renderFolders(folders: string[]) {
     this.folderSel.replaceChildren(...["", ...folders, ...(this.folder && !folders.includes(this.folder) ? [this.folder] : [])].map((f) => el("option", { value: f }, folderList(f).join(" or ") || "All folders")));
     this.folderSel.value = this.folder;

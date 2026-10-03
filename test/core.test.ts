@@ -211,6 +211,15 @@ test("archive and unarchive round-trip a note and keep it out of listings", () =
   assert.equal(vault.unarchive("Roadmap", "t").path, "Projects/Roadmap.md");
 });
 
+test("the Archive tab's folder menu lists only the folders with archived notes", () => {
+  const { vault } = openTempVault();
+  assert.deepEqual(vault.feed({ scope: "archived" }).folders, []);
+  vault.archive("Roadmap", "t");
+  assert.deepEqual(vault.feed({ scope: "archived" }).folders, ["Projects"]);
+  // Notes still lists every folder, so one whose notes are all archived can be picked there.
+  assert.deepEqual(vault.feed({}).folders, ["Dashboards", "Projects"]);
+});
+
 test("a workspace's own archive folder is the archive: archiving goes there and what's in it is archived", () => {
   const { vault } = openTempVault({
     "4. Archive/Old plan.md": "# Old plan\n\nSee [[Plan]]\n\n- [ ] Old task\n",

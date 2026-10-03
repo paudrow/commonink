@@ -889,7 +889,9 @@ export class Vault {
         ...(cols.length ? { props: props.get(r.path) ?? {} } : {}),
       };
     });
-    return { items, total: rows.length, counts, folders: [...new Set(all.map((n) => homeOf(n.path)).filter((p) => p.includes("/")).map((p) => p.split("/")[0]))].sort() };
+    // Archive's folder menu lists only the folders with archived notes, as Trash's lists those with deleted ones.
+    const inMenu = scope === "archived" ? all.filter((n) => isArchived(n.path)) : all;
+    return { items, total: rows.length, counts, folders: [...new Set(inMenu.map((n) => homeOf(n.path)).filter((p) => p.includes("/")).map((p) => p.split("/")[0]))].sort() };
   }
 
   /** Every note (not assets), archived ones included, newest first: what matching() narrows. */
