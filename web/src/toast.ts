@@ -14,6 +14,8 @@ export type ToastSpec = {
   open?: () => void;
   /** Something the person asked to hear about (a timer ending): read out at once, and it stays longer. */
   alert?: boolean;
+  /** Something that went wrong: marked in red, read out at once, and it stays as long as an alert. */
+  error?: boolean;
 } & ToastAction;
 
 /** A toast's action is always a labelled button, so a keyboard or screen reader can reach it. "Undo" is also ⌘Z. */
@@ -55,7 +57,7 @@ export function toast(t: ToastSpec): void {
   const open = t.open ? el("button", { class: "toast-action", type: "button" }, "Open") : null;
   const node = el(
     "div",
-    { class: `toast${t.alert ? " is-alert" : ""}` },
+    { class: `toast${t.alert ? " is-alert" : ""}${t.error ? " is-error" : ""}` },
     t.by ? authorAvatar(t.by, 22) : el("span", { class: "toast-icon" }, icon(t.icon ?? "info", 16)),
     el("div", { class: "toast-body" }, el("div", { class: "toast-text" }, t.by ? el("b", {}, authorName(t.by)) : null, t.by ? ` ${t.text}` : t.text), t.detail ? el("div", { class: "toast-detail" }, t.detail) : null),
     open,
@@ -85,9 +87,9 @@ export function toast(t: ToastSpec): void {
   });
   stack().append(node);
   live.push(me);
-  run(me, t.alert ? LIFE.alert : button || open ? LIFE.action : LIFE.plain);
+  run(me, t.alert || t.error ? LIFE.alert : button || open ? LIFE.action : LIFE.plain);
   const said = [t.by ? `${authorName(t.by)} ${t.text}` : t.text, t.detail, undo ? `Undo with ${IS_MAC ? "Command-Z" : "Control+Z"}` : null].filter(Boolean).join(". ");
-  (t.alert ? assertive : polite).replaceChildren(el("div", {}, said));
+  (t.alert || t.error ? assertive : polite).replaceChildren(el("div", {}, said));
 }
 
 /** Press the newest toast's Undo, if one is showing. */

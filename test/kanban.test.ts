@@ -1,9 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  addCard, addColumn, boardsIn, cardAsNote, cardLink, checkCard, deleteCard, editCard, moveCard, moveColumn, noteName, renameColumn,
+  addCard, addColumn, boardsIn, cardAsNote, cardLink, checkCard, deleteCard, editCard, foldColumn, moveCard, moveColumn, noteName, renameColumn,
   setColumnColor, unclosedBoard,
 } from "../src/core/kanban.ts";
+import { fmtBoards } from "../src/core/format.ts";
 import { openTempVault } from "./helpers.ts";
 
 const TODAY = "2026-09-28";
@@ -161,6 +162,25 @@ test("column colours are written after the name and taken off again; renaming ke
   assert.equal(setColumnColor(blue, { board: 0, column: 1 }, "green"), NOTE.replace("## Doing\n", "## Doing {color=green}\n"));
   assert.equal(renameColumn(blue.replace("## Doing", "### Doing"), { board: 0, column: 1 }, "In progress"), NOTE.replace("## Doing\n", "### In progress {color=blue}\n"));
   assert.equal(setColumnColor(blue, { board: 0, column: 1 }, null), NOTE);
+});
+
+test("folded columns are named on the opening line; folding writes them, renaming follows, and the last unfold takes folded= off", () => {
+  const at = (column: number) => ({ board: 0, column });
+  const done = foldColumn(NOTE, at(2), true);
+  assert.equal(done, NOTE.replace(":::kanban\n", ":::kanban{folded=Done}\n"));
+  assert.deepEqual(boardsIn(done)[0].columns.map((c) => c.folded), [false, false, true]);
+  const both = foldColumn(done, at(0), true);
+  assert.equal(both, NOTE.replace(":::kanban\n", ':::kanban{folded="Backlog,Done"}\n'));
+  assert.deepEqual(boardsIn(both)[0].problems, []);
+  assert.equal(renameColumn(both, at(0), "Later"), NOTE.replace(":::kanban\n", ':::kanban{folded="Later,Done"}\n').replace("## Backlog", "## Later"));
+  assert.equal(foldColumn(foldColumn(both, at(0), false), at(2), false), NOTE);
+  // Names match whatever their case, a gone column's name is dropped, and other settings stay.
+  const md = NOTE.replace(":::kanban\n", ':::kanban{done=Doing folded="done, Gone"}\n');
+  assert.deepEqual(boardsIn(md)[0].columns.map((c) => c.folded), [false, false, true]);
+  assert.equal(foldColumn(md, at(1), true), NOTE.replace(":::kanban\n", ':::kanban{done=Doing folded="Doing,Done"}\n'));
+  assert.equal(foldColumn(md.replace(/\n/g, "\r\n"), at(2), false), NOTE.replace(":::kanban\n", ":::kanban{done=Doing}\n").replace(/\n/g, "\r\n"));
+  // Agents see it in read_board.
+  assert.match(fmtBoards("Launch.md", boardsIn(done)), /\n## Done \(done column\) \(folded\)\n/);
 });
 
 test("the done column is the one named Done; an older file's done= still names another", () => {

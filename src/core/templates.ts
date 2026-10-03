@@ -1,5 +1,5 @@
 // Templates: notes in Templates/ with {{placeholders}}, filled in when a note is made from one or
-// a template is inserted into a note. Daily notes (Templates/Daily note.md) use the same engine.
+// a template is inserted into a note. The journal (Templates/Journal.md) uses the same engine.
 //
 //   {{date}} {{date:dddd, MMMM D}} {{date+1d}} {{date-1w:YYYY-MM-DD}}   the creator's day (Moment-style formats)
 //   {{time}} {{time:h:mm A}}                                             their time
@@ -20,8 +20,8 @@
 import { frontmatterEntries, frontmatterText, listOf, scalarOf } from "./frontmatter.ts";
 
 export const TEMPLATES = "Templates";
-/** The daily note's template (Today, quick-add's journal, the calendar). */
-export const DAILY_TEMPLATE = `${TEMPLATES}/Daily note.md`;
+/** The journal's template (Today, quick-add, capture, the calendar), and the name it had before (still read when there's no Journal.md). */
+export const JOURNAL_TEMPLATES = [`${TEMPLATES}/Journal.md`, `${TEMPLATES}/Daily note.md`] as const;
 /** The frontmatter keys that are the template's own. */
 const OWN_KEYS = ["title", "folder", "applies_to"];
 

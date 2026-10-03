@@ -175,6 +175,26 @@ export class FsContent implements Content {
     walk(dir);
     return out;
   }
+  /** Take away the folder `dir`, and the folders in it, if no file is left in them (a folder renamed away). */
+  prune(dir: string) {
+    const walk = (rel: string): boolean => {
+      let ents: fs.Dirent[];
+      try {
+        ents = fs.readdirSync(this.abs(rel), { withFileTypes: true });
+      } catch {
+        return false;
+      }
+      const left = ents.filter((ent) => !(ent.isDirectory() && walk(`${rel}/${ent.name}`)));
+      if (left.length) return false;
+      try {
+        fs.rmdirSync(this.abs(rel));
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    walk(dir);
+  }
 }
 
 /** A local vault belongs to one person: this is who its favorites are for, from the app, CLI or MCP. */

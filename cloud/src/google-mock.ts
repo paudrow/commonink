@@ -2,9 +2,11 @@
 // client: the same GoogleApi, with three calendars of events that repeat from January 2026 (so every
 // week has some). It's used only where DEV_LOGIN is "1" and Google isn't configured
 // (googleMode in connections.ts), so production never reaches it. Descriptions written back are kept
-// in the workspace's database, so write-back can be tried end to end.
+// in the workspace's database, so write-back can be tried end to end. Google Drive's stand-in
+// (MockDrive) keeps nothing: saving answers with a page that says what would be in Drive.
 import type { SqlDb } from "../../src/core/store.ts";
 import type { GoogleApi, GoogleCalendar, GoogleEvent } from "./google.ts";
+import { MIME, type DriveApi, type DriveFile } from "./drive.ts";
 
 const LA = "America/Los_Angeles";
 const at = (day: string, time: string) => ({ dateTime: `${day}T${time}:00-08:00`, timeZone: LA });
@@ -140,5 +142,40 @@ export class MockGoogle implements GoogleApi {
   async remove(calendar: string, eventId: string) {
     await this.token();
     this.write(calendar, eventId, { status: "cancelled" });
+  }
+}
+
+/**
+ * Google Drive's stand-in: it checks the person has a connection (as Drive would refuse them), and
+ * "Open in Drive" goes to a page of ours (connections.ts) that says what was saved, as what.
+ */
+export class MockDrive implements DriveApi {
+  constructor(
+    private token: () => Promise<string>,
+    private origin: string,
+  ) {}
+
+  private id = () => `mock${[...crypto.getRandomValues(new Uint8Array(6))].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+
+  async folder() {
+    await this.token();
+    return "mockfolder";
+  }
+
+  async upload(meta: { name: string; mimeType?: string }, data: Uint8Array, type: string): Promise<DriveFile> {
+    await this.token();
+    if (!data.byteLength) throw new Error("feed:Google Drive: that file is empty");
+    const as = meta.mimeType === MIME.doc ? "Google Doc" : meta.mimeType === MIME.pdf ? "PDF" : "Markdown file";
+    const q = new URLSearchParams({ name: meta.name, as, from: type, bytes: String(data.byteLength) });
+    return { id: this.id(), name: meta.name, url: `${this.origin}/auth/google/drive/mock/file?${q}` };
+  }
+
+  async pdf() {
+    await this.token();
+    return new TextEncoder().encode("%PDF-1.4\n% Common Ink's stand-in for Google Drive\n");
+  }
+
+  async remove() {
+    await this.token();
   }
 }
