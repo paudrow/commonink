@@ -6,6 +6,7 @@ import { ApiError, useWorkspace, whoAmI, type SharedNote } from "./api.ts";
 import { el, icon, timeAgo } from "./dom.ts";
 import { renderMarkdown, sandboxFrame } from "./render.ts";
 import { NOTE_LINKS, noteTarget } from "./noteLinks.ts";
+import { linkResolver } from "./linkResolver.ts";
 
 type Where = { link: string } | { workspace: string; note: string };
 
@@ -78,17 +79,24 @@ export async function mountSharedView(where: Where) {
     void hydrate(body);
   };
 
+  // Every live update re-renders: links already checked aren't asked about again.
+  const checks = linkResolver((url) => call<SharedNote | { noAccess: true }>(url));
+
   /** Links and embeds to notes: followable if shared too; otherwise "No access" (embeds) or plain text (links). */
   async function hydrate(root: HTMLElement) {
+    const run = checks();
     for (const img of root.querySelectorAll("img")) img.addEventListener("error", () => img.replaceWith(noAccess()), { once: true });
     for (const a of root.querySelectorAll<HTMLAnchorElement>(NOTE_LINKS)) {
       const target = noteTarget(a.getAttribute("href")!)!.split("#")[0];
       const embed = a.textContent?.startsWith("↳ ");
-      const hit = await call<SharedNote | { noAccess: true; busy?: boolean }>(`${base}/resolve?target=${encodeURIComponent(target)}&from=${note.id}`).catch((e) => ({ noAccess: true as const, busy: e instanceof ApiError && e.status === 429 }));
+      const ask = run.resolve(`${base}/resolve?target=${encodeURIComponent(target)}&from=${note.id}`);
+      const hit: SharedNote | { noAccess: true; busy?: boolean; many?: boolean } = ask ? await ask.catch((e) => ({ noAccess: true as const, busy: e instanceof ApiError && e.status === 429 })) : { noAccess: true, many: true };
+      // A newer render replaced this one: its links are off the page.
+      if (!run.current()) return;
       if ("noAccess" in hit) {
         // Too many requests from this network isn't "not shared": say to come back later.
-        const why = hit.busy ? "Couldn't check this link just now. Try again later." : "Not shared with you";
-        a.replaceWith(embed ? (hit.busy ? el("div", { class: "sv-noaccess" }, why) : noAccess()) : el("span", { class: "sv-dead", title: why }, a.textContent ?? ""));
+        const why = hit.busy ? "Couldn't check this link just now. Try again later." : hit.many ? "Too many links in this note to check them all." : "Not shared with you";
+        a.replaceWith(embed ? (hit.busy || hit.many ? el("div", { class: "sv-noaccess" }, why) : noAccess()) : el("span", { class: "sv-dead", title: why }, a.textContent ?? ""));
         continue;
       }
       a.href = "link" in where ? `/s/${where.link}?note=${hit.id}` : `/shared/${"workspace" in where ? where.workspace : ""}/${hit.id}`;

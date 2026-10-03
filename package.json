@@ -11,9 +11,11 @@
   "scripts": {
     "dev": "node --disable-warning=ExperimentalWarning --import tsx src/server/main.ts",
     "mcp": "bin/commonink mcp",
+    "import-samples": "node --disable-warning=ExperimentalWarning --import tsx scripts/import-samples.ts",
     "agent-demo": "node --disable-warning=ExperimentalWarning --import tsx scripts/agent-demo.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --disable-warning=ExperimentalWarning --import tsx --test \"test/**/*.test.ts\"",
+    "test:journeys": "node --disable-warning=ExperimentalWarning --import tsx --test --test-reporter=spec \"test/journeys/*.test.ts\"",
     "check": "npm run typecheck && npm run cloud:typecheck && tsc -p bench && npm test",
     "build:web": "vite build web --outDir ../dist --emptyOutDir",
     "build:cli": "vite build --config cli/vite.config.ts",
@@ -67,6 +69,7 @@
     "@types/jsdom": "^30.0.0",
     "@types/node": "^26.6.3",
     "@types/ws": "^8.18.1",
+    "playwright-core": "^1.63.0",
     "sharp": "^0.35.4",
     "typescript": "^7.0.2",
     "wrangler": "^4.142.0"
