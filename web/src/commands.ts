@@ -28,7 +28,7 @@ export interface Command {
   run: () => unknown;
 }
 
-export type Page = "today" | "notes" | "tasks" | "calendar" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash" | "shared" | "checkup";
+export type Page = "today" | "notes" | "tasks" | "calendar" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash" | "shared" | "checkup" | "query-help";
 
 /** The kinds of thing ⌘K's Rename… can rename. */
 export type Renamable = "note" | "folder" | "tag" | "smart folder" | "file";
@@ -164,6 +164,7 @@ export function appCommands(app: App): Command[] {
     { id: "refresh-calendars", title: "Refresh calendars", keywords: "calendar sync reload events update", icon: "reset", run: app.refreshCalendars },
     go("contacts", "Contacts", "user", "people crm person email company"),
     go("tags", "Tags", "hash", "rename merge"),
+    go("query-help", "Query syntax", "search", "help filter smart folder query and or parentheses operators search"),
     go("assets", "Assets", "grid", "files images uploads attachments"),
     go("history", "History", "history", "changes activity versions"),
     { id: "go:checkup", title: "Check up on this workspace", keywords: "checkup health tidy clean garden dead broken links empty duplicate orphan overdue maintenance", icon: "check", run: () => app.go("checkup") },
