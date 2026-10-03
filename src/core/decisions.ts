@@ -350,8 +350,8 @@ export function journalLines(d: Decision, linkTo?: (path: string) => string): st
 }
 
 /** Decisions as text for people and agents: open ones with their choices, settled ones with the answer. */
-export function fmtDecisions(list: Decision[]): string {
-  if (!list.length) return "No decisions here. Ask one with ask_decision (commonink decision ask).";
+export function fmtDecisions(list: Decision[], filtered = false): string {
+  if (!list.length) return filtered ? "No decisions match." : "No decisions waiting. Ask one with ask_decision (commonink decision ask).";
   return list.map(fmtDecision).join("\n\n");
 }
 
@@ -366,6 +366,8 @@ const KIND_SAYS: Record<DecisionKind, string> = {
   text: "in words",
 };
 
+const utc = (ms: number) => `${new Date(ms).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+
 export function fmtDecision(d: Decision): string {
   const lines = [`[${d.id}] ${d.question} (${KIND_SAYS[d.kind]})`];
   if (d.status === "open") {
@@ -375,15 +377,15 @@ export function fmtDecision(d: Decision): string {
     d.options.forEach((o, i) => lines.push(`  ${i + 1}. ${o.label}${o.detail ? `: ${o.detail}` : ""}${recommended(i) ? " (recommended)" : ""}`));
     if (d.kind === "scale") lines.push(`  From ${d.min}${d.labels ? ` (${d.labels[0]})` : ""} to ${d.max}${d.labels ? ` (${d.labels[1]})` : ""}`);
     if (rec && !("choice" in rec) && !("choices" in rec)) lines.push(`  Recommended: ${answerText(d, rec)}`);
-    lines.push(`  Open, asked by ${d.asked_by} ${new Date(d.asked_at).toISOString().slice(0, 16).replace("T", " ")} UTC`);
+    lines.push(`  Open, asked by ${d.asked_by} ${utc(d.asked_at)}`);
   } else if (d.status === "answered") {
     const v = d.value;
     const how = !v ? "" : "text" in v ? " (in their own words)" : "choice" in v ? ` (option ${v.choice + 1})` : "";
     lines.push(`  Answer: ${d.answer}${how}`);
     if (d.comment) lines.push(`  Comment: ${d.comment}`);
-    lines.push(`  By ${d.answered_by}${d.journal ? `, recorded in ${d.journal}` : ""}`);
+    lines.push(`  By ${d.answered_by}${d.answered_at ? ` ${utc(d.answered_at)}` : ""}${d.journal ? `, recorded in ${d.journal}` : ""}`);
   } else {
-    lines.push(d.status === "dismissed" ? `  Dismissed by ${d.answered_by}: they're not deciding this${d.comment ? ` (${d.comment})` : ""}` : "  Withdrawn by whoever asked");
+    lines.push(d.status === "dismissed" ? `  Dismissed by ${d.answered_by}${d.answered_at ? ` ${utc(d.answered_at)}` : ""}: they're not deciding this${d.comment ? ` (${d.comment})` : ""}` : "  Withdrawn by whoever asked");
   }
   if (d.note) lines.push(`  About: ${d.note}`);
   return lines.join("\n");

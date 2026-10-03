@@ -500,7 +500,15 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     }
     // Decisions (Vault.askDecision): questions agents put to the person, answered on the Today page.
     case "GET /decisions":
-      return json(vault.decisions({ status: (q("status") || undefined) as never, ids: q("ids") ? q("ids").split(",") : undefined }));
+      return json(
+        vault.decisions({
+          status: (q("status") || undefined) as never,
+          ids: q("ids") ? q("ids").split(",") : undefined,
+          since: q("since") || undefined,
+          commented: q("commented") === "true" || q("commented") === "1",
+          query: q("query") || undefined,
+        }),
+      );
     case "POST /decisions": {
       // The question as data: AskInput (decisions.ts), with `note`.
       const b = raw as Record<string, unknown>;

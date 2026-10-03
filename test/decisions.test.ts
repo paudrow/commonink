@@ -228,13 +228,39 @@ test("an agent asks over MCP, the person answers with the CLI, and the agent rea
   assert.match(answered.stdout, /^Decided: No, Monday\. Recorded in Journal\/\d{4}-\d\d-\d\d\.md\.\n$/);
 
   const read = await call("list_decisions", { ids: [id] });
-  assert.match(read.text, /Answer: No, Monday \(option 2\)\n  Comment: QA needs a day\n  By you, recorded in Journal\//);
+  assert.match(read.text, /Answer: No, Monday \(option 2\)\n  Comment: QA needs a day\n  By you \d{4}-\d\d-\d\d \d\d:\d\d UTC, recorded in Journal\//);
   assert.equal((await call("withdraw_decision", { id })).isError, true, "a settled one can't be withdrawn");
   assert.equal(commonink(vault, ["decision", "answer", id, "1"]).status, 4, "conflict");
   const changed = commonink(vault, ["decision", "answer", id, "1", "--change"]);
   assert.equal(changed.status, 0, changed.stderr);
   assert.match(changed.stdout, /^Changed to: Yes\. Recorded in Journal\//);
   assert.match((await call("list_decisions", { ids: [id] })).text, /Answer: Yes \(option 1\)/);
+});
+
+test("an agent reads what's open, what's been decided lately, and the comments", async () => {
+  const ask = async (question: string) => (await call("ask_decision", { question, options: ["Yes", "No"] })).text.match(/^Asked \[([a-z2-9]{8})\]/)![1];
+  const a = await ask("Rename the folder to Archive?");
+  const b = await ask("Turn on weekly recaps?");
+  await ask("Move standup to Tuesday?");
+  assert.equal(commonink(vault, ["decision", "answer", a, "yes", "--comment", "It reads clearer"]).status, 0);
+  assert.equal(commonink(vault, ["decision", "answer", b, "no"]).status, 0);
+
+  const decided = (await call("list_decisions", { status: "answered", since: "today" })).text;
+  assert.match(decided, /Rename the folder to Archive\?/);
+  assert.match(decided, /Turn on weekly recaps\?/);
+  assert.doesNotMatch(decided, /Move standup/);
+  const commented = await call("list_decisions", { commented: true, since: "7d" });
+  assert.match(commented.text, /^\[\w+\] Rename the folder to Archive\? \(pick one\)\n  Answer: Yes \(option 1\)\n  Comment: It reads clearer\n/);
+  assert.doesNotMatch(commented.text, /weekly recaps/);
+  assert.match((await call("list_decisions", { query: "standup tuesday" })).text, /Open, asked by/, "words search every status");
+  assert.equal((await call("list_decisions", { query: "nothing like this" })).text, "No decisions match.");
+  assert.equal((await call("list_decisions", { since: "2999-01-01" })).text, "No decisions match.");
+  assert.equal((await call("list_decisions", { since: "soon" })).isError, true);
+
+  const cli = commonink(vault, ["decisions", "--status", "answered", "--since", "1d", "--json"]);
+  assert.equal(cli.status, 0, cli.stderr);
+  assert.ok((JSON.parse(cli.stdout) as Array<{ id: string }>).some((d) => d.id === b));
+  assert.match(commonink(vault, ["decisions", "--commented"]).stdout, /It reads clearer/);
 });
 
 test("an agent asks which events to go to, with a choice for each, and the CLI answers row by row", async () => {

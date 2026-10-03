@@ -61,21 +61,34 @@ export const decisions = [
     mcp: "list_decisions",
     route: "GET /decisions",
     title: "List decisions",
-    summary: "Decisions waiting on the person (the default), or answered ones with their answers",
+    summary: "Decisions waiting on the person (the default), or what's been decided, with answers and comments; filter by day, comment or words",
     description:
-      "Decisions put to the user with ask_decision. By default the open ones, oldest first; `status: \"settled\"` lists answered, " +
-      "dismissed and withdrawn ones newest first, with the answer, any comment, and the journal note it was recorded in. Pass `ids` to " +
-      "check on the ones you asked. A dismissed decision means they chose not to decide: don't ask it again as is.",
-    examples: ["commonink decisions", "commonink decisions --status settled", "commonink decisions --ids k3m9x2pq --json"],
+      "Decisions put to the user with ask_decision. By default the open ones, oldest first. `status: \"answered\"` lists what's been " +
+      "decided, newest first, with the answer, any comment, and the journal note it was recorded in (`settled` adds dismissed and " +
+      "withdrawn ones; `all` adds the open ones). `since` keeps recent ones: a date, today, yesterday, or a number of days like 7d. " +
+      "`commented` keeps the ones answered with a comment, and `query` the ones whose question, answer or comment has all its words; " +
+      "with any of these and no `status`, every status is searched. Pass `ids` to check on the ones you asked. A dismissed decision " +
+      "means they chose not to decide: don't ask it again as is.",
+    examples: [
+      "commonink decisions",
+      "commonink decisions --status answered --since 7d",
+      "commonink decisions --commented --since today",
+      'commonink decisions --query "sync service"',
+      "commonink decisions --ids k3m9x2pq --json",
+    ],
     readOnly: true,
     args: {
       status: str({ enum: [...DECISION_STATUSES, "settled", "all"], describe: "open (the default), answered, dismissed, withdrawn, settled (any but open) or all" }),
+      since: str({ label: "day", describe: "Asked or answered on or after: a date, today, yesterday, or a number of days like 7d" }),
+      commented: bool({ describe: "Just the ones answered with a comment" }),
+      query: str({ label: "words", describe: "Just the ones whose question, context, options, answer or comment has all these words" }),
       ids: list({ label: "id,…", describe: "Just these decisions, whatever their status" }),
       limit: num({ min: 1, max: 500, describe: "At most this many (default 100)" }),
     },
     run: ({ vault }, a) => {
-      const list = vault.decisions({ status: a.status as never, ids: a.ids, limit: a.limit });
-      return { text: fmtDecisions(list), data: list };
+      const filtered = !!(a.since || a.commented || a.query);
+      const list = vault.decisions({ status: (a.status ?? (filtered ? "all" : undefined)) as never, ids: a.ids, limit: a.limit, since: a.since, commented: a.commented, query: a.query });
+      return { text: fmtDecisions(list, filtered || !!a.status), data: list };
     },
   }),
   command({
