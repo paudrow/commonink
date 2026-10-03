@@ -1,6 +1,6 @@
-// The Today page's week card (the numbers are worked out in weekRecap.ts), with the 12-week heatmap
-// of your writing days under it (streak.ts). It's this week so far; on the first visit of a new week
-// it's last week's recap instead, with "Save as journal note", until you save or dismiss it (this
+// The Today page's week card (the numbers are worked out in weekRecap.ts), with the heatmap of your
+// writing days under it (streak.ts), as many weeks as fill the card. It's this week so far; on the
+// first visit of a new week it's last week's recap instead, with "Save as journal note", until you save or dismiss it (this
 // browser remembers which week that was). A workspace that isn't gamified (gamify.ts) has no card.
 import { api, ApiError, type Change } from "./api.ts";
 import { el, icon, isSelf } from "./dom.ts";

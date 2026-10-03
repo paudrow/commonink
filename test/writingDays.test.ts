@@ -2,7 +2,7 @@
 // you until tonight rather than breaking at 9am), and the 12 weeks the heatmap shows.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { countByDay, daysText, heatmapWeeks, inFolder, level, mondayOf, streakOf, streakTitle, thisWeek } from "../web/src/writingDays.ts";
+import { countByDay, daysText, fitWeeks, heatmapWeeks, MAX_WEEKS, inFolder, level, mondayOf, streakOf, streakTitle, thisWeek } from "../web/src/writingDays.ts";
 
 const days = (...list: string[]) => new Map(list.map((d) => [d, 1]));
 
@@ -59,6 +59,23 @@ test("the heatmap is 12 weeks of Monday to Sunday ending this week, with days to
   const fall = heatmapWeeks("2026-11-03").flat().filter(Boolean);
   assert.deepEqual(fall.slice(-4), ["2026-10-31", "2026-11-01", "2026-11-02", "2026-11-03"]);
   assert.equal(new Set(fall).size, fall.length);
+});
+
+test("the heatmap fills its width: more weeks as it widens, squares growing into what's left", () => {
+  const span = ({ weeks, cell }: { weeks: number; cell: number }) => weeks * cell + (weeks - 1) * 3;
+  // A Today card's width: well past 12 weeks, filling it to within a pixel.
+  const card = fitWeeks(560);
+  assert.ok(card.weeks > 12 && card.cell >= 13, JSON.stringify(card));
+  assert.ok(560 - span(card) < 1 + card.weeks * 0.1, `fills 560px: ${span(card)}`);
+  // Narrow: never fewer than 12 weeks; the squares shrink instead.
+  assert.deepEqual(fitWeeks(120).weeks, 12);
+  assert.ok(fitWeeks(120).cell < 13);
+  // Wide: at most a year, then the squares grow (up to a point).
+  const wide = fitWeeks(1100);
+  assert.equal(wide.weeks, MAX_WEEKS);
+  assert.ok(wide.cell > 13 && wide.cell <= 24);
+  // A year of weeks back from today, for the widest map.
+  assert.equal(heatmapWeeks("2026-10-01", MAX_WEEKS).length, 53);
 });
 
 test("a day's square darkens with its changes, and counts read as words", () => {

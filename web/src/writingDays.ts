@@ -4,8 +4,9 @@
 // the next goes by date, not by 24 hours, so a clock change never skips or doubles a day.
 import { addDays, localDate } from "../../src/core/tasks.ts";
 
-/** How many weeks the heatmap shows. */
+/** How many weeks the heatmap shows at the least (a narrow card), and at the most (a year, on a wide page). */
 export const WEEKS = 12;
+export const MAX_WEEKS = 53;
 
 /** How many changes each day has, by YYYY-MM-DD in `timeZone` (this machine's zone by default). */
 export function countByDay(times: number[], timeZone?: string): Map<string, number> {
@@ -91,3 +92,15 @@ export const level = (n: number) => (n <= 0 ? 0 : n === 1 ? 1 : n <= 3 ? 2 : n <
 
 /** "1 day", "3 days". */
 export const daysText = (n: number) => `${n} ${n === 1 ? "day" : "days"}`;
+
+/**
+ * How many weeks fit across `width` pixels of heatmap, and how big each square is, so the grid
+ * fills the width: as many weeks as fit at `minCell` (between WEEKS and MAX_WEEKS), then the squares
+ * grow to take up what's left over. Below WEEKS' width the squares shrink instead, to no less than 6px.
+ */
+export function fitWeeks(width: number, opts: { minCell?: number; maxCell?: number; gap?: number } = {}): { weeks: number; cell: number } {
+  const { minCell = 13, maxCell = 24, gap = 3 } = opts;
+  const weeks = Math.min(MAX_WEEKS, Math.max(WEEKS, Math.floor((width + gap) / (minCell + gap))));
+  const cell = Math.min(maxCell, Math.max(6, (width - gap * (weeks - 1)) / weeks));
+  return { weeks, cell: Math.floor(cell * 10) / 10 };
+}

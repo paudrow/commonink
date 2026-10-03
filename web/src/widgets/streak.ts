@@ -1,5 +1,5 @@
 //   ::streak   ::streak{folder=Journal}   ::streak{tag=work}
-// The days you wrote in the last 12 weeks, as a heatmap, with how many days in a row you've written
+// The days you wrote, as a heatmap as many weeks wide as fits (12 to a year), with how many days in a row you've written
 // and your longest run in those weeks: the Today page's writing days, to embed in a note. A folder
 // or a tag narrows it to those notes, so ::streak{folder=Journal} is your journaling days, and its
 // header says so ("Writing days in Journal").

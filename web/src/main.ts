@@ -40,6 +40,7 @@ import { cleanName, fixedName, nameFromHeading, nameLine, renamedPath } from "./
 import { taskInputPrefs } from "./taskInput.ts";
 import type { TagsPage } from "./tagsPage.ts";
 import type { QueryHelpPage } from "./queryHelpPage.ts";
+import type { Profile, ProfilePage } from "./profilePage.ts";
 import { QUERY_HELP } from "./queryHelp.ts";
 import type { CheckupPage } from "./checkupPage.ts";
 import type { Theme } from "./settings.ts";
@@ -222,6 +223,9 @@ let historyPage: History | null = null;
 let assetsPage: Assets | null = null;
 let tagsPage: TagsPage | null = null;
 let queryHelpPage: QueryHelpPage | null = null;
+let profilePage: ProfilePage | null = null;
+/** Who you are, for your profile: online, as the account menu shows you; locally, null (it's you). */
+let profile: Profile | null = null;
 let checkupPage: CheckupPage | null = null;
 let replacePage: import("./replacePage.ts").ReplacePage | null = null;
 let contactsPage: import("./contactsPage.ts").ContactsPage | null = null;
@@ -273,6 +277,7 @@ const loadTags = once(async () =>
     toast: (t) => toast(t),
   })),
 );
+const loadProfile = once(async () => (profilePage = new (await import("./profilePage.ts")).ProfilePage($("#profile-view"), profile)));
 const loadQueryHelp = once(async () =>
   (queryHelpPage = new (await import("./queryHelpPage.ts")).QueryHelpPage($("#query-help-view"), {
     tryQuery: (q) => void showNotes({ tab: "notes", query: { q } }),
@@ -356,7 +361,7 @@ function commands() {
     newSmartFolder: newSmartFolderFromPalette,
     go: (page) => {
       if (page === "notes" || page === "archive" || page === "trash") void showNotes({ tab: page, query: {} });
-      else void { today: showToday, tasks: showTasks, calendar: showCalendar, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory, shared: showShared, checkup: showCheckup, "query-help": showQueryHelp }[page]();
+      else void { today: showToday, tasks: showTasks, calendar: showCalendar, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory, shared: showShared, checkup: showCheckup, "query-help": showQueryHelp, profile: showProfile }[page]();
     },
     subscribeCalendar: () => void subscribeCalendar(),
     refreshCalendars: () => void refreshCalendars(),
@@ -398,8 +403,6 @@ function commands() {
     importNotes: () => void importNotes(),
     settings: openSettings,
     connectAgent,
-    gamified: gamified(),
-    seals: openSeals,
     back: () => void stepPane(active, "back"),
     forward: () => void stepPane(active, "forward"),
     followLink: () => followLinkAtCursor(),
@@ -731,7 +734,7 @@ const loadReplace = once(async () =>
 let unmountTasks: (() => void) | null = null;
 let unmountToday: (() => void) | null = null;
 
-function showStage(which: "editor" | "html" | "notes" | "today" | "tasks" | "calendar" | "contacts" | "history" | "assets" | "tags" | "checkup" | "replace" | "query-help" | "shared" | "capture") {
+function showStage(which: "editor" | "html" | "notes" | "today" | "tasks" | "calendar" | "contacts" | "history" | "assets" | "tags" | "checkup" | "replace" | "query-help" | "profile" | "shared" | "capture") {
   closeDrawer();
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
@@ -743,6 +746,7 @@ function showStage(which: "editor" | "html" | "notes" | "today" | "tasks" | "cal
   $("#history-view").hidden = which !== "history";
   $("#tags-view").hidden = which !== "tags";
   $("#query-help-view").hidden = which !== "query-help";
+  $("#profile-view").hidden = which !== "profile";
   $("#checkup-view").hidden = which !== "checkup";
   $("#replace-view").hidden = which !== "replace";
   $("#contacts-view").hidden = which !== "contacts";
@@ -938,6 +942,18 @@ async function showTags(opts: { push?: boolean } = {}) {
   renderOutline();
 }
 
+/** Your profile: who you are, the days you wrote, and your seals (profilePage.ts). `seals` scrolls to them. */
+async function showProfile(opts: { push?: boolean; seals?: boolean } = {}) {
+  await leaveNote();
+  showStage("profile");
+  (await loadProfile()).show({ seals: opts.seals });
+  wentTo("/profile", opts.push !== false);
+  document.title = "Profile · Common Ink";
+  renderChrome();
+  renderTree();
+  renderOutline();
+}
+
 /** Query syntax: every operator and field a note query takes (see queryGrammar.ts). */
 async function showQueryHelp(opts: { push?: boolean } = {}) {
   await leaveNote();
@@ -1098,7 +1114,7 @@ function pickFiles(accept?: string): Promise<File[]> {
   });
 }
 
-const PAGE_LABEL = { today: "Today", notes: "Notes", archive: "Archive", trash: "Trash", tasks: "Tasks", calendar: "Calendar", contacts: "Contacts", history: "History", assets: "Assets", tags: "Tags", checkup: "Check-up", replace: "Replace across notes", shared: "Shared with me", capture: "Capture", "query-help": "Query syntax" } as const;
+const PAGE_LABEL = { today: "Today", notes: "Notes", archive: "Archive", trash: "Trash", tasks: "Tasks", calendar: "Calendar", contacts: "Contacts", history: "History", assets: "Assets", tags: "Tags", checkup: "Check-up", replace: "Replace across notes", shared: "Shared with me", capture: "Capture", "query-help": "Query syntax", profile: "Profile" } as const;
 
 /** The page showing (the Notes page by its tab), or null while a note is. */
 const onPage = () =>
@@ -1111,6 +1127,7 @@ const onPage = () =>
   : assetsPage?.visible ? "assets"
   : tagsPage?.visible ? "tags"
   : queryHelpPage?.visible ? "query-help"
+  : profilePage?.visible ? "profile"
   : checkupPage?.visible ? "checkup"
   : replacePage?.visible ? "replace"
   : !$("#shared-view").hidden ? "shared"
@@ -3330,7 +3347,6 @@ function openSettings(query?: string) {
             ),
           shortcuts: () => toggleShortcuts(commands(), { vim: prefs.vim }),
           connectAgent,
-          seals: openSeals,
         }),
       { query },
     ),
@@ -3345,7 +3361,6 @@ function setSidebarPinned(item: OptionalItem, on: boolean) {
 }
 
 const connectAgent = () => void import("./agentsPage.ts").then((m) => m.showAgents());
-const openSeals = () => void import("./sealsPage.ts").then((m) => m.showSeals());
 
 /** Shortcut tips (shortcutTips.ts): the third click on a button with a shortcut says, once, which keys do it. */
 const tipsState = (): TipsState => ({ ...NO_TIPS, ...store.get<Partial<TipsState>>("shortcutTips", {}) });
@@ -3431,7 +3446,7 @@ function setupPanes() {
   // Clicking or tabbing into a pane gives it the focus.
   // (Not from a pane bar's buttons: redrawing the bar on mousedown would swallow their click.)
   const follow = (p: Pane) => (e: Event) => p !== active && split && !(e.target as Element).closest?.(".pane-bar button") && focusPane(p);
-  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#today-view", "#tasks-view", "#calendar-view", "#contacts-view", "#history-view", "#assets-view", "#tags-view", "#replace-view", "#query-help-view"]], [panes[1], ["#side-pane"]]] as const) {
+  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#today-view", "#tasks-view", "#calendar-view", "#contacts-view", "#history-view", "#assets-view", "#tags-view", "#replace-view", "#query-help-view", "#profile-view"]], [panes[1], ["#side-pane"]]] as const) {
     for (const sel of nodes) {
       $(sel).addEventListener("focusin", follow(p));
       $(sel).addEventListener("mousedown", follow(p));
@@ -3495,6 +3510,7 @@ async function route() {
   }
   if (at === "/tags") return showTags({ push: false });
   if (at === "/query-help") return showQueryHelp({ push: false });
+  if (at === "/profile") return showProfile({ push: false });
   if (at === "/checkup") return showCheckup({ push: false });
   if (at === "/replace") return showReplace({ push: false });
   if (at === "/history") {
@@ -3558,7 +3574,8 @@ async function boot() {
     setSelfName(who.me.user.name);
     api.reportTimeZone().catch(() => {}); // unreported, agents use the owner's zone, or UTC
     $("#settings-btn").remove(); // the account menu has Settings
-    account = renderAccount(who.me, ws, (t) => toast(t), () => openSettings());
+    profile = { name: who.me.user.name, email: who.me.user.email, picture: who.me.user.picture, workspace: ws.name };
+    account = renderAccount(who.me, ws, (t) => toast(t), () => openSettings(), () => void showProfile());
     $("#shared-btn").hidden = false;
     setShareWithPeople({ label: "Share with people…", icon: "share-people", run: (note) => openShareDialog({ path: note.path }) });
     setSaveToDrive({ label: "Save to Google Drive…", icon: "drive", run: (note) => void saveNoteToDrive(note) });
@@ -3679,7 +3696,7 @@ async function boot() {
   if (!viewer) watchTodayCleared();
   if (!viewer) startAway({ seeChanges: (after) => void showHistory({ since: after }), workspace: () => workspaceId });
   startInks({ choose: () => openSettings("ink") });
-  startSeals({ online: () => !!workspaceId, openSeals });
+  startSeals({ online: () => !!workspaceId, openSeals: () => void showProfile({ seals: true }) });
 
   void refreshTaskCount();
   // Home is the notes list; a note's URL (or the tasks, history or assets page) opens that instead.

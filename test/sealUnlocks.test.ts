@@ -42,7 +42,7 @@ const agentEdit = (ts: number) => ({ ts, path: `Note ${ts}.md`, op: "edit", agen
 
 localStorage.clear();
 let opened = 0;
-startSeals({ online: () => true, openSeals: () => opened++ });
+startSeals({ online: () => true, openSeals: () => opened++ }); // main.ts opens /profile, scrolled to Your seals
 await settle();
 
 /** Do `act`, then check that `id`, and only it, was just earned, kept for next time, and announced. */
@@ -105,10 +105,34 @@ test("Ten agent edits: not at nine, then at ten", async () => {
   });
 });
 
-test("every seal has been earned once, and the toast's button opens Your seals", () => {
+test("every seal has been earned once, and the toast's button opens your profile, at Your seals", () => {
   assert.deepEqual([...sealState().earned].sort(), SEALS.map((s) => s.id).sort());
   const button = [...document.querySelectorAll<HTMLButtonElement>("#toasts .toast-action")].at(-1)!;
   assert.equal(button.textContent, "See seals");
   button.click();
   assert.equal(opened, 1);
+});
+
+test("your profile shows the seals, and hides them while a workspace isn't gamified", async () => {
+  const { ProfilePage } = await import("../web/src/profilePage.ts");
+  const { setGamified } = await import("../web/src/gamify.ts");
+  const root = document.createElement("div");
+  root.hidden = true;
+  document.body.append(root);
+  const page = new ProfilePage(root, null);
+  page.show();
+  await settle();
+  assert.equal(root.querySelector("h1")?.textContent, "You", "locally it's you");
+  const seals = root.querySelector<HTMLElement>("#profile-seals")!;
+  assert.ok(!seals.hidden);
+  assert.equal(seals.querySelectorAll(".seal.is-earned").length, SEALS.length);
+  assert.equal(seals.querySelector(".seal-tally")?.textContent, `${SEALS.length} of ${SEALS.length} earned`);
+  assert.ok(root.querySelector(".wd-map"), "and the days you wrote");
+
+  stub.setWorkspaceSettings = async (s) => s;
+  await setGamified(false);
+  assert.ok(seals.hidden, "no seals without rewards");
+  await setGamified(true);
+  assert.ok(!seals.hidden, "back, as they were");
+  assert.equal(seals.querySelectorAll(".seal.is-earned").length, SEALS.length);
 });

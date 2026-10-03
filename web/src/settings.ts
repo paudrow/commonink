@@ -57,8 +57,6 @@ export interface SettingsApp {
   /** Whether the workspace is gamified (gamify.ts), and whether you may change that: its owners online, and you locally. */
   gamified: { on: boolean; canChange: boolean };
   setGamified(on: boolean): void;
-  /** Your seals (sealsPage.ts), there while the workspace is gamified. */
-  seals(): void;
   /** Locally, where the vault and the `commonink` command are, for the agent setup; online, null. */
   localVault: { vault?: string; projectRoot?: string } | null;
   shortcuts(): void;
@@ -207,18 +205,6 @@ export function appSettings(app: SettingsApp): Setting[] {
       disabled: !app.gamified.canChange,
       control: { kind: "toggle", on: game, set: app.setGamified },
     },
-    ...(game
-      ? [
-          {
-            id: "seals",
-            section: "Workspace",
-            title: "Your seals",
-            description: "A seal for the first time you do each thing worth knowing here, with how to earn the rest.",
-            keywords: "seals badges achievements firsts earned profile",
-            control: { kind: "button", label: "Your seals…", run: app.seals },
-          } satisfies Setting,
-        ]
-      : []),
   ];
 }
 

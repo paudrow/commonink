@@ -1,8 +1,7 @@
-// Online-only UI: the sign-in screen, and the account menu (Settings, workspaces, invites, connected agents, sign out).
+// Online-only UI: the sign-in screen, and the account menu (your profile, Settings, workspaces, invites, connected agents, sign out).
 
 import { api, type Me } from "./api.ts";
 import { $, el, icon } from "./dom.ts";
-import { gamified, onGamified } from "./gamify.ts";
 import { askText, confirmAction, copyLink } from "./modal.ts";
 import { formatKeys } from "./keys.ts";
 
@@ -65,8 +64,6 @@ export interface AccountAction {
   workspace?: boolean;
   current?: boolean;
   session?: boolean;
-  /** Your seals: there only while the workspace is gamified. */
-  seals?: boolean;
 }
 
 function accountActions(me: Me, current: Me["workspaces"][number], toast: (t: { text: string; icon?: string }) => void): AccountAction[] {
@@ -106,7 +103,6 @@ function accountActions(me: Me, current: Me["workspaces"][number], toast: (t: { 
       run: () => void import("./workspaceSettings.ts").then((m) => m.showWorkspaceSettings(current, me.user, toast)),
     },
     { label: "Connected agents…", icon: "bot", run: () => void import("./agentsPage.ts").then((m) => m.showAgents()) },
-    { label: "Your seals…", icon: "spark", seals: true, run: () => void import("./sealsPage.ts").then((m) => m.showSeals()) },
     {
       label: "Sign out",
       icon: "open",
@@ -142,6 +138,7 @@ export function renderAccount(
   current: Me["workspaces"][number],
   toast: (t: { text: string; icon?: string }) => void,
   openSettings: () => void,
+  openProfile: () => void,
 ): AccountAction[] {
   const face = me.user.picture
     ? el("img", { class: "acct-face", src: me.user.picture, alt: "", referrerpolicy: "no-referrer" })
@@ -154,7 +151,7 @@ export function renderAccount(
     icon("chevron", 13),
   );
   const menu = el("div", { class: "acct-menu", role: "menu", "aria-label": "Account", hidden: true });
-  const items = () => [...menu.querySelectorAll<HTMLButtonElement>(".acct-item:not([hidden])")];
+  const items = () => [...menu.querySelectorAll<HTMLButtonElement>(".acct-item")];
   // The standard menu button: opening moves the focus to the first item, arrows walk them, and
   // Esc closes the menu and gives the focus back to the button.
   const setOpen = (open: boolean, refocus = false) => {
@@ -166,7 +163,8 @@ export function renderAccount(
   const close = () => setOpen(false);
   const actions = accountActions(me, current, toast);
   const sep = actions.findIndex((a) => a.session);
-  // Not one of the actions: ⌘K already has "Open settings".
+  // Neither is one of the actions: ⌘K already has "Go to Profile" and "Open settings".
+  const profile = el("button", { class: "acct-item", type: "button", role: "menuitem", tabindex: "-1", onclick: () => (close(), openProfile()) }, icon("user", 15), el("span", {}, "Profile"));
   const settings = el(
     "button",
     { id: "settings-btn", class: "acct-item", type: "button", onclick: () => (close(), openSettings()) },
@@ -175,22 +173,19 @@ export function renderAccount(
     el("kbd", { "aria-hidden": "true" }, formatKeys("Mod-,")),
   );
   menu.append(
+    profile,
     settings,
     el("div", { class: "acct-sep" }),
     el("div", { class: "acct-section", role: "presentation" }, "Workspaces"),
-    ...actions.flatMap((a, i) => {
-      const item = el(
+    ...actions.flatMap((a, i) => [
+      i === sep ? el("div", { class: "acct-sep", role: "separator" }) : null,
+      el(
         "button",
         { class: `acct-item${a.current ? " is-current" : ""}`, type: "button", role: a.current ? "menuitemradio" : "menuitem", "aria-checked": a.current ? "true" : undefined, tabindex: "-1", onclick: () => (close(), a.run()) },
         icon(a.icon, 15),
         el("span", {}, a.label),
-      );
-      if (a.seals) {
-        item.hidden = !gamified();
-        onGamified((on) => (item.hidden = !on));
-      }
-      return [i === sep ? el("div", { class: "acct-sep", role: "separator" }) : null, item];
-    }).filter((n) => n !== null),
+      ),
+    ]).filter((n) => n !== null),
   );
   menu.addEventListener("keydown", (e) => {
     const list = items();
