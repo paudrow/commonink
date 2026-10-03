@@ -521,7 +521,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   if (line) goToLine(pane, line);
   else {
     // Start below the frontmatter so it renders as properties rather than raw YAML.
-    const fm = note.kind === "md" ? note.content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/) : null;
+    const fm = note.kind === "md" ? note.content.match(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---\r?\n?/) : null;
     // Back where you were in it (the same note reopened keeps its view), else the top. Scrolled by
     // the view, as goToLine scrolls: setting scrollDOM.scrollTop = 0 lost to CodeMirror, which on
     // focus puts back the scroll position the last note had.

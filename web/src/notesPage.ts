@@ -636,7 +636,7 @@ export class NotesPage {
       const frame = sandboxFrame(cached.content, { autoHeight: true, title: item.title });
       return el("div", { class: "fc-full is-html" }, frame);
     }
-    const body = cached.content.replace(/^(---\r?\n[\s\S]*?\r?\n---\r?\n?)?\s*#\s+(.+)\n/, (m, fm = "", h: string) => (h.trim() === item.title ? fm : m));
+    const body = cached.content.replace(/^(\uFEFF?---\r?\n[\s\S]*?\r?\n---\r?\n?)?\s*#\s+(.+)\n/, (m, fm = "", h: string) => (h.trim() === item.title ? fm : m));
     const node = this.markdown(forPreview(body), item, "fc-body fc-full");
     hydrateDataEmbeds(node, item.path);
     node.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((box) => {
