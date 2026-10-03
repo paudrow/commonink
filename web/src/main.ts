@@ -41,6 +41,7 @@ import { taskInputPrefs } from "./taskInput.ts";
 import type { TagsPage } from "./tagsPage.ts";
 import type { QueryHelpPage } from "./queryHelpPage.ts";
 import { QUERY_HELP } from "./queryHelp.ts";
+import { lazyPage } from "./lazyPage.ts";
 import type { CheckupPage } from "./checkupPage.ts";
 import type { Theme } from "./settings.ts";
 import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./account.ts";
@@ -51,6 +52,7 @@ import { did, vaultEvents } from "./events.ts";
 import { guideMessage, startGuide } from "./onboarding.ts";
 import { watchTodayCleared } from "./todayCleared.ts";
 import { awayStrip, startAway } from "./away.ts";
+import { watchTodayRing } from "./todayRing.ts";
 import { inkState, setInk, startInks } from "./inkUnlocks.ts";
 import { gamified, loadGamified, onGamified, setGamified } from "./gamify.ts";
 import { isTestSite, store } from "./store.ts";
@@ -71,6 +73,7 @@ import { deleteFolder, deletePaths, TrashPage, type DeleteHooks } from "./trash.
 import { confirmAction } from "./modal.ts";
 import { mountSharedView, sharedRoute } from "./sharedView.ts";
 import { showShareDialog } from "./shareDialog.ts";
+import { rowMenu, type RowMenuItem } from "./rowMenu.ts";
 import { renderSharedList, sharedPage } from "./sharedPage.ts";
 import { CapturePage, registerWorker } from "./capture.ts";
 import { AGENTS_BLURB, isAgentsNote } from "./agentsNote.ts";
@@ -194,7 +197,6 @@ const other = (p: Pane) => panes[1 - p.index];
 const fromPage = (path: string, line?: number, where: Where = "here") => void openNote(path, { line, pane: split || where === "side" ? panes[1] : panes[0], newTab: where === "tab" });
 const notesPage = new NotesPage({
   open: fromPage,
-  menu: (path, at) => noteMenu(path, at, split ? panes[1] : panes[0]),
   starred: (id) => isStarred(id),
   toggleStar: (path) => void toggleStar(path),
   filtersChanged: () => {
@@ -240,18 +242,21 @@ let checkupPage: CheckupPage | null = null;
 let replacePage: import("./replacePage.ts").ReplacePage | null = null;
 let contactsPage: import("./contactsPage.ts").ContactsPage | null = null;
 let calendarPage: CalendarPage | null = null;
-const once = <T>(load: () => Promise<T>) => {
-  let loading: Promise<T> | null = null;
-  return () => (loading ??= load());
-};
-const loadHistory = once(async () =>
+/** A page whose code is fetched the first time it's shown; see lazyPage.ts for when that fetch fails. */
+const page = <T>(at: string, load: () => Promise<T>) =>
+  lazyPage(at, load, (err) => {
+    console.error(err);
+    toast({ error: true, text: "Couldn't load that page. Check your connection, then try again." });
+    void showNotes({ tab: "notes" });
+  });
+const loadHistory = page("/history", async () =>
   (historyPage = new (await import("./history.ts")).History({
     open: (path) => fromPage(path),
     toast: (t) => toast(t),
     readOnly: viewer,
   })),
 );
-const loadAssets = once(async () =>
+const loadAssets = page("/assets", async () =>
   (assetsPage = new (await import("./assets.ts")).Assets({
     notes: () => notes,
     upload: (files) => uploadFiles(files),
@@ -266,7 +271,7 @@ const loadAssets = once(async () =>
     toast: (t) => toast(t),
   })),
 );
-const loadContacts = once(async () =>
+const loadContacts = page("/contacts", async () =>
   (contactsPage = new (await import("./contactsPage.ts")).ContactsPage($("#contacts-view"), {
     open: (path, line, where) => fromPage(path, line, where),
     openTag: (tag) => openTag(tag, "tasks"),
@@ -277,7 +282,7 @@ const loadContacts = once(async () =>
     toast: (t) => toast(t),
   })),
 );
-const loadTags = once(async () =>
+const loadTags = page("/tags", async () =>
   (tagsPage = new (await import("./tagsPage.ts")).TagsPage($("#tags-view"), {
     tags: () => tags,
     refresh: () => refreshNotes(),
@@ -287,12 +292,12 @@ const loadTags = once(async () =>
     toast: (t) => toast(t),
   })),
 );
-const loadQueryHelp = once(async () =>
+const loadQueryHelp = page("/query-help", async () =>
   (queryHelpPage = new (await import("./queryHelpPage.ts")).QueryHelpPage($("#query-help-view"), {
     tryQuery: (q) => void showNotes({ tab: "notes", query: { q } }),
   })),
 );
-const loadCheckup = once(async () =>
+const loadCheckup = page("/checkup", async () =>
   (checkupPage = new (await import("./checkupPage.ts")).CheckupPage($("#checkup-view"), {
     open: (path, line) => fromPage(path, line),
     contacts: () => void showContacts(),
@@ -301,7 +306,7 @@ const loadCheckup = once(async () =>
     readOnly: () => viewer,
   })),
 );
-const loadCalendar = once(async () =>
+const loadCalendar = page("/calendar", async () =>
   (calendarPage = new (await import("./calendar/page.ts")).CalendarPage($("#calendar-view"), {
     open: (path, line, where) => fromPage(path, line, where),
     setUrl: (url) => setUrl(url, "replace"),
@@ -909,14 +914,8 @@ function tabMenu(p: Pane, i: number, at: { x: number; y: number }) {
   openMenu(at, items, { label: "Tab" });
 }
 
-/** "Open", "Open in new tab" and "Open to the side": the right-click menu on a starred note or a Notes card. */
-function noteMenu(path: string, at: { x: number; y: number }, base: Pane = active) {
-  openMenu(at, [
-    { label: "Open", icon: "file", run: () => openNote(path, { pane: base }) },
-    { label: "Open in new tab", icon: "plus", keys: "Mod-click", run: () => openNote(path, { pane: base, newTab: true }) },
-    phone.matches ? null : { label: "Open to the side", icon: "split", keys: "Mod-Alt-click", run: () => openNote(path, { pane: sideOf(base) }) },
-  ], { label: "Note" });
-}
+/** "Open in new tab", in a sidebar row's menu (a folder, a tag, a smart folder): `open` shows the page. */
+const pageTabItem = (open: () => unknown): RowMenuItem => ({ label: "Open in new tab", icon: "plus", run: () => openPageInTab(open) });
 
 /** The tab being dragged, while it is (dragover can't read what's dragged). */
 let tabDrag: { pane: Pane; index: number; entry: string } | null = null;
@@ -1177,7 +1176,7 @@ function setUrl(url: string, how: "push" | "replace" = "push") {
   else history.replaceState({ i: historyAt }, "", url);
 }
 
-const loadReplace = once(async () =>
+const loadReplace = page("/replace", async () =>
   (replacePage = new (await import("./replacePage.ts")).ReplacePage($("#replace-view"), {
     folders: () => allFolders(),
     open: (path, line, where) => void openNote(path, { line, pane: where === "side" ? sideOf(active) : active, newTab: where === "tab" }),
@@ -2401,9 +2400,16 @@ const opens = (go: (e?: MouseEvent) => void) => ({
 function renderSmartFolders(active: string | null) {
   const rows = smartFolders.map((f) => {
     const edit = el("button", { type: "button", class: "row-act", title: "Edit or delete" }, icon("sliders", 14));
-    edit.addEventListener("click", (e) => {
-      e.stopPropagation();
-      smartFolderEditor(edit, f, {
+    const editable = !(f.shared && viewer);
+    const remove = async () => {
+      const everyone = f.shared && !local ? " for everyone in the workspace" : "";
+      if (!(await confirmAction({ title: `Delete the smart folder ${f.name}${everyone}?`, body: "Its notes don't change.", action: "Delete", danger: true }))) return;
+      smartFolders = await api.deleteSmartFolder(f.id);
+      renderTree();
+      toast({ icon: "folderSearch", text: `Deleted ${f.name}` });
+    };
+    const openEditor = (anchor: HTMLElement) =>
+      smartFolderEditor(anchor, f, {
         canShare: !viewer,
         alone: local,
         sources: fieldSources,
@@ -2412,15 +2418,13 @@ function renderSmartFolders(active: string | null) {
           smartFolders = await api.smartFolders();
           renderTree();
         },
-        remove: async () => {
-          const everyone = f.shared && !local ? " for everyone in the workspace" : "";
-          if (!(await confirmAction({ title: `Delete the smart folder ${f.name}${everyone}?`, body: "Its notes don't change.", action: "Delete", danger: true }))) return;
-          smartFolders = await api.deleteSmartFolder(f.id);
-          renderTree();
-          toast({ icon: "folderSearch", text: `Deleted ${f.name}` });
-        },
+        remove,
       });
+    edit.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openEditor(edit);
     });
+    const show = () => void showNotes({ tab: "notes", query: parseQuery(f.query) });
     const row = el(
       "div",
       {
@@ -2429,16 +2433,23 @@ function renderSmartFolders(active: string | null) {
         style: { "--depth": "0" },
         "data-smart": f.id,
         title: `${f.query || "Every note"}${f.shared ? "" : " (just you)"}`,
-        ...opens(() => void showNotes({ tab: "notes", query: parseQuery(f.query) })),
+        ...opens(show),
       },
       el("span", { class: "chev is-leaf" }), // the chevron column Folders and Tags rows have, so icons and names line up
       icon("folderSearch", 14),
       el("span", { class: "tree-name" }, f.name),
       f.shared ? null : el("span", { class: "sf-mine", title: "Just you" }, icon("user", 11)),
       el("span", { class: "n" }, String(f.count)),
-      el("span", { class: "row-actions" }, smartStarButton(f), f.shared && viewer ? null : edit),
+      el("span", { class: "row-actions" }, smartStarButton(f), editable ? edit : null),
     );
-    dragsPage(row, f.name, () => showNotes({ tab: "notes", query: parseQuery(f.query) }));
+    dragsPage(row, f.name, show);
+    rowMenu(row, f.name, () => [
+      { label: "Show notes", icon: "folderSearch", run: show },
+      pageTabItem(show),
+      { label: isSmartStarred(f.id) ? "Remove from Favorites" : "Add to Favorites", icon: isSmartStarred(f.id) ? "starred" : "star", run: () => void toggleSmartStar(f) },
+      editable ? { label: "Edit…", icon: "sliders", run: () => openEditor(edit.isConnected ? edit : row) } : null,
+      editable ? { label: "Delete…", icon: "trash", danger: true, run: remove } : null,
+    ]);
     return row;
   });
   // Empty: one quiet line pointing at the header's +, the one way to add one from here.
@@ -2472,12 +2483,28 @@ function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
     el("span", { class: "row-actions" }, tagStarButton(f.display, "row")),
   );
   dragsPage(row, `#${f.display}`, () => showNotes({ tab: "notes", query: { tag: f.display } }));
+  rowMenu(row, `#${f.display}`, () => tagMenu(f.display, true));
   return row;
+}
+
+/** A tag's menu, on its row under Tags or in Favorites. `used`: some note carries it (else it can be deleted). */
+function tagMenu(tag: string, used: boolean, t = tags.find((x) => x.display === tag)): (RowMenuItem | null)[] {
+  const starred = isTagStarred(tag);
+  const notesToo = !t || !!t.notes || !!t.assets || !t.tasks; // a tag only tasks carry can't be a favorite (it would show no notes)
+  return [
+    { label: "Show notes", icon: "file", run: () => openTag(tag) },
+    pageTabItem(() => openTag(tag)),
+    { label: "Show tasks", icon: "task", run: () => openTag(tag, "tasks") },
+    used && (notesToo || starred) ? { label: starred ? "Remove from Favorites" : "Add to Favorites", icon: starred ? "starred" : "star", run: () => toggleTagStar(tag) } : null,
+    t && !viewer ? { label: "Rename…", icon: "edit", run: () => renameTag(t) } : null,
+    !used && t && !viewer ? { label: "Delete…", icon: "trash", danger: true, run: () => deleteTag(t) } : null,
+  ];
 }
 
 /** A starred smart folder in Favorites: it opens Notes with its query, like its row under Smart folders. */
 function smartFavoriteRow(f: SmartFavorite, active: boolean): HTMLElement {
-  return el(
+  const show = () => void showNotes({ tab: "notes", query: parseQuery(f.query) });
+  const row = el(
     "div",
     {
       class: `tree-row is-file${active ? " is-active" : ""}`,
@@ -2485,7 +2512,7 @@ function smartFavoriteRow(f: SmartFavorite, active: boolean): HTMLElement {
       style: { "--depth": "0" },
       title: f.query || "Every note",
       draggable: "true",
-      ...opens(() => void showNotes({ tab: "notes", query: parseQuery(f.query) })),
+      ...opens(show),
       ondragstart: (e: DragEvent) => {
         e.dataTransfer!.setData(FAVORITE, favoriteKey(f));
         document.body.classList.add("is-dragging");
@@ -2498,6 +2525,12 @@ function smartFavoriteRow(f: SmartFavorite, active: boolean): HTMLElement {
     el("span", { class: "n" }, String(f.count)),
     el("span", { class: "row-actions" }, smartStarButton(f)),
   );
+  rowMenu(row, f.name, () => [
+    { label: "Show notes", icon: "folderSearch", run: show },
+    pageTabItem(show),
+    { label: "Remove from Favorites", icon: "starred", run: () => void toggleSmartStar(f) },
+  ]);
+  return row;
 }
 
 /** Starred notes, tags and smart folders, in your order: drag one to reorder, or drag a card in from Notes to star it. */
@@ -2528,10 +2561,9 @@ function renderFavorites() {
         "data-path": f.path,
         draggable: "true",
         ...opens((e) => void openAt(f.path, e ? clickWhere(e) : "here")),
-        // A middle-click opens it in a new tab, as in a browser; a right-click offers that and the side.
+        // A middle-click opens it in a new tab, as in a browser.
         onmousedown: (e: MouseEvent) => e.button === 1 && e.preventDefault(),
         onauxclick: (e: MouseEvent) => e.button === 1 && (e.preventDefault(), openInNewTab(f.path)),
-        oncontextmenu: (e: MouseEvent) => (e.preventDefault(), noteMenu(f.path, { x: e.clientX, y: e.clientY })),
         ondragstart: (e: DragEvent) => {
           e.dataTransfer!.setData(FAVORITE, f.path);
           e.dataTransfer!.setData(NOTE_DRAG, f.path); // so it can go to a folder too
@@ -2550,6 +2582,13 @@ function renderFavorites() {
         el("button", { type: "button", class: "row-act fav-star", title: "Unstar", onclick: (e: Event) => (e.stopPropagation(), void toggleStar(f.path)) }, icon("starred", 14)),
       ),
     );
+    rowMenu(row, displayName(f.path), () => [
+      { label: "Open", icon: "edit", run: () => openNote(f.path) },
+      { label: "Open in new tab", icon: "plus", run: () => openInNewTab(f.path) },
+      { label: "Open to the side", icon: "split", run: () => openNote(f.path, { pane: sideOf(active) }) },
+      viewer ? null : { label: "Rename…", icon: "edit", run: () => renamePath(f.path) },
+      { label: "Remove from Favorites", icon: "starred", run: () => toggleStar(f.path) },
+    ]);
     favoriteDrop(row, "is-drop-before", f.path);
     return row;
   });
@@ -2706,7 +2745,7 @@ function renderTree() {
             "aria-current": showing === formatQuery({ folder: path }) && "page",
             style: { "--depth": String(depth) },
             "data-folder": path,
-            title: n ? `Show the notes in ${path}` : `${path} is empty. Drag notes here.`,
+            title: `${n ? `Show the notes in ${path}.` : `${path} is empty. Drag notes here.`} Right-click for more.`,
             ...opens(() => void showNotes({ tab: "notes", query: { folder: path } })),
           },
           subs
@@ -2736,12 +2775,10 @@ function renderTree() {
             "span",
             { class: "row-actions" },
             action(`New note in ${path}`, "plus", () => void newNote(path)),
-            action(`Export ${path} as a .zip`, "download", () => void exportZip({ folder: path })),
-            workspaceId ? action(`Share ${path}…`, "share", () => openShareDialog({ folder: path })) : null,
-            viewer ? null : action(`Rename ${path}… (F2)`, "edit", () => void renameFolder(path)),
-            viewer ? null : action(`Delete ${path}`, "trash", () => void removeFolder(path)),
+            // Export, Share, Rename and Delete are in the folder's menu: right-click, Shift+F10, or ⋯ on touch.
           ),
         );
+        rowMenu(row, path, () => folderMenu(path));
         dropTarget(row, () => path);
         dragsPage(row, path.split("/").pop()!, () => showNotes({ tab: "notes", query: { folder: path } }));
         return [row, ...(open ? walk(path, depth + 1) : [])];
@@ -2750,9 +2787,22 @@ function renderTree() {
   $("#tree").replaceChildren(...(rows.length ? rows : [sectionHint("Click ", plusMark(), " to make a folder.")]));
 }
 
+/** A folder's menu in the sidebar: what you do to it now and then, kept off the row itself. */
+function folderMenu(path: string): (RowMenuItem | null)[] {
+  return [
+    pageTabItem(() => showNotes({ tab: "notes", query: { folder: path } })),
+    { label: "New note here", icon: "plus", run: () => newNote(path) },
+    { label: "Export as .zip", icon: "download", run: () => exportZip({ folder: path }) },
+    workspaceId ? { label: "Share…", icon: "share", run: () => openShareDialog({ folder: path }) } : null,
+    viewer ? null : { label: "Rename…", icon: "edit", run: () => renameFolder(path) },
+    viewer ? null : { label: "Delete…", icon: "trash", danger: true, run: () => removeFolder(path) },
+  ];
+}
+
 /** Delete a folder: an empty one just goes; one with notes asks what happens to them. */
 async function removeFolder(path: string) {
   if (!(await deleteFolder(path, deleteHooks))) return;
+  void refreshShares(); // its shares went with it
   const empty = emptyFolders();
   for (const f of [...empty]) if (f === path || f.startsWith(`${path}/`)) empty.delete(f);
   setEmptyFolders(empty);
@@ -2948,6 +2998,7 @@ function renderTagTree(active: string) {
           ),
         );
         dragsPage(row, `#${t.display}`, () => (onlyTasks(t) ? showTasks({ tag: t.display }) : showNotes({ tab: "notes", query: { tag: t.display } })));
+        rowMenu(row, `#${t.display}`, () => tagMenu(t.display, !unusedTag(t), t));
         return [row, ...(open ? walk(t.tag, depth + 1) : [])];
       });
   const rows = walk("", 0);
@@ -4261,6 +4312,7 @@ async function boot() {
   // ⌘-click or a middle-click on a page in the sidebar (Notes, Today, a folder, a tag…) opens it in
   // a new tab, and a right-click offers to.
   onPageClick((label, open, e) => {
+    if (e.type === "contextmenu" && (e.target as Element).closest(".tree-row")) return false; // a row's own menu has Open in new tab
     if (e.type === "contextmenu") {
       openMenu({ x: e.clientX, y: e.clientY }, [
         { label: "Open", icon: "file", run: open },
@@ -4344,6 +4396,7 @@ async function boot() {
   if (!viewer) void startGuide({ archive: (path) => void archivePath(path), flush: () => flushSave() });
   if (!viewer) watchTodayCleared();
   if (!viewer) startAway({ seeChanges: (after) => void showHistory({ since: after }), workspace: () => workspaceId });
+  watchTodayRing($("#today-btn")); // fills as today's tasks are ticked
   startInks({ choose: () => openSettings("ink") });
 
   void refreshTaskCount();

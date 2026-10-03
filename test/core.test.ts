@@ -246,7 +246,7 @@ test("backlinks leave out archived notes when asked, unless the note itself is a
   // An agent asking over MCP hears that some were left out, and how to see them.
   const run = (args: Record<string, unknown>) => notes.find((c) => c.mcp === "backlinks")!.run({ vault, source: "t" } as never, args as never) as { text: string };
   assert.equal(run({ path: "Plan" }).text, "- Notes/Live.md:3 (wikilink) [[Plan]]\n1 more from archived note (include_archived to see them).");
-  // Newest first, so which comes first depends on when each note was last saved.
+  // Newest first, so the order follows file times; check each line is there rather than the order.
   const all = run({ path: "Plan", include_archived: true }).text.split("\n").sort();
   assert.deepEqual(all, ["- Archive/Plan copy.md:3 (wikilink) [[Plan]] and [[Old]]", "- Notes/Live.md:3 (wikilink) [[Plan]]"]);
 });
@@ -731,6 +731,23 @@ test("today is overdue, due today and starting today, in sections, with today's 
   assert.throws(() => vault.today("Monday"), /"today" must be a date/);
 });
 
+test("today counts the tasks it had that were ticked today, for the Today ring", () => {
+  const { vault } = openTempVault({
+    "Plan.md": [
+      "- [x] Was overdue due:2026-09-20 done:2026-09-28",
+      "- [x] Due and done due:2026-09-28 done:2026-09-28",
+      "- [x] Started and done start:2026-09-28 due:2026-10-09 done:2026-09-28",
+      "- [x] Done yesterday due:2026-09-28 done:2026-09-27",
+      "- [x] Not today's due:2026-10-05 done:2026-09-28",
+      "- [x] No dates done:2026-09-28",
+      "- [ ] Still open due:2026-09-28",
+      "",
+    ].join("\n"),
+  });
+  assert.equal(vault.today("2026-09-28").done, 3);
+  assert.equal(vault.today("2026-09-29").done, 0);
+});
+
 test("today's journal note is made from Templates/Journal.md, else its old name Daily note.md, else a plain one", () => {
   const { dir, vault } = openTempVault({ "Welcome.md": "# Welcome\n" });
   const read = (p: string) => fs.readFileSync(path.join(dir, p), "utf8");
@@ -836,7 +853,7 @@ test("smart folders are saved queries, shared with the workspace or one person's
   const own = vault.saveSmartFolder("vi", { name: "Mine", query: "folder=Ideas", shared: false }, false);
   assert.equal(own.count, 1);
   assert.throws(() => vault.saveSmartFolder("ana", { id: own.id, name: "Taken", query: "", shared: false }, true), /No smart folder/);
-  assert.throws(() => vault.saveSmartFolder("ana", { name: "Bad", query: "colour=red", shared: true }, true), /Unknown query key "colour"/);
+  assert.throws(() => vault.saveSmartFolder("ana", { name: "Bad", query: "colour>red", shared: true }, true), /Only modified and created compare/);
   assert.throws(() => vault.saveSmartFolder("ana", { name: " ", query: "", shared: true }, true), /name/);
   assert.deepEqual(vault.deleteSmartFolder("ana", "client work", true), []);
 });

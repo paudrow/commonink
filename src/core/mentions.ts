@@ -19,7 +19,7 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
  * The line with what isn't plain prose blanked out, same length: code spans, [[links]], [text](links),
  * bare URLs, #tags and @handles. A name inside any of those isn't an unlinked mention.
  */
-function plainOf(line: string): string {
+export function plainOf(line: string): string {
   const blank = (s: string) => " ".repeat(s.length);
   return withoutCode(line)
     .replace(/!?\[\[[^[\]\n]*\]\]/g, blank)

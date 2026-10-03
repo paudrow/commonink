@@ -38,7 +38,9 @@ async function asset(request) {
   const kept = await cache.match(request);
   if (kept) return kept;
   const res = await fetch(request);
-  if (res.ok) {
+  // A file from an earlier deploy is gone, and the edge answers with the app's page in its place:
+  // never keep that under the file's name.
+  if (res.ok && !String(res.headers.get("Content-Type")).startsWith("text/html")) {
     await cache.put(request, res.clone());
     const keys = await cache.keys();
     for (const old of keys.slice(0, Math.max(0, keys.length - KEEP_ASSETS))) await cache.delete(old);
