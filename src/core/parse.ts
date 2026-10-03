@@ -10,7 +10,7 @@ export interface ParsedLink {
   line: number;
 }
 
-const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
+const FRONTMATTER = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 // Note text is hostile, so no pattern here may backtrack across a long line: each scanning class
 // leaves out the character that starts the next attempt ("[" for links), which keeps them linear.
 const WIKILINK = /(!?)\[\[([^[\]|#\n]+)(#[^[\]|\n]*)?(\|[^[\]\n]*)?\]\]/g;
