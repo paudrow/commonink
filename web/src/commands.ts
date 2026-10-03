@@ -142,7 +142,7 @@ export function appCommands(app: App): Command[] {
     { id: "new-tag", title: "New tag", keywords: "create add hashtag", icon: "hash", available: app.canDelete, run: app.newTag },
     { id: "new-smart-folder", title: "New smart folder", keywords: "create add saved search query filter view", icon: "folderSearch", run: app.newSmartFolder },
     { id: "quick-add", title: "Add a task", keywords: "quick add todo new task", icon: "task", keys: ["Mod-Shift-."], area: "Tasks", run: app.quickAdd },
-    go("today", "Today", "sun", "day agenda due overdue journal streak writing week recap"),
+    go("today", "Today", "sun", "day agenda due overdue journal writing week recap"),
     go("notes", "Notes", "feed", "home all"),
     { id: "filter-notes", title: "Filter notes", keywords: "search find notes page", icon: "search", keys: ["Mod-Shift-f"], run: app.filterNotes },
     go("tasks", "Tasks", "task", "todo checklist"),
