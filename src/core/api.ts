@@ -18,9 +18,9 @@ export interface ApiHost {
   vault: Vault;
   /** Who changes made through this request are attributed to ("you" locally, a person's name online). */
   actor: string;
-  /** Whose favorites and personal smart folders this request reads and changes (the vault's one person locally, a user ID online). */
+  /** Whose favorites and personal views (in Views/<user>/) this request reads and changes (the vault's one person locally, a user ID online). */
   user: string;
-  /** May this person change what the whole workspace shares, like shared smart folders? Everyone locally; not viewers online. */
+  /** May this person change what the whole workspace shares, like shared views? Everyone locally; not viewers online. */
   canEditShared: boolean;
   info(): Record<string, unknown>;
   /** A note's text changed through the API: tell connected clients. */
@@ -514,7 +514,7 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       if (r.change) host.written(r.path, vault.files.read(r.path), r.version, r.change);
       return json({ path: r.path, version: r.version, change: r.change?.id ?? null }); // restoring `change` undoes this
     }
-    // A `tag` stars or unstars a tag; a `smart_folder` (its ID) a smart folder; a `path` a note.
+    // A `tag` stars or unstars a tag; a `smart_folder` (its note ID) a saved view; a `path` a note.
     case "POST /favorites/star":
       if (optStr("smart_folder") !== undefined) return json(favorited(vault.starSmartFolder(host.user, str("smart_folder"))));
       return json(favorited(optStr("tag") !== undefined ? vault.starTag(host.user, str("tag")) : vault.star(host.user, str("path"))));
@@ -523,15 +523,23 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json(favorited(optStr("tag") !== undefined ? vault.unstarTag(host.user, str("tag")) : vault.unstar(host.user, str("path"))));
     case "PUT /favorites":
       return json(favorited(vault.orderFavorites(host.user, paths("paths"))));
+    // Views (smart folders) are notes in Views/: saving one writes (or renames) its note, and
+    // deleting one sends its note to Trash, so open tabs hear about it as about any note.
     case "POST /smart-folders": {
-      const f = vault.saveSmartFolder(host.user, { id: optStr("id"), name: str("name"), query: text("query"), shared: flag("shared") }, host.canEditShared, true);
+      const r = vault.saveSmartFolder(host.user, { id: optStr("id"), name: str("name"), query: text("query"), shared: flag("shared") }, host.canEditShared, actor, true);
+      if (r.moved) {
+        for (const e of r.moved.edits) host.written(e.path, e.content, e.version, e.change);
+        host.moved(r.moved.from, r.moved.path, r.moved.version, r.moved.change);
+      }
+      if (r.written) host.written(r.written.path, r.written.content, r.written.version, r.written.change);
       host.tree();
-      return json(f);
+      return json(r.view);
     }
     case "POST /smart-folders/delete": {
-      const list = vault.deleteSmartFolder(host.user, str("id"), host.canEditShared, true);
+      const r = vault.deleteSmartFolder(host.user, str("id"), host.canEditShared, actor, true);
+      host.removed(r.trashed.path, r.trashed.change);
       host.tree();
-      return json(list);
+      return json(r.views);
     }
     case "GET /guide":
       return json(findStartNote(vault)?.state ?? null);
@@ -559,6 +567,7 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
         for (const e of m.edits) host.written(e.path, e.content, e.version, e.change);
         host.moved(m.from, m.path, m.version, m.change);
       }
+      for (const v of r.views) host.written(v.path, v.content, v.version, v.change);
       await host.folderMoved?.(r.from, r.path);
       host.tree();
       return json({ from: r.from, path: r.path, moved: r.moved.map((m) => ({ from: m.from, to: m.path })) });

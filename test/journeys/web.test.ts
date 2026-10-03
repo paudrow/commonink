@@ -141,7 +141,7 @@ journey("Plan the day from Today", ({ given, when, then, and }) => {
   });
 });
 
-journey("Gather notes by tag into a smart folder", ({ given, when, then, and }) => {
+journey("Gather notes by tag into a view", ({ given, when, then, and }) => {
   let page: Page;
   const cards = () => page.locator("#notes-view .feed-card .fc-title");
   const recipes = () => page.locator("#smart-folders").getByRole("link", { name: /Recipes/ });
@@ -155,15 +155,15 @@ journey("Gather notes by tag into a smart folder", ({ given, when, then, and }) 
   then("Notes lists just those two", async () => {
     await eventually(async () => assert.deepEqual((await cards().allTextContents()).sort(), ["Pancakes", "Soup"]));
   });
-  when("I save that as a smart folder called Recipes", async () => {
-    await page.getByRole("button", { name: "Save as smart folder" }).click();
-    await page.getByRole("dialog", { name: "Save as smart folder" }).getByLabel("Name").fill("Recipes");
-    await page.getByRole("dialog", { name: "Save as smart folder" }).getByRole("button", { name: "Save" }).click();
+  when("I save that as a view called Recipes", async () => {
+    await page.getByRole("button", { name: "Save as view" }).click();
+    await page.getByRole("dialog", { name: "Save as view" }).getByLabel("Name").fill("Recipes");
+    await page.getByRole("dialog", { name: "Save as view" }).getByRole("button", { name: "Save" }).click();
   });
   then("Recipes is in the sidebar, holding 2 notes", async () => {
     await eventually(async () => assert.match((await recipes().textContent()) ?? "", /Recipes\s*2/));
   });
-  and("an agent sees the same smart folder from the command line", async () => {
+  and("an agent sees the same view from the command line", async () => {
     assert.match(commonink(app.vault, ["smart"]).stdout, /^- Recipes \(2 notes\b.*\): tag=recipe /m);
   });
   when("the agent writes a new note with tags: [recipe] in its front matter", async () => {

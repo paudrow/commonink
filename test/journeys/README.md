@@ -6,7 +6,7 @@ The few things everyone does in Common Ink, tested end to end the way they're do
 | --- | --- | --- |
 | `web.test.ts` | Capture a thought and find it again | browser |
 | | Plan the day from Today | browser |
-| | Gather notes by tag into a smart folder | browser, CLI |
+| | Gather notes by tag into a view | browser, CLI |
 | | Work alongside an agent, and undo what it did | browser, MCP |
 | | Delete a note by mistake and get it back | browser |
 | `agents.test.ts` | An agent keeps meeting notes from the shell | CLI, the files |

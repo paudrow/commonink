@@ -122,7 +122,7 @@ test("commands follow the app: vim's state, the open note, Getting started, and 
   rename[0].run();
   assert.equal(ran.at(-1), "rename");
   // One Rename… for whatever is showing: Notes narrowed to a folder renames the folder, and so on.
-  for (const what of ["folder", "tag", "smart folder", "file"] as const) assert.ok(titles("rename", app({ renames: what })).includes(`Rename ${what}…`));
+  for (const what of ["folder", "tag", "view", "file"] as const) assert.ok(titles("rename", app({ renames: what })).includes(`Rename ${what}…`));
   const moving = appCommands(app({ canBack: true, canForward: true, onLink: true, note: { kind: "md", starred: false, archived: false } })).filter((c) => ["back", "forward", "follow-link"].includes(c.id));
   assert.deepEqual(moving.map((c) => [c.title, c.keys?.[0]]), [["Go back", "Mod-["], ["Go forward", "Mod-]"], ["Follow link", undefined]]);
   moving.forEach((c) => c.run());
@@ -278,7 +278,7 @@ test("quick open's prefixes: # headings, tag: tags, / or folder: folders and sma
   assert.equal(went.at(-1), "tag home");
 
   p.palette.open("/");
-  assert.deepEqual(p.sections(), ["Folders", "Smart folders"]);
+  assert.deepEqual(p.sections(), ["Folders", "Views"]);
   p.type("folder:launch");
   assert.deepEqual(p.options(), ["LaunchProjects/Launch", "Launch notesq=launch"]);
   p.press("Enter");
@@ -371,9 +371,9 @@ test("the tag in view can be starred and renamed from the palette, or a tag pick
   assert.deepEqual(titles("rename tag", app({ canDelete: false })).filter((t) => t.startsWith("Rename")), []);
 });
 
-test("saving filters as a smart folder is offered only when Notes has filters on", () => {
+test("saving filters as a view is offered only when Notes has filters on", () => {
   assert.deepEqual(titles("save filters", app()).filter((t) => t.startsWith("Save these")), []);
-  assert.deepEqual(titles("save filters", app({ notesFiltered: true })).slice(0, 1), ["Save these filters as a smart folder"]);
+  assert.deepEqual(titles("save filters", app({ notesFiltered: true })).slice(0, 1), ["Save these filters as a view"]);
 });
 
 test("a note can go back to a labeled version, and archive turns into unarchive on an archived note", () => {
