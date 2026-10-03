@@ -90,6 +90,15 @@ test("agents read Config/AGENTS.md, or the root AGENTS.md of a vault from before
   assert.deepEqual(["AGENTS.md", "Config/AGENTS.md", "Notes/AGENTS.md"].map(isAgentsNote), [true, true, false]);
 });
 
+test("the sample vault and a new hosted workspace keep their agents' instructions in Config/", async () => {
+  const fs = await import("node:fs");
+  const { AGENTS_NOTE } = await import("../src/core/noteRoles.ts");
+  for (const dir of ["examples/vault", "cloud/seed"]) {
+    assert.ok(fs.existsSync(`${dir}/${AGENTS_NOTE}`), `${dir} has ${AGENTS_NOTE}`);
+    assert.ok(!fs.existsSync(`${dir}/AGENTS.md`), `${dir} has no root AGENTS.md`);
+  }
+});
+
 test("your own settings file lists every setting, reads back what it wrote, and checks each value", async () => {
   const { readValues, withValue, userSettingsNote, userSettingsPath, USER_SCHEMA } = await import("../src/core/schema.ts");
   const path = userSettingsPath("Ada/L");
