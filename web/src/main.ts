@@ -1279,9 +1279,9 @@ async function exportZip(what: { paths?: string[]; folder?: string; all?: boolea
   }
 }
 
-/** Pick .md files or a .zip and bring them all in (see importNotes.ts). */
+/** Pick .md files or a .zip and bring them all in (see importNotes.ts): which app they're from is told from what's in them. */
 async function importNotes() {
-  const picked = await pickFiles(".md,.markdown,.html,.htm,.zip,application/zip,text/markdown");
+  const picked = await pickFiles(".md,.markdown,.html,.htm,.txt,.zip,.enex,application/zip,text/markdown");
   if (!picked.length) return;
   toast({ icon: "upload", text: "Importing…" });
   try {

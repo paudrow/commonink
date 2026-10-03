@@ -132,7 +132,7 @@ export interface App {
   saveToDrive(): void;
   /** Every note and file, as a .zip. */
   exportWorkspace(): void;
-  /** Markdown files or a .zip of them (an Obsidian vault, an export), brought in at once. */
+  /** Markdown files or a .zip of them (an Obsidian vault, a Notion export), .enex files, or an Apple Notes export, brought in at once. */
   importNotes(): void;
   settings(): void;
   /** Online, the Connected agents dialog; locally, how to connect one to this vault. */
@@ -226,7 +226,7 @@ export function appCommands(app: App): Command[] {
     { id: "export-docx", title: "Export as Word", keywords: "save download docx word document office google docs", icon: "file", available: note?.kind === "md", run: () => app.exportAs("docx") },
     { id: "save-to-drive", title: "Save to Google Drive…", keywords: "google drive docs doc pdf upload cloud save", icon: "drive", available: note?.kind === "md" && app.online, run: app.saveToDrive },
     { id: "export-workspace", title: "Export all notes (.zip)", keywords: "export download backup zip everything workspace vault obsidian take out", icon: "download", run: app.exportWorkspace },
-    { id: "import-notes", title: "Import notes (.md or .zip)…", keywords: "import upload bring in migrate move obsidian vault zip markdown files bulk many", icon: "upload", available: app.canDelete, run: app.importNotes },
+    { id: "import-notes", title: "Import notes (Markdown, Obsidian, Notion, Evernote, Apple Notes)…", keywords: "import upload bring in migrate move switch obsidian vault notion export evernote enex apple notes icloud mac iphone zip markdown files bulk many", icon: "upload", available: app.canDelete, run: () => app.importNotes() },
     { id: "back", title: "Go back", keywords: "previous history return last note ctrl-o", icon: "back", keys: ["Mod-["], available: app.canBack, run: app.back },
     { id: "forward", title: "Go forward", keywords: "next history ctrl-i", icon: "chevron", keys: ["Mod-]"], available: app.canForward, run: app.forward },
     { id: "follow-link", title: "Follow link", keywords: "open link under the cursor gd go to", icon: "link", area: "Editor", available: app.onLink, run: app.followLink },
@@ -249,6 +249,8 @@ export function appCommands(app: App): Command[] {
     { id: "getting-started", title: "Open Getting started", keywords: "help start welcome guide tour", icon: "info", available: app.hasStart, run: app.gettingStarted },
     { id: "settings", title: "Open settings", keywords: "preferences options configure", icon: "gear", keys: ["Mod-,"], run: app.settings },
     { id: "connect-agent", title: "Connect an agent", keywords: "agent mcp claude cursor connected agents ai assistant", icon: "bot", run: app.connectAgent },
+    // The docs are on the hosted site; a local app opens commonink.app's.
+    { id: "docs", title: "Help and docs", keywords: "documentation guide manual how to learn import agents faq support", icon: "file", run: () => void window.open(/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? "https://commonink.app/docs/" : "/docs/", "_blank", "noopener") },
     { id: "shortcuts", title: "Keyboard shortcuts", keywords: "keys keybindings help hotkeys cheat sheet", icon: "keyboard", keys: ["?"], run: app.shortcuts },
     ...app.account
       .filter((a) => !a.current)
