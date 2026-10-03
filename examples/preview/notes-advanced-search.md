@@ -1,5 +1,5 @@
 ---
-pr: 342
+pr: 349
 title: Advanced search in Notes
 ---
 1. Open **Notes** and type `budget` in **Filter notes…**. [[Garden]], [[Budget review]] and [[Launch plan]] are among the matches. The plain filter is unchanged.
