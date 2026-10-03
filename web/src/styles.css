@@ -398,9 +398,9 @@ body.panel-closed #panel { opacity: 0; pointer-events: none; }
 .tree-row.is-active { background: var(--active); color: var(--ink-strong); font-weight: 550; }
 .tree-row.is-active svg { color: var(--accent); }
 .tree-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-/* A hidden folder you've chosen to see, and the quiet row under the folders that shows or hides them. */
+/* The quiet Hidden folders row under your folders, a line above it, and the hidden folders listed under it when it's open. */
 .tree-row.is-hidden .tree-name { color: var(--muted); }
-.tree-hidden-toggle { width: 100%; border: 0; background: none; font: inherit; font-size: 12px; color: var(--muted); text-align: left; }
+.tree-hidden-toggle { width: 100%; border: 0; border-top: 1px solid var(--line); margin-top: 6px; padding-top: 6px; background: none; font: inherit; font-size: 12px; color: var(--muted); text-align: left; }
 .tree-hidden-toggle:hover { color: var(--ink-2); }
 /* A section's empty line keeps the rows' chevron column, so it starts where their icons do. */
 .tree-hint { display: flex; gap: 7px; padding: 4px 8px 6px; font-size: 12px; color: var(--muted); }

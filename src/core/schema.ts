@@ -118,7 +118,7 @@ export const SETTINGS_SCHEMA: ObjectSchema = {
       type: "array",
       items: { type: "string" },
       default: [CONFIG, TEMPLATES],
-      description: "Folders the sidebar leaves out, with the folders in them. Show hidden folders, at the bottom of the sidebar's folders, shows them. Search, Notes, links and agents find their notes as before. [] hides none.",
+      description: "Folders the sidebar leaves out, with the folders in them. Hidden folders, at the bottom of the sidebar's folders, lists them below your own. Search, Notes, links and agents find their notes as before. [] hides none.",
       examples: ["[Config, Templates, Archive/Old]"],
     },
   },

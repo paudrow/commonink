@@ -2305,13 +2305,15 @@ function renderTree() {
   const agents = recentAgentFolders();
   const action = (title: string, ico: string, fn: () => void) =>
     el("button", { type: "button", class: "row-act", title, onclick: (e: Event) => (e.stopPropagation(), fn()) }, icon(ico, 14));
-  // Hidden folders (hiddenFolders.ts) and the folders in them are left out, unless you show them.
-  const listed = prefs.showHidden ? folders : folders.filter((f) => !hiddenBy(f, hiddenNow));
-  const walk = (parent: string, depth: number): HTMLElement[] =>
-    listed
-      .filter((f) => parentOf(f) === parent)
-      .flatMap((path) => {
-        const subs = listed.some((f) => parentOf(f) === path);
+  // Hidden folders (hiddenFolders.ts) and the folders in them are left out of the list. Shown, they
+  // get a list of their own under it, so they never mix in with yours.
+  const listed = folders.filter((f) => !hiddenBy(f, hiddenNow));
+  const tucked = folders.filter((f) => hiddenBy(f, hiddenNow));
+  const walk = (list: string[], parent: string, depth: number): HTMLElement[] =>
+    list.filter((f) => parentOf(f) === parent).flatMap((path) => folderRow(list, path, depth));
+  // A hidden folder heads its part of the hidden list, named in full ("Projects/Old"), wherever it is.
+  const folderRow = (list: string[], path: string, depth: number, name = path.split("/").pop()!): HTMLElement[] => {
+        const subs = list.some((f) => parentOf(f) === path);
         const open = subs && prefs.expanded.has(path);
         const n = count.get(path) ?? 0;
         const agent = agents.get(path);
@@ -2345,7 +2347,7 @@ function renderTree() {
               )
             : el("span", { class: "chev is-leaf" }),
           icon("folder", 14),
-          el("span", { class: "tree-name" }, path.split("/").pop()!),
+          el("span", { class: "tree-name" }, name),
           agent ? el("span", { class: "agent-dot", title: `${agent} edited notes here`, style: { "--hue": String(hueFor(agent)) } }) : null,
           n ? el("span", { class: "n" }, String(n)) : null,
           el(
@@ -2357,21 +2359,30 @@ function renderTree() {
         );
         rowMenu(row, path, () => folderMenu(path));
         dropTarget(row, () => path);
-        return [row, ...(open ? walk(path, depth + 1) : [])];
-      });
-  const rows = walk("", 0);
-  const hidden = hiddenThere(folders, hiddenNow).length;
-  // One quiet row at the bottom shows or hides them, when there are any.
-  const toggle = hidden
+        return [row, ...(open ? walk(list, path, depth + 1) : [])];
+  };
+  const rows = walk(listed, "", 0);
+  const heads = hiddenThere(folders, hiddenNow)
+    .filter((h, _, all) => !all.some((o) => h.startsWith(`${o}/`))) // one inside another hidden one is listed under it
+    .sort((a, b) => a.localeCompare(b));
+  // One quiet row at the bottom, a line above it, folds the hidden ones open below it, when there are any.
+  const toggle = heads.length
     ? el(
         "button",
-        { type: "button", class: "tree-row tree-hidden-toggle", style: { "--depth": "0" }, "aria-pressed": String(prefs.showHidden), onclick: () => setShowHidden(!prefs.showHidden) },
-        el("span", { class: "chev is-leaf" }),
-        icon("more", 14),
-        el("span", { class: "tree-name" }, prefs.showHidden ? "Hide hidden folders" : `Show hidden folders (${hidden})`),
+        {
+          type: "button",
+          class: `tree-row tree-hidden-toggle${prefs.showHidden ? "" : " is-collapsed"}`,
+          style: { "--depth": "0" },
+          title: prefs.showHidden ? "Hide these folders again" : "Show the folders the sidebar hides",
+          "aria-expanded": String(prefs.showHidden),
+          onclick: () => setShowHidden(!prefs.showHidden),
+        },
+        el("span", { class: "chev" }, icon("chevron", 13)),
+        el("span", { class: "tree-name" }, `Hidden folders (${heads.length})`),
       )
     : null;
-  $("#tree").replaceChildren(...(rows.length ? rows : [sectionHint("Click ", plusMark(), " to make a folder.")]), ...(toggle ? [toggle] : []));
+  const hiddenRows = toggle && prefs.showHidden ? heads.flatMap((h) => folderRow(tucked, h, 0, h)) : [];
+  $("#tree").replaceChildren(...(rows.length ? rows : [sectionHint("Click ", plusMark(), " to make a folder.")]), ...(toggle ? [toggle] : []), ...hiddenRows);
 }
 
 /** A folder's menu in the sidebar: what you do to it now and then, kept off the row itself. */
@@ -3570,7 +3581,7 @@ async function toggleHideFolder(folder: string) {
     () => true,
     (e) => (toast({ text: e instanceof Error ? e.message : "That didn't work" }), false),
   );
-  if (saved && !by && !prefs.showHidden) toast({ icon: "folder", text: `${folder} is hidden from the sidebar`, detail: "Show hidden folders, under the sidebar's folders, shows it again.", actionLabel: "Undo", action: () => void toggleHideFolder(folder) });
+  if (saved && !by && !prefs.showHidden) toast({ icon: "folder", text: `${folder} is hidden from the sidebar`, detail: "Hidden folders, under the sidebar's folders, lists it.", actionLabel: "Undo", action: () => void toggleHideFolder(folder) });
 }
 
 /** Open the workspace's settings file (schema.ts), writing it first if this workspace has none yet. */

@@ -16,7 +16,7 @@ export function hiddenBy(folder: string, hidden: string[]): string | null {
   return hidden.map(cleanFolder).find((h) => h && (folder === h || folder.startsWith(`${h}/`))) ?? null;
 }
 
-/** The listed folders that are there, for the sidebar's "Show hidden folders (N)". */
+/** The listed folders that are there, for the sidebar's "Hidden folders (N)". */
 export const hiddenThere = (folders: string[], hidden: string[]) => folders.filter((f) => hidden.map(cleanFolder).includes(f));
 
 /** The list with `folder` hidden (any folder listed inside it goes, since it's hidden with it) or shown. */
