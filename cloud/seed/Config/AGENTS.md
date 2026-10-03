@@ -26,7 +26,6 @@ These notes belong to people. You are a guest editor.
   - `::today` is the day at a glance: overdue, due today, starting today, and today's journal note. `get_today` gives agents the same.
   - `::calendar{folder=Journal}` shows a month of journal notes (`Journal/YYYY-MM-DD.md`).
   - `::timer{duration=25m label="Focus"}`, `::stopwatch{label="Run"}`.
-  - `::streak` shows the reader's writing days: a 12-week heatmap and how many days in a row they've written. `folder=Journal` or `tag=work` counts only those notes.
   - `::kanban{note="Launch"}` shows the Kanban board in another note.
 - Kanban boards are a block in a note, with ordinary text around it: a `:::kanban` line, `## Column` headings with `- [ ] card` lines under them, and a closing `:::`. Cards are tasks (same tokens), a card can be just a `[[Note]]` link, and lines indented under a card are its details. Moving a card into the column named `Done` ticks it. A column can have a colour after its name: `## Doing {color=blue}`. Use `read_board`, then `add_card`, `move_card` and `edit_card`.
 - Diagrams: a ```mermaid code block renders as a diagram.

@@ -72,7 +72,7 @@ export interface PaletteStep {
   submit: (value: string, picked: boolean) => StepResult | Promise<StepResult>;
 }
 
-export type Page = "today" | "notes" | "tasks" | "calendar" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash" | "shared" | "checkup" | "query-help";
+export type Page = "today" | "notes" | "tasks" | "calendar" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash" | "shared" | "checkup" | "query-help" | "profile";
 
 /** The kinds of thing ⌘K's Rename… can rename. */
 export type Renamable = "note" | "folder" | "tag" | "view" | "file";
@@ -253,6 +253,7 @@ export function appCommands(app: App): Command[] {
     { id: "refresh-calendars", title: "Refresh calendars", keywords: "calendar sync reload events update", icon: "reset", run: app.refreshCalendars },
     go("contacts", "Contacts", "user", "people crm person email company"),
     go("tags", "Tags", "hash", "rename merge"),
+    go("profile", "Profile", "user", "me account you seals badges achievements firsts earned writing days heatmap activity"),
     go("query-help", "Query syntax", "search", "help filter smart folder query and or parentheses operators search"),
     go("assets", "Assets", "grid", "files images uploads attachments"),
     go("history", "History", "history", "changes activity versions"),
