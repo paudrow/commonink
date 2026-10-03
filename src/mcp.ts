@@ -16,7 +16,7 @@ const server = createMcpServer({
   // Every write is the connected agent's, for the vault's person: COMMONINK_AGENT, or the name the
   // client gave when it connected ("Claude Code").
   source: (client) => agentSource(process.env.COMMONINK_AGENT || client || "Agent", LOCAL_USER),
-  calendar: new Calendar(vault.db, (url, last) => fetchFeed(url, last, assertPublic)),
+  calendar: new Calendar(vault.db, (url, last) => fetchFeed(url, last, assertPublic), { vault }),
 });
 
 await server.connect(new StdioServerTransport());

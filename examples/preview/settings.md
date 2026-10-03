@@ -7,7 +7,7 @@ Off a Mac, read ⌘ as Ctrl.
 1. On Notes, the status bar has no **Wrap code** chip. It has a ⚙ at the right end.
 2. Press ⌘, (or click ⚙). Settings opens with its search box focused. Sections are Appearance, Editor, Keyboard and Agents.
 3. Type `vim`. Only the Vim settings, and Line numbers (its line mentions `:set nu`), stay. "3 settings found" shows beside the box.
-4. Press ↓ to reach the first checkbox. Tick **Vim keys**. **Vim: j and k by screen line** stops being greyed out, and the status bar says Vim keys: on.
+4. Press ↓ to reach the first checkbox. **Vim keys** is ticked (Previews start with it on). Untick it: **Vim: j and k by screen line** greys out and NORMAL leaves the status bar. Tick it again.
 5. Clear the search. Set **Theme** to Dark, then System. The app follows at once. Reload: what you chose is still set.
 6. Press Tab over and over. The focus goes round Settings and never leaves it. Esc closes it and puts the focus back.
 7. Open [[Settings demo]]. The **Wrap code** chip shows now. Untick **Wrap code** in Settings, and the code block scrolls instead of wrapping.

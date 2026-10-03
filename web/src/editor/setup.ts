@@ -10,6 +10,7 @@ import { markdownWithFrontmatter, commonInkHighlight } from "./language.ts";
 import { propertyHelp } from "./properties.ts";
 import { livePreview } from "./livePreview.ts";
 import { blockKeys, blockWidgets, copyCodeKey, editorContext, stepIntoBlocks, type EditorContext } from "./blocks.ts";
+import { folderLine } from "./folderLine.ts";
 import { lineHint } from "./lineHint.ts";
 import { agentFlash } from "./agentFlash.ts";
 import { typingHelpers } from "./complete.ts";
@@ -147,7 +148,7 @@ export function createState(opts: {
 }): EditorState {
   const lang: Extension =
     opts.kind === "md"
-      ? [markdownWithFrontmatter(), keymap.of(markdownKeymap), gfmPreview, livePreview, linkSideButton, keymap.of([{ key: "Mod-Alt-Enter", run: openLinkToSide }]), details, taskLineTools, blockWidgets, stepIntoBlocks, blockKeys, lineHint, linkClicks, typingHelpers(), propertyHelp()]
+      ? [markdownWithFrontmatter(), keymap.of(markdownKeymap), folderLine, gfmPreview, livePreview, linkSideButton, keymap.of([{ key: "Mod-Alt-Enter", run: openLinkToSide }]), details, taskLineTools, blockWidgets, stepIntoBlocks, blockKeys, lineHint, linkClicks, typingHelpers(), propertyHelp()]
       : [html(), indentUnit.of("  ")];
   return EditorState.create({
     doc: opts.doc,

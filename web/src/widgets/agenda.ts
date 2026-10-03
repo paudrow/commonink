@@ -19,7 +19,7 @@ export const agenda: WidgetSpec = {
   keywords: "agenda events calendar meetings schedule upcoming week",
   defaults: { days: "3" },
   fields: [
-    { key: "label", label: "Label", type: "text", placeholder: "Optional" },
+    { key: "label", label: "Title", type: "text", placeholder: "Optional" },
     { key: "days", label: "Days", type: "select", options: [["3", "3 days"], ["1", "Today"], ["7", "A week"], ["14", "Two weeks"]] },
     { key: "calendars", label: "Calendars", type: "calendars" },
   ],
