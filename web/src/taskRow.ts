@@ -1,11 +1,11 @@
 // One task in a list (Tasks, ::tasks, Today): its checkbox, its words, its chips in the fixed
 // order, and its ⚙ and ↗ buttons. Click the words to edit them in place, a chip to edit that token,
-// ⌘/Ctrl-click to open the note at the line. Every change goes to the note the task lives in.
+// ⌘/Ctrl-click to open the note at the line in a new tab (⌘⌥ to the side). Every change goes to the note the task lives in.
 import { marked } from "marked";
 import { NOTE_HTML, sanitizeNote } from "./render.ts";
 import { api, type Task, type TaskPatch } from "./api.ts";
 import { el, icon, NOTE_DRAG } from "./dom.ts";
-import { sideClick } from "./panes.ts";
+import { clickWhere, modClick, type Where } from "./panes.ts";
 import { tagsInLine } from "../../src/core/tags.ts";
 import { capHtmlDepth, tameMarkdown } from "../../src/core/depth.ts";
 import { endTags, metaChips, today } from "./taskChips.ts";
@@ -15,8 +15,8 @@ import { openChipEditor, openTaskMenu, taskPeople } from "./taskChipEditors.ts";
 import { toast } from "./toast.ts";
 
 export interface RowEnv {
-  /** `side`: in the other pane (Cmd/Ctrl-click). */
-  open(path: string, line?: number, side?: boolean): void;
+  /** `where`: here, in a new tab (⌘-click) or in the other pane (⌘⌥-click). */
+  open(path: string, line?: number, where?: Where): void;
   openTag(tag: string): void;
   openPerson(name: string): void;
   /** The list reloads after a change (the task's line, or where it lives, moved). */
@@ -43,11 +43,11 @@ export function taskRow(t: Task, env: RowEnv, where: string | null): HTMLElement
     // A click on the words edits them, so let that one place the caret; chips and tags keep focus where it is.
     const target = e.target as HTMLElement;
     if (target.closest(".qt-edit")) return; // placing the caret or selecting in the open edit
-    if (!target.closest(".qt-words") || sideClick(e)) prevent(e);
+    if (!target.closest(".qt-words") || modClick(e)) prevent(e);
   });
   text.addEventListener("click", (e) => {
     const target = e.target as HTMLElement;
-    if (sideClick(e)) return env.open(t.path, t.line, true); // ⌘-click (Ctrl-click off a Mac): the note, at this line, to the side
+    if (modClick(e)) return env.open(t.path, t.line, clickWhere(e)); // ⌘-click (Ctrl-click off a Mac): the note, at this line, in a new tab; ⌘⌥-click to the side
     const chip = target.closest<HTMLElement>(".tk[data-field]");
     const tag = chip?.dataset.field === "tags" ? chip.dataset.value!.toLowerCase() : target.closest<HTMLElement>(".tag")?.dataset.tag;
     if (tag) env.openTag(tag);
@@ -56,8 +56,8 @@ export function taskRow(t: Task, env: RowEnv, where: string | null): HTMLElement
   });
   const menu = el("button", { type: "button", class: "qt-act", title: "Priority, due, repeat, person, tags…", "aria-label": "Task fields", onmousedown: prevent }, icon("sliders", 13));
   menu.addEventListener("click", () => openTaskMenu(menu, ctx));
-  const go = el("button", { type: "button", class: "qt-act", title: "Go to note", "aria-label": `Go to ${t.title}, line ${t.line}`, onmousedown: prevent, onclick: (e: MouseEvent) => env.open(t.path, t.line, sideClick(e)) }, icon("open", 13));
-  const side = el("button", { type: "button", class: "qt-act", title: "Open in split view", "aria-label": `Open ${t.title} in split view`, onmousedown: prevent, onclick: () => env.open(t.path, t.line, true) }, icon("split", 13));
+  const go = el("button", { type: "button", class: "qt-act", title: "Go to note", "aria-label": `Go to ${t.title}, line ${t.line}`, onmousedown: prevent, onclick: (e: MouseEvent) => env.open(t.path, t.line, clickWhere(e)) }, icon("open", 13));
+  const side = el("button", { type: "button", class: "qt-act", title: "Open in split view", "aria-label": `Open ${t.title} in split view`, onmousedown: prevent, onclick: () => env.open(t.path, t.line, "side") }, icon("split", 13));
   // A row dragged onto the notes opens its note in split view.
   const row = el("div", { class: `qt-row${t.done ? " is-done" : ""}`, draggable: "true" }, box, text, where ? el("span", { class: "qt-where" }, where) : null, menu, go, side);
   row.addEventListener("dragstart", (e) => {

@@ -7,7 +7,7 @@ import { api, type Task } from "../api.ts";
 import { el, icon } from "../dom.ts";
 import { onVaultChange } from "../events.ts";
 import type { WidgetSpec } from "./core.ts";
-import { sideClick } from "../panes.ts";
+import { clickWhere } from "../panes.ts";
 import { addDays } from "../../../src/core/tasks.ts";
 import { today } from "../taskChips.ts";
 import { redrawRows, taskRow } from "../taskRow.ts";
@@ -163,7 +163,7 @@ export const tasks: WidgetSpec = {
                   "div",
                   { class: "qt-group" },
                   group === "note"
-                    ? el("button", { type: "button", class: "qt-note", onmousedown: prevent, onclick: (e: MouseEvent) => env.open(key, undefined, sideClick(e)) }, icon("file", 13), g.label)
+                    ? el("button", { type: "button", class: "qt-note", onmousedown: prevent, onclick: (e: MouseEvent) => env.open(key, undefined, clickWhere(e)) }, icon("file", 13), g.label)
                     : el("div", { class: "qt-note is-label" }, g.label, el("span", { class: "n" }, String(g.tasks.length))),
                   ...g.tasks.map(row),
                 ),
