@@ -2783,10 +2783,15 @@ function saveSmartFolder(query: string, name: string, anchor: HTMLElement, favor
       if (favorite) await starSmartFolder(saved.id, true);
       renderTree();
       notesPage.refreshSoon();
-      const who = local ? "" : saved.shared ? " Everyone in the workspace sees it in their sidebar." : " Only you see it in your sidebar.";
-      toast({ icon: "folderSearch", text: `Saved ${saved.name}`, detail: `A note in ${saved.path.replace(/\/[^/]*$/, "/")}.${who}` });
+      savedSmartFolder(saved);
     },
   });
+}
+
+/** Say a view was saved, where its note is, and who sees it. */
+function savedSmartFolder(saved: SmartFolder) {
+  const who = local ? "" : saved.shared ? " Everyone in the workspace sees it in their sidebar." : " Only you see it in your sidebar.";
+  toast({ icon: "folderSearch", text: `Saved ${saved.name}`, detail: `A note in ${saved.path.replace(/\/[^/]*$/, "/")}.${who}` });
 }
 
 /** Advanced search from ⌘K or ⌘⌥F: Notes (its Notes tab, from Trash or another page), then the editor on its filters. */
@@ -2813,6 +2818,7 @@ function newSmartFolder(anchor: HTMLElement) {
       const saved = await api.saveSmartFolder(f);
       smartFolders = await api.smartFolders();
       await showNotes({ tab: "notes", query: parseQuery(saved.query) });
+      savedSmartFolder(saved);
     },
   });
 }
@@ -2931,9 +2937,10 @@ function renderSmartFolders(active: string | null) {
         alone: local,
         sources: fieldSources,
         save: async (next) => {
-          await api.saveSmartFolder(next);
+          const saved = await api.saveSmartFolder(next);
           smartFolders = await api.smartFolders();
           renderTree();
+          toast({ icon: "folderSearch", text: `Saved ${saved.name}` });
         },
         remove,
       });

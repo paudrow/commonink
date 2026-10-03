@@ -35,6 +35,10 @@ export async function showShareDialog(
     opts.changed();
   };
 
+  /** A change here was saved: say so, and draw the dialog from what the server has now. */
+  const saved = (text: string) => (opts.toast({ icon: "check", text }), reload());
+  const ROLE_AS = { viewer: "a viewer", editor: "an editor" } as const;
+
   const roleSelect = (value: Share["role"], onChange: (r: Share["role"]) => void, label: string) =>
     el(
       "select",
@@ -62,10 +66,10 @@ export async function showShareDialog(
   function personRow(s: Share, inherited: boolean) {
     const who = s.name ? `${s.name}` : (s.email ?? "");
     const meta = [s.name ? s.email : "By email: whoever signs in with this address", s.expiresAt ? `until ${new Date(s.expiresAt).toLocaleDateString()}` : null, inherited && s.folder ? `through the folder ${s.folder}` : null].filter(Boolean).join(" · ");
-    const role = inherited ? el("span", { class: "ws-badge" }, s.role) : roleSelect(s.role, (r) => void api.updateShare(s.id, { role: r }).then(reload, failed), `${who}'s role`);
+    const role = inherited ? el("span", { class: "ws-badge" }, s.role) : roleSelect(s.role, (r) => void api.updateShare(s.id, { role: r }).then(() => saved(`${who} is ${ROLE_AS[r]} now`), failed), `${who}'s role`);
     const remove =
       !inherited && opts.canShare
-        ? el("button", { type: "button", class: "icon-btn small", title: `Stop sharing with ${who}`, "aria-label": `Stop sharing with ${who}`, onclick: () => void api.unshare(s.id).then(reload, failed) }, icon("close", 14))
+        ? el("button", { type: "button", class: "icon-btn small", title: `Stop sharing with ${who}`, "aria-label": `Stop sharing with ${who}`, onclick: () => void api.unshare(s.id).then(() => saved(`Stopped sharing with ${who}`), failed) }, icon("close", 14))
         : null;
     return el("div", { class: "ws-member" }, el("div", { class: "agents-main" }, el("strong", {}, who), el("span", { class: "agents-meta" }, meta)), role, remove);
   }
@@ -76,7 +80,7 @@ export async function showShareDialog(
       { class: "ws-role", "aria-label": "General access", disabled: !opts.canShare, onchange: async (e: Event) => {
         const on = (e.target as HTMLSelectElement).value === "link";
         const r = on ? await api.share(target, { link: true, role: "viewer" }).catch(failed) : await api.unshare(link!.id).catch(failed);
-        if (r) await reload();
+        if (r) await saved(on ? "Anyone with the link can open it" : "Only people it's shared with can open it");
       } },
       el("option", { value: "restricted", selected: !link }, "Restricted"),
       el("option", { value: "link", selected: !!link }, "Anyone with the link"),
@@ -93,7 +97,7 @@ export async function showShareDialog(
         "select",
         { class: "ws-role", "aria-label": "Link expiry", disabled: !opts.canShare, onchange: (e: Event) => {
           const days = Number((e.target as HTMLSelectElement).value) || null;
-          void api.updateShare(link.id, { expiresAt: days ? Date.now() + days * 86_400_000 : null }).then(reload, failed);
+          void api.updateShare(link.id, { expiresAt: days ? Date.now() + days * 86_400_000 : null }).then(() => saved(days ? `The link works for ${days} more day${days === 1 ? "" : "s"}` : "The link doesn't expire"), failed);
         } },
         ...EXPIRY.map(([label, days]) => el("option", { value: String(days ?? ""), selected: !days && !link.expiresAt }, label)),
         ...(link.expiresAt ? [el("option", { value: "", selected: true, disabled: true }, `Until ${new Date(link.expiresAt).toLocaleDateString()}`)] : []),
@@ -102,7 +106,7 @@ export async function showShareDialog(
         el(
           "div",
           { class: "ws-row" },
-          roleSelect(link.role, (r) => void api.updateShare(link.id, { role: r }).then(reload, failed), "Link role"),
+          roleSelect(link.role, (r) => void api.updateShare(link.id, { role: r }).then(() => saved(`People with the link ${r === "editor" ? "can edit" : "can only read"} now`), failed), "Link role"),
           expiry,
           copy,
         ),

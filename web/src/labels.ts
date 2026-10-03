@@ -58,7 +58,10 @@ export async function labelVersion(path: string, hooks: { toast(t: ToastSpec): v
 export async function renameLabel(label: Label, toast: (t: ToastSpec) => void): Promise<Label | null> {
   const got = await askLabelName({ title: "Rename this version", action: "Save", name: label.name, description: label.description });
   if (!got) return null;
-  return api.renameLabel(label.id, got.name, got.description || null).catch((e) => (toast({ text: e instanceof ApiError ? e.message : "Couldn't rename it" }), null));
+  return api.renameLabel(label.id, got.name, got.description || null).then(
+    (next) => (toast({ icon: "label", text: next.name === label.name ? `Saved “${next.name}”` : `Renamed to “${next.name}”` }), next),
+    (e) => (toast({ text: e instanceof ApiError ? e.message : "Couldn't rename it" }), null),
+  );
 }
 
 /** Take the name off a version, after asking. The note and its history stay as they are. */
