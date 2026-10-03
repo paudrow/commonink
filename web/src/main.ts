@@ -44,7 +44,7 @@ import { QUERY_HELP } from "./queryHelp.ts";
 import type { CheckupPage } from "./checkupPage.ts";
 import type { Theme } from "./settings.ts";
 import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./account.ts";
-import { appCommands, type Renamable } from "./commands.ts";
+import { ADVANCED_KEYS, appCommands, type Renamable } from "./commands.ts";
 import { toggleShortcuts } from "./shortcuts.ts";
 import { NO_TIPS, tipText, watchTips, type TipsState } from "./shortcutTips.ts";
 import { did, vaultEvents } from "./events.ts";
@@ -61,7 +61,7 @@ import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { headingMatches } from "../../src/core/gfm.ts";
 import { formatQuery, parseQuery, tagList, type NoteQuery } from "../../src/core/query.ts";
 import { NEW_BOARD } from "../../src/core/kanban.ts";
-import { smartFolderEditor } from "./smartFolderEditor.ts";
+import { smartFolderEditor, suggestName } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
 import { watchTimers } from "./widgets/timer.ts";
 import { safeDecode } from "../../src/core/uri.ts";
@@ -188,6 +188,7 @@ const notesPage = new NotesPage({
   filtersChanged: () => renderTree(),
   tags: () => tags,
   saveQuery: (anchor, query) => saveSmartFolder(query, "", anchor),
+  advanced: (anchor) => saveSmartFolder(formatQuery(notesPage.query), "", anchor, false, true),
   starButton: (q) => queryStarButton(q),
   openPerson: (assignee) => void showTasks({ assignee }),
   readOnly: () => viewer,
@@ -365,6 +366,7 @@ function commands() {
       calendarPage?.newEvent();
     },
     filterNotes: () => void showNotes({ filter: true }),
+    advancedSearch: () => void advancedSearch(),
     quickAdd,
     toggleTheme,
     toggleVim,
@@ -1767,23 +1769,20 @@ async function toggleStar(path: string) {
 
 // ------------------------------------------------------------------ smart folders
 
-/** A starting name for a query: its tag, folder and words ("#work · Projects"). */
-function nameFor(query: string): string {
-  const q = parseQuery(query);
-  const tags = tagList(q.tag).map((t) => `#${t}`).join(q.match === "any" ? " or " : " ");
-  return [tags, q.folder, q.q && `“${q.q}”`].filter(Boolean).join(" · ") || "All notes";
-}
-
 /** What the settings forms' tag and folder fields suggest. */
 const fieldSources = { tags: () => tags, folders: () => allFolders() };
 
-/** Offer to keep a note query as a smart folder (from the Notes filters or a ::query widget). */
-function saveSmartFolder(query: string, name: string, anchor: HTMLElement, favorite = false) {
+/**
+ * Offer to keep a note query as a smart folder (from the Notes filters or a ::query widget).
+ * `search`: Notes' Advanced search, the same editor applying its query to Notes as it changes.
+ */
+function saveSmartFolder(query: string, name: string, anchor: HTMLElement, favorite = false, search = false) {
   // New ones are yours only until you share them (a local vault has no one else, so it keeps them as it always did).
-  smartFolderEditor(anchor, { name: name || nameFor(query), query, shared: local }, {
+  smartFolderEditor(anchor, { name: name || suggestName(query), query, shared: local }, {
     canShare: !viewer,
     alone: local,
     sources: fieldSources,
+    search: search ? { apply: (q) => notesPage.setQuery(parseQuery(q)) } : undefined,
     save: async (f) => {
       const saved = await api.saveSmartFolder(f);
       smartFolders = await api.smartFolders();
@@ -1793,6 +1792,13 @@ function saveSmartFolder(query: string, name: string, anchor: HTMLElement, favor
       toast({ icon: "folderSearch", text: `Saved ${saved.name}`, detail: local ? undefined : saved.shared ? "Everyone in the workspace sees it in their sidebar." : "Only you see it." });
     },
   });
+}
+
+/** Advanced search from ⌘K or ⌘⌥F: Notes (its Notes tab, from Trash or another page), then the editor on its filters. */
+async function advancedSearch() {
+  if (document.querySelector(".sf-modal")) return;
+  if (onPage() !== "notes" || notesPage.tab === "trash") await showNotes({ tab: notesPage.tab === "archive" && onPage() === "notes" ? "archive" : "notes" });
+  notesPage.openAdvanced();
 }
 
 /** A new smart folder from ⌘K: the Smart folders section shows (it waits for a first one otherwise), and the form opens under its +. */
@@ -3154,6 +3160,9 @@ window.addEventListener(
     } else if (is("Mod-Shift-f")) {
       e.preventDefault();
       void showNotes({ filter: true });
+    } else if (is(ADVANCED_KEYS)) {
+      e.preventDefault();
+      void advancedSearch();
     } else if (is("Mod-Alt-\\")) {
       e.preventDefault();
       void (split ? closePane(active) : openSplit());

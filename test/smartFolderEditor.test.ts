@@ -131,3 +131,64 @@ test("sharing with the workspace is a box, off unless the folder is shared; Favo
   assert.equal(viewer.disabled, true);
   $(".sf-dialog").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
 });
+
+test("Advanced search: no name until asked, each change shows in Notes, and Cancel puts the filters back", async () => {
+  const applied: string[] = [];
+  let saved: { name: string; query: string } | null = null;
+  const open = () =>
+    smartFolderEditor(document.body, { name: "", query: "tag=health", shared: false }, { canShare: true, sources, search: { apply: (q) => void applied.push(q) }, save: async (f) => void (saved = f) });
+  open();
+  assert.equal($(".sf-dialog h2").textContent, "Advanced search");
+  assert.equal($<HTMLInputElement>(".sf-name").hidden, true, "a search needs no name");
+  assert.equal(byText(".sf-just-me", "Share with workspace").hidden, true);
+  assert.equal(document.activeElement, $(".sf-words .sf-word"), "the keyboard starts in the words");
+  await settle();
+  assert.deepEqual(applied, [], "opening changes nothing in Notes");
+
+  const word = $<HTMLInputElement>(".sf-words .sf-word");
+  word.value = "run";
+  word.dispatchEvent(new window.Event("input"));
+  await settle();
+  assert.deepEqual(applied, ['q=run tag=health'], "Notes shows each change");
+  $(".sf-dialog").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  assert.equal(document.querySelector(".sf-modal"), null);
+  assert.equal(applied.at(-1), "tag=health", "Escape puts back the filters Notes had");
+
+  // Done keeps it; nothing is saved.
+  applied.length = 0;
+  open();
+  const query = $<HTMLInputElement>(".sf-query");
+  query.value = "tag=journal sort=title";
+  query.dispatchEvent(new window.Event("input"));
+  $<HTMLFormElement>(".sf-dialog").requestSubmit();
+  assert.equal(document.querySelector(".sf-modal"), null);
+  assert.deepEqual(applied, ["tag=journal sort=title"]);
+  await settle();
+  assert.deepEqual(applied, ["tag=journal sort=title"], "closing stops the live updates");
+  assert.equal(saved, null);
+
+  // Save as smart folder: a name, suggested, then Save. Back returns to the search.
+  open();
+  byText(".sf-save-as", "Save as smart folder").click();
+  assert.equal($(".sf-dialog h2").textContent, "Save as smart folder");
+  assert.equal($<HTMLInputElement>(".sf-name").hidden, false);
+  assert.equal($<HTMLInputElement>(".sf-name").value, "#health");
+  assert.equal(document.activeElement, $(".sf-name"));
+  $(".sf-dialog").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  assert.ok($(".sf-modal"), "Escape while naming goes back to the search");
+  assert.equal($(".sf-dialog h2").textContent, "Advanced search");
+  byText(".sf-save-as", "Save as smart folder").click();
+  $<HTMLInputElement>(".sf-name").value = "Health";
+  $<HTMLFormElement>(".sf-dialog").requestSubmit();
+  await settle();
+  assert.deepEqual(saved, { id: undefined, name: "Health", query: "tag=health", shared: false });
+  assert.equal(document.querySelector(".sf-modal"), null);
+});
+
+test("a search's suggested name: its tags, folders and words", async () => {
+  const { suggestName } = await import("../web/src/smartFolderEditor.ts");
+  assert.equal(suggestName(""), "All notes");
+  assert.equal(suggestName("tag=health"), "#health");
+  assert.equal(suggestName('tag="work,plan" match=any'), "#work or #plan");
+  assert.equal(suggestName('folder="Areas|Projects" q=launch'), "Areas or Projects · “launch”");
+});

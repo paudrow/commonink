@@ -25,6 +25,7 @@ const page = new NotesPage({
   filtersChanged() {},
   tags: () => [],
   saveQuery() {},
+  advanced() {},
   delete: async () => [],
   rename() {},
   starButton: () => document.createElement("span"),
