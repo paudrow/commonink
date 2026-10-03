@@ -18,7 +18,7 @@ export const LIMITS = {
   register: { max: 20, per: 60 * MINUTE, message: "Too many apps registered from your network." },
   shareLink: { max: 300, per: 10 * MINUTE, message: "Too many tries at links that don't work from your network." },
   share: { max: 200, per: 60 * MINUTE, message: "That's a lot of sharing for one hour." },
-  // Each subscription or refresh fetches a feed from somewhere else on the internet.
+  // Each subscription, refresh or Google calendar added fetches a calendar from somewhere else.
   calendar: { max: 60, per: 60 * MINUTE, message: "That's a lot of calendar subscribing and refreshing for one hour." },
   // Each one uploads a note to Google Drive, and a PDF takes Drive four calls.
   drive: { max: 60, per: 60 * MINUTE, message: "That's a lot of saving to Google Drive for one hour." },
@@ -32,6 +32,8 @@ export const ROUTE_LIMITS: Record<string, keyof typeof LIMITS> = {
   "POST /upload": "upload",
   "POST /calendar/sources": "calendar",
   "POST /calendar/refresh": "calendar",
+  // Open to viewers, and each one reads the whole calendar from Google on the app's quota.
+  "POST /calendar/google": "calendar",
 };
 
 /**
