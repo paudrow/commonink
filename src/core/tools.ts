@@ -2,6 +2,7 @@
 // by the local stdio server (src/mcp.ts) and hosted workspaces (the remote /mcp endpoint), so an
 // agent gets the same tools either way.
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 import { VaultError } from "./paths.ts";
 import type { Vault } from "./vault.ts";
 import type { Calendar } from "./calendar.ts";
@@ -44,6 +45,18 @@ export interface ToolHost {
  * allows that route (cloud/src/access.ts), so MCP can't do more than the app.
  */
 export const TOOL_ROUTES: Record<string, string> = Object.fromEntries(COMMANDS.flatMap((c) => (toolName(c) ? [[toolName(c), c.route]] : [])));
+
+/**
+ * A tool's arguments. Unknown ones are refused, naming them and the ones it takes, rather than
+ * dropped: an agent passing a guessed argument (add_task's `to`) would otherwise have it ignored.
+ */
+function strictInput(c: Command, name: string) {
+  const shape = inputSchema(c, "mcp");
+  const takes = Object.keys(shape).length ? `It takes: ${Object.keys(shape).join(", ")}.` : "It takes no arguments.";
+  return z.strictObject(shape, {
+    error: (iss) => (iss.code === "unrecognized_keys" ? `${name} has no argument ${iss.keys.map((k) => `\`${k}\``).join(", ")}. ${takes} (${c.summary})` : undefined),
+  });
+}
 
 const annotations = (c: Command) =>
   c.readOnly ? { readOnlyHint: true, openWorldHint: false } : { readOnlyHint: false, destructiveHint: !!c.destructive, openWorldHint: !!c.openWorld };
@@ -111,7 +124,7 @@ export function createMcpServer(host: ToolHost): McpServer {
     if (!name || c.settings || (host.may && !host.may(c.route)) || (c.needs === "calendar" && !host.calendar) || (c.needs === "exporter" && !host.exporter) || (c.needs === "sharing" && !host.sharing) || (c.needs === "drive" && !host.drive)) continue;
     (mcp.registerTool as (n: string, config: unknown, cb: (input: Record<string, unknown>) => Promise<Result>) => unknown)(
       name,
-      { title: c.title, description: c.description ?? c.summary, inputSchema: inputSchema(c), annotations: annotations(c) },
+      { title: c.title, description: c.description ?? c.summary, inputSchema: strictInput(c, name), annotations: annotations(c) },
       async (input) => {
         try {
           if (c.readOnly) vault.sync(); // files written straight to disk count too

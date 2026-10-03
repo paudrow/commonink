@@ -39,6 +39,7 @@ function fakeApp(over: Partial<SettingsApp> = {}) {
     shortcuts: () => log.push("shortcuts"),
     connectAgent: () => log.push("connectAgent"),
     agentInstructions: () => log.push("agentInstructions"),
+    deleteAccount: null,
     ...over,
   };
   return { app, log };
@@ -200,4 +201,18 @@ test("the workspace's hidden folders are typed as a list, and only someone who c
   setting.control.set(" Config, /Drafts/ ,, Config");
   assert.deepEqual(log, ["hidden:Config|Drafts"]);
   assert.equal(appSettings(fakeApp({ hiddenFolders: { list: [], canChange: false } }).app).find((s) => s.id === "hidden-folders")!.disabled, true);
+});
+
+test("online, Delete your account is in the Danger zone, last, and only opens the confirming dialog", () => {
+  const { app, log } = fakeApp({ localVault: null, deleteAccount: () => log.push("deleteAccount") });
+  const all = appSettings(app);
+  const del = all.find((s) => s.id === "delete-account")!;
+  assert.equal(del.section, "Danger zone");
+  assert.equal(all.at(-1), del);
+  assert.deepEqual(titles("delete account", app), ["Delete your account"]);
+  assert.ok(del.control.kind === "button" && del.control.danger);
+  if (del.control.kind === "button") del.control.run();
+  assert.deepEqual(log, ["deleteAccount"]);
+  // Locally there's no account to delete.
+  assert.equal(appSettings(fakeApp().app).find((s) => s.id === "delete-account"), undefined);
 });

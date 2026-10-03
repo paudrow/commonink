@@ -9,6 +9,7 @@
 //   -term, -( … )               leave out what it matches
 //   ( … )                       a group: `-` binds tightest, then AND, then OR
 //   tag=x, folder=x, modified>-7d, created<2026-09-01   filters, usable anywhere a word is
+//   status=draft, has=due       frontmatter properties: any other key=value is one
 //   sort=title                  how the list is ordered: on its own, outside ( )
 //
 // The API, small on purpose:
@@ -35,7 +36,13 @@ export type Term =
   /** In one of these folders, or a folder under it. */
   | { kind: "folder"; folders: string[] }
   /** The day a note was last changed (or made) compared with `day` (see dayFrom). */
-  | { kind: "date"; field: "modified" | "created"; op: CompareOp; day: string };
+  | { kind: "date"; field: "modified" | "created"; op: CompareOp; day: string }
+  /**
+   * A frontmatter property: `status=draft` is { key: "status", value: "draft" } (any case; a list
+   * matches if any item does), `has=due` is { key: "due", value: null } (set to anything). `title`
+   * is the note's title.
+   */
+  | { kind: "prop"; key: string; value: string | null };
 
 export type Expr = Term | { kind: "and"; items: Expr[] } | { kind: "or"; items: Expr[] } | { kind: "not"; item: Expr };
 
@@ -74,6 +81,8 @@ export const SYNTAX: SyntaxEntry[] = [
   { group: "Filters", syntax: "folder=name", example: "folder=Projects", about: "In that folder or a folder under it. folder=A|B is either. Quote names with spaces: folder='Health and Fitness'." },
   { group: "Filters", syntax: "modified>day", example: "modified>-7d", about: "Changed after a day (<, <=, >, >= or =). A day is 2026-09-01, today, yesterday, or -7d, -2w, -1m, -1y back. modified>-7d is the last 7 days." },
   { group: "Filters", syntax: "created<day", example: "created<2026-09-01", about: "Made before a day, with the same comparisons and days as modified." },
+  { group: "Filters", syntax: "property=value", example: "status=draft", about: "A frontmatter property has this value, in any case; a list matches if any item does. title=… is the note's title. Quote values with spaces: status='in progress'." },
+  { group: "Filters", syntax: "has=property", example: "has=due", about: "The property is set, to anything. -has=due: notes without one." },
   { group: "Order", syntax: "sort=order", example: "tag=work sort=title", about: "modified (last changed first, the default), date or oldest (by the note's own date), title or created (newest first). On its own, not inside ( )." },
 ];
 
@@ -185,7 +194,8 @@ export function parse(q: string): Parsed {
       else sort = value;
       return null;
     }
-    if (key === "tag") {
+    // `tags:` in frontmatter are tags, so tags=x is tag=x.
+    if (key === "tag" || key === "tags") {
       if (op !== "=") return fail(at, `Write tag=… with "=" ({at})`), null;
       // tag=a|b is either tag; tag=a,b both. Left out (-tag=a,b), each is left out.
       const either = value.includes("|");
@@ -206,8 +216,15 @@ export function parse(q: string): Parsed {
       if (dayFrom(value, "2000-01-01") === null) return fail(at, `"${value}" isn't a day: ${DAY_HELP} ({at})`), null;
       return { kind: "date", field: key, op, day: value };
     }
-    // Any other key=value is just words, as it always was.
-    return text(wordsOf(`${key} ${value}`), false);
+    // Any other key=value is a frontmatter property; has=due is one that's set (has=a,b: both).
+    if (op !== "=") return fail(at, `Only modified and created compare with < and >: write ${key}=… ({at})`), null;
+    if (!value) return fail(at, `Give "${key}" a value, like ${key}=… ({at})`), null;
+    if (key === "has") {
+      const keys = value.split(",").map((k) => k.trim().toLowerCase()).filter(Boolean);
+      if (!keys.length) return fail(at, `Write has=… with a property's name, like has=due ({at})`), null;
+      return all(keys.map((k): Expr => ({ kind: "prop", key: k, value: null })));
+    }
+    return { kind: "prop", key, value };
   };
 
   // A dash before a multi-tag filter leaves out each tag, so it's handled where the filter is read.
@@ -368,6 +385,8 @@ export function format(expr: Expr | null): string {
       return `folder=${expr.folders.length > 1 ? `'${expr.folders.join("|")}'` : quoted(expr.folders[0])}`;
     case "date":
       return `${expr.field}${expr.op}${expr.day}`;
+    case "prop":
+      return expr.value === null ? `has=${expr.key}` : `${expr.key}=${quoted(expr.value)}`;
     case "not":
       return expr.item.kind === "and" || expr.item.kind === "or" ? `-(${format(expr.item)})` : `-${format(expr.item)}`;
     case "and":
