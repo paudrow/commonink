@@ -49,7 +49,7 @@ export interface EditorContext {
   folders(): string[];
   /** Show what carries a tag: notes, or (from a task) tasks. */
   openTag(tag: string, where?: "notes" | "tasks"): void;
-  /** Offer to keep a note query as a smart folder (from a ::query widget's settings). */
+  /** Offer to keep a note query as a smart folder (from a ::view widget's settings). */
   saveSmartFolder(query: string, name: string, anchor: HTMLElement): void;
   /** Show a person's tasks. */
   openPerson(name: string): void;

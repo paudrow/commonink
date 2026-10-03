@@ -85,7 +85,7 @@ export const notes = [
       smart_folder: str({ flag: "smart", describe: "If set, list the notes in this saved view (smart folder: name or ID) instead" }),
       query: str({
         describe:
-          'If set, list the notes this note query matches instead, written as a view or ::query writes it: q="(launch OR release) -draft" folder=Projects tag=work modified>-7d -tag=done sort=created. In q, side by side is AND, OR is either, -x leaves out, ( ) groups, and tag=, folder= and dates work inside. See commonink help query.',
+          'If set, list the notes this note query matches instead, written as a view or ::view writes it: q="(launch OR release) -draft" folder=Projects tag=work modified>-7d -tag=done sort=created. In q, side by side is AND, OR is either, -x leaves out, ( ) groups, and tag=, folder= and dates work inside. See commonink help query.',
       }),
       include_archived: bool({ flag: "all", describe: "Also archived notes" }),
       archived: bool({ only: "cli", describe: "Only archived notes" }),

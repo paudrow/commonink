@@ -1,4 +1,4 @@
-// The "?" beside every place a note query is typed (the Notes filter, a ::query's settings, the
+// The "?" beside every place a note query is typed (the Notes filter, a ::view's settings, the
 // smart folder editor). It's a link to /query-help, so it opens in a new tab too; a plain click
 // asks the app to show the page (main.ts listens for QUERY_HELP).
 import { el } from "./dom.ts";

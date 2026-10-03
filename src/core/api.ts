@@ -316,6 +316,8 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     }
     case "GET /tasks/count":
       return json({ open: vault.openTaskCount() });
+    case "GET /properties":
+      return json(vault.properties());
     case "GET /tags":
       return json(vault.tags());
     case "GET /asset-tags":

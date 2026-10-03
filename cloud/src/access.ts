@@ -34,6 +34,7 @@ export const WORKSPACE_ROUTES = {
   "GET /favorites": "viewer",
   "GET /smart-folders": "viewer",
   "GET /tags": "viewer",
+  "GET /properties": "viewer",
   "GET /asset-tags": "viewer",
   "GET /today": "viewer",
   "GET /export": "viewer",

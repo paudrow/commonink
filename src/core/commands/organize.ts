@@ -176,7 +176,7 @@ export const smartFolders = [
     summary: "Your saved views (smart folders: note queries kept as notes in Views/) with counts, or with a name, the notes in one",
     description:
       "The user's saved views (smart folders): note queries kept as notes in Views/, shown in the sidebar, each with its query, its note's path and how many notes match now. " +
-      "A view is a note right in Views/ (shared) or in Views/<user ID>/ (just that person's) whose body has one ::query{…} line. list_notes with smart_folder lists one's notes.",
+      "A view is a note right in Views/ (shared) or in Views/<user ID>/ (just that person's) whose body has one ::view{…} line. list_notes with smart_folder lists one's notes.",
     examples: ["commonink smart", "commonink smart planning"],
     readOnly: true,
     args: { name: str({ only: "cli", pos: "rest", describe: "List the notes in this one instead" }) },
@@ -196,8 +196,8 @@ export const smartFolders = [
     title: "Save view",
     summary: 'Save a note query (q="…" folder=… tag=… sort=date) as a view: a note in Views/',
     description:
-      "Create a saved view (a smart folder: a note in Views/ named for the view, holding the query as one ::query{…} line, shown in the sidebar), or change one by id: " +
-      "a new name renames its note, and the words around its query line stay. Writing such a note yourself does the same. The query uses ::query's keys: " +
+      "Create a saved view (a smart folder: a note in Views/ named for the view, holding the query as one ::view{…} line, shown in the sidebar), or change one by id: " +
+      "a new name renames its note, and the words around its query line stay. Writing such a note yourself does the same. The query uses ::view's keys: " +
       'q="words" folder=Projects tag=work sort=title limit=10 (all optional; a tag includes the tags under it). Several tags (tag=work,plan or ' +
       "tag=work tag=plan) means notes with all of them; add match=any for notes with any of them. sort is modified (last changed first, the default), date (the note's own date: " +
       "frontmatter date/created, else a YYYY-MM-DD in its name, newest first), oldest (the same, oldest first), title or created (newest note first). " +

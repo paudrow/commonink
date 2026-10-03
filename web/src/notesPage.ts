@@ -185,7 +185,7 @@ export class NotesPage {
   private get scope() {
     return this.tab === "archive" ? "archived" : "active";
   }
-  /** What Notes shows, as a note query: the same thing a ::query widget or a smart folder holds. */
+  /** What Notes shows, as a note query: the same thing a ::view widget or a smart folder holds. */
   get query(): NoteQuery {
     const q = this.input.value.trim();
     return { ...(q && { q }), ...(this.folder && { folder: this.folder }), ...(this.tag && { tag: this.tag }), ...(this.match === "any" && tagList(this.tag).length > 1 && { match: "any" as const }), ...(this.sort !== "modified" && { sort: this.sort }) };

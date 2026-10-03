@@ -8,7 +8,7 @@ Your workspace at a glance. Each block below is one line of markdown (or a code 
 
 ## Recently touched
 
-::query{limit=5 label="Latest"}
+::view{limit=5 label="Latest"}
 
 ## Journal
 

@@ -105,7 +105,7 @@ test("an expression written out reads back the same", () => {
   assert.equal(format(parse("a (b OR c) -(d OR e)").expr), "a (b OR c) -(d OR e)");
 });
 
-test("grouping survives saving: a smart folder, a ::query's settings and the attrs they're written as", () => {
+test("grouping survives saving: a smart folder, a ::view's settings and the attrs they're written as", () => {
   const q = `(tag=work OR tag=home) -folder=Archive 'launch plan'`;
   const saved = formatQuery(parseQuery(serializeAttrs({ q, sort: "title" })));
   assert.equal(saved, `q="${q}" sort=title`);

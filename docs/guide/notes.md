@@ -64,7 +64,7 @@ Drag cards and columns; each move is one edit to the note, so it saves and undoe
 Widgets are one line of markdown, so agents can write them too:
 
 - `::tasks{tag=work due<=today}` rolls up tasks from across your notes.
-- `::query{tag=project sort=modified}` is a live list of matching notes.
+- `::view{tag=project sort=modified}` is a live list of matching notes. Add `fields=status,due` to show those properties, and `layout=table`, `layout=board` or `layout=calendar` to see the same notes as a table, as columns by `status` (drag a card to change it), or on a month by their `due` date.
 - `::calendar{folder=Journal}` is a month of daily notes, and `::agenda{days=3}` your next few days of events.
 - `::timer{duration=25m}` and `::stopwatch` keep time.
 
@@ -79,7 +79,7 @@ A ```` ```mermaid ```` block draws a diagram, and `$…$` sets math.
 
 ### Searching and filtering
 
-The Notes filter, views, `::query` and `commonink ls --query` all read the same query language. Plain words find notes with all of them, each as the start of a word (`plan` finds "planning"). Combine them with `AND` and `OR` (in capitals), leave things out with `-`, and group with parentheses: without them, AND goes before OR, so `a b OR c` means `(a b) OR c`. For example:
+The Notes filter, views, `::view` and `commonink ls --query` all read the same query language. Plain words find notes with all of them, each as the start of a word (`plan` finds "planning"). Combine them with `AND` and `OR` (in capitals), leave things out with `-`, and group with parentheses: without them, AND goes before OR, so `a b OR c` means `(a b) OR c`. For example:
 
 ```
 (tag=work OR tag=home) -folder=Archive "launch plan" sort=created
@@ -93,7 +93,7 @@ In the app, the **?** beside the Notes filter (or **Query syntax** in ⌘K) list
 | | Write | Try | What it does |
 | --- | --- | --- | --- |
 | Words | `word` | `plan` | Notes with a word starting with it: "plan" finds planning. Several words: notes with all of them. |
-| Words | `"a phrase"` | `"launch plan"` | The words together, in this order. Inside q="…" (a saved view or ::query), use single quotes. |
+| Words | `"a phrase"` | `"launch plan"` | The words together, in this order. Inside q="…" (a saved view or ::view), use single quotes. |
 | Combine | `a AND b` | `launch AND budget` | Both. Words side by side mean AND too, so launch budget is the same. |
 | Combine | `a OR b` | `budget OR costs` | Either one. Write OR and AND in capitals: lowercase they're just words. |
 | Combine | `-term` | `launch -draft` | Leave out notes that match: -word, -"a phrase", -tag=old, -folder=Archive. |

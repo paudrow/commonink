@@ -51,7 +51,7 @@ test("views narrowed to a renamed folder follow it: the query line in each view 
   const inside = vault.saveSmartFolder("you", { name: "Deep ideas", query: "folder=Ideas/Deep sort=title", shared: true }, true, "you").view;
   const other = vault.saveSmartFolder("you", { name: "Book", query: "folder=Ideasbook", shared: false }, true, "you").view;
   // A view someone wrote by hand, with words above its query line and two folders.
-  vault.create("Views/Both.md", 'Ideas and books.\n\n::query{folder="Ideas|Ideasbook"}\n', "you");
+  vault.create("Views/Both.md", 'Ideas and books.\n\n::view{folder="Ideas|Ideasbook"}\n', "you");
   const r = vault.moveFolder("Ideas", "Thoughts", "you");
   assert.deepEqual(r.views.map((v) => v.path).sort(), ["Views/Both.md", "Views/Deep ideas.md"]);
   assert.deepEqual(vault.smartFolders("you").map((f) => [f.name, f.query, f.count]), [
@@ -61,11 +61,11 @@ test("views narrowed to a renamed folder follow it: the query line in each view 
   ]);
   assert.equal(vault.findSmartFolder("you", "Deep ideas").id, inside.id);
   assert.equal(vault.findSmartFolder("you", "Book").id, other.id);
-  assert.equal(fs.readFileSync(path.join(dir, "Views/Both.md"), "utf8"), 'Ideas and books.\n\n::query{folder="Thoughts|Ideasbook"}\n');
+  assert.equal(fs.readFileSync(path.join(dir, "Views/Both.md"), "utf8"), 'Ideas and books.\n\n::view{folder="Thoughts|Ideasbook"}\n');
 });
 
 test("a folder can't be renamed onto one that has notes, into itself, or away from Archive, People, Templates or Views", () => {
-  const { vault } = openTempVault({ ...FILES, "Thoughts/Old.md": "# Old\n", "People/Ana.md": "# Ana\n", "Templates/Daily.md": "# {{date}}\n", "Views/Work.md": "::query{tag=work}\n" });
+  const { vault } = openTempVault({ ...FILES, "Thoughts/Old.md": "# Old\n", "People/Ana.md": "# Ana\n", "Templates/Daily.md": "# {{date}}\n", "Views/Work.md": "::view{tag=work}\n" });
   assert.throws(() => vault.moveFolder("Ideas", "Thoughts", "you"), /already a folder named Thoughts/);
   assert.throws(() => vault.moveFolder("Ideas", "Ideas/Deep/More", "you"), /can't move into itself/);
   assert.throws(() => vault.moveFolder("Nothing", "Else", "you"), /nothing in Nothing/);
