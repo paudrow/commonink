@@ -17,3 +17,13 @@ test("hashed scripts and styles are cached for good, and pages are fetched fresh
   assert.equal(page.headers.get("cache-control"), "no-store");
   assert.equal((await cloud.request(null, "GET", "/_headers")).headers.get("cache-control"), "no-store"); // not served: the app's page instead
 });
+
+test("each of the app's pages is the app, so going straight to one (or reloading on it) draws it", async () => {
+  const me = await cloud.signIn("pages");
+  for (const p of ["/notes", "/tasks", "/tags", "/query-help", "/checkup", "/history", "/calendar", "/contacts", "/replace"]) {
+    const res = await cloud.request(me, "GET", p);
+    assert.equal(res.status, 200, p);
+    assert.match(String(res.headers.get("content-type")), /^text\/html/, p);
+    assert.match(await res.text(), /<script type="module" src="\/assets\/app\.js" nonce="[^"]+">/, p);
+  }
+});
