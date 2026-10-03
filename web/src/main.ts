@@ -3868,8 +3868,9 @@ async function boot() {
   void organizing().then((id) => (organizingNow = id));
   setupUserSettings(userSettingsPath(myName), personalSettings());
   void applyUserFile();
-  void askOrganizingIfNew({
-    workspace: workspaceId || "local",
+  // Asked of a new hosted workspace only: a local vault is a folder you've already organized your way.
+  if (workspaceId) void askOrganizingIfNew({
+    workspace: workspaceId,
     notes: notes.filter((n) => n.kind !== "asset").length,
     canEdit: !viewer,
     gamified: gamified(),
