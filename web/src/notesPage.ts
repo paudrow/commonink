@@ -16,7 +16,9 @@ import { parseDirective } from "./widgets/args.ts";
 import { WIDGETS } from "./widgets/index.ts";
 import { tagChip, tagFilter } from "./tagPicker.ts";
 import type { ToastSpec } from "./toast.ts";
-import { formatQuery, tagList, type NoteQuery, type QuerySort } from "../../src/core/query.ts";
+import { folderList, formatQuery, tagList, type NoteQuery, type QuerySort } from "../../src/core/query.ts";
+import { parse, textWords } from "../../src/core/queryGrammar.ts";
+import { queryHelpLink } from "./queryHelp.ts";
 import { hydrateTaskChips, withTaskChips } from "./taskChips.ts";
 import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
 import { linkClick, sideClick } from "./panes.ts";
@@ -35,8 +37,8 @@ interface Hooks {
   tags(): TagCount[];
   /** Save these filters (a query like `tag=work sort=title`) as a smart folder. */
   saveQuery(anchor: HTMLElement, query: string): void;
-  /** The star (Add to / Remove from Favorites) for the tag Notes is narrowed to. */
-  starButton(tag: string): HTMLElement;
+  /** The star (Add to / Remove from Favorites) for what Notes shows: a tag, a smart folder, or any search. Empty with no filters. */
+  starButton(query: NoteQuery): HTMLElement | "";
   /** Show every task of this person's. */
   openPerson(name: string): void;
   /** You can only view this workspace: chips show, but don't open editors. */
@@ -81,6 +83,8 @@ export class NotesPage {
   private bulk: HTMLElement;
   private more: HTMLElement;
   private search: HTMLElement;
+  /** What's wrong with the filter's query, if anything ("Missing ")" …"). */
+  private problem = el("div", { class: "feed-problem", role: "status", hidden: true });
   private filters: HTMLElement;
   private keys: HTMLElement;
   /** The tab's one line under the filters. */
@@ -94,6 +98,8 @@ export class NotesPage {
   private folder = "";
   /** The tag Notes is narrowed to ("" for any); its children count too. */
   private tag = "";
+  /** With several tags (a smart folder's), whether a note needs any of them rather than all. */
+  private match: "all" | "any" = "all";
   private sort: QuerySort = "modified";
   private items: FeedItem[] = [];
   private page: FeedPage | null = null;
@@ -115,7 +121,7 @@ export class NotesPage {
     this.folderSel = el("select", { class: "qt-select feed-folder", "aria-label": "Folder" });
     this.folderSel.addEventListener("change", () => ((this.folder = this.folderSel.value), (this.focus = 0), this.reload()));
     this.tagBar = el("div", { class: "feed-folders" });
-    this.sortSel = el("select", { class: "qt-select feed-sort", "aria-label": "Sort" }, el("option", { value: "modified" }, "Recently changed"), el("option", { value: "date" }, "Newest by date"), el("option", { value: "oldest" }, "Oldest by date"), el("option", { value: "title" }, "By title"));
+    this.sortSel = el("select", { class: "qt-select feed-sort", "aria-label": "Sort" }, el("option", { value: "modified" }, "Recently changed"), el("option", { value: "date" }, "Newest by date"), el("option", { value: "oldest" }, "Oldest by date"), el("option", { value: "title" }, "By title"), el("option", { value: "created" }, "Newest created"));
     this.sortSel.addEventListener("change", () => ((this.sort = this.sortSel.value as QuerySort), (this.focus = 0), this.reload()));
     this.saveBtn = el(
       "button",
@@ -127,7 +133,7 @@ export class NotesPage {
     this.list = el("div", { class: "feed-list", role: "list" });
     this.more = el("div", { class: "feed-more" });
     // The sort sits in the search box, so the filters fit on one row.
-    this.search = el("label", { class: "feed-search" }, icon("search", 16), this.input, this.sortSel, el("kbd", {}, "/"));
+    this.search = el("label", { class: "feed-search" }, icon("search", 16), this.input, queryHelpLink(), this.sortSel, el("kbd", {}, "/"));
     this.filters = el("div", { class: "feed-filters" }, this.scopeBar, this.tagBar, this.folderSel, this.saveBtn);
     this.keys = el(
       "footer",
@@ -135,7 +141,7 @@ export class NotesPage {
       ...[["j k", "move"], ["n", "new"], ["↵", "expand"], ["o", "open"], ["s", "star"], ["e", "archive"], ["⌫", "delete"], ["x", "select"], ["/", "filter"]].map(([k, t]) => el("span", {}, el("kbd", {}, k), t)),
     );
     // The heading scrolls away; the search and filters stay at the top, and the list scrolls clear of them.
-    const head = el("header", { class: "feed-head" }, this.search, this.filters, this.about);
+    const head = el("header", { class: "feed-head" }, this.search, this.problem, this.filters, this.about);
     this.root.append(
       el("div", { class: "feed" }, this.heading, head, this.bulk, this.list, this.elsewhere, this.more, this.trashHost, this.keys),
     );
@@ -171,7 +177,7 @@ export class NotesPage {
   /** What Notes shows, as a note query: the same thing a ::query widget or a smart folder holds. */
   get query(): NoteQuery {
     const q = this.input.value.trim();
-    return { ...(q && { q }), ...(this.folder && { folder: this.folder }), ...(this.tag && { tag: this.tag }), ...(this.sort !== "modified" && { sort: this.sort }) };
+    return { ...(q && { q }), ...(this.folder && { folder: this.folder }), ...(this.tag && { tag: this.tag }), ...(this.match === "any" && tagList(this.tag).length > 1 && { match: "any" as const }), ...(this.sort !== "modified" && { sort: this.sort }) };
   }
 
   /**
@@ -190,6 +196,7 @@ export class NotesPage {
     if (opts.query) {
       this.input.value = opts.query.q ?? "";
       this.sort = opts.query.sort ?? "modified";
+      this.match = opts.query.match ?? "all";
       opts = { ...opts, folder: opts.query.folder ?? "", tag: opts.query.tag ?? "" };
       this.focus = 0;
       this.scrollTop = 0;
@@ -221,6 +228,9 @@ export class NotesPage {
     const seq = ++this.seq;
     this.renderTabs();
     const q = this.input.value.trim();
+    const problem = parse(q).error;
+    this.problem.hidden = !problem;
+    this.problem.textContent = problem?.message ?? "";
     const trash = this.hooks.trash();
     if (this.tab === "trash") {
       this.hooks.filtersChanged();
@@ -279,11 +289,11 @@ export class NotesPage {
     const page = this.page!;
     this.folderSel.replaceChildren(
       // A subfolder picked in the sidebar is listed too, so it shows as the filter in use.
-      ...["", ...page.folders, ...(this.folder && !page.folders.includes(this.folder) ? [this.folder] : [])].map((f) => el("option", { value: f }, f || "All folders")),
+      ...["", ...page.folders, ...(this.folder && !page.folders.includes(this.folder) ? [this.folder] : [])].map((f) => el("option", { value: f }, folderList(f).join(" or ") || "All folders")),
     );
     this.folderSel.value = this.folder;
     this.folderSel.classList.toggle("is-on", !!this.folder);
-    this.tagBar.replaceChildren(tagFilter({ current: this.tag, tags: this.hooks.tags, count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }), tagList(this.tag).length === 1 ? this.hooks.starButton(this.tag) : "");
+    this.tagBar.replaceChildren(tagFilter({ current: this.tag, any: this.match === "any", tags: this.hooks.tags, count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }), this.hooks.starButton(this.query));
     this.sortSel.value = this.sort;
     this.saveBtn.hidden = !formatQuery(this.query);
     this.hooks.filtersChanged();
@@ -306,7 +316,7 @@ export class NotesPage {
   private empty(q: string, filtered: boolean): HTMLElement {
     if (filtered) {
       const which = this.tab === "archive" ? "archived " : "";
-      const where = `${this.tag ? ` tagged ${tagList(this.tag).map((t) => `#${t}`).join(" and ")}` : ""}${this.folder ? ` in ${this.folder}` : ""}`;
+      const where = `${this.tag ? ` tagged ${tagList(this.tag).map((t) => `#${t}`).join(this.match === "any" ? " or " : " and ")}` : ""}${this.folder ? ` in ${folderList(this.folder).join(" or ")}` : ""}`;
       return emptyState({
         icon: "search",
         title: q ? `No ${which}notes${where} match “${q}”` : `No ${which}notes${where}`,
@@ -415,7 +425,7 @@ export class NotesPage {
     let body: HTMLElement;
     if (open) body = this.fullBody(item);
     else if (q && item.lines.length) {
-      body = el("div", { class: "fc-hits" }, ...item.lines.map((l) => el("div", { class: "fc-hit", html: markTerms(l.text, q), onclick: (e: Event) => (e.stopPropagation(), this.hooks.open(item.path, l.line)) })));
+      body = el("div", { class: "fc-hits" }, ...item.lines.map((l) => el("div", { class: "fc-hit", html: markTerms(l.text, textWords(parse(q).expr).join(" ")), onclick: (e: Event) => (e.stopPropagation(), this.hooks.open(item.path, l.line)) })));
     } else if (item.kind === "html") body = el("div", { class: "fc-body is-muted" }, "HTML note · click to preview");
     else if (item.role === "agents") body = el("div", { class: "fc-body is-muted" }, AGENTS_BLURB);
     else {
