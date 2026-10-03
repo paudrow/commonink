@@ -256,3 +256,11 @@ test("a contact's check_in sets when they're next due: that long after the last 
   assert.deepEqual(due("2026-10-02"), [["Kim", "2026-10-02"], ["Ola", "2026-10-02"]]);
   assert.deepEqual(due("2026-10-05"), [["Ola", "2026-10-02"], ["Jane Doe", "2026-10-04"], ["Kim", "2026-10-05"]]);
 });
+
+test("a note's people: property counts as mentioning each of them", () => {
+  const { vault } = openTempVault({
+    "People/Sam Lee.md": "# Sam Lee\n",
+    "Meetings/Sync.md": '---\ndate: 2026-09-10\npeople:\n  - "[[People/Sam Lee]]"\n---\n# Sync\n',
+  });
+  assert.deepEqual(vault.contacts().map((c) => [c.name, c.mentions, c.lastContacted]), [["Sam Lee", 1, "2026-09-10"]]);
+});

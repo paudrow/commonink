@@ -13,6 +13,7 @@ import type { Calendar, EventDraft, NoteWrite } from "./calendar.ts";
 import { notePath } from "./ids.ts";
 import { isSort } from "./query.ts";
 import { checkup } from "./checkup.ts";
+import { noteProperties, propertiesInUse, setPropertyType } from "./properties.ts";
 
 export interface ApiHost {
   vault: Vault;
@@ -318,6 +319,17 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json({ open: vault.openTaskCount() });
     case "GET /tags":
       return json(vault.tags());
+    // Property types (properties.ts): declared in Config/Settings.md, the rest guessed.
+    case "GET /properties":
+      return json(q("path") ? noteProperties(vault, q("path")) : propertiesInUse(vault));
+    case "POST /properties/type": {
+      const r = setPropertyType(vault, str("name"), str("type"), actor);
+      if (r) {
+        host.written(r.path, vault.files.read(r.path), r.version, r.change);
+        if (r.change?.op === "create") host.tree();
+      }
+      return json({ version: r?.version ?? null });
+    }
     case "GET /asset-tags":
       return json(vault.assetTags());
     case "GET /diff":

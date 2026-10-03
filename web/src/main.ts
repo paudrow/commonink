@@ -16,6 +16,7 @@ import { notesChanged } from "./editor/livePreview.ts";
 import { createState, lineNumbersFor, lineNumbersSlot, openLinkToSide, remote, setVimDisplayLines, vimSlot } from "./editor/setup.ts";
 import { linkTargetAt } from "./editor/linkAt.ts";
 import { bumpEmbeds, codeRange, editorContext } from "./editor/blocks.ts";
+import { loadPropertyTypes, onPropertyTypes } from "./propertyTypes.ts";
 import { refreshFolder } from "./editor/folderLine.ts";
 import { codeWrapByDefault, setCodeWrapByDefault } from "./code.ts";
 import { hasFencedCode } from "../../src/core/fence.ts";
@@ -2183,7 +2184,7 @@ function onMessage(m: ServerMsg) {
   if (m.type !== "change") vaultEvents.dispatchEvent(new Event("change"));
   if ((m.type === "note" || m.type === "removed") && m.path === userSettingsFile()) void applyUserFile();
   // The settings file changed, here or anywhere.
-  if ((m.type === "note" || m.type === "removed") && m.path === SETTINGS_NOTE) void Promise.all([loadGamified(), organizing().then((id) => (organizingNow = id))]);
+  if ((m.type === "note" || m.type === "removed") && m.path === SETTINGS_NOTE) void Promise.all([loadGamified(), loadPropertyTypes(), organizing().then((id) => (organizingNow = id))]);
   switch (m.type) {
     case "note": {
       const meta = notes.find((n) => n.path === m.path);
@@ -4571,7 +4572,8 @@ async function boot() {
     renderPresence();
   }, 30_000);
 
-  const [info, list, starred, recent, tagList, smart] = await Promise.all([api.info(), api.notes(), api.favorites(), api.changes(), api.tags(), api.smartFolders(), loadGamified()]);
+  const [info, list, starred, recent, tagList, smart] = await Promise.all([api.info(), api.notes(), api.favorites(), api.changes(), api.tags(), api.smartFolders(), loadGamified(), loadPropertyTypes()]);
+  onPropertyTypes(() => panes.forEach((p) => p.session?.kind === "md" && bumpEmbeds(p.view))); // a type picked in a note's properties, here or by someone else
   onGamified(() => renderTree()); // an owner flipped it here: the sidebar shows everything, or waits again
   onGamified(() => !$("#today-view").hidden && void showToday({ push: false })); // the Today page gains or drops its week card
   $("#vault-name").textContent = info.name;
