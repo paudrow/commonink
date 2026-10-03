@@ -9,8 +9,12 @@ import { button } from "./widgets/core.ts";
 import type { OptionalItem } from "./sidebar.ts";
 import { INKS, progressText, type InkId, type InkStats } from "./inks.ts";
 import type { Billing } from "./api.ts";
+import { PRESETS, type PresetId } from "../../src/core/presets.ts";
 
 export type Section = "Appearance" | "Sidebar" | "Editor" | "Keyboard" | "Agents" | "Workspace" | "Plan" | "Danger zone";
+/** Whose a setting is, as VS Code splits User and Workspace: yours (this browser, or your settings file), or everyone's here. */
+export type Scope = "user" | "workspace";
+export const scopeOf = (s: Setting): Scope => (s.section === "Workspace" ? "workspace" : "user");
 export const SECTIONS: Section[] = ["Appearance", "Sidebar", "Editor", "Keyboard", "Agents", "Workspace", "Plan", "Danger zone"];
 
 export type Theme = "system" | "light" | "dark";
@@ -28,6 +32,8 @@ export interface Setting {
   description: string;
   /** More words search finds it by. */
   keywords?: string;
+  /** Its key in the settings file (Config/Users/<you>.md, or Config/Settings.md for the workspace's). */
+  key?: string;
   /** Shown but greyed out: it only matters once another setting is on. */
   disabled?: boolean;
   control: Control;
@@ -55,9 +61,15 @@ export interface SettingsApp {
   /** The sidebar items kept showing before they're in use. */
   sidebarPinned: Partial<Record<OptionalItem, boolean>>;
   setSidebarPinned(item: OptionalItem, on: boolean): void;
-  /** Whether the workspace is gamified (gamify.ts), and whether you may change that: its owners online, and you locally. */
+  /** Whether the workspace is gamified (gamify.ts), and whether you may change that: anyone who can edit its notes. */
   gamified: { on: boolean; canChange: boolean };
   setGamified(on: boolean): void;
+  /** How agents are told to organize the vault (presets.ts), or null if it hasn't been picked. */
+  organizing: PresetId | null;
+  setOrganizing(id: PresetId): void;
+  /** Whether Config/ shows among the sidebar's folders. */
+  showConfig: boolean;
+  setShowConfig(on: boolean): void;
   /** Locally, where the vault and the `commonink` command are, for the agent setup; online, null. */
   localVault: { vault?: string; projectRoot?: string } | null;
   shortcuts(): void;
@@ -66,6 +78,8 @@ export interface SettingsApp {
   billing: Billing | null;
   subscribe(interval: "month" | "year"): void;
   manageBilling(): void;
+  /** Open the note every agent reads first (Config/AGENTS.md, or a root AGENTS.md from before Config/). */
+  agentInstructions(): void;
   /** Online, opens Delete your account (deleteAccount.ts), which asks you to type your email; locally, null. */
   deleteAccount: (() => void) | null;
 }
@@ -85,6 +99,7 @@ export function appSettings(app: SettingsApp): Setting[] {
   const sidebar = !game ? [] : WAITING.map(
     ({ item, name, when, keywords }): Setting => ({
       id: `sidebar-${item}`,
+      key: "always_show",
       section: "Sidebar",
       title: `Always show ${name}`,
       description: `The sidebar shows ${name} once ${when}. Turn this on to keep it there even before then.`,
@@ -95,6 +110,7 @@ export function appSettings(app: SettingsApp): Setting[] {
   return [
     {
       id: "theme",
+      key: "theme",
       section: "Appearance",
       title: "Theme",
       description: "Light, dark, or whichever your system uses.",
@@ -112,6 +128,7 @@ export function appSettings(app: SettingsApp): Setting[] {
     },
     {
       id: "ink",
+      key: "ink",
       section: "Appearance",
       title: "Ink",
       description: game ? "The color of links, ticks and highlights. Indigo is yours from the start; use the app to earn the others." : "The color of links, ticks and highlights.",
@@ -120,7 +137,17 @@ export function appSettings(app: SettingsApp): Setting[] {
     },
     ...sidebar,
     {
+      id: "show-config",
+      key: "show_config_folder",
+      section: "Sidebar",
+      title: "Show the Config folder",
+      description: "Config holds this workspace's settings file. It stays out of the sidebar's folders unless this is on; Settings and ⌘K reach it either way.",
+      keywords: "config folder hidden settings.md yaml sidebar show",
+      control: { kind: "toggle", on: app.showConfig, set: app.setShowConfig },
+    },
+    {
       id: "line-numbers",
+      key: "line_numbers",
       section: "Editor",
       title: "Line numbers",
       description: "Number the lines beside a note's text. Vim's :set nu does the same.",
@@ -129,6 +156,7 @@ export function appSettings(app: SettingsApp): Setting[] {
     },
     {
       id: "code-wrap",
+      key: "wrap_code",
       section: "Editor",
       title: "Wrap code",
       description: "Wrap long lines in code blocks instead of scrolling them. A block marked wrap or nowrap keeps its own.",
@@ -137,6 +165,7 @@ export function appSettings(app: SettingsApp): Setting[] {
     },
     {
       id: "html-mode",
+      key: "html_notes",
       section: "Editor",
       title: "HTML notes",
       description: `Show HTML notes as the page they make, or as their source. ${formatKeys("Mod-e")} switches while one is open.`,
@@ -153,6 +182,7 @@ export function appSettings(app: SettingsApp): Setting[] {
     },
     {
       id: "vim",
+      key: "vim",
       section: "Keyboard",
       title: "Vim keys",
       description: "Edit notes and tasks with Vim's keys and modes.",
@@ -161,6 +191,7 @@ export function appSettings(app: SettingsApp): Setting[] {
     },
     {
       id: "vim-display-lines",
+      key: "vim_display_lines",
       section: "Keyboard",
       title: "Vim: j and k by screen line",
       description: "With Vim keys on, j and k move by the line on screen (gj, gk), not the line in the file.",
@@ -178,6 +209,7 @@ export function appSettings(app: SettingsApp): Setting[] {
     },
     ...(!game ? [] : [{
       id: "shortcut-tips",
+      key: "shortcut_tips",
       section: "Keyboard",
       title: "Shortcut tips",
       description: "When you've clicked a button that has a keyboard shortcut a few times, a tip says once which keys do the same.",
@@ -202,15 +234,39 @@ export function appSettings(app: SettingsApp): Setting[] {
           control: { kind: "button", label: "Connected agents…", run: app.connectAgent },
         },
     {
+      id: "agent-instructions",
+      section: "Workspace",
+      title: "Agent instructions",
+      description: "What every agent here reads before it works in this workspace: how to file, name and write notes. It's AGENTS.md in the Config folder, a note you edit like any other.",
+      keywords: "agents.md agent ai instructions conventions rules claude cursor mcp prompt heuristics",
+      control: { kind: "button", label: "Open AGENTS.md", run: app.agentInstructions },
+    },
+    {
       id: "gamified",
+      key: "gamified",
       section: "Workspace",
       title: "Unlock as you go",
       description: app.gamified.canChange
         ? "For everyone in this workspace. On, the sidebar grows as you use it, inks are earned, tips teach shortcuts and clearing Today gets a small celebration. Off, everything is there from the start, with nothing to unlock and no celebrations."
-        : `${game ? "On" : "Off"} for this workspace: ${game ? "the sidebar grows as you use it, inks are earned, and tips and small celebrations show up" : "everything is there from the start"}. Only an owner can change it.`,
+        : `${game ? "On" : "Off"} for this workspace: ${game ? "the sidebar grows as you use it, inks are earned, and tips and small celebrations show up" : "everything is there from the start"}. You can view this workspace but not change it.`,
       keywords: "gamification gamified game progressive disclosure unlock earn rewards celebrate tips beginner simple everything admin owner",
       disabled: !app.gamified.canChange,
       control: { kind: "toggle", on: game, set: app.setGamified },
+    },
+    {
+      id: "organizing",
+      key: "organizing",
+      section: "Workspace",
+      title: "Organizing style",
+      description: `How your agents file notes: ${PRESETS.filter((p) => p.rules).map((p) => p.name).join(", ")}, or no rules. Changing it rewrites the Organizing section of Config/AGENTS.md and leaves the rest of that note alone.`,
+      keywords: "para second brain zettelkasten journal folders organize organization agents.md preset structure",
+      disabled: !app.gamified.canChange,
+      control: {
+        kind: "choice",
+        value: app.organizing ?? "none",
+        options: PRESETS.map((p) => ({ value: p.id, label: p.id === "none" ? "No rules" : p.name })),
+        set: (v) => app.setOrganizing(v as PresetId),
+      },
     },
     ...planSettings(app),
     ...(app.deleteAccount
@@ -359,23 +415,31 @@ function row(s: Setting): HTMLElement {
   const id = `st-${s.id}`;
   const desc = el("span", { class: "st-desc", id: `${id}-desc` }, s.description);
   const control = controlFor(s, id, desc.id);
+  const key = s.key ? el("code", { class: "st-key", title: "Its name in the settings file" }, s.key) : null;
   const title = s.control.kind === "toggle" || s.control.kind === "choice" ? el("label", { class: "st-title", for: id }, s.title) : el("h4", { class: "st-title" }, s.title);
   // A checkbox sits beside its description, as VS Code has it, and the whole line toggles it. Other controls go under.
   title.id = `${id}-title`;
   if (s.control.kind === "toggle") control.setAttribute("aria-labelledby", title.id); // its name is the title, not the title and the line too
-  const body = s.control.kind === "toggle" ? [title, el("label", { class: "st-inline" }, control, desc)] : [title, desc, control];
+  const head = key ? el("div", { class: "st-name" }, title, key) : title;
+  const body = s.control.kind === "toggle" ? [head, el("label", { class: "st-inline" }, control, desc)] : [head, desc, control];
   return el("div", { class: `st-row${s.disabled ? " is-disabled" : ""}`, "data-setting": s.id }, ...body);
 }
 
-let current: { focus(): void; render(): void } | null = null;
+let current: { focus(): void; render(): void; close(): void } | null = null;
 
 /** Redraw Settings, if it's open: for a change that applies once the server has it (a workspace's setting). */
 export function refreshSettings() {
   current?.render();
 }
 
+/** Close Settings, if it's open. */
+export function closeSettings() {
+  current?.close();
+}
+
 /** Open Settings (or, when it's open, go to its search box), with `query` in the search box. */
-export function openSettings(settings: () => Setting[], opts: { query?: string } = {}) {
+export function openSettings(settings: () => Setting[], opts: { query?: string; scope?: Scope; openFile?(scope: Scope): void } = {}) {
+  let scope: Scope = opts.scope ?? "user";
   if (current) return current.focus();
   const search = el("input", {
     type: "search",
@@ -388,12 +452,23 @@ export function openSettings(settings: () => Setting[], opts: { query?: string }
     value: opts.query ?? "",
   }) as HTMLInputElement;
   const found = el("span", { class: "st-found", role: "status" });
+  // User and Workspace, as in VS Code, each with its settings file a click away.
+  const tab = (t: Scope, label: string) =>
+    el("button", { type: "button", role: "tab", class: "st-tab", "aria-controls": "st-list", onclick: () => ((scope = t), render(), search.focus()) }, label);
+  const tabs: Record<Scope, HTMLElement> = { user: tab("user", "User"), workspace: tab("workspace", "Workspace") };
+  const fileBtn = el("button", { type: "button", class: "st-file", onclick: () => (close(), opts.openFile?.(scope)) }, icon("code", 14), "Open settings file");
+  fileBtn.hidden = !opts.openFile;
   const list = el("div", { class: "st-list", id: "st-list" });
 
   const settingOf = (node: EventTarget | null) => (node instanceof Element ? node.closest<HTMLElement>("[data-setting]")?.dataset.setting : undefined);
   /** Draw the settings the search finds, with the focus back on `focused`'s control. */
   const render = (focused = settingOf(document.activeElement)) => {
-    const shown = matchSettings(search.value, settings());
+    const matched = matchSettings(search.value, settings());
+    // A search that only finds the other tab's settings goes there.
+    if (search.value.trim() && !matched.some((s) => scopeOf(s) === scope) && matched.length) scope = scopeOf(matched[0]);
+    const shown = matched.filter((s) => scopeOf(s) === scope);
+    for (const [t, b] of Object.entries(tabs)) b.setAttribute("aria-selected", String(t === scope));
+    fileBtn.title = scope === "user" ? "Open your settings file (Config/Users/…)" : "Open the workspace's settings file (Config/Settings.md)";
     const sections = SECTIONS.flatMap((section) => {
       const rows = shown.filter((s) => s.section === section);
       return rows.length ? [el("section", { class: "st-section", "aria-labelledby": `st-h-${section}` }, el("h3", { id: `st-h-${section}` }, section), ...rows.map(row))] : [];
@@ -412,11 +487,15 @@ export function openSettings(settings: () => Setting[], opts: { query?: string }
     list.querySelector<HTMLElement>("input, select, button, summary")?.focus();
   });
 
-  openModal({
+  const modal = openModal({
     title: "Settings",
     icon: "gear",
     head: [el("kbd", { class: "st-keys", "aria-hidden": "true" }, formatKeys("Mod-,"))],
-    content: [el("div", { class: "st-bar" }, search, found), list],
+    content: [
+      el("div", { class: "st-tabs" }, el("div", { role: "tablist", "aria-label": "Whose settings", class: "st-tablist" }, tabs.user, tabs.workspace), fileBtn),
+      el("div", { class: "st-bar" }, search, found),
+      list,
+    ],
     id: "settings",
     pageClass: "",
     boxClass: "st-box",
@@ -426,7 +505,8 @@ export function openSettings(settings: () => Setting[], opts: { query?: string }
     focus: matchMedia("(pointer: coarse)").matches ? undefined : search,
     onClose: () => (current = null),
   });
+  const close = () => modal.close();
   render();
-  current = { focus: () => search.focus(), render: () => render() };
+  current = { focus: () => search.focus(), render: () => render(), close };
 }
 
