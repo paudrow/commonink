@@ -1,4 +1,4 @@
-// Online-only UI: the sign-in screen, and the account menu (Settings, workspaces, invites, connected agents, sign out).
+// Online-only UI: the sign-in screen, and the account menu (your profile, Settings, workspaces, invites, connected agents, sign out).
 
 import { api, type Me } from "./api.ts";
 import { $, el, icon } from "./dom.ts";
@@ -138,6 +138,7 @@ export function renderAccount(
   current: Me["workspaces"][number],
   toast: (t: { text: string; icon?: string }) => void,
   openSettings: () => void,
+  openProfile: () => void,
 ): AccountAction[] {
   const face = me.user.picture
     ? el("img", { class: "acct-face", src: me.user.picture, alt: "", referrerpolicy: "no-referrer" })
@@ -162,7 +163,8 @@ export function renderAccount(
   const close = () => setOpen(false);
   const actions = accountActions(me, current, toast);
   const sep = actions.findIndex((a) => a.session);
-  // Not one of the actions: ⌘K already has "Open settings".
+  // Neither is one of the actions: ⌘K already has "Go to Profile" and "Open settings".
+  const profile = el("button", { class: "acct-item", type: "button", role: "menuitem", tabindex: "-1", onclick: () => (close(), openProfile()) }, icon("user", 15), el("span", {}, "Profile"));
   const settings = el(
     "button",
     { id: "settings-btn", class: "acct-item", type: "button", onclick: () => (close(), openSettings()) },
@@ -171,6 +173,7 @@ export function renderAccount(
     el("kbd", { "aria-hidden": "true" }, formatKeys("Mod-,")),
   );
   menu.append(
+    profile,
     settings,
     el("div", { class: "acct-sep" }),
     el("div", { class: "acct-section", role: "presentation" }, "Workspaces"),

@@ -42,6 +42,7 @@ import { cleanName, fixedName, nameFromHeading, nameLine, renamedPath } from "./
 import { taskInputPrefs } from "./taskInput.ts";
 import type { TagsPage } from "./tagsPage.ts";
 import type { QueryHelpPage } from "./queryHelpPage.ts";
+import type { Profile, ProfilePage } from "./profilePage.ts";
 import { QUERY_HELP } from "./queryHelp.ts";
 import { lazyPage } from "./lazyPage.ts";
 import type { CheckupPage } from "./checkupPage.ts";
@@ -50,12 +51,13 @@ import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./
 import { ADVANCED_KEYS, appCommands, type PaletteStep, type Renamable } from "./commands.ts";
 import { toggleShortcuts } from "./shortcuts.ts";
 import { NO_TIPS, tipText, watchTips, type TipsState } from "./shortcutTips.ts";
-import { did, vaultEvents } from "./events.ts";
+import { did, didFirst, vaultEvents } from "./events.ts";
 import { guideMessage, startGuide } from "./onboarding.ts";
 import { watchTodayCleared } from "./todayCleared.ts";
 import { awayStrip, startAway } from "./away.ts";
 import { watchTodayRing } from "./todayRing.ts";
 import { inkState, setInk, startInks } from "./inkUnlocks.ts";
+import { startSeals } from "./sealUnlocks.ts";
 import { gamified, loadGamified, onGamified, setGamified } from "./gamify.ts";
 import { CONFIG, SETTINGS_NOTE, settingsNote, userSettingsPath } from "../../src/core/schema.ts";
 import { AGENTS_NOTE, ROOT_AGENTS_NOTE } from "../../src/core/noteRoles.ts";
@@ -250,6 +252,9 @@ let historyPage: History | null = null;
 let assetsPage: Assets | null = null;
 let tagsPage: TagsPage | null = null;
 let queryHelpPage: QueryHelpPage | null = null;
+let profilePage: ProfilePage | null = null;
+/** Who you are, for your profile: online, as the account menu shows you; locally, null (it's you). */
+let profile: Profile | null = null;
 let checkupPage: CheckupPage | null = null;
 let replacePage: import("./replacePage.ts").ReplacePage | null = null;
 let contactsPage: import("./contactsPage.ts").ContactsPage | null = null;
@@ -304,6 +309,7 @@ const loadTags = page("/tags", async () =>
     toast: (t) => toast(t),
   })),
 );
+const loadProfile = page("/profile", async () => (profilePage = new (await import("./profilePage.ts")).ProfilePage($("#profile-view"), profile)));
 const loadQueryHelp = page("/query-help", async () =>
   (queryHelpPage = new (await import("./queryHelpPage.ts")).QueryHelpPage($("#query-help-view"), {
     tryQuery: (q) => void showNotes({ tab: "notes", query: { q } }),
@@ -395,7 +401,7 @@ function commands() {
     account,
     newNote: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
     newFromTemplate: () => templateStep(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""),
-    newBoard: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : "", `\n${NEW_BOARD}\n`),
+    newBoard: () => (didFirst("madeBoard"), void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : "", `\n${NEW_BOARD}\n`)),
     newFolder: newFolderStep,
     newTag: newTagStep,
     newSmartFolder: newSmartFolderFromPalette,
@@ -413,7 +419,7 @@ function commands() {
     restoreVersion: restoreStep,
     go: (page) => {
       if (page === "notes" || page === "archive" || page === "trash") void showNotes({ tab: page, query: {} });
-      else void { today: showToday, tasks: showTasks, calendar: showCalendar, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory, shared: showShared, checkup: showCheckup, "query-help": showQueryHelp }[page]();
+      else void { today: showToday, tasks: showTasks, calendar: showCalendar, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory, shared: showShared, checkup: showCheckup, "query-help": showQueryHelp, profile: showProfile }[page]();
     },
     subscribeCalendar: () => void subscribeCalendar(),
     refreshCalendars: () => void refreshCalendars(),
@@ -1223,7 +1229,7 @@ const loadReplace = page("/replace", async () =>
 let unmountTasks: (() => void) | null = null;
 let unmountToday: (() => void) | null = null;
 
-function showStage(which: "editor" | "html" | "notes" | "today" | "tasks" | "calendar" | "contacts" | "history" | "assets" | "tags" | "checkup" | "replace" | "query-help" | "shared" | "capture") {
+function showStage(which: "editor" | "html" | "notes" | "today" | "tasks" | "calendar" | "contacts" | "history" | "assets" | "tags" | "checkup" | "replace" | "query-help" | "profile" | "shared" | "capture") {
   closeDrawer();
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
@@ -1235,6 +1241,7 @@ function showStage(which: "editor" | "html" | "notes" | "today" | "tasks" | "cal
   $("#history-view").hidden = which !== "history";
   $("#tags-view").hidden = which !== "tags";
   $("#query-help-view").hidden = which !== "query-help";
+  $("#profile-view").hidden = which !== "profile";
   $("#checkup-view").hidden = which !== "checkup";
   $("#replace-view").hidden = which !== "replace";
   $("#contacts-view").hidden = which !== "contacts";
@@ -1686,6 +1693,18 @@ async function showTags(opts: { push?: boolean } = {}) {
   renderOutline();
 }
 
+/** Your profile: who you are, the days you wrote, and your seals (profilePage.ts). `seals` scrolls to them. */
+async function showProfile(opts: { push?: boolean; seals?: boolean } = {}) {
+  await leaveNote();
+  showStage("profile");
+  (await loadProfile()).show({ seals: opts.seals });
+  wentTo("/profile", opts.push !== false);
+  document.title = "Profile · Common Ink";
+  renderChrome();
+  renderTree();
+  renderOutline();
+}
+
 /** Query syntax: every operator and field a note query takes (see queryGrammar.ts). */
 async function showQueryHelp(opts: { push?: boolean } = {}) {
   await leaveNote();
@@ -1845,7 +1864,7 @@ function pickFiles(accept?: string): Promise<File[]> {
   });
 }
 
-const PAGE_LABEL = { today: "Today", notes: "Notes", archive: "Archive", trash: "Trash", tasks: "Tasks", calendar: "Calendar", contacts: "Contacts", history: "History", assets: "Assets", tags: "Tags", checkup: "Check-up", replace: "Replace across notes", shared: "Shared with me", capture: "Capture", "query-help": "Query syntax" } as const;
+const PAGE_LABEL = { today: "Today", notes: "Notes", archive: "Archive", trash: "Trash", tasks: "Tasks", calendar: "Calendar", contacts: "Contacts", history: "History", assets: "Assets", tags: "Tags", checkup: "Check-up", replace: "Replace across notes", shared: "Shared with me", capture: "Capture", "query-help": "Query syntax", profile: "Profile" } as const;
 
 /** The page showing (the Notes page by its tab), or null while a note is. */
 const onPage = () =>
@@ -1858,6 +1877,7 @@ const onPage = () =>
   : assetsPage?.visible ? "assets"
   : tagsPage?.visible ? "tags"
   : queryHelpPage?.visible ? "query-help"
+  : profilePage?.visible ? "profile"
   : checkupPage?.visible ? "checkup"
   : replacePage?.visible ? "replace"
   : !$("#shared-view").hidden ? "shared"
@@ -2258,6 +2278,7 @@ async function newFromTemplate(template?: TemplateInfo, folder = "", title?: str
   const clipboard = t.clipboard ? await navigator.clipboard?.readText().catch(() => undefined) : undefined;
   try {
     const r = await api.fromTemplate(t.path, { at: localNow(), title: asked.title, answers: asked.answers, picks: asked.picks, clipboard, folder: t.folder ? undefined : folder || undefined });
+    didFirst("usedTemplate");
     await refreshNotes();
     await openNote(r.path);
     const at = Math.min(r.cursor ?? active.view.state.doc.length, active.view.state.doc.length);
@@ -3883,7 +3904,7 @@ async function refreshBacklinks() {
   const row = (b: Backlink) =>
     el(
       "div",
-      { class: `backlink${isArchived(b.path) ? " is-archived" : ""}`, onclick: (e: MouseEvent) => openAt(b.path, clickWhere(e), { line: b.line }), onauxclick: (e: MouseEvent) => e.button === 1 && openAt(b.path, "tab", { line: b.line }) },
+      { class: `backlink${isArchived(b.path) ? " is-archived" : ""}`, onclick: (e: MouseEvent) => (didFirst("followedBacklink"), openAt(b.path, clickWhere(e), { line: b.line })), onauxclick: (e: MouseEvent) => e.button === 1 && openAt(b.path, "tab", { line: b.line }) },
       el("div", { class: "bl-title" }, icon(b.kind === "embed" ? "open" : "link", 12), b.title),
       el("div", { class: "bl-text", html: highlightLink(b.text) }),
     );
@@ -4739,7 +4760,7 @@ function setupPanes() {
   // Clicking or tabbing into a pane gives it the focus.
   // (Not from a pane bar's buttons: redrawing the bar on mousedown would swallow their click.)
   const follow = (p: Pane) => (e: Event) => p !== active && split && !(e.target as Element).closest?.(".pane-bar button") && focusPane(p);
-  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#today-view", "#tasks-view", "#calendar-view", "#contacts-view", "#history-view", "#assets-view", "#tags-view", "#replace-view", "#query-help-view"]], [panes[1], ["#side-pane"]]] as const) {
+  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#today-view", "#tasks-view", "#calendar-view", "#contacts-view", "#history-view", "#assets-view", "#tags-view", "#replace-view", "#query-help-view", "#profile-view"]], [panes[1], ["#side-pane"]]] as const) {
     for (const sel of nodes) {
       $(sel).addEventListener("focusin", follow(p));
       $(sel).addEventListener("mousedown", follow(p));
@@ -4807,6 +4828,7 @@ async function route() {
   }
   if (at === "/tags") return showTags({ push: false });
   if (at === "/query-help") return showQueryHelp({ push: false });
+  if (at === "/profile") return showProfile({ push: false });
   if (at === "/checkup") return showCheckup({ push: false });
   if (at === "/replace") return showReplace({ push: false });
   if (at === "/history") {
@@ -4871,7 +4893,8 @@ async function boot() {
     myName = who.me.user.name;
     api.reportTimeZone().catch(() => {}); // unreported, agents use the owner's zone, or UTC
     $("#settings-btn").remove(); // the account menu has Settings
-    account = renderAccount(who.me, ws, (t) => toast(t), () => openSettings());
+    profile = { name: who.me.user.name, email: who.me.user.email, picture: who.me.user.picture, workspace: ws.name };
+    account = renderAccount(who.me, ws, (t) => toast(t), () => openSettings(), () => void showProfile());
     signedIn = who.me.user;
     $("#shared-btn").hidden = false;
     setShareWithPeople({ label: "Share with people…", icon: "share-people", run: (note) => openShareDialog({ path: note.path }) });
@@ -5034,6 +5057,7 @@ async function boot() {
   if (!viewer) startAway({ seeChanges: (after) => void showHistory({ since: after }), workspace: () => workspaceId });
   watchTodayRing($("#today-btn")); // fills as today's tasks are ticked
   startInks({ choose: () => openSettings("ink") });
+  startSeals({ online: () => !!workspaceId, openSeals: () => void showProfile({ seals: true }) });
 
   void refreshTaskCount();
   // Tabs and the split as you left them (a layout kept before tabs had their own back and forward
