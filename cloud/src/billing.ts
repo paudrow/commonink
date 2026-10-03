@@ -93,7 +93,7 @@ export const READ_ONLY = "This workspace is read-only: its owner's Common Ink pl
 // ------------------------------------------------------------------ Stripe's API
 
 /** A call to Stripe's API, form-encoded as it wants. Throws Stripe's own message on an error. */
-async function stripe<T>(env: Env, method: "GET" | "POST", path: string, params: Record<string, string> = {}): Promise<T> {
+async function stripe<T>(env: Env, method: "GET" | "POST" | "DELETE", path: string, params: Record<string, string> = {}): Promise<T> {
   const base = env.STRIPE_API ?? "https://api.stripe.com";
   const form = new URLSearchParams(params).toString();
   const res = await fetch(`${base}/v1${path}${method === "GET" && form ? `?${form}` : ""}`, {
@@ -138,6 +138,25 @@ export async function portal(env: Env, url: URL, user: User): Promise<string | n
   if (!r.customer_id) return null;
   const s = await stripe<{ url: string }>(env, "POST", "/billing_portal/sessions", { customer: r.customer_id, return_url: `${url.origin}/?billing=portal` });
   return s.url;
+}
+
+/**
+ * Before an account is deleted (account.ts): cancel its subscription at once, so a deleted account is
+ * never charged again, and forget its billing row. Throws CancelFailed if Stripe won't, so the account
+ * isn't deleted while still paying.
+ */
+export class CancelFailed extends Error {}
+
+export async function endBilling(env: Env, userId: string): Promise<void> {
+  const row = await env.DB.prepare("SELECT subscription_id, status FROM billing WHERE user_id = ?").bind(userId).first<{ subscription_id: string | null; status: string | null }>();
+  if (!row) return;
+  if (row.subscription_id && row.status !== "canceled" && env.STRIPE_SECRET_KEY) {
+    await stripe(env, "DELETE", `/subscriptions/${row.subscription_id}`).catch((e: Error) => {
+      // Already gone at Stripe is fine.
+      if (!/No such subscription/i.test(e.message)) throw new CancelFailed(e.message);
+    });
+  }
+  await env.DB.prepare("DELETE FROM billing WHERE user_id = ?").bind(userId).run();
 }
 
 // ------------------------------------------------------------------ the webhook

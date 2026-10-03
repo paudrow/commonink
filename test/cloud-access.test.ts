@@ -191,6 +191,9 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   // Billing isn't set up here (cloud-billing.test.ts has it on).
   { route: "POST /api/billing/checkout", send: () => ["POST", "/api/billing/checkout", { interval: "month" }], expect: [401, 404, 404, 404, 404] },
   { route: "POST /api/billing/portal", send: () => ["POST", "/api/billing/portal", {}], expect: [401, 404, 404, 404, 404] },
+  { route: "GET /api/me/delete", send: () => ["GET", "/api/me/delete"], expect: SIGNED_IN },
+  // A wrong email deletes nothing: everyone signed in gets past to the 400.
+  { route: "POST /api/me/delete", send: () => ["POST", "/api/me/delete", { confirm: "not-my-email@example.com" }], expect: [401, 400, 400, 400, 400] },
   // Last: it ends everyone's sessions.
   { route: "POST /api/sign-out-everywhere", send: () => ["POST", "/api/sign-out-everywhere", {}], expect: SIGNED_IN },
 ];

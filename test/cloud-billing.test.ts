@@ -41,6 +41,7 @@ before(async () => {
       if (url.pathname === "/v1/checkout/sessions") return send(200, { url: `https://checkout.stripe.test/${form.get("customer")}` });
       if (url.pathname === "/v1/billing_portal/sessions") return send(200, { url: `https://billing.stripe.test/${form.get("customer")}` });
       const sub = url.pathname.match(/^\/v1\/subscriptions\/(.+)$/)?.[1];
+      if (sub && req.method === "DELETE") return sub.startsWith("sub_stuck") ? send(500, { error: { message: "Stripe is down" } }) : send(200, { id: sub, status: "canceled" });
       if (sub && subscriptions.has(sub)) return send(200, subscriptions.get(sub)!);
       send(404, { error: { message: "No such thing" } });
     });
@@ -204,4 +205,34 @@ test("the webhook refuses events that aren't signed with the secret, or are stal
   const unsigned = await cloud.server.fetch(new URL("/api/stripe/webhook", cloud.origin), { method: "POST", body: JSON.stringify({ type: "customer.subscription.updated", data: { object: forged } }) });
   assert.equal(unsigned.status, 400);
   assert.equal((await plan(me)).status, "lapsed", "nothing changed");
+});
+
+test("deleting your account cancels your subscription first, and keeps everything if Stripe won't", async () => {
+  const del = (cookie: string, email: string) => cloud.request(cookie, "POST", "/api/me/delete", { confirm: email });
+  // A trial with no subscription: nothing to cancel.
+  const trial = await cloud.signIn("leaver-trial");
+  const t = (await cloud.call(trial, "GET", "/api/me")).user;
+  await plan(trial);
+  calls.length = 0;
+  assert.equal((await del(trial, t.email)).status, 200);
+  assert.equal(calls.length, 0);
+
+  const payer = await cloud.signIn("leaver-paid");
+  const p = (await cloud.call(payer, "GET", "/api/me")).user;
+  await cloud.call(payer, "POST", "/api/billing/checkout", { interval: "month" });
+  await sendEvent(cloud, "customer.subscription.updated", subscription(p.id, { status: "active" }));
+  calls.length = 0;
+  assert.equal((await del(payer, p.email)).status, 200);
+  assert.deepEqual(calls.map((c) => `${c.method} ${c.path}`), [`DELETE /v1/subscriptions/sub_${p.id}`]);
+  assert.equal((await cloud.request(payer, "GET", "/api/me")).status, 401, "gone");
+
+  // Stripe failing: nothing is deleted, so the account isn't left paying with no way in.
+  const stuck = await cloud.signIn("leaver-stuck");
+  const s = (await cloud.call(stuck, "GET", "/api/me")).user;
+  await cloud.call(stuck, "POST", "/api/billing/checkout", { interval: "month" });
+  await sendEvent(cloud, "customer.subscription.updated", { ...subscription(s.id, { status: "active" }), id: `sub_stuck_${s.id}` });
+  const res = await del(stuck, s.email);
+  assert.equal(res.status, 502);
+  assert.match((await res.json()).error, /Couldn't cancel your subscription, so nothing was deleted/);
+  assert.equal((await plan(stuck)).status, "active", "still signed in, still subscribed");
 });

@@ -36,6 +36,7 @@ function fakeApp(over: Partial<SettingsApp> = {}) {
     billing: null,
     subscribe: (i) => log.push(`subscribe:${i}`),
     manageBilling: () => log.push("manageBilling"),
+    deleteAccount: null,
     ...over,
   };
   return { app, log };
@@ -203,4 +204,18 @@ test("each plan reads as a sentence: ending, a failed payment, lapsed", () => {
   assert.equal(planText(billing({ status: "active", canWrite: true, interval: "month", periodEnd: end, cancelling: true })), "You subscribe at $8 a month until November 3, 2026, when it ends. Resume it from Manage billing.");
   assert.equal(planText(billing({ status: "past_due", canWrite: true, graceEnds: end })), "Your last payment didn't go through. Update your card by November 3, 2026 to keep editing.");
   assert.match(planText(billing({ status: "lapsed", canWrite: false })), /read-only: everyone can still read and export them/);
+});
+
+test("online, Delete your account is in the Danger zone, last, and only opens the confirming dialog", () => {
+  const { app, log } = fakeApp({ localVault: null, deleteAccount: () => log.push("deleteAccount") });
+  const all = appSettings(app);
+  const del = all.find((s) => s.id === "delete-account")!;
+  assert.equal(del.section, "Danger zone");
+  assert.equal(all.at(-1), del);
+  assert.deepEqual(titles("delete account", app), ["Delete your account"]);
+  assert.ok(del.control.kind === "button" && del.control.danger);
+  if (del.control.kind === "button") del.control.run();
+  assert.deepEqual(log, ["deleteAccount"]);
+  // Locally there's no account to delete.
+  assert.equal(appSettings(fakeApp().app).find((s) => s.id === "delete-account"), undefined);
 });
