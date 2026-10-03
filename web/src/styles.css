@@ -3187,7 +3187,7 @@ button.cal-src-color:hover { background: var(--hover); }
 .tabs { flex: 1 1 auto; min-width: 40px; display: flex; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: none; padding: 0 4px; border-radius: 9px; transition: background 0.12s; }
 .tabs::-webkit-scrollbar { display: none; }
 .tabs.is-drop { background: color-mix(in srgb, var(--accent) 9%, transparent); }
-.tab { position: relative; flex: 0 1 auto; display: flex; align-items: center; gap: 6px; min-width: 72px; max-width: 200px; height: 28px; padding: 0 3px 0 9px; border-radius: 7px; color: var(--muted); font-size: 12.5px; cursor: pointer; user-select: none; -webkit-user-drag: element; }
+.tab { position: relative; flex: none; display: flex; align-items: center; gap: 6px; max-width: 180px; height: 28px; padding: 0 3px 0 9px; border-radius: 7px; color: var(--muted); font-size: 12.5px; cursor: pointer; user-select: none; -webkit-user-drag: element; }
 .tab > svg { flex: none; opacity: 0.75; }
 .pane-bar .tab { height: 24px; }
 .tab:hover { background: var(--hover); color: var(--ink); }
@@ -3195,7 +3195,7 @@ button.cal-src-color:hover { background: var(--hover); }
 .pane-bar.is-focused .tab.is-on { box-shadow: var(--shadow-sm), inset 0 -2px 0 var(--accent-line), inset 0 0 0 1px var(--line); }
 .tab.is-on > svg { opacity: 1; color: var(--accent-ink); }
 .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.tab.is-pinned { min-width: 0; max-width: 150px; }
+.tab.is-pinned { max-width: 150px; }
 .tab-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab-x { flex: none; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 4px; color: var(--muted); opacity: 0; }
 .tab:is(:hover, .is-on, :focus-visible) .tab-x, .tab-pin { opacity: 1; }
@@ -3213,6 +3213,6 @@ body.is-tab-dragging .tab:not(:hover) .tab-x:not(.tab-pin) { opacity: 0; }
 .menu .fp-list { max-height: none; }
 .menu .fp-item:is(:hover, :focus-visible) { background: var(--hover); color: var(--ink-strong); outline: none; }
 .menu .fp-item:disabled { opacity: 0.45; pointer-events: none; }
-.menu-ico { flex: none; width: 14px; }
+.menu-ico { flex: none; width: 14px; font-style: normal; }
 .menu-keys { flex: none; margin-left: auto; padding-left: 16px; font: 11.5px var(--ui); color: var(--muted); background: none; border: 0; box-shadow: none; }
 .menu-sep { height: 1px; margin: 4px 6px; background: var(--line); }

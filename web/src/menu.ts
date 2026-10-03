@@ -45,7 +45,7 @@ export function openMenu(at: { x: number; y: number }, items: Array<MenuItem | "
           void item.run();
         },
       },
-      item.icon ? icon(item.icon, 14) : el("span", { class: "menu-ico" }),
+      item.icon ? icon(item.icon, 14) : el("i", { class: "menu-ico" }),
       el("span", {}, item.label),
       item.keys ? el("kbd", { class: "menu-keys" }, formatKeys(item.keys)) : null,
     );

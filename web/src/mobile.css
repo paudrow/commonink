@@ -115,8 +115,9 @@
 
   /* Tabs: a strip that scrolls sideways, in the space the top bar has left. A phone shows one pane, so
      a tab's drag goes along the strip or to a folder, never to a split. */
-  #topbar { gap: 6px; }
-  .tab { min-width: 0; max-width: 132px; padding-left: 8px; }
+  #topbar { flex-wrap: wrap; height: auto; min-height: 48px; row-gap: 0; }
+  #top-tabs { order: 10; flex: 1 0 100%; padding: 0 0 6px; }
+  .tab { max-width: 150px; padding-left: 8px; }
   .tabs { scroll-snap-type: x proximity; }
   .tab { scroll-snap-align: start; }
 

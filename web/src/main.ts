@@ -1072,6 +1072,8 @@ function tabStrip(p: Pane): HTMLElement {
     });
     strip.append(node);
   }
+  // The tab showing stays in sight in a strip that scrolls.
+  requestAnimationFrame(() => strip.querySelector<HTMLElement>(".tab.is-on")?.scrollIntoView({ block: "nearest", inline: "nearest" }));
   strip.append(el("button", { type: "button", class: "icon-btn small tab-new", title: `New tab (${formatKeys("Mod-t")})`, "aria-label": "New tab", onclick: () => newTab(p) }, icon("plus", 13)));
   // A double-click on the strip's empty end opens a new tab, as in an editor.
   strip.addEventListener("dblclick", (e) => e.target === strip && newTab(p));
@@ -4010,7 +4012,7 @@ function setupPanes() {
   stage.addEventListener("dragover", (e) => {
     let d = dragging(e) ? dropAt(e.clientX, e.clientY, pageIn(e)?.label) : null;
     if (tabStays(d)) d = null;
-    else if (d && tabDrag && pageOf(tabDrag.entry) === null) d = { ...d, label: d.at ? d.label.replace("Open", "Move") : "Move here" };
+    else if (d && tabDrag && pageOf(tabDrag.entry) === null) d = { ...d, label: d.at ? `Move ${{ right: "to the right", left: "to the left", top: "above", bottom: "below" }[d.at]}` : "Move here" };
     show(d);
     unmarkStrips();
     if (d) e.preventDefault();
