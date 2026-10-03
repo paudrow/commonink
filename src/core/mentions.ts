@@ -24,7 +24,8 @@ function plainOf(line: string): string {
   return withoutCode(line)
     .replace(/!?\[\[[^[\]\n]*\]\]/g, blank)
     .replace(/!?\[[^[\]\n]*\]\([^()\s]*\)/g, blank)
-    .replace(/<?[a-z][a-z0-9+.-]*:\/\/[^\s>]*>?/gi, blank)
+    // The scheme is capped at 32 characters: unbounded, a long word with no "://" took quadratic time.
+    .replace(/<?[a-z][a-z0-9+.-]{0,31}:\/\/[^\s>]*>?/gi, blank)
     .replace(/[#@][\p{L}\p{N}_/-]+/gu, blank);
 }
 
