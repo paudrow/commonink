@@ -1,0 +1,3 @@
+# Kickoff notes
+
+#client #journal

@@ -85,7 +85,7 @@ export class SqlContent implements Content {
     return this.db.all<{ path: string } & FileStat>("SELECT path, mtime, size FROM files WHERE path NOT LIKE '.%' AND path NOT LIKE '%/.%'");
   }
   listUnder(dir: string) {
-    return this.db.all<{ path: string } & FileStat>("SELECT path, mtime, size FROM files WHERE substr(path, 1, ?) = ?", dir.length + 1, `${dir}/`);
+    return this.db.all<{ path: string } & FileStat>("SELECT path, mtime, size FROM files WHERE substr(path, 1, length(?)) = ?", `${dir}/`, `${dir}/`);
   }
   get isEmpty() {
     return !this.db.get("SELECT 1 AS x FROM files LIMIT 1");

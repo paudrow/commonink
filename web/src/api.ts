@@ -113,6 +113,8 @@ export interface FeedItem {
   /** Who made the last change (see authorName). */
   lastBy: { person: string | null; agent: string | null } | null;
   role: NoteRole | null;
+  /** The frontmatter properties asked for with `cols`, each with its values. */
+  props?: Record<string, string[]>;
 }
 export interface FeedPage {
   items: FeedItem[];
@@ -136,11 +138,17 @@ export interface TagFavorite {
   display: string;
   notes: number;
 }
-/** A favorite is a note or a tag, in one order. */
-export type Favorite = NoteMeta | TagFavorite;
+/** A smart folder in someone's favorites. */
+export interface SmartFavorite extends SmartFolder {
+  smartFolder: true;
+}
+/** A favorite is a note, a tag or a smart folder, in one order. */
+export type Favorite = NoteMeta | TagFavorite | SmartFavorite;
 export const isTagFavorite = (f: Favorite): f is TagFavorite => "tag" in f;
-/** How a favorite is named in an order: a note's path, or "#" and the tag. */
-export const favoriteKey = (f: Favorite) => (isTagFavorite(f) ? `#${f.tag}` : f.path);
+export const isSmartFavorite = (f: Favorite): f is SmartFavorite => "smartFolder" in f;
+export const isNoteFavorite = (f: Favorite): f is NoteMeta => "path" in f;
+/** How a favorite is named in an order: a note's path, "#" and the tag, or "~" and a smart folder's ID. */
+export const favoriteKey = (f: Favorite) => (isTagFavorite(f) ? `#${f.tag}` : isSmartFavorite(f) ? `~${f.id}` : f.path);
 /** A tag (parents included), and how many notes, tasks and assets carry it or a tag under it. */
 export interface TagCount {
   tag: string;
@@ -156,6 +164,8 @@ export interface TodayView {
   date: string;
   sections: Array<{ id: "overdue" | "due" | "starting"; title: string; tasks: Task[] }>;
   journal: { path: string; exists: boolean };
+  /** How many of today's tasks were ticked today (missing from an older server). */
+  done?: number;
 }
 
 export interface Task {
@@ -318,6 +328,9 @@ export interface Trashed {
 }
 export interface TrashItem extends Trashed {
   kind: "md" | "html" | "asset";
+  /** Its title (an asset's file name), as Notes would show it. */
+  title: string;
+  tags: string[];
   size: number;
   deletedAt: number;
   expiresAt: number;
@@ -365,6 +378,13 @@ const send = (method: string, body: unknown): RequestInit => ({
 
 const resolveCache = new Map<string, Promise<string | null>>();
 
+type PlanWorkspace = { id: string; name: string; kind: "personal" | "team" };
+export interface DeletionPlan {
+  deletes: PlanWorkspace[];
+  leaves: PlanWorkspace[];
+  blocked: PlanWorkspace[];
+}
+
 export const api = {
   /** Locally, `vault` and `projectRoot` (where bin/commonink is) are absolute paths. */
   info: () => j<{ mode: "local" | "cloud"; name: string; vault?: string; projectRoot?: string }>(`${BASE}/info`),
@@ -374,6 +394,10 @@ export const api = {
   /** Online: tell the server this browser's time zone, so your agents' "today" is yours. */
   reportTimeZone: () => j<{ timeZone: string }>("/api/me/time-zone", send("POST", { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })),
   signOutEverywhere: () => j<{ ok: true }>("/api/sign-out-everywhere", send("POST", {})),
+  /** What deleting your account would take with it, leave, or be stopped by (a team you alone own). */
+  deletionPlan: () => j<DeletionPlan>("/api/me/delete"),
+  /** Delete your account for good; `confirm` is your email. */
+  deleteAccount: (confirm: string) => j<{ ok: true } & DeletionPlan>("/api/me/delete", send("POST", { confirm })),
   /** Online: the agents you've connected over MCP, most recently used first. */
   agents: () => j<ConnectedAgent[]>("/api/agents"),
   revokeAgent: (id: string) => j<{ ok: true }>("/api/agents/revoke", send("POST", { id })),
@@ -405,7 +429,7 @@ export const api = {
   notes: () => j<NoteMeta[]>(`${BASE}/notes`),
   note: (path: string) => j<Note>(`${BASE}/note?path=${enc(path)}`),
   search: (q: string, scope: Scope = "active") => j<SearchHit[]>(`${BASE}/search?q=${enc(q)}&limit=20&scope=${scope}`),
-  feed: (p: { q?: string; scope?: Scope; folder?: string; tag?: string; sort?: QuerySort; offset?: number; limit?: number }) =>
+  feed: (p: { q?: string; scope?: Scope; folder?: string; tag?: string; match?: "all" | "any"; sort?: QuerySort; offset?: number; limit?: number; cols?: string }) =>
     j<FeedPage>(`${BASE}/feed?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
   /** `assignee`: someone's name (every @name that's theirs) or "me"; `by: "me"`: tasks you gave someone else, in your notes. */
   tasks: (p: { folder?: string; note?: string; tag?: string; assignee?: string; by?: "me"; due?: string; start?: string; done?: string; priority?: string; today?: string }) =>
@@ -415,7 +439,7 @@ export const api = {
   tags: () => j<TagCount[]>(`${BASE}/tags`),
   smartFolders: () => j<SmartFolder[]>(`${BASE}/smart-folders`),
   /** Create a smart folder, or change one by `id`. */
-  saveSmartFolder: (f: { id?: string; name: string; query: string; shared: boolean }) => j<SmartFolder>(`${BASE}/smart-folders`, send("POST", f)),
+  saveSmartFolder: (f: { id?: string; name: string; query: string; shared: boolean }) => j<SmartFolder>(`${BASE}/smart-folders`, send("POST", { id: f.id, name: f.name, query: f.query, shared: f.shared })),
   deleteSmartFolder: (id: string) => j<SmartFolder[]>(`${BASE}/smart-folders/delete`, send("POST", { id })),
   /** Each tagged asset's tags. */
   assetTags: () => j<Record<string, string[]>>(`${BASE}/asset-tags`),
@@ -446,7 +470,9 @@ export const api = {
   unstar: (path: string) => j<Favorite[]>(`${BASE}/favorites/unstar`, send("POST", { path })),
   starTag: (tag: string) => j<Favorite[]>(`${BASE}/favorites/star`, send("POST", { tag })),
   unstarTag: (tag: string) => j<Favorite[]>(`${BASE}/favorites/unstar`, send("POST", { tag })),
-  /** `keys` are note paths and "#tag"s (see favoriteKey). */
+  starSmartFolder: (id: string) => j<Favorite[]>(`${BASE}/favorites/star`, send("POST", { smart_folder: id })),
+  unstarSmartFolder: (id: string) => j<Favorite[]>(`${BASE}/favorites/unstar`, send("POST", { smart_folder: id })),
+  /** `keys` are note paths, "#tag"s and "~id"s for smart folders (see favoriteKey). */
   orderFavorites: (keys: string[]) => j<Favorite[]>(`${BASE}/favorites`, send("PUT", { paths: keys })),
   /** The Getting started checklist's state, or null if there isn't one (see src/core/guide.ts). */
   guide: () => j<GuideState | null>(`${BASE}/guide`),
@@ -459,7 +485,7 @@ export const api = {
   /** Send notes and assets to Trash; `trashed` is what Undo restores. */
   delete: (paths: string[]) => j<{ trashed: Trashed[] }>(`${BASE}/delete`, send("POST", { paths })),
   deleteFolder: (folder: string, notes: "trash" | "lift") =>
-    j<{ trashed: Trashed[]; moved: Array<{ from: string; to: string }> }>(`${BASE}/delete-folder`, send("POST", { folder, notes })),
+    j<{ trashed: Trashed[]; moved: Array<{ from: string; to: string }>; unshared?: number }>(`${BASE}/delete-folder`, send("POST", { folder, notes })),
   /** Rename a folder (or move it under another): everything in it moves, links rewritten. */
   renameFolder: (folder: string, to: string) =>
     j<{ from: string; path: string; moved: Array<{ from: string; to: string }> }>(`${BASE}/folders/rename`, send("POST", { folder, to })),

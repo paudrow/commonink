@@ -2,7 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { localDate } from "../src/core/tasks.ts";
 import { fmtTrash } from "../src/core/format.ts";
-import { openTempVault } from "./helpers.ts";
+import fs from "node:fs";
+import path from "node:path";
+import { openVault } from "../src/core/local.ts";
+import { openTempVault, tempVault } from "./helpers.ts";
 
 // 21:00 CDT on Tuesday 2026-09-29 is 02:00 UTC on the 30th, as a Worker's clock has it.
 const CHICAGO_EVENING = Date.parse("2026-09-30T02:00:00Z");
@@ -81,7 +84,7 @@ test("locally, with no zone given, today is the machine's day", () => {
 });
 
 test("Trash says when an item went and when it goes for good in the machine's time", () => {
-  const item = { id: "1-1", path: "Old.md", kind: "md" as const, size: 1, deletedAt: CHICAGO_EVENING, expiresAt: CHICAGO_EVENING + 30 * 86_400_000, by: null, excerpt: "" };
+  const item = { id: "1-1", path: "Old.md", kind: "md" as const, title: "Old", tags: [], size: 1, deletedAt: CHICAGO_EVENING, expiresAt: CHICAGO_EVENING + 30 * 86_400_000, by: null, excerpt: "" };
   assert.equal(onMachineIn("America/Chicago", () => fmtTrash([item])), "1-1  Old.md — deleted 2026-09-29 21:00, gone for good 2026-10-29");
 });
 
@@ -102,4 +105,14 @@ test("at 9pm in Chicago, notes made from templates and the journal note have Chi
     assert.equal(daily.path, "Journal/2026-09-29.md");
     assert.match(vault.read(daily.path).content, /# 2026-09-29 at 21:00/);
   });
+});
+
+test("sort=date takes an undated note's day from its last edit in the vault's time zone, not UTC's", () => {
+  const dir = tempVault({ "A.md": "---\ndate: 2026-10-02\n---\n# A\n", "B.md": "# B\n" });
+  // 23:00 and 22:00 PDT on Friday 2026-10-02 are already the 3rd in UTC.
+  fs.utimesSync(path.join(dir, "A.md"), new Date("2026-10-03T06:00:00Z"), new Date("2026-10-03T06:00:00Z"));
+  fs.utimesSync(path.join(dir, "B.md"), new Date("2026-10-03T05:00:00Z"), new Date("2026-10-03T05:00:00Z"));
+  const vault = openVault(dir, { timeZone: "America/Los_Angeles" });
+  // Both are the 2nd, so the later edit comes first.
+  assert.deepEqual(vault.feed({ sort: "date" }).items.map((n) => n.path), ["A.md", "B.md"]);
 });

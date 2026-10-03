@@ -1,4 +1,4 @@
-import path from "node:path";
+import * as posix from "./posix.ts";
 import { linkKey, type NoteKind } from "./paths.ts";
 import { headingName, headingText, proseLines, withoutCode } from "./prose.ts";
 import { safeDecode } from "./uri.ts";
@@ -10,7 +10,7 @@ export interface ParsedLink {
   line: number;
 }
 
-const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
+const FRONTMATTER = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 // Note text is hostile, so no pattern here may backtrack across a long line: each scanning class
 // leaves out the character that starts the next attempt ("[" for links), which keeps them linear.
 const WIKILINK = /(!?)\[\[([^[\]|#\n]+)(#[^[\]|\n]*)?(\|[^[\]\n]*)?\]\]/g;
@@ -28,7 +28,7 @@ export function splitFrontmatter(md: string): { data: Record<string, string>; bo
 }
 
 export function titleOf(content: string, kind: NoteKind, p: string): string {
-  const fallback = path.posix.basename(p).replace(/\.(md|markdown|html?)$/i, "");
+  const fallback = posix.basename(p).replace(/\.(md|markdown|html?)$/i, "");
   if (kind === "md") {
     const { data, body } = splitFrontmatter(content);
     if (data.title) return data.title;
@@ -63,7 +63,7 @@ export function dateOf(content: string, kind: NoteKind, p: string): string | nul
     }
   }
   if (kind === "asset") return null;
-  return valid(titleOf(content, kind, p)) ?? valid(path.posix.basename(p));
+  return valid(titleOf(content, kind, p)) ?? valid(posix.basename(p));
 }
 
 /** The inside of the first `<open …>…close` in `html` (case-insensitive), or null. */

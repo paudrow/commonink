@@ -28,7 +28,7 @@ export interface Command {
   run: () => unknown;
 }
 
-export type Page = "today" | "notes" | "tasks" | "calendar" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash" | "shared" | "checkup";
+export type Page = "today" | "notes" | "tasks" | "calendar" | "contacts" | "tags" | "assets" | "history" | "archive" | "trash" | "shared" | "checkup" | "query-help";
 
 /** The kinds of thing ⌘K's Rename… can rename. */
 export type Renamable = "note" | "folder" | "tag" | "smart folder" | "file";
@@ -61,6 +61,10 @@ export interface App {
   canConnectGoogle: boolean;
   /** How many collapsible sections the focused note has. */
   folds: number;
+  /** The one tag the Notes page is narrowed to, and whether it's in Favorites; null on other pages. */
+  tag: { name: string; starred: boolean } | null;
+  /** The Notes page has filters on that could be kept as a smart folder. */
+  notesFiltered: boolean;
   /** What ⌘K's Rename… renames: the open note, the folder, tag or smart folder Notes shows, or the file Assets previews. Null for nothing. */
   renames: Renamable | null;
   /** Online, the account menu's actions; locally, none. */
@@ -74,6 +78,18 @@ export interface App {
   newTag(): void;
   /** A saved search, from scratch, in the Smart folders section. */
   newSmartFolder(): void;
+  /** Keep the Notes page's filters as a smart folder. */
+  saveFilters(): void;
+  /** Star or unstar the tag in view, or pick a tag to. */
+  starTag(): void;
+  /** Rename the tag in view (or one picked) on the Tags page. */
+  renameTag(): void;
+  /** Ask for a contact's name and add them. */
+  newContact(): void;
+  /** People from a .vcf or .csv file. */
+  importContacts(): void;
+  /** The focused note's History, comparing its latest label with now, ready to restore. */
+  restoreVersion(): void;
   go(page: Page): void;
   filterNotes(): void;
   quickAdd(): void;
@@ -116,7 +132,7 @@ export interface App {
   saveToDrive(): void;
   /** Every note and file, as a .zip. */
   exportWorkspace(): void;
-  /** Markdown files or a .zip of them (an Obsidian vault, an export), brought in at once. */
+  /** Markdown files or a .zip of them (an Obsidian vault, a Notion export), .enex files, or an Apple Notes export, brought in at once. */
   importNotes(): void;
   settings(): void;
   /** Online, the Connected agents dialog; locally, how to connect one to this vault. */
@@ -141,6 +157,18 @@ export function appCommands(app: App): Command[] {
     { id: "new-folder", title: "New folder", keywords: "create add directory", icon: "folderPlus", run: app.newFolder },
     { id: "new-tag", title: "New tag", keywords: "create add hashtag", icon: "hash", available: app.canDelete, run: app.newTag },
     { id: "new-smart-folder", title: "New smart folder", keywords: "create add saved search query filter view", icon: "folderSearch", run: app.newSmartFolder },
+    { id: "save-filters", title: "Save these filters as a smart folder", keywords: "keep saved search query view smart folder sidebar", icon: "folderSearch", available: app.notesFiltered, run: app.saveFilters },
+    {
+      id: "star-tag",
+      title: app.tag ? `${app.tag.starred ? "Unstar" : "Star"} #${app.tag.name}` : "Star or unstar a tag…",
+      keywords: "star unstar tag hashtag favorite favourite pin sidebar",
+      icon: app.tag?.starred ? "starred" : "star",
+      run: app.starTag,
+    },
+    // Picks a tag to rename. With a tag, folder or the like in view, Rename… renames that instead.
+    { id: "rename-tag", title: "Rename a tag…", keywords: "rename merge tag hashtag everywhere", icon: "hash", available: app.canDelete && !app.tag && (!app.renames || app.renames === "note"), run: app.renameTag },
+    { id: "new-contact", title: "New contact…", keywords: "create add person people contact crm", icon: "user", available: app.canDelete, run: app.newContact },
+    { id: "import-contacts", title: "Import contacts (.vcf or .csv)…", keywords: "import upload vcard vcf csv google outlook people contacts", icon: "upload", available: app.canDelete, run: app.importContacts },
     { id: "quick-add", title: "Add a task", keywords: "quick add todo new task", icon: "task", keys: ["Mod-Shift-."], area: "Tasks", run: app.quickAdd },
     go("today", "Today", "sun", "day agenda due overdue journal streak writing week recap"),
     go("notes", "Notes", "feed", "home all"),
@@ -153,6 +181,7 @@ export function appCommands(app: App): Command[] {
     { id: "refresh-calendars", title: "Refresh calendars", keywords: "calendar sync reload events update", icon: "reset", run: app.refreshCalendars },
     go("contacts", "Contacts", "user", "people crm person email company"),
     go("tags", "Tags", "hash", "rename merge"),
+    go("query-help", "Query syntax", "search", "help filter smart folder query and or parentheses operators search"),
     go("assets", "Assets", "grid", "files images uploads attachments"),
     go("history", "History", "history", "changes activity versions"),
     { id: "go:checkup", title: "Check up on this workspace", keywords: "checkup health tidy clean garden dead broken links empty duplicate orphan overdue maintenance", icon: "check", run: () => app.go("checkup") },
@@ -197,13 +226,14 @@ export function appCommands(app: App): Command[] {
     { id: "export-docx", title: "Export as Word", keywords: "save download docx word document office google docs", icon: "file", available: note?.kind === "md", run: () => app.exportAs("docx") },
     { id: "save-to-drive", title: "Save to Google Drive…", keywords: "google drive docs doc pdf upload cloud save", icon: "drive", available: note?.kind === "md" && app.online, run: app.saveToDrive },
     { id: "export-workspace", title: "Export all notes (.zip)", keywords: "export download backup zip everything workspace vault obsidian take out", icon: "download", run: app.exportWorkspace },
-    { id: "import-notes", title: "Import notes (.md or .zip)…", keywords: "import upload bring in migrate move obsidian vault zip markdown files bulk many", icon: "upload", available: app.canDelete, run: app.importNotes },
+    { id: "import-notes", title: "Import notes (Markdown, Obsidian, Notion, Evernote, Apple Notes)…", keywords: "import upload bring in migrate move switch obsidian vault notion export evernote enex apple notes icloud mac iphone zip markdown files bulk many", icon: "upload", available: app.canDelete, run: () => app.importNotes() },
     { id: "back", title: "Go back", keywords: "previous history return last note ctrl-o", icon: "back", keys: ["Mod-["], available: app.canBack, run: app.back },
     { id: "forward", title: "Go forward", keywords: "next history ctrl-i", icon: "chevron", keys: ["Mod-]"], available: app.canForward, run: app.forward },
     { id: "follow-link", title: "Follow link", keywords: "open link under the cursor gd go to", icon: "link", area: "Editor", available: app.onLink, run: app.followLink },
     { id: "fold-all", title: "Fold all sections", keywords: "collapse close details collapsible zM", icon: "chevron", available: text && app.folds > 0, run: () => app.foldAll(false) },
     { id: "unfold-all", title: "Unfold all sections", keywords: "expand open details collapsible zR", icon: "chevron", available: text && app.folds > 0, run: () => app.foldAll(true) },
     { id: "label-version", title: "Name this version…", keywords: "label name version milestone snapshot save point v1 checkpoint", icon: "label", available: text && app.canDelete, run: app.labelVersion },
+    { id: "restore-version", title: "Restore to a named version…", keywords: "restore label version go back revert roll back undo milestone", icon: "history", available: text && app.canDelete, run: app.restoreVersion },
     { id: "note-labels", title: "Versions of this note", keywords: "named versions compare restore label release history", icon: "label", available: text, run: app.noteLabels },
     { id: "note-history", title: "History of this note", keywords: "versions changes diff restore", icon: "history", available: !!note, run: app.noteHistory },
     {
@@ -219,6 +249,8 @@ export function appCommands(app: App): Command[] {
     { id: "getting-started", title: "Open Getting started", keywords: "help start welcome guide tour", icon: "info", available: app.hasStart, run: app.gettingStarted },
     { id: "settings", title: "Open settings", keywords: "preferences options configure", icon: "gear", keys: ["Mod-,"], run: app.settings },
     { id: "connect-agent", title: "Connect an agent", keywords: "agent mcp claude cursor connected agents ai assistant", icon: "bot", run: app.connectAgent },
+    // The docs are on the hosted site; a local app opens commonink.app's.
+    { id: "docs", title: "Help and docs", keywords: "documentation guide manual how to learn import agents faq support", icon: "file", run: () => void window.open(/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? "https://commonink.app/docs/" : "/docs/", "_blank", "noopener") },
     { id: "shortcuts", title: "Keyboard shortcuts", keywords: "keys keybindings help hotkeys cheat sheet", icon: "keyboard", keys: ["?"], run: app.shortcuts },
     ...app.account
       .filter((a) => !a.current)

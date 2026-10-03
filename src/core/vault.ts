@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import { diffLines } from "diff";
 import { chainBefore, dropBefores, readBefore } from "./changeTexts.ts";
 import type { Content, SqlDb } from "./store.ts";
-import { cleanPath, isHidden, kindOf, linkKey, VaultError, stemOf, type NoteKind } from "./paths.ts";
+import { cleanPath, isHidden, kindOf, linkKey, MAX_NOTE_BYTES, VaultError, stemOf, type NoteKind } from "./paths.ts";
 import { headingName, headingText, mapOutsideCode, proseLines } from "./prose.ts";
 import { dateOf, extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
@@ -13,6 +13,7 @@ import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tag
 import { DATE_FILTER_HELP, dateFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, priorityFilter, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
 import { parseQuickAdd } from "./quickAdd.ts";
 import { formatQuery, parseQuery, queryProblem, tagList, type NoteQuery } from "./query.ts";
+import { dayPasses, evaluate, folderList, inFolders, parse, termsOf, textWords, toFts, type Term } from "./queryGrammar.ts";
 import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
 import { safeDecode } from "./uri.ts";
 import { AGENTS_NOTE, START_TAG, type NoteRole } from "./noteRoles.ts";
@@ -21,7 +22,7 @@ import {
   type Contact, type ContactFields, type ContactInput, type ContactNote, type MemberRef, type TimelineItem,
 } from "./contacts.ts";
 import { cleanTitle, fillTemplate, JOURNAL_TEMPLATES, localNow, TEMPLATES, templateInfo, type FillOptions, type TemplateInfo } from "./templates.ts";
-import { frontmatterEntries, listOf } from "./frontmatter.ts";
+import { frontmatterEntries, listOf, propsOf } from "./frontmatter.ts";
 import { taskChanges, type AwaySummary } from "./away.ts";
 import { findMentions, linkMentionIn, type Mention } from "./mentions.ts";
 import { replaceIn, type ReplacedLine, type ReplaceOptions } from "./replace.ts";
@@ -70,9 +71,16 @@ export interface TagFavorite {
   display: string;
   notes: number;
 }
-/** A favorite is a note or a tag, in one order. */
-export type Favorite = NoteMeta | TagFavorite;
+/** A smart folder in someone's favorites: the folder (see SmartFolder), marked as one. */
+export interface SmartFavorite extends SmartFolder {
+  smartFolder: true;
+}
+/** A favorite is a note, a tag or a smart folder, in one order. */
+export type Favorite = NoteMeta | TagFavorite | SmartFavorite;
 export const isTagFavorite = (f: Favorite): f is TagFavorite => "tag" in f;
+export const isSmartFavorite = (f: Favorite): f is SmartFavorite => "smartFolder" in f;
+/** A smart folder favorite's key: "~" + its ID (which is shaped like a note's, so it needs the mark). */
+const smartKey = (id: string) => `~${id}`;
 /**
  * A tag favorite's key in the favorites table: "#" + the tag. Note IDs never hold a "#", so the two
  * can't collide, and rows from before tag favorites need nothing done to them.
@@ -156,6 +164,10 @@ export interface TrashItem {
   /** Where it was. */
   path: string;
   kind: NoteKind;
+  /** What a list calls it, as it would if it were back: its title, or for an asset its file name. */
+  title: string;
+  /** Its tags (a note's, as written), for filtering Trash as Notes is filtered. */
+  tags: string[];
   size: number;
   deletedAt: number;
   /** When it's deleted for good. */
@@ -221,6 +233,8 @@ export interface FeedItem {
   /** Who made the last change: a person, or an agent for one. */
   lastBy: Actor | null;
   role: NoteRole | null;
+  /** The properties asked for with `cols`, each with its values as written (a list has several). */
+  props?: Record<string, string[]>;
 }
 
 export interface Task {
@@ -299,8 +313,7 @@ export interface VaultOptions {
   timeZone?: string;
 }
 
-/** The default largest note: enough for any note a person writes, not enough to exhaust memory. */
-export const MAX_NOTE_BYTES = 10 * 1024 * 1024;
+export { MAX_NOTE_BYTES };
 /**
  * How long a person can stop typing and still be in the same sitting: their next autosave to the
  * note joins the change the sitting started, so the log keeps one "before" per sitting, not per save.
@@ -354,6 +367,8 @@ export interface TodayView {
   sections: TodaySection[];
   /** Today's journal note, and whether it's been written yet. */
   journal: { path: string; exists: boolean };
+  /** How many tasks that would be in a section were ticked today (`done:` the reader's day): the Today ring's progress. */
+  done: number;
 }
 
 /** Cut the task on line index `i`, with the lines nested under it, out of `lines`; returns them, lifted to the top level. */
@@ -499,7 +514,9 @@ export class Vault {
       this.db.run("DELETE FROM links WHERE src = ?", rel);
       this.db.run("DELETE FROM tags WHERE path = ? AND kind != 'asset'", rel);
       this.db.run("DELETE FROM tasks WHERE path = ?", rel);
+      this.db.run("DELETE FROM props WHERE path = ?", rel);
       if (kind === "md" && content) {
+        insertRows(this.db, "INSERT INTO props(path, key, value)", propsOf(content).map((p) => [rel, p.key, p.value]));
         const tasks = tasksIn(content).map(({ line, done, ...task }) => [rel, line, done ? 1 : 0, task.meta.due, task.meta.start, JSON.stringify(task)]);
         insertRows(this.db, "INSERT INTO tasks(path, line, done, due, start, task)", tasks);
         insertRows(this.db, "INSERT INTO links(src, key, kind, line)", extractLinks(content).map((l) => [rel, linkStem(l.key), l.kind, l.line]));
@@ -592,6 +609,7 @@ export class Vault {
       this.db.run("DELETE FROM links WHERE src = ?", rel);
       this.db.run("DELETE FROM tags WHERE path = ? AND kind != 'asset'", rel);
       this.db.run("DELETE FROM tasks WHERE path = ?", rel);
+      this.db.run("DELETE FROM props WHERE path = ?", rel);
     });
   }
 
@@ -645,6 +663,34 @@ export class Vault {
    * Obsidian-style [[name]] to a vault path. `from` lets links prefer notes in the same folder.
    */
   resolve(target: string, from?: string): string | null {
+    return this.resolveIn(target, from);
+  }
+
+  /**
+   * resolve(), optionally answering "is this file here" from the index rather than the disk:
+   * `stems` keeps each `SELECT path FROM notes WHERE stem = ?` it has made. A path the index has
+   * is taken as is; one it has under another case or Unicode form is asked of the disk (a Mac's
+   * finds it, Linux's doesn't); one it has under no spelling isn't here, unless it's somewhere
+   * sync never looks.
+   */
+  private resolveIn(target: string, from?: string, stems?: Map<string, string[]>): string | null {
+    const byStem = (stem: string): string[] => {
+      let rows = stems?.get(stem);
+      if (!rows) {
+        rows = this.db.all("SELECT path FROM notes WHERE stem = ?", stem).map((r) => r.path as string);
+        stems?.set(stem, rows);
+      }
+      return rows;
+    };
+    /** `rel` as the index spells it, if that file is here. */
+    const here = (rel: string): string | null => {
+      if (!stems) return this.files.stat(rel) ? this.indexedPath(rel) : null;
+      const rows = byStem(stemOf(rel));
+      if (rows.includes(rel)) return rel;
+      const fold = (p: string) => p.normalize("NFC").toLowerCase();
+      const unsynced = rel.split("/").includes("node_modules");
+      return (unsynced || rows.some((p) => fold(p) === fold(rel))) && this.files.stat(rel) ? this.indexedPath(rel) : null;
+    };
     const t = target.trim().replace(/\\/g, "/").replace(/^\.?\/+/, "").replace(/#.*$/, "").replace(/\|.*$/, "");
     if (!t) return null;
     const candidates: string[] = [];
@@ -654,7 +700,8 @@ export class Vault {
       for (const p of kindOf(c) ? [c] : [`${c}.md`, c]) {
         try {
           const rel = cleanPath(p);
-          if (kindOf(rel) && this.files.stat(rel)) return this.indexedPath(rel);
+          const found = kindOf(rel) ? here(rel) : null;
+          if (found) return found;
         } catch {}
       }
     }
@@ -663,8 +710,7 @@ export class Vault {
     if (byId) return byId;
     const key = linkKey(t);
     const base = key.split("/").pop()!;
-    const rows = this.db.all("SELECT path FROM notes WHERE stem = ?", base)
-      .map((r) => r.path as string)
+    const rows = byStem(base)
       .filter((p) => linkKey(p) === key || linkKey(p).endsWith(`/${key}`));
     if (!rows.length) return null;
     const dir = from ? path.posix.dirname(from) : null;
@@ -703,11 +749,17 @@ export class Vault {
     return outlineOf(this.read(target).content);
   }
 
-  /** Full-text search, optionally only among notes carrying `tag` (or a tag under it). */
+  /**
+   * Full-text search, optionally only among notes carrying `tag` (or a tag under it). The words
+   * read the way a note query's do (AND, OR, -, ( ), "a phrase"; see queryGrammar.ts), but its
+   * filters (`tag=`, `modified>`) are for note queries (feed): a search leaves them out.
+   */
   search(query: string, limit = 20, scope: ArchiveScope = "active", tag?: string): SearchHit[] {
-    const terms = searchTerms(query);
+    const { expr } = parse(query);
+    const terms = textWords(expr);
+    const match = toFts(expr);
     const key = tag === undefined ? null : normalizeTag(tag);
-    if (!terms.length || (tag !== undefined && !key)) return [];
+    if (!match || !terms.length || (tag !== undefined && !key)) return [];
     // Ordered by rank, the full-text index hands hits over best first, so the query stops at `limit`
     // and makes snippets only for the hits it returns (a 1 MB note's snippet can take 200 ms).
     const rows = this.db.all(
@@ -719,7 +771,7 @@ export class Vault {
          AND (? = 'all' OR (${archivedSql("n.path")}) = (? = 'archived'))
          AND (? IS NULL OR n.path IN (SELECT path FROM tags WHERE kind != 'task' AND ${UNDER}))
        ORDER BY rank LIMIT ?`,
-      ftsQuery(terms), scope, scope, key, ...under(key ?? ""), limit,
+      match, scope, scope, key, ...under(key ?? ""), limit,
     );
     return rows.map((r) => ({ ...r, lines: this.matchingLines(r.path, terms) }));
   }
@@ -740,9 +792,14 @@ export class Vault {
    * `folder` matches the note's original folder whether or not it's archived. Newest first puts
    * `start` notes ahead and the agents' instructions after the rest (see noteRoles.ts).
    */
-  feed(opts: Omit<NoteQuery, "limit"> & { scope?: ArchiveScope; offset?: number; limit?: number } = {}) {
+  feed(opts: Omit<NoteQuery, "limit"> & { scope?: ArchiveScope; offset?: number; limit?: number; cols?: string } = {}) {
+    // The frontmatter properties a table of these notes shows (`cols=status,due`), lowercase.
+    const cols = [...new Set((opts.cols ?? "").split(",").map((c) => c.trim().toLowerCase()).filter(Boolean))].slice(0, 20);
     const scope = opts.scope ?? "active";
-    const terms = searchTerms(opts.q ?? "");
+    const words = parse(opts.q ?? "");
+    const terms = textWords(words.expr);
+    // A sort= among the words is the list's order.
+    opts = { ...opts, sort: words.sort ?? opts.sort };
     const all = this.feedRows();
     let rows = this.matching(opts, all);
     const counts = { active: rows.filter((r) => !isArchived(r.path)).length, archived: rows.filter((r) => isArchived(r.path)).length };
@@ -758,6 +815,7 @@ export class Vault {
     // The page's tags and who changed each note last, a few queries for the whole page.
     const tags = new Map<string, string[]>();
     const last = new Map<string, Actor & { source: string }>();
+    const props = new Map<string, Record<string, string[]>>();
     for (let i = 0; i < page.length; i += 90) {
       const paths = page.slice(i, i + 90).map((r) => r.path);
       const marks = paths.map(() => "?").join(",");
@@ -774,6 +832,16 @@ export class Vault {
         ...paths,
       )) {
         last.set(c.path, c);
+      }
+      if (cols.length) {
+        for (const p of this.db.all<{ path: string; key: string; value: string }>(
+          `SELECT path, key, value FROM props WHERE path IN (${marks}) AND key IN (${cols.map(() => "?").join(",")}) ORDER BY rowid`,
+          ...paths,
+          ...cols,
+        )) {
+          const of = props.get(p.path) ?? props.set(p.path, {}).get(p.path)!;
+          (of[p.key] ??= []).push(p.value);
+        }
       }
     }
     const items: FeedItem[] = page.map((r) => {
@@ -792,6 +860,7 @@ export class Vault {
         lastSource: last.get(r.path)?.source ?? null,
         lastBy: last.has(r.path) ? { person: last.get(r.path)!.person, agent: last.get(r.path)!.agent } : null,
         role: roleOf(r.path),
+        ...(cols.length ? { props: props.get(r.path) ?? {} } : {}),
       };
     });
     return { items, total: rows.length, counts, folders: [...new Set(all.map((n) => homeOf(n.path)).filter((p) => p.includes("/")).map((p) => p.split("/")[0]))].sort() };
@@ -802,27 +871,69 @@ export class Vault {
     return this.db.all("SELECT id, path, kind, title, mtime, date FROM notes WHERE kind != 'asset' ORDER BY mtime DESC");
   }
 
+  /**
+   * When each note was made, by ID: its first change in History. A note that came in some other way
+   * (a file added outside the app, an import) has none, and goes by when its file last changed.
+   */
+  private createdTimes(): Map<string, number> {
+    return new Map(this.db.all<{ id: string; ts: number }>("SELECT note_id AS id, min(ts) AS ts FROM changes WHERE note_id IS NOT NULL GROUP BY note_id").map((r) => [r.id, r.ts]));
+  }
+
   /** The notes a query matches, archived ones included, in its order. The part of the feed smart folder counts need. */
   private matching(query: NoteQuery, all = this.feedRows()): ReturnType<Vault["feedRows"]> {
-    const terms = searchTerms(query.q ?? "");
+    const { expr, sort: sortInQ } = parse(query.q ?? "");
+    const sort = sortInQ ?? query.sort;
     let rows = all;
-    if (terms.length) {
-      const hits = new Set(this.db.all("SELECT path FROM notes_fts WHERE notes_fts MATCH ?", ftsQuery(terms)).map((r) => r.path));
-      rows = rows.filter((r) => hits.has(r.path));
+    // The folder key (`A|B` is either) and tag key (`work,plan` is the notes with both, `match=any` either) narrow the rows first.
+    if (query.folder) {
+      const folders = folderList(query.folder);
+      rows = rows.filter((r) => inFolders(homeOf(r.path), folders));
     }
-    if (query.folder) rows = rows.filter((r) => homeOf(r.path).startsWith(query.folder!.replace(/\/?$/, "/")));
-    // Every tag, each with the tags under it: `work,plan` is the notes with both.
-    for (const tag of tagList(query.tag)) {
+    // A tag takes the tags under it too, whether it's wanted or left out.
+    const tagged = (tag: string) => {
       const key = normalizeTag(tag);
-      const on = new Set(key ? this.db.all<{ path: string }>(`SELECT DISTINCT path FROM tags WHERE kind != 'task' AND ${UNDER}`, ...under(key)).map((r) => r.path) : []);
-      rows = rows.filter((r) => on.has(r.path));
+      return new Set(key ? this.db.all<{ path: string }>(`SELECT DISTINCT path FROM tags WHERE kind != 'task' AND ${UNDER}`, ...under(key)).map((r) => r.path) : []);
+    };
+    // The tag key's tags: all of them, or with match=any, one.
+    const keyed = tagList(query.tag).map(tagged);
+    if (keyed.length) rows = rows.filter((r) => (query.match === "any" ? keyed.some((t) => t.has(r.path)) : keyed.every((t) => t.has(r.path))));
+    // Dates go by day, in this core's time zone (see dayPasses).
+    const created = termsOf(expr).some((t) => t.kind === "date" && t.field === "created") || sort === "created" ? this.createdTimes() : null;
+    const createdOf = (r: (typeof rows)[number]) => Math.min(created?.get(r.id) ?? r.mtime, r.mtime);
+    if (expr) {
+      // Each term's notes, found once: words through the full-text index, tags through the tags table,
+      // properties through the props table (status=draft: any of its status values is "draft", in any case).
+      const sets = new Map<Term, Set<string>>();
+      const setOf = (t: Term) => {
+        if (!sets.has(t)) {
+          const match = t.kind === "text" ? toFts(t) : null;
+          const want = t.kind === "prop" ? t.value?.toLowerCase() : undefined;
+          sets.set(
+            t,
+            t.kind === "tag" ? tagged(t.tag)
+            : t.kind === "prop" ? new Set(this.db.all<{ path: string; value: string }>("SELECT path, value FROM props WHERE key = ?", t.key).filter((r) => want === undefined || r.value.toLowerCase() === want).map((r) => r.path))
+            : new Set(match ? this.db.all<{ path: string }>("SELECT path FROM notes_fts WHERE notes_fts MATCH ?", match).map((r) => r.path) : []),
+          );
+        }
+        return sets.get(t)!;
+      };
+      const today = this.day();
+      const dayOf = dayFormat(this.timeZone);
+      const test = (r: (typeof rows)[number]) => (t: Term) =>
+        t.kind === "folder" ? inFolders(homeOf(r.path), t.folders)
+        : t.kind === "date" ? dayPasses(dayOf(t.field === "created" ? createdOf(r) : r.mtime), t, today)
+        : t.kind === "prop" && t.key === "title" ? t.value === null || r.title.toLowerCase() === t.value.toLowerCase()
+        : setOf(t).has(r.path);
+      rows = rows.filter((r) => evaluate(expr, test(r)));
     }
-    if (query.sort === "title") rows = [...rows].sort((a, b) => a.title.localeCompare(b.title));
-    if (query.sort === "date" || query.sort === "oldest") {
-      // A note's own date, else the day it last changed; the same day goes by when it changed.
-      const day = (r: (typeof rows)[number]) => r.date ?? new Date(r.mtime).toISOString().slice(0, 10);
-      const dir = query.sort === "date" ? -1 : 1;
-      rows = [...rows].sort((a, b) => dir * (day(a).localeCompare(day(b)) || a.mtime - b.mtime));
+    if (sort === "created") rows = [...rows].sort((a, b) => createdOf(b) - createdOf(a));
+    if (sort === "title") rows = [...rows].sort((a, b) => a.title.localeCompare(b.title));
+    if (sort === "date" || sort === "oldest") {
+      // A note's own date, else the day it last changed in the vault's time zone; the same day goes by when it changed.
+      // Worked out once per note: localDate builds a formatter each call, too slow inside a sort.
+      const day = new Map(rows.map((r) => [r, r.date ?? localDate(r.mtime, this.timeZone)]));
+      const dir = sort === "date" ? -1 : 1;
+      rows = [...rows].sort((a, b) => dir * (day.get(a)!.localeCompare(day.get(b)!) || a.mtime - b.mtime));
     }
     return rows;
   }
@@ -889,7 +1000,7 @@ export class Vault {
     const names = this.namesOf(rel);
     const candidates = new Set<string>();
     for (const name of names) {
-      const terms = searchTerms(name);
+      const terms = [...name.matchAll(/[\p{L}\p{N}_]+/gu)].map((m) => m[0]).slice(0, 12);
       if (!terms.length) continue;
       const phrase = `"${terms.join(" ")}"`;
       for (const r of this.db.all<{ path: string }>("SELECT path FROM notes_fts WHERE notes_fts MATCH ? ORDER BY rank LIMIT 50", phrase)) candidates.add(r.path);
@@ -939,9 +1050,10 @@ export class Vault {
    */
   private resolver() {
     const seen = new Map<string, string | null>();
+    const stems = new Map<string, string[]>();
     return (target: string, from: string) => {
       const key = `${path.posix.dirname(from)}\n${target}`;
-      if (!seen.has(key)) seen.set(key, this.resolve(target, from));
+      if (!seen.has(key)) seen.set(key, this.resolveIn(target, from, stems));
       return seen.get(key)!;
     };
   }
@@ -1334,7 +1446,15 @@ export class Vault {
    */
   favorites(user: string): Favorite[] {
     const out: Favorite[] = [];
+    let smart: Map<string, SmartFolder> | null = null;
     for (const f of this.db.all<{ note_id: string; path: string }>("SELECT note_id, path FROM favorites WHERE user = ? ORDER BY pos", user)) {
+      // A starred smart folder they can still see (one made just someone else's drops out).
+      if (f.note_id.startsWith("~")) {
+        smart ??= new Map(this.smartFolders(user).map((s) => [s.id, s]));
+        const s = smart.get(f.note_id.slice(1));
+        if (s) out.push({ ...s, smartFolder: true });
+        continue;
+      }
       if (f.note_id.startsWith("#")) {
         const t = this.tagInUse(f.note_id.slice(1));
         if (t) out.push(t);
@@ -1387,6 +1507,18 @@ export class Vault {
     return this.favorites(user);
   }
 
+  /** Star a smart folder (a name or ID, as list_smart_folders gives) at the end of `user`'s favorites. */
+  starSmartFolder(user: string, target: string): Favorite[] {
+    const f = this.findSmartFolder(user, target);
+    this.addFavorite(user, smartKey(f.id), f.name);
+    return this.favorites(user);
+  }
+
+  unstarSmartFolder(user: string, target: string): Favorite[] {
+    this.db.run("DELETE FROM favorites WHERE user = ? AND note_id = ?", user, smartKey(this.findSmartFolder(user, target).id));
+    return this.favorites(user);
+  }
+
   private addFavorite(user: string, key: string, path: string) {
     this.db.run(
       `INSERT INTO favorites(user, note_id, path, pos)
@@ -1397,12 +1529,13 @@ export class Vault {
 
   /**
    * Put these favorites first, in this order; the rest follow in the order they had, stars whose
-   * note is gone included. A `#tag` target is a starred tag.
+   * note is gone included. A `#tag` target is a starred tag, and `~name` (or `~id`) a starred smart folder.
    */
   orderFavorites(user: string, targets: string[]): Favorite[] {
     this.favorites(user); // rebinds stars to their notes' current IDs
     const starred = this.db.all<{ note_id: string }>("SELECT note_id FROM favorites WHERE user = ? ORDER BY pos", user).map((f) => f.note_id);
-    const first = targets.map((t) => (t.startsWith("#") ? tagKey(normalizeTag(t) ?? "") : this.metaOf(t).id)).filter((id) => starred.includes(id));
+    const key = (t: string) => (t.startsWith("#") ? tagKey(normalizeTag(t) ?? "") : t.startsWith("~") ? smartKey(this.findSmartFolder(user, t.slice(1)).id) : this.metaOf(t).id);
+    const first = targets.map(key).filter((id) => starred.includes(id));
     const order = [...new Set([...first, ...starred])];
     this.db.tx(() => order.forEach((id, i) => this.db.run("UPDATE favorites SET pos = ? WHERE user = ? AND note_id = ?", i + 1, user, id)));
     return this.favorites(user);
@@ -1480,6 +1613,7 @@ export class Vault {
     const f = this.findSmartFolder(user, target, idOnly);
     if (f.shared && !canEditShared) throw new VaultError("Only editors can delete shared smart folders.", "forbidden");
     this.db.run("DELETE FROM smart_folders WHERE id = ?", f.id);
+    this.db.run("DELETE FROM favorites WHERE note_id = ?", smartKey(f.id));
     return this.smartFolders(user);
   }
 
@@ -1622,6 +1756,7 @@ export class Vault {
     const rows = this.db.all<{ path: string; title: string }>("SELECT path, title FROM notes WHERE kind = 'md' ORDER BY path");
     const notes: ReplacedNote[] = [];
     const edits: Array<{ path: string; content: string; version: string; change: Change }> = [];
+    const pending: Array<{ path: string; before: string; after: string }> = [];
     for (const r of rows) {
       if (isArchived(r.path) || !r.path.startsWith(folder)) continue;
       const before = this.files.read(r.path);
@@ -1630,8 +1765,13 @@ export class Vault {
       if (done.content === before) continue;
       notes.push({ path: r.path, title: r.title, count: done.count, lines: done.lines.slice(0, 20) });
       if (opts.dryRun) continue;
-      const c = this.commit(r.path, before, done.content, source, "edit");
-      if (c.change) edits.push({ path: r.path, content: done.content, version: c.version, change: c.change });
+      // Check every note fits before writing any, so one note over the limit leaves them all as they were.
+      this.checkSize(r.path, done.content);
+      pending.push({ path: r.path, before, after: done.content });
+    }
+    for (const p of pending) {
+      const c = this.commit(p.path, p.before, p.after, source, "edit");
+      if (c.change) edits.push({ path: p.path, content: p.after, version: c.version, change: c.change });
     }
     return { notes, edits };
   }
@@ -1688,11 +1828,15 @@ export class Vault {
 
   // ---------------------------------------------------------------- writing
 
-  private commit(rel: string, before: string | null, after: string, source: string, op: Change["op"], autosave = false) {
-    // Every write through the core lands here, so one limit covers the API, MCP, the CLI and online.
+  private checkSize(rel: string, after: string) {
     if (after.length > this.maxNoteBytes / 4 && new TextEncoder().encode(after).length > this.maxNoteBytes) {
       throw new VaultError(`${rel} would be over ${Math.round(this.maxNoteBytes / 1024 / 1024)} MB, the most a note can hold`, "invalid");
     }
+  }
+
+  private commit(rel: string, before: string | null, after: string, source: string, op: Change["op"], autosave = false) {
+    // Every write through the core lands here, so one limit covers the API, MCP, the CLI and online.
+    this.checkSize(rel, after);
     this.files.write(rel, after);
     const sitting = autosave && op === "edit" && before !== null ? this.sittingOf(rel, actorOf(source).source, before) : null;
     const meta = this.indexFile(rel, after)!;
@@ -1976,6 +2120,10 @@ export class Vault {
     const into = (id: string) => open.filter((t) => todaySection(t.meta, date) === id);
     const overdue = into("overdue").sort((a, b) => a.meta.due!.localeCompare(b.meta.due!));
     const [due, starting] = [into("due"), into("starting")];
+    // Ticked today, and overdue, due or starting today: what Today had and is now done.
+    const ticked = this.taskRows("t.done = 1 AND (substr(t.due, 1, 10) <= ? OR substr(t.start, 1, 10) = ?)", date, date)
+      .map(toTask)
+      .filter((t) => t.meta.done?.slice(0, 10) === date && todaySection(t.meta, date) !== null).length;
     const journal = `Journal/${date}.md`;
     return {
       date,
@@ -1985,6 +2133,7 @@ export class Vault {
         { id: "starting", title: "Starting today", tasks: starting },
       ],
       journal: { path: journal, exists: this.files.stat(journal) !== null },
+      done: ticked,
     };
   }
 
@@ -2148,7 +2297,7 @@ export class Vault {
   /** The notes and assets under `folder` (active and archived alike, since a folder holds both). */
   private under(folder: string): string[] {
     const dir = cleanPath(folder);
-    return this.db.all<{ path: string }>("SELECT path FROM notes WHERE substr(path, 1, ?) = ? ORDER BY path", dir.length + 1, `${dir}/`).map((r) => r.path);
+    return this.db.all<{ path: string }>("SELECT path FROM notes WHERE substr(path, 1, length(?)) = ? ORDER BY path", `${dir}/`, `${dir}/`).map((r) => r.path);
   }
 
   /** What deleting these notes (or everything in `folder`) would touch. */
@@ -2219,10 +2368,32 @@ export class Vault {
     // Only the case changing ("ideas" to "Ideas"): a case-insensitive disk would keep the folder's old
     // spelling under renamed files, so it goes by way of another name.
     if (dest.toLowerCase() === from.toLowerCase()) {
+      // Checked first: on a case-sensitive disk `dest` can be another folder, but on one that ignores
+      // case it's this one, whose files are the same files.
+      if (this.files.listUnder(dest).some((f) => !this.files.same(f.path, from + f.path.slice(dest.length)))) {
+        throw new VaultError(`There's already a folder named ${dest}`, "exists");
+      }
       let via = `${from} (renaming)`;
-      for (let i = 2; this.files.listUnder(via).length; i++) via = `${from} (renaming ${i})`;
+      for (let i = 2; this.files.listUnder(via).length || this.files.listUnder(`${ARCHIVE}${via}`).length; i++) via = `${from} (renaming ${i})`;
+      // What isn't a note (.DS_Store, say) goes too, or the old folder would stay under its old spelling.
+      const carry = (a: string, b: string) => {
+        for (const d of [a, `${ARCHIVE}${a}`]) {
+          const to = d === a ? b : `${ARCHIVE}${b}`;
+          for (const f of this.files.listUnder(d)) if (!this.files.stat(to + f.path.slice(d.length))) this.files.rename(f.path, to + f.path.slice(d.length));
+          this.files.prune?.(d);
+        }
+      };
       const first = this.moveFolder(from, via, source);
-      const r = this.moveFolder(via, dest, source);
+      carry(from, via);
+      let r: ReturnType<Vault["moveFolder"]>;
+      try {
+        r = this.moveFolder(via, dest, source);
+      } catch (e) {
+        this.moveFolder(via, from, source); // put it all back as it was
+        carry(via, from);
+        throw e;
+      }
+      carry(via, dest);
       const was = new Map(first.moved.map((m) => [m.path, m.from]));
       return { ...r, from, moved: r.moved.map((m) => ({ ...m, from: was.get(m.from) ?? m.from })) };
     }
@@ -2245,7 +2416,9 @@ export class Vault {
   /** The ids of what's in Trash, newest first. */
   private trashIds(): string[] {
     const ids = new Set(this.files.listUnder(TRASH).map((f) => f.path.split("/")[1]).filter((id) => TRASH_ID.test(id)));
-    return [...ids].sort((a, b) => Number(b.split("-")[0]) - Number(a.split("-")[0]));
+    // Newest first; items deleted in the same millisecond go by their change, so the order never depends on the disk.
+    const key = (id: string) => id.split("-").map(Number);
+    return [...ids].sort((a, b) => key(b)[0] - key(a)[0] || key(b)[1] - key(a)[1]);
   }
 
   /** The deleted file in Trash item `id`, and what's kept beside it. */
@@ -2268,7 +2441,9 @@ export class Vault {
       const text = kind === "asset" ? "" : (this.files.read(f.at) ?? "");
       const noteId = this.db.get("SELECT note_id FROM changes WHERE id = ?", changeId)?.note_id;
       const labels = noteId ? (this.db.get("SELECT count(*) AS n FROM labels WHERE note_id = ?", noteId)?.n ?? 0) : 0;
-      return [{ id, path: f.path, kind, size: f.size, deletedAt: ms, expiresAt: ms + TRASH_DAYS * 86_400_000, by: c ?? null, labels, excerpt: kind === "md" ? excerptOf(splitFrontmatter(text).body, titleOf(text, kind, f.path), 240) : "" }];
+      const title = kind === "asset" ? path.posix.basename(f.path) : titleOf(text, kind, f.path);
+      const tags = kind === "md" ? [...new Map(scanTags(text).map((t) => [t.tag, t.display])).values()] : [];
+      return [{ id, path: f.path, kind, title, tags, size: f.size, deletedAt: ms, expiresAt: ms + TRASH_DAYS * 86_400_000, by: c ?? null, labels, excerpt: kind === "md" ? excerptOf(splitFrontmatter(text).body, title, 240) : "" }];
     });
   }
 
@@ -2574,6 +2749,15 @@ const linkStem = (key: string) => key.slice(key.lastIndexOf("/") + 1);
 const fileStem = (rel: string) => path.posix.basename(rel).replace(/\.(md|markdown)$/i, "");
 
 /** `tags.tag` is the tag or under it: a range, so it uses the index and needs no character counting. */
+/** A function from a time (ms) to its day (YYYY-MM-DD) in `timeZone`: one formatter for many notes. */
+function dayFormat(timeZone: string | undefined): (ms: number) => string {
+  const f = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
+  return (ms) => {
+    const p = Object.fromEntries(f.formatToParts(ms).map((x) => [x.type, x.value]));
+    return `${p.year}-${p.month}-${p.day}`;
+  };
+}
+
 const UNDER = "(tag = ? OR (tag >= ? AND tag < ?))";
 const under = (key: string) => [key, `${key}/`, `${key}0`]; // "0" sorts right after "/"
 
@@ -2620,10 +2804,6 @@ function findColumn(boards: Board[], ref: string, path: string, board?: number):
   throw new VaultError(`No column "${ref}" on the board${boards.length === 1 ? "" : "s"} in ${path}. Columns: ${names}`, "not_found");
 }
 
-function searchTerms(q: string): string[] {
-  return [...q.matchAll(/[\p{L}\p{N}_]+/gu)].map((m) => m[0]).slice(0, 12);
-}
-const ftsQuery = (terms: string[]) => terms.map((t) => `"${t}"*`).join(" ");
 
 /** The start of a note's body for previews: without the title heading, cut at a line boundary. */
 function excerptOf(body: string, title: string, max = 700): string {

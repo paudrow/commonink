@@ -4,9 +4,10 @@
 // anything is written, so a bad path or a clash refuses the whole import. No Node or DOM imports:
 // Workers run it, and the app unzips with it too.
 import { strFromU8, unzipSync } from "fflate";
-import { cleanPath, isHidden, kindOf, VaultError } from "./paths.ts";
+import { cleanPath, isHidden, kindOf, MAX_NOTE_BYTES, VaultError } from "./paths.ts";
 import type { LocalFile, VaultBytes } from "./commands/types.ts";
-import { MAX_NOTE_BYTES, type Vault } from "./vault.ts";
+import type { Change, Vault } from "./vault.ts";
+import { convertEntries, type ImportEntry, type ImportFrom } from "./convert.ts";
 
 /** The most notes one import may bring: a bigger vault goes a folder (or a .zip) at a time. */
 export const MAX_IMPORT_NOTES = 2000;
@@ -23,9 +24,13 @@ export interface ImportSet {
   files: Array<{ path: string; bytes: Uint8Array }>;
   /** What was left out, and why ("not a note or a file type the vault keeps"). */
   ignored: Array<{ path: string; why: string }>;
+  /** The app it was read as coming from (convert.ts), when it was read from files. */
+  from?: Exclude<ImportFrom, "auto">;
 }
 
 export interface ImportResult {
+  /** The app the files were read as coming from, when it wasn't plain markdown. */
+  from?: "notion" | "evernote" | "apple-notes";
   created: string[];
   replaced: string[];
   /** Already there (and `existing` was "skip"), or the same text. */
@@ -44,29 +49,15 @@ const join = (folder: string | undefined, rel: string) => (folder?.trim() ? `${f
  * The notes and files in what someone picked: each .md or .html file is a note at its name (under
  * `folder`), a .zip brings what's inside it at its paths (under `folder`), and a picture or PDF is a
  * file. Hidden folders (.obsidian, .git, .trash) and zip tools' leftovers are passed over quietly.
+ * What another app exported is made Common Ink's first, as `from` says (convert.ts): Notion's
+ * names and links, Evernote's .enex, Apple Notes' HTML and text.
  */
-export function readImport(picked: LocalFile[], folder?: string): ImportSet {
-  const out: ImportSet = { notes: [], files: [], ignored: [] };
-  let total = 0;
-  const take = (rel: string, bytes: Uint8Array) => {
-    if (isHidden(rel) || JUNK.test(rel)) return;
-    const kind = kindOf(rel);
-    if (!kind) return void out.ignored.push({ path: rel, why: "not a note or a file type the vault keeps" });
-    total += bytes.byteLength;
-    if (total > MAX_IMPORT_BYTES) throw new VaultError(`That's more than ${MAX_IMPORT_BYTES / 1024 / 1024} MB: import a folder at a time`);
-    if (kind === "asset") out.files.push({ path: rel, bytes });
-    else out.notes.push({ path: rel, content: strFromU8(bytes).replace(/^﻿/, "") });
-  };
-  for (const f of picked) {
-    const name = f.name.replace(/\\/g, "/").split("/").pop()!;
-    if (!/\.zip$/i.test(name)) {
-      take(join(folder, name), f.bytes);
-      continue;
-    }
-    let unzipped: Record<string, Uint8Array>;
-    let declared = total;
+export function readImport(picked: LocalFile[], folder?: string, from: ImportFrom = "auto"): ImportSet {
+  const raw: ImportEntry[] = [];
+  let declared = 0;
+  const unzip = (name: string, bytes: Uint8Array): Record<string, Uint8Array> => {
     try {
-      unzipped = unzipSync(f.bytes, {
+      return unzipSync(bytes, {
         // Sizes are counted before anything is inflated, so a zip that unpacks to gigabytes is refused unread.
         filter: (e) => {
           if (e.name.endsWith("/") || isHidden(e.name) || JUNK.test(e.name)) return false;
@@ -79,7 +70,37 @@ export function readImport(picked: LocalFile[], folder?: string): ImportSet {
       if (e instanceof VaultError) throw e;
       throw new VaultError(`${name} isn't a .zip that can be opened`);
     }
-    for (const [entry, bytes] of Object.entries(unzipped)) take(join(folder, entry.replace(/\\/g, "/")), bytes);
+  };
+  for (const f of picked) {
+    const name = f.name.replace(/\\/g, "/").split("/").pop()!;
+    if (!/\.zip$/i.test(name)) {
+      declared += f.bytes.byteLength;
+      raw.push({ path: name, bytes: f.bytes });
+      continue;
+    }
+    let entries = Object.entries(unzip(name, f.bytes)).map(([entry, bytes]) => ({ path: entry.replace(/\\/g, "/"), bytes }));
+    // Notion wraps a big export in a .zip of .zips ("Export-…-Part-1.zip"): those are opened too.
+    if (entries.length && entries.every((e) => /\.zip$/i.test(e.path))) {
+      entries = entries.flatMap((z) => Object.entries(unzip(z.path, z.bytes)).map(([entry, bytes]) => ({ path: entry.replace(/\\/g, "/"), bytes })));
+    }
+    raw.push(...entries);
+  }
+
+  const converted = convertEntries(raw, from);
+  const out: ImportSet = { notes: [], files: [], ignored: [], from: converted.from };
+  let total = 0;
+  for (const { path, bytes } of converted.entries) {
+    const rel = join(folder, path);
+    if (isHidden(rel) || JUNK.test(rel)) continue;
+    const kind = kindOf(rel);
+    if (!kind) {
+      out.ignored.push({ path: rel, why: "not a note or a file type the vault keeps" });
+      continue;
+    }
+    total += bytes.byteLength;
+    if (total > MAX_IMPORT_BYTES) throw new VaultError(`That's more than ${MAX_IMPORT_BYTES / 1024 / 1024} MB: import a folder at a time`);
+    if (kind === "asset") out.files.push({ path: rel, bytes });
+    else out.notes.push({ path: rel, content: strFromU8(bytes).replace(/^\uFEFF/, "") });
   }
   return out;
 }
@@ -92,12 +113,13 @@ export function pairsImport(notes: Record<string, string>, folder?: string): Imp
 /**
  * Write an import: every note is checked first (a path that can't be a note, the same note twice, too
  * many), then each is created, or replaced or left alone if it's already there, as `existing` says.
- * Files' bytes are stored through `bytes`; one that's already there is left as it is.
+ * Files' bytes are stored through `bytes`; one that's already there is left as it is. `written` hears
+ * each note written, with its change, so open tabs and History can be told.
  */
 export async function writeImport(
   vault: Vault,
   set: ImportSet,
-  opts: { existing?: OnExisting; source: string; bytes?: VaultBytes },
+  opts: { existing?: OnExisting; source: string; bytes?: VaultBytes; written?: (path: string, content: string, version: string, change: Change | null) => void },
 ): Promise<ImportResult> {
   const existing = opts.existing ?? "skip";
   if (!set.notes.length && !set.files.length) throw new VaultError(set.ignored.length ? "Nothing to import: no notes in that (only files the vault doesn't keep)" : "Nothing to import");
@@ -121,12 +143,15 @@ export async function writeImport(
   const files = set.files.map(({ path, bytes }) => ({ rel: cleanPath(path), bytes }));
 
   const r: ImportResult = { created: [], replaced: [], skipped: [], files: [], ignored: [...set.ignored] };
+  if (set.from && set.from !== "obsidian") r.from = set.from;
   for (const { rel, content } of notes) {
     if (!vault.files.stat(rel)) {
-      vault.create(rel, content, opts.source);
+      const w = vault.create(rel, content, opts.source);
+      opts.written?.(rel, content, w.version, w.change);
       r.created.push(rel);
     } else if (existing === "replace" && vault.files.read(rel) !== content) {
-      vault.save(rel, content, { source: opts.source });
+      const w = vault.save(rel, content, { source: opts.source });
+      opts.written?.(rel, content, w.version, w.change);
       r.replaced.push(rel);
     } else r.skipped.push(rel);
   }
@@ -143,8 +168,9 @@ export async function writeImport(
 /** An import's outcome in a few lines, for people and agents. */
 export function fmtImport(r: ImportResult): string {
   const n = (k: number, one: string) => `${k} ${one}${k === 1 ? "" : "s"}`;
+  const app = { notion: "a Notion export", evernote: "Evernote", "apple-notes": "Apple Notes" };
   const lines = [
-    `Imported ${n(r.created.length, "new note")}${r.replaced.length ? `, replaced ${n(r.replaced.length, "note")}` : ""}${r.files.length ? `, added ${n(r.files.length, "file")}` : ""}.`,
+    `${r.from ? `From ${app[r.from]}: i` : "I"}mported ${n(r.created.length, "new note")}${r.replaced.length ? `, replaced ${n(r.replaced.length, "note")}` : ""}${r.files.length ? `, added ${n(r.files.length, "file")}` : ""}.`,
   ];
   if (r.skipped.length) lines.push(`Left as they were (already there): ${r.skipped.join(", ")}`);
   if (r.ignored.length) lines.push(`Left out: ${r.ignored.map((i) => `${i.path} (${i.why})`).join(", ")}`);

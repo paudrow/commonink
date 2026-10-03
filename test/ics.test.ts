@@ -64,12 +64,12 @@ test("folded lines, escapes, quoted params, people and links read into an occurr
   ]);
 });
 
-test("a missing title, a non-web URL and a missing UID get safe values", () => {
+test("a missing title (a free/busy feed), a non-web URL and a missing UID get safe values", () => {
   const text = cal(event("DTSTART:20261005T150000Z", "URL:javascript:alert(1)"), event("DTSTART:20261005T150000Z", "SUMMARY:Same", "URL:not a url"));
   const events = read(text);
   assert.deepEqual(
     events.map((e) => [e.title, e.url]),
-    [["(No title)", null], ["Same", null]],
+    [["Busy", null], ["Same", null]],
   );
   assert.match(events[0].uid, /^[0-9a-f]{16}@common-ink$/);
   assert.notEqual(events[0].uid, events[1].uid);
@@ -78,7 +78,7 @@ test("a missing title, a non-web URL and a missing UID get safe values", () => {
 
 test("an alarm's properties stay out of its event", () => {
   const text = cal(event("UID:a", "BEGIN:VALARM", "ACTION:DISPLAY", "SUMMARY:Alarm", "DESCRIPTION:Reminder", "TRIGGER:-PT10M", "END:VALARM", "DTSTART:20261005T150000Z"));
-  assert.deepEqual(read(text).map((e) => [e.title, e.description]), [["(No title)", null]]);
+  assert.deepEqual(read(text).map((e) => [e.title, e.description]), [["Busy", null]]);
 });
 
 test("all-day, multi-day, timed UTC, floating, DURATION and missing ends", () => {
@@ -409,6 +409,23 @@ test("a VTIMEZONE of many long-ended rules returns promptly and keeps their last
   assert.equal(events.length, 24);
   assert.equal(events[0].start, "2026-10-05T09:00:00Z");
   assert.ok(ms < 500, `took ${ms}ms`);
+});
+
+test("a feed naming a fresh bogus TZID on every event returns promptly and still reads real zones", () => {
+  const real = event("UID:real", "DTSTART;TZID=Australia/Adelaide:20261005T100000");
+  const bogus = Array.from({ length: 20_000 }, (_, i) => `BEGIN:VEVENT\r\nUID:b${i}\r\nDTSTART;TZID=A/B/C/${i}:20261001T100000\r\nEND:VEVENT`);
+  // Late zones are first seen after the misses are spent: an alias Intl doesn't list, and a Windows name whose target older ICU doesn't list.
+  const late = [event("UID:late", "DTSTART;TZID=America/Halifax:20261005T100000"), event("UID:alias", "DTSTART;TZID=US/Mountain:20261005T100000"), event("UID:win", "DTSTART;TZID=Nepal Standard Time:20261005T100000")];
+  const text = cal(real, ...bogus, ...late);
+  let events: Occurrence[] = [];
+  const ms = cpuMs(() => (events = read(text, "2026-09-01T00:00:00Z", "2027-01-01T00:00:00Z", { total: 30_000 })));
+  assert.equal(events.length, 20_004);
+  const byUid = new Map(events.map((e) => [e.uid, e.start]));
+  assert.deepEqual(
+    ["real", "late", "alias", "win", "b0", "b19999"].map((u) => byUid.get(u)),
+    ["2026-10-04T23:30:00Z", "2026-10-05T13:00:00Z", "2026-10-05T16:00:00Z", "2026-10-05T04:15:00Z", "2026-10-01T10:00:00Z", "2026-10-01T10:00:00Z"],
+  );
+  assert.ok(ms < 1500, `took ${ms}ms`);
 });
 
 test("garbage doesn't throw and keeps what's valid", () => {

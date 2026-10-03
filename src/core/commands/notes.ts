@@ -1,8 +1,9 @@
 // Notes: find, read, write, move, archive and delete them.
 import { kindOf, VaultError } from "../paths.ts";
 import { fmtBacklinks, fmtFavorites, fmtList, fmtMissingLinks, fmtRead, fmtSearch, fmtWrite } from "../format.ts";
-import { parseQuery } from "../query.ts";
+import { parseQuery, queryProblem } from "../query.ts";
 import { TRASH_DAYS } from "../vault.ts";
+import { IMPORT_FROM, type ImportFrom } from "../convert.ts";
 import { fmtImport, MAX_IMPORT_NOTES, ON_EXISTING, pairsImport, readImport, writeImport, type OnExisting } from "../import.ts";
 import { bool, command, list, localFiles, num, pairs, str } from "./types.ts";
 import { checkup, fmtCheckup, STALE_DAYS } from "../checkup.ts";
@@ -26,8 +27,10 @@ export const notes = [
     route: "GET /search",
     title: "Search notes",
     summary: "Full-text search (prefix matching), with the lines that match",
-    description: "Full-text search across the vault (titles, paths, bodies; prefix matching). Returns paths with matching line numbers.",
-    examples: ["commonink search launch plan", "commonink search invoice --tag work --json"],
+    description:
+      "Full-text search across the vault (titles, paths, bodies; prefix matching). Every word must match; " +
+      '-word leaves out notes with it, a OR b matches either, ( ) groups, and "exact phrase" matches the words together (commonink help query). Returns paths with matching line numbers.',
+    examples: ["commonink search launch plan", "commonink search invoice --tag work --json", `commonink search '"launch plan" -draft'`],
     readOnly: true,
     args: {
       query: str({ required: true, pos: "rest", describe: "Words to search for" }),
@@ -72,7 +75,7 @@ export const notes = [
       "List notes in the vault or a folder, the notes and assets with a tag, the most recently modified notes, or the user's " +
       "starred notes (favorites, in their order). Archived notes (in Archive/, or the workspace's own archive folder like " +
       '"4. Archive/") are excluded unless requested.',
-    examples: ["commonink ls Projects", "commonink ls --tag work", "commonink ls --recent 5", "commonink ls --starred"],
+    examples: ["commonink ls Projects", "commonink ls --tag work", "commonink ls --recent 5", "commonink ls --starred", `commonink ls --query 'q="launch -draft" modified>-7d sort=created'`],
     readOnly: true,
     args: {
       folder: str({ pos: 0 }),
@@ -80,6 +83,10 @@ export const notes = [
       recent: num({ min: 1, max: 100, describe: "If set, list this many most recently modified notes" }),
       starred: bool({ describe: "If set, list the user's favorites instead" }),
       smart_folder: str({ flag: "smart", describe: "If set, list the notes in this smart folder (name or ID) instead" }),
+      query: str({
+        describe:
+          'If set, list the notes this note query matches instead, written as a smart folder or ::query writes it: q="(launch OR release) -draft" folder=Projects tag=work modified>-7d -tag=done sort=created. In q, side by side is AND, OR is either, -x leaves out, ( ) groups, and tag=, folder= and dates work inside. See commonink help query.',
+      }),
       include_archived: bool({ flag: "all", describe: "Also archived notes" }),
       archived: bool({ only: "cli", describe: "Only archived notes" }),
     },
@@ -90,6 +97,12 @@ export const notes = [
       }
       if (a.smart_folder) {
         const items = vault.feed({ ...parseQuery(vault.findSmartFolder(user, a.smart_folder).query), limit: Infinity }).items;
+        return { text: fmtList(items), data: items };
+      }
+      if (a.query) {
+        const problem = queryProblem(a.query);
+        if (problem) throw new VaultError(problem);
+        const items = vault.feed({ ...parseQuery(a.query), scope: scopeOf(a), limit: Infinity }).items;
         return { text: fmtList(items), data: items };
       }
       const notes = a.recent ? vault.recent(a.recent) : vault.list(a.folder, scopeOf(a), a.tag);
@@ -190,26 +203,32 @@ export const notes = [
     mcp: "import_notes",
     route: "POST /import",
     title: "Import notes",
-    summary: "Create many notes in one go: .md files, a folder, or a .zip (an Obsidian vault or an export), folders kept",
+    summary: "Create many notes in one go: .md files, a folder, or a .zip (Obsidian, Notion, Evernote .enex, Apple Notes), folders kept",
     description:
       "Create many notes in one call, instead of create_note for each. `notes` maps each note's path to its markdown " +
       `(up to ${MAX_IMPORT_NOTES} at once); \`.md\` is added to a path with no extension. \`folder\` puts them all under a folder. ` +
       "A note that's already there is left as it is, or replaced with `existing: \"replace\"` (History keeps what it was). " +
       "Every path is checked before anything is written, so one bad path refuses the whole import. " +
-      "On the CLI, give .md files, a folder or a .zip: folders inside are kept, and pictures and other files come along.",
+      "On the CLI, give .md files, a folder or a .zip: folders inside are kept, and pictures and other files come along. " +
+      "Other apps' exports are converted: Notion's (ids taken out of names and links), Evernote's .enex files (notes, tags, dates and pictures), " +
+      "and Apple Notes' (the AppleNotesExport folder scripts/export-apple-notes.js saves). Which app is told from the files; `from` names it instead.",
     examples: [
       "commonink import notes.zip",
       "commonink import ~/Obsidian/Vault --folder Imported",
       "commonink import *.md --folder Inbox --existing replace",
+      "commonink import Notion-Export.zip --folder Notion",
+      "commonink import Evernote/*.enex",
+      "commonink import ~/Desktop/AppleNotesExport",
     ],
     args: {
       files: localFiles({ required: true, pos: "rest", label: "file", describe: ".md or .html files, folders, or .zip files on this computer" }),
       notes: pairs({ required: true, only: "mcp", describe: "Each note's path (\"Projects/Plan.md\") → its markdown" }),
       folder: str({ describe: "Put everything under this folder (default: where its paths say)" }),
       existing: str({ enum: ON_EXISTING, describe: "A note already at a path: skip it (default) or replace it" }),
+      from: str({ enum: IMPORT_FROM, only: "cli", describe: "The app the files come from (default auto: Notion is told by its names, .enex is Evernote)" }),
     },
     run: async ({ vault, source, bytes }, a) => {
-      const set = a.notes ? pairsImport(a.notes, a.folder) : readImport(a.files ?? [], a.folder);
+      const set = a.notes ? pairsImport(a.notes, a.folder) : readImport(a.files ?? [], a.folder, (a.from as ImportFrom | undefined) ?? "auto");
       const r = await writeImport(vault, set, { existing: a.existing as OnExisting | undefined, source, bytes });
       return { text: fmtImport(r), data: r };
     },
