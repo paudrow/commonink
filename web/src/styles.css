@@ -398,6 +398,10 @@ body.panel-closed #panel { opacity: 0; pointer-events: none; }
 .tree-row.is-active { background: var(--active); color: var(--ink-strong); font-weight: 550; }
 .tree-row.is-active svg { color: var(--accent); }
 .tree-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* The quiet Hidden folders row under your folders, with a little space above it, and the hidden folders listed under it when it's open. */
+.tree-row.is-hidden .tree-name { color: var(--muted); }
+.tree-hidden-toggle { width: 100%; border: 0; margin-top: 4px; background: none; font: inherit; font-size: 12px; color: var(--muted); text-align: left; }
+.tree-hidden-toggle:hover { color: var(--ink-2); }
 /* A section's empty line keeps the rows' chevron column, so it starts where their icons do. */
 .tree-hint { display: flex; gap: 7px; padding: 4px 8px 6px; font-size: 12px; color: var(--muted); }
 .tree-hint svg { vertical-align: -2px; }
@@ -767,6 +771,7 @@ body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view
 .st-inline { display: flex; align-items: flex-start; gap: 6px; min-height: 24px; cursor: pointer; }
 .st-check { flex: none; width: 18px; height: 18px; margin: 1px 3px; accent-color: var(--accent); cursor: pointer; }
 .st-select { min-height: 28px; min-width: 160px; padding: 3px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg); color: var(--ink); font: 13px var(--ui); }
+.st-text { width: min(100%, 360px); min-height: 28px; padding: 3px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg); color: var(--ink); font: 13px var(--ui); }
 .st-row.is-disabled :is(.st-title, .st-desc) { opacity: 0.55; }
 .st-row.is-disabled :is(.st-check, .st-inline) { cursor: default; }
 .st-custom { width: 100%; margin-top: 4px; }

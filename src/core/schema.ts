@@ -8,6 +8,7 @@
 // stricter, since a misspelled setting would silently do nothing. No Node imports: the web app uses it too.
 import { frontmatterEntries, frontmatterText } from "./frontmatter.ts";
 import { PRESETS, type PresetId } from "./presets.ts";
+import { TEMPLATES } from "./templates.ts";
 
 /** The folder that holds the workspace's own configuration. */
 export const CONFIG = "Config";
@@ -128,6 +129,13 @@ export const SETTINGS_SCHEMA: ObjectSchema = {
       enum: PRESETS.map((p) => p.id),
       description: `How this vault is organized, which agents follow: ${PRESETS.map((p) => `${p.id} (${p.name})`).join(", ")}. Changing it in Settings rewrites the Organizing section of Config/AGENTS.md.`,
     },
+    hidden_folders: {
+      type: "array",
+      items: { type: "string" },
+      default: [CONFIG, TEMPLATES],
+      description: "Folders the sidebar leaves out, with the folders in them. Hidden folders, at the bottom of the sidebar's folders, lists them below your own. Search, Notes, links and agents find their notes as before. [] hides none.",
+      examples: ["[Config, Templates, Archive/Old]"],
+    },
     properties: {
       type: "object",
       additionalProperties: { type: "string", enum: [...PROPERTY_TYPES] },
@@ -163,7 +171,8 @@ export const USER_SCHEMA: ObjectSchema = {
     wrap_code: BOOL("Long lines in code blocks wrap; false: they scroll. A block can say otherwise (```ts nowrap).", true),
     html_notes: { type: "string", enum: ["preview", "source"], default: "preview", description: "Open HTML notes as the page they make, or as their source." },
     shortcut_tips: BOOL("The third click on a button with a shortcut says, once, which keys do it.", true),
-    show_config_folder: BOOL("Show Config among the sidebar's folders.", false),
+    show_hidden_folders: BOOL("Show the folders the workspace hides (hidden_folders in Config/Settings.md) among the sidebar's folders.", false),
+    show_config_folder: { type: "boolean", description: "The old name of show_hidden_folders, still read when that isn't set." },
     always_show: {
       type: "array",
       items: { type: "string", enum: ["contacts", "calendar", "assets", "smart"] },
@@ -669,6 +678,7 @@ export function settingsFileFor(schema: ObjectSchema, values: Record<string, Set
 export interface WorkspaceSettings {
   gamified?: boolean;
   organizing?: PresetId;
+  hidden_folders?: string[];
 }
 
 /** The settings `md` sets, leaving out any it doesn't or that aren't valid. */
@@ -676,6 +686,13 @@ export function readSettings(md: string): WorkspaceSettings {
   const out: WorkspaceSettings = {};
   for (const f of scanFrontmatter(md)?.fields ?? []) {
     const v = f.value;
+    if (f.key === "hidden_folders" && !out.hidden_folders) {
+      // A list, or one folder written without brackets; an empty value hides none.
+      if (v.kind === "list") out.hidden_folders = v.items.map((i) => i.text).filter(Boolean);
+      else if (v.kind === "empty") out.hidden_folders = [];
+      else if (v.kind === "scalar") out.hidden_folders = v.text ? [v.text] : [];
+      continue;
+    }
     if (v.kind !== "scalar") continue;
     if (f.key === "gamified" && !v.quoted && /^(true|false)$/i.test(v.text) && out.gamified === undefined) out.gamified = v.text.toLowerCase() === "true";
     if (f.key === "organizing" && PRESETS.some((p) => p.id === v.text) && out.organizing === undefined) out.organizing = v.text as PresetId;
@@ -695,7 +712,7 @@ export const userSettingsNote = (values: Record<string, SettingValue>): string =
 export function withSetting<K extends keyof WorkspaceSettings>(md: string, key: K, value: NonNullable<WorkspaceSettings[K]>): string {
   if (!md.trim()) return settingsNote({ [key]: value });
   const { entries, body, had } = frontmatterEntries(md);
-  const line = `${key}: ${value}`;
+  const line = `${key}: ${yamlOf(value)}`;
   const i = entries.findIndex((e) => e.key === key);
   if (i >= 0) entries[i] = { key, lines: [line] };
   else entries.push({ key, lines: [line] });

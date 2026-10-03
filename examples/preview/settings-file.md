@@ -7,7 +7,7 @@ title: Settings file and property help
 3. Hover the word `gamified` to read what it does. On a new line inside the `---` lines, type `t`: **tags** and **title** are suggested, each with what it is. Type `gamifed: true` on a line of its own: it's flagged with "Did you mean gamified?"
 4. Open Settings again and turn **Unlock as you go** back on. The file's `gamified:` line changes to `true` while it's open.
 5. Open [[Properties with mistakes]]. The strip says it has three problems, and the card marks the rows; `status: draft` is fine, since a note can have properties of its own.
-6. `Config` isn't among the sidebar's folders. Settings → Sidebar → **Show the Config folder** puts it there.
+6. `Config` isn't among the sidebar's folders: it's hidden. **Hidden folders**, under the folders, lists it below them.
 7. Settings → Workspace → **Organizing style**: pick PARA. Open Config/AGENTS.md (⌘K, "AGENTS"): it has an Organizing section telling agents how to file notes. Pick Zettelkasten, and only that section changes.
 8. To see what a new workspace is asked, use the workspace menu → **New team workspace…**: it opens with "How do you like to organize?"
 9. Settings → **User** tab → **Open settings file**. It opens `Config/Users/<your name>.md` with every personal setting written out (`theme`, `ink`, `vim`, `line_numbers`, …). Change `theme: system` to `theme: dark`: the app goes dark at once. Turn **Line numbers** on in Settings, and the file's `line_numbers:` line changes to `true`.

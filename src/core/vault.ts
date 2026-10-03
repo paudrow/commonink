@@ -17,6 +17,7 @@ import { dayPasses, evaluate, folderList, inFolders, parse, termsOf, textWords, 
 import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
 import { safeDecode } from "./uri.ts";
 import { isAgentsNote, START_TAG, type NoteRole } from "./noteRoles.ts";
+import { appFolderRefusal } from "./appFolders.ts";
 import {
   checkInDue, checkInEvery, contactFromNote, contactNote, dayOfNote, emptyContact, fillContact, parseContactsCsv, parseVCards, PEOPLE, peopleDirectory, personFor, sameFields, samePerson,
   type Contact, type ContactFields, type ContactInput, type ContactNote, type MemberRef, type TimelineItem,
@@ -2472,7 +2473,9 @@ export class Vault {
    * folder's parent instead (keeping any subfolders), under free names.
    */
   deleteFolder(folder: string, notes: "trash" | "lift", source: string) {
-    const dir = cleanPath(folder);
+    const dir = cleanPath(folder).replace(/\/+$/, "");
+    const refused = appFolderRefusal(dir, "delete");
+    if (refused) throw new VaultError(refused);
     const rels = this.under(dir);
     if (notes === "trash") return { deleted: this.delete(rels, source), moved: [] };
     const parent = path.posix.dirname(dir);
@@ -2495,9 +2498,8 @@ export class Vault {
     source: string,
   ): { from: string; path: string; moved: Array<ReturnType<Vault["move"]>>; views: Array<{ path: string; content: string; version: string; change: Change }> } {
     const [from, dest] = [folder, to].map((f) => cleanPath(f).replace(/\/+$/, ""));
-    for (const [dir, what] of [[ARCHIVE.slice(0, -1), "Archive"], [PEOPLE, "Contacts"], [TEMPLATES, "Templates"], [VIEWS, "saved views"]] as const) {
-      if (from === dir) throw new VaultError(`${dir} is where ${what === "Archive" ? "archived notes go" : `${what} live`}, so it keeps its name`);
-    }
+    const refused = appFolderRefusal(from, "rename");
+    if (refused) throw new VaultError(refused);
     if (isArchived(`${from}/`) || isArchived(`${dest}/`)) throw new VaultError("Folders in Archive move with their notes: unarchive them instead");
     if (dest === from) return { from, path: dest, moved: [], views: [] };
     if (dest.startsWith(`${from}/`)) throw new VaultError(`${from} can't move into itself`);

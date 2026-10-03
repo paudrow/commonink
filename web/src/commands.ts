@@ -116,6 +116,10 @@ export interface App {
   notesFiltered: boolean;
   /** What ⌘K's Rename… renames: the open note, the folder, tag or smart folder Notes shows, or the file Assets previews. Null for nothing. */
   renames: Renamable | null;
+  /** The folder Notes shows on its own, and whether the sidebar hides it (hiddenFolders.ts); null for none. */
+  folder: { path: string; hidden: boolean } | null;
+  /** The sidebar shows hidden folders anyway. */
+  showHidden: boolean;
   /** Online, the account menu's actions; locally, none. */
   account: Array<{ label: string; icon: string; run: () => unknown; workspace?: boolean; current?: boolean }>;
   newNote(): void;
@@ -125,6 +129,9 @@ export interface App {
   newBoard(): void;
   /** The steps below are asked in the palette (PaletteStep); `void` is done already. */
   newFolder(): PaletteStep | void;
+  /** Hide the folder Notes shows from the sidebar, or show it again. */
+  toggleHideFolder(): void;
+  toggleHiddenFolders(): void;
   newTag(): PaletteStep | void;
   /**
    * A saved search, in the smart folder editor (the one the sidebar's + opens): it has rows for
@@ -298,6 +305,15 @@ export function appCommands(app: App): Command[] {
       available: !!app.renames && app.canDelete,
       ask: app.rename,
     },
+    {
+      id: "hide-folder",
+      title: app.folder?.hidden ? "Show folder in the sidebar" : "Hide folder from the sidebar",
+      keywords: "hide hidden unhide show folder sidebar tree",
+      icon: "folder",
+      available: !!app.folder && app.canDelete,
+      run: app.toggleHideFolder,
+    },
+    { id: "hidden-folders", title: app.showHidden ? "Hide hidden folders" : "Show hidden folders", keywords: "hidden folders config templates sidebar tree unhide", icon: "folder", run: app.toggleHiddenFolders },
     { id: "share", title: "Share…", keywords: "share link copy print export download pdf markdown html word send", icon: "share", keys: ["Mod-Shift-s"], available: text, run: app.share },
     { id: "share-people", title: "Share with people…", keywords: "share people link invite collaborate public email", icon: "share-people", available: !!note && app.online, run: app.shareWithPeople },
     { id: "replace-across", title: "Replace across notes…", keywords: "find replace search text everywhere all notes bulk change substitute", icon: "search", available: app.canDelete, run: app.replaceAcross },

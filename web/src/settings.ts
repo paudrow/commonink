@@ -36,6 +36,8 @@ export type Control =
   | { kind: "toggle"; on: boolean; set(on: boolean): void }
   | { kind: "choice"; value: string; options: Array<{ value: string; label: string }>; set(value: string): void }
   | { kind: "button"; label: string; run(): void; danger?: boolean }
+  /** A line of text, handed over when it's changed and you leave it (or press Enter). */
+  | { kind: "text"; value: string; placeholder?: string; set(value: string): void }
   | { kind: "custom"; render(): HTMLElement[] };
 
 export interface Setting {
@@ -80,9 +82,12 @@ export interface SettingsApp {
   /** How agents are told to organize the vault (presets.ts), or null if it hasn't been picked. */
   organizing: PresetId | null;
   setOrganizing(id: PresetId): void;
-  /** Whether Config/ shows among the sidebar's folders. */
-  showConfig: boolean;
-  setShowConfig(on: boolean): void;
+  /** Whether the workspace's hidden folders show among the sidebar's folders anyway. */
+  showHidden: boolean;
+  setShowHidden(on: boolean): void;
+  /** The folders the sidebar hides, for everyone here (hiddenFolders.ts), and whether you may change them. */
+  hiddenFolders: { list: string[]; canChange: boolean };
+  setHiddenFolders(list: string[]): void;
   /** Locally, where the vault and the `commonink` command are, for the agent setup; online, null. */
   localVault: { vault?: string; projectRoot?: string } | null;
   shortcuts(): void;
@@ -152,13 +157,13 @@ export function appSettings(app: SettingsApp): Setting[] {
     },
     ...sidebar,
     {
-      id: "show-config",
-      key: "show_config_folder",
+      id: "show-hidden",
+      key: "show_hidden_folders",
       section: "Sidebar",
-      title: "Show the Config folder",
-      description: "Config holds this workspace's settings file. It stays out of the sidebar's folders unless this is on; Settings and ⌘K reach it either way.",
-      keywords: "config folder hidden settings.md yaml sidebar show",
-      control: { kind: "toggle", on: app.showConfig, set: app.setShowConfig },
+      title: "Show hidden folders",
+      description: `The workspace hides ${app.hiddenFolders.list.length ? app.hiddenFolders.list.join(", ") : "no folders"} from the sidebar's folders. On, they show anyway, dimmed. The row under the folders does the same.`,
+      keywords: "hidden folders config templates settings.md yaml sidebar show unhide",
+      control: { kind: "toggle", on: app.showHidden, set: app.setShowHidden },
     },
     {
       id: "line-numbers",
@@ -267,6 +272,21 @@ export function appSettings(app: SettingsApp): Setting[] {
       keywords: "gamification gamified game progressive disclosure unlock earn rewards celebrate tips beginner simple everything admin owner",
       disabled: !app.gamified.canChange,
       control: { kind: "toggle", on: game, set: app.setGamified },
+    },
+    {
+      id: "hidden-folders",
+      key: "hidden_folders",
+      section: "Workspace",
+      title: "Hidden folders",
+      description: "Folders the sidebar leaves out, with the folders in them, for everyone here. Separate them with commas. Search, Notes, links and agents still find their notes.",
+      keywords: "hide hidden folders config templates sidebar tree",
+      disabled: !app.hiddenFolders.canChange,
+      control: {
+        kind: "text",
+        value: app.hiddenFolders.list.join(", "),
+        placeholder: "Config, Templates",
+        set: (v) => app.setHiddenFolders([...new Set(v.split(",").map((f) => f.trim().replace(/^\/+|\/+$/g, "")).filter(Boolean))]),
+      },
     },
     {
       id: "organizing",
@@ -457,6 +477,20 @@ function controlFor(s: Setting, id: string, describedBy: string): HTMLElement {
       ...c.options.map((o) => el("option", { value: o.value, selected: o.value === c.value }, o.label)),
     );
   }
+  if (c.kind === "text") {
+    return el("input", {
+      type: "text",
+      id,
+      class: "st-text",
+      value: c.value,
+      placeholder: c.placeholder,
+      spellcheck: "false",
+      autocomplete: "off",
+      disabled: s.disabled,
+      "aria-describedby": describedBy,
+      onchange: (e: Event) => c.set((e.target as HTMLInputElement).value),
+    });
+  }
   if (c.kind === "button") {
     const b = button(c.label, null, c.run, c.danger ? "danger" : "");
     b.id = id;
@@ -471,7 +505,7 @@ function row(s: Setting): HTMLElement {
   const desc = el("span", { class: "st-desc", id: `${id}-desc` }, s.description);
   const control = controlFor(s, id, desc.id);
   const key = s.key ? el("code", { class: "st-key", title: "Its name in the settings file" }, s.key) : null;
-  const title = s.control.kind === "toggle" || s.control.kind === "choice" ? el("label", { class: "st-title", for: id }, s.title) : el("h4", { class: "st-title" }, s.title);
+  const title = s.control.kind === "toggle" || s.control.kind === "choice" || s.control.kind === "text" ? el("label", { class: "st-title", for: id }, s.title) : el("h4", { class: "st-title" }, s.title);
   // A checkbox sits beside its description, as VS Code has it, and the whole line toggles it. Other controls go under.
   title.id = `${id}-title`;
   if (s.control.kind === "toggle") control.setAttribute("aria-labelledby", title.id); // its name is the title, not the title and the line too

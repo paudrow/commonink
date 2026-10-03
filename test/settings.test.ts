@@ -32,8 +32,10 @@ function fakeApp(over: Partial<SettingsApp> = {}) {
     setGamified: (on) => ((app.gamified = { ...app.gamified, on }), log.push(`gamified:${on}`)),
     organizing: null,
     setOrganizing: (id) => ((app.organizing = id), log.push(`organizing:${id}`)),
-    showConfig: false,
-    setShowConfig: (on) => ((app.showConfig = on), log.push(`showConfig:${on}`)),
+    showHidden: false,
+    setShowHidden: (on) => ((app.showHidden = on), log.push(`showHidden:${on}`)),
+    hiddenFolders: { list: ["Config", "Templates"], canChange: true },
+    setHiddenFolders: (list) => ((app.hiddenFolders = { ...app.hiddenFolders, list }), log.push(`hidden:${list.join("|")}`)),
     localVault: { projectRoot: "/code/commonink", vault: "/notes" },
     shortcuts: () => log.push("shortcuts"),
     connectAgent: () => log.push("connectAgent"),
@@ -51,7 +53,7 @@ const titles = (q: string, app: SettingsApp) => matchSettings(q, appSettings(app
 
 test("search finds settings by every word, across title, description, section and keywords", () => {
   const { app } = fakeApp();
-  assert.deepEqual(titles("", app), ["Theme", "Ink", "Always show Contacts", "Always show Calendar", "Always show Assets", "Always show Views", "Show the Config folder", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Shortcut tips", "Connect an agent", "Agent instructions", "Unlock as you go", "Organizing style"]);
+  assert.deepEqual(titles("", app), ["Theme", "Ink", "Always show Contacts", "Always show Calendar", "Always show Assets", "Always show Views", "Show hidden folders", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Shortcut tips", "Connect an agent", "Agent instructions", "Unlock as you go", "Hidden folders", "Organizing style"]);
   assert.deepEqual(titles("dark", app), ["Theme"]);
   assert.deepEqual(titles("VIM", app), ["Line numbers", "Vim keys", "Vim: j and k by screen line"]);
   assert.deepEqual(titles("vim gj", app), ["Vim: j and k by screen line"]);
@@ -60,7 +62,8 @@ test("search finds settings by every word, across title, description, section an
   assert.deepEqual(titles("agents.md", app), ["Agent instructions", "Organizing style"]);
   assert.deepEqual(titles("sidebar events", app), ["Always show Calendar"]);
   assert.deepEqual(titles("editor", app), ["Line numbers", "Wrap code", "HTML notes"]);
-  assert.deepEqual(titles("yaml", app), ["Show the Config folder"]);
+  assert.deepEqual(titles("yaml", app), ["Show hidden folders"]);
+  assert.deepEqual(titles("templates", app), ["Show hidden folders", "Hidden folders"]);
   assert.deepEqual(titles("zzz", app), []);
 });
 
@@ -75,7 +78,7 @@ test("online, Agents opens the Connected agents dialog; Vim's j and k wait for V
 
 test("a workspace that isn't gamified has nothing to pin or earn and no tips; a viewer can't turn it back on", () => {
   const { app, log } = fakeApp({ gamified: { on: false, canChange: true } });
-  assert.deepEqual(titles("", app), ["Theme", "Ink", "Show the Config folder", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Connect an agent", "Agent instructions", "Unlock as you go", "Organizing style"]);
+  assert.deepEqual(titles("", app), ["Theme", "Ink", "Show hidden folders", "Line numbers", "Wrap code", "HTML notes", "Vim keys", "Vim: j and k by screen line", "Keyboard shortcuts", "Connect an agent", "Agent instructions", "Unlock as you go", "Hidden folders", "Organizing style"]);
   assert.deepEqual(titles("gamification", app), ["Unlock as you go"]);
   assert.deepEqual(titles("progressive disclosure", app), ["Unlock as you go"]);
   const setting = appSettings(app).find((s) => s.id === "gamified")!;
@@ -262,6 +265,17 @@ test("Open settings file opens the file for the tab you're on, as VS Code's does
   open(0);
   open(1);
   assert.deepEqual(opened, ["user", "workspace"]);
+});
+
+test("the workspace's hidden folders are typed as a list, and only someone who can edit the workspace changes them", () => {
+  const { app, log } = fakeApp();
+  const setting = appSettings(app).find((s) => s.id === "hidden-folders")!;
+  assert.equal(setting.section, "Workspace");
+  assert.ok(setting.control.kind === "text");
+  assert.equal(setting.control.value, "Config, Templates");
+  setting.control.set(" Config, /Drafts/ ,, Config");
+  assert.deepEqual(log, ["hidden:Config|Drafts"]);
+  assert.equal(appSettings(fakeApp({ hiddenFolders: { list: [], canChange: false } }).app).find((s) => s.id === "hidden-folders")!.disabled, true);
 });
 
 test("online, Delete your account is in the Danger zone, last, and only opens the confirming dialog", () => {

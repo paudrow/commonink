@@ -8,6 +8,8 @@ import { readValues, USER_SCHEMA, userSettingsNote, withValue, type SettingValue
 /** A setting the file can hold: its key there, and how the app reads and changes it. */
 export interface Personal {
   key: string;
+  /** The key it had before, read when the file doesn't have this one. */
+  was?: string;
   get(): SettingValue;
   set(value: SettingValue): void;
 }
@@ -33,7 +35,10 @@ export async function applyUserFile(): Promise<void> {
   const values = readValues(file.content, USER_SCHEMA);
   applying = true;
   try {
-    for (const e of entries) if (e.key in values && JSON.stringify(values[e.key]) !== JSON.stringify(e.get())) e.set(values[e.key]);
+    for (const e of entries) {
+      const key = e.key in values ? e.key : e.was && e.was in values ? e.was : null;
+      if (key && JSON.stringify(values[key]) !== JSON.stringify(e.get())) e.set(values[key]);
+    }
   } finally {
     applying = false;
   }
