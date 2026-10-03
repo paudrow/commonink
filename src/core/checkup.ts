@@ -6,7 +6,7 @@ import { duplicateContacts } from "./contacts.ts";
 import { splitFrontmatter } from "./parse.ts";
 import { addDays } from "./tasks.ts";
 import { isArchived, isSmartFavorite, isTagFavorite, type MissingLink, type Vault } from "./vault.ts";
-import { AGENTS_NOTE } from "./noteRoles.ts";
+import { isAgentsNote } from "./noteRoles.ts";
 
 /** Tasks overdue by more than this many days count as forgotten. */
 export const STALE_DAYS = 30;
@@ -56,7 +56,7 @@ export function checkup(vault: Vault, user: string, today = vault.day()): Checku
       .flatMap((t) => vault.tagged(t.tag).filter((u) => u.kind === "note").map((u) => u.path)),
   );
   const unlinkedNotes = notes
-    .filter((n) => !n.path.includes("/") && n.path !== AGENTS_NOTE && !empty.has(n.path) && !starred.has(n.path) && !tagged.has(n.path))
+    .filter((n) => !n.path.includes("/") && !isAgentsNote(n.path) && !empty.has(n.path) && !starred.has(n.path) && !tagged.has(n.path))
     .filter((n) => !vault.backlinks(n.path, "active").some((b) => b.path !== n.path))
     .map((n) => ({ path: n.path, title: n.title }));
 

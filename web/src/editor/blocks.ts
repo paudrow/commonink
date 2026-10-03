@@ -17,6 +17,7 @@ import { touches } from "./livePreview.ts";
 import { dataEmbed, hydrateDataEmbeds } from "../textPreview.ts";
 import { scanTags } from "../../../src/core/tags.ts";
 import { boardsIn, unclosedBoard } from "../../../src/core/kanban.ts";
+import { frontmatterProblems } from "../../../src/core/schema.ts";
 import { listOf, scalarOf } from "../../../src/core/frontmatter.ts";
 // Boards load with the first note that has one.
 import type { BoardHost, mountBoard } from "../kanban.ts";
@@ -705,11 +706,15 @@ class TableWidget extends WidgetType {
 }
 
 class PropertiesWidget extends WidgetType {
-  constructor(readonly yaml: string) {
+  /** `bad`: each property with a problem (schema.ts), and what it is. */
+  constructor(
+    readonly yaml: string,
+    readonly bad: Record<string, string>,
+  ) {
     super();
   }
   eq(o: PropertiesWidget) {
-    return o.yaml === this.yaml;
+    return o.yaml === this.yaml && JSON.stringify(o.bad) === JSON.stringify(this.bad);
   }
   ignoreEvent() {
     return true;
@@ -736,9 +741,10 @@ class PropertiesWidget extends WidgetType {
         const entry = { key: k, lines: [`${k}: ${v}`] };
         const list = /^\[.*\]$/.test(v.trim());
         const values = list ? listOf(entry) : [scalarOf(entry)];
+        const problem = this.bad[k];
         return el(
           "div",
-          { class: "prop" },
+          { class: problem ? "prop is-bad" : "prop", title: problem ?? null },
           el("span", { class: "prop-key" }, k),
           k === "tags"
             ? el("span", { class: "prop-val" }, ...tags.map((t) => tagChip(t.display)))
@@ -794,7 +800,9 @@ function buildBlocks(state: EditorState): DecorationSet {
         const last = lastLine(doc, ref.from, ref.to);
         if (!touches(state, first.from, last.to)) {
           const yaml = doc.sliceString(first.to + 1, Math.max(first.to + 1, last.from - 1));
-          out.push(Decoration.replace({ block: true, widget: new PropertiesWidget(yaml) }).range(first.from, last.to));
+          const bad: Record<string, string> = {};
+          for (const p of frontmatterProblems(text, from)) if (p.key && !bad[p.key]) bad[p.key] = p.message;
+          out.push(Decoration.replace({ block: true, widget: new PropertiesWidget(yaml, bad) }).range(first.from, last.to));
         }
         return false;
       }
