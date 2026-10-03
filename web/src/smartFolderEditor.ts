@@ -7,6 +7,10 @@
 // grammar (queryGrammar.ts: AND, OR, ( ), -word, modified>-7d, ...). It's built as the rows change,
 // and typing in it fills them. Its ? opens the Query syntax page. What's saved is the query as text;
 // the server checks it.
+//
+// The same dialog is Notes' Advanced search (`opts.search`): no name yet, and each change shows in
+// Notes as it's made (Cancel puts the filters back). "Save as view" asks for a name in place,
+// so a search becomes a view in one step.
 import { api } from "./api.ts";
 import { el, icon } from "./dom.ts";
 import type { FieldSources } from "./widgets/core.ts";
@@ -88,6 +92,13 @@ const stateOf = (query: NoteQuery): State => {
     sort: query.sort ?? "modified",
   };
 };
+
+/** A starting name for a query: its tags, folders and words ("work · Projects · “launch”"). It's a file name, so tags go without their #. */
+export function suggestName(query: string): string {
+  const q = parseQuery(query);
+  const tags = tagList(q.tag).join(q.match === "any" ? " or " : " ");
+  return [tags, folderList(q.folder).join(" or "), q.q && `“${q.q}”`].filter(Boolean).join(" · ") || "All notes";
+}
 
 export function queryText(s: State): string {
   const tags = s.tags.filter(Boolean);
@@ -171,7 +182,15 @@ export function smartFolderEditor(
   anchor: HTMLElement,
   draft: SmartFolderDraft,
   /** `alone`: a local vault, with no workspace to share with, so it isn't asked. */
-  opts: { canShare: boolean; alone?: boolean; sources: FieldSources; save(f: SmartFolderDraft): Promise<void>; remove?(): Promise<void> },
+  opts: {
+    canShare: boolean;
+    alone?: boolean;
+    sources: FieldSources;
+    save(f: SmartFolderDraft): Promise<void>;
+    remove?(): Promise<void>;
+    /** Notes' Advanced search: `apply` shows a query in Notes, as it changes (and the one it opened with again on Cancel). */
+    search?: { apply(query: string): void };
+  },
 ) {
   document.querySelector(".sf-modal")?.remove();
   const state = stateOf(parseQuery(draft.query));
@@ -329,6 +348,7 @@ export function smartFolderEditor(
         preview.replaceChildren();
         return;
       }
+      if (search && current() !== applied) search.apply((applied = current()));
       const page = await api.feed({ ...parseQuery(current()), scope: "active", limit: 5 }).catch(() => null);
       if (mine !== seq || !page) return;
       count.classList.remove("is-error");
@@ -352,39 +372,53 @@ export function smartFolderEditor(
   share.disabled = !opts.canShare;
   const error = el("div", { class: "sf-pop-error", hidden: true });
   const row = (label: string, ...control: Array<HTMLElement | string>) => el("div", { class: "sf-row" }, el("span", { class: "sf-label" }, label), el("div", { class: "sf-control" }, ...control));
+  const search = opts.search;
+  /** The query Notes shows, as last applied (Advanced search). */
+  const opened = queryText(state);
+  let applied = opened;
+  /** Advanced search, once "Save as view" asks for a name. */
+  let naming = !search;
   const title = draft.id ? "Edit view" : draft.query ? "Save as view" : "New view";
+  const heading = el("h2", {}, search ? "Advanced search" : title);
+  const submit = el("button", { class: "qw-btn primary", type: "submit" }, search ? "Done" : "Save");
+  const cancel = el("button", { class: "qw-btn", type: "button", onclick: () => back() }, "Cancel");
+  const saveAs: HTMLButtonElement | null = search
+    ? el("button", { class: "qw-btn sf-save-as", type: "button", title: "Keep this search in the sidebar", onclick: () => startNaming() }, icon("folderSearch", 13), "Save as view")
+    : null;
+  const shareRow = opts.alone
+    ? null
+    : el(
+        "label",
+        { class: "sf-just-me", title: opts.canShare ? "" : "Viewers can keep views of their own" },
+        share,
+        el("span", {}, "Share with workspace"),
+        el("span", { class: "sf-hint" }, opts.canShare ? "Everyone in the workspace sees it in their sidebar" : "You can view this workspace, so it's yours only"),
+      );
   const form = el(
     "form",
-    { class: "sf-dialog", role: "dialog", "aria-modal": "true", "aria-label": title },
+    { class: `sf-dialog${search ? " is-search" : ""}`, role: "dialog", "aria-modal": "true", "aria-label": heading.textContent! },
     el(
       "header",
       { class: "sf-head" },
-      icon("folderSearch", 16),
-      el("h2", {}, title),
-      el("button", { type: "button", class: "icon-btn small", title: "Close", "aria-label": "Close", onclick: () => close() }, icon("close", 15)),
+      icon(search ? "search" : "folderSearch", 16),
+      heading,
+      el("button", { type: "button", class: "icon-btn small", title: "Close", "aria-label": "Close", onclick: () => dismiss() }, icon("close", 15)),
     ),
     name,
     // A view is a note (see core/views.ts): say which, so it can be found in the file tree.
     el("div", { class: "sf-hint sf-where" }, draft.path ? `Kept as the note ${draft.path}` : "Kept as a note in Views/"),
     el("div", { class: "sf-section" }, row("Words", wordBox), row("Folders", folderBox), row("Tags", tagBox), row("Sort", sort), row("Query", queryBox)),
     el("div", { class: "sf-result" }, count, preview),
-    opts.alone
-      ? null
-      : el(
-          "label",
-          { class: "sf-just-me", title: opts.canShare ? "" : "Viewers can keep views of their own" },
-          share,
-          el("span", {}, "Share with workspace"),
-          el("span", { class: "sf-hint" }, opts.canShare ? "Everyone in the workspace sees it in their sidebar" : "You can view this workspace, so it's yours only"),
-        ),
+    shareRow,
     error,
     el(
       "footer",
       { class: "qw-config-foot" },
       opts.remove ? el("button", { class: "qw-btn sf-delete", type: "button", onclick: () => void run(opts.remove!) }, icon("trash", 13), "Delete") : null,
+      saveAs,
       el("span", { class: "spacer" }),
-      el("button", { class: "qw-btn", type: "button", onclick: () => close() }, "Cancel"),
-      el("button", { class: "qw-btn primary", type: "submit" }, "Save"),
+      cancel,
+      submit,
     ),
   );
   const overlay = el("div", { class: "sf-modal" }, form);
@@ -395,6 +429,35 @@ export function smartFolderEditor(
     document.querySelector(".folder-picker")?.remove();
     anchor.focus?.({ preventScroll: true }); // back where the keyboard was
   };
+  /** Close without keeping anything: Advanced search puts back the filters Notes had. */
+  const dismiss = () => {
+    if (search && applied !== opened) search.apply(draft.query);
+    close();
+  };
+  /** Cancel and Escape: out of naming, back to the search; otherwise close. */
+  const back = () => (search && naming ? stopNaming() : dismiss());
+  const setNaming = (on: boolean) => {
+    naming = on;
+    name.hidden = !on;
+    if (shareRow) shareRow.hidden = !on;
+    if (saveAs) saveAs.hidden = on;
+    heading.textContent = on ? "Save as view" : "Advanced search";
+    form.setAttribute("aria-label", heading.textContent);
+    submit.textContent = on ? "Save" : "Done";
+    cancel.textContent = on ? "Back" : "Cancel";
+    error.hidden = true;
+  };
+  function startNaming() {
+    if (queryProblem(current())) return text.focus();
+    name.value = suggestName(current());
+    setNaming(true);
+    name.focus();
+    name.select();
+  }
+  function stopNaming() {
+    setNaming(false);
+    saveAs?.focus();
+  }
   const run = async (fn: () => Promise<void>) => {
     try {
       await fn();
@@ -405,25 +468,34 @@ export function smartFolderEditor(
     }
   };
   // The backdrop closes it; the pickers open outside the form, so a click in one isn't on the backdrop.
-  overlay.addEventListener("mousedown", (e) => e.target === overlay && close());
+  overlay.addEventListener("mousedown", (e) => e.target === overlay && dismiss());
   form.addEventListener("keydown", (e) => {
     e.stopPropagation();
-    if (e.key === "Escape") close();
+    if (e.key === "Escape") back();
   });
   form.addEventListener("submit", (e) => {
     e.preventDefault();
+    if (search && !naming) {
+      // Done: Notes keeps the search (a query with a problem in it stays as Notes had it).
+      if (!queryProblem(current()) && current() !== applied) search.apply((applied = current()));
+      return close();
+    }
     if (!name.value.trim()) {
       error.hidden = false;
       error.textContent = "Give the view a name";
       return name.focus();
     }
+    // Saved from Advanced search: Notes shows what was saved, its name heading the page.
+    if (search && current() !== applied) search.apply((applied = current()));
     void run(() => opts.save({ id: draft.id, name: name.value.trim(), query: current(), shared: opts.alone ? draft.shared : share.checked }));
   });
   renderWords();
   renderFolders();
   renderTags();
+  if (search) setNaming(false);
   document.body.append(overlay);
   recount();
+  if (search) return wordBox.querySelector<HTMLInputElement>(".sf-word")?.focus();
   name.focus();
   name.select();
 }

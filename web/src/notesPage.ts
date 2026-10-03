@@ -27,6 +27,8 @@ import { calendarTarget, openCalendarLink } from "./links.ts";
 import { emptyState } from "./emptyState.ts";
 import { AGENTS_BLURB, agentsBadge } from "./agentsNote.ts";
 import { notePath } from "../../src/core/ids.ts";
+import { formatKeys } from "./keys.ts";
+import { ADVANCED_KEYS } from "./commands.ts";
 import { openRowMenu, type RowMenuItem } from "./rowMenu.ts";
 
 interface Hooks {
@@ -39,6 +41,8 @@ interface Hooks {
   tags(): TagCount[];
   /** Save these filters (a query like `tag=work sort=title`) as a view (a note in Views/). */
   saveQuery(anchor: HTMLElement, query: string): void;
+  /** Advanced search: the view editor on what Notes shows, kept in step with the filters. */
+  advanced(anchor: HTMLElement): void;
   /** The star (Add to / Remove from Favorites) for what Notes shows: a tag, a smart folder, or any search. Empty with no filters. */
   starButton(query: NoteQuery): HTMLElement | "";
   /** Show every task of this person's. */
@@ -91,6 +95,7 @@ export class NotesPage {
   private tagBar: HTMLElement;
   private sortSel: HTMLSelectElement;
   private saveBtn: HTMLButtonElement;
+  private advancedBtn: HTMLButtonElement;
   private heading = el("h1", {}, "Notes");
   private bulk: HTMLElement;
   private more: HTMLElement;
@@ -145,12 +150,18 @@ export class NotesPage {
       icon("folderSearch", 13),
       "Save as view",
     );
+    this.advancedBtn = el(
+      "button",
+      { type: "button", class: "feed-advanced", title: `Advanced search: words, folders and tags (${formatKeys(ADVANCED_KEYS)})`, onclick: () => this.openAdvanced() },
+      icon("sliders", 14),
+      el("span", {}, "Advanced"),
+    );
     this.emptyBtn = el("button", { type: "button", class: "qw-btn danger feed-empty-trash", hidden: true, onclick: () => void this.emptyTrash() }, icon("trash", 14), "Empty trash");
     this.bulk = el("div", { class: "feed-bulk", hidden: true });
     this.list = el("div", { class: "feed-list", role: "list" });
     this.more = el("div", { class: "feed-more" });
     // The sort sits in the search box, so the filters fit on one row.
-    this.search = el("label", { class: "feed-search" }, icon("search", 16), this.input, queryHelpLink(), this.sortSel, el("kbd", {}, "/"));
+    this.search = el("label", { class: "feed-search" }, icon("search", 16), this.input, queryHelpLink(), this.advancedBtn, this.sortSel, el("kbd", {}, "/"));
     this.filters = el("div", { class: "feed-filters" }, this.scopeBar, this.tagBar, this.folderSel, this.saveBtn, this.emptyBtn);
     this.keys = el("footer", { class: "feed-keys" });
     // The heading scrolls away; the search and filters stay at the top, and the list scrolls clear of them.
@@ -206,16 +217,34 @@ export class NotesPage {
     if (this.visible) document.title = `${name ?? "Notes"} · Common Ink`;
   }
 
+  /** Advanced search on what Notes shows. Not in Trash: the view editor finds notes, not deleted ones. */
+  openAdvanced() {
+    if (this.tab !== "trash") this.hooks.advanced(this.advancedBtn);
+  }
+
+  /** Show `query` in place of the filters, from the top, leaving the keyboard where it is (Advanced search, as it changes). */
+  setQuery(query: NoteQuery) {
+    this.assign(query);
+    this.folder = query.folder ?? "";
+    this.tag = query.tag ?? "";
+    this.root.scrollTop = 0;
+    void this.reload();
+  }
+
+  private assign(query: NoteQuery) {
+    this.input.value = query.q ?? "";
+    this.sort = query.sort ?? "modified";
+    this.match = query.match ?? "all";
+    this.focus = 0;
+    this.scrollTop = 0;
+  }
+
   /** Show the list where the reader left it: same scroll position, same cards open. */
   /** `query` replaces all the filters (a smart folder); `folder` and `tag` change just those. */
   show(opts: { tab?: NotesTab; filter?: boolean; folder?: string; tag?: string; query?: NoteQuery } = {}) {
     if (opts.query) {
-      this.input.value = opts.query.q ?? "";
-      this.sort = opts.query.sort ?? "modified";
-      this.match = opts.query.match ?? "all";
+      this.assign(opts.query);
       opts = { ...opts, folder: opts.query.folder ?? "", tag: opts.query.tag ?? "" };
-      this.focus = 0;
-      this.scrollTop = 0;
     }
     const tab = opts.tab === "trash" && !this.hooks.trash() ? "notes" : opts.tab;
     if (tab && tab !== this.tab) {

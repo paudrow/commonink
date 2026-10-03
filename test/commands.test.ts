@@ -44,6 +44,7 @@ const app = (over: Partial<App> = {}): App => {
     restoreVersion: run("restoreVersion"),
     go: (page) => void ran.push(`go:${page}`),
     filterNotes: run("filterNotes"),
+    advancedSearch: run("advancedSearch"),
     quickAdd: run("quickAdd"),
     subscribeCalendar: run("subscribeCalendar"),
     refreshCalendars: run("refreshCalendars"),
@@ -359,6 +360,14 @@ test("Today is a page to go to, from the palette or :today", () => {
   appCommands(app()).find((c) => c.id === "go:today")!.run();
   assert.equal(ran.at(-1), "go:today");
   assert.ok(shortcutSheet(appCommands(app())).find((s) => s.area === "Vim")!.shortcuts.some((s) => s.keys.includes(":today")));
+});
+
+test("Advanced search is a command, with its keys on the sheet", () => {
+  assert.equal(titles("advanced", app())[0], "Advanced search…");
+  appCommands(app()).find((c) => c.id === "advanced-search")!.run();
+  assert.equal(ran.at(-1), "advancedSearch");
+  const global = shortcutSheet(appCommands(app())).find((s) => s.area === "Global")!.shortcuts;
+  assert.ok(global.some((s) => s.keys.includes("Mod-Alt-f") && s.label === "Advanced search…"));
 });
 
 test("the tag in view can be starred and renamed from the palette, or a tag picked when none is", () => {
