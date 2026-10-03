@@ -272,6 +272,8 @@ export function appCommands(app: App): Command[] {
     { id: "getting-started", title: "Open Getting started", keywords: "help start welcome guide tour", icon: "info", available: app.hasStart, run: app.gettingStarted },
     { id: "settings", title: "Open settings", keywords: "preferences options configure", icon: "gear", keys: ["Mod-,"], run: app.settings },
     { id: "connect-agent", title: "Connect an agent", keywords: "agent mcp claude cursor connected agents ai assistant", icon: "bot", run: app.connectAgent },
+    // The docs are on the hosted site; a local app opens commonink.app's.
+    { id: "docs", title: "Help and docs", keywords: "documentation guide manual how to learn import agents faq support", icon: "file", run: () => void window.open(/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? "https://commonink.app/docs/" : "/docs/", "_blank", "noopener") },
     { id: "shortcuts", title: "Keyboard shortcuts", keywords: "keys keybindings help hotkeys cheat sheet", icon: "keyboard", keys: ["?"], run: app.shortcuts },
     ...app.account
       .filter((a) => !a.current)

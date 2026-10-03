@@ -24,6 +24,7 @@
     "cloud:deploy": "npm run build:web && wrangler d1 migrations apply commonink --remote -c cloud/wrangler.jsonc && wrangler deploy -c cloud/wrangler.jsonc",
     "cloud:typecheck": "tsc -p cloud",
     "brand": "tsx scripts/brand.ts",
+    "docs": "tsx scripts/docs.ts",
     "bench": "node --disable-warning=ExperimentalWarning --import tsx bench/core.ts",
     "bench:changelog": "node --disable-warning=ExperimentalWarning --import tsx bench/changelog.ts",
     "bench:cloud": "node --disable-warning=ExperimentalWarning --import tsx bench/cloud.ts",
