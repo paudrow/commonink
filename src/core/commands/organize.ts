@@ -180,13 +180,13 @@ export const smartFolders = [
     examples: ["commonink smart", "commonink smart planning"],
     readOnly: true,
     args: { name: str({ only: "cli", pos: "rest", describe: "List the notes in this one instead" }) },
-    run: ({ vault, user }, a) => {
+    run: ({ vault, user, members }, a) => {
       if (a.name) {
         const items = vault.feed({ ...parseQuery(vault.findSmartFolder(user, a.name).query), limit: Infinity }).items;
         return { text: fmtList(items), data: items };
       }
       const list = vault.smartFolders(user);
-      return { text: fmtSmartFolders(list), data: list };
+      return { text: fmtSmartFolders(list, !members), data: list };
     },
   }),
   command({
@@ -198,9 +198,12 @@ export const smartFolders = [
     description:
       "Create a smart folder (a saved note query in the sidebar), or change one by id. The query uses ::query's keys: " +
       'q="words" folder=Projects tag=work sort=title limit=10 (all optional; a tag includes the tags under it). Several tags (tag=work,plan or ' +
-      "tag=work tag=plan) means notes with all of them. sort is modified (last changed first, the default), date (the note's own date: " +
-      "frontmatter date/created, else a YYYY-MM-DD in its name, newest first), oldest (the same, oldest first) or title. Quote a value " +
-      'with spaces (folder="Health and Fitness"). Only save one the user asked for.',
+      "tag=work tag=plan) means notes with all of them; add match=any for notes with any of them. sort is modified (last changed first, the default), date (the note's own date: " +
+      "frontmatter date/created, else a YYYY-MM-DD in its name, newest first), oldest (the same, oldest first), title or created (newest note first). " +
+      'In q, words side by side (or a AND b) all match, a OR b matches either (AND goes first), -x leaves out, ( ) groups, and \'exact phrase\' matches the words together; ' +
+      "tag=x, folder=x (folder=A|B for either) and modified>-7d or created<2026-09-01 (a date, today, yesterday, or -7d, -2w, -1m back) filter too, anywhere a word can go: " +
+      'q="(tag=work OR tag=home) -folder=Archive". -tag=x and the dates can also stand on their own. commonink help query lists it all. ' +
+      'Quote a value with spaces (folder="Health and Fitness"). Only save one the user asked for.',
     examples: ["commonink smart-save Planning tag=plan --just-me", 'commonink smart-save Launch folder=Projects q="launch"', "commonink smart-save Journal tag=journal,health sort=date"],
     args: {
       name: str({ required: true, pos: 0 }),
@@ -208,9 +211,9 @@ export const smartFolders = [
       just_me: bool({ describe: "Keep it the user's own instead of sharing it with the workspace" }),
       id: str({ describe: "Change this smart folder instead of creating one" }),
     },
-    run: ({ vault, user, canEditShared }, a) => {
+    run: ({ vault, user, canEditShared, members }, a) => {
       const f = vault.saveSmartFolder(user, { id: a.id, name: a.name, query: a.query ?? "", shared: !a.just_me }, canEditShared);
-      return { text: fmtSmartFolders(vault.smartFolders(user)), data: f };
+      return { text: fmtSmartFolders(vault.smartFolders(user), !members), data: f };
     },
   }),
   command({
@@ -223,9 +226,9 @@ export const smartFolders = [
     examples: ["commonink smart-rm Planning"],
     destructive: true,
     args: { smart_folder: str({ required: true, pos: 0, label: "name" }) },
-    run: ({ vault, user, canEditShared }, a) => {
+    run: ({ vault, user, canEditShared, members }, a) => {
       const list = vault.deleteSmartFolder(user, a.smart_folder, canEditShared);
-      return { text: fmtSmartFolders(list), data: list };
+      return { text: fmtSmartFolders(list, !members), data: list };
     },
   }),
 ];
@@ -291,12 +294,45 @@ export const favorites = [
     run: (host, a) => starEach(host, a.tags.map((t) => `#${t.replace(/^#/, "")}`), false),
   }),
   command({
+    cli: "smart-star",
+    mcp: "star_smart_folder",
+    route: "POST /favorites/star",
+    title: "Star smart folder",
+    summary: "Add smart folders to your favorites, beside your starred notes and tags",
+    description:
+      "Add smart folders (by name or ID, as list_smart_folders gives) to the user's favorites, beside their starred notes and tags. " +
+      "Only star ones the user asked for.",
+    examples: ["commonink smart-star Planning"],
+    args: { smart_folders: list({ required: true, pos: "rest", label: "name" }) },
+    run: ({ vault, user }, a) => {
+      for (const f of a.smart_folders) vault.starSmartFolder(user, f);
+      const list = vault.favorites(user);
+      return { text: fmtFavorites(list), data: list };
+    },
+  }),
+  command({
+    cli: "smart-unstar",
+    mcp: "unstar_smart_folder",
+    route: "POST /favorites/unstar",
+    title: "Unstar smart folder",
+    summary: "Take smart folders out of your favorites",
+    description: "Take smart folders out of the user's favorites. The smart folders themselves stay.",
+    examples: ["commonink smart-unstar Planning"],
+    args: { smart_folders: list({ required: true, pos: "rest", label: "name" }) },
+    run: ({ vault, user }, a) => {
+      for (const f of a.smart_folders) vault.unstarSmartFolder(user, f);
+      const list = vault.favorites(user);
+      return { text: fmtFavorites(list), data: list };
+    },
+  }),
+  command({
     cli: "starred order",
     mcp: "order_favorites",
     route: "PUT /favorites",
     title: "Order favorites",
-    summary: "Put favorites first, in this order (notes, and '#tags'); the rest follow",
-    description: "Reorder the user's favorites: these come first, in this order (a note, or a #tag for a starred tag), and the rest follow as they were.",
+    summary: "Put favorites first, in this order (notes, '#tags' and '~smart folders'); the rest follow",
+    description:
+      "Reorder the user's favorites: these come first, in this order (a note, a #tag for a starred tag, or ~name for a starred smart folder), and the rest follow as they were.",
     examples: ["commonink starred order Roadmap '#work' Welcome"],
     args: { paths: list({ required: true, pos: "rest", label: "note" }) },
     run: ({ vault, user }, a) => {
