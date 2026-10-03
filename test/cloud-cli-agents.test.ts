@@ -69,6 +69,8 @@ test("an MCP client on the CLI route gets MCP's commands, with what their tools 
     // replace_text runs only with dry_run said outright.
     const blind = await run(token, "replace", { find: "Acme", replace: "Evil", folder });
     assert.deepEqual([blind.status, blind.body.code, blind.body.error], [400, "usage", "replace needs dry_run from an agent, as the replace_text tool does"]);
+    // null says nothing either: it would write, as leaving it out does.
+    assert.equal((await run(token, "replace", { find: "Acme", replace: "Evil", folder, dry_run: null })).status, 400);
     assert.equal((await run(token, "replace", { find: "Acme", replace: "Evil", folder, dry_run: true })).status, 200);
     const note = await cloud.call(people.editor, "GET", `${people.base}/note?path=${encodeURIComponent(`${folder}/Acme plan.md`)}`);
     assert.equal(note.content, "Acme\n");

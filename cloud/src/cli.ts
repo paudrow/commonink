@@ -39,7 +39,7 @@ export async function serveCli(req: Request, env: OAuthEnv, props: AgentProps, i
   // signed in for one workspace is still the CLI, so it's asked about only when it matters.
   if (props.workspaceId !== ALL_WORKSPACES) {
     const tool = toolName(command);
-    const missing = Object.entries(command.args).filter(([name, a]) => a.mcpRequired && body.input[name] === undefined).map(([name]) => name);
+    const missing = Object.entries(command.args).filter(([name, a]) => a.mcpRequired && body.input[name] == null).map(([name]) => name);
     if ((!tool || missing.length) && !(await isLocalCli())) {
       if (!tool) return fail(`${command.cli} isn't open to agents: ${(command.mcp as { none: string }).none}`, "forbidden");
       return fail(`${command.cli} needs ${missing.join(", ")} from an agent, as the ${tool} tool does`, "usage");
