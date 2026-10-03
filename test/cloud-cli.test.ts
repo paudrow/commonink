@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { startCloud, team, type Cloud } from "./cloud.ts";
 import { cli, login as loginTo } from "./cli-login.ts";
+import { md5 } from "../src/core/convert.ts";
 
 let cloud: Cloud;
 let people: Awaited<ReturnType<typeof team>>;
@@ -133,6 +134,18 @@ test("commonink import brings a folder of notes and its pictures into a hosted w
   const out = path.join(here, "back.png");
   assert.equal(c.run(["download", "Moved/Areas/scan.png", "--workspace", "Team", "--out", out]).status, 0);
   assert.deepEqual([...fs.readFileSync(out)], [137, 80, 78, 71]);
+  // An Evernote notebook is converted on the way in, its picture going to R2 beside it.
+  const pic = Buffer.from([137, 80, 78, 71, 9]);
+  fs.writeFileSync(
+    path.join(here, "Trips.enex"),
+    `<en-export><note><title>Lisbon</title><content><![CDATA[<en-note><div>Pack</div><en-media hash="${md5(pic)}" type="image/png"/></en-note>]]></content>` +
+      `<resource><data encoding="base64">${pic.toString("base64")}</data><mime>image/png</mime></resource></note></en-export>`,
+  );
+  const enex = c.json(["import", path.join(here, "Trips.enex"), "--workspace", "Team"]);
+  assert.equal(enex.from, "evernote");
+  assert.deepEqual(enex.created, ["Trips/Lisbon.md"]);
+  assert.equal(enex.files.length, 1);
+  assert.match(c.run(["read", "Trips/Lisbon", "--workspace", "Team"]).stdout, /1│Pack\n2│\n3│!\[\[attachments\/\w+\.png\]\]/);
 });
 
 test("contacts, labels, tasks --by me and export work in a hosted workspace too", async () => {
