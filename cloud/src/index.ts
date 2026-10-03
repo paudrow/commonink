@@ -20,6 +20,7 @@ import { fetchAsset, secure } from "./headers.ts";
 import { limit, limited, ROUTE_LIMITS } from "./limits.ts";
 import { landingPage } from "./landing.ts";
 import { connectionInfo, disconnectGoogle, driveApi, googleApi, googleAuth, googleMode } from "./connections.ts";
+import { readUpTo } from "./body.ts";
 import { DRIVE_FORMATS, driveProblem, MAX_DRIVE_BYTES, MIME, saveToDrive, type DriveFormat } from "./drive.ts";
 
 export { Workspace } from "./workspace.ts";
@@ -163,9 +164,10 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
     const type = String(req.headers.get("Content-Type")).split(";")[0].trim().toLowerCase();
     const kind = type === MIME.docx ? "docx" : type === MIME.md ? "md" : null;
     if (!kind) return json({ error: "Send the note as Word (.docx) or markdown" }, 415);
-    const data = new Uint8Array(await req.arrayBuffer());
+    // Counted as it streams in: a body sent without a length could otherwise fill memory before it's measured.
+    const data = await readUpTo(req, MAX_DRIVE_BYTES);
+    if (!data) return json({ error: "That note is over 50 MB with its pictures: Google Drive won't convert it" }, 413);
     if (!data.byteLength) return json({ error: "That note is empty" }, 400);
-    if (data.byteLength > MAX_DRIVE_BYTES) return json({ error: "That note is over 50 MB with its pictures: Google Drive won't convert it" }, 413);
     if (as === "md" && kind !== "md") return json({ error: "A markdown file needs the note's markdown" }, 400);
     try {
       return json(await saveToDrive(driveApi(env, user.id, url.origin), { title: url.searchParams.get("title") ?? "", type: kind, data }, as as DriveFormat));
