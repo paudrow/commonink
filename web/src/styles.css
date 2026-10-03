@@ -2628,10 +2628,13 @@ body.is-link-dragging, body.is-link-dragging * { cursor: grabbing !important; us
 .ws-log li { padding: 2px 0; }
 /* ------------------------------------------------------------------ the folder above a note */
 /* Quiet, and in the editor's top padding, so the heading sits where it would without it. */
-.cm-folder-line { display: flex; align-items: center; gap: 4px; height: 20px; margin: -28px 0 8px; font: 12px/1 var(--ui); color: var(--muted); }
-.cm-folder-line svg { flex: none; margin-right: 2px; opacity: 0.8; }
-.cm-folder-line button { padding: 2px 3px; border-radius: 4px; color: inherit; }
-.cm-folder-line button:hover { color: var(--ink-strong); background: var(--hover); }
+/* Drawn in the space above the first line, so it takes none: CodeMirror's height map counts a
+   block widget's box, and margins it can't see would put clicks and j/k a line off. */
+.cm-folder-line { position: relative; height: 0; }
+.cm-folder-path { position: absolute; top: -28px; left: 0; right: 0; display: flex; align-items: center; gap: 4px; height: 20px; font: 12px/1 var(--ui); color: var(--muted); }
+.cm-folder-path svg { flex: none; margin-right: 2px; opacity: 0.8; }
+.cm-folder-path button { padding: 2px 3px; border-radius: 4px; color: inherit; }
+.cm-folder-path button:hover { color: var(--ink-strong); background: var(--hover); }
 .cm-folder-sep { color: var(--faint); }
 /* ------------------------------------------------------------------ collapsible sections (<details>) */
 .cm-line.cm-details-head:not(.is-raw) { font: 600 1em/1.72 var(--prose); color: var(--ink-strong); }
