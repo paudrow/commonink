@@ -9,7 +9,8 @@ import type { Calendar } from "./calendar.ts";
 import type { MemberRef } from "./contacts.ts";
 import type { Exporter } from "./export.ts";
 import { AGENTS_NOTE } from "./noteRoles.ts";
-import { COMMANDS, toolName, type ArgSpec, type Command, type SaveTarget, type Sharing } from "./commands/index.ts";
+import { COMMANDS, toolName, type Command, type SaveTarget, type Sharing } from "./commands/index.ts";
+import { inputSchema } from "./commands/input.ts";
 
 export interface ToolHost {
   vault: Vault;
@@ -44,26 +45,12 @@ export interface ToolHost {
  */
 export const TOOL_ROUTES: Record<string, string> = Object.fromEntries(COMMANDS.flatMap((c) => (toolName(c) ? [[toolName(c), c.route]] : [])));
 
-/** An argument as MCP's input schema has it. */
-function schemaOf(a: ArgSpec): z.ZodTypeAny {
-  let t: z.ZodTypeAny;
-  if (a.kind === "number") t = z.number().int().min(a.min ?? Number.MIN_SAFE_INTEGER).max(a.max ?? Number.MAX_SAFE_INTEGER);
-  else if (a.kind === "boolean") t = z.boolean();
-  else if (a.kind === "strings") t = a.required && !a.allowEmpty ? z.array(z.string()).min(1) : z.array(z.string());
-  else if (a.kind === "string") t = a.enum ? z.enum(a.enum as [string, ...string[]]) : z.string();
-  else if (a.kind === "pairs") t = z.record(z.string(), z.string());
-  else throw new Error(`An MCP tool can't take a ${a.kind} argument`);
-  if (a.nullable) t = t.nullable();
-  if (!a.required && !a.mcpRequired) t = t.optional();
-  return a.describe ? t.describe(a.describe) : t;
-}
-
 /**
  * A tool's arguments. Unknown ones are refused, naming them and the ones it takes, rather than
  * dropped: an agent passing a guessed argument (add_task's `to`) would otherwise have it ignored.
  */
-function inputSchema(c: Command, name: string) {
-  const shape = Object.fromEntries(Object.entries(c.args).flatMap(([n, a]) => (a.only === "cli" ? [] : [[n, schemaOf(a)]])));
+function strictInput(c: Command, name: string) {
+  const shape = inputSchema(c, "mcp");
   const takes = Object.keys(shape).length ? `It takes: ${Object.keys(shape).join(", ")}.` : "It takes no arguments.";
   return z.strictObject(shape, {
     error: (iss) => (iss.code === "unrecognized_keys" ? `${name} has no argument ${iss.keys.map((k) => `\`${k}\``).join(", ")}. ${takes} (${c.summary})` : undefined),
@@ -127,7 +114,7 @@ export function createMcpServer(host: ToolHost): McpServer {
     if (!name || c.settings || (host.may && !host.may(c.route)) || (c.needs === "calendar" && !host.calendar) || (c.needs === "exporter" && !host.exporter) || (c.needs === "sharing" && !host.sharing) || (c.needs === "drive" && !host.drive)) continue;
     (mcp.registerTool as (n: string, config: unknown, cb: (input: Record<string, unknown>) => Promise<Result>) => unknown)(
       name,
-      { title: c.title, description: c.description ?? c.summary, inputSchema: inputSchema(c, name), annotations: annotations(c) },
+      { title: c.title, description: c.description ?? c.summary, inputSchema: strictInput(c, name), annotations: annotations(c) },
       async (input) => {
         try {
           if (c.readOnly) vault.sync(); // files written straight to disk count too
