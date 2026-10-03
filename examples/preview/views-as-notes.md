@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 346
 title: Views are notes in Views/
 ---
 Smart folders are now **Views**: each is a note in `Views/` holding one `::query{…}` line. A Preview starts fresh, so step 6 is the one to try locally on a vault that had smart folders.
