@@ -339,3 +339,16 @@ test("an outside editor edits a shared folder's notes, never its uploads: those 
   const encoded = rel.split("/").map(encodeURIComponent).join("/");
   assert.equal(await body(editor, `${shared}/files/${encoded}`), svg, "the upload is unchanged, and still readable");
 });
+
+test("renaming a folder takes its shares (and those of folders in it) along, as a note's go with the note", async () => {
+  await cloud.call(t.owner, "POST", `${t.base}/note`, { path: "Club/Minutes/June.md", content: "# June\n" });
+  await cloud.call(t.owner, "POST", `${t.base}/shares`, { folder: "Club/Minutes", email: "member@localhost", role: "viewer" });
+  const moved = await cloud.call(t.owner, "POST", `${t.base}/folders/rename`, { folder: "Club", to: "Society" });
+  assert.deepEqual([moved.path, moved.moved], ["Society", [{ from: "Club/Minutes/June.md", to: "Society/Minutes/June.md" }]]);
+  const listed = await cloud.call(t.owner, "GET", `${t.base}/shares?folder=Society/Minutes`);
+  assert.deepEqual(listed.shares.map((s: { email: string }) => s.email), ["member@localhost"]);
+  assert.deepEqual((await cloud.call(t.owner, "GET", `${t.base}/shares?folder=Club/Minutes`)).shares, []);
+  const member = await cloud.signIn("member");
+  const shared = await cloud.call(member, "GET", "/api/shared");
+  assert.deepEqual(shared.flatMap((w: { notes: Array<{ path: string }> }) => w.notes.map((n) => n.path)), ["Society/Minutes/June.md"]);
+});

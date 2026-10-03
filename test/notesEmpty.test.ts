@@ -14,6 +14,7 @@ globalThis.fetch = (async (url: string) => {
 }) as typeof fetch;
 
 let created = 0;
+const createdIn: string[] = [];
 const page = new NotesPage({
   open() {},
   starred: () => false,
@@ -22,12 +23,13 @@ const page = new NotesPage({
   tags: () => [],
   saveQuery() {},
   delete: async () => [],
+  rename() {},
   starButton: () => document.createElement("span"),
   openPerson() {},
   readOnly: () => false,
   toast() {},
   changed() {},
-  newNote: () => created++,
+  newNote: (folder) => (created++, createdIn.push(folder)),
   goTab: (tab) => page.show({ tab }),
   trash: () => null,
 });
@@ -65,4 +67,17 @@ test("Archive with nothing in it says how to archive and goes back to Notes", as
   await settle();
   assert.equal(page.tab, "notes");
   assert.equal(root.querySelector(".empty-state b")!.textContent, "No notes yet");
+});
+
+test("n makes a new note in the folder the page is narrowed to, but not from the filter field", async () => {
+  page.show({ query: { folder: "Projects" } });
+  await settle();
+  createdIn.length = 0;
+  const press = (target: EventTarget) => target.dispatchEvent(new KeyboardEvent("keydown", { key: "n", bubbles: true, cancelable: true }));
+  press(root);
+  press(root.querySelector("input")!);
+  page.show({ query: {} });
+  await settle();
+  press(root);
+  assert.deepEqual(createdIn, ["Projects", ""]);
 });
