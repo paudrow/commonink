@@ -263,10 +263,11 @@ async function calendars() {
 
 /**
  * A question of each kind waiting on the Today page, as an agent would ask them with ask_decision,
- * if this branch has decisions and none were asked yet.
+ * if this branch has decisions and none are waiting (answered ones leave Today the next day, so a
+ * Preview tried yesterday gets a fresh set).
  */
 async function decisions() {
-  const r = await call("GET", `${api}/decisions?status=all`);
+  const r = await call("GET", `${api}/decisions?status=open`);
   if (r.status === 404 || (r.data as unknown[]).length) return;
   const svg = (fill: string, label: string) =>
     `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120"><rect width="160" height="120" fill="${fill}"/><text x="80" y="70" font-family="sans-serif" font-size="28" fill="white" text-anchor="middle">${label}</text></svg>`)}`;
