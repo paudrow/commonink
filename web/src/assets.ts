@@ -55,6 +55,8 @@ export class Assets {
   private active = 0;
   private uploading: string[] = [];
   private previewing: string | null = null;
+  /** Closes the open preview, its key listener with it. */
+  private closePreview: (() => void) | null = null;
   private selected = new Set<string>();
   private bulk = el("div", { class: "feed-bulk as-bulk", hidden: true });
 
@@ -363,8 +365,8 @@ export class Assets {
     const meta = this.all().find((n) => n.path === path) ?? this.hooks.notes().find((n) => n.path === path);
     if (!meta) return;
     this.closeSuggest();
+    this.closePreview?.(); // the one it replaces (←/→), so only one key listener is ever on the page
     this.previewing = path;
-    document.querySelector("#asset-preview")?.remove();
     const type = assetType(path);
     const src = fileUrl(path);
     const stage =
@@ -431,6 +433,7 @@ export class Assets {
       overlay.remove();
       this.previewing = null;
       document.removeEventListener("keydown", onKey, true);
+      if (this.closePreview === close) this.closePreview = null;
     };
     const step = (d: number) => {
       const i = this.shown.findIndex((n) => n.path === path);
@@ -438,7 +441,8 @@ export class Assets {
       if (next && next.path !== path) this.preview(next.path);
     };
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).closest?.("input, textarea, .ap-text-body")) return;
+      const t = e.target as HTMLElement;
+      if (t.isContentEditable || t.closest?.("input, textarea, .ap-text-body")) return;
       if (e.key === "Escape") close();
       else if (e.key === "F2") void this.rename(path);
       else if (e.key === "Delete" || e.key === "Backspace") void (close(), this.delete([path]));
@@ -501,6 +505,7 @@ export class Assets {
     const overlay = el("div", { id: "asset-preview", onmousedown: (e: MouseEvent) => e.target === overlay && close() }, box);
     document.body.append(overlay);
     document.addEventListener("keydown", onKey, true);
+    this.closePreview = close;
 
     void api
       .backlinks(path, "all")
