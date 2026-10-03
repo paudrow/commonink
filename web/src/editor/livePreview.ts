@@ -8,6 +8,7 @@ import { calendarTarget, externalTitle, linkKind, missingNote } from "../links.t
 import { editorContext } from "./blocks.ts";
 import { lineTokens, TASK_LINE } from "../../../src/core/tasks.ts";
 import { MAX_CONTAINERS } from "../../../src/core/depth.ts";
+import { BLOCK_ID } from "../../../src/core/blocks.ts";
 import { today, tokenChip } from "../taskChips.ts";
 import { openChipEditor } from "../taskChipEditors.ts";
 import { taskLineEdit } from "./taskEdit.ts";
@@ -199,6 +200,14 @@ function build(view: EditorView): DecorationSet {
     for (const t of lineTokens(line.text)) {
       out.push(Decoration.replace({ widget: new TokenWidget(t.field, t.value, task[2] !== " ") }).range(line.from + t.from, line.from + t.to));
     }
+  }
+
+  // A block's ` ^id` (what [[Note#^id]] links to) hides while the cursor is off its line.
+  for (let n = first; n <= last; n++) {
+    const line = doc.line(n);
+    const id = line.text.match(BLOCK_ID);
+    if (!id || lineTouched(state, line.from) || inCode(line.from)) continue;
+    out.push(hide.range(line.from + id.index!, line.to));
   }
 
   for (const { from, to } of view.visibleRanges) {

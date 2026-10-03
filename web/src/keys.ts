@@ -50,7 +50,7 @@ export function matchKeys(e: KeyLike, keys: string, mac = IS_MAC): boolean {
 
 const MAC_MOD: Record<string, string> = { Mod: "⌘", Ctrl: "⌃", Alt: "⌥", Shift: "⇧" };
 const PC_MOD: Record<string, string> = { Mod: "Ctrl", Ctrl: "Ctrl", Alt: "Alt", Shift: "Shift" };
-const KEY_NAMES: Record<string, string> = { Enter: "↵", Escape: "Esc", ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→", click: "click" };
+const KEY_NAMES: Record<string, string> = { Enter: "↵", Escape: "Esc", Backspace: "⌫", ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→", click: "click" };
 
 /** "Mod-Shift-e" → ⌘⇧E on a Mac and Ctrl+Shift+E elsewhere; a key typed as is ("gd") stays as it is. */
 export function formatKeys(keys: string, mac = IS_MAC): string {

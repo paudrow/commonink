@@ -87,6 +87,14 @@ const SCHEMA = [
   // Tags someone added by name before anything carried them, shared with the whole workspace. One
   // stays until a note, task or asset uses it (or a tag under it); then it's an ordinary tag.
   `CREATE TABLE IF NOT EXISTS added_tags(tag TEXT PRIMARY KEY)`,
+  // Questions agents put to their person (see decisions.ts), open until answered on the Today page.
+  // `options`, `spec` (rows, pictures, a scale's ends…), `recommended` and `value` are JSON; `note_id`
+  // a note it's about, `note` where that note was when asked.
+  `CREATE TABLE IF NOT EXISTS decisions(
+     id TEXT PRIMARY KEY, kind TEXT NOT NULL, question TEXT NOT NULL, context TEXT, options TEXT NOT NULL, spec TEXT NOT NULL,
+     recommended TEXT, note_id TEXT, note TEXT, status TEXT NOT NULL, asked_at INTEGER NOT NULL, asked_by TEXT NOT NULL,
+     person TEXT, agent TEXT, answer TEXT, value TEXT, comment TEXT, answered_at INTEGER, answered_by TEXT, journal TEXT)`,
+  `CREATE INDEX IF NOT EXISTS decisions_status ON decisions(status, asked_at)`,
 ];
 
 /**
@@ -103,6 +111,14 @@ export function migrate(db: SqlDb, opts: { local?: boolean } = {}) {
     }
   };
   const stale = lacks("tags") || lacks("tasks") || lacks("props");
+  // Decisions from before they had kinds were only ever in pull request Previews: start them over.
+  if (!lacks("decisions")) {
+    try {
+      db.get("SELECT kind FROM decisions LIMIT 1");
+    } catch {
+      db.exec("DROP TABLE decisions");
+    }
+  }
   for (const stmt of SCHEMA) db.exec(stmt);
   // An index from before tags (or tasks, or properties): have the next sync read every note again to find them.
   if (stale) db.run("UPDATE notes SET mtime = -1");

@@ -5,6 +5,7 @@ import type { Calendar } from "../calendar.ts";
 import type { Vault } from "../vault.ts";
 import type { MemberRef } from "../contacts.ts";
 import type { Exporter, SaveFormat } from "../export.ts";
+import type { GoogleContactsSync } from "../googleContacts.ts";
 
 export type ArgKind = "string" | "number" | "boolean" | "strings" | "files" | "pairs";
 
@@ -97,6 +98,8 @@ export interface CommandHost {
   exporter?: Exporter;
   /** Online: sharing notes and folders outside the workspace (see Sharing). Unset locally. */
   sharing?: Sharing;
+  /** Online, with Google configured: this person's Google Contacts, synced into People/. */
+  googleContacts?: GoogleContactsSync;
   /** Online, where Google is set up: saving a note to the person's Google Drive. Unset locally. */
   drive?: SaveTarget;
 }
@@ -164,7 +167,7 @@ interface CommandInfo<A extends Args> {
   /** It takes things away (to Trash): MCP clients may ask before running it. */
   destructive?: boolean;
   /** What the host must have for it: over MCP, it's offered only then. */
-  needs?: "calendar" | "exporter" | "sharing" | "drive";
+  needs?: "calendar" | "exporter" | "sharing" | "googleContacts" | "drive";
   /** It reaches people outside the workspace (sharing): MCP clients may ask before running it. */
   openWorld?: boolean;
   args: A;

@@ -3,7 +3,9 @@ import type { GuideAction, GuideState } from "../../src/core/guide.ts";
 import { did } from "./events.ts";
 import type { NoteRole } from "../../src/core/noteRoles.ts";
 import type { Contact, ContactFields, TimelineItem } from "../../src/core/contacts.ts";
+import type { SyncResult as GoogleContactsResult, SyncStatus as GoogleContactsStatus } from "../../src/core/googleContacts.ts";
 import { encodeTarget, safeDecode } from "../../src/core/uri.ts";
+import type { Decision, DecisionValue } from "../../src/core/decisions.ts";
 import type { FillOptions, TemplateInfo } from "../../src/core/templates.ts";
 import type { CalendarEvent, EventDraft, Source as CalendarSource, SourceColor } from "../../src/core/calendar.ts";
 import type { QuerySort } from "../../src/core/query.ts";
@@ -196,15 +198,15 @@ export type ServerMsg =
   /** Calendars or their events changed (a sync, a new subscription, a meeting note). */
   | { type: "calendar" };
 
-export type { CalendarEvent, CalendarSource, SourceColor };
+export type { CalendarEvent, CalendarSource, SourceColor, Decision };
 /** An event as the app sends it to be made or changed: guests by name and address (the server keeps their replies). */
 export type EventInput = Omit<EventDraft, "attendees"> & { attendees: Array<{ name: string | null; email: string | null }> };
 
 /** Google Calendar on this server (cloud/src/connections.ts): "mock" is the Preview stand-in, "off" not set up. */
 export interface GoogleStatus {
   mode: "real" | "mock" | "off";
-  /** `calendar`: its calendars were allowed; `drive`: saving notes to Drive was (each is asked for the first time it's used). */
-  connection: { account: string; calendar: boolean; canWrite: boolean; drive: boolean; connectedAt: number } | null;
+  /** `calendar`: its calendars were allowed; `drive`: saving notes to Drive was (each is asked for the first time it's used); `contacts`: Google Contacts, read only or editable. */
+  connection: { account: string; calendar: boolean; canWrite: boolean; contacts: "none" | "read" | "write"; drive: boolean; connectedAt: number } | null;
 }
 /** Your plan on this server (cloud/src/billing.ts). `on` false: billing isn't set up, and it's all free. */
 export interface Billing {
@@ -222,6 +224,8 @@ export interface Billing {
     customer?: boolean;
   };
 }
+
+export type { SyncResult as GoogleContactsResult, SyncStatus as GoogleContactsStatus } from "../../src/core/googleContacts.ts";
 /** One of the person's Google calendars. */
 export interface GoogleCalendar {
   id: string;
@@ -254,6 +258,8 @@ export function useWorkspace(base: string, live: string) {
   LIVE = live;
   resolveCache.clear();
 }
+/** The workspace the API is for, online ("" locally). */
+export const currentWorkspace = () => BASE.match(/^\/api\/w\/([^/]+)/)?.[1] ?? "";
 export const fileUrl = (path: string) => `${BASE}/files/${path.split("/").map(encodeURIComponent).join("/")}`;
 
 export interface Me {
@@ -480,6 +486,8 @@ export const api = {
   /** Find and replace across notes. `dryRun` only says what would change; else `restore(changes[i], versions[i])` undoes each note. */
   replace: (find: string, replace: string, opts: { matchCase?: boolean; wholeWord?: boolean; folder?: string; dryRun?: boolean } = {}) =>
     j<{ notes: ReplacedNote[]; changes: number[]; versions: string[] }>(`${BASE}/replace`, send("POST", { find, replace, ...opts })),
+  /** Declare a property's type for the whole workspace (in Config/Settings.md); "auto" goes back to guessing it. */
+  setPropertyType: (name: string, type: string) => j<{ version: string | null }>(`${BASE}/properties/type`, send("POST", { name, type })),
   renameTag: (from: string, to: string) => j<{ changes: number[]; versions: string[]; assets: Record<string, string[]> }>(`${BASE}/tags/rename`, send("POST", { from, to })),
   setTask: (t: Task, done: boolean) => (done && did("tick"), j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/set`, send("POST", { path: t.path, line: t.line, text: t.text, done, today: today() }))),
   /** Change a task's tokens in its note; the rest of its line stays as written. */
@@ -488,6 +496,11 @@ export const api = {
   today: (day: string) => j<TodayView>(`${BASE}/today?today=${encodeURIComponent(day)}`),
   /** Today's journal note, made from the journal template if it's missing. */
   dailyNote: (day: string) => j<{ path: string; created: boolean }>(`${BASE}/today/journal`, send("POST", { today: day })),
+  /** Decisions agents asked for that wait on the person (src/core/decisions.ts), in the order asked; "settled" for answered ones, newest first. */
+  decisions: (status?: "settled") => j<Decision[]>(`${BASE}/decisions${status ? `?status=${status}` : ""}`),
+  /** Answer one in its shape (an option, several, a choice per row, an order, a number, words), or dismiss it. It's written into today's journal note; `change` answers one again and rewrites its lines there. */
+  answerDecision: (id: string, a: { value?: DecisionValue; comment?: string; dismiss?: boolean; change?: boolean }) =>
+    j<Decision>(`${BASE}/decisions/answer`, send("POST", { id, ...a, today: today() })),
   /** Add a task written in words (see src/core/quickAdd.ts); `ignore` holds phrases kept as words. */
   addTask: (text: string, ignore: string[] = [], to?: string) => j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/add`, send("POST", { text, ignore, to, today: today() })),
   /** Take a task (and what's nested under it) out of its note: quick-add's Undo. */
@@ -632,6 +645,10 @@ export const api = {
   /** Online: whether Google Calendar works on this server, and your connection to it (404 locally). */
   google: () => j<GoogleStatus>("/api/google"),
   googleCalendars: () => j<GoogleCalendar[]>("/api/google/calendars"),
+  /** Online, where Google is set up: your Google Contacts here (404 otherwise). */
+  googleContacts: () => j<GoogleContactsStatus>(`${BASE}/contacts/google`),
+  /** Bring your Google Contacts into People/, and send edits made here back (when allowed). */
+  syncGoogleContacts: () => j<GoogleContactsResult>(`${BASE}/contacts/google/sync`, send("POST", {})),
   /** Google forgets the grant, and your Google calendars leave every workspace. */
   disconnectGoogle: () => j<{ ok: true }>("/api/google/disconnect", send("POST", {})),
   /** Save a note to your Google Drive, sent as Word or markdown, as a Google Doc, a PDF or a markdown file. Where it went, to open. */

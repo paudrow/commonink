@@ -113,16 +113,6 @@ export class TagsPage {
     return node;
   }
 
-  /** Put a tag's row in rename mode (from ⌘⇧P), with the filter cleared so its row is there. */
-  renameTag(tag: string) {
-    const t = this.hooks.tags().find((x) => x.tag === tag.toLowerCase());
-    if (!t || this.hooks.readOnly()) return;
-    this.input.value = "";
-    this.render();
-    const node = this.list.querySelector<HTMLElement>(`.tags-row[data-tag="${CSS.escape(t.tag)}"]`);
-    if (node) this.startRename(node, t);
-  }
-
   private startRename(node: HTMLElement, t: TagCount) {
     const input = el("input", { class: "tag-rename", value: t.display, spellcheck: "false", "aria-label": `New name for #${t.display}` });
     node.replaceChildren(icon("hash", 14), input, el("span", { class: "tags-uses" }, "Enter to rename, Esc to cancel"));
@@ -151,11 +141,14 @@ export class TagsPage {
     input.addEventListener("blur", () => void finish(false));
   }
 
-  /** Rename (or merge) a tag, with Undo (the sidebar's rename comes here too). Whether it happened. */
-  async rename(t: TagCount, to: string): Promise<boolean> {
+  /**
+   * Rename (or merge) a tag, with Undo (the sidebar's rename and ⌘⇧P's come here too). Whether it
+   * happened. Merging into a tag that exists asks first, unless `merge` says it's been asked already.
+   */
+  async rename(t: TagCount, to: string, merge?: boolean): Promise<boolean> {
     const all = this.hooks.tags();
     const into = all.find((x) => x.tag === to.toLowerCase() && x.tag !== t.tag);
-    if (into && !(await confirmAction({ title: `Merge #${t.display} into #${into.display}?`, body: `#${into.display} already exists. Everything tagged #${t.display} will be tagged #${into.display}.`, action: "Merge" }))) return false;
+    if (into && !merge && !(await confirmAction({ title: `Merge #${t.display} into #${into.display}?`, body: `#${into.display} already exists. Everything tagged #${t.display} will be tagged #${into.display}.`, action: "Merge" }))) return false;
     // Tags added by name under it move with it; Undo moves them back.
     const waiting = all.filter((x) => tagMatches(x.tag, t.tag) && unusedTag(x) && !all.some((c) => c.tag.startsWith(`${x.tag}/`)));
     const movedTo = (x: TagCount) => (into?.tag ?? to.toLowerCase()) + x.tag.slice(t.tag.length);

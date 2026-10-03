@@ -1,5 +1,6 @@
 // The note API, written against the web-standard Request/Response so the same routes run in the
 // local Node server and in a Cloudflare workspace Durable Object.
+import type { GoogleContactsSync } from "./googleContacts.ts";
 import { cleanPath, VaultError } from "./paths.ts";
 import type { ArchiveScope, Change, Vault } from "./vault.ts";
 import type { TaskPatch } from "./tasks.ts";
@@ -13,6 +14,7 @@ import type { Calendar, EventDraft, NoteWrite } from "./calendar.ts";
 import { notePath } from "./ids.ts";
 import { isSort } from "./query.ts";
 import { checkup } from "./checkup.ts";
+import { noteProperties, propertiesInUse, setPropertyType } from "./properties.ts";
 
 export interface ApiHost {
   vault: Vault;
@@ -47,6 +49,8 @@ export interface ApiHost {
   fileBytes?(rel: string): Promise<Uint8Array | null>;
   /** The workspace's members (online); a local vault has none. */
   members?(): Promise<Member[]>;
+  /** Online, with Google configured: the person's Google Contacts (see googleContacts.ts). */
+  googleContacts?: GoogleContactsSync;
 }
 
 /** Someone with an account in the workspace. A contact with the same email is them (see contacts.ts). */
@@ -320,6 +324,17 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json(vault.properties());
     case "GET /tags":
       return json(vault.tags());
+    // Property types (properties.ts): declared in Config/Settings.md, the rest guessed.
+    case "GET /properties":
+      return json(q("path") ? noteProperties(vault, q("path")) : propertiesInUse(vault));
+    case "POST /properties/type": {
+      const r = setPropertyType(vault, str("name"), str("type"), actor);
+      if (r) {
+        host.written(r.path, vault.files.read(r.path), r.version, r.change);
+        if (r.change?.op === "create") host.tree();
+      }
+      return json({ version: r?.version ?? null });
+    }
     case "GET /asset-tags":
       return json(vault.assetTags());
     case "GET /diff":
@@ -356,6 +371,17 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       if (body.length > MAX_IMPORT) throw new VaultError("That file is too big to import at once; split it up");
       const r = vault.importContacts(body, format, actor);
       for (const p of [...r.created, ...r.updated]) host.written(p, vault.files.read(p), vault.meta(p)?.version ?? "", null);
+      if (r.created.length) host.tree();
+      return json(r);
+    }
+    // Google Contacts (online): where it isn't set up, it isn't here at all.
+    case "GET /contacts/google":
+      if (!host.googleContacts) return json({ error: "Google Contacts isn't available here" }, 404);
+      return json(await host.googleContacts.status());
+    case "POST /contacts/google/sync": {
+      if (!host.googleContacts) return json({ error: "Google Contacts isn't available here" }, 404);
+      const r = await host.googleContacts.sync(actor);
+      for (const p of new Set([...r.created, ...r.linked, ...r.updated, ...r.unlinked, ...r.conflicts.map((c) => c.path)])) host.written(p, vault.files.read(p), vault.meta(p)?.version ?? "", null);
       if (r.created.length) host.tree();
       return json(r);
     }
@@ -488,6 +514,52 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       // setting these assets' tags back, undoes the rename without writing over a later edit.
       return json({ changes: r.edits.map((e) => e.change.id), versions: r.edits.map((e) => e.version), assets: r.assets });
     }
+    // Decisions (Vault.askDecision): questions agents put to the person, answered on the Today page.
+    case "GET /decisions":
+      return json(
+        vault.decisions({
+          status: (q("status") || undefined) as never,
+          ids: q("ids") ? q("ids").split(",") : undefined,
+          since: q("since") || undefined,
+          commented: q("commented") === "true" || q("commented") === "1",
+          query: q("query") || undefined,
+        }),
+      );
+    case "POST /decisions": {
+      // The question as data: AskInput (decisions.ts), with `note`.
+      const b = raw as Record<string, unknown>;
+      const obj = (k: string) => (b[k] == null ? undefined : typeof b[k] === "object" && !Array.isArray(b[k]) ? (b[k] as Record<string, string>) : (() => { throw new VaultError(`"${k}" must be an object`); })());
+      const optNum = (k: string) => (b[k] == null ? undefined : int(k));
+      const rec = b.recommended;
+      return json(
+        vault.askDecision(
+          {
+            question: str("question"),
+            kind: optStr("kind") as never,
+            options: b.options == null ? undefined : (Array.isArray(b.options) ? (b.options as never) : paths("options")),
+            details: obj("details"),
+            images: obj("images"),
+            rows: b.rows == null ? undefined : paths("rows"),
+            media: b.media == null ? undefined : paths("media"),
+            labels: b.labels == null ? undefined : paths("labels"),
+            min: optNum("min"),
+            max: optNum("max"),
+            recommended: rec == null ? undefined : typeof rec === "string" ? [rec] : (rec as never),
+            context: optStr("context"),
+            note: optStr("note"),
+          },
+          actor,
+        ),
+      );
+    }
+    case "POST /decisions/answer": {
+      const r = vault.answerDecision(str("id"), { value: (raw as { value?: unknown }).value ?? undefined, comment: optStr("comment"), dismiss: flag("dismiss"), change: flag("change") }, actor, optStr("today"));
+      host.written(r.path, vault.files.read(r.path), r.version, r.change);
+      if (r.change?.op === "create") host.tree();
+      return json(r.decision);
+    }
+    case "POST /decisions/withdraw":
+      return json(vault.withdrawDecision(str("id")));
     // Labels (Vault.label): a name on a version of a note, to compare with or go back to.
     case "GET /labels":
       return json(vault.labels(q("path") || undefined));

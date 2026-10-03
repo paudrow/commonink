@@ -12,6 +12,7 @@ import { boardsIn } from "../../src/core/kanban.ts";
 import { SANDBOX_PATH } from "../../src/core/sandbox.ts";
 import { encodeTarget, safeDecode } from "../../src/core/uri.ts";
 import { headingName, headingText, mapOutsideCode } from "../../src/core/prose.ts";
+import { blockRangeText } from "../../src/core/blocks.ts";
 import { capHtmlDepth, tameMarkdown } from "../../src/core/depth.ts";
 import { gfmMarked, renderingFrom } from "./gfm.ts";
 
@@ -69,8 +70,9 @@ export function embedKindOf(target: string, bare = false): EmbedKind {
   return "note";
 }
 
-/** Cut a note down to one heading's section (for ![[Note#Heading]]). */
+/** Cut a note down to one heading's section (for ![[Note#Heading]]), or to a block or range of blocks (![[Note#^id]], ![[Note#^a..^b]]). */
 export function sectionOf(md: string, heading: string): string {
+  if (heading.startsWith("^")) return blockRangeText(md, heading) ?? md;
   const lines = md.split("\n");
   const want = heading.trim().toLowerCase();
   const start = lines.findIndex((l) => {

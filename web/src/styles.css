@@ -506,7 +506,7 @@ body.is-split .banner-text { flex-basis: 140px; }
 
 /* ------------------------------------------------------------------ split view */
 /* The main pane's views make room for the side pane (its width is --side) and a bar on top. */
-body.is-split #stage > :is(#editor-host, #html-preview, #notes-view, #today-view, #tasks-view, #calendar-view, #history-view, #assets-view, #tags-view, #checkup-view, #replace-view, #query-help-view) { top: 34px; right: var(--side, 50%); }
+body.is-split #stage > :is(#editor-host, #html-preview, #notes-view, #today-view, #tasks-view, #calendar-view, #history-view, #assets-view, #tags-view, #checkup-view, #replace-view, #query-help-view, #profile-view) { top: 34px; right: var(--side, 50%); }
 body.is-split #stage > :is(#editor-host, #html-preview) { top: calc(34px + var(--main-banner, 0px)); }
 .pane-bar { display: flex; align-items: center; gap: 2px; height: 34px; padding: 0 6px 0 8px; border-bottom: 1px solid var(--line); background: var(--bg); font-size: 12.5px; color: var(--muted); }
 #main-bar { position: absolute; top: 0; left: 0; right: var(--side, 50%); }
@@ -599,7 +599,7 @@ body.is-resizing iframe { pointer-events: none; }
 #panel section { padding: 14px 14px 8px; border-bottom: 1px solid var(--line); flex: none; max-height: 34vh; display: flex; flex-direction: column; min-height: 0; }
 #panel section.grow { flex: 1; max-height: none; border-bottom: 0; }
 /* On a page that isn't a note (Notes, Tasks, Calendar…), the note's Outline and Backlinks have nothing to show; Activity stays. */
-body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view, #checkup-view, #replace-view, #query-help-view, #contacts-view, #shared-view, #capture-view):not([hidden])) #panel section:not(.grow) { display: none; }
+body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view, #checkup-view, #replace-view, #query-help-view, #profile-view, #contacts-view, #shared-view, #capture-view):not([hidden])) #panel section:not(.grow) { display: none; }
 #panel h3 {
   margin: 0 0 8px 4px;
   font: 650 10.5px/1 var(--ui);
@@ -718,6 +718,11 @@ body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view
 .palette-foot { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 9px 14px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); background: var(--bg-side); }
 .palette-foot kbd { margin-right: 3px; }
 .palette-item.is-command kbd { margin-left: auto; flex: none; }
+/* A command asking for something in the palette: its name stands before the field, like Raycast. */
+.palette-step { display: inline-flex; align-items: center; gap: 5px; flex: none; max-width: 45%; padding: 3px 9px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-ink); font: 600 12.5px var(--ui); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.palette-step[hidden], .palette-step-foot[hidden], #palette.is-step .palette-foot:not(.palette-step-foot) { display: none; }
+.palette-step span { overflow: hidden; text-overflow: ellipsis; }
+.palette-hint.is-error { color: var(--bad-ink); }
 
 /* Keyboard shortcuts (? or ⌘K) */
 #shortcuts { position: fixed; inset: 0; z-index: 50; background: rgba(20, 16, 10, 0.28); backdrop-filter: blur(3px); display: flex; justify-content: center; align-items: flex-start; padding-top: 8vh; animation: fade 0.12s ease-out; }
@@ -959,20 +964,64 @@ body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view
 .cm-properties-block { padding-bottom: 6px; white-space: normal; }
 .cm-properties {
   display: grid;
-  grid-template-columns: minmax(72px, max-content) 1fr;
-  gap: 6px 12px;
-  padding: 10px 14px;
+  grid-template-columns: minmax(72px, max-content) minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  padding: 8px 10px 6px 14px;
   border-radius: 10px;
   border: 1px solid var(--line);
   font-size: 13px;
-  cursor: text;
 }
-.cm-properties:hover { border-color: var(--line-strong); }
-/* Each row spans the card's two columns, so the values line up after the longest key. */
-.prop { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: baseline; }
-.prop-key { color: var(--muted); overflow-wrap: anywhere; font-size: 12px; }
-.prop-val { display: flex; gap: 6px; flex-wrap: wrap; color: var(--ink); }
-.prop.is-bad .prop-key { color: var(--bad-ink); text-decoration: underline wavy var(--bad); text-underline-offset: 3px; }
+.cm-properties:hover, .cm-properties:focus-within { border-color: var(--line-strong); }
+/* The properties table (editor/propertyTable.ts): each row spans the card's three columns (key, value, remove), so values line up after the longest key. */
+.prop { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: start; min-height: 30px; }
+.prop-key { justify-self: start; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; padding: 6px 0 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.prop-key-name { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
+.prop-key-name:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+/* A row's type (propertyTable.ts): solid when declared in the workspace settings, dashed while it's only guessed, plain for the app's own. */
+.prop-type { display: inline-flex; align-items: center; gap: 3px; padding: 0 5px; border: 1px solid transparent; border-radius: 5px; background: none; color: var(--muted); font: inherit; font-size: 10.5px; line-height: 16px; white-space: nowrap; }
+.prop-type svg { flex: none; }
+button.prop-type { border-color: var(--line); cursor: pointer; }
+button.prop-type:hover, button.prop-type:focus-visible { background: var(--hover); color: var(--ink); }
+.prop-type.is-guessed { border-style: dashed; }
+.prop-type.is-declared { color: var(--ink-2); }
+.prop-type-head { padding: 9px 12px 3px; color: var(--muted); font-size: 11.5px; line-height: 1.4; }
+.prop-cell { min-width: 0; padding: 2px 0; }
+.prop-input, .prop-select, .prop-chip-input, .prop-add-input {
+  width: 100%; min-width: 0; padding: 3px 7px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--ink); font: inherit; font-size: 13px; color-scheme: light dark;
+}
+.prop-input:hover, .prop-select:hover { border-color: var(--line); }
+.prop-input:focus, .prop-select:focus, .prop-chip-input:focus, .prop-add-input:focus { border-color: var(--accent-line); background: var(--bg); outline: none; }
+.prop-select { width: auto; cursor: pointer; }
+.prop-select option { background: var(--bg); color: var(--ink); }
+.prop-date { width: auto; }
+.prop-check { width: 15px; height: 15px; margin: 7px 7px 0; accent-color: var(--accent); cursor: pointer; }
+.prop-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; padding-left: 7px; }
+.prop-chips .tag svg { flex: none; }
+.prop-chips .tag.is-unlinked { background: var(--hover); color: var(--ink-2); }
+.prop-chip-input { flex: 1; width: auto; min-width: 90px; padding: 2px 4px; }
+.prop-raw { padding-left: 7px; font: 12px var(--mono); color: var(--muted); white-space: pre-wrap; }
+.prop-remove { display: grid; place-items: center; width: 22px; height: 22px; margin-top: 4px; border-radius: 6px; color: var(--muted); opacity: 0; }
+.prop:hover .prop-remove, .prop:focus-within .prop-remove, .prop-remove:focus-visible { opacity: 1; }
+.prop-remove:hover { background: var(--hover); color: var(--ink); }
+.prop-problem { padding: 1px 7px 3px; color: var(--bad-ink); font-size: 12px; line-height: 1.4; }
+.prop.is-bad .prop-key-name { color: var(--bad-ink); text-decoration: underline wavy var(--bad); text-underline-offset: 3px; }
+.prop.is-bad .prop-input, .prop.is-bad .prop-select { border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+/* A settings file's settings that aren't set yet, under the ones that are. */
+.prop-unset-head { grid-column: 1 / -1; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+.prop.is-unset { padding: 4px 0; }
+.prop.is-unset + .prop.is-unset { border-top: 1px dashed var(--line); }
+.prop.is-unset .prop-key { font: 12px var(--mono); color: var(--ink-2); cursor: default; }
+.prop.is-unset .prop-cell { display: grid; gap: 1px; padding-left: 7px; font-size: 12.5px; }
+.prop-unset-type { color: var(--muted); font: 11.5px var(--mono); overflow-wrap: anywhere; }
+.prop-unset-desc { color: var(--ink-2); }
+.prop.is-unset .prop-key { padding-top: 1px; }
+.prop.is-unset .qw-btn { align-self: center; }
+.prop-foot { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px; padding-top: 4px; border-top: 1px solid var(--line); }
+.prop-add-wrap { flex: 1; max-width: 260px; }
+.prop-add, .prop-yaml { display: inline-flex; align-items: center; gap: 5px; padding: 3px 7px; border-radius: 6px; color: var(--muted); font-size: 12.5px; }
+.prop-add:hover, .prop-yaml:hover { background: var(--hover); color: var(--ink); }
+.prop-yaml { font-size: 12px; }
+.prop-suggest { width: 290px; }
 /* Properties help (editor/properties.ts): the strip above a note whose properties have a problem, and hover help. */
 .cm-editor .cm-panels.cm-panels-top { border-top: none; border-bottom: 1px solid var(--line); }
 .prop-problems { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 14px; border: 0; background: color-mix(in srgb, var(--warn) 10%, transparent); color: var(--warn-ink); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
@@ -2003,6 +2052,120 @@ a.gh-card:hover { border-color: var(--line-strong); }
 .wr-note { padding: 0; border: 0; background: none; font: inherit; color: var(--accent); cursor: pointer; }
 .wr-note:hover { text-decoration: underline; }
 .wr-actions { display: flex; gap: 8px; margin: -4px 0 16px; }
+/* The Today page's Decisions: one question an agent asked at a time, in its shape (decisionsCard.ts). */
+.td-decisions:not(:empty) { margin-bottom: 18px; }
+.dc-card { outline: none; }
+.dc-card:focus-visible { border-color: var(--accent-line); }
+.dc-card .td-title svg { color: var(--accent); }
+.dc-count { margin-left: 4px; font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
+.dc-nav { display: inline-flex; gap: 2px; margin: -6px -6px -6px auto; }
+.dc-nav .qw-icon:first-child svg { transform: scaleX(-1); }
+.dc-q { margin: 2px 0 6px; font-size: 16px; font-weight: 600; line-height: 1.4; color: var(--ink-strong); text-wrap: pretty; }
+.dc-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.dc-about { display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; padding: 1px 6px; border-radius: 5px; color: var(--accent-ink); }
+.dc-about:hover { background: var(--hover); }
+.dc-was { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; padding: 6px 10px; border-radius: 8px; background: var(--hover); font-size: 13px; color: var(--ink-2); }
+.dc-was > svg { color: var(--accent-ink); flex: none; }
+.dc-was strong { color: var(--ink-strong); }
+.dc-was .dc-about { margin-left: auto; }
+.dc-context { margin-top: 10px; font-size: 13.5px; line-height: 1.55; color: var(--ink-2); }
+.dc-context > :first-child { margin-top: 0; }
+.dc-context > :last-child { margin-bottom: 0; }
+.dc-media { display: flex; gap: 8px; margin-top: 10px; overflow-x: auto; padding-bottom: 2px; }
+.dc-media-item { flex: none; display: block; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); background: var(--hover); }
+.dc-media-img { display: block; height: 140px; max-width: 280px; object-fit: cover; }
+.dc-answer { display: grid; gap: 6px; margin-top: 12px; }
+/* Typing your own answer sets the options aside. */
+.dc-card.is-own .dc-answer > :first-child { opacity: 0.45; }
+.dc-options, .dc-yesno { display: grid; gap: 6px; }
+.dc-yesno { grid-template-columns: 1fr 1fr; }
+.dc-yesno .dc-opt { justify-content: center; min-height: 48px; font-weight: 600; }
+.dc-yesno .dc-label { flex: none; }
+.dc-opt { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg); text-align: left; transition: border-color 0.12s, background 0.12s; }
+button.dc-opt:hover { border-color: var(--muted); }
+.dc-opt.is-picked, .dc-tile.is-picked { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent); }
+.dc-opt kbd, .dc-tile kbd { flex: none; min-width: 20px; text-align: center; }
+.dc-opt.is-picked kbd, .dc-tile.is-picked kbd { border-color: var(--accent); color: var(--accent-ink); }
+.dc-label { flex: 1; min-width: 0; color: var(--ink); }
+.dc-detail { display: block; margin-top: 2px; font-size: 12.5px; color: var(--muted); }
+.dc-rec { flex: none; padding: 2px 7px; border-radius: 999px; background: var(--hover); font-size: 11.5px; color: var(--muted); }
+.is-picked .dc-rec { background: var(--bg-elev); color: var(--accent-ink); }
+.dc-thumb { flex: none; width: 40px; height: 40px; border-radius: 6px; object-fit: cover; background: var(--hover); }
+.dc-check { flex: none; display: grid; place-items: center; width: 18px; height: 18px; border: 1.5px solid var(--line-strong); border-radius: 5px; color: var(--on-accent); }
+.dc-opt.is-picked .dc-check { background: var(--accent); border-color: var(--accent); }
+.dc-note { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+/* compare: the options side by side, each with its picture. */
+.dc-compare { display: grid; grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)); gap: 8px; }
+.dc-tile { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--bg); text-align: left; transition: border-color 0.12s, background 0.12s; }
+.dc-tile:hover { border-color: var(--muted); }
+.dc-tile-img { width: 100%; aspect-ratio: 4 / 3; border-radius: 8px; object-fit: cover; background: var(--hover); }
+.dc-tile-img.is-empty { display: grid; place-items: center; color: var(--faint); }
+.dc-tile-head { display: flex; align-items: center; gap: 8px; }
+.dc-tile .dc-detail { margin: 0; }
+/* rows: one choice for each row, the options as columns; a column's heading sets every row. */
+.dc-rows { display: grid; gap: 4px; overflow-x: auto; }
+.dc-row { display: grid; grid-template-columns: minmax(120px, 1fr) repeat(var(--cols, 3), minmax(64px, auto)); gap: 4px; align-items: center; }
+.dc-row-label { padding: 0 4px; font-size: 13.5px; color: var(--ink); overflow-wrap: anywhere; }
+.dc-all { height: 26px; padding: 0 8px; border-radius: 6px; font-size: 11.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.dc-all:hover { background: var(--hover); color: var(--ink-strong); }
+.dc-cell { height: 34px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg); font-size: 13px; color: var(--ink-2); }
+.dc-cell:hover { border-color: var(--muted); }
+.dc-cell.is-picked { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+/* rank: the options in order, moved up and down. */
+.dc-rank { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.dc-pos { flex: none; width: 20px; text-align: center; font-weight: 600; color: var(--accent-ink); font-variant-numeric: tabular-nums; }
+.dc-up svg { transform: rotate(-90deg); }
+.dc-down svg { transform: rotate(90deg); }
+.dc-rank .qw-icon:disabled { opacity: 0.3; cursor: default; }
+/* scale: a row of numbers, with words for its ends. */
+.dc-scale { display: flex; gap: 6px; }
+.dc-step { flex: 1; min-width: 0; height: 42px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.dc-step:hover { border-color: var(--muted); }
+.dc-step.is-rec { border-style: dashed; }
+.dc-step.is-picked { border-color: var(--accent); border-style: solid; background: var(--accent-soft); color: var(--accent-ink); box-shadow: 0 0 0 1px var(--accent); }
+.dc-scale-ends { display: flex; justify-content: space-between; margin-top: 4px; font-size: 12px; color: var(--muted); }
+.dc-other-input, .dc-comment { width: 100%; padding: 9px 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg); color: var(--ink); font: inherit; font-size: 14px; }
+.dc-other-input.is-main { min-height: 64px; resize: vertical; }
+.dc-other-input:focus, .dc-comment:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.dc-comment { display: block; margin-top: 8px; min-height: 38px; resize: vertical; font-size: 13.5px; }
+.dc-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.dc-dismiss, .dc-again { padding: 0 8px; height: 34px; border-radius: 9px; font-size: 13px; color: var(--muted); }
+.dc-again { height: auto; margin-left: auto; color: var(--accent-ink); }
+.dc-dismiss:hover, .dc-again:hover { background: var(--hover); color: var(--ink-strong); }
+.dc-hint { margin-left: auto; font-size: 12px; color: var(--faint); }
+.dc-card.is-clear .td-clear { margin: 0; border-radius: 0; }
+@media (max-width: 640px) {
+  .dc-hint { display: none; }
+  .dc-compare { grid-template-columns: 1fr 1fr; }
+}
+
+/* Your profile (profilePage.ts): who you are, then sections like Query syntax's. */
+#profile-view { position: absolute; inset: 0; overflow: auto; outline: none; }
+.profile-head { display: flex; align-items: center; gap: 16px; margin-bottom: 8px; }
+.profile-head h1 { margin: 0 0 2px; }
+.profile-head .page-sub { margin: 0; overflow-wrap: anywhere; }
+.profile-who { min-width: 0; }
+.profile-face { width: 56px; height: 56px; border-radius: 50%; flex: none; object-fit: cover; }
+.profile-face.is-initial { display: grid; place-items: center; background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; font-size: 24px; }
+.profile-section { margin-top: 30px; scroll-margin-top: 20px; }
+.profile-section h2 { display: flex; align-items: center; gap: 7px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 12px; }
+.profile-section h2 svg { color: var(--accent); }
+/* Your seals: a grid that wraps, so every seal shows at any width. An earned seal is wax in the ink you use;
+   a grey one is a dashed ring with how to earn it. */
+.seal-tally { margin: 6px 0 0; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.seal-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px 4px; margin: 0; padding: 12px 0 2px; list-style: none; }
+.seal { display: grid; justify-items: center; align-content: start; gap: 4px; padding: 6px 4px; text-align: center; }
+.seal-mark { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; border: 1.5px dashed var(--line-strong); color: var(--muted); }
+.seal.is-earned .seal-mark {
+  border: none;
+  color: var(--on-accent);
+  background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--accent) 70%, #fff), var(--accent) 55%, color-mix(in srgb, var(--accent) 75%, #000));
+  box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--accent) 80%, #000), 0 1px 3px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.seal-name { font: 600 12px/1.3 var(--ui); color: var(--muted); }
+.seal.is-earned .seal-name { color: var(--ink-strong); }
+.seal-how, .seal-count { font: 11px/1.3 var(--ui); color: var(--muted); }
+.seal-count { font-variant-numeric: tabular-nums; }
 .wd-what { margin: 10px 0 0; font-size: 12.5px; color: var(--muted); }
 .td-section + .td-section { margin-top: 10px; }
 .td-section.is-overdue .qt-note { color: var(--bad-ink); }
@@ -2318,7 +2481,6 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .qt-row.is-done .qt-text .tag { opacity: 0.7; }
 .cm-tag { color: var(--accent-ink); background: var(--accent-soft); border-radius: 999px; padding: 0.05em 0.45em; cursor: pointer; font-size: 0.92em; }
 .cm-tag.is-raw { background: none; padding: 0; cursor: text; font-size: inherit; }
-.prop-val .prop-item { background: var(--hover); padding: 1px 8px; border-radius: 999px; font-size: 12px; }
 .chip.tag-filter { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border-radius: 999px; border: 1px dashed var(--line-strong); font-size: 12px; color: var(--ink-2); }
 .chip.tag-filter:hover { border-color: var(--accent-line); color: var(--accent-ink); }
 .chip.tag-filter.is-on { border-style: solid; background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); padding-right: 4px; }
@@ -2630,6 +2792,15 @@ body.is-link-dragging, body.is-link-dragging * { cursor: grabbing !important; us
 .ct-tags { display: flex; gap: 4px; justify-content: flex-end; min-width: 0; overflow: hidden; }
 .ct-seen { font-size: 12.5px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
 .ct-badge { padding: 0 6px; border-radius: 999px; border: 1px solid var(--line-strong); font: 600 10.5px/16px var(--ui); color: var(--ink-2); flex: none; }
+.st-integration { display: grid; gap: 8px; }
+.st-int-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.st-int-name { font-weight: 600; min-width: 72px; color: var(--ink-strong); }
+.st-int-line .st-desc { flex: 1 1 200px; }
+.ct-google { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); font-size: 13.5px; color: var(--ink-2); }
+.ct-google > svg { flex: none; }
+.ct-google > span { flex: 1 1 240px; }
+.ct-google b { color: var(--ink-strong); }
+.ct-google-sub { color: var(--ink-3, var(--ink-2)); font-size: 12.5px; }
 .ct-badge.is-due { border-color: var(--accent-line); color: var(--accent-ink); }
 .ct-checkin { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ct-checkin .ct-rhythm { height: 30px; font-size: 13px; }
@@ -3219,6 +3390,8 @@ button.cal-src-color:hover { background: var(--hover); }
 @media (pointer: coarse) { .share-item { min-height: 44px; font-size: 14px; } }
 /* A sidebar row's menu (rowMenu.ts) wears the Share menu's look; Delete is set apart, in red. */
 .row-menu { min-width: 190px; }
+.share-item .menu-keys { margin-left: auto; padding-left: 18px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.share-item:disabled svg, .share-item:disabled .menu-keys { opacity: .55; }
 .share-item.is-danger, .share-item.is-danger svg { color: var(--bad); }
 .share-item.is-danger:is(:hover, :focus-visible) { background: color-mix(in srgb, var(--bad) 10%, transparent); color: var(--bad); }
 
@@ -3270,16 +3443,6 @@ button.cal-src-color:hover { background: var(--hover); }
 .org-option { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
 .org-option span { color: var(--muted); font-size: 12.5px; }
 .org-option:hover, .org-option:focus-visible { border-color: var(--accent-line); background: var(--accent-soft); outline: none; }
-
-/* Under a settings file's properties: what else it can set (editor/properties.ts). */
-.prop-available { margin: 2px 0 14px; padding: 10px 14px; border: 1px dashed var(--line-strong); border-radius: 10px; font-size: 12.5px; white-space: normal; }
-.prop-available-head { margin-bottom: 6px; color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; }
-.prop-available-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "key type add" "desc desc add"; gap: 2px 10px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--line); }
-.prop-available-head + .prop-available-row { border-top: 0; }
-.prop-available-row code { grid-area: key; font: 12px var(--mono); color: var(--ink-strong); }
-.prop-available-type { grid-area: type; color: var(--muted); font: 11.5px var(--mono); overflow-wrap: anywhere; }
-.prop-available-desc { grid-area: desc; color: var(--ink-2); }
-.prop-available-row .qw-btn { grid-area: add; align-self: center; }
 
 /* "While you were away" at the top of Notes and Today (away.ts). */
 .away { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding: 7px 8px 7px 12px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 9%, var(--bg-elev)); border: 1px solid var(--accent-line); font-size: 13px; color: var(--ink); }

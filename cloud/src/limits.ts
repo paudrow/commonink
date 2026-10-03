@@ -34,6 +34,8 @@ export const ROUTE_LIMITS: Record<string, keyof typeof LIMITS> = {
   "POST /calendar/refresh": "calendar",
   // Open to viewers, and each one reads the whole calendar from Google on the app's quota.
   "POST /calendar/google": "calendar",
+  // Each sync asks Google, as a calendar refresh does, so they share its budget.
+  "POST /contacts/google/sync": "calendar",
 };
 
 /**

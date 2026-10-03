@@ -9,12 +9,14 @@ import { files, history, trash } from "./history.ts";
 import { labels } from "./labels.ts";
 import { contacts } from "./contacts.ts";
 import { notes } from "./notes.ts";
+import { properties } from "./properties.ts";
 import { boards, favorites, folders, smartFolders, tags } from "./organize.ts";
 import { settings } from "./settings.ts";
 import { sharing } from "./sharing.ts";
 import { tasks } from "./tasks.ts";
 import { templates } from "./templates.ts";
 import { calendar } from "./calendar.ts";
+import { decisions } from "./decisions.ts";
 import type { Command } from "./types.ts";
 
 export const GROUPS: ReadonlyArray<{ title: string; commands: Command[] }> = [
@@ -22,9 +24,11 @@ export const GROUPS: ReadonlyArray<{ title: string; commands: Command[] }> = [
   { title: "Templates", commands: templates },
   { title: "Folders and files", commands: [...folders, ...files] },
   { title: "Tasks and today", commands: tasks },
+  { title: "Decisions", commands: decisions },
   { title: "Contacts", commands: contacts },
   { title: "Boards", commands: boards },
   { title: "Tags", commands: tags },
+  { title: "Properties", commands: properties },
   { title: "Views", commands: smartFolders },
   { title: "Favorites", commands: favorites },
   { title: "History and Trash", commands: [...history, ...trash] },

@@ -1,6 +1,7 @@
 // The MCP tools, made from the command table (src/core/commands) that the CLI uses too, and shared
 // by the local stdio server (src/mcp.ts) and hosted workspaces (the remote /mcp endpoint), so an
 // agent gets the same tools either way.
+import type { GoogleContactsSync } from "./googleContacts.ts";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { VaultError } from "./paths.ts";
@@ -36,6 +37,8 @@ export interface ToolHost {
   origin?: string;
   /** Online: sharing notes and folders outside the workspace. Unset locally, and then the sharing tools aren't offered. */
   sharing?: Sharing;
+  /** Online, with Google configured: the caller's Google Contacts. Unset, sync_google_contacts isn't offered. */
+  googleContacts?: GoogleContactsSync;
   /** Online, where Google is set up: save_to_drive. Unset locally, and then it isn't offered. */
   drive?: SaveTarget;
 }
@@ -103,6 +106,7 @@ export function createMcpServer(host: ToolHost): McpServer {
         "Find before you write: search_notes, then read_note. Change existing notes with edit_note (small exact replacements); create_note is for a new note, import_notes for many at once (moving notes in from elsewhere).",
         "Link notes with [[Note name]] and embed with ![[Note name]]. The user may be editing at the same time; if an edit fails, re-read and retry.",
         `Workspace settings are the frontmatter of ${SETTINGS_NOTE}; commonink://config/schema lists every property the app reads, and commonink://config/agents re-reads the conventions below.`,
+        "Each property of a note has a type (text, number, checkbox, date, list, people): list_properties shows them, declared in the settings' properties: or guessed; write values to suit, and set_property_type declares one for every note.",
         agentsMd && `\nVault conventions (AGENTS.md):\n${agentsMd}`,
       ]
         .filter(Boolean)
@@ -121,7 +125,7 @@ export function createMcpServer(host: ToolHost): McpServer {
   for (const c of COMMANDS) {
     const name = toolName(c);
     // Only the tools this caller's role allows.
-    if (!name || c.settings || (host.may && !host.may(c.route)) || (c.needs === "calendar" && !host.calendar) || (c.needs === "exporter" && !host.exporter) || (c.needs === "sharing" && !host.sharing) || (c.needs === "drive" && !host.drive)) continue;
+    if (!name || c.settings || (host.may && !host.may(c.route)) || (c.needs === "calendar" && !host.calendar) || (c.needs === "exporter" && !host.exporter) || (c.needs === "sharing" && !host.sharing) || (c.needs === "googleContacts" && !host.googleContacts) || (c.needs === "drive" && !host.drive)) continue;
     (mcp.registerTool as (n: string, config: unknown, cb: (input: Record<string, unknown>) => Promise<Result>) => unknown)(
       name,
       { title: c.title, description: c.description ?? c.summary, inputSchema: strictInput(c, name), annotations: annotations(c) },
@@ -131,7 +135,7 @@ export function createMcpServer(host: ToolHost): McpServer {
           // Every write is attributed to the connected client, so the app can show who changed what.
           const source = host.source(mcp.server.getClientVersion()?.name);
           const out = await c.run(
-            { vault, user, source, canEditShared: host.canEditShared ?? true, calendar: host.calendar, origin: host.origin, members: host.members, exporter: host.exporter, sharing: host.sharing, drive: host.drive },
+            { vault, user, source, canEditShared: host.canEditShared ?? true, calendar: host.calendar, origin: host.origin, members: host.members, exporter: host.exporter, sharing: host.sharing, googleContacts: host.googleContacts, drive: host.drive },
             input as never,
           );
           if (out.save) return fileResult(out.save);

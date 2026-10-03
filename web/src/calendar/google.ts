@@ -36,6 +36,28 @@ export function googleChanged() {
 /** Where connecting starts; Google sends the person back to the Calendar in this workspace. `write` also asks to edit events. */
 export const connectUrl = (write = false) => `/auth/google/calendar?w=${encodeURIComponent(calendarWorkspace())}${write ? "&write=1" : ""}`;
 
+/** Where connecting Google Contacts starts; Google sends the person back to Contacts. `write` also asks to edit contacts. */
+export const contactsConnectUrl = (write = false) => `/auth/google/calendar?for=contacts&w=${encodeURIComponent(calendarWorkspace())}${write ? "&write=1" : ""}`;
+
+/** Disconnect Google, after asking: Calendar and Contacts both stop (Settings → Integrations). */
+export async function disconnectGoogle() {
+  const account = known?.connection?.account ?? "your Google account";
+  const sure = await ask({
+    title: "Disconnect Google?",
+    body: [`Common Ink stops reading ${account}. Your Google calendars leave every workspace you added them to, and Contacts stops syncing. Meeting notes and contacts' notes stay.`],
+    actions: [{ label: "Disconnect", value: "go", kind: "danger" }],
+  });
+  if (sure !== "go") return;
+  try {
+    await api.disconnectGoogle();
+    toast({ icon: "calendar", text: "Google is disconnected" });
+  } catch (e) {
+    toast({ text: e instanceof ApiError ? e.message : "Couldn't disconnect Google", alert: true });
+  }
+  googleChanged();
+  calendarChanged();
+}
+
 /** Leave the app for Google's consent page. An object, so tests can see where it would go. */
 export const leave = { to: (url: string) => location.assign(url) };
 

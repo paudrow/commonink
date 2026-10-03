@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { APP_ONLY, COMMANDS, toolName } from "../src/core/commands/index.ts";
 import { createMcpServer } from "../src/core/tools.ts";
 import { Calendar } from "../src/core/calendar.ts";
+import { GoogleContactsSync } from "../src/core/googleContacts.ts";
 import { openTempVault } from "./helpers.ts";
 import { WORKSPACE_ROUTES } from "../cloud/src/access.ts";
 import { parse } from "../src/cli/argv.ts";
@@ -19,7 +20,7 @@ test("every command is an MCP tool, or says why not; names are unique on both si
   assert.deepEqual(
     COMMANDS.filter((c) => !toolName(c)).map((c) => c.cli),
     [
-      "upload", "download", "label-rename", "label-rm", "calendars", "calendars add", "calendars refresh", "calendars remove",
+      "upload", "download", "decision answer", "label-rename", "label-rm", "calendars", "calendars add", "calendars refresh", "calendars remove",
       "members", "member role", "member remove", "leave", "invite", "invites", "invites revoke", "workspace rename", "workspace log",
     ],
     "the CLI-only commands changed: if that's meant, update this list",
@@ -29,7 +30,7 @@ test("every command is an MCP tool, or says why not; names are unique on both si
 test("the MCP server offers exactly the table's tools", async () => {
   const { vault } = openTempVault();
   const calendar = new Calendar(vault.db, async () => ({ status: "unchanged" }), { vault });
-  const server = createMcpServer({ vault, user: "you", source: () => "t", calendar, exporter: async () => ({ name: "x.md", mime: "text/markdown", data: new Uint8Array() }), sharing: { list: async () => "", share: async () => "", unshare: async () => "" }, drive: { name: "Google Drive", save: async () => ({ name: "x", url: "https://x" }) } }) as unknown as { _registeredTools: Record<string, unknown> };
+  const server = createMcpServer({ vault, user: "you", source: () => "t", calendar, exporter: async () => ({ name: "x.md", mime: "text/markdown", data: new Uint8Array() }), sharing: { list: async () => "", share: async () => "", unshare: async () => "" }, googleContacts: new GoogleContactsSync(vault.db, vault, "you", async () => null, () => ({ changes: async () => ({ people: [], syncToken: "", full: true }), update: async (p) => p })), drive: { name: "Google Drive", save: async () => ({ name: "x", url: "https://x" }) } }) as unknown as { _registeredTools: Record<string, unknown> };
   assert.deepEqual(Object.keys(server._registeredTools).sort(), COMMANDS.flatMap((c) => (toolName(c) ? [toolName(c)!] : [])).sort());
 });
 
