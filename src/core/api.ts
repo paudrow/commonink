@@ -395,8 +395,11 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       }
       const existing = optStr("existing");
       if (existing !== undefined && !ON_EXISTING.includes(existing as OnExisting)) throw new VaultError(`"existing" must be ${ON_EXISTING.join(" or ")}`);
-      const r = await writeImport(vault, pairsImport(notes as Record<string, string>, optStr("folder")), { existing: existing as OnExisting | undefined, source: actor });
-      for (const p of [...r.created, ...r.replaced]) host.written(p, vault.files.read(p), vault.meta(p)?.version ?? "", null);
+      const r = await writeImport(vault, pairsImport(notes as Record<string, string>, optStr("folder")), {
+        existing: existing as OnExisting | undefined,
+        source: actor,
+        written: (p, content, version, change) => host.written(p, content, version, change),
+      });
       if (r.created.length) host.tree();
       return json(r);
     }

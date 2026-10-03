@@ -2,7 +2,6 @@
 // shell, and for you. `--json` prints any result as JSON; the exit code says how it went (EXIT).
 import fs from "node:fs";
 import path from "node:path";
-import { zipSync } from "fflate";
 import { LOCAL_USER, openVault, type LocalVault } from "./core/local.ts";
 import { VaultError } from "./core/paths.ts";
 import { agentSource } from "./core/actor.ts";
@@ -12,6 +11,7 @@ import { EXIT, UsageError, type CommandHost, type Output } from "./core/commands
 import { findCommand, noSuchSubcommand, parse, type Io } from "./cli/argv.ts";
 import { commandHelp, overview } from "./cli/help.ts";
 import { SHELLS } from "./cli/completion.ts";
+import { zipFolder } from "./cli/folder.ts";
 import { CliError, DEFAULT_SERVER, loadCredentials, login, logout, runRemote, saveCredentials, workspaces, type Credentials } from "./cli/hosted.ts";
 
 const argv = process.argv.slice(2);
@@ -25,29 +25,19 @@ const io: Io = {
   },
   readFile(p) {
     try {
-      // A folder comes as a .zip of what's in it (hidden folders like .obsidian and .git left out), for import.
+      // A folder comes as a .zip of what's in it (hidden folders like .obsidian and .git, and node_modules, left out), for import.
       if (fs.statSync(p).isDirectory()) return { name: `${path.basename(path.resolve(p))}.zip`, bytes: zipFolder(p) };
       return { name: path.basename(p), bytes: new Uint8Array(fs.readFileSync(p)) };
-    } catch {
-      throw new VaultError(`There's no file at ${p}`, "not_found");
+    } catch (e) {
+      // Only a missing file is "no file": anything else (too big, unreadable) says what went wrong.
+      if (e instanceof VaultError) throw e;
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" || code === "ENOTDIR") throw new VaultError(`There's no file at ${p}`, "not_found");
+      if (code) throw new VaultError(`Can't read ${p}: ${(e as Error).message}`);
+      throw e;
     }
   },
 };
-
-/** A folder's files as a .zip, at their paths inside it; hidden files and folders aren't read. */
-function zipFolder(dir: string): Uint8Array {
-  const files: Record<string, [Uint8Array, { level: 0 }]> = {};
-  const walk = (rel: string) => {
-    for (const e of fs.readdirSync(path.join(dir, rel), { withFileTypes: true })) {
-      if (e.name.startsWith(".")) continue;
-      const sub = rel ? `${rel}/${e.name}` : e.name;
-      if (e.isDirectory()) walk(sub);
-      else if (e.isFile()) files[sub] = [new Uint8Array(fs.readFileSync(path.join(dir, sub))), { level: 0 }];
-    }
-  };
-  walk("");
-  return zipSync(files);
-}
 
 /** The local vault, and who's writing. */
 function localHost(q: LocalVault, agent: string | undefined): CommandHost {
