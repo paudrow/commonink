@@ -27,6 +27,7 @@ import { taskChanges, type AwaySummary } from "./away.ts";
 import { findMentions, linkMentionIn, type Mention } from "./mentions.ts";
 import { replaceIn, type ReplacedLine, type ReplaceOptions } from "./replace.ts";
 import { VIEWS, viewFileName, viewNote, viewQueryIn, withViewQuery } from "./views.ts";
+import { answerText, askSpec, checkValue, COMMENT_MAX, DECISION_STATUSES, DECISIONS, journalLines, OPEN_MAX, replaceJournalLines, type AskInput, type AskSpec, type Decision, type DecisionKind, type DecisionOption, type DecisionStatus, type DecisionValue } from "./decisions.ts";
 
 export interface NoteMeta {
   /** Stable across renames, moves and archiving; see ids.ts. */
@@ -2727,6 +2728,157 @@ export class Vault {
       }
     }
     return { updated, edits };
+  }
+
+  // ---------------------------------------------------------------- decisions
+
+  /**
+   * Put a question to the person (decisions.ts): it waits on their Today page until they answer.
+   * `note` is a note it's about.
+   */
+  askDecision(q: AskInput & { note?: string }, source: string): Decision {
+    let spec: AskSpec;
+    try {
+      spec = askSpec(q);
+    } catch (e) {
+      throw new VaultError((e as Error).message);
+    }
+    const rel = q.note ? this.mustResolve(q.note) : null;
+    if ((this.db.get("SELECT count(*) AS n FROM decisions WHERE status = 'open'")?.n ?? 0) >= OPEN_MAX) {
+      throw new VaultError(`${OPEN_MAX} decisions are already waiting: wait for answers before asking more`);
+    }
+    const who = actorOf(source);
+    const id = newNoteId();
+    const shape = { rows: spec.rows, media: spec.media, min: spec.min, max: spec.max, labels: spec.labels };
+    this.db.run(
+      "INSERT INTO decisions(id, kind, question, context, options, spec, recommended, note_id, note, status, asked_at, asked_by, person, agent) VALUES (?,?,?,?,?,?,?,?,?,'open',?,?,?,?)",
+      id, spec.kind, spec.question, spec.context, JSON.stringify(spec.options), JSON.stringify(shape), spec.recommended ? JSON.stringify(spec.recommended) : null,
+      rel ? this.meta(rel)!.id : null, rel, this.now(), who.source, who.person, who.agent,
+    );
+    return this.decision(id);
+  }
+
+  /** Decisions, newest first: open ones (the default), settled ones, or all; or the ones named by ID. */
+  decisions(opts: { status?: DecisionStatus | "settled" | "all"; ids?: string[]; limit?: number } = {}): Decision[] {
+    const status = opts.status ?? "open";
+    if (![...DECISION_STATUSES, "settled", "all"].includes(status)) throw new VaultError(`"status" must be open, answered, dismissed, withdrawn, settled or all, not "${status}"`);
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (opts.ids?.length) where.push(`id IN (${opts.ids.map(() => "?").join(",")})`), params.push(...opts.ids);
+    else if (status === "settled") where.push("status != 'open'");
+    else if (status !== "all") where.push("status = ?"), params.push(status);
+    // Open ones in the order they were asked, the picker's order; settled ones newest first.
+    const order = status === "open" && !opts.ids?.length ? "asked_at, rowid" : "coalesce(answered_at, asked_at) DESC, rowid DESC";
+    const rows = this.db.all(`SELECT * FROM decisions ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY ${order} LIMIT ?`, ...params, Math.min(opts.limit ?? 100, 500));
+    return rows.map((r) => this.toDecision(r));
+  }
+
+  decision(id: string): Decision {
+    const r = this.db.get("SELECT * FROM decisions WHERE id = ?", id.trim());
+    if (!r) throw new VaultError(`No decision ${id}: list_decisions shows their IDs`, "not_found");
+    return this.toDecision(r);
+  }
+
+  private toDecision(r: Record<string, unknown>): Decision {
+    const noteId = r.note_id as string | null;
+    const shape = JSON.parse((r.spec as string | null) ?? "{}") as Partial<Pick<Decision, "rows" | "media" | "min" | "max" | "labels">>;
+    const json = <T>(v: unknown): T | null => (typeof v === "string" ? (JSON.parse(v) as T) : null);
+    return {
+      id: r.id as string,
+      kind: r.kind as DecisionKind,
+      question: r.question as string,
+      context: (r.context as string | null) ?? null,
+      options: JSON.parse(r.options as string) as DecisionOption[],
+      rows: shape.rows ?? [],
+      media: shape.media ?? [],
+      min: shape.min ?? null,
+      max: shape.max ?? null,
+      labels: shape.labels ?? null,
+      recommended: json<DecisionValue>(r.recommended),
+      note: noteId ? (this.pathOf(noteId) ?? (r.note as string | null)) : null,
+      status: r.status as DecisionStatus,
+      asked_at: r.asked_at as number,
+      asked_by: r.asked_by as string,
+      agent: (r.agent as string | null) ?? null,
+      answer: (r.answer as string | null) ?? null,
+      value: json<DecisionValue>(r.value),
+      comment: (r.comment as string | null) ?? null,
+      answered_at: (r.answered_at as number | null) ?? null,
+      answered_by: (r.answered_by as string | null) ?? null,
+      journal: (r.journal as string | null) ?? null,
+    };
+  }
+
+  /**
+   * Answer an open decision with `value` in its shape (decisions.ts: an option, several, a choice
+   * for each row, an order, a number, or words), or dismiss it (they won't decide). It's written into
+   * the journal note for `today` (made if needed) under `## Decisions`, so the day's notes say what was
+   * decided. With `change`, one already answered or dismissed takes a new answer, and its lines are rewritten
+   * where they were recorded (or added to today's note when they're gone from there).
+   */
+  answerDecision(id: string, a: { value?: unknown; comment?: string; dismiss?: boolean; change?: boolean }, source: string, today = this.day()) {
+    if (!isDate(today)) throw new VaultError(`"today" must be a date like 2026-10-01, not "${today}"`);
+    const d = this.decision(id);
+    if (d.status === "withdrawn") throw new VaultError("That decision was withdrawn: no answer is needed", "conflict");
+    if (d.status !== "open" && !a.change) {
+      throw new VaultError(`That decision was already ${d.status === "dismissed" ? "dismissed" : `answered: ${d.answer}`}`, "conflict");
+    }
+    let value: DecisionValue | null = null;
+    if (!a.dismiss) {
+      if (a.value === undefined) throw new VaultError("Answer it, or dismiss it");
+      try {
+        value = checkValue(d, a.value);
+      } catch (e) {
+        throw new VaultError((e as Error).message);
+      }
+    }
+    const comment = a.comment?.trim() || null;
+    if (comment && comment.length > COMMENT_MAX) throw new VaultError(`Keep the comment to ${COMMENT_MAX} characters`);
+    const who = actorOf(source);
+    const answer = value ? answerText(d, value) : null;
+    const linkTo = (p: string) => `[[${this.linkName(p)}]]`;
+    const settle = (rel: string): Decision => ({ ...d, status: a.dismiss ? "dismissed" : "answered", answer, value, comment, answered_at: this.now(), answered_by: who.source, journal: rel });
+    // A changed answer replaces its lines where they were written; otherwise (or when they're gone) it goes in today's note.
+    let rel = `Journal/${today}.md`;
+    let settled = settle(rel);
+    let r: ReturnType<Vault["commit"]> | null = null;
+    let line = 0;
+    if (d.status !== "open" && d.journal) {
+      const there = this.files.read(d.journal);
+      const lines = journalLines(settle(d.journal), linkTo);
+      const swapped = there === null ? null : replaceJournalLines(there, d, lines, linkTo);
+      if (swapped !== null) {
+        rel = d.journal;
+        settled = settle(rel);
+        line = swapped.replace(/\r\n/g, "\n").split("\n").indexOf(lines[0]) + 1;
+        r = this.commit(rel, there, swapped, source, "edit");
+      }
+    }
+    if (!r) {
+      const before = this.files.read(rel);
+      const added = withTasksAdded(before ?? this.dailyTemplate(today), journalLines(settled, linkTo), true, DECISIONS);
+      line = added.line;
+      r = this.commit(rel, before, added.content, source, before === null ? "create" : "edit");
+    }
+    this.db.run(
+      "UPDATE decisions SET status = ?, answer = ?, value = ?, comment = ?, answered_at = ?, answered_by = ?, journal = ? WHERE id = ? AND status = ?",
+      settled.status, answer, value ? JSON.stringify(value) : null, comment, settled.answered_at, settled.answered_by, rel, d.id, d.status,
+    );
+    return { decision: this.decision(d.id), ...r, line };
+  }
+
+  /** Take back an open question (it no longer matters). Nothing is written to the journal note. */
+  withdrawDecision(id: string): Decision {
+    const d = this.decision(id);
+    if (d.status !== "open") throw new VaultError(`That decision is already ${d.status}${d.answer ? `: ${d.answer}` : ""}`, "conflict");
+    this.db.run("UPDATE decisions SET status = 'withdrawn' WHERE id = ? AND status = 'open'", d.id);
+    return this.decision(d.id);
+  }
+
+  /** How [[…]] names a note: its name alone when no other note shares it, its path otherwise. */
+  private linkName(rel: string): string {
+    const same = this.db.get("SELECT count(*) AS n FROM notes WHERE stem = ?", stemOf(rel))?.n ?? 0;
+    return (same > 1 ? rel : path.posix.basename(rel)).replace(/\.md$/, "");
   }
 
   // ---------------------------------------------------------------- contacts
