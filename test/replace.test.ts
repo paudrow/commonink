@@ -53,6 +53,15 @@ test("replaceAcross: a dry run changes nothing; then one change per note, active
   assert.throws(() => vault.replaceAcross("a\nb", "x", {}, "tester"), /line at a time/);
 });
 
+test("replaceAcross: one note that would grow past the limit stops the replace before any note is written", () => {
+  const { vault } = openTempVault({ "a.md": "x", "b.md": "x".repeat(300), "c.md": "x" }, { maxNoteBytes: 1000 });
+  assert.throws(() => vault.replaceAcross("x", "yyyy", {}, "tester"), /b\.md would be over/);
+  assert.deepEqual(["a.md", "b.md", "c.md"].map((p) => vault.read(p).content), ["x", "x".repeat(300), "x"]);
+  const done = vault.replaceAcross("x", "yy", {}, "tester");
+  assert.deepEqual(done.edits.map((e) => e.path), ["a.md", "b.md", "c.md"]);
+  assert.equal(vault.read("a.md").content, "yy");
+});
+
 test("POST /replace previews with dryRun, then writes and hands back what Undo restores", async () => {
   const { vault } = openTempVault({ "A.md": "# A\n\nold name\n" });
   const written: string[] = [];
