@@ -229,6 +229,8 @@ export interface FeedItem {
   /** Who made the last change: a person, or an agent for one. */
   lastBy: Actor | null;
   role: NoteRole | null;
+  /** The properties asked for with `cols`, each with its values as written (a list has several). */
+  props?: Record<string, string[]>;
 }
 
 export interface Task {
@@ -787,7 +789,9 @@ export class Vault {
    * `folder` matches the note's original folder whether or not it's archived. Newest first puts
    * `start` notes ahead and the agents' instructions after the rest (see noteRoles.ts).
    */
-  feed(opts: Omit<NoteQuery, "limit"> & { scope?: ArchiveScope; offset?: number; limit?: number } = {}) {
+  feed(opts: Omit<NoteQuery, "limit"> & { scope?: ArchiveScope; offset?: number; limit?: number; cols?: string } = {}) {
+    // The frontmatter properties a table of these notes shows (`cols=status,due`), lowercase.
+    const cols = [...new Set((opts.cols ?? "").split(",").map((c) => c.trim().toLowerCase()).filter(Boolean))].slice(0, 20);
     const scope = opts.scope ?? "active";
     const words = parse(opts.q ?? "");
     const terms = textWords(words.expr);
@@ -808,6 +812,7 @@ export class Vault {
     // The page's tags and who changed each note last, a few queries for the whole page.
     const tags = new Map<string, string[]>();
     const last = new Map<string, Actor & { source: string }>();
+    const props = new Map<string, Record<string, string[]>>();
     for (let i = 0; i < page.length; i += 90) {
       const paths = page.slice(i, i + 90).map((r) => r.path);
       const marks = paths.map(() => "?").join(",");
@@ -824,6 +829,16 @@ export class Vault {
         ...paths,
       )) {
         last.set(c.path, c);
+      }
+      if (cols.length) {
+        for (const p of this.db.all<{ path: string; key: string; value: string }>(
+          `SELECT path, key, value FROM props WHERE path IN (${marks}) AND key IN (${cols.map(() => "?").join(",")}) ORDER BY rowid`,
+          ...paths,
+          ...cols,
+        )) {
+          const of = props.get(p.path) ?? props.set(p.path, {}).get(p.path)!;
+          (of[p.key] ??= []).push(p.value);
+        }
       }
     }
     const items: FeedItem[] = page.map((r) => {
@@ -842,6 +857,7 @@ export class Vault {
         lastSource: last.get(r.path)?.source ?? null,
         lastBy: last.has(r.path) ? { person: last.get(r.path)!.person, agent: last.get(r.path)!.agent } : null,
         role: roleOf(r.path),
+        ...(cols.length ? { props: props.get(r.path) ?? {} } : {}),
       };
     });
     return { items, total: rows.length, counts, folders: [...new Set(all.map((n) => homeOf(n.path)).filter((p) => p.includes("/")).map((p) => p.split("/")[0]))].sort() };
