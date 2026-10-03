@@ -7,8 +7,9 @@ import { agentSource } from "../../src/core/actor.ts";
 import { COMMANDS, toolName, UsageError, type WorkspaceSettings } from "../../src/core/commands/index.ts";
 import { checkInput } from "../../src/core/commands/input.ts";
 import { VaultError } from "../../src/core/paths.ts";
-import { CLI_ROUTE, fromWire, toWire, type RunRequest, type RunResponse } from "../../src/core/commands/wire.ts";
+import { CLI_ROUTE, fromWire, MAX_RUN_BODY, toWire, type RunRequest, type RunResponse } from "../../src/core/commands/wire.ts";
 import { access } from "./access.ts";
+import { readUpTo } from "./body.ts";
 import { adminRoute } from "./admin.ts";
 import { getUser, timeZoneFor, workspacesOf, type User, type WorkspaceRef } from "./directory.ts";
 import { limit, ROUTE_LIMITS } from "./limits.ts";
@@ -31,7 +32,15 @@ export async function serveCli(req: Request, env: OAuthEnv, props: AgentProps, i
   if (req.method === "GET" && path === `${CLI_ROUTE}/workspaces`) return json({ user: { name: user.name }, workspaces: mine });
   if (req.method !== "POST" || path !== `${CLI_ROUTE}/run`) return fail(`No route ${req.method} ${path}`, "not_found");
 
-  const body = (await req.json().catch(() => null)) as RunRequest | null;
+  const raw = await readUpTo(req, MAX_RUN_BODY);
+  if (!raw) return json({ ok: false, error: `That's over ${MAX_RUN_BODY / 1024 / 1024} MB: upload bigger files in the app`, code: "too_large" } satisfies RunResponse, 413);
+  const body = (() => {
+    try {
+      return JSON.parse(new TextDecoder().decode(raw)) as RunRequest | null;
+    } catch {
+      return null;
+    }
+  })();
   if (!body || typeof body.command !== "string" || typeof body.input !== "object" || body.input === null) return fail("Expected {command, input}", "usage");
   const command = COMMANDS.find((c) => c.cli === body.command);
   if (!command) return fail(`No command "${body.command}": see commonink help`, "usage");
