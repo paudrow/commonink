@@ -26,6 +26,7 @@ import { frontmatterEntries, listOf, propsOf } from "./frontmatter.ts";
 import { taskChanges, type AwaySummary } from "./away.ts";
 import { findMentions, linkMentionIn, type Mention } from "./mentions.ts";
 import { replaceIn, type ReplacedLine, type ReplaceOptions } from "./replace.ts";
+import { VIEWS, viewFileName, viewNote, viewQueryIn, withViewQuery } from "./views.ts";
 
 export interface NoteMeta {
   /** Stable across renames, moves and archiving; see ids.ts. */
@@ -262,10 +263,17 @@ export interface TagCount {
   tasks: number;
   assets: number;
 }
-/** A saved note query in the sidebar, with how many active notes match it now. */
+/**
+ * A saved view: a note in Views/ that holds a note query (see views.ts), with how many active notes
+ * match it now. Still called a smart folder in the code and API, the sidebar's old name for it.
+ */
 export interface SmartFolder {
+  /** The view note's ID. */
   id: string;
+  /** Its file's name. */
   name: string;
+  /** The view note. */
+  path: string;
   /** As ::query args: `tag=work sort=title`. */
   query: string;
   /** Shared with the whole workspace, rather than just the person who sees it. */
@@ -296,6 +304,8 @@ const META_COLS = "id, path, kind, title, version, mtime, size";
 const TRASH = ".trash";
 /** Notes whose tasks are tasks: not archived, and not templates (a template's `- [ ]` is for the notes made from it). */
 const TASK_NOTES = `NOT ${archivedSql("t.path")} AND substr(t.path, 1, ${TEMPLATES.length + 1}) != '${TEMPLATES}/'`;
+/** Who wrote the notes of smart folders kept in the database before views were notes (see upgradeSmartFolders). */
+const UPGRADED_BY = "Common Ink";
 /** How long Trash keeps what's deleted. */
 export const TRASH_DAYS = 30;
 const TRASH_ID = /^(\d{1,15})-(\d{1,15})$/;
@@ -311,6 +321,11 @@ export interface VaultOptions {
   maxNoteBytes?: number;
   /** The IANA time zone whose calendar "today" means (an agent's person's, online). Default: this machine's. */
   timeZone?: string;
+  /**
+   * The one person a vault belongs to (a local vault's), if it has just one: their views are all
+   * the vault's, right in Views/, since there's no one to keep one from (see views.ts).
+   */
+  soleUser?: string;
 }
 
 export { MAX_NOTE_BYTES };
@@ -420,6 +435,7 @@ export class Vault {
   private now: () => number;
   private maxNoteBytes: number;
   private timeZone: string | undefined;
+  private soleUser: string | undefined;
 
   constructor(
     readonly db: SqlDb,
@@ -429,6 +445,7 @@ export class Vault {
     this.now = opts.now ?? Date.now;
     this.maxNoteBytes = opts.maxNoteBytes ?? MAX_NOTE_BYTES;
     this.timeZone = opts.timeZone;
+    this.soleUser = opts.soleUser;
   }
 
   /** Today, as YYYY-MM-DD, in this core's time zone. */
@@ -498,6 +515,10 @@ export class Vault {
       version = versionOf(content);
       title = titleOf(content, kind, rel);
       body = searchableText(content, kind);
+      // A view note's query line is a query, not words it says: searching for "plan" finds the
+      // notes a view of `tag=plan` finds, not the view. Its name and any words above it are searched.
+      const view = kind === "md" && rel.startsWith(`${VIEWS}/`) ? viewQueryIn(content) : null;
+      if (view) body = body.split("\n").map((l, i) => (i === view.line ? "" : l)).join("\n");
       date = dateOf(content, kind, rel);
     }
     const known = this.db.get<IndexedRow>("SELECT id, kind, fts FROM notes WHERE path = ?", rel);
@@ -888,6 +909,12 @@ export class Vault {
     if (query.folder) {
       const folders = folderList(query.folder);
       rows = rows.filter((r) => inFolders(homeOf(r.path), folders));
+    }
+    // View notes (in Views/) are queries, not what queries find: a view of `q=launch` named Launch
+    // isn't one of its own notes. A query that names their folder (folder=Views) still finds them.
+    const named = [...folderList(query.folder ?? ""), ...termsOf(expr).flatMap((t) => (t.kind === "folder" ? t.folders : []))];
+    if (!named.some((f) => f.toLowerCase() === VIEWS.toLowerCase() || f.toLowerCase().startsWith(`${VIEWS.toLowerCase()}/`))) {
+      rows = rows.filter((r) => !homeOf(r.path).startsWith(`${VIEWS}/`));
     }
     // A tag takes the tags under it too, whether it's wanted or left out.
     const tagged = (tag: string) => {
@@ -1465,7 +1492,7 @@ export class Vault {
       if (!meta) continue;
       if (meta.id !== f.note_id) {
         // The note is back at its old path under a new ID: move the star over (unless it has one already).
-        const dup = out.some((m) => !isTagFavorite(m) && m.id === meta.id) || this.db.get("SELECT 1 FROM favorites WHERE user = ? AND note_id = ?", user, meta.id);
+        const dup = out.some((m) => !isTagFavorite(m) && !isSmartFavorite(m) && m.id === meta.id) || this.db.get("SELECT 1 FROM favorites WHERE user = ? AND note_id = ?", user, meta.id);
         if (dup) {
           this.db.run("DELETE FROM favorites WHERE user = ? AND note_id = ?", user, f.note_id);
           continue;
@@ -1548,19 +1575,42 @@ export class Vault {
     return meta;
   }
 
-  // ---------------------------------------------------------------- smart folders
+  // ---------------------------------------------------------------- views (smart folders)
 
-  /** The smart folders `user` sees (the workspace's shared ones and their own), in order, each with how many active notes match. */
-  smartFolders(user: string): SmartFolder[] {
-    const folders = this.smartFolderRows(user);
-    const all = folders.length ? this.feedRows() : [];
-    return folders.map((r) => this.counted(r, all));
+  /**
+   * The folder `user`'s own views live in (see views.ts): Views/<their user ID>, or Views itself for
+   * a vault's one person. A user ID that couldn't be a folder's name has none.
+   */
+  private ownViews(user: string): string | null {
+    if (user === this.soleUser) return VIEWS;
+    return /^[\w@+-][\w@.+-]{0,99}$/.test(user) ? `${VIEWS}/${user}` : null;
   }
 
-  private smartFolderRows(user: string) {
-    return this.db
-      .all<{ id: string; name: string; query: string; owner: string | null }>("SELECT id, name, query, owner FROM smart_folders WHERE owner IS NULL OR owner = ? ORDER BY pos", user)
-      .map((r) => ({ id: r.id, name: r.name, query: r.query, shared: r.owner === null }));
+  /** The views `user` sees (the workspace's shared ones and their own), by name, each with how many active notes match. */
+  smartFolders(user: string): SmartFolder[] {
+    const views = this.viewNotes(user);
+    const all = views.length ? this.feedRows() : [];
+    return views.map((r) => this.counted(r, all));
+  }
+
+  /**
+   * The view notes `user` sees, read from their files: the notes right in Views/ (shared) and right
+   * in their own folder of it, each with the query on its query line. A note there without one isn't a view.
+   */
+  private viewNotes(user: string): Array<Omit<SmartFolder, "count">> {
+    const own = this.ownViews(user);
+    const out: Array<Omit<SmartFolder, "count">> = [];
+    for (const dir of new Set([VIEWS, ...(own ? [own] : [])])) {
+      const rows = this.db.all<{ id: string; path: string }>(
+        "SELECT id, path FROM notes WHERE kind = 'md' AND substr(path, 1, length(?)) = ? AND instr(substr(path, length(?) + 1), '/') = 0",
+        `${dir}/`, `${dir}/`, `${dir}/`,
+      );
+      for (const r of rows) {
+        const at = viewQueryIn(this.files.read(r.path) ?? "");
+        if (at) out.push({ id: r.id, name: fileStem(r.path), path: r.path, query: at.query, shared: dir === VIEWS });
+      }
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || Number(a.shared) - Number(b.shared));
   }
 
   private counted(f: Omit<SmartFolder, "count">, all = this.feedRows()): SmartFolder {
@@ -1568,53 +1618,121 @@ export class Vault {
   }
 
   /**
-   * One of `user`'s smart folders by ID, or (unless `idOnly`) by name in any case. A name means
-   * their own folder before a shared one, so it never reaches past theirs to the workspace's.
+   * One of `user`'s views by its note's ID, or (unless `idOnly`) by its name in any case or its
+   * note's path. A name means their own view before a shared one, so it never reaches past theirs
+   * to the workspace's.
    */
   findSmartFolder(user: string, target: string, idOnly = false): SmartFolder {
     const t = target.trim().toLowerCase();
-    const rows = this.smartFolderRows(user);
-    const named = idOnly ? [] : rows.filter((f) => f.name.toLowerCase() === t).sort((a, b) => Number(a.shared) - Number(b.shared));
+    const rows = this.viewNotes(user);
+    const named = idOnly ? [] : rows.filter((f) => f.name.toLowerCase() === t || f.path.toLowerCase() === t).sort((a, b) => Number(a.shared) - Number(b.shared));
     const found = rows.find((f) => f.id === t) ?? named[0];
-    if (!found) throw new VaultError(`No smart folder "${target}". Try list_smart_folders.`, "not_found");
+    if (!found) throw new VaultError(`No view "${target}". Try list_smart_folders.`, "not_found");
     return this.counted(found);
   }
 
   /**
-   * Create a smart folder, or change one by `id`. A shared one belongs to the whole workspace, and
-   * only someone who `canEditShared` (not a viewer, online) may create, change or unshare one. A
-   * personal one is its owner's alone. The query is stored tidied.
+   * Create a view (a note in Views/, see views.ts), or change one by `id`: a new name renames its
+   * note, a new query rewrites its query line (the words around it stay), and sharing it or making
+   * it just yours moves it between Views/ and your own folder of it. A shared one belongs to the
+   * whole workspace, and only someone who `canEditShared` (not a viewer, online) may create, change
+   * or unshare one. A personal one is its owner's alone. The query is stored tidied. Says what it
+   * wrote and moved, for open tabs to hear about.
    */
-  saveSmartFolder(user: string, f: { id?: string; name: string; query: string; shared: boolean }, canEditShared: boolean, idOnly = false): SmartFolder {
-    const name = f.name.trim();
-    if (!name) throw new VaultError("Give the smart folder a name");
-    if (name.length > 80) throw new VaultError("A smart folder's name can be up to 80 characters");
-    if (f.query.length > 500) throw new VaultError("A smart folder's query can be up to 500 characters");
+  saveSmartFolder(
+    user: string,
+    f: { id?: string; name: string; query: string; shared: boolean },
+    canEditShared: boolean,
+    source: string,
+    idOnly = false,
+  ): { view: SmartFolder; written: { path: string; content: string; version: string; change: Change | null } | null; moved: ReturnType<Vault["move"]> | null } {
+    if (f.name.trim().length > 80) throw new VaultError("A view's name can be up to 80 characters");
+    const name = viewFileName(f.name);
+    if (!name) throw new VaultError("Give the view a name");
+    if (f.query.length > 500) throw new VaultError("A view's query can be up to 500 characters");
     const problem = queryProblem(f.query);
     if (problem) throw new VaultError(problem);
-    // A limit sizes a widget; a smart folder shows (and counts) every match.
+    // A limit sizes a widget; a view shows (and counts) every match.
     const query = formatQuery({ ...parseQuery(f.query), limit: undefined });
     const existing = f.id ? this.findSmartFolder(user, f.id, idOnly) : null;
-    if (!existing && this.db.get<{ n: number }>("SELECT count(*) AS n FROM smart_folders WHERE owner = ? OR (owner IS NULL AND ?)", user, f.shared ? 1 : 0)!.n >= 50) {
-      throw new VaultError("That's 50 smart folders already. Delete one to make another.");
-    }
     if ((f.shared || existing?.shared) && !canEditShared) {
-      throw new VaultError("Only editors can create or change shared smart folders. Make it just yours instead.", "forbidden");
+      throw new VaultError("Only editors can create or change shared views. Make it just yours instead.", "forbidden");
     }
-    const owner = f.shared ? null : user;
-    const id = existing?.id ?? newNoteId();
-    if (existing) this.db.run("UPDATE smart_folders SET name = ?, query = ?, owner = ? WHERE id = ?", name, query, owner, id);
-    else this.db.run("INSERT INTO smart_folders(id, name, query, owner, pos) VALUES (?,?,?,?,(SELECT coalesce(max(pos), 0) + 1 FROM smart_folders))", id, name, query, owner);
-    return this.findSmartFolder(user, id);
+    const own = this.ownViews(user);
+    const dir = f.shared ? VIEWS : own;
+    if (!dir) throw new VaultError("You can't keep views of your own here. Share it with the workspace instead.");
+    if (!existing && this.viewNotes(user).filter((v) => (v.shared ? VIEWS : own) === dir).length >= 50) {
+      throw new VaultError("That's 50 views already. Delete one to make another.");
+    }
+    const rel = cleanPath(`${dir}/${name}.md`);
+    const taken = (p: string) => !!this.files.stat(p) || this.list(dir, "all").some((n) => n.path.toLowerCase() === p.toLowerCase());
+    let moved: ReturnType<Vault["move"]> | null = null;
+    let written: { path: string; content: string; version: string; change: Change | null } | null = null;
+    let at: string;
+    if (existing) {
+      at = existing.path;
+      if (rel !== at) {
+        if (rel.toLowerCase() !== at.toLowerCase() && taken(rel)) throw new VaultError(`There's already a view named ${name}`, "exists", { path: rel });
+        moved = this.move(at, rel, source);
+        at = moved.path;
+      }
+      const before = this.files.read(at) ?? "";
+      const after = withViewQuery(before, query);
+      if (after !== before) {
+        const r = this.commit(at, before, after, source, "edit");
+        written = { path: at, content: after, version: r.version, change: r.change };
+      }
+    } else {
+      if (taken(rel)) throw new VaultError(`There's already a view named ${name}`, "exists", { path: rel });
+      const content = viewNote(query);
+      const r = this.create(rel, content, source);
+      written = { path: (at = rel), content, version: r.version, change: r.change };
+    }
+    return { view: this.findSmartFolder(user, this.meta(at)!.id, true), written, moved };
   }
 
-  /** Delete one of `user`'s smart folders (a shared one only if they `canEditShared`). Returns what they see now. */
-  deleteSmartFolder(user: string, target: string, canEditShared: boolean, idOnly = false): SmartFolder[] {
+  /**
+   * Delete one of `user`'s views (a shared one only if they `canEditShared`): its note goes to Trash
+   * like any note, and out of everyone's favorites. Returns what they see now, and what went to Trash.
+   */
+  deleteSmartFolder(user: string, target: string, canEditShared: boolean, source: string, idOnly = false) {
     const f = this.findSmartFolder(user, target, idOnly);
-    if (f.shared && !canEditShared) throw new VaultError("Only editors can delete shared smart folders.", "forbidden");
-    this.db.run("DELETE FROM smart_folders WHERE id = ?", f.id);
+    if (f.shared && !canEditShared) throw new VaultError("Only editors can delete shared views.", "forbidden");
+    const [trashed] = this.delete([f.path], source);
     this.db.run("DELETE FROM favorites WHERE note_id = ?", smartKey(f.id));
-    return this.smartFolders(user);
+    return { views: this.smartFolders(user), trashed };
+  }
+
+  /**
+   * Smart folders used to be rows in the database (the `smart_folders` table): write each out as a
+   * view note, once, then drop the table. A shared one goes in Views/, a personal one in its
+   * owner's folder of it (see ownViews), under a free name, and a star on it moves to its note.
+   * Each row goes as soon as its note is written, so a run that stops partway picks up where it
+   * was. The hosts run it once the index is up to date (openVault, and a workspace online).
+   */
+  upgradeSmartFolders() {
+    if (this.db.get("SELECT 1 FROM upgrades WHERE name = 'views as notes'")) return;
+    let rows: Array<{ id: string; name: string; query: string; owner: string | null }> = [];
+    try {
+      rows = this.db.all("SELECT id, name, query, owner FROM smart_folders ORDER BY pos");
+    } catch {
+      // A database made after smart folders became notes never had the table.
+    }
+    for (const r of rows) {
+      try {
+        const dir = r.owner === null ? VIEWS : (this.ownViews(r.owner) ?? VIEWS);
+        const rel = this.freePath(cleanPath(`${dir}/${viewFileName(r.name) || "View"}.md`));
+        const meta = this.create(rel, viewNote(r.query), UPGRADED_BY);
+        this.db.run("UPDATE OR IGNORE favorites SET note_id = ?, path = ? WHERE note_id = ?", smartKey(meta.id), rel, smartKey(r.id));
+        this.db.run("DELETE FROM smart_folders WHERE id = ?", r.id);
+      } catch (e) {
+        console.error(`Couldn't write the smart folder "${r.name}" out as a note:`, e);
+      }
+    }
+    // One that couldn't be written stays, to try again next start.
+    if (rows.length && this.db.get("SELECT 1 FROM smart_folders LIMIT 1")) return;
+    this.db.exec("DROP TABLE IF EXISTS smart_folders");
+    this.db.run("INSERT INTO upgrades(name) VALUES ('views as notes')");
   }
 
   // ---------------------------------------------------------------- tags
@@ -2351,17 +2469,21 @@ export class Vault {
 
   /**
    * Rename a folder, or move it under another: everything in it (its archived notes, in Archive,
-   * too) moves to `to`, every link to them rewritten as a note's move does, and smart folders
-   * narrowed to it follow. It can't land on a folder that has anything in it already, and nothing
-   * moves unless all of it can.
+   * too) moves to `to`, every link to them rewritten as a note's move does, and views narrowed to
+   * it follow (`views`: the view notes rewritten). It can't land on a folder that has anything in
+   * it already, and nothing moves unless all of it can.
    */
-  moveFolder(folder: string, to: string, source: string): { from: string; path: string; moved: Array<ReturnType<Vault["move"]>> } {
+  moveFolder(
+    folder: string,
+    to: string,
+    source: string,
+  ): { from: string; path: string; moved: Array<ReturnType<Vault["move"]>>; views: Array<{ path: string; content: string; version: string; change: Change }> } {
     const [from, dest] = [folder, to].map((f) => cleanPath(f).replace(/\/+$/, ""));
-    for (const [dir, what] of [[ARCHIVE.slice(0, -1), "Archive"], [PEOPLE, "Contacts"], [TEMPLATES, "Templates"]] as const) {
+    for (const [dir, what] of [[ARCHIVE.slice(0, -1), "Archive"], [PEOPLE, "Contacts"], [TEMPLATES, "Templates"], [VIEWS, "saved views"]] as const) {
       if (from === dir) throw new VaultError(`${dir} is where ${what === "Archive" ? "archived notes go" : `${what} live`}, so it keeps its name`);
     }
     if (isArchived(`${from}/`) || isArchived(`${dest}/`)) throw new VaultError("Folders in Archive move with their notes: unarchive them instead");
-    if (dest === from) return { from, path: dest, moved: [] };
+    if (dest === from) return { from, path: dest, moved: [], views: [] };
     if (dest.startsWith(`${from}/`)) throw new VaultError(`${from} can't move into itself`);
     const rels = [...this.under(from), ...this.under(`${ARCHIVE}${from}`)];
     if (!rels.length) throw new VaultError(`There's nothing in ${from}`, "not_found");
@@ -2402,15 +2524,25 @@ export class Vault {
     const clash = rels.find((rel) => this.files.stat(target(rel)));
     if (clash) throw new VaultError(`${target(clash)} already exists`, "exists");
     const moved = rels.map((rel) => this.move(rel, target(rel), source));
-    for (const f of this.db.all<{ id: string; query: string }>("SELECT id, query FROM smart_folders")) {
-      const q = parseQuery(f.query);
-      if (q.folder === from || q.folder?.startsWith(`${from}/`)) {
-        this.db.run("UPDATE smart_folders SET query = ? WHERE id = ?", formatQuery({ ...q, folder: dest + q.folder.slice(from.length) }), f.id);
-      }
+    // Views narrowed to the folder (or one in it) follow it: each view note's query line, in
+    // everyone's views, is rewritten as one change. A ::query widget in any other note stays as written.
+    const views: Array<{ path: string; content: string; version: string; change: Change }> = [];
+    for (const rel of this.under(VIEWS)) {
+      const before = kindOf(rel) === "md" ? this.files.read(rel) : null;
+      const at = before === null ? null : viewQueryIn(before);
+      if (!at) continue;
+      const q = parseQuery(at.query);
+      const folders = folderList(q.folder ?? "");
+      const inside = (f: string) => f === from || f.startsWith(`${from}/`);
+      if (!folders.some(inside)) continue;
+      const after = withViewQuery(before!, formatQuery({ ...q, folder: folders.map((f) => (inside(f) ? dest + f.slice(from.length) : f)).join("|") }));
+      if (after === before) continue;
+      const r = this.commit(rel, before, after, source, "edit");
+      views.push({ path: rel, content: after, version: r.version, change: r.change });
     }
     this.files.prune?.(from);
     this.files.prune?.(`${ARCHIVE}${from}`);
-    return { from, path: dest, moved };
+    return { from, path: dest, moved, views };
   }
 
   /** The ids of what's in Trash, newest first. */

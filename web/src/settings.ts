@@ -70,7 +70,7 @@ const WAITING: Array<{ item: OptionalItem; name: string; when: string; keywords:
   { item: "contacts", name: "Contacts", when: "you add someone", keywords: "people crm" },
   { item: "calendar", name: "Calendar", when: "you add a calendar or an event", keywords: "events meetings schedule" },
   { item: "assets", name: "Assets", when: "you upload a file", keywords: "files images uploads attachments" },
-  { item: "smart", name: "Smart folders", when: "you save one", keywords: "saved searches queries" },
+  { item: "smart", name: "Views", when: "you save one", keywords: "saved searches queries smart folders" },
 ];
 
 export function appSettings(app: SettingsApp): Setting[] {

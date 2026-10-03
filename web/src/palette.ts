@@ -48,7 +48,7 @@ type Item =
   | { type: "folder"; path: string }
   | { type: "smart"; name: string; query: string };
 
-const SECTION: Partial<Record<Item["type"], string>> = { heading: "Headings in this note", person: "People", tag: "Tags", folder: "Folders", smart: "Smart folders" };
+const SECTION: Partial<Record<Item["type"], string>> = { heading: "Headings in this note", person: "People", tag: "Tags", folder: "Folders", smart: "Views" };
 
 const kindIcon = (kind: string) => (kind === "html" ? "html" : kind === "asset" ? "image" : "file");
 

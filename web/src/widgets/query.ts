@@ -46,7 +46,7 @@ export const query: WidgetSpec = {
   // Filters written as keys of their own (modified>-7d, -tag=x) show in Matching, so saving the form keeps them.
   formArgs: (args) => ({ ...args, q: toQuery(args).q ?? "" }),
   configAction: {
-    label: "Save as smart folder",
+    label: "Save as view",
     icon: "folderSearch",
     run: (args, env, anchor) => env.saveSmartFolder(formatQuery(toQuery(args)), args.label ?? "", anchor),
   },

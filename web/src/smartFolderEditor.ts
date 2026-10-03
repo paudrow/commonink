@@ -18,6 +18,8 @@ import { folderList, formatQuery, parseQuery, queryProblem, tagList, type NoteQu
 
 export interface SmartFolderDraft {
   id?: string;
+  /** The view's note, once it's saved. */
+  path?: string;
   name: string;
   query: string;
   shared: boolean;
@@ -350,7 +352,7 @@ export function smartFolderEditor(
   share.disabled = !opts.canShare;
   const error = el("div", { class: "sf-pop-error", hidden: true });
   const row = (label: string, ...control: Array<HTMLElement | string>) => el("div", { class: "sf-row" }, el("span", { class: "sf-label" }, label), el("div", { class: "sf-control" }, ...control));
-  const title = draft.id ? "Edit smart folder" : draft.query ? "Save as smart folder" : "New smart folder";
+  const title = draft.id ? "Edit view" : draft.query ? "Save as view" : "New view";
   const form = el(
     "form",
     { class: "sf-dialog", role: "dialog", "aria-modal": "true", "aria-label": title },
@@ -362,13 +364,15 @@ export function smartFolderEditor(
       el("button", { type: "button", class: "icon-btn small", title: "Close", "aria-label": "Close", onclick: () => close() }, icon("close", 15)),
     ),
     name,
+    // A view is a note (see core/views.ts): say which, so it can be found in the file tree.
+    el("div", { class: "sf-hint sf-where" }, draft.path ? `Kept as the note ${draft.path}` : "Kept as a note in Views/"),
     el("div", { class: "sf-section" }, row("Words", wordBox), row("Folders", folderBox), row("Tags", tagBox), row("Sort", sort), row("Query", queryBox)),
     el("div", { class: "sf-result" }, count, preview),
     opts.alone
       ? null
       : el(
           "label",
-          { class: "sf-just-me", title: opts.canShare ? "" : "Viewers can keep smart folders of their own" },
+          { class: "sf-just-me", title: opts.canShare ? "" : "Viewers can keep views of their own" },
           share,
           el("span", {}, "Share with workspace"),
           el("span", { class: "sf-hint" }, opts.canShare ? "Everyone in the workspace sees it in their sidebar" : "You can view this workspace, so it's yours only"),
@@ -397,7 +401,7 @@ export function smartFolderEditor(
       close();
     } catch (err) {
       error.hidden = false;
-      error.textContent = err instanceof Error ? err.message : "Couldn't save the smart folder";
+      error.textContent = err instanceof Error ? err.message : "Couldn't save the view";
     }
   };
   // The backdrop closes it; the pickers open outside the form, so a click in one isn't on the backdrop.
@@ -410,7 +414,7 @@ export function smartFolderEditor(
     e.preventDefault();
     if (!name.value.trim()) {
       error.hidden = false;
-      error.textContent = "Give the smart folder a name";
+      error.textContent = "Give the view a name";
       return name.focus();
     }
     void run(() => opts.save({ id: draft.id, name: name.value.trim(), query: current(), shared: opts.alone ? draft.shared : share.checked }));
