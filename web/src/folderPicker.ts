@@ -3,11 +3,20 @@
 // as soon as the note lands in it.
 import { el, icon } from "./dom.ts";
 
-export function folderPicker(anchor: HTMLElement, opts: { folders: string[]; current: string; onPick(folder: string): void }) {
+/**
+ * `create: false` only picks a folder that exists (a filter's), and `top` names the "" choice
+ * ("Any folder" for a filter). A nested folder shows its parents dimmed, so the last part stands out.
+ */
+export function folderPicker(
+  anchor: HTMLElement,
+  opts: { folders: string[]; current: string; onPick(folder: string): void; placeholder?: string; top?: string; create?: boolean },
+) {
   document.querySelector(".folder-picker")?.remove();
-  const input = el("input", { class: "fp-input", placeholder: "Move to folder…", spellcheck: "false", autocomplete: "off" });
+  const top = opts.top ?? "Top level";
+  const placeholder = opts.placeholder ?? "Move to folder…";
+  const input = el("input", { class: "fp-input", placeholder, spellcheck: "false", autocomplete: "off" });
   const list = el("div", { class: "fp-list", role: "listbox" });
-  const box = el("div", { class: "folder-picker", role: "dialog", "aria-label": "Move to folder" }, el("div", { class: "fp-head" }, icon("move", 15), input), list);
+  const box = el("div", { class: "folder-picker", role: "dialog", "aria-label": placeholder.replace(/…$/, "") }, el("div", { class: "fp-head" }, icon(opts.create === false ? "folder" : "move", 15), input), list);
   // A button tucked into the phone's More menu has no box: open under the top bar's right end.
   const r = anchor.getClientRects().length ? anchor.getBoundingClientRect() : { bottom: 48, right: innerWidth };
   Object.assign(box.style, { top: `${r.bottom + 6}px`, right: `${Math.max(12, innerWidth - r.right)}px` });
@@ -20,10 +29,10 @@ export function folderPicker(anchor: HTMLElement, opts: { folders: string[]; cur
     const q = clean(input.value);
     const ql = q.toLowerCase();
     items = [
-      ...(!q || "top level".includes(ql) ? [{ folder: "", label: "Top level" }] : []),
+      ...(!q || top.toLowerCase().includes(ql) ? [{ folder: "", label: top }] : []),
       ...opts.folders.filter((f) => f.toLowerCase().includes(ql)).map((f) => ({ folder: f, label: f })),
     ];
-    if (q && !opts.folders.some((f) => f.toLowerCase() === ql)) items.push({ folder: q, label: `New folder “${q}”`, create: true });
+    if (q && opts.create !== false && !opts.folders.some((f) => f.toLowerCase() === ql)) items.push({ folder: q, label: `New folder “${q}”`, create: true });
     active = Math.min(active, Math.max(0, items.length - 1));
     list.replaceChildren(
       ...items.map((it, i) =>
@@ -36,7 +45,9 @@ export function folderPicker(anchor: HTMLElement, opts: { folders: string[]; cur
             onclick: () => pick(i),
           },
           icon(it.create ? "folderPlus" : it.folder ? "folder" : "file", 14),
-          el("span", {}, it.label),
+          it.create || !it.folder.includes("/")
+            ? el("span", {}, it.label)
+            : el("span", {}, el("span", { class: "fp-parent" }, it.folder.slice(0, it.folder.lastIndexOf("/") + 1)), it.folder.slice(it.folder.lastIndexOf("/") + 1)),
           it.folder === opts.current && !it.create ? el("span", { class: "fp-here" }, "here") : null,
         ),
       ),
