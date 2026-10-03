@@ -1,4 +1,4 @@
-import path from "node:path";
+import * as posix from "./posix.ts";
 import { linkKey, type NoteKind } from "./paths.ts";
 import { headingName, headingText, proseLines, withoutCode } from "./prose.ts";
 import { safeDecode } from "./uri.ts";
@@ -28,7 +28,7 @@ export function splitFrontmatter(md: string): { data: Record<string, string>; bo
 }
 
 export function titleOf(content: string, kind: NoteKind, p: string): string {
-  const fallback = path.posix.basename(p).replace(/\.(md|markdown|html?)$/i, "");
+  const fallback = posix.basename(p).replace(/\.(md|markdown|html?)$/i, "");
   if (kind === "md") {
     const { data, body } = splitFrontmatter(content);
     if (data.title) return data.title;
@@ -63,7 +63,7 @@ export function dateOf(content: string, kind: NoteKind, p: string): string | nul
     }
   }
   if (kind === "asset") return null;
-  return valid(titleOf(content, kind, p)) ?? valid(path.posix.basename(p));
+  return valid(titleOf(content, kind, p)) ?? valid(posix.basename(p));
 }
 
 /** The inside of the first `<open …>…close` in `html` (case-insensitive), or null. */

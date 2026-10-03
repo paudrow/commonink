@@ -5,7 +5,7 @@
 // names; Evernote's .enex is XML holding each note's HTML and its pictures in base64; Apple Notes
 // comes out as HTML (scripts/export-apple-notes.js saves it) or plain text. No Node or DOM imports beyond
 // path, so the CLI, the Worker and the app all convert the same way.
-import path from "node:path";
+import * as posix from "./posix.ts";
 import { frontmatterEntries, listOf } from "./frontmatter.ts";
 import { htmlToMarkdown, decodeEntities, type HtmlElement } from "./html2md.ts";
 import { mapOutsideCode } from "./prose.ts";
@@ -31,7 +31,7 @@ export function detectFrom(entries: ImportEntry[]): Exclude<ImportFrom, "auto"> 
   if (entries.some((e) => /\.enex$/i.test(e.path))) return "evernote";
   if (looksLikeAppleNotes(entries)) return "apple-notes";
   const notes = entries.filter((e) => /\.(md|csv)$/i.test(e.path));
-  const ided = notes.filter((e) => NOTION_ID.test(path.posix.basename(e.path))).length;
+  const ided = notes.filter((e) => NOTION_ID.test(posix.basename(e.path))).length;
   return ided && ided * 2 >= notes.length ? "notion" : "obsidian";
 }
 
@@ -80,7 +80,7 @@ function notionEntries(entries: ImportEntry[]): ImportEntry[] {
   for (const e of entries) {
     const clean = e.path.split("/").map((seg) => seg.replace(NOTION_ID, "")).join("/");
     let p = clean;
-    const ext = path.posix.extname(clean);
+    const ext = posix.extname(clean);
     for (let n = 2; taken.has(p.toLowerCase()); n++) p = `${clean.slice(0, clean.length - ext.length)} ${n}${ext}`;
     taken.add(p.toLowerCase());
     renamed.set(e.path, p);
@@ -88,14 +88,14 @@ function notionEntries(entries: ImportEntry[]): ImportEntry[] {
   return entries.map((e) => {
     const to = renamed.get(e.path)!;
     if (!/\.md$/i.test(e.path)) return { path: to, bytes: e.bytes };
-    const dir = path.posix.dirname(e.path);
-    const newDir = path.posix.dirname(to);
+    const dir = posix.dirname(e.path);
+    const newDir = posix.dirname(to);
     const md = dec.decode(e.bytes).replace(/(!?\[[^[\]\n]*\])\(([^()\s]+)\)/g, (m, label: string, target: string) => {
       if (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith("#")) return m;
       const [file, hash = ""] = safeDecode(target).split(/(?=#)/);
-      const was = path.posix.normalize(path.posix.join(dir, file));
+      const was = posix.normalize(posix.join(dir, file));
       const now = renamed.get(was);
-      const rel = now ? path.posix.relative(newDir, now) : file.split("/").map((seg) => seg.replace(NOTION_ID, "")).join("/");
+      const rel = now ? posix.relative(newDir, now) : file.split("/").map((seg) => seg.replace(NOTION_ID, "")).join("/");
       return `${label}(${encodeLink(rel)}${hash})`;
     });
     return { path: to, bytes: enc.encode(md) };
@@ -104,7 +104,7 @@ function notionEntries(entries: ImportEntry[]): ImportEntry[] {
 
 // ── Obsidian ────────────────────────────────────────────────────────────────────────────────────
 
-const stem = (p: string) => path.posix.basename(p).replace(/\.md$/i, "");
+const stem = (p: string) => posix.basename(p).replace(/\.md$/i, "");
 
 /** The Tasks plugin's emoji, as Common Ink's task tokens. */
 const TASK_EMOJI: Array<[RegExp, (m: string[]) => string]> = [
@@ -180,7 +180,7 @@ function inFence(md: string, at: number): boolean {
 
 /** An Apple Notes note, saved as HTML (by the export script) or plain text, as a markdown note. */
 function appleNotesEntry(e: ImportEntry): ImportEntry {
-  const ext = path.posix.extname(e.path).toLowerCase();
+  const ext = posix.extname(e.path).toLowerCase();
   if (ext !== ".html" && ext !== ".htm" && ext !== ".txt") return e;
   const text = dec.decode(e.bytes).replace(/^﻿/, "");
   const md = ext === ".txt" ? text : htmlToMarkdown(text);
@@ -313,14 +313,14 @@ const yamlStr = (s: string) => (/^[\w./~][^"'\n\\]*$/.test(s) && !/: | #|:$|\s$/
  * attachments in that folder's "attachments", embedded where the note had them.
  */
 function enexEntries(e: ImportEntry): ImportEntry[] {
-  const dir = path.posix.join(path.posix.dirname(e.path), safeName(path.posix.basename(e.path).replace(/\.enex$/i, "")));
+  const dir = posix.join(posix.dirname(e.path), safeName(posix.basename(e.path).replace(/\.enex$/i, "")));
   const out: ImportEntry[] = [];
   const taken = new Set<string>();
   for (const note of parseEnex(dec.decode(e.bytes))) {
     const byHash = new Map<string, string>();
     for (const r of note.resources) {
       if (!r.data.length || byHash.has(r.hash)) continue;
-      const ext = path.posix.extname(r.fileName ?? "") || EXT[r.mime.split(";")[0].trim()] || ".bin";
+      const ext = posix.extname(r.fileName ?? "") || EXT[r.mime.split(";")[0].trim()] || ".bin";
       const base = safeName((r.fileName ?? "").replace(/\.[^.]*$/, "") || r.hash.slice(0, 8));
       const p = unique(taken, `${dir}/attachments`, base, ext.toLowerCase());
       byHash.set(r.hash, p);
@@ -328,7 +328,7 @@ function enexEntries(e: ImportEntry): ImportEntry[] {
     }
     const media = (el: HtmlElement) => {
       const p = byHash.get((el.attrs.hash ?? "").toLowerCase());
-      return p ? `![[${path.posix.relative(dir, p)}]]` : null;
+      return p ? `![[${posix.relative(dir, p)}]]` : null;
     };
     const body = htmlToMarkdown(note.content, { media });
     const name = safeName(note.title);

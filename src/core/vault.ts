@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import { diffLines } from "diff";
 import { chainBefore, dropBefores, readBefore } from "./changeTexts.ts";
 import type { Content, SqlDb } from "./store.ts";
-import { cleanPath, isHidden, kindOf, linkKey, VaultError, stemOf, type NoteKind } from "./paths.ts";
+import { cleanPath, isHidden, kindOf, linkKey, MAX_NOTE_BYTES, VaultError, stemOf, type NoteKind } from "./paths.ts";
 import { headingName, headingText, mapOutsideCode, proseLines } from "./prose.ts";
 import { dateOf, extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
@@ -299,8 +299,7 @@ export interface VaultOptions {
   timeZone?: string;
 }
 
-/** The default largest note: enough for any note a person writes, not enough to exhaust memory. */
-export const MAX_NOTE_BYTES = 10 * 1024 * 1024;
+export { MAX_NOTE_BYTES };
 /**
  * How long a person can stop typing and still be in the same sitting: their next autosave to the
  * note joins the change the sitting started, so the log keeps one "before" per sitting, not per save.

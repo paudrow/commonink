@@ -219,4 +219,10 @@ test("the Preview's sample exports are up to date, and each imports as it should
   assert.equal(apple.from, "apple-notes", "told from its folder, with no --from");
   assert.deepEqual(apple.notes.map((n) => n.path).sort(), ["AppleNotesExport/Notes/Gift ideas.md", "AppleNotesExport/Notes/Trip to Lisbon.md", "AppleNotesExport/Recipes/Pancakes.md"]);
   assert.match(note(apple, "AppleNotesExport/Notes/Trip to Lisbon.md")!, /- \[x\] Passport\n- \[ \] Adapter/);
+
+  const markdown = read("Markdown notes.zip");
+  assert.equal(markdown.from, "obsidian", "plain markdown goes in as it is");
+  assert.deepEqual(markdown.notes.map((n) => n.path).sort(), ["Markdown notes/Reading list.md", "Markdown notes/Recipes/Tomato soup.md", "Markdown notes/Welcome.md"]);
+  assert.deepEqual(markdown.files.map((f) => f.path), ["Markdown notes/images/sketch.png"]);
+  assert.match(note(markdown, "Markdown notes/Welcome.md")!, /\[Tomato soup\]\(Recipes\/Tomato%20soup\.md\)/);
 });
