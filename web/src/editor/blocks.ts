@@ -289,10 +289,14 @@ function bookmark(view: EditorView, wrap: HTMLElement, url: string, settle: () =
     host = new URL(url).hostname.replace(/^www\./, "");
   } catch {}
   wrap.className = "cm-embed is-bookmark";
-  const card = el("div", { class: "bookmark", title: url }, el("div", { class: "bm-text" }, el("div", { class: "bm-title" }, host), el("div", { class: "bm-site" }, url)));
+  // A real link, so the keyboard and screen readers can open it too (Enter on it, or their links list).
+  const card = el(
+    "a",
+    { class: "bookmark", href: /^https?:\/\//i.test(url) ? url : undefined, target: "_blank", rel: "noopener noreferrer", title: url },
+    el("div", { class: "bm-text" }, el("div", { class: "bm-title" }, host), el("div", { class: "bm-site" }, url)),
+  );
   const edit = editButton(view, wrap, "Edit the link");
-  card.addEventListener("mousedown", (e) => e.preventDefault());
-  card.addEventListener("click", () => window.open(url, "_blank", "noopener"));
+  card.addEventListener("mousedown", (e) => e.preventDefault()); // the click opens the link; the cursor stays put
   wrap.replaceChildren(card, edit);
   settle();
   fetchUnfurl(url)

@@ -144,13 +144,22 @@ export function renderAccount(
     : el("span", { class: "acct-face is-initial" }, me.user.name.slice(0, 1).toUpperCase());
   const button = el(
     "button",
-    { class: "acct-btn", type: "button", title: me.user.email },
+    { class: "acct-btn", type: "button", title: me.user.email, "aria-haspopup": "menu", "aria-expanded": "false" },
     face,
     el("span", { class: "acct-text" }, el("span", { class: "acct-name" }, me.user.name), el("span", { class: "acct-ws" }, current.name)),
     icon("chevron", 13),
   );
-  const menu = el("div", { class: "acct-menu", hidden: true });
-  const close = () => (menu.hidden = true);
+  const menu = el("div", { class: "acct-menu", role: "menu", "aria-label": "Account", hidden: true });
+  const items = () => [...menu.querySelectorAll<HTMLButtonElement>(".acct-item")];
+  // The standard menu button: opening moves the focus to the first item, arrows walk them, and
+  // Esc closes the menu and gives the focus back to the button.
+  const setOpen = (open: boolean, refocus = false) => {
+    menu.hidden = !open;
+    button.setAttribute("aria-expanded", String(open));
+    if (open) items()[0]?.focus();
+    else if (refocus) button.focus();
+  };
+  const close = () => setOpen(false);
   const actions = accountActions(me, current, toast);
   const sep = actions.findIndex((a) => a.session);
   // Not one of the actions: ⌘K already has "Open settings".
@@ -164,15 +173,33 @@ export function renderAccount(
   menu.append(
     settings,
     el("div", { class: "acct-sep" }),
-    el("div", { class: "acct-section" }, "Workspaces"),
+    el("div", { class: "acct-section", role: "presentation" }, "Workspaces"),
     ...actions.flatMap((a, i) => [
-      i === sep ? el("div", { class: "acct-sep" }) : null,
-      el("button", { class: `acct-item${a.current ? " is-current" : ""}`, type: "button", onclick: () => (close(), a.run()) }, icon(a.icon, 15), el("span", {}, a.label)),
+      i === sep ? el("div", { class: "acct-sep", role: "separator" }) : null,
+      el(
+        "button",
+        { class: `acct-item${a.current ? " is-current" : ""}`, type: "button", role: a.current ? "menuitemradio" : "menuitem", "aria-checked": a.current ? "true" : undefined, tabindex: "-1", onclick: () => (close(), a.run()) },
+        icon(a.icon, 15),
+        el("span", {}, a.label),
+      ),
     ]).filter((n) => n !== null),
   );
+  menu.addEventListener("keydown", (e) => {
+    const list = items();
+    const at = list.indexOf(document.activeElement as HTMLButtonElement);
+    const to = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: list.length - 1 }[e.key];
+    if (to !== undefined) {
+      e.preventDefault();
+      list[(to + list.length) % list.length]?.focus();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false, true);
+    } else if (e.key === "Tab") close();
+  });
   button.addEventListener("click", (e) => {
     e.stopPropagation();
-    menu.hidden = !menu.hidden;
+    setOpen(!!menu.hidden);
   });
   document.addEventListener("click", (e) => {
     if (!menu.contains(e.target as Node)) close();

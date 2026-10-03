@@ -21,8 +21,10 @@ import {
   type Contact, type ContactFields, type ContactInput, type ContactNote, type MemberRef, type TimelineItem,
 } from "./contacts.ts";
 import { cleanTitle, fillTemplate, JOURNAL_TEMPLATES, localNow, TEMPLATES, templateInfo, type FillOptions, type TemplateInfo } from "./templates.ts";
-import { frontmatterEntries } from "./frontmatter.ts";
+import { frontmatterEntries, listOf } from "./frontmatter.ts";
 import { taskChanges, type AwaySummary } from "./away.ts";
+import { findMentions, linkMentionIn, type Mention } from "./mentions.ts";
+import { replaceIn, type ReplacedLine, type ReplaceOptions } from "./replace.ts";
 
 export interface NoteMeta {
   /** Stable across renames, moves and archiving; see ids.ts. */
@@ -88,6 +90,22 @@ export interface Backlink {
   kind: string;
   line: number;
   text: string;
+}
+
+/** A note's name written as plain text in another note (see Vault.unlinkedMentions). */
+export interface UnlinkedMention extends Mention {
+  path: string;
+  title: string;
+  /** The whole line, trimmed, for showing it. */
+  context: string;
+}
+
+/** A note find and replace changes (see Vault.replaceAcross): how many places, and its first changed lines. */
+export interface ReplacedNote {
+  path: string;
+  title: string;
+  count: number;
+  lines: ReplacedLine[];
 }
 
 /** A link to a note or file that isn't in the vault, and every place that has it. */
@@ -864,6 +882,60 @@ export class Vault {
   }
 
   /**
+   * Where other active notes write this note's name (its title, file name or a frontmatter alias) as
+   * plain text, not as a link: the side panel's "Unlinked mentions". Full-text search finds the
+   * notes that have the words; each is then read for whole-word matches outside code and links.
+   */
+  unlinkedMentions(target: string, limit = 30): UnlinkedMention[] {
+    const rel = this.mustResolve(target);
+    const names = this.namesOf(rel);
+    const candidates = new Set<string>();
+    for (const name of names) {
+      const terms = searchTerms(name);
+      if (!terms.length) continue;
+      const phrase = `"${terms.join(" ")}"`;
+      for (const r of this.db.all<{ path: string }>("SELECT path FROM notes_fts WHERE notes_fts MATCH ? ORDER BY rank LIMIT 50", phrase)) candidates.add(r.path);
+    }
+    candidates.delete(rel);
+    const out: UnlinkedMention[] = [];
+    for (const p of candidates) {
+      if (isArchived(p) || kindOf(p) !== "md") continue;
+      const content = this.files.read(p);
+      if (content === null) continue;
+      const lines = content.split("\n");
+      for (const m of findMentions(content, names)) {
+        out.push({ path: p, title: this.meta(p)?.title ?? p, ...m, context: (lines[m.line - 1] ?? "").trim().slice(0, 200) });
+        if (out.length >= limit) return out;
+      }
+    }
+    return out;
+  }
+
+  /** A note's names as plain text could write them: its title, its file name and its frontmatter `aliases`. */
+  private namesOf(rel: string): string[] {
+    const content = this.files.read(rel) ?? "";
+    const aliases = listOf(frontmatterEntries(content).entries.find((e) => e.key.toLowerCase() === "aliases"));
+    return [...new Set([this.meta(rel)?.title ?? "", fileStem(rel), ...aliases].filter((n) => n.trim()))];
+  }
+
+  /**
+   * Turn one unlinked mention of `target` in another note into a link: `[[Name]]`, or
+   * `[[Name|as written]]` when it's written differently. One change, attributed to `source`.
+   */
+  linkMention(target: string, at: { path: string; line: number; from: number; to: number; text: string }, source: string) {
+    const rel = this.mustResolve(target);
+    const note = this.read(at.path);
+    if (note.path === rel) throw new VaultError("A note can't link a mention of itself");
+    if (!this.namesOf(rel).some((n) => n.toLowerCase() === at.text.toLowerCase())) throw new VaultError(`"${at.text}" isn't a name of ${rel}`);
+    // The file name, if it reaches this note from there; else the path, which always does.
+    const stem = fileStem(rel);
+    const name = this.resolve(stem, note.path) === rel ? stem : rel.replace(/\.(md|markdown)$/i, "");
+    const next = linkMentionIn(note.content, { line: at.line, from: at.from, to: at.to, text: at.text }, name);
+    if (next === null) throw new VaultError(`${note.path} changed: "${at.text}" isn't on line ${at.line} any more. Look again.`, "conflict", { version: note.version });
+    return { ...this.commit(note.path, note.content, next, source, "edit"), content: next };
+  }
+
+  /**
    * resolve(), remembering each answer, for reading many links while no note comes or goes. What a
    * link resolves to depends only on its text and the folder it's in.
    */
@@ -1538,6 +1610,32 @@ export class Vault {
     const sorted = Object.fromEntries(Object.entries(map).sort(([a], [b]) => (a < b ? -1 : 1)));
     this.files.write(ASSET_TAGS, `${JSON.stringify(sorted, null, 2)}\n`);
     this.indexAssetTags(sorted);
+  }
+
+  /**
+   * Find and replace plain text in every active Markdown note (HTML notes are left alone), or those in `folder`.
+   * `dryRun` only says what would change. Otherwise each note that changes is its own change, as
+   * in renameTag, so Undo can restore them one by one without writing over a later edit.
+   */
+  replaceAcross(find: string, replace: string, opts: ReplaceOptions & { folder?: string; dryRun?: boolean }, source: string) {
+    if (!find) throw new VaultError("Say what to find");
+    if (find.includes("\n") || replace.includes("\n")) throw new VaultError("Find and replace work a line at a time: leave out line breaks");
+    const folder = opts.folder ? cleanPath(opts.folder).replace(/\/?$/, "/") : "";
+    const rows = this.db.all<{ path: string; title: string }>("SELECT path, title FROM notes WHERE kind = 'md' ORDER BY path");
+    const notes: ReplacedNote[] = [];
+    const edits: Array<{ path: string; content: string; version: string; change: Change }> = [];
+    for (const r of rows) {
+      if (isArchived(r.path) || !r.path.startsWith(folder)) continue;
+      const before = this.files.read(r.path);
+      if (before === null) continue;
+      const done = replaceIn(before, find, replace, opts);
+      if (done.content === before) continue;
+      notes.push({ path: r.path, title: r.title, count: done.count, lines: done.lines.slice(0, 20) });
+      if (opts.dryRun) continue;
+      const c = this.commit(r.path, before, done.content, source, "edit");
+      if (c.change) edits.push({ path: r.path, content: done.content, version: c.version, change: c.change });
+    }
+    return { notes, edits };
   }
 
   /**
@@ -2478,6 +2576,9 @@ function insertRows(db: SqlDb, insert: string, rows: unknown[][]) {
  * both reach a note named Plan, and which one they reach is resolve()'s to say.
  */
 const linkStem = (key: string) => key.slice(key.lastIndexOf("/") + 1);
+
+/** "Projects/Roadmap.md" → "Roadmap": the file name as a link writes it, case kept. */
+const fileStem = (rel: string) => path.posix.basename(rel).replace(/\.(md|markdown)$/i, "");
 
 /** `tags.tag` is the tag or under it: a range, so it uses the index and needs no character counting. */
 const UNDER = "(tag = ? OR (tag >= ? AND tag < ?))";

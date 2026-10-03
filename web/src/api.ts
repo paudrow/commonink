@@ -8,6 +8,7 @@ import type { FillOptions, TemplateInfo } from "../../src/core/templates.ts";
 import type { CalendarEvent, EventDraft, Source as CalendarSource, SourceColor } from "../../src/core/calendar.ts";
 import type { QuerySort } from "../../src/core/query.ts";
 import type { AwaySummary } from "../../src/core/away.ts";
+import type { Checkup } from "../../src/core/checkup.ts";
 
 /** The reader's day, which task writes and due filters go by (the server may be in another time zone). */
 const today = () => localDate(Date.now());
@@ -79,6 +80,23 @@ export interface Backlink {
   kind: string;
   line: number;
   text: string;
+}
+/** A note's name written as plain text in another note (Vault.unlinkedMentions). */
+export interface UnlinkedMention {
+  path: string;
+  title: string;
+  line: number;
+  from: number;
+  to: number;
+  text: string;
+  context: string;
+}
+/** A note find and replace changes: how many places, and its first changed lines (Vault.replaceAcross). */
+export interface ReplacedNote {
+  path: string;
+  title: string;
+  count: number;
+  lines: Array<{ line: number; before: string; after: string }>;
 }
 export type Scope = "active" | "archived" | "all";
 export interface FeedItem {
@@ -408,6 +426,9 @@ export const api = {
   addTag: (tag: string) => j<TagCount[]>(`${BASE}/tags`, send("POST", { tag })),
   deleteTag: (tag: string) => j<TagCount[]>(`${BASE}/tags/delete`, send("POST", { tag })),
   /** Rename (or merge) a tag everywhere. Restoring `changes` and setting `assets` back undoes it. */
+  /** Find and replace across notes. `dryRun` only says what would change; else `restore(changes[i], versions[i])` undoes each note. */
+  replace: (find: string, replace: string, opts: { matchCase?: boolean; wholeWord?: boolean; folder?: string; dryRun?: boolean } = {}) =>
+    j<{ notes: ReplacedNote[]; changes: number[]; versions: string[] }>(`${BASE}/replace`, send("POST", { find, replace, ...opts })),
   renameTag: (from: string, to: string) => j<{ changes: number[]; versions: string[]; assets: Record<string, string[]> }>(`${BASE}/tags/rename`, send("POST", { from, to })),
   setTask: (t: Task, done: boolean) => (done && did("tick"), j<{ path: string; version: string; line: number; text: string }>(`${BASE}/tasks/set`, send("POST", { path: t.path, line: t.line, text: t.text, done, today: today() }))),
   /** Change a task's tokens in its note; the rest of its line stays as written. */
@@ -451,6 +472,11 @@ export const api = {
   unarchive: (paths: string[]) => j<{ moved: Array<{ from: string; to: string }> }>(`${BASE}/unarchive`, send("POST", { paths })),
   /** Links to `path`; "all" brings the ones from archived notes too. */
   backlinks: (path: string, scope: "active" | "all" = "active") => j<Backlink[]>(`${BASE}/backlinks?path=${enc(path)}&scope=${scope}`),
+  /** Where other notes write this note's name without linking it. */
+  mentions: (path: string) => j<UnlinkedMention[]>(`${BASE}/mentions?path=${enc(path)}`),
+  /** Turn one of them into a link to `target`: one change, restored by `restore(change, version)`. */
+  linkMention: (target: string, m: UnlinkedMention) =>
+    j<{ path: string; version: string; change: number | null }>(`${BASE}/mentions/link`, send("POST", { target, path: m.path, line: m.line, from: m.from, to: m.to, text: m.text })),
   /** The workspace's contacts (notes in People/), by name. */
   contacts: () => j<Contact[]>(`${BASE}/contacts?today=${today()}`),
   /** One contact, and the notes that mention them, newest first. */
@@ -475,6 +501,8 @@ export const api = {
     j<Change[]>(`${BASE}/changes?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
   /** What agents did since your own last change, and after change `after` (the last one dismissed); null if nothing. */
   away: (after = 0) => j<AwaySummary | null>(`${BASE}/changes/away?after=${after}`),
+  /** What may need tending in the workspace (src/core/checkup.ts). */
+  checkup: () => j<Checkup>(`${BASE}/checkup`),
   /** The agents in the change log, for filtering History by one. */
   changeAgents: () => j<string[]>(`${BASE}/changes/agents`),
   /** What a set of changes did, note by note. `ids` is ranges like "12-18,20". */

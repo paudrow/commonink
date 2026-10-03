@@ -9,6 +9,7 @@ import { today } from "./taskChips.ts";
 import { targetOf } from "./taskCommand.ts";
 import { kbd } from "./keys.ts";
 import { HINT, taskInput, type TaskInput } from "./taskInput.ts";
+import { store } from "./store.ts";
 
 export interface QuickAddOptions {
   /** A task was written: where it went. */
@@ -23,6 +24,20 @@ export interface QuickAddOptions {
 
 /** The shortcut that opens the bar from anywhere, the editor included: the key that types "." (keys.ts), with ⌘⇧ (Ctrl+Shift off a Mac). */
 export const QUICK_ADD = "Mod-Shift-.";
+
+/**
+ * After this many tasks added with the bar (in this browser), its hint drops the example and keeps
+ * only the shortcut: by then you know how it works, the same way shortcut tips retire themselves.
+ */
+const LEARNED = 3;
+const ADDED_KEY = "quickAddCount";
+
+/** The line under an empty bar: an example and the keys at first, just the shortcut once learned. */
+function hint(): HTMLElement {
+  const anywhere = [kbd(QUICK_ADD), " opens this anywhere"];
+  if (store.get(ADDED_KEY, 0) >= LEARNED) return el("span", { class: "qa-hint is-short" }, ...anywhere);
+  return el("span", { class: "qa-hint" }, HINT, el("kbd", {}, "Enter"), " adds · ", ...anywhere);
+}
 
 /** A quick-add bar; focus it with the returned `focus`. */
 export function quickAddBar(opts: QuickAddOptions): { root: HTMLElement; focus(): void; destroy(): void } {
@@ -50,6 +65,7 @@ export function quickAddBar(opts: QuickAddOptions): { root: HTMLElement; focus()
     adding = true;
     try {
       const r = await api.addTask(text, ignore, where().to);
+      store.set(ADDED_KEY, Math.min(LEARNED, store.get(ADDED_KEY, 0) + 1));
       input.clear();
       status = el(
         "span",
@@ -74,7 +90,7 @@ export function quickAddBar(opts: QuickAddOptions): { root: HTMLElement; focus()
     cancel: () => (input.value() ? input.clear() : opts.escape?.()),
     tab: toggleTarget,
     where: () => (drawTarget(), where().label),
-    idle: () => (drawTarget(), status ?? el("span", { class: "qa-hint" }, HINT, el("kbd", {}, "Enter"), " adds · ", kbd(QUICK_ADD), " opens this anywhere")),
+    idle: () => (drawTarget(), status ?? hint()),
     typed: () => (status = null),
   });
   const root = el("div", { class: "qa" }, el("div", { class: "qa-field" }, icon("plus", 15), input.dom, targetChip), input.preview);
