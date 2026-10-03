@@ -22,6 +22,10 @@ export interface Field {
   options?: Array<[string, string]>;
   /** A text field that suggests values: tags in use (with the tag picker), or folders. */
   picker?: "tag" | "folder";
+  /** Text fields: what's wrong with a value, or null. A widget's form shows it in place of its preview, and can't be saved until it's fixed. */
+  check?(value: string): string | null;
+  /** Text fields: a link beside the box, such as the query syntax's "?". */
+  help?(): HTMLElement;
 }
 
 /** What field pickers suggest from. */
@@ -73,6 +77,8 @@ export interface WidgetSpec {
   defaults: Record<string, string>;
   /** A button in the settings form that does something with the args being edited (not yet saved). */
   configAction?: { label: string; icon: string; run(args: Record<string, string>, env: WidgetEnv, anchor: HTMLElement): void };
+  /** The args as the settings form shows them, when that differs from how they're written (see ::query). */
+  formArgs?(args: Record<string, string>): Record<string, string>;
   /** Build the widget body; return a cleanup function. */
   mount(body: HTMLElement, env: WidgetEnv, card: HTMLElement): () => void;
 }
@@ -152,15 +158,16 @@ function configForm(
   on: { save(args: Record<string, string>): void; cancel(): void },
 ): HTMLElement {
   const args = env.args;
-  const values: Record<string, string> = { ...spec.defaults, ...args };
+  const values: Record<string, string> = { ...spec.defaults, ...(spec.formArgs?.(args) ?? args) };
   const preview = el("code", { class: "qw-md" });
   const save = el("button", { class: "qw-btn primary", type: "submit" }, "Save");
 
   const normalized = () => ({ ...fieldValues(spec.fields, values), ...(args.id ? { id: args.id } : {}) });
   const refresh = () => {
-    const valid = spec.fields.every((f) => f.type !== "duration" || parseDuration(values[f.key]) !== null);
+    const problem = spec.fields.map((f) => f.check?.(values[f.key] ?? "")).find(Boolean);
+    const valid = !problem && spec.fields.every((f) => f.type !== "duration" || parseDuration(values[f.key]) !== null);
     save.disabled = !valid;
-    preview.textContent = valid ? serializeDirective({ name: spec.name, args: normalized() }) : "Duration like 25m, 1h30m or 4:30";
+    preview.textContent = valid ? serializeDirective({ name: spec.name, args: normalized() }) : (problem ?? "Duration like 25m, 1h30m or 4:30");
     preview.classList.toggle("is-error", !valid);
   };
 
@@ -277,7 +284,8 @@ export function fieldRows(fields: Field[], values: Record<string, string>, chang
           ...f.presets.map((p) => el("button", { type: "button", class: "qw-chip", onmousedown: (e: Event) => e.preventDefault(), onclick: () => pick(p) }, p)),
         )
       : null;
-    return row(f.picker ? el("span", { class: "qw-picked" }, input, helper) : input, presets);
+    if (f.help) helper = el("span", { class: "qw-help" }, helper, f.help());
+    return row(helper ? el("span", { class: "qw-picked" }, input, helper) : input, presets);
   });
 }
 

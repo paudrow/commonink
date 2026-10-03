@@ -24,7 +24,8 @@ function plainOf(line: string): string {
   return withoutCode(line)
     .replace(/!?\[\[[^[\]\n]*\]\]/g, blank)
     .replace(/!?\[[^[\]\n]*\]\([^()\s]*\)/g, blank)
-    .replace(/<?[a-z][a-z0-9+.-]*:\/\/[^\s>]*>?/gi, blank)
+    // The scheme is capped at 32 characters: unbounded, a long word with no "://" took quadratic time.
+    .replace(/<?[a-z][a-z0-9+.-]{0,31}:\/\/[^\s>]*>?/gi, blank)
     .replace(/[#@][\p{L}\p{N}_/-]+/gu, blank);
 }
 
@@ -49,7 +50,7 @@ export function findMentions(md: string, names: string[]): Mention[] {
 
 /** The last line of the frontmatter (counting from 1), or 0 if there's none. */
 function bodyStart(md: string): number {
-  if (!/^---\r?\n/.test(md)) return 0;
+  if (!/^\uFEFF?---\r?\n/.test(md)) return 0;
   const lines = md.split("\n");
   const end = lines.findIndex((l, i) => i > 0 && /^---\r?$/.test(l));
   return end < 0 ? 0 : end + 1;
