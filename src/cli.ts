@@ -30,7 +30,10 @@ const io: Io = {
       return { name: path.basename(p), bytes: new Uint8Array(fs.readFileSync(p)) };
     } catch (e) {
       // Only a missing file is "no file": anything else (too big, unreadable) says what went wrong.
-      if ((e as NodeJS.ErrnoException).code === "ENOENT") throw new VaultError(`There's no file at ${p}`, "not_found");
+      if (e instanceof VaultError) throw e;
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" || code === "ENOTDIR") throw new VaultError(`There's no file at ${p}`, "not_found");
+      if (code) throw new VaultError(`Can't read ${p}: ${(e as Error).message}`);
       throw e;
     }
   },

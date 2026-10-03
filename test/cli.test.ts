@@ -269,8 +269,9 @@ test("import of a folder adds up sizes before reading: too big is refused unread
 
   // A file that's there but can't be read isn't "no file", and fails.
   const single = commonink(vault, ["import", path.join(src, "talk.mp4")]);
-  assert.notEqual(single.status, 0);
-  assert.doesNotMatch(single.stderr, /There's no file/);
+  assert.equal(single.status, 1);
+  assert.match(single.stderr, /^Can't read .*talk\.mp4: /);
+  assert.doesNotMatch(single.stderr, /There's no file|\n {4}at /);
   assert.equal(commonink(vault, ["import", path.join(src, "nope.md")]).stderr, `There's no file at ${path.join(src, "nope.md")}\n`);
 });
 
