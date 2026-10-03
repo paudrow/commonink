@@ -210,8 +210,9 @@ export function openVault(root = DEFAULT_VAULT, opts: VaultOptions = {}): LocalV
   sqlite.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA synchronous=NORMAL;");
   const db = new NodeDb(sqlite);
   migrate(db, { local: true });
-  // Its one person keeps their views right in Views/ (see views.ts).
-  const q = new Vault(db, new FsContent(root), { soleUser: LOCAL_USER, ...opts }) as LocalVault;
+  // Its one person keeps their views right in Views/ (see views.ts). Its notes are files any editor
+  // can change, so the index keeps each one's text to tell what an outside edit changed.
+  const q = new Vault(db, new FsContent(root), { soleUser: LOCAL_USER, outsideEdits: true, ...opts }) as LocalVault;
   q.sync();
   q.upgradeSmartFolders();
   return q;

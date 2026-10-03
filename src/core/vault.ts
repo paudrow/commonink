@@ -330,6 +330,12 @@ export interface VaultOptions {
    * the vault's, right in Views/, since there's no one to keep one from (see views.ts).
    */
   soleUser?: string;
+  /**
+   * Notes are files other programs can change (a local vault's): the index keeps each note's text
+   * as it last read it (`note_texts`), so an edit made in another editor while nothing was running
+   * is found by sync() and put in History, with what the note said before (see recordOutsideEdit).
+   */
+  outsideEdits?: boolean;
 }
 
 export { MAX_NOTE_BYTES };
@@ -440,6 +446,7 @@ export class Vault {
   private maxNoteBytes: number;
   private timeZone: string | undefined;
   private soleUser: string | undefined;
+  private outsideEdits: boolean;
 
   constructor(
     readonly db: SqlDb,
@@ -450,6 +457,7 @@ export class Vault {
     this.maxNoteBytes = opts.maxNoteBytes ?? MAX_NOTE_BYTES;
     this.timeZone = opts.timeZone;
     this.soleUser = opts.soleUser;
+    this.outsideEdits = opts.outsideEdits ?? false;
   }
 
   /** Today, as YYYY-MM-DD, in this core's time zone. */
@@ -464,8 +472,8 @@ export class Vault {
 
   /** Incrementally bring the index in line with the files. Cheap: stats only, reads changed files. */
   sync(): { indexed: number; removed: number } {
-    const known = new Map<string, { mtime: number; size: number }>();
-    for (const r of this.db.all("SELECT path, mtime, size FROM notes")) known.set(r.path, r);
+    const known = new Map<string, { mtime: number; size: number; version: string }>();
+    for (const r of this.db.all("SELECT path, mtime, size, version FROM notes")) known.set(r.path, r);
     let indexed = 0;
     let removed = 0;
     for (const { path: rel, ...st } of this.files.list()) {
@@ -475,8 +483,10 @@ export class Vault {
       if (!k || k.mtime !== st.mtime || k.size !== st.size) {
         // One note the parser chokes on mustn't keep the whole vault from opening.
         try {
-          this.indexFile(rel);
+          const before = k && this.outsideEdits && kindOf(rel) !== "asset" ? this.knownText(rel) : undefined;
+          const meta = this.indexFile(rel);
           indexed++;
+          if (k && meta && before !== undefined && meta.version !== k.version) this.recordOutsideEdit(rel, meta.version, before);
         } catch (e) {
           console.error(`Couldn't index ${rel}:`, e);
         }
@@ -488,7 +498,39 @@ export class Vault {
     }
     const st = this.files.stat(ASSET_TAGS);
     if ((st ? `${st.mtime}:${st.size}` : "") !== this.assetTagsSeen) this.indexAssetTags(this.assetTags());
+    if (this.outsideEdits) this.fillKnownTexts();
     return { indexed, removed };
+  }
+
+  /** A note's text as the index last read it, or null if it kept none (an index from before it kept them). */
+  private knownText(rel: string): string | null {
+    return this.db.get<{ text: string }>("SELECT text FROM note_texts WHERE path = ?", rel)?.text ?? null;
+  }
+
+  /**
+   * Keep the text of each note that has none kept and is as the index last read it: every note,
+   * the first time an index from before `note_texts` is opened, and none after that.
+   */
+  private fillKnownTexts() {
+    for (const r of this.db.all<{ path: string; version: string }>("SELECT path, version FROM notes WHERE kind != 'asset' AND path NOT IN (SELECT path FROM note_texts)")) {
+      const text = this.files.read(r.path);
+      if (text !== null && versionOf(text) === r.version) this.db.run("INSERT OR REPLACE INTO note_texts(path, text) VALUES (?,?)", r.path, text);
+    }
+  }
+
+  /**
+   * A note changed on disk since the index last read it, and not through the app: someone edited
+   * it in another editor. Put that in History as its own change, from "someone else", keeping what
+   * the note said `before` so it can be compared and restored. Unless the change log already has
+   * this version (the app's server saw the edit first, or the write was the app's own).
+   */
+  private recordOutsideEdit(rel: string, version: string, before: string | null) {
+    if (this.attribution(rel, version)) return;
+    const after = this.files.read(rel) ?? "";
+    this.recordChange(
+      { path: rel, op: "edit", source: "external", version, summary: before === null ? `${after.split("\n").length} lines` : diffstat(before, after), from_path: null },
+      before,
+    );
   }
 
   /** The asset tags file as last indexed ("mtime:size"), so sync reads it again only when it changes. */
@@ -536,6 +578,7 @@ export class Vault {
            version=excluded.version, mtime=excluded.mtime, size=excluded.size, fts=excluded.fts, date=excluded.date`,
         rel, kind, title, stemOf(rel), version, st.mtime, st.size, noteId, fts, date,
       );
+      if (this.outsideEdits && kind !== "asset") this.db.run("INSERT OR REPLACE INTO note_texts(path, text) VALUES (?,?)", rel, content ?? "");
       this.db.run("DELETE FROM links WHERE src = ?", rel);
       this.db.run("DELETE FROM tags WHERE path = ? AND kind != 'asset'", rel);
       this.db.run("DELETE FROM tasks WHERE path = ?", rel);
@@ -630,6 +673,7 @@ export class Vault {
     }
     this.db.tx(() => {
       this.dropText(rel, row);
+      if (this.outsideEdits) this.db.run("DELETE FROM note_texts WHERE path = ?", rel);
       this.db.run("DELETE FROM notes WHERE path = ?", rel);
       this.db.run("DELETE FROM links WHERE src = ?", rel);
       this.db.run("DELETE FROM tags WHERE path = ? AND kind != 'asset'", rel);

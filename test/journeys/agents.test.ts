@@ -62,14 +62,10 @@ journey("An agent keeps meeting notes from the shell", ({ given, when, then, and
     const changes: Array<{ op: string; agent: string | null }> = JSON.parse(scribe(["changes", "--json"]).stdout);
     assert.deepEqual(changes.filter((c) => c.agent).map((c) => `${c.op} by ${c.agent}`), ["move by Scribe", "edit by Scribe", "edit by Scribe", "create by Scribe"]);
   });
-  and(
-    "History shows my edit, made in my own editor, between them",
-    () => {
-      const changes: Array<{ op: string; agent: string | null }> = JSON.parse(scribe(["changes", "--json"]).stdout);
-      assert.deepEqual(changes.map((c) => `${c.op} by ${c.agent ?? "someone else"}`), ["move by Scribe", "edit by Scribe", "edit by Scribe", "edit by someone else", "create by Scribe"]);
-    },
-    { todo: "#310: with the app's server off, nothing records an edit made in another editor" },
-  );
+  and("History shows my edit, made in my own editor, between them", () => {
+    const changes: Array<{ op: string; agent: string | null }> = JSON.parse(scribe(["changes", "--json"]).stdout);
+    assert.deepEqual(changes.map((c) => `${c.op} by ${c.agent ?? "someone else"}`), ["move by Scribe", "edit by Scribe", "edit by Scribe", "edit by someone else", "create by Scribe"]);
+  });
 });
 
 journey("An agent over MCP and one in the shell work from the same notes", ({ given, when, then, and }) => {

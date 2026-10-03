@@ -203,6 +203,10 @@ export function migrate(db: SqlDb, opts: { local?: boolean } = {}) {
     // back once; a Durable Object can't VACUUM.
     if (opts.local && converted && !db.get("SELECT 1 FROM upgrades WHERE name = 'vacuum after deltas'")) vacuum(db);
   }
+  // Each note's text as the index last read it: what an edit made in another editor is compared
+  // with (see Vault.recordOutsideEdit). Only a vault on disk can be edited that way; online, the
+  // notes are in this database already.
+  if (opts.local) db.exec("CREATE TABLE IF NOT EXISTS note_texts(path TEXT PRIMARY KEY, text TEXT NOT NULL)");
 }
 
 /** Rebuild the database file without its free pages, once, saying how much that gave back. */
