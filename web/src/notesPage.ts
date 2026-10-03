@@ -16,7 +16,7 @@ import { parseDirective } from "./widgets/args.ts";
 import { WIDGETS } from "./widgets/index.ts";
 import { tagChip, tagFilter } from "./tagPicker.ts";
 import type { ToastSpec } from "./toast.ts";
-import { formatQuery, tagList, type NoteQuery, type QuerySort } from "../../src/core/query.ts";
+import { folderList, formatQuery, tagList, type NoteQuery, type QuerySort } from "../../src/core/query.ts";
 import { parse, textWords } from "../../src/core/queryGrammar.ts";
 import { queryHelpLink } from "./queryHelp.ts";
 import { hydrateTaskChips, withTaskChips } from "./taskChips.ts";
@@ -37,8 +37,8 @@ interface Hooks {
   tags(): TagCount[];
   /** Save these filters (a query like `tag=work sort=title`) as a smart folder. */
   saveQuery(anchor: HTMLElement, query: string): void;
-  /** The star (Add to / Remove from Favorites) for the tag Notes is narrowed to. */
-  starButton(tag: string): HTMLElement;
+  /** The star (Add to / Remove from Favorites) for what Notes shows: a tag, a smart folder, or any search. Empty with no filters. */
+  starButton(query: NoteQuery): HTMLElement | "";
   /** Show every task of this person's. */
   openPerson(name: string): void;
   /** You can only view this workspace: chips show, but don't open editors. */
@@ -98,6 +98,8 @@ export class NotesPage {
   private folder = "";
   /** The tag Notes is narrowed to ("" for any); its children count too. */
   private tag = "";
+  /** With several tags (a smart folder's), whether a note needs any of them rather than all. */
+  private match: "all" | "any" = "all";
   private sort: QuerySort = "modified";
   private items: FeedItem[] = [];
   private page: FeedPage | null = null;
@@ -175,7 +177,7 @@ export class NotesPage {
   /** What Notes shows, as a note query: the same thing a ::query widget or a smart folder holds. */
   get query(): NoteQuery {
     const q = this.input.value.trim();
-    return { ...(q && { q }), ...(this.folder && { folder: this.folder }), ...(this.tag && { tag: this.tag }), ...(this.sort !== "modified" && { sort: this.sort }) };
+    return { ...(q && { q }), ...(this.folder && { folder: this.folder }), ...(this.tag && { tag: this.tag }), ...(this.match === "any" && tagList(this.tag).length > 1 && { match: "any" as const }), ...(this.sort !== "modified" && { sort: this.sort }) };
   }
 
   /**
@@ -194,6 +196,7 @@ export class NotesPage {
     if (opts.query) {
       this.input.value = opts.query.q ?? "";
       this.sort = opts.query.sort ?? "modified";
+      this.match = opts.query.match ?? "all";
       opts = { ...opts, folder: opts.query.folder ?? "", tag: opts.query.tag ?? "" };
       this.focus = 0;
       this.scrollTop = 0;
@@ -286,11 +289,11 @@ export class NotesPage {
     const page = this.page!;
     this.folderSel.replaceChildren(
       // A subfolder picked in the sidebar is listed too, so it shows as the filter in use.
-      ...["", ...page.folders, ...(this.folder && !page.folders.includes(this.folder) ? [this.folder] : [])].map((f) => el("option", { value: f }, f || "All folders")),
+      ...["", ...page.folders, ...(this.folder && !page.folders.includes(this.folder) ? [this.folder] : [])].map((f) => el("option", { value: f }, folderList(f).join(" or ") || "All folders")),
     );
     this.folderSel.value = this.folder;
     this.folderSel.classList.toggle("is-on", !!this.folder);
-    this.tagBar.replaceChildren(tagFilter({ current: this.tag, tags: this.hooks.tags, count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }), tagList(this.tag).length === 1 ? this.hooks.starButton(this.tag) : "");
+    this.tagBar.replaceChildren(tagFilter({ current: this.tag, any: this.match === "any", tags: this.hooks.tags, count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }), this.hooks.starButton(this.query));
     this.sortSel.value = this.sort;
     this.saveBtn.hidden = !formatQuery(this.query);
     this.hooks.filtersChanged();
@@ -313,7 +316,7 @@ export class NotesPage {
   private empty(q: string, filtered: boolean): HTMLElement {
     if (filtered) {
       const which = this.tab === "archive" ? "archived " : "";
-      const where = `${this.tag ? ` tagged ${tagList(this.tag).map((t) => `#${t}`).join(" and ")}` : ""}${this.folder ? ` in ${this.folder}` : ""}`;
+      const where = `${this.tag ? ` tagged ${tagList(this.tag).map((t) => `#${t}`).join(this.match === "any" ? " or " : " and ")}` : ""}${this.folder ? ` in ${folderList(this.folder).join(" or ")}` : ""}`;
       return emptyState({
         icon: "search",
         title: q ? `No ${which}notes${where} match “${q}”` : `No ${which}notes${where}`,
@@ -513,7 +516,7 @@ export class NotesPage {
       const frame = sandboxFrame(cached.content, { autoHeight: true, title: item.title });
       return el("div", { class: "fc-full is-html" }, frame);
     }
-    const body = cached.content.replace(/^(---\r?\n[\s\S]*?\r?\n---\r?\n?)?\s*#\s+(.+)\n/, (m, fm = "", h: string) => (h.trim() === item.title ? fm : m));
+    const body = cached.content.replace(/^(\uFEFF?---\r?\n[\s\S]*?\r?\n---\r?\n?)?\s*#\s+(.+)\n/, (m, fm = "", h: string) => (h.trim() === item.title ? fm : m));
     const node = this.markdown(forPreview(body), item, "fc-body fc-full");
     hydrateDataEmbeds(node, item.path);
     node.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((box) => {
