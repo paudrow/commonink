@@ -56,3 +56,19 @@ test("sort is modified, date, oldest or title, and modified goes unsaid", () => 
   assert.equal(formatQuery(parseQuery("sort=modified")), "");
   assert.deepEqual(toQuery({ tag: "work,plan", sort: "date" }), { tag: "work,plan", sort: "date" });
 });
+
+test("an apostrophe inside a word is part of it; a ' only quotes at the start of a value", () => {
+  assert.deepEqual(parseQuery("folder=Bob's Notes"), { folder: "Bob's Notes" });
+  assert.equal(queryProblem("folder=Bob's Notes"), null);
+  assert.deepEqual(parseQuery("q=don't stop"), { q: "don't stop" });
+  assert.deepEqual(parseQuery("q=stop don't tag=work"), { q: "stop don't", tag: "work" });
+  assert.equal(queryProblem("q=don't stop"), null);
+  // Quoting still works either way, and a ' left open is called out as one.
+  assert.deepEqual(parseQuery(`q='launch plan' folder="Bob's Notes"`), { q: "launch plan", folder: "Bob's Notes" });
+  assert.equal(queryProblem("q='abc"), "A quote isn't closed");
+  assert.equal(queryProblem("sort=title 'abc'"), 'Give "abc" a value, like abc=…');
+  // What the app writes reads back the same (a " in a value is written as ').
+  assert.deepEqual(parseQuery(formatQuery({ folder: "Bob's Notes" })), { folder: "Bob's Notes" });
+  assert.deepEqual(parseQuery(formatQuery({ q: "don't stop", tag: "work" })), { q: "don't stop", tag: "work" });
+  assert.deepEqual(parseQuery(formatQuery({ q: 'say "hi"' })), { q: "say 'hi'" });
+});
