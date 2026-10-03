@@ -2417,7 +2417,9 @@ export class Vault {
   /** The ids of what's in Trash, newest first. */
   private trashIds(): string[] {
     const ids = new Set(this.files.listUnder(TRASH).map((f) => f.path.split("/")[1]).filter((id) => TRASH_ID.test(id)));
-    return [...ids].sort((a, b) => Number(b.split("-")[0]) - Number(a.split("-")[0]));
+    // Newest first; items deleted in the same millisecond go by their change, so the order never depends on the disk.
+    const key = (id: string) => id.split("-").map(Number);
+    return [...ids].sort((a, b) => key(b)[0] - key(a)[0] || key(b)[1] - key(a)[1]);
   }
 
   /** The deleted file in Trash item `id`, and what's kept beside it. */
