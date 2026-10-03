@@ -52,7 +52,7 @@ export function addDays(day: Day, n: number): Day {
   return dayKey(new Date(d.getFullYear(), d.getMonth(), d.getDate() + n));
 }
 
-/** The Monday on or before `day`: weeks start on Monday, like the ::calendar widget. */
+/** The Monday on or before `day`: weeks start on Monday, like a month ::view. */
 export const weekStart = (day: Day): Day => addDays(day, -((dayStart(day).getDay() + 6) % 7));
 
 /** The weeks a month view shows: Monday to Sunday, from the week of the 1st to the week of the last day. */

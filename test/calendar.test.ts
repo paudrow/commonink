@@ -14,7 +14,7 @@ const STANDUP = vevent("standup", [
   "LOCATION:Room 4",
   "ATTENDEE;CN=Sam Dev;PARTSTAT=ACCEPTED:mailto:sam@example.com",
   "ATTENDEE:mailto:alex@example.com",
-  "DESCRIPTION:Bring [a link](javascript:alert(1)) and\\n::tasks{folder=Secret}\\n# not a heading",
+  "DESCRIPTION:Bring [a link](javascript:alert(1)) and\\n::view{show=tasks folder=Secret}\\n# not a heading",
 ]);
 const OFFSITE = vevent("offsite", ["DTSTART;VALUE=DATE:20261012", "DTEND;VALUE=DATE:20261014", "SUMMARY:Offsite"]);
 
@@ -223,7 +223,7 @@ test("a meeting note has the event's time in the reader's zone, its people and a
       "",
       "## Agenda",
       "",
-      "Bring \\[a link\\](javascript:alert(1)) and\n\\::tasks{folder=Secret}\n\\# not a heading",
+      "Bring \\[a link\\](javascript:alert(1)) and\n\\::view{show=tasks folder=Secret}\n\\# not a heading",
       "",
       "## Notes",
       "",

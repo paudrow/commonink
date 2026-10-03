@@ -3,7 +3,7 @@
 // (picked, not typed), tags, and a sort. Words and tags say "Match all" or "Match any" once there
 // are two; a note is in one folder, so folders are always any of them. Below, a live count and the
 // first few notes that match, so what a choice does shows as you make it. Under the rows, always in
-// view, is the query as text: the same one an agent or a ::query widget writes, with its whole
+// view, is the query as text: the same one an agent or a notes ::view writes, with its whole
 // grammar (queryGrammar.ts: AND, OR, ( ), -word, modified>-7d, ...). It's built as the rows change,
 // and typing in it fills them. Its ? opens the Query syntax page. What's saved is the query as text;
 // the server checks it.
@@ -308,7 +308,7 @@ export function smartFolderEditor(
     "div",
     { class: "sf-query-box" },
     el("div", { class: "sf-query-line" }, text, queryHelpLink()),
-    el("p", { class: "sf-hint" }, "The same query as ::query{…} in a note. Type it here or use the rows above; the ? shows all the syntax."),
+    el("p", { class: "sf-hint" }, "The same query as ::view{…} in a note. Type it here or use the rows above; the ? shows all the syntax."),
   );
 
   const count = el("div", { class: "sf-count", "aria-live": "polite" });

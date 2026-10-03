@@ -1,4 +1,4 @@
-// The Today page: the quick-add bar, the day at a glance (the ::today widget: today's journal note,
+// The Today page: the quick-add bar, the day at a glance (the ::view{show=today} widget: today's journal note,
 // today's events, and what's overdue, due or starting today), then your week (weekRecapCard.ts). Ticking
 // a box here edits the note the task lives in, and clearing the last one is celebrated as anywhere
 // else (todayCleared.ts). Tasks lists every task; this page is just today.
@@ -7,7 +7,7 @@ import { gamified } from "./gamify.ts";
 import { quickAddBar } from "./quickAdd.ts";
 import { today } from "./taskChips.ts";
 import { mountWeekRecap } from "./weekRecapCard.ts";
-import { WIDGETS } from "./widgets/index.ts";
+import { VIEWS } from "./widgets/view.ts";
 
 export interface TodayHooks {
   open(path: string, line?: number, side?: boolean): void;
@@ -15,12 +15,12 @@ export interface TodayHooks {
   openPerson(name: string): void;
 }
 
-/** The day at a glance: the ::today widget, showing only the sections with something in them. */
+/** The day at a glance: the ::view{show=today} widget, showing only the sections with something in them. */
 function mountDay(host: HTMLElement, hooks: TodayHooks): () => void {
   const body = el("div", { class: "qw-body" });
   const card = el("div", { class: "qw qw-today is-standalone" }, body);
   host.replaceChildren(card);
-  return WIDGETS.today.mount(
+  return VIEWS.today.mount(
     body,
     {
       args: { compact: "true" },

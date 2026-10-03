@@ -14,6 +14,7 @@ import { followRenderedLink } from "./gfm.ts";
 import { hydrateDataEmbeds } from "./textPreview.ts";
 import { parseDirective } from "./widgets/args.ts";
 import { WIDGETS } from "./widgets/index.ts";
+import { specFor } from "./widgets/core.ts";
 import { tagChip, tagFilter } from "./tagPicker.ts";
 import type { ToastSpec } from "./toast.ts";
 import { folderList, formatQuery, tagList, type NoteQuery, type QuerySort } from "../../src/core/query.ts";
@@ -174,7 +175,7 @@ export class NotesPage {
   private get scope() {
     return this.tab === "archive" ? "archived" : "active";
   }
-  /** What Notes shows, as a note query: the same thing a ::query widget or a smart folder holds. */
+  /** What Notes shows, as a note query: the same thing a notes ::view or a smart folder holds. */
   get query(): NoteQuery {
     const q = this.input.value.trim();
     return { ...(q && { q }), ...(this.folder && { folder: this.folder }), ...(this.tag && { tag: this.tag }), ...(this.match === "any" && tagList(this.tag).length > 1 && { match: "any" as const }), ...(this.sort !== "modified" && { sort: this.sort }) };
@@ -751,7 +752,7 @@ function forPreview(md: string): string {
     .split("\n")
     .map((line) => {
       const d = parseDirective(line);
-      if (d && WIDGETS[d.name]) return `*${WIDGETS[d.name].title}${d.args.label ? ` · ${d.args.label}` : ""}${d.args.duration ? ` · ${d.args.duration}` : ""}*`;
+      if (d && WIDGETS[d.name]) return `*${specFor(WIDGETS[d.name], d.args).title}${d.args.label ? ` · ${d.args.label}` : ""}${d.args.duration ? ` · ${d.args.duration}` : ""}*`;
       return line;
     })
     .join("\n");

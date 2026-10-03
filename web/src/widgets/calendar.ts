@@ -1,4 +1,4 @@
-//   ::calendar{folder=Journal}   ::calendar{events=off}   ::calendar{calendars="k3x9q2mfab"}
+//   ::view{show=month}   ::view{show=month folder=Journal events=off}   ::view{show=month calendars="k3x9q2mfab"}
 // A month of journal notes (Journal/YYYY-MM-DD.md), shaded by how much you wrote, with a dot for each
 // of the day's events (in its calendar's color; their titles in the day's tooltip), from every
 // calendar or the ones picked in its settings. Click a day to

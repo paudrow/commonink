@@ -1,10 +1,10 @@
 // The Tasks page: the quick-add bar, then every task, narrowed to whose they are or a tag. The list
-// is the ::tasks widget, so ticking a box here edits the note the task lives in. What's on today
+// is ::view{show=tasks}, so ticking a box here edits the note the task lives in. What's on today
 // has a page of its own, Today (todayView.ts).
 import type { TagCount } from "./api.ts";
 import { el, icon } from "./dom.ts";
 import { tagFilter } from "./tagPicker.ts";
-import { WIDGETS } from "./widgets/index.ts";
+import { VIEWS } from "./widgets/view.ts";
 import { quickAddBar } from "./quickAdd.ts";
 import { emptyState } from "./emptyState.ts";
 
@@ -18,7 +18,7 @@ export function mountTasks(
   const body = el("div", { class: "qw-body" });
   const card = el("div", { class: "qw qw-tasks is-standalone" }, body);
   host.replaceChildren(card);
-  return WIDGETS.tasks.mount(
+  return VIEWS.tasks.mount(
     body,
     {
       args: { limit: String(opts.limit), ...(opts.tag ? { tag: opts.tag } : {}), ...(opts.assignee ? { assignee: opts.assignee } : {}), ...(opts.by ? { by: opts.by } : {}), ...(opts.group ? { group: opts.group } : {}) },

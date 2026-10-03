@@ -1,5 +1,5 @@
-// Calendar data for everything that shows events: the Calendar page, Today, the ::calendar and
-// ::agenda widgets and the editor's completions. Sources and events are fetched once a minute at
+// Calendar data for everything that shows events: the Calendar page, Today, a ::view's month and
+// agenda, and the editor's completions. Sources and events are fetched once a minute at
 // most and dropped when the server says calendars changed (main.ts calls calendarChanged). Also
 // what an item on the page is (an event or a task due that day), and the words for its time.
 import { api, ApiError, type CalendarEvent, type CalendarSource, type SourceColor, type Task } from "../api.ts";

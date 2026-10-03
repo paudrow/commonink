@@ -671,7 +671,7 @@ async function preview(target: string, from: string): Promise<Preview | null> {
 // ---------------------------------------------------------------- a board from another note
 
 /**
- * A board shown outside its note (`::kanban{note=…}`, or a note embedded with `![[…]]`). Its changes
+ * A board shown outside its note (`::view{show=board note=…}`, or a note embedded with `![[…]]`). Its changes
  * are saves of that note, one after another, each against the version the last one made; a save
  * that finds the note changed underneath loads it again. Undo puts back what the board replaced.
  */

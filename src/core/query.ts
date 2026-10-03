@@ -1,5 +1,5 @@
 // A note query: which notes a list shows. It's the same few keys everywhere a list of notes is
-// asked for (a ::query widget, a smart folder, the Notes filter bar, an agent), written the way the
+// asked for (a notes ::view, a smart folder, the Notes filter bar, an agent), written the way the
 // widget writes them: `q="launch plan" folder=Projects tag=work sort=title limit=5`. Vault.feed
 // runs it. The words in `q` have a grammar of their own (queryGrammar.ts): AND, OR, -, ( ),
 // "a phrase", and filters among the words (`tag=x`, `folder=x`, `modified>-7d`). No Node imports:
@@ -31,7 +31,7 @@ export interface NoteQuery {
 
 const KEYS = ["q", "folder", "tag", "match", "sort", "limit"] as const;
 /**
- * Filters that can also be written as keys of their own (`::query{modified>-7d -tag=draft}`). They
+ * Filters that can also be written as keys of their own (`::view{modified>-7d -tag=draft}`). They
  * live in `q` with the words, so a query has one place for them however it was written.
  */
 const IN_Q = ["modified", "created", "-tag", "-folder"] as const;

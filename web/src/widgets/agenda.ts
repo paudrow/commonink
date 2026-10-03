@@ -1,4 +1,4 @@
-//   ::agenda   ::agenda{days=7}   ::agenda{calendars="k3x9q2mfab,a2b3c4d5e6"}
+//   ::view{show=agenda}   ::view{show=agenda days=7}   ::view{show=agenda calendars="k3x9q2mfab,a2b3c4d5e6"}
 // The next few days of events from the workspace's calendars, by day, each with its time, its
 // calendar's color and its meeting note, from every calendar or the ones picked in its settings.
 // Clicking an event opens it on the Calendar page.

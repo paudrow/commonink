@@ -196,7 +196,7 @@ export const smartFolders = [
     title: "Save smart folder",
     summary: 'Save a note query (q="…" folder=… tag=… sort=date) as a smart folder',
     description:
-      "Create a smart folder (a saved note query in the sidebar), or change one by id. The query uses ::query's keys: " +
+      "Create a smart folder (a saved note query in the sidebar), or change one by id. The query uses a notes ::view's keys: " +
       'q="words" folder=Projects tag=work sort=title limit=10 (all optional; a tag includes the tags under it). Several tags (tag=work,plan or ' +
       "tag=work tag=plan) means notes with all of them; add match=any for notes with any of them. sort is modified (last changed first, the default), date (the note's own date: " +
       "frontmatter date/created, else a YYYY-MM-DD in its name, newest first), oldest (the same, oldest first), title or created (newest note first). " +

@@ -15,7 +15,7 @@ import { staticCodeBlock } from "../code.ts";
 import { endTags, hydrateTaskChips, metaChips, withTaskChips } from "../taskChips.ts";
 import { resolveEmbed } from "../embeds/providers.ts";
 import type { Rendered } from "../mathRender.ts";
-import { parseDirective, type Directive } from "../../../src/core/directive.ts";
+import { parseDirective, viewShow, type Directive } from "../../../src/core/directive.ts";
 import { boardsIn, summaryOf, type Board } from "../../../src/core/kanban.ts";
 import { splitFrontmatter } from "../../../src/core/parse.ts";
 import { toQuery, type NoteQuery } from "../../../src/core/query.ts";
@@ -37,9 +37,9 @@ export interface StaticSources {
   note(target: string, from: string): Promise<StaticNote | null>;
   /** Just the web address of the note `target` names (a link), or null. */
   url(target: string, from: string): Promise<string | null>;
-  /** Tasks, as `::tasks` asks for them. */
+  /** Tasks, as `::view{show=tasks}` asks for them. */
   tasks(q: { folder?: string; note?: string; tag?: string; assignee?: string; due?: string; start?: string; done?: string; priority?: string }): Promise<Task[]>;
-  /** Notes, as `::query` asks for them. */
+  /** Notes, as a notes `::view` asks for them. */
   feed(q: NoteQuery & { limit: number }): Promise<FeedItem[]>;
   today(): Promise<TodayView>;
   /** KaTeX's renderer (math.ts's, or mathRender.ts itself). */
@@ -184,29 +184,29 @@ function slotWidgets(md: string, found: Directive[]): string {
 const box = (title: string, ...children: Array<Node | string | null>) => el("div", { class: "st-widget" }, el("div", { class: "st-widget-title" }, title), ...children);
 const empty = (text: string) => el("div", { class: "st-empty" }, text);
 
-/** What a widget shows right now, as plain content. Interactive ones (timers, the calendar) say what they are. */
+/** What a widget shows right now, as plain content. Interactive ones (timers, a month) say what they are. A ::view is its kind (view:tasks). */
 async function snapshot(d: Directive, path: string, src: StaticSources): Promise<HTMLElement> {
   const a = d.args;
   const label = a.label ? ` · ${a.label}` : "";
-  switch (d.name) {
-    case "tasks": {
+  switch (d.name === "view" ? `view:${viewShow(a)}` : d.name) {
+    case "view:tasks": {
       const show = a.status === "done" || a.status === "all" ? a.status : a.done ? "done" : "open";
       const all = await src.tasks({ folder: a.folder, note: a.note, tag: a.tag, assignee: a.assignee, due: a.due, start: a.start, done: a.done, priority: a.priority }).catch(() => [] as Task[]);
       const tasks = all.filter((t) => show === "all" || t.done === (show === "done")).slice(0, MAX_ROWS);
       return box(`Tasks${label}`, tasks.length ? taskGroups(tasks, a.group === "none" ? null : "note") : empty(show === "done" ? "No finished tasks." : "Nothing to do."));
     }
-    case "today": {
+    case "view:today": {
       const v = await src.today().catch(() => null);
       const sections = v?.sections.filter((s) => s.tasks.length) ?? [];
       return box(`Today${label}`, sections.length ? el("div", {}, ...sections.map((s) => el("div", {}, el("div", { class: "st-group" }, s.title), taskList(s.tasks, true)))) : empty("Nothing due today."));
     }
-    case "query": {
+    case "view:notes": {
       const q = toQuery(a);
       const limit = Math.min(q.limit ?? 6, MAX_ROWS);
       const items = (await src.feed({ ...q, limit: limit + 1 }).catch(() => [] as FeedItem[])).filter((i) => i.path !== path).slice(0, limit);
       return box(`Notes${label}`, items.length ? el("ul", {}, ...items.map((i) => el("li", {}, noteLink(i.path, i.title), i.excerpt ? el("span", { class: "st-note" }, ` — ${firstLine(i.excerpt)}`) : null))) : empty("No notes match."));
     }
-    case "kanban": {
+    case "view:board": {
       const n = a.note ? await src.note(a.note, path).catch(() => null) : null;
       const board = n ? boardsIn(n.content)[Math.max(1, Math.floor(Number(a.board)) || 1) - 1] : undefined;
       return board ? box(`Board · ${n!.title}`, staticBoard(board, n!.path)) : box("Board", empty(a.note ? `No board in ${a.note}.` : "No note named for this board."));
@@ -215,7 +215,7 @@ async function snapshot(d: Directive, path: string, src: StaticSources): Promise
       return box(`Timer${label}`, el("div", { class: "st-note" }, a.duration ? `${a.duration} timer` : "Timer"));
     case "stopwatch":
       return box(`Stopwatch${label}`, el("div", { class: "st-note" }, "Stopwatch"));
-    case "calendar":
+    case "view:month":
       return box(`Journal${label}`, el("div", { class: "st-note" }, `Notes in ${a.folder ?? "Journal"}`));
     default:
       return el("div"); // the getting-started guide, and anything unknown: nothing on paper

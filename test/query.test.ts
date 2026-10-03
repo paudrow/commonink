@@ -6,7 +6,7 @@ import { dayFrom, dayPasses, formatQuery, parseQuery, queryProblem, toQuery, typ
 import { format, parse, textWords, toFts } from "../src/core/queryGrammar.ts";
 import { openTempVault } from "./helpers.ts";
 
-test("a note query is the ::query widget's args: q, folder, tag, sort and limit", () => {
+test("a note query is a notes ::view's args: q, folder, tag, sort and limit", () => {
   const src = 'q="launch plan" folder=Projects tag=work/acme sort=title limit=5';
   assert.deepEqual(parseQuery(src), { q: "launch plan", folder: "Projects", tag: "work/acme", sort: "title", limit: 5 });
   assert.equal(formatQuery(parseQuery(src)), src);
@@ -88,7 +88,7 @@ test('-word, OR and "phrase" in the words', () => {
   const s = parse('"launch plan" (budget OR costs) -draft -"old idea"');
   assert.equal(toFts(s.expr), '("launch plan" ("budget"* OR "costs"*)) NOT ("draft"* OR "old idea")');
   assert.deepEqual(textWords(s.expr), ["launch", "plan", "budget", "costs"]);
-  // Single quotes make a phrase too: that's how a ::query or smart folder writes one inside q="…".
+  // Single quotes make a phrase too: that's how a ::view or smart folder writes one inside q="…".
   assert.equal(toFts(parse("'launch plan'").expr), '"launch plan"');
   // OR with nothing on one side is a mistake, said with where it is; the rest still reads.
   assert.equal(parse("OR plan OR").error?.message, "Nothing before OR at character 1: put a word or filter on each side");

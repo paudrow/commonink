@@ -1,4 +1,4 @@
-// Which calendars ::agenda and ::calendar show: the settings form's calendar picker writes source IDs
+// Which calendars a ::view's agenda and month show: the settings form's calendar picker writes source IDs
 // to the widget's attributes (none for all), and the widgets show only those calendars' events.
 process.env.TZ = "America/New_York";
 import { after, test } from "node:test";
@@ -58,7 +58,7 @@ function mount(spec: typeof agenda, args: Record<string, string>) {
   return body;
 }
 
-test("::agenda shows every calendar's events by default, and only the chosen calendars' when some are picked", async () => {
+test("an agenda ::view shows every calendar's events by default, and only the chosen calendars' when some are picked", async () => {
   calendarChanged();
   const every = mount(agenda, { days: "1" });
   const some = mount(agenda, { days: "1", calendars: "work,holidays" });
@@ -67,7 +67,7 @@ test("::agenda shows every calendar's events by default, and only the chosen cal
   assert.deepEqual([titles(every), titles(some)], [["Standup", "Dentist", "Half day"], ["Standup", "Half day"]]);
 });
 
-test("::calendar dots only the chosen calendars' events", async () => {
+test("a month ::view dots only the chosen calendars' events", async () => {
   calendarChanged();
   const month = mount(calendar, { calendars: "home" });
   await settle();

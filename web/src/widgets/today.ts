@@ -1,4 +1,4 @@
-//   ::today   ::today{label="My day"}
+//   ::view{show=today}   ::view{show=today label="My day"}
 // The day at a glance: today's journal note (open it, or start it from the journal template), today's
 // events from the workspace's calendars, then open tasks overdue, due today and starting today. The
 // Today page is this widget, with empty sections left out. Task sections come from the

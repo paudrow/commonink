@@ -9,6 +9,8 @@ import { displayName, icon } from "../dom.ts";
 import { fuzzyScore } from "../fuzzy.ts";
 import { newId, serializeDirective } from "../widgets/args.ts";
 import { pendingConfig, WIDGETS } from "../widgets/index.ts";
+import { view as viewWidget, VIEW_LABELS, VIEWS } from "../widgets/view.ts";
+import { VIEW_SHOWS, type ViewShow } from "../../../src/core/directive.ts";
 import { editorContext } from "./blocks.ts";
 import { api } from "../api.ts";
 import { askFor, pickTemplate, templatePeople } from "../templatePicker.ts";
@@ -320,6 +322,8 @@ interface Tool {
   keywords: string;
   section: "Embed" | "Widgets" | "Blocks" | "Insert";
   run(view: EditorView, from: number, to: number): void;
+  /** The tool as it reads for what's typed after the "/" (View names the kind it would insert), or null for as it is. */
+  forQuery?(q: string): Tool | null;
 }
 
 /**
@@ -362,10 +366,10 @@ async function insertTemplate(view: EditorView, from: number, to: number) {
   view.focus();
 }
 
-function widgetTool(name: string, keywords: string, title?: string): Tool {
+function widgetTool(name: string, keywords: string): Tool {
   const spec = WIDGETS[name];
   return {
-    title: title ?? spec.title,
+    title: spec.title,
     hint: spec.hint,
     icon: spec.icon,
     keywords,
@@ -376,6 +380,44 @@ function widgetTool(name: string, keywords: string, title?: string): Tool {
       insert(view, from, to, serializeDirective({ name, args: { ...spec.defaults, id } }), { own: true });
     },
   };
+}
+
+/**
+ * `/view`: one entry for every kind of ::view. What's typed picks the kind it inserts, and the entry
+ * says which ("/tasks" is "Tasks view", "/kanban" "Board view"), so the old widget names still
+ * find theirs. Just "/view" (or nothing typed) is a list of notes, its settings open to pick another.
+ */
+function viewTool(kind?: ViewShow): Tool {
+  const spec = kind ? VIEWS[kind] : viewWidget;
+  return {
+    title: kind ? `${VIEW_LABELS[kind]} view` : "View",
+    hint: spec.hint,
+    icon: spec.icon,
+    keywords: viewWidget.keywords,
+    section: "Widgets",
+    forQuery: kind
+      ? undefined
+      : (q) => {
+          const picked = viewKindFor(q);
+          return picked ? viewTool(picked) : null;
+        },
+    run(view, from, to) {
+      const id = newId();
+      pendingConfig.add(id); // open its settings as soon as it renders
+      const show: Record<string, string> = kind && kind !== VIEW_SHOWS[0] ? { show: kind } : {};
+      insert(view, from, to, serializeDirective({ name: "view", args: { ...show, ...VIEWS[kind ?? VIEW_SHOWS[0]].defaults, id } }), { own: true });
+    },
+  };
+}
+
+/** The ::view kind a "/word" asks for, scored as the menu scores a tool; none when it reads as "view" itself, or as no kind. */
+export function viewKindFor(q: string): ViewShow | null {
+  let best: { show: ViewShow; s: number } | null = null;
+  for (const show of VIEW_SHOWS) {
+    const s = Math.max(toolScore(q, VIEW_LABELS[show]), toolScore(q, `${show} ${VIEWS[show].keywords}`) - 20);
+    if (s >= 0 && (!best || s > best.s)) best = { show, s };
+  }
+  return best && best.s > toolScore(q, "view") ? best.show : null;
 }
 
 const today = () => new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD
@@ -395,10 +437,7 @@ const TOOLS: Tool[] = [
     },
   },
   { title: "Link embed", hint: "YouTube, X, Bluesky, Spotify… or any page", icon: "video", keywords: "embed link url youtube video tweet x twitter bluesky mastodon instagram tiktok spotify vimeo loom bookmark", section: "Embed", run: (v, f, t) => insert(v, f, t, "https://", { cursor: 0, select: 8, block: true }) },
-  widgetTool("tasks", "tasks todo checklist rollup dashboard open"),
-  widgetTool("query", "notes list query dashboard recent folder tag"),
-  widgetTool("calendar", "calendar journal daily month diary events"),
-  widgetTool("agenda", "agenda events calendar meetings schedule upcoming"),
+  viewTool(),
   widgetTool("timer", "timer countdown pomodoro alarm"),
   widgetTool("stopwatch", "stopwatch count up laps"),
   widgetTool("streak", "streak writing days habit heatmap"),
@@ -411,7 +450,6 @@ const TOOLS: Tool[] = [
     run: (v, f, t) => insert(v, f, t, wrapInDetails(""), { cursor: "<details>\n<summary>".length, select: "Details".length, block: true }),
   },
   { title: "Kanban board", hint: "Columns of cards", icon: "kanban", keywords: "kanban board columns cards pipeline trello", section: "Widgets", run: (v, f, t) => insert(v, f, t, NEW_BOARD, { own: true }) },
-  widgetTool("kanban", "kanban board embed another note", "Kanban from another note"),
   {
     title: "Diagram",
     hint: "Mermaid: flowcharts, sequences, timelines",
@@ -453,7 +491,8 @@ export function toolSource(ctx: CompletionContext): CompletionResult | null {
   if (!inProse(ctx.state, slash)) return null;
   const q = ctx.state.sliceDoc(slash + 1, ctx.pos);
   const matches = q
-    ? TOOLS.map((t) => ({ t, s: Math.max(toolScore(q, t.title), toolScore(q, t.keywords) - 20) }))
+    ? TOOLS.map((t) => t.forQuery?.(q) ?? t)
+        .map((t) => ({ t, s:Math.max(toolScore(q, t.title), toolScore(q, t.keywords) - 20) }))
         .filter((x) => x.s >= 0)
         .sort((a, b) => b.s - a.s)
         .map((x) => x.t)

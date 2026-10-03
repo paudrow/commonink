@@ -1777,7 +1777,7 @@ function nameFor(query: string): string {
 /** What the settings forms' tag and folder fields suggest. */
 const fieldSources = { tags: () => tags, folders: () => allFolders() };
 
-/** Offer to keep a note query as a smart folder (from the Notes filters or a ::query widget). */
+/** Offer to keep a note query as a smart folder (from the Notes filters or a notes ::view). */
 function saveSmartFolder(query: string, name: string, anchor: HTMLElement, favorite = false) {
   // New ones are yours only until you share them (a local vault has no one else, so it keeps them as it always did).
   smartFolderEditor(anchor, { name: name || nameFor(query), query, shared: local }, {

@@ -1,5 +1,5 @@
-//   ::tasks{folder=Projects label="Launch"}   ::tasks{note="Common Ink roadmap" status=all}   ::tasks{tag=work due<=today group=due}
-//   ::tasks{due>=today due<=+7d priority=high}   ::tasks{done>=-7d}
+//   ::view{show=tasks folder=Projects label="Launch"}   ::view{show=tasks note="Common Ink roadmap" status=all}
+//   ::view{show=tasks tag=work due<=today group=due}   ::view{show=tasks due>=today due<=+7d priority=high}   ::view{show=tasks done>=-7d}
 // Every checkbox across the vault (or a folder, a note, a tag, a person, a priority, a date range), grouped by note
 // or by due date, priority, tag or person. Ticking one, or changing its details, edits the note it
 // lives in, so agents and people can add tasks anywhere and clear them in one place.

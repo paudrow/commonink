@@ -1885,7 +1885,7 @@ a.gh-card:hover { border-color: var(--line-strong); }
 
 /* ------------------------------------------------------------------ tasks and today pages */
 #tasks-view, #today-view, #checkup-view { position: absolute; inset: 0; overflow: auto; outline: none; }
-/* Today: today's journal note, then sections of task rows (the Today page, and ::today) */
+/* Today: today's journal note, then sections of task rows (the Today page, and ::view{show=today}) */
 .td-title { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; font-size: 13px; font-weight: 600; color: var(--ink-strong); }
 .td-title svg { flex: none; color: var(--warn); }
 /* On the Today page a card's title is its own: inset like the body under it, its icon centred on the title's line. */
@@ -2948,7 +2948,7 @@ button.cal-src-color:hover { background: var(--hover); }
 .cal-src-empty ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 .cal-src-foot { display: flex; justify-content: flex-end; margin-top: 8px; }
 
-/* An event on one day's list: Today, and the ::agenda widget */
+/* An event on one day's list: Today, and a ::view's agenda */
 .cal-rows { display: grid; gap: 1px; }
 .cal-row { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 2px; border-radius: 7px; font-size: 14px; }
 .cal-row:hover { background: var(--hover); }
@@ -2961,7 +2961,7 @@ button.cal-src-color:hover { background: var(--hover); }
 .ag-day + .ag-day { margin-top: 8px; }
 .ag-empty { padding: 2px 0 4px; font-size: 13px; color: var(--muted); }
 .ag-empty .qw-btn { margin-top: 8px; }
-/* ::calendar: a day's events as dots under its number */
+/* A month ::view: a day's events as dots under its number */
 .qc-day { position: relative; }
 .qc-dots { position: absolute; left: 0; right: 0; bottom: 4px; display: flex; justify-content: center; gap: 2px; pointer-events: none; }
 .qc-dots .cal-dot { width: 5px; height: 5px; box-shadow: 0 0 0 1px var(--bg-elev); }

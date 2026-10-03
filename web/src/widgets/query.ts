@@ -1,5 +1,6 @@
-//   ::query{folder=Projects limit=5 label="Active projects"}      ::query{tag=meeting sort=title}      ::query{q="mcp"}
-// A live list of notes matching a search, folder or tag. Updates as notes (and agents) change.
+//   ::view   ::view{folder=Projects limit=5 label="Active projects"}   ::view{tag=meeting sort=title}   ::view{q="mcp"}
+// A ::view's list of notes (its first kind, so no `show`): notes matching a search, folder or tag.
+// Updates as notes (and agents) change.
 import { api, type FeedItem } from "../api.ts";
 import { el, escapeHtml, icon, markTerms, timeAgo } from "../dom.ts";
 import { onVaultChange } from "../events.ts";
@@ -12,7 +13,7 @@ import { queryHelpLink } from "../queryHelp.ts";
 const prevent = (e: Event) => e.preventDefault();
 
 /**
- * The note query's fields, as the ::query widget's settings form shows them. (The smart folder
+ * The note query's fields, as a notes view's settings form shows them. (The smart folder
  * editor has rows of its own, over the same query text.)
  */
 export const QUERY_FIELDS: Field[] = [
@@ -32,9 +33,9 @@ export const QUERY_FIELDS: Field[] = [
 
 export const query: WidgetSpec = {
   name: "query",
-  title: "Query",
+  title: "Notes",
   icon: "feed",
-  hint: "Live list of notes by search, folder or tag",
+  hint: "A live list of notes by search, folder or tag",
   keywords: "query list notes dashboard recent folder tag search",
   defaults: { limit: "6" },
   // Filters written as keys of their own (modified>-7d, -tag=x) show in Matching, so saving the form keeps them.
@@ -47,7 +48,7 @@ export const query: WidgetSpec = {
   fields: [
     { key: "label", label: "Title", type: "text", placeholder: "Active projects, Meetings…" },
     ...QUERY_FIELDS,
-    { key: "limit", label: "Show", type: "text", placeholder: "6" },
+    { key: "limit", label: "How many", type: "text", placeholder: "6" },
   ],
 
   mount(body, env) {

@@ -54,3 +54,17 @@ export function serializeAttrs(args: Record<string, string>): string {
     });
   return parts.join(" ");
 }
+
+/**
+ * What a `::view{show=…}` can show, and so what each of its kinds is called in the markdown. The
+ * first is what a bare `::view` shows. The editor draws each kind with a widget of its own
+ * (web/src/widgets/view.ts) and an export snapshots it (web/src/export/static.ts), both keyed by these.
+ */
+export const VIEW_SHOWS = ["notes", "tasks", "month", "agenda", "today", "board"] as const;
+export type ViewShow = (typeof VIEW_SHOWS)[number];
+
+/** The kind a `::view`'s args pick (no `show` is notes), or null for a `show=` that names none. */
+export function viewShow(args: Record<string, string>): ViewShow | null {
+  const show = (args.show ?? "").trim().toLowerCase() || VIEW_SHOWS[0];
+  return (VIEW_SHOWS as readonly string[]).includes(show) ? (show as ViewShow) : null;
+}

@@ -125,7 +125,7 @@ export { isArchived } from "../../src/core/archive.ts";
 export interface SmartFolder {
   id: string;
   name: string;
-  /** As ::query args: `tag=work sort=title`. */
+  /** As a notes ::view's args: `tag=work sort=title`. */
   query: string;
   shared: boolean;
   count: number;

@@ -22,12 +22,12 @@ test("the query fields cover every query key a smart folder keeps, and the widge
   assert.deepEqual(query.fields.map((f) => f.key), ["label", ...QUERY_FIELDS.map((f) => f.key), "limit"]);
 });
 
-test("a ::query's filters written as their own keys show in Matching, so saving its settings keeps them", () => {
+test("a notes ::view's filters written as their own keys show in Matching, so saving its settings keeps them", () => {
   const form = query.formArgs!(parseAttrs('q=plan folder=A modified>-7d -tag=x label="Recent"'));
   assert.equal(serializeAttrs(fieldValues(query.fields, form)), 'label=Recent q="plan modified>-7d -tag=x" folder=A');
 });
 
-test("a ::query's grouping round-trips through its settings form", () => {
+test("a notes ::view's grouping round-trips through its settings form", () => {
   const save = (src: string) => serializeAttrs(fieldValues(query.fields, query.formArgs!(parseAttrs(src))));
   assert.equal(save(`q="(tag=work OR tag=home) -folder=Archive 'launch plan'"`), `q="(tag=work OR tag=home) -folder=Archive 'launch plan'"`);
   // A filter written as its own key joins an OR without changing it.
@@ -297,25 +297,25 @@ test("a Notes card shows a task's words, then its chips where its tokens were; c
 });
 
 test("a widget arg can compare with <, <=, > or >= and round-trips through its markdown line", () => {
-  const line = '::tasks{tag=work due<=today assignee=jane label="This week" id=k3x9q}';
+  const line = '::view{show=tasks tag=work due<=today assignee=jane label="This week" id=k3x9q}';
   const d = parseDirective(line)!;
-  assert.deepEqual(d.args, { tag: "work", due: "<=today", assignee: "jane", label: "This week", id: "k3x9q" });
+  assert.deepEqual(d.args, { show: "tasks", tag: "work", due: "<=today", assignee: "jane", label: "This week", id: "k3x9q" });
   assert.equal(serializeDirective(d), line);
-  assert.deepEqual(parseDirective("::tasks{due=2026-10-01 due>2026-01-01}")!.args, { due: ">2026-01-01" });
-  assert.equal(serializeDirective({ name: "tasks", args: { due: ">= tomorrow", label: "a<b c" } }), '::tasks{due>=tomorrow label="a<b c"}');
+  assert.deepEqual(parseDirective("::view{show=tasks due=2026-10-01 due>2026-01-01}")!.args, { show: "tasks", due: ">2026-01-01" });
+  assert.equal(serializeDirective({ name: "view", args: { show: "tasks", due: ">= tomorrow", label: "a<b c" } }), '::view{show=tasks due>=tomorrow label="a<b c"}');
 });
 
 test("a key that compares twice is a range, and start and done compare too", () => {
-  const line = "::tasks{due>=today due<=+7d priority=high start<-1m done>=-7d}";
+  const line = "::view{show=tasks due>=today due<=+7d priority=high start<-1m done>=-7d}";
   const d = parseDirective(line)!;
-  assert.deepEqual(d.args, { due: ">=today <=+7d", priority: "high", start: "<-1m", done: ">=-7d" });
+  assert.deepEqual(d.args, { show: "tasks", due: ">=today <=+7d", priority: "high", start: "<-1m", done: ">=-7d" });
   assert.equal(serializeDirective(d), line);
   // A board's done column is a name, not a comparison: it stays one value.
-  assert.equal(serializeDirective({ name: "kanban", args: { done: "Shipped today" } }), '::kanban{done="Shipped today"}');
+  assert.equal(serializeAttrs({ done: "Shipped today" }), 'done="Shipped today"');
 });
 
 test("only a key that compares is written with its operator; any other value starting with < or > is quoted", () => {
-  const d = { name: "query", args: { label: "<3 launch", q: ">foo" } };
-  assert.equal(serializeDirective(d), '::query{label="<3 launch" q=">foo"}');
+  const d = { name: "view", args: { label: "<3 launch", q: ">foo" } };
+  assert.equal(serializeDirective(d), '::view{label="<3 launch" q=">foo"}');
   assert.deepEqual(parseDirective(serializeDirective(d))!.args, d.args);
 });

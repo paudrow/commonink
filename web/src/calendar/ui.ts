@@ -1,5 +1,5 @@
 // Small pieces every event list shares: a calendar's color dot, and an event as one row with its
-// time and a meeting-note button (Today, the ::agenda widget). Event text is set as text only.
+// time and a meeting-note button (Today, a ::view's agenda). Event text is set as text only.
 import { el, icon } from "../dom.ts";
 import { toast } from "../toast.ts";
 import { connectUrl, leave, needsWrite } from "./google.ts";

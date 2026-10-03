@@ -56,9 +56,9 @@ $$
 \\int_0^1 x\\,dx
 $$
 
-::tasks{folder=Projects}
+::view{show=tasks folder=Projects}
 
-::query{folder=Projects label="Active"}
+::view{folder=Projects label="Active"}
 
 ::timer{duration=25m label="Focus"}
 
@@ -130,7 +130,7 @@ test("a note renders as static HTML: markup hidden, widgets and embeds as snapsh
   assert.ok(d.querySelector("details")!.hasAttribute("open"), "collapsed sections open for paper");
   assert.ok(d.querySelector(".cb .c-keyword"), "code is highlighted with the stable classes the export stylesheet colors");
   assert.equal(d.querySelector("table.st-props"), null, "properties are left out by default");
-  assert.equal(d.querySelector(".st-widget")!.textContent!.includes("Done already"), false, "::tasks shows open tasks, as the widget does");
+  assert.equal(d.querySelector(".st-widget")!.textContent!.includes("Done already"), false, "a tasks ::view shows open tasks, as the widget does");
   assert.ok(d.querySelector("#qd-1 style"), "a diagram keeps the style its SVG scopes to itself");
 });
 

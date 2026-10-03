@@ -77,13 +77,42 @@ export interface WidgetSpec {
   defaults: Record<string, string>;
   /** A button in the settings form that does something with the args being edited (not yet saved). */
   configAction?: { label: string; icon: string; run(args: Record<string, string>, env: WidgetEnv, anchor: HTMLElement): void };
-  /** The args as the settings form shows them, when that differs from how they're written (see ::query). */
+  /** The args as the settings form shows them, when that differs from how they're written (see the notes view, query.ts). */
   formArgs?(args: Record<string, string>): Record<string, string>;
+  /**
+   * A widget that is one of several kinds, picked by an arg (::view's `show`). The kind's spec
+   * stands in for this one everywhere: its header, fields, defaults, settings button and drawing.
+   * The settings form starts with the choice of kind; this spec's own fields and mount go unused.
+   */
+  kinds?: WidgetKinds;
   /** Build the widget body; return a cleanup function. */
   mount(body: HTMLElement, env: WidgetEnv, card: HTMLElement): () => void;
 }
 
+export interface WidgetKinds {
+  /** The arg that picks the kind (`show`). */
+  key: string;
+  /** Its row's label in the settings form. */
+  label: string;
+  /** [value, label] for each kind. The first is the default, which is left out of the markdown. */
+  options: Array<[string, string]>;
+  /** The spec for the kind these args pick (one that says so, for a value that names none). */
+  of(args: Record<string, string>): WidgetSpec;
+}
+
+/** The spec that draws these args: the kind they pick for a widget with kinds (::view), or the spec itself. */
+export const specFor = (spec: WidgetSpec, args: Record<string, string>): WidgetSpec => spec.kinds?.of(args) ?? spec;
+
+/** The args a kind reads: all but the one that picked it. */
+function kindArgs(spec: WidgetSpec, args: Record<string, string>): Record<string, string> {
+  if (!spec.kinds) return args;
+  const { [spec.kinds.key]: _, ...rest } = args;
+  return rest;
+}
+
 export function renderWidget(spec: WidgetSpec, env: WidgetEnv): { dom: HTMLElement; destroy: () => void } {
+  // A ::view draws as its kind (a list of notes, a month…), with that kind's header and class.
+  const kind = specFor(spec, env.args);
   const gear = el("button", { class: "qw-icon", type: "button", title: "Settings" }, icon("sliders", 15));
   const source =
     env.editSource && !env.readOnly
@@ -92,14 +121,14 @@ export function renderWidget(spec: WidgetSpec, env: WidgetEnv): { dom: HTMLEleme
   const head = el(
     "div",
     { class: "qw-head" },
-    el("span", { class: "qw-kind" }, icon(spec.icon, 13), spec.heading?.(env.args) ?? spec.title),
+    el("span", { class: "qw-kind" }, icon(kind.icon, 13), kind.heading?.(env.args) ?? kind.title),
     env.args.label ? el("span", { class: "qw-label" }, env.args.label) : null,
     el("span", { class: "spacer" }),
     source,
-    env.readOnly || !spec.fields.length ? null : gear,
+    env.readOnly || (!kind.fields.length && !spec.kinds) ? null : gear,
   );
   const body = el("div", { class: "qw-body" });
-  const root = el("div", { class: `qw qw-${spec.name}` }, head, body);
+  const root = el("div", { class: `qw qw-${kind.name}` }, head, body);
 
   let form: HTMLElement | null = null;
   const close = () => {
@@ -130,7 +159,10 @@ export function renderWidget(spec: WidgetSpec, env: WidgetEnv): { dom: HTMLEleme
   gear.addEventListener("mousedown", (e) => e.preventDefault());
   gear.addEventListener("click", open);
 
-  const cleanup = spec.mount(body, env, root);
+  // A kind reads its own args, without `show`; one that rewrites its line keeps the `show` it had.
+  const keep = spec.kinds && env.args[spec.kinds.key] !== undefined ? { [spec.kinds.key]: env.args[spec.kinds.key] } : {};
+  const kindEnv: WidgetEnv = kind === spec ? env : { ...env, args: kindArgs(spec, env.args), update: (next) => env.update({ ...keep, ...next }) };
+  const cleanup = kind.mount(body, kindEnv, root);
   if (env.openConfig) open();
   return { dom: root, destroy: cleanup };
 }
@@ -158,37 +190,53 @@ function configForm(
   on: { save(args: Record<string, string>): void; cancel(): void },
 ): HTMLElement {
   const args = env.args;
-  const values: Record<string, string> = { ...spec.defaults, ...(spec.formArgs?.(args) ?? args) };
+  let values = formValues(spec, args);
+  // The kind being edited (::view's Show); the spec itself for a widget of one kind.
+  let kind = specFor(spec, values);
   const preview = el("code", { class: "qw-md" });
   const save = el("button", { class: "qw-btn primary", type: "submit" }, "Save");
 
-  const normalized = () => ({ ...fieldValues(spec.fields, values), ...(args.id ? { id: args.id } : {}) });
+  const normalized = () => formResult(spec, values, args.id);
   const refresh = () => {
-    const problem = spec.fields.map((f) => f.check?.(values[f.key] ?? "")).find(Boolean);
-    const valid = !problem && spec.fields.every((f) => f.type !== "duration" || parseDuration(values[f.key]) !== null);
+    const problem = kind.fields.map((f) => f.check?.(values[f.key] ?? "")).find(Boolean);
+    const valid = !problem && kind.fields.every((f) => f.type !== "duration" || parseDuration(values[f.key]) !== null);
     save.disabled = !valid;
     preview.textContent = valid ? serializeDirective({ name: spec.name, args: normalized() }) : (problem ?? "Duration like 25m, 1h30m or 4:30");
     preview.classList.toggle("is-error", !valid);
   };
 
-  const rows = fieldRows(spec.fields, values, refresh, env.sources);
-
-  const form = el(
-    "form",
-    { class: "qw-config" },
-    ...rows,
+  // Show first, then the kind's own fields. Picking another kind swaps them, keeping only what it reads too.
+  const showRow = () => {
+    if (!spec.kinds) return [];
+    const key = spec.kinds.key;
+    const was = values[key] ?? ""; // the select has already written the new kind into values
+    return fieldRows([kindField(spec.kinds)], values, () => {
+      const to = values[key];
+      if (specFor(spec, values) === kind) return refresh();
+      values = switchKind(spec, { ...values, [key]: was }, to);
+      kind = specFor(spec, values);
+      draw();
+      env.remeasure();
+    }, env.sources);
+  };
+  const foot = () =>
     el(
       "div",
       { class: "qw-config-foot" },
       preview,
       el("span", { class: "spacer" }),
-      spec.configAction
-        ? el("button", { class: "qw-btn", type: "button", onclick: (e: Event) => spec.configAction!.run(normalized(), env, e.currentTarget as HTMLElement) }, icon(spec.configAction.icon, 13), spec.configAction.label)
+      kind.configAction
+        ? el("button", { class: "qw-btn", type: "button", onclick: (e: Event) => kind.configAction!.run(kindArgs(spec, normalized()), env, e.currentTarget as HTMLElement) }, icon(kind.configAction.icon, 13), kind.configAction.label)
         : null,
       el("button", { class: "qw-btn", type: "button", onclick: on.cancel }, "Cancel"),
       save,
-    ),
-  );
+    );
+  const form = el("form", { class: "qw-config" });
+  const draw = () => {
+    form.replaceChildren(...showRow(), ...fieldRows(kind.fields, values, refresh, env.sources), foot());
+    refresh();
+  };
+  draw();
   form.addEventListener("submit", (e) => {
     e.preventDefault();
     if (!save.disabled) on.save(normalized());
@@ -200,8 +248,40 @@ function configForm(
     }
     e.stopPropagation();
   });
-  refresh();
   return form;
+}
+
+/** The choice of kind, as a settings form row: a select whose first option is left out of the markdown. */
+const kindField = (kinds: WidgetKinds): Field => ({ key: kinds.key, label: kinds.label, type: "select", options: kinds.options });
+
+/** What a widget's settings form starts with: its kind's defaults, under the args as that form shows them. */
+export function formValues(spec: WidgetSpec, args: Record<string, string>): Record<string, string> {
+  const kind = specFor(spec, args);
+  return { ...kind.defaults, ...(kind.formArgs?.(args) ?? args) };
+}
+
+/**
+ * A settings form's values as the widget's args in the markdown: the kind first (left out when
+ * it's the first, so a list of notes is a bare `::view`), then the kind's fields, then the id.
+ */
+export function formResult(spec: WidgetSpec, values: Record<string, string>, id?: string): Record<string, string> {
+  const kind = specFor(spec, values);
+  return { ...(spec.kinds ? fieldValues([kindField(spec.kinds)], values) : {}), ...fieldValues(kind.fields, values), ...(id ? { id } : {}) };
+}
+
+/**
+ * The form's values once the kind changes to `to`: the new kind's defaults, and what was set for
+ * fields the new kind has too (a title, a folder, a tag), unless it has a default of its own there
+ * (a month's folder is the journal's) or the value was just the old kind's default. Args the new
+ * kind doesn't read go.
+ */
+export function switchKind(spec: WidgetSpec, values: Record<string, string>, to: string): Record<string, string> {
+  const key = spec.kinds?.key ?? "";
+  const from = specFor(spec, values);
+  const kind = specFor(spec, { [key]: to });
+  const chosen = (k: string) => !!values[k]?.trim() && values[k] !== from.defaults[k];
+  const kept = kind.fields.filter((f) => f.key !== key && chosen(f.key) && !(f.key in kind.defaults)).map((f) => [f.key, values[f.key]]);
+  return { [key]: to, ...kind.defaults, ...Object.fromEntries(kept) };
 }
 
 /** The fields' values as they go in the markdown: durations tidied, defaults (on toggles, first options) and blanks left out. */

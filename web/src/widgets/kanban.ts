@@ -1,4 +1,4 @@
-//   ::kanban{note="Launch"}   ::kanban{note="Launch" board=2}
+//   ::view{show=board note="Launch"}   ::view{show=board note="Launch" board=2}
 // Another note's Kanban board, live: moving a card here saves that note. A board in the note
 // itself is a `:::kanban` block, which the editor draws with the same board (see editor/blocks.ts).
 import { api } from "../api.ts";

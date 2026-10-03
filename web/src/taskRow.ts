@@ -1,4 +1,4 @@
-// One task in a list (Tasks, ::tasks, Today): its checkbox, its words, its chips in the fixed
+// One task in a list (Tasks, a tasks ::view, Today): its checkbox, its words, its chips in the fixed
 // order, and its ⚙ and ↗ buttons. Click the words to edit them in place, a chip to edit that token,
 // ⌘/Ctrl-click to open the note at the line. Every change goes to the note the task lives in.
 import { marked } from "marked";

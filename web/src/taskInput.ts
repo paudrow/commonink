@@ -1,5 +1,5 @@
 // The one place a task is typed: the quick-add bar, the Tasks page's inline edit, a Kanban card,
-// and a ::tasks widget's add row all use this. Phrases the quick-add parser reads ("tomorrow",
+// and a tasks ::view's add row all use this. Phrases the quick-add parser reads ("tomorrow",
 // "every month on the 1st") light up as you type and the chips under it show what will be written;
 // a click on a lit phrase keeps it as words. `#`, `@` and `[[` suggest tags, people and notes. It's
 // a small CodeMirror, with Vim when the app's Vim setting is on: then it opens in insert mode, Esc

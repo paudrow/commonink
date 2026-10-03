@@ -1,4 +1,4 @@
-// Clearing Today. When a box you tick in this tab (in Tasks, the ::today widget, a note's card or
+// Clearing Today. When a box you tick in this tab (in Tasks, a ::view{show=today}, a note's card or
 // the editor) takes the last open task off Today, a small ink burst rings that box and a toast says
 // today's tasks are done. It happens at most once a day in this browser, never for someone else's
 // change arriving live, and with Reduce motion on there's only the toast. A workspace that isn't

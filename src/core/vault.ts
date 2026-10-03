@@ -260,7 +260,7 @@ export interface TagCount {
 export interface SmartFolder {
   id: string;
   name: string;
-  /** As ::query args: `tag=work sort=title`. */
+  /** As a notes ::view's args: `tag=work sort=title`. */
   query: string;
   /** Shared with the whole workspace, rather than just the person who sees it. */
   shared: boolean;
