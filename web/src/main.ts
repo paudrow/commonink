@@ -2442,7 +2442,7 @@ function renderSmartFolders(active: string | null) {
       el("span", { class: "n" }, String(f.count)),
       el("span", { class: "row-actions" }, smartStarButton(f), editable ? edit : null),
     );
-    dragsPage(row, f.name, show);
+    dragsPage(row, f.name, () => showNotes({ tab: "notes", query: parseQuery(f.query) }));
     rowMenu(row, f.name, () => [
       { label: "Show notes", icon: "folderSearch", run: show },
       pageTabItem(show),
