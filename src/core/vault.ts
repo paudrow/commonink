@@ -71,9 +71,16 @@ export interface TagFavorite {
   display: string;
   notes: number;
 }
-/** A favorite is a note or a tag, in one order. */
-export type Favorite = NoteMeta | TagFavorite;
+/** A smart folder in someone's favorites: the folder (see SmartFolder), marked as one. */
+export interface SmartFavorite extends SmartFolder {
+  smartFolder: true;
+}
+/** A favorite is a note, a tag or a smart folder, in one order. */
+export type Favorite = NoteMeta | TagFavorite | SmartFavorite;
 export const isTagFavorite = (f: Favorite): f is TagFavorite => "tag" in f;
+export const isSmartFavorite = (f: Favorite): f is SmartFavorite => "smartFolder" in f;
+/** A smart folder favorite's key: "~" + its ID (which is shaped like a note's, so it needs the mark). */
+const smartKey = (id: string) => `~${id}`;
 /**
  * A tag favorite's key in the favorites table: "#" + the tag. Note IDs never hold a "#", so the two
  * can't collide, and rows from before tag favorites need nothing done to them.
@@ -844,7 +851,7 @@ export class Vault {
     const { expr, sort: sortInQ } = parse(query.q ?? "");
     const sort = sortInQ ?? query.sort;
     let rows = all;
-    // The folder key (`A|B` is either) and tag key (`work,plan` is the notes with both) narrow the rows first.
+    // The folder key (`A|B` is either) and tag key (`work,plan` is the notes with both, `match=any` either) narrow the rows first.
     if (query.folder) {
       const folders = folderList(query.folder);
       rows = rows.filter((r) => inFolders(homeOf(r.path), folders));
@@ -854,10 +861,9 @@ export class Vault {
       const key = normalizeTag(tag);
       return new Set(key ? this.db.all<{ path: string }>(`SELECT DISTINCT path FROM tags WHERE kind != 'task' AND ${UNDER}`, ...under(key)).map((r) => r.path) : []);
     };
-    for (const tag of tagList(query.tag)) {
-      const on = tagged(tag);
-      rows = rows.filter((r) => on.has(r.path));
-    }
+    // The tag key's tags: all of them, or with match=any, one.
+    const keyed = tagList(query.tag).map(tagged);
+    if (keyed.length) rows = rows.filter((r) => (query.match === "any" ? keyed.some((t) => t.has(r.path)) : keyed.every((t) => t.has(r.path))));
     // Dates go by day, in this core's time zone (see dayPasses).
     const created = termsOf(expr).some((t) => t.kind === "date" && t.field === "created") || sort === "created" ? this.createdTimes() : null;
     const createdOf = (r: (typeof rows)[number]) => Math.min(created?.get(r.id) ?? r.mtime, r.mtime);
@@ -890,10 +896,11 @@ export class Vault {
     if (sort === "created") rows = [...rows].sort((a, b) => createdOf(b) - createdOf(a));
     if (sort === "title") rows = [...rows].sort((a, b) => a.title.localeCompare(b.title));
     if (sort === "date" || sort === "oldest") {
-      // A note's own date, else the day it last changed; the same day goes by when it changed.
-      const day = (r: (typeof rows)[number]) => r.date ?? new Date(r.mtime).toISOString().slice(0, 10);
+      // A note's own date, else the day it last changed in the vault's time zone; the same day goes by when it changed.
+      // Worked out once per note: localDate builds a formatter each call, too slow inside a sort.
+      const day = new Map(rows.map((r) => [r, r.date ?? localDate(r.mtime, this.timeZone)]));
       const dir = sort === "date" ? -1 : 1;
-      rows = [...rows].sort((a, b) => dir * (day(a).localeCompare(day(b)) || a.mtime - b.mtime));
+      rows = [...rows].sort((a, b) => dir * (day.get(a)!.localeCompare(day.get(b)!) || a.mtime - b.mtime));
     }
     return rows;
   }
@@ -1405,7 +1412,15 @@ export class Vault {
    */
   favorites(user: string): Favorite[] {
     const out: Favorite[] = [];
+    let smart: Map<string, SmartFolder> | null = null;
     for (const f of this.db.all<{ note_id: string; path: string }>("SELECT note_id, path FROM favorites WHERE user = ? ORDER BY pos", user)) {
+      // A starred smart folder they can still see (one made just someone else's drops out).
+      if (f.note_id.startsWith("~")) {
+        smart ??= new Map(this.smartFolders(user).map((s) => [s.id, s]));
+        const s = smart.get(f.note_id.slice(1));
+        if (s) out.push({ ...s, smartFolder: true });
+        continue;
+      }
       if (f.note_id.startsWith("#")) {
         const t = this.tagInUse(f.note_id.slice(1));
         if (t) out.push(t);
@@ -1458,6 +1473,18 @@ export class Vault {
     return this.favorites(user);
   }
 
+  /** Star a smart folder (a name or ID, as list_smart_folders gives) at the end of `user`'s favorites. */
+  starSmartFolder(user: string, target: string): Favorite[] {
+    const f = this.findSmartFolder(user, target);
+    this.addFavorite(user, smartKey(f.id), f.name);
+    return this.favorites(user);
+  }
+
+  unstarSmartFolder(user: string, target: string): Favorite[] {
+    this.db.run("DELETE FROM favorites WHERE user = ? AND note_id = ?", user, smartKey(this.findSmartFolder(user, target).id));
+    return this.favorites(user);
+  }
+
   private addFavorite(user: string, key: string, path: string) {
     this.db.run(
       `INSERT INTO favorites(user, note_id, path, pos)
@@ -1468,12 +1495,13 @@ export class Vault {
 
   /**
    * Put these favorites first, in this order; the rest follow in the order they had, stars whose
-   * note is gone included. A `#tag` target is a starred tag.
+   * note is gone included. A `#tag` target is a starred tag, and `~name` (or `~id`) a starred smart folder.
    */
   orderFavorites(user: string, targets: string[]): Favorite[] {
     this.favorites(user); // rebinds stars to their notes' current IDs
     const starred = this.db.all<{ note_id: string }>("SELECT note_id FROM favorites WHERE user = ? ORDER BY pos", user).map((f) => f.note_id);
-    const first = targets.map((t) => (t.startsWith("#") ? tagKey(normalizeTag(t) ?? "") : this.metaOf(t).id)).filter((id) => starred.includes(id));
+    const key = (t: string) => (t.startsWith("#") ? tagKey(normalizeTag(t) ?? "") : t.startsWith("~") ? smartKey(this.findSmartFolder(user, t.slice(1)).id) : this.metaOf(t).id);
+    const first = targets.map(key).filter((id) => starred.includes(id));
     const order = [...new Set([...first, ...starred])];
     this.db.tx(() => order.forEach((id, i) => this.db.run("UPDATE favorites SET pos = ? WHERE user = ? AND note_id = ?", i + 1, user, id)));
     return this.favorites(user);
@@ -1551,6 +1579,7 @@ export class Vault {
     const f = this.findSmartFolder(user, target, idOnly);
     if (f.shared && !canEditShared) throw new VaultError("Only editors can delete shared smart folders.", "forbidden");
     this.db.run("DELETE FROM smart_folders WHERE id = ?", f.id);
+    this.db.run("DELETE FROM favorites WHERE note_id = ?", smartKey(f.id));
     return this.smartFolders(user);
   }
 
@@ -1693,6 +1722,7 @@ export class Vault {
     const rows = this.db.all<{ path: string; title: string }>("SELECT path, title FROM notes WHERE kind = 'md' ORDER BY path");
     const notes: ReplacedNote[] = [];
     const edits: Array<{ path: string; content: string; version: string; change: Change }> = [];
+    const pending: Array<{ path: string; before: string; after: string }> = [];
     for (const r of rows) {
       if (isArchived(r.path) || !r.path.startsWith(folder)) continue;
       const before = this.files.read(r.path);
@@ -1701,8 +1731,13 @@ export class Vault {
       if (done.content === before) continue;
       notes.push({ path: r.path, title: r.title, count: done.count, lines: done.lines.slice(0, 20) });
       if (opts.dryRun) continue;
-      const c = this.commit(r.path, before, done.content, source, "edit");
-      if (c.change) edits.push({ path: r.path, content: done.content, version: c.version, change: c.change });
+      // Check every note fits before writing any, so one note over the limit leaves them all as they were.
+      this.checkSize(r.path, done.content);
+      pending.push({ path: r.path, before, after: done.content });
+    }
+    for (const p of pending) {
+      const c = this.commit(p.path, p.before, p.after, source, "edit");
+      if (c.change) edits.push({ path: p.path, content: p.after, version: c.version, change: c.change });
     }
     return { notes, edits };
   }
@@ -1759,11 +1794,15 @@ export class Vault {
 
   // ---------------------------------------------------------------- writing
 
-  private commit(rel: string, before: string | null, after: string, source: string, op: Change["op"], autosave = false) {
-    // Every write through the core lands here, so one limit covers the API, MCP, the CLI and online.
+  private checkSize(rel: string, after: string) {
     if (after.length > this.maxNoteBytes / 4 && new TextEncoder().encode(after).length > this.maxNoteBytes) {
       throw new VaultError(`${rel} would be over ${Math.round(this.maxNoteBytes / 1024 / 1024)} MB, the most a note can hold`, "invalid");
     }
+  }
+
+  private commit(rel: string, before: string | null, after: string, source: string, op: Change["op"], autosave = false) {
+    // Every write through the core lands here, so one limit covers the API, MCP, the CLI and online.
+    this.checkSize(rel, after);
     this.files.write(rel, after);
     const sitting = autosave && op === "edit" && before !== null ? this.sittingOf(rel, actorOf(source).source, before) : null;
     const meta = this.indexFile(rel, after)!;
@@ -2219,7 +2258,7 @@ export class Vault {
   /** The notes and assets under `folder` (active and archived alike, since a folder holds both). */
   private under(folder: string): string[] {
     const dir = cleanPath(folder);
-    return this.db.all<{ path: string }>("SELECT path FROM notes WHERE substr(path, 1, ?) = ? ORDER BY path", dir.length + 1, `${dir}/`).map((r) => r.path);
+    return this.db.all<{ path: string }>("SELECT path FROM notes WHERE substr(path, 1, length(?)) = ? ORDER BY path", `${dir}/`, `${dir}/`).map((r) => r.path);
   }
 
   /** What deleting these notes (or everything in `folder`) would touch. */
@@ -2290,10 +2329,32 @@ export class Vault {
     // Only the case changing ("ideas" to "Ideas"): a case-insensitive disk would keep the folder's old
     // spelling under renamed files, so it goes by way of another name.
     if (dest.toLowerCase() === from.toLowerCase()) {
+      // Checked first: on a case-sensitive disk `dest` can be another folder, but on one that ignores
+      // case it's this one, whose files are the same files.
+      if (this.files.listUnder(dest).some((f) => !this.files.same(f.path, from + f.path.slice(dest.length)))) {
+        throw new VaultError(`There's already a folder named ${dest}`, "exists");
+      }
       let via = `${from} (renaming)`;
-      for (let i = 2; this.files.listUnder(via).length; i++) via = `${from} (renaming ${i})`;
+      for (let i = 2; this.files.listUnder(via).length || this.files.listUnder(`${ARCHIVE}${via}`).length; i++) via = `${from} (renaming ${i})`;
+      // What isn't a note (.DS_Store, say) goes too, or the old folder would stay under its old spelling.
+      const carry = (a: string, b: string) => {
+        for (const d of [a, `${ARCHIVE}${a}`]) {
+          const to = d === a ? b : `${ARCHIVE}${b}`;
+          for (const f of this.files.listUnder(d)) if (!this.files.stat(to + f.path.slice(d.length))) this.files.rename(f.path, to + f.path.slice(d.length));
+          this.files.prune?.(d);
+        }
+      };
       const first = this.moveFolder(from, via, source);
-      const r = this.moveFolder(via, dest, source);
+      carry(from, via);
+      let r: ReturnType<Vault["moveFolder"]>;
+      try {
+        r = this.moveFolder(via, dest, source);
+      } catch (e) {
+        this.moveFolder(via, from, source); // put it all back as it was
+        carry(via, from);
+        throw e;
+      }
+      carry(via, dest);
       const was = new Map(first.moved.map((m) => [m.path, m.from]));
       return { ...r, from, moved: r.moved.map((m) => ({ ...m, from: was.get(m.from) ?? m.from })) };
     }

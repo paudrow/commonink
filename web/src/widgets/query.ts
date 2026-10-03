@@ -18,8 +18,8 @@ const prevent = (e: Event) => e.preventDefault();
 const BUILT_IN = ["tags", "folder", "modified"];
 
 /**
- * The note query's fields, as the settings form shows them. The ::query widget and the smart
- * folder editor both use this list, so a query term added here shows up in both.
+ * The note query's fields, as the ::query widget's settings form shows them. (The smart folder
+ * editor has rows of its own, over the same query text.)
  */
 export const QUERY_FIELDS: Field[] = [
   {
@@ -32,12 +32,13 @@ export const QUERY_FIELDS: Field[] = [
   },
   { key: "folder", label: "Folder", type: "text", placeholder: "e.g. Projects", picker: "folder" },
   { key: "tag", label: "Tags", type: "text", placeholder: "e.g. meeting (includes meeting/…), or meeting, client for both", picker: "tag" },
+  { key: "match", label: "Combine", type: "select", options: [["all", "Match all of them"], ["any", "Match any of them"]] },
   { key: "sort", label: "Sort", type: "select", options: [["modified", "Recently changed"], ["date", "Newest by date"], ["oldest", "Oldest by date"], ["title", "By title"], ["created", "Newest created"]] },
 ];
 
 export const query: WidgetSpec = {
   name: "query",
-  title: "Notes",
+  title: "Query",
   icon: "feed",
   hint: "Live list or table of notes by search, folder, tag or property",
   keywords: "query list notes dashboard recent folder tag search",

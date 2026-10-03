@@ -63,6 +63,14 @@ test("sort is modified, date, oldest or title, and modified goes unsaid", () => 
   assert.deepEqual(toQuery({ tag: "work,plan", sort: "date" }), { tag: "work,plan", sort: "date" });
 });
 
+test("match=any makes several tags an or, and is dropped with fewer than two", () => {
+  assert.deepEqual(parseQuery("tag=work,plan match=any"), { tag: "work,plan", match: "any" });
+  assert.equal(formatQuery(parseQuery("tag=work tag=plan match=any")), 'tag="work,plan" match=any');
+  assert.deepEqual(parseQuery("tag=work match=any"), { tag: "work" });
+  assert.equal(formatQuery(parseQuery("tag=work,plan match=all")), 'tag="work,plan"');
+  assert.equal(queryProblem("tag=a,b match=some"), '"match" is all or any, not "some"');
+});
+
 // ---------------------------------------------------------------- the words in q (grammar v2)
 
 const DAY = 86_400_000;
@@ -252,4 +260,26 @@ test("the feed hands over the properties a table asks for, each with its values"
   assert.equal(vault.feed({ folder: "Projects" }).items[0].props, undefined);
   // A ::query's view and cols aren't filters.
   assert.deepEqual(toQuery({ folder: "Projects", view: "table", cols: "status,due" }), { folder: "Projects" });
+});
+
+test("several folders are any of them, written with | or as folder= more than once", () => {
+  assert.deepEqual(parseQuery("folder=Projects folder=/Areas/Health and Fitness/"), { folder: "Projects|Areas/Health and Fitness" });
+  assert.equal(formatQuery(parseQuery('folder="Projects|Areas|Projects"')), 'folder="Projects|Areas"');
+  assert.equal(queryProblem('folder="Projects|Areas"'), null);
+});
+
+test("an apostrophe inside a word is part of it; a ' only quotes at the start of a value", () => {
+  assert.deepEqual(parseQuery("folder=Bob's Notes"), { folder: "Bob's Notes" });
+  assert.equal(queryProblem("folder=Bob's Notes"), null);
+  assert.deepEqual(parseQuery("q=don't stop"), { q: "don't stop" });
+  assert.deepEqual(parseQuery("q=stop don't tag=work"), { q: "stop don't", tag: "work" });
+  assert.equal(queryProblem("q=don't stop"), null);
+  // Quoting still works either way, and a ' left open is called out as one.
+  assert.deepEqual(parseQuery(`q='launch plan' folder="Bob's Notes"`), { q: "launch plan", folder: "Bob's Notes" });
+  assert.equal(queryProblem("q='abc"), "A quote isn't closed");
+  assert.equal(queryProblem("sort=title 'abc'"), 'Give "abc" a value, like abc=…');
+  // What the app writes reads back the same (a " in a value is written as ').
+  assert.deepEqual(parseQuery(formatQuery({ folder: "Bob's Notes" })), { folder: "Bob's Notes" });
+  assert.deepEqual(parseQuery(formatQuery({ q: "don't stop", tag: "work" })), { q: "don't stop", tag: "work" });
+  assert.deepEqual(parseQuery(formatQuery({ q: 'say "hi"' })), { q: "say 'hi'" });
 });

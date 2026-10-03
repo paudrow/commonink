@@ -8,10 +8,15 @@ export interface Entry {
   lines: string[];
 }
 
-const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
+// A leading byte-order mark (Windows editors write one) still starts the frontmatter.
+const FRONTMATTER = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 
-/** A note's frontmatter entries, in order, and the text after the frontmatter. */
+/**
+ * A note's frontmatter entries, in order, and the text after the frontmatter. The body never keeps
+ * a leading byte-order mark, so `frontmatterText(entries) + body` writes one block, not a second.
+ */
 export function frontmatterEntries(md: string): { entries: Entry[]; body: string; had: boolean } {
+  md = md.replace(/^\uFEFF/, "");
   const m = md.match(FRONTMATTER);
   if (!m) return { entries: [], body: md, had: false };
   const out: Entry[] = [];
@@ -40,14 +45,22 @@ function unquote(s: string): string {
   return t;
 }
 
-/** Split on commas that aren't inside quotes. */
+/**
+ * Split on commas that aren't inside quotes. A quote opens only at the start of an item (`Dan's` is
+ * plain text), and `\"` in double quotes or `''` in single quotes doesn't close it.
+ */
 function splitItems(s: string): string[] {
   const out: string[] = [];
   let cur = "";
   let q: string | null = null;
-  for (const ch of s) {
-    if (q) (cur += ch), ch === q && (q = null);
-    else if (ch === '"' || ch === "'") (cur += ch), (q = ch);
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (q) {
+      cur += ch;
+      if (q === '"' && ch === "\\" && i + 1 < s.length) cur += s[++i];
+      else if (ch === "'" && q === "'" && s[i + 1] === "'") cur += s[++i];
+      else if (ch === q) q = null;
+    } else if ((ch === '"' || ch === "'") && !cur.trim()) (cur += ch), (q = ch);
     else if (ch === ",") out.push(cur), (cur = "");
     else cur += ch;
   }
