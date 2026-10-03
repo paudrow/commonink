@@ -26,6 +26,8 @@ const app = (over: Partial<App> = {}): App => {
     canSubscribe: true,
     canConnectGoogle: false,
     folds: 0,
+    tag: null,
+    notesFiltered: false,
     renames: null,
     account: [],
     newNote: run("newNote"),
@@ -34,6 +36,12 @@ const app = (over: Partial<App> = {}): App => {
     newFolder: run("newFolder"),
     newTag: run("newTag"),
     newSmartFolder: run("newSmartFolder"),
+    saveFilters: run("saveFilters"),
+    starTag: run("starTag"),
+    renameTag: run("renameTag"),
+    newContact: run("newContact"),
+    importContacts: run("importContacts"),
+    restoreVersion: run("restoreVersion"),
     go: (page) => void ran.push(`go:${page}`),
     filterNotes: run("filterNotes"),
     quickAdd: run("quickAdd"),
@@ -102,20 +110,20 @@ test("commands follow the app: vim's state, the open note, Getting started, and 
   assert.deepEqual(titles("gj", app({ vim: false })), []);
   assert.deepEqual(titles("line numbers", app()).slice(0, 1), ["Show line numbers"]);
   assert.deepEqual(titles("line numbers", app({ lineNumbers: true })).slice(0, 1), ["Hide line numbers"]);
-  // "Subscribe to a calendar…" spells s-t-a-r too, after any star command.
-  assert.deepEqual(titles("star", app()), ["Subscribe to a calendar…"], "no note to star");
-  assert.deepEqual(titles("star", app({ note: { kind: "md", starred: true, archived: false } })), ["Unstar note", "Subscribe to a calendar…"]);
+  // "Subscribe to a calendar…" spells s-t-a-r too, after any star command. A tag can always be starred.
+  assert.deepEqual(titles("star", app()), ["Star or unstar a tag…", "Subscribe to a calendar…"], "no note to star");
+  assert.deepEqual(titles("star", app({ note: { kind: "md", starred: true, archived: false } })).slice(0, 2), ["Star or unstar a tag…", "Unstar note"]);
   assert.deepEqual(titles("html", app({ note: { kind: "html", starred: false, archived: false }, htmlMode: "preview" })), ["Show HTML source", "Share…"]);
   assert.deepEqual(titles("go back", app()), [], "nowhere to go back to");
-  assert.deepEqual(titles("rename", app()), ["Go to Tags"], "nothing to rename");
+  assert.deepEqual(titles("rename", app()), ["Rename a tag…", "Go to Tags"], "nothing showing to rename, but a tag can be picked");
   assert.deepEqual(titles("rename", app({ renames: "note", canDelete: false })), ["Go to Tags"], "a viewer can't rename");
   const rename = matchCommands("rename", appCommands(app({ renames: "note" })));
-  assert.deepEqual(rename.map((c) => c.title), ["Rename note…", "Go to Tags"]);
+  assert.deepEqual(rename.map((c) => c.title), ["Rename note…", "Rename a tag…", "Go to Tags"]);
   assert.deepEqual(rename[0].keys, ["F2"]);
   rename[0].run();
   assert.equal(ran.at(-1), "rename");
   // One Rename… for whatever is showing: Notes narrowed to a folder renames the folder, and so on.
-  for (const what of ["folder", "tag", "smart folder", "file"] as const) assert.equal(titles("rename", app({ renames: what }))[0], `Rename ${what}…`);
+  for (const what of ["folder", "tag", "smart folder", "file"] as const) assert.ok(titles("rename", app({ renames: what })).includes(`Rename ${what}…`));
   const moving = appCommands(app({ canBack: true, canForward: true, onLink: true, note: { kind: "md", starred: false, archived: false } })).filter((c) => ["back", "forward", "follow-link"].includes(c.id));
   assert.deepEqual(moving.map((c) => [c.title, c.keys?.[0]]), [["Go back", "Mod-["], ["Go forward", "Mod-]"], ["Follow link", undefined]]);
   moving.forEach((c) => c.run());
@@ -362,4 +370,130 @@ test("the block commands are worded plainly, and the note's web address says it'
   assert.equal(title("copy-block-embed"), "Copy embed of this paragraph or selection");
   md.find((c) => c.id === "copy-block-embed")!.run();
   assert.equal(ran.at(-1), "copyBlockEmbed");
+});
+
+test("the tag in view can be starred and renamed from the palette, or a tag picked when none is", () => {
+  assert.deepEqual(titles("star tag", app()).slice(0, 1), ["Star or unstar a tag…"]);
+  assert.deepEqual(titles("star", app({ tag: { name: "work", starred: false } })).filter((t) => t.includes("#")), ["Star #work"]);
+  assert.deepEqual(titles("unstar", app({ tag: { name: "work", starred: true } })).slice(0, 1), ["Unstar #work"]);
+  // With a tag in view, Rename… renames it; Rename tag… (pick one) steps aside.
+  assert.deepEqual(titles("rename", app({ tag: { name: "work", starred: false }, renames: "tag" })).filter((t) => t.startsWith("Rename")), ["Rename tag…"]);
+  assert.equal(matchCommands("rename", appCommands(app({ tag: { name: "work", starred: false }, renames: "tag" }))).find((c) => c.title === "Rename tag…")!.id, "rename");
+  assert.deepEqual(titles("rename tag", app({ canDelete: false })).filter((t) => t.startsWith("Rename")), []);
+});
+
+test("saving filters as a smart folder is offered only when Notes has filters on", () => {
+  assert.deepEqual(titles("save filters", app()).filter((t) => t.startsWith("Save these")), []);
+  assert.deepEqual(titles("save filters", app({ notesFiltered: true })).slice(0, 1), ["Save these filters as a smart folder"]);
+});
+
+test("a note can go back to a labeled version, and archive turns into unarchive on an archived note", () => {
+  const note = { kind: "md" as const, starred: false, archived: true };
+  assert.deepEqual(titles("restore version", app({ note })).slice(0, 1), ["Restore to a named version…"]);
+  assert.deepEqual(titles("restore version", app({ note, canDelete: false })).filter((t) => t.startsWith("Restore")), []);
+  assert.deepEqual(titles("unarchive", app({ note })).slice(0, 1), ["Unarchive note"]);
+});
+
+// Every CLI command (and so every MCP tool) is something the palette can do, or says here why it
+// isn't a verb there. A new command fails the test below until it's one or the other, so the two
+// lists can't drift apart unnoticed.
+const IN_PALETTE: Record<string, string> = {
+  ls: "go:notes",
+  backlinks: "panel",
+  create: "new-note",
+  import: "import-notes",
+  mv: "move",
+  archive: "archive",
+  unarchive: "archive",
+  delete: "delete",
+  templates: "new-from-template",
+  new: "new-from-template",
+  export: "export-workspace",
+  changes: "go:history",
+  diff: "note-history",
+  restore: "note-history",
+  trash: "go:trash",
+  "trash restore": "go:trash",
+  tasks: "go:tasks",
+  "task add": "quick-add",
+  today: "go:today",
+  journal: "go:today",
+  contacts: "go:contacts",
+  contact: "go:contacts",
+  "contact add": "new-contact",
+  "contacts import": "import-contacts",
+  tags: "go:tags",
+  "tag rename": "rename-tag",
+  "folder rename": "rename",
+  replace: "replace-across",
+  checkup: "go:checkup",
+  "save-to-drive": "save-to-drive",
+  "smart-save": "save-filters",
+  star: "star",
+  unstar: "star",
+  "star-tag": "star-tag",
+  "unstar-tag": "star-tag",
+  label: "label-version",
+  labels: "note-labels",
+  "label-diff": "note-labels",
+  "label-restore": "restore-version",
+  events: "go:calendar",
+  event: "go:calendar",
+  calendars: "go:calendar",
+  "calendars add": "subscribe-calendar",
+  "calendars refresh": "refresh-calendars",
+  shares: "share-people",
+  share: "share-people",
+  unshare: "share-people",
+};
+const SETTINGS = "a workspace setting, in the account menu's Workspace settings (online, ⌘K lists the menu's actions)";
+const NOT_A_VERB: Record<string, string> = {
+  search: "⌘K itself searches notes as you type",
+  read: "reading a note is opening it, from ⌘K",
+  "missing-links": "the editor marks a link to a note that doesn't exist, and clicking it makes the note",
+  edit: "editing is typing in the editor",
+  append: "editing is typing in the editor",
+  write: "editing is typing in the editor",
+  folders: "the sidebar's Folders section lists them",
+  "folder delete": "a folder's own menu in the sidebar",
+  upload: "drop files on a note or on Assets",
+  download: "an asset's own Download button",
+  "task update": "a task's chips and ⚙ menu change it where it is",
+  "task move": "a task's ⚙ menu has Move to…, and the palette has no task in focus to move",
+  "task remove": "a task's ⚙ menu, or deleting its line",
+  "contact update": "a contact's page edits its fields in place",
+  "contacts merge": "a contact's page has Merge…",
+  board: "a board is read by opening its note",
+  "card add": "cards are added on the board itself",
+  "card move": "cards are dragged on the board itself",
+  "card edit": "cards are edited on the board itself",
+  "tag asset": "an asset's tag chips on Assets",
+  smart: "the sidebar's Smart folders section lists them",
+  "smart-rm": "a smart folder's own menu in the sidebar",
+  "smart-star": "a smart folder's star, on its row in the sidebar or beside the Notes filters",
+  "smart-unstar": "a smart folder's star, on its row in the sidebar or beside the Notes filters",
+  "starred order": "favorites are dragged into order in the sidebar",
+  "label-rename": "a label's own buttons in History",
+  "label-rm": "a label's own buttons in History",
+  "meeting-note": "an event's Meeting note button on the Calendar page",
+  "calendars remove": "the Calendars dialog on the Calendar page",
+  members: SETTINGS,
+  "member role": SETTINGS,
+  "member remove": SETTINGS,
+  leave: SETTINGS,
+  invite: SETTINGS,
+  invites: SETTINGS,
+  "invites revoke": SETTINGS,
+  "workspace rename": SETTINGS,
+  "workspace log": SETTINGS,
+};
+
+test("every CLI command and MCP tool is a palette command, or is listed with why it isn't one", async () => {
+  const { COMMANDS } = await import("../src/core/commands/index.ts");
+  const ids = new Set(appCommands(app()).map((c) => c.id));
+  const cli = COMMANDS.map((c) => c.cli);
+  assert.deepEqual(cli.filter((c) => !(c in IN_PALETTE) && !(c in NOT_A_VERB)), [], "add each to IN_PALETTE (with its palette command's id) or NOT_A_VERB (with why)");
+  assert.deepEqual(cli.filter((c) => c in IN_PALETTE && c in NOT_A_VERB), [], "a command is in one list, not both");
+  assert.deepEqual([...Object.keys(IN_PALETTE), ...Object.keys(NOT_A_VERB)].filter((c) => !cli.includes(c)), [], "no longer a command");
+  assert.deepEqual(Object.entries(IN_PALETTE).filter(([, id]) => !ids.has(id)), [], "no such palette command");
 });
