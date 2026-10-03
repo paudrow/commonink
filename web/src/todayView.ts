@@ -8,6 +8,7 @@ import { el } from "./dom.ts";
 import { gamified } from "./gamify.ts";
 import { quickAddBar } from "./quickAdd.ts";
 import { today } from "./taskChips.ts";
+import { todayPageRing } from "./todayRing.ts";
 import { mountWeekRecap } from "./weekRecapCard.ts";
 import { WIDGETS } from "./widgets/index.ts";
 
@@ -46,11 +47,12 @@ export function renderTodayPage(root: HTMLElement, hooks: TodayHooks): () => voi
   const decisions = el("div", { class: "td-decisions" });
   const day = el("div");
   const week = el("div", { class: "td-week" });
+  const ring = gamified() ? todayPageRing() : null; // how much of today is ticked, as in the sidebar
   root.replaceChildren(
     el(
       "div",
       { class: "page" },
-      el("header", { class: "page-head" }, el("h1", {}, "Today"), el("p", { class: "page-sub" }, date)),
+      el("header", { class: "page-head" }, el("h1", {}, "Today"), el("p", { class: "page-sub td-sub" }, el("span", {}, date), ring?.root ?? "")),
       quickAddBar({ added: () => {}, open: hooks.open }).root, // the day below reloads when the note changes
       decisions,
       day,
@@ -60,5 +62,5 @@ export function renderTodayPage(root: HTMLElement, hooks: TodayHooks): () => voi
   const unmountDecisions = mountDecisions(decisions, root, { open: (path) => hooks.open(path) });
   const unmountDay = mountDay(day, hooks);
   const unmountWeek = gamified() ? mountWeekRecap(week, (path) => hooks.open(path)) : () => {};
-  return () => (unmountDecisions(), unmountDay(), unmountWeek());
+  return () => (unmountDecisions(), unmountDay(), unmountWeek(), ring?.stop());
 }

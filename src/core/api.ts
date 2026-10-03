@@ -33,6 +33,10 @@ export interface ApiHost {
   tree(): void;
   /** A folder was renamed or moved (online: its shares go with it). */
   folderMoved?(from: string, to: string): Promise<void>;
+  /** Before a folder is renamed or moved (online): throws if its new name still has shares of its own. */
+  folderMoving?(from: string, to: string): Promise<void>;
+  /** A folder was deleted (online: its shares stop); how many shares stopped. */
+  folderDeleted?(folder: string): Promise<number>;
   /** The workspace's calendars, where the host can sync them (both hosts today). */
   calendar?: Calendar;
   /** Calendars or their events changed: tell connected clients (and reschedule syncing). */
@@ -250,6 +254,7 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
           scope: qScope(),
           folder: q("folder") || undefined,
           tag: q("tag") || undefined,
+          match: q("match") === "any" ? "any" : undefined,
           sort: [q("sort")].find(isSort) ?? "modified",
           offset: qCount("offset", 0, Infinity),
           limit: qCount("limit", 30, Infinity), // the feed re-fetches everything it has shown
@@ -395,8 +400,11 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       }
       const existing = optStr("existing");
       if (existing !== undefined && !ON_EXISTING.includes(existing as OnExisting)) throw new VaultError(`"existing" must be ${ON_EXISTING.join(" or ")}`);
-      const r = await writeImport(vault, pairsImport(notes as Record<string, string>, optStr("folder")), { existing: existing as OnExisting | undefined, source: actor });
-      for (const p of [...r.created, ...r.replaced]) host.written(p, vault.files.read(p), vault.meta(p)?.version ?? "", null);
+      const r = await writeImport(vault, pairsImport(notes as Record<string, string>, optStr("folder")), {
+        existing: existing as OnExisting | undefined,
+        source: actor,
+        written: (p, content, version, change) => host.written(p, content, version, change),
+      });
       if (r.created.length) host.tree();
       return json(r);
     }
@@ -551,10 +559,12 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       if (r.change) host.written(r.path, vault.files.read(r.path), r.version, r.change);
       return json({ path: r.path, version: r.version, change: r.change?.id ?? null }); // restoring `change` undoes this
     }
-    // A `tag` stars or unstars a tag; a `path` a note.
+    // A `tag` stars or unstars a tag; a `smart_folder` (its ID) a smart folder; a `path` a note.
     case "POST /favorites/star":
+      if (optStr("smart_folder") !== undefined) return json(favorited(vault.starSmartFolder(host.user, str("smart_folder"))));
       return json(favorited(optStr("tag") !== undefined ? vault.starTag(host.user, str("tag")) : vault.star(host.user, str("path"))));
     case "POST /favorites/unstar":
+      if (optStr("smart_folder") !== undefined) return json(favorited(vault.unstarSmartFolder(host.user, str("smart_folder"))));
       return json(favorited(optStr("tag") !== undefined ? vault.unstarTag(host.user, str("tag")) : vault.unstar(host.user, str("path"))));
     case "PUT /favorites":
       return json(favorited(vault.orderFavorites(host.user, paths("paths"))));
@@ -588,6 +598,7 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json({ trashed: out });
     }
     case "POST /folders/rename": {
+      await host.folderMoving?.(str("folder"), str("to"));
       const r = vault.moveFolder(str("folder"), str("to"), actor);
       for (const m of r.moved) {
         for (const e of m.edits) host.written(e.path, e.content, e.version, e.change);
@@ -606,8 +617,10 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
         host.moved(m.from, m.path, m.version, m.change);
       }
       const out = trashed(r.deleted);
+      // The folder is gone, so its shares go too: a folder made with its name later isn't shared.
+      const unshared = await host.folderDeleted?.(str("folder")); // online only; left out locally
       host.tree();
-      return json({ trashed: out, moved: r.moved.map((m) => ({ from: m.from, to: m.path })) });
+      return json({ trashed: out, moved: r.moved.map((m) => ({ from: m.from, to: m.path })), unshared });
     }
     case "GET /trash":
       return json(vault.trash());
