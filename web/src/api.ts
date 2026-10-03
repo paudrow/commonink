@@ -115,6 +115,8 @@ export interface FeedItem {
   /** Who made the last change (see authorName). */
   lastBy: { person: string | null; agent: string | null } | null;
   role: NoteRole | null;
+  /** The note's own date (YYYY-MM-DD), from its frontmatter or its name; a view's calendar falls back to it. */
+  date: string | null;
   /** The frontmatter properties asked for with `cols`, each with its values. */
   props?: Record<string, string[]>;
 }
@@ -133,7 +135,7 @@ export interface SmartFolder {
   name: string;
   /** The view note. */
   path: string;
-  /** As ::query args: `tag=work sort=title`. */
+  /** As ::view args: `tag=work sort=title`. */
   query: string;
   shared: boolean;
   count: number;
@@ -467,6 +469,8 @@ export const api = {
   /** How many tasks are still open across the workspace (the Tasks badge). */
   openTasks: () => j<{ open: number }>(`${BASE}/tasks/count`).then((r) => r.open),
   tags: () => j<TagCount[]>(`${BASE}/tags`),
+  /** The frontmatter properties notes have, most used first. */
+  properties: () => j<Array<{ key: string; notes: number }>>(`${BASE}/properties`),
   smartFolders: () => j<SmartFolder[]>(`${BASE}/smart-folders`),
   /** Create a view (a note in Views/), or change one by `id`: renaming it renames its note. */
   saveSmartFolder: (f: { id?: string; name: string; query: string; shared: boolean }) => j<SmartFolder>(`${BASE}/smart-folders`, send("POST", { id: f.id, name: f.name, query: f.query, shared: f.shared })),

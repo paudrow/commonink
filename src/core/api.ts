@@ -320,6 +320,8 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
     }
     case "GET /tasks/count":
       return json({ open: vault.openTaskCount() });
+    case "GET /properties":
+      return json(vault.properties());
     case "GET /tags":
       return json(vault.tags());
     // Property types (properties.ts): declared in Config/Settings.md, the rest guessed.

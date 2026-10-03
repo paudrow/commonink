@@ -235,6 +235,8 @@ export interface FeedItem {
   /** Who made the last change: a person, or an agent for one. */
   lastBy: Actor | null;
   role: NoteRole | null;
+  /** The note's own date (YYYY-MM-DD): a `date:` or `created:` in its frontmatter, or one in its name (see parse.ts's dateOf). */
+  date: string | null;
   /** The properties asked for with `cols`, each with its values as written (a list has several). */
   props?: Record<string, string[]>;
 }
@@ -275,7 +277,7 @@ export interface SmartFolder {
   name: string;
   /** The view note. */
   path: string;
-  /** As ::query args: `tag=work sort=title`. */
+  /** As ::view args: `tag=work sort=title`. */
   query: string;
   /** Shared with the whole workspace, rather than just the person who sees it. */
   shared: boolean;
@@ -882,6 +884,7 @@ export class Vault {
         lastSource: last.get(r.path)?.source ?? null,
         lastBy: last.has(r.path) ? { person: last.get(r.path)!.person, agent: last.get(r.path)!.agent } : null,
         role: roleOf(r.path),
+        date: r.date,
         ...(cols.length ? { props: props.get(r.path) ?? {} } : {}),
       };
     });
@@ -1736,6 +1739,18 @@ export class Vault {
     this.db.run("INSERT INTO upgrades(name) VALUES ('views as notes')");
   }
 
+  /**
+   * The frontmatter properties active notes have (lowercase keys), most used first, with how many
+   * notes have each: what a view's settings offer as its fields, its board's group and its calendar's date.
+   */
+  properties(): Array<{ key: string; notes: number }> {
+    const notes = new Map<string, Set<string>>();
+    for (const r of this.db.all<{ path: string; key: string }>("SELECT DISTINCT path, key FROM props")) {
+      if (!isArchived(r.path)) (notes.get(r.key) ?? notes.set(r.key, new Set()).get(r.key)!).add(r.path);
+    }
+    return [...notes].map(([key, paths]) => ({ key, notes: paths.size })).sort((a, b) => b.notes - a.notes || a.key.localeCompare(b.key));
+  }
+
   // ---------------------------------------------------------------- tags
 
   /**
@@ -2526,7 +2541,7 @@ export class Vault {
     if (clash) throw new VaultError(`${target(clash)} already exists`, "exists");
     const moved = rels.map((rel) => this.move(rel, target(rel), source));
     // Views narrowed to the folder (or one in it) follow it: each view note's query line, in
-    // everyone's views, is rewritten as one change. A ::query widget in any other note stays as written.
+    // everyone's views, is rewritten as one change. A ::view widget in any other note stays as written.
     const views: Array<{ path: string; content: string; version: string; change: Change }> = [];
     for (const rel of this.under(VIEWS)) {
       const before = kindOf(rel) === "md" ? this.files.read(rel) : null;

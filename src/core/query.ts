@@ -1,5 +1,5 @@
 // A note query: which notes a list shows. It's the same few keys everywhere a list of notes is
-// asked for (a ::query widget, a smart folder, the Notes filter bar, an agent), written the way the
+// asked for (a ::view widget, a smart folder, the Notes filter bar, an agent), written the way the
 // widget writes them: `q="launch plan" folder=Projects tag=work sort=title limit=5`. Vault.feed
 // runs it. The words in `q` have a grammar of their own (queryGrammar.ts): AND, OR, -, ( ),
 // "a phrase", and filters among the words (`tag=x`, `folder=x`, `modified>-7d`). No Node imports:
@@ -7,6 +7,7 @@
 import { serializeAttrs } from "./directive.ts";
 import { andJoin, folderList as foldersIn, isSort, parse, SORTS, type QuerySort } from "./queryGrammar.ts";
 import { cleanTag } from "./tags.ts";
+import { viewArgKeys } from "./view.ts";
 
 export { dayFrom, dayPasses, isSort, type QuerySort } from "./queryGrammar.ts";
 
@@ -30,12 +31,12 @@ export interface NoteQuery {
 }
 
 const KEYS = ["q", "folder", "tag", "match", "sort", "limit"] as const;
-/**
- * A ::query widget's own args, which aren't part of its query. Any other key that isn't one of KEYS
- * is a filter (`modified>-7d`, `-tag=draft`, `status=draft`): it lives in `q` with the words, so a
- * query has one place for its filters however it was written.
+/*
+ * A ::view's own args (its title, layout and fields: see view.ts's viewArgKeys) aren't part of its
+ * query. Any other key that isn't one of KEYS is a filter (`modified>-7d`, `-tag=draft`,
+ * `status=draft`): it lives in `q` with the words, so a query has one place for its filters however
+ * it was written.
  */
-const WIDGET_ARGS = ["label", "id", "view", "cols"];
 const LIMIT = /^[1-9]\d{0,3}$/;
 
 /** The folders in a `folder` value: `Projects|Areas` names two, tidied (`/Projects/` is `Projects`). */
@@ -58,7 +59,8 @@ export function toQuery(args: Record<string, string>): NoteQuery {
     if (t && !tags.some((x) => x.toLowerCase() === t.toLowerCase())) tags.push(t);
   }
   // Joined so each keeps its meaning: `q="a OR b"` with `modified>-7d` is `(a OR b) modified>-7d`.
-  const filters = Object.keys(args).filter((k) => !(KEYS as readonly string[]).includes(k) && !WIDGET_ARGS.includes(k) && args[k]);
+  const own = viewArgKeys(args);
+  const filters = Object.keys(args).filter((k) => !(KEYS as readonly string[]).includes(k) && !own.includes(k) && args[k]);
   const q = andJoin(args.q, ...filters.map((k) => filterText(k, args[k])));
   if (q) out.q = q;
   if (folder) out.folder = folder;

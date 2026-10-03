@@ -2757,7 +2757,7 @@ async function toggleStar(path: string) {
 const fieldSources = { tags: () => tags, folders: () => allFolders() };
 
 /**
- * Offer to keep a note query as a view (from the Notes filters or a ::query widget).
+ * Offer to keep a note query as a view (from the Notes filters or a ::view widget).
  * `search`: Notes' Advanced search, the same editor applying its query to Notes as it changes.
  */
 function saveSmartFolder(query: string, name: string, anchor: HTMLElement, favorite = false, search = false) {

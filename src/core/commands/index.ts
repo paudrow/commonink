@@ -49,6 +49,7 @@ export const APP_ONLY: Readonly<Record<string, string>> = {
   "GET /resolve": "every command resolves a note's name itself",
   "GET /file-resolve": "the app's way to show an embedded file",
   "GET /feed": "the Notes page's paging; ls and search list notes",
+  "GET /properties": "a view's settings suggest the properties notes have; read_note shows a note's",
   "GET /diffs": "History's side-by-side view; diff shows a change",
   "GET /diffstats": "History's line counts; changes shows them",
   "GET /changes/agents": "History's filter chips; changes --by takes an agent's name",

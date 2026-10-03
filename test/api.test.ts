@@ -278,10 +278,10 @@ test("views (smart folders): an editor shares one, a viewer keeps their own but 
   const mine = await viewer.call("POST", "/smart-folders", { name: "Roadmap words", query: 'q="importer"' });
   assert.deepEqual([mine.status, mine.body.shared, mine.body.count, mine.body.path], [200, false, 1, "Views/vi/Roadmap words.md"]);
   // Renaming one renames its note, and the words around its query line stay.
-  opened.vault.save("Views/vi/Roadmap words.md", 'Words by the importer.\n\n::query{q="importer"}\n', { source: "vi" });
+  opened.vault.save("Views/vi/Roadmap words.md", 'Words by the importer.\n\n::view{q="importer"}\n', { source: "vi" });
   const renamed = await viewer.call("POST", "/smart-folders", { id: mine.body.id, name: "Importer", query: "q=importer sort=title" });
   assert.deepEqual([renamed.body.id, renamed.body.path, renamed.body.query], [mine.body.id, "Views/vi/Importer.md", "q=importer sort=title"]);
-  assert.equal(opened.vault.read("Views/vi/Importer.md").content, "Words by the importer.\n\n::query{q=importer sort=title}\n");
+  assert.equal(opened.vault.read("Views/vi/Importer.md").content, "Words by the importer.\n\n::view{q=importer sort=title}\n");
   assert.deepEqual((await viewer.call("GET", "/smart-folders")).body.map((f: { name: string }) => f.name), ["Importer", "Planning"]);
   assert.deepEqual((await editor.call("GET", "/smart-folders")).body.map((f: { name: string }) => f.name), ["Planning"]);
   viewer.events.length = 0;

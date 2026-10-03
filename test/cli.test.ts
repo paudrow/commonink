@@ -163,7 +163,7 @@ test("smart-save, smart and smart-rm keep saved note queries as view notes in Vi
   const vault = tempVault();
   // A local vault has no one to share with, so no view is called shared (or just yours), and its one person's go right in Views/.
   assert.match(commonink(vault, ["smart-save", "Planning", "tag=plan"]).stdout, /^- Planning \(1 note\): tag=plan — Views\/Planning\.md \[[a-z2-9]{8}\]\n$/);
-  assert.equal(fs.readFileSync(path.join(vault, "Views/Planning.md"), "utf8"), "::query{tag=plan}\n");
+  assert.equal(fs.readFileSync(path.join(vault, "Views/Planning.md"), "utf8"), "::view{tag=plan}\n");
   assert.match(commonink(vault, ["smart-save", "Mine", "tag=plan", "--just-me"]).stdout, /^- Mine \(1 note\): tag=plan — Views\/Mine\.md \[[a-z2-9]{8}\]\n- Planning \(1 note\): tag=plan — Views\/Planning\.md \[[a-z2-9]{8}\]\n$/);
   assert.equal(commonink(vault, ["smart", "planning"]).stdout, "- Projects/Roadmap.md — Roadmap\n");
   assert.equal(commonink(vault, ["smart-save", "Bad", "sort=size"]).stderr, '"sort" is modified, date, oldest, title or created, not "size"\n');
