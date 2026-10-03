@@ -5,6 +5,7 @@
 import { json } from "../../src/core/api.ts";
 import { agentSource } from "../../src/core/actor.ts";
 import { COMMANDS, toolName, UsageError, type WorkspaceSettings } from "../../src/core/commands/index.ts";
+import { checkInput } from "../../src/core/commands/input.ts";
 import { VaultError } from "../../src/core/paths.ts";
 import { CLI_ROUTE, fromWire, toWire, type RunRequest, type RunResponse } from "../../src/core/commands/wire.ts";
 import { access } from "./access.ts";
@@ -45,6 +46,14 @@ export async function serveCli(req: Request, env: OAuthEnv, props: AgentProps, i
       return fail(`${command.cli} needs ${missing.join(", ")} from an agent, as the ${tool} tool does`, "usage");
     }
   }
+  // The CLI checks its arguments before sending them, but anything holding a token can post here: the
+  // same check MCP's tools get, so a command only ever runs on input its arguments allow.
+  let input: Record<string, unknown>;
+  try {
+    input = checkInput(command, fromWire(body.input) as Record<string, unknown>, "cli");
+  } catch (e) {
+    return fail((e as Error).message, "usage");
+  }
   const ws = pick(mine, body.workspace);
   if ("error" in ws) return fail(ws.error, ws.code);
   if (access(ws.role, ...(command.route.split(" ") as [string, string])) !== "allowed") {
@@ -61,7 +70,7 @@ export async function serveCli(req: Request, env: OAuthEnv, props: AgentProps, i
     if (props.workspaceId !== ALL_WORKSPACES) return fail(`${command.cli} needs a sign-in for all your workspaces: run commonink login again and allow all of them`, "forbidden");
     // Settings live in the directory, not the workspace's notes: the Worker runs these itself, as it does the app's.
     try {
-      return json(toWire({ ok: true, ...(await command.run({ settings: settingsOf(req, env, user, ws), user: user.id }, fromWire(body.input) as never)) } satisfies RunResponse));
+      return json(toWire({ ok: true, ...(await command.run({ settings: settingsOf(req, env, user, ws), user: user.id }, input as never)) } satisfies RunResponse));
     } catch (e) {
       if (e instanceof Response) return e;
       if (e instanceof VaultError) return fail(e.message, e.code);
@@ -76,7 +85,7 @@ export async function serveCli(req: Request, env: OAuthEnv, props: AgentProps, i
   const agent = props.workspaceId === ALL_WORKSPACES ? named : props.client;
   const actor = agent ? agentSource(agent, user.name) : user.name;
   const stub = env.WORKSPACE.get(env.WORKSPACE.idFromName(ws.id));
-  const out = await stub.runCommand(command.cli, fromWire(body.input) as Record<string, unknown>, {
+  const out = await stub.runCommand(command.cli, input, {
     workspace: ws.id,
     user: user.id,
     actor,
