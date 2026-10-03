@@ -21,8 +21,11 @@ export const WORKSPACE_ROUTES = {
   "GET /feed": "viewer",
   "GET /backlinks": "viewer",
   "GET /links/missing": "viewer",
+  "GET /mentions": "viewer",
+  "GET /checkup": "viewer",
   "GET /changes": "viewer",
   "GET /changes/agents": "viewer",
+  "GET /changes/away": "viewer",
   "GET /diffs": "viewer",
   "GET /diffstats": "viewer",
   "GET /diff": "viewer",
@@ -63,6 +66,8 @@ export const WORKSPACE_ROUTES = {
   "POST /tags": "editor",
   "POST /tags/delete": "editor",
   "POST /tags/rename": "editor",
+  "POST /mentions/link": "editor",
+  "POST /replace": "editor",
   "PUT /asset-tags": "editor",
   "POST /move": "editor",
   "POST /restore": "editor",
@@ -84,6 +89,7 @@ export const WORKSPACE_ROUTES = {
   // Trash: editors delete and restore, and only they see what's in it; deleting for good is the owner's.
   "GET /delete-check": "editor",
   "POST /delete": "editor",
+  "POST /folders/rename": "editor",
   "POST /delete-folder": "editor",
   "GET /trash": "editor",
   "POST /trash/restore": "editor",
@@ -163,6 +169,7 @@ export const ACCOUNT_ROUTES = [
   "GET /api/shared",
   "GET /api/google",
   "GET /api/google/calendars",
+  "POST /api/google/drive",
   "POST /api/google/disconnect",
 ] as const;
 export type AccountRoute = (typeof ACCOUNT_ROUTES)[number];

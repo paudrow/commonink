@@ -209,7 +209,7 @@ const host: ApiHost = {
   },
   tree: () => broadcast({ type: "tree" }),
   // Calendar feeds are fetched from public hosts only, like link previews.
-  calendar: new Calendar(vault.db, (url, last) => fetchFeed(url, last, assertPublic)),
+  calendar: new Calendar(vault.db, (url, last) => fetchFeed(url, last, assertPublic), { vault }),
   calendarChanged: () => broadcast({ type: "calendar" }),
 };
 

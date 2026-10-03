@@ -10,7 +10,7 @@ import type { Calendar } from "./calendar.ts";
 import type { MemberRef } from "./contacts.ts";
 import type { Exporter } from "./export.ts";
 import { AGENTS_NOTE } from "./noteRoles.ts";
-import { COMMANDS, toolName, type ArgSpec, type Command, type Sharing } from "./commands/index.ts";
+import { COMMANDS, toolName, type ArgSpec, type Command, type SaveTarget, type Sharing } from "./commands/index.ts";
 
 export interface ToolHost {
   vault: Vault;
@@ -37,6 +37,8 @@ export interface ToolHost {
   sharing?: Sharing;
   /** Online, with Google configured: the caller's Google Contacts. Unset, sync_google_contacts isn't offered. */
   googleContacts?: GoogleContactsSync;
+  /** Online, where Google is set up: save_to_drive. Unset locally, and then it isn't offered. */
+  drive?: SaveTarget;
 }
 
 /**
@@ -115,7 +117,7 @@ export function createMcpServer(host: ToolHost): McpServer {
   for (const c of COMMANDS) {
     const name = toolName(c);
     // Only the tools this caller's role allows.
-    if (!name || c.settings || (host.may && !host.may(c.route)) || (c.needs === "calendar" && !host.calendar) || (c.needs === "exporter" && !host.exporter) || (c.needs === "sharing" && !host.sharing) || (c.needs === "googleContacts" && !host.googleContacts)) continue;
+    if (!name || c.settings || (host.may && !host.may(c.route)) || (c.needs === "calendar" && !host.calendar) || (c.needs === "exporter" && !host.exporter) || (c.needs === "sharing" && !host.sharing) || (c.needs === "googleContacts" && !host.googleContacts) || (c.needs === "drive" && !host.drive)) continue;
     (mcp.registerTool as (n: string, config: unknown, cb: (input: Record<string, unknown>) => Promise<Result>) => unknown)(
       name,
       { title: c.title, description: c.description ?? c.summary, inputSchema: inputSchema(c), annotations: annotations(c) },
@@ -125,7 +127,7 @@ export function createMcpServer(host: ToolHost): McpServer {
           // Every write is attributed to the connected client, so the app can show who changed what.
           const source = host.source(mcp.server.getClientVersion()?.name);
           const out = await c.run(
-            { vault, user, source, canEditShared: host.canEditShared ?? true, calendar: host.calendar, origin: host.origin, members: host.members, exporter: host.exporter, sharing: host.sharing, googleContacts: host.googleContacts },
+            { vault, user, source, canEditShared: host.canEditShared ?? true, calendar: host.calendar, origin: host.origin, members: host.members, exporter: host.exporter, sharing: host.sharing, googleContacts: host.googleContacts, drive: host.drive },
             input as never,
           );
           if (out.save) return fileResult(out.save);

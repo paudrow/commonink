@@ -4,7 +4,7 @@
 import type { Calendar } from "../calendar.ts";
 import type { Vault } from "../vault.ts";
 import type { MemberRef } from "../contacts.ts";
-import type { Exporter } from "../export.ts";
+import type { Exporter, SaveFormat } from "../export.ts";
 import type { GoogleContactsSync } from "../googleContacts.ts";
 
 export type ArgKind = "string" | "number" | "boolean" | "strings" | "files" | "pairs";
@@ -100,6 +100,19 @@ export interface CommandHost {
   sharing?: Sharing;
   /** Online, with Google configured: this person's Google Contacts, synced into People/. */
   googleContacts?: GoogleContactsSync;
+  /** Online, where Google is set up: saving a note to the person's Google Drive. Unset locally. */
+  drive?: SaveTarget;
+}
+
+/**
+ * A place outside the app that a note is saved to, as a file of its own: Google Drive
+ * (cloud/src/drive.ts). Another cloud would be another one of these, and another `--to`.
+ */
+export interface SaveTarget {
+  /** "Google Drive", for what the command says. */
+  name: string;
+  /** Save the note (a path, resolved already) as `format`; where it went, to open. Throws a VaultError when it can't. */
+  save(note: string, format: SaveFormat): Promise<{ name: string; url: string }>;
 }
 
 /**
@@ -110,6 +123,8 @@ export interface Sharing {
   list(target: { path?: string; folder?: string }): Promise<string>;
   share(o: { path?: string; folder?: string; email?: string; link?: boolean; role: "viewer" | "editor"; expiresInDays?: number }): Promise<string>;
   unshare(id: string): Promise<string>;
+  /** A folder was renamed or moved: its shares go with it, as a note's do. */
+  folderMoved?(from: string, to: string): Promise<void>;
 }
 
 /**
@@ -148,7 +163,7 @@ interface CommandInfo<A extends Args> {
   /** It takes things away (to Trash): MCP clients may ask before running it. */
   destructive?: boolean;
   /** What the host must have for it: over MCP, it's offered only then. */
-  needs?: "calendar" | "exporter" | "sharing" | "googleContacts";
+  needs?: "calendar" | "exporter" | "sharing" | "googleContacts" | "drive";
   /** It reaches people outside the workspace (sharing): MCP clients may ask before running it. */
   openWorld?: boolean;
   args: A;

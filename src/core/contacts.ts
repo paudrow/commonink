@@ -158,7 +158,7 @@ export function contactFromNote(path: string, md: string): ContactNote {
  * break (from a CSV cell or a vCard) becomes a space, so the value stays on its line and can't end
  * the frontmatter.
  */
-function yamlValue(v: string): string {
+export function yamlValue(v: string): string {
   v = v.replace(/\s*[\r\n]+\s*/g, " ");
   return /^[\s[\]{}#&*!|>'"%@`,-]|[,:]\s|,|\s#|\s$|^$/.test(v) ? `"${v.replace(/(["\\])/g, "\\$1")}"` : v;
 }

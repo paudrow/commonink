@@ -10,7 +10,7 @@ const { setCalendarContext, calendarChanged } = await import("../web/src/calenda
 const { googleChanged, leave } = await import("../web/src/calendar/google.ts");
 const { openMeetingNote } = await import("../web/src/calendar/ui.ts");
 
-type Status = { mode: "real" | "mock" | "off"; connection: { account: string; canWrite: boolean; connectedAt: number } | null } | null;
+type Status = { mode: "real" | "mock" | "off"; connection: { account: string; calendar: boolean; canWrite: boolean; drive: boolean; connectedAt: number } | null } | null;
 const server = {
   google: null as Status,
   calendars: [
@@ -71,7 +71,7 @@ async function open(google: Status, workspace = "ws1") {
   openCalendars({ changed() {} });
   await settle();
 }
-const connected = (canWrite: boolean): Status => ({ mode: "real", connection: { account: "dev@example.com", canWrite, connectedAt: 1 } });
+const connected = (canWrite: boolean): Status => ({ mode: "real", connection: { account: "dev@example.com", calendar: true, canWrite, drive: false, connectedAt: 1 } });
 
 test("not connected: Connect goes to Google by way of this workspace, and says who sees what", async () => {
   await open({ mode: "real", connection: null });
@@ -79,6 +79,12 @@ test("not connected: Connect goes to Google by way of this workspace, and says w
   assert.deepEqual([connect.textContent, connect.getAttribute("href")], ["Connect Google Calendar", "/auth/google/calendar?w=ws1"]);
   assert.match(section().textContent!, /show only to you here, not to others in this workspace/);
   assert.match(section().textContent!, /adds a link to your meeting note to the event, never the note's text/);
+});
+
+test("connected only to save to Drive: Calendar still asks to connect", async () => {
+  await open({ mode: "real", connection: { account: "dev@example.com", calendar: false, canWrite: false, drive: true, connectedAt: 1 } });
+  assert.equal(section().querySelector(".cal-g-connect")!.textContent, "Connect Google Calendar");
+  assert.equal(requests.filter((r) => r.path === "/api/google/calendars").length, 0);
 });
 
 test("connected: your calendars each have Show here, which adds one here, marked as only yours", async () => {

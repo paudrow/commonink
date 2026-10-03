@@ -23,7 +23,7 @@ export interface QuickAdd {
   line: string;
   /** The task's words: the input without the phrases that became tokens. */
   words: string;
-  /** The note named with `→ [[Note]]`, or null for the default (today's daily note). */
+  /** The note named with `→ [[Note]]`, or null for the default (today's journal note). */
   target: string | null;
   meta: TaskMeta;
   spans: QuickSpan[];
