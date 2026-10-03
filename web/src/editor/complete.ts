@@ -195,7 +195,7 @@ async function peopleOptions(query: string, at: number): Promise<Option[]> {
 
 // ------------------------------------------------------------------ [[ links
 
-async function linkSource(ctx: CompletionContext): Promise<CompletionResult | null> {
+export async function linkSource(ctx: CompletionContext): Promise<CompletionResult | null> {
   const m = ctx.matchBefore(/!?\[\[[^\]\n|#]*$/);
   if (!m) return null;
   const embed = m.text.startsWith("!");
@@ -236,6 +236,21 @@ async function linkSource(ctx: CompletionContext): Promise<CompletionResult | nu
       },
     });
   }
+  // Tags too: picking one puts `#tag` where the brackets were, so [[ is one place to find anything.
+  if (!embed) {
+    for (const t of rankTags(ctx, query).slice(0, 8)) {
+      const insert = `#${t.display}`;
+      options.push({
+        label: insert,
+        detail: tagDetail(t),
+        icon: "hash",
+        section: { name: "Tags", rank: 2 },
+        apply: (view: EditorView, _c: Completion, _from: number, to: number) => {
+          view.dispatch({ changes: { from: m.from, to: to + (closed ? 2 : 0), insert }, selection: { anchor: m.from + insert.length }, userEvent: "input.complete" });
+        },
+      });
+    }
+  }
   return { from: start, options, filter: false };
 }
 
@@ -260,26 +275,27 @@ function emojiSource(ctx: CompletionContext): CompletionResult | null {
 
 const uses = (t: TagCount) => t.notes + t.tasks + t.assets;
 
-/** Tags in use that match what's typed after `from`, most used first, each with its full nested path. */
-function tagOptions(ctx: CompletionContext, from: number): CompletionResult | null {
-  const query = ctx.state.sliceDoc(from, ctx.pos);
-  const ranked = ctx.state
+/** Tags in use that match `query`, best match first, then most used. */
+function rankTags(ctx: CompletionContext, query: string): TagCount[] {
+  return ctx.state
     .facet(editorContext)
     .tags()
     .map((t) => ({ t, s: query ? fuzzyScore(query, t.display) : 0 }))
     .filter((x) => x.s >= 0 && x.t.display !== query)
-    .sort((a, b) => b.s - a.s || uses(b.t) - uses(a.t));
+    .sort((a, b) => b.s - a.s || uses(b.t) - uses(a.t))
+    .map((x) => x.t);
+}
+
+const tagDetail = (t: TagCount) => [t.notes && `${t.notes} note${t.notes === 1 ? "" : "s"}`, t.tasks && `${t.tasks} task${t.tasks === 1 ? "" : "s"}`].filter(Boolean).join(", ");
+
+/** Tags in use that match what's typed after `from`, most used first, each with its full nested path. */
+function tagOptions(ctx: CompletionContext, from: number): CompletionResult | null {
+  const ranked = rankTags(ctx, ctx.state.sliceDoc(from, ctx.pos));
   if (!ranked.length) return null;
   return {
     from,
     filter: false,
-    options: ranked.slice(0, 30).map(({ t }, i) => ({
-      label: t.display,
-      detail: [t.notes && `${t.notes} note${t.notes === 1 ? "" : "s"}`, t.tasks && `${t.tasks} task${t.tasks === 1 ? "" : "s"}`].filter(Boolean).join(", "),
-      icon: "hash",
-      boost: -i,
-      apply: t.display,
-    })) as Option[],
+    options: ranked.slice(0, 30).map((t, i) => ({ label: t.display, detail: tagDetail(t), icon: "hash", boost: -i, apply: t.display })) as Option[],
   };
 }
 

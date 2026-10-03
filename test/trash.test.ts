@@ -108,3 +108,16 @@ test("Trash ids can't reach outside Trash", () => {
   assert.deepEqual(vault.purge(["../Welcome.md", ".."], "you"), []);
   assert.equal(vault.resolve("Welcome"), "Welcome.md");
 });
+
+test("Trash lists each item by its title and tags, as Notes would, so its cards and filters match", () => {
+  const { vault } = openTempVault();
+  vault.create("Ideas/Q3.md", "---\ntags: [Work]\n---\n# Third quarter\n\nShip it #work/acme and #Work.\n", "you");
+  vault.delete(["Ideas/Q3.md", "chart.svg"], "you");
+  assert.deepEqual(
+    vault.trash().map((t) => [t.path, t.title, t.tags, t.excerpt]),
+    [
+      ["assets/chart.svg", "chart.svg", [], ""],
+      ["Ideas/Q3.md", "Third quarter", ["Work", "work/acme"], "Ship it #work/acme and #Work."],
+    ],
+  );
+});

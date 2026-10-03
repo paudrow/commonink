@@ -12,7 +12,7 @@ import { limit } from "./limits.ts";
 const ROLES: Role[] = ["owner", "editor", "viewer"];
 const fail = (error: string, status = 400) => json({ error }, status);
 
-async function log(env: Env, ws: string, actor: string, action: LogEntry["action"], target: string | null, detail: string | null = null) {
+export async function log(env: Env, ws: string, actor: string, action: LogEntry["action"], target: string | null, detail: string | null = null) {
   await env.DB.prepare("INSERT INTO workspace_log(workspace_id, at, actor_id, action, target_id, detail) VALUES (?,?,?,?,?,?)").bind(ws, Date.now(), actor, action, target, detail).run();
 }
 
@@ -41,7 +41,7 @@ const dropInvites = (env: Env, ws: string, userId: string) => env.DB.prepare("DE
  * own calendars here, their unused invite links and anything here shared with them (by account or email) all go.
  * False, and nothing changes, if they're the last owner.
  */
-async function drop(env: Env, url: URL, ws: string, userId: string) {
+export async function drop(env: Env, url: URL, ws: string, userId: string) {
   const { meta } = await env.DB.prepare(`DELETE FROM members WHERE workspace_id = ?1 AND user_id = ?2 ${KEEPS_AN_OWNER}`).bind(ws, userId).run();
   if (!meta.changes) return false;
   const email = (await env.DB.prepare("SELECT email FROM users WHERE id = ?").bind(userId).first<{ email: string }>())?.email.toLowerCase() ?? "";
@@ -183,7 +183,7 @@ export async function adminRoute(req: Request, env: Env, url: URL, user: User, w
  * Delete a team workspace for good: everyone's agents lose access, open tabs close, its notes and
  * files go (the Durable Object's storage and R2), and so do its members, invites, shares, note IDs and log.
  */
-async function deleteWorkspace(env: Env, url: URL, ws: string) {
+export async function deleteWorkspace(env: Env, url: URL, ws: string) {
   for (const m of await membersOf(env, ws)) await revokeAgentsIn(env, url, m.id, ws);
   // The directory goes first, shares included (they reference the workspace): if it fails, the notes are still there.
   await env.DB.batch(
