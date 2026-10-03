@@ -4,6 +4,8 @@
 // key), and from the row's ⋯ button on a touch screen, which has neither. It looks like the Share
 // menu (share.ts) and moves the same way: arrows, Home/End, Escape.
 import { el, icon } from "./dom.ts";
+import { formatKeys } from "./keys.ts";
+import { IS_MAC } from "./panes.ts";
 
 export interface RowMenuItem {
   label: string;
@@ -11,7 +13,17 @@ export interface RowMenuItem {
   run(): unknown;
   /** Set apart at the bottom, in the warning color (Delete). */
   danger?: boolean;
+  /** Shown greyed out (Cut with nothing selected), so the menu keeps its shape. */
+  disabled?: boolean;
+  /** Its shortcut, shown on the right ("Mod-x" is ⌘X on a Mac, Ctrl+X elsewhere). */
+  keys?: string;
+  /** A longer explanation, as its tooltip. */
+  hint?: string;
 }
+
+/** A line between groups of items. Repeated, leading and trailing ones are dropped. */
+export const SEPARATOR = "-";
+type Entry = RowMenuItem | typeof SEPARATOR | null | false;
 
 let open: { menu: HTMLElement; anchor: HTMLElement; close(refocus: boolean): void } | null = null;
 
@@ -24,10 +36,11 @@ export function rowMenuOpenFor(anchor: HTMLElement) {
  * Open the menu for `anchor` (the row), at the pointer when there is one, else under the row. Focus
  * goes to the first item, and back to `returnTo` (the row, unless it can't take focus) when Escape closes it.
  */
-export function openRowMenu(anchor: HTMLElement, label: string, entries: (RowMenuItem | null)[], at?: { x: number; y: number }, returnTo: HTMLElement = anchor) {
+export function openRowMenu(anchor: HTMLElement, label: string, entries: Entry[], at?: { x: number; y: number }, returnTo: HTMLElement = anchor) {
   open?.close(false);
-  const list = entries.filter((e): e is RowMenuItem => !!e);
-  if (!list.length) return;
+  const list = entries.filter((e): e is RowMenuItem | typeof SEPARATOR => !!e);
+  if (!list.some((e) => e !== SEPARATOR)) return;
+  const sep = () => el("div", { class: "share-sep", role: "separator" });
   const item = (it: RowMenuItem) =>
     el(
       "button",
@@ -36,6 +49,10 @@ export function openRowMenu(anchor: HTMLElement, label: string, entries: (RowMen
         role: "menuitem",
         tabindex: "-1",
         class: `share-item${it.danger ? " is-danger" : ""}`,
+        disabled: !!it.disabled,
+        "aria-disabled": it.disabled ? "true" : null,
+        title: it.hint ?? null,
+        "aria-keyshortcuts": it.keys ? it.keys.replace(/Mod/g, IS_MAC ? "Meta" : "Control").replace(/-(?=.)/g, "+") : null,
         onclick: () => {
           close(false);
           void it.run();
@@ -43,17 +60,18 @@ export function openRowMenu(anchor: HTMLElement, label: string, entries: (RowMen
       },
       icon(it.icon, 15),
       el("span", {}, it.label),
+      it.keys ? el("span", { class: "menu-keys", "aria-hidden": "true" }, formatKeys(it.keys)) : null,
     );
-  const plain = list.filter((it) => !it.danger);
-  const danger = list.filter((it) => it.danger);
-  const menu = el(
-    "div",
-    { class: "share-menu row-menu", role: "menu", "aria-label": label },
-    ...plain.map(item),
-    plain.length && danger.length ? el("div", { class: "share-sep", role: "separator" }) : null,
-    ...danger.map(item),
-  );
-  const items = () => [...menu.querySelectorAll<HTMLButtonElement>(".share-item")];
+  // Separators only between items: none first, last or twice in a row.
+  const plain: HTMLElement[] = [];
+  for (const e of list.filter((e) => e === SEPARATOR || !e.danger)) {
+    if (e !== SEPARATOR) plain.push(item(e));
+    else if (plain.length && plain.at(-1)!.getAttribute("role") !== "separator") plain.push(sep());
+  }
+  if (plain.at(-1)?.getAttribute("role") === "separator") plain.pop();
+  const danger = list.filter((e): e is RowMenuItem => e !== SEPARATOR && !!e.danger);
+  const menu = el("div", { class: "share-menu row-menu", role: "menu", "aria-label": label }, ...plain, plain.length && danger.length ? sep() : null, ...danger.map(item));
+  const items = () => [...menu.querySelectorAll<HTMLButtonElement>(".share-item:not(:disabled)")];
   menu.addEventListener("keydown", (e) => {
     e.stopPropagation(); // the sidebar's own keys (and Vim's) stay out of it
     const all = items();
@@ -103,7 +121,7 @@ function place(menu: HTMLElement, anchor: HTMLElement, at?: { x: number; y: numb
  * contextmenu), and Shift+F10 or the Menu key while the row has focus. `entries` is asked each time,
  * so it's what applies now.
  */
-export function rowMenu(row: HTMLElement, label: string, entries: () => (RowMenuItem | null)[]) {
+export function rowMenu(row: HTMLElement, label: string, entries: () => Entry[]) {
   // On a touch screen, ⋯ in the row's actions (shown there by mobile.css; hidden under a pointer).
   const actions = row.querySelector(".row-actions") ?? row.appendChild(el("span", { class: "row-actions" }));
   actions.append(

@@ -354,12 +354,12 @@ test("Today is a page to go to, from the palette or :today", () => {
   assert.ok(shortcutSheet(appCommands(app())).find((s) => s.area === "Vim")!.shortcuts.some((s) => s.keys.includes(":today")));
 });
 
-test("the block commands say they copy [[links]], apart from Copy link to this note (the web address)", () => {
+test("the block commands are worded plainly, and the note's web address says it's one", () => {
   const md = appCommands(app({ note: { kind: "md", starred: false, archived: false } }));
   const title = (id: string) => md.find((c) => c.id === id)!.title;
-  assert.equal(title("copy-link"), "Copy link to this note");
-  assert.equal(title("copy-block-link"), "Copy [[link]] to this paragraph");
-  assert.equal(title("copy-block-embed"), "Copy ![[embed]] of this paragraph");
+  assert.equal(title("copy-link"), "Copy web address of this note");
+  assert.equal(title("copy-block-link"), "Copy link to this paragraph or selection");
+  assert.equal(title("copy-block-embed"), "Copy embed of this paragraph or selection");
   md.find((c) => c.id === "copy-block-embed")!.run();
   assert.equal(ran.at(-1), "copyBlockEmbed");
 });

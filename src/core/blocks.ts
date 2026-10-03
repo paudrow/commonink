@@ -1,4 +1,6 @@
 // Block IDs: `[[Note#^id]]` links to one paragraph or list item, and `![[Note#^id]]` embeds it.
+// `[[Note#^a..^b]]` links to (and `![[Note#^a..^b]]` embeds) everything from block `a` through block `b`:
+// what was highlighted when someone chose "Copy link to selection".
 // Used by the editor (following and embedding block links, "Copy [[link]] to this paragraph" and the right-click menu) and by
 // exports. No Node imports: the web app runs this too.
 import { frontmatterLines, headingName, headingText, proseLines } from "./prose.ts";
@@ -125,17 +127,77 @@ export function newBlockId(md: string, random = Math.random): string {
   return id;
 }
 
+/** The two IDs `^a..^b` names (a range of blocks), or the one `^a` does, or null when it isn't a block anchor. */
+export function parseBlockAnchor(anchor: string): { start: string; end: string } | null {
+  const m = anchor.trim().match(/^\^([A-Za-z0-9-]+)(?:\s*\.\.\s*\^?([A-Za-z0-9-]+))?$/);
+  return m ? { start: m[1], end: m[2] ?? m[1] } : null;
+}
+
+/** `^a`, or `^a..^b` for a range of two different blocks. */
+export const blockAnchor = (start: string, end = start) => (start.toLowerCase() === end.toLowerCase() ? `^${start}` : `^${start}..^${end}`);
+
+/**
+ * The lines (from 1) a block anchor names: one block for `^a`, and for `^a..^b` from the start of
+ * the first through the end of the last (in whichever order they are in the note). Null when it
+ * isn't a block anchor or an ID isn't in the note.
+ */
+export function blockRange(md: string, anchor: string): { from: number; to: number } | null {
+  const ids = parseBlockAnchor(anchor);
+  if (!ids) return null;
+  const a = findBlock(md, ids.start);
+  const b = findBlock(md, ids.end);
+  if (!a || !b) return null;
+  return { from: Math.min(a.from, b.from), to: Math.max(a.to, b.to) };
+}
+
+/** Lines `from` to `to` (from 1) without the block IDs in them: what an embed of them shows. */
+export function textOfLines(md: string, from: number, to: number): string {
+  const ids = new Map(blocksOf(md).filter((b) => b.line >= from && b.line <= to).map((b) => [b.line, true]));
+  const out: string[] = [];
+  md.split("\n")
+    .slice(from - 1, to)
+    .forEach((raw, i) => {
+      const l = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+      if (!ids.has(from + i)) return void out.push(l);
+      const without = l.replace(BLOCK_ID, "");
+      if (without.trim()) out.push(without);
+    });
+  // An ID on a line of its own leaves a blank line behind; don't end on it.
+  return out.join("\n").replace(/\s+$/, "");
+}
+
+/** What `![[Note#^a]]` or `![[Note#^a..^b]]` shows, or null when the anchor doesn't name blocks in `md`. */
+export function blockRangeText(md: string, anchor: string): string | null {
+  const r = blockRange(md, anchor);
+  return r ? textOfLines(md, r.from, r.to) : null;
+}
+
+/** A block `blockAt` found: with its ID, or where one would go. */
+export type BlockSpot = NonNullable<ReturnType<typeof blockAt>>;
+
+/**
+ * The blocks a selection from line `fromLine` to line `toLine` (from 1, partial lines included)
+ * starts and ends in, for "Copy link to selection": the first and last paragraph, list item,
+ * table or quote in it. Headings, blank lines and code at its edges are passed over (a heading or
+ * code between them is part of the range all the same). One block when it's all in one. Null when
+ * there's no block in it at all.
+ */
+export function selectionBlocks(md: string, fromLine: number, toLine: number): { first: BlockSpot; last: BlockSpot } | null {
+  if (toLine < fromLine) [fromLine, toLine] = [toLine, fromLine];
+  const fm = frontmatterLines(md);
+  let first: BlockSpot | null = null;
+  for (let n = Math.max(fromLine, fm + 1); n <= toLine && !first; n++) first = blockAt(md, n);
+  if (!first) return null;
+  let last: BlockSpot | null = null;
+  for (let n = toLine; n >= first.from && !last; n--) last = blockAt(md, n);
+  if (!last || (last.from === first.from && last.to === first.to)) return { first, last: first };
+  return { first, last };
+}
+
 /** `[[name]]`, `[[name#anchor]]`, or with `embed` the `![[…]]` that shows it in place. */
 export const noteLink = (name: string, anchor?: string, embed = false) => `${embed ? "!" : ""}[[${name}${anchor ? `#${anchor}` : ""}]]`;
 
 /** A block's text, without its ID: what `![[Note#^id]]` shows. */
 export function blockText(md: string, block: Block): string {
-  const lines = md.split("\n").slice(block.from - 1, block.to);
-  const at = block.line - block.from;
-  if (at < lines.length) {
-    const without = lines[at].replace(BLOCK_ID, "");
-    if (without.trim()) lines[at] = without;
-    else lines.splice(at, 1);
-  }
-  return lines.join("\n").replace(/\s+$/, "");
+  return textOfLines(md, block.from, block.to);
 }

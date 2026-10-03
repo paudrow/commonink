@@ -109,7 +109,7 @@ export interface App {
   /** The Share menu (share.ts). */
   share(): void;
   copyLink(): void;
-  /** Copy [[Note#^id]] (or with `embed`, ![[Note#^id]]) for the block at the cursor, giving it an ID if it has none. */
+  /** Copy [[Note#^id]] (or with `embed`, ![[Note#^id]]) for the block at the cursor, or [[Note#^a..^b]] for the highlighted blocks, giving them IDs if they have none. */
   copyBlockLink(embed?: boolean): void;
   /** The Replace across notes page. */
   replaceAcross(): void;
@@ -192,9 +192,9 @@ export function appCommands(app: App): Command[] {
     { id: "share", title: "Share…", keywords: "share link copy print export download pdf markdown html word send", icon: "share", keys: ["Mod-Shift-s"], available: text, run: app.share },
     { id: "share-people", title: "Share with people…", keywords: "share people link invite collaborate public email", icon: "share-people", available: !!note && app.online, run: app.shareWithPeople },
     { id: "replace-across", title: "Replace across notes…", keywords: "find replace search text everywhere all notes bulk change substitute", icon: "search", available: app.canDelete, run: app.replaceAcross },
-    { id: "copy-link", title: "Copy link to this note", keywords: "share url address copy", icon: "link", available: text, run: app.copyLink },
-    { id: "copy-block-link", title: "Copy [[link]] to this paragraph", keywords: "block reference ref anchor ^ paragraph list item heading line copy", icon: "link", available: note?.kind === "md", run: () => app.copyBlockLink() },
-    { id: "copy-block-embed", title: "Copy ![[embed]] of this paragraph", keywords: "block reference ref anchor ^ paragraph list item line copy embed transclude", icon: "link", available: note?.kind === "md", run: () => app.copyBlockLink(true) },
+    { id: "copy-link", title: "Copy web address of this note", keywords: "share url address copy link web browser", icon: "link", available: text, run: app.copyLink },
+    { id: "copy-block-link", title: "Copy link to this paragraph or selection", keywords: "block reference ref anchor ^ paragraph list item heading line copy highlighted selected range [[link]]", icon: "link", available: note?.kind === "md", run: () => app.copyBlockLink() },
+    { id: "copy-block-embed", title: "Copy embed of this paragraph or selection", keywords: "block reference ref anchor ^ paragraph list item line copy embed transclude highlighted selected range show ![[embed]]", icon: "link", available: note?.kind === "md", run: () => app.copyBlockLink(true) },
     { id: "print", title: "Print…", keywords: "print paper pdf", icon: "printer", available: note?.kind === "md", run: () => app.exportAs("print") },
     { id: "export-pdf", title: "Export as PDF", keywords: "save download pdf print", icon: "pdf", available: note?.kind === "md", run: () => app.exportAs("pdf") },
     { id: "export-md", title: "Export as Markdown", keywords: "save download md markdown file", icon: "file", available: note?.kind === "md", run: () => app.exportAs("md") },

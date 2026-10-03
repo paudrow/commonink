@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { blockAt, blockLinkTarget, blocksOf, blockText, findBlock, newBlockId, noteLink } from "../src/core/blocks.ts";
+import { blockAnchor, blockAt, blockLinkTarget, blockRange, blockRangeText, blocksOf, blockText, findBlock, newBlockId, noteLink, parseBlockAnchor, selectionBlocks } from "../src/core/blocks.ts";
+import { COMMANDS } from "../src/core/commands/index.ts";
 import { openTempVault } from "./helpers.ts";
 
 const NOTE = [
@@ -111,4 +112,77 @@ test("adding the ID where blockAt says gives the block that ID", () => {
   const lines = md.split("\n");
   lines[at.at - 1] += at.insert.replace("{id}", "x1y2z3");
   assert.deepEqual(findBlock(lines.join("\n"), "x1y2z3"), { id: "x1y2z3", from: 3, to: 4, line: 3 });
+});
+
+test("parseBlockAnchor reads one block or a range, and nothing else", () => {
+  assert.deepEqual(parseBlockAnchor("^intro"), { start: "intro", end: "intro" });
+  assert.deepEqual(parseBlockAnchor("^intro..^item2"), { start: "intro", end: "item2" });
+  assert.deepEqual(parseBlockAnchor(" ^a1 .. ^b2 "), { start: "a1", end: "b2" }, "spaces around the dots");
+  assert.deepEqual(parseBlockAnchor("^a1..b2"), { start: "a1", end: "b2" }, "the second ^ may be left out");
+  assert.equal(parseBlockAnchor("Goals"), null, "a heading");
+  assert.equal(parseBlockAnchor("^a..^b..^c"), null);
+  assert.equal(parseBlockAnchor("^"), null);
+  assert.equal(blockAnchor("a1"), "^a1");
+  assert.equal(blockAnchor("a1", "A1"), "^a1", "the same block twice is one block");
+  assert.equal(blockAnchor("a1", "b2"), "^a1..^b2");
+  assert.equal(noteLink("Plan", blockAnchor("a1", "b2"), true), "![[Plan#^a1..^b2]]");
+});
+
+test("blockRange spans from the first block's start to the last block's end, in either order", () => {
+  assert.deepEqual(blockRange(NOTE, "^intro"), { from: 3, to: 4 });
+  assert.deepEqual(blockRange(NOTE, "^intro..^item2"), { from: 3, to: 8 }, "the list item takes what's nested under it");
+  assert.deepEqual(blockRange(NOTE, "^item2..^intro"), { from: 3, to: 8 }, "written backwards");
+  assert.deepEqual(blockRange(NOTE, "^INTRO..^table"), { from: 3, to: 15 });
+  assert.equal(blockRange(NOTE, "^intro..^gone"), null, "an ID that isn't there");
+  assert.equal(blockRange(NOTE, "Plan"), null, "not a block anchor");
+});
+
+test("blockRangeText is what an embed of the range shows: every line in it, without the IDs", () => {
+  assert.equal(blockRangeText(NOTE, "^intro..^item2"), "First line of a paragraph\nand its end.\n\n- one\n- two\n  - under two");
+  assert.equal(blockRangeText(NOTE, "^item2..^table"), "- two\n  - under two\n- three\n\n| a | b |\n|---|---|\n| 1 | 2 |");
+  assert.equal(blockRangeText(NOTE, "^nope"), null);
+  assert.equal(blockRangeText(NOTE, "^item2"), blockText(NOTE, findBlock(NOTE, "item2")!), "one block reads as blockText does");
+});
+
+test("selectionBlocks: the first and last block a highlight touches, partial lines included", () => {
+  const md = ["# Plan", "", "One paragraph", "on two lines.", "", "## Next", "", "- an item ^has", "- another", "", "```", "code", "```", ""].join("\n");
+  const one = selectionBlocks(md, 4, 4)!;
+  assert.equal(one.first, one.last, "inside one paragraph: just it");
+  assert.deepEqual([one.first.from, one.first.to, one.first.id], [3, 4, null]);
+  const both = selectionBlocks(md, 1, 13)!;
+  assert.deepEqual([both.first.from, both.first.id], [3, null], "the heading above is passed over");
+  assert.deepEqual([both.last.from, both.last.id], [9, null], "and the code below");
+  const mid = selectionBlocks(md, 4, 8)!;
+  assert.deepEqual([mid.first.from, mid.last.from, mid.last.id], [3, 8, "has"], "a block that has an ID keeps it");
+  assert.deepEqual(selectionBlocks(md, 8, 4), mid, "backwards");
+  assert.equal(selectionBlocks(md, 5, 6), null, "a blank line and a heading");
+  assert.equal(selectionBlocks(md, 11, 13), null, "only code");
+});
+
+test("giving a selection's first and last blocks IDs makes a range that reads back as what was highlighted", () => {
+  const md = "# Plan\n\nFirst idea\nstill first.\n\nSecond idea.\n\n- third\n  - nested\n";
+  const sel = selectionBlocks(md, 4, 8)!; // from partway into the first paragraph to the list item
+  const lines = md.split("\n");
+  for (const [b, id] of [[sel.last, "bbb222"], [sel.first, "aaa111"]] as const) {
+    assert.ok(b.id === null);
+    lines[b.at - 1] += b.insert.replace("{id}", id);
+  }
+  const next = lines.join("\n");
+  assert.equal(next, "# Plan\n\nFirst idea\nstill first. ^aaa111\n\nSecond idea.\n\n- third ^bbb222\n  - nested\n");
+  assert.deepEqual(blockRange(next, "^aaa111..^bbb222"), { from: 3, to: 9 });
+  assert.equal(blockRangeText(next, "^aaa111..^bbb222"), "First idea\nstill first.\n\nSecond idea.\n\n- third\n  - nested");
+});
+
+test("read_note reads just a block, or a range of blocks, from a block link's target", () => {
+  const { vault } = openTempVault({ "Plan.md": "# Plan\n\nThe intro. ^intro\n\nMiddle.\n\n- last ^end\n- after\n" });
+  const read = COMMANDS.find((c) => c.mcp === "read_note")!;
+  const run = (args: Record<string, unknown>) => (read.run as any)({ vault, user: "me" }, args).text as string;
+  assert.match(run({ path: "Plan#^intro" }), /\(lines 3-3 of 9\)\n\n3│The intro\. \^intro$/);
+  assert.match(run({ path: "Plan#^intro..^end" }), /\(lines 3-7 of 9\)\n\n3│The intro\. \^intro\n4│\n5│Middle\.\n6│\n7│- last \^end$/);
+  assert.match(run({ path: "Plan#^end", offset: 1, limit: 2 }), /\(lines 1-2 of 9\)/, "offset and limit win");
+  assert.throws(() => run({ path: "Plan#^gone" }), /Plan\.md has no block \^gone/);
+  assert.deepEqual(vault.backlinks("Plan"), [], "nothing links to it yet");
+  vault.create("Other.md", "See ![[Plan#^intro..^end]].\n", "test");
+  assert.deepEqual(vault.backlinks("Plan").map((b) => [b.path, b.kind]), [["Other.md", "embed"]], "a range link is a backlink");
+  assert.deepEqual(vault.missingLinks(), []);
 });
