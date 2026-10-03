@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 357
 title: One view widget, four layouts
 ---
 `::query` is now `::view`: one set of notes (the ones its search, folder, tag or properties match) laid out as a list, a table, a board or a calendar. Four sample notes have `status`, `due` and `owner`: [[Launch site]], [[Press kit]], [[Beta invites]] and [[Launch retro]].
