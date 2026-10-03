@@ -5,6 +5,7 @@ import { CONFIG, USERS } from "./schema.ts";
 import { TEMPLATES } from "./templates.ts";
 import { PEOPLE } from "./contacts.ts";
 import { EVENTS } from "./eventNotes.ts";
+import { VIEWS } from "./views.ts";
 
 /** Where daily notes go: Journal/YYYY-MM-DD.md. */
 export const JOURNAL = "Journal";
@@ -18,6 +19,7 @@ const APP_FOLDERS: Record<string, string> = {
   [EVENTS]: "this workspace's events live",
   [JOURNAL]: "daily notes go",
   Archive: "archived notes go",
+  [VIEWS]: "saved views live",
 };
 
 /** Is `folder` one the app makes and finds by name? */

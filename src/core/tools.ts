@@ -15,7 +15,7 @@ import { inputSchema } from "./commands/input.ts";
 
 export interface ToolHost {
   vault: Vault;
-  /** Whose favorites and own smart folders the tools read and change. */
+  /** Whose favorites and own saved views the tools read and change. */
   user: string;
   /** Who writes are attributed to, given the name the client connected with. */
   source(client: string | undefined): string;
@@ -24,7 +24,7 @@ export interface ToolHost {
    * route they may not use aren't offered. Unset locally, where everything is allowed.
    */
   may?(route: string): boolean;
-  /** Whether the caller may make or change shared smart folders (online: editors and owners). Default yes. */
+  /** Whether the caller may make or change shared views (online: editors and owners). Default yes. */
   canEditShared?: boolean;
   /** The workspace's members (online), for who "me" and other people are on tasks. None locally. */
   members?(): Promise<MemberRef[]>;
@@ -103,6 +103,7 @@ export function createMcpServer(host: ToolHost): McpServer {
         "Find before you write: search_notes, then read_note. Change existing notes with edit_note (small exact replacements); create_note is for a new note, import_notes for many at once (moving notes in from elsewhere).",
         "Link notes with [[Note name]] and embed with ![[Note name]]. The user may be editing at the same time; if an edit fails, re-read and retry.",
         `Workspace settings are the frontmatter of ${SETTINGS_NOTE}; commonink://config/schema lists every property the app reads, and commonink://config/agents re-reads the conventions below.`,
+        "Each property of a note has a type (text, number, checkbox, date, list, people): list_properties shows them, declared in the settings' properties: or guessed; write values to suit, and set_property_type declares one for every note.",
         agentsMd && `\nVault conventions (AGENTS.md):\n${agentsMd}`,
       ]
         .filter(Boolean)

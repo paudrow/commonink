@@ -48,7 +48,7 @@ commonink changes --path "Projects/Launch.md"
 commonink restore 24
 ```
 
-`--query` takes the same query language as the Notes filter and smart folders ([Searching and filtering](notes.md#searching-and-filtering)); `commonink help query` lists it.
+`--query` takes the same query language as the Notes filter and views ([Searching and filtering](notes.md#searching-and-filtering)); `commonink help query` lists it.
 
 ## For scripts and agents
 

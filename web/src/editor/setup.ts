@@ -14,7 +14,8 @@ import { folderLine } from "./folderLine.ts";
 import { lineHint } from "./lineHint.ts";
 import { agentFlash } from "./agentFlash.ts";
 import { typingHelpers } from "./complete.ts";
-import { IS_MAC, sideClick } from "../panes.ts";
+import { clickWhere, IS_MAC, type Where } from "../panes.ts";
+import { openMenu } from "../menu.ts";
 import { linkKind } from "../links.ts";
 import { LINK_DRAG, type LinkDrag } from "../dom.ts";
 import { noteLinkAt } from "./linkAt.ts";
@@ -79,31 +80,48 @@ const linkClicks = EditorView.domEventHandlers({
       return true;
     }
     const t = (e.target as HTMLElement).closest<HTMLElement>(".cm-wikilink, .cm-md-link");
-    if (!t || e.button !== 0) return false;
+    if (!t || (e.button !== 0 && e.button !== 1)) return false;
     if (t.classList.contains("is-raw") && !(e.metaKey || e.ctrlKey)) return false;
     e.preventDefault();
     const ctx = view.state.facet(editorContext);
-    // ⌘-click (Ctrl-click off a Mac) on a rendered link to a note opens it to the side; on a raw one
-    // (cursor on it) it follows it. A link that leaves the app opens in the browser either way.
-    const side = !t.classList.contains("is-raw") && sideClick(e);
-    const open = () => {
-      if (t.dataset.target !== undefined) ctx.openTarget(t.dataset.target, ctx.path, { side });
-      else if (t.dataset.href) {
-        const href = t.dataset.href;
-        if (linkKind(href) === "external") window.open(href, "_blank", "noopener");
-        else ctx.openTarget(safeDecode(href), ctx.path, { side });
-      }
-    };
-    // A rendered [[link]] can also be dragged to the right edge of the window, to open it there.
-    if (t.dataset.target !== undefined && !t.classList.contains("is-raw")) dragLink(e, t.dataset.target, ctx.path, open);
+    // ⌘-click (Ctrl-click off a Mac) or a middle-click on a rendered link to a note opens it in a new
+    // tab, ⌘⌥-click to the side; on a raw one (cursor on it) ⌘-click follows it. A link that leaves
+    // the app opens in the browser either way.
+    const where: Where = t.classList.contains("is-raw") ? "here" : clickWhere(e);
+    const open = () => followLink(ctx, t, where);
+    // A rendered [[link]] can also be dragged onto the notes, to open it in a split, or onto a tab strip.
+    if (t.dataset.target !== undefined && !t.classList.contains("is-raw") && e.button === 0) dragLink(e, t.dataset.target, ctx.path, open);
     else open();
+    return true;
+  },
+  // A right-click on a rendered link to a note: open it here, in a new tab or to the side.
+  contextmenu(e, view) {
+    const t = (e.target as HTMLElement).closest<HTMLElement>(".cm-wikilink, .cm-md-link");
+    if (!t || t.classList.contains("is-raw") || (t.dataset.href && linkKind(t.dataset.href) === "external")) return false;
+    e.preventDefault();
+    const ctx = view.state.facet(editorContext);
+    openMenu({ x: e.clientX, y: e.clientY }, [
+      { label: "Open", icon: "file", run: () => followLink(ctx, t, "here") },
+      { label: "Open in new tab", icon: "plus", keys: "Mod-click", run: () => followLink(ctx, t, "tab") },
+      { label: "Open to the side", icon: "split", keys: "Mod-Alt-click", run: () => followLink(ctx, t, "side") },
+    ], { label: "Link" });
     return true;
   },
 });
 
+/** Open a rendered link: a note here, in a new tab or to the side; a web address in the browser. */
+function followLink(ctx: { openTarget(target: string, from: string, opts?: { where?: Where }): void; path: string }, t: HTMLElement, where: Where) {
+  if (t.dataset.target !== undefined) ctx.openTarget(t.dataset.target, ctx.path, { where });
+  else if (t.dataset.href) {
+    const href = t.dataset.href;
+    if (linkKind(href) === "external") window.open(href, "_blank", "noopener");
+    else ctx.openTarget(safeDecode(href), ctx.path, { where });
+  }
+}
+
 /**
  * Follow a press on a [[link]]: released where it started, it opens the link; moved, it's a drag,
- * which the app shell shows and takes at the window's right edge (see LinkDrag in dom.ts). A
+ * which the app shell shows and takes as a drop to split (see LinkDrag in dom.ts). A
  * pointer drag rather than HTML drag and drop, since the link is text in an editable page.
  */
 function dragLink(e: MouseEvent, target: string, from: string, open: () => void) {
@@ -132,7 +150,7 @@ export function openLinkToSide(view: EditorView): boolean {
   const target = noteLinkAt(view.state);
   if (target === null) return false;
   const ctx = view.state.facet(editorContext);
-  ctx.openTarget(target, ctx.path, { side: true });
+  ctx.openTarget(target, ctx.path, { where: "side" });
   return true;
 }
 

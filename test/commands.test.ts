@@ -15,6 +15,9 @@ const app = (over: Partial<App> = {}): App => {
     vimDisplayLines: false,
     lineNumbers: false,
     split: false,
+    tabs: 1,
+    pinned: false,
+    closedTabs: 0,
     focusMode: false,
     htmlMode: "preview",
     hasStart: false,
@@ -48,6 +51,7 @@ const app = (over: Partial<App> = {}): App => {
     restoreVersion: run("restoreVersion"),
     go: (page) => void ran.push(`go:${page}`),
     filterNotes: run("filterNotes"),
+    advancedSearch: run("advancedSearch"),
     quickAdd: run("quickAdd"),
     subscribeCalendar: run("subscribeCalendar"),
     refreshCalendars: run("refreshCalendars"),
@@ -60,6 +64,14 @@ const app = (over: Partial<App> = {}): App => {
     togglePanel: run("togglePanel"),
     toggleFocus: run("toggleFocus"),
     toggleSplit: run("toggleSplit"),
+    newTab: run("newTab"),
+    closeTab: run("closeTab"),
+    reopenTab: run("reopenTab"),
+    closeOtherTabs: run("closeOtherTabs"),
+    closeTabsToRight: run("closeTabsToRight"),
+    togglePin: run("togglePin"),
+    stepTab: run("stepTab"),
+    moveTab: run("moveTab"),
     toggleHtml: run("toggleHtml"),
     star: run("star"),
     archive: run("archive"),
@@ -129,7 +141,7 @@ test("commands follow the app: vim's state, the open note, Getting started, and 
   rename[0].run();
   assert.equal(ran.at(-1), "rename");
   // One Rename… for whatever is showing: Notes narrowed to a folder renames the folder, and so on.
-  for (const what of ["folder", "tag", "smart folder", "file"] as const) assert.ok(titles("rename", app({ renames: what })).includes(`Rename ${what}…`));
+  for (const what of ["folder", "tag", "view", "file"] as const) assert.ok(titles("rename", app({ renames: what })).includes(`Rename ${what}…`));
   const moving = appCommands(app({ canBack: true, canForward: true, onLink: true, note: { kind: "md", starred: false, archived: false } })).filter((c) => ["back", "forward", "follow-link"].includes(c.id));
   assert.deepEqual(moving.map((c) => [c.title, c.keys?.[0]]), [["Go back", "Mod-["], ["Go forward", "Mod-]"], ["Follow link", undefined]]);
   moving.forEach((c) => c.run());
@@ -152,7 +164,7 @@ test("commands follow the app: vim's state, the open note, Getting started, and 
 
 test("the sheet lists each area's shortcuts, the commands' included, whether or not they're on offer now", () => {
   const sheet = shortcutSheet(appCommands(app()));
-  assert.deepEqual(sheet.map((s) => s.area), ["Global", "Notes page", "Calendar", "Editor", "Vim", "Tasks", "Split view"]);
+  assert.deepEqual(sheet.map((s) => s.area), ["Global", "Notes page", "Calendar", "Editor", "Vim", "Tasks", "Tabs", "Split view"]);
   const global = sheet.find((s) => s.area === "Global")!.shortcuts;
   assert.deepEqual(global.slice(0, 2).map((s) => s.keys), [["Mod-p", "Mod-k"], ["Mod-Shift-p"]]);
   assert.deepEqual(global.find((s) => s.label === "Archive note")?.keys, ["Mod-Shift-e"]);
@@ -285,7 +297,7 @@ test("quick open's prefixes: # headings, tag: tags, / or folder: folders and sma
   assert.equal(went.at(-1), "tag home");
 
   p.palette.open("/");
-  assert.deepEqual(p.sections(), ["Folders", "Smart folders"]);
+  assert.deepEqual(p.sections(), ["Folders", "Views"]);
   p.type("folder:launch");
   assert.deepEqual(p.options(), ["LaunchProjects/Launch", "Launch notesq=launch"]);
   p.press("Enter");
@@ -368,6 +380,14 @@ test("Today is a page to go to, from the palette or :today", () => {
   assert.ok(shortcutSheet(appCommands(app())).find((s) => s.area === "Vim")!.shortcuts.some((s) => s.keys.includes(":today")));
 });
 
+test("Advanced search is a command, with its keys on the sheet", () => {
+  assert.equal(titles("advanced", app())[0], "Advanced search…");
+  appCommands(app()).find((c) => c.id === "advanced-search")!.run();
+  assert.equal(ran.at(-1), "advancedSearch");
+  const global = shortcutSheet(appCommands(app())).find((s) => s.area === "Global")!.shortcuts;
+  assert.ok(global.some((s) => s.keys.includes("Mod-Alt-f") && s.label === "Advanced search…"));
+});
+
 test("the tag in view can be starred and renamed from the palette, or a tag picked when none is", () => {
   assert.deepEqual(titles("star tag", app()).slice(0, 1), ["Star or unstar a tag…"]);
   assert.deepEqual(titles("star", app({ tag: { name: "work", starred: false } })).filter((t) => t.includes("#")), ["Star #work"]);
@@ -378,9 +398,9 @@ test("the tag in view can be starred and renamed from the palette, or a tag pick
   assert.deepEqual(titles("rename tag", app({ canDelete: false })).filter((t) => t.startsWith("Rename")), []);
 });
 
-test("saving filters as a smart folder is offered only when Notes has filters on", () => {
+test("saving filters as a view is offered only when Notes has filters on", () => {
   assert.deepEqual(titles("save filters", app()).filter((t) => t.startsWith("Save these")), []);
-  assert.deepEqual(titles("save filters", app({ notesFiltered: true })).slice(0, 1), ["Save these filters as a smart folder"]);
+  assert.deepEqual(titles("save filters", app({ notesFiltered: true })).slice(0, 1), ["Save these filters as a view"]);
 });
 
 test("a note can go back to a labeled version, and archive turns into unarchive on an archived note", () => {
@@ -464,8 +484,14 @@ const NOT_A_VERB: Record<string, string> = {
   "card move": "cards are dragged on the board itself",
   "card edit": "cards are edited on the board itself",
   "tag asset": "an asset's tag chips on Assets",
+  properties: "a note's property table lists them, and suggests keys and values as you add one",
+  "property type": "a property's type menu in a note's property table",
   smart: "the sidebar's Smart folders section lists them",
   "smart-rm": "a smart folder's own menu in the sidebar",
+  "decision ask": "agents ask; people answer a decision where it's shown, on Today",
+  decisions: "Today lists the decisions waiting on you",
+  "decision answer": "a decision's own buttons on Today",
+  "decision withdraw": "agents withdraw the questions they asked",
   "smart-star": "a smart folder's star, on its row in the sidebar or beside the Notes filters",
   "smart-unstar": "a smart folder's star, on its row in the sidebar or beside the Notes filters",
   "starred order": "favorites are dragged into order in the sidebar",

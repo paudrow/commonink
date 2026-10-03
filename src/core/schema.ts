@@ -16,12 +16,14 @@ export const CONFIG = "Config";
 export const SETTINGS_NOTE = `${CONFIG}/Settings.md`;
 
 export interface PropSchema {
-  type: "string" | "boolean" | "array";
+  type: "string" | "number" | "boolean" | "array" | "object";
   description: string;
   enum?: string[];
-  /** "date": YYYY-MM-DD, the form the app sorts by. */
-  format?: "date";
-  items?: { type: "string"; enum?: string[] };
+  /** "date": YYYY-MM-DD, the form the app sorts by. "person": a link to their contact, "[[People/Sam Lee]]". */
+  format?: "date" | "person";
+  items?: { type: "string"; enum?: string[]; format?: "person" };
+  /** An object's values (the settings' `properties:` map): each one's type and allowed values. */
+  additionalProperties?: { type: "string"; enum: string[] };
   default?: unknown;
   /** Shown in completions as what a typical value looks like. */
   examples?: string[];
@@ -50,6 +52,12 @@ const NOTE_PROPS: Record<string, PropSchema> = {
   date: DATE("The note's date."),
   created: DATE("When the note was first written."),
   published: DATE("When the note was published."),
+  people: {
+    type: "array",
+    items: { type: "string", format: "person" },
+    description: "Who the note is about or with, as links to their contacts. The note shows on each of their contacts.",
+    examples: ['["[[People/Sam Lee]]"]'],
+  },
 };
 
 export const NOTE_SCHEMA: ObjectSchema = {
@@ -94,6 +102,13 @@ export const PERSON_SCHEMA: ObjectSchema = {
   },
 };
 
+/** What a property of your own can be declared as, in the workspace settings' `properties:`. */
+export const PROPERTY_TYPES = ["text", "number", "checkbox", "date", "list", "people"] as const;
+export type PropertyType = (typeof PROPERTY_TYPES)[number];
+/** Each declared property's type, by its name. */
+export type PropertyTypes = Record<string, PropertyType>;
+export const isPropertyType = (s: string): s is PropertyType => (PROPERTY_TYPES as readonly string[]).includes(s);
+
 export const SETTINGS_SCHEMA: ObjectSchema = {
   $schema: JSON_SCHEMA,
   $id: "commonink:settings",
@@ -120,6 +135,13 @@ export const SETTINGS_SCHEMA: ObjectSchema = {
       default: [CONFIG, TEMPLATES],
       description: "Folders the sidebar leaves out, with the folders in them. Hidden folders, at the bottom of the sidebar's folders, lists them below your own. Search, Notes, links and agents find their notes as before. [] hides none.",
       examples: ["[Config, Templates, Archive/Old]"],
+    },
+    properties: {
+      type: "object",
+      additionalProperties: { type: "string", enum: [...PROPERTY_TYPES] },
+      description:
+        "The type of each property of your own, for every note here: text, number, checkbox, date, list or people. A note's properties table shows each one with that control, and clicking a property's type there changes it here. A property not listed is guessed from its value.",
+      examples: ["{ due: date, priority: number, done: checkbox }"],
     },
   },
   additionalProperties: false,
@@ -161,8 +183,41 @@ export const USER_SCHEMA: ObjectSchema = {
   additionalProperties: false,
 };
 
-/** The schema for the note at `path`: the settings file's, a template's, a contact's, or any note's. */
-export function schemaFor(path: string): ObjectSchema {
+// ------------------------------------------------------------------ property types
+
+
+/** What a declared type means, as a schema the editor and the checks read like any other. */
+function declaredSchema(type: PropertyType): PropSchema {
+  const description = `Declared as ${type} in ${SETTINGS_NOTE} (properties:), for every note here.`;
+  switch (type) {
+    case "text":
+      return { type: "string", description };
+    case "number":
+      return { type: "number", description, examples: ["3"] };
+    case "checkbox":
+      return { type: "boolean", description };
+    case "date":
+      return { type: "string", format: "date", description, examples: ["2026-10-02"] };
+    case "list":
+      return { type: "array", items: { type: "string" }, description, examples: ["[a, b]"] };
+    case "people":
+      return { type: "array", items: { type: "string", format: "person" }, description, examples: ['["[[People/Sam Lee]]"]'] };
+  }
+}
+
+/**
+ * The schema for the note at `path`: the settings file's, a template's, a contact's, or any note's.
+ * `types` (the workspace's declared property types) add a note's own properties; the app's own
+ * properties keep their meaning, and settings files have none of their own.
+ */
+export function schemaFor(path: string, types: PropertyTypes = {}): ObjectSchema {
+  const base = baseSchema(path);
+  const extra = base.additionalProperties ? Object.entries(types).filter(([k]) => !(k in base.properties)) : [];
+  if (!extra.length) return base;
+  return { ...base, properties: { ...base.properties, ...Object.fromEntries(extra.map(([k, t]) => [k, declaredSchema(t)])) } };
+}
+
+function baseSchema(path: string): ObjectSchema {
   if (path === SETTINGS_NOTE) return SETTINGS_SCHEMA;
   if (path.startsWith(`${USERS}/`)) return USER_SCHEMA;
   if (path.startsWith("Templates/")) return TEMPLATE_SCHEMA;
@@ -331,10 +386,10 @@ const isDate = (s: string) => {
 };
 
 /** What's wrong with the front matter of the note at `path`: wrong types and values, repeated keys, unreadable lines, and, in the settings file, unknown settings. */
-export function frontmatterProblems(md: string, path: string): Problem[] {
+export function frontmatterProblems(md: string, path: string, types: PropertyTypes = {}): Problem[] {
   const scan = scanFrontmatter(md);
   if (!scan) return [];
-  const schema = schemaFor(path);
+  const schema = schemaFor(path, types);
   const template = schema === TEMPLATE_SCHEMA;
   const out: Problem[] = [];
   for (const s of scan.stray) out.push({ from: s.from, to: s.to, severity: "error", message: "Properties are written as key: value. This line isn't, so it's skipped." });
@@ -355,8 +410,19 @@ export function frontmatterProblems(md: string, path: string): Problem[] {
     const there = { from: v.from, to: Math.max(v.to, v.from), key: f.key };
     // A template's values may be placeholders, filled in when a note is made from it.
     if (template && md.slice(v.from, v.to).includes("{{")) continue;
+    const unlinked = (item: Item) =>
+      linkTarget(item.text) ? null : { from: item.from, to: item.to, key: f.key, severity: "warning" as const, message: `${item.text} isn't linked to a contact, so this note won't show on theirs. Pick them from the list, or write "[[People/${item.text}]]".` };
+    if (prop.type === "object") {
+      const allowed = prop.additionalProperties?.enum ?? [];
+      if (v.kind === "map")
+        for (const e of mapEntries(md, v))
+          if (allowed.length && !allowed.includes(e.text)) out.push({ from: e.valueFrom, to: Math.max(e.valueTo, e.valueFrom + 1), key: f.key, severity: "error", message: `${e.key} can't be ${JSON.stringify(e.text)}: a property is one of ${allowed.join(", ")}.` });
+      if (v.kind !== "map" && v.kind !== "empty") out.push({ ...there, severity: "error", message: `${f.key} is a set of name: type pairs, like ${prop.examples?.[0] ?? "{ a: b }"}.` });
+      continue;
+    }
     if (prop.type === "array") {
       if (v.kind === "map") out.push({ ...there, severity: "error", message: `${f.key} is a list: write [a, b] or one - item per line.` });
+      if (prop.items?.format === "person" && v.kind === "list") for (const item of v.items) { const p = unlinked(item); if (p) out.push(p); }
       const allowed = prop.items?.enum;
       if (allowed && v.kind === "list")
         for (const item of v.items) if (!allowed.includes(item.text)) out.push({ from: item.from, to: item.to, key: f.key, severity: "error", message: `${f.key} can hold ${allowed.join(", ")}, not ${JSON.stringify(item.text)}.` });
@@ -374,10 +440,14 @@ export function frontmatterProblems(md: string, path: string): Problem[] {
     if (prop.type === "boolean" && (v.quoted || !/^(true|false)$/i.test(v.text)))
       out.push({ ...there, severity: "error", message: `${f.key} is true or false, not ${JSON.stringify(v.text)}.` });
     else if (prop.enum && !prop.enum.includes(v.text)) out.push({ ...there, severity: "error", message: `${f.key} is one of ${prop.enum.join(", ")}, not ${JSON.stringify(v.text)}.` });
+    else if (prop.format === "person" && unlinked(v)) out.push(unlinked(v)!);
+    else if (prop.type === "number" && (v.quoted || !isNumber(v.text))) out.push({ ...there, severity: "warning", message: `${f.key} is a number, not ${JSON.stringify(v.text)}.` });
     else if (prop.format === "date" && !isDate(v.text)) out.push({ ...there, severity: "warning", message: `Dates are read as YYYY-MM-DD, like 2026-10-02, so this note won't sort by its ${f.key}.` });
   }
   return out.sort((a, b) => a.from - b.from);
 }
+
+const isNumber = (s: string) => /^[-+]?(\d[\d_]*)?\.?\d+(e[-+]?\d+)?$/i.test(s.trim());
 
 /** The known key `key` was most likely meant to be: two edits away at most. */
 function closest(key: string, known: string[]): string | null {
@@ -431,18 +501,164 @@ export function readValues(md: string, schema: ObjectSchema): Record<string, Set
   return out;
 }
 
-/** A value as YAML on a key's line. */
-const yamlOf = (v: SettingValue) => (Array.isArray(v) ? `[${v.join(", ")}]` : String(v));
+/** Text as a YAML value, quoted only when YAML would read it as something else. `inList`: an item of `[a, b]`, where commas and brackets count too. */
+export function yamlText(s: string, inList = false): string {
+  const plain = s === s.trim() && s !== "" && !/^[[\]{}&*!|>'"%@`#?:,-]/.test(s) && !/: |:$| #/.test(s) && !(inList && /[,[\]{}]/.test(s)) && !/^(true|false|null|~|yes|no)$/i.test(s);
+  return plain ? s : JSON.stringify(s);
+}
 
-/** `md` with `key` set to `value`, every other line kept as it was; the front matter is made if there's none. */
+/** A value as YAML on a key's line. */
+const yamlOf = (v: SettingValue) => (Array.isArray(v) ? `[${v.map((x) => yamlText(x, true)).join(", ")}]` : typeof v === "string" ? yamlText(v) : String(v));
+
+/**
+ * `md` with `key` set to `value`, every other line kept as it was; the front matter is made if
+ * there's none. A list written one `- item` per line stays that way.
+ */
 export function withValue(md: string, key: string, value: SettingValue): string {
   const { entries, body, had } = frontmatterEntries(md);
-  const line = `${key}: ${yamlOf(value)}`;
   const i = entries.findIndex((e) => e.key === key);
-  if (i >= 0) entries[i] = { key, lines: [line] };
-  else entries.push({ key, lines: [line] });
+  const indent = i >= 0 ? entries[i].lines.slice(1).find((l) => /^\s*-(\s|$)/.test(l))?.match(/^\s*/)?.[0] : undefined;
+  const lines =
+    Array.isArray(value) && indent !== undefined && value.length
+      ? [`${key}:`, ...value.map((x) => `${indent}- ${yamlText(x)}`)]
+      : [`${key}: ${yamlOf(value)}`.trimEnd()];
+  if (i >= 0) entries[i] = { key, lines };
+  else entries.push({ key, lines });
   return frontmatterText(entries) + (had ? body : md ? `\n${md}` : "");
 }
+
+/** `md` without `key` in its front matter, every other line kept as it was. */
+export function withoutValue(md: string, key: string): string {
+  const { entries, body, had } = frontmatterEntries(md);
+  if (!had) return md;
+  const kept = entries.filter((e) => e.key !== key);
+  return kept.some((e) => e.key) ? frontmatterText(kept) + body : body.replace(/^\r?\n/, "");
+}
+
+/** How a property is edited in the properties table: what its schema says, else what its value looks like. */
+export type PropKind = "boolean" | "enum" | "date" | "number" | "person" | "people" | "tags" | "choices" | "list" | "text" | "raw";
+
+export function propKind(key: string, prop: PropSchema | undefined, value: Value): PropKind {
+  if (value.kind === "map" || value.kind === "block") return "raw";
+  if (prop) {
+    if (key === "tags") return "tags";
+    if (prop.type === "boolean") return "boolean";
+    if (prop.type === "array") return prop.items?.format === "person" ? "people" : prop.items?.enum ? "choices" : "list";
+    if (prop.enum) return "enum";
+    if (prop.format === "date") return "date";
+    if (prop.type === "number") return "number";
+    if (prop.format === "person") return "person";
+    return "text";
+  }
+  if (value.kind === "list") return "list";
+  if (value.kind === "scalar" && !value.quoted && /^(true|false)$/i.test(value.text)) return "boolean";
+  if (value.kind === "scalar" && /^\d{4}-\d{2}-\d{2}$/.test(value.text)) return "date";
+  return "text";
+}
+
+/** A property's type as one word: what the table shows beside it and the CLI lists. */
+export const KIND_NAME: Record<PropKind, string> = { boolean: "checkbox", enum: "one of", date: "date", number: "number", person: "person", people: "people", tags: "tags", choices: "list", list: "list", text: "text", raw: "YAML" };
+
+export interface TypeInfo {
+  /** As one word: one of PROPERTY_TYPES, or what one of the app's own properties is (tags, one of, …). */
+  type: string;
+  /** "built in": the app's own property, whose type is fixed. "declared": in the workspace settings' `properties:`. "guessed": from its value. */
+  source: "built in" | "declared" | "guessed";
+}
+
+/** What type the property `key` of the note at `path` is, and why. */
+export function typeInfo(path: string, key: string, value: Value, types: PropertyTypes = {}): TypeInfo {
+  const base = baseSchema(path);
+  const own = base.properties[key];
+  if (own) return { type: KIND_NAME[propKind(key, own, value)], source: "built in" };
+  if (base.additionalProperties && types[key]) return { type: types[key], source: "declared" };
+  return { type: KIND_NAME[propKind(key, undefined, value)], source: "guessed" };
+}
+
+/** Whether a note's property `key` can be given a type of its own: not one of the app's, and not in a settings file. */
+export const typeSettable = (path: string, key: string) => {
+  const base = baseSchema(path);
+  return base.additionalProperties && !(key in base.properties);
+};
+
+/** One `name: value` of a map value (`{ a: b }`, or nested lines), and where its value is. */
+export interface MapEntry {
+  key: string;
+  text: string;
+  valueFrom: number;
+  valueTo: number;
+}
+
+/** The entries of a map value in `md`: `{ due: date, done: checkbox }`, or one `  due: date` per line under its key. */
+export function mapEntries(md: string, v: Value): MapEntry[] {
+  if (v.kind !== "map") return [];
+  const raw = md.slice(v.from, v.to);
+  const out: MapEntry[] = [];
+  const add = (piece: string, at: number) => {
+    const m = piece.match(/^(\s*)("[^"]*"|'[^']*'|[^:#]+?)\s*:(?:\s+|$)(.*?)\s*$/);
+    if (!m) return;
+    const text = stripComment(m[3]);
+    const valueFrom = at + piece.length - m[3].length - (piece.length - piece.trimEnd().length);
+    out.push({ key: unquote(m[2]), text: unquote(text), valueFrom, valueTo: valueFrom + text.length });
+  };
+  if (raw.startsWith("{")) {
+    const inner = raw.replace(/\}\s*$/, "");
+    let start = 1;
+    let q: string | null = null;
+    for (let i = 1; i <= inner.length; i++) {
+      const ch = inner[i];
+      if (i === inner.length || (!q && ch === ",")) add(inner.slice(start, i), v.from + start), (start = i + 1);
+      else if (q) ch === q && (q = null);
+      else if (ch === '"' || ch === "'") q = ch;
+    }
+    return out;
+  }
+  // Nested lines: the first one's indent is the map's; deeper lines belong to its entries.
+  const lineStart = md.lastIndexOf("\n", v.from - 1) + 1;
+  const indent = v.from - lineStart;
+  let at = lineStart;
+  for (const line of md.slice(lineStart, v.to).split("\n")) {
+    if (line.search(/\S/) === indent && !line.trim().startsWith("#")) add(line, at);
+    at += line.length + 1;
+  }
+  return out;
+}
+
+/** The property types the workspace settings (`md`, Config/Settings.md) declare. Ones that aren't a type are left out. */
+export function readPropertyTypes(md: string): PropertyTypes {
+  const field = scanFrontmatter(md)?.fields.find((f) => f.key === "properties");
+  const out: PropertyTypes = {};
+  for (const e of field ? mapEntries(md, field.value) : []) if (isPropertyType(e.text) && !(e.key in out)) out[e.key] = e.text;
+  return out;
+}
+
+/**
+ * The workspace settings `md` with `key` declared as `type` (or, with null, not declared, so it's
+ * guessed again). The rest of `properties:` stays as written, inline (`{ a: b }`) or a line each.
+ */
+export function withPropertyType(md: string, key: string, type: PropertyType | null): string {
+  if (!md.trim()) md = settingsNote();
+  const field = scanFrontmatter(md)?.fields.find((f) => f.key === "properties");
+  const pairs: [string, string][] = field ? mapEntries(md, field.value).map((e) => [e.key, e.text]) : [];
+  const i = pairs.findIndex(([k]) => k === key);
+  if (type && i >= 0) pairs[i] = [key, type];
+  else if (type) pairs.push([key, type]);
+  else if (i >= 0) pairs.splice(i, 1);
+  else return md;
+  if (!pairs.length) return withoutValue(md, "properties");
+  const inline = field?.value.kind === "map" && md[field.value.from] === "{";
+  const lines = inline
+    ? [`properties: { ${pairs.map(([k, t]) => `${yamlText(k, true)}: ${t}`).join(", ")} }`]
+    : ["properties:", ...pairs.map(([k, t]) => `  ${yamlText(k)}: ${t}`)];
+  const { entries, body, had } = frontmatterEntries(md);
+  const at = entries.findIndex((e) => e.key === "properties");
+  if (at >= 0) entries[at] = { key: "properties", lines };
+  else entries.push({ key: "properties", lines });
+  return frontmatterText(entries) + (had ? body : `\n${md}`);
+}
+
+/** `[[People/Sam Lee]]` → `People/Sam Lee`; null if `s` isn't a link. */
+export const linkTarget = (s: string) => s.match(/^\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]$/)?.[1].trim() ?? null;
 
 /** A new settings file for `schema`: every setting it has, with `values` (or its default), then a line on how to use it. */
 export function settingsFileFor(schema: ObjectSchema, values: Record<string, SettingValue>, intro: string): string {

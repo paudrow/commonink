@@ -7,7 +7,7 @@ import { matchCommands, type Command } from "./commands.ts";
 import { $, displayName, el, icon, markTerms, searchTerms } from "./dom.ts";
 import { fuzzyScore } from "./fuzzy.ts";
 import { agentsBadge, isAgentsNote } from "./agentsNote.ts";
-import { paletteEnter } from "./panes.ts";
+import { paletteEnter, type Where } from "./panes.ts";
 import { kbd, matchKeys } from "./keys.ts";
 import { people, rankPeople, type Person } from "./people.ts";
 
@@ -48,7 +48,7 @@ type Item =
   | { type: "folder"; path: string }
   | { type: "smart"; name: string; query: string };
 
-const SECTION: Partial<Record<Item["type"], string>> = { heading: "Headings in this note", person: "People", tag: "Tags", folder: "Folders", smart: "Smart folders" };
+const SECTION: Partial<Record<Item["type"], string>> = { heading: "Headings in this note", person: "People", tag: "Tags", folder: "Folders", smart: "Views" };
 
 const kindIcon = (kind: string) => (kind === "html" ? "html" : kind === "asset" ? "image" : "file");
 
@@ -80,8 +80,8 @@ export class Palette {
 
   constructor(
     private notes: () => NoteMeta[],
-    /** `side`: open it to the side (⌘Enter). */
-    private onOpen: (path: string, line?: number, side?: boolean) => void,
+    /** `how`: in place, to the side (⌘Enter), or in a new tab (⌥Enter). */
+    private onOpen: (path: string, line: number | undefined, how: Where) => void,
     private onCreate: (name: string) => void,
     private commands: () => Command[],
     private scopes: PaletteScopes,
@@ -283,7 +283,7 @@ export class Palette {
     row?.scrollIntoView?.({ block: "nearest" });
   }
 
-  private choose(i: number, how: ReturnType<typeof paletteEnter> = "open") {
+  private choose(i: number, how: ReturnType<typeof paletteEnter> = "here") {
     const item = this.items[i];
     const q = this.input.value.trim();
     this.close();
@@ -298,8 +298,8 @@ export class Palette {
     if (scopeOf(q)) return; // Shift-Enter doesn't make a note called "#…" or "@…"
     if (how === "create" || item?.type === "create") return q && this.onCreate(q);
     if (!item) return;
-    if (item.type === "note") this.onOpen(item.note.path, undefined, how === "side");
-    else if (item.type === "hit") this.onOpen(item.hit.path, item.hit.lines[0]?.line, how === "side");
+    if (item.type === "note") this.onOpen(item.note.path, undefined, how);
+    else if (item.type === "hit") this.onOpen(item.hit.path, item.hit.lines[0]?.line, how);
   }
 
   private key(e: KeyboardEvent) {

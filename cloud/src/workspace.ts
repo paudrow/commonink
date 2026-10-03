@@ -56,6 +56,8 @@ export class Workspace extends DurableObject<Env> {
     // Notes only change through the core here, so this finds nothing to do, except after an
     // upgrade that asks for notes to be indexed again (tags, say).
     this.vault.sync();
+    // Smart folders kept in the database before views were notes become notes in Views/, once.
+    this.vault.upgradeSmartFolders();
     // Calendar feeds come from public hosts only, as link previews do.
     this.calendar = new Calendar(
       db,

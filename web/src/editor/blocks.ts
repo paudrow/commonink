@@ -1,5 +1,6 @@
 // Block-level live preview: whole-line embeds, tables and frontmatter render as widgets.
 // Block decorations must come from a StateField (they change vertical layout).
+import type { Where } from "../panes.ts";
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import { noteTree } from "./tree.ts";
 import { EditorSelection, EditorState, Facet, Prec, StateEffect, StateField, Transaction, type Line, type Range, type StateCommand, type Text } from "@codemirror/state";
@@ -14,10 +15,10 @@ import { pendingConfig, WIDGETS } from "../widgets/index.ts";
 import type { NoteMeta, TagCount } from "../api.ts";
 import { touches } from "./livePreview.ts";
 import { dataEmbed, hydrateDataEmbeds } from "../textPreview.ts";
-import { scanTags } from "../../../src/core/tags.ts";
 import { boardsIn, unclosedBoard } from "../../../src/core/kanban.ts";
 import { frontmatterProblems } from "../../../src/core/schema.ts";
-import { listOf, scalarOf } from "../../../src/core/frontmatter.ts";
+import { propertyTable } from "./propertyTable.ts";
+import { propertyTypes } from "../propertyTypes.ts";
 // Boards load with the first note that has one.
 import type { BoardHost, mountBoard } from "../kanban.ts";
 import { editsBetween } from "../merge.ts";
@@ -38,8 +39,8 @@ export interface EditorContext {
   path: string;
   /** The note's stable ID, which it keeps through renames and moves: what's kept per note in this browser is keyed by it. */
   id?: string;
-  /** Open a note. `side`: to the side of this one (Cmd/Ctrl-click). */
-  openTarget(target: string, from: string, opts?: { side?: boolean }): void;
+  /** Open a note. `where`: here, in a new tab (⌘-click) or to the side of this one (⌘⌥-click). */
+  openTarget(target: string, from: string, opts?: { where?: Where }): void;
   createNote(name: string): void;
   notes(): NoteMeta[];
   /** Upload files (or pick some, if none given); resolves to the names to embed them by. */
@@ -367,7 +368,7 @@ class DirectiveWidget extends WidgetType {
       },
       focusEditor: () => view.focus(),
       editSource: () => reveal(view, root),
-      open: (target, line, side) => view.state.facet(editorContext).openTarget(line ? `${target}#L${line}` : target, this.note, { side }),
+      open: (target, line, where) => view.state.facet(editorContext).openTarget(line ? `${target}#L${line}` : target, this.note, { where }),
       openTag: (tag) => view.state.facet(editorContext).openTag(tag, "tasks"),
       saveSmartFolder: (query, name, anchor) => view.state.facet(editorContext).saveSmartFolder(query, name, anchor),
       sources: { tags: () => view.state.facet(editorContext).tags(), folders: () => view.state.facet(editorContext).folders() },
@@ -704,61 +705,6 @@ class TableWidget extends WidgetType {
   }
 }
 
-class PropertiesWidget extends WidgetType {
-  /** `bad`: each property with a problem (schema.ts), and what it is. */
-  constructor(
-    readonly yaml: string,
-    readonly bad: Record<string, string>,
-  ) {
-    super();
-  }
-  eq(o: PropertiesWidget) {
-    return o.yaml === this.yaml && JSON.stringify(o.bad) === JSON.stringify(this.bad);
-  }
-  ignoreEvent() {
-    return true;
-  }
-  toDOM(view: EditorView) {
-    // Tags come from the index's own parser (so a block list works too) and filter Notes when clicked.
-    const tags = scanTags(`---\n${this.yaml}\n---\n`).filter((t) => t.frontmatter);
-    const tagChip = (display: string) => {
-      const chip = el("span", { class: "tag is-link", title: `Notes tagged #${display}` }, `#${display}`);
-      chip.addEventListener("mousedown", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        view.state.facet(editorContext).openTag(display);
-      });
-      return chip;
-    };
-    const rows = this.yaml
-      .split("\n")
-      .map((l) => l.match(/^([\w-]+):\s*(.*)$/))
-      .filter((m): m is RegExpMatchArray => !!m)
-      .map(([, k, v]) => {
-        // The same reading as the index's (quotes, escapes, a comma inside quotes), so a value a
-        // contact or event note wrote quoted shows as its text.
-        const entry = { key: k, lines: [`${k}: ${v}`] };
-        const list = /^\[.*\]$/.test(v.trim());
-        const values = list ? listOf(entry) : [scalarOf(entry)];
-        const problem = this.bad[k];
-        return el(
-          "div",
-          { class: problem ? "prop is-bad" : "prop", title: problem ?? null },
-          el("span", { class: "prop-key" }, k),
-          k === "tags"
-            ? el("span", { class: "prop-val" }, ...tags.map((t) => tagChip(t.display)))
-            : el("span", { class: "prop-val" }, ...values.map((x) => el("span", { class: list ? "prop-item" : "" }, x))),
-        );
-      });
-    const wrap = el("div", { class: "cm-properties-block" }, el("div", { class: "cm-properties" }, ...rows));
-    wrap.addEventListener("mousedown", (e) => {
-      e.preventDefault();
-      reveal(view, wrap);
-    });
-    return wrap;
-  }
-}
-
 const EMBED_LINE = /^\s*!\[\[([^\]]+?)\]\]\s*$/;
 const IMAGE_LINE = /^\s*!\[([^\]]*)\]\((?:<([^<>]+)>|([^()\s<>]+))(?:\s+"[^"]*")?\)\s*$/;
 /** A URL alone on its line (what you get by pasting a link). `<url>` opts out and stays a plain link. */
@@ -800,8 +746,9 @@ function buildBlocks(state: EditorState): DecorationSet {
         if (!touches(state, first.from, last.to)) {
           const yaml = doc.sliceString(first.to + 1, Math.max(first.to + 1, last.from - 1));
           const bad: Record<string, string> = {};
-          for (const p of frontmatterProblems(text, from)) if (p.key && !bad[p.key]) bad[p.key] = p.message;
-          out.push(Decoration.replace({ block: true, widget: new PropertiesWidget(yaml, bad) }).range(first.from, last.to));
+          const types = propertyTypes();
+          for (const p of frontmatterProblems(text, from, types)) if (p.key && !bad[p.key]) bad[p.key] = p.message;
+          out.push(Decoration.replace({ block: true, widget: propertyTable(yaml, from, bad, types) }).range(first.from, last.to));
         }
         return false;
       }

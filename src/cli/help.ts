@@ -8,7 +8,7 @@ export const OWN_COMMANDS: Array<{ usage: string; summary: string }> = [
   { usage: "logout", summary: "sign out here, and end the sign-in on the server" },
   { usage: "workspaces [use <name>]", summary: "your hosted workspaces and your role in each; use picks the default" },
   { usage: "help [command]", summary: "this list, or one command's options and examples" },
-  { usage: "help query", summary: "the query syntax: AND, OR, ( ), -, tag=, folder=, dates, sort= (for ls --query and smart folders)" },
+  { usage: "help query", summary: "the query syntax: AND, OR, ( ), -, tag=, folder=, dates, sort= (for ls --query and saved views)" },
   { usage: "completion bash|zsh|fish", summary: "a shell completion script: commonink completion zsh >> ~/.zshrc" },
   { usage: "mcp", summary: "run the stdio MCP server (the same commands, as tools)" },
   { usage: "version", summary: "the version of this CLI" },

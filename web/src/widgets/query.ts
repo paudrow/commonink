@@ -9,7 +9,7 @@ import { onVaultChange } from "../events.ts";
 import type { Field, WidgetSpec } from "./core.ts";
 import { formatQuery, toQuery } from "../../../src/core/query.ts";
 import { parse, textWords } from "../../../src/core/queryGrammar.ts";
-import { sideClick } from "../panes.ts";
+import { clickWhere } from "../panes.ts";
 import { queryHelpLink } from "../queryHelp.ts";
 
 const prevent = (e: Event) => e.preventDefault();
@@ -46,7 +46,7 @@ export const query: WidgetSpec = {
   // Filters written as keys of their own (modified>-7d, -tag=x) show in Matching, so saving the form keeps them.
   formArgs: (args) => ({ ...args, q: toQuery(args).q ?? "" }),
   configAction: {
-    label: "Save as smart folder",
+    label: "Save as view",
     icon: "folderSearch",
     run: (args, env, anchor) => env.saveSmartFolder(formatQuery(toQuery(args)), args.label ?? "", anchor),
   },
@@ -100,7 +100,7 @@ export const query: WidgetSpec = {
               el(
                 "tr",
                 {},
-                el("td", {}, el("button", { type: "button", class: "qq-cell-title", onmousedown: prevent, onclick: (e: MouseEvent) => env.open(item.path, undefined, sideClick(e)) }, item.title)),
+                el("td", {}, el("button", { type: "button", class: "qq-cell-title", onmousedown: prevent, onclick: (e: MouseEvent) => env.open(item.path, undefined, clickWhere(e)) }, item.title)),
                 ...cols.map((c) => el("td", {}, cell(item, c.toLowerCase()))),
               ),
             ),
@@ -121,7 +121,7 @@ export const query: WidgetSpec = {
       const preview = hit ? highlight(hit.text, env.args.q ?? "") : escapeHtml(firstLine(item.excerpt));
       const node = el(
         "button",
-        { type: "button", class: "qq-row", onmousedown: prevent, onclick: (e: MouseEvent) => env.open(item.path, hit?.line, sideClick(e)) },
+        { type: "button", class: "qq-row", onmousedown: prevent, onclick: (e: MouseEvent) => env.open(item.path, hit?.line, clickWhere(e)) },
         icon(item.kind === "html" ? "html" : "file", 14),
         el(
           "span",
