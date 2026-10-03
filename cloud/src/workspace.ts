@@ -479,14 +479,18 @@ export class Workspace extends DurableObject<Env> {
       } catch (e) {
         if (e instanceof ShareError) throw new VaultError(e.message, ({ 403: "forbidden", 404: "not_found", 409: "conflict" } as const)[e.status as 403] ?? "invalid");
         if (e instanceof VaultError) throw e;
-        throw new VaultError((e as Error).message);
+        // Anything else (the database's own error, say) is ours to log, not the caller's to read.
+        console.error(e);
+        throw new VaultError("Sharing failed: try again");
       }
     };
     return {
       list: (o: { path?: string; folder?: string }) => refusing(async () => describe(this.shareTarget({ path: o.path, folder: o.folder }, true))),
       share: (o: { path?: string; folder?: string; email?: string; link?: boolean; role: ShareRole; expiresInDays?: number }) => refusing(async () => {
         const tooMany = await limit(this.env.DB, "share", user);
-        if (tooMany) throw new Error(((await tooMany.json()) as { error: string }).error);
+        if (tooMany) throw new VaultError(((await tooMany.json()) as { error: string }).error);
+        // As the app's route does: nothing else gets past the command's own check, but this is the last door.
+        if (o.role !== "viewer" && o.role !== "editor") throw new ShareError('"role" must be "viewer" or "editor"');
         const target = this.shareTarget({ path: o.path, folder: o.folder })!;
         this.refuseEditingAgentsNote(target, o.role);
         await addShare(this.env.DB, this.env.SESSION_SECRET, {

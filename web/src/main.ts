@@ -4,7 +4,7 @@ import "./mobile.css";
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, type EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
-import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, unusedTag, useWorkspace, whoAmI, ApiError, type Backlink, type Change, type Favorite, type NoteMeta, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite, type UnlinkedMention } from "./api.ts";
+import { api, clientId, connect, favoriteKey, isArchived, isNoteFavorite, isSmartFavorite, isTagFavorite, unusedTag, useWorkspace, whoAmI, ApiError, type Backlink, type Change, type Favorite, type NoteMeta, type ServerMsg, type SmartFavorite, type SmartFolder, type TagCount, type TagFavorite, type UnlinkedMention } from "./api.ts";
 import { cleanTag, normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
@@ -39,6 +39,8 @@ import { navArrows, type Dir, type NavArrows } from "./navArrows.ts";
 import { cleanName, fixedName, nameFromHeading, nameLine, renamedPath } from "./noteName.ts";
 import { taskInputPrefs } from "./taskInput.ts";
 import type { TagsPage } from "./tagsPage.ts";
+import type { QueryHelpPage } from "./queryHelpPage.ts";
+import { QUERY_HELP } from "./queryHelp.ts";
 import type { CheckupPage } from "./checkupPage.ts";
 import type { Theme } from "./settings.ts";
 import { pickWorkspace, renderAccount, showSignIn, type AccountAction } from "./account.ts";
@@ -57,7 +59,7 @@ import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
 import { clampSide, forget, historyStep, IS_MAC, newLayout, pageEntry, pageOf, parseLayout, rememberPlace, SIDE_CLICK, sideClick, step, trailAhead, visit, type PaneTrail, type Place } from "./panes.ts";
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { headingMatches } from "../../src/core/gfm.ts";
-import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
+import { formatQuery, parseQuery, tagList, type NoteQuery } from "../../src/core/query.ts";
 import { NEW_BOARD } from "../../src/core/kanban.ts";
 import { smartFolderEditor } from "./smartFolderEditor.ts";
 import { NOTE_ID, notePath, parseNotePath } from "../../src/core/ids.ts";
@@ -186,7 +188,7 @@ const notesPage = new NotesPage({
   filtersChanged: () => renderTree(),
   tags: () => tags,
   saveQuery: (anchor, query) => saveSmartFolder(query, "", anchor),
-  starButton: (tag) => tagStarButton(tag, "chip"),
+  starButton: (q) => queryStarButton(q),
   openPerson: (assignee) => void showTasks({ assignee }),
   readOnly: () => viewer,
   shared: (item) => !!workspaceId && isShared(item.id, item.path),
@@ -218,6 +220,7 @@ let capturePage: CapturePage | null = null;
 let historyPage: History | null = null;
 let assetsPage: Assets | null = null;
 let tagsPage: TagsPage | null = null;
+let queryHelpPage: QueryHelpPage | null = null;
 let checkupPage: CheckupPage | null = null;
 let replacePage: import("./replacePage.ts").ReplacePage | null = null;
 let contactsPage: import("./contactsPage.ts").ContactsPage | null = null;
@@ -267,6 +270,11 @@ const loadTags = once(async () =>
     deleteTag: (t) => deleteTag(t),
     readOnly: () => viewer,
     toast: (t) => toast(t),
+  })),
+);
+const loadQueryHelp = once(async () =>
+  (queryHelpPage = new (await import("./queryHelpPage.ts")).QueryHelpPage($("#query-help-view"), {
+    tryQuery: (q) => void showNotes({ tab: "notes", query: { q } }),
   })),
 );
 const loadCheckup = once(async () =>
@@ -347,7 +355,7 @@ function commands() {
     newSmartFolder: newSmartFolderFromPalette,
     go: (page) => {
       if (page === "notes" || page === "archive" || page === "trash") void showNotes({ tab: page, query: {} });
-      else void { today: showToday, tasks: showTasks, calendar: showCalendar, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory, shared: showShared, checkup: showCheckup }[page]();
+      else void { today: showToday, tasks: showTasks, calendar: showCalendar, contacts: showContacts, tags: showTags, assets: showAssets, history: showHistory, shared: showShared, checkup: showCheckup, "query-help": showQueryHelp }[page]();
     },
     subscribeCalendar: () => void subscribeCalendar(),
     refreshCalendars: () => void refreshCalendars(),
@@ -522,7 +530,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   if (line) goToLine(pane, line);
   else {
     // Start below the frontmatter so it renders as properties rather than raw YAML.
-    const fm = note.kind === "md" ? note.content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/) : null;
+    const fm = note.kind === "md" ? note.content.match(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---\r?\n?/) : null;
     // Back where you were in it (the same note reopened keeps its view), else the top. Scrolled by
     // the view, as goToLine scrolls: setting scrollDOM.scrollTop = 0 lost to CodeMirror, which on
     // focus puts back the scroll position the last note had.
@@ -720,7 +728,7 @@ const loadReplace = once(async () =>
 let unmountTasks: (() => void) | null = null;
 let unmountToday: (() => void) | null = null;
 
-function showStage(which: "editor" | "html" | "notes" | "today" | "tasks" | "calendar" | "contacts" | "history" | "assets" | "tags" | "checkup" | "replace" | "shared" | "capture") {
+function showStage(which: "editor" | "html" | "notes" | "today" | "tasks" | "calendar" | "contacts" | "history" | "assets" | "tags" | "checkup" | "replace" | "query-help" | "shared" | "capture") {
   closeDrawer();
   $("#editor-host").hidden = which !== "editor";
   $("#html-preview").hidden = which !== "html";
@@ -731,6 +739,7 @@ function showStage(which: "editor" | "html" | "notes" | "today" | "tasks" | "cal
   $("#calendar-view").hidden = which !== "calendar";
   $("#history-view").hidden = which !== "history";
   $("#tags-view").hidden = which !== "tags";
+  $("#query-help-view").hidden = which !== "query-help";
   $("#checkup-view").hidden = which !== "checkup";
   $("#replace-view").hidden = which !== "replace";
   $("#contacts-view").hidden = which !== "contacts";
@@ -926,6 +935,18 @@ async function showTags(opts: { push?: boolean } = {}) {
   renderOutline();
 }
 
+/** Query syntax: every operator and field a note query takes (see queryGrammar.ts). */
+async function showQueryHelp(opts: { push?: boolean } = {}) {
+  await leaveNote();
+  showStage("query-help");
+  (await loadQueryHelp()).show();
+  wentTo("/query-help", opts.push !== false);
+  document.title = "Query syntax · Common Ink";
+  renderChrome();
+  renderTree();
+  renderOutline();
+}
+
 /** Check-up: what may need tending in the workspace, each with its fix (checkupPage.ts). */
 async function showCheckup(opts: { push?: boolean } = {}) {
   await leaveNote();
@@ -1074,7 +1095,7 @@ function pickFiles(accept?: string): Promise<File[]> {
   });
 }
 
-const PAGE_LABEL = { today: "Today", notes: "Notes", archive: "Archive", trash: "Trash", tasks: "Tasks", calendar: "Calendar", contacts: "Contacts", history: "History", assets: "Assets", tags: "Tags", checkup: "Check-up", replace: "Replace across notes", shared: "Shared with me", capture: "Capture" } as const;
+const PAGE_LABEL = { today: "Today", notes: "Notes", archive: "Archive", trash: "Trash", tasks: "Tasks", calendar: "Calendar", contacts: "Contacts", history: "History", assets: "Assets", tags: "Tags", checkup: "Check-up", replace: "Replace across notes", shared: "Shared with me", capture: "Capture", "query-help": "Query syntax" } as const;
 
 /** The page showing (the Notes page by its tab), or null while a note is. */
 const onPage = () =>
@@ -1086,6 +1107,7 @@ const onPage = () =>
   : historyPage?.visible ? "history"
   : assetsPage?.visible ? "assets"
   : tagsPage?.visible ? "tags"
+  : queryHelpPage?.visible ? "query-help"
   : checkupPage?.visible ? "checkup"
   : replacePage?.visible ? "replace"
   : !$("#shared-view").hidden ? "shared"
@@ -1726,12 +1748,13 @@ const refreshTagsSoon = debounce(async () => {
 
 // ------------------------------------------------------------------ favorites
 
-const isStarred = (id: string) => favorites.some((f) => !isTagFavorite(f) && f.id === id);
+const isStarred = (id: string) => favorites.some((f) => isNoteFavorite(f) && f.id === id);
 const isTagStarred = (tag: string) => favorites.some((f) => isTagFavorite(f) && f.tag === normalizeTag(tag));
+const isSmartStarred = (id: string) => favorites.some((f) => isSmartFavorite(f) && f.id === id);
 
 /** Star a note, or unstar it if it's starred. */
 async function toggleStar(path: string) {
-  const on = favorites.some((f) => !isTagFavorite(f) && f.path === path);
+  const on = favorites.some((f) => isNoteFavorite(f) && f.path === path);
   try {
     favorites = await (on ? api.unstar(path) : api.star(path));
   } catch {
@@ -1747,22 +1770,26 @@ async function toggleStar(path: string) {
 /** A starting name for a query: its tag, folder and words ("#work · Projects"). */
 function nameFor(query: string): string {
   const q = parseQuery(query);
-  return [q.tag && `#${q.tag}`, q.folder, q.q && `“${q.q}”`].filter(Boolean).join(" · ") || "All notes";
+  const tags = tagList(q.tag).map((t) => `#${t}`).join(q.match === "any" ? " or " : " ");
+  return [tags, q.folder, q.q && `“${q.q}”`].filter(Boolean).join(" · ") || "All notes";
 }
 
 /** What the settings forms' tag and folder fields suggest. */
 const fieldSources = { tags: () => tags, folders: () => allFolders() };
 
 /** Offer to keep a note query as a smart folder (from the Notes filters or a ::query widget). */
-function saveSmartFolder(query: string, name: string, anchor: HTMLElement) {
-  smartFolderEditor(anchor, { name: name || nameFor(query), query, shared: !viewer }, {
+function saveSmartFolder(query: string, name: string, anchor: HTMLElement, favorite = false) {
+  // New ones are yours only until you share them (a local vault has no one else, so it keeps them as it always did).
+  smartFolderEditor(anchor, { name: name || nameFor(query), query, shared: local }, {
     canShare: !viewer,
     alone: local,
     sources: fieldSources,
     save: async (f) => {
       const saved = await api.saveSmartFolder(f);
       smartFolders = await api.smartFolders();
+      if (favorite) await starSmartFolder(saved.id, true);
       renderTree();
+      notesPage.refreshSoon();
       toast({ icon: "folderSearch", text: `Saved ${saved.name}`, detail: local ? undefined : saved.shared ? "Everyone in the workspace sees it in their sidebar." : "Only you see it." });
     },
   });
@@ -1777,7 +1804,7 @@ function newSmartFolderFromPalette() {
 
 /** A new smart folder from scratch (the Smart folders header, or its empty row). Saving opens it. */
 function newSmartFolder(anchor: HTMLElement) {
-  smartFolderEditor(anchor, { name: "", query: "", shared: !viewer }, {
+  smartFolderEditor(anchor, { name: "", query: "", shared: local }, {
     canShare: !viewer,
     alone: local,
     sources: fieldSources,
@@ -1787,6 +1814,64 @@ function newSmartFolder(anchor: HTMLElement) {
       await showNotes({ tab: "notes", query: parseQuery(saved.query) });
     },
   });
+}
+
+/** Star a smart folder (`on`) or unstar it; nothing if it's already that way. */
+async function starSmartFolder(id: string, on: boolean) {
+  if (isSmartStarred(id) === on) return;
+  favorites = await (on ? api.starSmartFolder(id) : api.unstarSmartFolder(id));
+}
+
+/** Star a smart folder, or unstar it. */
+async function toggleSmartStar(f: SmartFolder) {
+  try {
+    await starSmartFolder(f.id, !isSmartStarred(f.id));
+  } catch (e) {
+    return toast({ text: e instanceof Error ? e.message : `Couldn't star ${f.name}` });
+  }
+  renderTree();
+  notesPage.refreshSoon();
+}
+
+/** A smart folder's star, on its row in Smart folders or in Starred. */
+function smartStarButton(f: SmartFolder): HTMLElement {
+  const starred = isSmartStarred(f.id);
+  const label = starred ? "Unstar smart folder" : "Star smart folder";
+  return el(
+    "button",
+    { type: "button", class: `row-act star-btn${starred ? " is-starred" : ""}`, title: label, "aria-label": `${label}: ${f.name}`, "aria-pressed": String(starred), onclick: (e: Event) => (e.stopPropagation(), void toggleSmartStar(f)) },
+    icon(starred ? "starred" : "star", 14),
+  );
+}
+
+/**
+ * The star beside the Notes filters, for whatever they show. A smart folder's exact query stars
+ * that folder; a tag alone stars the tag; anything else is saved as a smart folder first (the
+ * editor opens, and saving it stars it), since a favorite needs a name.
+ */
+function queryStarButton(q: NoteQuery): HTMLElement | "" {
+  const text = formatQuery(q);
+  if (!text) return "";
+  const saved = smartFolders.find((f) => f.query === text);
+  if (saved) {
+    const b = smartStarButton(saved);
+    b.className = b.className.replace("row-act", "fc-action tag-star");
+    return b;
+  }
+  if (q.tag && tagList(q.tag).length === 1 && text === formatQuery({ tag: q.tag })) return tagStarButton(q.tag, "chip");
+  const b: HTMLButtonElement = el(
+    "button",
+    {
+      type: "button",
+      class: "fc-action tag-star star-btn",
+      title: "Star this search (saves it as a smart folder)",
+      "aria-label": "Star this search",
+      "aria-pressed": "false",
+      onclick: (e: Event) => (e.stopPropagation(), saveSmartFolder(text, "", b, true)),
+    },
+    icon("star", 15),
+  );
+  return b;
 }
 
 /** Star a tag (or unstar it): one click, and it's in Favorites beside your notes. */
@@ -1866,7 +1951,7 @@ function renderSmartFolders(active: string | null) {
       el("span", { class: "tree-name" }, f.name),
       f.shared ? null : el("span", { class: "sf-mine", title: "Just you" }, icon("user", 11)),
       el("span", { class: "n" }, String(f.count)),
-      f.shared && viewer ? null : el("span", { class: "row-actions" }, edit),
+      el("span", { class: "row-actions" }, smartStarButton(f), f.shared && viewer ? null : edit),
     );
   });
   // Empty: one quiet line pointing at the header's +, the one way to add one from here.
@@ -1901,12 +1986,42 @@ function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
   );
 }
 
-/** Starred notes and tags, in your order: drag one to reorder, or drag a card in from Notes to star it. */
+/** A starred smart folder in Favorites: it opens Notes with its query, like its row under Smart folders. */
+function smartFavoriteRow(f: SmartFavorite, active: boolean): HTMLElement {
+  return el(
+    "div",
+    {
+      class: `tree-row is-file${active ? " is-active" : ""}`,
+      "aria-current": active && "page",
+      style: { "--depth": "0" },
+      title: f.query || "Every note",
+      draggable: "true",
+      ...opens(() => void showNotes({ tab: "notes", query: parseQuery(f.query) })),
+      ondragstart: (e: DragEvent) => {
+        e.dataTransfer!.setData(FAVORITE, favoriteKey(f));
+        document.body.classList.add("is-dragging");
+        e.dataTransfer!.effectAllowed = "move";
+      },
+    },
+    el("span", { class: "chev is-leaf" }),
+    icon("folderSearch", 14),
+    el("span", { class: "tree-name" }, f.name),
+    el("span", { class: "n" }, String(f.count)),
+    el("span", { class: "row-actions" }, smartStarButton(f)),
+  );
+}
+
+/** Starred notes, tags and smart folders, in your order: drag one to reorder, or drag a card in from Notes to star it. */
 function renderFavorites() {
   // The tag Notes shows on its own (like a folder alone), which its favorite marks as open.
   const q = onPage() === "notes" ? notesPage.query : null;
   const shownTag = q?.tag && formatQuery(q) === formatQuery({ tag: q.tag }) ? (normalizeTag(q.tag) ?? "") : "";
   const rows = favorites.map((f) => {
+    if (isSmartFavorite(f)) {
+      const row = smartFavoriteRow(f, !!q && formatQuery(q) === f.query);
+      favoriteDrop(row, "is-drop-before", favoriteKey(f));
+      return row;
+    }
     if (isTagFavorite(f)) {
       const row = tagFavoriteRow(f, f.tag === shownTag);
       favoriteDrop(row, "is-drop-before", favoriteKey(f));
@@ -1945,7 +2060,7 @@ function renderFavorites() {
     favoriteDrop(row, "is-drop-before", f.path);
     return row;
   });
-  $("#favorites").replaceChildren(...(rows.length ? rows : [sectionHint("Star a note or a tag to keep it here. A note's star is in its top bar: ", icon("star", 12))]));
+  $("#favorites").replaceChildren(...(rows.length ? rows : [sectionHint("Star a note, a tag or a search to keep it here. A note's star is in its top bar: ", icon("star", 12))]));
 }
 
 /** Let `node` take a favorite (to reorder) or a card from Notes (to star), marking it with `cls` while over it. */
@@ -1974,13 +2089,13 @@ function favoriteDrop(node: HTMLElement, cls: string, before?: string) {
 async function dropFavorite(key: string, before?: string) {
   if (!key || key === before) return;
   try {
-    if (!favorites.some((f) => favoriteKey(f) === key)) favorites = await (key.startsWith("#") ? api.starTag(key) : api.star(key));
+    if (!favorites.some((f) => favoriteKey(f) === key)) favorites = await (key.startsWith("#") ? api.starTag(key) : key.startsWith("~") ? api.starSmartFolder(key.slice(1)) : api.star(key));
     const order = favorites.map(favoriteKey).filter((k) => k !== key);
     const at = before ? order.indexOf(before) : -1;
     order.splice(at < 0 ? order.length : at, 0, key);
     favorites = await api.orderFavorites(order);
   } catch {
-    return toast({ text: `Couldn't star ${key.startsWith("#") ? key : displayName(key)}` });
+    return toast({ text: `Couldn't star ${key.startsWith("#") ? key : key.startsWith("~") ? "that smart folder" : displayName(key)}` });
   }
   renderTree();
   renderChrome();
@@ -3311,7 +3426,7 @@ function setupPanes() {
   // Clicking or tabbing into a pane gives it the focus.
   // (Not from a pane bar's buttons: redrawing the bar on mousedown would swallow their click.)
   const follow = (p: Pane) => (e: Event) => p !== active && split && !(e.target as Element).closest?.(".pane-bar button") && focusPane(p);
-  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#today-view", "#tasks-view", "#calendar-view", "#contacts-view", "#history-view", "#assets-view", "#tags-view", "#replace-view"]], [panes[1], ["#side-pane"]]] as const) {
+  for (const [p, nodes] of [[panes[0], ["#editor-host", "#html-preview", "#main-bar", "#notes-view", "#today-view", "#tasks-view", "#calendar-view", "#contacts-view", "#history-view", "#assets-view", "#tags-view", "#replace-view", "#query-help-view"]], [panes[1], ["#side-pane"]]] as const) {
     for (const sel of nodes) {
       $(sel).addEventListener("focusin", follow(p));
       $(sel).addEventListener("mousedown", follow(p));
@@ -3374,6 +3489,7 @@ async function route() {
     return showNotes({ tab, push: false });
   }
   if (at === "/tags") return showTags({ push: false });
+  if (at === "/query-help") return showQueryHelp({ push: false });
   if (at === "/checkup") return showCheckup({ push: false });
   if (at === "/replace") return showReplace({ push: false });
   if (at === "/history") {
@@ -3494,6 +3610,8 @@ async function boot() {
   $("#history-btn").addEventListener("click", () => void showHistory());
   $("#assets-btn").addEventListener("click", () => void showAssets());
   $("#tags-page-btn").addEventListener("click", () => void showTags());
+  // The "?" beside a query box (see queryHelp.ts).
+  window.addEventListener(QUERY_HELP, () => void showQueryHelp());
   $("#new-smart-folder").addEventListener("click", () => newSmartFolder($("#new-smart-folder")));
   setupSections();
   $("#note-history-btn").addEventListener("click", () => active.session && void showHistory({ note: active.session.path }));

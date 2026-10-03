@@ -164,8 +164,8 @@ export async function removeShare(db: D1Database, workspaceId: string, id: strin
 /** A folder was renamed or moved: shares of it, and of the folders in it, follow it there. */
 export async function moveFolderShares(db: D1Database, workspaceId: string, from: string, to: string) {
   await db
-    .prepare("UPDATE shares SET folder = ? || substr(folder, ?) WHERE workspace_id = ? AND (folder = ? OR substr(folder, 1, ?) = ?)")
-    .bind(to, from.length + 1, workspaceId, from, from.length + 1, `${from}/`)
+    .prepare("UPDATE shares SET folder = ? || substr(folder, length(?) + 1) WHERE workspace_id = ? AND (folder = ? OR substr(folder, 1, length(?)) = ?)")
+    .bind(to, from, workspaceId, from, `${from}/`, `${from}/`)
     .run();
 }
 
