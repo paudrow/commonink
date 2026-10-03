@@ -49,7 +49,8 @@ export type StepResult = PaletteStep | { error: string } | void;
  * A question a command asks inside the palette, Raycast-style: the command's name stands before the
  * field, and what's typed answers it. With `choices`, typing filters them; `enter` is the row for
  * typed text (a text step's only row, or "Make a new one" beside the choices). Escape, or Backspace
- * in an empty field, goes back a step.
+ * in an empty field, goes back a step. Only for one short field or one pick at a time: a command
+ * that needs a form of several fields (a smart folder, a contact) runs and opens its dialog.
  */
 export interface PaletteStep {
   /** Shown before the field: the command, or what this step asks ("Rename #work"). */
@@ -118,16 +119,20 @@ export interface App {
   /** The steps below are asked in the palette (PaletteStep); `void` is done already. */
   newFolder(): PaletteStep | void;
   newTag(): PaletteStep | void;
-  /** A saved search: pick a tag or folder (or type words) and name it. */
-  newSmartFolder(): PaletteStep | void;
-  /** Keep the Notes page's filters as a smart folder: ask its name. */
-  saveFilters(): PaletteStep | void;
+  /**
+   * A saved search, in the smart folder editor (the one the sidebar's + opens): it has rows for
+   * words, folders and tags, a query and sharing, more than one field in the palette can hold.
+   * The rule: one short field or one pick is asked in the palette; a form of several opens its dialog.
+   */
+  newSmartFolder(): void;
+  /** Keep the Notes page's filters as a smart folder: the smart folder editor, filled in with them. */
+  saveFilters(): void;
   /** Star or unstar the tag in view, or pick a tag to. */
   starTag(): PaletteStep | void;
   /** Rename the tag in view (or one picked): ask the new name. */
   renameTag(): PaletteStep | void;
-  /** Ask for a contact's name (and email and company) and add them. */
-  newContact(): PaletteStep | void;
+  /** The New contact dialog (name, email and company), on the Contacts page. */
+  newContact(): void;
   /** People from a .vcf or .csv file. */
   importContacts(): void;
   /** Pick one of the focused note's labels and restore the note to it. */
@@ -199,8 +204,8 @@ export function appCommands(app: App): Command[] {
     { id: "new-board", title: "New board", keywords: "create add kanban columns cards trello project", icon: "kanban", run: app.newBoard },
     { id: "new-folder", title: "New folder", keywords: "create add directory", icon: "folderPlus", ask: app.newFolder },
     { id: "new-tag", title: "New tag", keywords: "create add hashtag", icon: "hash", available: app.canDelete, ask: app.newTag },
-    { id: "new-smart-folder", title: "New smart folder", keywords: "create add saved search query filter view", icon: "folderSearch", ask: app.newSmartFolder },
-    { id: "save-filters", title: "Save these filters as a smart folder", keywords: "keep saved search query view smart folder sidebar", icon: "folderSearch", available: app.notesFiltered, ask: app.saveFilters },
+    { id: "new-smart-folder", title: "New smart folder", keywords: "create add saved search query filter view", icon: "folderSearch", run: app.newSmartFolder },
+    { id: "save-filters", title: "Save these filters as a smart folder", keywords: "keep saved search query view smart folder sidebar", icon: "folderSearch", available: app.notesFiltered, run: app.saveFilters },
     {
       id: "star-tag",
       title: app.tag ? `${app.tag.starred ? "Unstar" : "Star"} #${app.tag.name}` : "Star or unstar a tag…",
@@ -210,7 +215,7 @@ export function appCommands(app: App): Command[] {
     },
     // Picks a tag to rename. With a tag, folder or the like in view, Rename… renames that instead.
     { id: "rename-tag", title: "Rename a tag…", keywords: "rename merge tag hashtag everywhere", icon: "hash", available: app.canDelete && !app.tag && (!app.renames || app.renames === "note"), ask: app.renameTag },
-    { id: "new-contact", title: "New contact…", keywords: "create add person people contact crm", icon: "user", available: app.canDelete, ask: app.newContact },
+    { id: "new-contact", title: "New contact…", keywords: "create add person people contact crm", icon: "user", available: app.canDelete, run: app.newContact },
     { id: "import-contacts", title: "Import contacts (.vcf or .csv)…", keywords: "import upload vcard vcf csv google outlook people contacts", icon: "upload", available: app.canDelete, run: app.importContacts },
     { id: "quick-add", title: "Add a task", keywords: "quick add todo new task", icon: "task", keys: ["Mod-Shift-."], area: "Tasks", run: app.quickAdd },
     go("today", "Today", "sun", "day agenda due overdue journal streak writing week recap"),

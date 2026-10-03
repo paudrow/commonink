@@ -24,7 +24,7 @@ import { clearFlash, flashChanges } from "./editor/agentFlash.ts";
 import { editsBetween, merge3 } from "./merge.ts";
 import { sandboxFrame } from "./render.ts";
 import { Palette } from "./palette.ts";
-import { ensureContact, refreshPeople } from "./people.ts";
+import { ensureContact } from "./people.ts";
 import { NotesPage, type NotesTab } from "./notesPage.ts";
 import { folderPicker } from "./folderPicker.ts";
 import type { History } from "./history.ts";
@@ -357,11 +357,14 @@ function commands() {
     newBoard: () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : "", `\n${NEW_BOARD}\n`),
     newFolder: newFolderStep,
     newTag: newTagStep,
-    newSmartFolder: smartFolderStep,
-    saveFilters: () => smartFolderNameStep(formatQuery(notesPage.query), "Save these filters"),
+    newSmartFolder: () => newSmartFolder(focusedBeforePalette() ?? $("#new-smart-folder")),
+    saveFilters: () => notesPage.saveFilters(focusedBeforePalette()),
     starTag: () => (tag ? void starTagSaying(tag) : starTagStep()),
     renameTag: () => (tag ? renameTagStep(tag) : renameWhichTagStep()),
-    newContact: newContactStep,
+    newContact: async () => {
+      await showContacts();
+      void contactsPage?.newContact();
+    },
     importContacts: async () => {
       await showContacts();
       contactsPage?.importFile();
@@ -938,8 +941,9 @@ async function showReplace(opts: { push?: boolean } = {}) {
 }
 
 // ------------------------------------------------------------------ ⌘⇧P steps (palette.ts)
-// What a command asks, it asks inside the palette: the field takes the answer, and focus stays
-// there until it's done, then goes back to where it was. No form opens elsewhere on the page.
+// What a command asks, when it's one short field or one pick (a name, a tag, a folder, a version),
+// it asks inside the palette: the field takes the answer, and focus stays there until it's done,
+// then goes back to where it was. A form of several fields opens its own dialog (see below).
 
 const tagChoices = () =>
   tags.map((t) => ({ label: `#${t.display}`, value: t.display, icon: isTagStarred(t.display) ? "starred" : "hash", detail: String(t.notes + t.tasks + t.assets || "") }));
@@ -1020,76 +1024,14 @@ const newTagStep = (): PaletteStep => ({
   submit: (typed) => (cleanTag(typed) ? void addTag(typed) : { error: "A tag is letters, numbers, - and _, nested with /" }),
 });
 
-/** A new smart folder: what it holds (a tag, a folder, or words to find), then its name. */
-const smartFolderStep = (): PaletteStep => ({
-  title: "New smart folder",
-  icon: "folderSearch",
-  placeholder: "What should it hold? A tag, a folder, or words to find",
-  hint: "For more filters, use + by Smart folders in the sidebar.",
-  choices: () => [
-    ...tags.filter((t) => !unusedTag(t)).map((t) => ({ label: `#${t.display}`, value: formatQuery({ tag: t.display }), icon: "hash", detail: "tag" })),
-    ...allFolders().map((f) => ({ label: f, value: formatQuery({ folder: f }), icon: "folder", detail: "folder" })),
-  ],
-  enter: (typed) => (typed.trim() ? `Notes with “${typed.trim()}”` : null),
-  submit: (v, picked) => smartFolderNameStep(picked ? v : formatQuery({ q: v.trim() })),
-});
+// A command whose ask is a form of several fields (a smart folder's words, folders, tags and
+// sharing; a contact's name, email and company) opens that form's own dialog instead. ⌘⇧P runs it
+// after closing, so the dialog's Escape hands focus back to where it was before the palette.
 
-/** Name a smart folder for `query`, and save it. */
-function smartFolderNameStep(query: string, title = "New smart folder"): PaletteStep {
-  return {
-    title,
-    icon: "folderSearch",
-    placeholder: "Name it",
-    value: nameFor(query),
-    hint: local ? undefined : viewer ? "Only you will see it." : "Everyone in the workspace will see it in their sidebar.",
-    enter: (typed) => (typed.trim() ? `Save smart folder “${typed.trim()}”` : null),
-    submit: async (name) => {
-      const saved = await api.saveSmartFolder({ name: name.trim(), query, shared: !viewer }).catch((e: Error) => ({ error: e.message }) as const);
-      if ("error" in saved) return saved;
-      smartFolders = await api.smartFolders();
-      revealed.add("smart");
-      renderTree();
-      toast({ icon: "folderSearch", text: `Saved ${saved.name}`, actionLabel: "Open", action: () => void showNotes({ tab: "notes", query: parseQuery(saved.query) }) });
-    },
-  };
-}
-
-/** A new contact: their name, then (Enter skips each) an email and a company. */
-function newContactStep(): PaletteStep {
-  const add = async (c: { name: string; email?: string; company?: string }) => {
-    const r = await api.createContact({ name: c.name, email: c.email ? [c.email] : [], company: c.company ?? "" }).catch((e: Error) => ({ error: e.message }) as const);
-    if ("error" in r) return r;
-    refreshPeople();
-    const open = async () => {
-      const id = (await api.contacts().catch(() => [])).find((x) => x.path === r.path)?.id;
-      if (id) void showContacts({ contact: id });
-    };
-    toast({ icon: "user", text: `Added ${c.name}`, actionLabel: "Open", action: () => void open() });
-  };
-  return {
-    title: "New contact",
-    icon: "user",
-    placeholder: "Name",
-    enter: (typed) => (typed.trim() ? `Next: ${typed.trim()}'s email` : null),
-    submit: (typed) => {
-      const name = typed.trim();
-      return {
-        title: name,
-        icon: "user",
-        placeholder: "Email (optional)",
-        hint: "Enter skips it.",
-        enter: (email) => (email.trim() ? `Next: company` : "Skip: no email"),
-        submit: (email) => ({
-          title: name,
-          icon: "user",
-          placeholder: "Company (optional)",
-          hint: "Enter skips it.",
-          enter: (company) => (company.trim() ? `Add ${name}, at ${company.trim()}` : `Add ${name}`),
-          submit: (company) => add({ name, email: email.trim() || undefined, company: company.trim() || undefined }),
-        }),
-      };
-    },
-  };
+/** Where a dialog opened from ⌘⇧P gives focus back: what had it before the palette, if anything did. */
+function focusedBeforePalette(): HTMLElement | undefined {
+  const at = document.activeElement;
+  return at instanceof HTMLElement && at !== document.body ? at : undefined;
 }
 
 /** Move the focused note: pick a folder (or type a new one). */

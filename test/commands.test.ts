@@ -444,6 +444,13 @@ test("saving filters as a smart folder is offered only when Notes has filters on
   assert.deepEqual(titles("save filters", app({ notesFiltered: true })).slice(0, 1), ["Save these filters as a smart folder"]);
 });
 
+test("one short field or one pick is asked in the palette; a form of several fields opens its dialog", () => {
+  const cmds = appCommands(app({ notesFiltered: true, note: { kind: "md", starred: false, archived: false } }));
+  const by = (id: string) => cmds.find((c) => c.id === id)!;
+  for (const id of ["new-smart-folder", "save-filters", "new-contact"]) assert.ok(by(id).run && !by(id).ask, `${id} opens its dialog`);
+  for (const id of ["new-folder", "new-tag", "star-tag", "rename-tag", "move", "label-version", "restore-version", "new-from-template"]) assert.ok(by(id)?.ask, `${id} asks in the palette`);
+});
+
 test("a note can go back to a labeled version, and archive turns into unarchive on an archived note", () => {
   const note = { kind: "md" as const, starred: false, archived: true };
   assert.deepEqual(titles("restore version", app({ note })).slice(0, 1), ["Restore to a named version…"]);
@@ -527,6 +534,8 @@ const NOT_A_VERB: Record<string, string> = {
   "tag asset": "an asset's tag chips on Assets",
   smart: "the sidebar's Smart folders section lists them",
   "smart-rm": "a smart folder's own menu in the sidebar",
+  "smart-star": "a smart folder's own star, on its sidebar row or beside the Notes filters showing it",
+  "smart-unstar": "a smart folder's own star, on its sidebar row or in Starred",
   "starred order": "favorites are dragged into order in the sidebar",
   "label-rename": "a label's own buttons in History",
   "label-rm": "a label's own buttons in History",

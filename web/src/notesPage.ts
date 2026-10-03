@@ -180,6 +180,11 @@ export class NotesPage {
     return { ...(q && { q }), ...(this.folder && { folder: this.folder }), ...(this.tag && { tag: this.tag }), ...(this.match === "any" && tagList(this.tag).length > 1 && { match: "any" as const }), ...(this.sort !== "modified" && { sort: this.sort }) };
   }
 
+  /** Keep the filters as a smart folder: the smart folder editor, filled in with them (what ⌘⇧P's command does). */
+  saveFilters(anchor?: HTMLElement) {
+    this.hooks.saveQuery(anchor ?? this.saveBtn, formatQuery(this.query));
+  }
+
   /**
    * `name`: the smart folder whose query Notes shows exactly, or null. Its name heads the page, and
    * there's nothing to save.
