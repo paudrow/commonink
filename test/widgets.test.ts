@@ -19,7 +19,7 @@ import { WidgetType } from "@codemirror/view";
 test("the query fields cover every query key a smart folder keeps, and the widget shows them all", () => {
   const every = parseQuery('q=x folder=A tag=b,c match=any sort=title limit=5');
   assert.deepEqual(QUERY_FIELDS.map((f) => f.key).sort(), Object.keys(every).filter((k) => k !== "limit").sort());
-  assert.deepEqual(query.fields.map((f) => f.key), ["label", ...QUERY_FIELDS.map((f) => f.key), "limit"]);
+  assert.deepEqual(query.fields.map((f) => f.key), ["label", ...QUERY_FIELDS.map((f) => f.key), "layout", "cols", "limit"]);
 });
 
 test("a notes ::view's filters written as their own keys show in Matching, so saving its settings keeps them", () => {

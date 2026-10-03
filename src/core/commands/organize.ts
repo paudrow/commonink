@@ -201,8 +201,8 @@ export const smartFolders = [
       "tag=work tag=plan) means notes with all of them; add match=any for notes with any of them. sort is modified (last changed first, the default), date (the note's own date: " +
       "frontmatter date/created, else a YYYY-MM-DD in its name, newest first), oldest (the same, oldest first), title or created (newest note first). " +
       'In q, words side by side (or a AND b) all match, a OR b matches either (AND goes first), -x leaves out, ( ) groups, and \'exact phrase\' matches the words together; ' +
-      "tag=x, folder=x (folder=A|B for either) and modified>-7d or created<2026-09-01 (a date, today, yesterday, or -7d, -2w, -1m back) filter too, anywhere a word can go: " +
-      'q="(tag=work OR tag=home) -folder=Archive". -tag=x and the dates can also stand on their own. commonink help query lists it all. ' +
+      "tag=x, folder=x (folder=A|B for either) and modified>-7d or created<2026-09-01 (a date, today, yesterday, or -7d, -2w, -1m back) filter too, and so do frontmatter properties: status=draft, -status=done, has=due (any case; a list matches if any item does). " +
+      'All of them work anywhere a word can go: q="(tag=work OR status=draft) -folder=Archive". Filters other than q, folder, tag, sort and limit can also stand on their own. commonink help query lists it all. ' +
       'Quote a value with spaces (folder="Health and Fitness"). Only save one the user asked for.',
     examples: ["commonink smart-save Planning tag=plan --just-me", 'commonink smart-save Launch folder=Projects q="launch"', "commonink smart-save Journal tag=journal,health sort=date"],
     args: {
@@ -373,6 +373,7 @@ export const folders = [
       to: str({ required: true, pos: 1, label: "new-path", describe: "Its whole new path: Projects/Ideas 2026, not just the new name" }),
     },
     run: async ({ vault, source, sharing }, a) => {
+      await sharing?.folderMoving?.(a.folder, a.to);
       const r = vault.moveFolder(a.folder, a.to, source);
       await sharing?.folderMoved?.(r.from, r.path);
       const updated = [...new Set(r.moved.flatMap((m) => m.updated))].filter((p) => !r.moved.some((m) => m.path === p || m.from === p));
@@ -396,16 +397,22 @@ export const folders = [
       folder: str({ required: true, pos: 0 }),
       notes: str({ required: true, enum: ["trash", "lift"], describe: "trash: to Trash; lift: up into the parent folder" }),
     },
-    run: ({ vault, source }, a) => {
+    run: async ({ vault, source, sharing }, a) => {
       const dir = a.folder.replace(/^\/+|\/+$/g, "");
       if (isArchiveFolder(dir)) throw new VaultError(`${dir} is the archive, not a folder you can delete; unarchive or delete its notes instead`);
       const r = vault.deleteFolder(dir, a.notes as "trash" | "lift", source);
       const trashed = r.deleted.map(({ id, path }) => ({ id, path }));
       const moved = r.moved.map((m) => ({ from: m.from, to: m.path }));
       if (!trashed.length && !moved.length) throw new VaultError(`There's nothing in ${dir}`, "not_found");
+      // The folder is gone, so its shares go too: a folder made with its name later isn't shared.
+      const unshared = await sharing?.folderDeleted?.(dir);
       return {
-        text: [...trashed.map((d) => `Moved ${d.path} to Trash (${d.id})`), ...moved.map((m) => `Moved ${m.from} → ${m.to}`)].join("\n"),
-        data: { trashed, moved },
+        text: [
+          ...trashed.map((d) => `Moved ${d.path} to Trash (${d.id})`),
+          ...moved.map((m) => `Moved ${m.from} → ${m.to}`),
+          ...(unshared ? [`Stopped sharing ${dir}/ outside the workspace (${unshared} share${unshared === 1 ? "" : "s"}); restoring its notes doesn't share it again.`] : []),
+        ].join("\n"),
+        data: { trashed, moved, ...(unshared === undefined ? {} : { unshared }) },
       };
     },
   }),

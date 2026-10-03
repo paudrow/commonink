@@ -57,6 +57,11 @@ const SCHEMA = [
   // Each note's tasks as read when it was indexed (see Vault.tasks): the columns queries filter on, the rest as JSON.
   `CREATE TABLE IF NOT EXISTS tasks(path TEXT NOT NULL, line INTEGER NOT NULL, done INTEGER NOT NULL, due TEXT, start TEXT, task TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS tasks_path ON tasks(path)`,
+  // Each note's frontmatter properties, for queries like status=draft: one row per value (a list has
+  // one per item), keys in lowercase, values as written. tags and title aren't here (see propsOf).
+  `CREATE TABLE IF NOT EXISTS props(path TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS props_key ON props(key)`,
+  `CREATE INDEX IF NOT EXISTS props_path ON props(path)`,
   `CREATE TABLE IF NOT EXISTS changes(
      id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, path TEXT NOT NULL, op TEXT NOT NULL,
      source TEXT NOT NULL, version TEXT, summary TEXT, from_path TEXT, before TEXT, note_id TEXT, person TEXT, agent TEXT,
@@ -99,9 +104,9 @@ export function migrate(db: SqlDb, opts: { local?: boolean } = {}) {
       return true;
     }
   };
-  const stale = lacks("tags") || lacks("tasks");
+  const stale = lacks("tags") || lacks("tasks") || lacks("props");
   for (const stmt of SCHEMA) db.exec(stmt);
-  // An index from before tags (or tasks): have the next sync read every note again to find them.
+  // An index from before tags (or tasks, or properties): have the next sync read every note again to find them.
   if (stale) db.run("UPDATE notes SET mtime = -1");
   // Links are kept by the name they end in, without folders (see backlinks in the core). An index from
   // before that has keys with folders in them: the next sync reads every note again to replace them.

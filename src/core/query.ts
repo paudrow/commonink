@@ -31,10 +31,11 @@ export interface NoteQuery {
 
 const KEYS = ["q", "folder", "tag", "match", "sort", "limit"] as const;
 /**
- * Filters that can also be written as keys of their own (`::view{modified>-7d -tag=draft}`). They
- * live in `q` with the words, so a query has one place for them however it was written.
+ * A ::view's own args, which aren't part of its query. Any other key that isn't one of KEYS is a
+ * filter (`modified>-7d`, `-tag=draft`, `status=draft`): it lives in `q` with the words, so a query
+ * has one place for its filters however it was written.
  */
-const IN_Q = ["modified", "created", "-tag", "-folder"] as const;
+const WIDGET_ARGS = ["label", "id", "show", "layout", "cols"];
 const LIMIT = /^[1-9]\d{0,3}$/;
 
 /** The folders in a `folder` value: `Projects|Areas` names two, tidied (`/Projects/` is `Projects`). */
@@ -57,7 +58,8 @@ export function toQuery(args: Record<string, string>): NoteQuery {
     if (t && !tags.some((x) => x.toLowerCase() === t.toLowerCase())) tags.push(t);
   }
   // Joined so each keeps its meaning: `q="a OR b"` with `modified>-7d` is `(a OR b) modified>-7d`.
-  const q = andJoin(args.q, ...IN_Q.flatMap((k) => (args[k] ? [filterText(k, args[k])] : [])));
+  const filters = Object.keys(args).filter((k) => !(KEYS as readonly string[]).includes(k) && !WIDGET_ARGS.includes(k) && args[k]);
+  const q = andJoin(args.q, ...filters.map((k) => filterText(k, args[k])));
   if (q) out.q = q;
   if (folder) out.folder = folder;
   if (tags.length) out.tag = tags.join(",");
@@ -98,7 +100,7 @@ function readQuery(src: string): { args: Record<string, string>; bare: string | 
     const value = m[3] ?? m[4] ?? m[5];
     if (m[5]?.startsWith("'")) unclosed = true;
     // A filter that lives in `q` joins the words there, so it can be given twice (`modified>-30d modified<-7d`).
-    if ((IN_Q as readonly string[]).includes(m[1])) filters.push(filterText(m[1], m[2] === "=" ? value : `${m[2]}${value}`));
+    if (!(KEYS as readonly string[]).includes(m[1])) filters.push(filterText(m[1], m[2] === "=" ? value : `${m[2]}${value}`));
     else if (m[2] !== "=") args[m[1]] = `${m[2]}${value}`;
     else if (m[1] === "tag") tags.push(value);
     // `folder=a folder=b` is either folder, as `folder="a|b"` is.
@@ -113,8 +115,15 @@ function readQuery(src: string): { args: Record<string, string>; bare: string | 
 
 export const parseQuery = (src: string) => toQuery(readQuery(src).args);
 
-/** A filter key and its value as `q` holds it: `modified` and `>-7d` are `modified>-7d`, `-tag` and `x` are `-tag=x`. */
-const filterText = (key: string, value: string) => `${key}${/^(<=|>=|<|>)/.test(value) ? "" : "="}${value}`;
+/**
+ * A filter key and its value as `q` holds it: `modified` and `>-7d` are `modified>-7d`, `-tag` and
+ * `x` are `-tag=x`, and `status` and `in progress` are `status='in progress'`.
+ */
+function filterText(key: string, value: string): string {
+  const op = value.match(/^(<=|>=|<|>)/)?.[0] ?? "=";
+  const v = op === "=" ? value : value.slice(op.length);
+  return `${key}${op}${/^[^\s"']+$/.test(v) ? v : `'${v.replace(/'/g, "")}'`}`;
+}
 
 /** A query as text. Sorting by modified is the default, so it's left out. */
 export function formatQuery(q: NoteQuery): string {
@@ -130,7 +139,6 @@ export function queryProblem(src: string): string | null {
   if (bare && (!/^\w[\w-]*$/.test(bare) || bare === "OR" || bare === "AND")) return `Put words, ( ) and OR inside q="…", like q="(budget OR costs) -draft"`;
   if (bare) return `Give "${bare}" a value, like ${bare === "tag" ? "tag=work" : `${bare}=…`}`;
   for (const [k, v] of Object.entries(args)) {
-    if (!(KEYS as readonly string[]).includes(k)) return `Unknown query key "${k}": use ${KEYS.slice(0, -1).join(", ")} or ${KEYS.at(-1)}`;
     if (k === "sort" && !isSort(v)) return `"sort" is ${SORTS.slice(0, -1).join(", ")} or ${SORTS.at(-1)}, not "${v}"`;
     if (k === "match" && v !== "all" && v !== "any") return `"match" is all or any, not "${v}"`;
     if (k === "limit" && !LIMIT.test(v)) return `"limit" is a whole number above 0, not "${v}"`;

@@ -1,37 +1,22 @@
-// Import notes in the app: markdown files, or a .zip of a folder of them (an Obsidian vault, an
-// export), unpacked here and sent in batches (POST /import), with pictures and other files from the
-// .zip uploaded beside them. Folders are kept; a note that's already there is left as it is.
-import { strFromU8, unzipSync } from "fflate";
+// Import notes in the app: markdown files, a .zip of a folder of them (an Obsidian vault, a Notion
+// export), Evernote .enex files, or an Apple Notes export, read and converted here with the core's
+// readImport (the CLI's too), then sent in batches (POST /import), with pictures and other files
+// uploaded beside them. Folders are kept; a note that's already there is left as it is.
+import { readImport } from "../../src/core/import.ts";
+import type { ImportFrom } from "../../src/core/convert.ts";
 import { api } from "./api.ts";
 
-const NOTE = /\.(md|markdown|html?)$/i;
-const HIDDEN = (rel: string) => rel.split("/").some((s) => s.startsWith(".")) || /(^|\/)__MACOSX(\/|$)/i.test(rel);
 /** A request's worth: well under the server's 20 MB body limit, and a few hundred notes. */
 const BATCH_BYTES = 4 * 1024 * 1024;
 const BATCH_NOTES = 500;
+const FROM = { notion: "Notion", evernote: "Evernote", "apple-notes": "Apple Notes" } as const;
 
 /** Bring `picked` in; `known` is every path already in the vault (lowercased). Resolves to what happened, in a line. */
-export async function importNotes(picked: File[], known: Set<string>): Promise<string> {
-  const notes: Array<[string, string]> = [];
-  const files: Array<[string, Uint8Array]> = [];
-  let ignored = 0;
-  for (const f of picked) {
-    if (!/\.zip$/i.test(f.name)) {
-      if (NOTE.test(f.name)) notes.push([f.name, (await f.text()).replace(/^﻿/, "")]);
-      else ignored++;
-      continue;
-    }
-    let entries: Record<string, Uint8Array>;
-    try {
-      entries = unzipSync(new Uint8Array(await f.arrayBuffer()), { filter: (e) => !e.name.endsWith("/") && !HIDDEN(e.name) });
-    } catch {
-      throw new Error(`${f.name} isn't a .zip that can be opened`);
-    }
-    for (const [rel, bytes] of Object.entries(entries)) {
-      if (NOTE.test(rel)) notes.push([rel, strFromU8(bytes).replace(/^﻿/, "")]);
-      else files.push([rel, bytes]);
-    }
-  }
+export async function importNotes(picked: File[], known: Set<string>, from: ImportFrom = "auto"): Promise<string> {
+  const set = readImport(await Promise.all(picked.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) }))), undefined, from);
+  const notes: Array<[string, string]> = set.notes.map((n) => [n.path, n.content]);
+  const files: Array<[string, Uint8Array]> = set.files.map((f) => [f.path, f.bytes]);
+  let ignored = set.ignored.length;
   if (!notes.length && !files.length) throw new Error("no notes in that");
 
   let created = 0;
@@ -66,7 +51,7 @@ export async function importNotes(picked: File[], known: Set<string>): Promise<s
 
   const n = (k: number, one: string) => `${k} ${one}${k === 1 ? "" : "s"}`;
   return [
-    `Imported ${n(created, "note")}`,
+    `Imported ${n(created, "note")}${set.from && set.from !== "obsidian" ? ` from ${FROM[set.from]}` : ""}`,
     uploaded ? `${n(uploaded, "file")}` : "",
     skipped ? `${skipped} already here` : "",
     ignored ? `${ignored} left out` : "",

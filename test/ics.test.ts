@@ -64,12 +64,12 @@ test("folded lines, escapes, quoted params, people and links read into an occurr
   ]);
 });
 
-test("a missing title, a non-web URL and a missing UID get safe values", () => {
+test("a missing title (a free/busy feed), a non-web URL and a missing UID get safe values", () => {
   const text = cal(event("DTSTART:20261005T150000Z", "URL:javascript:alert(1)"), event("DTSTART:20261005T150000Z", "SUMMARY:Same", "URL:not a url"));
   const events = read(text);
   assert.deepEqual(
     events.map((e) => [e.title, e.url]),
-    [["(No title)", null], ["Same", null]],
+    [["Busy", null], ["Same", null]],
   );
   assert.match(events[0].uid, /^[0-9a-f]{16}@common-ink$/);
   assert.notEqual(events[0].uid, events[1].uid);
@@ -78,7 +78,7 @@ test("a missing title, a non-web URL and a missing UID get safe values", () => {
 
 test("an alarm's properties stay out of its event", () => {
   const text = cal(event("UID:a", "BEGIN:VALARM", "ACTION:DISPLAY", "SUMMARY:Alarm", "DESCRIPTION:Reminder", "TRIGGER:-PT10M", "END:VALARM", "DTSTART:20261005T150000Z"));
-  assert.deepEqual(read(text).map((e) => [e.title, e.description]), [["(No title)", null]]);
+  assert.deepEqual(read(text).map((e) => [e.title, e.description]), [["Busy", null]]);
 });
 
 test("all-day, multi-day, timed UTC, floating, DURATION and missing ends", () => {
