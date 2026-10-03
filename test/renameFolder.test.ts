@@ -143,3 +143,11 @@ test("folder rename: the CLI command and MCP tool say what moved and which notes
   assert.deepEqual((out.data as { updated: string[] }).updated, ["Home.md"]);
   assert.deepEqual(moved, [["Ideas", "Thoughts"]], "its shares are told to follow it");
 });
+
+test("a folder named with an emoji renames and deletes like any other", () => {
+  const { vault } = openTempVault({ "📁 Projects/A.md": "# A\n", "📁 Projects/Sub/B.md": "# B\n", "📁 Projectsbook.md": "# Not in it\n" });
+  assert.deepEqual(vault.moveFolder("📁 Projects", "📁 Work", "you").moved.map((m) => m.path), ["📁 Work/A.md", "📁 Work/Sub/B.md"]);
+  assert.equal(vault.deleteCheck([], "📁 Work").notes, 2);
+  assert.deepEqual(vault.deleteFolder("📁 Work", "trash", "you").deleted.map((d) => d.path), ["📁 Work/A.md", "📁 Work/Sub/B.md"]);
+  assert.deepEqual(vault.list().map((n) => n.path), ["📁 Projectsbook.md"]);
+});

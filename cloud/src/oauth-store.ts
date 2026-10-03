@@ -41,9 +41,9 @@ export class D1Kv {
     const { results } = await this.db
       .prepare(
         `SELECT key, metadata, expires_at FROM oauth_kv
-         WHERE substr(key, 1, ?) = ? AND key > ? AND (expires_at IS NULL OR expires_at > ?) ORDER BY key LIMIT ?`,
+         WHERE substr(key, 1, length(?)) = ? AND key > ? AND (expires_at IS NULL OR expires_at > ?) ORDER BY key LIMIT ?`,
       )
-      .bind(prefix.length, prefix, opts.cursor ?? "", now(), limit + 1)
+      .bind(prefix, prefix, opts.cursor ?? "", now(), limit + 1)
       .all<{ key: string; metadata: string | null; expires_at: number | null }>();
     const page = results.slice(0, limit);
     const done = results.length <= limit;

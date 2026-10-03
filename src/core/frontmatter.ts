@@ -8,10 +8,15 @@ export interface Entry {
   lines: string[];
 }
 
-const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
+// A leading byte-order mark (Windows editors write one) still starts the frontmatter.
+const FRONTMATTER = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 
-/** A note's frontmatter entries, in order, and the text after the frontmatter. */
+/**
+ * A note's frontmatter entries, in order, and the text after the frontmatter. The body never keeps
+ * a leading byte-order mark, so `frontmatterText(entries) + body` writes one block, not a second.
+ */
 export function frontmatterEntries(md: string): { entries: Entry[]; body: string; had: boolean } {
+  md = md.replace(/^\uFEFF/, "");
   const m = md.match(FRONTMATTER);
   if (!m) return { entries: [], body: md, had: false };
   const out: Entry[] = [];

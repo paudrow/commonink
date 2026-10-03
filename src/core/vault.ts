@@ -2159,7 +2159,7 @@ export class Vault {
   /** The notes and assets under `folder` (active and archived alike, since a folder holds both). */
   private under(folder: string): string[] {
     const dir = cleanPath(folder);
-    return this.db.all<{ path: string }>("SELECT path FROM notes WHERE substr(path, 1, ?) = ? ORDER BY path", dir.length + 1, `${dir}/`).map((r) => r.path);
+    return this.db.all<{ path: string }>("SELECT path FROM notes WHERE substr(path, 1, length(?)) = ? ORDER BY path", `${dir}/`, `${dir}/`).map((r) => r.path);
   }
 
   /** What deleting these notes (or everything in `folder`) would touch. */
