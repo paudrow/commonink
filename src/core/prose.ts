@@ -110,7 +110,7 @@ export const headingName = (text: string) => headingSettings(text).name;
 
 /** How many lines the frontmatter block takes at the top of a note (0 if it has none). */
 export function frontmatterLines(md: string): number {
-  const m = md.match(/^---\r?\n[\s\S]*?\r?\n---(\r?\n|$)/);
+  const m = md.match(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---(\r?\n|$)/);
   return m ? m[0].replace(/\r?\n$/, "").split("\n").length : 0;
 }
 
