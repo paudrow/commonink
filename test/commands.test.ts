@@ -566,6 +566,8 @@ const NOT_A_VERB: Record<string, string> = {
   "card move": "cards are dragged on the board itself",
   "card edit": "cards are edited on the board itself",
   "tag asset": "an asset's tag chips on Assets",
+  "contacts google": "the Google bar on Contacts, and Settings → Integrations, show whether Google Contacts is connected",
+  "contacts sync": "the Google bar on Contacts syncs, and Settings → Integrations",
   properties: "a note's property table lists them, and suggests keys and values as you add one",
   "property type": "a property's type menu in a note's property table",
   smart: "the sidebar's Smart folders section lists them",
