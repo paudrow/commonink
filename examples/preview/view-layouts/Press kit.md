@@ -2,7 +2,7 @@
 status: todo
 due: 2026-10-15
 owner: Bo
-tags: [launch]
+tags: [golive]
 ---
 # Press kit
 

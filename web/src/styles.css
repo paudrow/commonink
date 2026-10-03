@@ -2377,7 +2377,7 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .sf-editor .qw-config-foot .qw-btn:first-child svg { color: var(--bad); }
 .feed-sort { flex: none; }
 
-/* shared settings fields: selects, pickers, and the smart folder editor's live count */
+/* shared settings fields: selects, pickers, and the view editor's live count */
 .qw-select { height: 32px; width: 100%; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-elev); color: var(--ink-strong); padding: 0 8px; font: 14px var(--ui); outline: none; }
 .qw-select:focus { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
 .qw-picked { display: flex; gap: 6px; align-items: center; min-width: 0; }
@@ -3234,3 +3234,15 @@ svg.today-ring { flex: none; width: 16px; height: 16px; transform: rotate(-90deg
 .rp-text del { color: var(--bad-ink); background: color-mix(in srgb, var(--bad) 13%, transparent); text-decoration: line-through; border-radius: 3px; }
 .rp-text ins { color: var(--ok-ink); background: color-mix(in srgb, var(--ok) 15%, transparent); text-decoration: none; border-radius: 3px; }
 .rp-more { padding: 4px 12px 8px calc(12px + 2.5em + 10px); color: var(--muted); font-size: 12px; }
+
+/* Advanced search: in the Notes search box, opens the view editor on the filters (notesPage.ts). */
+.feed-advanced {
+  flex: none; display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 8px;
+  border: 0; border-radius: 6px; background: none; color: var(--muted); font: 12px var(--ui); cursor: pointer;
+}
+.feed-advanced:hover, .feed-advanced:focus-visible { color: var(--ink-strong); background: var(--hover); }
+#notes-view[data-tab="trash"] .feed-advanced { display: none; }
+@media (max-width: 760px) { .feed-advanced span { display: none; } }
+/* On a phone the footer wraps (Advanced search has a third button) rather than widening the dialog. */
+.sf-dialog { grid-template-columns: minmax(0, 1fr); }
+.sf-dialog .qw-config-foot { flex-wrap: wrap; justify-content: flex-end; }

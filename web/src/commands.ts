@@ -4,6 +4,8 @@ import { fuzzyScore } from "./fuzzy.ts";
 import { CALENDAR_KEYS } from "./calendar/keys.ts";
 
 export type Area = "Global" | "Notes page" | "Calendar" | "Editor" | "Vim" | "Tasks" | "Split view";
+/** Notes' Advanced search, from anywhere: its ⌘K command, the app's key handler and the button's title. */
+export const ADVANCED_KEYS = "Mod-Alt-f";
 export const AREAS: Area[] = ["Global", "Notes page", "Calendar", "Editor", "Vim", "Tasks", "Split view"];
 
 /** Keys as CodeMirror writes them ("Mod-Shift-e", "Mod-Alt-\\"), or typed literally ("?", "gd", ":w"). */
@@ -92,6 +94,8 @@ export interface App {
   restoreVersion(): void;
   go(page: Page): void;
   filterNotes(): void;
+  /** Notes' Advanced search: the view editor on its filters. */
+  advancedSearch(): void;
   quickAdd(): void;
   /** The Calendar page, with the Calendars dialog open at its link field. */
   subscribeCalendar(): void;
@@ -173,6 +177,7 @@ export function appCommands(app: App): Command[] {
     go("today", "Today", "sun", "day agenda due overdue journal streak writing week recap"),
     go("notes", "Notes", "feed", "home all"),
     { id: "filter-notes", title: "Filter notes", keywords: "search find notes page", icon: "search", keys: ["Mod-Shift-f"], run: app.filterNotes },
+    { id: "advanced-search", title: "Advanced search…", keywords: "filter find notes query view smart folder words tags folders and or match any", icon: "sliders", keys: [ADVANCED_KEYS], run: app.advancedSearch },
     go("tasks", "Tasks", "task", "todo checklist"),
     go("calendar", "Calendar", "calendar", "events meetings schedule agenda month week day"),
     { id: "subscribe-calendar", title: "Subscribe to a calendar…", keywords: "calendar add ics webcal ical feed google outlook subscribe", icon: "calendar", available: app.canSubscribe, run: app.subscribeCalendar },
