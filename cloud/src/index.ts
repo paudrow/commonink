@@ -12,6 +12,7 @@ import { grantsFor, joinLink, linkShare, sharedWith } from "./shares.ts";
 import { authorize, listAgents, oauthOptions, revokeAgents, withOAuthStore, type OAuthEnv } from "./agents.ts";
 import { clearSessionCookies, ensurePersonalWorkspace, escapeHtml, handleAuth, page, readSession, readSessionOf, seedWorkspace, text } from "./auth.ts";
 import { adminRoute } from "./admin.ts";
+import { deleteAccount, deletionPlan } from "./account.ts";
 import { acceptInvite, inviteInfo, createWorkspace, endSessionsOf, locateNote, membership, setTimeZone, workspacesOf, type User } from "./directory.ts";
 import { timeZoneNamed } from "../../src/core/tasks.ts";
 import type { Env } from "./env.ts";
@@ -194,6 +195,22 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
     await revokeAgents(env, url, user, "all");
     await disconnect(env, user, user.id);
     const res = json({ ok: true });
+    for (const c of clearSessionCookies()) res.headers.append("Set-Cookie", c);
+    return res;
+  },
+  // Deleting your account (account.ts): what it would take with it, and doing it, once you type your email.
+  "GET /api/me/delete": async ({ env, user }) => json(await deletionPlan(env, user)),
+  "POST /api/me/delete": async ({ req, env, url, user }) => {
+    const { confirm } = (await body(req)) as { confirm?: unknown };
+    if (typeof confirm !== "string" || confirm.trim().toLowerCase() !== user.email.toLowerCase()) {
+      return json({ error: `Type your email, ${user.email}, to delete your account` }, 400);
+    }
+    const plan = await deleteAccount(env, url, user, () => disconnect(env, user, user.id));
+    if (!plan) {
+      const { blocked } = await deletionPlan(env, user);
+      return json({ error: `You're the only owner of ${blocked.map((w) => w.name).join(", ")}. Make someone else an owner first, or delete ${blocked.length === 1 ? "it" : "them"}.`, blocked }, 409);
+    }
+    const res = json({ ok: true, ...plan });
     for (const c of clearSessionCookies()) res.headers.append("Set-Cookie", c);
     return res;
   },
