@@ -1000,7 +1000,8 @@ function readEvent(comp: Component, zones: ZoneBook): EventDef | null {
     recurrenceId: recurrenceId ? momentOf(recurrenceId.value, recurrenceId.params, zones) : null,
     status: STATUSES[first.get("STATUS")?.value.trim().toUpperCase() ?? ""] ?? "confirmed",
     details: {
-      title: title ?? "(No title)",
+      // A feed that shares only free/busy times leaves SUMMARY out; such an event is just a busy slot.
+      title: title ?? "Busy",
       location: textOf(first.get("LOCATION"), CAP.location),
       description: textOf(first.get("DESCRIPTION"), CAP.description),
       url: urlOf(first.get("URL")?.value),
