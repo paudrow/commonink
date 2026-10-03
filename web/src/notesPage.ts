@@ -17,7 +17,9 @@ import { parseDirective } from "./widgets/args.ts";
 import { WIDGETS } from "./widgets/index.ts";
 import { tagChip, tagFilter } from "./tagPicker.ts";
 import type { ToastSpec } from "./toast.ts";
-import { formatQuery, tagList, type NoteQuery, type QuerySort } from "../../src/core/query.ts";
+import { folderList, formatQuery, tagList, type NoteQuery, type QuerySort } from "../../src/core/query.ts";
+import { parse, textWords } from "../../src/core/queryGrammar.ts";
+import { queryHelpLink } from "./queryHelp.ts";
 import { hydrateTaskChips, withTaskChips } from "./taskChips.ts";
 import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
 import { linkClick, sideClick } from "./panes.ts";
@@ -36,8 +38,8 @@ interface Hooks {
   tags(): TagCount[];
   /** Save these filters (a query like `tag=work sort=title`) as a smart folder. */
   saveQuery(anchor: HTMLElement, query: string): void;
-  /** The star (Add to / Remove from Favorites) for the tag Notes is narrowed to. */
-  starButton(tag: string): HTMLElement;
+  /** The star (Add to / Remove from Favorites) for what Notes shows: a tag, a smart folder, or any search. Empty with no filters. */
+  starButton(query: NoteQuery): HTMLElement | "";
   /** Show every task of this person's. */
   openPerson(name: string): void;
   /** You can only view this workspace: chips show, but don't open editors. */
@@ -70,7 +72,7 @@ const TABS: Record<NotesTab, { label: string; about: string }> = {
 };
 /** The sort menu: Trash keeps no note dates, so its orders are by when things were deleted. */
 const SORTS: Record<"notes" | "trash", Array<[QuerySort, string]>> = {
-  notes: [["modified", "Recently changed"], ["date", "Newest by date"], ["oldest", "Oldest by date"], ["title", "By title"]],
+  notes: [["modified", "Recently changed"], ["date", "Newest by date"], ["oldest", "Oldest by date"], ["title", "By title"], ["created", "Newest created"]],
   trash: [["modified", "Recently deleted"], ["oldest", "Deleted longest ago"], ["title", "By title"]],
 };
 /** The keys each tab's footer lists. */
@@ -92,6 +94,8 @@ export class NotesPage {
   private bulk: HTMLElement;
   private more: HTMLElement;
   private search: HTMLElement;
+  /** What's wrong with the filter's query, if anything ("Missing ")" …"). */
+  private problem = el("div", { class: "feed-problem", role: "status", hidden: true });
   private filters: HTMLElement;
   private keys: HTMLElement;
   /** The tab's one line under the filters. */
@@ -110,6 +114,8 @@ export class NotesPage {
   private folder = "";
   /** The tag Notes is narrowed to ("" for any); its children count too. */
   private tag = "";
+  /** With several tags (a smart folder's), whether a note needs any of them rather than all. */
+  private match: "all" | "any" = "all";
   private sort: QuerySort = "modified";
   private items: FeedItem[] = [];
   private page: FeedPage | null = null;
@@ -143,11 +149,11 @@ export class NotesPage {
     this.list = el("div", { class: "feed-list", role: "list" });
     this.more = el("div", { class: "feed-more" });
     // The sort sits in the search box, so the filters fit on one row.
-    this.search = el("label", { class: "feed-search" }, icon("search", 16), this.input, this.sortSel, el("kbd", {}, "/"));
+    this.search = el("label", { class: "feed-search" }, icon("search", 16), this.input, queryHelpLink(), this.sortSel, el("kbd", {}, "/"));
     this.filters = el("div", { class: "feed-filters" }, this.scopeBar, this.tagBar, this.folderSel, this.saveBtn, this.emptyBtn);
     this.keys = el("footer", { class: "feed-keys" });
     // The heading scrolls away; the search and filters stay at the top, and the list scrolls clear of them.
-    const head = el("header", { class: "feed-head" }, this.search, this.filters, this.about);
+    const head = el("header", { class: "feed-head" }, this.search, this.problem, this.filters, this.about);
     this.root.append(el("div", { class: "feed" }, this.heading, head, this.bulk, this.list, this.elsewhere, this.more, this.keys));
     this.input.addEventListener("input", () => {
       clearTimeout(this.timer);
@@ -181,7 +187,7 @@ export class NotesPage {
   /** What Notes shows, as a note query: the same thing a ::query widget or a smart folder holds. */
   get query(): NoteQuery {
     const q = this.input.value.trim();
-    return { ...(q && { q }), ...(this.folder && { folder: this.folder }), ...(this.tag && { tag: this.tag }), ...(this.sort !== "modified" && { sort: this.sort }) };
+    return { ...(q && { q }), ...(this.folder && { folder: this.folder }), ...(this.tag && { tag: this.tag }), ...(this.match === "any" && tagList(this.tag).length > 1 && { match: "any" as const }), ...(this.sort !== "modified" && { sort: this.sort }) };
   }
 
   /**
@@ -200,6 +206,7 @@ export class NotesPage {
     if (opts.query) {
       this.input.value = opts.query.q ?? "";
       this.sort = opts.query.sort ?? "modified";
+      this.match = opts.query.match ?? "all";
       opts = { ...opts, folder: opts.query.folder ?? "", tag: opts.query.tag ?? "" };
       this.focus = 0;
       this.scrollTop = 0;
@@ -235,6 +242,9 @@ export class NotesPage {
     const seq = ++this.seq;
     this.renderTabs();
     const q = this.input.value.trim();
+    const problem = parse(q).error;
+    this.problem.hidden = !problem;
+    this.problem.textContent = problem?.message ?? "";
     const trash = this.hooks.trash();
     if (this.tab === "trash") return this.reloadTrash(seq, trash!);
     const keep = this.items[this.focus]?.path;
@@ -306,7 +316,7 @@ export class NotesPage {
 
   /** The folder menu: every folder, and a subfolder picked in the sidebar too, so it shows as the filter in use. */
   private renderFolders(folders: string[]) {
-    this.folderSel.replaceChildren(...["", ...folders, ...(this.folder && !folders.includes(this.folder) ? [this.folder] : [])].map((f) => el("option", { value: f }, f || "All folders")));
+    this.folderSel.replaceChildren(...["", ...folders, ...(this.folder && !folders.includes(this.folder) ? [this.folder] : [])].map((f) => el("option", { value: f }, folderList(f).join(" or ") || "All folders")));
     this.folderSel.value = this.folder;
     this.folderSel.classList.toggle("is-on", !!this.folder);
   }
@@ -326,7 +336,7 @@ export class NotesPage {
     if (this.tab === "trash") return this.renderTrash();
     const page = this.page!;
     this.renderFolders(page.folders);
-    this.tagBar.replaceChildren(tagFilter({ current: this.tag, tags: this.hooks.tags, count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }), tagList(this.tag).length === 1 ? this.hooks.starButton(this.tag) : "");
+    this.tagBar.replaceChildren(tagFilter({ current: this.tag, any: this.match === "any", tags: this.hooks.tags, count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }), this.hooks.starButton(this.query));
     this.renderSortAndKeys();
     this.saveBtn.hidden = !formatQuery(this.query);
     this.emptyBtn.hidden = true;
@@ -346,7 +356,7 @@ export class NotesPage {
   private empty(q: string, filtered: boolean): HTMLElement {
     if (filtered) {
       const which = this.tab === "archive" ? "archived " : "";
-      const where = `${this.tag ? ` tagged ${tagList(this.tag).map((t) => `#${t}`).join(" and ")}` : ""}${this.folder ? ` in ${this.folder}` : ""}`;
+      const where = `${this.tag ? ` tagged ${tagList(this.tag).map((t) => `#${t}`).join(this.match === "any" ? " or " : " and ")}` : ""}${this.folder ? ` in ${folderList(this.folder).join(" or ")}` : ""}`;
       return emptyState({
         icon: "search",
         title: q ? `No ${which}notes${where} match “${q}”` : `No ${which}notes${where}`,
@@ -377,7 +387,7 @@ export class NotesPage {
     if (!trash || !items) return;
     const folders = trashFolders(items);
     this.renderFolders(folders);
-    this.tagBar.replaceChildren(tagFilter({ current: this.tag, tags: () => trashTags(items), count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }));
+    this.tagBar.replaceChildren(tagFilter({ current: this.tag, any: this.match === "any", tags: () => trashTags(items), count: (t) => t.notes, onChange: (tag) => this.setTag(tag) }));
     this.renderSortAndKeys();
     this.saveBtn.hidden = true;
     this.emptyBtn.hidden = !trash.canPurge || !items.length;
@@ -395,7 +405,7 @@ export class NotesPage {
 
   private trashEmpty(q: string, filtered: boolean): HTMLElement {
     if (filtered) {
-      const where = `${this.tag ? ` tagged ${tagList(this.tag).map((t) => `#${t}`).join(" and ")}` : ""}${this.folder ? ` from ${this.folder}` : ""}`;
+      const where = `${this.tag ? ` tagged ${tagList(this.tag).map((t) => `#${t}`).join(this.match === "any" ? " or " : " and ")}` : ""}${this.folder ? ` from ${folderList(this.folder).join(" or ")}` : ""}`;
       return emptyState({
         icon: "search",
         title: q ? `Nothing in Trash${where} matches “${q}”` : `Nothing in Trash${where}`,
@@ -543,7 +553,7 @@ export class NotesPage {
     let body: HTMLElement;
     if (open) body = this.fullBody(item);
     else if (q && item.lines.length) {
-      body = el("div", { class: "fc-hits" }, ...item.lines.map((l) => el("div", { class: "fc-hit", html: markTerms(l.text, q), onclick: (e: Event) => (e.stopPropagation(), this.hooks.open(item.path, l.line)) })));
+      body = el("div", { class: "fc-hits" }, ...item.lines.map((l) => el("div", { class: "fc-hit", html: markTerms(l.text, textWords(parse(q).expr).join(" ")), onclick: (e: Event) => (e.stopPropagation(), this.hooks.open(item.path, l.line)) })));
     } else if (item.kind === "html") body = el("div", { class: "fc-body is-muted" }, "HTML note · click to preview");
     else if (item.role === "agents") body = el("div", { class: "fc-body is-muted" }, AGENTS_BLURB);
     else {

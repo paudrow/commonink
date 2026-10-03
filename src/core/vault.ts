@@ -13,6 +13,7 @@ import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tag
 import { DATE_FILTER_HELP, dateFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, priorityFilter, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
 import { parseQuickAdd } from "./quickAdd.ts";
 import { formatQuery, parseQuery, queryProblem, tagList, type NoteQuery } from "./query.ts";
+import { dayPasses, evaluate, folderList, inFolders, parse, termsOf, textWords, toFts, type Term } from "./queryGrammar.ts";
 import { addCard, boardsIn, checkCard, editCard, moveCard, unclosedBoard, type Board, type Place } from "./kanban.ts";
 import { safeDecode } from "./uri.ts";
 import { AGENTS_NOTE, START_TAG, type NoteRole } from "./noteRoles.ts";
@@ -70,9 +71,16 @@ export interface TagFavorite {
   display: string;
   notes: number;
 }
-/** A favorite is a note or a tag, in one order. */
-export type Favorite = NoteMeta | TagFavorite;
+/** A smart folder in someone's favorites: the folder (see SmartFolder), marked as one. */
+export interface SmartFavorite extends SmartFolder {
+  smartFolder: true;
+}
+/** A favorite is a note, a tag or a smart folder, in one order. */
+export type Favorite = NoteMeta | TagFavorite | SmartFavorite;
 export const isTagFavorite = (f: Favorite): f is TagFavorite => "tag" in f;
+export const isSmartFavorite = (f: Favorite): f is SmartFavorite => "smartFolder" in f;
+/** A smart folder favorite's key: "~" + its ID (which is shaped like a note's, so it needs the mark). */
+const smartKey = (id: string) => `~${id}`;
 /**
  * A tag favorite's key in the favorites table: "#" + the tag. Note IDs never hold a "#", so the two
  * can't collide, and rows from before tag favorites need nothing done to them.
@@ -707,11 +715,17 @@ export class Vault {
     return outlineOf(this.read(target).content);
   }
 
-  /** Full-text search, optionally only among notes carrying `tag` (or a tag under it). */
+  /**
+   * Full-text search, optionally only among notes carrying `tag` (or a tag under it). The words
+   * read the way a note query's do (AND, OR, -, ( ), "a phrase"; see queryGrammar.ts), but its
+   * filters (`tag=`, `modified>`) are for note queries (feed): a search leaves them out.
+   */
   search(query: string, limit = 20, scope: ArchiveScope = "active", tag?: string): SearchHit[] {
-    const terms = searchTerms(query);
+    const { expr } = parse(query);
+    const terms = textWords(expr);
+    const match = toFts(expr);
     const key = tag === undefined ? null : normalizeTag(tag);
-    if (!terms.length || (tag !== undefined && !key)) return [];
+    if (!match || !terms.length || (tag !== undefined && !key)) return [];
     // Ordered by rank, the full-text index hands hits over best first, so the query stops at `limit`
     // and makes snippets only for the hits it returns (a 1 MB note's snippet can take 200 ms).
     const rows = this.db.all(
@@ -723,7 +737,7 @@ export class Vault {
          AND (? = 'all' OR (${archivedSql("n.path")}) = (? = 'archived'))
          AND (? IS NULL OR n.path IN (SELECT path FROM tags WHERE kind != 'task' AND ${UNDER}))
        ORDER BY rank LIMIT ?`,
-      ftsQuery(terms), scope, scope, key, ...under(key ?? ""), limit,
+      match, scope, scope, key, ...under(key ?? ""), limit,
     );
     return rows.map((r) => ({ ...r, lines: this.matchingLines(r.path, terms) }));
   }
@@ -746,7 +760,10 @@ export class Vault {
    */
   feed(opts: Omit<NoteQuery, "limit"> & { scope?: ArchiveScope; offset?: number; limit?: number } = {}) {
     const scope = opts.scope ?? "active";
-    const terms = searchTerms(opts.q ?? "");
+    const words = parse(opts.q ?? "");
+    const terms = textWords(words.expr);
+    // A sort= among the words is the list's order.
+    opts = { ...opts, sort: words.sort ?? opts.sort };
     const all = this.feedRows();
     let rows = this.matching(opts, all);
     const counts = { active: rows.filter((r) => !isArchived(r.path)).length, archived: rows.filter((r) => isArchived(r.path)).length };
@@ -806,27 +823,58 @@ export class Vault {
     return this.db.all("SELECT id, path, kind, title, mtime, date FROM notes WHERE kind != 'asset' ORDER BY mtime DESC");
   }
 
+  /**
+   * When each note was made, by ID: its first change in History. A note that came in some other way
+   * (a file added outside the app, an import) has none, and goes by when its file last changed.
+   */
+  private createdTimes(): Map<string, number> {
+    return new Map(this.db.all<{ id: string; ts: number }>("SELECT note_id AS id, min(ts) AS ts FROM changes WHERE note_id IS NOT NULL GROUP BY note_id").map((r) => [r.id, r.ts]));
+  }
+
   /** The notes a query matches, archived ones included, in its order. The part of the feed smart folder counts need. */
   private matching(query: NoteQuery, all = this.feedRows()): ReturnType<Vault["feedRows"]> {
-    const terms = searchTerms(query.q ?? "");
+    const { expr, sort: sortInQ } = parse(query.q ?? "");
+    const sort = sortInQ ?? query.sort;
     let rows = all;
-    if (terms.length) {
-      const hits = new Set(this.db.all("SELECT path FROM notes_fts WHERE notes_fts MATCH ?", ftsQuery(terms)).map((r) => r.path));
-      rows = rows.filter((r) => hits.has(r.path));
+    // The folder key (`A|B` is either) and tag key (`work,plan` is the notes with both, `match=any` either) narrow the rows first.
+    if (query.folder) {
+      const folders = folderList(query.folder);
+      rows = rows.filter((r) => inFolders(homeOf(r.path), folders));
     }
-    if (query.folder) rows = rows.filter((r) => homeOf(r.path).startsWith(query.folder!.replace(/\/?$/, "/")));
-    // Every tag, each with the tags under it: `work,plan` is the notes with both.
-    for (const tag of tagList(query.tag)) {
+    // A tag takes the tags under it too, whether it's wanted or left out.
+    const tagged = (tag: string) => {
       const key = normalizeTag(tag);
-      const on = new Set(key ? this.db.all<{ path: string }>(`SELECT DISTINCT path FROM tags WHERE kind != 'task' AND ${UNDER}`, ...under(key)).map((r) => r.path) : []);
-      rows = rows.filter((r) => on.has(r.path));
+      return new Set(key ? this.db.all<{ path: string }>(`SELECT DISTINCT path FROM tags WHERE kind != 'task' AND ${UNDER}`, ...under(key)).map((r) => r.path) : []);
+    };
+    // The tag key's tags: all of them, or with match=any, one.
+    const keyed = tagList(query.tag).map(tagged);
+    if (keyed.length) rows = rows.filter((r) => (query.match === "any" ? keyed.some((t) => t.has(r.path)) : keyed.every((t) => t.has(r.path))));
+    // Dates go by day, in this core's time zone (see dayPasses).
+    const created = termsOf(expr).some((t) => t.kind === "date" && t.field === "created") || sort === "created" ? this.createdTimes() : null;
+    const createdOf = (r: (typeof rows)[number]) => Math.min(created?.get(r.id) ?? r.mtime, r.mtime);
+    if (expr) {
+      // Each term's notes, found once: words through the full-text index, tags through the tags table.
+      const sets = new Map<Term, Set<string>>();
+      const setOf = (t: Term) => {
+        if (!sets.has(t)) {
+          const match = t.kind === "text" ? toFts(t) : null;
+          sets.set(t, t.kind === "tag" ? tagged(t.tag) : new Set(match ? this.db.all<{ path: string }>("SELECT path FROM notes_fts WHERE notes_fts MATCH ?", match).map((r) => r.path) : []));
+        }
+        return sets.get(t)!;
+      };
+      const today = this.day();
+      const dayOf = dayFormat(this.timeZone);
+      const test = (r: (typeof rows)[number]) => (t: Term) =>
+        t.kind === "folder" ? inFolders(homeOf(r.path), t.folders) : t.kind === "date" ? dayPasses(dayOf(t.field === "created" ? createdOf(r) : r.mtime), t, today) : setOf(t).has(r.path);
+      rows = rows.filter((r) => evaluate(expr, test(r)));
     }
-    if (query.sort === "title") rows = [...rows].sort((a, b) => a.title.localeCompare(b.title));
-    if (query.sort === "date" || query.sort === "oldest") {
+    if (sort === "created") rows = [...rows].sort((a, b) => createdOf(b) - createdOf(a));
+    if (sort === "title") rows = [...rows].sort((a, b) => a.title.localeCompare(b.title));
+    if (sort === "date" || sort === "oldest") {
       // A note's own date, else the day it last changed in the vault's time zone; the same day goes by when it changed.
       // Worked out once per note: localDate builds a formatter each call, too slow inside a sort.
       const day = new Map(rows.map((r) => [r, r.date ?? localDate(r.mtime, this.timeZone)]));
-      const dir = query.sort === "date" ? -1 : 1;
+      const dir = sort === "date" ? -1 : 1;
       rows = [...rows].sort((a, b) => dir * (day.get(a)!.localeCompare(day.get(b)!) || a.mtime - b.mtime));
     }
     return rows;
@@ -894,7 +942,7 @@ export class Vault {
     const names = this.namesOf(rel);
     const candidates = new Set<string>();
     for (const name of names) {
-      const terms = searchTerms(name);
+      const terms = [...name.matchAll(/[\p{L}\p{N}_]+/gu)].map((m) => m[0]).slice(0, 12);
       if (!terms.length) continue;
       const phrase = `"${terms.join(" ")}"`;
       for (const r of this.db.all<{ path: string }>("SELECT path FROM notes_fts WHERE notes_fts MATCH ? ORDER BY rank LIMIT 50", phrase)) candidates.add(r.path);
@@ -1339,7 +1387,15 @@ export class Vault {
    */
   favorites(user: string): Favorite[] {
     const out: Favorite[] = [];
+    let smart: Map<string, SmartFolder> | null = null;
     for (const f of this.db.all<{ note_id: string; path: string }>("SELECT note_id, path FROM favorites WHERE user = ? ORDER BY pos", user)) {
+      // A starred smart folder they can still see (one made just someone else's drops out).
+      if (f.note_id.startsWith("~")) {
+        smart ??= new Map(this.smartFolders(user).map((s) => [s.id, s]));
+        const s = smart.get(f.note_id.slice(1));
+        if (s) out.push({ ...s, smartFolder: true });
+        continue;
+      }
       if (f.note_id.startsWith("#")) {
         const t = this.tagInUse(f.note_id.slice(1));
         if (t) out.push(t);
@@ -1392,6 +1448,18 @@ export class Vault {
     return this.favorites(user);
   }
 
+  /** Star a smart folder (a name or ID, as list_smart_folders gives) at the end of `user`'s favorites. */
+  starSmartFolder(user: string, target: string): Favorite[] {
+    const f = this.findSmartFolder(user, target);
+    this.addFavorite(user, smartKey(f.id), f.name);
+    return this.favorites(user);
+  }
+
+  unstarSmartFolder(user: string, target: string): Favorite[] {
+    this.db.run("DELETE FROM favorites WHERE user = ? AND note_id = ?", user, smartKey(this.findSmartFolder(user, target).id));
+    return this.favorites(user);
+  }
+
   private addFavorite(user: string, key: string, path: string) {
     this.db.run(
       `INSERT INTO favorites(user, note_id, path, pos)
@@ -1402,12 +1470,13 @@ export class Vault {
 
   /**
    * Put these favorites first, in this order; the rest follow in the order they had, stars whose
-   * note is gone included. A `#tag` target is a starred tag.
+   * note is gone included. A `#tag` target is a starred tag, and `~name` (or `~id`) a starred smart folder.
    */
   orderFavorites(user: string, targets: string[]): Favorite[] {
     this.favorites(user); // rebinds stars to their notes' current IDs
     const starred = this.db.all<{ note_id: string }>("SELECT note_id FROM favorites WHERE user = ? ORDER BY pos", user).map((f) => f.note_id);
-    const first = targets.map((t) => (t.startsWith("#") ? tagKey(normalizeTag(t) ?? "") : this.metaOf(t).id)).filter((id) => starred.includes(id));
+    const key = (t: string) => (t.startsWith("#") ? tagKey(normalizeTag(t) ?? "") : t.startsWith("~") ? smartKey(this.findSmartFolder(user, t.slice(1)).id) : this.metaOf(t).id);
+    const first = targets.map(key).filter((id) => starred.includes(id));
     const order = [...new Set([...first, ...starred])];
     this.db.tx(() => order.forEach((id, i) => this.db.run("UPDATE favorites SET pos = ? WHERE user = ? AND note_id = ?", i + 1, user, id)));
     return this.favorites(user);
@@ -1485,6 +1554,7 @@ export class Vault {
     const f = this.findSmartFolder(user, target, idOnly);
     if (f.shared && !canEditShared) throw new VaultError("Only editors can delete shared smart folders.", "forbidden");
     this.db.run("DELETE FROM smart_folders WHERE id = ?", f.id);
+    this.db.run("DELETE FROM favorites WHERE note_id = ?", smartKey(f.id));
     return this.smartFolders(user);
   }
 
@@ -2613,6 +2683,15 @@ const linkStem = (key: string) => key.slice(key.lastIndexOf("/") + 1);
 const fileStem = (rel: string) => path.posix.basename(rel).replace(/\.(md|markdown)$/i, "");
 
 /** `tags.tag` is the tag or under it: a range, so it uses the index and needs no character counting. */
+/** A function from a time (ms) to its day (YYYY-MM-DD) in `timeZone`: one formatter for many notes. */
+function dayFormat(timeZone: string | undefined): (ms: number) => string {
+  const f = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
+  return (ms) => {
+    const p = Object.fromEntries(f.formatToParts(ms).map((x) => [x.type, x.value]));
+    return `${p.year}-${p.month}-${p.day}`;
+  };
+}
+
 const UNDER = "(tag = ? OR (tag >= ? AND tag < ?))";
 const under = (key: string) => [key, `${key}/`, `${key}0`]; // "0" sorts right after "/"
 
@@ -2659,10 +2738,6 @@ function findColumn(boards: Board[], ref: string, path: string, board?: number):
   throw new VaultError(`No column "${ref}" on the board${boards.length === 1 ? "" : "s"} in ${path}. Columns: ${names}`, "not_found");
 }
 
-function searchTerms(q: string): string[] {
-  return [...q.matchAll(/[\p{L}\p{N}_]+/gu)].map((m) => m[0]).slice(0, 12);
-}
-const ftsQuery = (terms: string[]) => terms.map((t) => `"${t}"*`).join(" ");
 
 /** The start of a note's body for previews: without the title heading, cut at a line boundary. */
 function excerptOf(body: string, title: string, max = 700): string {
