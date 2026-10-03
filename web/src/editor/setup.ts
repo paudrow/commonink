@@ -93,7 +93,7 @@ const linkClicks = EditorView.domEventHandlers({
         else ctx.openTarget(safeDecode(href), ctx.path, { side });
       }
     };
-    // A rendered [[link]] can also be dragged to the right edge of the window, to open it there.
+    // A rendered [[link]] can also be dragged onto the notes, to open it in a split.
     if (t.dataset.target !== undefined && !t.classList.contains("is-raw")) dragLink(e, t.dataset.target, ctx.path, open);
     else open();
     return true;
@@ -102,7 +102,7 @@ const linkClicks = EditorView.domEventHandlers({
 
 /**
  * Follow a press on a [[link]]: released where it started, it opens the link; moved, it's a drag,
- * which the app shell shows and takes at the window's right edge (see LinkDrag in dom.ts). A
+ * which the app shell shows and takes as a drop to split (see LinkDrag in dom.ts). A
  * pointer drag rather than HTML drag and drop, since the link is text in an editable page.
  */
 function dragLink(e: MouseEvent, target: string, from: string, open: () => void) {

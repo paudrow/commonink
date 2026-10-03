@@ -6,7 +6,7 @@ import { EditorSelection, type EditorState } from "@codemirror/state";
 import { getCM, vim, Vim } from "@replit/codemirror-vim";
 import { api, clientId, connect, favoriteKey, isArchived, isTagFavorite, unusedTag, useWorkspace, whoAmI, ApiError, type Backlink, type Change, type Favorite, type NoteMeta, type ServerMsg, type SmartFolder, type TagCount, type TagFavorite, type UnlinkedMention } from "./api.ts";
 import { cleanTag, normalizeTag, tagMatches } from "../../src/core/tags.ts";
-import { $, authorAvatar, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
+import { $, authorAvatar, dragsPage, draggedPage, PAGE_DRAG, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
 import { setSaveToDrive, setShareState, setShareWithPeople, SHARE_KEYS, toggleShareMenu, type ShareNote } from "./share.ts";
 import type { Label } from "./api.ts";
@@ -55,7 +55,7 @@ import { isTestSite, store } from "./store.ts";
 import { changeVerb, groupChanges } from "../../src/core/format.ts";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
 import { closeTab, openTab, parseTabs, stepTab } from "./tabs.ts";
-import { clampSide, forget, historyStep, IS_MAC, newLayout, pageEntry, pageOf, parseLayout, rememberPlace, SIDE_CLICK, sideClick, step, trailAhead, visit, type PaneTrail, type Place } from "./panes.ts";
+import { clampSide, dropDock, forget, historyStep, IS_MAC, newLayout, pageEntry, pageOf, parseLayout, rememberPlace, SIDE_CLICK, sideClick, step, trailAhead, visit, type Dock, type PaneTrail, type Place } from "./panes.ts";
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { headingMatches } from "../../src/core/gfm.ts";
 import { formatQuery, parseQuery, type NoteQuery } from "../../src/core/query.ts";
@@ -538,7 +538,7 @@ async function openNote(path: string, opts: { line?: number; heading?: string; p
   if (line) goToLine(pane, line);
   else {
     // Start below the frontmatter so it renders as properties rather than raw YAML.
-    const fm = note.kind === "md" ? note.content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/) : null;
+    const fm = note.kind === "md" ? note.content.match(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---\r?\n?/) : null;
     // Back where you were in it (the same note reopened keeps its view), else the top. Scrolled by
     // the view, as goToLine scrolls: setting scrollDOM.scrollTop = 0 lost to CodeMirror, which on
     // focus puts back the scroll position the last note had.
@@ -574,7 +574,7 @@ function focusPane(p: Pane, how: "push" | "replace" = "replace") {
 }
 
 function saveLayout() {
-  layout = { split, side: layout.side, focus: active.index, panes: [panes[0].trail, panes[1].trail] };
+  layout = { split, at: layout.at, side: layout.side, focus: active.index, panes: [panes[0].trail, panes[1].trail] };
   store.set(layoutKey(), layout);
 }
 
@@ -582,6 +582,8 @@ function saveLayout() {
 function setSplit(on: boolean) {
   split = on;
   document.body.classList.toggle("is-split", on);
+  document.body.dataset.dock = layout.at;
+  $("#pane-divider").setAttribute("aria-orientation", layout.at === "top" || layout.at === "bottom" ? "horizontal" : "vertical");
   $("#side-pane").hidden = !on;
   $("#pane-divider").hidden = !on;
   $("#main-bar").hidden = !on;
@@ -595,6 +597,13 @@ function setSplit(on: boolean) {
   }
   renderPaneBars();
   for (const p of panes) p.view.requestMeasure();
+}
+
+/** Where the side pane goes when the window next splits (an open split stays where it is). */
+function dockAt(at: Dock) {
+  if (split) return;
+  layout.at = at;
+  document.body.dataset.dock = at;
 }
 
 /** Close a pane, back to one. Closing the main pane moves the side pane's note into it. */
@@ -1985,7 +1994,7 @@ function renderSmartFolders(active: string | null) {
         },
       });
     });
-    return el(
+    const row = el(
       "div",
       {
         class: `tree-row is-file${f.query === active ? " is-active" : ""}`,
@@ -2002,6 +2011,8 @@ function renderSmartFolders(active: string | null) {
       el("span", { class: "n" }, String(f.count)),
       f.shared && viewer ? null : el("span", { class: "row-actions" }, edit),
     );
+    dragsPage(row, f.name, () => showNotes({ tab: "notes", query: parseQuery(f.query) }));
+    return row;
   });
   // Empty: one quiet line pointing at the header's +, the one way to add one from here.
   $("#smart-folders").replaceChildren(...(rows.length ? rows : [sectionHint("Click ", plusMark(), " to save a search here.")]));
@@ -2011,7 +2022,7 @@ const FAVORITE = "application/x-common-ink-favorite";
 
 /** A starred tag in Favorites: it opens Notes narrowed to the tag, like the tag's row under Tags. */
 function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
-  return el(
+  const row = el(
     "div",
     {
       class: `tree-row is-tag${active ? " is-active" : ""}`,
@@ -2033,6 +2044,8 @@ function tagFavoriteRow(f: TagFavorite, active: boolean): HTMLElement {
     el("span", { class: "n" }, String(f.notes)),
     el("span", { class: "row-actions" }, tagStarButton(f.display, "row")),
   );
+  dragsPage(row, `#${f.display}`, () => showNotes({ tab: "notes", query: { tag: f.display } }));
+  return row;
 }
 
 /** Starred notes and tags, in your order: drag one to reorder, or drag a card in from Notes to star it. */
@@ -2272,6 +2285,7 @@ function renderTree() {
           ),
         );
         dropTarget(row, () => path);
+        dragsPage(row, path.split("/").pop()!, () => showNotes({ tab: "notes", query: { folder: path } }));
         return [row, ...(open ? walk(path, depth + 1) : [])];
       });
   const rows = walk("", 0);
@@ -2475,6 +2489,7 @@ function renderTagTree(active: string) {
             : el("button", { type: "button", class: "row-act", title: `Delete #${t.display}`, onclick: (e: Event) => (e.stopPropagation(), void deleteTag(t)) }, icon("trash", 14)),
           ),
         );
+        dragsPage(row, `#${t.display}`, () => (onlyTasks(t) ? showTasks({ tag: t.display }) : showNotes({ tab: "notes", query: { tag: t.display } })));
         return [row, ...(open ? walk(t.tag, depth + 1) : [])];
       });
   const rows = walk("", 0);
@@ -3081,11 +3096,14 @@ const nameVersion = (_cm: unknown, params: { args?: string[] }) => void labelCur
 Vim.defineEx("version", "version", nameVersion);
 Vim.defineEx("label", "label", nameVersion);
 Vim.defineEx("focus", "foc", () => void setFocusMode(!focusMode));
-Vim.defineEx("vsplit", "vs", (_cm: unknown, params: { args?: string[] }) => {
-  const arg = params.args?.join(" ");
-  if (arg) void openTarget(arg, active.session?.path, sideOf(active));
-  else if (!split) void openSplit();
-});
+// :vsplit opens the side pane beside, :split below (as in vim, where :split stacks windows).
+for (const [name, short, at] of [["vsplit", "vs", "right"], ["split", "sp", "bottom"]] as const)
+  Vim.defineEx(name, short, (_cm: unknown, params: { args?: string[] }) => {
+    dockAt(at);
+    const arg = params.args?.join(" ");
+    if (arg) void openTarget(arg, active.session?.path, sideOf(active));
+    else if (!split) void openSplit();
+  });
 // :tabnew and :tabedit (:tabe) open a note in a new tab (alone, quick open picks one).
 for (const [name, short] of [["tabnew", "tabnew"], ["tabedit", "tabe"]])
   Vim.defineEx(name, short, (_cm: unknown, params: { args?: string[] }) => {
@@ -3393,13 +3411,17 @@ function setupShortcutTips() {
 
 // ------------------------------------------------------------------ split view
 
-/** The divider, the drop zone at the right edge, the split button, and focus following clicks into a pane. */
+/** The divider, the drop zones, the split button, and focus following clicks into a pane. */
 function setupPanes() {
   const stage = $("#stage");
   const divider = $("#pane-divider");
-  const resize = (clientX: number) => {
+  /** The side pane's share of the stage with the divider at (x, y), for where it's docked. */
+  const shareAt = (x: number, y: number) => {
     const r = stage.getBoundingClientRect();
-    layout.side = clampSide((r.right - clientX) / r.width);
+    return { right: (r.right - x) / r.width, left: (x - r.left) / r.width, top: (y - r.top) / r.height, bottom: (r.bottom - y) / r.height }[layout.at];
+  };
+  const resize = (x: number, y: number) => {
+    layout.side = clampSide(shareAt(x, y));
     stage.style.setProperty("--side", `${layout.side * 100}%`);
     for (const p of panes) p.view.requestMeasure();
   };
@@ -3407,7 +3429,7 @@ function setupPanes() {
     e.preventDefault();
     divider.setPointerCapture(e.pointerId);
     document.body.classList.add("is-resizing");
-    const move = (ev: PointerEvent) => resize(ev.clientX);
+    const move = (ev: PointerEvent) => resize(ev.clientX, ev.clientY);
     const up = () => {
       divider.removeEventListener("pointermove", move);
       document.body.classList.remove("is-resizing");
@@ -3417,45 +3439,122 @@ function setupPanes() {
     divider.addEventListener("pointerup", up, { once: true });
   });
   divider.addEventListener("keydown", (e) => {
-    const by = e.key === "ArrowLeft" ? 0.05 : e.key === "ArrowRight" ? -0.05 : 0;
+    // The arrow toward the main pane grows the side pane.
+    const grow = { right: "ArrowLeft", left: "ArrowRight", top: "ArrowDown", bottom: "ArrowUp" }[layout.at];
+    const shrink = { right: "ArrowRight", left: "ArrowLeft", top: "ArrowUp", bottom: "ArrowDown" }[layout.at];
+    const by = e.key === grow ? 0.05 : e.key === shrink ? -0.05 : 0;
     if (!by) return;
     e.preventDefault();
     layout.side = clampSide(layout.side + by);
     stage.style.setProperty("--side", `${layout.side * 100}%`);
+    for (const p of panes) p.view.requestMeasure();
     saveLayout();
   });
 
-  // Drag a note (a sidebar row, a Notes card, a task) or a link (in a note, a board's link card) to
-  // the right edge to open it there. Inside a board, its columns take the drag first.
+  // Drag onto the notes to show something there. A note (a sidebar row, a Notes card, a task) or a
+  // link (in a note, a board's link card) opens in a split: on the left or right half beside, near
+  // the top or bottom edge above or below (see dropDock); once split, in the pane it's dropped on. A
+  // page from the sidebar (Notes, Today, a folder, a tag, a smart folder) shows in the main pane,
+  // where pages show: dropped on an edge beside a note, it takes that edge and the note moves to the
+  // side pane across from it; dropped on the side pane, the panes swap places so it shows where it
+  // was dropped. The zone outlines where it'll go. Inside a board, its columns take the drag first.
   const zone = $("#side-drop");
-  const atEdge = (x: number) => x > stage.getBoundingClientRect().right - Math.max(96, stage.clientWidth * 0.18);
-  const edge = (e: DragEvent) => !!e.dataTransfer?.types.some((t) => t === NOTE_DRAG || t === LINK_DRAG) && atEdge(e.clientX);
+  type Box = { x: number; y: number; w: number; h: number };
+  type Drop = { pane: Pane; at?: Dock; swap?: boolean; label: string; box: Box };
+  const opposite = { right: "left", left: "right", top: "bottom", bottom: "top" } as const;
+  const where = { right: "on the right", left: "on the left", top: "above", bottom: "below" } as const;
+  const dropAt = (x: number, y: number, page?: string): Drop | null => {
+    const r = stage.getBoundingClientRect();
+    if (x < r.left || x > r.right || y < r.top || y > r.bottom) return null;
+    const here = page ? `Show ${page} here` : "Open here";
+    if (split) {
+      const s = $("#side-pane").getBoundingClientRect();
+      const side = { x: s.left - r.left, y: s.top - r.top, w: s.width, h: s.height };
+      if (x >= s.left && x <= s.right && y >= s.top && y <= s.bottom) return page ? { pane: panes[0], swap: true, label: here, box: side } : { pane: panes[1], label: here, box: side };
+      const main = {
+        right: { x: 0, y: 0, w: side.x, h: r.height },
+        left: { x: side.x + side.w, y: 0, w: r.width - side.x - side.w, h: r.height },
+        top: { x: 0, y: side.y + side.h, w: r.width, h: r.height - side.y - side.h },
+        bottom: { x: 0, y: 0, w: r.width, h: side.y },
+      }[layout.at];
+      return { pane: panes[0], label: here, box: main };
+    }
+    // A page over a page takes its place: two pages don't show at once.
+    if (page && (onPage() || !panes[0].session)) return { pane: panes[0], label: `Show ${page}`, box: { x: 0, y: 0, w: r.width, h: r.height } };
+    const at = dropDock((x - r.left) / r.width, (y - r.top) / r.height);
+    // What's dropped gets the side pane's share of the window, or the main pane's for a page.
+    const s = page ? 1 - layout.side : layout.side;
+    const box = {
+      right: { x: r.width * (1 - s), y: 0, w: r.width * s, h: r.height },
+      left: { x: 0, y: 0, w: r.width * s, h: r.height },
+      top: { x: 0, y: 0, w: r.width, h: r.height * s },
+      bottom: { x: 0, y: r.height * (1 - s), w: r.width, h: r.height * s },
+    }[at];
+    if (page) return { pane: panes[0], at: opposite[at], label: `Show ${page} ${where[at]}`, box };
+    return { pane: panes[1], at, label: `Open ${where[at]}`, box };
+  };
+  const show = (d: Drop | null) => {
+    zone.hidden = !d;
+    if (!d) return;
+    const pad = 8;
+    Object.assign(zone.style, { left: `${d.box.x + pad}px`, top: `${d.box.y + pad}px`, width: `${Math.max(0, d.box.w - 2 * pad)}px`, height: `${Math.max(0, d.box.h - 2 * pad)}px` });
+    zone.lastChild!.textContent = d.label;
+  };
+  /** Open the drop's note where it says, splitting on its edge first. */
+  const land = (d: Drop, open: (pane: Pane) => void) => {
+    if (d.at) dockAt(d.at);
+    open(d.pane);
+  };
+  /** Show a dropped page in the main pane, moving the panes or the note there out of its way first. */
+  const landPage = async (d: Drop, open: () => unknown) => {
+    const note = panes[0].session?.path;
+    if (d.swap) {
+      layout.at = opposite[layout.at];
+      setSplit(true);
+      saveLayout();
+    }
+    await open();
+    if (d.at && note) {
+      dockAt(d.at);
+      await openNote(note, { pane: panes[1] });
+    }
+  };
+  /** The page being dragged, if it's a page (and from this window). */
+  const pageIn = (e: DragEvent) => (e.dataTransfer?.types.includes(PAGE_DRAG) ? draggedPage() : null);
+  const dragging = (e: DragEvent) => !!pageIn(e) || !!e.dataTransfer?.types.some((t) => t === NOTE_DRAG || t === LINK_DRAG);
   stage.addEventListener("dragover", (e) => {
-    zone.hidden = !edge(e);
-    if (!zone.hidden) e.preventDefault();
+    const d = dragging(e) ? dropAt(e.clientX, e.clientY, pageIn(e)?.label) : null;
+    show(d);
+    if (d) e.preventDefault();
   });
   stage.addEventListener("dragleave", (e) => !stage.contains(e.relatedTarget as Node) && (zone.hidden = true));
   stage.addEventListener("drop", (e) => {
-    const on = !zone.hidden;
+    const page = pageIn(e);
+    const d = !zone.hidden && dragging(e) ? dropAt(e.clientX, e.clientY, page?.label) : null;
     zone.hidden = true;
-    if (!on) return;
+    if (!d) return;
+    if (page) {
+      e.preventDefault();
+      return void landPage(d, page.open);
+    }
     const link = e.dataTransfer!.getData(LINK_DRAG);
     const path = e.dataTransfer!.getData(NOTE_DRAG);
     if (link) {
       e.preventDefault();
       const { target, from } = JSON.parse(link) as { target: string; from: string };
-      return void openTarget(target, from, panes[1]);
+      return land(d, (pane) => void openTarget(target, from, pane));
     }
     if (!path || notes.find((n) => n.path === path)?.kind === "asset") return;
     e.preventDefault();
-    void openNote(path, { pane: panes[1] });
+    land(d, (pane) => void openNote(path, { pane }));
   });
   document.addEventListener("dragend", () => (zone.hidden = true));
   // A [[link]] dragged in the editor (a pointer drag, see dragLink in editor/setup.ts).
   window.addEventListener(LINK_DRAG, (ev) => {
-    const d = (ev as CustomEvent<LinkDrag>).detail;
-    zone.hidden = d.phase === "drop" || !atEdge(d.x);
-    if (d.phase === "drop" && atEdge(d.x)) void openTarget(d.target, d.from, panes[1]);
+    const l = (ev as CustomEvent<LinkDrag>).detail;
+    const d = dropAt(l.x, l.y);
+    show(l.phase === "drop" ? null : d);
+    if (l.phase === "drop" && d) land(d, (pane) => void openTarget(l.target, l.from, pane));
   });
 
   $("#split-btn").addEventListener("click", () => void (split ? closePane(panes[1]) : openSplit()));
@@ -3636,6 +3735,18 @@ async function boot() {
   renderTheme();
   systemDark.addEventListener("change", () => theme() === "system" && renderTheme());
   window.addEventListener("popstate", (e) => void onPopState(e));
+  // Each page in the sidebar can be dragged onto the notes, to show it there (see setupPanes).
+  for (const [id, label, open] of [
+    ["#today-btn", "Today", () => showToday()],
+    ["#notes-btn", "Notes", () => showNotes({ tab: "notes", query: {} })],
+    ["#tasks-btn", "Tasks", () => showTasks()],
+    ["#calendar-btn", "Calendar", () => showCalendar()],
+    ["#contacts-btn", "Contacts", () => showContacts()],
+    ["#history-btn", "History", () => showHistory()],
+    ["#assets-btn", "Assets", () => showAssets()],
+    ["#shared-btn", "Shared with me", () => showShared()],
+  ] as const)
+    dragsPage($(id), label, open);
   $("#notes-btn").addEventListener("click", () => void showNotes({ tab: "notes", query: {} }));
   $("#today-btn").addEventListener("click", () => void showToday());
   $("#tasks-btn").addEventListener("click", () => void showTasks());

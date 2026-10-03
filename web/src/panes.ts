@@ -39,9 +39,14 @@ export interface PaneTrail {
   back: string[];
   forward: string[];
 }
+/** Which edge of the window the side pane sits on: beside the main pane, or above or below it. */
+export type Dock = "right" | "left" | "top" | "bottom";
+export const DOCKS: readonly Dock[] = ["right", "left", "top", "bottom"];
 export interface Layout {
   split: boolean;
-  /** The side pane's share of the width, 0.2 to 0.8. */
+  /** Where the side pane is. */
+  at: Dock;
+  /** The side pane's share of the width (or the height, docked top or bottom), 0.2 to 0.8. */
   side: number;
   /** Which pane has focus: 0 is the main pane, 1 the side pane. */
   focus: 0 | 1;
@@ -51,7 +56,7 @@ export interface Layout {
 const KEEP = 50;
 const empty = (): PaneTrail => ({ note: null, back: [], forward: [] });
 export const clampSide = (n: number) => Math.min(0.8, Math.max(0.2, n));
-export const newLayout = (): Layout => ({ split: false, side: 0.5, focus: 0, panes: [empty(), empty()] });
+export const newLayout = (): Layout => ({ split: false, at: "right", side: 0.5, focus: 0, panes: [empty(), empty()] });
 
 /** Show `note` in a pane: the one it showed goes on its back list, and forward is cleared. The same note again changes nothing. */
 export function visit(p: PaneTrail, note: string): PaneTrail {
@@ -89,7 +94,17 @@ export function parseLayout(raw: string | null): Layout {
   const trail = (t: any): PaneTrail => ({ note: typeof t?.note === "string" ? t.note : null, back: ids(t?.back), forward: ids(t?.forward) });
   const panes: [PaneTrail, PaneTrail] = [trail(v.panes?.[0]), trail(v.panes?.[1])];
   const split = v.split === true && !!panes[1].note;
-  return { split, side: typeof v.side === "number" && Number.isFinite(v.side) ? clampSide(v.side) : out.side, focus: split && v.focus === 1 ? 1 : 0, panes };
+  return { split, at: DOCKS.includes(v.at) ? v.at : out.at, side: typeof v.side === "number" && Number.isFinite(v.side) ? clampSide(v.side) : out.side, focus: split && v.focus === 1 ? 1 : 0, panes };
+}
+
+/**
+ * Where a note dropped at (`fx`, `fy`), each 0 to 1 across the window's notes, splits it: near the
+ * top or bottom edge, a pane above or below; anywhere else, beside it on the half it's dropped on.
+ */
+export function dropDock(fx: number, fy: number): Dock {
+  if (fy < 0.25 && fy < Math.min(fx, 1 - fx)) return "top";
+  if (fy > 0.75 && 1 - fy < Math.min(fx, 1 - fx)) return "bottom";
+  return fx < 0.5 ? "left" : "right";
 }
 
 // ------------------------------------------------------------------ pages, the browser's history, places

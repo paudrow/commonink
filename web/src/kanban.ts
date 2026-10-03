@@ -359,7 +359,7 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
         e.stopPropagation();
         dragging = { path: host.path, board: at, column: c, card: i, text: card.text };
         e.dataTransfer!.setData(CARD_DRAG, card.text);
-        // Out of the board, at the right edge of the window, a link card opens its note to the side.
+        // Out of the board, dropped on the notes, a link card opens its note in a split.
         if (link) e.dataTransfer!.setData(LINK_DRAG, JSON.stringify({ target: link.target, from: host.path }));
         e.dataTransfer!.effectAllowed = "move";
         requestAnimationFrame(() => node.classList.add("is-dragging"));
@@ -653,7 +653,7 @@ async function preview(target: string, from: string): Promise<Preview | null> {
   if (!path) return null;
   const note = await api.note(path).catch(() => null);
   if (!note) return null;
-  const lines = note.content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "").split("\n");
+  const lines = note.content.replace(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---\r?\n?/, "").split("\n");
   const tasks = lines.map((l) => parseTask(l)).filter((t) => t && t.text.trim());
   const prose = lines
     .filter((l) => l.trim() && !/^\s*(#{1,6}\s|:::|::|```|~~~|!\[\[|\|)/.test(l) && !parseTask(l))
