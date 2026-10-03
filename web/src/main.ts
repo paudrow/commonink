@@ -139,8 +139,16 @@ const prefs = {
   expanded: new Set<string>(store.get<string[]>("expanded", [])),
   /** Tags whose nested tags are showing in the sidebar (they start closed). */
   tagsOpen: new Set<string>(store.get<string[]>("tagsOpen", [])),
-  /** Sidebar sections folded away from their header. Folders start folded: the sidebar leads with tags. */
-  folded: { favorites: false, smart: false, folders: true, tags: false, ...store.get<Record<string, boolean>>("folded", {}) } as Record<string, boolean>,
+  /** Sidebar sections folded away from their header. */
+  folded: { favorites: false, smart: false, ...store.get<Record<string, boolean>>("folded", {}) } as Record<string, boolean>,
+  /**
+   * Folders or Tags: the one the sidebar's last section shows. It leads with tags, unless you'd
+   * opened Folders and folded Tags back when they were two sections.
+   */
+  library: store.get<Library | null>("library", null) ?? (() => {
+    const was = store.get<Record<string, boolean>>("folded", {});
+    return was.folders === false && was.tags === true ? "folders" : "tags";
+  })(),
   /** Contacts, Calendar, Assets and Smart folders kept in the sidebar before they're in use (Settings, Sidebar). */
   sidebarPinned: store.get<Partial<Record<OptionalItem, boolean>>>("sidebarPinned", {}),
 };
@@ -2347,7 +2355,7 @@ function renderTagTree(active: string) {
 
 /** A name field at the top of Tags. The tag it names is there to pick before any note carries it. */
 function startNewTag() {
-  if (prefs.folded.tags) $('[aria-controls="tag-tree"]').click(); // unfold Tags, or the name field is hidden
+  showLibrary("tags"); // or the name field is hidden
   nameField($("#tag-tree"), {
     icon: "hash",
     placeholder: "Tag, like work/clients",
@@ -2400,6 +2408,42 @@ async function deleteTag(t: TagCount) {
       tagsPage?.refresh();
     },
   });
+}
+
+/** The sidebar's last section shows your folders or your tags, one at a time. */
+type Library = "folders" | "tags";
+
+/** Show Folders or Tags in the sidebar, with the + (and, for tags, rename and merge) that goes with it. Remembered in this browser. */
+function showLibrary(which: Library) {
+  if (prefs.library !== which) store.set("library", which);
+  prefs.library = which;
+  const folders = which === "folders";
+  $("#library-folders").setAttribute("aria-selected", String(folders));
+  $("#library-tags").setAttribute("aria-selected", String(!folders));
+  $("#library-folders").tabIndex = folders ? 0 : -1;
+  $("#library-tags").tabIndex = folders ? -1 : 0;
+  $("#tree").hidden = !folders;
+  $("#tag-tree").hidden = folders;
+  $("#new-folder").hidden = !folders;
+  $("#new-tag").hidden = folders || viewer;
+  $("#tags-page-btn").hidden = folders;
+}
+
+/** The Folders and Tags tabs: a click, or ← and → between them as tabs do. */
+function setupLibrary() {
+  for (const [id, which] of [["#library-folders", "folders"], ["#library-tags", "tags"]] as const) {
+    const tab = $(id);
+    tab.addEventListener("click", () => showLibrary(which));
+    tab.addEventListener("dragenter", () => showLibrary(which)); // drag a note over Folders to drop it in one
+    tab.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault();
+      const other = which === "folders" ? "tags" : "folders";
+      showLibrary(other);
+      $(`#library-${other}`).focus();
+    });
+  }
+  showLibrary(prefs.library);
 }
 
 /** Fold a sidebar section away from its header, or open it again. Remembered in this browser. */
@@ -2520,7 +2564,7 @@ async function archivePath(path: string) {
 
 /** An inline name field at the top of the tree; the folder appears (empty) when you press Enter. */
 function startNewFolder() {
-  if (prefs.folded.folders) $('[aria-controls="tree"]').click(); // unfold Folders, or the name field is hidden
+  showLibrary("folders"); // or the name field is hidden
   nameField($("#tree"), {
     icon: "folder",
     placeholder: "Folder name",
@@ -3507,7 +3551,7 @@ async function boot() {
   setLabel($("#focus-btn"), `Focus mode (${formatKeys("Mod-Shift-Enter")})`); // ⌘⇧↵ in the markup is a Mac's
   $("#new-folder").addEventListener("click", () => startNewFolder());
   $("#new-tag").addEventListener("click", () => startNewTag());
-  $("#new-tag").hidden = viewer;
+  setupLibrary();
   dropTarget($("#tree"), () => "");
   favoriteDrop($("#favorites"), "is-drop");
   document.addEventListener("dragend", endDrag); // a drag that lands nowhere still clears its highlights

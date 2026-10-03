@@ -2387,6 +2387,13 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 #tag-tree .tree-row.is-active > svg { color: var(--accent); }
 #tags-page-btn.is-on { color: var(--accent); }
 .tree-head-actions { display: flex; align-items: center; gap: 2px; }
+/* Folders and Tags share one section: two headings, the one showing in full ink. */
+.library-head { margin-top: 14px; }
+.library-tabs { display: inline-flex; align-items: center; gap: 2px; margin-left: -4px; }
+.library-tab { min-height: 24px; padding: 3px 6px; border-radius: 5px; font: inherit; letter-spacing: inherit; text-transform: inherit; color: var(--muted); opacity: 0.75; }
+.library-tab:hover { color: var(--ink-2); background: var(--hover); opacity: 1; }
+.library-tab[aria-selected="true"] { color: var(--ink-strong); opacity: 1; box-shadow: inset 0 -2px 0 var(--accent); border-radius: 5px 5px 0 0; }
+.library-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
 
 /* a tag's star: in Favorites it's filled, like a note's */
 .star-btn.is-starred { color: var(--warn); }
