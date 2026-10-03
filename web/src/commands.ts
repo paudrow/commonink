@@ -61,6 +61,10 @@ export interface App {
   canConnectGoogle: boolean;
   /** How many collapsible sections the focused note has. */
   folds: number;
+  /** The one tag the Notes page is narrowed to, and whether it's in Favorites; null on other pages. */
+  tag: { name: string; starred: boolean } | null;
+  /** The Notes page has filters on that could be kept as a smart folder. */
+  notesFiltered: boolean;
   /** What ⌘K's Rename… renames: the open note, the folder, tag or smart folder Notes shows, or the file Assets previews. Null for nothing. */
   renames: Renamable | null;
   /** Online, the account menu's actions; locally, none. */
@@ -74,6 +78,18 @@ export interface App {
   newTag(): void;
   /** A saved search, from scratch, in the Smart folders section. */
   newSmartFolder(): void;
+  /** Keep the Notes page's filters as a smart folder. */
+  saveFilters(): void;
+  /** Star or unstar the tag in view, or pick a tag to. */
+  starTag(): void;
+  /** Rename the tag in view (or one picked) on the Tags page. */
+  renameTag(): void;
+  /** Ask for a contact's name and add them. */
+  newContact(): void;
+  /** People from a .vcf or .csv file. */
+  importContacts(): void;
+  /** The focused note's History, comparing its latest label with now, ready to restore. */
+  restoreVersion(): void;
   go(page: Page): void;
   filterNotes(): void;
   quickAdd(): void;
@@ -141,6 +157,18 @@ export function appCommands(app: App): Command[] {
     { id: "new-folder", title: "New folder", keywords: "create add directory", icon: "folderPlus", run: app.newFolder },
     { id: "new-tag", title: "New tag", keywords: "create add hashtag", icon: "hash", available: app.canDelete, run: app.newTag },
     { id: "new-smart-folder", title: "New smart folder", keywords: "create add saved search query filter view", icon: "folderSearch", run: app.newSmartFolder },
+    { id: "save-filters", title: "Save these filters as a smart folder", keywords: "keep saved search query view smart folder sidebar", icon: "folderSearch", available: app.notesFiltered, run: app.saveFilters },
+    {
+      id: "star-tag",
+      title: app.tag ? `${app.tag.starred ? "Unstar" : "Star"} #${app.tag.name}` : "Star or unstar a tag…",
+      keywords: "star unstar tag hashtag favorite favourite pin sidebar",
+      icon: app.tag?.starred ? "starred" : "star",
+      run: app.starTag,
+    },
+    // Picks a tag to rename. With a tag, folder or the like in view, Rename… renames that instead.
+    { id: "rename-tag", title: "Rename a tag…", keywords: "rename merge tag hashtag everywhere", icon: "hash", available: app.canDelete && !app.tag && (!app.renames || app.renames === "note"), run: app.renameTag },
+    { id: "new-contact", title: "New contact…", keywords: "create add person people contact crm", icon: "user", available: app.canDelete, run: app.newContact },
+    { id: "import-contacts", title: "Import contacts (.vcf or .csv)…", keywords: "import upload vcard vcf csv google outlook people contacts", icon: "upload", available: app.canDelete, run: app.importContacts },
     { id: "quick-add", title: "Add a task", keywords: "quick add todo new task", icon: "task", keys: ["Mod-Shift-."], area: "Tasks", run: app.quickAdd },
     go("today", "Today", "sun", "day agenda due overdue journal streak writing week recap"),
     go("notes", "Notes", "feed", "home all"),
@@ -205,6 +233,7 @@ export function appCommands(app: App): Command[] {
     { id: "fold-all", title: "Fold all sections", keywords: "collapse close details collapsible zM", icon: "chevron", available: text && app.folds > 0, run: () => app.foldAll(false) },
     { id: "unfold-all", title: "Unfold all sections", keywords: "expand open details collapsible zR", icon: "chevron", available: text && app.folds > 0, run: () => app.foldAll(true) },
     { id: "label-version", title: "Name this version…", keywords: "label name version milestone snapshot save point v1 checkpoint", icon: "label", available: text && app.canDelete, run: app.labelVersion },
+    { id: "restore-version", title: "Restore to a named version…", keywords: "restore label version go back revert roll back undo milestone", icon: "history", available: text && app.canDelete, run: app.restoreVersion },
     { id: "note-labels", title: "Versions of this note", keywords: "named versions compare restore label release history", icon: "label", available: text, run: app.noteLabels },
     { id: "note-history", title: "History of this note", keywords: "versions changes diff restore", icon: "history", available: !!note, run: app.noteHistory },
     {
