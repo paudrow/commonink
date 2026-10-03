@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 345
 title: One view widget
 ---
 The lists, tasks, month, agenda, today and board widgets are now one widget, `::view`. Its first setting, **Show**, picks what it shows, and the rest are that kind's settings. The old names (`::query`, `::tasks`, `::calendar`, `::agenda`, `::today`, `::kanban`) are gone.
