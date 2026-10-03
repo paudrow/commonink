@@ -1,4 +1,7 @@
-import path from "node:path";
+import * as posix from "./posix.ts";
+
+/** The default largest note: enough for any note a person writes, not enough to exhaust memory. */
+export const MAX_NOTE_BYTES = 10 * 1024 * 1024;
 
 export type NoteKind = "md" | "html" | "asset";
 
@@ -44,7 +47,7 @@ export function fileSecurityHeaders(mime: string): Record<string, string> {
 export const MAX_UPLOAD = 50 * 1024 * 1024;
 
 export function kindOf(p: string): NoteKind | null {
-  const ext = path.posix.extname(p).toLowerCase();
+  const ext = posix.extname(p).toLowerCase();
   if (MD.has(ext)) return "md";
   if (HTML.has(ext)) return "html";
   if (ext in ASSET_TYPES) return "asset";
@@ -52,14 +55,14 @@ export function kindOf(p: string): NoteKind | null {
 }
 
 export function mimeOf(p: string): string | null {
-  return ASSET_TYPES[path.posix.extname(p).toLowerCase()] ?? null;
+  return ASSET_TYPES[posix.extname(p).toLowerCase()] ?? null;
 }
 
 /** Normalize a vault-relative path and refuse anything that escapes the vault or touches dotfiles. */
 export function cleanPath(input: string): string {
   const raw = input.trim().replace(/\\/g, "/").replace(/^\.?\/+/, "");
-  const norm = path.posix.normalize(raw);
-  if (!norm || norm === "." || norm.startsWith("..") || path.posix.isAbsolute(norm) || /[\x00-\x1f\x7f]/.test(norm)) {
+  const norm = posix.normalize(raw);
+  if (!norm || norm === "." || norm.startsWith("..") || posix.isAbsolute(norm) || /[\x00-\x1f\x7f]/.test(norm)) {
     throw new VaultError(`Invalid path: ${input}`);
   }
   if (norm.split("/").some((seg) => seg.startsWith("."))) {
@@ -77,7 +80,7 @@ export function isHidden(rel: string): boolean {
  * decomposed form (as older Macs wrote names) matches the links typed to it.
  */
 export function stemOf(p: string): string {
-  const base = path.posix.basename(p);
+  const base = posix.basename(p);
   return (kindOf(p) === "md" ? base.replace(/\.(md|markdown)$/i, "") : base).normalize("NFC").toLowerCase();
 }
 
