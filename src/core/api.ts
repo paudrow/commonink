@@ -33,6 +33,10 @@ export interface ApiHost {
   tree(): void;
   /** A folder was renamed or moved (online: its shares go with it). */
   folderMoved?(from: string, to: string): Promise<void>;
+  /** Before a folder is renamed or moved (online): throws if its new name still has shares of its own. */
+  folderMoving?(from: string, to: string): Promise<void>;
+  /** A folder was deleted (online: its shares stop); how many shares stopped. */
+  folderDeleted?(folder: string): Promise<number>;
   /** The workspace's calendars, where the host can sync them (both hosts today). */
   calendar?: Calendar;
   /** Calendars or their events changed: tell connected clients (and reschedule syncing). */
@@ -542,6 +546,7 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
       return json({ trashed: out });
     }
     case "POST /folders/rename": {
+      await host.folderMoving?.(str("folder"), str("to"));
       const r = vault.moveFolder(str("folder"), str("to"), actor);
       for (const m of r.moved) {
         for (const e of m.edits) host.written(e.path, e.content, e.version, e.change);
@@ -560,8 +565,10 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
         host.moved(m.from, m.path, m.version, m.change);
       }
       const out = trashed(r.deleted);
+      // The folder is gone, so its shares go too: a folder made with its name later isn't shared.
+      const unshared = await host.folderDeleted?.(str("folder")); // online only; left out locally
       host.tree();
-      return json({ trashed: out, moved: r.moved.map((m) => ({ from: m.from, to: m.path })) });
+      return json({ trashed: out, moved: r.moved.map((m) => ({ from: m.from, to: m.path })), unshared });
     }
     case "GET /trash":
       return json(vault.trash());

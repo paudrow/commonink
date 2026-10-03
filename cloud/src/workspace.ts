@@ -23,7 +23,7 @@ import { AGENTS_NOTE } from "../../src/core/noteRoles.ts";
 import { accessOn, type SharedAccess, type ShareRole } from "./grants.ts";
 import { readUpTo } from "./body.ts";
 import { limit } from "./limits.ts";
-import { addShare, agentLinksAllowed, linkToken, listShares, moveFolderShares, removeShare, ShareError, updateShare, type Share, type Target } from "./shares.ts";
+import { addShare, agentLinksAllowed, folderShareCount, linkToken, listShares, moveFolderShares, removeFolderShares, removeShare, ShareError, updateShare, type Share, type Target } from "./shares.ts";
 import { Calendar } from "../../src/core/calendar.ts";
 import { assertPublicUrl } from "../../src/core/unfurl.ts";
 import { feedsFor } from "./demo-calendar.ts";
@@ -181,6 +181,8 @@ export class Workspace extends DurableObject<Env> {
       },
       fileBytes: (rel) => this.fileBytes(rel),
       folderMoved: (from, to) => this.folderMoved(wsId, from, to),
+      folderMoving: (from, to) => this.folderMoving(wsId, from, to),
+      folderDeleted: (folder) => this.folderDeleted(wsId, folder),
     };
     return (await handleApi(host, req, route)) ?? json({ error: `No route ${req.method} ${route}` }, 404);
   }
@@ -506,6 +508,8 @@ export class Workspace extends DurableObject<Env> {
         return "Stopped sharing it.";
       }),
       folderMoved: (from: string, to: string) => this.folderMoved(wsId, from, to),
+      folderMoving: (from: string, to: string) => this.folderMoving(wsId, from, to),
+      folderDeleted: (folder: string) => this.folderDeleted(wsId, folder),
     };
   }
 
@@ -536,6 +540,30 @@ export class Workspace extends DurableObject<Env> {
   private async folderMoved(wsId: string, from: string, to: string) {
     await moveFolderShares(this.env.DB, wsId, from, to);
     this.sharingChanged();
+  }
+
+  /**
+   * Before a folder takes a new name: shares left on that name (from a folder deleted before) would
+   * reach everything moved there, beside its own, so it's refused until they're stopped.
+   */
+  private async folderMoving(wsId: string, from: string, to: string) {
+    const [src, dest] = [from, to].map((f) => cleanPath(f).replace(/\/+$/, ""));
+    if (!dest || dest === src) return;
+    const n = await folderShareCount(this.env.DB, wsId, dest, src);
+    if (n) {
+      throw new VaultError(
+        `${dest}/ is still shared outside the workspace (${n} share${n === 1 ? "" : "s"} from a folder there before), so whoever has them would see what moves there. ` +
+          `Stop them first (commonink shares --folder "${dest}", then unshare), or pick another name.`,
+        "exists",
+      );
+    }
+  }
+
+  /** A folder was deleted: its shares stop, so a folder made with its name later isn't shared. */
+  private async folderDeleted(wsId: string, folder: string) {
+    const n = await removeFolderShares(this.env.DB, wsId, cleanPath(folder).replace(/\/+$/, ""));
+    if (n) this.sharingChanged();
+    return n;
   }
 
   private announce(rel: string, content: string | null, version: string, change: Change | null, origin?: string) {

@@ -2144,6 +2144,7 @@ function renderTree() {
 /** Delete a folder: an empty one just goes; one with notes asks what happens to them. */
 async function removeFolder(path: string) {
   if (!(await deleteFolder(path, deleteHooks))) return;
+  void refreshShares(); // its shares went with it
   const empty = emptyFolders();
   for (const f of [...empty]) if (f === path || f.startsWith(`${path}/`)) empty.delete(f);
   setEmptyFolders(empty);
