@@ -1,3 +1,3 @@
 # My day
 
-::today{label="My day"}
+::view{show=today label="My day"}

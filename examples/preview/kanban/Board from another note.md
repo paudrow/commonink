@@ -2,4 +2,4 @@
 
 The launch board, shown here and live: a card moved here moves in [[Launch board]] too.
 
-::kanban{note="Launch board" label="Launch"}
+::view{show=board note="Launch board" label="Launch"}

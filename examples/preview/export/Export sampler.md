@@ -16,7 +16,7 @@ Everything a note can hold, to print and export: **Share** in the top bar, or ‚å
 
 The same tasks, as a widget:
 
-::tasks{note="Export sampler" status=all label="This note"}
+::view{show=tasks note="Export sampler" status=all label="This note"}
 
 ## Board
 

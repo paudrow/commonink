@@ -2,4 +2,4 @@
 
 The board from [[Repeating board]], shown here:
 
-::kanban{note="Repeating board"}
+::view{show=board note="Repeating board"}

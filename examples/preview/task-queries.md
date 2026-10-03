@@ -7,5 +7,5 @@ title: Task queries with ranges, priority and done dates
 3. Give "Plan the offsite" a start date (`start:`) in the next few days. It appears in "Starts this week", even though open tasks that start later are usually hidden.
 4. Tick "Water the plants". It appears in "Done this week" (`done>=-7d`), which opens on its Done tab.
 5. Click the gear on any of the lists. The new **Starts**, **Done** and **Priority** fields are there, and the preview at the bottom writes a range back as two parts, like `due>=today due<=+7d`.
-6. Try a broken filter: change a list to `::tasks{due<=soon}`. It says what it takes instead.
+6. Try a broken filter: change a list to `::view{show=tasks due<=soon}`. It says what it takes instead.
 7. From a terminal or an agent, the same words work: `commonink tasks --due '>=today <=+7d' --priority high`, `commonink tasks --done-date '>=-7d'`, or MCP `list_tasks` with `due`, `start`, `done` and `priority`.

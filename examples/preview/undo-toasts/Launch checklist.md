@@ -2,7 +2,7 @@
 
 Tick these from **Tasks**, or from the list below.
 
-::tasks{note="Launch checklist"}
+::view{show=tasks note="Launch checklist"}
 
 ## Tasks
 

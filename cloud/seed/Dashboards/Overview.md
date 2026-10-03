@@ -4,15 +4,15 @@ Your workspace at a glance. Each block below is one line of markdown (or a code 
 
 ## Open tasks
 
-::tasks{label="Everywhere"}
+::view{show=tasks label="Everywhere"}
 
 ## Recently touched
 
-::query{limit=5 label="Latest"}
+::view{limit=5 label="Latest"}
 
 ## Journal
 
-::calendar{folder=Journal}
+::view{show=month folder=Journal}
 
 ## How it fits together
 

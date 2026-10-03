@@ -10,4 +10,4 @@ title: Kanban boards
 6. Press `<>` (Edit as text), change `## Review` to `### Review`, and move the cursor below the board: Review is still a column.
 7. Still in the text, type a plain line under `## Doing`, then leave the board: a banner names the line. Try **Make this a card**.
 8. In a new note, type `/kanban` and press Enter for a starter board.
-9. Open [[Board from another note]]: the `::kanban{note="Launch board"}` embed is live.
+9. Open [[Board from another note]]: the `::view{show=board note="Launch board"}` embed is live.

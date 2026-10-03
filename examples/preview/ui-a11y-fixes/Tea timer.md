@@ -4,7 +4,7 @@
 
 Start the timer, then open another note. When it's done, the toast has an **Open** button that brings you back here.
 
-::tasks{note="Tea timer"}
+::view{show=tasks note="Tea timer"}
 
 - [ ] Boil the water
 - [ ] Warm the pot
