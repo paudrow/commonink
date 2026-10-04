@@ -17,6 +17,7 @@ import type { FieldSources } from "./widgets/core.ts";
 import { folderPicker } from "./folderPicker.ts";
 import { tagPicker } from "./tagPicker.ts";
 import { queryHelpLink } from "./queryHelp.ts";
+import { NOTE_SORTS } from "./filterRow.ts";
 import { parse } from "../../src/core/queryGrammar.ts";
 import { folderList, formatQuery, parseQuery, queryProblem, tagList, type NoteQuery, type QuerySort } from "../../src/core/query.ts";
 
@@ -46,13 +47,7 @@ interface State {
   sort: QuerySort;
 }
 
-export const SORTS: Array<[QuerySort, string]> = [
-  ["modified", "Recently changed"],
-  ["created", "Recently created"],
-  ["date", "Newest by date"],
-  ["oldest", "Oldest by date"],
-  ["title", "By title"],
-];
+export const SORTS = NOTE_SORTS;
 
 /** A row's words as they go in `q`: one word as it is, more as a phrase (`'client call'`). */
 function termText(row: string): string {

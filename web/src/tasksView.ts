@@ -5,6 +5,7 @@ import type { Where } from "./panes.ts";
 import type { TagCount } from "./api.ts";
 import { el, icon } from "./dom.ts";
 import { pageHeader } from "./pageHeader.ts";
+import { segmented } from "./filterRow.ts";
 import { tagFilter } from "./tagPicker.ts";
 import { WIDGETS } from "./widgets/index.ts";
 import { quickAddBar } from "./quickAdd.ts";
@@ -65,17 +66,22 @@ export function renderTasksPage(root: HTMLElement, hooks: { open: Open; tags(): 
     const whole = !next.tag && !next.assignee && !next.by;
     const mode = next.assignee === "me" ? "to" : next.by ? "by" : "all";
     const other = next.assignee === "me" ? "" : next.assignee;
-    const seg = el(
-      "div",
-      { class: "seg tk-whose", role: "group", "aria-label": "Whose tasks" },
-      ...([
-        ["all", "Everyone", "Every task", { ...next, assignee: other, by: undefined }],
-        ["to", "Assigned to me", `${hooks.me}, in anyone's notes`, { ...next, assignee: "me", by: undefined }],
-        ["by", "Assigned by me", "Tasks you gave someone else, in notes you made", { ...next, assignee: other, by: "me" }],
-      ] as const).map(([m, label, title, to]) =>
-        el("button", { type: "button", class: m === mode ? "is-on" : "", "aria-pressed": String(m === mode), title, onclick: () => show(to as Filter) }, label),
-      ),
-    );
+    const whose: Record<typeof mode, Filter> = {
+      all: { ...next, assignee: other, by: undefined },
+      to: { ...next, assignee: "me", by: undefined },
+      by: { ...next, assignee: other, by: "me" },
+    };
+    const seg = segmented({
+      label: "Whose tasks",
+      class: "tk-whose",
+      current: mode,
+      options: [
+        { value: "all", label: "Everyone", title: "Every task" },
+        { value: "to", label: "Assigned to me", title: `${hooks.me}, in anyone's notes` },
+        { value: "by", label: "Assigned by me", title: "Tasks you gave someone else, in notes you made" },
+      ],
+      onPick: (m) => show(whose[m]),
+    });
     const links = { open: hooks.open, openTag: (tag: string) => show({ ...next, tag }), openPerson: (assignee: string) => show({ ...next, assignee }) };
     filters.replaceChildren(
       seg,

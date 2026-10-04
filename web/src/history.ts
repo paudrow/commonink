@@ -8,6 +8,7 @@
 import { api, fileUrl, type Change, type DiffFile, type DiffRun, type Label } from "./api.ts";
 import { $, authorAvatar, authorName, displayName, el, icon, isSelf } from "./dom.ts";
 import { pageHeader } from "./pageHeader.ts";
+import { segmented } from "./filterRow.ts";
 import { renderDiff } from "./diff.ts";
 import { diffLines } from "diff";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
@@ -276,8 +277,6 @@ export class History {
 
   private renderList() {
     const items = this.visibleItems();
-    const chip = (by: string, label: string, ico?: string) =>
-      el("button", { type: "button", class: `chip${this.by === by ? " is-on" : ""}`, "aria-pressed": String(this.by === by), onclick: () => void this.setBy(by) }, ico ? icon(ico, 12) : null, label);
     const agentPick = el(
       "select",
       { class: `hist-agent${this.agentNames.includes(this.by) ? " is-on" : ""}`, title: "One agent's changes", "aria-label": "One agent's changes", onchange: (e: Event) => void this.setBy((e.target as HTMLSelectElement).value) },
@@ -295,7 +294,17 @@ export class History {
       ...(note && !this.hooks.readOnly
         ? [el("button", { type: "button", class: "chip hist-label-btn", title: "Name the note as it is now, to compare with or go back to later", onclick: () => void labelVersion(note, { toast: this.hooks.toast }).then((l) => l && this.afterLabel(l)) }, icon("label", 12), "Name this version…")]
         : []),
-      el("span", { class: "hist-by", role: "group", "aria-label": "Whose changes" }, chip("", "Everyone"), chip("people", "People", "user"), chip("ai", "Agents", "bot")),
+      segmented({
+        label: "Whose changes",
+        class: "hist-by",
+        current: this.by,
+        options: [
+          { value: "", label: "Everyone" },
+          { value: "people", label: "People", icon: "user" },
+          { value: "ai", label: "Agents", icon: "bot" },
+        ],
+        onPick: (by) => void this.setBy(by),
+      }),
       ...(this.agentNames.length > 1 ? [agentPick] : []),
     );
     let day = "";

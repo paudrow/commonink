@@ -6,6 +6,7 @@ import { api, unusedTag, type TagCount } from "./api.ts";
 import { el, icon } from "./dom.ts";
 import { askText, confirmAction } from "./modal.ts";
 import { pageHeader } from "./pageHeader.ts";
+import { filterBox, slashToFilter } from "./filterRow.ts";
 import type { ToastSpec } from "./toast.ts";
 import { cleanTag, tagMatches } from "../../src/core/tags.ts";
 
@@ -26,7 +27,8 @@ interface Hooks {
 export class TagsPage {
   readonly root: HTMLElement;
   private list = el("div", { class: "tags-list", role: "list" });
-  private input = el("input", { placeholder: "Filter tags…", spellcheck: "false", autocomplete: "off" });
+  private filter = filterBox("tags", { class: "tags-search" });
+  private input = this.filter.input;
   private newBtn = el("button", { type: "button", class: "qw-btn primary", onclick: () => void this.newTag() }, icon("plus", 14), "New tag");
 
   constructor(
@@ -43,11 +45,12 @@ export class TagsPage {
           sub: "Every #tag across your notes, tasks and assets. Nest them with /: a tag includes every tag under it.",
           actions: [this.newBtn],
         }),
-        el("label", { class: "feed-search tags-search" }, icon("search", 16), this.input),
+        this.filter.root,
         this.list,
       ),
     );
     this.input.addEventListener("input", () => this.render());
+    slashToFilter(root, this.input);
   }
 
   get visible() {
@@ -58,7 +61,7 @@ export class TagsPage {
     this.root.hidden = false;
     this.newBtn.hidden = this.hooks.readOnly();
     this.render();
-    this.input.focus({ preventScroll: true });
+    this.root.focus({ preventScroll: true }); // the list, as on every list page: / goes to the filter
   }
 
   refresh() {
