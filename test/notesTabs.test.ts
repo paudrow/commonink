@@ -125,7 +125,7 @@ test("Trash shows cards like Notes: the title, rendered text, the sort and filte
   assert.deepEqual([...card.querySelectorAll(".fc-action")].map((b) => (b as HTMLElement).title), ["Restore (r)", "Delete forever (⌫)"]);
   const folderSel = root.querySelector<HTMLSelectElement>(".feed-folder")!;
   assert.deepEqual([...folderSel.options].map((o) => o.textContent), ["All folders", "Projects"]);
-  assert.deepEqual([...root.querySelectorAll<HTMLOptionElement>(".feed-sort option")].map((o) => o.textContent), ["Recently deleted", "Deleted longest ago", "By title"]);
+  assert.deepEqual([...root.querySelectorAll<HTMLOptionElement>(".feed-sort option")].map((o) => o.textContent), ["Recently deleted", "Deleted longest ago", "Name"]);
   assert.deepEqual([...root.querySelectorAll(".feed-keys kbd")].map((k) => k.textContent), ["j k", "r", "⌫", "x", "/"]);
   assert.equal(button("Empty trash").hidden, false);
   folderSel.value = "Projects";

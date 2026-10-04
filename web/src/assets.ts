@@ -7,6 +7,7 @@ import { api, fileUrl, isArchived, type NoteMeta, type TagCount } from "./api.ts
 import { $, el, icon } from "./dom.ts";
 import { pageHeader } from "./pageHeader.ts";
 import { tagChip, tagFilter, tagPicker } from "./tagPicker.ts";
+import { filterBox, slashToFilter, sortSelect, SORT_NAMES } from "./filterRow.ts";
 import { normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { fuzzyScore } from "./fuzzy.ts";
 import { emptyState } from "./emptyState.ts";
@@ -62,22 +63,10 @@ export class Assets {
   private bulk = el("div", { class: "feed-bulk as-bulk", hidden: true });
 
   constructor(private hooks: Hooks) {
-    this.input = el("input", { placeholder: "Find an asset…", spellcheck: "false", autocomplete: "off", role: "combobox", "aria-expanded": "false" });
+    this.input = el("input", { role: "combobox", "aria-expanded": "false" });
     this.suggest = el("div", { class: "as-suggest", role: "listbox", hidden: true });
     this.chips = el("div", { class: "as-chips" });
-    this.sortSel = el(
-      "select",
-      { class: "as-sort", "aria-label": "Sort" },
-      ...(
-        [
-          ["newest", "Newest"],
-          ["oldest", "Oldest"],
-          ["name", "Name"],
-          ["size", "Largest"],
-          ["type", "Type"],
-        ] as const
-      ).map(([v, t]) => el("option", { value: v }, t)),
-    );
+    this.sortSel = sortSelect<Sort>([["newest", SORT_NAMES.newest], ["oldest", SORT_NAMES.oldest], ["name", SORT_NAMES.name], ["size", "Largest"], ["type", "Type"]], this.sort, (v) => ((this.sort = v), this.render()));
     this.picker = el("input", { type: "file", multiple: true, hidden: true });
     this.countEl = el("p", { class: "as-count" });
     this.grid = el("div", { class: "as-grid" });
@@ -91,12 +80,8 @@ export class Assets {
           actions: [el("button", { type: "button", class: "qw-btn primary", onclick: () => this.picker.click() }, icon("upload", 14), "Upload")],
         }),
         this.picker,
-        el(
-          "div",
-          { class: "as-tools" },
-          el("label", { class: "feed-search as-search" }, icon("search", 16), this.input, this.suggest),
-          this.sortSel,
-        ),
+        // The sort sits in the filter box, as on Notes.
+        filterBox("assets", { input: this.input, class: "as-search", tools: [this.suggest, this.sortSel] }).root,
         this.chips,
         this.tagBar,
         this.bulk,
@@ -117,7 +102,7 @@ export class Assets {
     });
     this.input.addEventListener("keydown", (e) => this.searchKey(e));
     this.input.addEventListener("blur", () => setTimeout(() => this.closeSuggest(), 120));
-    this.sortSel.addEventListener("change", () => ((this.sort = this.sortSel.value as Sort), this.render()));
+    slashToFilter(this.root, this.input);
     this.picker.addEventListener("change", () => {
       const files = [...(this.picker.files ?? [])];
       this.picker.value = "";

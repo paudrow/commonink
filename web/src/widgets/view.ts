@@ -21,6 +21,7 @@ import { withProperty } from "../../../src/core/frontmatter.ts";
 import { boardColumns, calendarDays, dateKeyOf, fieldsOf, groupOf, layoutOf, propsWanted, rowsOf, type Layout } from "../../../src/core/view.ts";
 import { clickWhere } from "../panes.ts";
 import { queryHelpLink } from "../queryHelp.ts";
+import { NOTE_SORTS } from "../filterRow.ts";
 
 const prevent = (e: Event) => e.preventDefault();
 const iso = (d: Date) => d.toLocaleDateString("en-CA"); // YYYY-MM-DD in local time
@@ -41,7 +42,7 @@ export const QUERY_FIELDS: Field[] = [
   { key: "folder", label: "Folder", type: "text", placeholder: "e.g. Projects", picker: "folder" },
   { key: "tag", label: "Tags", type: "text", placeholder: "e.g. meeting (includes meeting/…), or meeting, client for both", picker: "tag" },
   { key: "match", label: "Combine", type: "select", options: [["all", "Match all of them"], ["any", "Match any of them"]] },
-  { key: "sort", label: "Sort", type: "select", options: [["modified", "Recently changed"], ["date", "Newest by date"], ["oldest", "Oldest by date"], ["title", "By title"], ["created", "Newest created"]] },
+  { key: "sort", label: "Sort", type: "select", options: NOTE_SORTS },
 ];
 
 const LAYOUT_NAMES: Record<Layout, string> = { list: "List", table: "Table", board: "Board", calendar: "Calendar" };

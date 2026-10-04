@@ -370,7 +370,7 @@
   .pane-bar .tab { height: 32px; }
 
   .icon-btn:not(.small), .fc-action, .qt-act { width: 44px; height: 44px; flex: none; }
-  .qw-btn, .ct-select, .as-sort, .st-select, .st-text, .kb-add, .feed-search, .qt-select { min-height: 44px; }
+  .qw-btn, .ct-select, .st-select, .st-text, .kb-add, .feed-search, .qt-select { min-height: 44px; }
   .qw-btn { height: auto; }
   .kb-add { width: 100%; padding-inline: 8px; font-size: 14px; }
   .ct-checkin .ct-rhythm { height: 44px; }
@@ -417,11 +417,9 @@
   .kb-add-col { scroll-snap-align: end; min-height: 44px; }
   .kb-card { padding: 10px 12px; font-size: 14.5px; }
 
-  /* Contacts: the search box across the page, the filters sharing the row under it, and a person's
-     name over their buttons. */
+  /* Contacts: a person's name over their buttons. */
   .ct-actions { width: 100%; }
   .ct-actions .qw-btn { flex: 1; justify-content: center; }
-  .ct-search { flex: 1 0 100%; }
   .ct-select { flex: 1 1 0; min-width: 0; max-width: none; }
   .ct-row { grid-template-columns: 36px minmax(0, 1fr) auto; min-height: 56px; }
   .ct-row .ct-tags { display: none; }
@@ -431,10 +429,7 @@
   .ct-fields { grid-template-columns: minmax(0, 1fr); gap: 2px 0; }
   .ct-fields dd { margin-bottom: 10px; }
 
-  /* Assets: search across the page with the order beside it, two cards to a row. */
-  .as-tools { flex-wrap: wrap; }
-  .as-search { flex: 1 1 180px; min-width: 0; }
-  .as-sort { flex: none; max-width: 40%; }
+  /* Assets: two cards to a row. */
   .as-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 
   /* Notes: the search box has the row to itself, with one button for its sort, Advanced search and

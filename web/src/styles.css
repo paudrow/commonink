@@ -1538,7 +1538,7 @@ a.gh-card:hover { border-color: var(--line-strong); }
 .qt-select.feed-folder { max-width: 220px; height: 26px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--ink-2); }
 .qt-select.feed-folder:hover { border-color: var(--line-strong); }
 .qt-select.feed-folder.is-on { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); }
-.feed-scope button { display: inline-flex; gap: 6px; align-items: center; }
+.feed-scope button, .hist-by button { display: inline-flex; gap: 6px; align-items: center; }
 .feed-about { margin: 10px 0 0; font-size: 13px; color: var(--muted); }
 .feed-elsewhere { padding: 14px 0 0; text-align: center; font-size: 13px; color: var(--muted); }
 /* Trash's cards: nothing in Trash opens, so its title isn't a link and the card isn't a button. */
@@ -2256,7 +2256,6 @@ body:has(#history-view:not([hidden])) #panel { opacity: 0; pointer-events: none;
 .hist-filters .chip:hover { border-color: var(--line-strong); }
 .hist-filters .chip.is-on { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); }
 .hist-filters .chip .avatar { box-shadow: none; font-size: 7px; }
-.hist-by { display: inline-flex; gap: 6px; }
 .hist-agent { height: 24px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); font: 12px var(--ui); color: var(--ink-2); }
 .hist-agent.is-on { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); }
 .hist-note-chip button { display: grid; place-items: center; margin-right: -4px; width: 18px; height: 18px; border-radius: 50%; color: inherit; }
@@ -2314,9 +2313,7 @@ body:has(#history-view:not([hidden])) #panel { opacity: 0; pointer-events: none;
 .assets { position: relative; max-width: 1180px; margin: 0 auto; padding: 40px 32px 80px; min-height: 100%; }
 .as-count { font-variant-numeric: tabular-nums; }
 .as-count:empty { display: none; }
-.as-tools { display: flex; gap: 10px; align-items: center; }
-.as-search { position: relative; flex: 1; }
-.as-sort { height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg-elev); color: var(--ink-2); font: 13.5px var(--ui); }
+.as-search { position: relative; }
 .as-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0 18px; }
 .as-chips .chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px; border-radius: 999px; border: 1px solid var(--line); font-size: 12.5px; color: var(--ink-2); }
 .as-chips .chip:hover { border-color: var(--line-strong); }
@@ -2506,6 +2503,8 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .ap-tags { display: grid; }
 .ap-tag-list { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .tags-search { margin-bottom: 14px; }
+/* Tasks: the quick-add bar, then the filter box over the whose-tasks row. */
+.tasks-search { margin: -4px 0 18px; }
 .tags-list { display: grid; gap: 1px; }
 /* Query syntax: a row per operator or field, with an example to try. */
 #query-help-view { position: absolute; inset: 0; overflow: auto; outline: none; }
@@ -2793,8 +2792,9 @@ body.is-link-dragging, body.is-link-dragging * { cursor: grabbing !important; us
 
 /* Contacts (contactsPage.ts): the people in the notes, and one person's page. */
 .ct-actions { display: flex; flex-wrap: wrap; gap: 8px; flex: none; }
-.ct-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
-.ct-search { flex: 1 1 260px; }
+/* The filter row (filterRow.ts): the box, then the check-in, tag and company filters under it. */
+.ct-filters { margin: 10px 0 14px; }
+.ct-filters:empty { margin-top: 0; }
 .ct-select { height: 40px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg-elev); color: var(--ink-2); font: 13.5px var(--ui); max-width: 200px; }
 .ct-list { display: grid; gap: 1px; }
 .ct-row { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto 64px; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 6px 10px; border-radius: 10px; text-align: left; color: var(--ink); }

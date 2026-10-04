@@ -6,10 +6,12 @@
 // Online with Google set up, a bar connects Google Contacts and syncs it (src/core/googleContacts.ts):
 // Google is the truth for how to reach someone, and the notes stay the workspace's own.
 import type { Where } from "./panes.ts";
-import { api, ApiError, currentWorkspace, type Contact, type GoogleContactsStatus, type Member, type TimelineItem } from "./api.ts";
+import { api, ApiError, currentWorkspace, type Contact, type GoogleContactsStatus, type Member, type TagCount, type TimelineItem } from "./api.ts";
 import { leave, contactsConnectUrl } from "./calendar/google.ts";
 import { avatar, el, icon } from "./dom.ts";
 import { pageHeader } from "./pageHeader.ts";
+import { filterBox, segmented, slashToFilter } from "./filterRow.ts";
+import { tagFilter } from "./tagPicker.ts";
 import { emptyState } from "./emptyState.ts";
 import { ask } from "./modal.ts";
 import { fuzzyScore } from "./fuzzy.ts";
@@ -67,10 +69,13 @@ export class ContactsPage {
   private shown: Contact | null = null;
   /** The contact page's task list, while it's showing. */
   private unmountTasks = () => {};
-  private search = el("input", { placeholder: "Search people…", spellcheck: "false", autocomplete: "off", "aria-label": "Search people" });
-  private tag = el("select", { class: "ct-select", "aria-label": "Tag" });
-  private company = el("select", { class: "ct-select", "aria-label": "Company" });
-  private due = el("select", { class: "ct-select", "aria-label": "Check-ins" }, el("option", { value: "" }, "Everyone"), el("option", { value: "due" }, "Due for a check-in"));
+  private filter = filterBox("people", { class: "ct-search" });
+  private search = this.filter.input;
+  /** The tag the list is narrowed to ("" for any); tags under it count too. */
+  private tag = "";
+  private company = el("select", { class: "qt-select feed-folder", "aria-label": "Company" });
+  /** Only the people due a check-in. */
+  private due = false;
   private body = el("div", { class: "ct-body" });
   private loaded = false;
   /** Google Contacts here: null where this server has none (locally, or Google not set up). */
@@ -84,9 +89,8 @@ export class ContactsPage {
     this.root = root;
     root.append(el("div", { class: "page ct-page" }, this.body));
     this.search.addEventListener("input", () => this.renderList());
-    this.tag.addEventListener("change", () => this.renderList());
     this.company.addEventListener("change", () => this.renderList());
-    this.due.addEventListener("change", () => this.renderList());
+    slashToFilter(root, this.search);
     onVaultChange(() => void this.refresh(), 600); // a new mention, a changed contact
   }
 
@@ -104,7 +108,7 @@ export class ContactsPage {
       this.shown = null;
       this.unmountTasks();
       this.renderList();
-      this.search.focus({ preventScroll: true });
+      this.root.focus({ preventScroll: true }); // the list, as on every list page: / goes to the filter
     }
   }
 
@@ -212,28 +216,37 @@ export class ContactsPage {
           ]
         : [],
     });
-    this.fillSelect(this.tag, "All tags", [...new Set(this.contacts.flatMap((c) => c.tags.map((t) => t.toLowerCase())))].sort(), (t) => `#${t}`);
+    // The tags people carry, counted as the tag chip counts them: a tag includes the tags under it.
+    const tags = new Map<string, TagCount>();
+    for (const c of this.contacts) {
+      for (const display of new Set(c.tags.flatMap((t) => t.split("/").map((_, i, parts) => parts.slice(0, i + 1).join("/"))))) {
+        const t = tags.get(display.toLowerCase()) ?? { tag: display.toLowerCase(), display, notes: 0, tasks: 0, assets: 0 };
+        t.notes++;
+        tags.set(t.tag, t);
+      }
+    }
+    if (this.tag && !tags.has(this.tag.toLowerCase())) this.tag = "";
     this.fillSelect(this.company, "All companies", [...new Set(this.contacts.map((c) => c.company).filter(Boolean))].sort((a, b) => a.localeCompare(b)), (c) => c);
     const q = this.search.value.trim();
     // The check-in filter shows once someone has a rhythm.
-    this.due.hidden = !this.contacts.some((c) => c.checkInDue);
-    if (this.due.hidden) this.due.value = "";
-    let list = matchContacts(this.contacts, { tag: this.tag.value || undefined, company: this.company.value || undefined });
-    if (this.due.value) list = list.filter((c) => dueForCheckIn(c)).sort((a, b) => a.checkInDue!.localeCompare(b.checkInDue!));
+    const rhythms = this.contacts.some((c) => c.checkInDue);
+    if (!rhythms) this.due = false;
+    let list = matchContacts(this.contacts, { tag: this.tag || undefined, company: this.company.value || undefined });
+    if (this.due) list = list.filter((c) => dueForCheckIn(c)).sort((a, b) => a.checkInDue!.localeCompare(b.checkInDue!));
     if (q) {
       // Words anywhere, or a fuzzy match on the name (so "jdoe" finds Jane Doe).
       const words = matchContacts(list, { q });
       const fuzzy = list.filter((c) => !words.includes(c) && Math.max(fuzzyScore(q, c.name), ...c.aliases.map((a) => fuzzyScore(q, a))) >= 0);
       list = [...words, ...fuzzy];
     }
-    const filtering = !!(q || this.tag.value || this.company.value || this.due.value);
+    const filtering = !!(q || this.tag || this.company.value || this.due);
     const dupes = canEdit && !filtering ? duplicateContacts(this.contacts) : [];
     const loose = membersWithoutContact(this.contacts, this.members);
 
     const rows = list.length
       ? el("div", { class: "ct-list", role: "list" }, ...list.map((c) => this.row(c)))
       : filtering
-        ? el("div", { class: "feed-empty" }, this.due.value && !q && !this.tag.value && !this.company.value ? "No one is due a check-in." : "No one matches.")
+        ? el("div", { class: "feed-empty" }, this.due && !q && !this.tag && !this.company.value ? "No one is due a check-in." : "No one matches.")
         : emptyState({
             icon: "user",
             title: "No contacts yet",
@@ -243,7 +256,24 @@ export class ContactsPage {
 
     this.body.replaceChildren(
       head,
-      el("div", { class: "ct-filters" }, el("label", { class: "feed-search ct-search" }, icon("search", 16), this.search), this.tag, this.company, this.due),
+      this.filter.root,
+      el(
+        "div",
+        { class: "feed-filters ct-filters" },
+        rhythms
+          ? segmented({
+              label: "Check-ins",
+              current: this.due ? "due" : "",
+              options: [
+                { value: "", label: "Everyone" },
+                { value: "due", label: "Due for a check-in" },
+              ],
+              onPick: (v) => ((this.due = v === "due"), this.renderList()),
+            })
+          : null,
+        tags.size ? tagFilter({ current: this.tag, tags: () => [...tags.values()], count: (t) => t.notes, onChange: (tag) => ((this.tag = tag), this.renderList()), pattern: false }) : null,
+        this.company,
+      ),
       this.googleBar(canEdit),
       ...dupes.map((g) => this.dupeBanner(g)),
       rows,
@@ -256,6 +286,7 @@ export class ContactsPage {
     select.replaceChildren(el("option", { value: "" }, all), ...values.map((v) => el("option", { value: v }, label(v))));
     select.value = values.includes(had) ? had : "";
     select.hidden = !values.length;
+    select.classList.toggle("is-on", !!select.value);
   }
 
   private row(c: Contact): HTMLElement {

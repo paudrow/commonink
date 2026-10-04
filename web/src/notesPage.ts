@@ -17,6 +17,7 @@ import { hydrateDataEmbeds } from "./textPreview.ts";
 import { parseDirective } from "./widgets/args.ts";
 import { WIDGETS } from "./widgets/index.ts";
 import { tagChip, tagFilter } from "./tagPicker.ts";
+import { filterBox, NOTE_SORTS, slashToFilter, SORT_NAMES } from "./filterRow.ts";
 import type { ToastSpec } from "./toast.ts";
 import { folderList, formatQuery, tagList, type NoteQuery, type QuerySort } from "../../src/core/query.ts";
 import { parse, textWords } from "../../src/core/queryGrammar.ts";
@@ -79,8 +80,8 @@ const TABS: Record<NotesTab, { label: string; about?: string }> = {
 };
 /** The sort menu: Trash keeps no note dates, so its orders are by when things were deleted. */
 const SORTS: Record<"notes" | "trash", Array<[QuerySort, string]>> = {
-  notes: [["modified", "Recently changed"], ["date", "Newest by date"], ["oldest", "Oldest by date"], ["title", "By title"], ["created", "Newest created"]],
-  trash: [["modified", "Recently deleted"], ["oldest", "Deleted longest ago"], ["title", "By title"]],
+  notes: NOTE_SORTS,
+  trash: [["modified", "Recently deleted"], ["oldest", "Deleted longest ago"], ["title", SORT_NAMES.name]],
 };
 /** The keys each tab's footer lists. */
 const KEYS: Record<"notes" | "trash", string[][]> = {
@@ -144,7 +145,6 @@ export class NotesPage {
   private timer = 0;
 
   constructor(private hooks: Hooks) {
-    this.input = el("input", { placeholder: "Filter notes…", spellcheck: "false", autocomplete: "off" });
     this.scopeBar = el("div", { class: "seg feed-scope", role: "group", "aria-label": "Notes, Archive or Trash" });
     this.about = el("p", { class: "feed-about" });
     this.elsewhere = el("div", { class: "feed-elsewhere" });
@@ -175,7 +175,8 @@ export class NotesPage {
     this.list = el("div", { class: "feed-list", role: "list" });
     this.more = el("div", { class: "feed-more" });
     // The sort sits in the search box, so the filters fit on one row.
-    this.search = el("label", { class: "feed-search" }, icon("search", 16), this.input, queryHelpLink(), this.advancedBtn, this.sortSel, this.toolsBtn, el("kbd", {}, "/"));
+    ({ root: this.search, input: this.input } = filterBox("notes", { tools: [queryHelpLink(), this.advancedBtn, this.sortSel, this.toolsBtn] }));
+    slashToFilter(this.root, this.input);
     this.filters = el("div", { class: "feed-filters" }, this.scopeBar, this.tagBar, this.folderSel, this.saveBtn, this.emptyBtn);
     this.keys = el("footer", { class: "feed-keys" });
     // The heading scrolls away; the search and filters stay at the top, and the list scrolls clear of them.

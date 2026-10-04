@@ -72,6 +72,11 @@ export interface WidgetEnv {
   readOnly?: boolean;
   /** What a list shows when there are no tasks at all (the Tasks page: where tasks come from). */
   empty?(): HTMLElement;
+  /**
+   * Words typed in the page's filter box (the Tasks page): the list shows only tasks with every word
+   * in their text or their note's title. `changed` redraws the list as they're typed; it returns how to stop.
+   */
+  match?: { text(): string; changed(redraw: () => void): () => void };
 }
 
 export interface WidgetSpec {

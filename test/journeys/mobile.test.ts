@@ -534,15 +534,15 @@ for (const phone of PHONES) {
     then("a sheet lists the sorts, with the one in use ticked, then Advanced search and Query syntax", async () => {
       const menu = page.getByRole("menu", { name: "Sort and search options" });
       await menu.waitFor();
-      assert.deepEqual(await menu.getByRole("menuitem").allTextContents(), ["Recently changed", "Newest by date", "Oldest by date", "By title", "Newest created", "Advanced search…", "Query syntax"]);
+      assert.deepEqual(await menu.getByRole("menuitem").allTextContents(), ["Recently changed", "Recently created", "Newest", "Oldest", "Name", "Advanced search…", "Query syntax"]);
       assert.equal(await menu.getByRole("menuitem", { name: "Recently changed" }).locator("svg").count(), 1);
       await eventually(async () => {
         const r = (await menu.boundingBox())!;
         assert.deepEqual([r.x, r.width, Math.round(r.y + r.height)], [0, size.width, size.height]);
       });
     });
-    when("I tap By title", async () => {
-      await page.getByRole("menuitem", { name: "By title" }).tap();
+    when("I tap Name", async () => {
+      await page.getByRole("menuitem", { name: "Name", exact: true }).tap();
     });
     then("the notes are in the order of their titles", async () => {
       await page.getByRole("menu").waitFor({ state: "hidden" });

@@ -20,8 +20,9 @@ export function tagChip(display: string, onClick: () => void): HTMLElement {
 /**
  * The filter chip: "Tag" opens the picker; with a tag chosen it shows `#tag` and an × to clear it.
  * `count` says how many of what this view lists each tag has, so tags with none are left out.
+ * `pattern: false` where the list can't match a `*` (Contacts).
  */
-export function tagFilter(opts: { current: string; any?: boolean; tags: () => TagCount[]; count: (t: TagCount) => number; onChange(tag: string): void }): HTMLElement {
+export function tagFilter(opts: { current: string; any?: boolean; tags: () => TagCount[]; count: (t: TagCount) => number; onChange(tag: string): void; pattern?: boolean }): HTMLElement {
   if (opts.current) {
     // A smart folder can need several tags at once (`work,plan`).
     const display = tagList(opts.current)
@@ -37,7 +38,7 @@ export function tagFilter(opts: { current: string; any?: boolean; tags: () => Ta
   }
   const chip: HTMLButtonElement = el(
     "button",
-    { type: "button", class: "chip tag-filter", title: "Filter by tag", onclick: () => tagPicker(chip, { tags: opts.tags().filter((t) => opts.count(t) > 0), count: opts.count, onPick: opts.onChange, pattern: true }) },
+    { type: "button", class: "chip tag-filter", title: "Filter by tag", onclick: () => tagPicker(chip, { tags: opts.tags().filter((t) => opts.count(t) > 0), count: opts.count, onPick: opts.onChange, pattern: opts.pattern ?? true }) },
     icon("hash", 13),
     "Tag",
   );

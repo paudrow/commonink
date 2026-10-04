@@ -414,6 +414,8 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: [":tabnew name", ":tabclose", ":q"], label: "Open a note in a new tab (alone, quick open) / close this tab", area: "Vim" },
   { keys: ["gt", "gT", ":tabn", ":tabp"], label: "Next / previous tab", area: "Vim" },
   { keys: [":tabonly"], label: "Close the other tabs", area: "Vim" },
+  { keys: ["n"], label: "On the Tasks page: go to the quick-add box", area: "Tasks" },
+  { keys: ["/"], label: "On the Tasks page: filter the tasks", area: "Tasks" },
   { keys: ["Tab"], label: "In quick-add, send it to the open note", area: "Tasks" },
   { keys: ["Space", "Enter"], label: "Tick the focused task", area: "Tasks" },
   { keys: ["Enter", "Escape"], label: "Save / cancel a task you're editing", area: "Tasks" },
