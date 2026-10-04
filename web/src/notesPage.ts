@@ -72,9 +72,9 @@ const PAGE = 40;
 
 /** Where a note can be: in use, archived, or deleted. */
 export type NotesTab = "notes" | "archive" | "trash";
-/** Each tab's name, and the one line that says what's in it. */
-const TABS: Record<NotesTab, { label: string; about: string }> = {
-  notes: { label: "Notes", about: "Notes you're working on. Archive one you're done with, or delete one you don't need." },
+/** Each tab's name, and for Archive and Trash the one line that says what's in it. Notes needs none. */
+const TABS: Record<NotesTab, { label: string; about?: string }> = {
+  notes: { label: "Notes" },
   archive: { label: "Archive", about: "Out of your way but kept. Links to them still work." },
   trash: { label: "Trash", about: "Deleted notes. Each is removed for good 30 days after you delete it." },
 };
@@ -391,8 +391,10 @@ export class NotesPage {
         el("button", { type: "button", class: t === this.tab ? "is-on" : "", "aria-pressed": String(t === this.tab), onclick: () => t !== this.tab && this.hooks.goTab(t) }, TABS[t].label),
       ),
     );
-    this.about.textContent = TABS[this.tab].about;
-    this.about.hidden = !TABS[this.tab].about;
+    // No line, no paragraph: hidden (display: none), so it leaves no gap under the filters.
+    const about = TABS[this.tab].about ?? "";
+    this.about.textContent = about;
+    this.about.hidden = !about;
     this.root.dataset.tab = this.tab;
   }
 
