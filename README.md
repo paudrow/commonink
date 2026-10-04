@@ -252,6 +252,10 @@ npm run cloud:preview -- --name my-branch                  # deploy one by hand
 node --import tsx scripts/preview-demo.ts <preview-url>    # then fill it
 ```
 
+## Demo video
+
+`npm run demo:video` records a captioned feature tour of the online app as an mp4, the same one every run, and `npm run demo:video:join` joins it to a screen recording of the real Google consent screens: the video Google's OAuth verification asks for. See [docs/demo-video.md](docs/demo-video.md).
+
 ## Not built yet
 
 Suggestion mode (accept or reject agent edits), git auto-commits authored by each agent, semantic search (`sqlite-vec`), Yjs multiplayer, and an MCP App version of the editor.
