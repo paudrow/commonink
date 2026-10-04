@@ -178,9 +178,10 @@ export function chromium(): Promise<Browser | string> {
   return browser;
 }
 
-/** A person in a fresh browser profile (Vim keys on, as on every test site), with the app open on `url`. */
-export async function person(b: Browser, url: string): Promise<{ context: BrowserContext; page: Page; errors: string[] }> {
-  const context = await b.newContext({ viewport: { width: 1400, height: 900 }, timezoneId: process.env.TZ || undefined });
+/** A person in a fresh browser profile (Vim keys on, as on every test site), with the app open on `url`: at a computer, or holding `device` (a phone's touch screen). */
+export async function person(b: Browser, url: string, device: { width: number; height: number; touch?: boolean } = { width: 1400, height: 900 }): Promise<{ context: BrowserContext; page: Page; errors: string[] }> {
+  const { touch = false, ...viewport } = device;
+  const context = await b.newContext({ viewport, hasTouch: touch, isMobile: touch, timezoneId: process.env.TZ || undefined });
   contexts.add(context);
   // A new workspace asks how its agents should organize notes; these journeys are about other things.
   await context.addInitScript(() => localStorage.setItem("commonink.organizingAsked.local", "true"));

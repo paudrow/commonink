@@ -15,7 +15,7 @@ export function landingPage(url: URL, devLogin: boolean): Response {
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>${TITLE}</title>
 <meta name="description" content="${DESCRIPTION}">
 <link rel="canonical" href="${origin}/">
@@ -56,14 +56,14 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 var(-
 a { color: var(--accent-ink); }
 a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
 code { font: 0.88em var(--mono); background: var(--code-bg); padding: 1px 5px; border-radius: 5px; }
-.wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 0 max(20px, env(safe-area-inset-right)) 0 max(20px, env(safe-area-inset-left)); }
 .skip { position: absolute; left: -9999px; }
 .skip:focus { left: 16px; top: 12px; background: var(--bg-elev); padding: 8px 12px; border-radius: 8px; z-index: 1; }
 
 header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 0; }
-.brand { display: flex; align-items: center; gap: 10px; color: var(--heading); text-decoration: none; font-weight: 650; font-size: 17px; }
+.brand { display: flex; align-items: center; min-height: 44px; gap: 10px; color: var(--heading); text-decoration: none; font-weight: 650; font-size: 17px; }
 .brand svg { width: 30px; height: 30px; }
-.signin { color: var(--ink); text-decoration: none; font-weight: 550; padding: 8px 14px; border-radius: 10px; border: 1px solid var(--line); }
+.signin { display: inline-flex; align-items: center; min-height: 44px; color: var(--ink); text-decoration: none; font-weight: 550; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line); }
 .signin:hover { background: var(--accent-soft); }
 
 .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 46px; padding: 0 22px; border-radius: 12px; background: var(--accent-ink); color: var(--on-accent); font-weight: 650; text-decoration: none; }

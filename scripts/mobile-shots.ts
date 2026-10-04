@@ -65,11 +65,30 @@ async function resetScratch(page: Page) {
   const ws = me.workspaces.find((w) => w.kind === "personal") ?? me.workspaces[0];
   await page.request.put(`${origin}/api/w/${ws.id}/note`, { headers: { origin }, data: { path: SCRATCH, content: SCRATCH_TEXT } });
 }
+/** The on-screen keyboard's height, on the phones here. */
+const KEYBOARD = 300;
+/** A phone's keyboard comes up: the window loses its height, as Android's does (iOS shrinks the visual viewport instead). */
+async function keyboardUp(page: Page) {
+  const size = page.viewportSize()!;
+  if (size.width <= 760) await page.setViewportSize({ width: size.width, height: size.height - KEYBOARD });
+  return async () => void (size.width <= 760 && (await page.setViewportSize(size)));
+}
 const typed = (text: string): Screen["go"] => async (page) => {
   await resetScratch(page);
   await open(page, note(SCRATCH), EDITOR);
+  await page.locator(EDITOR).click();
+  await keyboardUp(page);
   await typeAtEnd(page, text);
 };
+const ROADMAP = "Projects/Common Ink roadmap.md";
+/** Open the roadmap note and press one of its top-bar buttons: in More on a phone or a touch tablet, in the bar on a computer. */
+async function noteButton(page: Page, button: string) {
+  await open(page, note(ROADMAP), EDITOR);
+  if (await page.locator(button).isVisible()) return page.locator(button).click();
+  await page.locator("#more-btn").click();
+  const title = (await page.locator(button).getAttribute("title"))!.replace(/\s*\(.*\)$/, "").split(" · ").pop()!;
+  await page.locator("#more-menu").getByRole("menuitem", { name: title }).click();
+}
 
 const SCREENS: Screen[] = [
   { name: "sign-in", signedOut: true, go: async (page) => void (await page.goto(origin + "/")) },
@@ -86,11 +105,42 @@ const SCREENS: Screen[] = [
     await page.locator("#more-btn").click();
     await settle(page);
   } },
+  { name: "editor-keyboard", go: async (page) => {
+    await open(page, note(ROADMAP), EDITOR);
+    await page.locator(EDITOR).click();
+    await keyboardUp(page);
+    await settle(page);
+  } },
+  { name: "editor-share-menu", go: async (page) => {
+    await noteButton(page, "#share-btn");
+    await settle(page);
+  } },
+  { name: "editor-move-picker", go: async (page) => {
+    await noteButton(page, "#move-btn");
+    await settle(page);
+  } },
   { name: "editor-slash", go: typed("/") },
   { name: "editor-link-picker", go: typed("[[") },
   { name: "editor-mention", go: typed("@") },
   { name: "today", go: (page) => open(page, "/today", "#today-view > *") },
   { name: "tasks", go: (page) => open(page, "/tasks", "#tasks-view > *") },
+  { name: "task-fields", go: async (page) => {
+    await open(page, "/tasks", "#tasks-view .qt-row");
+    await page.locator("#tasks-view .qt-row").first().hover();
+    await page.locator('#tasks-view .qt-row .qt-act[aria-label="Task fields"]').first().click();
+    await settle(page);
+  } },
+  { name: "notes-card-menu", go: async (page) => {
+    await open(page, "/notes", "#notes-view .feed-card");
+    await page.locator("#notes-view .feed-card").first().click({ button: "right", position: { x: 40, y: 12 } });
+    await settle(page);
+  } },
+  { name: "new-folder-prompt", go: async (page, width) => {
+    await open(page, "/notes", "#notes-view .feed-card");
+    if (width <= 760) await page.locator("#menu-btn").click();
+    await page.locator("#new-folder").click();
+    await settle(page);
+  } },
   { name: "kanban", go: (page) => open(page, note("Try/Kanban boards/Launch board.md"), EDITOR) },
   { name: "calendar", go: (page) => open(page, "/calendar", "#calendar-view .cal") },
   { name: "calendar-week", go: async (page) => {
@@ -154,8 +204,15 @@ function measure() {
     let w = r.width;
     let h = r.height;
     if (after.content !== "none" && after.position === "absolute") {
-      w += -(parseFloat(after.left) || 0) - (parseFloat(after.right) || 0);
-      h += -(parseFloat(after.top) || 0) - (parseFloat(after.bottom) || 0);
+      if (style.position === "static" && n.offsetParent) {
+        // The ::after is laid out in the nearest positioned ancestor (a month's day fills its cell).
+        const box = n.offsetParent.getBoundingClientRect();
+        w = box.width - (parseFloat(after.left) || 0) - (parseFloat(after.right) || 0);
+        h = box.height - (parseFloat(after.top) || 0) - (parseFloat(after.bottom) || 0);
+      } else {
+        w += -(parseFloat(after.left) || 0) - (parseFloat(after.right) || 0);
+        h += -(parseFloat(after.top) || 0) - (parseFloat(after.bottom) || 0);
+      }
     }
     if (w < 43.5 && h < 43.5) small.push(`${name(n)} ${Math.round(w)}x${Math.round(h)}`);
     else if (h < 43.5 && !(n instanceof HTMLAnchorElement && style.display === "inline")) small.push(`${name(n)} ${Math.round(w)}x${Math.round(h)}`);
@@ -223,6 +280,7 @@ for (const width of widths) {
       console.log(key, "FAILED", report[key].error);
     }
     await p.keyboard.press("Escape").catch(() => {});
+    if (p.viewportSize()!.height !== (DEVICES[width]?.height ?? 900)) await p.setViewportSize({ width, height: DEVICES[width]?.height ?? 900 });
   }
   await resetScratch(page);
   await anon.context.close();

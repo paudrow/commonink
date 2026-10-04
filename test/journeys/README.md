@@ -10,6 +10,7 @@ The few things everyone does in Common Ink, tested end to end the way they're do
 | | Work alongside an agent, and undo what it did | browser, MCP |
 | | Delete a note by mistake and get it back | browser |
 | | Look around on a phone | browser |
+| | Get around and write on a phone | browser |
 | `agents.test.ts` | An agent keeps meeting notes from the shell | CLI, the files |
 | | An agent over MCP and one in the shell work from the same notes | MCP, CLI |
 | `hosted.test.ts` | Bring a teammate and their agent into a shared workspace | hosted API, CLI login |

@@ -91,6 +91,7 @@ import { renderSharedList, sharedPage } from "./sharedPage.ts";
 import { CapturePage, registerWorker } from "./capture.ts";
 import { AGENTS_BLURB, isAgentsNote } from "./agentsNote.ts";
 import { closeDrawer, renderMore, setupMobileNav } from "./mobileNav.ts";
+import { setupTouchKeyboard } from "./touchKeyboard.ts";
 import { nameField, plusMark, sectionHint, shownItems, sidebarTags, type OptionalItem } from "./sidebar.ts";
 import { PEOPLE } from "../../src/core/contacts.ts";
 import type { CalendarPage } from "./calendar/page.ts";
@@ -4992,6 +4993,7 @@ async function boot() {
 
   hydrateIcons();
   setupMobileNav();
+  setupTouchKeyboard(() => active.view);
   void learnLayout();
   window.addEventListener("focus", () => void learnLayout()); // the layout may have changed while away
   togglePanel(prefs.panel);

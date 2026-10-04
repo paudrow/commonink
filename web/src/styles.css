@@ -497,6 +497,8 @@ body.is-split .banner-text { flex-basis: 140px; }
 .banner-x { width: 24px; height: 24px; border-radius: 6px; color: var(--muted); font-size: 17px; }
 
 #stage { flex: 1; min-height: 0; position: relative; }
+/* Each page scrolls inside the stage; the top bar and the sidebar stay put. */
+#tags-view, #contacts-view, #shared-view, #capture-view { position: absolute; inset: 0; overflow: auto; outline: none; }
 #editor-host, #html-preview, #side-host, #side-preview { position: absolute; inset: 0; }
 #stage > :is(#editor-host, #html-preview) { top: var(--main-banner, 0px); }
 :is(#editor-host, #side-host) .cm-editor { font-size: 16.5px; }

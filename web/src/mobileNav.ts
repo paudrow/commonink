@@ -1,5 +1,6 @@
-// Phone layout: below 760px the sidebar is a drawer behind a menu button, and Search sits in the
-// top bar. The note's less-used top-bar buttons wait in a More menu (⋯): on a computer, its
+// Phone layout: below 760px a bar along the bottom goes to Today, Notes and Tasks, opens Search, and
+// opens the sidebar as a drawer (Menu). The note's less-used top-bar buttons wait in a More menu (⋯),
+// which rises from the bottom on a phone: on a computer, its
 // history, Move, Archive, Split view and Delete; with a phone or a tablet's touch screen, nearly all
 // of them. A floating button makes a note from Notes. The layout itself is in mobile.css.
 import { $, el, icon } from "./dom.ts";
@@ -149,16 +150,34 @@ function onMoreKey(e: KeyboardEvent) {
 /** Add the phone controls to the page's markup and wire them up. */
 export function setupMobileNav() {
   const sidebar = $("#sidebar");
-  const topbar = $("#topbar");
   const iconBtn = (id: string, label: string, ico: string, extra: Record<string, string>, run: () => void) =>
     el("button", { id, class: "icon-btn",type: "button", title: label, "aria-label": label, ...extra, onclick: run }, icon(ico, 18));
 
-  topbar.prepend(iconBtn("menu-btn", "Menu", "menu", { "aria-controls": "sidebar", "aria-expanded": "false" }, () => setDrawer(!drawerOpen)));
   const more = iconBtn("more-btn", "More", "more", { "aria-haspopup": "menu", "aria-controls": "more-menu", "aria-expanded": "false" }, () =>
     $("#more-menu").hidden ? openMore() : closeMore(true),
   );
   const menu = el("div", { id: "more-menu", role: "menu", "aria-label": "More", hidden: true, onkeydown: onMoreKey });
-  $("#star-btn").after(iconBtn("search-top", "Search notes", "search", {}, () => $("#search-btn").click()));
+  // The bottom bar: three places, Search and the drawer. A place presses the sidebar's own button,
+  // and is marked as the current page when that button is.
+  const navBtn = (id: string, label: string, ico: string, extra: Record<string, string>, run: () => void) =>
+    el("button", { id, class: "bn-item", type: "button", ...extra, onclick: run }, icon(ico, 22), el("span", {}, label));
+  const places = ([["today", "Today", "sun"], ["notes", "Notes", "feed"], ["tasks", "Tasks", "task"]] as const).map(([key, label, ico]) => {
+    const source = $(`#${key}-btn`);
+    const b = navBtn(`bn-${key}`, label, ico, {}, () => source.click());
+    const mark = () => (source.getAttribute("aria-current") ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
+    new MutationObserver(mark).observe(source, { attributes: true, attributeFilter: ["aria-current"] });
+    mark();
+    return b;
+  });
+  $("#statusbar").after(
+    el(
+      "nav",
+      { id: "bottom-nav", "aria-label": "Main" },
+      ...places,
+      navBtn("search-top", "Search", "search", { "aria-label": "Search notes" }, () => $("#search-btn").click()),
+      navBtn("menu-btn", "Menu", "menu", { "aria-controls": "sidebar", "aria-expanded": "false" }, () => setDrawer(!drawerOpen)),
+    ),
+  );
   $("#delete-btn").after(el("div", { class: "more-wrap" }, more, menu)); // after the buttons it holds, before Focus mode and the side panel
 
   document.body.append(el("div", { id: "scrim", hidden: true, onclick: () => setDrawer(false) }));
