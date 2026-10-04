@@ -54,7 +54,7 @@ export function taskRow(t: Task, env: RowEnv, where: string | null): HTMLElement
     else if (chip) openChipEditor(chip, ctx);
     else if (target.closest(".qt-words")) editWords(t, words, save);
   });
-  const menu = el("button", { type: "button", class: "qt-act", title: "Priority, due, repeat, person, tags…", "aria-label": "Task fields", onmousedown: prevent }, icon("sliders", 13));
+  const menu = el("button", { type: "button", class: "qt-act", title: "Priority, due, repeat, assignee, tags…", "aria-label": "Task fields", onmousedown: prevent }, icon("sliders", 13));
   menu.addEventListener("click", () => openTaskMenu(menu, ctx));
   const go = el("button", { type: "button", class: "qt-act", title: "Go to note", "aria-label": `Go to ${t.title}, line ${t.line}`, onmousedown: prevent, onclick: (e: MouseEvent) => env.open(t.path, t.line, clickWhere(e)) }, icon("open", 13));
   const side = el("button", { type: "button", class: "qt-act", title: "Open in split view", "aria-label": `Open ${t.title} in split view`, onmousedown: prevent, onclick: () => env.open(t.path, t.line, "side") }, icon("split", 13));

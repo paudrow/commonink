@@ -51,7 +51,7 @@ type Item =
   | { type: "choice"; choice: PaletteChoice }
   | { type: "enter"; label: string };
 
-const SECTION: Partial<Record<Item["type"], string>> = { heading: "Headings in this note", person: "People", tag: "Tags", folder: "Folders", smart: "Views" };
+const SECTION: Partial<Record<Item["type"], string>> = { heading: "Headings in this note", person: "Contacts", tag: "Tags", folder: "Folders", smart: "Views" };
 
 const kindIcon = (kind: string) => (kind === "html" ? "html" : kind === "asset" ? "image" : "file");
 

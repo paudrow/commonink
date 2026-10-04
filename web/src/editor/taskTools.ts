@@ -63,7 +63,7 @@ class ToolsWidget extends WidgetType {
     return o.missing.join() === this.missing.join() && o.pending.join() === this.pending.join();
   }
   toDOM(view: EditorView) {
-    const button = el("button", { type: "button", class: "cm-task-gear", title: `Priority, due, repeat, person, tags… (${formatKeys("Mod-.")})`, "aria-label": "Task fields" }, icon("sliders", 13));
+    const button = el("button", { type: "button", class: "cm-task-gear", title: `Priority, due, repeat, assignee, tags… (${formatKeys("Mod-.")})`, "aria-label": "Task fields" }, icon("sliders", 13));
     // Each word opens its field's editor, anchored to the word: `due` the date, `repeat` the repeat…
     const words = HINTS.filter(([, f]) => this.missing.includes(f)).map(([word, field]) =>
       el("button", { type: "button", class: "cm-hint-word", "data-field": field, title: `Add ${WORD_TITLES[field]}` }, word),
@@ -99,7 +99,7 @@ class ToolsWidget extends WidgetType {
   }
 }
 
-const WORD_TITLES: Record<HintField, string> = { due: "a due date", rec: "a repeat", assignees: "a person", tags: "a tag", priority: "a priority" };
+const WORD_TITLES: Record<HintField, string> = { due: "a due date", rec: "a repeat", assignees: "an assignee", tags: "a tag", priority: "a priority" };
 
 /** ⌘. (Ctrl+. elsewhere) on a task line opens its ⚙ menu from the keyboard; the menu's items take Tab and Enter. */
 const openMenuKey = keymap.of([

@@ -412,7 +412,7 @@ const person: Editor = (anchor, value, ctx) => {
   const adding = !value;
   const input = el("input", { class: "fp-input", placeholder: adding ? "Add someone…" : "Someone else…", spellcheck: "false", autocomplete: "off" });
   const list = el("div", { class: "fp-list" });
-  const { close } = popover(anchor, ctx, "Person", el("div", { class: "fp-head" }, icon("at", 15), input), list);
+  const { close } = popover(anchor, ctx, "Assignee", el("div", { class: "fp-head" }, icon("at", 15), input), list);
   const on = ctx.task.meta.assignees;
   const others = on.filter((a) => a !== value);
   const pick = (to: string) => saving(close, ctx, { assignees: adding ? [...on, to] : on.map((a) => (a === value ? to : a)) });
@@ -504,7 +504,7 @@ const FIELDS: Array<{ field: MenuField; label: string; icon: string; now(m: Task
   { field: "due", label: "Due", icon: "calendar", now: (m) => (m.due ? dayLabel(m.due) : "") },
   { field: "start", label: "Start", icon: "clock", now: (m) => (m.start ? dayLabel(m.start) : "") },
   { field: "rec", label: "Repeat", icon: "reset", now: (m) => { const r = m.rec ? parseRule(m.rec) : null; return m.rec ? recLabel(m.rec) + (r && endsLabel(endsOf(m, r)) ? ` · ${endsLabel(endsOf(m, r))}` : "") : ""; } },
-  { field: "assignees", label: "Person", icon: "at", now: (m) => m.assignees.map((a) => `@${a}`).join(", ") },
+  { field: "assignees", label: "Assignee", icon: "at", now: (m) => m.assignees.map((a) => `@${a}`).join(", ") },
   { field: "tags", label: "Tags", icon: "hash", now: (m) => m.tags.map((t) => `#${t}`).join(" ") },
 ];
 

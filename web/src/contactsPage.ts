@@ -67,7 +67,7 @@ export class ContactsPage {
   private shown: Contact | null = null;
   /** The contact page's task list, while it's showing. */
   private unmountTasks = () => {};
-  private search = el("input", { placeholder: "Search people…", spellcheck: "false", autocomplete: "off", "aria-label": "Search people" });
+  private search = el("input", { placeholder: "Filter contacts…", spellcheck: "false", autocomplete: "off", "aria-label": "Filter contacts" });
   private tag = el("select", { class: "ct-select", "aria-label": "Tag" });
   private company = el("select", { class: "ct-select", "aria-label": "Company" });
   private due = el("select", { class: "ct-select", "aria-label": "Check-ins" }, el("option", { value: "" }, "Everyone"), el("option", { value: "due" }, "Due for a check-in"));
@@ -207,7 +207,7 @@ export class ContactsPage {
       sub: "The people in your notes. Each is a note in People/; type @ in a note to mention one.",
       actions: canEdit
         ? [
-            el("button", { type: "button", class: "qw-btn", title: "Add people from a vCard (.vcf) or CSV file: Apple, Outlook or a Google Contacts export", onclick: () => this.importFile() }, icon("upload", 14), "Import file…"),
+            el("button", { type: "button", class: "qw-btn", title: "Add contacts from a vCard (.vcf) or CSV file: Apple, Outlook or a Google Contacts export", onclick: () => this.importFile() }, icon("upload", 14), "Import file…"),
             el("button", { type: "button", class: "qw-btn primary", onclick: () => void this.newContact() }, icon("plus", 14), "New contact"),
           ]
         : [],
