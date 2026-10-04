@@ -8,3 +8,6 @@ cli/dist/
 
 # local Worker secrets
 cloud/.dev.vars
+
+# Screenshots and test artifacts: never committed. Put the ones that matter in the PR description.
+/screenshots/
