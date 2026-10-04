@@ -5,6 +5,7 @@
 // come from src/core/checkup.ts (GET /api/checkup, `commonink checkup get`).
 import { api } from "./api.ts";
 import { displayName, el, icon } from "./dom.ts";
+import { pageHeader } from "./pageHeader.ts";
 import { emptyState } from "./emptyState.ts";
 import { STALE_DAYS, findings, type Checkup } from "../../src/core/checkup.ts";
 
@@ -30,12 +31,7 @@ export class CheckupPage {
       el(
         "div",
         { class: "page" },
-        el(
-          "header",
-          { class: "page-head" },
-          el("h1", {}, "Check-up"),
-          el("p", { class: "page-sub" }, "Things in this workspace that may need tending. Each one has its fix right beside it."),
-        ),
+        pageHeader({ title: "Check-up", sub: "Things in this workspace that may need tending. Each one has its fix right beside it." }),
         this.body,
       ),
     );

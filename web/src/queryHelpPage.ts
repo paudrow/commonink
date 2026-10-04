@@ -2,6 +2,7 @@
 // from SYNTAX in src/core/queryGrammar.ts, so a field added there shows here (and in
 // `commonink help query`) without touching this page.
 import { el } from "./dom.ts";
+import { pageHeader } from "./pageHeader.ts";
 import { SYNTAX } from "../../src/core/queryGrammar.ts";
 
 interface Hooks {
@@ -26,16 +27,10 @@ export class QueryHelpPage {
       el(
         "div",
         { class: "page qh-page" },
-        el(
-          "header",
-          { class: "page-head" },
-          el("h1", {}, "Query syntax"),
-          el(
-            "p",
-            { class: "page-sub" },
-            "One way to ask for notes, everywhere: the Notes filter, smart folders, ::view lists and commonink list --query. Click an example to try it.",
-          ),
-        ),
+        pageHeader({
+          title: "Query syntax",
+          sub: "One way to ask for notes, everywhere: the Notes filter, smart folders, ::view lists and commonink list --query. Click an example to try it.",
+        }),
         ...groups.map((g) =>
           el(
             "section",
