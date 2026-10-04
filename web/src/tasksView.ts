@@ -1,13 +1,15 @@
-// The Tasks page: the quick-add bar, then every task, narrowed to whose they are or a tag. The list
-// is the ::tasks widget, so ticking a box here edits the note the task lives in. What's on today
-// has a page of its own, Today (todayView.ts).
+// The Tasks page: the quick-add bar, then the filter row (a box for words, whose tasks, a tag) and
+// every task. The list is the ::tasks widget, so ticking a box here edits the note the task lives in.
+// / goes to the filter box and n to the quick-add bar, from anywhere on the page but a field. What's
+// on today has a page of its own, Today (todayView.ts).
 import type { Where } from "./panes.ts";
 import type { TagCount } from "./api.ts";
 import { el, icon } from "./dom.ts";
 import { pageHeader } from "./pageHeader.ts";
-import { segmented } from "./filterRow.ts";
+import { filterBox, pageKey, segmented, slashToFilter } from "./filterRow.ts";
 import { tagFilter } from "./tagPicker.ts";
 import { WIDGETS } from "./widgets/index.ts";
+import type { WidgetEnv } from "./widgets/core.ts";
 import { quickAddBar } from "./quickAdd.ts";
 import { emptyState } from "./emptyState.ts";
 
@@ -16,7 +18,7 @@ type Open = (path: string, line?: number, where?: Where) => void;
 /** Mount a task list into `host`; returns its cleanup. Clicking a task's tag calls `openTag`, and "Show …'s tasks" `openPerson`. */
 export function mountTasks(
   host: HTMLElement,
-  opts: { limit: number; tag?: string; assignee?: string; by?: "me"; group?: string; open: Open; openTag(tag: string): void; openPerson(name: string): void; empty?(): HTMLElement },
+  opts: { limit: number; tag?: string; assignee?: string; by?: "me"; group?: string; open: Open; openTag(tag: string): void; openPerson(name: string): void; empty?(): HTMLElement; match?: WidgetEnv["match"] },
 ): () => void {
   const body = el("div", { class: "qw-body" });
   const card = el("div", { class: "qw qw-tasks is-standalone" }, body);
@@ -37,6 +39,7 @@ export function mountTasks(
       sources: { tags: () => [], folders: () => [] }, // the Tasks page has no settings form
       openPerson: opts.openPerson,
       empty: opts.empty,
+      match: opts.match,
     },
     card,
   );
@@ -53,6 +56,12 @@ export function renderTasksPage(root: HTMLElement, hooks: { open: Open; tags(): 
   const host = el("div");
   const filters = el("div", { class: "feed-filters page-filters" });
   const bar = quickAddBar({ added: () => {}, open: hooks.open }); // the list below reloads when the note changes
+  // The filter box narrows the list as you type, without loading it again.
+  const box = filterBox("tasks", { class: "tasks-search" });
+  const redraws = new Set<() => void>();
+  const match: WidgetEnv["match"] = { text: () => box.input.value, changed: (redraw) => (redraws.add(redraw), () => void redraws.delete(redraw)) };
+  box.input.addEventListener("input", () => redraws.forEach((redraw) => redraw()));
+  const keys = [slashToFilter(root, box.input), pageKey(root, "n", () => (bar.focus(), true))];
   const empty = () =>
     emptyState({
       icon: "task",
@@ -97,7 +106,7 @@ export function renderTasksPage(root: HTMLElement, hooks: { open: Open; tags(): 
         : "",
     );
     // Assigned by me is about who: group it by person.
-    unmount = mountTasks(host, { limit: 500, ...next, ...(next.by ? { group: "person" } : {}), ...links, empty: whole ? empty : undefined });
+    unmount = mountTasks(host, { limit: 500, ...next, ...(next.by ? { group: "person" } : {}), ...links, empty: whole ? empty : undefined, match });
   };
   root.replaceChildren(
     el(
@@ -105,10 +114,14 @@ export function renderTasksPage(root: HTMLElement, hooks: { open: Open; tags(): 
       { class: "page" },
       pageHeader({ title: "Tasks", sub: "Every checkbox across your notes. Tick one here and it's ticked in its note." }),
       bar.root,
+      box.root,
       filters,
       host,
     ),
   );
   show(filter);
-  return () => unmount();
+  return () => {
+    unmount();
+    keys.forEach((stop) => stop());
+  };
 }

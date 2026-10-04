@@ -2503,6 +2503,8 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .ap-tags { display: grid; }
 .ap-tag-list { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .tags-search { margin-bottom: 14px; }
+/* Tasks: the quick-add bar, then the filter box over the whose-tasks row. */
+.tasks-search { margin: -4px 0 18px; }
 .tags-list { display: grid; gap: 1px; }
 /* Query syntax: a row per operator or field, with an example to try. */
 #query-help-view { position: absolute; inset: 0; overflow: auto; outline: none; }

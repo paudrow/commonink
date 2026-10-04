@@ -66,14 +66,23 @@ export function segmented<T extends string>(o: {
 /**
  * / goes to the page's filter box, from anywhere on the page that isn't a field. A page opens with
  * its list in focus, not the box (on a phone that would raise the keyboard), so / is how to reach it.
+ * Returns how to stop, for a page that draws itself again on each visit (Tasks).
  */
-export function slashToFilter(root: HTMLElement, input: HTMLInputElement) {
-  document.addEventListener("keydown", (e) => {
-    if (e.key !== "/" || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
-    if (root.hidden || !input.isConnected) return;
+export function slashToFilter(root: HTMLElement, input: HTMLInputElement): () => void {
+  return pageKey(root, "/", () => input.isConnected && (input.focus(), true));
+}
+
+/**
+ * A plain key (no ⌘, Ctrl or Alt) on a page, from anywhere on it that isn't a field: `run` says
+ * whether it took the key. Returns how to stop listening.
+ */
+export function pageKey(root: HTMLElement, key: string, run: () => boolean): () => void {
+  const on = (e: KeyboardEvent) => {
+    if (e.key !== key || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || root.hidden) return;
     const at = e.target as HTMLElement | null;
     if (!at || (at !== document.body && !root.contains(at)) || at.closest("input, textarea, select, [contenteditable]")) return;
-    e.preventDefault();
-    input.focus();
-  });
+    if (run()) e.preventDefault();
+  };
+  document.addEventListener("keydown", on);
+  return () => document.removeEventListener("keydown", on);
 }

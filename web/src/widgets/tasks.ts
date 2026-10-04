@@ -142,8 +142,10 @@ export const tasks: WidgetSpec = {
       // Open tasks that start later stay out of the way until then; All shows them, and so does a start filter, which asks for them.
       const later = (t: Task) => !env.args.start && !!t.meta.start && t.meta.start.slice(0, 10) > now;
       const order = new Map(all.map((t, i) => [t, i]));
+      const words = (env.match?.text() ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+      const matches = (t: Task) => words.every((w) => `${t.text} ${t.title}`.toLowerCase().includes(w));
       const visible = all
-        .filter((t) => (show === "all" || (show === "done") === t.done) && !(show === "open" && later(t)))
+        .filter((t) => (show === "all" || (show === "done") === t.done) && !(show === "open" && later(t)) && matches(t))
         .sort((a, b) => SORTERS[sort](a, b) || order.get(a)! - order.get(b)!);
       const shown = expanded ? visible : visible.slice(0, limit);
       const groups = new Map<string, { label: string; rank: string; tasks: Task[] }>();
@@ -168,7 +170,7 @@ export const tasks: WidgetSpec = {
                   ...g.tasks.map(row),
                 ),
               )
-            : [blank ? env.empty!() : el("div", { class: "qt-empty" }, show === "open" && all.length ? "All done." : "Nothing here.")]),
+            : [blank ? env.empty!() : el("div", { class: "qt-empty" }, words.length ? "No tasks match." : show === "open" && all.length ? "All done." : "Nothing here.")]),
         ...(visible.length > shown.length
           ? [el("button", { type: "button", class: "qt-more", onmousedown: prevent, onclick: () => ((expanded = true), render()) }, `Show ${visible.length - shown.length} more`)]
           : []),
@@ -183,9 +185,11 @@ export const tasks: WidgetSpec = {
 
     void load();
     const off = onVaultChange(load);
+    const offMatch = env.match?.changed(render) ?? (() => {});
     return () => {
       alive = false;
       off();
+      offMatch();
     };
   },
 };
