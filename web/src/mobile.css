@@ -120,8 +120,7 @@
   #top-tabs { padding: 0; align-self: stretch; }
   #top-tabs + .spacer { flex: 0 0 0; }
   .tab { max-width: 150px; padding-left: 8px; }
-  .tabs { padding: 0 2px; scroll-snap-type: x proximity; }
-  .tab { scroll-snap-align: start; }
+  .tabs { padding: 0 2px; } /* no scroll snap: the tab you're on scrolls wholly into view */
   #topbar .tab:not(.is-on) .tab-x:not(.tab-pin) { display: none; }
   #topbar .tab:not(.is-on) { padding-right: 9px; }
   #topbar .tab-new { display: none; } /* the bottom bar and the + on Notes start a note */
