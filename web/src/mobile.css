@@ -2,7 +2,7 @@
 /* Three widths: a phone (up to 760px) gets the bottom bar and the drawer; a phone or a touch tablet
    (up to 1100px) puts nearly the whole top bar in the More menu; any touch screen gets 44px targets. */
 
-#bottom-nav, #kb-bar, #fab-new, #palette-close { display: none; }
+#bottom-nav, #kb-bar, #fab-new, #palette-close, #sheet-scrim { display: none; }
 .more-wrap { position: relative; flex: none; }
 /* Everywhere, More (⋯) holds a note's occasional buttons. Split view's stays out while a split is
    open, lit, so the way to close it is in sight. */
@@ -282,9 +282,11 @@
     padding-bottom: env(safe-area-inset-bottom);
     border: 0;
     border-radius: 16px 16px 0 0;
-    box-shadow: 0 0 0 100vmax rgba(20, 16, 10, 0.32), var(--shadow-lg);
+    box-shadow: var(--shadow-lg);
     animation: sheet-up 0.18s ease-out;
   }
+  body:has(.folder-picker, .share-menu, #more-menu:not([hidden])) #sheet-scrim { display: block; position: fixed; inset: 0; z-index: 59; background: rgba(20, 16, 10, 0.32); animation: fade 0.15s ease-out; }
+  #sheet-scrim.is-held { display: block; position: fixed; inset: 0; z-index: 59; }
   :is(.share-menu, #more-menu) { padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); }
   :is(.share-menu, #more-menu)::before, .folder-picker.menu::before { content: ""; display: block; width: 36px; height: 4px; margin: 2px auto 8px; border-radius: 2px; background: var(--line-strong); }
   .folder-picker.menu::before { margin-top: 10px; margin-bottom: 2px; }

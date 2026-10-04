@@ -181,6 +181,15 @@ export function setupMobileNav() {
   $("#delete-btn").after(el("div", { class: "more-wrap" }, more, menu)); // after the buttons it holds, before Focus mode and the side panel
 
   document.body.append(el("div", { id: "scrim", hidden: true, onclick: () => setDrawer(false) }));
+  // Behind a phone's bottom sheet (mobile.css shows it while one is open): a tap outside the sheet
+  // closes it, as each menu's own outside-click does, and goes no further.
+  // The menu closes as the finger lands; the scrim stays under it until the tap ends, so the click
+  // that follows doesn't press whatever the sheet was covering.
+  const sheetScrim = el("div", { id: "sheet-scrim", "aria-hidden": "true" });
+  const release = () => sheetScrim.classList.remove("is-held");
+  sheetScrim.addEventListener("pointerdown", () => (sheetScrim.classList.add("is-held"), setTimeout(release, 600)));
+  sheetScrim.addEventListener("click", release);
+  document.body.append(sheetScrim);
   $("#stage").append(el("button", { id: "fab-new", class: "fab", type: "button", title: "New note", "aria-label": "New note", onclick: () => $("#new-note").click() }, icon("plus", 22)));
 
   sidebar.addEventListener("keydown", onDrawerKey);

@@ -23,6 +23,7 @@ const app = skip ? undefined! : await startLocalApp({
   "Groceries.md": "# Groceries\n\nEggs and leeks.\n",
   "Shopping.md": "# Shopping\n\nThe list is in [[Groceries]].\n",
   "Packing.md": "# Packing\n\nTent and stove.\n",
+  "Pocket.md": "# Pocket\n\nWritten on the train.\n\n- [ ] Charge the phone\n",
   "Errands.md": `# Errands\n\n- [ ] Buy stamps due:${day()}\n- [ ] Return library books due:${day(-1)}\n- [ ] Plan the party due:${day(8)}\n`,
 });
 
@@ -326,12 +327,12 @@ journey("Get around and write on a phone", ({ given, when, then, and }) => {
     await page.locator("#bn-tasks").tap();
   });
   then("Tasks opens, marked in the bar, and nothing scrolls sideways", async () => {
-    await page.locator("#tasks-view .qt-row", { hasText: "Buy stamps" }).waitFor();
+    await page.locator("#tasks-view .qt-row", { hasText: "Charge the phone" }).waitFor();
     await eventually(async () => assert.equal(await page.locator("#bn-tasks").getAttribute("aria-current"), "page"));
     assert.equal(await sideways(), 0);
   });
   and("a task's checkbox and its buttons are 44px to tap", async () => {
-    const row = page.locator("#tasks-view .qt-row", { hasText: "Buy stamps" });
+    const row = page.locator("#tasks-view .qt-row", { hasText: "Charge the phone" });
     for (const b of await row.locator(".qt-act").all()) {
       if (!(await b.isVisible())) continue;
       const r = (await b.boundingBox())!;
@@ -348,20 +349,20 @@ journey("Get around and write on a phone", ({ given, when, then, and }) => {
     await page.locator("#scrim").waitFor({ state: "hidden" });
     assert.equal(await sideways(), 0);
   });
-  when("I tap Search and look for Garden", async () => {
+  when("I tap Search and look for Pocket", async () => {
     await page.locator("#search-top").tap();
-    await page.locator("#palette-input").fill("Garden");
+    await page.locator("#palette-input").fill("Pocket");
   });
   then("search has the whole screen, with a Cancel", async () => {
     const r = await box(".palette-box");
     assert.deepEqual([r.x, r.y, r.width], [0, 0, PHONE.width]);
     await page.locator("#palette-close").waitFor();
   });
-  when("I tap the Garden result", async () => {
-    await page.locator("#palette-results .palette-item", { hasText: "Garden" }).first().tap();
+  when("I tap the Pocket result", async () => {
+    await page.locator("#palette-results .palette-item", { hasText: "Pocket" }).first().tap();
   });
   then("the note opens with the bottom bar still there", async () => {
-    await page.locator("#editor-host .cm-content", { hasText: "Plant the bulbs" }).waitFor();
+    await page.locator("#editor-host .cm-content", { hasText: "Written on the train" }).waitFor();
     await page.locator("#bottom-nav").waitFor();
     assert.equal(await sideways(), 0);
   });
@@ -374,11 +375,12 @@ journey("Get around and write on a phone", ({ given, when, then, and }) => {
       const r = await box("#more-menu");
       assert.deepEqual([r.x, r.width, Math.round(r.y + r.height)], [0, PHONE.width, PHONE.height]);
     });
-    await page.locator("#topbar").tap({ position: { x: 150, y: 10 } }); // outside it: it closes
+    await page.touchscreen.tap(150, 24); // outside it, on the tabs: it closes, and the tap goes no further
     await page.locator("#more-menu").waitFor({ state: "hidden" });
+    await page.locator("#editor-host .cm-content", { hasText: "Written on the train" }).waitFor();
   });
   when("I tap into the note and the keyboard comes up", async () => {
-    await page.locator("#editor-host .cm-content").tap();
+    await page.locator("#editor-host .cm-line", { hasText: "Written on the train" }).tap();
     await page.keyboard.press("Control+End");
     await keyboard(true);
   });
@@ -391,10 +393,10 @@ journey("Get around and write on a phone", ({ given, when, then, and }) => {
   when("I start a line, tap Task and type", async () => {
     await page.keyboard.press("Enter");
     await page.locator("#kb-bar").getByRole("button", { name: "Task" }).tap();
-    await page.keyboard.type("Water the bulbs");
+    await page.keyboard.type("Buy a ticket");
   });
   then("the note has the task, and the cursor never left it", async () => {
-    await eventually(() => assert.match(app.read("Projects/Garden.md"), /^- \[ \] Water the bulbs$/m));
+    await eventually(() => assert.match(app.read("Pocket.md"), /^- \[ \] Buy a ticket$/m));
   });
   when("I tap [[ in the toolbar", async () => {
     await page.locator("#kb-bar").getByRole("button", { name: "Link to a note" }).tap();
@@ -411,7 +413,7 @@ journey("Get around and write on a phone", ({ given, when, then, and }) => {
     await keyboard(false);
   });
   then("the link is in the note, and the bottom bar is back", async () => {
-    await eventually(() => assert.match(app.read("Projects/Garden.md"), /Water the bulbs \[\[Tips\]\]/));
+    await eventually(() => assert.match(app.read("Pocket.md"), /Buy a ticket \[\[Tips\]\]/));
     await page.locator("#bottom-nav").waitFor();
     await page.locator("#kb-bar").waitFor({ state: "hidden" });
   });
