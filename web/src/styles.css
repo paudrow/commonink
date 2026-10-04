@@ -2848,7 +2848,7 @@ body.is-link-dragging, body.is-link-dragging * { cursor: grabbing !important; us
 .ct-form input:focus, .ask-box > input:focus { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
 .ct-pick { display: grid; gap: 1px; margin: 8px 0 10px; max-height: 260px; overflow: auto; }
 .ct-pick-item { display: grid; grid-template-columns: 20px auto minmax(0, 1fr); align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; text-align: left; font-size: 13.5px; color: var(--ink); }
-.ct-pick-item:hover { background: var(--hover); }
+.ct-pick-item:hover, .ct-pick-item.is-active { background: var(--hover); }
 .ct-pick-item.is-on { background: var(--accent-soft); color: var(--accent-ink); }
 @media (max-width: 640px) {
   .ct-head { flex-direction: column; }
