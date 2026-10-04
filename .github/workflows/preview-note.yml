@@ -1,0 +1,54 @@
+name: Preview note
+
+# Editing a pull request's description rewrites its Preview's "Try this PR" note (scripts/preview-demo.ts),
+# so the steps and screenshots there match the description without a new push. Same rules as CI's
+# preview job: this repository's branches only, and not Dependabot's.
+on:
+  pull_request:
+    types: [edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-note-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  note:
+    if: (github.event.changes.body || github.event.changes.title) && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: read
+      pull-requests: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      PR_URL: ${{ github.event.pull_request.html_url }}
+      PR_BODY: ${{ github.event.pull_request.body }}
+      PR_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Find the Preview
+        id: find
+        run: |
+          dep=$(gh api "repos/$GITHUB_REPOSITORY/deployments?environment=preview-pr-$PR_NUMBER&per_page=1" --jq '.[0].id // empty')
+          url=""
+          [ -n "$dep" ] && url=$(gh api "repos/$GITHUB_REPOSITORY/deployments/$dep/statuses" --jq '[.[] | select(.state == "success")][0].environment_url // empty')
+          [ -n "$url" ] || echo "No Preview yet; the next push makes one."
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+      - if: steps.find.outputs.url != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: steps.find.outputs.url != ''
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - if: steps.find.outputs.url != ''
+        run: npm ci
+      - name: Rewrite the Try this PR note
+        if: steps.find.outputs.url != ''
+        env:
+          URL: ${{ steps.find.outputs.url }}
+        run: node --disable-warning=ExperimentalWarning --import tsx scripts/preview-demo.ts "$URL"
