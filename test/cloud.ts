@@ -11,12 +11,16 @@ export const APP_HTML = `<!doctype html><title>Common Ink</title><script>documen
 
 export type Cloud = Awaited<ReturnType<typeof startCloud>>;
 
-export async function startCloud(vars: Record<string, string> = {}) {
+/** `app`: a folder holding the built web app (vite build), served in place of the stand-in. */
+export async function startCloud(vars: Record<string, string> = {}, app?: string) {
   const assets = fs.mkdtempSync(path.join(os.tmpdir(), "commonink-assets-"));
-  fs.writeFileSync(path.join(assets, "index.html"), APP_HTML);
-  fs.writeFileSync(path.join(assets, "favicon.svg"), "<svg xmlns='http://www.w3.org/2000/svg'/>");
-  fs.mkdirSync(path.join(assets, "assets"));
-  fs.writeFileSync(path.join(assets, "assets/app.js"), "export {};\n");
+  if (app) fs.cpSync(app, assets, { recursive: true });
+  else {
+    fs.writeFileSync(path.join(assets, "index.html"), APP_HTML);
+    fs.writeFileSync(path.join(assets, "favicon.svg"), "<svg xmlns='http://www.w3.org/2000/svg'/>");
+    fs.mkdirSync(path.join(assets, "assets"));
+    fs.writeFileSync(path.join(assets, "assets/app.js"), "export {};\n");
+  }
   fs.copyFileSync(path.resolve(CLOUD, "../web/public/_headers"), path.join(assets, "_headers"));
   fs.copyFileSync(path.resolve(CLOUD, "../web/public/sw.js"), path.join(assets, "sw.js"));
   const config = JSON.parse(fs.readFileSync(path.join(CLOUD, "wrangler.jsonc"), "utf8").replace(/^\s*\/\/.*$/gm, ""));

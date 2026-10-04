@@ -108,6 +108,12 @@ test("m, a, d and w switch views; j goes a period on and t comes back to today",
   assert.equal(root.dataset.view, "week");
 });
 
+test("the header is the page's name with Calendars and New event at its right, and the dates under it", () => {
+  assert.equal(root.querySelector(".page-head h1")!.textContent, "Calendar");
+  assert.deepEqual([...root.querySelectorAll(".page-head .page-actions button")].map((b) => b.textContent), ["Calendars", "New event"]);
+  assert.ok(root.querySelector(".page-head .page-sub .cal-title")!.textContent);
+});
+
 test("a week inside one month is titled as one range", async () => {
   // The week of the 5th of the month after this one: always inside that month.
   const next = new Date(now.getFullYear(), now.getMonth() + 1, 5);

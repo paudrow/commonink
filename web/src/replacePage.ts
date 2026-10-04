@@ -4,6 +4,7 @@
 import { clickWhere, type Where } from "./panes.ts";
 import { api, type ReplacedNote } from "./api.ts";
 import { el, escapeHtml, icon } from "./dom.ts";
+import { pageHeader } from "./pageHeader.ts";
 import type { ToastSpec } from "./toast.ts";
 import { findPattern, proseMatches, type ReplaceOptions } from "../../src/core/replace.ts";
 
@@ -41,12 +42,7 @@ export class ReplacePage {
       el(
         "div",
         { class: "page" },
-        el(
-          "header",
-          { class: "page-head" },
-          el("h1", {}, "Replace across notes"),
-          el("p", { class: "page-sub" }, "Find text in every note and change it. Each note that changes gets its own entry in History, and Undo puts them all back."),
-        ),
+        pageHeader({ title: "Replace across notes", sub: "Find text in every note and change it. Each note that changes gets its own entry in History, and Undo puts them all back." }),
         el("label", { class: "feed-search" }, icon("search", 16), this.find),
         el("label", { class: "feed-search rp-with" }, icon("edit", 16), this.replace),
         el("div", { class: "rp-options" }, option("Match case", this.matchCase), option("Whole word", this.wholeWord), this.folder, el("span", { class: "rp-grow" }), this.apply),

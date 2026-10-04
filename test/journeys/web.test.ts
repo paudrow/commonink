@@ -22,6 +22,7 @@ const app = skip ? undefined! : await startLocalApp({
   "Soup.md": "# Soup\n\nLeeks and potatoes. #recipe\n",
   "Groceries.md": "# Groceries\n\nEggs and leeks.\n",
   "Shopping.md": "# Shopping\n\nThe list is in [[Groceries]].\n",
+  "Packing.md": "# Packing\n\nTent and stove.\n",
   "Errands.md": `# Errands\n\n- [ ] Buy stamps due:${day()}\n- [ ] Return library books due:${day(-1)}\n- [ ] Plan the party due:${day(8)}\n`,
 });
 
@@ -75,7 +76,7 @@ journey("Capture a thought and find it again", ({ given, when, then }) => {
     await page.locator(".feed-card", { hasText: "Garden" }).waitFor();
   });
   when("I make a new note, title it and link it to [[Tips]]", async () => {
-    await page.getByRole("button", { name: "New note", exact: true }).click();
+    await page.locator("#notes-view .page-head").getByRole("button", { name: "New note", exact: true }).click();
     // A new note opens with its cursor in the title, ready to type.
     await page.locator('#vim-mode[data-mode="insert"]').waitFor();
     await typeInNote(page, ["Trip plan", "{Enter}", "{Enter}", "Pack light, see [[Tips", "{pick}", " first.", "{Enter}", "{Enter}", "Ask about the flights."]);
@@ -310,5 +311,49 @@ journey("Open and close the side panel, page by page", ({ given, when, then, and
     await eventually(panelShows);
     await page.keyboard.press("Control+\\");
     await eventually(async () => !(await panelShows()));
+  });
+});
+
+journey("Look around on a phone", ({ given, when, then, and }) => {
+  let page: Page;
+  const PAGES = { Notes: "/notes", Tasks: "/tasks", Tags: "/tags", Contacts: "/contacts", Assets: "/assets", History: "/history", Calendar: "/calendar", "Shared with me": "/shared" };
+  /** How far the page's heading is from the left edge, and its header, search boxes and dropdowns from the right, in pixels. */
+  const margins = (view: string) =>
+    page.evaluate((view) => {
+      const shown = [...document.querySelectorAll<HTMLElement>(`${view} :is(.page-head-row, input, select)`)].filter((e) => e.checkVisibility()).map((e) => e.getBoundingClientRect());
+      const h1 = document.querySelector(`${view} h1`)!.getBoundingClientRect();
+      return { left: Math.round(h1.left), right: Math.round(innerWidth - Math.max(...shown.map((r) => r.right))), sideways: document.documentElement.scrollWidth - innerWidth };
+    }, view);
+  given("the app on a phone, and Packing changed since it was made", async () => {
+    ({ page } = await person(browser, app.origin));
+    await page.setViewportSize({ width: 390, height: 844 });
+    app.write("Packing.md", "# Packing\n\nTent, stove and a lantern.\n");
+  });
+  for (const [name, url] of Object.entries(PAGES)) {
+    then(`${name} keeps 16px at each side`, async () => {
+      const view = `#${name === "Shared with me" ? "shared" : name.toLowerCase()}-view`;
+      await page.goto(app.origin + url);
+      await page.locator(`${view} h1`).waitFor();
+      await eventually(async () => assert.deepEqual(await margins(view), { left: 16, right: 16, sideways: 0 }));
+    });
+  }
+  when("I open History", async () => {
+    await page.goto(`${app.origin}/history`);
+    await page.locator(".hist-row", { hasText: "Packing" }).first().waitFor();
+  });
+  then("it's the list of changes alone, not half a screen of it", async () => {
+    await page.locator(".hist-main").waitFor({ state: "hidden" });
+  });
+  when("I tap the change to Packing", async () => {
+    await page.locator(".hist-row", { hasText: "Packing" }).first().locator(".hist-body").click();
+  });
+  then("what it did takes the list's place", async () => {
+    await page.locator(".hist-file", { hasText: "lantern" }).waitFor();
+    await page.locator(".hist-side").waitFor({ state: "hidden" });
+  });
+  and("History, at the top, goes back to the list", async () => {
+    await page.locator("#history-view").getByRole("button", { name: "History", exact: true }).click();
+    await page.locator(".hist-row", { hasText: "Packing" }).first().waitFor();
+    await page.locator(".hist-main").waitFor({ state: "hidden" });
   });
 });

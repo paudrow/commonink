@@ -4,6 +4,7 @@
 import type { Where } from "./panes.ts";
 import type { TagCount } from "./api.ts";
 import { el, icon } from "./dom.ts";
+import { pageHeader } from "./pageHeader.ts";
 import { tagFilter } from "./tagPicker.ts";
 import { WIDGETS } from "./widgets/index.ts";
 import { quickAddBar } from "./quickAdd.ts";
@@ -96,7 +97,7 @@ export function renderTasksPage(root: HTMLElement, hooks: { open: Open; tags(): 
     el(
       "div",
       { class: "page" },
-      el("header", { class: "page-head" }, el("h1", {}, "Tasks"), el("p", { class: "page-sub" }, "Every checkbox across your notes. Tick one here and it's ticked in its note.")),
+      pageHeader({ title: "Tasks", sub: "Every checkbox across your notes. Tick one here and it's ticked in its note." }),
       bar.root,
       filters,
       host,
