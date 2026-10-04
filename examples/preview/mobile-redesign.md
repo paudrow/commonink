@@ -1,5 +1,5 @@
 ---
-pr: 0
+pr: 379
 title: Phones
 ---
 1. Open the Preview on a phone (or narrow the window below 760px with touch emulation on). A bar along the bottom has Today, Notes, Tasks, Search and Menu. Tap each: the page you're on is marked, Search takes the whole screen with a Cancel, and Menu opens the sidebar as a drawer that scrolls as one list.

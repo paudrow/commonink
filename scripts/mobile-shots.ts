@@ -4,7 +4,7 @@
 //
 //   npm run cloud:dev                                                   # or a pull request's Preview
 //   node --import tsx scripts/preview-demo.ts http://localhost:8787
-//   node --import tsx scripts/mobile-shots.ts http://localhost:8787 out/ [--widths 375,393] [--only tasks,calendar]
+//   node --import tsx scripts/mobile-shots.ts http://localhost:8787 out/ [--widths 375,393] [--only tasks,calendar] [--now 2026-10-03T12:00:00]
 //
 // Writes <screen>-<width>.png and report.json (per shot: the overflow in px, and the small targets).
 import fs from "node:fs";
@@ -18,6 +18,8 @@ const flag = (name: string) => {
 };
 const widths = (flag("widths") ?? "375,393,412,768,1024,1280").split(",").map(Number);
 const only = flag("only")?.split(",");
+/** A fixed time for the browser's clock, so two runs show the same "5m ago" and can be compared pixel for pixel. */
+const now = flag("now");
 const origin = new URL(args[0] ?? "").origin;
 const out = path.resolve(args[1] ?? "mobile-shots");
 
@@ -43,7 +45,8 @@ async function open(page: Page, url: string, ready: string) {
   await page.locator(ready).first().waitFor({ state: "visible" });
   // A note is ready when its text is in the editor, not just the editor.
   if (ready === EDITOR) await page.waitForFunction((sel) => (document.querySelector(sel)?.textContent ?? "").length > 0, EDITOR);
-  await settle(page, ready === EDITOR ? 900 : 500);
+  await page.waitForLoadState("networkidle").catch(() => {});
+  await settle(page, ready === EDITOR ? 900 : 700);
 }
 
 /** Put the cursor at the end of the open note and type, in Insert mode if Vim keys are on. */
@@ -252,6 +255,7 @@ async function signedIn(browser: Browser, width: number) {
   // Vim keys are on at test sites; a phone has no Esc key, so its screens are taken as a new person's.
   if (d.touch) await context.addInitScript(() => localStorage.setItem("commonink.vim", "false"));
   const page = await context.newPage();
+  if (now) await page.clock.setFixedTime(new Date(now));
   page.setDefaultTimeout(15_000);
   return { context, page };
 }
