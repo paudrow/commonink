@@ -1,6 +1,6 @@
 // The journeys a person takes on a phone, by touch, in a real browser emulating an iPhone 15 and a
 // Pixel 7 (Playwright's devices: the screen, touch, and user agent of each). Each phone has its own
-// server and vault, so one phone's ticks and moves aren't in the other's notes. Signing in runs
+// servers and vault, so one phone's ticks and moves aren't in the other's notes. Signing in runs
 // against the hosted Worker (test/cloud.ts) serving the web app as built; the rest run on the local app.
 import { after } from "node:test";
 import assert from "node:assert/strict";
@@ -38,11 +38,14 @@ function buildApp(): string {
   return out;
 }
 
-const cloud = skip ? undefined! : await startCloud({}, buildApp());
-after(() => cloud?.close());
+const built = skip ? "" : buildApp();
+after(() => built && fs.rmSync(built, { recursive: true, force: true }));
 
 for (const phone of PHONES) {
   const device = devices[phone];
+  // Its own hosted Worker too: each phone signs in to an account nobody has used.
+  const cloud = skip ? undefined! : await startCloud({}, built);
+  after(() => cloud?.close());
   const app = skip ? undefined! : await startLocalApp(FILES);
   const size = device.viewport!;
 
@@ -105,6 +108,20 @@ for (const phone of PHONES) {
       await page.locator("#bottom-nav").waitFor();
       assert.deepEqual(await page.locator("#bottom-nav button").allTextContents(), ["Today", "Notes", "Tasks", "Search", "Menu"]);
       assert.equal(await sideways(page), 0);
+    });
+    and("a new workspace's first question rises from the bottom, the screen's width, and Decide later closes it", async () => {
+      // New here, the app asks how agents should organize notes (organizing.ts).
+      const ask = page.locator(".ask .ask-box");
+      await ask.waitFor();
+      await eventually(async () => {
+        const r = (await ask.boundingBox())!;
+        assert.deepEqual([r.x, r.width, Math.round(r.y + r.height)], [0, size.width, size.height]);
+      });
+      const later = ask.getByRole("button", { name: /Decide later/ });
+      const r = (await later.boundingBox())!;
+      assert.ok(r.height >= 44, `Decide later is ${r.height}px tall`);
+      await later.tap();
+      await page.locator(".ask").waitFor({ state: "hidden" });
     });
     and("Menu has my account at its foot", async () => {
       await page.locator("#menu-btn").tap();
