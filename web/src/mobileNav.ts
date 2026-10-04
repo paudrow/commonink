@@ -1,8 +1,10 @@
-// Phone layout: below 760px the sidebar is a drawer behind a menu button, and Search sits in the
-// top bar. The note's less-used top-bar buttons wait in a More menu (⋯): on a computer, its
+// Phone layout: below 760px a bar along the bottom goes to Today, Notes and Tasks, opens Search, and
+// opens the sidebar as a drawer (Menu). The note's less-used top-bar buttons wait in a More menu (⋯),
+// which rises from the bottom on a phone: on a computer, its
 // history, Move, Archive, Split view and Delete; with a phone or a tablet's touch screen, nearly all
 // of them. A floating button makes a note from Notes. The layout itself is in mobile.css.
 import { $, el, icon } from "./dom.ts";
+import { toast } from "./toast.ts";
 
 const PHONE = "(max-width: 760px)";
 /** A phone, or a touch tablet: More holds nearly the whole bar. mobile.css has the same query. */
@@ -24,7 +26,8 @@ const DESKTOP = new Set(["#note-history-btn", "#move-btn", "#archive-btn", "#spl
 let drawerOpen = false;
 
 const FOCUSABLE = "button:not([disabled]), a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])";
-const focusables = (root: HTMLElement) => [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((n) => !n.closest("[hidden]"));
+/** Not the ones a phone's drawer leaves out (mobile.css): `hidden` ones, and those the bottom bar has. */
+const focusables = (root: HTMLElement) => [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((n) => !n.closest("[hidden]") && getComputedStyle(n).display !== "none");
 
 /** Open or close the drawer. While open, it's a modal dialog: the rest of the app is inert. */
 function setDrawer(open: boolean) {
@@ -67,6 +70,17 @@ function onDrawerKey(e: KeyboardEvent) {
     e.preventDefault();
     all[e.shiftKey ? all.length - 1 : 0].focus();
   }
+}
+
+/**
+ * The first time someone else is at work while you're on a phone, say what the badge in the top bar
+ * is: there's no hover to show its tooltip. `name` is what the badge says ("Claude", "3 active").
+ */
+export function hintAgents(name: string) {
+  const KEY = "commonink.agentsHint";
+  if (!matchMedia(PHONE).matches || localStorage.getItem(KEY)) return;
+  localStorage.setItem(KEY, "true");
+  toast({ icon: "bot", text: "Someone else is working in these notes", detail: `"${name}" at the top shows who changed a note in the last 15 minutes. Tap it to see what changed.` });
 }
 
 // ------------------------------------------------------------------ More menu
@@ -149,19 +163,46 @@ function onMoreKey(e: KeyboardEvent) {
 /** Add the phone controls to the page's markup and wire them up. */
 export function setupMobileNav() {
   const sidebar = $("#sidebar");
-  const topbar = $("#topbar");
   const iconBtn = (id: string, label: string, ico: string, extra: Record<string, string>, run: () => void) =>
     el("button", { id, class: "icon-btn",type: "button", title: label, "aria-label": label, ...extra, onclick: run }, icon(ico, 18));
 
-  topbar.prepend(iconBtn("menu-btn", "Menu", "menu", { "aria-controls": "sidebar", "aria-expanded": "false" }, () => setDrawer(!drawerOpen)));
   const more = iconBtn("more-btn", "More", "more", { "aria-haspopup": "menu", "aria-controls": "more-menu", "aria-expanded": "false" }, () =>
     $("#more-menu").hidden ? openMore() : closeMore(true),
   );
   const menu = el("div", { id: "more-menu", role: "menu", "aria-label": "More", hidden: true, onkeydown: onMoreKey });
-  $("#star-btn").after(iconBtn("search-top", "Search notes", "search", {}, () => $("#search-btn").click()));
+  // The bottom bar: three places, Search and the drawer. A place presses the sidebar's own button,
+  // and is marked as the current page when that button is.
+  const navBtn = (id: string, label: string, ico: string, extra: Record<string, string>, run: () => void) =>
+    el("button", { id, class: "bn-item", type: "button", ...extra, onclick: run }, icon(ico, 22), el("span", {}, label));
+  const places = ([["today", "Today", "sun"], ["notes", "Notes", "feed"], ["tasks", "Tasks", "task"]] as const).map(([key, label, ico]) => {
+    const source = $(`#${key}-btn`);
+    const b = navBtn(`bn-${key}`, label, ico, {}, () => source.click());
+    const mark = () => (source.getAttribute("aria-current") ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
+    new MutationObserver(mark).observe(source, { attributes: true, attributeFilter: ["aria-current"] });
+    mark();
+    return b;
+  });
+  $("#statusbar").after(
+    el(
+      "nav",
+      { id: "bottom-nav", "aria-label": "Main" },
+      ...places,
+      navBtn("search-top", "Search", "search", { "aria-label": "Search notes" }, () => $("#search-btn").click()),
+      navBtn("menu-btn", "Menu", "menu", { "aria-controls": "sidebar", "aria-expanded": "false" }, () => setDrawer(!drawerOpen)),
+    ),
+  );
   $("#delete-btn").after(el("div", { class: "more-wrap" }, more, menu)); // after the buttons it holds, before Focus mode and the side panel
 
   document.body.append(el("div", { id: "scrim", hidden: true, onclick: () => setDrawer(false) }));
+  // Behind a phone's bottom sheet (mobile.css shows it while one is open): a tap outside the sheet
+  // closes it, as each menu's own outside-click does, and goes no further.
+  // The menu closes as the finger lands; the scrim stays under it until the tap ends, so the click
+  // that follows doesn't press whatever the sheet was covering.
+  const sheetScrim = el("div", { id: "sheet-scrim", "aria-hidden": "true" });
+  const release = () => sheetScrim.classList.remove("is-held");
+  sheetScrim.addEventListener("pointerdown", () => (sheetScrim.classList.add("is-held"), setTimeout(release, 600)));
+  sheetScrim.addEventListener("click", release);
+  document.body.append(sheetScrim);
   $("#stage").append(el("button", { id: "fab-new", class: "fab", type: "button", title: "New note", "aria-label": "New note", onclick: () => $("#new-note").click() }, icon("plus", 22)));
 
   sidebar.addEventListener("keydown", onDrawerKey);

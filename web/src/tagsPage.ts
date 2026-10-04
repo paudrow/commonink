@@ -4,8 +4,9 @@
 // can be deleted too.
 import { api, unusedTag, type TagCount } from "./api.ts";
 import { el, icon } from "./dom.ts";
-import { confirmAction } from "./modal.ts";
+import { askText, confirmAction } from "./modal.ts";
 import { listKey, stepFocus } from "./listKeys.ts";
+import { pageHeader } from "./pageHeader.ts";
 import type { ToastSpec } from "./toast.ts";
 import { cleanTag, tagMatches } from "../../src/core/tags.ts";
 
@@ -14,6 +15,8 @@ interface Hooks {
   /** The tags changed: fetch them again. */
   refresh(): Promise<void>;
   openTag(tag: string, where?: "notes" | "tasks"): void;
+  /** Add a tag by name, before any note carries it. */
+  addTag(typed: string): Promise<void>;
   /** Take away a tag nothing carries yet, with Undo. */
   deleteTag(t: TagCount): Promise<void>;
   /** A viewer (online) can't change tags. */
@@ -25,6 +28,7 @@ export class TagsPage {
   readonly root: HTMLElement;
   private list = el("div", { class: "tags-list", role: "list" });
   private input = el("input", { placeholder: "Filter tags…", spellcheck: "false", autocomplete: "off" });
+  private newBtn = el("button", { type: "button", class: "qw-btn primary", onclick: () => void this.newTag() }, icon("plus", 14), "New tag");
 
   constructor(
     root: HTMLElement,
@@ -35,12 +39,11 @@ export class TagsPage {
       el(
         "div",
         { class: "page" },
-        el(
-          "header",
-          { class: "page-head" },
-          el("h1", {}, "Tags"),
-          el("p", { class: "page-sub" }, "Every #tag across your notes, tasks and assets. Nest them with /: a tag includes every tag under it."),
-        ),
+        pageHeader({
+          title: "Tags",
+          sub: "Every #tag across your notes, tasks and assets. Nest them with /: a tag includes every tag under it.",
+          actions: [this.newBtn],
+        }),
         el("label", { class: "feed-search tags-search" }, icon("search", 16), this.input),
         this.list,
       ),
@@ -82,12 +85,19 @@ export class TagsPage {
 
   show() {
     this.root.hidden = false;
+    this.newBtn.hidden = this.hooks.readOnly();
     this.render();
     this.input.focus({ preventScroll: true });
   }
 
   refresh() {
     if (this.visible && !this.list.querySelector(".tag-rename")) this.render();
+  }
+
+  /** Name a tag, so it's there to pick before any note carries it (what the sidebar's + does). */
+  private async newTag() {
+    const typed = await askText({ title: "New tag", label: "Tag", action: "Add tag", placeholder: "Tag, like work/clients", hint: "Letters, numbers, - and _. A / nests it under another tag." });
+    if (typed?.trim()) await this.hooks.addTag(typed);
   }
 
   private render() {

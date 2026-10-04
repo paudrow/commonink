@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
     <title>Common Ink</title>
     <meta name="description" content="Notes and files for you, your team, and your agents." />
     <link rel="icon" href="/favicon.ico" sizes="32x32" />
@@ -89,7 +89,7 @@
         <header id="topbar">
           <div id="top-tabs"></div>
           <div class="spacer"></div>
-          <div id="agents" title="Agents active in the last 15 minutes"></div>
+          <div id="agents"></div>
           <div id="html-toggle" class="seg" role="group" aria-label="Show as" hidden>
             <button data-mode="preview" type="button">Preview</button><button data-mode="source" type="button">Source</button>
           </div>
@@ -162,7 +162,8 @@
 
     <div id="palette" hidden>
       <div class="palette-box" role="dialog" aria-modal="true" aria-label="Search notes and commands">
-        <div class="palette-input"><span class="ico" data-icon="search"></span><input id="palette-input" role="combobox" aria-label="Search notes and commands" aria-controls="palette-results" aria-expanded="true" aria-autocomplete="list" aria-describedby="palette-hint" placeholder="Find a note, or type > for commands…" autocomplete="off" spellcheck="false" /></div>
+        <div class="palette-input"><span class="ico" data-icon="search"></span><input id="palette-input" role="combobox" aria-label="Search notes and commands" aria-controls="palette-results" aria-expanded="true" aria-autocomplete="list" aria-describedby="palette-hint" placeholder="Find a note, or type > for commands…" autocomplete="off" spellcheck="false" /><button id="palette-close" type="button">Cancel</button></div>
+        <button id="palette-advanced" type="button"><span class="ico" data-icon="sliders"></span><span>Advanced search</span><small>Words, folders, tags</small></button>
         <div id="palette-results" role="listbox" aria-label="Results"></div>
         <div id="palette-hint" class="palette-hint">Start with <kbd>#</kbd> for headings in this note, <kbd>@</kbd> people, <kbd>tag:</kbd> tags, <kbd>/</kbd> folders, <kbd>&gt;</kbd> commands</div>
         <div class="palette-foot"><span><kbd data-keys="ArrowUp">↑</kbd><kbd data-keys="ArrowDown">↓</kbd> move</span><span><kbd data-keys="Enter">↵</kbd> open</span><span><kbd data-keys="Mod-Enter">⌘↵</kbd> new tab</span><span><kbd data-keys="Mod-Alt-Enter">⌘⌥↵</kbd> to the side</span><span><kbd data-keys="Shift-Enter">⇧↵</kbd> create</span><span><kbd data-keys="Mod-p">⌘P</kbd> notes</span><span><kbd data-keys="Mod-Shift-p">⌘⇧P</kbd> or <kbd data-keys="&gt;">&gt;</kbd> commands</span><span><kbd data-keys="Escape">Esc</kbd> close</span></div>

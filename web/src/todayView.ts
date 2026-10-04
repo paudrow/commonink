@@ -6,6 +6,7 @@
 import type { Where } from "./panes.ts";
 import { mountDecisions } from "./decisionsCard.ts";
 import { el } from "./dom.ts";
+import { pageHeader } from "./pageHeader.ts";
 import { gamified } from "./gamify.ts";
 import { quickAddBar } from "./quickAdd.ts";
 import { today } from "./taskChips.ts";
@@ -53,7 +54,7 @@ export function renderTodayPage(root: HTMLElement, hooks: TodayHooks): () => voi
     el(
       "div",
       { class: "page" },
-      el("header", { class: "page-head" }, el("h1", {}, "Today"), el("p", { class: "page-sub td-sub" }, el("span", {}, date), ring?.root ?? "")),
+      pageHeader({ title: "Today", sub: el("p", { class: "td-sub" }, el("span", {}, date), ring?.root ?? "") }),
       quickAddBar({ added: () => {}, open: hooks.open }).root, // the day below reloads when the note changes
       decisions,
       day,
