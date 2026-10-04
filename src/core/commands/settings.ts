@@ -48,24 +48,25 @@ async function member(s: WorkspaceSettings, who: string): Promise<Member> {
   throw new VaultError(`No one called ${who} is in ${s.name}. Its members: ${all.map((m) => m.name).join(", ")}`, "not_found");
 }
 
-/** An invite link, by its ID or the start of it (as `commonink invites` shows it). */
+/** An invite link, by its ID or the start of it (as `commonink invite list` shows it). */
 async function invite(s: WorkspaceSettings, id: string): Promise<InviteRow> {
   const found = ((await s.call("GET /invites")) as InviteRow[]).filter((i) => i.id.startsWith(id.trim()));
   if (found.length === 1) return found[0];
   if (found.length) throw new UsageError(`More than one invite link starts with ${id}: give more of its ID`);
-  throw new VaultError(`No invite link ${id} in ${s.name}: see commonink invites`, "not_found");
+  throw new VaultError(`No invite link ${id} in ${s.name}: see commonink invite list`, "not_found");
 }
 
 const inviteState = (i: InviteRow, now: number) => (i.usedAt ? `used by ${i.usedBy ?? "someone"} on ${day(i.usedAt)}` : i.expiresAt < now ? "expired" : `active until ${day(i.expiresAt)}`);
 
 export const settings = [
   settingsCommand({
-    cli: "members",
+    cli: "member list",
     mcp: NOT_FOR_AGENTS,
+    was: { cli: ["members"] },
     route: "GET /members",
     title: "Members",
     summary: "Who's in the workspace, and their roles",
-    examples: ["commonink members --workspace Team", "commonink members --json"],
+    examples: ["commonink member list --workspace Team", "commonink member list --json"],
     readOnly: true,
     args: {},
     run: async ({ settings: s }) => {
@@ -74,15 +75,16 @@ export const settings = [
     },
   }),
   settingsCommand({
-    cli: "member role",
+    cli: "member-role set",
     mcp: NOT_FOR_AGENTS,
+    was: { cli: ["member role"] },
     route: "POST /members/role",
     title: "Change a member's role",
     summary: "Make someone an owner, editor or viewer (owners only)",
     description: "Change someone's role in the workspace. Their agents connected with the old role, so they're disconnected and connect again. A workspace keeps at least one owner.",
-    examples: ["commonink member role sam@example.com viewer --workspace Team"],
+    examples: ["commonink member-role set sam@example.com viewer --workspace Team"],
     args: {
-      person: str({ required: true, pos: 0, describe: "Their name, email or ID (see commonink members)" }),
+      person: str({ required: true, pos: 0, describe: "Their name, email or ID (see commonink member list)" }),
       role: str({ required: true, pos: 1, enum: ROLES, describe: "owner, editor or viewer" }),
     },
     run: async ({ settings: s }, a) => {
@@ -97,10 +99,10 @@ export const settings = [
     route: "POST /members/remove",
     title: "Remove a member",
     summary: "Take someone out of the workspace (owners only)",
-    description: "Take someone out of the workspace: they, and their agents, lose access to it at once. To leave yourself, use commonink leave.",
+    description: "Take someone out of the workspace: they, and their agents, lose access to it at once. To leave yourself, use commonink workspace leave.",
     examples: ["commonink member remove Sam --workspace Team"],
     destructive: true,
-    args: { person: str({ required: true, pos: 0, describe: "Their name, email or ID (see commonink members)" }) },
+    args: { person: str({ required: true, pos: 0, describe: "Their name, email or ID (see commonink member list)" }) },
     run: async ({ settings: s }, a) => {
       const m = await member(s, a.person);
       await s.call("POST /members/remove", { user: m.id });
@@ -108,12 +110,13 @@ export const settings = [
     },
   }),
   settingsCommand({
-    cli: "leave",
+    cli: "workspace leave",
     mcp: NOT_FOR_AGENTS,
+    was: { cli: ["leave"] },
     route: "POST /leave",
     title: "Leave the workspace",
     summary: "Leave a team workspace; its notes stay with its other members",
-    examples: ["commonink leave --workspace Team"],
+    examples: ["commonink workspace leave --workspace Team"],
     destructive: true,
     args: {},
     run: async ({ settings: s }) => {
@@ -122,13 +125,14 @@ export const settings = [
     },
   }),
   settingsCommand({
-    cli: "invite",
+    cli: "invite create",
     mcp: NOT_FOR_AGENTS,
+    was: { cli: ["invite"] },
     route: "POST /invites",
     title: "Invite someone",
     summary: "A link that lets one person join the team workspace (owners only)",
-    description: "Make an invite link to the team workspace. Whoever opens it first, signed in, joins as an editor (or --role viewer). Send it yourself; `commonink invites revoke` takes it back.",
-    examples: ["commonink invite --workspace Team", "commonink invite --role viewer --json"],
+    description: "Make an invite link to the team workspace. Whoever opens it first, signed in, joins as an editor (or --role viewer). Send it yourself; `commonink invite revoke` takes it back.",
+    examples: ["commonink invite create --workspace Team", "commonink invite create --role viewer --json"],
     args: { role: str({ enum: ["editor", "viewer"], describe: "What they may do once they join: editor (default) or viewer" }) },
     run: async ({ settings: s }, a) => {
       const { url } = (await s.call("POST /invites", { role: a.role ?? "editor" })) as { url: string };
@@ -136,12 +140,13 @@ export const settings = [
     },
   }),
   settingsCommand({
-    cli: "invites",
+    cli: "invite list",
     mcp: NOT_FOR_AGENTS,
+    was: { cli: ["invites"] },
     route: "GET /invites",
     title: "Invite links",
     summary: "The workspace's invite links: who made them, and which are still open (owners only)",
-    examples: ["commonink invites --workspace Team"],
+    examples: ["commonink invite list --workspace Team"],
     readOnly: true,
     args: {},
     run: async ({ settings: s }) => {
@@ -152,13 +157,14 @@ export const settings = [
     },
   }),
   settingsCommand({
-    cli: "invites revoke",
+    cli: "invite revoke",
     mcp: NOT_FOR_AGENTS,
+    was: { cli: ["invites revoke"] },
     route: "POST /invites/revoke",
     title: "Revoke an invite link",
     summary: "Take back an invite link no one has used yet (owners only)",
-    examples: ["commonink invites revoke 3f9a2c41 --workspace Team"],
-    args: { id: str({ required: true, pos: 0, label: "invite-id", describe: "Its ID, or the start of it (see commonink invites)" }) },
+    examples: ["commonink invite revoke 3f9a2c41 --workspace Team"],
+    args: { id: str({ required: true, pos: 0, label: "invite-id", describe: "Its ID, or the start of it (see commonink invite list)" }) },
     run: async ({ settings: s }, a) => {
       const i = await invite(s, a.id);
       await s.call("POST /invites/revoke", { id: i.id });
@@ -179,12 +185,13 @@ export const settings = [
     },
   }),
   settingsCommand({
-    cli: "workspace log",
+    cli: "log list",
     mcp: NOT_FOR_AGENTS,
+    was: { cli: ["workspace log"] },
     route: "GET /workspace/log",
     title: "Workspace log",
     summary: "Who joined, left, changed roles or renamed the workspace, newest first (owners only)",
-    examples: ["commonink workspace log --workspace Team"],
+    examples: ["commonink log list --workspace Team"],
     readOnly: true,
     args: {},
     run: async ({ settings: s }) => {

@@ -46,6 +46,6 @@ test("an all-clear check-up says so, over the API and the CLI command", async ()
   const host: ApiHost = { vault, actor: "you", user: "you", canEditShared: true, info: () => ({}), written() {}, moved() {}, removed() {}, tree() {} };
   const res = await handleApi(host, new Request("http://localhost/api/checkup"), "/checkup");
   assert.deepEqual(await res!.json(), { deadLinks: [], duplicateContacts: [], emptyNotes: [], unlinkedNotes: [], staleTasks: [] });
-  const out = (await notes.find((c) => c.cli === "checkup")!.run({ vault, user: "you", source: "you" } as never, {} as never)) as { text: string };
+  const out = (await notes.find((c) => c.cli === "checkup get")!.run({ vault, user: "you", source: "you" } as never, {} as never)) as { text: string };
   assert.match(out.text, /^All clear/);
 });

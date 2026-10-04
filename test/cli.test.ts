@@ -65,15 +65,15 @@ test("read prints numbered lines and honours --offset/--limit", () => {
 test("missing or malformed arguments are one-line errors with exit code 2, not stack traces", () => {
   const vault = tempVault();
   const cases: Array<[string[], RegExp, number]> = [
-    [["read"], /^read needs <note>\n$/, 2],
-    [["mv", "Roadmap"], /^mv needs <new-path>\n$/, 2],
-    [["backlinks"], /^backlinks needs <note>\n$/, 2],
-    [["restore"], /^restore needs <change-id>\n$/, 2],
+    [["read"], /^get needs <note>\n$/, 2],
+    [["mv", "Roadmap"], /^move needs <new-path>\n$/, 2],
+    [["backlinks"], /^backlink list needs <note>\n$/, 2],
+    [["restore"], /^change restore needs <change-id>\n$/, 2],
     [["restore", "abc"], /^<change-id> must be a whole number, not "abc"\n$/, 2],
     [["search", "roadmap", "--limit", "abc"], /^--limit must be a positive whole number from 1 to 50, not "abc"\n$/, 2],
     [["read", "Roadmap", "--offset", "0"], /^--offset must be a positive whole number, not "0"\n$/, 2],
     [["ls", "--recent", "x"], /^--recent must be a positive whole number from 1 to 100, not "x"\n$/, 2],
-    [["ls", "--colour", "red"], /^ls has no --colour: see commonink help ls\n$/, 2],
+    [["ls", "--colour", "red"], /^list has no --colour: see commonink help list\n$/, 2],
     [["task", "Roadmap", "8", "--priority", "urgent"], /^--priority must be high or low, not "urgent"\n$/, 2],
     [["read", "../../etc/passwd"], /^No note matches/, 3],
   ];
@@ -132,7 +132,7 @@ test("board shows a note's boards, and card adds, moves and edits cards", () => 
   commonink(vault, ["card", "edit", "Launch", "logo", "--text", "Pick a logo @ana"]);
   assert.match(commonink(vault, ["board", "Launch"]).stdout, /^Board 1 of 1 in Launch\.md\n\n## To do\n- \[ \] Pick a logo @ana — L5\n\n## Done \(done column\)\n- \[x\] Tiers done:\d{4}-\d{2}-\d{2} — L8\n$/);
   assert.equal(commonink(vault, ["card", "edit", "Launch", "5", "--undone"]).stdout.startsWith("No change to Launch.md"), true);
-  assert.equal(commonink(vault, ["card", "shuffle", "Launch"]).stderr, 'card needs add, move or edit, not "shuffle"\n');
+  assert.equal(commonink(vault, ["card", "shuffle", "Launch"]).stderr, 'card needs add, move or update, not "shuffle"\n');
   fs.writeFileSync(path.join(vault, "Messy.md"), "# Messy\n\n:::kanban\n## To do {color=blue}\nA loose line\n- [ ] Card\n:::\n\n:::kanban\n## Open\n");
   assert.equal(
     commonink(vault, ["board", "Messy"]).stdout,
@@ -201,7 +201,7 @@ test("delete sends notes to Trash, trash lists them, and trash restore brings on
   assert.match(listed, /^\d+-\d+  Projects\/Roadmap\.md — deleted \d{4}-\d{2}-\d{2} \d{2}:\d{2} by Planner for you, gone for good \d{4}-\d{2}-\d{2}\n$/);
   assert.equal(commonink(vault, ["trash", "restore", listed.split(" ")[0]]).stdout, "Restored Projects/Roadmap.md\n");
   assert.equal(commonink(vault, ["trash"]).stdout, "Trash is empty.\n");
-  assert.equal(commonink(vault, ["trash", "empty"]).stderr, 'trash takes restore, not "empty"\n');
+  assert.equal(commonink(vault, ["trash", "empty"]).stderr, 'trash takes list or restore, not "empty"\n');
 });
 
 test("contacts: add, list with filters, read, change, import a file and merge", () => {
@@ -209,7 +209,7 @@ test("contacts: add, list with filters, read, change, import a file and merge", 
   assert.equal(commonink(vault, ["contact", "add", "Jane Doe", "--email", "jane@acme.com", "--company", "Acme", "--tag", "client"]).stdout, "Created People/Jane Doe.md. Link to them with [[People/Jane Doe]].\n");
   fs.writeFileSync(path.join(vault, "Call.md"), "# Call\n\nWith [[People/Jane Doe]].\n");
   assert.match(commonink(vault, ["contacts", "--company", "acme"]).stdout, /^People\/Jane Doe\.md — Jane Doe · Acme · jane@acme\.com #client · last mentioned \d{4}-\d\d-\d\d \(1 note\)\n$/);
-  assert.equal(commonink(vault, ["contacts", "--tag", "vendor"]).stdout, "No contacts match. People are notes in People/; `commonink contact add <name>` makes one.\n");
+  assert.equal(commonink(vault, ["contacts", "--tag", "vendor"]).stdout, "No contacts match. People are notes in People/; `commonink contact create <name>` makes one.\n");
   assert.match(commonink(vault, ["contact", "Jane Doe"]).stdout, /^# Jane Doe \(People\/Jane Doe\.md\)\nemail: jane@acme\.com\ncompany: Acme\ntags: #client\n\nMentioned in:\n- \S+ Call\.md:3 With \[\[People\/Jane Doe\]\]\.\n$/);
   assert.match(commonink(vault, ["contact", "Jane Doe", "--role", "CTO", "--phone", "555-0100,555-0199"]).stdout, /^Updated People\/Jane Doe\.md/);
   assert.match(fs.readFileSync(path.join(vault, "People/Jane Doe.md"), "utf8"), /phone: \[555-0100, 555-0199\]\ncompany: Acme\nrole: CTO/);
@@ -218,7 +218,7 @@ test("contacts: add, list with filters, read, change, import a file and merge", 
   assert.equal(commonink(vault, ["contacts", "import", file]).stdout, "Created 1: People/Sam Lee.md\n");
   assert.equal(commonink(vault, ["contacts", "import", file, "--format", "xlsx"]).stderr, '--format must be vcard or csv, not "xlsx"\n');
   assert.equal(commonink(vault, ["contacts", "merge", "Jane Doe", "Sam Lee"]).stdout, "Merged People/Sam Lee.md into People/Jane Doe.md (it's in Trash). Links updated in 0 notes.\n");
-  assert.equal(commonink(vault, ["contact", "add"]).stderr, "contact add needs <name>\n");
+  assert.equal(commonink(vault, ["contact", "add"]).stderr, "contact create needs <name>\n");
 });
 
 test("tasks --assignee me and --by me", () => {
@@ -242,7 +242,7 @@ test("templates and new --template", () => {
   const made = fs.readdirSync(path.join(vault, "Meetings"))[0];
   assert.match(fs.readFileSync(path.join(vault, "Meetings", made), "utf8"), /\*\*Attendees:\*\* Sam, Lee/);
   assert.equal(commonink(vault, ["new", "--template", "Meeting", "--var", "oops"]).stderr, "--var takes Name=value, not \"oops\"\n");
-  assert.equal(commonink(vault, ["new"]).stderr, "new needs --template <name>\n");
+  assert.equal(commonink(vault, ["new"]).stderr, "template use needs <template>\n");
 });
 
 test("calendars: an empty vault says how to subscribe, and a private address is refused and not kept", () => {
@@ -250,8 +250,8 @@ test("calendars: an empty vault says how to subscribe, and a private address is 
   assert.equal(commonink(vault, ["events", "--from", "2026-10-05", "--tz", "UTC"]).stdout, "0 events, Mon, Oct 5 to Sun, Oct 11 (UTC). This workspace has no calendars yet: subscribe to an ICS feed from the Calendar page.\n");
   const add = commonink(vault, ["calendars", "add", "http://127.0.0.1:9/cal.ics"]);
   assert.deepEqual([add.status, add.stderr], [1, "That address isn't on the public internet\n"]);
-  assert.equal(commonink(vault, ["calendars"]).stdout, "No calendars. Subscribe to an ICS or webcal feed: commonink calendars add <url>\n");
-  assert.equal(commonink(vault, ["event", "nope"]).stderr, "No event nope; commonink events (list_events) lists them with their ids\n");
+  assert.equal(commonink(vault, ["calendars"]).stdout, "No calendars. Subscribe to an ICS or webcal feed: commonink calendar subscribe <url>\n");
+  assert.equal(commonink(vault, ["event", "nope"]).stderr, "No event nope; commonink event list (list_events) lists them with their ids\n");
 });
 
 test("login opens the whole sign-in address, &s and all, and only a web address, with no shell in between", () => {

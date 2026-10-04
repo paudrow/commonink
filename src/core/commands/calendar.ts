@@ -16,15 +16,16 @@ const PEOPLE = "people choose their calendars, on the Calendar page";
 
 export const calendar = [
   command({
-    cli: "events",
+    cli: "event list",
     mcp: "list_events",
+    was: { cli: ["events"] },
     route: "GET /calendar/events",
     title: "List calendar events",
     summary: "Calendar events, soonest first (default: the next 7 days); feeds that are due are read first",
     description:
       "Events from the calendars this workspace subscribes to (and the user's own), soonest first, for a range of days. Each has an id " +
       "for get_event and create_meeting_note, and the meeting note it's linked to, if any. Feed and Google events are records; the workspace's own are notes in Events/ (create one there to add an event).",
-    examples: ["commonink events", "commonink events --from 2026-10-05 --days 1 --tz America/Los_Angeles", "commonink events --query standup --json"],
+    examples: ["commonink event list", "commonink event list --from 2026-10-05 --days 1 --tz America/Los_Angeles", "commonink event list --query standup --json"],
     readOnly: true,
     needs: "calendar",
     args: {
@@ -43,35 +44,37 @@ export const calendar = [
     },
   }),
   command({
-    cli: "event",
+    cli: "event get",
     mcp: "get_event",
+    was: { cli: ["event"] },
     route: "GET /calendar/event",
     title: "Get calendar event",
     summary: "One event in full, with its meeting note",
     description: "One event in full: time, place, organizer, attendees, description, and its meeting note if it has one.",
-    examples: ["commonink event k3m9x2p7q4rt", "commonink event k3m9x2p7q4rt --json"],
+    examples: ["commonink event get k3m9x2p7q4rt", "commonink event get k3m9x2p7q4rt --json"],
     readOnly: true,
     needs: "calendar",
-    args: { id: str({ required: true, pos: 0, describe: "The event's id from list_events (commonink events)" }), time_zone: str(ZONE) },
+    args: { id: str({ required: true, pos: 0, describe: "The event's id from list_events (commonink event list)" }), time_zone: str(ZONE) },
     run: (h, a) => {
       const cal = calendarOf(h);
       const ev = cal.event(a.id, viewer(h));
-      if (!ev) throw new VaultError(`No event ${a.id}; commonink events (list_events) lists them with their ids`, "not_found");
+      if (!ev) throw new VaultError(`No event ${a.id}; commonink event list (list_events) lists them with their ids`, "not_found");
       return { text: fmtEvent(ev, cal.sources(viewer(h)), zoneOf(a.time_zone)), data: ev };
     },
   }),
   command({
-    cli: "meeting-note",
+    cli: "meeting-note create",
     mcp: "create_meeting_note",
+    was: { cli: ["meeting-note"] },
     route: "POST /calendar/meeting-note",
     title: "Create meeting note",
     summary: "The event's meeting note in Meetings/, made and linked if new",
     description:
       "The event's meeting note: a new note in Meetings/ (from Templates/Meeting note.md if there is one) with its time, place, " +
       "attendees, agenda and a link back to the event, linked to the event (its frontmatter `event:` names the event). If the event already has one, returns that note instead.",
-    examples: ["commonink meeting-note k3m9x2p7q4rt", "commonink meeting-note k3m9x2p7q4rt --tz Europe/Berlin"],
+    examples: ["commonink meeting-note create k3m9x2p7q4rt", "commonink meeting-note create k3m9x2p7q4rt --tz Europe/Berlin"],
     needs: "calendar",
-    args: { id: str({ required: true, pos: 0, describe: "The event's id from list_events (commonink events)" }), time_zone: str(ZONE) },
+    args: { id: str({ required: true, pos: 0, describe: "The event's id from list_events (commonink event list)" }), time_zone: str(ZONE) },
     run: async (h, a) => {
       const cal = calendarOf(h);
       const r = cal.meetingNote(h.vault, a.id, viewer(h), { timeZone: zoneOf(a.time_zone), source: h.source });
@@ -84,12 +87,13 @@ export const calendar = [
     },
   }),
   command({
-    cli: "calendars",
+    cli: "calendar list",
     mcp: { none: `list_events names each event's calendar; ${PEOPLE}` },
+    was: { cli: ["calendars"] },
     route: "GET /calendar/sources",
     title: "Calendars",
     summary: "The calendars (ICS feeds) this vault subscribes to",
-    examples: ["commonink calendars", "commonink calendars --json"],
+    examples: ["commonink calendar list", "commonink calendar list --json"],
     readOnly: true,
     args: {},
     run: (h) => {
@@ -98,12 +102,13 @@ export const calendar = [
     },
   }),
   command({
-    cli: "calendars add",
+    cli: "calendar subscribe",
     mcp: { none: `subscribing reads whatever address it's given; ${PEOPLE}` },
+    was: { cli: ["calendars add"] },
     route: "POST /calendar/sources",
     title: "Subscribe to a calendar",
     summary: "Subscribe to an ICS or webcal feed",
-    examples: ["commonink calendars add webcal://example.com/team.ics --name Team"],
+    examples: ["commonink calendar subscribe webcal://example.com/team.ics --name Team"],
     args: { url: str({ required: true, pos: 0, describe: "An ICS or webcal address" }), name: str({ describe: "What to call it (default: the feed's own name)" }) },
     run: async (h, a) => {
       const cal = calendarOf(h);
@@ -113,12 +118,13 @@ export const calendar = [
     },
   }),
   command({
-    cli: "calendars refresh",
+    cli: "calendar refresh",
     mcp: { none: "list_events reads the feeds that are due before it answers" },
+    was: { cli: ["calendars refresh"] },
     route: "POST /calendar/refresh",
-    title: "Read calendars again",
+    title: "Refresh calendars",
     summary: "Read every calendar feed again now",
-    examples: ["commonink calendars refresh"],
+    examples: ["commonink calendar refresh"],
     args: {},
     run: async (h) => {
       const cal = calendarOf(h);
@@ -128,14 +134,15 @@ export const calendar = [
     },
   }),
   command({
-    cli: "calendars remove",
+    cli: "calendar unsubscribe",
     mcp: { none: `unsubscribing is the person's: ${PEOPLE}` },
+    was: { cli: ["calendars remove"] },
     route: "POST /calendar/sources/remove",
     title: "Unsubscribe from a calendar",
-    summary: "Unsubscribe from a calendar (its id from commonink calendars)",
-    examples: ["commonink calendars remove c7h2k9"],
+    summary: "Unsubscribe from a calendar (its id from commonink calendar list)",
+    examples: ["commonink calendar unsubscribe c7h2k9"],
     destructive: true,
-    args: { id: str({ required: true, pos: 0, describe: "Its id, from commonink calendars" }) },
+    args: { id: str({ required: true, pos: 0, describe: "Its id, from commonink calendar list" }) },
     run: (h, a) => {
       const cal = calendarOf(h);
       cal.remove(a.id, viewer(h));

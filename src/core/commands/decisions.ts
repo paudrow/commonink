@@ -57,8 +57,9 @@ export const decisions = [
     },
   }),
   command({
-    cli: "decisions",
+    cli: "decision list",
     mcp: "list_decisions",
+    was: { cli: ["decisions"] },
     route: "GET /decisions",
     title: "List decisions",
     summary: "Decisions waiting on the person (the default), or what's been decided, with answers and comments; filter by day, comment or words",
@@ -70,11 +71,11 @@ export const decisions = [
       "with any of these and no `status`, every status is searched. Pass `ids` to check on the ones you asked. A dismissed decision " +
       "means they chose not to decide: don't ask it again as is.",
     examples: [
-      "commonink decisions",
-      "commonink decisions --status answered --since 7d",
-      "commonink decisions --commented --since today",
-      'commonink decisions --query "sync service"',
-      "commonink decisions --ids k3m9x2pq --json",
+      "commonink decision list",
+      "commonink decision list --status answered --since 7d",
+      "commonink decision list --commented --since today",
+      'commonink decision list --query "sync service"',
+      "commonink decision list --ids k3m9x2pq --json",
     ],
     readOnly: true,
     args: {

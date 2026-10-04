@@ -9,8 +9,8 @@ Run `bin/commonink help` from the Common Ink project root for the command list, 
 
 ## Changing a note
 
-1. **Find it**: `bin/commonink search <words>`. Done when you have the note's path; if nothing matches, `bin/commonink ls` and look by folder.
-2. **Read it**: `bin/commonink read <note>`. Note the `version:` line.
+1. **Find it**: `bin/commonink search <words>`. Done when you have the note's path; if nothing matches, `bin/commonink list` and look by folder.
+2. **Read it**: `bin/commonink get <note>`. Note the `version:` line.
 3. **Edit it**: `bin/commonink edit <note> --old '<exact text>' --new '<replacement>' --base <version>`. Make the smallest replacement that does the job, with enough surrounding text in `--old` to match exactly once. Done when it prints `Edited … → version …`.
    - On `not found` or a version mismatch the user has changed the note: re-read and redo step 3 against the new text.
 4. For logs and inboxes use `bin/commonink append <note> -` (stdin) instead of editing.
@@ -19,5 +19,5 @@ Run `bin/commonink help` from the Common Ink project root for the command list, 
 
 - `bin/commonink create <Folder/Title> -` with the body on stdin; start the body with `# Title`.
 - Link with `[[Note name]]`, embed with `![[Note name]]` or `![[Note name#Heading]]`. Links resolve by name, so keep titles unique.
-- Rename with `bin/commonink mv`, which rewrites every link to the note.
-- To catch up on what changed (and who changed it) since you last looked: `bin/commonink changes --since <id or ISO time>`.
+- Rename with `bin/commonink move`, which rewrites every link to the note.
+- To catch up on what changed (and who changed it) since you last looked: `bin/commonink change list --since <id or ISO time>`.

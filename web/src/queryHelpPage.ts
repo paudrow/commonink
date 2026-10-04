@@ -33,7 +33,7 @@ export class QueryHelpPage {
           el(
             "p",
             { class: "page-sub" },
-            "One way to ask for notes, everywhere: the Notes filter, smart folders, ::view lists and commonink ls --query. Click an example to try it.",
+            "One way to ask for notes, everywhere: the Notes filter, smart folders, ::view lists and commonink list --query. Click an example to try it.",
           ),
         ),
         ...groups.map((g) =>

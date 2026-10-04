@@ -14,13 +14,14 @@ const TARGET = {
 
 export const sharing = [
   command({
-    cli: "shares",
+    cli: "share list",
     mcp: "list_shares",
+    was: { cli: ["shares"] },
     route: "GET /shares",
     title: "List shares",
     summary: "Who a note or folder is shared with outside the workspace, or everything it shares",
     description: "Who a note or folder is shared with outside the workspace (people and links, with roles and expiry), or everything the workspace shares.",
-    examples: ["commonink shares 'Plan for Sam'", "commonink shares --folder Projects", "commonink shares"],
+    examples: ["commonink share list 'Plan for Sam'", "commonink share list --folder Projects", "commonink share list"],
     readOnly: true,
     needs: "sharing",
     args: TARGET,
@@ -63,7 +64,7 @@ export const sharing = [
     examples: ["commonink unshare k3m9x2p7"],
     destructive: true,
     needs: "sharing",
-    args: { id: str({ required: true, pos: 0, describe: "The share's id from list_shares (commonink shares)" }) },
+    args: { id: str({ required: true, pos: 0, describe: "The share's id from list_shares (commonink share list)" }) },
     run: async (h, a) => {
       const text = await sharingOf(h).unshare(a.id);
       return { text, data: text };

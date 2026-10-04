@@ -1,5 +1,5 @@
 // The query grammar: how the words of a note query read. One module, so the Notes filter, smart
-// folders, `::view`, `commonink ls --query`, the smart folder editor and the syntax help can't
+// folders, `::view`, `commonink list --query`, the smart folder editor and the syntax help can't
 // drift. No Node imports: the web app uses this too.
 //
 //   launch plan                 every word, each as a prefix (`plan` finds "planning")
@@ -95,7 +95,7 @@ export const SYNTAX: SyntaxEntry[] = [
 /** The syntax help as text, for the command line. */
 export function syntaxText(): string {
   const width = Math.max(...SYNTAX.map((s) => s.syntax.length));
-  const out = ["Query syntax: the Notes filter, saved views, ::view and `commonink ls --query` all read it.", ""];
+  const out = ["Query syntax: the Notes filter, saved views, ::view and `commonink list --query` all read it.", ""];
   for (const group of [...new Set(SYNTAX.map((s) => s.group))]) {
     out.push(`${group}:`);
     for (const s of SYNTAX.filter((x) => x.group === group)) out.push(`  ${s.syntax.padEnd(width)}  ${s.about}`, `  ${"".padEnd(width)}  e.g. ${s.example}`);

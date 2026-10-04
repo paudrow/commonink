@@ -9,4 +9,4 @@ Folders and files (images, PDFs and other assets) couldn't be renamed at all, an
 3. **A file.** Open **Assets**, click **soup-pot.svg**, and press **Rename** (or F2). Call it `big pot`. [[Shopping list]] still shows it. Undo puts the old name back.
 4. **A tag.** Hover #dinner under **Tags** in the sidebar and press ✎ (or press F2 on it). It renames everywhere, with Undo, as the Tags page does. On the Tags page, F2 on a tag starts its rename too.
 5. **A note in a list.** On **Notes**, move to a card with j/k and press F2: the note opens with its heading selected, ready to type its new name. F2 on a favorite does the same.
-6. **Agents and the CLI.** Ask an agent to rename the Recipes folder here (it uses the new `rename_folder` tool), or run `commonink folder rename <folder> <new-path>` with whole paths. Renaming a file is `commonink mv` / `move_note`, as for a note.
+6. **Agents and the CLI.** Ask an agent to rename the Recipes folder here (it uses the new `rename_folder` tool), or run `commonink folder rename <folder> <new-path>` with whole paths. Renaming a file is `commonink move` / `move_note`, as for a note.

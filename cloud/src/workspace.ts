@@ -10,7 +10,7 @@ import { errorResponse, handleApi, json, type ApiHost } from "../../src/core/api
 import { cleanPath, fileSecurityHeaders, kindOf, MAX_UPLOAD, mimeOf, VaultError } from "../../src/core/paths.ts";
 import type { Change } from "../../src/core/vault.ts";
 import { createMcpServer } from "../../src/core/tools.ts";
-import { COMMANDS, UsageError, type SaveTarget, type VaultBytes } from "../../src/core/commands/index.ts";
+import { commandByCli, UsageError, type SaveTarget, type VaultBytes } from "../../src/core/commands/index.ts";
 import type { RunResponse } from "../../src/core/commands/wire.ts";
 import { coreExporter, webMarkdown } from "../../src/core/export.ts";
 import { access, asRole } from "./access.ts";
@@ -568,7 +568,7 @@ export class Workspace extends DurableObject<Env> {
     if (n) {
       throw new VaultError(
         `${dest}/ is still shared outside the workspace (${n} share${n === 1 ? "" : "s"} from a folder there before), so whoever has them would see what moves there. ` +
-          `Stop them first (commonink shares --folder "${dest}", then unshare), or pick another name.`,
+          `Stop them first (commonink share list --folder "${dest}", then unshare), or pick another name.`,
         "exists",
       );
     }
@@ -663,7 +663,7 @@ export class Workspace extends DurableObject<Env> {
    * here, as for every route. Open tabs hear about its changes like any other.
    */
   async runCommand(name: string, input: Record<string, unknown>, who: { workspace: string; user: string; actor: string; role: string; timeZone: string; origin?: string }): Promise<RunResponse> {
-    const command = COMMANDS.find((c) => c.cli === name);
+    const command = commandByCli(name);
     // The Worker runs settings commands itself (cloud/src/cli.ts): they aren't in a workspace's notes.
     if (!command || command.settings) return { ok: false, error: `No command "${name}" here: see commonink help`, code: "usage" };
     const role = asRole(who.role);

@@ -79,7 +79,7 @@ A ```` ```mermaid ```` block draws a diagram, and `$…$` sets math.
 
 ### Searching and filtering
 
-The Notes filter, views, `::view` and `commonink ls --query` all read the same query language. Plain words find notes with all of them, each as the start of a word (`plan` finds "planning"). A `*` is a wildcard, in a word (`pl*ing`, `*ing`) or in a filter's value (`folder=*/Clients`, `tag=work/*`, `status=draft*`). Combine them with `AND` and `OR` (in capitals), leave things out with `-`, and group with parentheses: without them, AND goes before OR, so `a b OR c` means `(a b) OR c`. For example:
+The Notes filter, views, `::view` and `commonink list --query` all read the same query language. Plain words find notes with all of them, each as the start of a word (`plan` finds "planning"). A `*` is a wildcard, in a word (`pl*ing`, `*ing`) or in a filter's value (`folder=*/Clients`, `tag=work/*`, `status=draft*`). Combine them with `AND` and `OR` (in capitals), leave things out with `-`, and group with parentheses: without them, AND goes before OR, so `a b OR c` means `(a b) OR c`. For example:
 
 ```
 (tag=work OR tag=home) -folder=Archive "launch plan" sort=created

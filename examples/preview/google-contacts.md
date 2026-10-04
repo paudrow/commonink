@@ -7,4 +7,4 @@ title: Google Contacts
 3. Open [the stand-in's address book](/auth/google/contacts/mock), change Lena's role, and press **Sync now** on Contacts: her note follows.
 4. Add a phone to Lena here and press **Sync now**: it stays here ("edited here only"). Click **Manage**, then **Allow editing**, allow, and it goes to Google: the address book shows it.
 5. Delete someone in the address book and press **Sync now**: their note stays, without the `google:` line.
-6. Agents and the CLI: `commonink contacts google`, `commonink contacts sync`, MCP `google_contacts_status` and `sync_google_contacts`.
+6. Agents and the CLI: `commonink google-contacts check`, `commonink google-contacts sync`, MCP `check_google_contacts` and `sync_google_contacts`.

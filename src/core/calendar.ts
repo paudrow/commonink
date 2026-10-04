@@ -988,7 +988,7 @@ export function fmtEvents(events: CalendarEvent[], sources: Source[], zone: stri
 
 /** Calendars as text: name, where from, and how their last read went. */
 export function fmtSources(list: Source[]): string {
-  if (!list.length) return "No calendars. Subscribe to an ICS or webcal feed: commonink calendars add <url>";
+  if (!list.length) return "No calendars. Subscribe to an ICS or webcal feed: commonink calendar subscribe <url>";
   const ago = (t: number | null) => (t === null ? "never read" : `read ${new Date(t).toISOString().slice(0, 16).replace("T", " ")} UTC`);
   return list.map((s) => `${s.name} (${s.id}) · ${s.host ?? s.kind} · ${s.events} events · ${s.status === "error" ? `error: ${s.error}` : ago(s.syncedAt)}`).join("\n");
 }

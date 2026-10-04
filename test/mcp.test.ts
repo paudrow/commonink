@@ -5,6 +5,8 @@ import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { openVault } from "../src/core/local.ts";
+import { RENAMED_TOOLS } from "../src/core/commands/index.ts";
+import { renamedIn } from "../src/core/tools.ts";
 import { tempVault } from "./helpers.ts";
 
 const BIN = path.resolve(import.meta.dirname, "../bin/commonink");
@@ -32,14 +34,29 @@ test("the server calls itself commonink", () => {
 test("the server lists every tool", async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
-    "add_card", "add_task", "append_to_note", "archive_note", "ask_decision", "backlinks", "create_contact", "create_from_template", "create_meeting_note", "create_note",
-    "delete_folder", "delete_note", "delete_smart_folder", "diff_versions", "edit_card", "edit_note", "export_note", "get_event", "get_today",
-    "import_contacts", "import_notes", "label_version", "list_contacts", "list_decisions", "list_events", "list_folders", "list_labels", "list_notes", "list_properties",
-    "list_smart_folders", "list_tags", "list_tasks", "list_templates", "list_trash", "merge_contacts", "missing_links", "move_card", "move_note", "move_task",
-    "open_journal", "order_favorites", "read_board", "read_contact", "read_note", "recent_changes", "remove_task", "rename_folder", "rename_tag", "replace_text",
-    "restore_change", "restore_from_trash", "restore_label", "save_smart_folder", "search_notes", "set_asset_tags", "set_property_type", "show_change", "star_note", "star_smart_folder",
-    "star_tag", "unarchive_note", "unstar_note", "unstar_smart_folder", "unstar_tag", "update_contact", "update_task", "withdraw_decision", "workspace_checkup", "write_note",
+    "add_card", "add_task", "append_to_note", "archive_note", "ask_decision", "compare_versions", "create_contact", "create_meeting_note", "create_note", "delete_folder",
+    "delete_note", "delete_task", "delete_view", "edit_note", "export_note", "get_board", "get_change", "get_checkup", "get_contact", "get_event",
+    "get_note", "get_today", "import_contacts", "import_notes", "list_backlinks", "list_changes", "list_contacts", "list_decisions", "list_events", "list_folders",
+    "list_missing_links", "list_notes", "list_properties", "list_tags", "list_tasks", "list_templates", "list_trash", "list_versions", "list_views", "merge_contacts",
+    "move_card", "move_note", "move_task", "name_version", "open_journal", "order_starred", "rename_folder", "rename_tag", "replace_in_notes", "restore_change",
+    "restore_from_trash", "restore_version", "save_view", "search_notes", "set_property_type", "star_note", "star_tag", "star_view", "tag_asset", "unarchive_note",
+    "unstar_note", "unstar_tag", "unstar_view", "update_card", "update_contact", "update_task", "use_template", "withdraw_decision", "write_note",
   ]);
+});
+
+test("a tool's name from before a rename still answers a call, but only the name now is listed", async () => {
+  const listed = (await client.listTools()).tools.map((t) => t.name);
+  assert.deepEqual(Object.keys(RENAMED_TOOLS).filter((old) => listed.includes(old)), []);
+  assert.ok(Object.keys(RENAMED_TOOLS).length > 20 && listed.includes("get_note"));
+  const old = await call("read_note", { path: "Roadmap" });
+  assert.equal(old.isError, false);
+  assert.deepEqual(old, await call("get_note", { path: "Roadmap" }));
+  assert.equal((await call("list_smart_folders", {})).text, (await call("list_views", {})).text);
+  // An old name's arguments are checked like the tool's own, and the refusal names the tool as it is now.
+  assert.match((await call("read_note", { path: "Roadmap", colour: "red" })).text, /get_note has no argument `colour`\. It takes: path, offset, limit\./);
+  // Conventions written with old names get one line saying what they're called now; others get nothing.
+  assert.equal(renamedIn("Start with read_note, then label_version before a rewrite. Use search_notes."), "Tools renamed since those were written: read_note is now get_note, label_version is now name_version.");
+  assert.equal(renamedIn("Start with search_notes; check backlinks and my_read_note_helper."), "");
 });
 
 test("agents list tasks with their tokens and change one without touching the rest of its line", async () => {

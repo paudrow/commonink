@@ -1235,7 +1235,7 @@ export class Vault {
     const id = this.db.tx(() => {
       const next = insert();
       if (opts.replaces) {
-        // A sitting's change moves to a new id as it grows, so catching up by id (recent_changes) sees it again.
+        // A sitting's change moves to a new id as it grows, so catching up by id (list_changes) sees it again.
         this.db.run("UPDATE changes SET base_id = ? WHERE base_id = ?", next, opts.replaces);
         this.db.run("DELETE FROM changes WHERE id = ?", opts.replaces);
       }
@@ -1467,7 +1467,7 @@ export class Vault {
       const noteId = this.meta(this.mustResolve(target))?.id;
       row = this.db.get(`SELECT ${LABEL_COLS} FROM labels m LEFT JOIN notes n ON n.id = m.note_id WHERE m.note_id = ? AND lower(m.name) = lower(?)`, noteId, r);
     }
-    if (!row) throw new VaultError(`No label "${ref}"${target ? ` on ${target}` : ""}. List them with list_labels.`, "not_found");
+    if (!row) throw new VaultError(`No label "${ref}"${target ? ` on ${target}` : ""}. List them with list_versions.`, "not_found");
     return toLabel(row);
   }
 
@@ -1582,7 +1582,7 @@ export class Vault {
     return this.favorites(user);
   }
 
-  /** Star a smart folder (a name or ID, as list_smart_folders gives) at the end of `user`'s favorites. */
+  /** Star a smart folder (a name or ID, as list_views gives) at the end of `user`'s favorites. */
   starSmartFolder(user: string, target: string): Favorite[] {
     const f = this.findSmartFolder(user, target);
     this.addFavorite(user, smartKey(f.id), f.name);
@@ -1675,7 +1675,7 @@ export class Vault {
     const rows = this.viewNotes(user);
     const named = idOnly ? [] : rows.filter((f) => f.name.toLowerCase() === t || f.path.toLowerCase() === t).sort((a, b) => Number(a.shared) - Number(b.shared));
     const found = rows.find((f) => f.id === t) ?? named[0];
-    if (!found) throw new VaultError(`No view "${target}". Try list_smart_folders.`, "not_found");
+    if (!found) throw new VaultError(`No view "${target}". Try list_views.`, "not_found");
     return this.counted(found);
   }
 
@@ -2703,7 +2703,7 @@ export class Vault {
 
   /**
    * Where a move to `to` puts `from`: a folder, written with a trailing slash ("Projects/"), gets
-   * the note under its own name, as `mv` does; anything else is the new path. ("Projects" stays a
+   * the note under its own name, as `move` does; anything else is the new path. ("Projects" stays a
    * note named Projects, which can sit beside a folder of that name.)
    */
   private intoFolder(to: string, from: string): string {
@@ -3152,7 +3152,7 @@ function uniqueTags(tags: string[], strict: boolean): string[] {
 }
 
 /**
- * The card `ref` names on a note's boards: its line number (as read_board shows it), else its
+ * The card `ref` names on a note's boards: its line number (as get_board shows it), else its
  * whole text, else words from its text that only one card has (any case).
  */
 function findCard(boards: Board[], ref: string, path: string) {
@@ -3162,7 +3162,7 @@ function findCard(boards: Board[], ref: string, path: string) {
   const exact = all.filter((x) => (line ? x.card.from + 1 === Number(line) : x.card.text.toLowerCase() === want));
   const hits = exact.length ? exact : line ? [] : all.filter((x) => x.card.text.toLowerCase().includes(want));
   if (hits.length === 1) return hits[0];
-  if (hits.length) throw new VaultError(`"${ref}" matches ${hits.length} cards in ${path}; name the card by its line number from read_board`);
+  if (hits.length) throw new VaultError(`"${ref}" matches ${hits.length} cards in ${path}; name the card by its line number from get_board`);
   throw new VaultError(`No card in ${path} matches "${ref}"`, "not_found");
 }
 

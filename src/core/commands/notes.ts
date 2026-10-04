@@ -59,8 +59,9 @@ export const notes = [
     },
   }),
   command({
-    cli: "read",
-    mcp: "read_note",
+    cli: "get",
+    mcp: "get_note",
+    was: { cli: ["read"], mcp: ["read_note"] },
     route: "GET /note",
     title: "Read note",
     summary: "A note with line numbers, and its version for --base",
@@ -68,7 +69,7 @@ export const notes = [
       "Read a note with line numbers. `path` may be a vault path, a path without extension, or a [[wikilink]] name. " +
       "A block link's target (Roadmap#^k3x9q2, or Roadmap#^a..^b for a range of blocks) reads just those lines. " +
       "The returned version can be passed to edit_note as base_version.",
-    examples: ["commonink read Roadmap", "commonink read Projects/Roadmap.md --offset 10 --limit 20", "commonink read 'Roadmap#^k3x9q2'"],
+    examples: ["commonink get Roadmap", "commonink get Projects/Roadmap.md --offset 10 --limit 20", "commonink get 'Roadmap#^k3x9q2'"],
     readOnly: true,
     args: {
       path: str({ required: true, pos: 0, label: "note", describe: NOTE }),
@@ -88,8 +89,9 @@ export const notes = [
     },
   }),
   command({
-    cli: "ls",
+    cli: "list",
     mcp: "list_notes",
+    was: { cli: ["ls"] },
     route: "GET /notes",
     title: "List notes",
     summary: "Notes in the vault or a folder, with a tag, the most recent, starred, or in a saved view",
@@ -97,7 +99,7 @@ export const notes = [
       "List notes in the vault or a folder, the notes and assets with a tag, the most recently modified notes, or the user's " +
       "starred notes (favorites, in their order). Archived notes (in Archive/, or the workspace's own archive folder like " +
       '"4. Archive/") are excluded unless requested.',
-    examples: ["commonink ls Projects", "commonink ls --tag work", "commonink ls --recent 5", "commonink ls --starred", `commonink ls --query 'q="launch -draft" modified>-7d sort=created'`],
+    examples: ["commonink list Projects", "commonink list --tag work", "commonink list --recent 5", "commonink list --starred", `commonink list --query 'q="launch -draft" modified>-7d sort=created'`],
     readOnly: true,
     args: {
       folder: str({ pos: 0 }),
@@ -132,15 +134,16 @@ export const notes = [
     },
   }),
   command({
-    cli: "backlinks",
-    mcp: "backlinks",
+    cli: "backlink list",
+    mcp: "list_backlinks",
+    was: { cli: ["backlinks"], mcp: ["backlinks"] },
     route: "GET /backlinks",
     title: "Backlinks",
     summary: "Notes that link to or embed a note, with the linking line",
     description:
       "List notes that link to or embed the given note, with the linking line. Links from archived notes are left out " +
       "unless include_archived is set (or the note itself is archived).",
-    examples: ["commonink backlinks Roadmap", "commonink backlinks Roadmap --all"],
+    examples: ["commonink backlink list Roadmap", "commonink backlink list Roadmap --all"],
     readOnly: true,
     args: {
       path: str({ required: true, pos: 0, label: "note", describe: NOTE }),
@@ -155,15 +158,16 @@ export const notes = [
     },
   }),
   command({
-    cli: "missing-links",
-    mcp: "missing_links",
+    cli: "missing-link list",
+    mcp: "list_missing_links",
+    was: { cli: ["missing-links"], mcp: ["missing_links"] },
     route: "GET /links/missing",
     title: "Missing links",
     summary: "Links to notes that aren't here (never written, deleted, or left out of an import), and where each is",
     description:
       "Links to notes or files that aren't in the vault, grouped by what they point to, the most-linked first, with each linking line. " +
       "After an import, these are the notes that didn't come over: create them, fix the link with edit_note, or leave them as a to-do.",
-    examples: ["commonink missing-links", "commonink missing-links Projects --json"],
+    examples: ["commonink missing-link list", "commonink missing-link list Projects --json"],
     readOnly: true,
     args: {
       folder: str({ pos: 0, describe: "Only links in notes in this folder" }),
@@ -175,8 +179,9 @@ export const notes = [
     },
   }),
   command({
-    cli: "checkup",
-    mcp: "workspace_checkup",
+    cli: "checkup get",
+    mcp: "get_checkup",
+    was: { cli: ["checkup"], mcp: ["workspace_checkup"] },
     route: "GET /checkup",
     title: "Check up on this workspace",
     summary: "What may need tending: dead links, duplicate contacts, empty notes, notes nothing links to, long-overdue tasks",
@@ -185,7 +190,7 @@ export const notes = [
       "notes with nothing but a title, top-level notes with no links to them, no tag and no star (maybe ready to archive), " +
       `and open tasks due more than ${STALE_DAYS} days ago that don't repeat. Each list holds only what's there. Archived notes are left out. ` +
       "Suggest fixes to the person rather than making them all yourself: an unlinked note may be just fine.",
-    examples: ["commonink checkup", "commonink checkup --json"],
+    examples: ["commonink checkup get", "commonink checkup get --json"],
     readOnly: true,
     args: {},
     run: ({ vault, user }) => {
@@ -263,14 +268,14 @@ export const notes = [
     summary: "Replace an exact string in a note (once, or every time with --all)",
     description:
       "Replace an exact string in a note. old_string must match exactly once (include surrounding lines to disambiguate) " +
-      "unless replace_all is set. Pass base_version from read_note to guard against concurrent edits.",
+      "unless replace_all is set. Pass base_version from get_note to guard against concurrent edits.",
     examples: ['commonink edit Roadmap --old "Ship it" --new "Ship it Friday" --base 1a2b3c4d5e6f', "commonink edit Roadmap --old draft --new - < new.txt"],
     args: {
       path: str({ required: true, pos: 0, label: "note", describe: NOTE }),
       old_string: str({ required: true, flag: "old", stdin: true, describe: "The exact text to replace" }),
       new_string: str({ required: true, flag: "new", stdin: true, describe: "What replaces it" }),
       replace_all: bool({ flag: "all", describe: "Replace every match" }),
-      base_version: str({ flag: "base", describe: "The version read_note gave: refuse if the note changed since" }),
+      base_version: str({ flag: "base", describe: "The version get_note gave: refuse if the note changed since" }),
     },
     run: ({ vault, source }, a) => {
       const r = vault.edit(a.path, { oldString: a.old_string, newString: a.new_string, replaceAll: a.replace_all, baseVersion: a.base_version }, source);
@@ -279,7 +284,8 @@ export const notes = [
   }),
   command({
     cli: "replace",
-    mcp: "replace_text",
+    mcp: "replace_in_notes",
+    was: { mcp: ["replace_text"] },
     route: "POST /replace",
     title: "Replace across notes",
     summary: "Find and replace plain text in every note (or a folder's); --dry-run shows what would change",
@@ -319,7 +325,7 @@ export const notes = [
     args: {
       path: str({ required: true, pos: 0, label: "note", describe: NOTE }),
       text: str({ required: true, pos: "rest", stdin: true }),
-      base_version: str({ flag: "base", describe: "The version read_note gave: refuse if the note changed since" }),
+      base_version: str({ flag: "base", describe: "The version get_note gave: refuse if the note changed since" }),
     },
     run: ({ vault, source }, a) => {
       checkBase({ vault }, a.path, a.base_version);
@@ -334,13 +340,13 @@ export const notes = [
     title: "Write note",
     summary: "Replace a note's whole text (from stdin with -); --base refuses if it changed since you read it",
     description:
-      "Replace a note's whole text, or create it. Pass base_version from read_note so a note someone changed since isn't overwritten. " +
+      "Replace a note's whole text, or create it. Pass base_version from get_note so a note someone changed since isn't overwritten. " +
       "Prefer edit_note for a small change: it can't clobber anything outside the text it replaces.",
-    examples: ["commonink read Roadmap --json | jq -r .content | sed s/draft/final/ | commonink write Roadmap - --base 1a2b3c4d5e6f"],
+    examples: ["commonink get Roadmap --json | jq -r .content | sed s/draft/final/ | commonink write Roadmap - --base 1a2b3c4d5e6f"],
     args: {
       path: str({ required: true, pos: 0, label: "note", describe: NOTE }),
       content: str({ required: true, pos: "rest", stdin: true }),
-      base_version: str({ flag: "base", describe: "The version read_note gave: refuse if the note changed since" }),
+      base_version: str({ flag: "base", describe: "The version get_note gave: refuse if the note changed since" }),
     },
     run: ({ vault, source }, a) => {
       if (!a.content.trim()) throw new VaultError("That would leave the note empty. To remove it, use delete.");
@@ -350,13 +356,14 @@ export const notes = [
     },
   }),
   command({
-    cli: "mv",
+    cli: "move",
     mcp: "move_note",
+    was: { cli: ["mv"] },
     route: "POST /move",
     title: "Move / rename note",
     summary: "Move or rename a note, rewriting every link to it",
     description: "Move or rename a note and rewrite every link and embed that points to it.",
-    examples: ["commonink mv Roadmap Projects/Roadmap-2027"],
+    examples: ["commonink move Roadmap Projects/Roadmap-2027"],
     args: {
       from: str({ required: true, pos: 0, label: "note", describe: NOTE }),
       to: str({ required: true, pos: 1, label: "new-path" }),

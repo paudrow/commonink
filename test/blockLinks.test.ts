@@ -175,7 +175,7 @@ test("giving a selection's first and last blocks IDs makes a range that reads ba
 
 test("read_note reads just a block, or a range of blocks, from a block link's target", () => {
   const { vault } = openTempVault({ "Plan.md": "# Plan\n\nThe intro. ^intro\n\nMiddle.\n\n- last ^end\n- after\n" });
-  const read = COMMANDS.find((c) => c.mcp === "read_note")!;
+  const read = COMMANDS.find((c) => c.mcp === "get_note")!;
   const run = (args: Record<string, unknown>) => (read.run as any)({ vault, user: "me" }, args).text as string;
   assert.match(run({ path: "Plan#^intro" }), /\(lines 3-3 of 9\)\n\n3│The intro\. \^intro$/);
   assert.match(run({ path: "Plan#^intro..^end" }), /\(lines 3-7 of 9\)\n\n3│The intro\. \^intro\n4│\n5│Middle\.\n6│\n7│- last \^end$/);

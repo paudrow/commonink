@@ -8,7 +8,7 @@ export const OWN_COMMANDS: Array<{ usage: string; summary: string }> = [
   { usage: "logout", summary: "sign out here, and end the sign-in on the server" },
   { usage: "workspaces [use <name>]", summary: "your hosted workspaces and your role in each; use picks the default" },
   { usage: "help [command]", summary: "this list, or one command's options and examples" },
-  { usage: "help query", summary: "the query syntax: AND, OR, ( ), -, tag=, folder=, dates, sort= (for ls --query and saved views)" },
+  { usage: "help query", summary: "the query syntax: AND, OR, ( ), -, tag=, folder=, dates, sort= (for list --query and saved views)" },
   { usage: "completion bash|zsh|fish", summary: "a shell completion script: commonink completion zsh >> ~/.zshrc" },
   { usage: "mcp", summary: "run the stdio MCP server (the same commands, as tools)" },
   { usage: "version", summary: "the version of this CLI" },
@@ -46,6 +46,7 @@ export function overview(): string {
   for (const o of OWN_COMMANDS) lines.push(`  ${pad(o.usage, 18)} ${o.summary}`);
   lines.push(
     "",
+    "Commands are <thing> <verb>; a verb alone is a note's (edit is note edit). Names from before (read, ls, tasks, label-rm) still work.",
     "<note> can be a path, a path without .md, a [[wikilink]] name, a note ID or a note URL.",
     `Also: \`commonink starred\` lists your favorites, \`commonink task <note> <line> …\` is \`commonink task update\`.`,
     "Content (create, append, write, edit's --old and --new) can come from stdin: pass - or pipe it in.",
@@ -79,6 +80,7 @@ export function commandHelp(c: Command): string {
     return [`  ${pad(flag, 24)} ${[a.describe, ...extra].filter(Boolean).join("; ")}`];
   });
   const tool = toolName(c);
+  const was = [...(c.was?.cli ?? []).map((w) => `commonink ${w}`), ...(c.was?.mcp ?? []).map((t) => `the MCP tool ${t}`)];
   const aliases = Object.entries(ALIASES).filter(([, x]) => x.to === c.cli).map(([w, x]) => `commonink ${w} is commonink ${c.cli} with ${Object.keys(x.set).map((k) => `--${k}`).join(" ")}.`);
   const fallback = Object.entries(GROUP_DEFAULTS).filter(([, to]) => to === c.cli).map(([w]) => `Also: commonink ${w} ${usage(c).slice(c.cli.length + 1)}`);
   return [
@@ -91,6 +93,7 @@ export function commandHelp(c: Command): string {
     ...Object.entries(GLOBAL_FLAGS).filter(([k]) => k !== "as" && k !== "help").map(([k, f]) => `  ${pad(`--${k}${f.value ? " <name>" : ""}`, 24)} ${f.describe}`),
     ...(c.examples?.length ? ["", "Examples:", ...c.examples.map((e) => `  ${e}`)] : []),
     ...(aliases.length || fallback.length ? ["", ...aliases, ...fallback] : []),
+    ...(was.length ? ["", `Before: ${was.join(", ")}. ${was.length > 1 ? "They still work" : "It still works"}.`] : []),
     "",
     tool ? `The MCP tool ${tool} does the same.` : `No MCP tool: ${(c.mcp as { none: string }).none}.`,
   ].join("\n");

@@ -9,8 +9,9 @@ import { command, list, localFiles, num, str } from "./types.ts";
 
 export const history = [
   command({
-    cli: "changes",
-    mcp: "recent_changes",
+    cli: "change list",
+    mcp: "list_changes",
+    was: { cli: ["changes"], mcp: ["recent_changes"] },
     route: "GET /changes",
     title: "Recent changes",
     summary: "What changed and who changed it; --by people|ai|<agent>, --path for one note",
@@ -19,7 +20,7 @@ export const history = [
       "`since` is an ISO timestamp or a change id from a previous call — use it to catch up. " +
       "`path` (a note's name, path, ID or URL) narrows it to one note, including its history under earlier names. " +
       "`by` narrows it to people's own changes (`people`), any agent's (`ai`), or one agent's (its name).",
-    examples: ["commonink changes --since 120", "commonink changes --path Roadmap --by ai", "commonink changes --by Claude --json"],
+    examples: ["commonink change list --since 120", "commonink change list --path Roadmap --by ai", "commonink change list --by Claude --json"],
     readOnly: true,
     args: {
       since: str({ describe: "An ISO time, or a change id from before: only what came after" }),
@@ -35,16 +36,17 @@ export const history = [
     },
   }),
   command({
-    cli: "diff",
-    mcp: "show_change",
+    cli: "change get",
+    mcp: "get_change",
+    was: { cli: ["diff"], mcp: ["show_change"] },
     route: "GET /diff",
     title: "Show change",
     summary: "What a change (or a run of them) did to its note, as a unified diff",
     description: "What a change did to its note, as a unified diff of the text before and after it. `to` makes it a run of changes, from `id` to `to`.",
-    examples: ["commonink diff 42", "commonink diff 40 --to 44"],
+    examples: ["commonink change get 42", "commonink change get 40 --to 44"],
     readOnly: true,
     args: {
-      id: num({ required: true, pos: 0, min: 1, label: "change-id", describe: "A change id from recent_changes" }),
+      id: num({ required: true, pos: 0, min: 1, label: "change-id", describe: "A change id from list_changes" }),
       to: num({ min: 1, describe: "The last change of a run (same note)" }),
     },
     run: ({ vault }, a) => {
@@ -56,17 +58,18 @@ export const history = [
     },
   }),
   command({
-    cli: "restore",
+    cli: "change restore",
     mcp: "restore_change",
+    was: { cli: ["restore"] },
     route: "POST /restore",
     title: "Restore change",
     summary: "Put a note back the way it was before a change (undoable in turn)",
     description:
-      "Put a note back the way it was before a change (from recent_changes); a deleted note comes back from Trash. The restore is a change of its own, so it can be undone the same way. " +
+      "Put a note back the way it was before a change (from list_changes); a deleted note comes back from Trash. The restore is a change of its own, so it can be undone the same way. " +
       "base_version refuses it if the note changed since it was read.",
-    examples: ["commonink restore 42", "commonink restore 42 --base 1a2b3c4d5e6f"],
+    examples: ["commonink change restore 42", "commonink change restore 42 --base 1a2b3c4d5e6f"],
     args: {
-      id: num({ required: true, pos: 0, min: 1, label: "change-id", describe: "A change id from recent_changes" }),
+      id: num({ required: true, pos: 0, min: 1, label: "change-id", describe: "A change id from list_changes" }),
       base_version: str({ flag: "base", describe: "The note's version as read: refuse if it changed since" }),
     },
     run: ({ vault, source }, a) => {
@@ -79,13 +82,14 @@ export const history = [
 // Deleting for good is only in the app: a CLI call can't tell a person from an agent (see #74).
 export const trash = [
   command({
-    cli: "trash",
+    cli: "trash list",
     mcp: "list_trash",
+    was: { cli: ["trash"] },
     route: "GET /trash",
     title: "List Trash",
     summary: `What's in Trash, newest first, with ids to restore (kept ${TRASH_DAYS} days)`,
     description: `What's in Trash, newest first: each item's id, where it was, when and by whom it was deleted, and when it's deleted for good (after ${TRASH_DAYS} days).`,
-    examples: ["commonink trash", "commonink trash --json"],
+    examples: ["commonink trash list", "commonink trash list --json"],
     readOnly: true,
     args: {},
     run: ({ vault }) => {
@@ -116,12 +120,13 @@ const BINARY = "MCP tools carry text; files' bytes go through the CLI or the app
 
 export const files = [
   command({
-    cli: "upload",
+    cli: "asset upload",
     mcp: { none: BINARY },
+    was: { cli: ["upload"] },
     route: "POST /upload",
     title: "Upload files",
     summary: "Add files to the vault (assets/ by default), each under a free name",
-    examples: ["commonink upload logo.png", "commonink upload *.pdf --folder Projects/Launch"],
+    examples: ["commonink asset upload logo.png", "commonink asset upload *.pdf --folder Projects/Launch"],
     args: {
       files: localFiles({ required: true, pos: "rest", label: "file", describe: "Files on this computer" }),
       folder: str({ describe: "Where in the vault (default assets)" }),
@@ -137,12 +142,13 @@ export const files = [
     },
   }),
   command({
-    cli: "download",
+    cli: "asset download",
     mcp: { none: BINARY },
+    was: { cli: ["download"] },
     route: "GET /files/*",
     title: "Download file",
     summary: "Copy a file from the vault to this computer (--out -: to stdout)",
-    examples: ["commonink download assets/logo.png", "commonink download assets/logo.png --out ~/Desktop/logo.png", "commonink download report.pdf --out - | pdftotext - -"],
+    examples: ["commonink asset download assets/logo.png", "commonink asset download assets/logo.png --out ~/Desktop/logo.png", "commonink asset download report.pdf --out - | pdftotext - -"],
     readOnly: true,
     args: {
       path: str({ required: true, pos: 0, label: "file", describe: "A file in the vault: an asset, or a note's markdown" }),
@@ -186,8 +192,9 @@ export const files = [
     },
   }),
   command({
-    cli: "save-to-drive",
+    cli: "drive save",
     mcp: "save_to_drive",
+    was: { cli: ["save-to-drive"] },
     // It reads the note, as export does; what it writes is in the person's own Drive, not the workspace.
     route: "GET /export",
     title: "Save a note to Google Drive",
@@ -196,7 +203,7 @@ export const files = [
       "Save a note to the Google Drive of the person you work for, in a folder named Common Ink: `doc` (the default) a Google Doc they can edit, " +
       "`pdf` a PDF, `md` the markdown file. Links to other notes become links to their web address. Hosted workspaces only, and only once the " +
       "person has connected Google Drive in the app (Share, then Save to Google Drive). Answers with the file's Drive link.",
-    examples: ["commonink save-to-drive Welcome", "commonink export Welcome --to drive --format pdf"],
+    examples: ["commonink drive save Welcome", "commonink export Welcome --to drive --format pdf"],
     needs: "drive",
     openWorld: true,
     args: {

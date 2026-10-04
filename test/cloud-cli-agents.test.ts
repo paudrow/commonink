@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { startCloud, team, type Cloud } from "./cloud.ts";
 import { cli, login } from "./cli-login.ts";
+import { commandByCli } from "../src/core/commands/index.ts";
 
 let cloud: Cloud;
 let people: Awaited<ReturnType<typeof team>>;
@@ -64,11 +65,12 @@ test("an MCP client on the CLI route gets MCP's commands, with what their tools 
     ] as const) {
       const { status, body } = await run(token, command, input);
       assert.equal(status, 403, command);
-      assert.match(body.error!, new RegExp(`^${command} isn't open to agents: `));
+      // An older CLI sends the name from before the rename; the answer names the command as it is now.
+      assert.match(body.error!, new RegExp(`^${commandByCli(command)!.cli} isn't open to agents: `));
     }
     // replace_text runs only with dry_run said outright.
     const blind = await run(token, "replace", { find: "Acme", replace: "Evil", folder });
-    assert.deepEqual([blind.status, blind.body.code, blind.body.error], [400, "usage", "replace needs dry_run from an agent, as the replace_text tool does"]);
+    assert.deepEqual([blind.status, blind.body.code, blind.body.error], [400, "usage", "replace needs dry_run from an agent, as the replace_in_notes tool does"]);
     // null says nothing either: it would write, as leaving it out does.
     assert.equal((await run(token, "replace", { find: "Acme", replace: "Evil", folder, dry_run: null })).status, 400);
     assert.equal((await run(token, "replace", { find: "Acme", replace: "Evil", folder, dry_run: true })).status, 200);

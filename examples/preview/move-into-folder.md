@@ -6,4 +6,4 @@ An agent or the CLI moving a note to a folder path with a trailing slash, like `
 
 1. With an agent connected to this workspace, ask it to move [[Move me into a folder]] to `Try/Moving a note to a folder path keeps its name/Filed/`, with the slash at the end.
 2. The note is now in a Filed folder, still named "Move me into a folder", and [[Links to the moved note]] still opens it.
-3. Locally: `commonink mv "Move me into a folder" Filed/` does the same.
+3. Locally: `commonink move "Move me into a folder" Filed/` does the same.
