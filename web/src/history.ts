@@ -7,6 +7,7 @@
 // place, with a way back to the list, as Contacts goes from its list to a person.
 import { api, fileUrl, type Change, type DiffFile, type DiffRun, type Label } from "./api.ts";
 import { $, authorAvatar, authorName, displayName, el, icon, isSelf } from "./dom.ts";
+import { pageHeader } from "./pageHeader.ts";
 import { renderDiff } from "./diff.ts";
 import { diffLines } from "diff";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
@@ -86,7 +87,7 @@ export class History {
       el(
         "aside",
         { class: "hist-side" },
-        el("div", { class: "hist-head" }, el("h1", {}, "History"), el("p", {}, `Click to see a change · ${formatKeys("Mod-click")} to add or skip · shift-click for a range`)),
+        pageHeader({ title: "History", sub: `Click to see a change · ${formatKeys("Mod-click")} to add or skip · shift-click for a range`, class: "hist-head" }),
         this.filtersEl,
         this.listEl,
         this.moreEl,

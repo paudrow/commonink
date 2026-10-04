@@ -2,6 +2,7 @@
 // own page (/shared/<workspace>/<note>), outside this app's sidebar.
 import type { SharedNote } from "./api.ts";
 import { el, icon } from "./dom.ts";
+import { pageHeader } from "./pageHeader.ts";
 import { emptyState } from "./emptyState.ts";
 
 export type SharedGroup = { workspace: { id: string; name: string }; notes: SharedNote[] };
@@ -12,7 +13,7 @@ export function sharedPage(): { page: HTMLElement; body: HTMLElement } {
   const page = el(
     "div",
     { class: "page" },
-    el("header", { class: "page-head" }, el("h1", {}, "Shared with me"), el("p", { class: "page-sub" }, "Notes people outside your workspaces have shared with you. Each opens on its own page.")),
+    pageHeader({ title: "Shared with me", sub: "Notes people outside your workspaces have shared with you. Each opens on its own page." }),
     body,
   );
   return { page, body };

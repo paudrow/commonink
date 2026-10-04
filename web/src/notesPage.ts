@@ -7,6 +7,7 @@ import { api, isArchived, type FeedItem, type FeedPage, type TagCount, type Task
 import { filterTrash, trashFolders, trashTags, type Trash } from "./trash.ts";
 import { fmtBytes } from "./assetKinds.ts";
 import { $, authorAvatar, authorName, displayName, el, icon, markTerms, NOTE_DRAG, timeAgo } from "./dom.ts";
+import { pageHeader } from "./pageHeader.ts";
 import { renderMarkdown, sandboxFrame } from "./render.ts";
 import { hydrateCode } from "./code.ts";
 import { hydrateMath } from "./math.ts";
@@ -102,6 +103,7 @@ export class NotesPage {
   /** The search and filters, which stay at the top; on a phone they slide away as the list scrolls down. */
   private head: HTMLElement;
   private heading = el("h1", {}, "Notes");
+  private newBtn: HTMLButtonElement;
   private bulk: HTMLElement;
   private more: HTMLElement;
   private search: HTMLElement;
@@ -179,7 +181,8 @@ export class NotesPage {
     // The heading scrolls away; the search and filters stay at the top, and the list scrolls clear of them.
     const head = (this.head = el("header", { class: "feed-head" }, this.search, this.problem, this.filters, this.about));
     head.addEventListener("focusin", () => head.classList.remove("is-tucked")); // Tab reaches it wherever the list is
-    this.root.append(el("div", { class: "feed" }, this.heading, head, this.bulk, this.list, this.elsewhere, this.more, this.keys));
+    this.newBtn = el("button", { type: "button", class: "qw-btn primary", title: "New note (n)", onclick: () => this.hooks.newNote(this.folder ?? "") }, icon("plus", 14), "New note");
+    this.root.append(el("div", { class: "feed" }, pageHeader({ title: this.heading, actions: [this.newBtn] }), head, this.bulk, this.list, this.elsewhere, this.more, this.keys));
     this.input.addEventListener("input", () => {
       clearTimeout(this.timer);
       this.timer = window.setTimeout(() => this.reload(), 90);
@@ -418,6 +421,7 @@ export class NotesPage {
     this.renderSortAndKeys();
     this.saveBtn.hidden = !formatQuery(this.query);
     this.emptyBtn.hidden = true;
+    this.newBtn.hidden = this.tab !== "notes" || this.hooks.readOnly();
     this.hooks.filtersChanged();
     const q = this.input.value.trim();
     const top = this.root.scrollTop;
@@ -469,6 +473,7 @@ export class NotesPage {
     this.renderSortAndKeys();
     this.saveBtn.hidden = true;
     this.emptyBtn.hidden = !trash.canPurge || !items.length;
+    this.newBtn.hidden = true;
     this.hooks.filtersChanged();
     const q = this.input.value.trim();
     const top = this.root.scrollTop;

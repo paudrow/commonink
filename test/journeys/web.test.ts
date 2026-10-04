@@ -76,7 +76,7 @@ journey("Capture a thought and find it again", ({ given, when, then }) => {
     await page.locator(".feed-card", { hasText: "Garden" }).waitFor();
   });
   when("I make a new note, title it and link it to [[Tips]]", async () => {
-    await page.getByRole("button", { name: "New note", exact: true }).click();
+    await page.locator("#notes-view .page-head").getByRole("button", { name: "New note", exact: true }).click();
     // A new note opens with its cursor in the title, ready to type.
     await page.locator('#vim-mode[data-mode="insert"]').waitFor();
     await typeInNote(page, ["Trip plan", "{Enter}", "{Enter}", "Pack light, see [[Tips", "{pick}", " first.", "{Enter}", "{Enter}", "Ask about the flights."]);
@@ -257,10 +257,10 @@ journey("Delete a note by mistake and get it back", ({ given, when, then, and })
 journey("Look around on a phone", ({ given, when, then, and }) => {
   let page: Page;
   const PAGES = { Notes: "/notes", Tasks: "/tasks", Tags: "/tags", Contacts: "/contacts", Assets: "/assets", History: "/history", Calendar: "/calendar", "Shared with me": "/shared" };
-  /** How far the page's heading is from the left edge, and its heading, search boxes and dropdowns from the right, in pixels. */
+  /** How far the page's heading is from the left edge, and its header, search boxes and dropdowns from the right, in pixels. */
   const margins = (view: string) =>
     page.evaluate((view) => {
-      const shown = [...document.querySelectorAll<HTMLElement>(`${view} :is(h1, input, select)`)].filter((e) => e.checkVisibility()).map((e) => e.getBoundingClientRect());
+      const shown = [...document.querySelectorAll<HTMLElement>(`${view} :is(.page-head-row, input, select)`)].filter((e) => e.checkVisibility()).map((e) => e.getBoundingClientRect());
       const h1 = document.querySelector(`${view} h1`)!.getBoundingClientRect();
       return { left: Math.round(h1.left), right: Math.round(innerWidth - Math.max(...shown.map((r) => r.right))), sideways: document.documentElement.scrollWidth - innerWidth };
     }, view);
