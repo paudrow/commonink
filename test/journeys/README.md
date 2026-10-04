@@ -18,6 +18,9 @@ The few things everyone does in Common Ink, tested end to end the way they're do
 | | Check off a task and move it | a phone's browser |
 | | Use the kanban by touch | a phone's browser |
 | | Open a contact | a phone's browser |
+| | Filter and sort Notes | a phone's browser |
+| | Close a tab | a phone's browser |
+| | See that an agent is at work | a phone's browser, CLI |
 | `agents.test.ts` | An agent keeps meeting notes from the shell | CLI, the files |
 | | An agent over MCP and one in the shell work from the same notes | MCP, CLI |
 | `hosted.test.ts` | Bring a teammate and their agent into a shared workspace | hosted API, CLI login |
