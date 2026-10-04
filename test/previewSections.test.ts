@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fillDates, orderSections, readSections, sectionsMarkdown } from "../scripts/preview-sections.ts";
+import { fillDates, orderSections, readSections, sectionsMarkdown, splitTryThisPr } from "../scripts/preview-sections.ts";
 
 test("demo dates are filled in as of the day the Preview is seeded", () => {
   assert.equal(
@@ -40,4 +40,13 @@ test("a demo note's .versions folder gives its labels, oldest first, and isn't a
   fs.writeFileSync(path.join(dir, "labels/Proposal.versions/1 v1.md"), "# Proposal\n\nFirst.\n");
   const [section] = readSections(dir);
   assert.deepEqual(section.files.map((f) => [f.to, f.versions?.map((v) => v.name)]), [["Try/Labels/Proposal.md", ["v1", "Sent to Alex"]]]);
+});
+
+test("a PR description's Try this PR section is lifted out for the top of the Preview's note", () => {
+  const body = ["Intro.", "", "## Try this PR", "", "1. Open Notes.", "", "```md", "# not a heading", "```", "", "### Before and after", "", "![after](https://x/a.png)", "", "## Tests", "", "npm test"].join("\n");
+  const { tryIt, rest } = splitTryThisPr(body);
+  assert.equal(tryIt, ["1. Open Notes.", "", "```md", "# not a heading", "```", "", "### Before and after", "", "![after](https://x/a.png)"].join("\n"));
+  assert.equal(rest, ["Intro.", "", "## Tests", "", "npm test"].join("\n"));
+  assert.deepEqual(splitTryThisPr("No section here."), { tryIt: "", rest: "No section here." });
+  assert.equal(splitTryThisPr("# Try this PR (#12)\nSteps").tryIt, "Steps");
 });
