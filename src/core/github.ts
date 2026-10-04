@@ -4,6 +4,8 @@
 // before they go into the path), and a redirect is only followed when it stays there, as GitHub does
 // for a moved repo or a transferred issue. Without a token GitHub allows 60 requests an hour per
 // address, so cards are cached for a few minutes; GITHUB_TOKEN raises that and reaches private repos.
+// Online, someone who connected their own GitHub account (cloud/src/github.ts) is answered with their
+// token, and what it reads is kept apart from everyone else's cards (`as`).
 import { readCapped } from "./unfurl.ts";
 
 export interface GithubRef {
@@ -60,15 +62,26 @@ export function githubRef(url: string): GithubRef | null {
 
 const cache = new Map<string, { at: number; ttl: number; value: Promise<GithubCard | null> }>();
 
+export interface GithubCardOptions {
+  token?: string;
+  api?: string;
+  timeout?: number;
+  /** Whose token it is, when it's one person's: their cards are kept for them alone, never served to anyone else. */
+  as?: string;
+  /** Called when GitHub says the token is no good (a 401): it was revoked or has run out. */
+  rejected?: () => Promise<void> | void;
+}
+
 /** The card for a github.com issue or PR link, or null when it isn't one or GitHub won't say. */
-export function githubCard(url: string, opts: { token?: string; api?: string; timeout?: number } = {}): Promise<GithubCard | null> {
+export function githubCard(url: string, opts: GithubCardOptions = {}): Promise<GithubCard | null> {
   const ref = githubRef(url);
   if (!ref) return Promise.resolve(null);
-  const key = `${ref.owner}/${ref.repo}#${ref.number}`.toLowerCase();
+  // A space can't be in an owner's name, so one person's cards can't be mistaken for the shared ones.
+  const key = `${opts.as ?? ""} ${ref.owner}/${ref.repo}#${ref.number}`.toLowerCase();
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < hit.ttl) return hit.value;
   const entry = { at: Date.now(), ttl: TTL, value: Promise.resolve<GithubCard | null>(null) };
-  entry.value = fetchCard(ref, opts.api ?? GITHUB_API, opts.token, opts.timeout ?? TIMEOUT)
+  entry.value = fetchCard(ref, opts.api ?? GITHUB_API, opts.token, opts.timeout ?? TIMEOUT, opts.rejected)
     .catch(() => null)
     .then((card) => {
       if (!card) entry.ttl = FAIL_TTL;
@@ -80,7 +93,7 @@ export function githubCard(url: string, opts: { token?: string; api?: string; ti
   return entry.value;
 }
 
-async function fetchCard(ref: GithubRef, api: string, token: string | undefined, timeout: number): Promise<GithubCard | null> {
+async function fetchCard(ref: GithubRef, api: string, token: string | undefined, timeout: number, rejected?: () => Promise<void> | void): Promise<GithubCard | null> {
   const origin = new URL(api).origin;
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
@@ -103,6 +116,7 @@ async function fetchCard(ref: GithubRef, api: string, token: string | undefined,
     }
     if (!res.ok || !res.body) {
       await res.body?.cancel();
+      if (res.status === 401 && token) await rejected?.();
       return null;
     }
     return toCard(JSON.parse(await readCapped(res, MAX_BYTES)), ref);

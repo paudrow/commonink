@@ -188,7 +188,7 @@ function back(url: URL, p: Pick<Pending, "workspace" | "for" | "drive">, outcome
 /** The scopes a connection asks for: drive.file for Drive, else its product's (reading, or also writing). */
 const asking = (p: Pick<Pending, "for" | "drive" | "write">) => (p.drive ? [DRIVE_SCOPE] : scopesFor(p.for ?? "calendar", p.write));
 
-const found = (to: string, cookies: string[] = []) => {
+export const found = (to: string, cookies: string[] = []) => {
   const headers = new Headers({ Location: to, "Cache-Control": "no-store" });
   for (const c of cookies) headers.append("Set-Cookie", c);
   return new Response(null, { status: 302, headers });

@@ -154,6 +154,7 @@ test("the dialog: labelled controls, search as you type, changes that apply at o
 test("online, Integrations shows the Google account with what Calendar and Contacts may do, and its buttons", async () => {
   const log: string[] = [];
   let connection: { account: string; canWrite: boolean; contacts: "none" | "read" | "write" } | null = null;
+  let github: { mode: string; connection: { account: string } | null } | null = { mode: "real", connection: null };
   const { app } = fakeApp({
     localVault: null,
     integrations: {
@@ -161,12 +162,13 @@ test("online, Integrations shows the Google account with what Calendar and Conta
       connectCalendar: () => log.push("calendar"),
       connectContacts: (write) => log.push(`contacts:${write}`),
       disconnect: async () => void log.push("disconnect"),
+      github: { status: async () => github, connect: () => log.push("github"), disconnect: async () => void log.push("github:disconnect") },
     },
   });
   assert.deepEqual(titles("google contacts", app), ["Google"]);
   assert.deepEqual(titles("", fakeApp().app).includes("Google"), false); // locally there's none
-  const render = async () => {
-    const s = appSettings(app).find((x) => x.id === "google")!;
+  const render = async (id = "google") => {
+    const s = appSettings(app).find((x) => x.id === id)!;
     const [box] = (s.control as { render(): HTMLElement[] }).render();
     await new Promise((r) => setTimeout(r, 0));
     return box;
@@ -180,6 +182,21 @@ test("online, Integrations shows the Google account with what Calendar and Conta
   box = await render();
   assert.match(box.textContent!, /Connected as me@gmail\.example\..*Syncs into People\/ \(read only\)/);
   assert.deepEqual([...box.querySelectorAll("button")].map((b) => b.textContent), ["Allow editing", "Disconnect Google"]);
+
+  // GitHub, next to it: connect or disconnect, or why it can't be where the server has no OAuth app.
+  assert.deepEqual(titles("github private", app), ["GitHub"]);
+  box = await render("github");
+  assert.match(box.textContent!, /Not connected\. Cards show public repositories only\./);
+  box.querySelector("button")!.click();
+  github = { mode: "real", connection: { account: "octocat" } };
+  box = await render("github");
+  assert.match(box.textContent!, /Connected as octocat\./);
+  box.querySelector("button")!.click();
+  assert.deepEqual(log.slice(2), ["github", "github:disconnect"]);
+  github = { mode: "off", connection: null };
+  box = await render("github");
+  assert.match(box.textContent!, /isn't set up on this server.*GITHUB_CLIENT_ID.*public repositories still show as cards/);
+  assert.equal(box.querySelector("button"), null);
 });
 
 test("Ink: a radio group of swatches; locked ones say what earns them and can't be picked", () => {

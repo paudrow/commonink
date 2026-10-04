@@ -22,6 +22,7 @@ import { limit, limited, ROUTE_LIMITS } from "./limits.ts";
 import { landingPage } from "./landing.ts";
 import { connectionInfo, disconnectGoogle, driveApi, googleApi, googleAuth, googleMode, mockContactsPage } from "./connections.ts";
 import { readUpTo } from "./body.ts";
+import { demoCard, disconnectGithub, githubAuth, githubConnection, githubMode, githubOptions } from "./github.ts";
 import { DRIVE_FORMATS, driveProblem, MAX_DRIVE_BYTES, MIME, saveToDrive, type DriveFormat } from "./drive.ts";
 
 export { Workspace } from "./workspace.ts";
@@ -55,6 +56,7 @@ async function route(req: Request, env: Env, url: URL): Promise<Response> {
   if (url.pathname === "/authorize") return authorize(req, env, url);
   if (url.pathname.startsWith("/auth/google/calendar") || url.pathname.startsWith("/auth/google/drive")) return googleAuth(req, env, url);
   if (url.pathname === "/auth/google/contacts/mock") return mockContactsPage(req, env, url);
+  if (url.pathname === "/auth/github" || url.pathname.startsWith("/auth/github/")) return githubAuth(req, env, url);
   if (url.pathname.startsWith("/auth/")) {
     const ip = req.headers.get("CF-Connecting-IP") ?? "unknown";
     const tooMany = url.pathname !== "/auth/logout" && (await limit(env.DB, "signIn", ip, "text"));
@@ -119,12 +121,15 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
     if (!/^https?:\/\//i.test(target)) return json({ error: "http(s) URLs only" }, 400);
     const tooMany = await limit(env.DB, "unfurl", user.id);
     if (tooMany) return tooMany;
-    // Public hosts on default ports, and never this app (it would fetch itself).
+    const demo = await demoCard(env, user.id, target);
+    if (demo) return json(demo);
+    // Public hosts on default ports, and never this app (it would fetch itself). A GitHub issue or PR
+    // is read with the asker's own GitHub connection when they have one (github.ts), never anyone else's.
     return json(
       await unfurl(target, (u) => {
         assertPublicUrl(u);
         if (u.hostname.replace(/\.$/, "") === url.hostname) throw new Error("self"); // "commonink.app." too
-      }, { githubToken: env.GITHUB_TOKEN || undefined }),
+      }, await githubOptions(env, user.id, target)),
     );
   },
   "GET /api/note-ids/*": async ({ env, url, user }) => {
@@ -189,6 +194,13 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
   "POST /api/google/disconnect": async ({ env, user }) => {
     await disconnectGoogle(env, user.id);
     await Promise.all((await workspacesOf(env.DB, user.id)).map((w) => env.WORKSPACE.get(env.WORKSPACE.idFromName(w.id)).dropCalendarsOf(user.id, "google")));
+    return json({ ok: true });
+  },
+  // GitHub (github.ts): whether connecting is on here, and the person's connection. Never a token.
+  "GET /api/github": async ({ env, user }) => json({ mode: githubMode(env), connection: await githubConnection(env, user.id) }),
+  // GitHub forgets the grant and the connection goes; cards go back to what the shared token reads.
+  "POST /api/github/disconnect": async ({ env, user }) => {
+    await disconnectGithub(env, user.id);
     return json({ ok: true });
   },
   "POST /api/agents/revoke": async ({ req, env, url, user }) => {

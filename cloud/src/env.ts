@@ -9,8 +9,8 @@ export interface Env {
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   /**
-   * Seals connected accounts' tokens (Google Calendar) at rest: 32 random bytes, base64
-   * (`openssl rand -base64 32 | wrangler secret put INTEGRATIONS_KEY`). Unset, Google Calendar is off.
+   * Seals connected accounts' tokens (Google, GitHub) at rest: 32 random bytes, base64
+   * (`openssl rand -base64 32 | wrangler secret put INTEGRATIONS_KEY`). Unset, neither can be connected.
    */
   INTEGRATIONS_KEY?: string;
   /**
@@ -25,6 +25,17 @@ export interface Env {
    * deployment give it no private repos. Unset, cards read public repos only.
    */
   GITHUB_TOKEN?: string;
+  /**
+   * Optional, for each person connecting their own GitHub account (cloud/src/github.ts), so cards
+   * show the private repos they can see: a GitHub OAuth app's client ID and secret
+   * (`wrangler secret put GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`), whose callback URL is
+   * https://<host>/auth/github/callback. It needs INTEGRATIONS_KEY too, which seals their tokens.
+   * Unset, Settings says GitHub isn't set up, and cards read with GITHUB_TOKEN alone.
+   */
+  GITHUB_CLIENT_ID?: string;
+  GITHUB_CLIENT_SECRET?: string;
+  /** Tests only: a stand-in for both github.com and api.github.com. */
+  GITHUB_BASE?: string;
   /**
    * "1" lets anyone with a Google account make one, no code needed (a var: `wrangler.jsonc` or the
    * dashboard). They still confirm on a page that names the Terms and Privacy Policy first.

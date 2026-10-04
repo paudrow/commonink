@@ -28,6 +28,12 @@ export interface Integrations {
   connectCalendar(): void;
   connectContacts(write: boolean): void;
   disconnect(): Promise<void>;
+  /** GitHub, for issue and pull request cards of private repositories: its `account` is the person's login. */
+  github: {
+    status(): Promise<{ mode: string; connection: { account: string } | null } | null>;
+    connect(): void;
+    disconnect(): Promise<void>;
+  };
 }
 
 export type Theme = "system" | "light" | "dark";
@@ -313,6 +319,14 @@ export function appSettings(app: SettingsApp): Setting[] {
             keywords: "google calendar contacts account connect disconnect integration sync oauth",
             control: { kind: "custom" as const, render: () => googleRow(app.integrations!) },
           },
+          {
+            id: "github",
+            section: "Integrations" as const,
+            title: "GitHub",
+            description: "Your GitHub account: links to issues and pull requests show as cards for the private repositories you can see, too. It's only ever yours: someone else reading the same note sees what their own GitHub can.",
+            keywords: "github issues pull requests pr cards private repositories repos account connect disconnect integration oauth",
+            control: { kind: "custom" as const, render: () => githubRow(app.integrations!.github) },
+          },
         ]
       : []),
     ...planSettings(app),
@@ -395,6 +409,29 @@ function googleRow(int: Integrations): HTMLElement[] {
         );
       },
       () => box.replaceChildren(el("span", { class: "st-desc" }, "Couldn't check Google. Try again later.")),
+    );
+  fill();
+  return [box];
+}
+
+/** The GitHub row: who's connected, and the button to connect or disconnect. Filled in once the server answers. */
+function githubRow(gh: Integrations["github"]): HTMLElement[] {
+  const box = el("div", { class: "st-integration" }, el("span", { class: "st-desc" }, "Checking…"));
+  const fill = () =>
+    void gh.status().then(
+      (s) => {
+        if (!s || s.mode === "off") {
+          return box.replaceChildren(
+            el("span", { class: "st-desc" }, "Connecting GitHub isn't set up on this server: its owner sets GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET and INTEGRATIONS_KEY. Links to public repositories still show as cards."),
+          );
+        }
+        const c = s.connection;
+        box.replaceChildren(
+          el("span", { class: "st-desc" }, c ? `Connected as ${c.account}.${s.mode === "mock" ? " (A stand-in for GitHub on this Preview.)" : ""}` : "Not connected. Cards show public repositories only."),
+          el("div", { class: "st-int-line" }, c ? button("Disconnect GitHub", null, () => void gh.disconnect().then(fill)) : button("Connect GitHub", null, gh.connect)),
+        );
+      },
+      () => box.replaceChildren(el("span", { class: "st-desc" }, "Couldn't check GitHub. Try again later.")),
     );
   fill();
   return [box];

@@ -80,7 +80,11 @@ const server = http.createServer((req, res) => {
   hits++;
   auth = req.headers.authorization;
   const json = (status: number, body: unknown) => (res.writeHead(status, { "Content-Type": "application/json" }), res.end(JSON.stringify(body)));
+  if (auth === "Bearer revoked") return json(401, { message: "Bad credentials" });
   if (req.url === "/repos/a/b/issues/1") return json(200, issue({ number: 1 }));
+  if (req.url === "/repos/a/b/issues/6") return json(200, issue({ number: 6 }));
+  // A private repo: GitHub says it isn't there to anyone whose token can't read it.
+  if (req.url === "/repos/a/private/issues/9") return auth === "Bearer mine" ? json(200, issue({ number: 9, title: "Private" })) : json(404, { message: "Not Found" });
   if (req.url === "/repos/a/b/issues/2") return (res.writeHead(301, { Location: "/repos/a/c/issues/2" }), res.end());
   if (req.url === "/repos/a/c/issues/2") return json(200, issue({ number: 2, html_url: "https://github.com/a/c/issues/2" }));
   if (req.url === "/repos/a/b/issues/3") return (res.writeHead(301, { Location: "https://example.com/steal" }), res.end());
@@ -132,4 +136,30 @@ test("a GitHub link's preview carries its card, and only api.github.com is asked
   } finally {
     globalThis.fetch = real;
   }
+});
+
+/** A guard that refuses everything, so a preview that falls back to the page fetches nothing. */
+const noPage = () => {
+  throw new Error("no page");
+};
+
+test("someone's own token reads their private repos, and those cards are theirs alone", async () => {
+  const url = "https://github.com/a/private/issues/9";
+  const mine = await unfurl(url, noPage, { githubApi: api, githubToken: "shared", githubOwn: { token: "mine", as: "u1" } });
+  assert.deepEqual([mine.github?.title, auth], ["Private", "Bearer mine"]);
+  // Nobody else is served it: not someone without a connection, nor someone whose own token can't read it.
+  const before = hits;
+  assert.equal((await unfurl(url, noPage, { githubApi: api, githubToken: "shared" })).github, undefined);
+  assert.equal(auth, "Bearer shared");
+  assert.equal((await unfurl(url, noPage, { githubApi: api, githubToken: "shared", githubOwn: { token: "theirs", as: "u2" } })).github, undefined);
+  assert.equal(hits - before, 2); // GitHub was asked as each of them: u2's own token, then nothing new for the shared one
+  // Theirs is kept for them, so asking again doesn't reach GitHub.
+  assert.equal((await unfurl(url, noPage, { githubApi: api, githubOwn: { token: "mine", as: "u1" } })).github?.number, 9);
+  assert.equal(hits - before, 2);
+});
+
+test("where someone's own token gets nothing, the shared one answers; a refused token is reported", async () => {
+  let rejected = 0;
+  const r = await unfurl("https://github.com/a/b/issues/6", noPage, { githubApi: api, githubToken: "shared", githubOwn: { token: "revoked", as: "u3", rejected: () => void rejected++ } });
+  assert.deepEqual([r.github?.number, auth, rejected], [6, "Bearer shared", 1]);
 });

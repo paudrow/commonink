@@ -9,6 +9,7 @@ import { api, clientId, connect, favoriteKey, isArchived, isNoteFavorite, isSmar
 import { cleanTag, normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { $, authorAvatar, dragsPage, draggedPage, endPageDrag, onPageClick, PAGE_DRAG, startPageDrag, authorName, displayName, el, hueFor, hydrateIcons, icon, isSelf, LINK_DRAG, NOTE_DRAG, setCurrent, setLabel, setPressed, setSelfName, timeAgo, typingIn, type LinkDrag } from "./dom.ts";
 import { toast } from "./toast.ts";
+import { disconnectGithub, githubConnectUrl, githubOutcome, githubStatus } from "./github.ts";
 import { setSaveToDrive, setShareState, setShareWithPeople, SHARE_KEYS, toggleShareMenu, type ShareNote } from "./share.ts";
 import type { Billing, Label, Me } from "./api.ts";
 import { hideBanner, showBanner } from "./banner.ts";
@@ -1398,6 +1399,17 @@ async function backFromGoogle(outcome: string) {
   toast({ icon: "calendar", text: said, alert: outcome !== "connected" });
   await showCalendar({ push: false });
   calendarPage?.openSources({ google: true });
+}
+
+/** Back from connecting GitHub (?github=connected|denied|failed): say how it went, and show Settings at GitHub, where it started. */
+function backFromGithub(outcome: string) {
+  const url = new URL(location.href);
+  url.searchParams.delete("github");
+  history.replaceState(history.state, "", url.pathname + url.search + url.hash);
+  const said = githubOutcome(outcome);
+  if (!said) return;
+  toast({ icon: outcome === "connected" ? "check" : undefined, text: said, alert: outcome !== "connected" });
+  openSettings("github");
 }
 
 /** Read every calendar again now (each at most once a minute). */
@@ -4518,6 +4530,15 @@ function openSettings(query?: string) {
                 connectCalendar: () => leave.to(connectUrl()),
                 connectContacts: (write) => leave.to(contactsConnectUrl(write)),
                 disconnect: disconnectGoogle,
+                github: {
+                  status: githubStatus,
+                  connect: () => leave.to(githubConnectUrl(location.pathname + location.search)),
+                  disconnect: () =>
+                    disconnectGithub().then(
+                      () => toast({ icon: "check", text: "GitHub is disconnected" }),
+                      (e) => toast({ text: e instanceof Error ? e.message : "Couldn't disconnect GitHub", alert: true }),
+                    ),
+                },
               },
         }),
       { query, openFile: (scope) => void (scope === "user" ? openUserSettingsFile() : openSettingsFile()) },
@@ -4960,6 +4981,7 @@ async function boot() {
   // Read before the workspace is picked: picking one tidies the address, this included.
   const fromGoogle = new URLSearchParams(location.search).get("google");
   const fromDrive = new URLSearchParams(location.search).get("drive");
+  const fromGithub = new URLSearchParams(location.search).get("github");
   const driveAs = new URLSearchParams(location.search).get("as");
   // Online, the note API is per workspace and needs a signed-in person; locally it's just /api.
   const who = await whoAmI();
@@ -5170,6 +5192,7 @@ async function boot() {
   }
   if (fromGoogle) await backFromGoogle(fromGoogle);
   if (fromDrive && !local) await backFromDrive(fromDrive, driveAs);
+  if (fromGithub && !local) backFromGithub(fromGithub);
 }
 
 boot();
