@@ -4,7 +4,7 @@
 // fills its item in with setShareWithPeople) and Save to Google Drive (#47, online: setSaveToDrive). Printing and
 // exporting load only when picked (export/).
 import { el, icon, setLabel } from "./dom.ts";
-import { formatKeys } from "./keys.ts";
+import { withKeys } from "./keys.ts";
 
 export interface ShareNote {
   path: string;
@@ -142,5 +142,5 @@ export function setShareState(isShared: boolean) {
 /** The Share button's look and name: lit when the note is shared, and its shortcut in the tooltip. */
 export function paintShareButton(button: HTMLElement) {
   button.classList.toggle("is-on", shared);
-  setLabel(button, `${shared ? "Shared. " : ""}Share, print or export (${formatKeys(SHARE_KEYS)})`);
+  setLabel(button, withKeys(`${shared ? "Shared. " : ""}Share, print or export`, SHARE_KEYS));
 }

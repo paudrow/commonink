@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 
 document.body.append(Object.assign(document.createElement("div"), { id: "notes-view" }));
 const { NotesPage } = await import("../web/src/notesPage.ts");
+const { deleteKey, formatKeys, withKeys } = await import("../web/src/keys.ts");
 const { Trash, filterTrash, trashFolders, trashTags } = await import("../web/src/trash.ts");
 
 const DAY = 86_400_000;
@@ -101,12 +102,12 @@ test("Trash shows cards like Notes: the title, rendered text, the sort and filte
   await settle();
   const card = root.querySelector(".feed-card")!;
   assert.deepEqual([card.querySelector(".fc-title")!.textContent, card.querySelector(".fc-body strong")?.textContent], ["The launch", "launch"], "the title, and markdown rendered, not raw");
-  assert.deepEqual([...card.querySelectorAll(".fc-action")].map((b) => (b as HTMLElement).title), ["Restore (r)", "Delete forever (⌫)"]);
+  assert.deepEqual([...card.querySelectorAll(".fc-action")].map((b) => (b as HTMLElement).title), ["Restore (r)", withKeys("Delete forever", deleteKey())]);
   const folderSel = root.querySelector<HTMLSelectElement>(".feed-folder")!;
   assert.deepEqual([...folderSel.options].map((o) => o.textContent), ["All folders", "Projects"]);
   assert.deepEqual([...root.querySelectorAll<HTMLOptionElement>(".feed-sort option")].map((o) => o.textContent), ["Recently deleted", "Deleted longest ago", "By title"]);
-  assert.deepEqual([...root.querySelectorAll(".feed-keys kbd")].map((k) => k.textContent), ["j k", "r", "⌫", "x", "/"]);
-  assert.equal(button("Empty trash").hidden, false);
+  assert.deepEqual([...root.querySelectorAll(".feed-keys kbd")].map((k) => k.textContent), ["j k", "r", formatKeys(deleteKey()), "x", "/"]);
+  assert.equal(button("Empty Trash").hidden, false);
   folderSel.value = "Projects";
   folderSel.dispatchEvent(new document.defaultView!.Event("change"));
   await settle();
@@ -153,7 +154,7 @@ test("Delete forever asks first, and only whoever may delete for good gets it", 
   page.show({ tab: "trash", query: {} });
   await settle();
   assert.deepEqual([...root.querySelectorAll<HTMLElement>(".feed-card .fc-action")].map((b) => b.title), ["Restore (r)"]);
-  assert.equal(button("Empty trash").hidden, true);
+  assert.equal(button("Empty Trash").hidden, true);
   press("Delete");
   await settle();
   assert.equal(document.querySelector(".ask"), null);

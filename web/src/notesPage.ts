@@ -27,7 +27,7 @@ import { calendarTarget, openCalendarLink } from "./links.ts";
 import { emptyState } from "./emptyState.ts";
 import { AGENTS_BLURB, agentsBadge } from "./agentsNote.ts";
 import { notePath } from "../../src/core/ids.ts";
-import { formatKeys } from "./keys.ts";
+import { deleteKey, formatKeys, withKeys } from "./keys.ts";
 import { ADVANCED_KEYS } from "./commands.ts";
 import { openRowMenu, type RowMenuItem } from "./rowMenu.ts";
 
@@ -80,10 +80,10 @@ const SORTS: Record<"notes" | "trash", Array<[QuerySort, string]>> = {
   notes: [["modified", "Recently changed"], ["date", "Newest by date"], ["oldest", "Oldest by date"], ["title", "By title"], ["created", "Newest created"]],
   trash: [["modified", "Recently deleted"], ["oldest", "Deleted longest ago"], ["title", "By title"]],
 };
-/** The keys each tab's footer lists. */
+/** The keys each tab's footer lists, written as formatKeys reads them. */
 const KEYS: Record<"notes" | "trash", string[][]> = {
-  notes: [["j k", "move"], ["n", "new"], ["↵", "expand"], ["o", "open"], ["s", "star"], ["e", "archive"], ["⌫", "delete"], ["x", "select"], ["/", "filter"]],
-  trash: [["j k", "move"], ["r", "restore"], ["⌫", "delete forever"], ["x", "select"], ["/", "filter"]],
+  notes: [["j k", "move"], ["n", "new"], ["Enter", "expand"], ["o", "open"], ["s", "star"], ["e", "archive"], [deleteKey(), "delete"], ["x", "select"], ["/", "filter"]],
+  trash: [["j k", "move"], ["r", "restore"], [deleteKey(), "delete forever"], ["x", "select"], ["/", "filter"]],
 };
 
 export class NotesPage {
@@ -152,11 +152,11 @@ export class NotesPage {
     );
     this.advancedBtn = el(
       "button",
-      { type: "button", class: "feed-advanced", title: `Advanced search: words, folders and tags (${formatKeys(ADVANCED_KEYS)})`, onclick: () => this.openAdvanced() },
+      { type: "button", class: "feed-advanced", title: withKeys("Advanced search: words, folders and tags", ADVANCED_KEYS), onclick: () => this.openAdvanced() },
       icon("sliders", 14),
       el("span", {}, "Advanced"),
     );
-    this.emptyBtn = el("button", { type: "button", class: "qw-btn danger feed-empty-trash", hidden: true, onclick: () => void this.emptyTrash() }, icon("trash", 14), "Empty trash");
+    this.emptyBtn = el("button", { type: "button", class: "qw-btn danger feed-empty-trash", hidden: true, onclick: () => void this.emptyTrash() }, icon("trash", 14), "Empty Trash");
     this.bulk = el("div", { class: "feed-bulk", hidden: true });
     this.list = el("div", { class: "feed-list", role: "list" });
     this.more = el("div", { class: "feed-more" });
@@ -362,8 +362,8 @@ export class NotesPage {
     const sorts = SORTS[which];
     this.sortSel.replaceChildren(...sorts.map(([v, label]) => el("option", { value: v }, label)));
     this.sortSel.value = sorts.some(([v]) => v === this.sort) ? this.sort : "modified";
-    const keys = KEYS[which].filter(([k]) => which === "notes" || k !== "⌫" || this.hooks.trash()?.canPurge);
-    this.keys.replaceChildren(...keys.map(([k, t]) => el("span", {}, el("kbd", {}, k), t)));
+    const keys = KEYS[which].filter(([k]) => which === "notes" || k !== deleteKey() || this.hooks.trash()?.canPurge);
+    this.keys.replaceChildren(...keys.map(([k, t]) => el("span", {}, el("kbd", {}, formatKeys(k)), t)));
     this.keys.hidden = !this.count;
   }
 
@@ -460,7 +460,7 @@ export class NotesPage {
       b.addEventListener("click", (e) => (e.stopPropagation(), run()));
       return b;
     };
-    const check = el("button", { type: "button", class: "fc-check", title: "Select (x)", "aria-pressed": String(this.selected.has(t.id)) }, icon("check", 12));
+    const check = el("button", { type: "button", class: "fc-check", title: withKeys("Select", "x"), "aria-pressed": String(this.selected.has(t.id)) }, icon("check", 12));
     check.addEventListener("click", (e) => (e.stopPropagation(), this.toggle(t.id)));
     let body: HTMLElement | null = null;
     if (t.kind === "md" && t.excerpt) {
@@ -480,8 +480,8 @@ export class NotesPage {
           el("span", { class: "fc-title", title: t.path }, t.title),
           isArchived(t.path) ? el("span", { class: "fc-badge" }, "Archived") : null,
           el("span", { class: "spacer" }),
-          action("Restore (r)", "reset", () => void this.restore([t])),
-          trash.canPurge ? action("Delete forever (⌫)", "trash", () => void this.purge([t])) : null,
+          action(withKeys("Restore", "r"), "reset", () => void this.restore([t])),
+          trash.canPurge ? action(withKeys("Delete forever", deleteKey()), "trash", () => void this.purge([t])) : null,
         ),
         el(
           "div",
@@ -552,30 +552,30 @@ export class NotesPage {
     const folder = item.path.replace(/^Archive\//, "").split("/").slice(0, -1).join("/");
     const archiveBtn = el(
       "button",
-      { type: "button", class: "fc-action", title: item.archived ? "Unarchive (e)" : "Archive (e)" },
+      { type: "button", class: "fc-action", title: withKeys(item.archived ? "Unarchive" : "Archive", "e") },
       icon(item.archived ? "unarchive" : "archive", 15),
     );
     archiveBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       void this.archive([item.path]);
     });
-    const deleteBtn = this.hooks.readOnly() ? null : el("button", { type: "button", class: "fc-action", title: "Delete (⌫)" }, icon("trash", 15));
+    const deleteBtn = this.hooks.readOnly() ? null : el("button", { type: "button", class: "fc-action", title: withKeys("Delete", deleteKey()) }, icon("trash", 15));
     deleteBtn?.addEventListener("click", (e) => {
       e.stopPropagation();
       void this.delete([item.path]);
     });
     const starred = this.hooks.starred(item.id);
-    const starBtn = el("button", { type: "button", class: `fc-action${starred ? " is-starred" : ""}`, title: starred ? "Unstar (s)" : "Star (s)" }, icon(starred ? "starred" : "star", 15));
+    const starBtn = el("button", { type: "button", class: `fc-action${starred ? " is-starred" : ""}`, title: withKeys(starred ? "Unstar" : "Star", "s") }, icon(starred ? "starred" : "star", 15));
     starBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       this.hooks.toggleStar(item.path);
     });
-    const editBtn = el("button", { type: "button", class: "fc-action", title: "Edit (o)" }, icon("edit", 15));
+    const editBtn = el("button", { type: "button", class: "fc-action", title: withKeys("Edit", "o") }, icon("edit", 15));
     editBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       this.hooks.open(item.path);
     });
-    const check = el("button", { type: "button", class: "fc-check", title: "Select (x)", "aria-pressed": String(this.selected.has(item.path)) }, icon("check", 12));
+    const check = el("button", { type: "button", class: "fc-check", title: withKeys("Select", "x"), "aria-pressed": String(this.selected.has(item.path)) }, icon("check", 12));
     check.addEventListener("click", (e) => {
       e.stopPropagation();
       this.toggle(item.path);
@@ -594,7 +594,7 @@ export class NotesPage {
       e.stopPropagation();
       this.hooks.open(item.path, undefined, "tab");
     });
-    const expandBtn = el("button", { type: "button", class: "fc-action fc-expand", title: open ? "Collapse (↵)" : "Expand (↵)", "aria-label": "Show the whole note", "aria-expanded": String(open) }, icon("chevron", 15));
+    const expandBtn = el("button", { type: "button", class: "fc-action fc-expand", title: withKeys(open ? "Collapse" : "Expand", "Enter"), "aria-label": "Show the whole note", "aria-expanded": String(open) }, icon("chevron", 15));
     expandBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       this.toggleExpand(i);
@@ -871,7 +871,7 @@ export class NotesPage {
     return [
       { label: "Restore", icon: "reset", run: () => this.restore([t]) },
       { label: this.selected.has(t.id) ? "Deselect" : "Select", icon: "check", run: () => this.toggle(t.id) },
-      this.hooks.trash()?.canPurge ? { label: "Delete forever", icon: "trash", danger: true, run: () => this.purge([t]) } : null,
+      this.hooks.trash()?.canPurge ? { label: "Delete forever…", icon: "trash", danger: true, run: () => this.purge([t]) } : null,
     ];
   }
 

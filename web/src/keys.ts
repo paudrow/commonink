@@ -10,7 +10,7 @@
 // With Shift the shifted character counts (">" for "."). With ⌥ on a Mac a key types a symbol ("“"
 // for "["), so the layout map (learnLayout) says which character the key types; without one, and on
 // layouts without Latin letters, the key where it is on a US keyboard. formatKeys writes a shortcut
-// the platform's way (⌘⇧. on a Mac, Ctrl+Shift+. elsewhere).
+// the platform's way (⌘⇧. on a Mac, Ctrl+Shift+. elsewhere), and withKeys adds one to a tooltip.
 import { IS_MAC } from "./panes.ts";
 
 /** The parts of a KeyboardEvent a shortcut looks at. */
@@ -50,18 +50,30 @@ export function matchKeys(e: KeyLike, keys: string, mac = IS_MAC): boolean {
 
 const MAC_MOD: Record<string, string> = { Mod: "⌘", Ctrl: "⌃", Alt: "⌥", Shift: "⇧" };
 const PC_MOD: Record<string, string> = { Mod: "Ctrl", Ctrl: "Ctrl", Alt: "Alt", Shift: "Shift" };
-const KEY_NAMES: Record<string, string> = { Enter: "↵", Escape: "Esc", Backspace: "⌫", ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→", click: "click" };
+const KEY_NAMES: Record<string, string> = { Escape: "Esc", ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→" };
+/** A Mac's key caps carry these symbols; other keyboards spell the keys out. */
+const MAC_KEY_NAMES: Record<string, string> = { Enter: "↵", Backspace: "⌫" };
 
-/** "Mod-Shift-e" → ⌘⇧E on a Mac and Ctrl+Shift+E elsewhere; a key typed as is ("gd") stays as it is. */
+/**
+ * "Mod-Shift-e" → ⌘⇧E on a Mac and Ctrl+Shift+E elsewhere; a key typed as is ("gd") stays as it is.
+ * Enter and Backspace are ↵ and ⌫ on a Mac and spelled out elsewhere, and a click joins like a key
+ * off a Mac (Ctrl+click; ⌘-click on one). Every shortcut the app shows goes through here.
+ */
 export function formatKeys(keys: string, mac = IS_MAC): string {
   const parts = keys.length > 1 ? keys.split(/-(?=.)/) : [keys];
   const key = parts.pop()!;
   const mods = parts.filter((p) => p in MAC_MOD);
   if (mods.length !== parts.length) return keys;
-  const name = KEY_NAMES[key] ?? (mods.length && key.length === 1 ? key.toUpperCase() : key);
-  if (key === "click") return mac ? `${mods.map((m) => MAC_MOD[m]).join("")}-click` : `${mods.map((m) => PC_MOD[m]).join("+")}-click`;
-  return mac ? mods.map((m) => MAC_MOD[m]).join("") + name : [...mods.map((m) => PC_MOD[m]), name].join("+");
+  const name = (mac ? MAC_KEY_NAMES[key] : undefined) ?? KEY_NAMES[key] ?? (mods.length && key.length === 1 ? key.toUpperCase() : key);
+  if (!mac) return [...mods.map((m) => PC_MOD[m]), name].join("+");
+  return mods.map((m) => MAC_MOD[m]).join("") + (key === "click" && mods.length ? "-click" : name);
 }
+
+/** A button's tooltip with its shortcut after it: "Archive (e)", "Close (⌘W)". */
+export const withKeys = (label: string, keys: string, mac = IS_MAC) => `${label} (${formatKeys(keys, mac)})`;
+
+/** The key that deletes, as a hint names it: ⌫ on a Mac, Delete elsewhere (Delete and Backspace both work on both). */
+export const deleteKey = (mac = IS_MAC) => (mac ? "Backspace" : "Delete");
 
 const MAC_MOD_SAID: Record<string, string> = { Mod: "Command", Ctrl: "Control", Alt: "Option", Shift: "Shift" };
 const PC_MOD_SAID: Record<string, string> = { Mod: "Control", Ctrl: "Control", Alt: "Alt", Shift: "Shift" };

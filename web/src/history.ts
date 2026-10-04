@@ -79,7 +79,7 @@ export class History {
         el(
           "aside",
           { class: "hist-side" },
-          el("div", { class: "hist-head" }, el("h1", {}, "History"), el("p", {}, `Click to see a change · ${formatKeys("Mod-click")} to add or skip · shift-click for a range`)),
+          el("div", { class: "hist-head" }, el("h1", {}, "History"), el("p", {}, `Click to see a change · ${formatKeys("Mod-click")} to add or skip · ${formatKeys("Shift-click")} for a range`)),
           this.filtersEl,
           this.listEl,
           this.moreEl,
@@ -457,7 +457,7 @@ export class History {
     if (this.label) return this.loadLabelDiff(this.label);
     const picked = this.visibleItems().filter((it) => this.selected.has(it.id));
     if (!picked.length) {
-      this.filesEl.replaceChildren(el("div", { class: "hist-hint" }, `Select changes on the left to see what they did. Shift-click selects a range; ${formatKeys("Mod-click")} adds or skips one.`));
+      this.filesEl.replaceChildren(el("div", { class: "hist-hint" }, `Select changes on the left to see what they did. ${formatKeys("Shift-click")} selects a range; ${formatKeys("Mod-click")} adds or skips one.`));
       return;
     }
     const seq = ++this.diffSeq;

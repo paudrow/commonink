@@ -109,12 +109,14 @@ test("commands match fuzzily, by name or by what they're about, and none alone l
   assert.deepEqual(titles("tgthm", app()), ["Toggle theme"]);
   assert.deepEqual(titles("dark", app()), ["Toggle theme"]);
   assert.deepEqual(titles("archive", app({ note: { kind: "md", starred: false, archived: false } })).slice(0, 2), ["Archive note", "Go to Archive"]);
+  const removes = titles("remove", app({ note: { kind: "md", starred: false, archived: false } }));
+  assert.ok(removes.includes("Delete note") && !removes.includes("Archive note"), "to remove is to delete: archiving isn't offered for it");
   assert.deepEqual(titles("zzz", app()), []);
   assert.deepEqual(titles("kanban", app()), ["New board"]);
-  assert.deepEqual(titles("preferences", app()), ["Open settings", "Open your settings file", "Open workspace settings file"]);
-  assert.deepEqual(titles("settings", app()).slice(0, 1), ["Open settings"]);
-  assert.deepEqual(titles("connect", app()), ["Connect an agent"]);
-  assert.deepEqual(titles("mcp", app()), ["Connect an agent"]);
+  assert.deepEqual(titles("preferences", app()), ["Open Settings…", "Open your settings file", "Open workspace settings file"]);
+  assert.deepEqual(titles("settings", app()).slice(0, 1), ["Open Settings…"]);
+  assert.deepEqual(titles("connect", app()), ["Connect an agent…"]);
+  assert.deepEqual(titles("mcp", app()), ["Connect an agent…"]);
   const all = titles("", app());
   assert.equal(all[0], "New note");
   assert.ok(all.includes("Keyboard shortcuts"));
@@ -479,7 +481,7 @@ test("the tag in view can be starred and renamed from the palette, or a tag pick
 
 test("saving filters as a view is offered only when Notes has filters on", () => {
   assert.deepEqual(titles("save filters", app()).filter((t) => t.startsWith("Save these")), []);
-  assert.deepEqual(titles("save filters", app({ notesFiltered: true })).slice(0, 1), ["Save these filters as a view"]);
+  assert.deepEqual(titles("save filters", app({ notesFiltered: true })).slice(0, 1), ["Save these filters as a view…"]);
 });
 
 test("one short field or one pick is asked in the palette; a form of several fields opens its dialog", () => {

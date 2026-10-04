@@ -6,7 +6,7 @@
 import { clickWhere, type Where } from "../panes.ts";
 import { api } from "../api.ts";
 import { el, icon, setPressed, typingIn } from "../dom.ts";
-import { matchKeys } from "../keys.ts";
+import { matchKeys, withKeys } from "../keys.ts";
 import { store } from "../store.ts";
 import { toast } from "../toast.ts";
 import { calendarChanged, calendars, canEditCalendars, colorVar, dayText, dueTasks, eventAgain, eventBody, eventHref, eventItems, events, eventTargets, placeText, readOnlyReason, timeOnDay, timeText, whenText, type CalendarSource, type Item } from "./data.ts";
@@ -104,7 +104,7 @@ export class CalendarPage {
   private notice = el("div", { class: "cal-notice", hidden: true });
   private body = el("div", { class: "cal-body" });
   private details = el("div", { class: "cal-details-host" });
-  private newButton = el("button", { type: "button", class: "qw-btn primary cal-new", title: "New event (c)", "aria-label": "New event", onclick: () => this.newEvent() }, icon("plus", 14), el("span", {}, "New event"));
+  private newButton = el("button", { type: "button", class: "qw-btn primary cal-new", title: withKeys("New event", "c"), "aria-label": "New event", onclick: () => this.newEvent() }, icon("plus", 14), el("span", {}, "New event"));
   /** An event being moved by keys: where it was before the first press, where it is now, and the save waiting for the last. */
   private nudging: { id: string; was: Times; times: Times; timer: number } | null = null;
   private drags: DragHooks = {
@@ -139,9 +139,9 @@ export class CalendarPage {
           el(
             "div",
             { class: "cal-nav" },
-            el("button", { type: "button", class: "qw-btn cal-today", title: "Today (t)", onclick: () => void this.run("today") }, "Today"),
-            btn("back", "Previous (k)", () => void this.run("prev"), "icon-btn cal-prev"),
-            btn("chevron", "Next (j)", () => void this.run("next")),
+            el("button", { type: "button", class: "qw-btn cal-today", title: withKeys("Today", "t"), onclick: () => void this.run("today") }, "Today"),
+            btn("back", withKeys("Previous", "k"), () => void this.run("prev"), "icon-btn cal-prev"),
+            btn("chevron", withKeys("Next", "j"), () => void this.run("next")),
           ),
           this.title,
           el(
@@ -614,7 +614,7 @@ export class CalendarPage {
       tabindex: "-1",
       "aria-checked": String(t.done),
       "aria-label": `${item.title}: ${t.done ? "done" : "not done"}`,
-      title: t.done ? "Mark open (x)" : "Mark done (x)",
+      title: withKeys(t.done ? "Mark open" : "Mark done", "x"),
       onclick: () => void this.tick(item),
     });
     const open = el(

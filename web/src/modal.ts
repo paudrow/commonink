@@ -6,7 +6,7 @@
 // prompt(), confirm() and alert(): they look like the rest of the app, follow dark mode, don't
 // block the page, and work from the keyboard and with a screen reader.
 import { el, icon } from "./dom.ts";
-import { IS_MAC } from "./panes.ts";
+import { formatKeys, withKeys } from "./keys.ts";
 
 const FOCUSABLE = "button:not([disabled]), summary, [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
@@ -94,7 +94,7 @@ export function openModal(o: ModalOptions): Modal {
       o.icon ? icon(o.icon, 16) : null,
       el("h2", { id: titleId }, o.title),
       ...(o.head ?? []),
-      el("button", { class: "icon-btn small modal-x", type: "button", title: "Close (Esc)", "aria-label": "Close", onclick: dismiss }, icon("close", 15)),
+      el("button", { class: "icon-btn small modal-x", type: "button", title: withKeys("Close", "Escape"), "aria-label": "Close", onclick: dismiss }, icon("close", 15)),
     ),
     ...o.content,
     footer,
@@ -219,7 +219,7 @@ export async function showLink(o: { title: string; url: string; note?: string })
   const copy = el("button", { type: "button", class: "qw-btn primary" }, icon("copy", 14), "Copy");
   copy.addEventListener("click", async () => {
     const ok = await copyText(o.url, field);
-    copy.replaceChildren(icon(ok ? "check" : "copy", 14), ok ? "Copied" : `Press ${IS_MAC ? "⌘C" : "Ctrl+C"} to copy`);
+    copy.replaceChildren(icon(ok ? "check" : "copy", 14), ok ? "Copied" : `Press ${formatKeys("Mod-c")} to copy`);
     if (!ok) field.select();
   });
   const { result } = open({ title: o.title, body: [...(o.note ? [o.note] : []), field], actions: [], extra: [copy], cancel: "Done", focus: field });

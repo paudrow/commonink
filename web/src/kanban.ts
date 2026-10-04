@@ -1,6 +1,6 @@
 // A Kanban board drawn from a `:::kanban` block (see src/core/kanban.ts). Drag cards between
 // columns and within one (or move them with Alt+arrows), add, edit and delete them, turn one into a
-// note, and add, rename, colour, reorder and fold columns. A card's column says whether it's done.
+// note, and add, rename, color, reorder and fold columns. A card's column says whether it's done.
 // Lines the board can't place show in a banner with fixes to pick from. The board keeps no copy of its own: it
 // reads the note's markdown each time it draws, and each change is one core edit of that markdown
 // handed to its host (an editor transaction for the open note, a save for another note's board).
@@ -8,7 +8,7 @@ import { api, ApiError, type Task } from "./api.ts";
 import { displayName, el, icon, LINK_DRAG, NOTE_DRAG } from "./dom.ts";
 import { onVaultChange } from "./events.ts";
 import { clickWhere, IS_MAC, modClick } from "./panes.ts";
-import { matchKeys } from "./keys.ts";
+import { deleteKey, formatKeys, matchKeys, withKeys } from "./keys.ts";
 import { renderMarkdown } from "./render.ts";
 import { followRenderedLink } from "./gfm.ts";
 import { hydrateCode } from "./code.ts";
@@ -189,7 +189,7 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
       if (!viewFolds.delete(key)) viewFolds.add(key);
       draw();
     });
-    const menu = host.readOnly ? null : el("button", { type: "button", class: "kb-icon", title: "Column colour, rename", "aria-label": `${col.title} menu` }, icon("more", 14));
+    const menu = host.readOnly ? null : el("button", { type: "button", class: "kb-icon", title: "Column color, rename", "aria-label": `${col.title} menu` }, icon("more", 14));
     menu?.addEventListener("click", () => columnMenu(menu, col, c));
     const head = el(
       "header",
@@ -225,7 +225,7 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
     return node;
   }
 
-  /** The column's menu: its colour, and rename. */
+  /** The column's menu: its color, and rename. */
   function columnMenu(anchor: HTMLElement, col: Column, c: number) {
     const swatch = (color: string | null) =>
       el(
@@ -234,8 +234,8 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
           type: "button",
           class: `kb-swatch${col.color === color ? " is-on" : ""}`,
           "data-color": color ?? "",
-          title: color ?? "No colour",
-          "aria-label": color ? `Colour: ${color}` : "No colour",
+          title: color ?? "No color",
+          "aria-label": color ? `Color: ${color}` : "No color",
           "aria-pressed": String(col.color === color),
           onclick: () => (close(), change((md) => setColumnColor(md, { board: at, column: c }, color))),
         },
@@ -244,7 +244,7 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
     const { close } = popMenu(
       anchor,
       `${col.title} menu`,
-      el("div", { class: "kb-menu-label" }, "Colour"),
+      el("div", { class: "kb-menu-label" }, "Color"),
       el("div", { class: "kb-swatches" }, swatch(null), ...COLORS.map(swatch)),
       el("button", { type: "button", class: "fp-item", onclick: () => (close(), openRename(c, col.title)) }, icon("edit", 14), el("span", {}, "Rename")),
     );
@@ -313,9 +313,9 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
       : el(
           "div",
           { class: "kb-actions" },
-          act("edit", "Edit (Enter)", () => openEdit(c, i, card)),
+          act("edit", withKeys("Edit", "Enter"), () => openEdit(c, i, card)),
           link ? act("split", "Open in split view", () => host.ctx.openTarget(link.target, host.path, { where: "side" })) : act("file", "Open as note", () => void openAsNote(c, i, card.text)),
-          act("trash", "Delete (⌫)", () => remove(c, i, card.text)),
+          act("trash", withKeys("Delete", deleteKey()), () => remove(c, i, card.text)),
         );
     const node = el(
       "div",
@@ -545,7 +545,7 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
       },
       cancel: () => queueMicrotask(close),
     });
-    const dom = el("div", { class: "kb-field" }, input.dom, input.preview, el("div", { class: "kb-field-hint" }, adding ? "Enter to add · Shift+Enter for details · Esc to close" : "Enter to save · Shift+Enter for details · Esc to cancel"));
+    const dom = el("div", { class: "kb-field" }, input.dom, input.preview, el("div", { class: "kb-field-hint" }, `${formatKeys("Enter")} to ${adding ? "add" : "save"} · ${formatKeys("Shift-Enter")} for details · ${formatKeys("Escape")} to ${adding ? "close" : "cancel"}`));
     return { dom, focus: () => input.focus(), destroy: () => input.destroy() };
   }
 
