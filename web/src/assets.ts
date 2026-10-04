@@ -6,6 +6,7 @@
 import { api, fileUrl, isArchived, type NoteMeta, type TagCount } from "./api.ts";
 import { $, el, icon } from "./dom.ts";
 import { deleteKey, withKeys } from "./keys.ts";
+import { pageHeader } from "./pageHeader.ts";
 import { tagChip, tagFilter, tagPicker } from "./tagPicker.ts";
 import { normalizeTag, tagMatches } from "../../src/core/tags.ts";
 import { fuzzyScore } from "./fuzzy.ts";
@@ -79,19 +80,18 @@ export class Assets {
       ).map(([v, t]) => el("option", { value: v }, t)),
     );
     this.picker = el("input", { type: "file", multiple: true, hidden: true });
-    this.countEl = el("span", { class: "as-count" });
+    this.countEl = el("p", { class: "as-count" });
     this.grid = el("div", { class: "as-grid" });
     this.root.append(
       el(
         "div",
         { class: "assets" },
-        el(
-          "header",
-          { class: "as-head" },
-          el("div", { class: "as-title" }, el("h1", {}, "Assets"), this.countEl),
-          el("button", { type: "button", class: "qw-btn primary", onclick: () => this.picker.click() }, icon("upload", 14), "Upload"),
-          this.picker,
-        ),
+        pageHeader({
+          title: "Assets",
+          sub: this.countEl,
+          actions: [el("button", { type: "button", class: "qw-btn primary", onclick: () => this.picker.click() }, icon("upload", 14), "Upload")],
+        }),
+        this.picker,
         el(
           "div",
           { class: "as-tools" },
@@ -179,7 +179,7 @@ export class Assets {
   private render() {
     const all = this.all();
     const counts = Object.fromEntries(TYPES.map((t) => [t, all.filter((n) => assetType(n.path) === t).length])) as Record<AssetType, number>;
-    this.countEl.textContent = all.length ? `${all.length}` : "";
+    this.countEl.textContent = all.length ? `${all.length} ${all.length === 1 ? "file" : "files"}` : "";
     this.chips.replaceChildren(
       ...(["all", ...TYPES] as Filter[])
         .filter((f) => f === "all" || counts[f as AssetType])

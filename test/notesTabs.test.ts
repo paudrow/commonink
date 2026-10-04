@@ -43,6 +43,7 @@ globalThis.fetch = (async (url: string, init?: RequestInit) => {
 let viewer = false;
 let owner = true;
 const went: string[] = [];
+const made: string[] = [];
 const toasts: string[] = [];
 const trash = new Trash({ toast: (t) => toasts.push(t.text), changed: async () => {}, canPurge: () => owner, open() {} });
 const page = new NotesPage({
@@ -60,7 +61,7 @@ const page = new NotesPage({
   readOnly: () => viewer,
   toast() {},
   changed() {},
-  newNote() {},
+  newNote: (folder) => void made.push(folder),
   goTab: (tab) => (went.push(tab), page.show({ tab })),
   trash: () => (viewer ? null : trash),
 });
@@ -71,6 +72,23 @@ const tabs = () => [...root.querySelectorAll(".feed-scope button")].map((b) => `
 const titles = () => [...root.querySelectorAll(".feed-card .fc-title")].map((n) => n.textContent);
 const press = (key: string) => root.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
 const button = (label: string, within: ParentNode = root) => [...within.querySelectorAll("button")].find((b) => b.textContent === label || b.title === label)!;
+
+test("New note sits in the page's header, on the Notes tab only", async () => {
+  page.show({ tab: "notes" });
+  await settle();
+  const btn = root.querySelector<HTMLButtonElement>(".feed > .page-head .page-actions button")!;
+  assert.deepEqual([root.querySelector(".page-head h1")!.textContent, btn.textContent, btn.hidden], ["Notes", "New note", false]);
+  btn.click();
+  assert.deepEqual(made, [""]);
+  for (const tab of ["archive", "trash"] as const) {
+    page.show({ tab });
+    await settle();
+    assert.equal(btn.hidden, true, tab);
+  }
+  page.show({ tab: "notes" });
+  await settle();
+  assert.equal(btn.hidden, false);
+});
 
 test("the tabs are Notes, Archive and Trash, each says what it holds, and the search stays on each", async () => {
   page.show({ tab: "archive" });

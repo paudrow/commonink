@@ -225,6 +225,38 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
     return node;
   }
 
+  /** A card's "Move to": the board's columns, and the card goes to the end of the one picked (ticked, in a Done column). */
+  function moveMenu(anchor: HTMLElement, c: number, i: number, card: Card) {
+    const b = board();
+    if (!b) return;
+    const { close } = popMenu(
+      anchor,
+      "Move card to",
+      el("div", { class: "kb-menu-label" }, "Move to"),
+      ...b.columns.map((col, to) =>
+        el(
+          "button",
+          {
+            type: "button",
+            class: `fp-item${to === c ? " is-current" : ""}`,
+            disabled: to === c,
+            onclick: () => {
+              close();
+              const now = cardNow(c, i, card.text);
+              const place = boardsIn(host.text())[at]?.columns[to]?.cards.length ?? 0;
+              if (!now) return draw();
+              focus = { column: to, card: place };
+              change((md) => moveCard(md, now.from, { board: at, column: to }, place, today()));
+            },
+          },
+          icon("kanban", 14),
+          el("span", {}, col.title),
+          to === c ? el("span", { class: "fp-here" }, "here") : null,
+        ),
+      ),
+    );
+  }
+
   /** The column's menu: its color, and rename. */
   function columnMenu(anchor: HTMLElement, col: Column, c: number) {
     const swatch = (color: string | null) =>
@@ -306,14 +338,16 @@ export function mountBoard(root: HTMLElement, host: BoardHost, index: number) {
       hydrateCode(details);
       hydrateMath(details);
     }
-    const act = (name: string, label: string, run: () => void) =>
-      el("button", { type: "button", class: "kb-icon", title: label, "aria-label": label, onclick: (e: Event) => (e.stopPropagation(), run()) }, icon(name, 13));
+    const act = (name: string, label: string, run: (b: HTMLElement) => void, cls = "") =>
+      el("button", { type: "button", class: `kb-icon${cls}`, title: label, "aria-label": label, onclick: (e: Event) => (e.stopPropagation(), run(e.currentTarget as HTMLElement)) }, icon(name, 13));
     const actions = host.readOnly
       ? null
       : el(
           "div",
           { class: "kb-actions" },
           act("edit", withKeys("Edit", "Enter"), () => openEdit(c, i, card)),
+          // A finger can't drag a card or press Alt+arrows: a touch screen shows this button (mobile.css).
+          act("move", "Move to another column", (b) => moveMenu(b, c, i, card), " kb-move"),
           link ? act("split", "Open in split view", () => host.ctx.openTarget(link.target, host.path, { where: "side" })) : act("file", "Open as note", () => void openAsNote(c, i, card.text)),
           act("trash", withKeys("Delete", deleteKey()), () => remove(c, i, card.text)),
         );

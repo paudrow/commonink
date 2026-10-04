@@ -6,6 +6,7 @@
 import { clickWhere, type Where } from "../panes.ts";
 import { api } from "../api.ts";
 import { el, icon, setPressed, typingIn } from "../dom.ts";
+import { pageHeader } from "../pageHeader.ts";
 import { matchKeys, withKeys } from "../keys.ts";
 import { store } from "../store.ts";
 import { toast } from "../toast.ts";
@@ -99,7 +100,8 @@ export class CalendarPage {
   /** The day it was when the page was last drawn (Today, the now line). */
   private drawnOn = "";
   private monthLines = MONTH_LINES;
-  private title = el("h1", { class: "cal-title", "aria-live": "polite" });
+  /** The dates showing: the line under the page's name. */
+  private title = el("span", { class: "cal-title", "aria-live": "polite" });
   private viewButtons: Record<View, HTMLButtonElement>;
   private notice = el("div", { class: "cal-notice", hidden: true });
   private body = el("div", { class: "cal-body" });
@@ -131,27 +133,30 @@ export class CalendarPage {
       el(
         "div",
         { class: "cal" },
-        // One row: where you are (Today, back, on, and the dates), then how to look (the views), then
-        // what you can do (your calendars, a new event). Narrower, the dates go on a row of their own.
-        el(
-          "header",
-          { class: "cal-head" },
-          el(
-            "div",
-            { class: "cal-nav" },
-            el("button", { type: "button", class: "qw-btn cal-today", title: withKeys("Today", "t"), onclick: () => void this.run("today") }, "Today"),
-            btn("back", withKeys("Previous", "k"), () => void this.run("prev"), "icon-btn cal-prev"),
-            btn("chevron", withKeys("Next", "j"), () => void this.run("next")),
-          ),
-          this.title,
-          el(
-            "div",
-            { class: "cal-tools" },
-            el("div", { class: "seg cal-views", role: "group", "aria-label": "View" }, ...Object.values(this.viewButtons)),
+        // The page's header, as on every page: its name, with what you can do (your calendars, a new
+        // event) at the right. Under it, where you are (Today, back, on, and the dates), then how to
+        // look (the views). Narrower, the views go on a row of their own.
+        pageHeader({
+          title: "Calendar",
+          class: "cal-head",
+          actions: [
             el("button", { type: "button", class: "qw-btn cal-sources-btn", title: "Your calendars: subscribe, rename, remove", "aria-label": "Calendars", onclick: () => this.openSources() }, icon("calendar", 14), el("span", {}, "Calendars")),
             this.newButton,
+          ],
+          sub: el(
+            "div",
+            { class: "cal-bar" },
+            el(
+              "div",
+              { class: "cal-nav" },
+              el("button", { type: "button", class: "qw-btn cal-today", title: withKeys("Today", "t"), onclick: () => void this.run("today") }, "Today"),
+              btn("back", withKeys("Previous", "k"), () => void this.run("prev"), "icon-btn cal-prev"),
+              btn("chevron", withKeys("Next", "j"), () => void this.run("next")),
+            ),
+            this.title,
+            el("div", { class: "seg cal-views", role: "group", "aria-label": "View" }, ...Object.values(this.viewButtons)),
           ),
-        ),
+        }),
         this.notice,
         el("div", { class: "cal-main" }, this.body, this.details),
       ),

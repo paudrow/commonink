@@ -98,13 +98,27 @@ test("arrow keys, Home and End move through More's items, wrapping; Esc closes i
   assert.deepEqual([menu.hidden, focused()], [true, "more-btn"]);
 });
 
-test("the top-bar search and the floating new-note button press the sidebar's own buttons", () => {
+test("the bottom bar's Search and the floating new-note button press the sidebar's own buttons", () => {
   const pressed: string[] = [];
   $("#search-btn").addEventListener("click", () => pressed.push("search"), { once: true });
   $("#new-note").addEventListener("click", () => pressed.push("new"), { once: true });
   $("#search-top").click();
   $("#fab-new").click();
   assert.deepEqual(pressed, ["search", "new"]);
+});
+
+test("the bottom bar goes to Today, Notes and Tasks by the sidebar's own buttons, and marks the page you're on", async () => {
+  const pressed: string[] = [];
+  for (const id of ["today", "notes", "tasks"]) $(`#${id}-btn`).addEventListener("click", () => pressed.push(id), { once: true });
+  for (const id of ["today", "notes", "tasks"]) $(`#bn-${id}`).click();
+  assert.deepEqual(pressed, ["today", "notes", "tasks"]);
+  assert.deepEqual([...$("#bottom-nav").querySelectorAll("button")].map((b) => b.textContent), ["Today", "Notes", "Tasks", "Search", "Menu"]);
+  $("#tasks-btn").setAttribute("aria-current", "page");
+  await new Promise((r) => setTimeout(r));
+  assert.deepEqual(["today", "notes", "tasks"].map((id) => $(`#bn-${id}`).getAttribute("aria-current")), [null, null, "page"]);
+  $("#tasks-btn").removeAttribute("aria-current");
+  await new Promise((r) => setTimeout(r));
+  assert.equal($("#bn-tasks").getAttribute("aria-current"), null);
 });
 
 test("on a computer, More holds only a note's occasional buttons, and shows only when one of them does", () => {

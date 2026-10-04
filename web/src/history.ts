@@ -3,8 +3,11 @@
 // note by note; a change left out on the same note splits that note into separate diffs.
 // Named versions (labels.ts) stand among the changes as pins: click one to compare it with now or
 // with another named version, and to restore to it.
+// A phone shows one side at a time (mobile.css): the list, then what a tapped change did in its
+// place, with a way back to the list, as Contacts goes from its list to a person.
 import { api, fileUrl, type Change, type DiffFile, type DiffRun, type Label } from "./api.ts";
 import { $, authorAvatar, authorName, displayName, el, icon, isSelf } from "./dom.ts";
+import { pageHeader } from "./pageHeader.ts";
 import { renderDiff } from "./diff.ts";
 import { diffLines } from "diff";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
@@ -41,6 +44,10 @@ export class History {
   private listEl: HTMLElement;
   private filtersEl: HTMLElement;
   private moreEl: HTMLElement;
+  /** On a phone, with several changes ticked: the way to what they did. */
+  private openEl: HTMLElement;
+  private box: HTMLElement;
+  private mainEl: HTMLElement;
   private summaryEl: HTMLElement;
   private filesEl: HTMLElement;
   private raw: Change[] = [];
@@ -72,21 +79,23 @@ export class History {
     this.moreEl = el("div", { class: "hist-more" });
     this.summaryEl = el("header", { class: "hist-summary" });
     this.filesEl = el("div", { class: "hist-files" });
-    this.root.append(
+    this.openEl = el("div", { class: "hist-open" });
+    this.mainEl = el("section", { class: "hist-main" }, el("button", { type: "button", class: "hist-back", onclick: () => this.setDetail(false) }, icon("back", 14), "History"), this.summaryEl, this.filesEl);
+    this.box = el(
+      "div",
+      { class: "history" },
       el(
-        "div",
-        { class: "history" },
-        el(
-          "aside",
-          { class: "hist-side" },
-          el("div", { class: "hist-head" }, el("h1", {}, "History"), el("p", {}, `Click to see a change · ${formatKeys("Mod-click")} to add or skip · ${formatKeys("Shift-click")} for a range`)),
-          this.filtersEl,
-          this.listEl,
-          this.moreEl,
-        ),
-        el("section", { class: "hist-main" }, this.summaryEl, this.filesEl),
+        "aside",
+        { class: "hist-side" },
+        pageHeader({ title: "History", sub: `Click to see a change · ${formatKeys("Mod-click")} to add or skip · ${formatKeys("Shift-click")} for a range`, class: "hist-head" }),
+        this.filtersEl,
+        this.listEl,
+        this.moreEl,
+        this.openEl,
       ),
+      this.mainEl,
     );
+    this.root.append(this.box);
     this.root.addEventListener("keydown", (e) => this.key(e));
   }
 
@@ -110,6 +119,7 @@ export class History {
       this.selected = new Set(this.items.map((it) => it.id));
       this.focus = this.anchor = 0;
       this.render();
+      this.setDetail(true);
       this.root.focus({ preventScroll: true });
       return;
     }
@@ -118,6 +128,7 @@ export class History {
       this.note = note;
       this.selected.clear();
       this.label = null;
+      this.setDetail(false);
       await this.load();
     } else {
       await this.refresh(); // pick up anything that happened while the page was closed
@@ -126,6 +137,7 @@ export class History {
     const at = opts.select ? this.visibleItems().findIndex((it) => it.first <= opts.select! && opts.select! <= it.id) : -1;
     if (picked) this.pickLabel(picked);
     else if (at >= 0) this.selectOnly(at);
+    if (picked || at >= 0) this.setDetail(true);
     else if (!this.selected.size && this.visibleItems().length) this.selectOnly(0);
     else this.render();
     this.root.focus({ preventScroll: true });
@@ -241,7 +253,16 @@ export class History {
   private click(i: number, e: MouseEvent) {
     if (e.shiftKey) this.extendTo(i);
     else if (e.metaKey || e.ctrlKey || (e.target as HTMLElement).closest(".hist-check")) this.toggle(i);
-    else this.selectOnly(i);
+    else {
+      this.selectOnly(i);
+      this.setDetail(true);
+    }
+  }
+
+  /** On a phone, show what the picked changes did in place of the list, or the list again. Wider, both show and this changes nothing. */
+  private setDetail(on: boolean) {
+    this.box.classList.toggle("is-detail", on);
+    if (on) this.mainEl.scrollTop = 0;
   }
 
   // ---------------------------------------------------------------- rendering
@@ -324,6 +345,8 @@ export class History {
     this.moreEl.replaceChildren(
       ...(this.more ? [el("button", { type: "button", class: "link-btn", onclick: () => void this.load(true) }, "Load older changes")] : []),
     );
+    const ticked = this.selected.size;
+    this.openEl.replaceChildren(...(ticked > 1 ? [el("button", { type: "button", class: "qw-btn primary", onclick: () => this.setDetail(true) }, `See ${ticked} changes`)] : []));
   }
 
   /** A label, as a pin among the changes. */
@@ -331,7 +354,7 @@ export class History {
     const on = this.label?.id === m.id;
     return el(
       "button",
-      { type: "button", class: `hist-label${on ? " is-selected" : ""}`, "aria-pressed": String(on), title: `Compare “${m.name}” with now, or restore to it`, onclick: () => this.pickLabel(m) },
+      { type: "button", class: `hist-label${on ? " is-selected" : ""}`, "aria-pressed": String(on), title: `Compare “${m.name}” with now, or restore to it`, onclick: () => (this.pickLabel(m), this.setDetail(true)) },
       icon("label", 14),
       el(
         "span",
