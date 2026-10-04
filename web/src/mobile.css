@@ -58,7 +58,7 @@
 }
 
 @media (max-width: 760px), (pointer: coarse) and (max-width: 1100px) {
-  #share-btn, #focus-btn, #panel-btn, #html-toggle { display: none; }
+  #share-btn, #focus-btn, #panel-btn, #sidebar-btn, #html-toggle { display: none; }
   #topbar { gap: 4px; padding-right: 4px; }
 }
 

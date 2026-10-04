@@ -1,20 +1,45 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { closeOthers, closeTabs, closeToRight, currentTab, forgetEntry, insertTab, jumpIndex, MAX_TABS, moveTab, nudgeTab, openEntry, parseLayout, pinTab, setTrail, stepIndex, takeTab, type Group, type Tab } from "../web/src/tabs.ts";
+import { closeAll, closeOthers, closeTabs, closeToRight, currentTab, forgetEntry, insertTab, jumpIndex, MAX_TABS, moveTab, nudgeTab, openEntry, parseLayout, pinTab, previewIndex, keepTab, setTrail, showTab, stepIndex, takeTab, type Group, type Tab } from "../web/src/tabs.ts";
 
 const tab = (note: string, more: Partial<Tab> = {}): Tab => ({ note, back: [], forward: [], ...more });
 const group = (notes: string, at = 0): Group => ({ tabs: notes.split("").map((n) => (n === n.toUpperCase() ? tab(n.toLowerCase(), { pinned: true }) : tab(n))), at });
 /** A group as letters (pinned in capitals), with the showing one in brackets. */
 const show = (g: Group) => g.tabs.map((t, i) => (i === g.at ? `[${t.pinned ? t.note!.toUpperCase() : t.note}]` : t.pinned ? t.note!.toUpperCase() : t.note)).join("");
 
-test("opening changes the tab you're on, with back to what it showed; a tab that has it already shows instead", () => {
+test("opening shows a preview tab; the next open replaces it, with back to what it showed; a tab that has it already shows instead", () => {
   let g = openEntry({ tabs: [], at: -1 }, "a");
   assert.equal(show(g), "[a]");
+  assert.equal(currentTab(g)!.preview, true);
   g = openEntry(g, "b");
   assert.equal(show(g), "[b]");
-  assert.deepEqual(currentTab(g), { note: "b", back: ["a"], forward: [] });
+  assert.deepEqual(currentTab(g), { note: "b", back: ["a"], forward: [], preview: true });
   g = openEntry(group("xyz", 0), "y");
   assert.equal(show(g), "x[y]z");
+});
+
+test("opening from a kept tab opens a preview beside it, or reuses the pane's preview tab wherever it is", () => {
+  let g = openEntry(group("ab", 0), "c");
+  assert.equal(show(g), "a[c]b");
+  assert.deepEqual(currentTab(g), { note: "c", back: ["a"], forward: [], preview: true }); // back goes to the tab you were on
+  g = openEntry(showTab(g, 2), "d"); // from b: the preview tab (c) shows d
+  assert.equal(show(g), "a[d]b");
+  assert.deepEqual(g.tabs[1], { note: "d", back: ["a", "c"], forward: [], preview: true });
+  assert.equal(previewIndex(openEntry(g, "e", "new")), 1); // a new tab is kept, and the preview stays the only one
+});
+
+test("a preview is kept once you keep it, move it or pin it; a stored layout has at most one", () => {
+  const g = openEntry(group("ab", 0), "c");
+  assert.equal(keepTab(g, 1).tabs[1].preview, undefined);
+  assert.equal(moveTab(g, 1, 3).tabs[2].preview, undefined);
+  assert.equal(pinTab(g, 1, true).tabs[0].preview, undefined);
+  assert.equal(setTrail(g, { note: "z", back: [], forward: [] }).tabs[1].preview, true); // back and forward don't
+  const raw = JSON.stringify({ groups: [{ tabs: [{ note: "a", preview: true }, { note: "b", preview: true }], at: 0 }, { tabs: [] }] });
+  assert.deepEqual(parseLayout(raw).groups[0].tabs.map((t) => !!t.preview), [true, false]);
+});
+
+test("close all leaves the pinned tabs", () => {
+  assert.equal(show(closeAll(group("Abc", 2)).group), "[A]");
 });
 
 test("a new tab goes after the one showing, or where it's dropped; one already open moves there", () => {

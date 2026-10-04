@@ -332,14 +332,33 @@ kbd {
 ::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
 ::-webkit-scrollbar-track { background: transparent; }
 
+/* The sidebar and the info panel, as VS Code's side bars: each hides (⌘B, ⌥⌘B) and is as wide as you
+   drag its edge (--sidebar-w, --panel-w, set from what you last dragged). --sidebar-col and
+   --panel-col are the room each takes now: 0 while it's hidden. */
 #app {
+  --sidebar-col: var(--sidebar-w, 264px);
+  --panel-col: var(--panel-w, 292px);
   display: grid;
-  grid-template-columns: 264px minmax(0, 1fr) 292px;
+  grid-template-columns: var(--sidebar-col) minmax(0, 1fr) var(--panel-col);
   height: 100vh;
   transition: grid-template-columns 0.2s ease;
 }
-body.panel-closed #app { grid-template-columns: 264px minmax(0, 1fr) 0; }
+body.panel-closed #app { --panel-col: 0px; }
 body.panel-closed #panel { opacity: 0; pointer-events: none; }
+body.sidebar-closed #app { --sidebar-col: 0px; }
+@media (min-width: 761px) { body.sidebar-closed #sidebar { visibility: hidden; overflow: hidden; } } /* a phone's sidebar is a drawer (mobile.css) */
+body.is-resizing #app { transition: none; }
+
+/* The edge you drag to resize a side bar: a line shows on it when you're over it. Double-click puts back the width it started with. */
+.sash { position: fixed; top: 0; bottom: 0; width: 9px; z-index: 20; cursor: col-resize; touch-action: none; outline: none; }
+.sash::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 3px; background: transparent; transition: background 0.1s; }
+.sash:hover::after { transition-delay: 0.3s; }
+.sash:is(:hover, :focus-visible, .is-dragging)::after { background: var(--accent-line); }
+#sidebar-sash { left: calc(var(--sidebar-col) - 5px); }
+#panel-sash { right: calc(var(--panel-col) - 5px); }
+/* Shut, its sash goes, unless it's being dragged: dragged back out, the bar opens again. */
+body:is(.sidebar-closed, .is-focus) #sidebar-sash:not(.is-dragging), body:is(.panel-closed, .is-focus) #panel-sash:not(.is-dragging) { display: none; }
+body:has(:is(#history-view, #assets-view):not([hidden])) #panel-sash { display: none; }
 
 /* ------------------------------------------------------------------ sidebar */
 #sidebar {
@@ -1163,13 +1182,14 @@ button.prop-type:hover, button.prop-type:focus-visible { background: var(--hover
 
 /* ------------------------------------------------------------------ narrow windows */
 @media (max-width: 1100px) {
-  #app, body.panel-closed #app { grid-template-columns: 232px minmax(0, 1fr) 0; }
+  #app { --sidebar-col: min(var(--sidebar-w, 232px), 40vw); --panel-col: 0px; }
+  #panel-sash { display: none; }
   #panel {
     position: fixed;
     top: 48px;
     right: 8px;
     bottom: 38px;
-    width: 292px;
+    width: min(var(--panel-w, 292px), calc(100vw - 16px));
     border: 1px solid var(--line);
     border-radius: 12px;
     z-index: 30;
@@ -1182,7 +1202,8 @@ button.prop-type:hover, button.prop-type:focus-visible { background: var(--hover
   body.panel-overlay #panel { opacity: 1; pointer-events: auto; transform: none; }
 }
 @media (max-width: 760px) {
-  #app, body.panel-closed #app { grid-template-columns: 0 minmax(0, 1fr) 0; }
+  #app { --sidebar-col: 0px; --panel-col: 0px; }
+  .sash { display: none; }
   #sidebar { visibility: hidden; }
   :is(#editor-host, #side-host) .cm-content { padding: 32px 20px 40vh; }
   #word-count, #cursor-pos { display: none; }
@@ -2222,7 +2243,7 @@ button.dc-opt:hover { border-color: var(--muted); }
 .cv-fold:hover { color: var(--accent-ink); background: var(--hover); }
 
 /* ------------------------------------------------------------------ focus mode */
-body.is-focus #app, body.is-focus.panel-closed #app { grid-template-columns: 0 minmax(0, 1fr) 0; }
+body.is-focus #app { --sidebar-col: 0px; --panel-col: 0px; }
 body.is-focus #sidebar, body.is-focus #panel { visibility: hidden; }
 body.is-focus #main { position: relative; }
 body.is-focus #topbar {
@@ -2244,7 +2265,7 @@ body.is-focus #banner { margin-top: 12px; }
 
 /* ------------------------------------------------------------------ history */
 #history-view { position: absolute; inset: 0; outline: none; }
-body:has(#history-view:not([hidden])) #app { grid-template-columns: 264px minmax(0, 1fr) 0; }
+body:has(#history-view:not([hidden])) #app { --panel-col: 0px; }
 body:has(#history-view:not([hidden])) #panel { opacity: 0; pointer-events: none; }
 .history { display: grid; grid-template-columns: 340px minmax(0, 1fr); height: 100%; }
 .hist-side { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
@@ -2407,7 +2428,7 @@ body:has(#history-view:not([hidden])) #panel { opacity: 0; pointer-events: none;
 }
 
 .q-thumb { width: 22px; height: 22px; border-radius: 4px; object-fit: cover; flex: none; background: var(--hover); }
-body:has(#assets-view:not([hidden])) #app { grid-template-columns: 264px minmax(0, 1fr) 0; }
+body:has(#assets-view:not([hidden])) #app { --panel-col: 0px; }
 body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; }
 .hist-asset { display: flex; align-items: center; gap: 12px; padding: 12px 14px; font-size: 13px; color: var(--muted); }
 .hist-asset b { display: block; color: var(--ink-strong); font-weight: 600; }
@@ -3548,6 +3569,7 @@ svg.today-ring { flex: none; width: 16px; height: 16px; transform: rotate(-90deg
 .tab.is-on > svg { opacity: 1; color: var(--accent-ink); }
 .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .tab.is-pinned { max-width: 150px; }
+.tab.is-preview .tab-name { font-style: italic; }
 .tab-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab-x { flex: none; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 4px; color: var(--muted); opacity: 0; }
 .tab:is(:hover, .is-on, :focus-visible) .tab-x, .tab-pin { opacity: 1; }

@@ -71,6 +71,7 @@ const ICONS: Record<string, string> = {
   folder: '<path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/>',
   chevron: '<path d="m9 18 6-6-6-6"/>',
   panel: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M14 3v18"/><path d="M17 8h1M17 12h1M17 16h1"/>',
+  sidebar: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M10 3v18"/><path d="M6 8h1M6 12h1M6 16h1"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
   open: '<path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',

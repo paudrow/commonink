@@ -68,11 +68,12 @@ import type { InkId } from "./inks.ts";
 import { askOrganizingIfNew, organizing, setOrganizing } from "./organizing.ts";
 import { PRESETS, type PresetId } from "../../src/core/presets.ts";
 import { isTestSite, store } from "./store.ts";
+import { clampWidth, PANEL, SIDEBAR, wireSash } from "./sideBars.ts";
 import { changeVerb, groupChanges } from "../../src/core/format.ts";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
-import { closeOthers, closeTabs, closeToRight, currentTab, emptyGroup, insertTab, jumpIndex, moveTab, newLayout, nudgeTab, openEntry, parseLayout, pinTab, setTrail, showTab, stepIndex, tabIndex, takeTab, type Group, type Tab } from "./tabs.ts";
+import { closeAll, closeOthers, closeTabs, closeToRight, currentTab, emptyGroup, insertTab, jumpIndex, keepTab, moveTab, newLayout, nudgeTab, openEntry, parseLayout, pinTab, setTrail, showTab, stepIndex, tabIndex, takeTab, type Group, type Tab } from "./tabs.ts";
 import { openMenu, under, type MenuItem } from "./menu.ts";
-import { clampSide, clickWhere, dropDock, forget, historyStep, IS_MAC, pageEntry, pageOf, rememberPlace, SIDE_CLICK, step, trailAhead, type Dock, type PaneTrail, type Place, type Where } from "./panes.ts";
+import { clampSide, clickWhere, dropDock, forget, historyStep, visit, IS_MAC, pageEntry, pageOf, rememberPlace, SIDE_CLICK, step, trailAhead, type Dock, type PaneTrail, type Place, type Where } from "./panes.ts";
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { headingMatches } from "../../src/core/gfm.ts";
 import { blockAnchor, blockLinkTarget, blockRange, newBlockId, noteLink, selectionBlocks, type BlockSpot } from "../../src/core/blocks.ts";
@@ -158,6 +159,11 @@ const prefs = {
   vimDisplayLines: store.get("vimDisplayLines", false),
   lineNumbers: store.get("lineNumbers", false),
   panel: store.get("panel", true),
+  /** The sidebar shows (⌘B hides it). */
+  sidebar: store.get("sidebar", true),
+  /** How wide the sidebar and the info panel are, as last dragged (sideBars.ts). */
+  sidebarWidth: clampWidth(store.get<unknown>("sidebarWidth", null), SIDEBAR),
+  panelWidth: clampWidth(store.get<unknown>("panelWidth", null), PANEL),
   htmlMode: store.get<"preview" | "source">("htmlMode", "preview"),
   /** Folders whose subfolders are showing in the sidebar (they start closed). */
   expanded: new Set<string>(store.get<string[]>("expanded", [])),
@@ -394,6 +400,7 @@ function commands() {
     split,
     tabs: active.group.tabs.length,
     pinned: !!currentTab(active.group)?.pinned,
+    preview: !!currentTab(active.group)?.preview,
     closedTabs: closedTabs.length,
     focusMode,
     htmlMode: prefs.htmlMode,
@@ -449,6 +456,7 @@ function commands() {
     toggleVimDisplayLines,
     toggleLineNumbers,
     togglePanel: () => togglePanel(),
+    toggleSidebar: () => toggleSidebar(),
     toggleFocus: () => void setFocusMode(!focusMode),
     toggleSplit: () => void (split ? closePane(active) : openSplit()),
     newTab: () => newTab(),
@@ -456,6 +464,8 @@ function commands() {
     reopenTab: () => void reopenTab(),
     closeOtherTabs: () => void closeIn(active, closeOthers(active.group, active.group.at), active.group.at),
     closeTabsToRight: () => void closeIn(active, closeToRight(active.group, active.group.at), active.group.at + 1),
+    closeAllTabs: () => void closeIn(active, closeAll(active.group), 0),
+    keepTab: () => keepShownTab(active),
     togglePin: () => pinTabIn(active, active.group.at, !currentTab(active.group)?.pinned),
     stepTab: (by) => stepTabIn(active, by),
     moveTab: (by) => nudgeTabIn(active, active.group.at, by),
@@ -782,12 +792,24 @@ let openNext: { index?: number } | null = null;
 function placeTab(p: Pane, entry: string, newTab = false, index?: number) {
   const next = openNext;
   openNext = null;
-  p.group = openEntry(p.group, entry, newTab || next ? "new" : "here", index ?? next?.index);
+  const cur = currentTab(p.group);
+  // A page that moves within itself (Notes to its Archive tab, or narrowed to a folder; Calendar to an event) stays in its tab.
+  if (!newTab && !next && index === undefined && cur?.note && tabIndex(p.group, entry) < 0 && pageFamily(cur.note) !== null && pageFamily(cur.note) === pageFamily(entry))
+    p.group = setTrail(p.group, visit(cur, entry));
+  else p.group = openEntry(p.group, entry, newTab || next ? "new" : "here", index ?? next?.index);
   const there = other(p);
   const i = tabIndex(there.group, entry);
   if (i >= 0 && pageOf(entry) === null) there.group = closeTabs(there.group, [i]).group;
   if (p.index === 1 && !split) p.group = { tabs: [currentTab(p.group)!], at: 0 };
   saveLayout();
+}
+
+/** Which page an entry is, Notes, Archive and Trash being one (null for a note). */
+function pageFamily(entry: string): string | null {
+  const page = pageOf(entry);
+  if (page === null) return null;
+  const name = page.slice(1).split(/[?/]/)[0];
+  return name === "archive" || name === "trash" ? "notes" : name;
 }
 
 /** Show a page (what its sidebar row's `open` shows) in a new tab of the main pane, before `index` if given. */
@@ -908,6 +930,14 @@ function nudgeTabIn(p: Pane, i: number, by: -1 | 1) {
   renderPaneBars();
 }
 
+/** Keep the tab `p` shows, if it's a preview (an edit, a double-click on it, "Keep open"). */
+function keepShownTab(p: Pane, i = p.group.at) {
+  if (!p.group.tabs[i]?.preview) return;
+  p.group = keepTab(p.group, i);
+  saveLayout();
+  renderPaneBars();
+}
+
 function pinTabIn(p: Pane, i: number, on: boolean) {
   p.group = pinTab(p.group, i, on);
   saveLayout();
@@ -956,7 +986,9 @@ function tabMenu(p: Pane, i: number, at: { x: number; y: number }) {
     { label: "Close", icon: "close", keys: "Mod-w", run: () => closeTabAt(p, i) },
     { label: "Close others", run: () => closeIn(p, closeOthers(p.group, i), i), disabled: !others },
     { label: "Close to the right", run: () => closeIn(p, closeToRight(p.group, i), i + 1), disabled: !right },
+    { label: "Close all", run: () => closeIn(p, closeAll(p.group), 0), disabled: !p.group.tabs.some((x) => !x.pinned) },
     "-",
+    t.preview ? { label: "Keep open", run: () => keepShownTab(p, i) } : null,
     { label: t.pinned ? "Unpin" : "Pin", icon: "pin", run: () => pinTabIn(p, i, !t.pinned) },
     page || phone.matches ? null : { label: split ? (p.index === 0 ? "Move to the side pane" : "Move to the main pane") : "Open to the side", icon: "split", run: () => moveTabTo(p, i, other(p)) },
     n ? { label: "Copy link", icon: "link", run: () => void navigator.clipboard?.writeText(location.origin + notePath(n.title, n.id)).then(() => toast({ icon: "check", text: "Link copied" })) } : null,
@@ -1072,11 +1104,11 @@ function tabStrip(p: Pane): HTMLElement {
     const node = el(
       "div",
       {
-        class: `tab${on ? " is-on" : ""}${t.pinned ? " is-pinned" : ""}${page !== null ? " is-page" : ""}`,
+        class: `tab${on ? " is-on" : ""}${t.pinned ? " is-pinned" : ""}${t.preview ? " is-preview" : ""}${page !== null ? " is-page" : ""}`,
         role: "tab",
         "aria-selected": String(on),
         tabindex: i === roving ? "0" : "-1",
-        title: n ? n.path : name,
+        title: `${n ? n.path : name}${t.preview ? " (preview: double-click to keep it open)" : ""}`,
         draggable: "true",
         "data-index": String(i),
         "data-entry": entry,
@@ -1089,6 +1121,7 @@ function tabStrip(p: Pane): HTMLElement {
     );
     node.addEventListener("mousedown", (e) => e.button === 1 && e.preventDefault()); // not the page's autoscroll
     node.addEventListener("click", () => void activateTab(p, i));
+    node.addEventListener("dblclick", () => keepShownTab(p, i)); // a preview tab stays open
     node.addEventListener("auxclick", (e) => e.button === 1 && (e.preventDefault(), void closeTabAt(p, i))); // a middle-click closes it, as in a browser
     node.addEventListener("contextmenu", (e) => (e.preventDefault(), tabMenu(p, i, { x: e.clientX, y: e.clientY })));
     node.addEventListener("keydown", (e) => {
@@ -1168,7 +1201,7 @@ function renderPaneBars() {
       tabStrip(p),
       el("span", { class: "spacer" }),
       ...(s && s.kind !== "asset" ? [btn(starred ? "starred" : "star", starred ? "Unstar" : "Star", () => void toggleStar(s.path), starred ? "is-on" : "")] : []),
-      btn("close", `Close split view, keep the other note (${formatKeys("Mod-Alt-\\")})`, () => void closePane(p)),
+      btn("close", `Close split view, keep the other note (${formatKeys("Mod-\\")})`, () => void closePane(p)),
     );
     focused?.focus({ preventScroll: true }); // moving the arrows back in drops their focus
     p.bar.classList.toggle("is-focused", p === active);
@@ -1192,6 +1225,12 @@ async function stepPane(p: Pane, dir: "back" | "forward", steps = 1): Promise<bo
     if (--left > 0) {
       from = to;
       continue;
+    }
+    // Back to a note or page that has a tab of its own (a preview opened from it): that tab shows.
+    const j = tabIndex(p.group, to.note!);
+    if (j >= 0 && j !== p.group.at) {
+      await activateTab(p, j);
+      return true;
     }
     p.trail = to;
     saveLayout();
@@ -2455,6 +2494,7 @@ function onUpdate(s: Session, docChanged: boolean, fromRemote: boolean, state: E
   if (docChanged && !fromRemote) {
     s.edited = true;
     scheduleSave(s);
+    keepShownTab(s.pane); // a note you've edited keeps its tab, as in VS Code
   }
   if (docChanged && s.kind === "md") {
     const heading = nameLine(state.doc).text;
@@ -3779,7 +3819,7 @@ function renderChrome() {
   $("#note-history-btn").hidden = !s || s.kind === "asset";
   $("#focus-btn").hidden = !s || s.kind === "asset";
   $("#split-btn").hidden = !split && (!s || s.kind === "asset");
-  setLabel($("#split-btn"), `${split ? "Close split view" : "Open split view"} (${formatKeys("Mod-Alt-\\")})`);
+  setLabel($("#split-btn"), `${split ? "Close split view" : "Open split view"} (${formatKeys("Mod-\\")})`);
   $("#split-btn").classList.toggle("is-on", split);
   $("#save-status").hidden = !s;
   renderCodeWrap();
@@ -4283,7 +4323,11 @@ window.addEventListener(
     } else if (is("Mod-,")) {
       e.preventDefault();
       openSettings();
-    } else if (is("Mod-\\")) {
+    } else if (is("Mod-b") && !(!IS_MAC && prefs.vim && (e.target as HTMLElement | null)?.closest?.(".cm-editor"))) {
+      // ⌘B, as in VS Code. Off a Mac, Ctrl-B in the editor with vim keys on stays vim's (a page up).
+      e.preventDefault();
+      toggleSidebar();
+    } else if (is("Mod-Alt-b")) {
       e.preventDefault();
       togglePanel();
     } else if (is("Mod-s")) {
@@ -4304,7 +4348,8 @@ window.addEventListener(
     } else if (is(ADVANCED_KEYS)) {
       e.preventDefault();
       void advancedSearch();
-    } else if (is("Mod-Alt-\\")) {
+    } else if (is("Mod-\\") || is("Mod-Alt-\\")) {
+      // ⌘\ splits, as in VS Code (⌘⌥\, its old keys, too).
       e.preventDefault();
       void (split ? closePane(active) : openSplit());
     } else if (is("Mod-t") || is("Mod-Alt-t")) {
@@ -4382,6 +4427,54 @@ function togglePanel(force?: boolean) {
   store.set("panel", prefs.panel);
   refreshMentionsSoon(); // looked for only while the panel shows
   document.body.classList.toggle("panel-closed", !prefs.panel);
+  $("#panel-btn").setAttribute("aria-pressed", String(prefs.panel));
+  for (const p of panes) p.view.requestMeasure();
+}
+
+/** Show or hide the sidebar (⌘B, the top bar's button), as VS Code's primary side bar. A phone's is a drawer instead. */
+function toggleSidebar(force?: boolean) {
+  if (phone.matches && force === undefined) return;
+  prefs.sidebar = force ?? !prefs.sidebar;
+  store.set("sidebar", prefs.sidebar);
+  document.body.classList.toggle("sidebar-closed", !prefs.sidebar);
+  $("#sidebar-btn").setAttribute("aria-pressed", String(prefs.sidebar));
+  // Hidden, the keyboard can't stay in it: it goes to the note.
+  if (!prefs.sidebar && $("#sidebar").contains(document.activeElement) && active.session && active.session.kind !== "asset") active.view.focus();
+  for (const p of panes) p.view.requestMeasure();
+}
+
+/** The side bars' widths, as dragged (sideBars.ts), and their sashes. */
+function setupSideBars() {
+  const app = $("#app");
+  const show = () => {
+    app.style.setProperty("--sidebar-w", `${prefs.sidebarWidth}px`);
+    app.style.setProperty("--panel-w", `${prefs.panelWidth}px`);
+    $("#sidebar-sash").setAttribute("aria-valuenow", String(prefs.sidebarWidth));
+    $("#panel-sash").setAttribute("aria-valuenow", String(prefs.panelWidth));
+    for (const p of panes) p.view.requestMeasure();
+  };
+  show();
+  toggleSidebar(prefs.sidebar);
+  wireSash($("#sidebar-sash"), "left", SIDEBAR, {
+    width: () => prefs.sidebarWidth,
+    set: (w, open) => {
+      prefs.sidebarWidth = w;
+      if (open !== prefs.sidebar) toggleSidebar(open);
+      show();
+    },
+    done: () => store.set("sidebarWidth", prefs.sidebarWidth),
+  });
+  wireSash($("#panel-sash"), "right", PANEL, {
+    width: () => prefs.panelWidth,
+    set: (w, open) => {
+      prefs.panelWidth = w;
+      if (open !== prefs.panel) togglePanel(open);
+      show();
+    },
+    done: () => store.set("panelWidth", prefs.panelWidth),
+  });
+  $("#sidebar-btn").addEventListener("click", () => toggleSidebar());
+  setLabel($("#sidebar-btn"), `Toggle sidebar (${formatKeys("Mod-b")})`);
 }
 
 function setVim(on: boolean) {
@@ -5019,7 +5112,8 @@ async function boot() {
   $("#new-note").addEventListener("click", () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""));
   $("#new-from-template").addEventListener("click", () => void newFromTemplate(undefined, onPage() === "notes" ? (notesPage.query.folder ?? "") : ""));
   $("#panel-btn").addEventListener("click", () => togglePanel());
-  setLabel($("#panel-btn"), `Toggle info panel (${formatKeys("Mod-\\")})`);
+  setLabel($("#panel-btn"), `Toggle info panel (${formatKeys("Mod-Alt-b")})`);
+  setupSideBars();
   setupPanes();
   $("#stage").addEventListener("mousedown", () => document.body.classList.remove("panel-overlay"));
   $("#theme-toggle").addEventListener("click", toggleTheme);

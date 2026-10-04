@@ -20,8 +20,9 @@ export const TIPS: Tip[] = [
   { id: "notes-btn", keys: "Mod-Shift-f", does: "opens Notes from anywhere, ready to filter." },
   { id: "archive-btn", keys: "Mod-Shift-e", does: "archives the open note." },
   { id: "focus-btn", keys: "Mod-Shift-Enter", does: "turns focus mode on and off." },
-  { id: "panel-btn", keys: "Mod-\\", does: "shows and hides the info panel." },
-  { id: "split-btn", keys: "Mod-Alt-\\", does: "opens split view, and closes it again." },
+  { id: "sidebar-btn", keys: "Mod-b", does: "shows and hides the sidebar." },
+  { id: "panel-btn", keys: "Mod-Alt-b", does: "shows and hides the info panel." },
+  { id: "split-btn", keys: "Mod-\\", does: "opens split view, and closes it again." },
   { id: "share-btn", keys: "Mod-Shift-s", does: "opens Share." },
   { id: "settings-btn", keys: "Mod-,", does: "opens Settings." },
 ];
