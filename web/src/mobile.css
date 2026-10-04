@@ -307,6 +307,11 @@
   .ask-actions .qw-btn { flex: 1; justify-content: center; min-height: 46px; height: auto; font-size: 15px; }
   .ask-box input:not([type="checkbox"], [type="radio"]), .ask-box select, .ask-box textarea { font-size: 16px; min-height: 44px; }
   .modal-x { width: 44px; height: 44px; margin: -10px -10px -10px 0; }
+  /* The view editor (Advanced search) is a sheet as well: edge to edge, as tall as it needs up to the notch, its
+     buttons held at the bottom above the home bar while the fields scroll. */
+  .sf-modal { place-items: end stretch; padding: 0 0 var(--kb, 0px); overflow: hidden; }
+  .sf-dialog { width: 100%; box-sizing: border-box; max-height: calc(100dvh - var(--kb, 0px) - 24px - env(safe-area-inset-top)); overflow-y: auto; overscroll-behavior: contain; margin: 0; border: 0; border-radius: 16px 16px 0 0; padding: 18px calc(16px + env(safe-area-inset-right)) 0 calc(16px + env(safe-area-inset-left)); animation: sheet-up 0.18s ease-out; }
+  .sf-dialog .qw-config-foot { position: sticky; bottom: 0; margin: 0 calc(-16px - env(safe-area-inset-right)) 0 calc(-16px - env(safe-area-inset-left)); padding: 10px calc(16px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left)); border-top: 1px solid var(--line); background: var(--bg-elev); }
 
   /* Search: the whole screen, the results above the keyboard, and a Cancel where Esc would be. */
   #palette { padding: 0; }

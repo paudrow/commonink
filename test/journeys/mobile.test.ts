@@ -240,6 +240,11 @@ for (const phone of PHONES) {
       await page.locator("#notes-view .feed-card").first().waitFor();
       const r = (await form.boundingBox())!;
       assert.ok(r.x >= 0 && r.x + r.width <= size.width, `the form spans ${r.x} to ${r.x + r.width}`);
+      // once the sheet has slid up
+      await eventually(async () => {
+        const s = (await form.boundingBox())!;
+        assert.ok(s.y >= 0 && s.y + s.height <= size.height, `the form runs from ${s.y} down to ${s.y + s.height}`);
+      });
     });
   }, { skip });
 

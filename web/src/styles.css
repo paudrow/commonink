@@ -2618,8 +2618,10 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .qw-pick { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--muted); background: var(--bg-elev); }
 .qw-pick:hover { color: var(--accent-ink); border-color: var(--accent-line); background: var(--accent-soft); }
 /* the smart folder dialog: in the middle of the window, under the pickers it opens (z-index 60) */
-.sf-modal { position: fixed; inset: 0; z-index: 58; display: grid; place-items: start center; padding: 12vh 16px 16px; overflow: auto; background: rgba(20, 16, 10, 0.28); backdrop-filter: blur(3px); }
-.sf-dialog { width: min(560px, 100%); display: grid; gap: 14px; padding: 16px 18px 14px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--bg-elev); color: var(--ink); box-shadow: var(--shadow-lg); }
+.sf-modal { position: fixed; inset: 0; z-index: 58; display: grid; place-items: start center; padding: 24px 16px; overflow: auto; background: rgba(20, 16, 10, 0.28); backdrop-filter: blur(3px); }
+/* Edged like the other dialogs (.ask-box): no border, the shadow is the edge. It sits a little above the middle of a
+   tall window, and keeps the same 24px from the top and the bottom of a short one. */
+.sf-dialog { width: min(560px, 100%); display: grid; gap: 14px; margin-top: clamp(0px, calc((100vh - 750px) / 2), 12vh); padding: 18px 20px 16px; border-radius: 14px; background: var(--bg-elev); color: var(--ink); box-shadow: var(--shadow-lg); }
 .sf-head { display: flex; align-items: center; gap: 8px; color: var(--muted); }
 .sf-head h2 { flex: 1; margin: 0; font-size: 14px; font-weight: 600; color: var(--ink-strong); }
 .sf-dialog input[type="text"] { min-width: 0; width: 100%; box-sizing: border-box; font: 14px var(--ui); color: var(--ink-strong); background: var(--bg); border: 1px solid var(--line-strong); border-radius: 8px; padding: 6px 10px; height: 34px; }
