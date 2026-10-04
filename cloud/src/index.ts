@@ -245,7 +245,13 @@ async function api(req: Request, env: Env, url: URL): Promise<Response> {
   // Cookies ride along on any request to us, so writes must come from our own pages.
   const isWrite = req.method !== "GET" && req.method !== "HEAD";
   const upgrade = req.headers.get("Upgrade") === "websocket";
-  if ((isWrite || upgrade) && req.headers.get("Origin") !== url.origin) return json({ error: "Cross-origin request refused" }, 403);
+  // The browser extension (extensions/chrome) is the one exception, for its one route. Only an
+  // extension can send a chrome-extension:// Origin (a page can't set it), and the session cookie
+  // (SameSite=Lax) only rides along from one the person let reach this site. The header keeps it
+  // out of reach of a plain form post.
+  const isCapture = req.method === "POST" && /^\/api\/w\/[a-z0-9]+\/capture$/.test(url.pathname);
+  const fromExtension = isCapture && /^chrome-extension:\/\/[a-p]{32}$/.test(req.headers.get("Origin") ?? "") && req.headers.get("X-Common-Ink-Capture") === "1";
+  if ((isWrite || upgrade) && req.headers.get("Origin") !== url.origin && !fromExtension) return json({ error: "Cross-origin request refused" }, 403);
   // Uploads and a note on its way to Drive are raw bytes; everything else that writes must be JSON.
   const isUpload = req.method === "POST" && /^\/api\/w\/[a-z0-9]+\/upload$/.test(url.pathname);
   const isDrive = req.method === "POST" && url.pathname === "/api/google/drive";

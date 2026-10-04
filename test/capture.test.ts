@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
-import { captureBlock, withCaptured } from "../src/core/capture.ts";
+import { captureBlock, sourceLink, webCaptureBlock, withCaptured } from "../src/core/capture.ts";
 
 const root = path.resolve(import.meta.dirname, "..");
 
@@ -119,4 +119,20 @@ test("the manifest offers Common Ink in the share sheet: links, text and images,
     params: { title: "title", text: "text", url: "url", files: [{ name: "files", accept: ["image/*"] }] },
   });
   for (const icon of m.icons) assert.ok(fs.existsSync(path.join(root, "web/public", icon.src)), icon.src);
+});
+
+test("a capture from the browser extension: a selection is a quote with its source, a page its source then its content", () => {
+  const from = { title: "How ink [really] dries", url: "https://example.com/ink_(dry)" };
+  assert.equal(sourceLink(from), "[How ink \\[really\\] dries](https://example.com/ink_%28dry%29)");
+  assert.equal(sourceLink({ url: "https://example.com/a" }), "[https://example.com/a](https://example.com/a)");
+  assert.equal(sourceLink({ title: "Local", url: "javascript:alert(1)" }), "Local", "only a web address is linked");
+  assert.deepEqual(webCaptureBlock({ ...from, text: "First line\n\nSecond" }), ["> First line", ">", "> Second", "", `— ${sourceLink(from)}`]);
+  assert.deepEqual(webCaptureBlock({ text: "Alone" }), ["> Alone"]);
+
+  const md = "# How ink dries\n\nBy evaporation.\n\n```\n# not a heading\n```\n\n## Paper ##\n";
+  assert.deepEqual(webCaptureBlock({ title: "Ink", url: "https://example.com/" }, md), ["[Ink](https://example.com/)", "", "# How ink dries", "", "By evaporation.", "", "```", "# not a heading", "```", "", "## Paper ##"]);
+  // In a journal note's Captured section, a page's headings would end the section: they become bold lines.
+  assert.deepEqual(webCaptureBlock({ title: "Ink", url: "https://example.com/" }, md, true).filter((l) => l.includes("ink dries") || l.includes("Paper") || l.includes("not a")), ["**How ink dries**", "# not a heading", "**Paper**"]);
+  assert.deepEqual(webCaptureBlock({ title: "Ink", url: "https://example.com/" }), ["[Ink](https://example.com/)"]);
+  assert.deepEqual(webCaptureBlock({}), []);
 });

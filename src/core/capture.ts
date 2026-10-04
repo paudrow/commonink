@@ -58,3 +58,46 @@ export function withCaptured(content: string, block: string[]): { content: strin
   }
   return { content: `${lines.join("\n")}\n`, line: at + 1 };
 }
+
+/** What the browser extension (extensions/chrome) saves: a page's readable content, or a selection from one. */
+export interface WebCapture {
+  title?: string;
+  url?: string;
+  /** A page: the HTML of its main content. */
+  html?: string;
+  /** A selection: its text. */
+  text?: string;
+}
+
+/** The most HTML one capture may bring. */
+export const MAX_CAPTURE_HTML = 2_000_000;
+
+const webUrl = (s: string | undefined) => (/^https?:\/\/\S+$/i.test((s ?? "").trim()) ? (s ?? "").trim() : "");
+
+/** A capture's link back to where it came from: `[Title](url)`, or the title alone when there's no web link. */
+export function sourceLink(c: WebCapture): string {
+  const url = webUrl(c.url);
+  const title = (c.title ?? "").replace(/\s+/g, " ").trim();
+  if (!url) return title;
+  return `[${(title || url).replace(/[[\]\\]/g, "\\$&")}](${url.replace(/[()]/g, (c) => (c === "(" ? "%28" : "%29"))})`;
+}
+
+/**
+ * A web capture as note lines. A selection is a quote with its source under it; a page is its
+ * source, then its content as markdown (`markdown` is what the page's HTML reads as). With `flat`
+ * (a capture inside another note's section) the page's headings become bold lines, so they don't
+ * end the section.
+ */
+export function webCaptureBlock(c: WebCapture, markdown = "", flat = false): string[] {
+  const source = sourceLink(c);
+  const text = (c.text ?? "").trim();
+  if (text) return [...text.split(/\r?\n/).map((l) => (l.trim() ? `> ${l}` : ">")), ...(source ? ["", `— ${source}`] : [])];
+  const body = markdown.trim();
+  let fenced = false;
+  const lines = !body ? [] : body.split("\n").map((l) => {
+    if (l.startsWith("```")) fenced = !fenced;
+    const h = !fenced && flat ? l.match(/^#{1,6}\s+(.*?)\s*#*$/) : null;
+    return h ? `**${h[1]}**` : l;
+  });
+  return [...(source ? [source] : []), ...(source && lines.length ? [""] : []), ...lines];
+}
