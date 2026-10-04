@@ -21,7 +21,8 @@ import { filterBox, NOTE_SORTS, slashToFilter, SORT_NAMES } from "./filterRow.ts
 import type { ToastSpec } from "./toast.ts";
 import { folderList, formatQuery, tagList, type NoteQuery, type QuerySort } from "../../src/core/query.ts";
 import { parse, textWords } from "../../src/core/queryGrammar.ts";
-import { queryHelpLink } from "./queryHelp.ts";
+import { QUERY_HELP, queryHelpLink } from "./queryHelp.ts";
+import { openMenu, under } from "./menu.ts";
 import { hydrateTaskChips, withTaskChips } from "./taskChips.ts";
 import { openChipEditor, taskPeople } from "./taskChipEditors.ts";
 import { clickWhere, linkClick, modClick, type Where } from "./panes.ts";
@@ -98,6 +99,10 @@ export class NotesPage {
   private sortSel: HTMLSelectElement;
   private saveBtn: HTMLButtonElement;
   private advancedBtn: HTMLButtonElement;
+  /** On a phone: the one button in the search box, for the sort, Advanced search and Query syntax (mobile.css). */
+  private toolsBtn: HTMLButtonElement;
+  /** The search and filters, which stay at the top; on a phone they slide away as the list scrolls down. */
+  private head: HTMLElement;
   private heading = el("h1", {}, "Notes");
   private newBtn: HTMLButtonElement;
   private bulk: HTMLElement;
@@ -134,6 +139,8 @@ export class NotesPage {
   private expanded = new Set<string>();
   private full = new Map<string, { mtime: number; content: string }>();
   private scrollTop = 0;
+  /** Where the list was when the search and filters last slid away or came back. */
+  private tuckedAt = 0;
   private seq = 0;
   private timer = 0;
 
@@ -158,17 +165,23 @@ export class NotesPage {
       icon("sliders", 14),
       el("span", {}, "Advanced"),
     );
+    this.toolsBtn = el(
+      "button",
+      { type: "button", class: "feed-tools", title: "Sort and search options", "aria-label": "Sort and search options", "aria-haspopup": "menu", onclick: () => this.openTools() },
+      icon("sliders", 18),
+    );
     this.emptyBtn = el("button", { type: "button", class: "qw-btn danger feed-empty-trash", hidden: true, onclick: () => void this.emptyTrash() }, icon("trash", 14), "Empty trash");
     this.bulk = el("div", { class: "feed-bulk", hidden: true });
     this.list = el("div", { class: "feed-list", role: "list" });
     this.more = el("div", { class: "feed-more" });
     // The sort sits in the search box, so the filters fit on one row.
-    ({ root: this.search, input: this.input } = filterBox("notes", { tools: [queryHelpLink(), this.advancedBtn, this.sortSel] }));
+    ({ root: this.search, input: this.input } = filterBox("notes", { tools: [queryHelpLink(), this.advancedBtn, this.sortSel, this.toolsBtn] }));
     slashToFilter(this.root, this.input);
     this.filters = el("div", { class: "feed-filters" }, this.scopeBar, this.tagBar, this.folderSel, this.saveBtn, this.emptyBtn);
     this.keys = el("footer", { class: "feed-keys" });
     // The heading scrolls away; the search and filters stay at the top, and the list scrolls clear of them.
-    const head = el("header", { class: "feed-head" }, this.search, this.problem, this.filters, this.about);
+    const head = (this.head = el("header", { class: "feed-head" }, this.search, this.problem, this.filters, this.about));
+    head.addEventListener("focusin", () => head.classList.remove("is-tucked")); // Tab reaches it wherever the list is
     this.newBtn = el("button", { type: "button", class: "qw-btn primary", title: "New note (n)", onclick: () => this.hooks.newNote(this.folder ?? "") }, icon("plus", 14), "New note");
     this.root.append(el("div", { class: "feed" }, pageHeader({ title: this.heading, actions: [this.newBtn] }), head, this.bulk, this.list, this.elsewhere, this.more, this.keys));
     this.input.addEventListener("input", () => {
@@ -180,6 +193,7 @@ export class NotesPage {
     const clear = () => {
       const bar = this.bulk.hidden ? 0 : this.bulk.offsetHeight + 10;
       this.root.style.setProperty("--feed-head", `${head.offsetHeight}px`);
+      this.root.style.setProperty("--feed-about", `${this.about.offsetHeight ? this.about.offsetHeight + 10 : 0}px`); // with its margin: a phone's header sticks without it (mobile.css)
       this.root.style.scrollPaddingTop = `${head.offsetHeight + bar + 8}px`;
     };
     if (typeof ResizeObserver !== "undefined") {
@@ -189,8 +203,37 @@ export class NotesPage {
     }
     this.root.addEventListener("scroll", () => {
       if (!this.root.hidden) this.scrollTop = this.root.scrollTop;
+      this.tuck();
       if (this.root.scrollTop + this.root.clientHeight > this.root.scrollHeight - 600) void this.loadMore();
     });
+  }
+
+  /**
+   * On a phone the search and filters take a third of the screen, so they slide away as the list
+   * scrolls down and come back on a scroll up (or at the top, or while the search box is being typed in).
+   */
+  private tuck() {
+    const y = this.root.scrollTop;
+    const by = y - this.tuckedAt;
+    if (Math.abs(by) < 8 && y > 0) return; // a finger's wobble isn't a change of direction
+    this.tuckedAt = y;
+    const away = by > 0 && matchMedia("(max-width: 760px)").matches && y > this.list.offsetTop && document.activeElement !== this.input;
+    this.head.classList.toggle("is-tucked", away);
+  }
+
+  /** The phone's menu for the search box: the sort, Advanced search and Query syntax. */
+  private openTools() {
+    const sort = (v: QuerySort) => ((this.sortSel.value = v), this.sortSel.dispatchEvent(new Event("change")));
+    openMenu(
+      under(this.toolsBtn),
+      [
+        ...SORTS[this.tab === "trash" ? "trash" : "notes"].map(([v, label]) => ({ label, icon: v === this.sortSel.value ? "check" : undefined, run: () => sort(v) })),
+        "-",
+        this.tab !== "trash" && { label: "Advanced search…", icon: "sliders", run: () => this.openAdvanced() },
+        { label: "Query syntax", icon: "code", run: () => window.dispatchEvent(new Event(QUERY_HELP)) },
+      ],
+      { label: "Sort and search options" },
+    );
   }
 
   get visible() {
@@ -223,7 +266,7 @@ export class NotesPage {
 
   /** Advanced search on what Notes shows. Not in Trash: the view editor finds notes, not deleted ones. */
   openAdvanced() {
-    if (this.tab !== "trash") this.hooks.advanced(this.advancedBtn);
+    if (this.tab !== "trash") this.hooks.advanced(this.advancedBtn.offsetParent ? this.advancedBtn : this.toolsBtn);
   }
 
   /** Show `query` in place of the filters, from the top, leaving the keyboard where it is (Advanced search, as it changes). */

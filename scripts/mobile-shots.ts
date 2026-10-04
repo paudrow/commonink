@@ -4,9 +4,10 @@
 //
 //   npm run cloud:dev                                                   # or a pull request's Preview
 //   node --import tsx scripts/preview-demo.ts http://localhost:8787
-//   node --import tsx scripts/mobile-shots.ts http://localhost:8787 out/ [--widths 375,393] [--only tasks,calendar] [--now 2026-10-03T12:00:00]
+//   node --import tsx scripts/mobile-shots.ts http://localhost:8787 [screenshots/mobile] [--widths 375,393] [--only tasks,calendar] [--now 2026-10-03T12:00:00]
 //
-// Writes <screen>-<width>.png and report.json (per shot: the overflow in px, and the small targets).
+// Writes <screen>-<width>.png and report.json (per shot: the overflow in px, and the small targets) to the
+// gitignored screenshots/mobile, or the folder you name.
 import fs from "node:fs";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
@@ -21,7 +22,7 @@ const only = flag("only")?.split(",");
 /** A fixed time for the browser's clock, so two runs show the same "5m ago" and can be compared pixel for pixel. */
 const now = flag("now");
 const origin = new URL(args[0] ?? "").origin;
-const out = path.resolve(args[1] ?? "mobile-shots");
+const out = path.resolve(args[1] ?? "screenshots/mobile");
 
 /** A width's screen: phones and tablets are touch screens, as the app's media queries ask. */
 const DEVICES: Record<number, { height: number; touch: boolean }> = {

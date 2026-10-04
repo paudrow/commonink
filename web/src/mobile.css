@@ -2,8 +2,11 @@
 /* Three widths: a phone (up to 760px) gets the bottom bar and the drawer; a phone or a touch tablet
    (up to 1100px) puts nearly the whole top bar in the More menu; any touch screen gets 44px targets. */
 
-#bottom-nav, #kb-bar, #fab-new, #palette-close, #sheet-scrim { display: none; }
+#bottom-nav, #kb-bar, #fab-new, #palette-close, #palette-advanced, #sheet-scrim, .feed-tools, .agents-name { display: none; }
 .more-wrap { position: relative; flex: none; }
+/* Who else is at work (main.ts renderPresence): their pictures, as a button to what they changed. */
+.agents-btn { display: flex; align-items: center; border-radius: 999px; }
+.agents-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* Everywhere, More (⋯) holds a note's occasional buttons. Split view's stays out while a split is
    open, lit, so the way to close it is in sight. */
 #note-history-btn, #move-btn, #archive-btn, #delete-btn, #split-btn:not(.is-on) { display: none; }
@@ -99,7 +102,15 @@
   #topbar .nav-arrow[data-dir="forward"][aria-disabled="true"] { display: none; }
   #topbar { padding-left: 4px; gap: 2px; }
   #topbar .nav-arrows { margin-right: 0; }
+  /* Who's at work beside you: the first one's picture and name ("Claude", or "3 active"), so the
+     robot says what it is. A tap opens History on what they changed. */
   #agents .avatar:nth-child(n + 2) { display: none; }
+  #agents { padding-left: 0; flex: none; } /* the tabs give way, and scroll */
+  .agents-btn { gap: 6px; height: 32px; max-width: 132px; padding: 0 10px 0 5px; background: var(--accent-soft); color: var(--accent-ink); font: 600 12.5px var(--ui); }
+  #agents .agents-btn .avatar { margin-left: 0; }
+  .agents-btn { position: relative; }
+  .agents-btn::after { content: ""; position: absolute; inset: -6px 0; } /* 44px to tap */
+  .agents-name { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* Tasks, Tags and the other pages get the phone's width, as Notes does: 16px at each side, on every
      page. A phone shows one pane, so a task's "Open in split view" (its last button) has no side to open. */
   .page, .assets { padding: 24px 16px 96px; }
@@ -116,13 +127,14 @@
 
   /* Tabs: a strip that scrolls sideways, in the row the top bar has between ← and the note's
      buttons. A phone shows one pane, so a tab's drag goes along the strip or to a folder, never to a
-     split. Only the tab you're on has its ×. */
+     split. Only the tab you're on has its ×, and only with another tab to go to: closing the last
+     one would open Notes again, and the bottom bar is how a phone changes page. */
   #top-tabs { padding: 0; align-self: stretch; }
   #top-tabs + .spacer { flex: 0 0 0; }
   .tab { max-width: 150px; padding-left: 8px; }
   .tabs { padding: 0 2px; } /* no scroll snap: the tab you're on scrolls wholly into view */
-  #topbar .tab:not(.is-on) .tab-x:not(.tab-pin) { display: none; }
-  #topbar .tab:not(.is-on) { padding-right: 9px; }
+  #topbar .tab:is(:not(.is-on), :only-of-type) .tab-x:not(.tab-pin) { display: none; }
+  #topbar .tab:is(:not(.is-on), :only-of-type):not(.is-pinned) { padding-right: 9px; }
   #topbar .tab-new { display: none; } /* the bottom bar and the + on Notes start a note */
 
   /* Split view: one pane at a time, the focused one. Its bar's close button brings back the other. */
@@ -165,7 +177,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #sidebar, body.drawer-open #sidebar { transition: none; }
+  #sidebar, body.drawer-open #sidebar, .feed-head, .feed-head.is-tucked { transition: none; }
 }
 
 /* The calendar on a phone: Agenda first (calendar/page.ts), the week scrolls sideways inside the
@@ -304,6 +316,12 @@
   #palette-results { flex: 1; min-height: 0; max-height: none; padding-bottom: env(safe-area-inset-bottom); }
   .palette-item { min-height: 48px; }
   .palette-foot { display: none; }
+  /* Advanced search, under the search box: a phone has no ⌘⌥F, and nobody types "> advanced". */
+  #palette-advanced { flex: none; display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 18px; border-bottom: 1px solid var(--line); font-size: 15px; color: var(--ink-2); text-align: left; }
+  #palette-advanced svg { flex: none; color: var(--muted); }
+  #palette-advanced small { margin-left: auto; font-size: 12.5px; color: var(--muted); }
+  #palette-advanced:active { background: var(--hover); }
+  .palette-input:has(.palette-step:not([hidden])) ~ #palette-advanced { display: none; } /* a command is asking for something */
   .palette-hint { flex: none; }
 
   /* [[, @, / and # pickers: across the foot of the note, above the toolbar and the keyboard. */
@@ -343,6 +361,7 @@
 
   .tab { height: 36px; }
   .tab::after { content: ""; position: absolute; inset: -4px 0; }
+  .tab-x { z-index: 1; } /* above the tab's own tap area, or a tap on × only shows the tab */
   .pane-bar .tab { height: 32px; }
 
   .icon-btn:not(.small), .fc-action, .qt-act { width: 44px; height: 44px; flex: none; }
@@ -408,8 +427,21 @@
   /* Assets: two cards to a row. */
   .as-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 
-  /* Notes: the filter box, then its sort on a row of its own with the tabs. */
+  /* Notes: the search box has the row to itself, with one button for its sort, Advanced search and
+     Query syntax. The search and filters slide away as the list scrolls down, and come back on a
+     scroll up (notesPage.ts). */
   .feed-filters { gap: 8px 6px; }
+  .feed-search { padding-right: 0; }
+  .feed-search :is(.query-help-link, .feed-advanced, .feed-sort) { display: none; }
+  .feed-tools { display: grid; place-items: center; flex: none; width: 44px; height: 44px; border-radius: 10px; color: var(--muted); }
+  .feed-tools:active { background: var(--hover); color: var(--ink-strong); }
+  /* The tab's line of help comes first and scrolls away with the heading: what sticks is the search
+     box and one or two rows of filters. */
+  .feed-head { display: flex; flex-direction: column; top: calc(0px - var(--feed-about, 0px)); transition: transform 0.2s ease, visibility 0s; }
+  .feed-about { order: -1; margin: 0 0 10px; }
+  .feed-bulk { top: calc(var(--feed-head, 0px) - var(--feed-about, 0px)); }
+  .feed-head.is-tucked { transform: translateY(-100%); visibility: hidden; transition: transform 0.2s ease, visibility 0s linear 0.2s; }
+  .feed-head.is-tucked ~ .feed-bulk { top: 0; }
 
   /* Tasks and Today: the tabs and the menus under the heading wrap rather than squeeze. */
   .qw-head { flex-wrap: wrap; row-gap: 4px; }
@@ -419,6 +451,9 @@
    account and New note fixed at its foot. A short phone would otherwise show the pages and nothing else. */
 @media (max-width: 760px) {
   #sidebar { overflow-y: auto; overscroll-behavior: contain; }
+  /* The bottom bar has Today, Notes, Tasks and Search: the drawer holds the rest. */
+  #sidebar :is(#search-btn, #today-btn, #notes-btn, #tasks-btn) { display: none; }
+  #sidebar .brand { margin-bottom: 6px; }
   #sidebar > * { flex: none; }
   .sidebar-sections { overflow: visible; }
   .sidebar-foot { position: sticky; bottom: 0; margin-top: auto; background: var(--bg-side); z-index: 1; }

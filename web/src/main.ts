@@ -90,7 +90,7 @@ import { openRowMenu, rowMenu, rowMenuOpenFor, SEPARATOR, type RowMenuItem } fro
 import { renderSharedList, sharedPage } from "./sharedPage.ts";
 import { CapturePage, registerWorker } from "./capture.ts";
 import { AGENTS_BLURB, isAgentsNote } from "./agentsNote.ts";
-import { closeDrawer, renderMore, setupMobileNav } from "./mobileNav.ts";
+import { closeDrawer, hintAgents, renderMore, setupMobileNav } from "./mobileNav.ts";
 import { setupTouchKeyboard } from "./touchKeyboard.ts";
 import { nameField, plusMark, sectionHint, shownItems, sidebarTags, type OptionalItem } from "./sidebar.ts";
 import { PEOPLE } from "../../src/core/contacts.ts";
@@ -368,6 +368,8 @@ const palette = new Palette(
 );
 /** A page picked in the palette: in a new tab if it was opened for one (⌘T), else here. */
 const pageFromPalette = (open: () => unknown) => (paletteHow === "tab" ? openPageInTab(open) : open());
+// On a phone, search has Advanced search under its box (mobile.css): Notes, with the editor on its filters.
+$("#palette-advanced").addEventListener("click", () => (palette.close(), void advancedSearch()));
 function openPalette(side = false) {
   paletteHow = side ? "side" : "here";
   did("search");
@@ -4100,8 +4102,22 @@ function renderPresence() {
   const bySource = new Map<string, Change>();
   for (const c of changes) if (c.ts > since && !isSelf(c.source) && !bySource.has(c.source)) bySource.set(c.source, c);
   const active = [...bySource.values()].slice(0, 4);
-  $("#agents").replaceChildren(...active.map((c) => authorAvatar(c, 22)));
-  $("#agents").title = active.length ? `Active in the last 15 min: ${active.map(authorName).join(", ")}` : "";
+  if (!active.length) return $("#agents").replaceChildren();
+  // A button: its name says who, a phone shows the first one's name beside the picture (mobile.css),
+  // and a press opens History on what they changed.
+  const who = active.map(authorName).join(", ");
+  const label = `Active in the last 15 minutes: ${who}. See what changed`;
+  const name = active.length > 1 ? `${active.length} active` : (active[0].agent ?? active[0].source);
+  const first = changes.findLast((c) => c.ts > since && !isSelf(c.source) && c.agent); // the oldest: changes run newest first
+  $("#agents").replaceChildren(
+    el(
+      "button",
+      { type: "button", class: "agents-btn", title: label, "aria-label": label, onclick: () => void showHistory(first ? { since: first.id - 1 } : {}) },
+      ...active.map((c) => authorAvatar(c, 22)),
+      el("span", { class: "agents-name" }, name),
+    ),
+  );
+  hintAgents(name);
 }
 
 // ------------------------------------------------------------------ html notes
