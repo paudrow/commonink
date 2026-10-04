@@ -2,7 +2,7 @@
 // links open where they are; duplicate contacts go to Contacts, whose banner merges them; empty
 // notes can be deleted (with Undo); notes nothing links to can be archived, as a suggestion; and
 // long-overdue tasks open where they are. A section shows only when it has something. The findings
-// come from src/core/checkup.ts (GET /api/checkup, `commonink checkup`).
+// come from src/core/checkup.ts (GET /api/checkup, `commonink checkup get`).
 import { api } from "./api.ts";
 import { displayName, el, icon } from "./dom.ts";
 import { pageHeader } from "./pageHeader.ts";

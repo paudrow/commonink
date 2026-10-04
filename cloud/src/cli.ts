@@ -4,7 +4,7 @@
 // in, and the person's role there, are read fresh on every request.
 import { json } from "../../src/core/api.ts";
 import { agentSource } from "../../src/core/actor.ts";
-import { COMMANDS, toolName, UsageError, type WorkspaceSettings } from "../../src/core/commands/index.ts";
+import { commandByCli, toolName, UsageError, type WorkspaceSettings } from "../../src/core/commands/index.ts";
 import { checkInput } from "../../src/core/commands/input.ts";
 import { VaultError } from "../../src/core/paths.ts";
 import { CLI_ROUTE, fromWire, MAX_RUN_BODY, toWire, type RunRequest, type RunResponse } from "../../src/core/commands/wire.ts";
@@ -43,7 +43,7 @@ export async function serveCli(req: Request, env: OAuthEnv, props: AgentProps, i
     }
   })();
   if (!body || typeof body.command !== "string" || typeof body.input !== "object" || body.input === null) return fail("Expected {command, input}", "usage");
-  const command = COMMANDS.find((c) => c.cli === body.command);
+  const command = commandByCli(body.command);
   if (!command) return fail(`No command "${body.command}": see commonink help`, "usage");
   // A grant for one workspace may be an MCP client's, which reaches here with the same token: it gets
   // what MCP gives it, no command that isn't a tool and no leaving out what a tool requires. The CLI

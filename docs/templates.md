@@ -101,4 +101,4 @@ The new note's frontmatter also says which event it's for: `event:` (its ID in t
 
 ## For agents
 
-`list_templates` lists the templates and what each asks; `create_from_template` makes a note, with `variables` answering its questions by label (plain text, written as given). The reply says what's still unfilled. On the command line: `commonink templates`, and `commonink new --template Meeting --var Client=Acme --var "Attendees=@Sam @Lee"`.
+`list_templates` lists the templates and what each asks; `use_template` makes a note, with `variables` answering its questions by label (plain text, written as given). The reply says what's still unfilled. On the command line: `commonink template list`, and `commonink template use --template Meeting --var Client=Acme --var "Attendees=@Sam @Lee"`.

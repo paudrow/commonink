@@ -74,10 +74,10 @@ test("your settings file's old show_config_folder is still a setting, so it isn'
 });
 
 test("an agent that writes bad properties is told what's wrong, line by line", async () => {
-  const { COMMANDS } = await import("../src/core/commands/index.ts");
+  const { commandByCli } = await import("../src/core/commands/index.ts");
   const { openTempVault } = await import("./helpers.ts");
   const { vault } = openTempVault();
-  const run = (cli: string, args: Record<string, unknown>) => (COMMANDS.find((c) => c.cli === cli)!.run({ vault, source: "test" } as never, args as never) as { text: string }).text;
+  const run = (cli: string, args: Record<string, unknown>) => (commandByCli(cli)!.run({ vault, source: "test" } as never, args as never) as { text: string }).text;
   const created = run("create", { path: SETTINGS_NOTE, content: "---\ngamified: no\ntheme: dark\n---\n" });
   assert.match(created, /^Created Config\/Settings\.md/);
   assert.match(created, /line 2: gamified is true or false, not "no"\.\n- line 3: There's no setting called theme/);
@@ -203,11 +203,11 @@ test("a declared type decides a property's control, type and checks; the app's o
 });
 
 test("agents and the CLI list properties with their types and declare one, the same as the table", async () => {
-  const { COMMANDS } = await import("../src/core/commands/index.ts");
+  const { commandByCli } = await import("../src/core/commands/index.ts");
   const { openTempVault } = await import("./helpers.ts");
   const { vault } = openTempVault({ "A.md": "---\npriority: 2\ndue: 2026-10-02\n---\n# A\n", "B.md": "---\npriority: high\ntags: [x]\n---\n# B\n" });
   vault.sync();
-  const run = (cli: string, args: Record<string, unknown>) => COMMANDS.find((c) => c.cli === cli)!.run({ vault, source: "test" } as never, args as never) as { text: string; data: unknown };
+  const run = (cli: string, args: Record<string, unknown>) => commandByCli(cli)!.run({ vault, source: "test" } as never, args as never) as { text: string; data: unknown };
   assert.match(run("properties", {}).text, /- due: date \(guessed\), 1 note\n- priority: text \(guessed\), 2 notes\n- tags: tags \(built in\), 1 note/);
   assert.match(run("property type", { name: "priority", type: "number" }).text, /priority is a number in every note now/);
   assert.match(vault.read(SETTINGS_NOTE).content, /^---\n(.*\n)*properties:\n  priority: number\n---/);

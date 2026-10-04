@@ -49,4 +49,4 @@ With the local app, agents connect over stdio: `claude mcp add commonink -- comm
 
 ## What agents can use
 
-The tools cover notes (`search_notes`, `read_note`, `create_note`, `edit_note`, `import_notes`, `move_note`, `archive_note`), tasks (`list_tasks`, `add_task`, `update_task`, `get_today`), boards, tags, views (saved searches), favorites, history and restore, calendar events and meeting notes, contacts, and sharing. Every tool is also a command: `commonink help` lists them.
+The tools cover notes (`search_notes`, `get_note`, `create_note`, `edit_note`, `import_notes`, `move_note`, `archive_note`), tasks (`list_tasks`, `add_task`, `update_task`, `get_today`), boards, tags, views (saved searches), starred notes, history and restore, named versions, calendar events and meeting notes, contacts, and sharing. Every tool is also a command: `commonink help` lists them. Tool names are `<verb>_<thing>`; a tool that was renamed (`read_note` is `get_note` now) still runs when called by its old name.

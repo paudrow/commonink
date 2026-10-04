@@ -98,7 +98,7 @@ test("the markdown agents send: links to notes (itself too) become web addresses
 
 test("save-to-drive: saves through the host's Drive, says where; refuses without one, and for a note that isn't markdown", async () => {
   const { vault } = openTempVault({ "Plan.md": "# Plan\n", "Page.html": "<p>hi</p>" });
-  const command = COMMANDS.find((c) => c.cli === "save-to-drive")!;
+  const command = COMMANDS.find((c) => c.cli === "drive save")!;
   const asked: Array<[string, string]> = [];
   const drive = { name: "Google Drive", save: async (rel: string, format: string) => (asked.push([rel, format]), { name: "Plan", url: "https://docs.test/1" }) };
   const host = { vault, user: "you", source: "t", canEditShared: true, drive } as CommandHost;
@@ -111,10 +111,10 @@ test("save-to-drive: saves through the host's Drive, says where; refuses without
   await assert.rejects(run(host, { note: "Nope" }), /No note matches "Nope"/);
 });
 
-test("on the CLI, export <note> --to drive is save-to-drive", async () => {
+test("on the CLI, export <note> --to drive is drive save", async () => {
   const { parse } = await import("../src/cli/argv.ts");
   const io = { stdin: () => null, readFile: (name: string) => ({ name, bytes: new Uint8Array() }) };
   const p = parse(["export", "Plan", "--to", "drive", "--format", "pdf"], io) as { command: { cli: string }; input: Record<string, unknown> };
-  assert.deepEqual([p.command.cli, p.input.note, p.input.format, p.input.to], ["save-to-drive", "Plan", "pdf", "drive"]);
+  assert.deepEqual([p.command.cli, p.input.note, p.input.format, p.input.to], ["drive save", "Plan", "pdf", "drive"]);
   assert.equal((parse(["export", "Plan", "--format", "html"], io) as { command: { cli: string } }).command.cli, "export");
 });

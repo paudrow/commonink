@@ -84,17 +84,17 @@ async function mcp(token: string) {
 
 /** What a viewer's agent gets: reading, and what's each person's own (favorites, their smart folders). */
 const VIEWER_TOOLS = [
-  "backlinks", "delete_smart_folder", "diff_versions", "export_note", "get_event", "get_today", "google_contacts_status", "list_contacts", "list_decisions", "list_events",
-  "list_folders", "list_labels", "list_notes", "list_properties", "list_shares", "list_smart_folders", "list_tags", "list_tasks", "list_templates", "missing_links",
-  "order_favorites", "read_board", "read_contact", "read_note", "recent_changes", "save_smart_folder", "save_to_drive", "search_notes", "show_change", "star_note",
-  "star_smart_folder", "star_tag", "unstar_note", "unstar_smart_folder", "unstar_tag", "workspace_checkup",
+  "check_google_contacts", "compare_versions", "delete_view", "export_note", "get_board", "get_change", "get_checkup", "get_contact", "get_event", "get_note",
+  "get_today", "list_backlinks", "list_changes", "list_contacts", "list_decisions", "list_events", "list_folders", "list_missing_links", "list_notes", "list_properties",
+  "list_shares", "list_tags", "list_tasks", "list_templates", "list_versions", "list_views", "order_starred", "save_to_drive", "save_view", "search_notes",
+  "star_note", "star_tag", "star_view", "unstar_note", "unstar_tag", "unstar_view",
 ];
 const ALL_TOOLS = [
   ...VIEWER_TOOLS,
-  "add_card", "add_task", "append_to_note", "archive_note", "ask_decision", "create_contact", "create_from_template", "create_meeting_note", "create_note", "delete_folder",
-  "delete_note", "edit_card", "edit_note", "import_contacts", "import_notes", "label_version", "list_trash", "merge_contacts", "move_card", "move_note",
-  "move_task", "open_journal", "remove_task", "rename_folder", "rename_tag", "replace_text", "restore_change", "restore_from_trash", "restore_label", "set_asset_tags",
-  "set_property_type", "share_note", "sync_google_contacts", "unarchive_note", "unshare_note", "update_contact", "update_task", "withdraw_decision", "write_note",
+  "add_card", "add_task", "append_to_note", "archive_note", "ask_decision", "create_contact", "create_meeting_note", "create_note", "delete_folder", "delete_note",
+  "delete_task", "edit_note", "import_contacts", "import_notes", "list_trash", "merge_contacts", "move_card", "move_note", "move_task", "name_version",
+  "open_journal", "rename_folder", "rename_tag", "replace_in_notes", "restore_change", "restore_from_trash", "restore_version", "set_property_type", "share_note", "sync_google_contacts",
+  "tag_asset", "unarchive_note", "unshare_note", "update_card", "update_contact", "update_task", "use_template", "withdraw_decision", "write_note",
 ].sort();
 
 test("an agent discovers where to sign in from /mcp", async () => {

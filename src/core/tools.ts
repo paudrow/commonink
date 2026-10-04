@@ -11,7 +11,7 @@ import type { MemberRef } from "./contacts.ts";
 import type { Exporter } from "./export.ts";
 import { agentsText } from "./noteRoles.ts";
 import { NOTE_SCHEMA, PERSON_SCHEMA, SETTINGS_NOTE, SETTINGS_SCHEMA, TEMPLATE_SCHEMA } from "./schema.ts";
-import { COMMANDS, toolName, type Command, type SaveTarget, type Sharing } from "./commands/index.ts";
+import { COMMANDS, RENAMED_TOOLS, toolName, type Command, type SaveTarget, type Sharing } from "./commands/index.ts";
 import { inputSchema } from "./commands/input.ts";
 
 export interface ToolHost {
@@ -95,6 +95,16 @@ function fileResult(file: { name: string; bytes: Uint8Array; mime?: string }): R
   };
 }
 
+/**
+ * For conventions (AGENTS.md) written before tools were renamed: the old names they use, with the
+ * names now. Nothing when they use none, so it costs an agent no context then. (`backlinks` was a
+ * tool's whole name, and is a word people write anyway, so it doesn't count.)
+ */
+export function renamedIn(text: string): string {
+  const used = Object.keys(RENAMED_TOOLS).filter((old) => old.includes("_") && new RegExp(`(?<![\\w/])${old}(?!\\w)`).test(text));
+  return used.length ? `Tools renamed since those were written: ${used.map((old) => `${old} is now ${RENAMED_TOOLS[old]}`).join(", ")}.` : "";
+}
+
 export function createMcpServer(host: ToolHost): McpServer {
   const { vault, user } = host;
   const agentsMd = agentsText((p) => vault.files.read(p));
@@ -103,11 +113,12 @@ export function createMcpServer(host: ToolHost): McpServer {
     {
       instructions: [
         "Common Ink is the user's markdown notes vault. Notes are plain .md files (some .html notes); paths are vault-relative.",
-        "Find before you write: search_notes, then read_note. Change existing notes with edit_note (small exact replacements); create_note is for a new note, import_notes for many at once (moving notes in from elsewhere).",
+        "Find before you write: search_notes, then get_note. Change existing notes with edit_note (small exact replacements); create_note is for a new note, import_notes for many at once (moving notes in from elsewhere).",
         "Link notes with [[Note name]] and embed with ![[Note name]]. The user may be editing at the same time; if an edit fails, re-read and retry.",
         `Workspace settings are the frontmatter of ${SETTINGS_NOTE}; commonink://config/schema lists every property the app reads, and commonink://config/agents re-reads the conventions below.`,
         "Each property of a note has a type (text, number, checkbox, date, list, people): list_properties shows them, declared in the settings' properties: or guessed; write values to suit, and set_property_type declares one for every note.",
         agentsMd && `\nVault conventions (AGENTS.md):\n${agentsMd}`,
+        agentsMd && renamedIn(agentsMd),
       ]
         .filter(Boolean)
         .join("\n"),
@@ -122,11 +133,12 @@ export function createMcpServer(host: ToolHost): McpServer {
     contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify({ note: NOTE_SCHEMA, template: TEMPLATE_SCHEMA, person: PERSON_SCHEMA, settings: SETTINGS_SCHEMA }, null, 2) }],
   }));
 
+  const registered = (mcp as unknown as { _registeredTools: Record<string, unknown> })._registeredTools;
   for (const c of COMMANDS) {
     const name = toolName(c);
     // Only the tools this caller's role allows.
     if (!name || c.settings || (host.may && !host.may(c.route)) || (c.needs === "calendar" && !host.calendar) || (c.needs === "exporter" && !host.exporter) || (c.needs === "sharing" && !host.sharing) || (c.needs === "googleContacts" && !host.googleContacts) || (c.needs === "drive" && !host.drive)) continue;
-    (mcp.registerTool as (n: string, config: unknown, cb: (input: Record<string, unknown>) => Promise<Result>) => unknown)(
+    const tool = (mcp.registerTool as (n: string, config: unknown, cb: (input: Record<string, unknown>) => Promise<Result>) => unknown)(
       name,
       { title: c.title, description: c.description ?? c.summary, inputSchema: strictInput(c, name), annotations: annotations(c) },
       async (input) => {
@@ -146,6 +158,9 @@ export function createMcpServer(host: ToolHost): McpServer {
         }
       },
     );
+    // A name it had before still answers a call, for agents and scripts that know it, but isn't listed
+    // (tools/list reads the enumerable names), so no agent's context carries a tool twice.
+    for (const old of c.was?.mcp ?? []) Object.defineProperty(registered, old, { value: tool, enumerable: false });
   }
   return mcp;
 }

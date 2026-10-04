@@ -1,6 +1,6 @@
 // Find and replace across notes: plain text (not a pattern), any case unless asked, and optionally
 // only whole words. Used by Vault.replaceAcross, the app's Replace page, `commonink replace` and
-// MCP replace_text. Only prose changes: not frontmatter, code, link targets, URLs or #tags, so a
+// MCP replace_in_notes. Only prose changes: not frontmatter, code, link targets, URLs or #tags, so a
 // rename can't break a link or a path. No Node imports: hosted workspaces run this too.
 import { plainOf } from "./mentions.ts";
 import { frontmatterLines, proseLines } from "./prose.ts";

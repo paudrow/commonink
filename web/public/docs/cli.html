@@ -48,26 +48,27 @@ commonink workspaces use &quot;Acme team&quot;
 <p>Without signing in, <code>commonink</code> works on a folder of markdown on your computer: <code>$COMMONINK_VAULT</code>, or <code>~/Common Ink</code>. <code>--workspace local</code> uses it even when you&#39;re signed in. The local app, with the same editor, runs from the same checkout: <code>npm run dev</code>, then open <code>http://localhost:4777</code>.</p>
 <h2 id="everyday-commands"><a class="anchor" href="#everyday-commands">Everyday commands</a></h2>
 <pre><code class="language-bash">commonink search &quot;launch plan&quot;
-commonink ls --query &#39;q=&quot;(launch OR release) -draft&quot; tag=work modified&gt;-7d&#39;
-commonink read &quot;Projects/Launch&quot;
+commonink list --query &#39;q=&quot;(launch OR release) -draft&quot; tag=work modified&gt;-7d&#39;
+commonink get &quot;Projects/Launch&quot;
 commonink create &quot;Ideas/Pricing&quot; - &lt; draft.md
 echo &quot;- [ ] Call Sam due:friday&quot; | commonink append &quot;Journal/2026-10-02&quot; -
-commonink tasks --due &quot;&lt;=today&quot;
-commonink today
+commonink task list --due &quot;&lt;=today&quot;
+commonink today get
 commonink import ~/Obsidian/Vault --folder Imported
 commonink export / --format zip --out notes.zip
-commonink changes --path &quot;Projects/Launch.md&quot;
-commonink restore 24
+commonink change list --path &quot;Projects/Launch.md&quot;
+commonink change restore 24
 </code></pre>
 <p><code>--query</code> takes the same query language as the Notes filter and views (<a href="/docs/notes#searching-and-filtering">Searching and filtering</a>); <code>commonink help query</code> lists it.</p>
 <h2 id="for-scripts-and-agents"><a class="anchor" href="#for-scripts-and-agents">For scripts and agents</a></h2>
 <ul>
 <li><code>--json</code> prints any result, or an error, as JSON.</li>
 <li>Exit codes are stable: 0 ok, 1 error, 2 usage, 3 not found, 4 conflict (the note changed since you read it), 5 exists, 6 forbidden, 7 auth, 8 unavailable.</li>
-<li><code>--base &lt;version&gt;</code> (from <code>commonink read</code>) makes <code>edit</code>, <code>append</code>, <code>write</code> and <code>restore</code> refuse a note that changed since.</li>
+<li>Names follow one pattern: <code>&lt;thing&gt; &lt;verb&gt;</code> on the CLI (<code>task add</code>, <code>view save</code>; a verb alone is a note&#39;s, so <code>edit</code> is <code>note edit</code>) and <code>&lt;verb&gt;_&lt;thing&gt;</code> over MCP (<code>add_task</code>, <code>save_view</code>, <code>edit_note</code>). Names from before (<code>commonink read</code>, <code>ls</code>, <code>tasks</code>, <code>label-rm</code>; MCP <code>read_note</code>, <code>label_version</code>) still work: the CLI takes them as it did, and an MCP call to one runs the tool, though tools are listed only by their names now. <code>commonink help &lt;command&gt;</code> says what a command was called.</li>
+<li><code>--base &lt;version&gt;</code> (from <code>commonink get</code>) makes <code>edit</code>, <code>append</code>, <code>write</code> and <code>change restore</code> refuse a note that changed since.</li>
 <li>Content comes from stdin with <code>-</code>, or piped in.</li>
 <li><code>COMMONINK_AGENT=&lt;name&gt;</code> (or <code>--agent</code>) signs writes as that agent, shown as &quot;<agent> for you&quot; in History.</li>
-<li><code>commonink upload</code> and <code>commonink download</code> move files in and out.</li>
+<li><code>commonink asset upload</code> and <code>commonink asset download</code> move files in and out.</li>
 </ul>
 
         <footer>

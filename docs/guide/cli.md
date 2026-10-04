@@ -36,16 +36,16 @@ Without signing in, `commonink` works on a folder of markdown on your computer: 
 
 ```bash
 commonink search "launch plan"
-commonink ls --query 'q="(launch OR release) -draft" tag=work modified>-7d'
-commonink read "Projects/Launch"
+commonink list --query 'q="(launch OR release) -draft" tag=work modified>-7d'
+commonink get "Projects/Launch"
 commonink create "Ideas/Pricing" - < draft.md
 echo "- [ ] Call Sam due:friday" | commonink append "Journal/2026-10-02" -
-commonink tasks --due "<=today"
-commonink today
+commonink task list --due "<=today"
+commonink today get
 commonink import ~/Obsidian/Vault --folder Imported
 commonink export / --format zip --out notes.zip
-commonink changes --path "Projects/Launch.md"
-commonink restore 24
+commonink change list --path "Projects/Launch.md"
+commonink change restore 24
 ```
 
 `--query` takes the same query language as the Notes filter and views ([Searching and filtering](notes.md#searching-and-filtering)); `commonink help query` lists it.
@@ -54,7 +54,8 @@ commonink restore 24
 
 - `--json` prints any result, or an error, as JSON.
 - Exit codes are stable: 0 ok, 1 error, 2 usage, 3 not found, 4 conflict (the note changed since you read it), 5 exists, 6 forbidden, 7 auth, 8 unavailable.
-- `--base <version>` (from `commonink read`) makes `edit`, `append`, `write` and `restore` refuse a note that changed since.
+- Names follow one pattern: `<thing> <verb>` on the CLI (`task add`, `view save`; a verb alone is a note's, so `edit` is `note edit`) and `<verb>_<thing>` over MCP (`add_task`, `save_view`, `edit_note`). Names from before (`commonink read`, `ls`, `tasks`, `label-rm`; MCP `read_note`, `label_version`) still work: the CLI takes them as it did, and an MCP call to one runs the tool, though tools are listed only by their names now. `commonink help <command>` says what a command was called.
+- `--base <version>` (from `commonink get`) makes `edit`, `append`, `write` and `change restore` refuse a note that changed since.
 - Content comes from stdin with `-`, or piped in.
 - `COMMONINK_AGENT=<name>` (or `--agent`) signs writes as that agent, shown as "<agent> for you" in History.
-- `commonink upload` and `commonink download` move files in and out.
+- `commonink asset upload` and `commonink asset download` move files in and out.

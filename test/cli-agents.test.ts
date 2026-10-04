@@ -30,7 +30,7 @@ test("exit codes say how it went, and --json errors are JSON on stdout", () => {
     [["edit", "Roadmap", "--old", "Ship", "--new", "Send", "--base", "000000000000"], 4, "conflict", /is at version [0-9a-f]{12}, not 000000000000/],
     [["create", "Welcome", "# again"], 5, "exists", /^Welcome\.md already exists/],
     [["frobnicate"], 2, "usage", /^Unknown command: frobnicate$/],
-    [["read"], 2, "usage", /^read needs <note>$/],
+    [["read"], 2, "usage", /^get needs <note>$/],
     [["create", "notes.png", "x"], 1, "invalid", /^Only \.md and \.html notes can be created$/],
   ];
   for (const [args, exit, code, error] of cases) {
@@ -132,10 +132,42 @@ test("task remove takes a task's line out, and a task is named by its line", () 
   assert.equal(commonink(vault, ["task", "remove", "Inbox", "9"]).status, 3);
 });
 
+test("a command answers to its name from before a rename as to its name now, and help says both", () => {
+  const vault = tempVault();
+  const same = (old: string[], now: string[]) => assert.deepEqual(commonink(vault, old).stdout, commonink(vault, now).stdout, `${old.join(" ")} / ${now.join(" ")}`);
+  same(["read", "Roadmap"], ["get", "Roadmap"]);
+  same(["get", "Roadmap"], ["note", "get", "Roadmap"]);
+  same(["ls", "Projects"], ["list", "Projects"]);
+  same(["tasks", "--json"], ["task", "list", "--json"]);
+  same(["backlinks", "Roadmap"], ["backlink", "list", "Roadmap"]);
+  assert.match(commonink(vault, ["label", "Roadmap", "v1"]).stdout, /^Labeled Projects\/Roadmap\.md as "v1"/);
+  assert.match(commonink(vault, ["version", "name", "Roadmap", "v2"]).stdout, /^Labeled Projects\/Roadmap\.md as "v2"/);
+  same(["labels", "Roadmap"], ["version", "list", "Roadmap"]);
+  same(["label-diff", "Roadmap", "--from", "v1"], ["version", "compare", "Roadmap", "--from", "v1"]);
+  // The shortcuts by flag still switch commands: diff --from compares versions.
+  same(["diff", "Roadmap", "--from", "v1"], ["version", "compare", "Roadmap", "--from", "v1"]);
+  assert.match(commonink(vault, ["label-rm", "v1", "--note", "Roadmap"]).stdout, /^Deleted the label "v1"/);
+  assert.match(commonink(vault, ["version", "delete", "v2", "--note", "Roadmap"]).stdout, /^Deleted the label "v2"/);
+  commonink(vault, ["smart-save", "Plans", "tag=plan", "--just-me"]);
+  same(["smart"], ["view", "list"]);
+  assert.match(commonink(vault, ["view", "list"]).stdout, /^- Plans /);
+  commonink(vault, ["smart-rm", "Plans"]);
+  assert.equal(commonink(vault, ["view", "list"]).stdout, "No saved views.\n");
+  // `version` alone is still the CLI's own.
+  assert.match(commonink(vault, ["version"]).stdout, /^\d+\.\d+\.\d+/);
+  const help = commonink(vault, ["help", "label-rm"]).stdout;
+  assert.match(help, /^commonink version delete <label> /);
+  assert.match(help, /\nBefore: commonink label-rm\. It still works\.\n/);
+  assert.match(commonink(vault, ["help", "read"]).stdout, /\nBefore: commonink read, the MCP tool read_note\. They still work\.\n/);
+  assert.equal(commonink(vault, ["help", "search"]).stdout.includes("Before:"), false);
+  // `note` goes before a note's verbs only.
+  assert.equal(commonink(vault, ["note", "tasks"]).status, 2);
+});
+
 test("help lists every group, help <command> shows its options and examples, and completion scripts complete", () => {
   const vault = tempVault();
   const help = commonink(vault, ["help"]).stdout;
-  for (const g of ["Notes:", "Folders and files:", "Tasks and today:", "Boards:", "Tags:", "Views:", "Favorites:", "History and Trash:", "The CLI itself:"]) assert.ok(help.includes(`\n${g}\n`), g);
+  for (const g of ["Notes:", "Folders and assets:", "Tasks and today:", "Boards:", "Tags:", "Views:", "Starred:", "History and Trash:", "The CLI itself:"]) assert.ok(help.includes(`\n${g}\n`), g);
   assert.match(help, /Exit codes: 0 ok, 1 error, 2 usage, 3 not found, 4 conflict, 5 exists, 6 forbidden, 7 auth, 8 unavailable\./);
   const one = commonink(vault, ["help", "task", "move"]).stdout;
   assert.match(one, /^commonink task move <note> <line> --to <to> \[--text <text>\]\n/);
@@ -148,8 +180,8 @@ test("help lists every group, help <command> shows its options and examples, and
     const r = spawnSync("bash", ["-c", `${script}\nCOMP_WORDS=(${words.map((w) => `'${w}'`).join(" ")}); COMP_CWORD=${words.length - 1}; _commonink; echo "\${COMPREPLY[@]}"`], { encoding: "utf8" });
     return r.stdout.trim().split(" ");
   };
-  assert.deepEqual(complete(["commonink", "ta"]), ["tag", "tags", "task", "tasks"]);
-  assert.deepEqual(complete(["commonink", "task", ""]), ["add", "update", "move", "remove"]);
+  assert.deepEqual(complete(["commonink", "ta"]), ["tag", "task"]);
+  assert.deepEqual(complete(["commonink", "task", ""]), ["list", "add", "update", "move", "delete"]);
   assert.deepEqual(complete(["commonink", "task", "move", "Inbox", "3", "--t"]), ["--text", "--to"]);
   assert.match(commonink(vault, ["completion", "fish"]).stdout, /complete -c commonink -n "__fish_seen_subcommand_from search" -l limit/);
   assert.match(commonink(vault, ["completion", "zsh"]).stdout, /bashcompinit/);

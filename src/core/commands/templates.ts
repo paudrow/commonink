@@ -4,15 +4,16 @@ import { command, pairs, str } from "./types.ts";
 
 export const templates = [
   command({
-    cli: "templates",
+    cli: "template list",
     mcp: "list_templates",
+    was: { cli: ["templates"] },
     route: "GET /templates",
     title: "List templates",
     summary: "Note templates: notes in Templates/ with {{placeholders}}",
     description:
       "The note templates: notes in Templates/ with {{placeholders}}. {{ask:Label}} is a question to fill in; applies_to says which " +
-      "folders' new notes start from it. Use create_from_template to make a note from one.",
-    examples: ["commonink templates", "commonink templates --json"],
+      "folders' new notes start from it. Use use_template to make a note from one.",
+    examples: ["commonink template list", "commonink template list --json"],
     readOnly: true,
     args: {},
     run: ({ vault }) => {
@@ -21,8 +22,9 @@ export const templates = [
     },
   }),
   command({
-    cli: "new",
-    mcp: "create_from_template",
+    cli: "template use",
+    mcp: "use_template",
+    was: { cli: ["new"], mcp: ["create_from_template"] },
     route: "POST /notes/from-template",
     title: "Create a note from a template",
     summary: "A note from a template; --var answers its {{ask:Label}} questions",
@@ -30,9 +32,9 @@ export const templates = [
       "Make a new note from a template (a meeting note from Templates/Meeting…), with {{date}}, {{time}} and {{title}} filled in and " +
       "`variables` answering its {{ask:Label}} questions by label. The note goes in the template's folder unless you give one. " +
       "The reply says what's still unfilled, so you can ask the person or fill it in with edit_note.",
-    examples: ['commonink new --template Meeting --var Client=Acme --var "Attendees=Sam, Lee"', "commonink new --template Meeting --title Retro --folder Meetings/Team"],
+    examples: ['commonink template use Meeting --var Client=Acme --var "Attendees=Sam, Lee"', "commonink template use Meeting --title Retro --folder Meetings/Team"],
     args: {
-      template: str({ required: true, describe: "Its name (Meeting) or path", label: "name", missing: "new needs --template <name>" }),
+      template: str({ required: true, pos: 0, describe: "Its name (Meeting) or path (also --template)", label: "template" }),
       title: str({ describe: "The note's title, if not the template's" }),
       folder: str({ describe: "Where the note goes, if not the template's folder" }),
       variables: pairs({

@@ -7,4 +7,4 @@ title: Contacts
 3. Open Jane Doe. Her page shows her details and the notes that mention her, newest first: [[Acme renewal call]], two days ago, and [[Initech demo]], after the merge. Click one to open it at that line. **Edit note** opens her note, where the details are the frontmatter.
 4. In [[Who to call]], type `@pri` at the end: Priya Shah comes first, and picking her inserts `[[People/Priya Shah]]`. Type `@Dana Lee` and choose **Create contact “Dana Lee”**: the link goes in, and Dana appears in Contacts.
 5. **Import** takes a vCard (`.vcf`, from a phone or Apple Contacts) or a CSV (Google or Outlook contacts, or your own columns: Name, Email, Company…). People already here, with the same email or name, get what's new, and everyone else becomes a contact.
-6. Agents have `list_contacts`, `read_contact`, `create_contact`, `update_contact`, `merge_contacts` and `import_contacts`, and the CLI has `commonink contacts` and `commonink contact`.
+6. Agents have `list_contacts`, `get_contact`, `create_contact`, `update_contact`, `merge_contacts` and `import_contacts`, and the CLI has `commonink contact list` and `commonink contact get`.

@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { startCloud, team, type Cloud } from "./cloud.ts";
 import { cli, login } from "./cli-login.ts";
+import { commandByCli } from "../src/core/commands/index.ts";
 
 let cloud: Cloud;
 let people: Awaited<ReturnType<typeof team>>;
@@ -43,7 +44,8 @@ test("input that doesn't fit the command's arguments is a usage error, not a cra
     const { status, body } = await run(command, input);
     assert.equal(status, 400, `${command} ${JSON.stringify(input)}: ${JSON.stringify(body)}`);
     assert.equal(body.code, "usage");
-    assert.match(body.error, new RegExp(`^${command}: .*See commonink help ${command}$`));
+    const now = commandByCli(command)!.cli; // `read`, as an older CLI sends it, is `get` now
+    assert.match(body.error, new RegExp(`^${now}: .*See commonink help ${now}$`));
     assert.doesNotMatch(body.error, /D1_ERROR|CHECK constraint/);
   }
   // Nothing was shared or archived.

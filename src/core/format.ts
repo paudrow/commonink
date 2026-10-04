@@ -141,7 +141,7 @@ export function fmtChanges(changes: Change[], vault: Pick<Vault, "diffStats">): 
 
 /** Labels, newest first: each one's name and ID, its note, who labeled it and when. */
 export function fmtLabels(labels: Label[], note?: string): string {
-  if (!labels.length) return note ? `${note} has no labels yet. Label one with label_version.` : "No labels yet.";
+  if (!labels.length) return note ? `${note} has no labels yet. Label one with name_version.` : "No labels yet.";
   return labels
     .map((m) => {
       const when = new Date(m.ts).toISOString().replace(/\.\d+Z$/, "Z");

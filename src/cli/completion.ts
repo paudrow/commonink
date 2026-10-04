@@ -1,5 +1,5 @@
 // Shell completion scripts, made from the command table: commands, their sub-commands and their
-// flags. Arguments that aren't flags complete as file names (what `upload` needs).
+// flags. Arguments that aren't flags complete as file names (what `asset upload` needs).
 import { COMMANDS } from "../core/commands/index.ts";
 import { cliArgs, flagOf, GLOBAL_FLAGS, topWords } from "./argv.ts";
 import { OWN_COMMANDS } from "./help.ts";
@@ -61,7 +61,7 @@ function fish(): string {
     const [first, second] = c.cli.split(" ");
     const when = second ? `__fish_seen_subcommand_from ${first}; and __fish_seen_subcommand_from ${second}` : `__fish_seen_subcommand_from ${first}`;
     for (const f of flagsOf(c.cli)) lines.push(`complete -c commonink -n "${when}" -l ${f.slice(2)}`);
-    if (c.cli === "upload") lines.push(`complete -c commonink -n "${when}" -F`);
+    if (c.cli === "asset upload") lines.push(`complete -c commonink -n "${when}" -F`);
   }
   return lines.join("\n");
 }

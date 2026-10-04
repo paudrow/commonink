@@ -84,7 +84,7 @@ export function setPropertyType(vault: Vault, name: string, type: string, source
 }
 
 export function fmtProperties(list: PropertyUse[]): string {
-  if (!list.length) return `No note has properties yet. Declare a type with commonink property type <name> <type>; types are kept in ${SETTINGS_NOTE}.`;
+  if (!list.length) return `No note has properties yet. Declare a type with commonink property-type set <name> <type>; types are kept in ${SETTINGS_NOTE}.`;
   return [
     `Properties and their types (declared ones are in ${SETTINGS_NOTE} under properties:; the rest are guessed from their values):`,
     ...list.map((p) => `- ${p.name}: ${p.type} (${p.source}), ${p.notes} note${p.notes === 1 ? "" : "s"}`),

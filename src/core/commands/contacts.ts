@@ -37,8 +37,9 @@ const googleOf = (h: CommandHost): GoogleContactsSync => {
 
 export const contacts = [
   command({
-    cli: "contacts",
+    cli: "contact list",
     mcp: "list_contacts",
+    was: { cli: ["contacts"] },
     route: "GET /contacts",
     title: "List contacts",
     summary: "People: notes in People/ with email, phone, company, role, links, aliases and tags, when each was last mentioned, and who's due a check-in",
@@ -47,7 +48,7 @@ export const contacts = [
       "check_in (how often to be in touch). Shows when each was last mentioned in another note, and when a check-in is next due " +
       "(that long after the last mention). check_in_due lists only the people due a check-in by today, the longest overdue first. " +
       "Link to a person with [[People/Name]].",
-    examples: ["commonink contacts", "commonink contacts --company acme --tag client", "commonink contacts --q priya --json", "commonink contacts --check-in-due"],
+    examples: ["commonink contact list", "commonink contact list --company acme --tag client", "commonink contact list --q priya --json", "commonink contact list --check-in-due"],
     readOnly: true,
     args: {
       q: str({ label: "words", describe: "Words in their name, an alias, email or company" }),
@@ -62,17 +63,18 @@ export const contacts = [
       let hits = matchContacts(all, a);
       if (a.check_in_due) hits = hits.filter((c) => c.checkInDue && c.checkInDue <= today).sort((x, y) => x.checkInDue!.localeCompare(y.checkInDue!));
       if (a.check_in_due && !hits.length) return { text: "No one is due a check-in. Give a contact a rhythm with update_contact check_in (CLI: --check-in monthly).", data: hits };
-      return { text: hits.length ? hits.map(fmtContactLine).join("\n") : "No contacts match. People are notes in People/; `commonink contact add <name>` makes one.", data: hits };
+      return { text: hits.length ? hits.map(fmtContactLine).join("\n") : "No contacts match. People are notes in People/; `commonink contact create <name>` makes one.", data: hits };
     },
   }),
   command({
-    cli: "contact",
-    mcp: "read_contact",
+    cli: "contact get",
+    mcp: "get_contact",
+    was: { cli: ["contact"], mcp: ["read_contact"] },
     route: "GET /contact",
     title: "Read a contact",
     summary: "One person: how to reach them, and the notes that mention them",
-    description: "One person: how to reach them, and the notes that mention them, newest first. read_note shows their note's own words.",
-    examples: ['commonink contact "Jane Doe"', "commonink contact Jane Doe --json"],
+    description: "One person: how to reach them, and the notes that mention them, newest first. get_note shows their note's own words.",
+    examples: ['commonink contact get "Jane Doe"', "commonink contact get Jane Doe --json"],
     readOnly: true,
     args: { contact: str({ required: true, pos: "rest", label: "name", describe: WHO }) },
     run: ({ vault }, a) => {
@@ -81,13 +83,14 @@ export const contacts = [
     },
   }),
   command({
-    cli: "contact add",
+    cli: "contact create",
     mcp: "create_contact",
+    was: { cli: ["contact add"] },
     route: "POST /contacts",
     title: "Create a contact",
     summary: "Add a person: People/<name>.md with their details",
     description: "Add a person: a note People/<name>.md with their details in its frontmatter, and `notes` under their name.",
-    examples: ["commonink contact add Jane Doe --email jane@acme.com --company Acme --tag client"],
+    examples: ["commonink contact create Jane Doe --email jane@acme.com --company Acme --tag client"],
     args: {
       name: str({ required: true, pos: "rest" }),
       ...FIELDS,
@@ -103,9 +106,9 @@ export const contacts = [
     mcp: "update_contact",
     route: "POST /contacts/update",
     title: "Update a contact",
-    summary: "Change a person's details; a list replaces that list (also: contact <name> --role …)",
+    summary: "Change a person's details; a list replaces that list",
     description: "Change a person's details. Each field given replaces what's there (send the whole list to add to one); the rest stay.",
-    examples: ["commonink contact update Jane Doe --role CTO", "commonink contact Jane Doe --phone 555-0100,555-0199", 'commonink contact update Jane Doe --check-in "every 2 weeks"'],
+    examples: ["commonink contact update Jane Doe --role CTO", "commonink contact update Jane Doe --phone 555-0100,555-0199", 'commonink contact update Jane Doe --check-in "every 2 weeks"'],
     args: { contact: str({ required: true, pos: "rest", label: "name", describe: WHO }), ...FIELDS },
     run: ({ vault, source }, { contact, ...patch }) => {
       const r = vault.updateContact(contact, fieldsOf(patch), source);
@@ -113,15 +116,16 @@ export const contacts = [
     },
   }),
   command({
-    cli: "contacts merge",
+    cli: "contact merge",
     mcp: "merge_contacts",
+    was: { cli: ["contacts merge"] },
     route: "POST /contacts/merge",
     title: "Merge contacts",
     summary: "One person with two notes: <drop>'s details and links move to <keep>, and <drop> goes to Trash",
     description:
       "Two notes for one person: `keep` gains what `drop` has that it doesn't (emails, phones, links, tags, its name as an alias, and its " +
       "notes under a heading), links to `drop` are pointed at `keep`, and `drop` goes to Trash.",
-    examples: ['commonink contacts merge "Jane Doe" "J. Doe"'],
+    examples: ['commonink contact merge "Jane Doe" "J. Doe"'],
     destructive: true,
     args: {
       keep: str({ required: true, pos: 0, describe: WHO }),
@@ -136,15 +140,16 @@ export const contacts = [
     },
   }),
   command({
-    cli: "contacts import",
+    cli: "contact import",
     mcp: "import_contacts",
+    was: { cli: ["contacts import"] },
     route: "POST /contacts/import",
     title: "Import contacts",
     summary: "Add people from a vCard or CSV export; ones already here (same email or name) get what's new",
     description:
       "Contacts from a vCard (.vcf) or CSV export (Google, Outlook, Apple or your own columns: Name or First/Last Name, Email, Phone, " +
       "Company, Title, Tags…). Someone already here (same email or name) gains what's new; everyone else becomes a contact.",
-    examples: ["commonink contacts import contacts.vcf", "commonink contacts import export.txt --format csv"],
+    examples: ["commonink contact import contacts.vcf", "commonink contact import export.txt --format csv"],
     args: {
       file: localFiles({ required: true, pos: 0, describe: "A .vcf or .csv file on this computer" }),
       text: str({ required: true, only: "mcp", describe: "The file's text" }),
@@ -160,15 +165,16 @@ export const contacts = [
     },
   }),
   command({
-    cli: "contacts google",
-    mcp: "google_contacts_status",
+    cli: "google-contacts check",
+    mcp: "check_google_contacts",
+    was: { cli: ["contacts google"], mcp: ["google_contacts_status"] },
     route: "GET /contacts/google",
     title: "Google Contacts status",
     summary: "Whether your Google Contacts are connected here, may be edited, and when they last synced",
     description:
       "Your Google Contacts in this workspace: the Google account, whether Common Ink may edit your contacts (else edits here stay here), " +
       "how many notes in People/ are linked to a contact (their `google:` frontmatter), and when they last synced. Connecting is in the app.",
-    examples: ["commonink contacts google", "commonink contacts google --json"],
+    examples: ["commonink google-contacts check", "commonink google-contacts check --json"],
     readOnly: true,
     needs: "googleContacts",
     args: {},
@@ -182,8 +188,9 @@ export const contacts = [
     },
   }),
   command({
-    cli: "contacts sync",
+    cli: "google-contacts sync",
     mcp: "sync_google_contacts",
+    was: { cli: ["contacts sync"] },
     route: "POST /contacts/google/sync",
     title: "Sync Google Contacts",
     summary: "Bring your Google Contacts into People/, and send edits made here back (when allowed)",
@@ -192,7 +199,7 @@ export const contacts = [
       "its note in People/ (made if it's new; someone already here with the same email or name is linked, with `google:` in the frontmatter). " +
       "A note's words and tags are never sent to Google. Edits made here to those fields go back to Google when the person allowed editing; " +
       "a field changed on both sides takes Google's value (the note's History keeps the old one). A contact deleted in Google keeps its note.",
-    examples: ["commonink contacts sync", "commonink contacts sync --json"],
+    examples: ["commonink google-contacts sync", "commonink google-contacts sync --json"],
     needs: "googleContacts",
     args: {},
     run: async (h) => {

@@ -41,8 +41,9 @@ export const TASK_FIELDS = {
 
 export const tasks = [
   command({
-    cli: "tasks",
+    cli: "task list",
     mcp: "list_tasks",
+    was: { cli: ["tasks"] },
     route: "GET /tasks",
     title: "List tasks",
     summary: "Checkbox tasks across the vault, with their tokens, filtered by tag, person, priority or date",
@@ -50,7 +51,7 @@ export const tasks = [
       "Checkbox tasks across the vault (not archived notes), as their markdown lines with path:line. A task's metadata is tokens in " +
       "its text: due:YYYY-MM-DD, start:YYYY-MM-DD, rec:… (how it repeats), #tag, @person, !high or !low, and done:YYYY-MM-DD once ticked. " +
       "A tag on a task tags the task, not its note. @ followed by a letter is a person; write \\@word for an @ that isn't one.",
-    examples: ["commonink tasks", "commonink tasks --tag work --due '<=today'", "commonink tasks --due '>=today <=+7d' --priority high", "commonink tasks --done-date '>=-7d'","commonink tasks --assignee jane --all --json", "commonink tasks --assignee me", "commonink tasks --by me"],
+    examples: ["commonink task list", "commonink task list --tag work --due '<=today'", "commonink task list --due '>=today <=+7d' --priority high", "commonink task list --done-date '>=-7d'","commonink task list --assignee jane --all --json", "commonink task list --assignee me", "commonink task list --by me"],
     readOnly: true,
     args: {
       status: str({ enum: ["open", "done", "all"], presets: { done: "done", all: "all" }, describe: "Default open" }),
@@ -139,13 +140,14 @@ export const tasks = [
     },
   }),
   command({
-    cli: "task remove",
-    mcp: "remove_task",
+    cli: "task delete",
+    mcp: "delete_task",
+    was: { cli: ["task remove"], mcp: ["remove_task"] },
     route: "POST /tasks/remove",
-    title: "Remove task",
+    title: "Delete task",
     summary: "Take a task's line (and what's nested under it) out of its note",
     description: "Remove one task's line, and the lines nested under it, from its note, by the path:line and text list_tasks gave. Only when the user asks; ticking it is usually what they want.",
-    examples: ["commonink task remove Inbox 4"],
+    examples: ["commonink task delete Inbox 4"],
     destructive: true,
     args: {
       path: str({ required: true, pos: 0, label: "note", describe: "The note the task is in" }),
@@ -158,15 +160,16 @@ export const tasks = [
     },
   }),
   command({
-    cli: "today",
+    cli: "today get",
     mcp: "get_today",
+    was: { cli: ["today"] },
     route: "GET /today",
     title: "Get today",
     summary: "The day at a glance: overdue, due today, starting today, and today's journal note",
     description:
       "The day at a glance: open tasks overdue, due today and starting today (repeating ones show their rec:), and whether today's " +
       "journal note (Journal/YYYY-MM-DD.md) exists. A good start for a morning brief.",
-    examples: ["commonink today", "commonink today --date 2026-10-01 --json"],
+    examples: ["commonink today get", "commonink today get --date 2026-10-01 --json"],
     readOnly: true,
     args: { today: str({ flag: "date", describe: "The day to read, YYYY-MM-DD; default the user's today" }) },
     run: ({ vault }, a) => {
@@ -175,13 +178,14 @@ export const tasks = [
     },
   }),
   command({
-    cli: "journal",
+    cli: "journal open",
     mcp: "open_journal",
+    was: { cli: ["journal"] },
     route: "POST /today/journal",
     title: "Open journal",
     summary: "Today's journal note, made from the journal template if it's missing",
     description: "Today's journal note (Journal/YYYY-MM-DD.md): its path, made from Templates/Journal.md (or Templates/Daily note.md, its old name, or a plain one) if it doesn't exist yet.",
-    examples: ["commonink journal", "commonink journal --date 2026-10-01"],
+    examples: ["commonink journal open", "commonink journal open --date 2026-10-01"],
     args: { today: str({ flag: "date", describe: "The day, YYYY-MM-DD; default the user's today" }) },
     run: ({ vault, source }, a) => {
       const r = vault.dailyNote(a.today ?? vault.today().date, source);

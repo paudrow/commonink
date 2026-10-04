@@ -22,7 +22,7 @@ const call = async (tool: string, args: Record<string, unknown>) => {
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 await call("search_notes", { query: "roadmap semantic search", limit: 3 });
-const note = await call("read_note", { path: "Common Ink roadmap" });
+const note = await call("get_note", { path: "Common Ink roadmap" });
 const version = note.match(/version: (\w+)/)![1];
 const done = note.includes("- [x] Semantic search");
 await pause(1200);
@@ -44,5 +44,5 @@ const today = localDate(Date.now());
 const log = `- ${time} — ${done ? "reopened" : "ticked off"} semantic search in [[Common Ink roadmap]]`;
 const appended = await call("append_to_note", { path: `Journal/${today}`, text: log });
 if (appended.startsWith("No note")) await call("create_note", { path: `Journal/${today}`, content: `# ${today}\n\n## Log\n\n${log}\n` });
-await call("recent_changes", { limit: 5 });
+await call("list_changes", { limit: 5 });
 await client.close();

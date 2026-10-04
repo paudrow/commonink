@@ -1,7 +1,7 @@
 // Reading a command line against the command table: which command, and its input, typed. Flags and
 // positional arguments come from each argument's spec (src/core/commands/types.ts). No I/O here:
 // stdin and local files are read by the caller through `io`.
-import { COMMANDS, UsageError, type ArgSpec, type Command, type LocalFile } from "../core/commands/index.ts";
+import { COMMANDS, commandByCli, UsageError, type ArgSpec, type Command, type LocalFile } from "../core/commands/index.ts";
 
 /** Flags every command takes. `value` ones take the next word. */
 export const GLOBAL_FLAGS = {
@@ -14,16 +14,16 @@ export const GLOBAL_FLAGS = {
 
 /** CLI spellings that stand for a command with some of its arguments set. */
 export const ALIASES: Record<string, { to: string; set: Record<string, unknown> }> = {
-  starred: { to: "ls", set: { starred: true } },
+  starred: { to: "list", set: { starred: true } },
 };
 /** A group's words followed by something that isn't one of its commands: `commonink task Roadmap 8 --done`. */
 export const GROUP_DEFAULTS: Record<string, string> = { task: "task update" };
 /**
  * A command that stands for another when it's given one of that one's own flags:
- * `contact Jane --role CTO` is `contact update`, `diff Spec --from v1` is `label-diff`,
- * `restore Spec --to v1` is `label-restore`, and `export Spec --to drive` is `save-to-drive`.
+ * `contact get Jane --role CTO` is `contact update`, `change get Spec --from v1` is `version compare`,
+ * `change restore Spec --to v1` is `version restore`, and `export Spec --to drive` is `drive save`.
  */
-export const WITH_FLAGS: Record<string, string> = { contact: "contact update", diff: "label-diff", restore: "label-restore", export: "save-to-drive" };
+export const WITH_FLAGS: Record<string, string> = { "contact get": "contact update", "change get": "version compare", "change restore": "version restore", export: "drive save" };
 
 export const kebab = (name: string) => name.replaceAll("_", "-");
 export const flagOf = (name: string, a: ArgSpec) => a.flag ?? kebab(name);
@@ -32,7 +32,8 @@ export const cliArgs = (c: Command) => Object.entries(c.args).filter(([, a]) => 
 /** Required on the command line (MCP-only requirements aside). */
 export const cliRequired = (a: ArgSpec) => !!a.required;
 
-const BY_WORDS = new Map(COMMANDS.map((c) => [c.cli, c]));
+/** A command by its words, or by words it had before a rename (`was`): `label-rm` is `version delete`. */
+const byWords = commandByCli;
 
 export interface Parsed {
   command: Command;
@@ -74,13 +75,16 @@ function tokenize(argv: string[], takesValue: (flag: string) => boolean) {
 /** The command a line of words names, and the words left for its arguments. */
 export function findCommand(words: string[]): { command: Command; rest: string[]; set: Record<string, unknown> } | null {
   for (const n of [2, 1]) {
-    const c = BY_WORDS.get(words.slice(0, n).join(" "));
+    const c = byWords(words.slice(0, n).join(" "));
     if (c && words.length >= n) return { command: c, rest: words.slice(n), set: {} };
   }
+  // A verb alone is the note's, and the noun may be said: `note edit` is `edit`.
+  const ofNote = words[0] === "note" && words[1] ? byWords(words[1]) : undefined;
+  if (ofNote && !ofNote.cli.includes(" ")) return { command: ofNote, rest: words.slice(2), set: {} };
   const alias = ALIASES[words[0]];
-  if (alias) return { command: BY_WORDS.get(alias.to)!, rest: words.slice(1), set: alias.set };
+  if (alias) return { command: byWords(alias.to)!, rest: words.slice(1), set: alias.set };
   const fallback = GROUP_DEFAULTS[words[0]];
-  if (fallback) return { command: BY_WORDS.get(fallback)!, rest: words.slice(1), set: {} };
+  if (fallback) return { command: byWords(fallback)!, rest: words.slice(1), set: {} };
   return null;
 }
 
@@ -96,7 +100,7 @@ const orList = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -
 /** Why a line of words names no command, if it starts like one: `card shuffle`. */
 export function noSuchSubcommand(words: string[]): string | null {
   const subs = subcommands(words[0]);
-  return subs.length && !BY_WORDS.has(words[0]) ? `${words[0]} needs ${orList(subs)}, not "${words[1] ?? ""}"` : null;
+  return subs.length && !byWords(words[0]) ? `${words[0]} needs ${orList(subs)}, not "${words[1] ?? ""}"` : null;
 }
 
 /** The words that start commands: `search`, `task`, … and the aliases. */
@@ -145,11 +149,13 @@ export function parse(argv: string[], io: Io): Parsed | { help: string[] } | nul
   const { set } = found;
   let { command } = found;
   const has = (c: Command, f: string) => cliArgs(c).some(([name, a]) => flagOf(name, a) === f || a.aliases?.includes(f) || (a.presets && f in a.presets));
-  const alt = WITH_FLAGS[command.cli] ? BY_WORDS.get(WITH_FLAGS[command.cli]) : undefined;
+  const alt = WITH_FLAGS[command.cli] ? byWords(WITH_FLAGS[command.cli]) : undefined;
   if (alt && pre.flags.some(([f]) => !has(command, f) && has(alt, f))) command = alt;
   const own = (f: string) => valueFlags.has(`${command.cli}\u0000${f}`) || valueFlags.has(f);
   const { flags, words } = tokenize(argv, own);
   const rest = findCommand(words)!.rest;
+  // The command's first word as typed, for what else could follow it: `trash empty` (trash is trash list).
+  const first = words[0];
   const globals: Parsed["globals"] = { json: false, help: false };
   const input: Record<string, unknown> = { ...set };
   const args = cliArgs(command);
@@ -190,8 +196,8 @@ export function parse(argv: string[], io: Io): Parsed | { help: string[] } | nul
     } else if (rest[at] !== undefined) input[name] = convert(name, a, rest[at++], "pos", io);
   }
   if (at < rest.length) {
-    const subs = at === 0 ? subcommands(command.cli) : [];
-    throw new UsageError(subs.length ? `${command.cli} takes ${orList(subs)}, not "${rest[0]}"` : `${command.cli} takes no more arguments: "${rest.slice(at).join(" ")}" is extra`);
+    const subs = at === 0 && rest.length === words.length - 1 ? subcommands(first) : [];
+    throw new UsageError(subs.length ? `${first} takes ${orList(subs)}, not "${rest[0]}"` : `${command.cli} takes no more arguments: "${rest.slice(at).join(" ")}" is extra`);
   }
   for (const [name, a] of args) {
     if (input[name] !== undefined || !cliRequired(a)) continue;

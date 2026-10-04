@@ -150,10 +150,15 @@ export interface SettingsHost {
 }
 
 interface CommandInfo<A extends Args> {
-  /** The CLI command's words: "task add". */
+  /** The CLI command's words, `<noun> <verb>`: "task add". A verb alone is the note's: "edit". */
   cli: string;
   /** The MCP tool's name, or null with the reason it has none. */
   mcp: string | { none: string };
+  /**
+   * Names it had before, which still work: on the CLI like its own words, and over MCP when a client
+   * calls one (they aren't in the tool list, which would say every renamed tool twice).
+   */
+  was?: { cli?: readonly string[]; mcp?: readonly string[] };
   /** The API route it's equivalent to: online, only someone whose role allows that route may run it. */
   route: string;
   title: string;

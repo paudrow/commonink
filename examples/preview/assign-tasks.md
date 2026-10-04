@@ -8,4 +8,4 @@ In this Preview you're **Dev User**, so a task with `@Dev` is yours. Sam Dev is 
 2. Choose **Assigned by me**: the tasks you gave someone else in notes you made, grouped by person. `@Sam` and `@Sam-Dev` are one person, **Sam Dev**, and `@Priya` is Priya Shah.
 3. In the quick-add bar, type `Book the room tomorrow @s`: Sam Dev is offered, and picking him writes `@Sam`. The same happens on a `- [ ]` line in a note.
 4. Open **Contacts** → Sam Dev: his page lists his tasks, and you can tick one there.
-5. Agents ask with `list_tasks` `{ "assignee": "me" }` or `{ "by": "me" }`, and the CLI with `commonink tasks --assignee me` or `--by me`. Locally, where there are no accounts, "me" is `@me`.
+5. Agents ask with `list_tasks` `{ "assignee": "me" }` or `{ "by": "me" }`, and the CLI with `commonink task list --assignee me` or `--by me`. Locally, where there are no accounts, "me" is `@me`.

@@ -6,8 +6,9 @@ import { command, str } from "./types.ts";
 
 export const properties = [
   command({
-    cli: "properties",
+    cli: "property list",
     mcp: "list_properties",
+    was: { cli: ["properties"] },
     route: "GET /properties",
     title: "List properties",
     summary: "The properties notes have, each with its type (declared, built in or guessed) and how many notes have it",
@@ -15,7 +16,7 @@ export const properties = [
       `The front matter properties the workspace's notes have, each with its type and where that comes from: "declared" in ${SETTINGS_NOTE} (properties:), ` +
       `"built in" (one of Common Ink's own, like tags or date), or "guessed" from its values. With a note, that note's properties and their values. ` +
       "Write a property's value to suit its type: a checkbox is true or false, a date YYYY-MM-DD, a list [a, b], people links to contacts.",
-    examples: ["commonink properties", "commonink properties 'Weekly sync' --json"],
+    examples: ["commonink property list", "commonink property list 'Weekly sync' --json"],
     readOnly: true,
     args: { note: str({ pos: 0, describe: "Only this note's properties: a path, a [[wikilink]] name or a note ID" }) },
     run: ({ vault }, a) => {
@@ -28,8 +29,9 @@ export const properties = [
     },
   }),
   command({
-    cli: "property type",
+    cli: "property-type set",
     mcp: "set_property_type",
+    was: { cli: ["property type"] },
     route: "POST /properties/type",
     title: "Set a property's type",
     summary: "Declare what type a property is, for every note in the workspace (auto: guess it again)",
@@ -37,7 +39,7 @@ export const properties = [
       `Declare a property's type for every note in the workspace: text, number, checkbox, date, list or people. It's written to ${SETTINGS_NOTE} ` +
       "(properties:), the same as picking a type in a note's properties table, and changes how the app shows and checks it; notes' values aren't rewritten. " +
       "auto removes the declaration, so its type is guessed from each value again. Common Ink's own properties (tags, date, people, …) keep theirs.",
-    examples: ["commonink property type priority number", "commonink property type due date", "commonink property type priority auto"],
+    examples: ["commonink property-type set priority number", "commonink property-type set due date", "commonink property-type set priority auto"],
     args: {
       name: str({ required: true, pos: 0, describe: "The property's name, as written in front matter" }),
       type: str({ required: true, pos: 1, enum: TYPE_CHOICES, describe: `${TYPE_CHOICES.join(", ")}` }),

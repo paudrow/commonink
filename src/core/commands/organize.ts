@@ -7,8 +7,8 @@ import { bool, command, list, num, str, UsageError } from "./types.ts";
 
 const BOARD_HELP =
   "A board is a :::kanban block in a note (closed by :::): its ## headings are columns and its list items are cards, " +
-  "with task tokens like tasks. Moving a card into the column named Done ticks it. The opening line's folded=\"A,B\" names the columns the user folded. read_board also lists lines that aren't part of the board (problems): leave them unless the user asks.";
-const CARD = "The card's line number from read_board, or words from its text that only that card has";
+  "with task tokens like tasks. Moving a card into the column named Done ticks it. The opening line's folded=\"A,B\" names the columns the user folded. get_board also lists lines that aren't part of the board (problems): leave them unless the user asks.";
+const CARD = "The card's line number from get_board, or words from its text that only that card has";
 const COLUMN = "The column's name, or its number from 1";
 
 /** The folders notes live in (archived ones left out), each with how many notes it holds, sub-folders' included. */
@@ -26,13 +26,14 @@ export function foldersOf(paths: string[]): Array<{ folder: string; notes: numbe
 
 export const boards = [
   command({
-    cli: "board",
-    mcp: "read_board",
+    cli: "board get",
+    mcp: "get_board",
+    was: { cli: ["board"], mcp: ["read_board"] },
     route: "GET /note",
     title: "Read board",
     summary: "A note's Kanban boards, column by column, each card with its line number",
     description: `The Kanban boards in a note, column by column, each card with its line number. ${BOARD_HELP}`,
-    examples: ["commonink board Launch", "commonink board Launch --json"],
+    examples: ["commonink board get Launch", "commonink board get Launch --json"],
     readOnly: true,
     args: { path: str({ required: true, pos: 0, label: "note" }) },
     run: ({ vault }, a) => {
@@ -82,14 +83,15 @@ export const boards = [
     },
   }),
   command({
-    cli: "card edit",
-    mcp: "edit_card",
+    cli: "card update",
+    mcp: "update_card",
+    was: { cli: ["card edit"], mcp: ["edit_card"] },
     route: "PUT /note",
-    title: "Edit card",
+    title: "Update card",
     summary: "Change a card's text, or tick it",
     description:
       "Change a card's text or tick it. The new text replaces the card's line after its checkbox (keep any tokens you want to keep); more lines replace the details nested under it.",
-    examples: ['commonink card edit Launch logo --text "Pick a logo @ana"', "commonink card edit Launch 5 --done"],
+    examples: ['commonink card update Launch logo --text "Pick a logo @ana"', "commonink card update Launch 5 --done"],
     args: {
       path: str({ required: true, pos: 0, label: "note" }),
       card: str({ required: true, pos: 1, describe: CARD }),
@@ -105,8 +107,9 @@ export const boards = [
 
 export const tags = [
   command({
-    cli: "tags",
+    cli: "tag list",
     mcp: "list_tags",
+    was: { cli: ["tags"] },
     route: "GET /tags",
     title: "List tags",
     summary: "Every tag, nested, with how many notes, tasks and assets carry it",
@@ -114,7 +117,7 @@ export const tags = [
       "Every tag in the vault as a tree (tags nest with /), with how many notes, tasks and assets carry each one or a tag under it. " +
       "Use the names with the `tag` filter of search_notes and list_notes (notes that carry the tag themselves) and of list_tasks " +
       "(tasks whose line carries it): a tag on a task tags that task, not its note.",
-    examples: ["commonink tags", "commonink tags --json"],
+    examples: ["commonink tag list", "commonink tag list --json"],
     readOnly: true,
     args: {},
     run: ({ vault }) => {
@@ -130,7 +133,7 @@ export const tags = [
     summary: "Rename a tag (and the tags under it) everywhere; onto an existing tag, merge them",
     description:
       "Rename a tag, and every tag under it, in every note, task and asset. Renaming onto a tag that exists merges the two. " +
-      "Each rewritten note is its own change, so recent_changes and restore_change can undo it. Only when the user asks.",
+      "Each rewritten note is its own change, so list_changes and restore_change can undo it. Only when the user asks.",
     examples: ["commonink tag rename research research/ml", "commonink tag rename '#Work' work"],
     args: {
       from: str({ required: true, pos: 0, describe: "The tag, with or without #" }),
@@ -147,13 +150,14 @@ export const tags = [
     },
   }),
   command({
-    cli: "tag asset",
-    mcp: "set_asset_tags",
+    cli: "asset tag",
+    mcp: "tag_asset",
+    was: { cli: ["tag asset"], mcp: ["set_asset_tags"] },
     route: "PUT /asset-tags",
     title: "Tag asset",
     summary: "Set an asset's tags (images and PDFs can't hold #tags); --clear takes them all off",
     description: "Set the tags of an asset (an image, PDF or other file that can't hold #tags in its text). The list replaces the ones it had; an empty list clears them.",
-    examples: ["commonink tag asset assets/logo.png brand brand/logos", "commonink tag asset assets/logo.png --clear"],
+    examples: ["commonink asset tag assets/logo.png brand brand/logos", "commonink asset tag assets/logo.png --clear"],
     args: {
       path: str({ required: true, pos: 0, label: "asset" }),
       tags: list({ mcpRequired: true, allowEmpty: true, pos: "rest", label: "tag", describe: "The asset's tags from now on ([] clears them)" }),
@@ -169,15 +173,16 @@ export const tags = [
 
 export const smartFolders = [
   command({
-    cli: "smart",
-    mcp: "list_smart_folders",
+    cli: "view list",
+    mcp: "list_views",
+    was: { cli: ["smart"], mcp: ["list_smart_folders"] },
     route: "GET /smart-folders",
     title: "List views",
     summary: "Your saved views (smart folders: note queries kept as notes in Views/) with counts, or with a name, the notes in one",
     description:
       "The user's saved views (smart folders): note queries kept as notes in Views/, shown in the sidebar, each with its query, its note's path and how many notes match now. " +
       "A view is a note right in Views/ (shared) or in Views/<user ID>/ (just that person's) whose body has one ::view{…} line. list_notes with smart_folder lists one's notes.",
-    examples: ["commonink smart", "commonink smart planning"],
+    examples: ["commonink view list", "commonink view list planning"],
     readOnly: true,
     args: { name: str({ only: "cli", pos: "rest", describe: "List the notes in this one instead" }) },
     run: ({ vault, user, members }, a) => {
@@ -190,8 +195,9 @@ export const smartFolders = [
     },
   }),
   command({
-    cli: "smart-save",
-    mcp: "save_smart_folder",
+    cli: "view save",
+    mcp: "save_view",
+    was: { cli: ["smart-save"], mcp: ["save_smart_folder"] },
     route: "POST /smart-folders",
     title: "Save view",
     summary: 'Save a note query (q="…" folder=… tag=… sort=date) as a view: a note in Views/',
@@ -205,7 +211,7 @@ export const smartFolders = [
       "tag=x, folder=x (folder=A|B for either) and modified>-7d or created<2026-09-01 (a date, today, yesterday, or -7d, -2w, -1m back) filter too, and so do frontmatter properties: status=draft, -status=done, has=due (any case; a list matches if any item does). " +
       'All of them work anywhere a word can go: q="(tag=work OR status=draft) -folder=Archive". Filters other than q, folder, tag, sort and limit can also stand on their own. commonink help query lists it all. ' +
       'Quote a value with spaces (folder="Health and Fitness"). Only save one the user asked for.',
-    examples: ["commonink smart-save Planning tag=plan --just-me", 'commonink smart-save Launch folder=Projects q="launch"', "commonink smart-save Journal tag=journal,health sort=date"],
+    examples: ["commonink view save Planning tag=plan --just-me", 'commonink view save Launch folder=Projects q="launch"', "commonink view save Journal tag=journal,health sort=date"],
     args: {
       name: str({ required: true, pos: 0 }),
       query: str({ mcpRequired: true, pos: "rest", describe: "The query, e.g. tag=work,plan sort=date (none: every note)" }),
@@ -218,13 +224,14 @@ export const smartFolders = [
     },
   }),
   command({
-    cli: "smart-rm",
-    mcp: "delete_smart_folder",
+    cli: "view delete",
+    mcp: "delete_view",
+    was: { cli: ["smart-rm"], mcp: ["delete_smart_folder"] },
     route: "POST /smart-folders/delete",
     title: "Delete view",
     summary: "Delete a saved view: its note goes to Trash (the notes it finds don't change)",
     description: "Delete a saved view (smart folder) by name or ID: its note in Views/ goes to Trash, like delete_note. The notes it finds don't change.",
-    examples: ["commonink smart-rm Planning"],
+    examples: ["commonink view delete Planning"],
     destructive: true,
     args: { smart_folder: str({ required: true, pos: 0, label: "name" }) },
     run: ({ vault, user, canEditShared, members, source }, a) => {
@@ -271,39 +278,42 @@ export const favorites = [
     run: (host, a) => starEach(host, a.paths, false),
   }),
   command({
-    cli: "star-tag",
+    cli: "tag star",
     mcp: "star_tag",
+    was: { cli: ["star-tag"] },
     route: "POST /favorites/star",
     title: "Star tag",
     summary: "Add tags to your favorites, beside your starred notes",
     description:
       "Add tags to the user's favorites, beside their starred notes; clicking one in the app shows every note with that tag " +
       "(or a tag under it). A starred tag follows renames and merges. Only star tags the user asked for.",
-    examples: ["commonink star-tag work"],
+    examples: ["commonink tag star work"],
     args: { tags: list({ required: true, pos: "rest", label: "tag", describe: "Tags, with or without #" }) },
     run: (host, a) => starEach(host, a.tags.map((t) => `#${t.replace(/^#/, "")}`), true),
   }),
   command({
-    cli: "unstar-tag",
+    cli: "tag unstar",
     mcp: "unstar_tag",
+    was: { cli: ["unstar-tag"] },
     route: "POST /favorites/unstar",
     title: "Unstar tag",
     summary: "Take tags out of your favorites",
     description: "Take tags out of the user's favorites. The tags and their notes don't change.",
-    examples: ["commonink unstar-tag work"],
+    examples: ["commonink tag unstar work"],
     args: { tags: list({ required: true, pos: "rest", label: "tag" }) },
     run: (host, a) => starEach(host, a.tags.map((t) => `#${t.replace(/^#/, "")}`), false),
   }),
   command({
-    cli: "smart-star",
-    mcp: "star_smart_folder",
+    cli: "view star",
+    mcp: "star_view",
+    was: { cli: ["smart-star"], mcp: ["star_smart_folder"] },
     route: "POST /favorites/star",
     title: "Star view",
     summary: "Add saved views (smart folders) to your favorites, beside your starred notes and tags",
     description:
-      "Add saved views (smart folders, by name or ID, as list_smart_folders gives) to the user's favorites, beside their starred notes and tags. " +
+      "Add saved views (smart folders, by name or ID, as list_views gives) to the user's favorites, beside their starred notes and tags. " +
       "Only star ones the user asked for.",
-    examples: ["commonink smart-star Planning"],
+    examples: ["commonink view star Planning"],
     args: { smart_folders: list({ required: true, pos: "rest", label: "name" }) },
     run: ({ vault, user }, a) => {
       for (const f of a.smart_folders) vault.starSmartFolder(user, f);
@@ -312,13 +322,14 @@ export const favorites = [
     },
   }),
   command({
-    cli: "smart-unstar",
-    mcp: "unstar_smart_folder",
+    cli: "view unstar",
+    mcp: "unstar_view",
+    was: { cli: ["smart-unstar"], mcp: ["unstar_smart_folder"] },
     route: "POST /favorites/unstar",
     title: "Unstar view",
     summary: "Take saved views out of your favorites",
     description: "Take saved views (smart folders) out of the user's favorites. The views themselves stay.",
-    examples: ["commonink smart-unstar Planning"],
+    examples: ["commonink view unstar Planning"],
     args: { smart_folders: list({ required: true, pos: "rest", label: "name" }) },
     run: ({ vault, user }, a) => {
       for (const f of a.smart_folders) vault.unstarSmartFolder(user, f);
@@ -328,9 +339,10 @@ export const favorites = [
   }),
   command({
     cli: "starred order",
-    mcp: "order_favorites",
+    mcp: "order_starred",
+    was: { mcp: ["order_favorites"] },
     route: "PUT /favorites",
-    title: "Order favorites",
+    title: "Order starred",
     summary: "Put favorites first, in this order (notes, '#tags' and '~smart folders'); the rest follow",
     description:
       "Reorder the user's favorites: these come first, in this order (a note, a #tag for a starred tag, or ~name for a starred smart folder), and the rest follow as they were.",
@@ -345,13 +357,14 @@ export const favorites = [
 
 export const folders = [
   command({
-    cli: "folders",
+    cli: "folder list",
     mcp: "list_folders",
+    was: { cli: ["folders"] },
     route: "GET /notes",
     title: "List folders",
     summary: "Every folder notes live in, with how many notes each holds",
     description: "Every folder with notes in it (archived notes left out), with how many notes it holds, sub-folders' included. A folder exists while a note is in it: create_note or move_note with a path makes one.",
-    examples: ["commonink folders"],
+    examples: ["commonink folder list"],
     readOnly: true,
     args: {},
     run: ({ vault }) => {

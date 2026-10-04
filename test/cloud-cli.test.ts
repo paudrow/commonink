@@ -306,7 +306,7 @@ test("a workspace's settings from the CLI: invite links, members and roles, a ne
   assert.equal(owner.run(["member", "remove", "Stranger Dev", ...two]).status, 3);
   // A local vault has no settings.
   const signedOut = cli();
-  assert.match(signedOut.run(["members"]).stderr, /^members is for a hosted workspace: run commonink login first\n$/);
+  assert.match(signedOut.run(["members"]).stderr, /^member list is for a hosted workspace: run commonink login first\n$/);
   assert.equal(signedOut.run(["members"]).status, 7);
   assert.equal(owner.run(["members", "--workspace", "local"]).status, 2);
 });

@@ -150,7 +150,8 @@ async function main() {
   // The CLI's own commands come first on the line; a note command's words can be anywhere among its flags.
   const [first, ...more] = argv;
   if (first === "mcp") return void (await import("./mcp.ts"));
-  if (first === "version" || first === "--version") return console.log(process.env.COMMONINK_CLI_VERSION ?? JSON.parse(fs.readFileSync(new URL("../cli/package.json", import.meta.url), "utf8")).version);
+  // `version` alone is the CLI's; with more words it's a note's named versions (`version list`).
+  if ((first === "version" && !more.some((w) => !w.startsWith("-"))) || first === "--version") return console.log(process.env.COMMONINK_CLI_VERSION ?? JSON.parse(fs.readFileSync(new URL("../cli/package.json", import.meta.url), "utf8")).version);
   if (first === "completion") {
     const shell = SHELLS[more[0] as keyof typeof SHELLS];
     if (!shell) throw new UsageError(`completion takes bash, zsh or fish, not "${more[0] ?? ""}"`);
