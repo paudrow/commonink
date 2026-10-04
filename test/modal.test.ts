@@ -132,7 +132,7 @@ test("every dialog closes with its X or a click outside, and gives the focus bac
 test("a dialog opened with the id of an open one takes its place, and the focus goes back where the first found it", () => {
   const opener = document.body.appendChild(document.createElement("button"));
   opener.focus();
-  openModal({ title: "Connected agents", content: [el("button", {}, "Revoke")], id: "agents-page" });
+  openModal({ title: "Agents", content: [el("button", {}, "Revoke")], id: "agents-page" });
   button("Revoke").focus();
   openModal({ title: "Design", content: [], id: "agents-page" });
   assert.deepEqual([...document.querySelectorAll("#agents-page h2")].map((h) => h.textContent), ["Design"]);

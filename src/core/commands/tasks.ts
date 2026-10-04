@@ -45,9 +45,9 @@ export const tasks = [
     mcp: "list_tasks",
     route: "GET /tasks",
     title: "List tasks",
-    summary: "Checkbox tasks across the vault, with their tokens, filtered by tag, person, priority or date",
+    summary: "Checkbox tasks across the workspace, with their tokens, filtered by tag, person, priority or date",
     description:
-      "Checkbox tasks across the vault (not archived notes), as their markdown lines with path:line. A task's metadata is tokens in " +
+      "Checkbox tasks across the workspace (not archived notes), as their markdown lines with path:line. A task's metadata is tokens in " +
       "its text: due:YYYY-MM-DD, start:YYYY-MM-DD, rec:… (how it repeats), #tag, @person, !high or !low, and done:YYYY-MM-DD once ticked. " +
       "A tag on a task tags the task, not its note. @ followed by a letter is a person; write \\@word for an @ that isn't one.",
     examples: ["commonink tasks", "commonink tasks --tag work --due '<=today'", "commonink tasks --due '>=today <=+7d' --priority high", "commonink tasks --done-date '>=-7d'","commonink tasks --assignee jane --all --json", "commonink tasks --assignee me", "commonink tasks --by me"],

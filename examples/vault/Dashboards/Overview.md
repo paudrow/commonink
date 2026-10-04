@@ -1,6 +1,6 @@
 # Overview
 
-Your vault at a glance. Each block below is one line of markdown (or a code block), so agents can build dashboards like this too.
+Your workspace at a glance. Each block below is one line of markdown (or a code block), so agents can build dashboards like this too.
 
 ## Open tasks
 

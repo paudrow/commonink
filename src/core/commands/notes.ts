@@ -42,7 +42,7 @@ export const notes = [
     title: "Search notes",
     summary: "Full-text search (prefix matching), with the lines that match",
     description:
-      "Full-text search across the vault (titles, paths, bodies; prefix matching). Every word must match; " +
+      "Full-text search across the workspace (titles, paths, bodies; prefix matching). Every word must match; " +
       '-word leaves out notes with it, a OR b matches either, ( ) groups, "exact phrase" matches the words together, and * is a wildcard (pl*ing, *ing) (commonink help query). Returns paths with matching line numbers.',
     examples: ["commonink search launch plan", "commonink search invoice --tag work --json", `commonink search '"launch plan" -draft'`],
     readOnly: true,
@@ -65,7 +65,7 @@ export const notes = [
     title: "Read note",
     summary: "A note with line numbers, and its version for --base",
     description:
-      "Read a note with line numbers. `path` may be a vault path, a path without extension, or a [[wikilink]] name. " +
+      "Read a note with line numbers. `path` may be a full path, a path without extension, or a [[wikilink]] name. " +
       "A block link's target (Roadmap#^k3x9q2, or Roadmap#^a..^b for a range of blocks) reads just those lines. " +
       "The returned version can be passed to edit_note as base_version.",
     examples: ["commonink read Roadmap", "commonink read Projects/Roadmap.md --offset 10 --limit 20", "commonink read 'Roadmap#^k3x9q2'"],
@@ -92,9 +92,9 @@ export const notes = [
     mcp: "list_notes",
     route: "GET /notes",
     title: "List notes",
-    summary: "Notes in the vault or a folder, with a tag, the most recent, starred, or in a saved view",
+    summary: "Notes in the workspace or a folder, with a tag, the most recent, starred, or in a saved view",
     description:
-      "List notes in the vault or a folder, the notes and assets with a tag, the most recently modified notes, or the user's " +
+      "List notes in the workspace or a folder, the notes and assets with a tag, the most recently modified notes, or the user's " +
       "starred notes (favorites, in their order). Archived notes (in Archive/, or the workspace's own archive folder like " +
       '"4. Archive/") are excluded unless requested.',
     examples: ["commonink ls Projects", "commonink ls --tag work", "commonink ls --recent 5", "commonink ls --starred", `commonink ls --query 'q="launch -draft" modified>-7d sort=created'`],
@@ -161,7 +161,7 @@ export const notes = [
     title: "Missing links",
     summary: "Links to notes that aren't here (never written, deleted, or left out of an import), and where each is",
     description:
-      "Links to notes or files that aren't in the vault, grouped by what they point to, the most-linked first, with each linking line. " +
+      "Links to notes or files that aren't in the workspace, grouped by what they point to, the most-linked first, with each linking line. " +
       "After an import, these are the notes that didn't come over: create them, fix the link with edit_note, or leave them as a to-do.",
     examples: ["commonink missing-links", "commonink missing-links Projects --json"],
     readOnly: true,

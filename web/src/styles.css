@@ -2460,7 +2460,7 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .ap-table .is-num { text-align: right; }
 .ap-table .dt-none { padding: 18px; text-align: center; color: var(--muted); }
 
-/* Connected agents (account menu, online) */
+/* The Agents dialog (account menu, online) */
 #agents-page { position: fixed; inset: 0; z-index: 50; background: rgba(20, 16, 10, 0.28); backdrop-filter: blur(3px); display: flex; justify-content: center; align-items: flex-start; padding-top: 10vh; animation: fade 0.12s ease-out; }
 .agents-box { width: min(620px, calc(100vw - 32px)); max-height: 76vh; overflow: auto; background: var(--bg-elev); border-radius: 14px; box-shadow: var(--shadow-lg); padding: 16px 18px 18px; animation: pop 0.14s ease-out; outline: 0; }
 .agents-head { display: flex; align-items: center; gap: 9px; color: var(--muted); }

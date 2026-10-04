@@ -23,7 +23,7 @@ Yes. Common Ink reads Obsidian's links, embeds, tags and callouts, so a vault im
 
 ## What can a connected agent see?
 
-The workspace you picked when you allowed it, with your role there. It can't see your other workspaces, and a viewer's agent can only read. **Connected agents** in the account menu shows what each one changed lately, and **Revoke** cuts it off.
+The workspace you picked when you allowed it, with your role there. It can't see your other workspaces, and a viewer's agent can only read. **Agents** in the account menu shows what each one changed lately, and **Revoke** cuts it off.
 
 ## What if an agent makes a mess?
 

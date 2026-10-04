@@ -285,7 +285,7 @@ test("refresh tokens rotate, and tokens are stored only as hashes", async () => 
   assert.equal(leaked.n, 0);
 });
 
-test("Connected agents lists your agents, and Revoke cuts one off at once", async () => {
+test("Agents lists your agents, and Revoke cuts one off at once", async () => {
   const cookie = await cloud.signIn("revoker");
   const { workspaces } = await cloud.call(cookie, "GET", "/api/me");
   const { access, refresh, client } = await connect(cookie, workspaces[0].id);

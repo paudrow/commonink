@@ -15,7 +15,7 @@ export const history = [
     title: "Recent changes",
     summary: "What changed and who changed it; --by people|ai|<agent>, --path for one note",
     description:
-      "What changed in the vault and who changed it (you, the user, or other agents). " +
+      "What changed in the workspace and who changed it (you, the user, or other agents). " +
       "`since` is an ISO timestamp or a change id from a previous call — use it to catch up. " +
       "`path` (a note's name, path, ID or URL) narrows it to one note, including its history under earlier names. " +
       "`by` narrows it to people's own changes (`people`), any agent's (`ai`), or one agent's (its name).",
@@ -120,11 +120,11 @@ export const files = [
     mcp: { none: BINARY },
     route: "POST /upload",
     title: "Upload files",
-    summary: "Add files to the vault (assets/ by default), each under a free name",
+    summary: "Add files to the workspace (assets/ by default), each under a free name",
     examples: ["commonink upload logo.png", "commonink upload *.pdf --folder Projects/Launch"],
     args: {
       files: localFiles({ required: true, pos: "rest", label: "file", describe: "Files on this computer" }),
-      folder: str({ describe: "Where in the vault (default assets)" }),
+      folder: str({ describe: "Where in the workspace (default assets)" }),
     },
     run: async ({ vault, bytes, source }, a) => {
       if (!bytes) throw new VaultError("Uploading needs the CLI or the app");
@@ -141,11 +141,11 @@ export const files = [
     mcp: { none: BINARY },
     route: "GET /files/*",
     title: "Download file",
-    summary: "Copy a file from the vault to this computer (--out -: to stdout)",
+    summary: "Copy a file from the workspace to this computer (--out -: to stdout)",
     examples: ["commonink download assets/logo.png", "commonink download assets/logo.png --out ~/Desktop/logo.png", "commonink download report.pdf --out - | pdftotext - -"],
     readOnly: true,
     args: {
-      path: str({ required: true, pos: 0, label: "file", describe: "A file in the vault: an asset, or a note's markdown" }),
+      path: str({ required: true, pos: 0, label: "file", describe: "A file in the workspace: an asset, or a note's markdown" }),
       out: str({ only: "cli", describe: "Where to save it (default: its name, here); - for stdout" }),
     },
     // What comes back is the bytes; the CLI saves them where --out says.

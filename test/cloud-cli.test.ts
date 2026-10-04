@@ -311,7 +311,7 @@ test("a workspace's settings from the CLI: invite links, members and roles, a ne
   assert.equal(owner.run(["members", "--workspace", "local"]).status, 2);
 });
 
-test("Revoke in Connected agents cuts the CLI off at its next command", async () => {
+test("Revoke in Agents cuts the CLI off at its next command", async () => {
   const c = cli();
   await login(c, people.editor);
   assert.equal(c.run(["ls", "--workspace", "Team"]).status, 0);

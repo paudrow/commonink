@@ -88,7 +88,7 @@ export const calendar = [
     mcp: { none: `list_events names each event's calendar; ${PEOPLE}` },
     route: "GET /calendar/sources",
     title: "Calendars",
-    summary: "The calendars (ICS feeds) this vault subscribes to",
+    summary: "The calendars (ICS feeds) this workspace subscribes to",
     examples: ["commonink calendars", "commonink calendars --json"],
     readOnly: true,
     args: {},

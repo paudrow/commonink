@@ -213,7 +213,7 @@ export interface App {
   userSettingsFile(): void;
   workspaceSettingsFile(): void;
   agentInstructions(): void;
-  /** Online, the Connected agents dialog; locally, how to connect one to this vault. */
+  /** The Agents dialog: online, the agents you've connected; locally, how to connect one to this workspace. */
   connectAgent(): void;
   /** Back or forward through what the focused pane has shown. */
   back(): void;
@@ -352,7 +352,7 @@ export function appCommands(app: App): Command[] {
     { id: "user-settings-file", title: "Open your settings file", keywords: "preferences user settings yaml config json file", icon: "code", run: app.userSettingsFile },
     { id: "agent-instructions", title: "Open AGENTS.md", keywords: "agent instructions ai conventions rules claude", icon: "bot", run: app.agentInstructions },
     { id: "workspace-settings-file", title: "Open workspace settings file", keywords: "preferences workspace settings yaml config json file settings.md", icon: "code", run: app.workspaceSettingsFile },
-    { id: "connect-agent", title: "Connect an agent", keywords: "agent mcp claude cursor connected agents ai assistant", icon: "bot", run: app.connectAgent },
+    { id: "connect-agent", title: "Agents", keywords: "connect an agent connected agents mcp claude cursor ai assistant revoke disconnect", icon: "bot", run: app.connectAgent },
     // The docs are on the hosted site; a local app opens commonink.app's.
     { id: "docs", title: "Help and docs", keywords: "documentation guide manual how to learn import agents faq support", icon: "file", run: () => void window.open(/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? "https://commonink.app/docs/" : "/docs/", "_blank", "noopener") },
     { id: "shortcuts", title: "Keyboard shortcuts", keywords: "keys keybindings help hotkeys cheat sheet", icon: "keyboard", keys: ["?"], run: app.shortcuts },

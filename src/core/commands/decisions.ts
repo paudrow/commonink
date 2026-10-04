@@ -25,7 +25,7 @@ export const decisions = [
       "- rank: put the options in order, best first.\n" +
       "- scale: a number from `min` to `max` (1 to 5 by default), with `labels` for the two ends.\n" +
       "- text (the default without options): an answer in words. A `recommended` answer is filled in for them: Enter takes it, typing replaces it.\n" +
-      "`media` shows pictures with the question (https:// addresses or files in the vault). `recommended` is what you would answer, " +
+      "`media` shows pictures with the question (https:// addresses or files in the workspace). `recommended` is what you would answer, " +
       "written as an answer: an option's number or words; several for many and rank; one per row, or Row=Option, for rows; a number " +
       "for scale. Then carry on with other work and read the answer later with list_decisions (status settled, or ids). Withdraw it " +
       "with withdraw_decision if it stops mattering.",
@@ -41,9 +41,9 @@ export const decisions = [
       kind: str({ enum: KINDS, describe: "one, many, yes_no, rows, compare, rank, scale or text (default one with options, text without)" }),
       options: list({ label: "a,b", describe: "The choices, short (2 to 9); for rows, the choice for each row. On the CLI, separate with commas" }),
       details: pairs({ flag: "detail", label: "Option=line", describe: "A line more about an option, by its words" }),
-      images: pairs({ flag: "image", label: "Option=picture", describe: "A picture of an option: an https:// address or a file in the vault" }),
+      images: pairs({ flag: "image", label: "Option=picture", describe: "A picture of an option: an https:// address or a file in the workspace" }),
       rows: list({ label: "a,b", describe: "For kind rows: the things to choose for (up to 30)" }),
-      media: list({ label: "picture,…", describe: "Pictures to show with the question: https:// addresses or files in the vault" }),
+      media: list({ label: "picture,…", describe: "Pictures to show with the question: https:// addresses or files in the workspace" }),
       min: num({ describe: "many: the fewest picks; scale: its low end (default 1)" }),
       max: num({ describe: "many: the most picks; scale: its high end (default 5)" }),
       labels: list({ label: "low,high", describe: "scale: words for its two ends" }),
