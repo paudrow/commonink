@@ -605,7 +605,7 @@ body.is-resizing iframe { pointer-events: none; }
 #panel section { padding: 14px 14px 8px; border-bottom: 1px solid var(--line); flex: none; max-height: 34vh; display: flex; flex-direction: column; min-height: 0; }
 #panel section.grow { flex: 1; max-height: none; border-bottom: 0; }
 /* On a page that isn't a note (Notes, Tasks, Calendar…), the note's Outline and Backlinks have nothing to show; Activity stays. */
-body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #tags-view, #checkup-view, #replace-view, #query-help-view, #profile-view, #contacts-view, #shared-view, #capture-view):not([hidden])) #panel section:not(.grow) { display: none; }
+body:not(.is-split):has(:is(#notes-view, #tasks-view, #calendar-view, #assets-view, #tags-view, #checkup-view, #replace-view, #query-help-view, #profile-view, #contacts-view, #shared-view, #capture-view):not([hidden])) #panel section:not(.grow) { display: none; }
 #panel h3 {
   margin: 0 0 8px 4px;
   font: 650 10.5px/1 var(--ui);
@@ -2244,6 +2244,7 @@ body.is-focus #banner { margin-top: 12px; }
 
 /* ------------------------------------------------------------------ history */
 #history-view { position: absolute; inset: 0; outline: none; }
+/* History is the whole activity log, with its own detail pane: no side panel here, and no button for one (noPanel in main.ts). */
 body:has(#history-view:not([hidden])) #app { grid-template-columns: 264px minmax(0, 1fr) 0; }
 body:has(#history-view:not([hidden])) #panel { opacity: 0; pointer-events: none; }
 .history { display: grid; grid-template-columns: 340px minmax(0, 1fr); height: 100%; }
@@ -2407,8 +2408,6 @@ body:has(#history-view:not([hidden])) #panel { opacity: 0; pointer-events: none;
 }
 
 .q-thumb { width: 22px; height: 22px; border-radius: 4px; object-fit: cover; flex: none; background: var(--hover); }
-body:has(#assets-view:not([hidden])) #app { grid-template-columns: 264px minmax(0, 1fr) 0; }
-body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; }
 .hist-asset { display: flex; align-items: center; gap: 12px; padding: 12px 14px; font-size: 13px; color: var(--muted); }
 .hist-asset b { display: block; color: var(--ink-strong); font-weight: 600; }
 .hist-asset-thumb { width: 56px; height: 42px; flex: none; display: grid; place-items: center; border-radius: 8px; overflow: hidden; background: var(--hover); color: var(--muted); }

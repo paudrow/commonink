@@ -254,6 +254,66 @@ journey("Delete a note by mistake and get it back", ({ given, when, then, and })
   });
 });
 
+journey("Open and close the side panel, page by page", ({ given, when, then, and }) => {
+  let page: Page;
+  const panelButton = () => page.getByRole("button", { name: /^Toggle info panel/ });
+  /** Whether the panel can be seen: it has its column and isn't faded out. */
+  const panelShows = () => page.locator("#panel").evaluate((n) => n.getBoundingClientRect().width > 0 && getComputedStyle(n).opacity === "1");
+  const saved = () => page.evaluate(() => localStorage.getItem("commonink.panel"));
+  /** Runs the first command ⌘K finds for `query`. */
+  async function runCommand(query: string, title: string) {
+    await page.keyboard.press("Control+Shift+p");
+    await page.locator("#palette-input").fill(`>${query}`);
+    await page.locator("#palette-results [role=option]", { hasText: title }).first().waitFor();
+    await page.keyboard.press("Enter");
+  }
+  given("the app open on Notes, the side panel showing Activity", async () => {
+    ({ page } = await person(browser, app.origin));
+    await page.locator("#notes-view .feed-card").first().waitFor();
+    await eventually(panelShows);
+    assert.deepEqual(await page.locator("#panel h3:visible").allTextContents(), ["Activity"]);
+  });
+  when("I go to Assets", async () => {
+    await runCommand("Go to Assets", "Go to Assets");
+    await page.locator("#assets-view:visible").waitFor();
+  });
+  then("Activity is beside it too, and the button closes and opens it", async () => {
+    await eventually(panelShows);
+    assert.deepEqual(await page.locator("#panel h3:visible").allTextContents(), ["Activity"]);
+    await panelButton().click();
+    await eventually(async () => !(await panelShows()));
+    await panelButton().click();
+    await eventually(panelShows);
+  });
+  when("I go to History", async () => {
+    await page.locator("#sidebar").getByRole("button", { name: "History", exact: true }).click();
+    await page.locator("#history-view:visible").waitFor();
+  });
+  then("there's no side panel, and no button for one", async () => {
+    await eventually(async () => !(await panelShows()));
+    assert.equal(await panelButton().count(), 0);
+  });
+  and("its shortcut and its command change nothing", async () => {
+    const before = await saved();
+    await page.keyboard.press("Control+\\");
+    await page.keyboard.press("Control+Shift+p");
+    await page.locator("#palette-input").fill(">toggle");
+    await page.locator("#palette-results [role=option]", { hasText: "Toggle theme" }).waitFor();
+    assert.equal(await page.locator("#palette-results [role=option]", { hasText: "Toggle info panel" }).count(), 0);
+    await page.keyboard.press("Escape");
+    assert.equal(await saved(), before);
+  });
+  when("I go back to Notes", async () => {
+    await page.locator("#sidebar").getByRole("button", { name: "Notes", exact: true }).click();
+    await page.locator("#notes-view .feed-card").first().waitFor();
+  });
+  then("the side panel is open as I left it, and Ctrl+\\ closes it", async () => {
+    await eventually(panelShows);
+    await page.keyboard.press("Control+\\");
+    await eventually(async () => !(await panelShows()));
+  });
+});
+
 journey("Look around on a phone", ({ given, when, then, and }) => {
   let page: Page;
   const PAGES = { Notes: "/notes", Tasks: "/tasks", Tags: "/tags", Contacts: "/contacts", Assets: "/assets", History: "/history", Calendar: "/calendar", "Shared with me": "/shared" };
