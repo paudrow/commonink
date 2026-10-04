@@ -36,7 +36,8 @@ const ADDED_KEY = "quickAddCount";
 function hint(): HTMLElement {
   const anywhere = [kbd(QUICK_ADD), " opens this anywhere"];
   if (store.get(ADDED_KEY, 0) >= LEARNED) return el("span", { class: "qa-hint is-short" }, ...anywhere);
-  return el("span", { class: "qa-hint" }, HINT, el("kbd", {}, "Enter"), " adds · ", ...anywhere);
+  // The keys are a span of their own: a touch screen leaves them out (mobile.css).
+  return el("span", { class: "qa-hint" }, HINT, el("span", { class: "qa-keys" }, el("kbd", {}, "Enter"), " adds · ", ...anywhere));
 }
 
 /** A quick-add bar; focus it with the returned `focus`. */
