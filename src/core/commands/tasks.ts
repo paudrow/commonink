@@ -2,7 +2,7 @@
 import { VaultError } from "../paths.ts";
 import { fmtTasks, fmtToday, fmtWrite } from "../format.ts";
 import type { Vault } from "../vault.ts";
-import type { TaskPatch } from "../tasks.ts";
+import { parseTask, type BacklogScope, type TaskPatch } from "../tasks.ts";
 import { actorOf } from "../actor.ts";
 import { bool, command, list, num, str } from "./types.ts";
 
@@ -13,7 +13,7 @@ const TEXT_CLI = " On the CLI it's looked up from the line when left out.";
 /** A task's text, given, or read from its line (the CLI's way: people name a task by where it is). */
 function taskText(vault: Vault, note: string, line: number, text: string | undefined): string {
   if (text !== undefined) return text;
-  const task = vault.tasks({ note }).find((t) => t.line === line);
+  const task = vault.tasks({ note, backlog: "include" }).find((t) => t.line === line);
   if (!task) throw new VaultError(`There's no task on line ${line} of ${note}`, "not_found");
   return task.text;
 }
@@ -49,8 +49,10 @@ export const tasks = [
     description:
       "Checkbox tasks across the vault (not archived notes), as their markdown lines with path:line. A task's metadata is tokens in " +
       "its text: due:YYYY-MM-DD, start:YYYY-MM-DD, rec:… (how it repeats), #tag, @person, !high or !low, and done:YYYY-MM-DD once ticked. " +
-      "A tag on a task tags the task, not its note. @ followed by a letter is a person; write \\@word for an @ that isn't one.",
-    examples: ["commonink tasks", "commonink tasks --tag work --due '<=today'", "commonink tasks --due '>=today <=+7d' --priority high", "commonink tasks --done-date '>=-7d'","commonink tasks --assignee jane --all --json", "commonink tasks --assignee me", "commonink tasks --by me"],
+      "A tag on a task tags the task, not its note. @ followed by a letter is a person; write \\@word for an @ that isn't one. " +
+      "Tasks in the Backlog (backlog:YYYY-MM-DD, the day they went) are left out unless backlog asks for them: an open task untouched for the workspace's " +
+      "auto_backlog_days (30 by default, in Config/Settings.md) moves there on its own, unless it's tagged #dont-backlog.",
+    examples: ["commonink tasks", "commonink tasks --tag work --due '<=today'", "commonink tasks --due '>=today <=+7d' --priority high", "commonink tasks --done-date '>=-7d'","commonink tasks --assignee jane --all --json", "commonink tasks --assignee me", "commonink tasks --by me", "commonink tasks --backlog only"],
     readOnly: true,
     args: {
       status: str({ enum: ["open", "done", "all"], presets: { done: "done", all: "all" }, describe: "Default open" }),
@@ -63,13 +65,14 @@ export const tasks = [
       start: str({ describe: 'A start date filter, the same way as due: ">=today <=+7d" for the tasks starting this week' }),
       done: str({ flag: "done-date", describe: 'A done date filter, the same way as due: ">=-7d" for what was ticked in the last week (lists done tasks unless a status is given)' }),
       priority: str({ describe: "high, low or none, or several with commas (high,none)" }),
+      backlog: str({ enum: ["include", "only"], describe: "Tasks in the Backlog are left out by default: include lists them with the rest, only lists just them" }),
     },
     run: async ({ vault, user, source, members }, { status, by, ...filters }) => {
       // Asking when tasks were done means the done ones, unless the status says otherwise.
       const want = status ?? (filters.done ? "done" : "open");
       const people = filters.assignee || by ? ((await members?.()) ?? []) : [];
       const person = actorOf(source).person ?? user;
-      const found = vault.tasksFor({ user, person, members: people }, { ...filters, by: by as "me" | undefined }).filter((t) => want === "all" || t.done === (want === "done"));
+      const found = vault.tasksFor({ user, person, members: people }, { ...filters, by: by as "me" | undefined, backlog: filters.backlog as BacklogScope | undefined }).filter((t) => want === "all" || t.done === (want === "done"));
       return { text: fmtTasks(found), data: found };
     },
   }),
@@ -98,23 +101,27 @@ export const tasks = [
     mcp: "update_task",
     route: "POST /tasks/update",
     title: "Update task",
-    summary: 'Tick, untick or change one task\'s tokens; "none" clears one',
+    summary: 'Tick, untick, change one task\'s tokens ("none" clears one), or move it to or from the Backlog',
     description:
       "Tick, untick or change the metadata of one task, by the path:line and text list_tasks gave. Only the fields you pass change: " +
       "a value sets that token, null (or [] for lists) removes it, and the rest of the line stays as the user wrote it. Ticking adds done: with today's date; " +
-      "ticking a repeating task (rec:) also adds its next occurrence on the line below, and unticking it straight after takes that back.",
-    examples: ["commonink task Roadmap 8 --due 2026-10-01 --priority high", "commonink task Roadmap 8 --done", "commonink task Bills 3 --rec 6th --until 2027-06-30", "commonink task Roadmap 8 --due none"],
+      "ticking a repeating task (rec:) also adds its next occurrence on the line below, and unticking it straight after takes that back. " +
+      "backlog: true moves it to the Backlog (out of Today and the task lists, kept in its note with backlog:<today>); false brings it back.",
+    examples: ["commonink task Roadmap 8 --due 2026-10-01 --priority high", "commonink task Roadmap 8 --done", "commonink task Bills 3 --rec 6th --until 2027-06-30", "commonink task Roadmap 8 --due none", "commonink task Roadmap 8 --to-backlog", "commonink task Roadmap 8 --from-backlog"],
     args: {
       path: str({ required: true, pos: 0, label: "note", describe: "The note the task is in" }),
       line: num({ required: true, pos: 1, min: 1, describe: LINE }),
       text: str({ mcpRequired: true, describe: TEXT + TEXT_CLI }),
       done: bool({ presets: { undone: false }, describe: "Tick (true) or untick (false)" }),
       ...TASK_FIELDS,
+      backlog: bool({ flag: "to-backlog", presets: { "from-backlog": false }, describe: "Move it to the Backlog (true), or bring it back (false)" }),
       skip: bool({ describe: "Move a repeating task to its next date without ticking it (on its own: other fields are ignored)" }),
     },
-    run: ({ vault, source }, { path, line, text, done, skip, ...fields }) => {
+    run: ({ vault, source }, { path, line, text, done, skip, backlog, ...fields }) => {
       const t = taskText(vault, path, line, text);
-      const patch = Object.fromEntries(Object.entries({ ...fields, checked: done }).filter(([, v]) => v !== undefined)) as TaskPatch;
+      // In the Backlog already, it keeps the day it went.
+      const since = backlog === undefined ? undefined : backlog ? (parseTask(`- [ ] ${t}`)?.meta.backlog ?? vault.day()) : null;
+      const patch = Object.fromEntries(Object.entries({ ...fields, checked: done, backlog: since }).filter(([, v]) => v !== undefined)) as TaskPatch;
       const r = skip ? vault.skipTask(path, line, t, source) : vault.updateTask(path, line, t, patch, source);
       return { text: fmtWrite(r, r.change ? "Updated" : "No change to"), data: r };
     },
@@ -164,7 +171,7 @@ export const tasks = [
     title: "Get today",
     summary: "The day at a glance: overdue, due today, starting today, and today's journal note",
     description:
-      "The day at a glance: open tasks overdue, due today and starting today (repeating ones show their rec:), and whether today's " +
+      "The day at a glance: open tasks overdue, due today and starting today (repeating ones show their rec:; none from the Backlog), and whether today's " +
       "journal note (Journal/YYYY-MM-DD.md) exists. A good start for a morning brief.",
     examples: ["commonink today", "commonink today --date 2026-10-01 --json"],
     readOnly: true,

@@ -55,7 +55,9 @@ const SCHEMA = [
   // How each tag is shown: segment by segment, the way it was first written.
   `CREATE TABLE IF NOT EXISTS tag_names(tag TEXT PRIMARY KEY, display TEXT NOT NULL)`,
   // Each note's tasks as read when it was indexed (see Vault.tasks): the columns queries filter on, the rest as JSON.
-  `CREATE TABLE IF NOT EXISTS tasks(path TEXT NOT NULL, line INTEGER NOT NULL, done INTEGER NOT NULL, due TEXT, start TEXT, task TEXT NOT NULL)`,
+  // `seen` is when the task's line was last new or changed (ms), for telling which have sat idle; null in an
+  // index from before it was kept, where the note's own last change stands in.
+  `CREATE TABLE IF NOT EXISTS tasks(path TEXT NOT NULL, line INTEGER NOT NULL, done INTEGER NOT NULL, due TEXT, start TEXT, task TEXT NOT NULL, seen INTEGER)`,
   `CREATE INDEX IF NOT EXISTS tasks_path ON tasks(path)`,
   // Each note's frontmatter properties, for queries like status=draft: one row per value (a list has
   // one per item), keys in lowercase, values as written. tags and title aren't here (see propsOf).
@@ -125,6 +127,10 @@ export function migrate(db: SqlDb, opts: { local?: boolean } = {}) {
   // Links are kept by the name they end in, without folders (see backlinks in the core). An index from
   // before that has keys with folders in them: the next sync reads every note again to replace them.
   if (db.get("SELECT 1 FROM links WHERE key LIKE '%/%' LIMIT 1")) db.run("UPDATE notes SET mtime = -1");
+  // Indexes from before tasks kept when they were last touched lack the column.
+  try {
+    db.exec("ALTER TABLE tasks ADD COLUMN seen INTEGER");
+  } catch {}
   // Indexes from before stable IDs lack the column. (ALTER, not a pragma: Durable Objects allow it.)
   try {
     db.exec("ALTER TABLE notes ADD COLUMN id TEXT");

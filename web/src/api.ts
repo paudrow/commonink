@@ -464,10 +464,14 @@ export const api = {
   feed: (p: { q?: string; scope?: Scope; folder?: string; tag?: string; match?: "all" | "any"; sort?: QuerySort; offset?: number; limit?: number; cols?: string }) =>
     j<FeedPage>(`${BASE}/feed?${new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
   /** `assignee`: someone's name (every @name that's theirs) or "me"; `by: "me"`: tasks you gave someone else, in your notes. */
-  tasks: (p: { folder?: string; note?: string; tag?: string; assignee?: string; by?: "me"; due?: string; start?: string; done?: string; priority?: string; today?: string }) =>
+  tasks: (p: { folder?: string; note?: string; tag?: string; assignee?: string; by?: "me"; due?: string; start?: string; done?: string; priority?: string; today?: string; backlog?: "include" | "only" }) =>
     j<Task[]>(`${BASE}/tasks?${new URLSearchParams(Object.entries(p).filter(([, v]) => v).map(([k, v]) => [k, String(v)]))}`),
   /** How many tasks are still open across the workspace (the Tasks badge). */
   openTasks: () => j<{ open: number }>(`${BASE}/tasks/count`).then((r) => r.open),
+  /** How many open tasks are waiting in the Backlog (0 from an older server). */
+  backlogCount: () => j<{ backlog?: number }>(`${BASE}/tasks/count`).then((r) => r.backlog ?? 0),
+  /** Move a task to the Backlog (its line gains `backlog:` with today), or bring it back. */
+  backlogTask: (t: Task, on: boolean) => api.updateTask(t, { backlog: on ? (t.meta.backlog ?? today()) : null }),
   tags: () => j<TagCount[]>(`${BASE}/tags`),
   /** The frontmatter properties notes have, most used first. */
   properties: () => j<Array<{ key: string; notes: number }>>(`${BASE}/properties`),

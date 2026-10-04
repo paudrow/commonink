@@ -9,6 +9,8 @@
 import { frontmatterEntries, frontmatterText } from "./frontmatter.ts";
 import { PRESETS, type PresetId } from "./presets.ts";
 import { TEMPLATES } from "./templates.ts";
+import { AUTO_BACKLOG_DAYS, DONT_BACKLOG } from "./tasks.ts";
+import { cleanTag } from "./tags.ts";
 
 /** The folder that holds the workspace's own configuration. */
 export const CONFIG = "Config";
@@ -135,6 +137,19 @@ export const SETTINGS_SCHEMA: ObjectSchema = {
       default: [CONFIG, TEMPLATES],
       description: "Folders the sidebar leaves out, with the folders in them. Hidden folders, at the bottom of the sidebar's folders, lists them below your own. Search, Notes, links and agents find their notes as before. [] hides none.",
       examples: ["[Config, Templates, Archive/Old]"],
+    },
+    auto_backlog_days: {
+      type: "number",
+      default: AUTO_BACKLOG_DAYS,
+      description:
+        "How many days an open task sits untouched before it moves to the Backlog on its own, out of Today and the task lists until you bring it back. A task with a due or start date waits that long past the date. 0 turns it off.",
+      examples: ["30", "0"],
+    },
+    backlog_exempt_tag: {
+      type: "string",
+      default: DONT_BACKLOG,
+      description: "A task with this tag never moves to the Backlog on its own, however long it sits. Written without the #.",
+      examples: [DONT_BACKLOG],
     },
     properties: {
       type: "object",
@@ -483,7 +498,7 @@ export function describeProblems(md: string, problems: Problem[]): string {
 
 // ------------------------------------------------------------------ the settings files
 
-export type SettingValue = boolean | string | string[];
+export type SettingValue = boolean | string | number | string[];
 
 /** The valid values a settings file sets for `schema`'s properties (the first, if one is set twice). Invalid ones are left out. */
 export function readValues(md: string, schema: ObjectSchema): Record<string, SettingValue> {
@@ -679,6 +694,19 @@ export interface WorkspaceSettings {
   gamified?: boolean;
   organizing?: PresetId;
   hidden_folders?: string[];
+  /** Days a task sits idle before it goes to the Backlog; 0 is never. */
+  auto_backlog_days?: number;
+  /** The tag that keeps a task out of the Backlog, without its #. */
+  backlog_exempt_tag?: string;
+}
+
+/** The most days auto_backlog_days takes: ten years. */
+export const AUTO_BACKLOG_MAX = 3650;
+
+/** How tasks go to the Backlog on their own here: `md`'s settings, or the defaults where it sets none. */
+export function backlogSettings(md: string | null): { days: number; tag: string } {
+  const s = readSettings(md ?? "");
+  return { days: s.auto_backlog_days ?? AUTO_BACKLOG_DAYS, tag: s.backlog_exempt_tag ?? DONT_BACKLOG };
 }
 
 /** The settings `md` sets, leaving out any it doesn't or that aren't valid. */
@@ -694,6 +722,11 @@ export function readSettings(md: string): WorkspaceSettings {
       continue;
     }
     if (v.kind !== "scalar") continue;
+    if (f.key === "auto_backlog_days" && !v.quoted && /^\d{1,4}$/.test(v.text) && Number(v.text) <= AUTO_BACKLOG_MAX && out.auto_backlog_days === undefined) out.auto_backlog_days = Number(v.text);
+    if (f.key === "backlog_exempt_tag" && out.backlog_exempt_tag === undefined) {
+      const tag = cleanTag(v.text.replace(/^#/, ""));
+      if (tag) out.backlog_exempt_tag = tag;
+    }
     if (f.key === "gamified" && !v.quoted && /^(true|false)$/i.test(v.text) && out.gamified === undefined) out.gamified = v.text.toLowerCase() === "true";
     if (f.key === "organizing" && PRESETS.some((p) => p.id === v.text) && out.organizing === undefined) out.organizing = v.text as PresetId;
   }

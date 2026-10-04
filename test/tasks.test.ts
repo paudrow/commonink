@@ -27,17 +27,17 @@ test("a task line's tokens become its metadata, and its text without the trailin
     done: false,
     text: "Send invoice to Acme due:2026-10-01 rec:monthly #work/clients @jane !high",
     summary: "Send invoice to Acme",
-    meta: { due: "2026-10-01", start: null, done: null, rec: "monthly", until: null, times: null, priority: "high", assignees: ["jane"], tags: ["work/clients"] },
+    meta: { due: "2026-10-01", start: null, done: null, rec: "monthly", until: null, times: null, priority: "high", assignees: ["jane"], tags: ["work/clients"], backlog: null },
   });
   assert.deepEqual(parseTask("  * [x] Renew passport done:2026-09-20 scheduled:2026-09-01T09:30")?.meta, {
-    due: null, start: "2026-09-01T09:30", done: "2026-09-20", rec: null, until: null, times: null, priority: null, assignees: [], tags: [],
+    due: null, start: "2026-09-01T09:30", done: "2026-09-20", rec: null, until: null, times: null, priority: null, assignees: [], tags: [], backlog: null,
   });
   assert.equal(parseTask("Not a task due:2026-10-01"), null);
 });
 
 test("words that only look like tokens stay text", () => {
   const t = parseTask("- [ ] Email me@example.com about `due:2026-01-01` and !highlight, due:tomorrow, due:2026-13-40 #27")!;
-  assert.deepEqual(t.meta, { due: null, start: null, done: null, rec: null, until: null, times: null, priority: null, assignees: [], tags: [] });
+  assert.deepEqual(t.meta, { due: null, start: null, done: null, rec: null, until: null, times: null, priority: null, assignees: [], tags: [], backlog: null });
   assert.equal(t.summary, t.text);
 });
 

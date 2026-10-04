@@ -665,7 +665,7 @@ test("tasks carry their tokens, filter by due date and person, and ticking one s
   const [invoice] = vault.tasks();
   assert.deepEqual([invoice.summary, invoice.meta], [
     "Send invoice",
-    { due: "2026-09-30", start: null, done: null, rec: null, until: null, times: null, priority: "high", assignees: ["jane"], tags: ["billing"] },
+    { due: "2026-09-30", start: null, done: null, rec: null, until: null, times: null, priority: "high", assignees: ["jane"], tags: ["billing"], backlog: null },
   ]);
   assert.deepEqual(vault.tasks({ due: "<=today" }).map((t) => t.summary), ["Send invoice"]);
   assert.deepEqual(vault.tasks({ due: "<=today", today: "2026-10-03" }).map((t) => t.summary), ["Send invoice", "Draft the deck"]);

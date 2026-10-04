@@ -88,6 +88,10 @@ export interface SettingsApp {
   /** The folders the sidebar hides, for everyone here (hiddenFolders.ts), and whether you may change them. */
   hiddenFolders: { list: string[]; canChange: boolean };
   setHiddenFolders(list: string[]): void;
+  /** How tasks go to the Backlog on their own here (backlog.ts): after how many idle days (0: never), and the tag that keeps one out. */
+  backlog: { days: number; tag: string; canChange: boolean };
+  setBacklogDays(text: string): void;
+  setBacklogTag(text: string): void;
   /** Locally, where the vault and the `commonink` command are, for the agent setup; online, null. */
   localVault: { vault?: string; projectRoot?: string } | null;
   shortcuts(): void;
@@ -287,6 +291,26 @@ export function appSettings(app: SettingsApp): Setting[] {
         placeholder: "Config, Templates",
         set: (v) => app.setHiddenFolders([...new Set(v.split(",").map((f) => f.trim().replace(/^\/+|\/+$/g, "")).filter(Boolean))]),
       },
+    },
+    {
+      id: "auto-backlog",
+      key: "auto_backlog_days",
+      section: "Workspace",
+      title: "Move idle tasks to the Backlog after",
+      description: `Days an open task sits untouched before it moves to the Backlog on its own, for everyone here: out of Today and the task lists, still in its note, and one click to bring back. A task with a due or start date waits that long past the date. 0 turns it off. A task tagged #${app.backlog.tag} never goes.`,
+      keywords: "backlog idle stale old tasks auto automatic hide declutter days someday later",
+      disabled: !app.backlog.canChange,
+      control: { kind: "text", value: String(app.backlog.days), placeholder: "30", set: app.setBacklogDays },
+    },
+    {
+      id: "backlog-exempt-tag",
+      key: "backlog_exempt_tag",
+      section: "Workspace",
+      title: "Tag that keeps a task out of the Backlog",
+      description: "A task with this tag stays in your lists however long it sits. It works the same wherever the tag was added: here, the CLI or an agent.",
+      keywords: "backlog dont-backlog exempt opt out keep tag idle tasks",
+      disabled: !app.backlog.canChange,
+      control: { kind: "text", value: `#${app.backlog.tag}`, placeholder: "#dont-backlog", set: app.setBacklogTag },
     },
     {
       id: "organizing",

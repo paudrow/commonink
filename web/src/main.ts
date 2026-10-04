@@ -62,6 +62,8 @@ import { gamified, loadGamified, onGamified, setGamified } from "./gamify.ts";
 import { SETTINGS_NOTE, settingsNote, userSettingsPath } from "../../src/core/schema.ts";
 import { appFolderRefusal, isAppFolder } from "../../src/core/appFolders.ts";
 import { DEFAULT_HIDDEN, hiddenBy, hiddenThere, loadHidden, saveHidden, withFolderHidden } from "./hiddenFolders.ts";
+import { daysFrom, loadBacklog, saveBacklog, tagFrom, type BacklogSettings } from "./backlog.ts";
+import { AUTO_BACKLOG_DAYS, DONT_BACKLOG } from "../../src/core/tasks.ts";
 import { AGENTS_NOTE, ROOT_AGENTS_NOTE } from "../../src/core/noteRoles.ts";
 import { applyUserFile, ensureUserFile, keepInFile, setupUserSettings, userSettingsFile, type Personal } from "./userSettings.ts";
 import type { InkId } from "./inks.ts";
@@ -171,6 +173,8 @@ const prefs = {
 };
 /** The folders the sidebar leaves out (hiddenFolders.ts), as Config/Settings.md lists them. */
 let hiddenNow: string[] = DEFAULT_HIDDEN;
+/** How tasks go to the Backlog on their own here (backlog.ts), as Settings and the Backlog show it. */
+let backlogNow: BacklogSettings = { days: AUTO_BACKLOG_DAYS, tag: DONT_BACKLOG };
 taskInputPrefs.vim = prefs.vim; // every task input (quick-add, inline edit, a card) types with the editor's keys
 
 let notes: NoteMeta[] = [];
@@ -1350,7 +1354,7 @@ const openFromPage = (path: string, line?: number, where?: Where) => (calendarTa
 async function showTasks(opts: { tag?: string; assignee?: string; push?: boolean } = {}) {
   await leaveNote();
   showStage("tasks");
-  unmountTasks = renderTasksPage($("#tasks-view"), { open: openFromPage, tags: () => tags, me: workspaceId ? "Tasks with your @name" : "Tasks with @me" }, { tag: opts.tag, assignee: opts.assignee });
+  unmountTasks = renderTasksPage($("#tasks-view"), { open: openFromPage, tags: () => tags, me: workspaceId ? "Tasks with your @name" : "Tasks with @me", backlog: () => backlogNow }, { tag: opts.tag, assignee: opts.assignee });
   $("#tasks-view").focus({ preventScroll: true });
   wentTo("/tasks", opts.push !== false);
   document.title = "Tasks · Common Ink";
@@ -2636,7 +2640,7 @@ function onMessage(m: ServerMsg) {
   if (m.type !== "change") vaultEvents.dispatchEvent(new Event("change"));
   if ((m.type === "note" || m.type === "removed") && m.path === userSettingsFile()) void applyUserFile();
   // The settings file changed, here or anywhere.
-  if ((m.type === "note" || m.type === "removed") && m.path === SETTINGS_NOTE) void Promise.all([loadGamified(), loadPropertyTypes(), organizing().then((id) => (organizingNow = id)), refreshHidden()]);
+  if ((m.type === "note" || m.type === "removed") && m.path === SETTINGS_NOTE) void Promise.all([loadGamified(), loadPropertyTypes(), organizing().then((id) => (organizingNow = id)), refreshHidden(), refreshBacklog()]);
   switch (m.type) {
     case "note": {
       const meta = notes.find((n) => n.path === m.path);
@@ -4497,6 +4501,23 @@ function openSettings(query?: string) {
               () => m.refreshSettings(),
               (e) => toast({ text: e instanceof Error ? e.message : "That didn't work" }),
             ),
+          backlog: { ...backlogNow, canChange: !viewer },
+          setBacklogDays: (text) => {
+            const days = daysFrom(text);
+            if (days === null) return void (m.refreshSettings(), toast({ text: "Say how many days, like 30. 0 turns it off." }));
+            void saveBacklog("auto_backlog_days", days, gamified()).then(
+              () => ((backlogNow = { ...backlogNow, days }), m.refreshSettings(), toast({ icon: "check", text: days ? `Tasks idle for ${days} ${days === 1 ? "day" : "days"} move to the Backlog` : "Tasks stay out of the Backlog until you move them" })),
+              (e) => toast({ text: e instanceof Error ? e.message : "That didn't work" }),
+            );
+          },
+          setBacklogTag: (text) => {
+            const tag = tagFrom(text);
+            if (!tag) return void (m.refreshSettings(), toast({ text: "That isn't a tag: use letters, numbers, - and _." }));
+            void saveBacklog("backlog_exempt_tag", tag, gamified()).then(
+              () => ((backlogNow = { ...backlogNow, tag }), m.refreshSettings(), toast({ icon: "check", text: `Tasks tagged #${tag} stay out of the Backlog` })),
+              (e) => toast({ text: e instanceof Error ? e.message : "That didn't work" }),
+            );
+          },
           setGamified: (on) =>
             void setGamified(on).then(
               () => (m.refreshSettings(), toast({ icon: "check", text: on ? "Unlock as you go is on" : "Everything is unlocked", detail: "For everyone in this workspace, from their next visit." })),
@@ -4614,6 +4635,9 @@ let organizingNow: PresetId | null = null;
 async function refreshHidden() {
   hiddenNow = await loadHidden();
   renderTree();
+}
+async function refreshBacklog() {
+  backlogNow = await loadBacklog();
 }
 /** Hide folders for everyone here: the list goes into Config/Settings.md, and shows in the sidebar at once. */
 async function setHidden(list: string[]) {
@@ -5122,6 +5146,7 @@ async function boot() {
   renderPresence();
   void organizing().then((id) => (organizingNow = id));
   void refreshHidden();
+  void refreshBacklog();
   setupUserSettings(userSettingsPath(myName), personalSettings());
   void applyUserFile();
   // Asked of a new hosted workspace only: a local vault is a folder you've already organized your way.

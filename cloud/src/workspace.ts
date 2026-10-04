@@ -79,10 +79,23 @@ export class Workspace extends DurableObject<Env> {
       this.alarmChecked = true;
       await this.schedule();
     }
+    this.sweepBacklog();
     // Anything unexpected is a plain 500, with no stack or message from inside.
     const res = await this.handle(req, wsId).catch(errorResponse);
     this.claimIds(wsId);
     return res;
+  }
+
+  /**
+   * Once a day, as the workspace is used: tasks that have sat idle go to the Backlog (see
+   * Vault.autoBacklog), and open tabs hear of each note it changed. Nothing here may fail a request.
+   */
+  private sweepBacklog() {
+    try {
+      for (const r of this.vault.autoBacklog()) this.announce(r.path, r.content, r.version, r.change);
+    } catch (e) {
+      console.error("Couldn't move idle tasks to the Backlog", e);
+    }
   }
 
   /** Claim any new note IDs once a request has done its work (the first request also backfills). */
@@ -628,6 +641,7 @@ export class Workspace extends DurableObject<Env> {
    * tabs hear about the agent's changes like any other. Its "today" is a day in `who.timeZone`.
    */
   async mcp(req: Request, who: { workspace: string; user: string; actor: string; role: string; timeZone: string }): Promise<Response> {
+    this.sweepBacklog(); // an agent sees the lists as the app shows them
     const role = asRole(who.role);
     const vault = new Vault(this.db, this.files, { maxNoteBytes: MAX_NOTE_BYTES, timeZone: who.timeZone });
     const server = createMcpServer({
@@ -670,6 +684,7 @@ export class Workspace extends DurableObject<Env> {
     if (access(role, ...(command.route.split(" ") as [string, string])) !== "allowed") {
       return { ok: false, error: role === "viewer" ? "You can view this workspace but not edit it" : "Only the workspace's owner can do that", code: "forbidden" };
     }
+    this.sweepBacklog(); // the CLI sees the lists as the app shows them
     const last = this.lastChange();
     try {
       // Its "today" is a day in the person's time zone, as an agent's is.

@@ -10,7 +10,8 @@ import { headingName, headingText, mapOutsideCode, proseLines } from "./prose.ts
 import { dateOf, extractLinks, outlineOf, searchableText, splitFrontmatter, titleOf, type Heading } from "./parse.ts";
 import { newNoteId, NOTE_ID, parseNotePath } from "./ids.ts";
 import { cleanTag, normalizeTag, renameTagIn, scanTags, tagMatches } from "./tags.ts";
-import { addDays, DATE_FILTER_HELP, dateFilter, editTaskLines, isDate, localDate, parseTask, patchProblem, priorityFilter, skipPatch, TASK_LINE, todaySection, withTasksAdded, type TaskMeta, type TaskPatch } from "./tasks.ts";
+import { addDays, BACKLOG_SCOPES, DATE_FILTER_HELP, dateFilter, editTask, editTaskLines, isDate, isIdle, localDate, parseTask, patchProblem, priorityFilter, skipPatch, TASK_LINE, todaySection, withTasksAdded, type BacklogScope, type TaskMeta, type TaskPatch } from "./tasks.ts";
+import { backlogSettings, SETTINGS_NOTE } from "./schema.ts";
 import { parseQuickAdd } from "./quickAdd.ts";
 import { formatQuery, parseQuery, queryProblem, tagList, type NoteQuery } from "./query.ts";
 import { cleanTagFilter, dayPasses, evaluate, folderList, globMatch, inFolders, isPattern, isWildText, parse, tagFits, termsOf, textWords, toFts, valueFits, wordsOf, wordsOnly, type Expr, type Term } from "./queryGrammar.ts";
@@ -301,13 +302,17 @@ export const versionOf = (content: string) =>
   crypto.createHash("sha256").update(content).digest("hex").slice(0, 12);
 
 /** What reindexing a path needs to know about its row, if it has one. */
-type IndexedRow = { id: string; kind: NoteKind; fts: number | null };
+type IndexedRow = { id: string; kind: NoteKind; fts: number | null; mtime?: number };
 
 const CHANGE_COLS = "id, ts, path, op, source, version, summary, from_path, note_id, person, agent";
 const META_COLS = "id, path, kind, title, version, mtime, size";
 const TRASH = ".trash";
 /** Notes whose tasks are tasks: not archived, and not templates (a template's `- [ ]` is for the notes made from it). */
 const TASK_NOTES = `NOT ${archivedSql("t.path")} AND substr(t.path, 1, ${TEMPLATES.length + 1}) != '${TEMPLATES}/'`;
+/** A task that isn't in the Backlog: its line has no `backlog:` (see tasks.ts). */
+const NOT_BACKLOGGED = "json_extract(t.task, '$.meta.backlog') IS NULL";
+/** Who a change is by when the app made it on its own (a task moved to the Backlog for sitting idle). */
+export const APP = "Common Ink";
 /** Who wrote the notes of smart folders kept in the database before views were notes (see upgradeSmartFolders). */
 const UPGRADED_BY = "Common Ink";
 /** How long Trash keeps what's deleted. */
@@ -364,6 +369,8 @@ export interface TaskQuery {
   /** high, low or none, or several with commas (see priorityFilter). */
   priority?: string;
   today?: string;
+  /** Tasks in the Backlog: left out ("exclude", the default), listed with the rest ("include"), or the only ones listed ("only"). */
+  backlog?: BacklogScope;
 }
 
 /** Who's asking, for lists that depend on it (tasksFor): their account and name, and the workspace's members (none locally). */
@@ -413,14 +420,16 @@ function findTask(lines: string[], line: number, text: string, notePath: string)
 }
 
 type TaskRow = { path: string; title: string; line: number; done: number; task: string };
+/** A task as the index keeps it: what Vault.tasks gives, and whether it's a card on a board. */
+type IndexedTask = Pick<Task, "line" | "text" | "summary" | "done" | "heading" | "meta"> & { card?: true };
 const toTask = (r: TaskRow): Task => {
   const t = JSON.parse(r.task) as Pick<Task, "text" | "summary" | "heading" | "meta">;
-  return { path: r.path, title: r.title, line: r.line, text: t.text, summary: t.summary, done: r.done === 1, heading: t.heading, meta: t.meta };
+  return { path: r.path, title: r.title, line: r.line, text: t.text, summary: t.summary, done: r.done === 1, heading: t.heading, meta: { ...t.meta, backlog: t.meta.backlog ?? null } };
 };
 
 /** A note's checkbox tasks (with text), each with the heading it sits under: what the index keeps for Vault.tasks. */
-function tasksIn(text: string): Array<Pick<Task, "line" | "text" | "summary" | "done" | "heading" | "meta">> {
-  const out: ReturnType<typeof tasksIn> = [];
+function tasksIn(text: string): IndexedTask[] {
+  const out: IndexedTask[] = [];
   let heading: string | null = null;
   // A board's cards sit under its columns' headings; after its `:::`, the heading before it again.
   let outside: string | null | undefined;
@@ -430,7 +439,7 @@ function tasksIn(text: string): Array<Pick<Task, "line" | "text" | "summary" | "
     if (/^\s*:::kanban\b/i.test(line)) outside = heading;
     else if (outside !== undefined && /^\s*:::\s*$/.test(line)) [heading, outside] = [outside, undefined];
     const t = parseTask(line);
-    if (t && t.text.trim()) out.push({ line: at, text: t.text, summary: t.summary, done: t.done, heading, meta: t.meta });
+    if (t && t.text.trim()) out.push({ line: at, text: t.text, summary: t.summary, done: t.done, heading, meta: t.meta, ...(outside !== undefined ? { card: true as const } : {}) });
   }
   return out;
 }
@@ -497,9 +506,10 @@ export class Vault {
   /**
    * (Re)index one file. Returns null if it no longer exists or isn't a note/asset. A file new to the
    * index takes `id` if given (a move), else the ID of the same file seen under another name (a
-   * rename outside the app), else a new one.
+   * rename outside the app), else a new one. `carried` is when its tasks were last touched where it
+   * was before (a move: see taskSeen).
    */
-  indexFile(rel: string, content?: string, id?: string): NoteMeta | null {
+  indexFile(rel: string, content?: string, id?: string, carried?: Map<string, number>): NoteMeta | null {
     const kind = kindOf(rel);
     if (!kind || isHidden(rel)) return null;
     const st = this.files.stat(rel);
@@ -525,7 +535,7 @@ export class Vault {
       if (view) body = body.split("\n").map((l, i) => (i === view.line ? "" : l)).join("\n");
       date = dateOf(content, kind, rel);
     }
-    const known = this.db.get<IndexedRow>("SELECT id, kind, fts FROM notes WHERE path = ?", rel);
+    const known = this.db.get<IndexedRow>("SELECT id, kind, fts, mtime FROM notes WHERE path = ?", rel);
     const noteId: string = known?.id ?? id ?? this.renamedId(rel, kind, version, st.size) ?? newNoteId();
     return this.db.tx(() => {
       this.dropText(rel, known);
@@ -538,12 +548,16 @@ export class Vault {
       );
       this.db.run("DELETE FROM links WHERE src = ?", rel);
       this.db.run("DELETE FROM tags WHERE path = ? AND kind != 'asset'", rel);
+      // A task whose line reads as it did keeps when it was last touched; a new or changed one is touched now.
+      const seen = this.taskSeen(rel, known?.mtime);
       this.db.run("DELETE FROM tasks WHERE path = ?", rel);
       this.db.run("DELETE FROM props WHERE path = ?", rel);
       if (kind === "md" && content) {
         insertRows(this.db, "INSERT INTO props(path, key, value)", propsOf(content).map((p) => [rel, p.key, p.value]));
-        const tasks = tasksIn(content).map(({ line, done, ...task }) => [rel, line, done ? 1 : 0, task.meta.due, task.meta.start, JSON.stringify(task)]);
-        insertRows(this.db, "INSERT INTO tasks(path, line, done, due, start, task)", tasks);
+        // A note new to the index was last touched when its file was (an index built again finds old tasks old).
+        const fresh = known ? this.now() : Math.min(st.mtime, this.now());
+        const tasks = tasksIn(content).map(({ line, done, ...task }) => [rel, line, done ? 1 : 0, task.meta.due, task.meta.start, JSON.stringify(task), (carried ?? seen).get(task.text) ?? fresh]);
+        insertRows(this.db, "INSERT INTO tasks(path, line, done, due, start, task, seen)", tasks);
         insertRows(this.db, "INSERT INTO links(src, key, kind, line)", extractLinks(content).map((l) => [rel, linkStem(l.key), l.kind, l.line]));
         const lines = content.split("\n");
         const tags = scanTags(content);
@@ -553,6 +567,19 @@ export class Vault {
       }
       return { id: noteId, path: rel, kind, title, version, mtime: st.mtime, size: st.size };
     });
+  }
+
+  /**
+   * When each task in the note at `rel` was last touched, by its text (the latest, where two read the
+   * same). `fallback` stands in for rows from before the index kept it: the note's last change.
+   */
+  private taskSeen(rel: string, fallback?: number): Map<string, number> {
+    const out = new Map<string, number>();
+    for (const r of this.db.all<{ text: string; seen: number | null }>("SELECT json_extract(task, '$.text') AS text, seen FROM tasks WHERE path = ?", rel)) {
+      const at = r.seen ?? fallback;
+      if (at !== undefined && at > (out.get(r.text) ?? -Infinity)) out.set(r.text, at);
+    }
+    return out;
   }
 
   /** Remember how a tag is written, segment by segment, unless it (or a parent) is already known. */
@@ -2012,7 +2039,7 @@ export class Vault {
     }
   }
 
-  private commit(rel: string, before: string | null, after: string, source: string, op: Change["op"], autosave = false) {
+  private commit(rel: string, before: string | null, after: string, source: string, op: Change["op"], autosave = false, summary?: string) {
     // Every write through the core lands here, so one limit covers the API, MCP, the CLI and online.
     this.checkSize(rel, after);
     this.files.write(rel, after);
@@ -2025,7 +2052,7 @@ export class Vault {
         op,
         source,
         version: meta.version,
-        summary: from === null ? `${after.split("\n").length} lines` : diffstat(from, after),
+        summary: summary ?? (from === null ? `${after.split("\n").length} lines` : diffstat(from, after)),
         from_path: null,
       },
       from,
@@ -2102,6 +2129,7 @@ export class Vault {
    * @person, and `due`, `start` and `done` the ones whose date passes a filter like `<=today` or
    * `>=today <=+7d` (see dateFilter). `priority` is high, low or none (see priorityFilter).
    * `today` (YYYY-MM-DD) is the day those filters mean by today; the default is the core's clock.
+   * Tasks in the Backlog are left out unless `backlog` asks for them ("include"), or for them alone ("only").
    */
   tasks(opts: TaskQuery = {}): Task[] {
     const only = opts.note ? this.resolve(opts.note) : null;
@@ -2118,7 +2146,9 @@ export class Vault {
     });
     const priority = opts.priority ? priorityFilter(opts.priority) : null;
     if (opts.priority && !priority) throw new VaultError(`Bad priority filter "${opts.priority}": use high, low or none (or several, like high,none)`);
-    const passes = (t: Task) => dated.every((test) => test(t)) && (!priority || priority(t.meta.priority));
+    const backlog = opts.backlog ?? "exclude";
+    if (!BACKLOG_SCOPES.includes(backlog)) throw new VaultError(`"backlog" must be one of ${BACKLOG_SCOPES.join(", ")}, not "${backlog}"`);
+    const passes = (t: Task) => dated.every((test) => test(t)) && (!priority || priority(t.meta.priority)) && (backlog === "include" || (backlog === "only") === !!t.meta.backlog);
     // `assignees` (any of them) is a person's every name; `assignee` one name, as written.
     const names = new Set([...(opts.assignees ?? []), ...(opts.assignee ? [opts.assignee] : [])].map((a) => a.replace(/^@/, "").toLowerCase()));
     // The query narrows to the note, or to notes with the tag on a task (the lines are checked below).
@@ -2181,9 +2211,14 @@ export class Vault {
       .map((n) => contactFromNote(n.path, this.files.read(n.path) ?? ""));
   }
 
-  /** How many tasks are still open in active notes: what tasks() would list with `done` false. */
+  /** How many tasks are still open in active notes: what tasks() would list with `done` false (so not the Backlog's). */
   openTaskCount(): number {
-    return this.db.get<{ n: number }>(`SELECT count(*) AS n FROM tasks t JOIN notes n ON n.path = t.path WHERE ${TASK_NOTES} AND t.done = 0`)!.n;
+    return this.db.get<{ n: number }>(`SELECT count(*) AS n FROM tasks t JOIN notes n ON n.path = t.path WHERE ${TASK_NOTES} AND t.done = 0 AND ${NOT_BACKLOGGED}`)!.n;
+  }
+
+  /** How many open tasks are waiting in the Backlog. */
+  backlogCount(): number {
+    return this.db.get<{ n: number }>(`SELECT count(*) AS n FROM tasks t JOIN notes n ON n.path = t.path WHERE ${TASK_NOTES} AND t.done = 0 AND NOT ${NOT_BACKLOGGED}`)!.n;
   }
 
   /** Tasks in active notes, from the index (see tasksIn), in note order: the ones `where` keeps. */
@@ -2219,6 +2254,61 @@ export class Vault {
     const next = edited.join("\n");
     if (next === note.content) return { ...note, ...task, change: null };
     return { ...this.commit(note.path, note.content, next, source, "edit"), ...task };
+  }
+
+  /**
+   * Move a task to the Backlog (`on`), or bring it back: its line gains `backlog:` with `today`, or
+   * loses it. An ordinary edit to its note, so History shows it and can undo it either way.
+   */
+  backlogTask(target: string, line: number, text: string, on: boolean, source: string, today = this.day()) {
+    if (!isDate(today)) throw new VaultError(`"today" must be a date like 2026-10-01, not "${today}"`);
+    // Already there: it keeps the day it went.
+    const there = parseTask(`- [ ] ${text}`)?.meta.backlog;
+    return this.updateTask(target, line, text, { backlog: on ? (there ?? today.slice(0, 10)) : null }, source, today);
+  }
+
+  /** The day the idle sweep last ran here and the settings it ran with (see autoBacklog), so it runs once a day, and again when they change. */
+  private swept: string | null = null;
+
+  /**
+   * Move every task that has sat idle to the Backlog: open, untouched for the workspace's
+   * `auto_backlog_days` (30 unless Config/Settings.md says otherwise; 0 turns this off), and not
+   * tagged with its `backlog_exempt_tag` (#dont-backlog). See isIdle for what idle means. Cards on a
+   * board stay: its columns say where they are. Each note it changes is one change by the app
+   * itself, so History says why a task went. Runs once a day unless `force`; returns what it wrote.
+   */
+  autoBacklog(opts: { force?: boolean } = {}) {
+    const today = this.day();
+    const run = `${today} ${this.meta(SETTINGS_NOTE)?.version ?? ""}`;
+    if (!opts.force && this.swept === run) return [];
+    this.swept = run;
+    const { days, tag } = backlogSettings(this.files.read(SETTINGS_NOTE));
+    if (days <= 0) return [];
+    const dayOf = dayFormat(this.timeZone);
+    // Open tasks last touched long enough ago; their dates and tags are checked line by line below.
+    const rows = this.db.all<{ path: string; line: number; task: string; seen: number }>(
+      `SELECT t.path, t.line, t.task, COALESCE(t.seen, n.mtime) AS seen FROM tasks t JOIN notes n ON n.path = t.path
+       WHERE ${TASK_NOTES} AND t.done = 0 AND ${NOT_BACKLOGGED} AND COALESCE(t.seen, n.mtime) < ? ORDER BY t.path, t.line`,
+      this.now() - (days - 1) * 86_400_000,
+    );
+    const idle = new Map<string, number[]>();
+    for (const r of rows) {
+      const t = JSON.parse(r.task) as IndexedTask;
+      if (t.card || !isIdle({ done: false, meta: t.meta }, dayOf(r.seen), today, days, tag)) continue;
+      idle.set(r.path, [...(idle.get(r.path) ?? []), r.line]);
+    }
+    const written = [];
+    for (const [rel, at] of idle) {
+      const before = this.files.read(rel);
+      if (before === null) continue;
+      const lines = before.split("\n");
+      for (const n of at) lines[n - 1] = editTask(lines[n - 1], { backlog: today });
+      const after = lines.join("\n");
+      if (after === before) continue;
+      const summary = `${at.length} idle ${at.length === 1 ? "task" : "tasks"} to the Backlog`;
+      written.push({ ...this.commit(rel, before, after, APP, "edit", false, summary), content: after, tasks: at.length });
+    }
+    return written;
   }
 
   // ---------------------------------------------------------------- boards
@@ -2288,13 +2378,13 @@ export class Vault {
 
   /**
    * The day at a glance: open tasks overdue, due today, and starting today (each task once, in that
-   * order of urgency), and today's journal note. `date` is the reader's day. Sections are a list so
+   * order of urgency; none from the Backlog), and today's journal note. `date` is the reader's day. Sections are a list so
    * more (calendar, reviews, mail) can slot in beside these.
    */
   today(date = this.day()): TodayView {
     if (!isDate(date)) throw new VaultError(`"today" must be a date like 2026-10-01, not "${date}"`);
     // Open tasks that could be in a section: due by today, or starting today.
-    const open = this.taskRows("t.done = 0 AND (substr(t.due, 1, 10) <= ? OR substr(t.start, 1, 10) = ?)", date, date).map(toTask);
+    const open = this.taskRows(`t.done = 0 AND ${NOT_BACKLOGGED} AND (substr(t.due, 1, 10) <= ? OR substr(t.start, 1, 10) = ?)`, date, date).map(toTask);
     const into = (id: string) => open.filter((t) => todaySection(t.meta, date) === id);
     const overdue = into("overdue").sort((a, b) => a.meta.due!.localeCompare(b.meta.due!));
     const [due, starting] = [into("due"), into("starting")];
@@ -2730,9 +2820,10 @@ export class Vault {
 
     const id = this.meta(from)?.id;
     const assetTags = kindOf(from) === "asset" ? this.assetTags(true) : {};
+    const seen = this.taskSeen(from, this.meta(from)?.mtime); // a renamed note's tasks are no newer for it
     this.files.rename(from, dest);
     this.unindex(from);
-    const meta = this.indexFile(dest, undefined, id)!;
+    const meta = this.indexFile(dest, undefined, id, seen)!;
     const change = this.recordChange({ path: dest, op, source, version: meta.version, summary: `from ${from}`, from_path: from });
     if (assetTags[from]) {
       assetTags[dest] = assetTags[from];

@@ -75,9 +75,33 @@
 <td><code>#tag</code></td>
 <td>Tags, as in notes</td>
 </tr>
+<tr>
+<td><code>backlog:2026-10-03</code></td>
+<td>In the Backlog since that day</td>
+</tr>
 </tbody></table>
 <p>Off the cursor&#39;s line these show as chips you can click to change. <strong>Quick add</strong> (⌘⇧.) takes a task in plain words: &quot;Pay rent every month on the 1st #home&quot; is written as the line above would be. It lands in today&#39;s daily note unless you name another with <code>→ [[Note]]</code>.</p>
 <p><strong>Tasks</strong> lists every task in your notes, with <strong>Today</strong> on top: today&#39;s daily note, then what&#39;s overdue, due and starting today, and today&#39;s calendar events. Ticking a repeating task adds the next one below it.</p>
+<h3 id="the-backlog"><a class="anchor" href="#the-backlog">The Backlog</a></h3>
+<p>The <strong>Backlog</strong> is where tasks wait out of sight. Move one there from its ⚙ menu (<strong>Move to the Backlog</strong>) and it leaves Today, Tasks, <code>::tasks</code> lists and what your agents list, without leaving its note: its line gains <code>backlog:</code> with the day it went. <strong>Tasks → Backlog</strong> shows what&#39;s waiting. <strong>Bring back</strong> returns one, and <strong>Bring all back</strong> returns every task shown (pick a tag or a person first to bring back just those).</p>
+<p>A task nobody touches for 30 days moves to the Backlog on its own. A task with a due or start date waits until 30 days after that date, so nothing disappears before its day. History shows each of these moves as a change by <strong>Common Ink</strong>, and undoes it like any other change. Two settings (⌘, → Workspace, or <code>Config/Settings.md</code>) control it:</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>auto_backlog_days: 30</code></td>
+<td>Days a task sits untouched before it moves. <code>0</code> turns it off</td>
+</tr>
+<tr>
+<td><code>backlog_exempt_tag: dont-backlog</code></td>
+<td>A task with this tag never moves on its own</td>
+</tr>
+</tbody></table>
+<p>So <code>- [ ] Renew passport #dont-backlog</code> stays in your lists however long it sits. Cards on a board stay where they are too. For agents and the CLI, <code>commonink tasks --backlog only</code> lists the Backlog, and <code>commonink task Plan 8 --to-backlog</code> and <code>--from-backlog</code> move a task there and back.</p>
 <h2 id="daily-notes-and-templates"><a class="anchor" href="#daily-notes-and-templates">Daily notes and templates</a></h2>
 <p>Today&#39;s daily note is <code>Journal/YYYY-MM-DD.md</code>, started from <code>Templates/Daily note.md</code> if you have one. A template is any note in <code>Templates/</code>, with placeholders like <code>{{date:dddd, MMMM D}}</code>, <code>{{title}}</code>, <code>{{cursor}}</code> and <code>{{ask:Client}}</code>, which asks you before the note is made. The <a href="https://github.com/paudrow/commonink/blob/main/docs/templates.md">templates reference</a> lists every option.</p>
 <h2 id="boards"><a class="anchor" href="#boards">Boards</a></h2>

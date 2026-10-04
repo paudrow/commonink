@@ -2550,6 +2550,11 @@ body:has(#assets-view:not([hidden])) #panel { opacity: 0; pointer-events: none; 
 .qt-act { flex: none; align-self: center; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 5px; color: var(--muted); opacity: 0; }
 .qt-row:hover .qt-act, .qt-row:focus-within .qt-act { opacity: 1; } /* still focusable while hidden: Tab reaches them */
 .qt-act:hover { background: var(--active); color: var(--ink-strong); }
+/* The Backlog: a waiting task's way back is always on its row. */
+.qt-back { flex: none; align-self: center; display: inline-flex; align-items: center; gap: 4px; min-height: 24px; padding: 0 8px; border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--accent-ink); white-space: nowrap; }
+.qt-back:hover { background: var(--active); }
+.qt-all-back { margin-left: 4px; }
+.qt-all-back[hidden] { display: none; }
 .qt-words { cursor: text; }
 .qt-edit { display: inline-block; width: min(100%, 420px); margin-right: 4px; vertical-align: top; }
 .qt-edit .qa-box { padding: 0 6px; border: 1px solid var(--accent-line); border-radius: 6px; background: var(--bg-elev); box-shadow: 0 0 0 3px var(--accent-soft); }
@@ -2821,6 +2826,11 @@ body.is-link-dragging, body.is-link-dragging * { cursor: grabbing !important; us
 .ct-handle { font: 500 12px var(--mono); letter-spacing: 0; text-transform: none; color: var(--muted); }
 .ct-tasks .qw { margin: 0; }
 .tk-whose { margin-right: 4px; }
+.tk-which { margin-right: 4px; }
+.tk-which .n { margin-left: 6px; font-weight: 500; color: var(--muted); }
+.tk-which .n:empty { display: none; }
+.tk-backlog-note { margin: -6px 0 16px; font-size: 13px; }
+.tk-backlog-note[hidden] { display: none; }
 .ct-member { display: grid; grid-template-columns: 24px auto minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 40px; padding: 4px 10px; }
 .ct-back { display: inline-flex; align-items: center; gap: 6px; margin: -10px 0 18px -6px; padding: 4px 8px; border-radius: 7px; font-size: 13px; color: var(--muted); }
 .ct-back:hover { background: var(--hover); color: var(--ink-strong); }
