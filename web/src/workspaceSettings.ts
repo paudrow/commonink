@@ -98,7 +98,8 @@ export async function showWorkspaceSettings(ws: Workspace, me: Me["user"], toast
         ? el("button", { type: "button", class: "qw-btn danger", title: `Remove ${m.name}`, onclick: async () => {
             const ok = await ask({ title: `Remove ${m.name}?`, body: [`They lose access to ${ws.name} at once, and so do agents they connected to it. Their past changes stay.`], actions: [{ label: "Remove", value: "yes", kind: "danger" }] });
             if (!ok) return;
-            await api.removeMember(m.id).catch(failed);
+            // `failed` answers with nothing, so only a removal that happened says so.
+            if (await api.removeMember(m.id).then(() => true, failed)) toast({ text: `Removed ${m.name}` });
             await render();
           } }, "Remove")
         : null;
@@ -119,8 +120,7 @@ export async function showWorkspaceSettings(ws: Workspace, me: Me["user"], toast
       const revoke =
         !i.usedAt && i.expiresAt >= now
           ? el("button", { type: "button", class: "qw-btn danger", onclick: async () => {
-              await api.revokeInvite(i.id).catch(failed);
-              toast({ text: "Revoked. That link doesn't work any more." });
+              if (await api.revokeInvite(i.id).then(() => true, failed)) toast({ text: "Revoked. That link doesn't work any more." });
               await render();
             } }, "Revoke")
           : null;

@@ -6,7 +6,14 @@ import type { NoteMeta } from "../web/src/api.ts";
 
 const W = window as unknown as typeof globalThis & Window;
 document.body.append(Object.assign(document.createElement("div"), { id: "assets-view", hidden: true }));
-globalThis.fetch = (async () => new Response("[]", { headers: { "content-type": "application/json" } })) as typeof fetch;
+/** Whether the server takes a change to an asset's tags. */
+let saves = true;
+globalThis.fetch = (async (req: string, init?: RequestInit) => {
+  const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
+  if (String(req).startsWith("/api/asset-tags") && init?.method === "PUT") return saves ? json({ tags: JSON.parse(String(init.body)).tags }) : json({ error: "Viewers can't tag files" }, 403);
+  if (String(req).startsWith("/api/asset-tags")) return json({ "assets/a.png": ["brand"] });
+  return json([]);
+}) as typeof fetch;
 const { Assets } = await import("../web/src/assets.ts");
 
 const asset = (path: string): NoteMeta => ({ id: path, path, kind: "asset", title: path, version: "1", mtime: 0, size: 1 });
@@ -47,4 +54,38 @@ test("after browsing with the arrows and closing, keys typed elsewhere don't del
   assert.deepEqual(renamed, []);
   assert.equal(assets.previewed, null);
   assert.equal(document.querySelector("#asset-preview"), null);
+});
+
+test("taking a tag off an asset says so, and a refused change says why instead", async () => {
+  const said: string[] = [];
+  const assets = new Assets({
+    notes: () => [asset("assets/a.png")],
+    upload: async () => [],
+    open: () => {},
+    archive: async () => {},
+    delete: async (paths) => paths,
+    rename: async () => null,
+    readOnly: () => false,
+    embedName: (p) => p,
+    tags: () => [],
+    refreshTags: async () => {},
+    toast: (t) => said.push(t.text),
+  });
+  assets.show({ open: "assets/a.png" });
+  await new Promise((r) => setTimeout(r, 20));
+  assets.preview("assets/a.png"); // drawn again, now its tags have loaded
+  const remove = () => document.querySelector<HTMLElement>('#asset-preview [title="Remove #brand"]')!.click();
+
+  saves = false;
+  remove();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(said, ["Viewers can't tag files"]);
+  assert.ok(document.querySelector('#asset-preview [title="Remove #brand"]'), "the tag stays");
+
+  saves = true;
+  remove();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(said.slice(1), ["Removed #brand from a.png"]);
+  assert.equal(document.querySelector('#asset-preview [title="Remove #brand"]'), null);
+  document.querySelector<HTMLElement>("#asset-preview .ap-close")!.click();
 });

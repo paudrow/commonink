@@ -177,6 +177,15 @@ journey("Gather notes by tag into a view", ({ given, when, then, and }) => {
     await recipes().click();
     await eventually(async () => assert.deepEqual((await cards().allTextContents()).sort(), ["Pancakes", "Shakshuka", "Soup"]));
   });
+  when("I rename the view to Cooking from its sliders", async () => {
+    await recipes().hover();
+    await page.locator("#smart-folders").getByTitle("Edit or delete").click();
+    await page.getByRole("dialog", { name: "Edit view" }).getByLabel("Name").fill("Cooking");
+    await page.getByRole("dialog", { name: "Edit view" }).getByRole("button", { name: "Save" }).click();
+  });
+  then("a notice says Cooking was saved", async () => {
+    await page.locator("#toasts", { hasText: "Saved Cooking" }).waitFor();
+  });
 });
 
 journey("Work alongside an agent, and undo what it did", ({ given, when, then, and }) => {

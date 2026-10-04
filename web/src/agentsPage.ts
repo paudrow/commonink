@@ -5,6 +5,7 @@ import { api, type ConnectedAgent } from "./api.ts";
 import { localSteps } from "./connectAgent.ts";
 import { el, timeAgo } from "./dom.ts";
 import { confirmAction, openModal } from "./modal.ts";
+import { toast } from "./toast.ts";
 
 export async function showAgents() {
   const info = await api.info().catch(() => null);
@@ -46,8 +47,12 @@ function row(a: ConnectedAgent, refresh: () => Promise<void>) {
     type: "button",
     onclick: async () => {
       if (!(await confirmAction({ title: `Disconnect ${a.client}?`, body: "It stops working right away. Its past changes stay.", action: "Disconnect", danger: true }))) return;
-      await api.revokeAgent(a.id);
-      await refresh();
+      try {
+        await api.revokeAgent(a.id);
+        await refresh();
+      } catch (e) {
+        toast({ error: true, text: e instanceof Error ? e.message : `Couldn't disconnect ${a.client}` });
+      }
     },
   }, "Revoke");
   const where = a.allWorkspaces ? "All your workspaces" : a.workspace ? `${a.workspace.name} · as ${a.workspace.role}` : "A workspace you've left";

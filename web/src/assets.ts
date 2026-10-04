@@ -385,7 +385,7 @@ export class Assets {
     const tagsBox = el("div", { class: "ap-tags" });
     const drawTags = () => {
       const mine = this.assetTags[path] ?? [];
-      const save = async (change: (tags: string[]) => string[]) => {
+      const save = async (change: (tags: string[]) => string[], said: string) => {
         try {
           // From the tags as they are now: the list may have reloaded since this was drawn.
           const tags = (await api.setAssetTags(path, change(this.assetTags[path] ?? []))).tags;
@@ -394,6 +394,7 @@ export class Assets {
         } catch (e) {
           return this.hooks.toast({ text: e instanceof Error ? e.message : "Couldn't save the tags" });
         }
+        this.hooks.toast({ icon: "hash", text: said });
         drawTags();
         this.render();
         await this.hooks.refreshTags();
@@ -409,7 +410,7 @@ export class Assets {
               count: (t) => t.notes + t.tasks + t.assets,
               create: true,
               placeholder: "Add a tag…",
-              onPick: (t) => void save((tags) => [...tags, t]),
+              onPick: (t) => void save((tags) => [...tags, t], `Tagged ${nameOf(meta)} #${t}`),
             }),
         },
         icon("plus", 12),
@@ -421,7 +422,7 @@ export class Assets {
           "div",
           { class: "ap-tag-list" },
           ...mine.map((t) =>
-            el("span", { class: "tag is-removable" }, `#${t}`, el("button", { type: "button", title: `Remove #${t}`, onclick: () => void save((tags) => tags.filter((m) => m !== t)) }, icon("close", 11))),
+            el("span", { class: "tag is-removable" }, `#${t}`, el("button", { type: "button", title: `Remove #${t}`, onclick: () => void save((tags) => tags.filter((m) => m !== t), `Removed #${t} from ${nameOf(meta)}`) }, icon("close", 11))),
           ),
           add,
         ),

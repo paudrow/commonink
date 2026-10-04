@@ -424,6 +424,8 @@ export class ContactsPage {
     select.addEventListener("change", async () => {
       try {
         await api.updateContact(c.path, { checkIn: select.value });
+        const every = checkInEvery(select.value);
+        this.hooks.toast({ icon: "check", text: select.value ? `Check in with ${c.name} ${every ? describeCheckIn(every) : select.value}` : `No check-in set for ${c.name}` });
         await this.load();
         const now = this.contacts.find((x) => x.id === c.id);
         if (now) await this.openContact(now, false);

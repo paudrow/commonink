@@ -124,6 +124,7 @@ export function openCalendars(opts: { subscribe?: boolean; google?: boolean; cha
       if (save && next && next !== s.name) {
         try {
           await api.updateCalendar(s.id, { name: next });
+          toast({ icon: "calendar", text: `Renamed to ${next}` });
           return void (await changed());
         } catch (e) {
           failed(e, "Couldn't rename it");
