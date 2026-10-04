@@ -88,3 +88,25 @@ export function sectionsMarkdown(sections: Section[], pr: number | null): string
     ...(others.length ? ["## Also in this branch", "", ...others.flatMap((s) => [`### ${s.title}${tag(s)}`, "", s.body, ""])] : []),
   ];
 }
+
+/**
+ * A PR description split into its "Try this PR" section (any heading level, without the heading)
+ * and everything else. Headings inside code fences don't count. No such section: all of it is `rest`.
+ */
+export function splitTryThisPr(body: string): { tryIt: string; rest: string } {
+  const lines = body.split(/\r?\n/);
+  let fence = false;
+  const headings: Array<{ at: number; level: number; text: string }> = [];
+  lines.forEach((line, at) => {
+    if (/^\s*(```|~~~)/.test(line)) fence = !fence;
+    const m = !fence && line.match(/^(#{1,6})\s+(.*)$/);
+    if (m) headings.push({ at, level: m[1].length, text: m[2].trim() });
+  });
+  const start = headings.find((h) => /^try this pr\b/i.test(h.text));
+  if (!start) return { tryIt: "", rest: body.trim() };
+  const end = headings.find((h) => h.at > start.at && h.level <= start.level)?.at ?? lines.length;
+  return {
+    tryIt: lines.slice(start.at + 1, end).join("\n").trim(),
+    rest: [...lines.slice(0, start.at), ...lines.slice(end)].join("\n").trim(),
+  };
+}
