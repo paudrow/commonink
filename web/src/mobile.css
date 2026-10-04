@@ -451,3 +451,12 @@
   /* One pane on a phone: nothing opens to the side. */
   #sidebar .row-act[title^="Open to the side"] { display: none; }
 }
+
+/* Kanban by touch: no hover to show a card's buttons and no drag, so they sit along the card's
+   foot, with Move to another column among them. */
+@media (hover: none) {
+  .kb-actions { position: static; opacity: 1; justify-content: flex-end; gap: 4px; margin: 6px -6px -4px 0; background: none; box-shadow: none; }
+  .kb-actions .kb-icon { width: 36px; height: 36px; }
+  .kb-actions .kb-icon::after { inset: -4px 0; }
+  .kb-actions .kb-move { display: grid; }
+}

@@ -14,7 +14,7 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { Browser, BrowserContext, Page } from "playwright-core";
+import type { Browser, BrowserContext, BrowserContextOptions, Page } from "playwright-core";
 import { tempVault } from "../helpers.ts";
 
 export const ROOT = path.resolve(import.meta.dirname, "../..");
@@ -178,10 +178,14 @@ export function chromium(): Promise<Browser | string> {
   return browser;
 }
 
-/** A person in a fresh browser profile (Vim keys on, as on every test site), with the app open on `url`: at a computer, or holding `device` (a phone's touch screen). */
-export async function person(b: Browser, url: string, device: { width: number; height: number; touch?: boolean } = { width: 1400, height: 900 }): Promise<{ context: BrowserContext; page: Page; errors: string[] }> {
-  const { touch = false, ...viewport } = device;
-  const context = await b.newContext({ viewport, hasTouch: touch, isMobile: touch, timezoneId: process.env.TZ || undefined });
+/**
+ * A person in a fresh browser profile (Vim keys on, as on every test site), with the app open on
+ * `url`: at a computer, or holding `device` (one of Playwright's `devices`, a phone's touch screen).
+ */
+export async function person(b: Browser, url: string, device: BrowserContextOptions & { defaultBrowserType?: string } = { viewport: { width: 1400, height: 900 } }): Promise<{ context: BrowserContext; page: Page; errors: string[] }> {
+  // The journeys run in Chromium whichever phone it is: the device gives its screen, touch and user agent.
+  const { defaultBrowserType: _, ...options } = device;
+  const context = await b.newContext({ ...options, timezoneId: process.env.TZ || undefined });
   contexts.add(context);
   // A new workspace asks how its agents should organize notes; these journeys are about other things.
   await context.addInitScript(() => localStorage.setItem("commonink.organizingAsked.local", "true"));

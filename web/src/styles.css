@@ -1740,6 +1740,7 @@ a.gh-card:hover { border-color: var(--line-strong); }
 .kb-details :is(ul, ol) { padding-left: 1.2em; }
 .kb-actions { position: absolute; top: 4px; right: 4px; display: flex; background: var(--bg-elev); border-radius: 6px; box-shadow: var(--shadow-sm); opacity: 0; transition: opacity 0.1s; }
 .kb-card:hover .kb-actions, .kb-card:focus-within .kb-actions { opacity: 1; }
+.kb-move { display: none; } /* a touch screen's way to move a card (mobile.css); a mouse drags it */
 .kb-excerpt { margin-top: 2px; font-size: 12.5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .kb-link-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; }
 .kb-progress { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
