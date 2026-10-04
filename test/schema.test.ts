@@ -47,7 +47,7 @@ test("the settings file names unknown settings and wrong values", () => {
 });
 
 test("settings are read from the file, and written back keeping every other line", () => {
-  assert.deepEqual(readSettings(settingsNote({ gamified: false })), { gamified: false, hidden_folders: ["Config", "Templates"] });
+  assert.deepEqual(readSettings(settingsNote({ gamified: false })), { gamified: false, hidden_folders: ["Config", "Templates"], auto_backlog_days: 30, backlog_exempt_tag: "dont-backlog" });
   assert.deepEqual(readSettings("---\ngamified: maybe\n---\n"), {});
   const md = "---\n# mine\ngamified: true # on\ntitle: Settings\n---\nNotes\n";
   assert.equal(withSetting(md, "gamified", false), "---\n# mine\ngamified: false\ntitle: Settings\n---\nNotes\n");

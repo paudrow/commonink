@@ -1,10 +1,11 @@
 // Tasks: a markdown checkbox line, plus optional todo.txt-style tokens anywhere in its text:
 //   - [ ] Send invoice to Acme due:2026-10-01 rec:monthly #work/clients @jane !high
+// A task in the Backlog carries `backlog:` with the day it went there (see BACKLOG below).
 // The line stays the source of truth. This reads the tokens and rewrites one at a time in place, so
 // an edit never touches the rest of the line. No Node imports: the editor uses this too.
 import { findSection, frontmatterLines, withoutCodeOrLinks } from "./prose.ts";
 import { daysBetween, formatRule, nextDue, parseRule, ruleProblem, shiftDate, type Rule } from "./recurrence.ts";
-import { cleanTag, normalizeTag, tagsInLine } from "./tags.ts";
+import { cleanTag, normalizeTag, tagMatches, tagsInLine } from "./tags.ts";
 
 /** A task line: its bullet and "[", its box, "] ", its text, and the `\r` of a Windows line ending if it has one. */
 export const TASK_LINE = /^(\s*[-*+]\s+\[)([ xX])(\]\s+)(.*?)(\r?)$/;
@@ -26,6 +27,8 @@ export interface TaskMeta {
   priority: Priority | null;
   assignees: string[];
   tags: string[];
+  /** The day it went to the Backlog (`backlog:`): out of the task lists until it's brought back. */
+  backlog: string | null;
 }
 export interface ParsedTask {
   done: boolean;
@@ -41,7 +44,7 @@ export interface ParsedTask {
  */
 export type TaskPatch = Partial<TaskMeta> & { checked?: boolean; summary?: string };
 
-type Field = "due" | "start" | "done" | "rec" | "until" | "times" | "priority" | "assignees" | "tags";
+type Field = "due" | "start" | "done" | "rec" | "until" | "times" | "priority" | "assignees" | "tags" | "backlog";
 /** One token in a task's text; `from`/`to` are its columns there. `key` is how it's written (`scheduled` for a start). */
 interface Token {
   field: Field;
@@ -56,7 +59,7 @@ const PERSON = "[\\p{L}_][\\p{L}\\p{N}_-]*(?:\\.[\\p{L}\\p{N}_-]+)*";
  * A person ends where the word does, so `@jane,` and `@jane.` count and `@jane's` doesn't. A name
  * starts with a letter, so `@3pm` and `@2x` stay words, and `\@home` (escaped) is never a person.
  */
-const WORD = new RegExp(`(?<!\\S)(due|start|scheduled|done|rec|until|times):(\\S+)|(?<!\\S)!(high|low)(?!\\S)|(?<!\\S)@(${PERSON})(?=$|[\\s,.;:!?)\\]])`, "giu");
+const WORD = new RegExp(`(?<!\\S)(due|start|scheduled|done|rec|until|times|backlog):(\\S+)|(?<!\\S)!(high|low)(?!\\S)|(?<!\\S)@(${PERSON})(?=$|[\\s,.;:!?)\\]])`, "giu");
 const DATE = /^(\d{4})-(\d{2})-(\d{2})(?:T([01]\d|2[0-3]):[0-5]\d)?$/;
 
 const TIMES = /^[1-9]\d{0,3}$/;
@@ -94,7 +97,7 @@ function tokensOf(text: string): Token[] {
     if (m[1]) {
       const key = m[1].toLowerCase();
       const value = m[2];
-      if (!(key === "rec" ? parseRule(value) : key === "times" ? TIMES.test(value) : key === "until" ? isDay(value) : isDate(value))) continue;
+      if (!(key === "rec" ? parseRule(value) : key === "times" ? TIMES.test(value) : key === "until" || key === "backlog" ? isDay(value) : isDate(value))) continue;
       out.push({ field: key === "scheduled" ? "start" : (key as Field), key, value, ...at });
     } else if (m[3]) out.push({ field: "priority", key: "!", value: m[3].toLowerCase(), ...at });
     else out.push({ field: "assignees", key: "@", value: m[4], ...at });
@@ -127,7 +130,7 @@ export function parseTask(line: string): ParsedTask | null {
     done: m[2] !== " ",
     text,
     summary: text.slice(0, end).trimEnd(),
-    meta: { due: first("due"), start: first("start"), done: first("done"), rec: first("rec"), until: first("until"), times: first("times") === null ? null : Number(first("times")), priority: first("priority") as Priority | null, assignees: all("assignees"), tags: all("tags") },
+    meta: { due: first("due"), start: first("start"), done: first("done"), rec: first("rec"), until: first("until"), times: first("times") === null ? null : Number(first("times")), priority: first("priority") as Priority | null, assignees: all("assignees"), tags: all("tags"), backlog: first("backlog") },
   };
 }
 
@@ -143,8 +146,8 @@ function trailing(text: string, tokens: Token[]): Token[] {
   return run;
 }
 
-/** The order tokens are shown in, and the place a new one goes: priority, due, start, repeat (and its ends), people, tags, done. */
-const RANK: Record<Field, number> = { priority: 0, due: 1, start: 2, rec: 3, until: 4, times: 5, assignees: 6, tags: 7, done: 8 };
+/** The order tokens are shown in, and the place a new one goes: priority, due, start, repeat (and its ends), people, tags, backlog, done. */
+const RANK: Record<Field, number> = { priority: 0, due: 1, start: 2, rec: 3, until: 4, times: 5, assignees: 6, tags: 7, backlog: 8, done: 9 };
 
 /** What's wrong with a patch that couldn't be written back as tokens, or null if nothing is. */
 export function patchProblem(patch: TaskPatch): string | null {
@@ -156,6 +159,7 @@ export function patchProblem(patch: TaskPatch): string | null {
   const rec = patch.rec ? ruleProblem(patch.rec) : null;
   if (rec) return rec;
   if (patch.until !== undefined && patch.until !== null && !isDay(patch.until)) return `"until" must be a date like 2026-10-01, not "${patch.until}"`;
+  if (patch.backlog !== undefined && patch.backlog !== null && !isDay(patch.backlog)) return `"backlog" must be a date like 2026-10-01, not "${patch.backlog}"`;
   if (patch.times !== undefined && patch.times !== null && !TIMES.test(String(patch.times))) return `"times" must be a whole number of repeats left, 1 or more`;
   if (patch.priority !== undefined && patch.priority !== null && patch.priority !== "high" && patch.priority !== "low") return `"priority" must be high or low`;
   const person = (patch.assignees ?? []).find((a) => !new RegExp(`^@?${PERSON}$`, "u").test(a.trim()));
@@ -238,7 +242,8 @@ export function editTask(line: string, patch: TaskPatch): string {
 
 /**
  * Apply a patch to the task on `lines[i]`, and what ticking means for the lines around it. Ticking
- * stamps `done:` with `today` and unticking takes it off, unless the patch sets it. Ticking a
+ * stamps `done:` with `today` and unticking takes it off, unless the patch sets it; a task ticked
+ * in the Backlog leaves it (it's done, not waiting). Ticking a
  * repeating task puts its next occurrence directly below; unticking it while that occurrence is
  * still there as it was added takes it back, so a mis-tick leaves nothing behind.
  */
@@ -247,7 +252,8 @@ export function editTaskLines(lines: string[], i: number, patch: TaskPatch, toda
   if (!was) return lines;
   const flips = patch.checked !== undefined && patch.checked !== was.done;
   const out = [...lines];
-  out[i] = editTask(lines[i], flips && !("done" in patch) ? { ...patch, done: patch.checked ? today : null } : patch);
+  const ticked = flips && patch.checked && was.meta.backlog && !("backlog" in patch) ? { backlog: null } : {};
+  out[i] = editTask(lines[i], { ...patch, ...ticked, ...(flips && !("done" in patch) ? { done: patch.checked ? today : null } : {}) });
   if (!flips) return out;
   if (patch.checked) {
     const next = nextOccurrence(out[i], parseTask(out[i])!.meta.done ?? today);
@@ -305,6 +311,33 @@ export function nextOccurrence(line: string, done: string): string | null {
  */
 export function skipPatch(meta: TaskMeta, today: string): TaskPatch | null {
   return following(meta, meta.due?.slice(0, 10) ?? today, today)?.patch ?? null;
+}
+
+/**
+ * The Backlog: where tasks wait out of sight. A task there carries `backlog:` with the day it went;
+ * taking the token off brings it back. The task lists (Tasks, Today, ::tasks, list_tasks) leave
+ * backlogged tasks out unless asked for them.
+ */
+export type BacklogScope = "exclude" | "include" | "only";
+export const BACKLOG_SCOPES: readonly BacklogScope[] = ["exclude", "include", "only"];
+/** How many days a task sits idle before it moves to the Backlog on its own, unless the settings say otherwise (0 there turns it off). */
+export const AUTO_BACKLOG_DAYS = 30;
+/** The tag that keeps a task out of the Backlog however long it sits, unless the settings name another. */
+export const DONT_BACKLOG = "dont-backlog";
+
+/**
+ * Whether an open task has sat idle for `days` as of `today`: untouched since `touched` (the day
+ * its line last changed), and with no due or start date in the last `days` or still ahead, so a
+ * task waiting for its date isn't taken away before it comes. Done and backlogged tasks, and ones
+ * tagged `exempt` (or a tag under it), never are.
+ */
+export function isIdle(task: Pick<ParsedTask, "done" | "meta">, touched: string, today: string, days: number, exempt = DONT_BACKLOG): boolean {
+  const m = task.meta;
+  if (days <= 0 || task.done || m.backlog) return false;
+  const tag = normalizeTag(exempt);
+  if (tag && m.tags.some((t) => tagMatches(normalizeTag(t) ?? "", tag))) return false;
+  const last = [touched, m.due, m.start].filter((d): d is string => !!d).map((d) => d.slice(0, 10)).sort().at(-1)!;
+  return addDays(last, days) <= today;
 }
 
 /** Put a new token among the tokens at the end of the text, before the first that ranks after it (else last). */

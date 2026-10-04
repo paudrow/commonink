@@ -38,7 +38,8 @@ export function taskRow(t: Task, env: RowEnv, where: string | null): HTMLElement
     await api.moveTask(t, to);
     env.reload();
   };
-  const ctx = { task: t, save, people: taskPeople, showPerson: env.openPerson, move };
+  const backlog = (on: boolean) => setBacklog(t, on, env.reload);
+  const ctx = { task: t, save, people: taskPeople, showPerson: env.openPerson, move, backlog };
   text.addEventListener("mousedown", (e) => {
     // A click on the words edits them, so let that one place the caret; chips and tags keep focus where it is.
     const target = e.target as HTMLElement;
@@ -58,8 +59,12 @@ export function taskRow(t: Task, env: RowEnv, where: string | null): HTMLElement
   menu.addEventListener("click", () => openTaskMenu(menu, ctx));
   const go = el("button", { type: "button", class: "qt-act", title: "Go to note", "aria-label": `Go to ${t.title}, line ${t.line}`, onmousedown: prevent, onclick: (e: MouseEvent) => env.open(t.path, t.line, clickWhere(e)) }, icon("open", 13));
   const side = el("button", { type: "button", class: "qt-act", title: "Open in split view", "aria-label": `Open ${t.title} in split view`, onmousedown: prevent, onclick: () => env.open(t.path, t.line, "side") }, icon("split", 13));
+  // In the Backlog, the way back is on the row.
+  const back = t.meta.backlog && !t.done
+    ? el("button", { type: "button", class: "qt-back", title: "Bring back from the Backlog", "aria-label": `Bring back ${t.summary}`, onmousedown: prevent, onclick: () => void backlog(false).catch(failed) }, icon("unarchive", 13), "Bring back")
+    : null;
   // A row dragged onto the notes opens its note in split view.
-  const row = el("div", { class: `qt-row${t.done ? " is-done" : ""}`, draggable: "true" }, box, text, where ? el("span", { class: "qt-where" }, where) : null, menu, go, side);
+  const row = el("div", { class: `qt-row${t.done ? " is-done" : ""}${back ? " is-backlog" : ""}`, draggable: "true" }, box, text, where ? el("span", { class: "qt-where" }, where) : null, back, menu, go, side);
   row.addEventListener("dragstart", (e) => {
     if ((e.target as HTMLElement).closest(".qt-edit")) return e.preventDefault();
     e.dataTransfer!.setData(NOTE_DRAG, t.path);
@@ -75,6 +80,27 @@ export function taskRow(t: Task, env: RowEnv, where: string | null): HTMLElement
     void toggle(t, row, box, env);
   });
   return row;
+}
+
+const failed = (e: unknown) => toast({ error: true, text: e instanceof Error ? e.message : "Couldn't change the task" });
+
+/**
+ * Move a task to the Backlog, or bring it back: its line gains or loses `backlog:`, and the lists
+ * that leave the Backlog out let it go. It says so, with an Undo. `changed` runs once the note has
+ * changed (after the Undo too).
+ */
+export async function setBacklog(t: Task, on: boolean, changed: () => void, quiet = false): Promise<void> {
+  const since = on ? (t.meta.backlog ?? today()) : null;
+  const r = await api.backlogTask(t, on);
+  Object.assign(t, { line: r.line, text: r.text, meta: { ...t.meta, backlog: since } });
+  changed();
+  if (quiet) return;
+  toast({
+    icon: on ? "archive" : "unarchive",
+    text: `${on ? "Moved to the Backlog" : "Back in your tasks"}: ${clip(t.summary)}`,
+    actionLabel: "Undo",
+    action: () => void setBacklog(t, !on, changed, true).catch(failed),
+  });
 }
 
 /** How long a task just ticked stays in its list, struck through, before a list that hides it lets it go. */

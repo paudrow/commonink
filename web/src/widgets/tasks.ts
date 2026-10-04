@@ -1,7 +1,8 @@
 //   ::tasks{folder=Projects label="Launch"}   ::tasks{note="Common Ink roadmap" status=all}   ::tasks{tag=work due<=today group=due}
-//   ::tasks{due>=today due<=+7d priority=high}   ::tasks{done>=-7d}
+//   ::tasks{due>=today due<=+7d priority=high}   ::tasks{done>=-7d}   ::tasks{backlog=only}
 // Every checkbox across the vault (or a folder, a note, a tag, a person, a priority, a date range), grouped by note
-// or by due date, priority, tag or person. Ticking one, or changing its details, edits the note it
+// or by due date, priority, tag or person. Tasks in the Backlog are left out unless `backlog` asks for
+// them (only, or include). Ticking one, or changing its details, edits the note it
 // lives in, so agents and people can add tasks anywhere and clear them in one place.
 import { api, type Task } from "../api.ts";
 import { el, icon } from "../dom.ts";
@@ -11,6 +12,7 @@ import { clickWhere } from "../panes.ts";
 import { addDays } from "../../../src/core/tasks.ts";
 import { today } from "../taskChips.ts";
 import { redrawRows, taskRow } from "../taskRow.ts";
+import { toast } from "../toast.ts";
 import { assignees } from "../people.ts";
 import { personFor, type Person } from "../../../src/core/contacts.ts";
 
@@ -79,6 +81,7 @@ export const tasks: WidgetSpec = {
     { key: "done", label: "Done", type: "text", placeholder: ">=-7d for the last week" },
     { key: "priority", label: "Priority", type: "text", placeholder: "high, low or none" },
     { key: "group", label: "Group", type: "text", placeholder: "note, due, priority, tag or person" },
+    { key: "backlog", label: "Backlog", type: "text", placeholder: "only, or include (left out otherwise)" },
   ],
 
   mount(body, env) {
@@ -93,6 +96,10 @@ export const tasks: WidgetSpec = {
     let expanded = false;
     let alive = true;
     const limit = Number(env.args.limit) || 12;
+    /** The Backlog's tasks with the rest, or only them (then this is a list of what's waiting, not of what's done). */
+    const backlog = env.args.backlog === "only" || env.args.backlog === "include" ? env.args.backlog : undefined;
+    const waiting = backlog === "only";
+    let bringing = false;
 
     const summary = el("div", { class: "qt-summary" });
     const bar = el("span");
@@ -106,7 +113,9 @@ export const tasks: WidgetSpec = {
     const groupSel = select("Group", GROUPS, () => group, (v) => ((group = v), v === "person" && !people.length && void assignees().then((a) => ((people = a.directory), render())).catch(() => {})));
     const sortSel = select("Sort", SORTS, () => sort, (v) => (sort = v));
     const list = el("div", { class: "qt-list" });
-    const top = el("div", { class: "qt-top" }, summary, el("span", { class: "spacer" }), groupSel, sortSel, seg);
+    /** Bring back every task the list holds: the Backlog, or what a tag or person narrows it to. */
+    const all_back = el("button", { type: "button", class: "qw-btn qt-all-back", onmousedown: prevent, onclick: () => void bringAllBack() }, icon("unarchive", 13), "Bring all back");
+    const top = el("div", { class: "qt-top" }, summary, el("span", { class: "spacer" }), groupSel, sortSel, waiting ? all_back : seg);
     const progress = el("div", { class: "qt-progress" }, bar);
     body.append(top, progress, list);
 
@@ -114,12 +123,12 @@ export const tasks: WidgetSpec = {
       try {
         const by = env.args.by === "me" ? ("me" as const) : undefined;
         const [t, who] = await Promise.all([
-          api.tasks({ folder: env.args.folder, note: env.args.note, tag: env.args.tag, assignee: env.args.assignee, by, due: env.args.due, start: env.args.start, done: env.args.done, priority: env.args.priority, today: today() }),
+          api.tasks({ folder: env.args.folder, note: env.args.note, tag: env.args.tag, assignee: env.args.assignee, by, due: env.args.due, start: env.args.start, done: env.args.done, priority: env.args.priority, today: today(), backlog }),
           group === "person" ? assignees().then((a) => a.directory).catch(() => people) : Promise.resolve(people),
         ]);
         people = who;
         if (!alive) return;
-        [all, problem] = [t, ""];
+        [all, problem] = [waiting ? t.filter((x) => !x.done) : t, ""]; // a task ticked in its note isn't waiting any more
       } catch (e) {
         if (!alive) return;
         [all, problem] = [[], e instanceof Error ? e.message : "Couldn't load tasks"];
@@ -130,9 +139,12 @@ export const tasks: WidgetSpec = {
     function render() {
       const now = today();
       const done = all.filter((t) => t.done).length;
-      summary.textContent = all.length ? `${done} of ${all.length} done` : "No tasks yet";
+      summary.textContent = waiting ? (all.length ? `${all.length} in the Backlog` : "") : all.length ? `${done} of ${all.length} done` : "No tasks yet";
       const blank = !all.length && !problem && !!env.empty;
-      top.hidden = progress.hidden = blank;
+      top.hidden = blank;
+      progress.hidden = blank || waiting;
+      all_back.hidden = !all.length;
+      all_back.disabled = bringing;
       bar.style.width = `${all.length ? (done / all.length) * 100 : 0}%`;
       seg.replaceChildren(
         ...(["open", "done", "all"] as Show[]).map((s) =>
@@ -140,7 +152,7 @@ export const tasks: WidgetSpec = {
         ),
       );
       // Open tasks that start later stay out of the way until then; All shows them, and so does a start filter, which asks for them.
-      const later = (t: Task) => !env.args.start && !!t.meta.start && t.meta.start.slice(0, 10) > now;
+      const later = (t: Task) => !waiting && !env.args.start && !!t.meta.start && t.meta.start.slice(0, 10) > now;
       const order = new Map(all.map((t, i) => [t, i]));
       const visible = all
         .filter((t) => (show === "all" || (show === "done") === t.done) && !(show === "open" && later(t)))
@@ -168,12 +180,31 @@ export const tasks: WidgetSpec = {
                   ...g.tasks.map(row),
                 ),
               )
-            : [blank ? env.empty!() : el("div", { class: "qt-empty" }, show === "open" && all.length ? "All done." : "Nothing here.")]),
+            : [blank ? env.empty!() : el("div", { class: "qt-empty" }, waiting ? "Nothing in the Backlog." : show === "open" && all.length ? "All done." : "Nothing here.")]),
         ...(visible.length > shown.length
           ? [el("button", { type: "button", class: "qt-more", onmousedown: prevent, onclick: () => ((expanded = true), render()) }, `Show ${visible.length - shown.length} more`)]
           : []),
       ));
       env.remeasure();
+    }
+
+    /** One at a time, each against the line it's on now: tasks in one note share its text. */
+    async function bringAllBack() {
+      if (bringing) return;
+      bringing = true;
+      render();
+      const back = [...all];
+      let n = 0;
+      for (const t of back) {
+        try {
+          const r = await api.backlogTask(t, false);
+          Object.assign(t, { line: r.line, text: r.text, meta: { ...t.meta, backlog: null } });
+          n++;
+        } catch {} // its note changed underneath: the reload shows what's still waiting
+      }
+      bringing = false;
+      toast({ icon: "unarchive", text: n === back.length ? `Brought back ${n} ${n === 1 ? "task" : "tasks"}` : `Brought back ${n} of ${back.length} tasks`, detail: n === back.length ? undefined : "The rest changed in their notes. Try them again." });
+      void load();
     }
 
     function row(t: Task) {

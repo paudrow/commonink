@@ -86,6 +86,8 @@ export function tokenChip(field: ChipField, value: string, opts: { done?: boolea
       return chip("tk-person", `@${value}`, avatar(value, 14), value);
     case "tags":
       return chip("tk-tag", `Tasks tagged #${value}`, `#${value}`);
+    case "backlog":
+      return chip("tk-muted tk-backlog", `In the Backlog since ${value}: out of Today and the task lists until it's brought back`, icon("archive", 12), `Backlog · ${dayLabel(value, now)}`);
   }
 }
 
@@ -100,7 +102,7 @@ function nextOf(meta: TaskMeta, now: string): string | null {
 
 /**
  * A task's chips in one fixed order, whatever order its tokens are in: priority, due (and a start
- * still ahead), repeat, people, then `tags` sorted by name, and done last.
+ * still ahead), repeat, people, then `tags` sorted by name, its day in the Backlog, and done last.
  */
 export function metaChips(meta: TaskMeta, done: boolean, tags: string[] = []): HTMLElement[] {
   const now = today();
@@ -111,6 +113,7 @@ export function metaChips(meta: TaskMeta, done: boolean, tags: string[] = []): H
     meta.rec && tokenChip("rec", meta.rec, { next: done ? null : nextOf(meta, now), ends: meta }),
     ...meta.assignees.map((a) => tokenChip("assignees", a)),
     ...[...tags].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })).map((t) => tokenChip("tags", t)),
+    !done && meta.backlog && tokenChip("backlog", meta.backlog, { now }),
     done && meta.done && tokenChip("done", meta.done, { now }),
   ].filter((c): c is HTMLElement => !!c);
 }

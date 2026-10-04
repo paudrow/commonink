@@ -34,10 +34,24 @@ A task is a checkbox line with details at the end:
 | `@jane` | Assigned to a person or a workspace member |
 | `!high` | Priority |
 | `#tag` | Tags, as in notes |
+| `backlog:2026-10-03` | In the Backlog since that day |
 
 Off the cursor's line these show as chips you can click to change. **Quick add** (⌘⇧.) takes a task in plain words: "Pay rent every month on the 1st #home" is written as the line above would be. It lands in today's daily note unless you name another with `→ [[Note]]`.
 
 **Tasks** lists every task in your notes, with **Today** on top: today's daily note, then what's overdue, due and starting today, and today's calendar events. Ticking a repeating task adds the next one below it.
+
+### The Backlog
+
+The **Backlog** is where tasks wait out of sight. Move one there from its ⚙ menu (**Move to the Backlog**) and it leaves Today, Tasks, `::tasks` lists and what your agents list, without leaving its note: its line gains `backlog:` with the day it went. **Tasks → Backlog** shows what's waiting. **Bring back** returns one, and **Bring all back** returns every task shown (pick a tag or a person first to bring back just those).
+
+A task nobody touches for 30 days moves to the Backlog on its own. A task with a due or start date waits until 30 days after that date, so nothing disappears before its day. History shows each of these moves as a change by **Common Ink**, and undoes it like any other change. Two settings (⌘, → Workspace, or `Config/Settings.md`) control it:
+
+| Setting | Meaning |
+| --- | --- |
+| `auto_backlog_days: 30` | Days a task sits untouched before it moves. `0` turns it off |
+| `backlog_exempt_tag: dont-backlog` | A task with this tag never moves on its own |
+
+So `- [ ] Renew passport #dont-backlog` stays in your lists however long it sits. Cards on a board stay where they are too. For agents and the CLI, `commonink tasks --backlog only` lists the Backlog, and `commonink task Plan 8 --to-backlog` and `--from-backlog` move a task there and back.
 
 ## Daily notes and templates
 

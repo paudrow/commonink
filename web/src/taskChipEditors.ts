@@ -19,7 +19,12 @@ export interface ChipContext {
   onClose?(): void;
   /** Move the task to another note (task lists offer "Move to…"). */
   move?(to: string): Promise<void>;
+  /** Move the task to the Backlog or bring it back, where a list says so with an Undo; without it, the patch is saved as any other. */
+  backlog?(on: boolean): Promise<void>;
 }
+
+/** Move a task to the Backlog (its line gains `backlog:` with today), or bring it back. */
+const setBacklog = (ctx: ChipContext, on: boolean) => () => (ctx.backlog ? ctx.backlog(on) : ctx.save({ backlog: on ? (ctx.task.meta.backlog ?? today()) : null }));
 
 /** Everyone @-mentioned on a task anywhere, most tasks first. */
 export async function taskPeople(): Promise<string[]> {
@@ -477,8 +482,16 @@ const tags: Editor = (anchor, _value, ctx) => {
   input.focus();
 };
 
+/** A task's day in the Backlog: nothing to edit, one thing to do. */
+const backlog: Editor = (anchor, _value, ctx) => {
+  const list = el("div", { class: "fp-list" });
+  const { close } = popover(anchor, ctx, "Backlog", list);
+  list.append(item("Bring back from the Backlog", "unarchive", saving(close, ctx, {}, setBacklog(ctx, false))));
+  list.querySelector<HTMLElement>(".fp-item")?.focus();
+};
+
 /** Which chips open an editor. Tag chips filter instead (the ⚙ menu edits tags), and a done date has nothing to edit. */
-const EDITORS: Partial<Record<ChipField, Editor>> = { priority, due: date("due"), start: date("start"), rec: repeat, assignees: person };
+const EDITORS: Partial<Record<ChipField, Editor>> = { priority, due: date("due"), start: date("start"), rec: repeat, assignees: person, backlog };
 
 /** Open the editor for the chip that was clicked; false if that chip has none. */
 export function openChipEditor(chip: HTMLElement, ctx: ChipContext): boolean {
@@ -539,9 +552,11 @@ export function openTaskMenu(anchor: HTMLElement, ctx: ChipContext) {
         now ? el("span", { class: "task-menu-value" }, now) : el("span", { class: "task-menu-value is-empty" }, "Add"),
       );
     }),
+    el("div", { class: "fp-sep" }),
+    // Out of Today and the task lists until it's brought back; a done task has nowhere to wait.
+    ...(ctx.task.done ? [] : [m.backlog ? item("Bring back from the Backlog", "unarchive", saving(close, ctx, {}, setBacklog(ctx, false))) : item("Move to the Backlog", "archive", saving(close, ctx, {}, setBacklog(ctx, true)))]),
     ...(ctx.move
       ? [
-          el("div", { class: "fp-sep" }),
           item(`Move to…`, "move", () => {
             handedOff = true;
             close();

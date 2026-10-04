@@ -156,7 +156,7 @@ test("the quick-add bar is a task input: Enter adds what was typed, Tab (from a 
 });
 
 test("the Tasks page's inline edit is a task input: phrases typed there become the task's tokens", async () => {
-  const t: Task = { path: "Home.md", title: "Home", line: 4, text: "Call mom !high due:2026-10-05 #family", summary: "Call mom", done: false, heading: null, meta: { due: "2026-10-05", start: null, done: null, rec: null, until: null, times: null, priority: "high", assignees: [], tags: ["family"] } };
+  const t: Task = { path: "Home.md", title: "Home", line: 4, text: "Call mom !high due:2026-10-05 #family", summary: "Call mom", done: false, heading: null, meta: { due: "2026-10-05", start: null, done: null, rec: null, until: null, times: null, priority: "high", assignees: [], tags: ["family"], backlog: null } };
   const saved: unknown[] = [];
   api.updateTask = async (_t, patch) => (saved.push(patch), { path: t.path, version: "2", line: t.line, text: t.text });
   const row = taskRow(t, { open() {}, openTag() {}, openPerson() {}, reload() {} }, null);

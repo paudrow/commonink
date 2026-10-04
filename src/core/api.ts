@@ -3,7 +3,7 @@
 import type { GoogleContactsSync } from "./googleContacts.ts";
 import { cleanPath, VaultError } from "./paths.ts";
 import type { ArchiveScope, Change, Vault } from "./vault.ts";
-import type { TaskPatch } from "./tasks.ts";
+import type { BacklogScope, TaskPatch } from "./tasks.ts";
 import type { ContactFields } from "./contacts.ts";
 import type { FillOptions, PersonPick } from "./templates.ts";
 import { agentSource, parseAuthorFilter } from "./actor.ts";
@@ -102,7 +102,7 @@ function taskPatch(v: unknown): TaskPatch {
       k === "checked" ? typeof x === "boolean"
       : k === "summary" ? typeof x === "string"
       : k === "assignees" || k === "tags" ? Array.isArray(x) && x.every((s) => typeof s === "string")
-      : ["due", "start", "done", "rec", "until", "priority"].includes(k) ? x === null || typeof x === "string"
+      : ["due", "start", "done", "rec", "until", "priority", "backlog"].includes(k) ? x === null || typeof x === "string"
       : k === "times" ? x === null || typeof x === "number"
       : false;
     if (!ok) throw new VaultError(`"patch.${k}" isn't a task field or has the wrong type`);
@@ -315,11 +315,12 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
           done: q("done") || undefined,
           priority: q("priority") || undefined,
           today: q("today") || undefined, // the browser's day, so "today" means the reader's today
+          backlog: (q("backlog") || undefined) as BacklogScope | undefined, // the Backlog's tasks too, or only them
         }),
       );
     }
     case "GET /tasks/count":
-      return json({ open: vault.openTaskCount() });
+      return json({ open: vault.openTaskCount(), backlog: vault.backlogCount() });
     case "GET /properties":
       return json(vault.properties());
     case "GET /tags":
