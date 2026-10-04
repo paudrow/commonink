@@ -6,11 +6,13 @@
 //
 //   node --import tsx scripts/preview-demo.ts <preview-url>
 //
-// PR_NUMBER, PR_TITLE, PR_URL, PR_BODY and PR_SHA describe the pull request (CI sets them). Safe to
-// run on every deploy: it adds only what's missing, and rewrites the "Try this PR" note.
+// PR_NUMBER, PR_TITLE, PR_URL, PR_BODY and PR_SHA describe the pull request (CI sets them). With
+// GH_TOKEN and GITHUB_REPOSITORY it reads the description fresh from GitHub, so an edited one shows up.
+// The description's own "Try this PR" section goes at the top of the note. Safe to run on every
+// deploy: it adds only what's missing, and rewrites the "Try this PR" note.
 import fs from "node:fs";
 import path from "node:path";
-import { fillDates, readSections, sectionsMarkdown, type Section } from "./preview-sections.ts";
+import { fillDates, readSections, sectionsMarkdown, splitTryThisPr, type Section } from "./preview-sections.ts";
 import { localDate } from "../src/core/tasks.ts";
 
 const origin = new URL(process.argv[2] ?? "").origin;
@@ -165,11 +167,25 @@ async function starSome(): Promise<boolean> {
   return true;
 }
 
+/** The PR's description as it is now (CI's PR_BODY is from the event, so stale after an edit). */
+async function prBody(): Promise<string> {
+  const { PR_NUMBER: n, GITHUB_REPOSITORY: repo, GH_TOKEN: token } = process.env;
+  if (n && repo && token) {
+    try {
+      const r = await fetch(`https://api.github.com/repos/${repo}/pulls/${n}`, { headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json" } });
+      if (r.ok) return ((await r.json()) as { body: string | null }).body ?? "";
+    } catch {
+      // fall back to the event's copy
+    }
+  }
+  return process.env.PR_BODY ?? "";
+}
+
 /** The note at the top of Notes: what this PR is, what's here to try, and the PR's own description. */
 async function tryThisPr(favorites: boolean, shared: string[]) {
   const n = process.env.PR_NUMBER;
   const title = process.env.PR_TITLE || "this branch";
-  const body = (process.env.PR_BODY ?? "").replace(/^🤖 Generated with.*$/m, "").trim();
+  const { tryIt, rest: body } = splitTryThisPr((await prBody()).replace(/^🤖 Generated with.*$/m, "").trim());
   const sha = process.env.PR_SHA?.slice(0, 7);
   const lines = [
     "---",
@@ -181,6 +197,7 @@ async function tryThisPr(favorites: boolean, shared: string[]) {
     "",
     "This Preview has its own notes. Change anything: nothing here is real, and the next deploy tops it back up.",
     "",
+    ...(tryIt ? ["## What changed and how to try it", "", tryIt, ""] : []),
     ...sectionsMarkdown(SECTIONS, Number(n) || null),
     "## Set up for you",
     "",
