@@ -133,7 +133,7 @@ test("Tags: from the filter ↓ goes to the tags, j and k move, / goes back, and
   const tag = (name: string, notes: number): TagCount => ({ tag: name, display: name, notes, tasks: 0, assets: 0 });
   const went: string[] = [];
   const root = document.getElementById("tags-view")!;
-  const page = new TagsPage(root, { tags: () => [tag("recipe", 2), tag("someday", 0), tag("work", 1)], refresh: async () => {}, openTag: () => {}, deleteTag: async (t) => void went.push(t.tag), readOnly: () => false, toast: () => {} });
+  const page = new TagsPage(root, { tags: () => [tag("recipe", 2), tag("someday", 0), tag("work", 1)], refresh: async () => {}, openTag: () => {}, deleteTag: async (t) => void went.push(t.tag), addTag: async () => {}, readOnly: () => false, toast: () => {} });
   page.show();
   const input = root.querySelector("input")!;
   const at = () => focused().closest(".tags-row")?.getAttribute("data-tag");
