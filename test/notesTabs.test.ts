@@ -137,7 +137,11 @@ test("in Trash, x selects and the bulk bar restores; r restores the focused card
   await settle();
   assert.deepEqual([titles(), toasts.at(-1)], [[], "Restored C"]);
   assert.equal(root.querySelector(".empty-state b")!.textContent, "Trash is empty");
-  assert.equal(root.querySelector<HTMLElement>(".feed-search")!.hidden, false, "an empty Trash keeps the search where Notes has it");
+  const hidden = () => [".feed-search", ".feed-folder"].map((sel) => root.querySelector<HTMLElement>(sel)!.hidden);
+  assert.deepEqual(hidden(), [true, true], "an empty Trash has nothing to search or filter");
+  page.show({ tab: "notes" });
+  await settle();
+  assert.deepEqual(hidden(), [false, false], "Notes still has them");
 });
 
 test("Delete forever asks first, and only whoever may delete for good gets it", async () => {
