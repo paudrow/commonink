@@ -3,6 +3,7 @@
 // outside feed, so it's set as text; the one link is http(s) only (the server checks) and opens in
 // a new tab with no opener or referrer.
 import { el, icon } from "../dom.ts";
+import { withKeys } from "../keys.ts";
 import { toast } from "../toast.ts";
 import { canEditCalendars, eventHref, hostOf, plainText, webAddress, whenText, type Item } from "./data.ts";
 import { dot, openMeetingNote } from "./ui.ts";
@@ -37,7 +38,7 @@ export function renderDetails(item: Extract<Item, { kind: "event" }>, hooks: { o
       { class: "cal-d-head" },
       dot(item.color, "cal-d-swatch"),
       el("h2", { id: titleId }, item.title),
-      el("button", { type: "button", class: "icon-btn small", title: "Close (Esc)", "aria-label": "Close", onclick: hooks.close }, icon("close", 15)),
+      el("button", { type: "button", class: "icon-btn small", title: withKeys("Close", "Escape"), "aria-label": "Close", onclick: hooks.close }, icon("close", 15)),
     ),
     field("clock", "When", whenText(item.span), ev.recurring ? el("span", { class: "cal-d-tag" }, icon("reset", 11), "Recurring") : null, ev.status === "tentative" ? el("span", { class: "cal-d-tag" }, "Tentative") : null),
     where ? field("globe", "Where", where) : null,

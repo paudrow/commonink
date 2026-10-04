@@ -147,7 +147,7 @@ export function trashTags(items: TrashItem[]): TagCount[] {
 export class Trash {
   constructor(private hooks: DeleteHooks & { canPurge(): boolean; open(path: string): void }) {}
 
-  /** Whoever may delete for good sees Delete forever and Empty trash. */
+  /** Whoever may delete for good sees Delete forever and Empty Trash. */
   get canPurge() {
     return this.hooks.canPurge();
   }
@@ -196,7 +196,7 @@ export class Trash {
     const ok = await ask({
       title: `Empty Trash?`,
       body: [`${plural(items.length, "item")} will be deleted for good. They can't be restored after this, and their earlier versions go from History too${labels ? `, with ${plural(labels, "named version")}` : ""}.`],
-      actions: [{ label: "Empty trash", value: "yes", kind: "danger" }],
+      actions: [{ label: "Empty Trash", value: "yes", kind: "danger" }],
     });
     if (!ok) return false;
     return (await api.emptyTrash().catch(() => (this.hooks.toast({ text: "Couldn't empty Trash" }), null))) !== null;

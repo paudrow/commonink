@@ -100,7 +100,7 @@ test("the dialog: labelled controls, search as you type, changes that apply at o
   assert.equal(document.getElementById(dialog.getAttribute("aria-labelledby")!)?.textContent, "Settings");
   const search = dialog.querySelector<HTMLInputElement>("input[type=search]")!;
   assert.equal(document.activeElement, search);
-  assert.equal(search.getAttribute("aria-label"), "Search settings");
+  assert.equal(search.getAttribute("aria-label"), "Filter settings");
   assert.deepEqual([...dialog.querySelectorAll("h3")].map((h) => h.textContent), ["Appearance", "Sidebar", "Editor", "Keyboard", "Agents"]);
   const tabs = [...dialog.querySelectorAll<HTMLElement>(".st-tab")];
   assert.deepEqual(tabs.map((t) => [t.textContent, t.getAttribute("aria-selected")]), [["User", "true"], ["Workspace", "false"]]);

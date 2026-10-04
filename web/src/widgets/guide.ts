@@ -66,7 +66,7 @@ const done: View = (body, env) => {
   return (s, live) => {
     const total = s ? s.open.length + s.done.length : 0;
     bar.style.width = `${total ? (100 * s!.done.length) / total : 0}%`;
-    say.textContent = !s ? "" : s.open.length ? `${s.done.length} of ${total} done.` : live ? "All done. Archive this note to tidy up: its links keep working, and you can bring it back from Archived." : "All done.";
+    say.textContent = !s ? "" : s.open.length ? `${s.done.length} of ${total} done.` : live ? "All done. Archive this note to tidy up: its links keep working, and you can bring it back from Archive." : "All done.";
     archive.hidden = !live || !s || s.open.length > 0;
   };
 };

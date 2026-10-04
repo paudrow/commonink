@@ -4,6 +4,7 @@
 // can be deleted too.
 import { api, unusedTag, type TagCount } from "./api.ts";
 import { el, icon } from "./dom.ts";
+import { formatKeys } from "./keys.ts";
 import { askText, confirmAction } from "./modal.ts";
 import { pageHeader } from "./pageHeader.ts";
 import type { ToastSpec } from "./toast.ts";
@@ -125,7 +126,7 @@ export class TagsPage {
 
   private startRename(node: HTMLElement, t: TagCount) {
     const input = el("input", { class: "tag-rename", value: t.display, spellcheck: "false", "aria-label": `New name for #${t.display}` });
-    node.replaceChildren(icon("hash", 14), input, el("span", { class: "tags-uses" }, "Enter to rename, Esc to cancel"));
+    node.replaceChildren(icon("hash", 14), input, el("span", { class: "tags-uses" }, `${formatKeys("Enter")} to rename, ${formatKeys("Escape")} to cancel`));
     input.focus();
     input.select();
     let done = false;

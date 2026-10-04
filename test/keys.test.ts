@@ -2,7 +2,7 @@
 // that types "." whether that's US Period or Dvorak's E key. Mod is ⌘ on a Mac, Ctrl elsewhere.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { formatKeys, learnLayout, matchKeys, speakKeys, type KeyLike } from "../web/src/keys.ts";
+import { deleteKey, formatKeys, learnLayout, matchKeys, speakKeys, withKeys, type KeyLike } from "../web/src/keys.ts";
 
 const press = (key: string, code: string, mods: Partial<KeyLike> = {}): KeyLike => ({ key, code, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...mods });
 const MAC = true;
@@ -79,8 +79,25 @@ test("shortcuts read ⌘⇧E on a Mac and Ctrl+Shift+E elsewhere; keys typed as 
   );
   assert.deepEqual(
     keys.map((k) => formatKeys(k, false)),
-    ["Ctrl+Shift+E", "Ctrl+Shift+.", "Ctrl+Alt+\\", "Ctrl+↵", "Shift+Tab", "Ctrl-click", "G", "gd", ":w", "?"],
+    ["Ctrl+Shift+E", "Ctrl+Shift+.", "Ctrl+Alt+\\", "Ctrl+Enter", "Shift+Tab", "Ctrl+click", "G", "gd", ":w", "?"],
   );
+});
+
+test("Enter and Backspace are ↵ and ⌫ on a Mac and spelled out elsewhere, like Esc; clicks join the way keys do", () => {
+  const keys = ["Enter", "Backspace", "Delete", "Escape", "Mod-Alt-Enter", "Mod-Alt-click", "Shift-click", "click", "Middle-click"];
+  assert.deepEqual(
+    keys.map((k) => formatKeys(k, true)),
+    ["↵", "⌫", "Delete", "Esc", "⌘⌥↵", "⌘⌥-click", "⇧-click", "click", "Middle-click"],
+  );
+  assert.deepEqual(
+    keys.map((k) => formatKeys(k, false)),
+    ["Enter", "Backspace", "Delete", "Esc", "Ctrl+Alt+Enter", "Ctrl+Alt+click", "Shift+click", "click", "Middle-click"],
+  );
+});
+
+test("a tooltip names its shortcut the platform's way, and the key that deletes is ⌫ on a Mac and Delete elsewhere", () => {
+  assert.deepEqual([withKeys("Archive", "e", true), withKeys("Close", "Mod-w", true), withKeys("Close", "Mod-w", false), withKeys("Expand", "Enter", false)], ["Archive (e)", "Close (⌘W)", "Close (Ctrl+W)", "Expand (Enter)"]);
+  assert.deepEqual([withKeys("Delete", deleteKey(true), true), withKeys("Delete", deleteKey(false), false)], ["Delete (⌫)", "Delete (Delete)"]);
 });
 
 test("shortcuts are spoken as words: Command Shift P on a Mac, Control Shift P elsewhere", () => {

@@ -1,4 +1,4 @@
-// Settings (⌘, or "Open settings" in ⌘⇧P), as VS Code does it: a search box that filters as you type,
+// Settings (⌘, or "Open Settings…" in ⌘⇧P), as VS Code does it: a search box that filters as you type,
 // then every setting by section, each with a title, a line on what it does, and its control. main.ts
 // supplies the values and what changing each one does; a change applies at once and the list redraws.
 import { el, icon } from "./dom.ts";
@@ -533,8 +533,8 @@ export function openSettings(settings: () => Setting[], opts: { query?: string; 
   const search = el("input", {
     type: "search",
     class: "st-search",
-    placeholder: "Search settings",
-    "aria-label": "Search settings",
+    placeholder: "Filter settings…",
+    "aria-label": "Filter settings",
     "aria-controls": "st-list",
     autocomplete: "off",
     spellcheck: "false",

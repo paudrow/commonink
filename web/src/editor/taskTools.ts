@@ -15,7 +15,7 @@ import { EditorView, keymap, WidgetType } from "@codemirror/view";
 import { localDate, parseTask, type TaskMeta } from "../../../src/core/tasks.ts";
 import { recLabel } from "../../../src/core/recurrence.ts";
 import { el, icon } from "../dom.ts";
-import { formatKeys } from "../keys.ts";
+import { withKeys } from "../keys.ts";
 import { openFieldEditor, openTaskMenu, taskPeople, type ChipContext, type MenuField } from "../taskChipEditors.ts";
 import { dayLabel, tokenChip, type ChipField } from "../taskChips.ts";
 import { toast } from "../toast.ts";
@@ -63,7 +63,7 @@ class ToolsWidget extends WidgetType {
     return o.missing.join() === this.missing.join() && o.pending.join() === this.pending.join();
   }
   toDOM(view: EditorView) {
-    const button = el("button", { type: "button", class: "cm-task-gear", title: `Priority, due, repeat, person, tags… (${formatKeys("Mod-.")})`, "aria-label": "Task fields" }, icon("sliders", 13));
+    const button = el("button", { type: "button", class: "cm-task-gear", title: withKeys("Priority, due, repeat, person, tags…", "Mod-."), "aria-label": "Task fields" }, icon("sliders", 13));
     // Each word opens its field's editor, anchored to the word: `due` the date, `repeat` the repeat…
     const words = HINTS.filter(([, f]) => this.missing.includes(f)).map(([word, field]) =>
       el("button", { type: "button", class: "cm-hint-word", "data-field": field, title: `Add ${WORD_TITLES[field]}` }, word),

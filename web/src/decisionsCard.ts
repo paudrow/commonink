@@ -9,6 +9,7 @@
 import { api, assetUrl, type Decision } from "./api.ts";
 import type { DecisionValue } from "../../src/core/decisions.ts";
 import { authorAvatar, el, icon, timeAgo, typingIn } from "./dom.ts";
+import { withKeys } from "./keys.ts";
 import { onVaultChange } from "./events.ts";
 import { localDate } from "../../src/core/tasks.ts";
 import { NOTE_LINKS, noteTarget } from "./noteLinks.ts";
@@ -474,8 +475,8 @@ export function mountDecisions(host: HTMLElement, page: HTMLElement, hooks: Deci
             { class: "dc-actions" },
             el("button", { type: "button", class: "qw-btn primary dc-decide", disabled: busy || !valueOf(d, dr), onclick: () => void decide() }, busy ? "Saving…" : open ? "Decide" : "Change answer"),
             open
-              ? el("button", { type: "button", class: "qw-btn", title: "Leave it for later (S)", onclick: skip }, "Skip")
-              : el("button", { type: "button", class: "qw-btn dc-keep", title: "Leave the answer as it was (Esc)", onclick: keep }, "Keep my answer"),
+              ? el("button", { type: "button", class: "qw-btn", title: withKeys("Leave it for later", "s"), onclick: skip }, "Skip")
+              : el("button", { type: "button", class: "qw-btn dc-keep", title: withKeys("Leave the answer as it was", "Escape"), onclick: keep }, "Keep my answer"),
             el("span", { class: "dc-hint" }, hint),
           ),
         ),

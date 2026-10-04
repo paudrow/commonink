@@ -9,9 +9,9 @@ export type Where = "here" | "tab" | "side";
 
 /**
  * What a click on something that opens a note does, as in a browser and VS Code: a plain click opens
- * it here; ⌘-click (Ctrl-click off a Mac) or a middle-click opens it in a new tab; ⌘⌥-click
- * (Ctrl+Alt-click) opens it to the side, as ⌘⌥\ splits and ⌘⌥↵ opens a link to the side. On a Mac,
- * Ctrl-click is the right-click menu, so it never counts.
+ * it here; ⌘-click (Ctrl+click off a Mac) or a middle-click opens it in a new tab; ⌘⌥-click
+ * (Ctrl+Alt+click) opens it to the side, as ⌘⌥\ splits and ⌘⌥↵ opens a link to the side. On a Mac,
+ * Ctrl-click is the right-click menu, so it never counts. Hints write them with formatKeys ("Mod-click").
  */
 export function clickWhere(e: { metaKey: boolean; ctrlKey: boolean; altKey?: boolean; button?: number }, mac = IS_MAC): Where {
   const button = e.button ?? 0;
@@ -32,10 +32,6 @@ export function linkClick(e: { metaKey: boolean; ctrlKey: boolean; shiftKey: boo
   if (where !== "here") return where;
   return (e.button ?? 0) !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey ? "browser" : "here";
 }
-
-/** How those clicks are written in hints. */
-export const TAB_CLICK = IS_MAC ? "⌘-click" : "Ctrl-click";
-export const SIDE_CLICK = IS_MAC ? "⌘⌥-click" : "Ctrl+Alt-click";
 
 /**
  * What Enter does in the palette (⌘K), the same way round as the clicks: open the pick here, in a

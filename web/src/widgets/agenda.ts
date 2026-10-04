@@ -59,7 +59,7 @@ export const agenda: WidgetSpec = {
             "div",
             { class: "ag-empty" },
             "No calendars yet. Subscribe to one on the Calendar page to see your events here.",
-            el("div", {}, el("button", { type: "button", class: "qw-btn", onmousedown: (e: Event) => e.preventDefault(), onclick: () => open("/calendar") }, icon("calendar", 14), "Open Calendar")),
+            el("div", {}, el("button", { type: "button", class: "qw-btn", onmousedown: (e: Event) => e.preventDefault(), onclick: () => open("/calendar") }, icon("calendar", 14), "Go to Calendar")),
           ),
         );
       else {

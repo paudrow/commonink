@@ -5,6 +5,7 @@
 // F2 (or Rename in the preview) renames one, as F2 renames a note or a folder.
 import { api, fileUrl, isArchived, type NoteMeta, type TagCount } from "./api.ts";
 import { $, el, icon } from "./dom.ts";
+import { deleteKey, withKeys } from "./keys.ts";
 import { pageHeader } from "./pageHeader.ts";
 import { tagChip, tagFilter, tagPicker } from "./tagPicker.ts";
 import { normalizeTag, tagMatches } from "../../src/core/tags.ts";
@@ -62,7 +63,7 @@ export class Assets {
   private bulk = el("div", { class: "feed-bulk as-bulk", hidden: true });
 
   constructor(private hooks: Hooks) {
-    this.input = el("input", { placeholder: "Find an asset…", spellcheck: "false", autocomplete: "off", role: "combobox", "aria-expanded": "false" });
+    this.input = el("input", { placeholder: "Filter assets…", spellcheck: "false", autocomplete: "off", role: "combobox", "aria-expanded": "false" });
     this.suggest = el("div", { class: "as-suggest", role: "listbox", hidden: true });
     this.chips = el("div", { class: "as-chips" });
     this.sortSel = el(
@@ -272,7 +273,7 @@ export class Assets {
     const type = assetType(n.path);
     const folder = n.path.split("/").slice(0, -1).join("/");
     const on = this.selected.has(n.path);
-    const check = el("span", { class: "as-check", role: "checkbox", "aria-checked": String(on), title: on ? "Unselect (x)" : "Select (x)" }, icon("check", 12));
+    const check = el("span", { class: "as-check", role: "checkbox", "aria-checked": String(on), title: withKeys(on ? "Unselect" : "Select", "x") }, icon("check", 12));
     check.addEventListener("click", (e) => {
       e.stopPropagation();
       this.toggle(n.path);
@@ -459,7 +460,7 @@ export class Assets {
       el(
         "aside",
         { class: "ap-info" },
-        el("div", { class: "ap-top" }, el("h2", {}, nameOf(meta)), el("button", { type: "button", class: "icon-btn ap-close", title: "Close (Esc)", "aria-label": "Close", onclick: close }, icon("close", 16))),
+        el("div", { class: "ap-top" }, el("h2", {}, nameOf(meta)), el("button", { type: "button", class: "icon-btn ap-close", title: withKeys("Close", "Escape"), "aria-label": "Close", onclick: close }, icon("close", 16))),
         el(
           "dl",
           { class: "ap-facts" },
@@ -495,7 +496,7 @@ export class Assets {
             icon("archive", 14),
             "Archive",
           ),
-          el("button", { type: "button", class: "qw-btn danger", title: "Delete (⌫)", onclick: () => void (close(), this.delete([path])) }, icon("trash", 14), "Delete"),
+          el("button", { type: "button", class: "qw-btn danger", title: withKeys("Delete", deleteKey()), onclick: () => void (close(), this.delete([path])) }, icon("trash", 14), "Delete"),
         ),
         tagsBox,
         usedIn,

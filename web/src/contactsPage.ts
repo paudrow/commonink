@@ -67,7 +67,7 @@ export class ContactsPage {
   private shown: Contact | null = null;
   /** The contact page's task list, while it's showing. */
   private unmountTasks = () => {};
-  private search = el("input", { placeholder: "Search people…", spellcheck: "false", autocomplete: "off", "aria-label": "Search people" });
+  private search = el("input", { placeholder: "Filter people…", spellcheck: "false", autocomplete: "off", "aria-label": "Filter people" });
   private tag = el("select", { class: "ct-select", "aria-label": "Tag" });
   private company = el("select", { class: "ct-select", "aria-label": "Company" });
   private due = el("select", { class: "ct-select", "aria-label": "Check-ins" }, el("option", { value: "" }, "Everyone"), el("option", { value: "due" }, "Due for a check-in"));

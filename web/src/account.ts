@@ -163,7 +163,7 @@ export function renderAccount(
   const close = () => setOpen(false);
   const actions = accountActions(me, current, toast);
   const sep = actions.findIndex((a) => a.session);
-  // Neither is one of the actions: ⌘K already has "Go to Profile" and "Open settings".
+  // Neither is one of the actions: ⌘K already has "Go to Profile" and "Open Settings…".
   const profile = el("button", { class: "acct-item", type: "button", role: "menuitem", tabindex: "-1", onclick: () => (close(), openProfile()) }, icon("user", 15), el("span", {}, "Profile"));
   const settings = el(
     "button",

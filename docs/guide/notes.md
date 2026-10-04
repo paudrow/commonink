@@ -74,7 +74,7 @@ A ```` ```mermaid ```` block draws a diagram, and `$…$` sets math.
 
 - **⌘K** finds a note by name or by anything in it.
 - **Notes** shows every note as a card, newest first. Type in its filter to search, or narrow to a folder or tag.
-- **Views** are saved searches in the sidebar, like `tag=work/clients sort=title`, with live counts. Each is a note in `Views/` holding its query, so you can edit, rename or delete it like any note. Make one with **New view** in ⌘K, or save the Notes filter as one.
+- **Views** are saved searches in the sidebar, like `tag=work/clients sort=title`, with live counts. Each is a note in `Views/` holding its query, so you can edit, rename or delete it like any note. Make one with **New view…** in ⌘K, or save the Notes filter as one.
 - **Favorites**: star a note or a tag to keep it at the top of the sidebar.
 
 ### Searching and filtering

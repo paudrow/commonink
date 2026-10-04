@@ -36,7 +36,7 @@ import { renderTodayPage } from "./todayView.ts";
 import { askFor, askName, pickTemplate, templatePeople } from "./templatePicker.ts";
 import { localNow, type TemplateInfo } from "../../src/core/templates.ts";
 import { openQuickAdd, QUICK_ADD } from "./quickAdd.ts";
-import { formatKeys, learnLayout, matchKeys } from "./keys.ts";
+import { formatKeys, learnLayout, matchKeys, withKeys } from "./keys.ts";
 import { navArrows, type Dir, type NavArrows } from "./navArrows.ts";
 import { cleanName, fixedName, nameFromHeading, nameLine, renamedPath } from "./noteName.ts";
 import { taskInputPrefs } from "./taskInput.ts";
@@ -72,7 +72,7 @@ import { changeVerb, groupChanges } from "../../src/core/format.ts";
 import { entryStat, loadStats, statEl, toRanges } from "./changeStats.ts";
 import { closeOthers, closeTabs, closeToRight, currentTab, emptyGroup, insertTab, jumpIndex, moveTab, newLayout, nudgeTab, openEntry, parseLayout, pinTab, setTrail, showTab, stepIndex, tabIndex, takeTab, type Group, type Tab } from "./tabs.ts";
 import { openMenu, under, type MenuItem } from "./menu.ts";
-import { clampSide, clickWhere, dropDock, forget, historyStep, IS_MAC, pageEntry, pageOf, rememberPlace, SIDE_CLICK, step, trailAhead, type Dock, type PaneTrail, type Place, type Where } from "./panes.ts";
+import { clampSide, clickWhere, dropDock, forget, historyStep, IS_MAC, pageEntry, pageOf, rememberPlace, step, trailAhead, type Dock, type PaneTrail, type Place, type Where } from "./panes.ts";
 import { headingName, headingText, proseLines } from "../../src/core/prose.ts";
 import { headingMatches } from "../../src/core/gfm.ts";
 import { blockAnchor, blockLinkTarget, blockRange, newBlockId, noteLink, selectionBlocks, type BlockSpot } from "../../src/core/blocks.ts";
@@ -1085,7 +1085,7 @@ function tabStrip(p: Pane): HTMLElement {
       el("span", { class: "tab-name" }, name),
       t.pinned
         ? el("button", { type: "button", class: "tab-x tab-pin", tabindex: "-1", title: "Unpin", "aria-label": `Unpin ${name}`, onclick: (e: Event) => (e.stopPropagation(), pinTabIn(p, i, false)) }, icon("pin", 12))
-        : el("button", { type: "button", class: "tab-x", tabindex: "-1", title: `Close (${formatKeys("Mod-w")})`, "aria-label": `Close ${name}`, onclick: (e: Event) => (e.stopPropagation(), void closeTabAt(p, i)) }, icon("close", 12)),
+        : el("button", { type: "button", class: "tab-x", tabindex: "-1", title: withKeys("Close", "Mod-w"), "aria-label": `Close ${name}`, onclick: (e: Event) => (e.stopPropagation(), void closeTabAt(p, i)) }, icon("close", 12)),
     );
     node.addEventListener("mousedown", (e) => e.button === 1 && e.preventDefault()); // not the page's autoscroll
     node.addEventListener("click", () => void activateTab(p, i));
@@ -1126,7 +1126,7 @@ function tabStrip(p: Pane): HTMLElement {
   }
   // The tab showing stays in sight in a strip that scrolls.
   requestAnimationFrame(() => strip.querySelector<HTMLElement>(".tab.is-on")?.scrollIntoView({ block: "nearest", inline: "nearest" }));
-  strip.append(el("button", { type: "button", class: "icon-btn small tab-new", title: `New tab (${formatKeys("Mod-t")})`, "aria-label": "New tab", onclick: () => newTab(p) }, icon("plus", 13)));
+  strip.append(el("button", { type: "button", class: "icon-btn small tab-new", title: withKeys("New tab", "Mod-t"), "aria-label": "New tab", onclick: () => newTab(p) }, icon("plus", 13)));
   // A double-click on the strip's empty end opens a new tab, as in an editor.
   strip.addEventListener("dblclick", (e) => e.target === strip && newTab(p));
   stripDrops(strip, p);
@@ -1168,7 +1168,7 @@ function renderPaneBars() {
       tabStrip(p),
       el("span", { class: "spacer" }),
       ...(s && s.kind !== "asset" ? [btn(starred ? "starred" : "star", starred ? "Unstar" : "Star", () => void toggleStar(s.path), starred ? "is-on" : "")] : []),
-      btn("close", `Close split view, keep the other note (${formatKeys("Mod-Alt-\\")})`, () => void closePane(p)),
+      btn("close", withKeys("Close split view, keep the other note", "Mod-Alt-\\"), () => void closePane(p)),
     );
     focused?.focus({ preventScroll: true }); // moving the arrows back in drops their focus
     p.bar.classList.toggle("is-focused", p === active);
@@ -1919,7 +1919,7 @@ async function setFocusMode(on: boolean) {
   focusMode = on;
   document.body.classList.toggle("is-focus", on);
   $("#focus-btn").replaceChildren(icon(on ? "unfocus" : "focus", 16));
-  setLabel($("#focus-btn"), `${on ? "Leave focus mode" : "Focus mode"} (${formatKeys("Mod-Shift-Enter")})`);
+  setLabel($("#focus-btn"), withKeys(on ? "Leave focus mode" : "Focus mode", "Mod-Shift-Enter"));
   const keyboard = (navigator as any).keyboard;
   try {
     if (on && !document.fullscreenElement) {
@@ -3099,7 +3099,7 @@ function renderFavorites() {
       el(
         "span",
         { class: "row-actions" },
-        el("button", { type: "button", class: "row-act", title: `Open to the side (${SIDE_CLICK})`, onclick: (e: Event) => (e.stopPropagation(), void openNote(f.path, { pane: sideOf(active) })) }, icon("split", 14)),
+        el("button", { type: "button", class: "row-act", title: withKeys("Open to the side", "Mod-Alt-click"), onclick: (e: Event) => (e.stopPropagation(), void openNote(f.path, { pane: sideOf(active) })) }, icon("split", 14)),
         el("button", { type: "button", class: "row-act fav-star", title: "Unstar", onclick: (e: Event) => (e.stopPropagation(), void toggleStar(f.path)) }, icon("starred", 14)),
       ),
     );
@@ -3779,7 +3779,7 @@ function renderChrome() {
   $("#note-history-btn").hidden = !s || s.kind === "asset";
   $("#focus-btn").hidden = !s || s.kind === "asset";
   $("#split-btn").hidden = !split && (!s || s.kind === "asset");
-  setLabel($("#split-btn"), `${split ? "Close split view" : "Open split view"} (${formatKeys("Mod-Alt-\\")})`);
+  setLabel($("#split-btn"), withKeys(split ? "Close split view" : "Open split view", "Mod-Alt-\\"));
   $("#split-btn").classList.toggle("is-on", split);
   $("#save-status").hidden = !s;
   renderCodeWrap();
@@ -3796,7 +3796,7 @@ function renderChrome() {
   setLabel($("#star-btn"), starred ? "Unstar" : "Star");
   $("#star-btn").replaceChildren(icon(starred ? "starred" : "star", 16));
   const archived = isArchived(s.path);
-  setLabel($("#archive-btn"), `${archived ? "Unarchive note" : "Archive note"} (${formatKeys("Mod-Shift-e")})`);
+  setLabel($("#archive-btn"), withKeys(archived ? "Unarchive note" : "Archive note", "Mod-Shift-e"));
   $("#archive-btn").replaceChildren(icon(archived ? "unarchive" : "archive", 16));
   const folder = parentOf(s.path);
   setLabel($("#move-btn"), `${folder ? `In ${folder.split("/").join(" / ")}` : "At the top level"} · Move to another folder`);
@@ -4891,7 +4891,7 @@ let myName = "Me";
 let local = true;
 /** You can view this workspace but not edit it: you keep smart folders of your own but can't change shared ones. */
 let viewer = false;
-/** May delete for good (Trash's Delete forever and Empty trash): workspace owners online, and always locally. */
+/** May delete for good (Trash's Delete forever and Empty Trash): workspace owners online, and always locally. */
 let owner = true;
 
 /**
@@ -5019,7 +5019,7 @@ async function boot() {
   $("#new-note").addEventListener("click", () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""));
   $("#new-from-template").addEventListener("click", () => void newFromTemplate(undefined, onPage() === "notes" ? (notesPage.query.folder ?? "") : ""));
   $("#panel-btn").addEventListener("click", () => togglePanel());
-  setLabel($("#panel-btn"), `Toggle info panel (${formatKeys("Mod-\\")})`);
+  setLabel($("#panel-btn"), withKeys("Toggle info panel", "Mod-\\"));
   setupPanes();
   $("#stage").addEventListener("mousedown", () => document.body.classList.remove("panel-overlay"));
   $("#theme-toggle").addEventListener("click", toggleTheme);
@@ -5098,7 +5098,7 @@ async function boot() {
   $("#move-btn").addEventListener("click", () => openMovePicker($("#move-btn")));
   $("#share-btn").addEventListener("click", openShare);
   $("#focus-btn").addEventListener("click", () => void setFocusMode(!focusMode));
-  setLabel($("#focus-btn"), `Focus mode (${formatKeys("Mod-Shift-Enter")})`); // ⌘⇧↵ in the markup is a Mac's
+  setLabel($("#focus-btn"), withKeys("Focus mode", "Mod-Shift-Enter")); // ⌘⇧↵ in the markup is a Mac's
   $("#new-folder").addEventListener("click", () => startNewFolder());
   $("#new-tag").addEventListener("click", () => startNewTag());
   $("#new-tag").hidden = viewer;
