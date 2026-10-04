@@ -572,8 +572,7 @@ for (const phone of PHONES) {
         const top = await searchTop(page);
         assert.ok(top >= 0 && top <= 12, `the search box is ${Math.round(top)}px down`);
       });
-      const about = await box(page, "#notes-view .feed-about");
-      assert.ok(about.y + about.height <= (await box(page, "#notes-view")).y + 1, "the line of help is still showing");
+      assert.equal(await page.locator("#notes-view .feed-about").isVisible(), false, "the Notes tab has no line of help");
     });
     and("nothing scrolls sideways", async () => {
       assert.equal(await sideways(page), 0);
