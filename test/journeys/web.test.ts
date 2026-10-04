@@ -254,6 +254,110 @@ journey("Delete a note by mistake and get it back", ({ given, when, then, and })
   });
 });
 
+/** Goes to a page by its command (Ctrl+Shift+P, "Go to Tags"), as a person at the keyboard does. */
+async function goTo(page: Page, name: string) {
+  await page.keyboard.press("Control+Shift+p");
+  await page.locator("#palette-input").fill(`>Go to ${name}`);
+  await page.locator("#palette-results [role=option]", { hasText: `Go to ${name}` }).first().waitFor();
+  await page.keyboard.press("Enter");
+}
+
+journey("Move through every list with the same keys", ({ given, when, then, and }) => {
+  let page: Page;
+  const notes = () => page.locator("#notes-view");
+  /** What has the keyboard: its text, or its label. */
+  const focused = () => page.evaluate(() => document.activeElement?.getAttribute("aria-label") || document.activeElement?.textContent || "");
+  given("the app open on my notes", async () => {
+    ({ page } = await person(browser, app.origin));
+    await page.locator("#sidebar").getByRole("button", { name: "Notes", exact: true }).click();
+    await notes().locator(".feed-card", { hasText: "Soup" }).waitFor();
+  });
+  when("I press / and type a note's name", async () => {
+    await page.keyboard.press("/");
+    await page.keyboard.type("Soup");
+    await eventually(async () => assert.deepEqual(await notes().locator(".feed-card .fc-title").allTextContents(), ["Soup"]));
+  });
+  and("go down to it and press Space", async () => {
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Space");
+  });
+  then("its preview opens in place, and Space folds it again", async () => {
+    await notes().locator(".feed-card.is-expanded", { hasText: "Leeks and potatoes." }).waitFor();
+    await page.keyboard.press("Space");
+    await notes().locator(".feed-card.is-expanded").waitFor({ state: "detached" });
+  });
+  when("I press Enter", async () => {
+    await page.keyboard.press("Enter");
+  });
+  then("the note opens", async () => {
+    await page.waitForURL(/\/notes\/soup-/);
+    await page.locator("#editor-host .cm-content", { hasText: "Leeks and potatoes." }).waitFor();
+  });
+  when("I go to Tags, down from the filter, and on with j", async () => {
+    await goTo(page, "Tags");
+    await page.locator("#tags-view .tags-row", { hasText: "recipe" }).waitFor();
+    await page.keyboard.press("ArrowDown");
+    await eventually(async () => assert.match(await focused(), /^#breakfast/));
+    await page.keyboard.press("j");
+  });
+  then("the keyboard is on #recipe, and Enter shows its notes", async () => {
+    await eventually(async () => assert.match(await focused(), /^#recipe/));
+    await page.keyboard.press("Enter");
+    // Earlier journeys may have tagged more recipes; Garden isn't one.
+    await eventually(async () => {
+      const titles = await notes().locator(".feed-card .fc-title").allTextContents();
+      assert.deepEqual([titles.includes("Pancakes"), titles.includes("Soup"), titles.includes("Garden")], [true, true, false]);
+    });
+  });
+  when("I go to Tags again, jump to the ends with G and g, then press /", async () => {
+    await goTo(page, "Tags");
+    await page.locator("#tags-view .tags-row", { hasText: "recipe" }).waitFor();
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("G");
+    await page.keyboard.press("g");
+    await eventually(async () => assert.match(await focused(), /^#breakfast/));
+    await page.keyboard.press("/");
+    await page.keyboard.type("jk");
+  });
+  then("I'm typing in the filter, where j and k are letters", async () => {
+    assert.equal(await page.locator("#tags-view input").inputValue(), "jk");
+  });
+  /** Presses j until the keyboard is on the task called `name`. */
+  const downTo = async (name: string) => {
+    for (let i = 0; i < 20 && (await focused()) !== name; i++) await page.keyboard.press("j");
+    assert.equal(await focused(), name);
+  };
+  when("I go to Tasks, move down to a task with j and press o", async () => {
+    await goTo(page, "Tasks");
+    await page.locator("#tasks-view").getByRole("checkbox", { name: "Return library books" }).waitFor();
+    await downTo("Return library books");
+    await page.keyboard.press("o");
+  });
+  then("the note the task is in opens", async () => {
+    await page.waitForURL(/\/notes\/errands-/);
+  });
+  when("I go back to Tasks, move to another and press Space", async () => {
+    await goTo(page, "Tasks");
+    await page.locator("#tasks-view").getByRole("checkbox", { name: "Plan the party" }).waitFor();
+    await downTo("Plan the party");
+    await page.keyboard.press("Space");
+  });
+  then("it's ticked in its note, as before", async () => {
+    await eventually(() => assert.match(app.read("Errands.md"), /^- \[x\] Plan the party /m));
+  });
+  when("I go to History, move with j and k, and press Enter on the latest change", async () => {
+    await goTo(page, "History");
+    await page.locator("#history-view .hist-row", { hasText: "Errands" }).first().waitFor();
+    await page.keyboard.press("j");
+    await page.keyboard.press("k");
+    await page.locator("#history-view .hist-row.is-focused", { hasText: "Errands" }).waitFor();
+    await page.keyboard.press("Enter");
+  });
+  then("the note that changed opens", async () => {
+    await page.waitForURL(/\/notes\/errands-/);
+  });
+});
+
 journey("Look around on a phone", ({ given, when, then, and }) => {
   let page: Page;
   const PAGES = { Notes: "/notes", Tasks: "/tasks", Tags: "/tags", Contacts: "/contacts", Assets: "/assets", History: "/history", Calendar: "/calendar", "Shared with me": "/shared" };

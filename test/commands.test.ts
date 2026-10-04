@@ -165,7 +165,7 @@ test("commands follow the app: vim's state, the open note, Getting started, and 
 
 test("the sheet lists each area's shortcuts, the commands' included, whether or not they're on offer now", () => {
   const sheet = shortcutSheet(appCommands(app()));
-  assert.deepEqual(sheet.map((s) => s.area), ["Global", "Notes page", "Calendar", "Editor", "Vim", "Tasks", "Tabs", "Split view"]);
+  assert.deepEqual(sheet.map((s) => s.area), ["Global", "Notes page", "History", "Assets", "Tags", "Contacts", "Calendar", "Editor", "Vim", "Tasks", "Tabs", "Split view"]);
   const global = sheet.find((s) => s.area === "Global")!.shortcuts;
   assert.deepEqual(global.slice(0, 2).map((s) => s.keys), [["Mod-p", "Mod-k"], ["Mod-Shift-p"]]);
   assert.deepEqual(global.find((s) => s.label === "Archive note")?.keys, ["Mod-Shift-e"]);

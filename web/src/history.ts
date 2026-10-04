@@ -15,6 +15,7 @@ import { assetIcon, assetType, extOf } from "./assetKinds.ts";
 import { changeVerb, groupChanges, isRename } from "../../src/core/format.ts";
 import { emptyState } from "./emptyState.ts";
 import { formatKeys } from "./keys.ts";
+import { listKey, type ListHandlers } from "./listKeys.ts";
 import type { ToastSpec } from "./toast.ts";
 import { deleteLabel, labeledBy, labelVersion, renameLabel } from "./labels.ts";
 
@@ -581,33 +582,34 @@ export class History {
   private key(e: KeyboardEvent) {
     if (e.metaKey || e.ctrlKey || e.altKey || (e.target as HTMLElement).closest("input, textarea")) return;
     const n = this.visibleItems().length;
-    const move = (d: number) => {
+    // Shift+j/k extend the selection; g and G jump to an end and pick just it (G is typed with Shift).
+    const move = (d: number, extend = e.shiftKey) => {
       const i = Math.max(0, Math.min(n - 1, this.focus + d));
-      if (e.shiftKey) this.extendTo(i);
+      if (extend) this.extendTo(i);
       else this.selectOnly(i);
       this.listEl.querySelector(".hist-row.is-focused")?.scrollIntoView({ block: "nearest" });
     };
-    const act: Record<string, () => void> = {
-      j: () => move(1),
-      J: () => move(1),
-      ArrowDown: () => move(1),
-      k: () => move(-1),
-      K: () => move(-1),
-      ArrowUp: () => move(-1),
-      x: () => this.toggle(this.focus),
-      " ": () => this.toggle(this.focus),
-      a: () => {
-        this.visibleItems().forEach((it) => this.selected.add(it.id));
-        this.render();
-      },
-      Escape: () => this.selectOnly(this.focus),
-      Enter: () => {
+    const all = () => {
+      this.visibleItems().forEach((it) => this.selected.add(it.id));
+      this.render();
+    };
+    const shared: ListHandlers = {
+      next: () => move(1),
+      prev: () => move(-1),
+      first: () => move(-n, false),
+      last: () => move(n, false),
+      select: () => this.toggle(this.focus),
+      clear: () => this.selectOnly(this.focus),
+      open: () => {
         const it = this.visibleItems()[this.focus];
         if (it) this.hooks.open(it.path);
       },
     };
-    const fn = act[e.key];
-    if (fn) {
+    if (listKey(e, shared)) return;
+    // Space selects too, as in any list you pick several from; a selects every change.
+    const extra: Record<string, () => void> = { " ": () => this.toggle(this.focus), a: all };
+    const fn = extra[e.key];
+    if (fn && !(e.target as HTMLElement).closest("a, button, select")) {
       e.preventDefault();
       fn();
     }

@@ -18,6 +18,7 @@ import { onVaultChange } from "./events.ts";
 import { checkInEvery, describeCheckIn, duplicateContacts, handlesOf, matchContacts, peopleDirectory } from "../../src/core/contacts.ts";
 import { mountTasks } from "./tasksView.ts";
 import { today } from "./taskChips.ts";
+import { listKey, stepFocus } from "./listKeys.ts";
 
 interface Hooks {
   /** Open a note (at a line; `where`: here, in a new tab or in the other pane). */
@@ -87,6 +88,7 @@ export class ContactsPage {
     this.tag.addEventListener("change", () => this.renderList());
     this.company.addEventListener("change", () => this.renderList());
     this.due.addEventListener("change", () => this.renderList());
+    root.addEventListener("keydown", (e) => this.key(e));
     onVaultChange(() => void this.refresh(), 600); // a new mention, a changed contact
   }
 
@@ -199,6 +201,31 @@ export class ContactsPage {
 
   // ---------------------------------------------------------------- the list
 
+  /** The list keys (listKeys.ts), on the list of people: Enter on a person opens them (the row is a button). */
+  private key(e: KeyboardEvent) {
+    if (this.shown) return;
+    const rows = () => [...this.body.querySelectorAll<HTMLElement>(".ct-row")];
+    if (e.target === this.search) {
+      // From the search, ↓ or Enter goes to the people it found; Esc clears it.
+      if ((e.key === "ArrowDown" || e.key === "Enter") && rows().length) {
+        e.preventDefault();
+        stepFocus(rows(), "first");
+      } else if (e.key === "Escape" && this.search.value) {
+        e.preventDefault();
+        this.search.value = "";
+        this.renderList();
+      }
+      return;
+    }
+    listKey(e, {
+      next: () => stepFocus(rows(), 1),
+      prev: () => stepFocus(rows(), -1),
+      first: () => stepFocus(rows(), "first"),
+      last: () => stepFocus(rows(), "last"),
+      filter: () => this.search.focus(),
+    });
+  }
+
   private renderList() {
     if (!this.loaded) return;
     const canEdit = this.hooks.canEdit();
@@ -241,6 +268,7 @@ export class ContactsPage {
             action: canEdit ? { label: "New contact", icon: "plus", run: () => void this.newContact() } : null,
           });
 
+    const had = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>(".ct-row")?.dataset.path;
     this.body.replaceChildren(
       head,
       el("div", { class: "ct-filters" }, el("label", { class: "feed-search ct-search" }, icon("search", 16), this.search), this.tag, this.company, this.due),
@@ -249,6 +277,7 @@ export class ContactsPage {
       rows,
       loose.length && !filtering ? this.membersBlock(loose, canEdit) : "",
     );
+    if (had) (this.body.querySelector<HTMLElement>(`.ct-row[data-path="${CSS.escape(had)}"]`) ?? this.root).focus({ preventScroll: true }); // redrawn: keep the keyboard on them
   }
 
   private fillSelect(select: HTMLSelectElement, all: string, values: string[], label: (v: string) => string) {

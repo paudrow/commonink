@@ -3,7 +3,8 @@
 // has a page of its own, Today (todayView.ts).
 import type { Where } from "./panes.ts";
 import type { TagCount } from "./api.ts";
-import { el, icon } from "./dom.ts";
+import { el, icon, typingIn } from "./dom.ts";
+import { listKey, stepFocus } from "./listKeys.ts";
 import { pageHeader } from "./pageHeader.ts";
 import { tagFilter } from "./tagPicker.ts";
 import { WIDGETS } from "./widgets/index.ts";
@@ -103,6 +104,16 @@ export function renderTasksPage(root: HTMLElement, hooks: { open: Open; tags(): 
       host,
     ),
   );
+  // The list keys (listKeys.ts) move through the tasks; on one, Space or Enter ticks it (taskRow.ts) and o opens its note.
+  const key = (e: KeyboardEvent) => {
+    const boxes = () => [...host.querySelectorAll<HTMLElement>(".qt-row > .cm-checkbox")];
+    if (listKey(e, { next: () => stepFocus(boxes(), 1), prev: () => stepFocus(boxes(), -1), first: () => stepFocus(boxes(), "first"), last: () => stepFocus(boxes(), "last") })) return;
+    const row = (e.target as HTMLElement).closest?.(".qt-row");
+    if (e.key !== "o" || !row || !host.contains(row) || e.metaKey || e.ctrlKey || e.altKey || typingIn(e.target)) return;
+    e.preventDefault();
+    row.querySelector<HTMLElement>(".qt-go")?.click();
+  };
+  root.addEventListener("keydown", key);
   show(filter);
-  return () => unmount();
+  return () => (root.removeEventListener("keydown", key), unmount());
 }

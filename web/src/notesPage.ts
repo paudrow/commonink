@@ -1,6 +1,6 @@
 // Notes: every note as a stream of cards, newest first — the app's home. Click a card to read
 // the whole note in place; Edit opens it in the editor. Filter as you type, triage from the
-// keyboard (j/k, Enter to expand, o to open, e to archive, x to select, Delete to delete, n for a
+// keyboard (j/k, Enter to open, Space to expand, e to archive, x to select, Delete to delete, n for a
 // new note), and archive or delete in bulk. Its tabs are where notes go: Notes, Archive and Trash.
 // Trash lists the same cards with the same filters and keys, with Restore and Delete forever for its actions.
 import { api, isArchived, type FeedItem, type FeedPage, type TagCount, type Task, type TrashItem } from "./api.ts";
@@ -30,6 +30,7 @@ import { emptyState } from "./emptyState.ts";
 import { AGENTS_BLURB, agentsBadge } from "./agentsNote.ts";
 import { notePath } from "../../src/core/ids.ts";
 import { formatKeys } from "./keys.ts";
+import { listKey, type ListHandlers } from "./listKeys.ts";
 import { ADVANCED_KEYS } from "./commands.ts";
 import { openRowMenu, type RowMenuItem } from "./rowMenu.ts";
 
@@ -84,7 +85,7 @@ const SORTS: Record<"notes" | "trash", Array<[QuerySort, string]>> = {
 };
 /** The keys each tab's footer lists. */
 const KEYS: Record<"notes" | "trash", string[][]> = {
-  notes: [["j k", "move"], ["n", "new"], ["↵", "expand"], ["o", "open"], ["s", "star"], ["e", "archive"], ["⌫", "delete"], ["x", "select"], ["/", "filter"]],
+  notes: [["j k", "move"], ["n", "new"], ["↵", "open"], ["Space", "expand"], ["s", "star"], ["e", "archive"], ["⌫", "delete"], ["x", "select"], ["/", "filter"]],
   trash: [["j k", "move"], ["r", "restore"], ["⌫", "delete forever"], ["x", "select"], ["/", "filter"]],
 };
 
@@ -618,7 +619,7 @@ export class NotesPage {
       e.stopPropagation();
       this.hooks.toggleStar(item.path);
     });
-    const editBtn = el("button", { type: "button", class: "fc-action", title: "Edit (o)" }, icon("edit", 15));
+    const editBtn = el("button", { type: "button", class: "fc-action", title: "Edit (↵)" }, icon("edit", 15));
     editBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       this.hooks.open(item.path);
@@ -642,7 +643,7 @@ export class NotesPage {
       e.stopPropagation();
       this.hooks.open(item.path, undefined, "tab");
     });
-    const expandBtn = el("button", { type: "button", class: "fc-action fc-expand", title: open ? "Collapse (↵)" : "Expand (↵)", "aria-label": "Show the whole note", "aria-expanded": String(open) }, icon("chevron", 15));
+    const expandBtn = el("button", { type: "button", class: "fc-action fc-expand", title: open ? "Collapse (Space)" : "Expand (Space)", "aria-label": "Show the whole note", "aria-expanded": String(open) }, icon("chevron", 15));
     expandBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       this.toggleExpand(i);
@@ -1021,43 +1022,44 @@ export class NotesPage {
       else if (item) openRowMenu(card, item.title, this.cardMenu(item, this.focus), undefined, this.root);
       return;
     }
-    const common: Record<string, () => void> = {
-      j: () => this.setFocus(this.focus + 1),
-      ArrowDown: () => this.setFocus(this.focus + 1),
-      k: () => this.setFocus(this.focus - 1),
-      ArrowUp: () => this.setFocus(this.focus - 1),
-      g: () => this.setFocus(0),
-      G: () => this.setFocus(this.count - 1),
-      "/": () => this.input.focus(),
-      Escape: () => {
+    const one = <T,>(of: T | undefined) => (of ? [of] : []);
+    const shared: ListHandlers = {
+      next: () => this.setFocus(this.focus + 1),
+      prev: () => this.setFocus(this.focus - 1),
+      first: () => this.setFocus(0),
+      last: () => this.setFocus(this.count - 1),
+      filter: () => this.input.focus(),
+      clear: () => {
         this.selected.clear();
         this.expanded.clear();
         this.render();
       },
     };
-    let act: Record<string, () => void>;
+    let extra: Record<string, () => void>;
     if (this.tab === "trash") {
-      // Trash's cards: r restores and ⌫ deletes for good, the selected ones or else the focused one.
+      // Trash's cards: r restores and ⌫ deletes for good, the selected ones or else the focused one. Nothing in Trash opens.
       const t = this.trashShown[this.focus];
-      const picked = () => (this.selected.size ? this.trashShown.filter((x) => this.selected.has(x.id)) : t ? [t] : []);
-      const purge = () => void this.purge(picked());
-      act = { ...common, x: () => t && this.toggle(t.id), r: () => void this.restore(picked()), ...(this.hooks.trash()?.canPurge && { Delete: purge, Backspace: purge }) };
+      const picked = () => (this.selected.size ? this.trashShown.filter((x) => this.selected.has(x.id)) : one(t));
+      shared.select = () => t && this.toggle(t.id);
+      if (this.hooks.trash()?.canPurge) shared.delete = () => void this.purge(picked());
+      extra = { r: () => void this.restore(picked()) };
     } else {
       const item = this.items[this.focus];
-      act = {
-        ...common,
-        Enter: () => this.toggleExpand(this.focus),
+      const picked = () => (this.selected.size ? [...this.selected] : one(item?.path));
+      shared.open = () => item && this.hooks.open(item.path);
+      shared.select = () => item && this.toggle(item.path);
+      shared.delete = () => void this.delete(picked());
+      extra = {
+        " ": () => this.toggleExpand(this.focus),
         o: () => item && this.hooks.open(item.path),
         s: () => item && this.hooks.toggleStar(item.path),
         F2: () => item && !this.hooks.readOnly() && this.hooks.rename(item.path),
         n: () => !this.hooks.readOnly() && this.hooks.newNote(this.folder ?? ""),
-        e: () => void this.archive(this.selected.size ? [...this.selected] : item ? [item.path] : []),
-        x: () => item && this.toggle(item.path),
-        Delete: () => void this.delete(this.selected.size ? [...this.selected] : item ? [item.path] : []),
-        Backspace: () => void this.delete(this.selected.size ? [...this.selected] : item ? [item.path] : []),
+        e: () => void this.archive(picked()),
       };
     }
-    const fn = act[e.key];
+    if (listKey(e, shared)) return;
+    const fn = extra[e.key];
     if (fn) {
       e.preventDefault();
       fn();

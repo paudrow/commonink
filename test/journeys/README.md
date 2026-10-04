@@ -9,6 +9,7 @@ The few things everyone does in Common Ink, tested end to end the way they're do
 | | Gather notes by tag into a view | browser, CLI |
 | | Work alongside an agent, and undo what it did | browser, MCP |
 | | Delete a note by mistake and get it back | browser |
+| | Move through every list with the same keys | browser |
 | | Look around on a phone | browser |
 | `mobile.test.ts` | Sign in | a phone's browser, hosted Worker |
 | | Navigate with the mobile nav | a phone's browser |
