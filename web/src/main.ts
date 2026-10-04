@@ -1264,6 +1264,7 @@ function showStage(which: "editor" | "html" | "notes" | "today" | "tasks" | "cal
     unmountToday?.();
     unmountToday = null;
   }
+  renderPanelBtn();
 }
 
 /**
@@ -3223,7 +3224,10 @@ function renderTree() {
   for (const item of ["contacts", "calendar", "assets"] as const) $(`#${item}-btn`).hidden = !shown[item];
   $('.tree-head[data-section="smart"]').hidden = !shown.smart;
   $("#smart-folders").hidden = !shown.smart || !!prefs.folded.smart;
-  setCurrent($("#notes-btn"), showing === "" || page === "archive" || page === "trash"); // Archive and Trash are tabs of Notes
+  $("#nav-trash-btn").hidden = viewer; // as "Go to Trash" is
+  setCurrent($("#notes-btn"), showing === "");
+  setCurrent($("#nav-archive-btn"), page === "archive");
+  setCurrent($("#nav-trash-btn"), page === "trash");
   const shownTag = showing === null ? "" : (parseQuery(showing).tag ?? "");
   renderTagTree(shownTag && showing === formatQuery({ tag: shownTag }) ? shownTag.toLowerCase() : ""); // a tag alone, like a folder alone
   setCurrent($("#today-btn"), page === "today");
@@ -3232,6 +3236,7 @@ function renderTree() {
   setCurrent($("#contacts-btn"), page === "contacts");
   setCurrent($("#history-btn"), page === "history" && !historyPage?.noteFilter);
   setCurrent($("#assets-btn"), page === "assets");
+  setCurrent($("#nav-tags-btn"), page === "tags");
   setCurrent($("#tags-page-btn"), page === "tags", "is-on");
   setCurrent($("#shared-btn"), page === "shared");
 
@@ -4355,7 +4360,16 @@ function quickAdd() {
 const narrow = matchMedia("(max-width: 1100px)");
 /** A phone: one pane, with its tabs in a strip that scrolls (no split, so no drop zones). */
 const phone = matchMedia("(max-width: 760px)");
+/** Assets and History fill the width: no side panel there (see styles.css). */
+const noPanel = () => !$("#assets-view").hidden || !$("#history-view").hidden;
+/** The side panel's button, off where there's no panel to toggle. */
+function renderPanelBtn() {
+  const off = noPanel();
+  $<HTMLButtonElement>("#panel-btn").disabled = off;
+  setLabel($("#panel-btn"), off ? "No side panel on this page" : `Toggle info panel (${formatKeys("Mod-\\")})`);
+}
 function togglePanel(force?: boolean) {
+  if (force === undefined && noPanel()) return; // nothing to show or hide, so the setting stays
   if (narrow.matches && force === undefined) {
     document.body.classList.toggle("panel-overlay"); // narrow windows: the panel floats over the editor
     return refreshMentionsSoon();
@@ -5000,7 +5014,7 @@ async function boot() {
   $("#new-note").addEventListener("click", () => void newNote(onPage() === "notes" ? (notesPage.query.folder ?? "") : ""));
   $("#new-from-template").addEventListener("click", () => void newFromTemplate(undefined, onPage() === "notes" ? (notesPage.query.folder ?? "") : ""));
   $("#panel-btn").addEventListener("click", () => togglePanel());
-  setLabel($("#panel-btn"), `Toggle info panel (${formatKeys("Mod-\\")})`);
+  renderPanelBtn();
   setupPanes();
   $("#stage").addEventListener("mousedown", () => document.body.classList.remove("panel-overlay"));
   $("#theme-toggle").addEventListener("click", toggleTheme);
@@ -5039,6 +5053,9 @@ async function boot() {
     ["#contacts-btn", "Contacts", () => showContacts()],
     ["#history-btn", "History", () => showHistory()],
     ["#assets-btn", "Assets", () => showAssets()],
+    ["#nav-tags-btn", "Tags", () => showTags()],
+    ["#nav-archive-btn", "Archive", () => showNotes({ tab: "archive", query: {} })],
+    ["#nav-trash-btn", "Trash", () => showNotes({ tab: "trash", query: {} })],
     ["#shared-btn", "Shared with me", () => showShared()],
   ] as const)
     dragsPage($(id), label, open);
@@ -5066,6 +5083,9 @@ async function boot() {
   $("#history-btn").addEventListener("click", () => void showHistory());
   $("#assets-btn").addEventListener("click", () => void showAssets());
   $("#tags-page-btn").addEventListener("click", () => void showTags());
+  $("#nav-tags-btn").addEventListener("click", () => void showTags());
+  $("#nav-archive-btn").addEventListener("click", () => void showNotes({ tab: "archive", query: {} }));
+  $("#nav-trash-btn").addEventListener("click", () => void showNotes({ tab: "trash", query: {} }));
   // The "?" beside a query box (see queryHelp.ts).
   window.addEventListener(QUERY_HELP, () => void showQueryHelp());
   $("#new-smart-folder").addEventListener("click", () => newSmartFolder($("#new-smart-folder")));

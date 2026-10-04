@@ -340,6 +340,7 @@ kbd {
 }
 body.panel-closed #app { grid-template-columns: 264px minmax(0, 1fr) 0; }
 body.panel-closed #panel { opacity: 0; pointer-events: none; }
+#panel-btn:disabled { opacity: 0.35; cursor: default; }
 
 /* ------------------------------------------------------------------ sidebar */
 #sidebar {
