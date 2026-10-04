@@ -1,5 +1,5 @@
 // Quick open (⌘P, or ⌘K): fuzzy jump by name + full-text search (SQLite FTS5 on the server), in one
-// list. A leading `>` (or ⌘⇧P, which types it) lists the app's commands instead, and a few other
+// list, with the few folders, views and tags whose names hold what's typed. A leading `>` (or ⌘⇧P, which types it) lists the app's commands instead, and a few other
 // prefixes narrow it to one kind of place: `#` the open note's headings, `@` people, `tag:` tags,
 // `/` (or `folder:`) folders and smart folders. A command that needs something typed (a name, a
 // folder, a tag) asks for it here, as a step in the same field, so you never leave the palette.
@@ -274,17 +274,32 @@ export class Palette {
       .sort((a, b) => b.score - a.score)
       .slice(0, q ? 6 : 9)
       .map((x) => ({ type: "note" as const, note: x.note }));
+    // Places too, after the notes: only the few whose name holds what's typed, so they don't crowd it.
+    const has = (name: string) => name.toLowerCase().includes(q.toLowerCase());
+    const places = q ? [...this.folderItems(q, 3, 3, has), ...this.tagItems(q, 3, has)] : [];
     const exact = this.notes().some((n) => displayName(n.path).toLowerCase() === q.toLowerCase() || n.title.toLowerCase() === q.toLowerCase());
     const create: Item[] = q && !exact ? [{ type: "create", name: q }] : [];
-    this.render([...names, ...archived, ...create], q);
+    this.render([...names, ...places, ...archived, ...create], q);
     if (q.length < 2) return;
     this.timer = window.setTimeout(async () => {
       const hits = await api.search(q).catch(() => []);
       if (seq !== this.seq) return;
       const shown = new Set(names.map((n) => n.note.path));
       const content = hits.filter((h) => !shown.has(h.path) || h.lines.length).slice(0, 10).map((hit) => ({ type: "hit" as const, hit }));
-      this.render([...names, ...content, ...archived, ...create], q);
+      this.render([...names, ...places, ...content, ...archived, ...create], q);
     }, 70);
+  }
+
+  /** Folders, then smart folders, that match `rest`, best first: at most `cap` and `smartCap` of them, among those `keep` takes. */
+  private folderItems(rest: string, cap: number, smartCap: number, keep: (name: string) => boolean = () => true): Item[] {
+    const smart = ranked(rest, this.scopes.smartFolders().filter((f) => keep(f.name)), (f) => f.name).slice(0, smartCap).map((f): Item => ({ type: "smart", ...f }));
+    const folders = ranked(rest, this.scopes.folders().filter(keep), (f) => f.slice(f.lastIndexOf("/") + 1), (f) => f).slice(0, cap);
+    return [...folders.map((path): Item => ({ type: "folder", path })), ...smart];
+  }
+
+  /** The tags that match `rest`, best first: at most `cap`, among those `keep` takes. */
+  private tagItems(rest: string, cap: number, keep: (name: string) => boolean = () => true): Item[] {
+    return ranked(rest, this.scopes.tags().filter((t) => keep(t.display)), (t) => t.display).slice(0, cap).map((tag): Item => ({ type: "tag", tag }));
   }
 
   /** A prefix's list: one kind of place, matched by name. */
@@ -294,15 +309,8 @@ export class Palette {
       const items = ranked(rest, s.headings(), (h) => h.text).map((h): Item => ({ type: "heading", ...h }));
       return this.render(items, q);
     }
-    if (scope === "tags") {
-      const tags = ranked(rest, s.tags(), (t) => t.display).slice(0, 30);
-      return this.render(tags.map((tag): Item => ({ type: "tag", tag })), q);
-    }
-    if (scope === "folders") {
-      const smart = ranked(rest, s.smartFolders(), (f) => f.name).slice(0, 6).map((f): Item => ({ type: "smart", ...f }));
-      const folders = ranked(rest, s.folders(), (f) => f.slice(f.lastIndexOf("/") + 1), (f) => f).slice(0, 30);
-      return this.render([...folders.map((path): Item => ({ type: "folder", path })), ...smart], q);
-    }
+    if (scope === "tags") return this.render(this.tagItems(rest, 30), q);
+    if (scope === "folders") return this.render(this.folderItems(rest, 30, 6), q);
     this.render(this.items.filter((i) => i.type === "person"), q); // the last list while people load
     void people().then(({ contacts, members }) => {
       if (seq !== this.seq) return;
@@ -429,6 +437,7 @@ export class Palette {
     this.close();
     if (item?.type === "command") return void item.command.run?.();
     if (q.startsWith(">")) return;
+    if (how === "create" && !scopeOf(q)) return q && this.onCreate(q); // Shift-Enter on a folder or tag row still makes the note
     const s = this.scopes;
     if (item?.type === "heading") return s.goToHeading(item.line);
     if (item?.type === "person") return s.openPerson(item.person);

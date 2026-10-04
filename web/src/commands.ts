@@ -231,10 +231,10 @@ export function appCommands(app: App): Command[] {
   return [
     { id: "new-note", title: "New note", keywords: "create add page", icon: "plus", run: app.newNote },
     { id: "new-from-template", title: "New note from template…", keywords: "template meeting create add from boilerplate", icon: "file", available: app.canDelete, ask: app.newFromTemplate },
-    { id: "new-board", title: "New board", keywords: "create add kanban columns cards trello project", icon: "kanban", run: app.newBoard },
-    { id: "new-folder", title: "New folder", keywords: "create add directory", icon: "folderPlus", ask: app.newFolder },
+    { id: "new-board", title: "New board", keywords: "create add kanban columns cards trello project", icon: "kanban", available: app.canDelete, run: app.newBoard },
+    { id: "new-folder", title: "New folder", keywords: "create add directory", icon: "folderPlus", available: app.canDelete, ask: app.newFolder },
     { id: "new-tag", title: "New tag", keywords: "create add hashtag", icon: "hash", available: app.canDelete, ask: app.newTag },
-    { id: "new-smart-folder", title: "New view", keywords: "create add saved search query filter smart folder", icon: "folderSearch", run: app.newSmartFolder },
+    { id: "new-smart-folder", title: "New view", keywords: "create add saved search query filter smart folder", icon: "folderSearch", available: app.canDelete, run: app.newSmartFolder },
     { id: "save-filters", title: "Save these filters as a view", keywords: "keep saved search query view smart folder sidebar", icon: "folderSearch", available: app.notesFiltered, run: app.saveFilters },
     {
       id: "star-tag",
