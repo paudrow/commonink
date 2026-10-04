@@ -59,11 +59,12 @@ for (const phone of PHONES) {
   /** The keyboard comes up or goes: the window loses its height to it, as Android's does. */
   const keyboard = (page: Page, up: boolean) => page.setViewportSize({ width: size.width, height: size.height - (up ? KEYBOARD : 0) });
   /** Where a control is, once it shows (search results come a moment after the typing). */
-  const box = async (page: Page, sel: string) => {
-    const shown = page.locator(sel).first();
-    await shown.waitFor();
-    return (await shown.boundingBox())!;
-  };
+  const box = (page: Page, sel: string) =>
+    eventually(async () => {
+      const r = await page.locator(sel).first().boundingBox();
+      assert.ok(r, `${sel} isn't showing`);
+      return r;
+    });
   const sideways = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   /** A control is big enough for a finger: 44px each way. */
   async function tappable(page: Page, sel: string, what: string) {
