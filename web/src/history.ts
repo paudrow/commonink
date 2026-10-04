@@ -582,9 +582,10 @@ export class History {
   private key(e: KeyboardEvent) {
     if (e.metaKey || e.ctrlKey || e.altKey || (e.target as HTMLElement).closest("input, textarea")) return;
     const n = this.visibleItems().length;
-    const move = (d: number) => {
+    // Shift+j/k extend the selection; g and G jump to an end and pick just it (G is typed with Shift).
+    const move = (d: number, extend = e.shiftKey) => {
       const i = Math.max(0, Math.min(n - 1, this.focus + d));
-      if (e.shiftKey) this.extendTo(i);
+      if (extend) this.extendTo(i);
       else this.selectOnly(i);
       this.listEl.querySelector(".hist-row.is-focused")?.scrollIntoView({ block: "nearest" });
     };
@@ -595,8 +596,8 @@ export class History {
     const shared: ListHandlers = {
       next: () => move(1),
       prev: () => move(-1),
-      first: () => move(-n),
-      last: () => move(n),
+      first: () => move(-n, false),
+      last: () => move(n, false),
       select: () => this.toggle(this.focus),
       clear: () => this.selectOnly(this.focus),
       open: () => {

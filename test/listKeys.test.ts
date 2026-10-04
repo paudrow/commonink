@@ -1,19 +1,20 @@
 // The keys every list page shares (listKeys.ts): one table the pages run and the shortcut sheet
-// lists, checked here on the helper itself, on the sheet, and on the Assets and Tags pages.
+// lists, checked here on the helper itself, on the sheet, and on the Assets, Tags and History pages.
 import "./dom.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { NoteMeta, TagCount } from "../web/src/api.ts";
+import type { Change, NoteMeta, TagCount } from "../web/src/api.ts";
 import { listKey, listShortcuts, stepFocus, type ListAction } from "../web/src/listKeys.ts";
 import { STATIC_SHORTCUTS } from "../web/src/commands.ts";
 
 const W = window as unknown as typeof globalThis & Window;
-document.body.append(Object.assign(document.createElement("div"), { id: "assets-view", tabIndex: -1 }), Object.assign(document.createElement("div"), { id: "tags-view", tabIndex: -1 }));
+document.body.append(Object.assign(document.createElement("div"), { id: "assets-view", tabIndex: -1 }), Object.assign(document.createElement("div"), { id: "tags-view", tabIndex: -1 }), Object.assign(document.createElement("div"), { id: "history-view", tabIndex: -1 }));
 // jsdom has no CSS.escape; the pages use it to find a row again after a redraw.
 (globalThis as { CSS?: unknown }).CSS ??= { escape: (s: string) => s.replace(/["\\]/g, "\\$&") };
 globalThis.fetch = (async () => new Response("{}", { headers: { "content-type": "application/json" } })) as typeof fetch;
 const { Assets } = await import("../web/src/assets.ts");
 const { TagsPage } = await import("../web/src/tagsPage.ts");
+const { History } = await import("../web/src/history.ts");
 
 /** Press a key on `target`; false if something took it (preventDefault). */
 const key = (target: EventTarget, k: string, more: KeyboardEventInit = {}) => target.dispatchEvent(new W.KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...more }));
@@ -155,4 +156,30 @@ test("Tags: from the filter ↓ goes to the tags, j and k move, / goes back, and
   assert.equal(at(), "recipe");
   key(focused(), "/");
   assert.equal(focused(), input);
+});
+
+test("History: G jumps to the last change and g to the first, picking just it; Shift+j still extends", async () => {
+  const change = (id: number, path: string): Change => ({ id, ts: id * 3_600_000, path, op: "create", source: "you", version: null, summary: null, from_path: null, note_id: null, person: null, agent: null });
+  const changes = [5, 4, 3, 2, 1].map((id) => change(id, `Note ${id}.md`));
+  // The page loads its diff a moment after a pick, so this stays the fetch for the rest of the file.
+  (W.Element.prototype as { scrollIntoView?: () => void }).scrollIntoView ??= () => {}; // jsdom lays nothing out
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = String(url);
+    const body = /\/changes\?/.test(u) ? changes : /\/labels|\/changes\/agents|\/diffs/.test(u) ? [] : {};
+    return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+  const history = new History({ open: () => {}, toast: () => {} });
+  await history.show();
+  const root = history.root;
+  const picked = () => [...root.querySelectorAll(".hist-row.is-selected")].map((r) => [...root.querySelectorAll(".hist-row")].indexOf(r));
+  const at = () => [...root.querySelectorAll(".hist-row")].findIndex((r) => r.classList.contains("is-focused"));
+  assert.deepEqual([at(), picked()], [0, [0]], "the newest change, to start with");
+  key(root, "j");
+  key(root, "G", { shiftKey: true });
+  assert.deepEqual([at(), picked()], [4, [4]], "G, typed with Shift, jumps; it doesn't take the range");
+  key(root, "g");
+  assert.deepEqual([at(), picked()], [0, [0]]);
+  key(root, "J", { shiftKey: true });
+  key(root, "J", { shiftKey: true });
+  assert.deepEqual([at(), picked()], [2, [0, 1, 2]], "Shift+j still extends");
 });
