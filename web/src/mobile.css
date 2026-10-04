@@ -100,9 +100,9 @@
   #topbar .nav-arrow[data-dir="forward"][aria-disabled="true"] { display: none; }
   #topbar { padding-left: 4px; }
   #agents .avatar:nth-child(n + 2) { display: none; }
-  /* Tasks, Tags and the other pages get the phone's width, as Notes does. A phone shows one pane,
-     so a task's "Open in split view" (its last button) has no side to open. */
-  .page { padding: 24px 16px 96px; }
+  /* Tasks, Tags and the other pages get the phone's width, as Notes does: 16px at each side, on every
+     page. A phone shows one pane, so a task's "Open in split view" (its last button) has no side to open. */
+  .page, .assets { padding: 24px 16px 96px; }
   .qt-row > .qt-act:last-child { display: none; }
   body:has(#notes-view:not([hidden])) #fab-new { display: grid; }
   .feed { padding-bottom: 96px; }
@@ -133,6 +133,22 @@
   #codewrap-toggle { display: none; }
 }
 
+/* History on a phone: the list, then what a change did in its place, with a way back (as Contacts
+   goes from its list to a person). A row's text starts at the page's 16px. */
+@media (max-width: 760px) {
+  .history { grid-template-rows: minmax(0, 1fr); }
+  .history.is-detail .hist-side, .history:not(.is-detail) .hist-main { display: none; }
+  .hist-side { border-bottom: 0; }
+  .hist-head { padding: 24px 16px 6px; }
+  .hist-filters, .hist-more { padding-inline: 16px; }
+  .hist-list { padding-inline: 6px; }
+  .hist-open:not(:empty) { display: block; padding: 8px 16px; border-top: 1px solid var(--line); }
+  .hist-open .qw-btn { width: 100%; justify-content: center; height: 44px; }
+  .hist-back { display: inline-flex; align-items: center; gap: 6px; margin: 14px 0 0 10px; padding: 4px 8px; border-radius: 7px; font-size: 13px; color: var(--muted); }
+  .hist-summary { position: static; padding-inline: 16px; }
+  .hist-files { padding: 16px 16px 96px; }
+}
+
 /* Settings: the whole screen on a phone, and 44px controls on touch. */
 @media (max-width: 760px) {
   #settings { padding-top: 0; }
@@ -152,7 +168,7 @@
 /* The calendar on a phone: Agenda first (calendar/page.ts), the week scrolls sideways inside the
    page, Month shows a day's events as dots, and an event's details rise from the bottom. */
 @media (max-width: 760px) {
-  .cal { padding: 10px 12px 0; }
+  .cal { padding: 10px 16px 0; }
   .cal-head { gap: 8px; }
   .cal-title { font-size: 19px; }
   /* The dates; then Today, back and on, with Calendars and New at the end; then the views, full width. */
