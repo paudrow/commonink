@@ -223,7 +223,7 @@ function page(notes: NoteMeta[], onCreate: (name: string) => void = () => {}, co
   return { palette, input, type, press, options, sections, opened };
 }
 
-test("quick open finds only notes; > (what ⌘⇧P types) switches to commands, and each toggles itself closed", () => {
+test("quick open finds notes; > (what ⌘⇧P types) switches to commands, and each toggles itself closed", () => {
   const p = page([note("Theme ideas")]);
   p.type("theme");
   assert.deepEqual(p.sections(), ["Notes"]);
@@ -334,6 +334,45 @@ test("a command that needs something asks it in the palette: the field keeps foc
   assert.equal(document.activeElement?.id, "before", "focus goes back where it was");
   p.palette.open();
   assert.equal(chip.hidden, true, "it opens to search again");
+});
+
+test("quick open lists the folders, views and tags whose names hold what's typed, after the notes, a few of each", () => {
+  went.length = 0;
+  const created: string[] = [];
+  const p = page([note("Launch plan")], (name) => void created.push(name));
+  p.type("launch");
+  assert.deepEqual(p.sections(), ["Notes", "Folders", "Views"]);
+  assert.deepEqual(p.options(), ["Launch planLaunch plan.md", "LaunchProjects/Launch", "Launch notesq=launch", "Create “launch”Shift Enter"]);
+  p.press("ArrowDown");
+  p.press("Enter");
+  assert.deepEqual(went, ["folder Projects/Launch"], "a folder opens as its sidebar row does");
+  p.palette.open();
+  p.type("launch");
+  p.press("ArrowDown");
+  p.press("ArrowDown");
+  p.press("Enter");
+  assert.equal(went.at(-1), "smart q=launch");
+  p.palette.open();
+  p.type("home");
+  assert.deepEqual(p.options(), ["home1", "Create “home”Shift Enter"]);
+  p.press("Enter");
+  assert.equal(went.at(-1), "tag home");
+  p.palette.open();
+  p.type("plan");
+  assert.deepEqual(p.sections(), ["Notes"], "a loose match (p…l…a…n in Projects/Launch) isn't listed");
+  p.palette.open();
+  p.type("launch");
+  p.press("ArrowDown");
+  p.input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", shiftKey: true, bubbles: true }));
+  assert.deepEqual(created, ["launch"], "Shift+Enter still makes the note");
+  assert.equal(went.length, 3);
+});
+
+test("making a folder, a view, a board, a tag or a note from a template isn't offered to viewers", () => {
+  const ids = (a: App) => matchCommands("", appCommands(a)).map((c) => c.id);
+  const making = ["new-from-template", "new-board", "new-folder", "new-tag", "new-smart-folder"];
+  assert.deepEqual(making.filter((id) => !ids(app()).includes(id)), []);
+  assert.deepEqual(making.filter((id) => ids(app({ canDelete: false })).includes(id)), []);
 });
 
 test("quick open's prefixes: # headings, tag: tags, / or folder: folders and smart folders, @ people", () => {
