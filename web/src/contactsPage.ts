@@ -9,6 +9,7 @@ import type { Where } from "./panes.ts";
 import { api, ApiError, currentWorkspace, type Contact, type GoogleContactsStatus, type Member, type TimelineItem } from "./api.ts";
 import { leave, contactsConnectUrl } from "./calendar/google.ts";
 import { avatar, el, icon } from "./dom.ts";
+import { pageHeader } from "./pageHeader.ts";
 import { emptyState } from "./emptyState.ts";
 import { ask } from "./modal.ts";
 import { fuzzyScore } from "./fuzzy.ts";
@@ -201,19 +202,16 @@ export class ContactsPage {
   private renderList() {
     if (!this.loaded) return;
     const canEdit = this.hooks.canEdit();
-    const head = el(
-      "header",
-      { class: "page-head ct-head" },
-      el("div", {}, el("h1", {}, "Contacts"), el("p", { class: "page-sub" }, "The people in your notes. Each is a note in People/; type @ in a note to mention one.")),
-      canEdit
-        ? el(
-            "div",
-            { class: "ct-actions" },
+    const head = pageHeader({
+      title: "Contacts",
+      sub: "The people in your notes. Each is a note in People/; type @ in a note to mention one.",
+      actions: canEdit
+        ? [
             el("button", { type: "button", class: "qw-btn", title: "Add contacts from a vCard (.vcf) or CSV file: Apple, Outlook or a Google Contacts export", onclick: () => this.importFile() }, icon("upload", 14), "Import file…"),
             el("button", { type: "button", class: "qw-btn primary", onclick: () => void this.newContact() }, icon("plus", 14), "New contact"),
-          )
-        : null,
-    );
+          ]
+        : [],
+    });
     this.fillSelect(this.tag, "All tags", [...new Set(this.contacts.flatMap((c) => c.tags.map((t) => t.toLowerCase())))].sort(), (t) => `#${t}`);
     this.fillSelect(this.company, "All companies", [...new Set(this.contacts.map((c) => c.company).filter(Boolean))].sort((a, b) => a.localeCompare(b)), (c) => c);
     const q = this.search.value.trim();

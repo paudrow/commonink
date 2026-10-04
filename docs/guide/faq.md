@@ -31,7 +31,7 @@ Every change is signed and kept. Undo an agent's edit from its toast, or restore
 
 ## Does it work on my phone?
 
-The web app works in a phone's browser, and you can add it to your home screen. Share to Common Ink from other apps to capture a link or a picture.
+The web app works in a phone's browser, and you can add it to your home screen. A bar along the bottom goes to Today, Notes, Tasks, Search and the menu, and while you type in a note a toolbar above the keyboard adds a task, a heading, a link to a note or a mention. Share to Common Ink from other apps to capture a link or a picture.
 
 ## How do I move my notes in?
 

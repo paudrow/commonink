@@ -108,6 +108,8 @@ export class Palette {
     private scopes: PaletteScopes,
   ) {
     document.querySelectorAll<HTMLElement>("kbd[data-keys]").forEach((k) => k.replaceChildren(...kbd(k.dataset.keys!).childNodes));
+    // A phone has no Esc and, with search the whole screen, nothing outside it to tap (mobile.css).
+    document.querySelector("#palette-close")?.addEventListener("click", () => this.close());
     this.input.before(this.chip);
     (this.root.querySelector(".palette-foot") ?? this.hint).after(this.stepFoot);
     this.hintHtml = this.hint.innerHTML;
