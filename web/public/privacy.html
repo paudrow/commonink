@@ -12,12 +12,13 @@
     <main>
       <a class="brand" href="/"><img src="/favicon.svg" alt="" />Common Ink</a>
       <h1>Privacy Policy</h1>
-      <p class="effective">Effective September 28, 2026</p>
+      <p class="effective">Effective October 17, 2026</p>
 
       <div class="summary">
         <h2>The short version</h2>
         <ul>
-          <li>We collect what it takes to run your notebook: your name, email and picture from Google, and the notes and files you put in.</li>
+          <li>We collect what it takes to run your notebook: your name, email and picture from Google, the notes and files you put in, and, if you subscribe, your billing status from Stripe.</li>
+          <li>If you connect Google Calendar, Contacts or Drive, we only use that data to show and sync it for you. We never use it for ads or to train AI models.</li>
           <li>We don't sell your data, show ads, use tracking cookies, or train AI models on your content.</li>
           <li>People you share a workspace with can see what's in it. Agents you connect can do what you can do.</li>
           <li>You can ask us for a copy of your data, or to delete it, at any time.</li>
@@ -33,9 +34,12 @@
 
       <h2>What we collect</h2>
       <ul>
-        <li><strong>Your Google account basics.</strong> When you sign in with Google we receive your name, email address, profile picture and a Google account ID. We don't ask for access to your Gmail, Drive, contacts or anything else.</li>
+        <li><strong>Your Google account basics.</strong> When you sign in with Google we receive your name, email address, profile picture and a Google account ID. Signing in doesn't give us access to anything else in your Google account.</li>
+        <li><strong>Google data you choose to connect.</strong> Only if you connect them: your Google Calendar events, your Google Contacts, and the files Common Ink saves to your Google Drive. See <a href="#google">Google user data</a> below.</li>
         <li><strong>What you put in Common Ink.</strong> Notes, uploaded files, and the workspaces, members and invites you create.</li>
         <li><strong>History.</strong> Each change records who made it (you, a teammate or an agent), when, and the note's previous text, so changes can be seen and undone.</li>
+        <li><strong>Billing.</strong> If billing applies to you, when your trial ends, and, if you subscribe, your Stripe customer and subscription IDs, your plan (monthly or yearly), its status and when it renews. Stripe collects your payment details directly; we never see or store your full card number.</li>
+        <li><strong>Agents and apps you connect.</strong> Each connection's name, which workspaces it can use, and when it was made, so you can see and disconnect it.</li>
         <li><strong>Technical logs.</strong> Our hosting provider records requests (such as IP address, browser and the page requested) to keep the service running and secure. These logs are kept for up to 7 days.</li>
       </ul>
 
@@ -44,14 +48,53 @@
         <li>To sign you in and show you the workspaces you belong to.</li>
         <li>To store, search, sync and display your notes and files, including to the people you share them with.</li>
         <li>To keep the service secure, prevent abuse and fix problems.</li>
-        <li>To contact you about your account or important changes to the service.</li>
+        <li>To run your trial and subscription, and to know whether your workspaces should be editable.</li>
+        <li>To contact you about your account, your subscription or important changes to the service.</li>
       </ul>
-      <p>We don't sell or rent your personal information, use it for advertising, or use your notes and files to train AI models.</p>
+      <p>We don't sell or rent your personal information, use it for advertising, or use your notes and files to train AI models. Common Ink doesn't send your notes to an AI model itself; that only happens when you connect an agent and it reads them.</p>
 
-      <h2>Google user data</h2>
+      <h2 id="google">Google user data</h2>
       <p>
-        Common Ink only uses the basic profile information described above, and only to identify you and show your name and
-        picture to people you work with. Common Ink's use and transfer of information received from Google APIs adheres to the
+        Sign-in uses only your basic profile (name, email address, profile picture). Everything else below happens only if
+        you choose to connect it, and Common Ink asks Google for each permission the first time you use the feature that needs it.
+      </p>
+      <ul>
+        <li>
+          <strong>Google Calendar</strong> (<code>calendar.readonly</code>, and <code>calendar.events</code> if you turn on editing).
+          We read your calendars and their events (titles, times, descriptions, locations, organizers and attendees) to show them
+          in Common Ink's calendar and to make meeting notes from them when you ask. Events are copied into your workspace so
+          the calendar works quickly, and only you see your Google calendars there, even in a team workspace. If you turn on
+          editing, we change events only when you do: adding, moving or deleting an event you edit in Common Ink, and adding a
+          link to its meeting note at the end of its description. Google sends no invitations for changes made here.
+        </li>
+        <li>
+          <strong>Google Contacts</strong> (<code>contacts.readonly</code>, and <code>contacts</code> if you allow editing).
+          We read your contacts' names, email addresses, phone numbers, organizations, job titles, links and nicknames, and
+          write them into the People notes of the workspace you sync from. If you sync into a team workspace, its members can
+          see those notes, like any other note there. If you allow editing, changes you make to those fields in Common Ink are
+          sent back to Google. The rest of a person's note is never sent to Google.
+        </li>
+        <li>
+          <strong>Google Drive</strong> (<code>drive.file</code>). When you save a note to Drive, we create it in a “Common Ink”
+          folder in your Drive. This permission only lets us see files Common Ink created; we can't see the rest of your Drive.
+        </li>
+      </ul>
+      <p>
+        We use Google user data only to provide these features to you. We don't sell it, use it for advertising, or use it to
+        develop, improve or train AI or machine learning models, ours or anyone else's. We don't transfer it to anyone except as
+        needed to provide these features (for example, to our hosting provider), to comply with the law, or as part of a merger
+        or acquisition with your notice. No person at Common Ink reads it unless you ask us to (for example, for support), it's
+        needed for security or to investigate abuse, or the law requires it.
+      </p>
+      <p>
+        Google access and refresh tokens are encrypted and are never sent to your browser. When you disconnect Google (in
+        Settings, under Integrations) or delete your account, we revoke Common Ink's access with Google, delete the tokens,
+        and remove your Google calendars and their copied events from every workspace. People notes made from your contacts
+        stay in the workspace as ordinary notes, no longer synced, until you delete them. You can also remove Common Ink's
+        access in your <a href="https://myaccount.google.com/connections">Google Account settings</a>.
+      </p>
+      <p>
+        Common Ink's use and transfer of information received from Google APIs to any other app will adhere to the
         <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>,
         including the Limited Use requirements.
       </p>
@@ -60,7 +103,8 @@
       <ul>
         <li><strong>Your personal workspace</strong> is visible only to you.</li>
         <li><strong>Team workspaces</strong> are visible to every member. Anyone with a valid invite link (valid for 7 days) can join the team it was created for.</li>
-        <li><strong>Agents and apps you connect</strong> act with your access. What they read and write is up to you and their providers, whose own privacy policies apply to what they do with it.</li>
+        <li><strong>Notes and folders you share</strong> are visible to the people or email addresses you share them with, or, for a link, to anyone who has the link, until you stop sharing them or the share expires.</li>
+        <li><strong>Agents and apps you connect</strong> (AI agents through MCP, the <code>commonink</code> command line, and others) act with your access, in the workspaces you allow. Whatever they read is sent to them, and to the AI provider behind them, whose own terms and privacy policies apply. You can disconnect any of them in Settings, under Agents.</li>
         <li><strong>Service providers</strong> who run Common Ink on our behalf (below).</li>
         <li><strong>The law.</strong> We may disclose information if we believe it is required by law, or to protect the rights and safety of our users, the public or us.</li>
       </ul>
@@ -68,27 +112,32 @@
       <h2>Service providers</h2>
       <ul>
         <li><strong>Cloudflare</strong> hosts Common Ink and stores its data (databases and files) on its global network, which may be outside your country.</li>
-        <li><strong>Google</strong> provides sign-in. Your profile picture is loaded from Google's servers.</li>
+        <li><strong>Google</strong> provides sign-in and, if you connect them, Calendar, Contacts and Drive. Your profile picture is loaded from Google's servers.</li>
+        <li><strong>Stripe</strong> processes payments for the hosted plan. We send it your name, email address and account ID when you subscribe. Stripe's <a href="https://stripe.com/privacy">privacy policy</a> covers the payment details you give it.</li>
       </ul>
 
       <h2>Links and embeds</h2>
       <p>
         When you paste a link, our servers fetch that page to build a preview, so the site sees a request from us rather
-        than from you. Embedded content such as YouTube videos or social posts loads from those services in your browser,
+        than from you. For GitHub issue and pull request links, we ask GitHub's API instead. Embedded content such as YouTube videos or social posts loads from those services in your browser,
         and they may collect data or set cookies under their own policies.
       </p>
 
       <h2>Cookies and local storage</h2>
-      <p>We use two cookies, both needed for Common Ink to work:</p>
+      <p>We only use cookies Common Ink needs to work:</p>
       <ul>
-        <li><code>ci_session</code> keeps you signed in for up to 30 days.</li>
-        <li><code>ci_oauth</code> protects the Google sign-in step and expires after 10 minutes.</li>
+        <li><code>__Host-ci_session</code> keeps you signed in for up to 30 days, or until it's gone unused for 14.</li>
+        <li><code>__Host-ci_oauth</code> protects the Google sign-in step and expires after 10 minutes.</li>
+        <li><code>__Host-ci_signup</code> carries a new account through sign-up and expires after 15 minutes.</li>
+        <li><code>__Host-ci_gcal</code> protects connecting Google Calendar, Contacts or Drive and expires after 10 minutes.</li>
       </ul>
       <p>Your browser's local storage also remembers preferences such as your theme and the last note you had open. We don't use analytics, advertising or tracking cookies.</p>
 
       <h2>How long we keep it</h2>
       <ul>
-        <li>Your account, notes and files are kept until you delete them or ask us to delete your account.</li>
+        <li>Your account, notes and files are kept until you delete them or delete your account (in Settings, under Danger zone). If your plan lapses, nothing is deleted; your workspaces just become read-only.</li>
+        <li>Deleting your account cancels your subscription, deletes your personal workspace and any team workspace you're the only member of, signs you out everywhere, disconnects your agents and Google, and removes you from other teams. Notes you wrote in teams you leave stay with those teams.</li>
+        <li>Stripe keeps records of payments made, as tax and accounting law requires.</li>
         <li>Deleted items are removed from your workspace right away. Copies in backups and storage are erased within 30 days.</li>
         <li>A note's earlier versions stay in its workspace's history so changes can be undone. Ask us if you want a workspace's history erased too.</li>
       </ul>
