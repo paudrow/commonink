@@ -436,7 +436,13 @@
   .sidebar-foot { position: sticky; bottom: 0; margin-top: auto; background: var(--bg-side); z-index: 1; }
 }
 @media (pointer: coarse) {
-  .tree-input { font-size: 16px; min-height: 40px; padding-inline: 10px; }
+  .tree-input { font-size: 16px; min-height: 44px; padding-inline: 10px; }
+  .fp-input { align-self: stretch; min-height: 44px; }
+  /* A task line's own tools in a note: the gear, and the hint's words (due, repeat, person…). */
+  .cm-task-gear, .cm-hint-word { position: relative; }
+  .cm-task-gear::after { content: ""; position: absolute; inset: -12px; }
+  .cm-hint-word { padding-inline: 6px; }
+  .cm-hint-word::after { content: ""; position: absolute; inset: -15px -2px; }
   /* 16px in a field, or iOS zooms the page in to it. */
   input:not([type="checkbox"], [type="radio"], [type="range"]), select, textarea { font-size: max(16px, 1em); }
 }
