@@ -18,6 +18,9 @@ The few things everyone does in Common Ink, tested end to end the way they're do
 | | Check off a task and move it | a phone's browser |
 | | Use the kanban by touch | a phone's browser |
 | | Open a contact | a phone's browser |
+| | Filter and sort Notes | a phone's browser |
+| | Close a tab | a phone's browser |
+| | See that an agent is at work | a phone's browser, CLI |
 | `agents.test.ts` | An agent keeps meeting notes from the shell | CLI, the files |
 | | An agent over MCP and one in the shell work from the same notes | MCP, CLI |
 | `hosted.test.ts` | Bring a teammate and their agent into a shared workspace | hosted API, CLI login |
@@ -26,7 +29,7 @@ The few things everyone does in Common Ink, tested end to end the way they're do
 npm run test:journeys   # each step by name; npm test runs them too
 ```
 
-The browser journeys need headless Chromium: `npx playwright-core install chromium-headless-shell` (CI does this), or `COMMONINK_CHROMIUM=/path/to/chrome`. Without one they're skipped locally, and fail in CI. A failed step saves a screenshot of each page the journey had open (in `$JOURNEY_ARTIFACTS`, or the temp folder) and names it in the error; CI keeps them as the run's `journey-screenshots`.
+The browser journeys need headless Chromium: `npx playwright-core install chromium-headless-shell` (CI does this), or `COMMONINK_CHROMIUM=/path/to/chrome`. Without one they're skipped locally, and fail in CI. A failed step saves a screenshot of each page the journey had open (in `$JOURNEY_ARTIFACTS`, or the gitignored `screenshots/journeys/`) and names it in the error; CI keeps them as the run's `journey-screenshots`.
 
 A step the app doesn't pass yet is marked `{ todo: "why" }`: it runs and reports, but doesn't fail the run.
 

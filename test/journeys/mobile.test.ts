@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { devices, type Page } from "playwright-core";
 import { startCloud } from "../cloud.ts";
-import { chromium, eventually, journey, person, ROOT, startLocalApp } from "./journey.ts";
+import { chromium, commonink, eventually, journey, person, ROOT, startLocalApp } from "./journey.ts";
 
 const b = await chromium();
 const skip = typeof b === "string" ? b : false;
@@ -163,6 +163,9 @@ for (const phone of PHONES) {
     when("I tap Menu, then History in the drawer", async () => {
       await page.locator("#menu-btn").tap();
       await page.locator("body.drawer-open #sidebar").waitFor();
+      // The drawer holds what the bar doesn't: no second Search, Today, Notes or Tasks.
+      for (const id of ["search-btn", "today-btn", "notes-btn", "tasks-btn"]) assert.equal(await page.locator(`#${id}`).isVisible(), false, `${id} is in the drawer`);
+      assert.equal(await page.evaluate(() => (document.activeElement as HTMLElement).offsetParent !== null && !!document.activeElement!.closest("#sidebar")), true, "the focus is on something the drawer shows");
       await tappable(page, "#history-btn", "History");
       await page.locator("#history-btn").tap();
     });
@@ -224,6 +227,19 @@ for (const phone of PHONES) {
     then("search closes and Pocket is still there", async () => {
       await page.locator("#palette").waitFor({ state: "hidden" });
       await page.locator("#editor-host .cm-content", { hasText: "Written on the train" }).waitFor();
+    });
+    when("I tap Search, then Advanced search under the search box", async () => {
+      await page.locator("#search-top").tap();
+      await tappable(page, "#palette-advanced", "Advanced search");
+      await page.locator("#palette-advanced").tap();
+    });
+    then("Notes opens with the Advanced search form over it, inside the screen", async () => {
+      await page.locator("#palette").waitFor({ state: "hidden" });
+      const form = page.getByRole("dialog", { name: "Advanced search" });
+      await form.waitFor();
+      await page.locator("#notes-view .feed-card").first().waitFor();
+      const r = (await form.boundingBox())!;
+      assert.ok(r.x >= 0 && r.x + r.width <= size.width, `the form spans ${r.x} to ${r.x + r.width}`);
     });
   }, { skip });
 
@@ -488,6 +504,140 @@ for (const phone of PHONES) {
     });
     then("the list is back", async () => {
       await page.locator("#contacts-view .ct-row", { hasText: "Jo Park" }).waitFor();
+    });
+  }, { skip });
+
+  journey(`${phone}: filter and sort Notes`, ({ given, when, then, and }) => {
+    let page: Page;
+    const head = (page: Page) => page.locator("#notes-view .feed-head");
+    /** How far the search box's top is below the top of the list's own screen (negative: it's off the top). */
+    const searchTop = async (page: Page) => (await box(page, "#notes-view .feed-search")).y - (await box(page, "#notes-view")).y;
+    given("the app open on Notes", async () => {
+      page = await onPhone(`${app.origin}/notes`);
+      await page.locator("#notes-view .feed-card").first().waitFor();
+    });
+    then("the search box has the row: its sort, Advanced search and help wait behind one button", async () => {
+      for (const sel of [".feed-sort", ".feed-advanced", ".query-help-link"]) assert.equal(await page.locator(`#notes-view .feed-search ${sel}`).isVisible(), false, `${sel} is in the search box`);
+      await tappable(page, "#notes-view .feed-tools", "Sort and search options");
+      const input = await box(page, "#notes-view .feed-search input");
+      assert.ok(input.width >= size.width * 0.6, `the search box's field is ${Math.round(input.width)}px of ${size.width}`);
+      assert.equal(await page.locator("#notes-view .feed-search input").evaluate((n: HTMLInputElement) => n.scrollWidth <= n.clientWidth), true, "the placeholder is cut short");
+    });
+    when("I tap that button", async () => {
+      await page.locator("#notes-view .feed-tools").tap();
+    });
+    then("a sheet lists the sorts, with the one in use ticked, then Advanced search and Query syntax", async () => {
+      const menu = page.getByRole("menu", { name: "Sort and search options" });
+      await menu.waitFor();
+      assert.deepEqual(await menu.getByRole("menuitem").allTextContents(), ["Recently changed", "Newest by date", "Oldest by date", "By title", "Newest created", "Advanced search…", "Query syntax"]);
+      assert.equal(await menu.getByRole("menuitem", { name: "Recently changed" }).locator("svg").count(), 1);
+      await eventually(async () => {
+        const r = (await menu.boundingBox())!;
+        assert.deepEqual([r.x, r.width, Math.round(r.y + r.height)], [0, size.width, size.height]);
+      });
+    });
+    when("I tap By title", async () => {
+      await page.getByRole("menuitem", { name: "By title" }).tap();
+    });
+    then("the notes are in the order of their titles", async () => {
+      await page.getByRole("menu").waitFor({ state: "hidden" });
+      assert.equal(await page.locator("#notes-view .feed-sort").inputValue(), "title");
+      await eventually(async () => {
+        const titles = await page.locator("#notes-view .feed-card .fc-title").allTextContents();
+        assert.deepEqual(titles, [...titles].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true })));
+      });
+    });
+    when("I scroll down the list", async () => {
+      await page.locator("#notes-view").evaluate((n) => n.scrollTo({ top: n.querySelector<HTMLElement>(".feed-list")!.offsetTop + 160 }));
+    });
+    then("the search and filters slide away, and the notes have the screen", async () => {
+      await eventually(async () => {
+        assert.match((await head(page).getAttribute("class")) ?? "", /is-tucked/);
+        const r = (await head(page).boundingBox())!;
+        assert.ok(r.y + r.height <= (await box(page, "#notes-view")).y + 1, `the filters end ${Math.round(r.y + r.height)}px down`);
+        assert.equal(await head(page).isVisible(), false); // out of a screen reader's way too, once it has slid off
+      });
+    });
+    when("I scroll back up a little", async () => {
+      await page.locator("#notes-view").evaluate((n) => n.scrollBy({ top: -60 }));
+    });
+    then("the search box and the filters are back at the top, without the tab's line of help", async () => {
+      await eventually(async () => {
+        assert.doesNotMatch((await head(page).getAttribute("class")) ?? "", /is-tucked/);
+        const top = await searchTop(page);
+        assert.ok(top >= 0 && top <= 12, `the search box is ${Math.round(top)}px down`);
+      });
+      const about = await box(page, "#notes-view .feed-about");
+      assert.ok(about.y + about.height <= (await box(page, "#notes-view")).y + 1, "the line of help is still showing");
+    });
+    and("nothing scrolls sideways", async () => {
+      assert.equal(await sideways(page), 0);
+    });
+  }, { skip });
+
+  journey(`${phone}: close a tab`, ({ given, when, then }) => {
+    let page: Page;
+    const tabs = (page: Page) => page.locator("#top-tabs .tab .tab-name").allTextContents();
+    given("the app open on Notes, its only tab", async () => {
+      page = await onPhone(`${app.origin}/notes`);
+      await page.locator("#notes-view .feed-card").first().waitFor();
+      assert.deepEqual(await tabs(page), ["Notes"]);
+    });
+    then("the tab has no ×: with nothing else open there's nothing to close it to", async () => {
+      assert.equal(await page.locator("#top-tabs .tab-x").isVisible(), false);
+    });
+    when("I long-press Tips and tap Open in new tab", async () => {
+      await page.locator("#notes-view .feed-card .fc-title", { hasText: "Tips" }).click({ button: "right" }); // a long press, as the phone reports it
+      await page.getByRole("menuitem", { name: "Open in new tab" }).tap();
+    });
+    then("Tips opens in a second tab, which has a ×", async () => {
+      await page.locator("#editor-host .cm-content", { hasText: "Keep notes short" }).waitFor();
+      assert.deepEqual(await tabs(page), ["Notes", "Tips"]);
+      const x = page.getByRole("button", { name: "Close Tips" });
+      await x.waitFor();
+      // A finger a little off its centre still lands on the ×, not on the tab under it.
+      const r = (await x.boundingBox())!;
+      const hit = await page.evaluate(([px, py]) => document.elementFromPoint(px, py)?.closest(".tab-x")?.getAttribute("aria-label"), [r.x + r.width / 2 + 10, r.y + r.height / 2 + 10]);
+      assert.equal(hit, "Close Tips");
+    });
+    when("I tap the ×", async () => {
+      await page.getByRole("button", { name: "Close Tips" }).tap();
+    });
+    then("Tips closes and Notes is back, the only tab again", async () => {
+      await page.locator("#notes-view .feed-card").first().waitFor();
+      await eventually(async () => assert.deepEqual(await tabs(page), ["Notes"]));
+      assert.equal(await page.locator("#top-tabs .tab-x").isVisible(), false);
+    });
+  }, { skip });
+
+  journey(`${phone}: see that an agent is at work`, ({ given, when, then, and }) => {
+    let page: Page;
+    const badge = (page: Page) => page.locator("#agents .agents-btn");
+    given("Tips open, and nobody else at work", async () => {
+      page = await onPhone(`${app.origin}/#/Tips.md`);
+      await page.locator("#editor-host .cm-content", { hasText: "Keep notes short" }).waitFor();
+      assert.equal(await badge(page).count(), 0);
+    });
+    when("an agent adds a line to Tips", async () => {
+      commonink(app.vault, ["append", "Tips.md", "Number your lists.", "--agent", "Claude"]);
+    });
+    then("the top bar names it beside its robot, on a button that says what it's for", async () => {
+      await badge(page).waitFor();
+      assert.equal((await badge(page).locator(".agents-name").textContent())?.trim(), "Claude");
+      assert.equal(await badge(page).locator(".agents-name").isVisible(), true);
+      assert.match((await badge(page).getAttribute("aria-label")) ?? "", /^Active in the last 15 minutes: Claude.*See what changed$/);
+      assert.equal(await sideways(page), 0);
+    });
+    and("the first time, a note at the foot of the screen explains it", async () => {
+      await page.locator("#toasts .toast", { hasText: "Someone else is working in these notes" }).waitFor();
+    });
+    when("I tap it", async () => {
+      await badge(page).tap();
+    });
+    then("History opens on what the agent changed: the line it added to Tips", async () => {
+      await page.locator("#history-view .hist-main", { hasText: "Number your lists." }).waitFor();
+      await page.locator("#history-view .hist-main", { hasText: "Tips.md" }).waitFor();
+      assert.equal(await sideways(page), 0);
     });
   }, { skip });
 }

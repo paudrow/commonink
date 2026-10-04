@@ -12,7 +12,6 @@
 import { after, test } from "node:test";
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import type { Browser, BrowserContext, BrowserContextOptions, Page } from "playwright-core";
 import { tempVault } from "../helpers.ts";
@@ -121,7 +120,7 @@ const contexts = new Set<BrowserContext>();
 const pages = new Set<Page>();
 
 async function screenshots(title: string): Promise<string[]> {
-  const dir = process.env.JOURNEY_ARTIFACTS || path.join(os.tmpdir(), "commonink-journeys");
+  const dir = process.env.JOURNEY_ARTIFACTS || path.join(ROOT, "screenshots", "journeys");
   fs.mkdirSync(dir, { recursive: true });
   const out: string[] = [];
   let i = 0;

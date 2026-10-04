@@ -4,6 +4,7 @@
 // history, Move, Archive, Split view and Delete; with a phone or a tablet's touch screen, nearly all
 // of them. A floating button makes a note from Notes. The layout itself is in mobile.css.
 import { $, el, icon } from "./dom.ts";
+import { toast } from "./toast.ts";
 
 const PHONE = "(max-width: 760px)";
 /** A phone, or a touch tablet: More holds nearly the whole bar. mobile.css has the same query. */
@@ -25,7 +26,8 @@ const DESKTOP = new Set(["#note-history-btn", "#move-btn", "#archive-btn", "#spl
 let drawerOpen = false;
 
 const FOCUSABLE = "button:not([disabled]), a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])";
-const focusables = (root: HTMLElement) => [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((n) => !n.closest("[hidden]"));
+/** Not the ones a phone's drawer leaves out (mobile.css): `hidden` ones, and those the bottom bar has. */
+const focusables = (root: HTMLElement) => [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((n) => !n.closest("[hidden]") && getComputedStyle(n).display !== "none");
 
 /** Open or close the drawer. While open, it's a modal dialog: the rest of the app is inert. */
 function setDrawer(open: boolean) {
@@ -68,6 +70,17 @@ function onDrawerKey(e: KeyboardEvent) {
     e.preventDefault();
     all[e.shiftKey ? all.length - 1 : 0].focus();
   }
+}
+
+/**
+ * The first time someone else is at work while you're on a phone, say what the badge in the top bar
+ * is: there's no hover to show its tooltip. `name` is what the badge says ("Claude", "3 active").
+ */
+export function hintAgents(name: string) {
+  const KEY = "commonink.agentsHint";
+  if (!matchMedia(PHONE).matches || localStorage.getItem(KEY)) return;
+  localStorage.setItem(KEY, "true");
+  toast({ icon: "bot", text: "Someone else is working in these notes", detail: `"${name}" at the top shows who changed a note in the last 15 minutes. Tap it to see what changed.` });
 }
 
 // ------------------------------------------------------------------ More menu

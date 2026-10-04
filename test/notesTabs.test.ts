@@ -10,6 +10,8 @@ const { NotesPage } = await import("../web/src/notesPage.ts");
 const { Trash, filterTrash, trashFolders, trashTags } = await import("../web/src/trash.ts");
 
 const DAY = 86_400_000;
+// One clock for every item: two notes deleted "now" must tie, not flip order when a millisecond passes between them.
+const NOW = Date.now();
 const trashed = (id: string, path: string, excerpt: string, o: { title?: string; tags?: string[]; ago?: number } = {}) => ({
   id,
   path,
@@ -17,8 +19,8 @@ const trashed = (id: string, path: string, excerpt: string, o: { title?: string;
   title: o.title ?? path.split("/").pop()!.replace(/\.md$/, ""),
   tags: o.tags ?? [],
   size: 10,
-  deletedAt: Date.now() - (o.ago ?? 0) * DAY,
-  expiresAt: Date.now() + (30 - (o.ago ?? 0)) * DAY,
+  deletedAt: NOW - (o.ago ?? 0) * DAY,
+  expiresAt: NOW + (30 - (o.ago ?? 0)) * DAY,
   by: null,
   excerpt,
 });
