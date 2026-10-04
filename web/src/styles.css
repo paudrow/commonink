@@ -1505,8 +1505,8 @@ a.gh-card:hover { border-color: var(--line-strong); }
 
 /* ------------------------------------------------------------------ notes page */
 #notes-view { position: absolute; inset: 0; overflow: auto; outline: none; }
-.feed { max-width: 780px; margin: 0 auto; padding: 28px 32px 80px; }
-.feed > h1 { font-size: 26px; letter-spacing: -0.02em; margin: 12px 0 4px; color: var(--heading); }
+.feed { max-width: 780px; margin: 0 auto; padding: 40px 32px 80px; }
+.feed > .page-head { margin-bottom: 4px; }
 /* Only the search and one row of filters stick, so most of the page is cards. */
 .feed-head { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 10px 0 10px; margin-bottom: 4px; }
 .feed-search {
@@ -1652,7 +1652,7 @@ a.gh-card:hover { border-color: var(--line-strong); }
 .toast-body { flex: 1; min-width: 0; }
 .toast-action { font-weight: 650; font-size: 12.5px; color: var(--accent-ink); padding: 5px 10px; border-radius: 7px; margin-left: 4px; }
 .toast-action:hover { background: var(--accent-soft); }
-@media (max-width: 760px) { .feed { padding: 16px 16px 60px; } .feed-search kbd { display: none; } }
+@media (max-width: 760px) { .feed { padding: 24px 16px 60px; } .feed-search kbd { display: none; } }
 
 /* ------------------------------------------------------------------ tasks widget */
 /* Too narrow for one row, the Open/Done/All toggle drops whole to a second row, still at the right. */
@@ -2149,8 +2149,8 @@ button.dc-opt:hover { border-color: var(--muted); }
 
 /* Your profile (profilePage.ts): who you are, then sections like Query syntax's. */
 #profile-view { position: absolute; inset: 0; overflow: auto; outline: none; }
-.profile-head { display: flex; align-items: center; gap: 16px; margin-bottom: 8px; }
-.profile-head h1 { margin: 0 0 2px; }
+.page-head.profile-head { display: flex; align-items: center; gap: 16px; margin-bottom: 8px; }
+.page-head.profile-head h1 { margin: 0 0 2px; }
 .profile-head .page-sub { margin: 0; overflow-wrap: anywhere; }
 .profile-who { min-width: 0; }
 .profile-face { width: 56px; height: 56px; border-radius: 50%; flex: none; object-fit: cover; }
@@ -2193,8 +2193,13 @@ button.dc-opt:hover { border-color: var(--muted); }
 .td-journal svg { color: var(--muted); }
 .td-path { margin-left: auto; font-size: 11.5px; color: var(--muted); }
 .page { max-width: 780px; margin: 0 auto; padding: 40px 32px 80px; }
-.page-head h1 { font-size: 26px; letter-spacing: -0.02em; margin: 0 0 6px; color: var(--heading); }
-.page-sub { margin: 0 0 22px; color: var(--muted); font-size: 14px; }
+/* One header on every page (pageHeader.ts): the page's name, its buttons at the right, and a line
+   under them. Buttons that don't fit beside the name take the row under it, still at the right. */
+.page-head { margin-bottom: 22px; }
+.page-head-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.page-head h1 { flex: 1 1 auto; min-width: 0; font-size: 26px; letter-spacing: -0.02em; margin: 0; color: var(--heading); overflow-wrap: anywhere; }
+.page-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-left: auto; }
+.page-sub { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
 
 /* ------------------------------------------------------------------ activity: diffs */
 .act { cursor: pointer; }
@@ -2243,9 +2248,8 @@ body:has(#history-view:not([hidden])) #app { grid-template-columns: 264px minmax
 body:has(#history-view:not([hidden])) #panel { opacity: 0; pointer-events: none; }
 .history { display: grid; grid-template-columns: 340px minmax(0, 1fr); height: 100%; }
 .hist-side { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
-.hist-head { padding: 22px 18px 6px; }
-.hist-head h1 { font-size: 22px; letter-spacing: -0.02em; margin: 0 0 4px; color: var(--heading); }
-.hist-head p { margin: 0; font-size: 12px; color: var(--muted); }
+.hist-head { padding: 22px 18px 6px; margin-bottom: 0; }
+.hist-head .page-sub { margin-top: 4px; font-size: 12px; }
 .hist-filters { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 18px 8px; }
 .hist-filters:empty { display: none; }
 .hist-filters .chip { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--line); font-size: 12px; color: var(--ink-2); }
@@ -2307,11 +2311,9 @@ body:has(#history-view:not([hidden])) #panel { opacity: 0; pointer-events: none;
 
 /* ------------------------------------------------------------------ assets */
 #assets-view { position: absolute; inset: 0; overflow: auto; outline: none; }
-.assets { position: relative; max-width: 1180px; margin: 0 auto; padding: 32px 32px 80px; min-height: 100%; }
-.as-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-.as-title { display: flex; align-items: baseline; gap: 10px; flex: 1; }
-.as-title h1 { font-size: 26px; letter-spacing: -0.02em; margin: 0; color: var(--heading); }
-.as-count { font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.assets { position: relative; max-width: 1180px; margin: 0 auto; padding: 40px 32px 80px; min-height: 100%; }
+.as-count { font-variant-numeric: tabular-nums; }
+.as-count:empty { display: none; }
 .as-tools { display: flex; gap: 10px; align-items: center; }
 .as-search { position: relative; flex: 1; }
 .as-sort { height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg-elev); color: var(--ink-2); font: 13.5px var(--ui); }
@@ -2788,7 +2790,6 @@ body.is-link-dragging, body.is-link-dragging * { cursor: grabbing !important; us
 @media (max-width: 640px) { .tr-row { flex-wrap: wrap; } .tr-main { flex-basis: calc(100% - 40px); } }
 
 /* Contacts (contactsPage.ts): the people in the notes, and one person's page. */
-.ct-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .ct-actions { display: flex; flex-wrap: wrap; gap: 8px; flex: none; }
 .ct-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .ct-search { flex: 1 1 260px; }
@@ -2856,7 +2857,6 @@ body.is-link-dragging, body.is-link-dragging * { cursor: grabbing !important; us
 .ct-pick-item:hover { background: var(--hover); }
 .ct-pick-item.is-on { background: var(--accent-soft); color: var(--accent-ink); }
 @media (max-width: 640px) {
-  .ct-head { flex-direction: column; }
   .ct-row { grid-template-columns: 30px minmax(0, 1fr) auto; }
   .ct-tags { display: none; }
   .ct-person { flex-wrap: wrap; }
@@ -3072,21 +3072,13 @@ details.markdown-alert[open] > summary { margin-bottom: 0.3em; }
    contrast test checks the tint), with a bar of the full color at its start. */
 #calendar-view { position: absolute; inset: 0; outline: none; }
 .cal { container: cal / inline-size; display: flex; flex-direction: column; height: 100%; max-width: 1500px; margin: 0 auto; padding: 16px 24px 0; }
-.cal-head { display: flex; align-items: center; gap: 10px 14px; padding-bottom: 12px; }
-.cal-title { flex: 1 1 auto; min-width: 0; margin: 0; font-size: 20px; letter-spacing: -0.02em; color: var(--heading); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cal-tools { display: flex; align-items: center; gap: 8px; flex: none; }
+.page-head.cal-head { margin-bottom: 12px; }
+/* Under the page's name: where you are (Today, back, on, and the dates), then how to look (the views). */
+.cal-bar { display: flex; align-items: center; gap: 8px 14px; margin-top: 8px; }
+.cal-title { flex: 1 1 auto; min-width: 0; font-size: 15px; font-weight: 600; color: var(--heading); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cal-nav { display: flex; align-items: center; gap: 2px; flex: none; }
 .cal-nav .qw-btn { height: 30px; margin-right: 4px; }
 .cal-views button { min-height: 28px; padding: 4px 12px; font-size: 12.5px; }
-.cal-sources-btn { height: 30px; }
-/* Narrower: the dates on their own row above the controls, and the Calendars button as its icon. */
-@container cal (max-width: 860px) {
-  .cal-head { flex-wrap: wrap; }
-  .cal-title { order: -1; flex-basis: 100%; }
-  .cal-tools { flex: 1; justify-content: flex-end; }
-  .cal-sources-btn span { display: none; }
-  .cal-sources-btn { width: 32px; justify-content: center; padding: 0; }
-}
 .cal-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; margin-bottom: 12px; padding: 8px 12px; border-radius: 10px; background: var(--accent-soft); color: var(--ink-2); font-size: 13px; }
 .cal-notice[hidden] { display: none; }
 .cal-notice > svg { color: var(--accent-ink); flex: none; }
@@ -3352,7 +3344,6 @@ button.cal-src-color:hover { background: var(--hover); }
 
 /* Making and changing events (calendar/editor.ts, calendar/drag.ts) */
 .cal-new[hidden] { display: none; }
-.cal-new { height: 30px; min-width: 0; }
 .cal-col { cursor: cell; }
 .cal-ev { cursor: pointer; }
 .cal-ghost { position: absolute; left: 2px; right: 3px; z-index: 0; padding: 3px 8px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--accent-line, var(--accent)); background: color-mix(in srgb, var(--accent) 6%, transparent); color: var(--accent-ink); font-size: 11.5px; line-height: 16px; pointer-events: none; }

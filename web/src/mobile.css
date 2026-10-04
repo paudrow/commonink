@@ -172,20 +172,14 @@
    page, Month shows a day's events as dots, and an event's details rise from the bottom. */
 @media (max-width: 760px) {
   .cal { padding: 10px 16px 0; }
-  .cal-head { gap: 8px; }
-  .cal-title { font-size: 19px; }
-  /* The dates; then Today, back and on, with Calendars and New at the end; then the views, full width. */
+  /* The page's name with Calendars and New event beside it, their labels kept; then Today, back and
+     on with the dates; then the views, full width. */
+  .cal-bar { flex-wrap: wrap; }
   .cal-nav .qw-btn, .cal-nav .icon-btn { height: 36px; }
-  .cal-tools { display: contents; }
-  .cal-sources-btn { order: 1; margin-left: auto; }
-  .cal-new { order: 2; }
-  .cal-views { order: 3; flex: 1 0 100%; justify-content: space-between; }
+  .cal-views { flex: 1 0 100%; justify-content: space-between; }
   .cal-views button { flex: 1; padding-inline: 4px; min-height: 36px; }
-  .cal-new span { display: none; }
-  .qw-btn.cal-new { flex: none; width: 44px; min-width: 0; height: 36px; justify-content: center; padding: 0; }
   .cal-f-line { gap: 8px; }
   .cal-f-adders { padding-left: 0; }
-  .cal-sources-btn { width: 44px; height: 36px; justify-content: center; padding: 0; }
   .cal-tg { min-width: 620px; }
   #calendar-view[data-view="day"] .cal-tg { min-width: 0; }
   .cal-month { grid-template-rows: auto repeat(var(--weeks), minmax(64px, 1fr)); }
@@ -401,7 +395,6 @@
 
   /* Contacts: the search box across the page, the filters sharing the row under it, and a person's
      name over their buttons. */
-  .ct-head { flex-direction: column; gap: 10px; }
   .ct-actions { width: 100%; }
   .ct-actions .qw-btn { flex: 1; justify-content: center; }
   .ct-search { flex: 1 0 100%; }

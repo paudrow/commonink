@@ -310,6 +310,7 @@ const loadTags = page("/tags", async () =>
     tags: () => tags,
     refresh: () => refreshNotes(),
     openTag: (tag, where) => openTag(tag, where),
+    addTag: (typed) => addTag(typed),
     deleteTag: (t) => deleteTag(t),
     readOnly: () => viewer,
     toast: (t) => toast(t),
