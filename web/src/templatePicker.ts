@@ -9,6 +9,7 @@ import { peopleDirectory } from "../../src/core/contacts.ts";
 import { el, icon } from "./dom.ts";
 import { openModal } from "./modal.ts";
 import { fuzzyScore } from "./fuzzy.ts";
+import { fuzzyRank, listPicker } from "./picker.ts";
 import { fillTemplate, handlesFor, localNow, type Ask, type PersonPick, type TemplateInfo } from "../../src/core/templates.ts";
 
 /** The app's modal; `close` takes it away. The X, Cancel, Escape or a click outside is `cancel`. */
@@ -24,42 +25,22 @@ export const openTemplateHelp = () => void import("./templateHelp.ts").then((m) 
 export function pickTemplate(templates: TemplateInfo[], title: string, opts: { help?: () => void } = {}): Promise<TemplateInfo | null> {
   return new Promise((resolve) => {
     const filter = el("input", { placeholder: "Find a template…", "aria-label": "Find a template", autocomplete: "off", spellcheck: "false" });
-    const list = el("div", { class: "tpl-list", role: "listbox", "aria-label": "Templates" });
-    let shown: TemplateInfo[] = [];
-    let active = 0;
+    const list = el("div", { class: "tpl-list", "aria-label": "Templates" });
     const pick = (t: TemplateInfo) => (m.close(), resolve(t));
-    const draw = () => {
-      const q = filter.value.trim();
-      shown = q ? templates.map((t) => ({ t, s: fuzzyScore(q, t.name) })).filter((x) => x.s >= 0).sort((a, b) => b.s - a.s).map((x) => x.t) : templates;
-      active = Math.min(active, Math.max(0, shown.length - 1));
-      list.replaceChildren(
-        ...(shown.length
-          ? shown.map((t, i) =>
-              el(
-                "button",
-                { type: "button", class: `tpl-item${i === active ? " is-active" : ""}`, role: "option", "aria-selected": String(i === active), onmousedown: (e: Event) => e.preventDefault(), onclick: () => pick(t) },
-                icon("file", 15),
-                el("b", {}, t.name),
-                el("span", { class: "tpl-hint" }, [t.asks.length ? `asks ${t.asks.map((a) => a.label).join(", ")}` : "", t.appliesTo.length ? `for ${t.appliesTo.map((f) => `${f}/`).join(", ")}` : ""].filter(Boolean).join(" · ")),
-              ),
-            )
-          : [el("p", { class: "tpl-none" }, templates.length ? "No template matches." : "No templates yet. A template is any note in Templates/; ? says how to write one.")]),
+    const rows = (q: string) =>
+      fuzzyRank(q, templates, (t) => t.name).map((t) =>
+        el(
+          "button",
+          { type: "button", class: "tpl-item", onmousedown: (e: Event) => e.preventDefault(), onclick: () => pick(t) },
+          icon("file", 15),
+          el("b", {}, t.name),
+          el("span", { class: "tpl-hint" }, [t.asks.length ? `asks ${t.asks.map((a) => a.label).join(", ")}` : "", t.appliesTo.length ? `for ${t.appliesTo.map((f) => `${f}/`).join(", ")}` : ""].filter(Boolean).join(" · ")),
+        ),
       );
-    };
-    filter.addEventListener("input", () => ((active = 0), draw()));
-    filter.addEventListener("keydown", (e) => {
-      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        e.preventDefault();
-        if (shown.length) active = (active + (e.key === "ArrowDown" ? 1 : shown.length - 1)) % shown.length;
-        draw();
-      } else if (e.key === "Enter" && shown[active]) {
-        e.preventDefault();
-        pick(shown[active]);
-      }
-    });
+    const empty = () => el("p", { class: "tpl-none" }, templates.length ? "No template matches." : "No templates yet. A template is any note in Templates/; ? says how to write one.");
     const help = el("button", { type: "button", class: "icon-btn small tpl-help", title: "Every template option: placeholders, questions, frontmatter", "aria-label": "Help on templates", onclick: () => (opts.help ?? openTemplateHelp)() }, "?");
     const m = modal(title, [filter, list], () => resolve(null), { head: help });
-    draw();
+    listPicker({ input: filter, list, rows, empty }); // Escape is the dialog's
     filter.focus();
   });
 }

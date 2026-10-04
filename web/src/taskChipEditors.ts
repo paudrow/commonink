@@ -6,7 +6,8 @@ import { cleanTag, normalizeTag } from "../../src/core/tags.ts";
 import { avatar, el, icon } from "./dom.ts";
 import { addDays, endsOf, skipPatch } from "../../src/core/tasks.ts";
 import { DAY_NAMES, endsLabel, formatRule, isInterval, MONTH_NAMES, nth, occurrences, parseRule, recLabel, ruleLabel, ruleProblem, type Freq, type Rule } from "../../src/core/recurrence.ts";
-import { dayLabel, monthEndNote, today, type ChipField } from "./taskChips.ts";
+import { datePicks, dayLabel, monthEndNote, today, type ChipField } from "./taskChips.ts";
+import { arrowFocus, fuzzyRank, listPicker } from "./picker.ts";
 
 export interface ChipContext {
   task: Task;
@@ -31,7 +32,7 @@ export async function taskPeople(): Promise<string[]> {
 /** A field's editor under `anchor`. `more` opens the repeat editor straight on its full form. */
 type Editor = (anchor: HTMLElement, value: string, ctx: ChipContext, opts?: { more?: boolean }) => void;
 
-/** A small popover under `anchor` that closes on Escape or a click outside. */
+/** A small popover under `anchor` that closes on Escape or a click outside. Down and Up move round its picks. */
 function popover(anchor: HTMLElement, ctx: ChipContext, label: string, ...children: HTMLElement[]) {
   document.querySelector(".chip-pop")?.remove();
   const box = el("div", { class: "folder-picker chip-pop", role: "dialog", "aria-label": label }, ...children);
@@ -56,6 +57,7 @@ function popover(anchor: HTMLElement, ctx: ChipContext, label: string, ...childr
   box.addEventListener("keydown", (e) => {
     e.stopPropagation();
     if (e.key === "Escape") close();
+    else arrowFocus(box, e, ".fp-item");
   });
   document.addEventListener("mousedown", outside, true);
   document.body.append(box);
@@ -104,11 +106,7 @@ const date =
     const { close } = popover(anchor, ctx, field === "due" ? "Due date" : "Start date", el("div", { class: "fp-head" }, icon("calendar", 15), input), list);
     const pick = (day: string | null) => saving(close, ctx, { [field]: day && day + time });
     input.addEventListener("change", () => input.value && void pick(input.value)());
-    const now = today();
-    list.append(
-      ...([["Today", 0], ["Tomorrow", 1], ["Next week", 7]] as const).map(([label, n]) => item(n === 7 ? `${label} · ${dayLabel(addDays(now, n))}` : label, "calendar", pick(addDays(now, n)))),
-      item("Clear", "close", pick(null)),
-    );
+    list.append(...datePicks().map((p) => item(p.label, "calendar", pick(p.day))), item("Clear", "close", pick(null)));
     input.focus();
   };
 
@@ -418,28 +416,22 @@ const person: Editor = (anchor, value, ctx) => {
   const pick = (to: string) => saving(close, ctx, { assignees: adding ? [...on, to] : on.map((a) => (a === value ? to : a)) });
   const taken = (p: string) => p.toLowerCase() === value.toLowerCase() || on.some((a) => a.toLowerCase() === p.toLowerCase());
   let people: string[] = [];
-  const render = () => {
-    const q = input.value.trim().replace(/^@/, "");
-    const matches = people.filter((p) => !taken(p) && p.toLowerCase().includes(q.toLowerCase()));
+  const rows = (typed: string) => {
+    const q = typed.trim().replace(/^@/, "");
+    const matches = fuzzyRank(q, people.filter((p) => !taken(p)), (p) => p);
     const isNew = q && /^[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*$/u.test(q) && !people.some((p) => p.toLowerCase() === q.toLowerCase()) && !taken(q);
-    list.replaceChildren(
+    return [
       ...(adding ? [] : [item(`Show ${value}'s tasks`, "task", () => (close(), ctx.showPerson(value)))]),
       ...matches.slice(0, 8).map((p) => item(`@${p}`, avatar(p, 16), pick(p))),
       ...(isNew ? [item(`@${q}`, "plus", pick(q))] : []),
       ...(adding
         ? on.map((a) => item(`Take @${a} off this task`, "close", saving(close, ctx, { assignees: on.filter((o) => o !== a) })))
         : [item(`Take @${value} off this task`, "close", saving(close, ctx, { assignees: others }))]),
-    );
+    ];
   };
-  input.addEventListener("input", render);
-  input.addEventListener("keydown", (e) => {
-    if (e.key !== "Enter") return;
-    e.preventDefault(); // the Enter is the pick's, not whatever takes focus next
-    const items = list.querySelectorAll<HTMLButtonElement>(".fp-item");
-    (adding ? items[0] : (items[1] ?? items[0]))?.click();
-  });
-  render();
-  void ctx.people().then((p) => ((people = p), render()));
+  // Changing someone, the first row shows their tasks: Enter is the next one, the swap.
+  const picker = listPicker({ input, list, rows, start: (options) => (!adding && options[1] ? 1 : 0) });
+  void ctx.people().then((p) => ((people = p), picker.render()));
   input.focus();
 };
 
@@ -452,27 +444,21 @@ const tags: Editor = (anchor, _value, ctx) => {
   const has = (t: string) => on.some((o) => normalizeTag(o) === normalizeTag(t));
   const add = (t: string) => saving(close, ctx, { tags: [...on, t] });
   let known: string[] = [];
-  const render = () => {
-    const q = input.value.trim().replace(/^#/, "");
-    const matches = known.filter((t) => !has(t) && t.toLowerCase().includes(q.toLowerCase()));
+  const rows = (typed: string) => {
+    const q = typed.trim().replace(/^#/, "");
+    const matches = fuzzyRank(q, known.filter((t) => !has(t)), (t) => t);
     const fresh = q && normalizeTag(q) && !has(q) && !known.some((t) => normalizeTag(t) === normalizeTag(q)) ? cleanTag(q) : null;
-    list.replaceChildren(
+    return [
       ...matches.slice(0, 8).map((t) => item(`#${t}`, "hash", add(t))),
       ...(fresh ? [item(`#${fresh}`, "plus", add(fresh))] : []),
       ...on.map((t) => item(`Take #${t} off this task`, "close", saving(close, ctx, { tags: on.filter((o) => o !== t) }))),
-    );
-    if (!list.childElementCount) list.append(el("div", { class: "fp-empty" }, "Type a tag's name"));
+    ];
   };
-  input.addEventListener("input", render);
-  input.addEventListener("keydown", (e) => {
-    if (e.key !== "Enter") return;
-    e.preventDefault();
-    if (input.value.trim()) list.querySelector<HTMLButtonElement>(".fp-item")?.click();
-  });
-  render();
+  // Nothing typed, no row is lit: a bare Enter adds nothing (an arrow key lights one).
+  const picker = listPicker({ input, list, rows, empty: () => "Type a tag's name", start: (_options, q) => (q.trim() ? 0 : -1) });
   void api
     .tags()
-    .then((all) => ((known = all.filter((t) => t.tasks + t.notes > 0).sort((a, b) => b.tasks - a.tasks || b.notes - a.notes).map((t) => t.display)), render()))
+    .then((all) => ((known = all.filter((t) => t.tasks + t.notes > 0).sort((a, b) => b.tasks - a.tasks || b.notes - a.notes).map((t) => t.display)), picker.render()))
     .catch(() => {});
   input.focus();
 };
@@ -559,24 +545,14 @@ function movePicker(anchor: HTMLElement, ctx: ChipContext) {
   const list = el("div", { class: "fp-list" });
   const { close } = popover(anchor, ctx, "Move task", el("div", { class: "fp-head" }, icon("move", 15), input), list);
   let notes: Array<{ path: string; title: string }> = [];
-  const render = () => {
-    const q = input.value.trim().toLowerCase();
-    const matches = notes.filter((n) => n.path !== ctx.task.path && (n.title.toLowerCase().includes(q) || n.path.toLowerCase().includes(q))).slice(0, 8);
-    list.replaceChildren(
-      ...matches.map((n) => item(n.title, "file", saving(close, ctx, {}, () => ctx.move!(n.path)))),
-      ...(matches.length ? [] : [el("div", { class: "fp-empty" }, notes.length ? "No note matches" : "Loading notes…")]),
-    );
-  };
-  input.addEventListener("input", render);
-  input.addEventListener("keydown", (e) => {
-    if (e.key !== "Enter") return;
-    e.preventDefault();
-    list.querySelector<HTMLButtonElement>(".fp-item")?.click();
-  });
-  render();
+  const rows = (q: string) =>
+    fuzzyRank(q, notes.filter((n) => n.path !== ctx.task.path), (n) => [n.title, n.path])
+      .slice(0, 8)
+      .map((n) => item(n.title, "file", saving(close, ctx, {}, () => ctx.move!(n.path))));
+  const picker = listPicker({ input, list, rows, empty: () => (notes.length ? "No note matches" : "Loading notes…") });
   void api
     .notes()
-    .then((all) => ((notes = all.filter((n) => n.kind === "md" && !isArchived(n.path)).sort((a, b) => b.mtime - a.mtime)), render()))
+    .then((all) => ((notes = all.filter((n) => n.kind === "md" && !isArchived(n.path)).sort((a, b) => b.mtime - a.mtime)), picker.render()))
     .catch(() => {});
   input.focus();
 }

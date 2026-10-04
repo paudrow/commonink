@@ -7,6 +7,7 @@ import { highlightTree, tagHighlighter, tags as t, type Highlighter } from "@lez
 import { el, icon } from "./dom.ts";
 import { commonInkHighlight } from "./editor/language.ts";
 import { codeLanguage, languageNames, shortName } from "./codeLanguage.ts";
+import { fuzzyRank, listPicker } from "./picker.ts";
 import { diffLine, parseFence, setFenceLang, toggleWrap, wraps, type Fence } from "../../src/core/fence.ts";
 
 /** One line of highlighted code: runs of text, each with its highlight classes ("" for none). */
@@ -212,30 +213,19 @@ function pickLanguage(anchor: HTMLElement, info: string, setInfo: (info: string)
     close();
     setInfo(setFenceLang(info, name));
   };
-  let shown: string[] = [];
-  const render = () => {
-    const q = input.value.trim().toLowerCase();
+  const row = (label: string, name: string) => el("button", { type: "button", class: "fp-item", onclick: () => choose(name) }, el("span", {}, label));
+  const rows = (typed: string) => {
+    const q = typed.trim();
+    // The language a short name stands for ("py") comes first, then the names that fit what's typed.
+    const named = codeLanguage(q)?.name;
     const names = languageNames();
-    shown = (q ? names.filter((n) => n.toLowerCase().includes(q) || codeLanguage(q)?.name === n) : names).slice(0, 8);
-    list.replaceChildren(
-      ...shown.map((n) => {
-        const b = el("button", { type: "button", class: "fp-item" }, el("span", {}, n));
-        b.addEventListener("click", () => choose(shortName(n)));
-        return b;
-      }),
-      el("button", { type: "button", class: "fp-item", onclick: () => choose("") }, el("span", {}, "No language")),
-    );
+    const shown = [...(named ? [named] : []), ...fuzzyRank(q, names, (n) => n).filter((n) => n !== named)].slice(0, 8);
+    // A name no language has is written as typed.
+    return [...shown.map((n) => row(n, shortName(n))), !shown.length && q ? row(`Use “${q}”`, q) : null, row("No language", "")];
   };
-  input.addEventListener("input", render);
-  input.addEventListener("keydown", (e) => {
-    e.stopPropagation();
-    if (e.key === "Escape") close();
-    if (e.key === "Enter") {
-      e.preventDefault();
-      choose(shown[0] ? shortName(shown[0]) : input.value.trim());
-    }
-  });
-  render();
+  input.addEventListener("keydown", (e) => e.stopPropagation());
+  // With nothing typed no row is lit: Enter on an empty box shouldn't pick the first language of the alphabet.
+  listPicker({ input, list, rows, close, start: (_rows, q) => (q.trim() ? 0 : -1) });
   document.addEventListener("mousedown", outside, true);
   document.body.append(box);
   input.focus();

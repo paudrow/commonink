@@ -27,6 +27,7 @@ import { parseTask } from "../../src/core/tasks.ts";
 import { scanTags } from "../../src/core/tags.ts";
 import { saveChain } from "./saveChain.ts";
 import { toast } from "./toast.ts";
+import { arrowFocus } from "./picker.ts";
 
 export interface BoardHost {
   /** The editor the board is shown in: note names and tags for suggestions, and opening notes, tags and people. */
@@ -59,7 +60,7 @@ try {
 /** Folds and unfolds on boards the person can't change, flipped from the file's: kept on this page only. */
 const viewFolds = new Set<string>();
 
-/** A small menu under `anchor` that closes on Escape or a click outside. */
+/** A small menu under `anchor` that closes on Escape or a click outside. The arrow keys move round its buttons. */
 function popMenu(anchor: HTMLElement, label: string, ...children: HTMLElement[]) {
   document.querySelector(".kb-menu")?.remove();
   const box = el("div", { class: "folder-picker kb-menu", role: "dialog", "aria-label": label }, ...children);
@@ -73,6 +74,7 @@ function popMenu(anchor: HTMLElement, label: string, ...children: HTMLElement[])
   box.addEventListener("keydown", (e) => {
     e.stopPropagation();
     if (e.key === "Escape") close();
+    else arrowFocus(box, e, "button", { sideways: true });
   });
   document.addEventListener("mousedown", outside, true);
   document.body.append(box);

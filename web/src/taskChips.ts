@@ -2,7 +2,7 @@
 // mark, a person, a tag. The markdown keeps the tokens; these only draw them. Each chip says which
 // token it is (data-field, data-value), so a task list can open that token's editor.
 import { avatar, el, icon } from "./dom.ts";
-import { endsOf, localDate, parseTask, TASK_LINE, type ParsedTask, type TaskMeta } from "../../src/core/tasks.ts";
+import { addDays, endsOf, localDate, parseTask, TASK_LINE, type ParsedTask, type TaskMeta } from "../../src/core/tasks.ts";
 import { endsLabel, nextDue, nth, parseRule, pastThe28th, ruleLabel, type Rule } from "../../src/core/recurrence.ts";
 import { tagsInLine } from "../../src/core/tags.ts";
 
@@ -25,6 +25,15 @@ export function dayLabel(value: string, now = today()): string {
     dayNames.names.set(day, name);
   }
   return value.length > 10 ? `${name} ${value.slice(11)}` : name;
+}
+
+/** The days offered wherever a date is chosen (a task's due and start, an event's start): today, tomorrow, and a week on. */
+export function datePicks(now = today()): Array<{ label: string; day: string }> {
+  return [
+    { label: "Today", day: now },
+    { label: "Tomorrow", day: addDays(now, 1) },
+    { label: `Next week · ${dayLabel(addDays(now, 7), now)}`, day: addDays(now, 7) },
+  ];
 }
 
 /**

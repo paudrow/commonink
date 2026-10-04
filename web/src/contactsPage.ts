@@ -12,6 +12,7 @@ import { avatar, el, icon } from "./dom.ts";
 import { emptyState } from "./emptyState.ts";
 import { ask } from "./modal.ts";
 import { fuzzyScore } from "./fuzzy.ts";
+import { fuzzyRank, listPicker } from "./picker.ts";
 import { memberOf, membersWithoutContact, refreshPeople } from "./people.ts";
 import { onVaultChange } from "./events.ts";
 import { checkInEvery, describeCheckIn, duplicateContacts, handlesOf, matchContacts, peopleDirectory } from "../../src/core/contacts.ts";
@@ -502,25 +503,24 @@ export class ContactsPage {
   private async pickMerge(c: Contact) {
     const others = this.contacts.filter((o) => o.id !== c.id);
     const filter = el("input", { placeholder: "Who else is this?", "aria-label": "Find a contact", autocomplete: "off" });
-    const list = el("div", { class: "ct-pick", role: "listbox" });
+    const list = el("div", { class: "ct-pick" });
     let picked: Contact | null = null;
-    const draw = () => {
-      const q = filter.value.trim();
-      const hits = (q ? others.filter((o) => Math.max(fuzzyScore(q, o.name), ...o.email.map((e) => fuzzyScore(q, e))) >= 0) : others).slice(0, 8);
-      list.replaceChildren(
-        ...hits.map((o) =>
+    const rows = (q: string) =>
+      fuzzyRank(q, others, (o) => [o.name, ...o.email])
+        .slice(0, 8)
+        .map((o) =>
           el(
             "button",
-            { type: "button", class: `ct-pick-item${picked === o ? " is-on" : ""}`, role: "option", "aria-selected": String(picked === o), onclick: () => ((picked = o), draw()) },
+            { type: "button", class: `ct-pick-item${picked === o ? " is-on" : ""}`, "aria-checked": String(picked === o), onmousedown: (e: Event) => e.preventDefault(), onclick: () => ((picked = o), picker.render()) },
             avatar(o.name, 20),
             el("span", {}, o.name),
             el("span", { class: "ct-who" }, o.email[0] ?? o.company),
           ),
-        ),
-      );
-    };
-    filter.addEventListener("input", () => ((picked = null), draw()));
-    draw();
+        );
+    // Enter picks the lit contact; Enter again, once they're picked, is the Merge button.
+    const enter = (row: HTMLElement | undefined) => (row?.classList.contains("is-on") ? list.closest(".ask-box")?.querySelector<HTMLButtonElement>(".qw-btn.primary") : row)?.click();
+    filter.addEventListener("input", () => (picked = null));
+    const picker = listPicker({ input: filter, list, rows, enter, empty: () => (others.length ? "No contact matches" : "No other contacts yet") });
     const ok = await ask({
       focus: filter,
       title: `Merge into ${c.name}`,

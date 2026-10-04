@@ -3,6 +3,7 @@
 // Enter picks, Escape (or a click elsewhere) closes it and puts the focus back.
 import { el, icon } from "./dom.ts";
 import { formatKeys } from "./keys.ts";
+import { arrowFocus } from "./picker.ts";
 
 export interface MenuItem {
   label: string;
@@ -55,18 +56,10 @@ export function openMenu(at: { x: number; y: number }, items: Array<MenuItem | "
   const menu = el("div", { class: "folder-picker menu", role: "menu", "aria-label": opts.label ?? "Actions" }, el("div", { class: "fp-list" }, ...rows));
   menu.addEventListener("keydown", (e) => {
     e.stopPropagation();
-    const live = buttons.filter((b) => !b.disabled);
-    const i = live.indexOf(document.activeElement as HTMLButtonElement);
     if (e.key === "Escape" || e.key === "Tab") {
       e.preventDefault();
       close();
-    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      live[(i + (e.key === "ArrowDown" ? 1 : live.length - 1)) % live.length]?.focus();
-    } else if (e.key === "Home" || e.key === "End") {
-      e.preventDefault();
-      live[e.key === "Home" ? 0 : live.length - 1]?.focus();
-    }
+    } else arrowFocus(menu, e);
   });
   menu.addEventListener("contextmenu", (e) => e.preventDefault());
   document.body.append(menu);

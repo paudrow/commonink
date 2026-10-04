@@ -1,11 +1,13 @@
 // The event form, for a new event (the New event button, the palette, `c`, a drag across the grid)
-// or one being edited: title, when (all day or not), which calendar, where, notes, who, and for a
-// new one its meeting note. Changing the start keeps the length; the form stays open with the
-// server's reason when saving fails. Each row leads with an icon instead of a label; where, notes
-// and guests stay behind "Add …" buttons until used, and the end date shows only when it differs.
+// or one being edited: title, when (all day or not, with the date quick picks a task's due date
+// has), which calendar, where, notes, who, and for a new one its meeting note. Changing the start
+// keeps the length; the form stays open with the server's reason when saving fails. Each row leads
+// with an icon instead of a label; where, notes and guests stay behind "Add …" buttons until used,
+// and the end date shows only when it differs.
 import { api } from "../api.ts";
 import { el, icon } from "../dom.ts";
 import { store } from "../store.ts";
+import { datePicks } from "../taskChips.ts";
 import { addDays, dayKey, dayStart } from "./layout.ts";
 import { type EventForm, type Target } from "./data.ts";
 import { connectUrl, needsWrite } from "./google.ts";
@@ -145,6 +147,12 @@ export function openEventForm(o: { mode: "new" | "edit"; initial: EventForm; tar
   const dash = el("span", { class: "cal-f-to" }, "–");
   const span = el("span", { class: "cal-f-span" });
   const moreDays = el("button", { type: "button", class: "cal-f-link", onclick: () => ((endDay.hidden = false), (dash.hidden = false), endDay.focus()) }, "Ends another day");
+  // The same quick picks a task's due date has (no Clear: an event always has a day). The end moves with the start.
+  const picks = el(
+    "div",
+    { class: "cal-f-row cal-f-sub cal-f-picks", role: "group", "aria-label": "Start date" },
+    ...datePicks().map((p) => el("button", { type: "button", class: "cal-f-link", onclick: () => ((startDay.value = p.day), startMoved()) }, p.label)),
+  );
   showTimes();
 
   // ---------------------------------------------------------------- the rest, as rows that open when wanted
@@ -185,6 +193,7 @@ export function openEventForm(o: { mode: "new" | "edit"; initial: EventForm; tar
       "clock",
       "When",
       el("div", { class: "cal-f-row" }, startDay, startTime, dash, endDay, endTime, span),
+      picks,
       el("div", { class: "cal-f-row cal-f-sub" }, el("label", { class: "cal-f-check" }, allDay, "All day"), moreDays),
     ),
     pick && o.targets.length < 2 ? null : row("calendar", "Calendar", calendar),
