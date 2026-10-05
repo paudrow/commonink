@@ -5,11 +5,17 @@
 // a middle-click, ⌘T, a drop on the strip) keeps the one you were on. Pinned tabs stay first and
 // keep their note: what you open from one opens in a new tab. No DOM here: main.ts draws the strips,
 // and the layout of the window (split, where, how big) is kept here with the tabs.
+//
+// As in VS Code, a tab you only looked at is a preview (its name in italics): the next thing you
+// open replaces it, so clicking down the sidebar doesn't pile up tabs or write over the tab you
+// were working in. Editing the note, double-clicking the tab, pinning it or moving it keeps it.
 
 import { clampSide, DOCKS, forget, pageOf, parseTrail, visit, type Dock, type PaneTrail } from "./panes.ts";
 
 export interface Tab extends PaneTrail {
   pinned?: boolean;
+  /** Only looked at: the next note or page opened here takes its place. A pane has at most one. */
+  preview?: boolean;
 }
 /** A pane's tabs, pinned ones first, and which one shows (`at`, -1 with none). */
 export interface Group {
@@ -25,7 +31,17 @@ export const currentTab = (g: Group): Tab | null => g.tabs[g.at] ?? null;
 /** Where the tab for a note (by ID) or page (by its entry) is, or -1. */
 export const tabIndex = (g: Group, entry: string) => g.tabs.findIndex((t) => t.note === entry);
 const pinnedCount = (tabs: Tab[]) => tabs.filter((t) => t.pinned).length;
+/** A tab with only its trail and its pin: a preview becomes a tab that's kept. */
 const trailOf = (t: Tab): Tab => (t.pinned ? { note: t.note, back: t.back, forward: t.forward, pinned: true } : { note: t.note, back: t.back, forward: t.forward });
+/** A tab's trail changed, keeping its pin and whether it's a preview. */
+const withTrail = (t: Tab, trail: PaneTrail): Tab => ({ note: trail.note, back: trail.back, forward: trail.forward, ...(t.pinned && { pinned: true }), ...(t.preview && { preview: true }) });
+/** Where the pane's preview tab is, or -1. */
+export const previewIndex = (g: Group) => g.tabs.findIndex((t) => t.preview);
+/** Keep the tab at `i`: it's no longer a preview. */
+export function keepTab(g: Group, i: number): Group {
+  const t = g.tabs[i];
+  return t?.preview ? { ...g, tabs: g.tabs.map((x, j) => (j === i ? trailOf(x) : x)) } : g;
+}
 
 /** A position to put a tab at, kept so pinned tabs stay first: a pinned tab among the pinned, any other after them. */
 function clampIndex(tabs: Tab[], index: number, pinned: boolean): number {
@@ -33,10 +49,10 @@ function clampIndex(tabs: Tab[], index: number, pinned: boolean): number {
   return pinned ? Math.min(Math.max(0, index), n) : Math.min(Math.max(n, index), tabs.length);
 }
 
-/** Show `tab` as a new tab before position `index` (by default, after the one showing). */
+/** Show `tab` as a new tab before position `index` (by default, after the one showing). A new preview tab replaces the old one. */
 export function insertTab(g: Group, tab: Tab, index = g.at >= 0 ? g.at + 1 : g.tabs.length): Group {
   const i = clampIndex(g.tabs, index, !!tab.pinned);
-  const tabs = [...g.tabs.slice(0, i), tab, ...g.tabs.slice(i)];
+  const tabs = [...g.tabs.slice(0, i), tab, ...g.tabs.slice(i)].map((t) => (t !== tab && t.preview && tab.preview ? trailOf(t) : t));
   let at = i;
   while (tabs.length > MAX_TABS) {
     const drop = tabs.findIndex((t, j) => !t.pinned && j !== at);
@@ -52,23 +68,27 @@ export const showTab = (g: Group, i: number): Group => (g.tabs[i] ? { ...g, at: 
 
 /**
  * Show a note or page (`entry`) in a group. A tab that has it already shows (moved to `index`, if
- * given, as a drop on the strip does). Otherwise `here` changes the tab you're on, with the old
- * entry on its back list, unless that tab is pinned, there's none or `index` says where; otherwise a new tab opens
- * before `index` (by default after the one showing).
+ * given, as a drop on the strip does). Otherwise `here` opens it as a preview, as VS Code does: in
+ * the preview tab (the one showing if it's a preview, else the pane's other preview tab), with
+ * what that showed on its back list; with no preview tab, in a new preview tab after the one
+ * showing, whose back goes to the tab you were on. `new` (or a drop, with `index`) opens a tab
+ * that's kept, before `index` (by default after the one showing).
  */
 export function openEntry(g: Group, entry: string, how: "here" | "new" = "here", index?: number): Group {
   const have = tabIndex(g, entry);
   if (have >= 0) return index === undefined ? showTab(g, have) : moveTab(showTab(g, have), have, index);
+  if (how === "new" || index !== undefined) return insertTab(g, { note: entry, back: [], forward: [] }, index);
   const cur = currentTab(g);
-  if (how === "here" && index === undefined && cur && !cur.pinned) return { tabs: g.tabs.map((t, i) => (i === g.at ? visit(t, entry) : t)), at: g.at };
-  return insertTab(g, { note: entry, back: [], forward: [] }, index);
+  const p = cur?.preview ? g.at : previewIndex(g);
+  if (p >= 0) return { tabs: g.tabs.map((t, i) => (i === p ? withTrail(t, visit(t, entry)) : t)), at: p };
+  return insertTab(g, { note: entry, back: cur?.note ? [cur.note] : [], forward: [], preview: true });
 }
 
 /** The showing tab with its trail changed (a step back or forward), or a new tab with it if none shows. */
 export function setTrail(g: Group, trail: PaneTrail): Group {
   const cur = currentTab(g);
   if (!cur) return insertTab(g, { note: trail.note, back: trail.back, forward: trail.forward }, g.tabs.length);
-  return { ...g, tabs: g.tabs.map((t, i) => (i === g.at ? { note: trail.note, back: trail.back, forward: trail.forward, ...(t.pinned && { pinned: true }) } : t)) };
+  return { ...g, tabs: g.tabs.map((t, i) => (i === g.at ? withTrail(t, trail) : t)) };
 }
 
 /** Move the tab at `from` to before position `before` (as the strip numbers them before the move), keeping pinned tabs first. */
@@ -77,8 +97,9 @@ export function moveTab(g: Group, from: number, before: number): Group {
   if (!t) return g;
   const rest = g.tabs.filter((_, i) => i !== from);
   const i = clampIndex(rest, before > from ? before - 1 : before, !!t.pinned);
-  const tabs = [...rest.slice(0, i), t, ...rest.slice(i)];
-  const shown = g.tabs[g.at];
+  const kept = trailOf(t); // a tab you moved is one you want: no longer a preview
+  const tabs = [...rest.slice(0, i), kept, ...rest.slice(i)];
+  const shown = g.tabs[g.at] === t ? kept : g.tabs[g.at];
   return { tabs, at: shown ? tabs.indexOf(shown) : -1 };
 }
 /** Move a tab one place left (-1) or right (1): ⌘⇧PageUp and ⌘⇧PageDown. */
@@ -113,6 +134,8 @@ export function closeOthers(g: Group, i: number): { group: Group; closed: Tab[] 
   const r = closeTabs(g, g.tabs.flatMap((t, j) => (j === i || t.pinned ? [] : [j])));
   return { ...r, group: { ...r.group, at: keep ? r.group.tabs.indexOf(keep) : r.group.at } };
 }
+/** Close every tab that isn't pinned (VS Code's Close All). */
+export const closeAll = (g: Group): { group: Group; closed: Tab[] } => closeTabs(g, g.tabs.flatMap((t, j) => (t.pinned ? [] : [j])));
 /** Close the tabs to the right of `i` that aren't pinned; `i` shows if the one showing closed. */
 export function closeToRight(g: Group, i: number): { group: Group; closed: Tab[] } {
   const keep = g.tabs[i];
@@ -162,7 +185,7 @@ export function forgetEntry(g: Group, entry: string): Group {
     g,
     g.tabs.flatMap((t, i) => (t.note === entry ? [i] : [])),
   );
-  return { ...group, tabs: group.tabs.map((t) => ({ ...forget(t, entry), ...(t.pinned && { pinned: true }) })) };
+  return { ...group, tabs: group.tabs.map((t) => withTrail(t, forget(t, entry))) };
 }
 
 // ------------------------------------------------------------------ the layout, kept per workspace
@@ -191,7 +214,7 @@ export function parseGroup(raw: any, notesOnly = false): Group {
     if (!trail.note || seen.has(trail.note) || (notesOnly && pageOf(trail.note) !== null)) return;
     seen.add(trail.note);
     if (i === raw.at) at = tabs.length;
-    tabs.push(t?.pinned === true ? { ...trail, pinned: true } : trail);
+    tabs.push(t?.pinned === true ? { ...trail, pinned: true } : t?.preview === true && !tabs.some((x) => x.preview) ? { ...trail, preview: true } : trail);
   });
   const shown = tabs[at];
   const sorted = [...tabs.filter((t) => t.pinned), ...tabs.filter((t) => !t.pinned)].slice(0, MAX_TABS);

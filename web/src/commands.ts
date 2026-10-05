@@ -89,6 +89,8 @@ export interface App {
   /** How many tabs the focused pane has, and whether the one showing is pinned. */
   tabs: number;
   pinned: boolean;
+  /** The tab showing is a preview (tabs.ts): the next note opened replaces it. */
+  preview: boolean;
   /** Tabs closed that ⌘⇧T can bring back. */
   closedTabs: number;
   focusMode: boolean;
@@ -167,6 +169,7 @@ export interface App {
   toggleVimDisplayLines(): void;
   toggleLineNumbers(): void;
   togglePanel(): void;
+  toggleSidebar(): void;
   toggleFocus(): void;
   toggleSplit(): void;
   newTab(): void;
@@ -174,6 +177,9 @@ export interface App {
   reopenTab(): void;
   closeOtherTabs(): void;
   closeTabsToRight(): void;
+  closeAllTabs(): void;
+  /** Keep the preview tab showing open. */
+  keepTab(): void;
   togglePin(): void;
   stepTab(by: 1 | -1): void;
   moveTab(by: 1 | -1): void;
@@ -279,14 +285,17 @@ export function appCommands(app: App): Command[] {
       run: app.toggleVimDisplayLines,
     },
     { id: "line-numbers", title: app.lineNumbers ? "Hide line numbers" : "Show line numbers", keywords: "line numbers gutter nu number", icon: "list", run: app.toggleLineNumbers },
-    { id: "panel", title: "Toggle info panel", keywords: "outline backlinks activity sidebar side panel", icon: "panel", keys: ["Mod-\\"], run: app.togglePanel },
+    { id: "sidebar", title: "Toggle sidebar", keywords: "left side bar primary hide show collapse folders tags explorer", icon: "sidebar", keys: ["Mod-b"], run: app.toggleSidebar },
+    { id: "panel", title: "Toggle info panel", keywords: "outline backlinks activity right secondary side bar panel hide show collapse", icon: "panel", keys: ["Mod-Alt-b"], run: app.togglePanel },
     { id: "focus", title: app.focusMode ? "Leave focus mode" : "Focus mode", keywords: "zen full screen distraction", icon: app.focusMode ? "unfocus" : "focus", keys: ["Mod-Shift-Enter"], available: text || app.focusMode, run: app.toggleFocus },
-    { id: "split", title: app.split ? "Close split view" : "Open split view", keywords: "pane side by side to the side", icon: "split", keys: ["Mod-Alt-\\"], area: "Split view", run: app.toggleSplit },
+    { id: "split", title: app.split ? "Close split view" : "Open split view", keywords: "pane side by side to the side", icon: "split", keys: ["Mod-\\", "Mod-Alt-\\"], area: "Split view", run: app.toggleSplit },
     { id: "new-tab", title: "New tab…", keywords: "tab open another note keep", icon: "plus", keys: ["Mod-t", "Mod-Alt-t"], area: "Tabs", run: app.newTab },
     { id: "close-tab", title: "Close tab", keywords: "tab close", icon: "close", keys: ["Mod-w", "Mod-Alt-w"], available: app.tabs > 0, area: "Tabs", run: app.closeTab },
     { id: "reopen-tab", title: "Reopen closed tab", keywords: "tab undo close restore again", icon: "history", keys: ["Mod-Shift-t", "Mod-Alt-Shift-t"], available: app.closedTabs > 0, area: "Tabs", run: app.reopenTab },
     { id: "close-other-tabs", title: "Close other tabs", keywords: "tab close others all but", icon: "close", available: app.tabs > 1, area: "Tabs", run: app.closeOtherTabs },
     { id: "close-tabs-right", title: "Close tabs to the right", keywords: "tab close right after", icon: "close", available: app.tabs > 1, area: "Tabs", run: app.closeTabsToRight },
+    { id: "close-all-tabs", title: "Close all tabs", keywords: "tab close all every", icon: "close", available: app.tabs > 0, area: "Tabs", run: app.closeAllTabs },
+    { id: "keep-tab", title: "Keep tab open", keywords: "tab preview italic keep pin permanent", icon: "pin", available: app.preview, area: "Tabs", run: app.keepTab },
     { id: "pin-tab", title: app.pinned ? "Unpin tab" : "Pin tab", keywords: "tab pin keep stick", icon: "pin", available: app.tabs > 0, area: "Tabs", run: app.togglePin },
     { id: "next-tab", title: "Next tab", keywords: "tab switch cycle gt", icon: "arrowRight", keys: ["Ctrl-Tab", "Ctrl-PageDown"], available: app.tabs > 1, area: "Tabs", run: () => app.stepTab(1) },
     { id: "previous-tab", title: "Previous tab", keywords: "tab switch cycle gT", icon: "arrowLeft", keys: ["Ctrl-Shift-Tab", "Ctrl-PageUp"], available: app.tabs > 1, area: "Tabs", run: () => app.stepTab(-1) },
@@ -423,6 +432,7 @@ export const STATIC_SHORTCUTS: Shortcut[] = [
   { keys: ["Mod-9"], label: "Go to the last tab", area: "Tabs" },
   { keys: ["Middle-click"], label: "On a tab: close it", area: "Tabs" },
   { keys: ["Delete"], label: "On a focused tab: close it", area: "Tabs" },
+  { keys: ["Double-click"], label: "On a preview tab (its name in italics): keep it open", area: "Tabs" },
   { keys: ["Mod-Alt-[", "Mod-Alt-]"], label: "Focus the left / right pane", area: "Split view" },
   { keys: ["Mod-Alt-click"], label: "Open a link, card, task or starred note in split view", area: "Split view" },
   { keys: ["Mod-Alt-Enter"], label: "In quick open, open the note in split view", area: "Split view" },

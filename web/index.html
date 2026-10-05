@@ -99,9 +99,10 @@
           <button id="move-btn" class="icon-btn" type="button" title="Move to another folder" aria-label="Move to another folder"><span class="ico" data-icon="move"></span></button>
           <button id="archive-btn" class="icon-btn" type="button" title="Archive note (⌘⇧E)" aria-label="Archive note (⌘⇧E)"><span class="ico" data-icon="archive"></span></button>
           <button id="delete-btn" class="icon-btn" type="button" title="Delete note (to Trash)" aria-label="Delete note (to Trash)"><span class="ico" data-icon="trash"></span></button>
-          <button id="split-btn" class="icon-btn" type="button" title="Open split view (⌘⌥\)" aria-label="Open split view (⌘⌥\)"><span class="ico" data-icon="split"></span></button>
+          <button id="split-btn" class="icon-btn" type="button" title="Open split view (⌘\)" aria-label="Open split view (⌘\)"><span class="ico" data-icon="split"></span></button>
           <button id="focus-btn" class="icon-btn" type="button" title="Focus mode (⌘⇧↵)" aria-label="Focus mode (⌘⇧↵)"><span class="ico" data-icon="focus"></span></button>
-          <button id="panel-btn" class="icon-btn" type="button" title="Toggle info panel (⌘\)" aria-label="Toggle info panel (⌘\)"><span class="ico" data-icon="panel"></span></button>
+          <button id="sidebar-btn" class="icon-btn" type="button" title="Toggle sidebar (⌘B)" aria-label="Toggle sidebar (⌘B)" aria-pressed="true"><span class="ico" data-icon="sidebar"></span></button>
+          <button id="panel-btn" class="icon-btn" type="button" title="Toggle info panel (⌥⌘B)" aria-label="Toggle info panel (⌥⌘B)" aria-pressed="true"><span class="ico" data-icon="panel"></span></button>
         </header>
         <div id="stage" tabindex="-1">
           <div id="main-bar" class="pane-bar" hidden></div>
@@ -158,6 +159,8 @@
           <div id="activity" class="panel-list"></div>
         </section>
       </aside>
+      <div id="sidebar-sash" class="sash" role="separator" aria-orientation="vertical" aria-label="Resize the sidebar" aria-controls="sidebar" tabindex="0" title="Drag to resize, double-click to reset"></div>
+      <div id="panel-sash" class="sash" role="separator" aria-orientation="vertical" aria-label="Resize the info panel" aria-controls="panel" tabindex="0" title="Drag to resize, double-click to reset"></div>
     </div>
 
     <div id="palette" hidden>

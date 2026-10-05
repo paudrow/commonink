@@ -17,6 +17,7 @@ const app = (over: Partial<App> = {}): App => {
     split: false,
     tabs: 1,
     pinned: false,
+    preview: false,
     closedTabs: 0,
     focusMode: false,
     htmlMode: "preview",
@@ -62,6 +63,7 @@ const app = (over: Partial<App> = {}): App => {
     toggleVimDisplayLines: run("toggleVimDisplayLines"),
     toggleLineNumbers: run("toggleLineNumbers"),
     togglePanel: run("togglePanel"),
+    toggleSidebar: run("toggleSidebar"),
     toggleFocus: run("toggleFocus"),
     toggleSplit: run("toggleSplit"),
     newTab: run("newTab"),
@@ -69,6 +71,8 @@ const app = (over: Partial<App> = {}): App => {
     reopenTab: run("reopenTab"),
     closeOtherTabs: run("closeOtherTabs"),
     closeTabsToRight: run("closeTabsToRight"),
+    closeAllTabs: run("closeAllTabs"),
+    keepTab: run("keepTab"),
     togglePin: run("togglePin"),
     stepTab: run("stepTab"),
     moveTab: run("moveTab"),
@@ -169,7 +173,9 @@ test("the sheet lists each area's shortcuts, the commands' included, whether or 
   const global = sheet.find((s) => s.area === "Global")!.shortcuts;
   assert.deepEqual(global.slice(0, 2).map((s) => s.keys), [["Mod-p", "Mod-k"], ["Mod-Shift-p"]]);
   assert.deepEqual(global.find((s) => s.label === "Archive note")?.keys, ["Mod-Shift-e"]);
-  assert.deepEqual(sheet.find((s) => s.area === "Split view")!.shortcuts.find((s) => s.label === "Open split view")?.keys, ["Mod-Alt-\\"]);
+  assert.deepEqual(sheet.find((s) => s.area === "Split view")!.shortcuts.find((s) => s.label === "Open split view")?.keys, ["Mod-\\", "Mod-Alt-\\"]);
+  assert.deepEqual(global.find((s) => s.label === "Toggle sidebar")?.keys, ["Mod-b"]); // VS Code's keys for its side bars
+  assert.deepEqual(global.find((s) => s.label === "Toggle info panel")?.keys, ["Mod-Alt-b"]);
 });
 
 // ------------------------------------------------------------------ the palette and the sheet, in a page

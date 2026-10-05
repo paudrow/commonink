@@ -63,7 +63,7 @@ test("the scrim closes the drawer; going somewhere closes it and leaves the focu
 test("More lists the showing overflow buttons by their titles, with their shortcuts, and an item presses the real button", () => {
   $("#move-btn").hidden = true;
   $("#more-btn").click();
-  assert.deepEqual(moreItems(), ["History of this note", "Archive note | ⌘⇧E", "Delete note", "Focus mode | ⌘⇧↵", "Toggle info panel | ⌘\\"]);
+  assert.deepEqual(moreItems(), ["History of this note", "Archive note | ⌘⇧E", "Delete note", "Focus mode | ⌘⇧↵", "Toggle info panel | ⌥⌘B"]);
   assert.deepEqual([$("#more-btn").getAttribute("aria-expanded"), focused()], ["true", "History of this note"]);
   let pressed = "";
   $("#archive-btn").addEventListener("click", () => (pressed = "archive"), { once: true });
