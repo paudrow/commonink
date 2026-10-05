@@ -172,7 +172,7 @@ footer a { color: var(--muted); }
     <h2 class="title" id="how-title">Outside-in: no AI inside, bring your own</h2>
     <p class="intro">Common Ink has no model of its own. The agents you already use come to your notes, and every edit they make lights up with their name. History keeps it all, and Undo takes back just theirs.</p>
     <div class="grid">
-      <div class="card"><h3>MCP</h3><p>Point Claude, Cursor or any MCP client at <code>commonink.app/mcp</code>. It signs in like you do, so there's no key to copy.</p></div>
+      <div class="card"><h3>MCP</h3><p>Point Claude, Cursor or any MCP client at <code>v1.commonink.app/mcp</code>. It signs in like you do, so there's no key to copy.</p></div>
       <div class="card"><h3>CLI</h3><p><code>commonink</code> does everything the app does, for your scripts and shell agents.</p></div>
       <div class="card"><h3>Plain files</h3><p>Every note is markdown. Read it, grep it, keep it in git, open it in any editor.</p></div>
     </div>

@@ -47,7 +47,7 @@ export async function mountSharedView(where: Where) {
   const page = el(
     "div",
     { class: "sv" },
-    el("header", { class: "sv-head" }, el("a", { class: "sv-brand", href: me ? "/" : "https://commonink.app" }, icon("feed", 16), "Common Ink"), el("span", { class: "spacer" }), actions),
+    el("header", { class: "sv-head" }, el("a", { class: "sv-brand", href: "/" }, icon("feed", 16), "Common Ink"), el("span", { class: "spacer" }), actions),
     el("main", { class: "sv-main" }, el("div", { class: "sv-meta" }, badge, status), title, body),
   );
   document.body.append(page);

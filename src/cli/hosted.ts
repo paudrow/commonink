@@ -11,7 +11,9 @@ import readline from "node:readline";
 import { EXIT, type Output } from "../core/commands/index.ts";
 import { CLI_ROUTE, fromWire, MAX_RUN_BODY, toWire, type RunRequest, type RunResponse } from "../core/commands/wire.ts";
 
-export const DEFAULT_SERVER = "https://commonink.app";
+export const DEFAULT_SERVER = "https://v1.commonink.app";
+/** Where hosted Common Ink was before it moved to v1.commonink.app; commonink.app is Common Ink v2 now. */
+const MOVED_FROM = "https://commonink.app";
 /** The scope that asks for every workspace (see cloud/src/agents.ts). */
 const SCOPE = "workspaces";
 
@@ -45,9 +47,11 @@ export interface Credentials {
 export const configDir = () => configFolder();
 const credentialsFile = () => path.join(configDir(), "credentials.json");
 
+/** The saved sign-in. One made on commonink.app goes to v1.commonink.app, where that server is now. */
 export function loadCredentials(): Credentials | null {
   try {
-    return JSON.parse(fs.readFileSync(credentialsFile(), "utf8")) as Credentials;
+    const c = JSON.parse(fs.readFileSync(credentialsFile(), "utf8")) as Credentials;
+    return c.server === MOVED_FROM ? { ...c, server: DEFAULT_SERVER } : c;
   } catch {
     return null;
   }

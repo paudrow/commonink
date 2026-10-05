@@ -123,7 +123,7 @@ const ACCOUNT: Record<AccountRoute, (c: Call) => Promise<Response>> = {
     return json(
       await unfurl(target, (u) => {
         assertPublicUrl(u);
-        if (u.hostname.replace(/\.$/, "") === url.hostname) throw new Error("self"); // "commonink.app." too
+        if (u.hostname.replace(/\.$/, "") === url.hostname) throw new Error("self"); // "v1.commonink.app." too
       }, { githubToken: env.GITHUB_TOKEN || undefined }),
     );
   },

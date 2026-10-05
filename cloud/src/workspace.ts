@@ -41,7 +41,7 @@ export class Workspace extends DurableObject<Env> {
   private vault: Vault;
   private registering: Promise<void> | null = null;
   private calendar: Calendar;
-  /** Where this app is ("https://commonink.app"), from the last request: feeds may not point back at it, and links written to Google use it. */
+  /** Where this app is ("https://v1.commonink.app"), from the last request: feeds may not point back at it, and links written to Google use it. */
   private selfOrigin: string | null = null;
   private alarmChecked = false;
 

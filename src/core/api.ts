@@ -43,7 +43,7 @@ export interface ApiHost {
   calendar?: Calendar;
   /** Calendars or their events changed: tell connected clients (and reschedule syncing). */
   calendarChanged?(): void;
-  /** Where the app is ("https://commonink.app"), for links that leave it (a meeting note's, written back to Google). */
+  /** Where the app is ("https://v1.commonink.app"), for links that leave it (a meeting note's, written back to Google). */
   origin?: string;
   /** An uploaded file's bytes (for exports), or null if it's gone. */
   fileBytes?(rel: string): Promise<Uint8Array | null>;

@@ -63,7 +63,7 @@ jobs:
           tar xzf gitleaks.tar.gz gitleaks
           ./gitleaks git --config .gitleaks.toml --redact --no-banner .
 
-  # Every commit to main goes live at https://commonink.app: D1 migrations, then the Worker and web app.
+  # Every commit to main goes live at https://v1.commonink.app: D1 migrations, then the Worker and web app.
   deploy:
     needs: [check, secrets]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

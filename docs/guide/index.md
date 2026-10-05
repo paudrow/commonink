@@ -9,7 +9,7 @@ Common Ink is a notes app that your AI agents can work in. Your notes are plain 
 
 ## Sign in
 
-Open [commonink.app](https://commonink.app) and sign in with Google. You get a personal workspace with a **Welcome** note and **Getting started**, a short guide that walks you through the app (it's on the Notes page, marked Start here).
+Open [v1.commonink.app](https://v1.commonink.app) and sign in with Google. You get a personal workspace with a **Welcome** note and **Getting started**, a short guide that walks you through the app (it's on the Notes page, marked Start here).
 
 Prefer your own computer? The same app runs locally on a folder of markdown files, free. See [the command line](cli.md#local).
 
@@ -19,7 +19,7 @@ Prefer your own computer? The same app runs locally on a folder of markdown file
 2. **Link notes.** Type `[[` and pick a note, or `@` to link a note or a person. `![[Note]]` shows another note inline.
 3. **Add a task.** A line like `- [ ] Send invoice due:friday #work` is a task. ⌘⇧. adds one from anywhere, the way you'd say it: "Pay rent every month on the 1st #home". **Tasks** shows them all, with **Today** on top.
 4. **Bring your notes in.** ⌘⇧P, then **Import notes…** takes markdown, an Obsidian vault, a Notion export, Evernote files or Apple Notes. See [Moving in](import.md).
-5. **Connect an agent.** Add `https://commonink.app/mcp` as a connector in Claude, Claude Code or Cursor, and ask it to do something in your notes. Watch the edit land. See [Connect an agent](agents.md).
+5. **Connect an agent.** Add `https://v1.commonink.app/mcp` as a connector in Claude, Claude Code or Cursor, and ask it to do something in your notes. Watch the edit land. See [Connect an agent](agents.md).
 
 ## Find your way around
 
