@@ -83,11 +83,11 @@ test("an argument a tool doesn't take is refused, naming it and the ones it does
 });
 
 test("agents read the day: overdue, due today, starting today, and the journal note", async () => {
-  // A day in the past: an earlier test adds tasks to the real today's journal note, so today's is written.
-  const text = (await call("get_today", { today: "2020-03-02" })).text;
-  assert.match(text, /^Monday, March 2, 2020\n\nOverdue \(\d+\)\n/);
+  // A Monday that is not today: an earlier test adds tasks to the real today's journal note, so today's is written.
+  const text = (await call("get_today", { today: "2026-10-12" })).text;
+  assert.match(text, /^Monday, October 12, 2026\n\nOverdue \(\d+\)\n/);
   assert.match(text, /\nDue today \(0\)\n- nothing\n/);
-  assert.match(text, /\nJournal: Journal\/2020-03-02\.md \(not written yet\)$/);
+  assert.match(text, /\nJournal: Journal\/2026-10-12\.md \(not written yet\)$/);
   assert.equal((await call("get_today", { today: "someday" })).isError, true);
 });
 
