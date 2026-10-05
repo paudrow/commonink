@@ -118,6 +118,7 @@ const MATRIX: Array<{ route: string; send: (w: Who) => Send; expect: Expect[] }>
   { route: "POST /notes/from-template", send: (w) => ["POST", "/notes/from-template", { template: "Access template", title: `From template ${w}` }], expect: EDIT },
   { route: "POST /guide", send: () => ["POST", "/guide", { action: "search" }], expect: EDIT },
   { route: "POST /today/journal", send: () => ["POST", "/today/journal", { today: "2026-10-01" }], expect: EDIT },
+  { route: "POST /capture", send: (w) => ["POST", "/capture", { today: "2026-10-01", title: `Captured by ${w}`, url: "https://example.com/", text: "A quote" }], expect: EDIT },
   { route: "POST /tags", send: (w) => ["POST", "/tags", { tag: `added-${w}` }], expect: EDIT },
   { route: "POST /tags/delete", send: (w) => ["POST", "/tags/delete", { tag: `added-${w}` }], expect: EDIT },
   { route: "POST /mentions/link", send: (w) => ["POST", "/mentions/link", { target: "Getting started.md", path: `mention-${w}.md`, line: 3, from: 5, to: 20, text: "Getting started" }], expect: EDIT },

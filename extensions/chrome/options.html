@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Common Ink Capture settings</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <form id="settings">
+      <label>Common Ink server
+        <input id="server" type="url" placeholder="https://commonink.app" spellcheck="false" />
+      </label>
+      <p class="muted">Leave it as it is unless you use another Common Ink, like a preview (https://pr-123-commonink.draftox.workers.dev).</p>
+      <div class="buttons"><button type="submit">Save</button></div>
+      <p id="status" role="status" aria-live="polite"></p>
+    </form>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

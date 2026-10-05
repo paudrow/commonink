@@ -65,6 +65,8 @@ export const WORKSPACE_ROUTES = {
   "POST /tasks/remove": "editor",
   "POST /tasks/move": "editor",
   "POST /today/journal": "editor",
+  // The browser extension's capture (extensions/chrome); the Worker takes it from the extension's origin.
+  "POST /capture": "editor",
   "POST /tags": "editor",
   "POST /tags/delete": "editor",
   "POST /tags/rename": "editor",

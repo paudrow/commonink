@@ -46,6 +46,7 @@ export const COMMANDS: readonly Command[] = GROUPS.flatMap((g) => g.commands);
  */
 export const APP_ONLY: Readonly<Record<string, string>> = {
   "GET /info": "the app's own start-up",
+  "POST /capture": "the browser extension's save; append and create write the same notes",
   "GET /resolve": "every command resolves a note's name itself",
   "GET /file-resolve": "the app's way to show an embedded file",
   "GET /feed": "the Notes page's paging; ls and search list notes",

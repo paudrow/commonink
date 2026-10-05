@@ -12,6 +12,9 @@ import { exportZip, type ExportWhat } from "./export.ts";
 import { ON_EXISTING, pairsImport, writeImport, type OnExisting } from "./import.ts";
 import type { Calendar, EventDraft, NoteWrite } from "./calendar.ts";
 import { notePath } from "./ids.ts";
+import { MAX_CAPTURE_HTML, webCaptureBlock, withCaptured } from "./capture.ts";
+import { htmlToMarkdown } from "./html2md.ts";
+import { cleanTitle } from "./templates.ts";
 import { isSort } from "./query.ts";
 import { checkup } from "./checkup.ts";
 import { noteProperties, propertiesInUse, setPropertyType } from "./properties.ts";
@@ -456,6 +459,35 @@ async function dispatch(host: ApiHost, req: Request, route: string): Promise<Res
         host.tree();
       }
       return json({ path: r.path, created: r.created });
+    }
+    // The browser extension (extensions/chrome): a page or a selection, into today's journal note
+    // (under Captured) or a new note in `folder`. The page comes as HTML and is kept as markdown.
+    case "POST /capture": {
+      const html = text("html");
+      if (html.length > MAX_CAPTURE_HTML) throw new VaultError("That page is too long to save");
+      const shared = { title: optStr("title"), url: optStr("url"), text: optStr("text"), html };
+      const folder = optStr("folder")?.trim();
+      const markdown = htmlToMarkdown(html);
+      if (!shared.text?.trim() && !markdown) throw new VaultError("There's nothing to save");
+      const block = webCaptureBlock(shared, markdown, !folder);
+      let rel: string;
+      let line: number | undefined;
+      if (folder) {
+        const title = cleanTitle(shared.title ?? "") || "Captured";
+        const content = `# ${title}\n\n${block.join("\n")}\n`;
+        const r = vault.create(vault.freePath(`${cleanPath(folder)}/${title}.md`), content, actor);
+        host.written((rel = r.path), content, r.version, r.change);
+        host.tree();
+      } else {
+        const day = vault.dailyNote(str("today"), actor);
+        const next = withCaptured(vault.read((rel = day.path)).content, block);
+        const r = vault.save(rel, next.content, { source: actor });
+        host.written(rel, next.content, r.version, r.change);
+        if (day.created) host.tree();
+        line = next.line;
+      }
+      const note = vault.read(rel);
+      return json({ path: rel, title: note.title, href: notePath(note.title, note.id), line });
     }
     case "POST /tasks/add": {
       const r = vault.addTask(str("text"), actor, { today: optStr("today"), to: optStr("to"), ignore: (raw as { ignore?: unknown }).ignore === undefined ? [] : paths("ignore") });

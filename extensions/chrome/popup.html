@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Save to Common Ink</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <h1>Save to Common Ink</h1>
+    <p id="page" class="muted"></p>
+    <form id="capture" hidden>
+      <label id="workspace-row" hidden>Workspace <select id="workspace"></select></label>
+      <label>Save to
+        <select id="where"><option value="">Today's journal</option></select>
+      </label>
+      <div class="buttons">
+        <button type="button" id="save-page">Save page</button>
+        <button type="button" id="save-selection" disabled>Save selection</button>
+      </div>
+    </form>
+    <p id="status" role="status" aria-live="polite"></p>
+    <p class="muted foot"><span id="who"></span> <a href="#" id="options">Settings</a></p>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
