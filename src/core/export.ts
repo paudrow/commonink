@@ -21,7 +21,7 @@ export interface ExportHost {
   vault: Vault;
   /** An uploaded file's bytes, or null if it's gone. */
   bytes(rel: string): Promise<Uint8Array | null>;
-  /** Where the app is ("https://commonink.app"), for links to notes left out. */
+  /** Where the app is ("https://v1.commonink.app"), for links to notes left out. */
   origin: string;
   /** The workspace's name, for a whole-workspace export's file name. */
   name?: string;

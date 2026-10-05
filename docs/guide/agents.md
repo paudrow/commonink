@@ -9,13 +9,13 @@ Any agent that speaks MCP can work in your notes: search them, read them, write 
 
 ## Add Common Ink to your agent
 
-Your workspace's address is `https://commonink.app/mcp`.
+Your workspace's address is `https://v1.commonink.app/mcp`.
 
 | Agent | How |
 | --- | --- |
 | Claude (claude.ai and Claude Desktop) | **Settings**, then **Connectors**, then **Add custom connector**, and paste the address |
-| Claude Code | `claude mcp add --transport http commonink https://commonink.app/mcp`, then `/mcp` to sign in |
-| Cursor | Add `{"mcpServers": {"commonink": {"url": "https://commonink.app/mcp"}}}` to `.cursor/mcp.json`, then **Connect** |
+| Claude Code | `claude mcp add --transport http commonink https://v1.commonink.app/mcp`, then `/mcp` to sign in |
+| Cursor | Add `{"mcpServers": {"commonink": {"url": "https://v1.commonink.app/mcp"}}}` to `.cursor/mcp.json`, then **Connect** |
 | Anything else | Point any MCP client that supports OAuth at the address |
 
 Your browser opens Common Ink: sign in, pick the workspace the agent may use, and choose **Allow**. In the app, **Connect an agent** in ⌘⇧P shows the same steps.

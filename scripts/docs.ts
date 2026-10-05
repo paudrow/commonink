@@ -1,4 +1,4 @@
-// The user docs at commonink.app/docs: each page is markdown in docs/guide (readable on GitHub
+// The user docs at v1.commonink.app/docs: each page is markdown in docs/guide (readable on GitHub
 // too), built into a static page in web/public/docs that the Worker serves like /privacy. Run
 // `npm run docs` after changing a page; test/docs.test.ts fails while a built page is out of date.
 // The query syntax table is filled in from src/core/queryGrammar.ts, so it can't drift from the app.

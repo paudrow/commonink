@@ -51,13 +51,13 @@ Everything the MCP tools do, from a shell, for scripts, agents and you: `bin/com
 
 ### Connect an agent to a hosted workspace
 
-Online, agents connect over MCP's Streamable HTTP at `https://commonink.app/mcp` (a Preview's is `https://pr-<number>-commonink.<subdomain>.workers.dev/mcp`). They sign in with OAuth 2.1, so there's no key to copy:
+Online, agents connect over MCP's Streamable HTTP at `https://v1.commonink.app/mcp` (a Preview's is `https://pr-<number>-commonink.<subdomain>.workers.dev/mcp`). They sign in with OAuth 2.1, so there's no key to copy:
 
 | Client | How |
 | --- | --- |
 | Claude (claude.ai, Desktop) | **Settings → Connectors → Add custom connector**, and paste the URL. |
-| Claude Code | `claude mcp add --transport http commonink https://commonink.app/mcp`, then `/mcp` to sign in. |
-| Cursor | Add `{"mcpServers": {"commonink": {"url": "https://commonink.app/mcp"}}}` to `.cursor/mcp.json`, then **Connect**. |
+| Claude Code | `claude mcp add --transport http commonink https://v1.commonink.app/mcp`, then `/mcp` to sign in. |
+| Cursor | Add `{"mcpServers": {"commonink": {"url": "https://v1.commonink.app/mcp"}}}` to `.cursor/mcp.json`, then **Connect**. |
 | Anything else | Point an MCP client that supports OAuth at the URL. It registers itself (dynamic client registration) and signs in with PKCE. |
 
 The client opens Common Ink in your browser: sign in, pick the workspace it may use, and **Allow**. From then on it acts as you, with your role in that workspace at the time of each request: a viewer's agent only gets the read tools and starring. Its changes show in History as "Claude (via Audrow)". The same tools serve both kinds of connection (`src/core/tools.ts`). **Connected agents** in the account menu lists your agents, when each was last used and what it changed lately, and **Revoke** cuts one off at its next request.
@@ -66,7 +66,7 @@ The client opens Common Ink in your browser: sign in, pick the workspace it may 
 
 `commonink login` signs the CLI in the same way (OAuth 2.1 with PKCE, redirected to a port on 127.0.0.1), and asks for **All your workspaces**: each command says which one it runs in, with your role there at the time. The tokens are kept in `~/.config/commonink/credentials.json` (or `$XDG_CONFIG_HOME/commonink`), readable only by you. Then:
 
-- `commonink login [--server https://pr-<number>-commonink.<subdomain>.workers.dev]`: the default server is `https://commonink.app`. `--no-browser` prints the address to open elsewhere, and takes the address you land on pasted back (for a machine with no browser, say over SSH).
+- `commonink login [--server https://pr-<number>-commonink.<subdomain>.workers.dev]`: the default server is `https://v1.commonink.app`. `--no-browser` prints the address to open elsewhere, and takes the address you land on pasted back (for a machine with no browser, say over SSH).
 - `commonink workspaces` lists yours with your role, and `commonink workspaces use <name>` picks the one commands go to. `--workspace <name>` (or `$COMMONINK_WORKSPACE`) picks one for one command, and `--workspace local` (or setting `$COMMONINK_VAULT`) uses this computer's vault.
 - Every command works the same: the Worker runs it with the same command table and core as a local vault (`POST /mcp/cli/run`). Writes are yours, or "<agent> for <you>" with `--agent` or `$COMMONINK_AGENT`.
 - A workspace's settings work from the CLI too, with the same checks as the app's Settings: `commonink members`, `commonink member role <person> <role>`, `commonink member remove <person>`, `commonink leave`, `commonink invite [--role viewer]`, `commonink invites` and `commonink invites revoke <id>`, `commonink workspace rename <name>` and `commonink workspace log`. Deleting a workspace is only in the app. They're not MCP tools: an agent's MCP access is to one workspace's notes.
@@ -195,7 +195,7 @@ Online, **Workspace settings…** in the account menu (**Members…** if you are
 
 ## Who can sign up
 
-Signed out, `commonink.app/` is the landing page (`cloud/src/landing.ts`): what Common Ink is, and Get started, which is Google sign-in. It's one page with its styles inline and no script. Signed in, `/` is the app, and every other address (notes, invites, shared links) works as before.
+Signed out, `v1.commonink.app/` is the landing page (`cloud/src/landing.ts`): what Common Ink is, and Get started, which is Google sign-in. It's one page with its styles inline and no script. Signed in, `/` is the app, and every other address (notes, invites, shared links) works as before.
 
 Online, new accounts are invite-only. Anyone can sign in with Google, but someone new gets an account only after they enter the sign-up code, or when they arrive through a workspace invite link. People who already have an account sign in as usual. The code is a Worker secret. Case and extra spaces don't matter, so it can be a phrase you say out loud:
 
